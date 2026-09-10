@@ -1,0 +1,116 @@
+import { ed25519 } from '@noble/curves/ed25519';
+import { sha256 } from '@noble/hashes/sha2.js';
+import { Tag } from 'cbor2';
+import { encodeCanonical, decodeCanonical } from './cbor.js';
+import { ReceiptError } from './errors.js';
+
+export const COSE_SIGN1_TAG = 18;
+export const ALG_EDDSA = -8;
+export const COSE_HEADER_ALG = 1;
+export const COSE_HEADER_CONTENT_TYPE = 3;
+export const COSE_HEADER_KID = 4;
+export const RECEIPT_CONTENT_TYPE = 'ashaveri/receipt';
+
+export interface ProtectedHeader {
+  alg: number;
+  kid: Uint8Array;
+  contentType: string;
+}
+
+export interface CoseSign1 {
+  protectedBytes: Uint8Array;
+  unprotected: Map<number, unknown>;
+  payloadBytes: Uint8Array;
+  signature: Uint8Array;
+}
+
+export interface SigningKey {
+  privateKey: Uint8Array;
+  publicKey: Uint8Array;
+  kid: Uint8Array;
+}
+
+export function keyId(publicKey: Uint8Array): Uint8Array {
+  return sha256(publicKey);
+}
+
+export function generateSigningKey(): SigningKey {
+  const privateKey = ed25519.utils.randomSecretKey();
+  const publicKey = ed25519.getPublicKey(privateKey);
+  return { privateKey, publicKey, kid: keyId(publicKey) };
+}
+
+function parseProtectedHeader(bytes: Uint8Array): ProtectedHeader {
+  const raw = decodeCanonical(bytes);
+  if (!(raw instanceof Map)) throw new ReceiptError('BAD_PROTECTED_HEADER', 'not a map');
+  const alg = raw.get(COSE_HEADER_ALG);
+  if (alg !== ALG_EDDSA) throw new ReceiptError('UNSUPPORTED_ALG', `alg=${String(alg)}`);
+  const kid = raw.get(COSE_HEADER_KID);
+  if (!(kid instanceof Uint8Array) || kid.length !== 32) {
+    throw new ReceiptError('BAD_PROTECTED_HEADER', 'kid must be a 32-byte bstr');
+  }
+  const contentType = raw.get(COSE_HEADER_CONTENT_TYPE);
+  if (contentType !== RECEIPT_CONTENT_TYPE) {
+    throw new ReceiptError('BAD_PROTECTED_HEADER', `typ=${String(contentType)}`);
+  }
+  return { alg: ALG_EDDSA, kid, contentType };
+}
+
+function sigStructure(protectedBytes: Uint8Array, externalAad: Uint8Array, payloadBytes: Uint8Array): Uint8Array {
+  return encodeCanonical(['Signature1', protectedBytes, externalAad, payloadBytes]);
+}
+
+export function buildProtectedHeader(kid: Uint8Array): Uint8Array {
+  return encodeCanonical(
+    new Map<number, unknown>([
+      [COSE_HEADER_ALG, ALG_EDDSA],
+      [COSE_HEADER_CONTENT_TYPE, RECEIPT_CONTENT_TYPE],
+      [COSE_HEADER_KID, kid],
+    ]),
+  );
+}
+
+export function signCoseSign1(
+  payloadBytes: Uint8Array,
+  key: SigningKey,
+  externalAad: Uint8Array = new Uint8Array(0),
+): Uint8Array {
+  const protectedBytes = buildProtectedHeader(key.kid);
+  const toSign = sigStructure(protectedBytes, externalAad, payloadBytes);
+  const signature = ed25519.sign(toSign, key.privateKey);
+  return encodeCanonical(new Tag(COSE_SIGN1_TAG, [protectedBytes, new Map(), payloadBytes, signature]));
+}
+
+export function decodeCoseSign1(bytes: Uint8Array): CoseSign1 & { header: ProtectedHeader } {
+  const top = decodeCanonical(bytes);
+  if (!(top instanceof Tag) || top.tag !== COSE_SIGN1_TAG) {
+    throw new ReceiptError('NOT_COSE_SIGN1', 'missing CBOR tag 18');
+  }
+  const arr = top.contents;
+  if (!Array.isArray(arr) || arr.length !== 4) throw new ReceiptError('NOT_COSE_SIGN1', 'not a 4-element array');
+  const [protectedBytes, unprotected, payloadBytes, signature] = arr;
+  if (!(protectedBytes instanceof Uint8Array)) throw new ReceiptError('NOT_COSE_SIGN1', 'protected is not a bstr');
+  if (!(unprotected instanceof Map)) throw new ReceiptError('NOT_COSE_SIGN1', 'unprotected is not a map');
+  if (!(payloadBytes instanceof Uint8Array)) throw new ReceiptError('NOT_COSE_SIGN1', 'payload is not a bstr');
+  if (!(signature instanceof Uint8Array) || signature.length !== 64) {
+    throw new ReceiptError('NOT_COSE_SIGN1', 'signature is not a 64-byte bstr');
+  }
+  const header = parseProtectedHeader(protectedBytes);
+  return { protectedBytes, unprotected, payloadBytes, signature, header };
+}
+
+export function verifyCoseSign1(bytes: Uint8Array, publicKey: Uint8Array, externalAad: Uint8Array = new Uint8Array(0)): CoseSign1 & { header: ProtectedHeader } {
+  const cose = decodeCoseSign1(bytes);
+  const expectedKid = keyId(publicKey);
+  if (!equalBytes(cose.header.kid, expectedKid)) throw new ReceiptError('KID_MISMATCH');
+  const toSign = sigStructure(cose.protectedBytes, externalAad, cose.payloadBytes);
+  if (!ed25519.verify(cose.signature, toSign, publicKey)) throw new ReceiptError('INVALID_SIGNATURE');
+  return cose;
+}
+
+export function equalBytes(a: Uint8Array, b: Uint8Array): boolean {
+  if (a.length !== b.length) return false;
+  let diff = 0;
+  for (let i = 0; i < a.length; i++) diff |= a[i]! ^ b[i]!;
+  return diff === 0;
+}

@@ -1,0 +1,35 @@
+{
+  "name": "@ashaveri/fixtures",
+  "version": "0.1.0",
+  "description": "Golden conformance vectors for Ashaveri receipt verification (shared across TS, Python, and CLI implementations)",
+  "license": "Apache-2.0",
+  "type": "module",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "default": "./dist/index.js"
+    }
+  },
+  "files": [
+    "dist",
+    "data"
+  ],
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "test": "vitest run",
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "generate": "node --experimental-strip-types scripts/generate.ts"
+  },
+  "dependencies": {
+    "@ashaveri/receipt": "workspace:*",
+    "@noble/curves": "^1.9.7",
+    "@noble/hashes": "^2.4.0"
+  },
+  "devDependencies": {
+    "@types/node": "^22.20.1",
+    "typescript": "^5.9.3",
+    "vitest": "^3.2.4"
+  }
+}

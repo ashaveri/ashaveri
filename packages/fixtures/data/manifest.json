@@ -1,0 +1,19 @@
+{
+  "version": 1,
+  "generatedBy": "ashaveri-fixtures generate",
+  "cddl": "receipt.cddl @ashaveri/receipt v0.1.0",
+  "fixtures": [
+    {
+      "name": "receipt-valid-v1",
+      "path": "receipts/receipt-valid-v1.cbor",
+      "digestSha256": "d22623e4e10ce6c2b66a7b64a4912ee2c44f19c7214560b7a0f776f48b79bf84",
+      "expected": "verify-ok"
+    },
+    {
+      "name": "receipt-tampered-v1",
+      "path": "receipts/receipt-tampered-v1.cbor",
+      "digestSha256": "450e36dffe048e3a4603f4844053b8d151203ba4f8fde351e5f090bf84d46c0d",
+      "expected": "INVALID_SIGNATURE"
+    }
+  ]
+}

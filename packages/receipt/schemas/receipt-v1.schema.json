@@ -1,0 +1,65 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://ashaveri.com/schemas/receipt-v1.json",
+  "title": "Ashaveri Inference Receipt (JSON twin of the CBOR/COSE wire format)",
+  "description": "Display-only projection of the signed COSE_Sign1 receipt. The CBOR bytes are canonical; this JSON form is never signed directly.",
+  "type": "object",
+  "required": ["protectedHeader", "payload"],
+  "properties": {
+    "protectedHeader": {
+      "type": "object",
+      "required": ["alg", "kid", "typ"],
+      "properties": {
+        "alg": { "const": "EdDSA", "description": "COSE algorithm -8, Ed25519" },
+        "kid": { "type": "string", "pattern": "^[0-9a-f]{64}$", "description": "sha256 of the Ed25519 public key, hex" },
+        "typ": { "const": "ashaveri/receipt" }
+      }
+    },
+    "payload": {
+      "type": "object",
+      "required": ["v", "iss", "ins", "iat", "nce", "req", "res", "mdl", "wts", "meas", "att", "epk", "tok"],
+      "properties": {
+        "v": { "const": 1 },
+        "iss": { "type": "string", "description": "deployment id (dStack compose-hash prefix)" },
+        "ins": { "type": "string", "description": "CVM instance id" },
+        "iat": { "type": "integer", "description": "issuance time, unix seconds" },
+        "nce": { "$ref": "#/$defs/hex16", "description": "client nonce, echoed" },
+        "req": { "$ref": "#/$defs/hex32", "description": "sha256 of canonical request" },
+        "res": { "$ref": "#/$defs/hex32", "description": "sha256 of full response bytes" },
+        "mdl": { "type": "string", "description": "model id" },
+        "wts": { "$ref": "#/$defs/hex32", "description": "sha256 of deployment manifest" },
+        "meas": {
+          "type": "object",
+          "required": ["tee", "m"],
+          "properties": {
+            "tee": { "enum": ["snp", "snp+h100cc", "tdx"] },
+            "m": { "$ref": "#/$defs/hex32", "description": "sha256 over attested measurement values" }
+          }
+        },
+        "att": {
+          "type": "object",
+          "required": ["d", "ts", "url"],
+          "properties": {
+            "d": { "$ref": "#/$defs/hex32", "description": "sha256 of attestation evidence document" },
+            "ts": { "type": "integer", "description": "evidence timestamp, unix seconds" },
+            "url": { "type": "string", "format": "uri" }
+          }
+        },
+        "epk": { "type": "integer", "minimum": 0, "description": "signing-key epoch" },
+        "tok": {
+          "type": "object",
+          "required": ["p", "c"],
+          "properties": {
+            "p": { "type": "integer", "minimum": 0, "description": "prompt tokens" },
+            "c": { "type": "integer", "minimum": 0, "description": "completion tokens" }
+          }
+        }
+      }
+    },
+    "signature": { "type": "string", "pattern": "^[0-9a-f]{128}$", "description": "Ed25519 signature over the Sig_structure, hex" }
+  },
+  "$defs": {
+    "hex16": { "type": "string", "pattern": "^[0-9a-f]{32}$" },
+    "hex32": { "type": "string", "pattern": "^[0-9a-f]{64}$" }
+  }
+}
