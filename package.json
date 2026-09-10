@@ -1,0 +1,15 @@
+{
+  "name": "ashaveri-monorepo",
+  "private": true,
+  "version": "0.0.0",
+  "packageManager": "pnpm@12.3.4",
+  "engines": {
+    "node": ">=24"
+  },
+  "scripts": {
+    "build": "pnpm -r --filter \"@ashaveri/*\" build",
+    "test": "pnpm -r --filter \"@ashaveri/*\" test",
+    "lint": "pnpm -r --filter \"@ashaveri/*\" lint",
+    "typecheck": "pnpm -r --filter \"@ashaveri/*\" typecheck"
+  }
+}
