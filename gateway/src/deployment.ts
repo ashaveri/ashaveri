@@ -1,8 +1,11 @@
-import { generateSigningKey, type SigningKey } from '@ashaveri/receipt';
+import { generateSigningKey, type SigningKey, type TeeKind } from '@ashaveri/receipt';
 import { sha256 } from './digest.js';
 import { DEFAULT_MOCK_MODEL } from './mock.js';
 
-export type TeeKind = 'snp' | 'snp+h100cc' | 'tdx';
+export type { TeeKind };
+
+/** The kinds a live guest can attest to. `software` is what the mock deployment claims. */
+export type HardwareTeeKind = Exclude<TeeKind, 'software'>;
 
 export interface ModelInfo {
   readonly id: string;
@@ -55,7 +58,7 @@ export function mockDeployment(options: MockDeploymentOptions = {}): Deployment 
     instance: options.instance ?? 'mock-instance-1',
     key: options.key ?? generateSigningKey(),
     epk: 0,
-    tee: 'snp',
+    tee: 'software',
     measurement: sha256(new TextEncoder().encode('mock-measurement')),
     models: [{ id: model, wts: mockWeights(model) }],
     async attestation() {

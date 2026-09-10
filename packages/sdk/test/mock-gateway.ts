@@ -133,7 +133,7 @@ export function createFakeGateway(options: FakeGatewayOptions = {}): FakeGateway
     epk: 0,
     keys: options.manifestKeys === 'none' ? [] : [manifestKeyEntry()],
     models: [{ id: model, wts: toHex(hashRequest(utf8(`weights:${model}`))) }],
-    meas: { tee: 'snp', m: toHex(hashRequest(utf8('fake-measurement'))) },
+    meas: { tee: 'software', m: toHex(hashRequest(utf8('fake-measurement'))) },
   };
 
   const fetch: typeof fetch = async (input, init) => {
@@ -209,7 +209,7 @@ export function createFakeGateway(options: FakeGatewayOptions = {}): FakeGateway
         res: hashRequest(utf8(responseBody)),
         mdl: requestModel,
         wts: hashRequest(utf8(`weights:${requestModel}`)),
-        meas: { tee: 'snp', m: hashRequest(utf8('fake-measurement')) },
+        meas: { tee: 'software', m: hashRequest(utf8('fake-measurement')) },
         att: { d: hashRequest(utf8('fake-attestation')), ts: FIXED_IAT, url: 'https://gateway.test/attestation' },
         epk: 0,
         tok: { p: FAKE_PROMPT_TOKENS, c: FAKE_COMPLETION_TOKENS },

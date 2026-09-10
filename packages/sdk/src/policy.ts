@@ -12,7 +12,7 @@ export interface AshaveriPolicy {
   readonly instances?: readonly string[];
   /** Ed25519 public keys by kid (hex). */
   readonly keys?: Readonly<Record<string, string>>;
-  /** Allowed measurements (hex) by TEE kind. */
+  /** Allowed measurements (hex), keyed by environment kind. */
   readonly measurements?: Readonly<Record<string, readonly string[]>>;
   readonly maxReceiptAgeSeconds?: number;
   readonly maxEvidenceAgeSeconds?: number;

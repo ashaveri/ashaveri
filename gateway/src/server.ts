@@ -6,6 +6,7 @@ import {
   randomNonce,
   type ReceiptPayload,
   type SigningKey,
+  type TeeKind,
 } from '@ashaveri/receipt';
 import { fromBase64Url, toBase64Url } from './b64.js';
 import { mockBackend, type BackendResponse, type CompletionBackend, type CompletionUsage } from './backend.js';
@@ -33,7 +34,7 @@ export interface ManifestJson {
   readonly epk: number;
   readonly keys: readonly { kid: string; alg: 'Ed25519'; publicKey: string }[];
   readonly models: readonly { id: string; wts: string }[];
-  readonly meas: { tee: 'snp' | 'snp+h100cc' | 'tdx'; m: string };
+  readonly meas: { tee: TeeKind; m: string };
 }
 
 function errorMessage(error: unknown): string {

@@ -22,6 +22,8 @@ export {
   verifyReceipt,
   hashRequest,
   randomNonce,
+  MEASUREMENT_BYTES,
+  isTeeKind,
 } from './receipt.js';
 export type {
   ReceiptPayload,

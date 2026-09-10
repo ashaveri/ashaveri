@@ -15,8 +15,8 @@
     "mdl": "meta-llama/Llama-3.1-8B-Instruct",
     "wts": "2689570aecf5054284b06d6022554fb97942cad0a774d5dbc9308b2d0477d9b5",
     "meas": {
-      "tee": "snp+h100cc",
-      "m": "bd7661367ea7c0fa027295b495a37d8c445e95889c09d6b7beb6ed4052719e30f16f0507827e2d004949b552f1e551f2"
+      "tee": "software",
+      "m": "df92e10de122ed1b04e78bd7d7bfa526cb68d52d99d1e71d59f2c7120af8fe3e"
     },
     "att": {
       "d": "4c8cdcf1f0ff0722b002adc9d8323cd314b50f57a01c3de302b1b3a1b664a9db",
@@ -29,6 +29,6 @@
       "c": 64
     }
   },
-  "signature": "8c521a7a85fa8e9debd4ca966b1230d6a39acb9c98c6f003d3843498e276a3e0ec0e5b90e8d6257772e71439bf7a7daa9b00f6715998a102f1313565d6af9e03",
-  "digestSha256": "6cb1bf913f26ef3cd9f1dde44305a2acd55333d17235659f42c640ced0f5e03f"
+  "signature": "46656a2c5903ac0e89ebd22b5aa41031886652dfddd31bc9288329e04d8c759be45036c26dd737bd22a26583519185e39871a241c76e5f41e73569dc70a01404",
+  "digestSha256": "a4d02bed1490ab17bd06da59e5bba2bb38da4c28e2e23244d6026dfc973d7f4e"
 }

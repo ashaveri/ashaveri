@@ -6,7 +6,7 @@ import { dstackDeployment } from './dstack.js';
 import { GuestClient } from './guest.js';
 import { mockBackend, type CompletionBackend } from './backend.js';
 import { upstreamBackend } from './upstream.js';
-import { mockDeployment, type Deployment, type ModelInfo } from './deployment.js';
+import { mockDeployment, type Deployment, type HardwareTeeKind, type ModelInfo } from './deployment.js';
 import { sha256, toHex } from './digest.js';
 
 const USAGE = `signerd - receipt-signing gateway for Ashaveri verifiable inference
@@ -45,6 +45,8 @@ Options:
   --instance <id>                  Override the instance id derived from the event log.
   --tee <snp|snp+h100cc|tdx>       Refuse to start unless the evidence agrees.
   --help                           Print this help.`;
+
+const HARDWARE_TEES: readonly HardwareTeeKind[] = ['snp', 'snp+h100cc', 'tdx'];
 
 interface CliOptions {
   readonly mock?: boolean;
@@ -144,7 +146,7 @@ async function liveDeployment(values: CliOptions): Promise<Deployment> {
   if (!Number.isInteger(epk) || epk < 0) {
     fail(`--epk must be a non-negative integer, got '${String(values.epk)}'`);
   }
-  if (values.tee !== undefined && !['snp', 'snp+h100cc', 'tdx'].includes(values.tee)) {
+  if (values.tee !== undefined && !(HARDWARE_TEES as readonly string[]).includes(values.tee)) {
     fail(`--tee must be snp, snp+h100cc or tdx, got '${values.tee}'`);
   }
   return dstackDeployment({
@@ -156,7 +158,7 @@ async function liveDeployment(values: CliOptions): Promise<Deployment> {
     epk,
     issuer: values.issuer,
     instance: values.instance,
-    tee: values.tee as Deployment['tee'] | undefined,
+    tee: values.tee as HardwareTeeKind | undefined,
   });
 }
 

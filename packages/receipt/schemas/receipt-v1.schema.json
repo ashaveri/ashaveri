@@ -32,9 +32,22 @@
           "type": "object",
           "required": ["tee", "m"],
           "properties": {
-            "tee": { "enum": ["snp", "snp+h100cc", "tdx"] },
-            "m": { "$ref": "#/$defs/hexDigest", "description": "the platform's native measurement" }
-          }
+            "tee": { "enum": ["software", "snp", "snp+h100cc", "tdx"] },
+            "m": {
+              "$ref": "#/$defs/hexDigest",
+              "description": "SHA-256 for a software deployment, the platform's SHA-384 measurement for a TEE"
+            }
+          },
+          "allOf": [
+            {
+              "if": { "required": ["tee"], "properties": { "tee": { "const": "software" } } },
+              "then": { "properties": { "m": { "pattern": "^[0-9a-f]{64}$" } } }
+            },
+            {
+              "if": { "required": ["tee"], "properties": { "tee": { "enum": ["snp", "snp+h100cc", "tdx"] } } },
+              "then": { "properties": { "m": { "pattern": "^[0-9a-f]{96}$" } } }
+            }
+          ]
         },
         "att": {
           "type": "object",

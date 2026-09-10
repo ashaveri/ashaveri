@@ -9,9 +9,10 @@ import {
   randomNonce,
   ReceiptError,
   equalBytes,
+  signCoseSign1,
 } from '../src/index.js';
 import type { ReceiptPayload } from '../src/index.js';
-import { sha256 } from '@noble/hashes/sha2.js';
+import { sha256, sha384 } from '@noble/hashes/sha2.js';
 
 const FIXED_NOW = 1_772_000_000;
 
@@ -26,7 +27,7 @@ function samplePayload(overrides: Partial<ReceiptPayload> = {}): ReceiptPayload 
     res: sha256(new TextEncoder().encode('{"choices":[]}')),
     mdl: 'meta-llama/Llama-3.1-8B-Instruct',
     wts: sha256(new TextEncoder().encode('manifest')),
-    meas: { tee: 'snp+h100cc', m: sha256(new Uint8Array(32).fill(1)) },
+    meas: { tee: 'snp+h100cc', m: sha384(new TextEncoder().encode('launch-digest')) },
     att: { d: sha256(new Uint8Array(64).fill(2)), ts: FIXED_NOW - 60, url: 'https://inference.ashaveri.com/v1/attestation' },
     epk: 3,
     tok: { p: 128, c: 64 },
@@ -128,9 +129,33 @@ describe('COSE_Sign1 receipt codec', () => {
     expect(equalBytes(verified.payload.meas.m, launchDigest)).toBe(true);
   });
 
-  it('rejects a measurement that is neither 32 nor 48 bytes', () => {
+  it('carries a 32-byte software measurement', () => {
     const key = generateSigningKey();
-    const bytes = issueReceipt(samplePayload({ meas: { tee: 'snp', m: new Uint8Array(33) } }), key);
+    const digest = sha256(new TextEncoder().encode('deployment image'));
+    const bytes = issueReceipt(samplePayload({ meas: { tee: 'software', m: digest } }), key);
+    const verified = verifyReceipt(bytes, { publicKey: key.publicKey, now: FIXED_NOW });
+    expect(verified.payload.meas.tee).toBe('software');
+    expect(equalBytes(verified.payload.meas.m, digest)).toBe(true);
+  });
+
+  it('refuses to issue a measurement whose width contradicts its kind', () => {
+    const key = generateSigningKey();
+    expectErrorCode(
+      () => issueReceipt(samplePayload({ meas: { tee: 'snp', m: new Uint8Array(32) } }), key),
+      'BAD_PAYLOAD',
+    );
+    expectErrorCode(
+      () => issueReceipt(samplePayload({ meas: { tee: 'software', m: new Uint8Array(48) } }), key),
+      'BAD_PAYLOAD',
+    );
+  });
+
+  it('rejects a signed receipt that claims a TEE with a software-width measurement', () => {
+    const key = generateSigningKey();
+    // Built by hand: issueReceipt would refuse this payload, and a hostile or buggy
+    // issuer is exactly who the parser has to catch.
+    const payload = samplePayload({ meas: { tee: 'snp', m: new Uint8Array(32) } });
+    const bytes = signCoseSign1(encodePayload(payload), key);
     expectErrorCode(() => verifyReceipt(bytes, { publicKey: key.publicKey, now: FIXED_NOW }), 'BAD_PAYLOAD');
   });
 

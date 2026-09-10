@@ -95,8 +95,8 @@ What is still true, in both modes:
   platform could still serve receipts: the detection lives on the verifying side.
 - **The mock gateway is not a TEE deployment.** It signs with an ephemeral development key,
   its `meas` and `att` fields are digests of fixed strings, and its evidence URL uses the
-  `mock://` scheme. One inaccuracy worth naming: the mock still publishes `tee: "snp"`, a
-  hardware value it cannot support, because the protocol's `tee` enum has no non-TEE member.
+  `mock://` scheme. It reports `tee: "software"`, the member of the enum that claims no
+  hardware protection, so no field of a mock receipt reads as a TEE assertion.
 - **Receipts live in process memory**, with no persistence and no key rotation (`epk` is
   always 0). A real deployment needs a retention store and epoch rotation.
 - **The manifest is unsigned.** Strict-mode pinning is what gives it weight today; the

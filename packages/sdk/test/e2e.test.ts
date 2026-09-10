@@ -30,7 +30,7 @@ describe('sdk against a live signerd --mock gateway', () => {
     expect(receipt!.payload.iss).toBe('ashaveri-mock');
     expect(receipt!.payload.ins).toBe('mock-instance-1');
     expect(receipt!.payload.mdl).toBe('mock-model-1');
-    expect(receipt!.payload.meas.tee).toBe('snp');
+    expect(receipt!.payload.meas.tee).toBe('software');
     expect(receipt!.payload.tok.p).toBe(completion.usage!.prompt_tokens);
     expect(receipt!.payload.tok.c).toBe(completion.usage!.completion_tokens);
   });

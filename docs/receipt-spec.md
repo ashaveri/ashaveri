@@ -62,7 +62,7 @@ counter-signature variants, if ever needed, would be a new format version.
 | `res` | bstr (32) | sha256 of the exact raw response body bytes, including SSE framing. |
 | `mdl` | tstr | Model id, e.g. "mock-model-1". |
 | `wts` | bstr (32) | sha256 digest of the deployment's weights manifest. |
-| `meas` | map | `{ tee, m }`: TEE kind ("snp", "snp+h100cc", or "tdx") and the platform's native measurement digest, 48 bytes on live hardware (SHA-384 SNP launch digest or TDX MRTD) and 32 bytes for a software deployment. |
+| `meas` | map | `{ tee, m }`: the environment kind, one of `"software"`, `"snp"`, `"snp+h100cc"`, `"tdx"`, and the measurement for that kind. A TEE reports its platform-native 48-byte SHA-384 value (SEV-SNP launch digest or TDX MRTD); `"software"` makes no hardware claim and carries a 32-byte SHA-256 digest of what the deployment runs. The width is fixed by the kind, so a digest that does not match its own kind is malformed. |
 | `att` | map | `{ d, ts, url }`: digest of the attestation evidence document, its timestamp (Unix seconds), and a URL where the evidence can be fetched and re-verified. |
 | `epk` | int | Signing-key epoch, for key rotation. The gateway increments it when it replaces its signing key. |
 | `tok` | map | `{ p, c }`: prompt and completion token counts for the call. |
@@ -81,6 +81,24 @@ Both hashes are computed over raw bytes on the wire, before any decoding:
 
 This is why the gateway signs the bytes it forwarded, and the client hashes the bytes it
 received: any difference, including a transport-level re-encoding, breaks verification.
+
+### 3.2 Environment kinds
+
+`meas.tee` names what is vouching for the measurement, and `meas.m` is that thing's native
+output. Kind and width are therefore one decision, not two that can drift apart:
+
+| `tee` | `m` | Meaning |
+|---|---|---|
+| `"software"` | 32 bytes | No TEE. SHA-256 digest of what the deployment runs. |
+| `"snp"` | 48 bytes | AMD SEV-SNP SHA-384 launch digest. |
+| `"snp+h100cc"` | 48 bytes | SNP launch digest on an H100 in confidential-compute mode. |
+| `"tdx"` | 48 bytes | Intel TDX SHA-384 measurement (MRTD). |
+
+A decoder rejects a pair that disagrees, in both directions, even when the signature over it
+is valid: a 48-byte digest claiming `"software"` and a 32-byte digest claiming a TEE are both
+malformed. Enforcing the width per kind is what keeps a deployment from making a hardware claim
+it cannot produce hardware evidence for. `"software"` exists so a deployment with no TEE can say
+so in the same field without borrowing a value it does not own.
 
 ## 4. HTTP protocol
 
@@ -137,15 +155,16 @@ GET /deployment-manifest
   "models": [
     { "id": "mock-model-1", "wts": "<64 hex chars>" }
   ],
-  "meas": { "tee": "snp", "m": "<96 hex chars on hardware>" }
+  "meas": { "tee": "software", "m": "<64 hex chars>" }
 }
 ```
 
 `keys` lists the Ed25519 public keys the deployment currently signs with, keyed by the same
 kid the receipts carry. `models` lists model ids with the weights digest each receipt for
-that model must carry. `meas.m` is the launch measurement the deployment claims, at the
-platform's native width: 96 hex characters for the SEV-SNP launch digest or the TDX MRTD,
-and 64 for a software build that has no hardware measurement to report.
+that model must carry. `meas` is the launch measurement the deployment claims, and its width
+follows from its kind: 96 hex characters for an SEV-SNP launch digest or a TDX MRTD, 64 for a
+`"software"` deployment that has no hardware measurement to report. The example above is a
+mock deployment, so it reports `"software"`.
 
 The manifest carries no signature. It is a claim about the deployment, delivered over
 whatever transport the endpoint happens to use, so it cannot vouch for itself. A client
@@ -214,6 +233,13 @@ and measurements cannot change without the client updating its policy.
 The payload `v` field and the manifest `v` field are both 1. A verifier rejects values it
 does not know, which is the compatibility contract: a future format version must change `v`,
 and existing verifiers will refuse it rather than misinterpret it.
+
+The `"software"` kind and the rule that ties `m` to its kind were added without a version bump,
+because the contract above covers the direction that matters: a verifier from before the change
+refuses an unknown kind instead of reading it as a TEE it does not know, so it rejects a software
+receipt rather than misgrading it as a hardware claim. The other direction is a tightening rather
+than a break. An older verifier accepted either width for any kind, so it still waves through the
+mismatched pair that `receipt-meas-mismatch-v1` exists to catch.
 
 ## 7. References
 

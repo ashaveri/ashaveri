@@ -8,7 +8,7 @@ import {
 import { signingKeyFromSeed } from '@ashaveri/receipt';
 import { GuestClient, type GuestApi } from './guest.js';
 import { sha256, toHex } from './digest.js';
-import type { AttestationBundle, Deployment, ModelInfo, TeeKind } from './deployment.js';
+import type { AttestationBundle, Deployment, HardwareTeeKind, ModelInfo, TeeKind } from './deployment.js';
 
 /**
  * Live deployment: the signing key comes from the CVM's own key derivation and
@@ -56,7 +56,7 @@ export interface DstackDeploymentOptions {
   readonly issuer?: string;
   readonly instance?: string;
   /** Fails startup if the platform's own evidence disagrees. */
-  readonly tee?: TeeKind;
+  readonly tee?: HardwareTeeKind;
 }
 
 interface PlatformMeasurement {

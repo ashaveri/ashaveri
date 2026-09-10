@@ -43,7 +43,8 @@ describe('deployment manifest', () => {
     expect(manifest.keys[0]!.kid).toMatch(/^[0-9a-f]{64}$/);
     expect(manifest.keys[0]!.publicKey).toMatch(/^[A-Za-z0-9_-]{43}$/);
     expect(manifest.models[0]!.id).toBe('mock-model-1');
-    expect(manifest.meas.tee).toBe('snp');
+    // The mock has no TEE behind it, and the protocol now has a kind that says so.
+    expect(manifest.meas.tee).toBe('software');
     expect(manifest.meas.m).toMatch(/^[0-9a-f]{64}$/);
   });
 });

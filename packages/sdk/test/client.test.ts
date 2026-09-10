@@ -226,7 +226,7 @@ describe('strict mode', () => {
   it('rejects a measurement the policy does not pin', async () => {
     const { client } = clientWith({}, (policy) => ({
       verify: 'strict' as const,
-      policy: { ...policy, measurements: { snp: ['00'.repeat(32)] } },
+      policy: { ...policy, measurements: { software: ['00'.repeat(32)] } },
     }));
     await expect(client.chat.completions.create({ messages: MESSAGES })).rejects.toMatchObject({
       code: 'MEASUREMENT_NOT_ALLOWED',

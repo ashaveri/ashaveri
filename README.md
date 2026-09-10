@@ -62,9 +62,9 @@ evidence rather than from strings; [enclave/README.md](enclave/README.md) is the
 procedure.
 
 The mock gateway signs with a development key in process memory, and its measurement, evidence
-URL and weights digests are fixed development values. Its manifest still carries `tee: "snp"`
-next to a 32-byte software digest, because the protocol has no non-TEE member in that enum, so
-read a mock receipt as proof that the mock gateway signed those bytes and nothing more. See
+URL and weights digests are fixed development values. It reports `tee: "software"`, the one kind
+in the protocol that claims no hardware protection, so read a mock receipt as proof that the mock
+gateway signed those bytes and nothing more. See
 [docs/threat-model.md](docs/threat-model.md) for what receipts do and do not prove at each
 stage of the roadmap.
 

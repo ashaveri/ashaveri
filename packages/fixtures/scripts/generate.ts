@@ -1,9 +1,11 @@
 import { ed25519 } from '@noble/curves/ed25519';
-import { sha256 } from '@noble/hashes/sha2.js';
+import { sha256, sha384 } from '@noble/hashes/sha2.js';
 import {
   issueReceipt,
   receiptToJson,
   decodeReceipt,
+  encodePayload,
+  signCoseSign1,
   type SigningKey,
   type ReceiptPayload,
 } from '@ashaveri/receipt';
@@ -30,7 +32,7 @@ function fixtureKey(): SigningKey {
 
 const FIXED_IAT = 1_772_000_000;
 
-function fixturePayload(): ReceiptPayload {
+function fixturePayload(overrides: Partial<ReceiptPayload> = {}): ReceiptPayload {
   return {
     v: 1,
     iss: 'dpl-9f2a41c3',
@@ -41,7 +43,7 @@ function fixturePayload(): ReceiptPayload {
     res: labeled('ashaveri-fixtures/response/v1'),
     mdl: 'meta-llama/Llama-3.1-8B-Instruct',
     wts: labeled('ashaveri-fixtures/manifest/v1'),
-    meas: { tee: 'snp+h100cc', m: labeled('ashaveri-fixtures/measurement/v1') },
+    meas: { tee: 'snp+h100cc', m: sha384(new TextEncoder().encode('ashaveri-fixtures/measurement/v1')) },
     att: {
       d: labeled('ashaveri-fixtures/evidence/v1'),
       ts: FIXED_IAT - 60,
@@ -49,18 +51,39 @@ function fixturePayload(): ReceiptPayload {
     },
     epk: 1,
     tok: { p: 128, c: 64 },
+    ...overrides,
   };
 }
 
 function main() {
   const key = fixtureKey();
-  const payload = fixturePayload();
-  const receiptBytes = issueReceipt(payload, key);
-  const decoded = decodeReceipt(receiptBytes);
-  const json = receiptToJson(decoded.payload, decoded.cose.signature, decoded.header.kid);
 
-  const tampered = new Uint8Array(receiptBytes);
+  const validBytes = issueReceipt(fixturePayload(), key);
+  const softwareBytes = issueReceipt(
+    fixturePayload({ meas: { tee: 'software', m: labeled('ashaveri-fixtures/software-measurement/v1') } }),
+    key,
+  );
+  // Signed by hand on purpose: issueReceipt refuses to produce a payload whose measurement
+  // contradicts its kind, and an independent implementation still has to catch that itself.
+  const mismatchBytes = signCoseSign1(
+    encodePayload(fixturePayload({ meas: { tee: 'snp', m: labeled('ashaveri-fixtures/mismatched-measurement/v1') } })),
+    key,
+  );
+  const tampered = new Uint8Array(validBytes);
   tampered[tampered.length - 1]! ^= 0x01;
+
+  const vectors: Array<{ name: string; bytes: Uint8Array; expected: string; twin: boolean; note?: string }> = [
+    { name: 'receipt-valid-v1', bytes: validBytes, expected: 'verify-ok', twin: true },
+    { name: 'receipt-software-v1', bytes: softwareBytes, expected: 'verify-ok', twin: true },
+    {
+      name: 'receipt-meas-mismatch-v1',
+      bytes: mismatchBytes,
+      expected: 'BAD_PAYLOAD',
+      twin: false,
+      note: 'Signature is valid; the payload claims tee "snp" but carries a 32-byte measurement, which is the software width.',
+    },
+    { name: 'receipt-tampered-v1', bytes: tampered, expected: 'INVALID_SIGNATURE', twin: false },
+  ];
 
   mkdirSync(join(DATA, 'keys'), { recursive: true });
   mkdirSync(join(DATA, 'receipts'), { recursive: true });
@@ -79,12 +102,27 @@ function main() {
     ) + '\n',
   );
 
-  writeFileSync(join(DATA, 'receipts', 'receipt-valid-v1.cbor'), receiptBytes);
-  writeFileSync(
-    join(DATA, 'receipts', 'receipt-valid-v1.json'),
-    JSON.stringify({ ...json, digestSha256: toHex(sha256(receiptBytes)) }, null, 2) + '\n',
-  );
-  writeFileSync(join(DATA, 'receipts', 'receipt-tampered-v1.cbor'), tampered);
+  const manifestFixtures: Array<Record<string, string>> = [];
+  for (const vector of vectors) {
+    const path = `receipts/${vector.name}.cbor`;
+    writeFileSync(join(DATA, path), vector.bytes);
+    const digestSha256 = toHex(sha256(vector.bytes));
+    if (vector.twin) {
+      const decoded = decodeReceipt(vector.bytes);
+      const json = receiptToJson(decoded.payload, decoded.cose.signature, decoded.header.kid);
+      writeFileSync(
+        join(DATA, `receipts/${vector.name}.json`),
+        JSON.stringify({ ...json, digestSha256 }, null, 2) + '\n',
+      );
+    }
+    manifestFixtures.push({
+      name: vector.name,
+      path,
+      digestSha256,
+      expected: vector.expected,
+      ...(vector.note ? { note: vector.note } : {}),
+    });
+  }
 
   writeFileSync(
     join(DATA, 'manifest.json'),
@@ -93,28 +131,14 @@ function main() {
         version: 1,
         generatedBy: 'ashaveri-fixtures generate',
         cddl: 'receipt.cddl @ashaveri/receipt v0.1.0',
-        fixtures: [
-          {
-            name: 'receipt-valid-v1',
-            path: 'receipts/receipt-valid-v1.cbor',
-            digestSha256: toHex(sha256(receiptBytes)),
-            expected: 'verify-ok',
-          },
-          {
-            name: 'receipt-tampered-v1',
-            path: 'receipts/receipt-tampered-v1.cbor',
-            digestSha256: toHex(sha256(tampered)),
-            expected: 'INVALID_SIGNATURE',
-          },
-        ],
+        fixtures: manifestFixtures,
       },
       null,
       2,
     ) + '\n',
   );
 
-  console.log(`receipt-valid-v1:  ${toHex(sha256(receiptBytes))}`);
-  console.log(`receipt-tampered-v1: ${toHex(sha256(tampered))}`);
+  for (const entry of manifestFixtures) console.log(`${entry.name}: ${entry.digestSha256}`);
 }
 
 main();

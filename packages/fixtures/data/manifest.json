@@ -6,13 +6,26 @@
     {
       "name": "receipt-valid-v1",
       "path": "receipts/receipt-valid-v1.cbor",
-      "digestSha256": "d22623e4e10ce6c2b66a7b64a4912ee2c44f19c7214560b7a0f776f48b79bf84",
+      "digestSha256": "6cb1bf913f26ef3cd9f1dde44305a2acd55333d17235659f42c640ced0f5e03f",
       "expected": "verify-ok"
+    },
+    {
+      "name": "receipt-software-v1",
+      "path": "receipts/receipt-software-v1.cbor",
+      "digestSha256": "a4d02bed1490ab17bd06da59e5bba2bb38da4c28e2e23244d6026dfc973d7f4e",
+      "expected": "verify-ok"
+    },
+    {
+      "name": "receipt-meas-mismatch-v1",
+      "path": "receipts/receipt-meas-mismatch-v1.cbor",
+      "digestSha256": "328d9f71b105e0307b80876d33f2f3483aecdce4d7f22ebde96f18351bd8c6c1",
+      "expected": "BAD_PAYLOAD",
+      "note": "Signature is valid; the payload claims tee \"snp\" but carries a 32-byte measurement, which is the software width."
     },
     {
       "name": "receipt-tampered-v1",
       "path": "receipts/receipt-tampered-v1.cbor",
-      "digestSha256": "450e36dffe048e3a4603f4844053b8d151203ba4f8fde351e5f090bf84d46c0d",
+      "digestSha256": "2beec14c4eb0043b1777127138edb9321a94cfd52ff392c70e580a9b4a9f0830",
       "expected": "INVALID_SIGNATURE"
     }
   ]

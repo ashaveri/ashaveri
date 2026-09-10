@@ -32,10 +32,12 @@ Ashaveri-Receipt-Payload = {
 }
 
 Measurement = {
+    tee: "software",
+    m: bstr .size 32,          ; SHA-256, the deployment's own digest
+} / {
     tee: "snp" / "snp+h100cc" / "tdx",
-    m: bstr .size (32 | 48), ; the platform's native measurement:
-                             ; 48-byte SHA-384 launch digest (snp) or MRTD (tdx),
-                             ; 32-byte SHA-256 for a software deployment
+    m: bstr .size 48,          ; the platform's native SHA-384 measurement:
+                               ; SNP launch digest or TDX MRTD
 }
 
 EvidenceRef = {

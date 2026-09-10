@@ -10,7 +10,7 @@ export interface FixtureManifest {
   version: number;
   generatedBy: string;
   cddl: string;
-  fixtures: Array<{ name: string; path: string; digestSha256: string; expected: string }>;
+  fixtures: Array<{ name: string; path: string; digestSha256: string; expected: string; note?: string }>;
 }
 
 export interface ReceiptFixture {

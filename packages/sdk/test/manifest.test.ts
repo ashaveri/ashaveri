@@ -22,23 +22,42 @@ describe('deployment manifest measurement', () => {
   });
 
   it('accepts a 32-byte SHA-256 software measurement', () => {
-    expect(parseManifest(manifest({ tee: 'snp', m: 'd'.repeat(64) })).meas.m).toBe('d'.repeat(64));
+    const parsed = parseManifest(manifest({ tee: 'software', m: 'd'.repeat(64) }));
+    expect(parsed.meas).toEqual({ tee: 'software', m: 'd'.repeat(64) });
   });
 
-  it.each(['', 'e'.repeat(63), 'e'.repeat(65), 'e'.repeat(95), 'e'.repeat(97), 'f'.repeat(64).toUpperCase()])(
-    'rejects measurement %p',
-    (m) => {
-      expect(() => parseManifest(manifest({ tee: 'snp', m }))).toThrowError(
-        /meas\.m must be a hex SHA-256 or SHA-384 digest/,
-      );
-    },
-  );
+  it('rejects a width that belongs to a different environment kind', () => {
+    expect(() => parseManifest(manifest({ tee: 'snp', m: 'd'.repeat(64) }))).toThrowError(
+      /meas\.m must be 96 hex characters for tee 'snp'/,
+    );
+    expect(() => parseManifest(manifest({ tee: 'software', m: 'c'.repeat(96) }))).toThrowError(
+      /meas\.m must be 64 hex characters for tee 'software'/,
+    );
+  });
+
+  it('rejects an unknown environment kind', () => {
+    expect(() => parseManifest(manifest({ tee: 'sgx', m: 'c'.repeat(96) }))).toThrowError(
+      /meas\.tee is not a known environment kind/,
+    );
+  });
+
+  it.each([
+    ['snp', ''],
+    ['snp', 'e'.repeat(95)],
+    ['snp', 'e'.repeat(97)],
+    ['snp', 'f'.repeat(96).toUpperCase()],
+    ['software', 'e'.repeat(63)],
+    ['software', 'e'.repeat(65)],
+    ['software', 'f'.repeat(64).toUpperCase()],
+  ])('rejects measurement %p with a malformed digest', (tee, m) => {
+    expect(() => parseManifest(manifest({ tee, m }))).toThrowError(/meas\.m must be \d+ hex characters/);
+  });
 
   it('keeps key ids and weights digests at 32 bytes', () => {
-    const wideKid = manifest({ tee: 'snp', m: 'd'.repeat(64) });
+    const wideKid = manifest({ tee: 'software', m: 'd'.repeat(64) });
     wideKid['keys'] = [{ ...KEY, kid: 'a'.repeat(96) }];
     expect(() => parseManifest(wideKid)).toThrowError(/kid must be 64 hex characters/);
-    const wideWts = manifest({ tee: 'snp', m: 'd'.repeat(64) });
+    const wideWts = manifest({ tee: 'software', m: 'd'.repeat(64) });
     wideWts['models'] = [{ id: 'mock-model-1', wts: 'b'.repeat(96) }];
     expect(() => parseManifest(wideWts)).toThrowError(/wts must be 64 hex characters/);
   });
