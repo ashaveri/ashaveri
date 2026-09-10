@@ -1,4 +1,7 @@
 packages:
   - packages/*
+  - gateway
 allowBuilds:
   esbuild: true
+minimumReleaseAgeExclude:
+  - openai@7.13.0

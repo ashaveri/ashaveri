@@ -1,0 +1,38 @@
+export { AshaveriClient } from './client.js';
+export type {
+  AshaveriClientOptions,
+  ChatCompletion,
+  ChatCompletionChunk,
+  ChatCompletionChunkChoice,
+  ChatCompletionChoice,
+  ChatCompletionMessageParam,
+  ChatCompletionParams,
+  ChatCompletionUsage,
+  ChunkStream,
+  CompletionResult,
+  VerifyMode,
+} from './client.js';
+export { wrapOpenAI } from './wrap.js';
+export type { AshaveriTracker, WrapOptions } from './wrap.js';
+export { GatewaySession } from './gateway.js';
+export type { GatewaySessionOptions } from './gateway.js';
+export { verifyCompletionReceipt } from './verify.js';
+export type { VerifyCompletionParams } from './verify.js';
+export { parseManifest } from './manifest.js';
+export type { DeploymentManifest, ManifestKey, ManifestModel, TeeKind } from './manifest.js';
+export { policyFromManifest, policyKeyByKid } from './policy.js';
+export type { AshaveriPolicy } from './policy.js';
+export { SdkError, sdkError } from './errors.js';
+export type { SdkErrorCode } from './errors.js';
+export { fromBase64Url, toBase64Url, toHex } from './b64.js';
+export {
+  decodeReceipt,
+  generateSigningKey,
+  hashRequest,
+  randomNonce,
+  receiptBytesToJson,
+  receiptToJson,
+  verifyReceipt,
+} from '@ashaveri/receipt';
+export type { ReceiptJson, ReceiptPayload, SigningKey, VerifiedReceipt } from '@ashaveri/receipt';
+export { ReceiptError } from '@ashaveri/receipt';
