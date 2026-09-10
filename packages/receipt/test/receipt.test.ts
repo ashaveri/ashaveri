@@ -119,6 +119,21 @@ describe('COSE_Sign1 receipt codec', () => {
     expectErrorCode(() => verifyReceipt(bytes, { publicKey: key.publicKey, now: FIXED_NOW }), 'BAD_PAYLOAD');
   });
 
+  it('carries a 48-byte hardware measurement', () => {
+    const key = generateSigningKey();
+    const launchDigest = new Uint8Array(48).fill(7);
+    const bytes = issueReceipt(samplePayload({ meas: { tee: 'tdx', m: launchDigest } }), key);
+    const verified = verifyReceipt(bytes, { publicKey: key.publicKey, now: FIXED_NOW });
+    expect(verified.payload.meas.m).toHaveLength(48);
+    expect(equalBytes(verified.payload.meas.m, launchDigest)).toBe(true);
+  });
+
+  it('rejects a measurement that is neither 32 nor 48 bytes', () => {
+    const key = generateSigningKey();
+    const bytes = issueReceipt(samplePayload({ meas: { tee: 'snp', m: new Uint8Array(33) } }), key);
+    expectErrorCode(() => verifyReceipt(bytes, { publicKey: key.publicKey, now: FIXED_NOW }), 'BAD_PAYLOAD');
+  });
+
   it('generates a deterministic kid (sha256 of public key)', () => {
     const key = generateSigningKey();
     expect(key.kid).toEqual(sha256(key.publicKey));

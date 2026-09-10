@@ -24,6 +24,9 @@ export interface DeploymentManifest {
 const TEE_KINDS: readonly TeeKind[] = ['snp', 'snp+h100cc', 'tdx'];
 const HEX_64 = /^[0-9a-f]{64}$/;
 const BASE64URL_32 = /^[A-Za-z0-9_-]{43}$/;
+// Live hardware reports a SHA-384 launch digest (SEV-SNP) or MRTD (TDX), both 48 bytes,
+// while a software deployment measures with SHA-256. Both widths are legitimate.
+const HEX_MEASUREMENT = /^([0-9a-f]{64}|[0-9a-f]{96})$/;
 
 export function parseManifest(value: unknown): DeploymentManifest {
   const bad = (detail: string): Error => new Error(`deployment manifest is invalid: ${detail}`);
@@ -69,6 +72,8 @@ export function parseManifest(value: unknown): DeploymentManifest {
   if (typeof tee !== 'string' || !TEE_KINDS.includes(tee as TeeKind)) {
     throw bad('meas.tee is not a known TEE kind');
   }
-  if (typeof m !== 'string' || !HEX_64.test(m)) throw bad('meas.m must be 64 hex characters');
+  if (typeof m !== 'string' || !HEX_MEASUREMENT.test(m)) {
+    throw bad('meas.m must be a hex SHA-256 or SHA-384 digest');
+  }
   return { v: 1, iss, ins, epk, keys, models, meas: { tee: tee as TeeKind, m } };
 }

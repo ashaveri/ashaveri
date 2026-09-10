@@ -62,7 +62,7 @@ counter-signature variants, if ever needed, would be a new format version.
 | `res` | bstr (32) | sha256 of the exact raw response body bytes, including SSE framing. |
 | `mdl` | tstr | Model id, e.g. "mock-model-1". |
 | `wts` | bstr (32) | sha256 digest of the deployment's weights manifest. |
-| `meas` | map | `{ tee, m }`: TEE kind ("snp", "snp+h100cc", or "tdx") and a 32-byte measurement digest. |
+| `meas` | map | `{ tee, m }`: TEE kind ("snp", "snp+h100cc", or "tdx") and the platform's native measurement digest, 48 bytes on live hardware (SHA-384 SNP launch digest or TDX MRTD) and 32 bytes for a software deployment. |
 | `att` | map | `{ d, ts, url }`: digest of the attestation evidence document, its timestamp (Unix seconds), and a URL where the evidence can be fetched and re-verified. |
 | `epk` | int | Signing-key epoch, for key rotation. The gateway increments it when it replaces its signing key. |
 | `tok` | map | `{ p, c }`: prompt and completion token counts for the call. |
@@ -137,15 +137,39 @@ GET /deployment-manifest
   "models": [
     { "id": "mock-model-1", "wts": "<64 hex chars>" }
   ],
-  "meas": { "tee": "snp", "m": "<64 hex chars>" }
+  "meas": { "tee": "snp", "m": "<96 hex chars on hardware>" }
 }
 ```
 
 `keys` lists the Ed25519 public keys the deployment currently signs with, keyed by the same
 kid the receipts carry. `models` lists model ids with the weights digest each receipt for
-that model must carry. `meas` is the TEE measurement claims for the deployment. The manifest
-is signed by the deployment's long-term identity out of band; in the current mock it is
-served over the same channel and must be pinned through a client policy to carry weight.
+that model must carry. `meas.m` is the launch measurement the deployment claims, at the
+platform's native width: 96 hex characters for the SEV-SNP launch digest or the TDX MRTD,
+and 64 for a software build that has no hardware measurement to report.
+
+The manifest carries no signature. It is a claim about the deployment, delivered over
+whatever transport the endpoint happens to use, so it cannot vouch for itself. A client
+gives it weight by treating its values as pins to be met rather than facts to be believed:
+fetch the evidence the receipts point at, verify it offline, and require the measurement and
+keys to match what was expected. A policy that pins issuers, keys, instances and
+measurements turns an unverified manifest into at most a failed check, which is the only
+reading of it that is safe.
+
+### 4.5 Attestation evidence
+
+```text
+GET /attestation                      -> 200 application/octet-stream, evidence document
+GET /attestation?report_data=<64 hex> -> 200, document bound to that report data
+                                      -> 400 if report_data is not 64 hex characters
+```
+
+The body is the platform's native evidence envelope, not JSON: on dStack deployments it is
+the V1 msgpack structure carrying the hardware quote, the runtime event log and the app
+configuration. `sha256` of the served bytes must equal the `att.d` of any receipt naming this
+URL, so a client can confirm the document it verifies is the one that was signed. Evidence is
+re-fetchable only while the gateway retains it, for a window it chooses and advertises out of
+band; a receipt whose evidence can no longer be fetched still verifies cryptographically, but
+the client can no longer re-check the hardware claims and should treat it as an archived proof.
 
 ## 5. Verification algorithm
 

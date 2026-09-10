@@ -35,9 +35,16 @@ export function keyId(publicKey: Uint8Array): Uint8Array {
 }
 
 export function generateSigningKey(): SigningKey {
-  const privateKey = ed25519.utils.randomSecretKey();
-  const publicKey = ed25519.getPublicKey(privateKey);
-  return { privateKey, publicKey, kid: keyId(publicKey) };
+  return signingKeyFromSeed(ed25519.utils.randomSecretKey());
+}
+
+/** Rebuilds a signing key from a 32-byte Ed25519 seed, as a TEE key derivation returns one. */
+export function signingKeyFromSeed(seed: Uint8Array): SigningKey {
+  if (seed.length !== 32) {
+    throw new ReceiptError('BAD_SIGNING_KEY', `seed must be 32 bytes, got ${seed.length}`);
+  }
+  const publicKey = ed25519.getPublicKey(seed);
+  return { privateKey: seed, publicKey, kid: keyId(publicKey) };
 }
 
 function parseProtectedHeader(bytes: Uint8Array): ProtectedHeader {

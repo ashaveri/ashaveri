@@ -8,6 +8,7 @@ export {
   RECEIPT_CONTENT_TYPE,
   keyId,
   generateSigningKey,
+  signingKeyFromSeed,
   signCoseSign1,
   decodeCoseSign1,
   verifyCoseSign1,

@@ -9,7 +9,8 @@ export type ReceiptErrorCode =
   | 'NONCE_MISMATCH'
   | 'STALE_EVIDENCE'
   | 'STALE_RECEIPT'
-  | 'BAD_PAYLOAD';
+  | 'BAD_PAYLOAD'
+  | 'BAD_SIGNING_KEY';
 
 const ERROR_MESSAGE: Record<ReceiptErrorCode, string> = {
   MALFORMED_CBOR: 'receipt bytes are not valid canonical CBOR',
@@ -23,6 +24,7 @@ const ERROR_MESSAGE: Record<ReceiptErrorCode, string> = {
   STALE_EVIDENCE: 'attestation evidence timestamp is outside the freshness window',
   STALE_RECEIPT: 'receipt issuance time is outside the freshness window',
   BAD_PAYLOAD: 'payload does not match the receipt-v1 CDDL schema',
+  BAD_SIGNING_KEY: 'signing key is not a valid Ed25519 key',
 };
 
 export class ReceiptError extends Error {

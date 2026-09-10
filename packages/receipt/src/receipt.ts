@@ -92,7 +92,11 @@ function parsePayload(bytes: Uint8Array): ReceiptPayload {
   const tee = measRaw.get('tee');
   if (tee !== 'snp' && tee !== 'snp+h100cc' && tee !== 'tdx') throw bad('meas.tee is not a known TEE kind');
   const m = measRaw.get('m');
-  if (!isUint8Array(m) || m.length !== 32) throw bad('meas.m must be a 32-byte bstr');
+  // 48 bytes is what live hardware reports (SHA-384 SNP launch digest, TDX MRTD);
+  // 32 bytes is a software deployment's own digest.
+  if (!isUint8Array(m) || (m.length !== 32 && m.length !== 48)) {
+    throw bad('meas.m must be a 32- or 48-byte bstr');
+  }
   const attRaw = raw.get('att');
   if (!(attRaw instanceof Map)) throw bad('att must be a map');
   const d = attRaw.get('d');
