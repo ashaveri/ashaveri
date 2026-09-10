@@ -64,27 +64,58 @@ explicit about the current gaps.
 
 ## 6. Current limitations, stated plainly
 
-The MVP gateway, `signerd --mock`, is a development tool. Concretely, today:
+The gateway has two modes, and the difference between them is the substance of this section.
 
-- **Receipt issuance is not TEE-backed.** The signing key is a development Ed25519 key held
-  in process memory. The `meas` and `att` fields are digests of fixed mock strings, and the
-  evidence URL is a mock scheme. A mock receipt proves the mock gateway signed the bytes; it
-  makes no statement about confidential hardware.
-- **No attestation verification is wired into the serving path.** `@ashaveri/attest-core`
-  can independently verify dStack SEV-SNP and TDX attestations offline, but nothing yet
-  forces signerd to hold fresh attestation evidence before it is allowed to sign. Closing
-  this, binding the signing key to a measured boot, is the explicitly planned hardware gate
-  in the roadmap.
-- **Receipts live in process memory** on the mock gateway, with no persistence or rotation
-  (`epk` is always 0). A real deployment needs key management with epoch rotation and a
-  retention store for receipts.
-- **The manifest is unsigned.** In strict mode this is mitigated by policy pinning, but the
+`signerd --live` (Week 4) closes the "nothing binds the claims to hardware" gap on the
+serving side:
+
+- The signing key is derived by the guest agent inside the CVM from `--key-path`, not a key
+  file, an environment variable, or process memory that survives a restart. Nothing outside
+  the confidential VM can extract it through the application.
+- `meas`, the issuer and the instance are read out of the guest's own evidence at startup.
+  A hand-entered value is only possible through the explicit `--issuer` / `--instance`
+  overrides, and `--tee` refuses to start if the evidence contradicts the configured platform.
+- Every receipt points at evidence bound to that request's nonce: the gateway checks that the
+  quote's report data equals `sha256(nonce, hashRequest(request))` before it publishes the
+  document, so a quote captured for another request is rejected.
+- The entrypoint verifies the mounted weights against the manifest whose digest becomes `wts`
+  (see [enclave/README.md](../enclave/README.md)), so a swapped model file stops the process at
+  startup instead of quietly signing the wrong weights.
+
+What is still true, in both modes:
+
+- **TDX evidence is not signature-verified.** `@ashaveri/attest-core` parses a TDX quote,
+  replays the runtime event log into RTMR3 and checks the report-data binding, but it does not
+  verify the Intel DCAP quote signature, so `quoteSignatureVerified` is `false` for TDX.
+  SEV-SNP evidence does verify end to end offline against a pinned ARK. On TDX hardware the
+  client is therefore checking self-consistency plus its own pins, not an Intel signature.
+- **The gateway does not deep-verify its own evidence.** It reads the measurement and the
+  report-data binding; the certificate chain, TCB and event-log replay are the client's job,
+  through `@ashaveri/cli`. That is deliberate, but it means a gateway that lied about its
+  platform could still serve receipts: the detection lives on the verifying side.
+- **The mock gateway is not a TEE deployment.** It signs with an ephemeral development key,
+  its `meas` and `att` fields are digests of fixed strings, and its evidence URL uses the
+  `mock://` scheme. One inaccuracy worth naming: the mock still publishes `tee: "snp"`, a
+  hardware value it cannot support, because the protocol's `tee` enum has no non-TEE member.
+- **Receipts live in process memory**, with no persistence and no key rotation (`epk` is
+  always 0). A real deployment needs a retention store and epoch rotation.
+- **The manifest is unsigned.** Strict-mode pinning is what gives it weight today; the
   intended end state is a manifest signed by a long-term deployment identity.
+- **The weights digest chain has one open link.** The receipt binds `sha256(manifest)` and the
+  manifest binds each model file, but the manifest itself is not carried in the receipt and is
+  not in the compose measurement unless the operator mounts the weights as a dm-verity volume.
+  A client that has not been given the manifest out of band sees an opaque `wts` value.
+- **On the managed dStack platform, TLS terminates outside the TEE.** The measured container
+  serves plain HTTP behind the platform gateway, so transport confidentiality depends on the
+  platform edge, not on a channel the workload terminates inside the enclave.
+- **Nothing here measures model behaviour.** A receipt proves who served which bytes; it says
+  nothing about quality, alignment, or the prompt template behind the completion.
 
-Until the hardware gate lands, the honest summary is: receipts deliver byte-level integrity
-and provenance today, and TEE-backed measurement claims are protocol-ready but not yet
-enforced. The SDK's strict mode is built so that the enforcement step can be added without
-changing the client contract.
+The SDK's `strict` mode verifies receipts and the manifest against pins; it does not fetch and
+deep-verify hardware evidence on its own. Until the deployment above has actually been run
+against real hardware, the honest summary is: receipts deliver byte-level integrity and
+provenance, and the hardware gate is implemented and tested against captured evidence rather
+than demonstrated live.
 
 ## 7. Relationship to attest-core
 

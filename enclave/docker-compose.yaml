@@ -1,0 +1,76 @@
+services:
+  # OpenAI-compatible inference on the loopback network only. The receipt gateway is
+  # the sole public entry point, so this service publishes nothing.
+  inference:
+    image: ghcr.io/ggml-org/llama.cpp:server
+    command:
+      - -m
+      - /models/tinyllama-1.1b-chat-v1.Q4_K_M.gguf
+      - --alias
+      - tinyllama
+      - --host
+      - 0.0.0.0
+      - --port
+      - "8080"
+      - -c
+      - "4096"
+      - -ngl
+      - "0"
+    volumes:
+      - ./release:/models:ro
+    restart: unless-stopped
+    logging:
+      driver: json-file
+      options:
+        max-size: "100m"
+        max-file: "3"
+
+  gateway:
+    # Built by enclave/Dockerfile from this repository; push it and pin the digest
+    # before deploying, because the compose text is what the platform measures.
+    image: ghcr.io/ashaveri/signerd:latest
+    command:
+      - --live
+      - --host
+      - 0.0.0.0
+      - --port
+      - "8081"
+      - --public-url
+      - ${ASHAVERI_PUBLIC_URL:?set to the https URL this deployment is reachable at}
+      - --upstream
+      - http://inference:8080/v1
+      - --model
+      - tinyllama
+      - --weights-manifest
+      - /run/ashaveri/weights-manifest.json
+      - --tee
+      - ${ASHAVERI_TEE:-tdx}
+    ports:
+      - "8081:8081"
+    environment:
+      ASHAVERI_WEIGHTS_DIR: /run/ashaveri
+      ASHAVERI_WEIGHTS_MANIFEST: /run/ashaveri/weights-manifest.json
+    volumes:
+      - /var/run/dstack.sock:/var/run/dstack.sock
+      - ./release:/run/ashaveri:ro
+    depends_on:
+      - inference
+    restart: unless-stopped
+    healthcheck:
+      # A cheap always-200 GET. Nothing is served before startup completes anyway: the CLI
+      # resolves the guest key and the first quote before it listens. signerd has no
+      # /v1/models route.
+      test:
+        - CMD
+        - node
+        - -e
+        - "fetch('http://127.0.0.1:8081/v1/deployment-manifest').then((r) => process.exit(r.ok ? 0 : 1), () => process.exit(1))"
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 20s
+    logging:
+      driver: json-file
+      options:
+        max-size: "100m"
+        max-file: "3"

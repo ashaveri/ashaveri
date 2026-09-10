@@ -1,0 +1,142 @@
+# signerd on a dStack confidential VM
+
+This is the operating procedure for Week 4: a live CPU-only TEE deployment whose receipts an
+outside client can verify. It is written against the documented dStack 0.6 and `phala` CLI
+surface, and it has **not been executed end to end yet**. Lines marked `CONFIRM` are the
+points that depend on the account, the assigned hostname, or the exact flags that tier
+accepts; they get resolved the first time this runs.
+
+## Files
+
+| File | Role |
+| --- | --- |
+| `docker-compose.yaml` | The compose text the platform measures. It defines `inference` (llama.cpp, loopback only) and `gateway` (signerd, the only published port). |
+| `Dockerfile` | Builds `@ashaveri/signerd` from this repository into a distless runtime image. |
+| `docker-entrypoint.sh` | Verifies the weights manifest against the mounted model files, then execs `signerd`. |
+| `weights.mjs` | Emits and checks the model manifest whose sha256 every receipt carries as `wts`. |
+
+The compose text is the measurement. A rebuilt image tag, a different model file, or a changed
+`--tee` value changes what the hardware attests to, which is why the image is pinned by digest
+below and why `--expect-compose-hash` exists in `ashaveri verify`.
+
+## 1. Build and publish the gateway image
+
+```bash
+git rev-parse --short HEAD                       # 1a2b3c4, used as the image tag
+docker build -f enclave/Dockerfile -t ghcr.io/<account>/signerd:<tag> .
+docker push ghcr.io/<account>/signerd:<tag>
+docker buildx imagetools inspect ghcr.io/<account>/signerd:<tag>   # read the sha256 digest
+```
+
+Then replace the `image:` line in `docker-compose.yaml` with the digest form,
+`ghcr.io/<account>/signerd@sha256:<digest>`. `:latest` is only usable for local bring-up,
+because a mutable tag makes the measured compose text point at something that can change
+underneath it.
+
+The image is x86-64 only, like the llama.cpp server image: `--platform linux/amd64`.
+
+## 2. Stage the model and its manifest
+
+Weights are staged offline and mounted read-only. Nothing at runtime downloads a model.
+
+```bash
+mkdir -p enclave/release
+curl -L -o enclave/release/<model>.gguf https://huggingface.co/<repo>/resolve/main/<file>.gguf
+node enclave/weights.mjs generate enclave/release enclave/release/weights-manifest.json
+```
+
+`generate` prints the manifest digest. That digest is what `weightsOf()` puts in the manifest's
+`models[].wts` and in every receipt for that model, so record it: it is the value a client
+compares against after it has the manifest file itself. `verify` re-walks the directory and
+lists every difference at once (content mismatch, canonical-order problem, missing or extra
+file) and exits non-zero; the entrypoint runs it before the gateway starts signing.
+
+## 3. Deploy
+
+`enclave/.env` holds the two values the compose text interpolates:
+
+```bash
+ASHAVERI_TEE=tdx                                      # CONFIRM: what this instance type reports
+ASHAVERI_PUBLIC_URL=https://<app-id>.<cluster>.phala.network
+```
+
+```bash
+phala apps                                            # available instance types, current free tier
+phala deploy -c enclave/docker-compose.yaml -e enclave/.env \
+  --name ashaveri-signerd --instance-type <free cpu tier>   # CONFIRM: exact flags and tier name
+phala cvms list
+phala logs                                            # CONFIRM: whether logs are available on this tier
+```
+
+Two properties of the managed platform shape this step:
+
+- The public hostname is assigned by the platform, so `ASHAVERI_PUBLIC_URL` cannot be known
+  before the first boot. Boot once with a placeholder, read the hostname from `phala apps`,
+  then deploy again with the real value. The redeploy changes the compose hash and therefore
+  the measurement, which is expected: pin only after the URL is final. `--public-url` is used
+  solely to build the `att.url` evidence link, so a stale value is visible to any client as a
+  broken or wrong evidence URL rather than a silent inconsistency.
+- TLS terminates at the platform gateway, outside the TEE, and the container listens on plain
+  HTTP. Confidentiality of the request path therefore rests on the platform's edge plus the
+  fact that the CVM memory is protected; it does not rest on an end-to-end TLS channel that
+  the measured workload terminates itself.
+
+`/var/run/dstack.sock` is mounted into the gateway container. That socket is the only source of
+the signing key and of the evidence; there is no key file in the image, no key in an env var,
+and nothing to seal after the fact.
+
+## 4. Verify from a laptop
+
+```bash
+RD=$(printf '%064x' 0xdeadbeef)                      # any 64-hex report data
+curl -s "$BASE/v1/deployment-manifest" -o manifest.json
+curl -s "$BASE/v1/attestation?report_data=$RD" -o attestation.bin
+
+node packages/cli/dist/cli.js verify attestation.bin \
+  --report-data $RD \
+  --expect-measurement <96 hex from a source you trust> \
+  --expect-compose-hash <64 hex of the compose text you deployed>
+```
+
+Exit 0 means the envelope decoded, the runtime events replayed into the platform registers, the
+report data matched, and both pins matched. `--expect-measurement` is the TDX MRTD on this
+hardware, and the compose hash comes from the `compose-hash` runtime event that the RTMR3
+replay ties to the quote.
+
+The SDK side is `verify: 'strict'` with a policy:
+
+```ts
+const client = new AshaveriClient({
+  baseUrl: `${BASE}/v1`,
+  verify: 'strict',
+  policy: { issuers: ['dstack-<12 hex>'], measurements: { tdx: ['<96 hex>'] } },
+});
+```
+
+`policyFromManifest(manifest)` builds a policy from the served manifest. That is trust on first
+use and nothing more; the pinned values above have to come from somewhere else, ideally the
+operator out of band.
+
+## What this proves, and what it does not
+
+Proves, once run: a receipt signed by a key the guest derived, binding the exact request and
+response bytes, the model and `wts` digest, and a measurement and compose hash that a client
+checked against values it did not learn from the deployment.
+
+Does not prove:
+
+- **Hardware signature on TDX.** `attest-core` parses the quote and replays the event log into
+  RTMR3, but it does not verify the Intel DCAP quote signature, so
+  `quoteSignatureVerified` is `false` for TDX. SEV-SNP evidence does verify end to end
+  offline, against a pinned ARK.
+- That the weights behind `wts` match the files in the container. The receipt binds the
+  manifest digest; the manifest binds each file digest; the gap between the manifest and the
+  mounted bytes is closed by the entrypoint check plus the measured compose text, not by the
+  receipt chain. The manifest is also not published by the gateway, so a client needs it out
+  of band to make `wts` more than an opaque hash.
+- That the measured image contains the inference code you think it does, beyond what the
+  compose hash pins: image contents are covered transitively through the digest in the compose
+  text, which is why the digest pin matters more than the tag.
+- Transport security end to end, for the TLS reason above.
+- Anything about model quality, alignment, or whether the operator is honest about the
+  prompt template it served.
