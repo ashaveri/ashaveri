@@ -1,0 +1,190 @@
+import type { BackendResponse, CompletionBackend, CompletionUsage } from './backend.js';
+import type { ChatCompletionRequest } from './mock.js';
+
+export interface UpstreamOptions {
+  /** Root of an OpenAI-compatible server, without the trailing /chat/completions. */
+  readonly baseUrl: string;
+  readonly fetchImpl?: typeof fetch;
+}
+
+interface Deferred<T> {
+  readonly promise: Promise<T>;
+  readonly resolve: (value: T) => void;
+  readonly reject: (error: unknown) => void;
+}
+
+function deferred<T>(): Deferred<T> {
+  let resolve: (value: T) => void = () => undefined;
+  let reject: (error: unknown) => void = () => undefined;
+  const promise = new Promise<T>((res, rej) => {
+    resolve = res;
+    reject = rej;
+  });
+  return { promise, resolve, reject };
+}
+
+/**
+ * Token metering needs usage on streamed responses, which vLLM only emits when
+ * asked. The usage-only event is still forwarded verbatim, so `res` keeps
+ * binding exactly the bytes the client received.
+ */
+function requestForUpstream(raw: Buffer): Buffer {
+  try {
+    const body = JSON.parse(raw.toString('utf8')) as Record<string, unknown>;
+    const existing = body['stream_options'];
+    const options = typeof existing === 'object' && existing !== null ? (existing as Record<string, unknown>) : {};
+    if (options['include_usage'] === true) {
+      return raw;
+    }
+    body['stream_options'] = { ...options, include_usage: true };
+    return Buffer.from(JSON.stringify(body), 'utf8');
+  } catch {
+    return raw;
+  }
+}
+
+interface CompletionEvent {
+  readonly id?: unknown;
+  readonly model?: unknown;
+  readonly usage?: { prompt_tokens?: unknown; completion_tokens?: unknown } | null;
+}
+
+function toFields(value: unknown): CompletionEvent | null {
+  return typeof value === 'object' && value !== null ? (value as CompletionEvent) : null;
+}
+
+function usageOf(event: CompletionEvent): { promptTokens: number; completionTokens: number } | null {
+  const usage = event.usage;
+  if (typeof usage !== 'object' || usage === null) {
+    return null;
+  }
+  const prompt = usage.prompt_tokens;
+  const completion = usage.completion_tokens;
+  if (typeof prompt !== 'number' || typeof completion !== 'number') {
+    return null;
+  }
+  return { promptTokens: prompt, completionTokens: completion };
+}
+
+function dataLines(event: string): string[] {
+  const out: string[] = [];
+  for (const line of event.split(/\r?\n/)) {
+    if (line.startsWith('data:')) {
+      out.push(line.slice(5).replace(/^ /, ''));
+    }
+  }
+  return out;
+}
+
+export function upstreamBackend(options: UpstreamOptions): CompletionBackend {
+  const fetchImpl = options.fetchImpl ?? globalThis.fetch;
+  const base = options.baseUrl.replace(/\/$/, '');
+
+  return {
+    async respond(rawRequest, request) {
+      const upstream = await fetchImpl(`${base}/chat/completions`, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: request.stream ? requestForUpstream(rawRequest) : rawRequest,
+      });
+
+      if (!upstream.ok || upstream.body === null) {
+        const body = new Uint8Array(await upstream.arrayBuffer());
+        return {
+          status: upstream.status,
+          contentType: upstream.headers.get('content-type') ?? 'application/json',
+          receiptId: Promise.resolve(''),
+          chunks: (async function* () {
+            yield body;
+          })(),
+          usage: Promise.resolve({ model: request.model, promptTokens: 0, completionTokens: 0 }),
+        };
+      }
+
+      const contentType =
+        upstream.headers.get('content-type') ?? (request.stream ? 'text/event-stream' : 'application/json');
+      const streaming = contentType.includes('text/event-stream');
+      const idSlot = deferred<string>();
+      const usageSlot = deferred<CompletionUsage>();
+      // An aborted client stops consuming before these settle, and an awaited
+      // promise nobody settles would surface as an unhandled rejection.
+      idSlot.promise.catch(() => undefined);
+      usageSlot.promise.catch(() => undefined);
+
+      let idSeen = false;
+      let usageSeen = false;
+      let model = '';
+      const remember = (event: CompletionEvent): void => {
+        if (typeof event.model === 'string' && event.model.length > 0) {
+          model = event.model;
+        }
+        if (!idSeen && typeof event.id === 'string' && event.id.length > 0) {
+          idSeen = true;
+          idSlot.resolve(event.id);
+        }
+        const usage = usageOf(event);
+        if (usage !== null && !usageSeen) {
+          usageSeen = true;
+          usageSlot.resolve({ model, ...usage });
+        }
+      };
+
+      const chunks = (async function* (): AsyncGenerator<Uint8Array> {
+        const reader = upstream.body!.getReader();
+        const decoder = new TextDecoder();
+        let pending = '';
+        try {
+          while (true) {
+            const next = await reader.read();
+            if (next.done === true) {
+              break;
+            }
+            const value = next.value;
+            if (value === undefined) {
+              continue;
+            }
+            // Scan before yielding so the id is known the moment the server
+            // takes the chunk, and forward verbatim so the receipt hashes
+            // exactly what the client sees.
+            pending += decoder.decode(value, { stream: true });
+            if (streaming) {
+              let boundary = /\r?\n\r?\n/.exec(pending);
+              while (boundary !== null) {
+                for (const data of dataLines(pending.slice(0, boundary.index))) {
+                  if (data !== '[DONE]') {
+                    remember(toFields(JSON.parse(data)) ?? {});
+                  }
+                }
+                pending = pending.slice(boundary.index + boundary[0].length);
+                boundary = /\r?\n\r?\n/.exec(pending);
+              }
+            }
+            yield value;
+          }
+          pending += decoder.decode();
+          if (!streaming && pending.length > 0) {
+            remember(toFields(JSON.parse(pending)) ?? {});
+          }
+          if (!idSeen) {
+            idSlot.reject(new Error('upstream response carried no completion id'));
+          }
+          if (!usageSeen) {
+            usageSlot.resolve({ model, promptTokens: 0, completionTokens: 0 });
+          }
+        } catch (error) {
+          if (!idSeen) {
+            idSlot.reject(error);
+          }
+          if (!usageSeen) {
+            usageSlot.reject(error);
+          }
+          throw error;
+        } finally {
+          reader.releaseLock();
+        }
+      })();
+
+      return { status: upstream.status, contentType, receiptId: idSlot.promise, chunks, usage: usageSlot.promise };
+    },
+  };
+}

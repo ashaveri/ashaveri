@@ -111,6 +111,9 @@ importers:
 
   gateway:
     dependencies:
+      '@ashaveri/attest-core':
+        specifier: workspace:*
+        version: link:../packages/attest-core
       '@ashaveri/receipt':
         specifier: workspace:*
         version: link:../packages/receipt
