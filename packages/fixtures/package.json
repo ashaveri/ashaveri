@@ -2,7 +2,7 @@
   "name": "@ashaveri/fixtures",
   "version": "0.1.0",
   "description": "Golden conformance vectors for Ashaveri receipt verification (shared across TS, Python, and CLI implementations)",
-  "license": "Apache-2.0",
+  "license": "CC0-1.0",
   "type": "module",
   "main": "./dist/index.js",
   "types": "./dist/index.d.ts",
