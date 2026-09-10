@@ -19,3 +19,7 @@ pnpm test
 
 The receipt wire format is normatively defined in `packages/receipt/receipt.cddl`.
 Fixtures are regenerated deterministically with `pnpm --filter @ashaveri/fixtures generate`.
+
+## License
+
+Code is licensed under [Apache-2.0](LICENSE). The golden conformance vectors in `@ashaveri/fixtures` are dedicated to the public domain under [CC0-1.0](packages/fixtures/LICENSE), so downstream reimplementations can embed them without attribution obligations.

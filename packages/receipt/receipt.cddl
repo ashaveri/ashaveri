@@ -1,0 +1,48 @@
+Ashaveri-Receipt = #6.18(COSE_Sign1-COSE)
+
+; COSE_Sign1 per RFC 9052 section 4.2, encoded per RFC 8949
+; deterministic CBOR (Core Deterministic Encoding, section 4.2.1)
+COSE_Sign1-COSE = [
+    protected: bstr .cbor Ashaveri-Protected-Header,
+    unprotected: {},
+    payload: bstr .cbor Ashaveri-Receipt-Payload,
+    signature: bstr .size 64
+]
+
+Ashaveri-Protected-Header = {
+    1: -8,                    ; alg: EdDSA (Ed25519)
+    4: bstr .size 32,         ; kid: sha256(public_key)
+    3: "ashaveri/receipt",    ; typ
+}
+
+Ashaveri-Receipt-Payload = {
+    v: 1,                     ; format version
+    iss: tstr,                ; deployment id (dStack compose-hash prefix)
+    ins: tstr,                ; CVM instance id
+    iat: int,                 ; unix seconds, issuance time
+    nce: bstr .size 16,       ; client nonce, echoed for anti-replay
+    req: bstr .size 32,       ; sha256(canonical request)
+    res: bstr .size 32,       ; sha256(full response bytes, incl. SSE frames)
+    mdl: tstr,                ; model id, e.g. "meta-llama/Llama-3.1-8B-Instruct"
+    wts: bstr .size 32,       ; sha256(deployment manifest: weights + image + config)
+    meas: Measurement,
+    att: EvidenceRef,
+    epk: int,                 ; signing-key epoch
+    tok: TokenMetering,
+}
+
+Measurement = {
+    tee: "snp" / "snp+h100cc" / "tdx",
+    m: bstr .size 32,         ; sha256 over attested measurement values
+}
+
+EvidenceRef = {
+    d: bstr .size 32,         ; sha256(attestation evidence document)
+    ts: int,                  ; evidence timestamp, unix seconds
+    url: tstr,                ; where evidence can be fetched and re-verified
+}
+
+TokenMetering = {
+    p: int,                   ; prompt tokens
+    c: int,                   ; completion tokens
+}

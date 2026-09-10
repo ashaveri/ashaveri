@@ -1,0 +1,6 @@
+{
+  "description": "Deterministic Ed25519 signing key for receipt fixtures. TEST ONLY, never use in production.",
+  "privateKey": "83323642bdd8d84c58b3d208d07b4dfc7d84be7b4d670d2272a7ea328f2a06b7",
+  "publicKey": "13ab8ed1e777ff39be231df694bbbc8f967d5b779eb7cab558762cb54f960b05",
+  "kid": "35013a6e000b8d5dca51c4bd5c1db9f2860283606c76aeeeea8ee72b72b5e15e"
+}

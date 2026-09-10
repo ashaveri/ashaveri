@@ -1,0 +1,34 @@
+{
+  "protectedHeader": {
+    "alg": "EdDSA",
+    "kid": "35013a6e000b8d5dca51c4bd5c1db9f2860283606c76aeeeea8ee72b72b5e15e",
+    "typ": "ashaveri/receipt"
+  },
+  "payload": {
+    "v": 1,
+    "iss": "dpl-9f2a41c3",
+    "ins": "cvm-i-047f2a",
+    "iat": 1772000000,
+    "nce": "5b66873d3dcc9fc96fd9a14341bc1b2e",
+    "req": "ae8b759968f574a1c423445e00f4e73ee2aa0d4fcb889d79d6aed877fc6d9a79",
+    "res": "470e120587587d63caaf8444582134ce765f471a7393d90a47a2ee06b1338862",
+    "mdl": "meta-llama/Llama-3.1-8B-Instruct",
+    "wts": "2689570aecf5054284b06d6022554fb97942cad0a774d5dbc9308b2d0477d9b5",
+    "meas": {
+      "tee": "snp+h100cc",
+      "m": "e50c53b8e5defffa2dc3e99c93d7ae0c6a6522413e70899886df3fa36df30daa"
+    },
+    "att": {
+      "d": "4c8cdcf1f0ff0722b002adc9d8323cd314b50f57a01c3de302b1b3a1b664a9db",
+      "ts": 1771999940,
+      "url": "https://inference.ashaveri.com/v1/attestation"
+    },
+    "epk": 1,
+    "tok": {
+      "p": 128,
+      "c": 64
+    }
+  },
+  "signature": "c5407405bb421f7ea372aec31c386cb2fd4a98f9730c130c210ce2574a03e16716024a3fa35b6cea3c5412284295f7de5786d2aa006830d871b6135c953ea10f",
+  "digestSha256": "d22623e4e10ce6c2b66a7b64a4912ee2c44f19c7214560b7a0f776f48b79bf84"
+}
