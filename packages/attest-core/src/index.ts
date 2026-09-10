@@ -21,8 +21,15 @@ export {
   SNP_SIGNED_SIZE,
   SNP_SIGNATURE_OFFSET,
 } from './sev-snp.js';
-export { verifyAttestation } from './verify.js';
-export type { MrConfigDetails, SnpVerification, TdxVerification, VerificationResult, VerifyOptions } from './verify.js';
+export { verifyAttestation, mrConfigDocumentDigest, pinnedComposeHash, platformMeasurement } from './verify.js';
+export type {
+  MrConfigDetails,
+  SnpVerification,
+  TdxMrConfig,
+  TdxVerification,
+  VerificationResult,
+  VerifyOptions,
+} from './verify.js';
 export { parseCertificate, parseCertificateChain } from './der.js';
 export type { CertificatePublicKey, ParsedCertificate, SignatureAlgorithm } from './der.js';
 export { DSTACK_RUNTIME_EVENT_TYPE, tcbFromU64 } from './types.js';

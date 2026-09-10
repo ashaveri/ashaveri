@@ -40,6 +40,8 @@ measurement: 7f51e17f72a04d5422cb2c00998166536019a217376f3aa45a630e59c805a599...
 host_data:  783f0057820acb99249af56cc3b07b4e8d80f65183167cba9cf437bb680f742f
 ```
 
-VCEK/ASK are immutable for a given chip + TCB, so these never expire. If the
-report itself is regenerated (different host or firmware), re-capture all
-files together — the VCEK must match the new report's `chip_id`/TCB.
+VCEK/ASK are immutable for a given chip + TCB, so these files need no rotation. They do
+carry a validity window (this VCEK is valid 2026-06-17 to 2033-06-17), which is why the
+tests pin a verification time. If the report itself is regenerated (different host or
+firmware), re-capture all files together. The VCEK must match the new report's
+`chip_id`/TCB.

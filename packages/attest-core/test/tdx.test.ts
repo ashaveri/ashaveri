@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { decodeAttestation, fromHex, replayRtmr3, verifyAttestation } from '../src/index.js';
+import { decodeAttestation, fromHex, mrConfigDocumentDigest, pinnedComposeHash, platformMeasurement, replayRtmr3, verifyAttestation } from '../src/index.js';
 import type { RuntimeEvent, TdxEvent } from '../src/index.js';
 import { encodeV0Tdx, expectErrorCode, tdxEventsFor } from './helpers.js';
 
@@ -71,5 +71,87 @@ describe('dStack TDX attestation verification', () => {
 
   it('rejects a truncated quote', () => {
     expectErrorCode(() => verifyAttestation(tdxAttestation(new Uint8Array(0x200))), 'MALFORMED_QUOTE');
+  });
+});
+
+// MR_CONFIG_ID occupies quote bytes 0xe8 through 0x118 and is 48 bytes wide.
+const MR_CONFIG_ID_OFFSET = 0xe8;
+
+function quoteWithMrConfigId(binding: Uint8Array): Uint8Array {
+  const quote = buildQuote();
+  quote.set(binding, MR_CONFIG_ID_OFFSET);
+  return quote;
+}
+
+function tag3Binding(digest: Uint8Array): Uint8Array {
+  const binding = new Uint8Array(48);
+  binding[0] = 3;
+  binding.set(digest, 1);
+  return binding;
+}
+
+describe('TDX MR_CONFIG_ID binding', () => {
+  it('reports no pinned configuration when the field is empty', () => {
+    const result = verifyAttestation(tdxAttestation(quoteWithMrConfigId(new Uint8Array(48))));
+    expect(result.tdx?.mrConfig).toBeNull();
+  });
+
+  it('reads a tag 3 binding as the pinned document digest', () => {
+    const digest = new Uint8Array(32).fill(0x5a);
+    const result = verifyAttestation(tdxAttestation(quoteWithMrConfigId(tag3Binding(digest))));
+    expect(result.tdx?.mrConfig).toEqual({ tag: 3, digest });
+  });
+
+  it('pins the digest a mr_config document hashes to', () => {
+    const document = `{"version":3,"compose_hash":"${'ab'.repeat(32)}","key_provider":"kms"}`;
+    const digest = mrConfigDocumentDigest(document);
+    const result = verifyAttestation(tdxAttestation(quoteWithMrConfigId(tag3Binding(digest))));
+    expect(result.tdx?.mrConfig?.digest).toEqual(digest);
+  });
+
+  it('rejects a binding with an unsupported tag', () => {
+    const binding = tag3Binding(new Uint8Array(32).fill(1));
+    binding[0] = 1;
+    expectErrorCode(() => verifyAttestation(tdxAttestation(quoteWithMrConfigId(binding))), 'BAD_MR_CONFIG_ID');
+  });
+
+  it('rejects non-zero padding after the digest', () => {
+    const binding = tag3Binding(new Uint8Array(32).fill(1));
+    binding[33] = 1;
+    expectErrorCode(() => verifyAttestation(tdxAttestation(quoteWithMrConfigId(binding))), 'BAD_MR_CONFIG_ID');
+  });
+});
+
+// MR_TD occupies quote bytes 0xb8 through 0xe8.
+const MR_TD_OFFSET = 0xb8;
+
+function quoteWithMrTd(mrTd: Uint8Array): Uint8Array {
+  const quote = buildQuote();
+  quote.set(mrTd, MR_TD_OFFSET);
+  return quote;
+}
+
+function quoteFor(events: readonly RuntimeEvent[]): Uint8Array {
+  const quote = quoteWithMrTd(new Uint8Array(48).fill(0x7a));
+  quote.set(replayRtmr3(events), 0x208);
+  return quote;
+}
+
+describe('TDX pinning extraction', () => {
+  it('returns the MR_TD the quote attests to', () => {
+    const result = verifyAttestation(tdxAttestation(quoteWithMrTd(new Uint8Array(48).fill(0x7a))));
+    expect(platformMeasurement(result)).toEqual(new Uint8Array(48).fill(0x7a));
+  });
+
+  it('reports no compose hash when the deployment recorded none', () => {
+    expect(pinnedComposeHash(verifyAttestation(tdxAttestation()))).toBeNull();
+  });
+
+  it('reads the compose hash from the events replayed into RTMR-3', () => {
+    const composeHash = new Uint8Array(32).fill(0x3c);
+    const events = [...runtimeEvents, { event: 'compose-hash', payload: composeHash, version: 1 }] as RuntimeEvent[];
+    const quote = quoteFor(events);
+    const result = verifyAttestation(tdxAttestation(quote, tdxEventsFor(events), events));
+    expect(pinnedComposeHash(result)).toEqual(composeHash);
   });
 });

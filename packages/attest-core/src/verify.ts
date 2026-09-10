@@ -13,10 +13,30 @@ import {
   verifySnpReportSignature,
   verifyVcekMatchesReport,
 } from './sev-snp.js';
-import { parseTdxQuote } from './tdx.js';
+import { parseTdxQuote, isZero } from './tdx.js';
 import type { Attestation, RuntimeEvent, SnpReport, TdxQuote } from './types.js';
 
 const MR_CONFIG_DOMAIN = 'dstack-mr-config-v3:';
+/** dstack-types writes tag 3 followed by the document digest and 15 zero bytes. */
+const MR_CONFIG_ID_TAG = 3;
+const MR_CONFIG_ID_SIZE = 48;
+const MR_CONFIG_DIGEST_SIZE = 32;
+const MAX_INIT_SCRIPTS = 5;
+
+/**
+ * dstack pins an application's configuration into the CVM by hashing the
+ * verbatim mr_config document under this domain prefix. SEV-SNP commits the
+ * digest to the report's HOST_DATA, TDX to MR_CONFIG_ID bytes 1 through 33.
+ */
+export function mrConfigDocumentDigest(document: string): Uint8Array {
+  const domain = new TextEncoder().encode(MR_CONFIG_DOMAIN);
+  const bytes = new TextEncoder().encode(document);
+  const input = new Uint8Array(domain.length + 1 + bytes.length);
+  input.set(domain, 0);
+  input[domain.length] = 0;
+  input.set(bytes, domain.length + 1);
+  return sha256(input);
+}
 
 export interface VerifyOptions {
   /** Verification time in milliseconds since the Unix epoch. Defaults to now. */
@@ -40,6 +60,8 @@ export interface MrConfigDetails {
   readonly keyProvider: string | null;
   readonly keyProviderId: Uint8Array | null;
   readonly instanceId: Uint8Array | null;
+  /** Ordered digests of the init scripts the platform ran, capped at five. */
+  readonly initScriptHashes: readonly Uint8Array[] | null;
 }
 
 export interface SnpVerification {
@@ -47,8 +69,17 @@ export interface SnpVerification {
   readonly mrConfig: MrConfigDetails;
 }
 
+export interface TdxMrConfig {
+  /** Binding tag the platform wrote into MR_CONFIG_ID[0]. */
+  readonly tag: number;
+  /** Domain-prefixed digest of the mr_config document: MR_CONFIG_ID[1..33]. */
+  readonly digest: Uint8Array;
+}
+
 export interface TdxVerification {
   readonly quote: TdxQuote;
+  /** Null when MR_CONFIG_ID is empty, meaning no application configuration is pinned. */
+  readonly mrConfig: TdxMrConfig | null;
 }
 
 export interface VerificationResult {
@@ -125,13 +156,7 @@ function verifySevSnp(attestation: Attestation, options: VerifyOptions): Verific
 // AMD-measured hash of the verbatim document bytes, so the verifier sees the
 // exact configuration the control plane committed to before the guest started.
 function verifyMrConfigHostData(mrConfig: string, report: SnpReport): MrConfigDetails {
-  const domain = new TextEncoder().encode(MR_CONFIG_DOMAIN);
-  const document = new TextEncoder().encode(mrConfig);
-  const input = new Uint8Array(domain.length + 1 + document.length);
-  input.set(domain, 0);
-  input[domain.length] = 0;
-  input.set(document, domain.length + 1);
-  if (!equalBytes(sha256(input), report.hostData)) {
+  if (!equalBytes(mrConfigDocumentDigest(mrConfig), report.hostData)) {
     fail('MR_CONFIG_MISMATCH', 'sha256 of the mr_config document does not equal the report HOST_DATA');
   }
   return parseMrConfig(mrConfig);
@@ -151,46 +176,81 @@ function parseMrConfig(raw: string): MrConfigDetails {
   return {
     raw,
     version: optionalUint(fields['version']),
-    appId: optionalHex(fields['app_id']),
-    composeHash: requiredHex(fields['compose_hash'], 'compose_hash'),
-    gpuPolicyHash: optionalHex(fields['gpu_policy_hash']),
+    // Widths are enforced only where the platform fixes them: the guest compares
+    // app_id against a [u8; 20], and the digests are SHA-256. instance_id and
+    // key_provider_id are identifiers of varying shape and stay unchecked.
+    appId: hexField(fields['app_id'], 'app_id', 20, false),
+    composeHash: hexField(fields['compose_hash'], 'compose_hash', MR_CONFIG_DIGEST_SIZE, true),
+    gpuPolicyHash: hexField(fields['gpu_policy_hash'], 'gpu_policy_hash', null, false),
     keyProvider: typeof fields['key_provider'] === 'string' ? fields['key_provider'] : null,
-    keyProviderId: optionalHex(fields['key_provider_id']),
-    instanceId: optionalHex(fields['instance_id']),
+    keyProviderId: hexField(fields['key_provider_id'], 'key_provider_id', null, false),
+    instanceId: hexField(fields['instance_id'], 'instance_id', null, false),
+    initScriptHashes: parseInitScriptHashes(fields['init_script_hashes']),
   };
 }
 
-function requiredHex(value: unknown, name: string): Uint8Array {
+function hexField(value: unknown, name: string, byteLength: number | null, required: true): Uint8Array;
+function hexField(value: unknown, name: string, byteLength: number | null, required: false): Uint8Array | null;
+function hexField(
+  value: unknown,
+  name: string,
+  byteLength: number | null,
+  required: boolean,
+): Uint8Array | null {
   if (typeof value !== 'string') {
-    fail('MR_CONFIG_MISMATCH', `mr_config document is missing ${name}`);
+    if (required) {
+      fail('MR_CONFIG_MISMATCH', `mr_config document is missing ${name}`);
+    }
+    return null;
   }
+  let bytes: Uint8Array;
   try {
-    const bytes = fromHex(value);
-    if (bytes.length !== 32) {
-      fail('MR_CONFIG_MISMATCH', `mr_config ${name} is ${bytes.length} bytes, expected 32`);
-    }
-    return bytes;
-  } catch (error) {
-    if (error instanceof Error && error.name === 'AttestationError') {
-      throw error;
-    }
+    bytes = fromHex(value);
+  } catch {
     fail('MR_CONFIG_MISMATCH', `mr_config ${name} is not a hex string`);
   }
+  if (byteLength !== null && bytes.length !== byteLength) {
+    fail('MR_CONFIG_MISMATCH', `mr_config ${name} is ${bytes.length} bytes, expected ${byteLength}`);
+  }
+  return bytes;
 }
 
-function optionalHex(value: unknown): Uint8Array | null {
-  if (typeof value !== 'string') {
+function parseInitScriptHashes(value: unknown): readonly Uint8Array[] | null {
+  if (value === undefined || value === null) {
     return null;
   }
-  try {
-    return fromHex(value);
-  } catch {
-    return null;
+  if (!Array.isArray(value)) {
+    fail('MR_CONFIG_MISMATCH', 'mr_config init_script_hashes is not an array');
   }
+  if (value.length > MAX_INIT_SCRIPTS) {
+    fail('MR_CONFIG_MISMATCH', `mr_config init_script_hashes has ${value.length} entries, at most ${MAX_INIT_SCRIPTS}`);
+  }
+  return value.map((entry, index) =>
+    hexField(entry, `init_script_hashes[${index}]`, MR_CONFIG_DIGEST_SIZE, true),
+  );
 }
 
 function optionalUint(value: unknown): number | null {
   return typeof value === 'number' && Number.isInteger(value) && value >= 0 ? value : null;
+}
+
+// TDX carries no mr_config document in the attestation envelope, so a remote
+// verifier pins the digest the platform committed to at launch instead.
+function readTdxMrConfig(mrConfigId: Uint8Array): TdxMrConfig | null {
+  if (mrConfigId.length !== MR_CONFIG_ID_SIZE) {
+    fail('MALFORMED_QUOTE', `MR_CONFIG_ID is ${mrConfigId.length} bytes, expected ${MR_CONFIG_ID_SIZE}`);
+  }
+  if (isZero(mrConfigId)) {
+    return null;
+  }
+  const tag = mrConfigId[0] as number;
+  if (tag !== MR_CONFIG_ID_TAG) {
+    fail('BAD_MR_CONFIG_ID', `tag ${String(tag)} is not supported, only tag ${MR_CONFIG_ID_TAG}`);
+  }
+  if (!isZero(mrConfigId.subarray(1 + MR_CONFIG_DIGEST_SIZE))) {
+    fail('BAD_MR_CONFIG_ID', 'MR_CONFIG_ID bytes after the digest must be zero');
+  }
+  return { tag, digest: mrConfigId.slice(1, 1 + MR_CONFIG_DIGEST_SIZE) };
 }
 
 function verifyTdx(attestation: Attestation): VerificationResult {
@@ -214,6 +274,31 @@ function verifyTdx(attestation: Attestation): VerificationResult {
     reportData: attestation.stack.reportData,
     runtimeEvents: attestation.stack.runtimeEvents,
     config: attestation.stack.config,
-    tdx: { quote },
+    tdx: { quote, mrConfig: readTdxMrConfig(quote.mrConfigId) },
   };
+}
+
+/** The launch measurement this evidence attests to: the SNP launch digest or the TDX MRTD. */
+export function platformMeasurement(result: VerificationResult): Uint8Array {
+  if (result.snp) {
+    return result.snp.report.measurement;
+  }
+  if (result.tdx) {
+    return result.tdx.quote.mrTd;
+  }
+  return fail('UNSUPPORTED_PLATFORM', 'the verified result carries no platform measurement');
+}
+
+/**
+ * The compose hash the platform committed to. SEV-SNP hashes the mr_config
+ * document into HOST_DATA, so the document itself is the authority. TDX carries
+ * no document in the envelope, so the value comes from the runtime events, which
+ * the RTMR3 replay inside verifyTdx already tied to the quote.
+ */
+export function pinnedComposeHash(result: VerificationResult): Uint8Array | null {
+  if (result.snp) {
+    return result.snp.mrConfig.composeHash;
+  }
+  const event = result.runtimeEvents.find((entry) => entry.event === 'compose-hash');
+  return event?.payload ?? null;
 }

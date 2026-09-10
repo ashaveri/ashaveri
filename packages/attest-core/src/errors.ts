@@ -14,6 +14,8 @@ export type AttestationErrorCode =
   | 'RTMR_MISMATCH'
   | 'REPORT_DATA_MISMATCH'
   | 'MR_CONFIG_MISMATCH'
+  | 'BAD_MR_CONFIG_ID'
+  | 'PIN_MISMATCH'
   | 'MALFORMED_CERTIFICATE'
   | 'UNSUPPORTED_CERT_ALGORITHM'
   | 'CERT_CHAIN_INVALID'
@@ -39,7 +41,9 @@ const ERROR_MESSAGE: Record<AttestationErrorCode, string> = {
   EVENT_LOG_MISMATCH: 'platform event log and stack runtime events disagree',
   RTMR_MISMATCH: 'replayed RTMR3 does not match the value in the TDX quote',
   REPORT_DATA_MISMATCH: 'attestation report data does not match the quote',
-  MR_CONFIG_MISMATCH: 'mr_config document does not match the report HOST_DATA field',
+  MR_CONFIG_MISMATCH: 'mr_config document does not match the measurement pinned by the platform',
+  BAD_MR_CONFIG_ID: 'MR_CONFIG_ID is neither empty nor a recognized dstack configuration binding',
+  PIN_MISMATCH: 'a pinned deployment claim does not match the verified evidence',
   MALFORMED_CERTIFICATE: 'certificate bytes are not valid X.509',
   UNSUPPORTED_CERT_ALGORITHM: 'certificate uses an unsupported algorithm (need ECDSA P-384 with SHA-384)',
   CERT_CHAIN_INVALID: 'AMD certificate chain (ARK to ASK to VCEK) does not verify',
