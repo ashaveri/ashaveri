@@ -8,6 +8,7 @@ export type AttestationErrorCode =
   | 'MALFORMED_QUOTE'
   | 'UNSUPPORTED_QUOTE'
   | 'MALFORMED_REPORT'
+  | 'MALFORMED_GPU_BUNDLE'
   | 'UNSUPPORTED_SIGNATURE_ALGO'
   | 'BAD_EVENT_DIGEST'
   | 'BAD_EVENT_PREIMAGE'
@@ -39,6 +40,7 @@ const ERROR_MESSAGE: Record<AttestationErrorCode, string> = {
   MALFORMED_QUOTE: 'TDX quote bytes are malformed',
   UNSUPPORTED_QUOTE: 'TDX quote uses a format this package cannot verify',
   MALFORMED_REPORT: 'SEV-SNP report bytes are malformed',
+  MALFORMED_GPU_BUNDLE: 'device evidence is not the JSON bundle nvattest writes',
   UNSUPPORTED_SIGNATURE_ALGO: 'SEV-SNP report signature algorithm is not ECDSA-P384-SHA384',
   BAD_EVENT_DIGEST: 'event log digest does not match the recomputed digest',
   BAD_EVENT_PREIMAGE: 'V2 event digest preimage is missing or does not match',

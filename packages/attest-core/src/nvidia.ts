@@ -2,6 +2,7 @@ import { p384 } from '@noble/curves/p384';
 import { sha384 } from '@noble/hashes/sha2.js';
 import {
   checkCertificateValidity,
+  decodeBase64,
   derEcdsaSignature,
   parseCertificateChain,
   verifyCertificateSignature,
@@ -43,6 +44,48 @@ export interface NvidiaVerification {
   readonly signatureVerified: true;
   /** The challenge the GPU was asked to sign, read from inside the signed region. */
   readonly nonce: Uint8Array;
+}
+
+/**
+ * The per-device reports inside the JSON array `nvattest --collect` writes.
+ *
+ * This is the vendor's own container rather than one of ours: `evidence` is the SPDM
+ * request followed by the signed response and `certificate` the chain beside it, both
+ * base64, so the bytes a gateway serves are the bytes the device produced and a client
+ * can take them to NVIDIA's tool. Reading them is not a verdict on anything, and an
+ * empty array is a well-formed bundle that names no device; whether that is acceptable
+ * depends on the claim being made, which is the caller's question.
+ */
+export function parseNvidiaEvidenceBundle(document: Uint8Array): NvidiaEvidence[] {
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(new TextDecoder().decode(document));
+  } catch {
+    return fail('MALFORMED_GPU_BUNDLE', 'the document is not JSON');
+  }
+  if (!Array.isArray(parsed)) {
+    return fail('MALFORMED_GPU_BUNDLE', 'the document is not the JSON array the format promises');
+  }
+  return parsed.map((entry, index) => {
+    const fields = entry !== null && typeof entry === 'object' ? (entry as Record<string, unknown>) : null;
+    return {
+      report: bundleField(fields, index, 'evidence'),
+      certChain: bundleField(fields, index, 'certificate'),
+    };
+  });
+}
+
+/** One device's base64 payload, or the reason this bundle cannot be read at all. */
+function bundleField(fields: Record<string, unknown> | null, index: number, name: string): Uint8Array {
+  const value = fields?.[name];
+  if (typeof value !== 'string') {
+    return fail('MALFORMED_GPU_BUNDLE', `device ${index} carries no ${name} string`);
+  }
+  try {
+    return decodeBase64(value);
+  } catch (error) {
+    return fail('MALFORMED_GPU_BUNDLE', `device ${index} ${name}: ${error instanceof Error ? error.message : String(error)}`);
+  }
 }
 
 export interface NvidiaOptions {

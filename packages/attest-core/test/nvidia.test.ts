@@ -1,6 +1,9 @@
 import { describe, it, expect } from 'vitest';
-import { readNvidiaChallenge, verifyNvidiaRats } from '../src/index.js';
+import { parseNvidiaEvidenceBundle, readNvidiaChallenge, verifyNvidiaRats } from '../src/index.js';
 import { expectErrorCode, fixture } from './helpers.js';
+
+const toBase64 = (bytes: Uint8Array): string => Buffer.from(bytes).toString('base64');
+const bundleBytes = (json: string): Uint8Array => new TextEncoder().encode(json);
 
 // A real Hopper GPU attestation report signed by the device itself, plus the
 // certificate chain it was captured with; see test/fixtures/README.md.
@@ -88,5 +91,24 @@ describe('NVIDIA GPU evidence', () => {
 
   it('refuses to read a challenge out of a truncated report', () => {
     expectErrorCode(() => readNvidiaChallenge(report.subarray(0, 100)), 'MALFORMED_REPORT');
+  });
+});
+
+describe('parseNvidiaEvidenceBundle', () => {
+  it('reads the per-device reports out of the array nvattest writes', () => {
+    const bundle = bundleBytes(
+      JSON.stringify([{ arch: 'HOPPER', evidence: toBase64(report), certificate: toBase64(certChain), version: '1.0' }]),
+    );
+    expect(parseNvidiaEvidenceBundle(bundle)).toEqual([{ report, certChain }]);
+  });
+
+  it('takes an empty array as a bundle that names no device', () => {
+    expect(parseNvidiaEvidenceBundle(bundleBytes('[]'))).toEqual([]);
+  });
+
+  it('refuses a document that is not the array the format promises', () => {
+    for (const json of ['not json', '{"evidences":[]}', '[]]', '[null]', '[{"certificate":"AAAA"}]', '[{"evidence":"####","certificate":"AAAA"}]']) {
+      expectErrorCode(() => parseNvidiaEvidenceBundle(bundleBytes(json)), 'MALFORMED_GPU_BUNDLE');
+    }
   });
 });
