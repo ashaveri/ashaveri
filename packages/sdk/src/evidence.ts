@@ -2,10 +2,12 @@ import {
   AttestationError,
   DEFAULT_AMD_ARKS,
   DEFAULT_INTEL_SGX_ROOTS,
+  DEFAULT_NVIDIA_DEVICE_ROOTS,
   pinnedComposeHash,
   platformMeasurement,
   reportDataBinds,
   verifyAttestation,
+  type NvidiaEvidence,
   type RuntimeEvent,
   type VerificationResult,
 } from '@ashaveri/attest-core';
@@ -22,6 +24,7 @@ import { SdkError } from './errors.js';
 export interface EvidenceTrustAnchors {
   readonly amdArks?: readonly Uint8Array[];
   readonly intelSgxRoots?: readonly Uint8Array[];
+  readonly nvidiaRoots?: readonly Uint8Array[];
 }
 
 export interface VerifyEvidenceParams {
@@ -31,6 +34,12 @@ export interface VerifyEvidenceParams {
   readonly expectedReportData: Uint8Array;
   /** The already verified receipt payload, which the evidence must agree with. */
   readonly payload: ReceiptPayload;
+  /**
+   * GPU reports the gateway served for the same request. Each one has to sign this
+   * request's digest as its SPDM challenge, which is what ties the accelerator to
+   * the platform quote rather than to some other moment on the same machine.
+   */
+  readonly gpuEvidence?: readonly NvidiaEvidence[];
   readonly anchors?: EvidenceTrustAnchors;
   /** Wall clock in milliseconds since the epoch; defaults to Date.now. */
   readonly now?: number;
@@ -51,10 +60,10 @@ export interface VerifiedEvidence {
 }
 
 const PLATFORM_TEE_KINDS: Readonly<Record<VerificationResult['platformKind'], readonly TeeKind[]>> = {
-  // SNP evidence attests the CPU launch digest only. A deployment labelled
-  // 'snp+h100cc' also claims the H100 is in confidential-compute mode, which
-  // this quote cannot show; the measurement pin is what binds the label to a
-  // specific image either way.
+  // An SNP quote attests the CPU launch digest. A receipt labelled 'snp+h100cc'
+  // also claims a confidential-computing GPU, and only a verified device report
+  // signing the same challenge can show that, so the composite kind is legal
+  // here and separately requires a GPU leg below.
   'sev-snp': ['snp', 'snp+h100cc'],
   tdx: ['tdx'],
 };
@@ -118,11 +127,19 @@ export function verifyCompletionEvidence(params: VerifyEvidenceParams): Verified
   const anchors: EvidenceTrustAnchors = params.anchors ?? {};
   const trustedArks = anchors.amdArks ?? DEFAULT_AMD_ARKS;
   const trustedIntelRoots = anchors.intelSgxRoots ?? DEFAULT_INTEL_SGX_ROOTS;
+  const trustedNvidiaRoots = anchors.nvidiaRoots ?? DEFAULT_NVIDIA_DEVICE_ROOTS;
+  const gpuEvidence = params.gpuEvidence ?? [];
   const requiredRoots = tee === 'tdx' ? trustedIntelRoots : trustedArks;
   if (requiredRoots.length === 0) {
     throw new SdkError(
       'EVIDENCE_NO_TRUST_ANCHORS',
       `no pinned root is configured for tee '${tee}', so the quote signature cannot be verified offline`,
+    );
+  }
+  if ((tee === 'snp+h100cc' || gpuEvidence.length > 0) && trustedNvidiaRoots.length === 0) {
+    throw new SdkError(
+      'EVIDENCE_NO_TRUST_ANCHORS',
+      "no pinned NVIDIA device root is configured, so a GPU report's signature cannot be verified offline",
     );
   }
 
@@ -131,6 +148,9 @@ export function verifyCompletionEvidence(params: VerifyEvidenceParams): Verified
     result = verifyAttestation(document, {
       trustedArks,
       trustedIntelRoots,
+      gpuEvidence,
+      trustedNvidiaRoots,
+      gpuNonce: expectedReportData,
       now: params.now,
     });
   } catch (err) {
@@ -156,6 +176,12 @@ export function verifyCompletionEvidence(params: VerifyEvidenceParams): Verified
     throw new SdkError(
       'EVIDENCE_TEE_MISMATCH',
       `the receipt claims tee '${tee}' but the evidence is a ${result.platformKind} quote`,
+    );
+  }
+  if (tee === 'snp+h100cc' && result.gpus.length === 0) {
+    throw new SdkError(
+      'EVIDENCE_GPU_MISSING',
+      "the receipt claims tee 'snp+h100cc' but no GPU report was verified beside it, so nothing attests the accelerator",
     );
   }
   const measurement = platformMeasurement(result);

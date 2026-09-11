@@ -229,6 +229,19 @@ describe('GPU evidence beside a platform document', () => {
     );
   });
 
+  it('refuses a GPU leg that answers a different challenge', () => {
+    expectErrorCode(
+      () =>
+        verifyAttestation(ATTESTATION, {
+          ...OPTIONS,
+          gpuEvidence: [{ report: gpuReport, certChain: gpuChain }],
+          trustedNvidiaRoots: nvidiaRoots,
+          gpuNonce: new Uint8Array(32).fill(0x11),
+        }),
+      'NONCE_MISMATCH',
+    );
+  });
+
   it('refuses GPU evidence it holds no pinned root for', () => {
     const leg = { report: gpuReport, certChain: gpuChain };
     expectErrorCode(

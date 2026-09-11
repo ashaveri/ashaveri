@@ -57,8 +57,11 @@ client's fetch so the same verification runs transparently, with receipts availa
 `strict`. Strict mode requires a policy pinning keys, issuers, instances and measurements, and
 adds the hardware step: it fetches the evidence whose digest the receipt signed, verifies the
 platform signature offline, and refuses a document whose report data or measurement disagrees
-with this request and the receipt. `@ashaveri/attest-core` bundles Intel's SGX root CA and the
-AMD Milan ARK as the roots to chain to; `policy.trustAnchors` replaces them.
+with this request and the receipt. `@ashaveri/attest-core` bundles Intel's SGX root CA, the
+AMD Milan ARK and NVIDIA's device identity root as the roots to chain to;
+`policy.trustAnchors` replaces them. A receipt whose `tee` claims a confidential-computing GPU
+is refused unless a device report that signed this request's digest verifies beside the
+platform document.
 
 `--live` runs the same gateway inside a dStack confidential VM. There the signing key comes
 from the guest agent and the measurement, issuer and instance come out of the hardware

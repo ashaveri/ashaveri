@@ -7,7 +7,7 @@ import {
   verifyCertificateSignature,
   type ParsedCertificate,
 } from './der.js';
-import { equalBytes } from './events.js';
+import { equalBytes, toHex } from './events.js';
 import { fail } from './errors.js';
 
 /**
@@ -49,6 +49,12 @@ export interface NvidiaOptions {
   readonly now?: number;
   /** DER or PEM trust anchors. Verification fails closed when none are supplied. */
   readonly trustedRoots?: readonly Uint8Array[];
+  /**
+   * The challenge this report had to answer. Comparing it against the nonce the
+   * GPU signed is what makes the evidence fresh: a captured report answers a
+   * different challenge and is refused.
+   */
+  readonly expectedNonce?: Uint8Array;
 }
 
 interface SpdmMeasurements {
@@ -132,11 +138,15 @@ function verifyDeviceChain(chain: readonly ParsedCertificate[], roots: readonly 
 
 export function verifyNvidiaRats(evidence: NvidiaEvidence, options: NvidiaOptions): NvidiaVerification {
   const now = options.now ?? Date.now();
+  const expectedNonce = options.expectedNonce;
   const rawRoots = options.trustedRoots ?? [];
   if (rawRoots.length === 0) {
     fail('MISSING_TRUST_ROOT', 'GPU evidence verification needs at least one pinned NVIDIA root certificate');
   }
   const { signed, nonce, signature } = parseSpdmMeasurements(evidence.report);
+  if (expectedNonce !== undefined && !equalBytes(expectedNonce, nonce)) {
+    fail('NONCE_MISMATCH', `the GPU signed a report for challenge ${toHex(nonce)}, this request expected ${toHex(expectedNonce)}`);
+  }
   const chain = parseCertificateChain(evidence.certChain);
   if (chain.length === 0) {
     fail('MALFORMED_CERTIFICATE', 'GPU certificate chain holds no certificates');

@@ -1,6 +1,7 @@
 import { readFileSync } from 'node:fs';
 import { describe, expect, it } from 'vitest';
-import { parseTdxQuote } from '@ashaveri/attest-core';
+import { decodeAttestation, parseTdxQuote } from '@ashaveri/attest-core';
+import { encodeV1Snp, pemToDer } from '../../attest-core/test/helpers.js';
 import { sha256 } from '@noble/hashes/sha2.js';
 import type { ReceiptPayload, SdkErrorCode, TeeKind } from '../src/index.js';
 import { evidenceReportData, SdkError, verifyCompletionEvidence } from '../src/index.js';
@@ -291,6 +292,84 @@ describe('verifyCompletionEvidence', () => {
     expectSdkErrorCode(
       () => verify(tampered, signedReceipt({ evidenceDigest: sha256(tampered) })),
       'EVIDENCE_VERIFICATION_FAILED',
+    );
+  });
+});
+
+// The AMD-signed SEV-SNP report captured from a CVM with GPUs, re-wrapped in the v1
+// envelope that carries its own certificate chain so the bundled ARK anchors it. The
+// challenge it quotes is the fixture's host data, an ASCII value from the published
+// provenance rather than a digest this test controls, which is why the composite
+// cases below all end in refusal: no report a vendor signed can answer a challenge
+// this file invents. The accepted pairing is exercised on live hardware.
+const SNP_NOW = Date.UTC(2026, 8, 10);
+const SNP_BINDING = utf8('attest-test-fixture-2026');
+const SNP_MEASUREMENT =
+  '7f51e17f72a04d5422cb2c00998166536019a217376f3aa45a630e59c805a599847ff250dbffcd07e1ba639771d6f05d';
+const GPU_LEG = {
+  report: fixture('nvidia-hopper-report.bin'),
+  certChain: fixture('nvidia-hopper-cert-chain.pem'),
+};
+
+function snpDocument(): Uint8Array {
+  const decoded = decodeAttestation(fixture('sev-snp-attestation.bin'));
+  if (decoded.platform.kind !== 'sev-snp') {
+    throw new Error('expected the sev-snp fixture');
+  }
+  return encodeV1Snp({
+    report: decoded.platform.report,
+    certChain: [pemToDer(fixture('sev-snp-ask.pem')), pemToDer(fixture('sev-snp-vcek.pem'))],
+    mrConfig: decoded.platform.mrConfig,
+    runtimeEvents: decoded.stack.runtimeEvents,
+    reportData: decoded.stack.reportData,
+    config: decoded.stack.config,
+  });
+}
+
+const SNP_DOCUMENT = snpDocument();
+
+function verifySnp(overrides: Partial<Parameters<typeof verifyCompletionEvidence>[0]> = {}) {
+  return verifyCompletionEvidence({
+    document: SNP_DOCUMENT,
+    expectedReportData: SNP_BINDING,
+    payload: signedReceipt({
+      tee: 'snp+h100cc',
+      measurement: fromHex(SNP_MEASUREMENT),
+      evidenceDigest: sha256(SNP_DOCUMENT),
+    }),
+    now: SNP_NOW,
+    ...overrides,
+  });
+}
+
+describe('strict mode for a composite tee', () => {
+  it('still accepts a plain snp receipt on the platform leg alone', () => {
+    const evidence = verifySnp({
+      payload: signedReceipt({ tee: 'snp', measurement: fromHex(SNP_MEASUREMENT), evidenceDigest: sha256(SNP_DOCUMENT) }),
+    });
+    expect(evidence.platformKind).toBe('sev-snp');
+    expect(evidence.quoteSignatureVerified).toBe(true);
+  });
+
+  it('refuses a snp+h100cc receipt that carries no GPU evidence', () => {
+    expectSdkErrorCode(() => verifySnp(), 'EVIDENCE_GPU_MISSING');
+  });
+
+  it('refuses a snp+h100cc receipt whose GPU report answers another challenge', () => {
+    try {
+      verifySnp({ gpuEvidence: [GPU_LEG] });
+      throw new Error('expected verification to fail');
+    } catch (err) {
+      expect(err).toBeInstanceOf(SdkError);
+      expect((err as SdkError).code).toBe('EVIDENCE_VERIFICATION_FAILED');
+      expect((err as SdkError).message).toContain('NONCE_MISMATCH');
+    }
+  });
+
+  it('refuses to guess at a device root for a composite claim', () => {
+    expectSdkErrorCode(
+      () => verifySnp({ gpuEvidence: [GPU_LEG], anchors: { nvidiaRoots: [] } }),
+      'EVIDENCE_NO_TRUST_ANCHORS',
     );
   });
 });

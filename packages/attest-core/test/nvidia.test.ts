@@ -12,6 +12,12 @@ const deviceRoot = fixture('nvidia-device-identity-ca.pem');
 // and the device root 2021-11-05, both expiring in the year 9999.
 const now = Date.UTC(2024, 0, 15);
 
+/** The challenge this sample's GPU signed. */
+const CHALLENGE = new Uint8Array([
+  0x08, 0xf2, 0xfd, 0x1f, 0x8b, 0xb7, 0x69, 0xd0, 0x87, 0xf6, 0xb0, 0xde, 0x1b, 0x38, 0x95, 0x94,
+  0xe6, 0xcd, 0x24, 0x15, 0xc2, 0xf9, 0x2c, 0xf4, 0x89, 0x4f, 0xd6, 0x17, 0xd8, 0xdd, 0xd7, 0xe6,
+]);
+
 /** Where the 32-byte nonce sits: past the 37-byte request and the measurement record. */
 function nonceOffset(bytes: Uint8Array): number {
   const recordLength = bytes[42] + (bytes[43] << 8) + (bytes[44] << 16);
@@ -25,11 +31,20 @@ describe('NVIDIA GPU evidence', () => {
     expect(result.signatureVerified).toBe(true);
     // The nonce the GPU was challenged with, taken from the signed region of the
     // response rather than from a field the host could overwrite.
-    expect(result.nonce).toEqual(
-      new Uint8Array([
-        0x08, 0xf2, 0xfd, 0x1f, 0x8b, 0xb7, 0x69, 0xd0, 0x87, 0xf6, 0xb0, 0xde, 0x1b, 0x38, 0x95, 0x94,
-        0xe6, 0xcd, 0x24, 0x15, 0xc2, 0xf9, 0x2c, 0xf4, 0x89, 0x4f, 0xd6, 0x17, 0xd8, 0xdd, 0xd7, 0xe6,
-      ]),
+    expect(result.nonce).toEqual(CHALLENGE);
+  });
+
+  it('accepts a report that answers the challenge it is checked against', () => {
+    const result = verifyNvidiaRats({ report, certChain }, { now, trustedRoots: [deviceRoot], expectedNonce: CHALLENGE });
+    expect(result.signatureVerified).toBe(true);
+  });
+
+  it('rejects a report that answers a different challenge', () => {
+    const other = Uint8Array.from(CHALLENGE);
+    other[31] ^= 0x01;
+    expectErrorCode(
+      () => verifyNvidiaRats({ report, certChain }, { now, trustedRoots: [deviceRoot], expectedNonce: other }),
+      'NONCE_MISMATCH',
     );
   });
 

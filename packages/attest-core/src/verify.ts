@@ -63,6 +63,11 @@ export interface VerifyOptions {
   readonly gpuEvidence?: readonly NvidiaEvidence[];
   /** Pinned NVIDIA device identity roots as PEM or DER bytes. Each blob may hold several. */
   readonly trustedNvidiaRoots?: readonly Uint8Array[];
+  /**
+   * The challenge every supplied GPU report must answer. Pass the same value the
+   * platform quote committed to in report_data and the two legs bind each other.
+   */
+  readonly gpuNonce?: Uint8Array;
   /** Accept reports whose guest policy permits debugging. Defaults to false. */
   readonly allowDebug?: boolean;
 }
@@ -133,7 +138,8 @@ export function verifyAttestation(bytes: Uint8Array, options: VerifyOptions = {}
 function verifyGpuEvidence(options: VerifyOptions): readonly NvidiaVerification[] {
   const now = options.now ?? Date.now();
   const roots = options.trustedNvidiaRoots ?? [];
-  return (options.gpuEvidence ?? []).map((evidence) => verifyNvidiaRats(evidence, { now, trustedRoots: roots }));
+  const expectedNonce = options.gpuNonce;
+  return (options.gpuEvidence ?? []).map((evidence) => verifyNvidiaRats(evidence, { now, trustedRoots: roots, expectedNonce }));
 }
 
 type PlatformResult = Omit<VerificationResult, 'gpus'>;

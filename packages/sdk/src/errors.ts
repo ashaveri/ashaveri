@@ -20,6 +20,7 @@ export type SdkErrorCode =
   | 'EVIDENCE_NOT_VERIFIED'
   | 'EVIDENCE_REPORT_DATA_MISMATCH'
   | 'EVIDENCE_TEE_MISMATCH'
+  | 'EVIDENCE_GPU_MISSING'
   | 'EVIDENCE_MEASUREMENT_MISMATCH';
 
 export class SdkError extends Error {

@@ -91,7 +91,7 @@ output. Kind and width are therefore one decision, not two that can drift apart:
 |---|---|---|
 | `"software"` | 32 bytes | No TEE. SHA-256 digest of what the deployment runs. |
 | `"snp"` | 48 bytes | AMD SEV-SNP SHA-384 launch digest. |
-| `"snp+h100cc"` | 48 bytes | SNP launch digest on an H100 in confidential-compute mode. |
+| `"snp+h100cc"` | 48 bytes | SNP launch digest, where the H100 half of the label is proven by the device report in section 5, not by this digest. |
 | `"tdx"` | 48 bytes | Intel TDX SHA-384 measurement (MRTD). |
 
 A decoder rejects a pair that disagrees, in both directions, even when the signature over it
@@ -217,7 +217,13 @@ A verifying client proceeds as follows:
    digest the hardware reports equals `meas.m`. A `tee` of `"software"` claims no hardware,
    so strict mode refuses it before the fetch. This is the receipt's only cross-protocol
    link: the receipt format specifies a digest commitment and nothing else, and the checks
-   above belong to the evidence format that `@ashaveri/attest-core` parses.
+   above belong to the evidence format that `@ashaveri/attest-core` parses. For the
+   composite `"snp+h100cc"` the client must be given at least one NVIDIA SPDM measurement
+   report too, verify its signature under a chain anchored at a pinned NVIDIA device root,
+   and require the challenge inside its signed region to equal that same
+   `sha256(nce, req)`. The shared challenge is the only link between the two documents:
+   neither vendor's signature covers the other's bytes, so a client holding no device
+   report has not verified the accelerator half of the label and must reject it.
 
 Steps 6 and 7 are what make the receipt a statement about *this* exchange rather than a
 generic artifact: a receipt whose hashes do not match the observed bytes is rejected even

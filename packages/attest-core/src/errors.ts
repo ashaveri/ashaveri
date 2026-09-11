@@ -14,6 +14,7 @@ export type AttestationErrorCode =
   | 'EVENT_LOG_MISMATCH'
   | 'RTMR_MISMATCH'
   | 'REPORT_DATA_MISMATCH'
+  | 'NONCE_MISMATCH'
   | 'QE_REPORT_MISMATCH'
   | 'MR_CONFIG_MISMATCH'
   | 'BAD_MR_CONFIG_ID'
@@ -44,6 +45,7 @@ const ERROR_MESSAGE: Record<AttestationErrorCode, string> = {
   EVENT_LOG_MISMATCH: 'platform event log and stack runtime events disagree',
   RTMR_MISMATCH: 'replayed RTMR3 does not match the value in the TDX quote',
   REPORT_DATA_MISMATCH: 'attestation report data does not match the quote',
+  NONCE_MISMATCH: 'the attested device did not sign the challenge it is checked against',
   QE_REPORT_MISMATCH: 'the QE report inside the quote does not bind the attestation key that signed it',
   MR_CONFIG_MISMATCH: 'mr_config document does not match the measurement pinned by the platform',
   BAD_MR_CONFIG_ID: 'MR_CONFIG_ID is neither empty nor a recognized dstack configuration binding',

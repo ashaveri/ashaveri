@@ -17,7 +17,7 @@ export function concatBytes(...parts: Uint8Array[]): Uint8Array {
   return out;
 }
 
-function toHex(bytes: Uint8Array): string {
+export function toHex(bytes: Uint8Array): string {
   let out = '';
   for (const b of bytes) {
     out += b.toString(16).padStart(2, '0');
