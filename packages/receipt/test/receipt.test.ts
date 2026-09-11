@@ -13,6 +13,7 @@ import {
   decodeCoseSign1,
   encodeCanonical,
   COSE_SIGN1_TAG,
+  claimsConfidentialDevice,
 } from '../src/index.js';
 import type { ReceiptPayload } from '../src/index.js';
 import { Tag } from 'cbor2';
@@ -174,6 +175,27 @@ describe('COSE_Sign1 receipt codec', () => {
     const verified = verifyReceipt(bytes, { publicKey: key.publicKey, now: FIXED_NOW });
     expect(verified.payload.meas.tee).toBe('software');
     expect(equalBytes(verified.payload.meas.m, digest)).toBe(true);
+  });
+
+  it('carries the TDX measurement for a claim that also names an accelerator', () => {
+    const key = generateSigningKey();
+    const mrtd = new Uint8Array(48).fill(11);
+    const bytes = issueReceipt(samplePayload({ meas: { tee: 'tdx+h100cc', m: mrtd } }), key);
+    const verified = verifyReceipt(bytes, { publicKey: key.publicKey, now: FIXED_NOW });
+    expect(verified.payload.meas.tee).toBe('tdx+h100cc');
+    expect(equalBytes(verified.payload.meas.m, mrtd)).toBe(true);
+    expectErrorCode(
+      () => issueReceipt(samplePayload({ meas: { tee: 'tdx+h100cc', m: new Uint8Array(32) } }), key),
+      'BAD_PAYLOAD',
+    );
+  });
+
+  it('promises a device report exactly for the kinds that name an accelerator', () => {
+    expect(claimsConfidentialDevice('snp+h100cc')).toBe(true);
+    expect(claimsConfidentialDevice('tdx+h100cc')).toBe(true);
+    expect(claimsConfidentialDevice('snp')).toBe(false);
+    expect(claimsConfidentialDevice('tdx')).toBe(false);
+    expect(claimsConfidentialDevice('software')).toBe(false);
   });
 
   it('refuses to issue a measurement whose width contradicts its kind', () => {

@@ -24,6 +24,7 @@ export {
   randomNonce,
   MEASUREMENT_BYTES,
   isTeeKind,
+  claimsConfidentialDevice,
 } from './receipt.js';
 export type {
   ReceiptPayload,

@@ -137,14 +137,16 @@ rejects the call; strict mode never degrades to a receipt-only verdict.
 ## A confidential GPU claim needs more than these steps
 
 Everything above is a CPU-only deployment, and the compose text is what it measures: `llama.cpp`
-on CPU and `signerd`, with no device reservation. A receipt labelled `snp+h100cc` is a different
-deployment, and the gate is on the operator's side of it.
+on CPU and `signerd`, with no device reservation. A receipt bearing a composite label,
+`snp+h100cc` or `tdx+h100cc`, is a different deployment, and the gate is on the operator's side
+of it.
 
-Three things have to be true before `--tee snp+h100cc` starts:
+Three things have to be true before `--tee` carries one:
 
-1. The instance is an AMD SEV-SNP VM with an H100 in confidential-computing mode. The `--tee`
-   value is a request, never an inference: the platform half is checked against the CPU quote,
-   and the label is adopted only if a device then answers the deployment's standing challenge.
+1. The instance is a confidential VM with an H100 in confidential-computing mode, the pairing the
+   label names: AMD SEV-SNP for `snp+h100cc`, Intel TDX for `tdx+h100cc`. The `--tee` value is a
+   request, never an inference: the platform half is checked against the CPU quote, and the label
+   is adopted only if a device then answers the deployment's standing challenge.
 2. The guest image's agent answers the device attestation call, and `nvattest` is present in it
    to produce the bundle. This repository has never had that call answered by a real image, so
    an image that offers no device route stops the deployment at startup rather than serving a

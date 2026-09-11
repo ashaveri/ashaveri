@@ -63,7 +63,7 @@ explicit about the current gaps.
 | T10 | DoS: gateway refuses to serve receipts | Receipt and evidence fetches retry with a short window, then fail closed as `RECEIPT_NOT_FOUND` or `EVIDENCE_NOT_FOUND` rather than falling back to unverified acceptance | Availability is out of scope |
 | T11 | Side channels on prompt content via receipts | Receipts contain hashes and counts only, never content | Hashes reveal content length implicitly (already visible in the response) |
 | T12 | Strict mode: gateway serves evidence from other work, another instance, or one not matching the receipt | The client recomputes the expected report data from its own nonce and request bytes, requires `sha256(document) == att.d`, requires the quote's platform to agree with the receipt's `tee` (a `software` receipt is refused before the fetch), and requires the measured launch digest to equal `meas.m` | Collateral freshness. The signature chain is checked against a pinned vendor root, but TCB Info, the QE identity and the CRL are not consulted, so a since-revoked platform still verifies |
-| T13 | Strict mode: a receipt labelled `"snp+h100cc"` claims a confidential GPU the deployment does not have, or quotes a device report captured for someone else | The label is only ever an operator's request, and the gateway will not start under it unless one of its accelerators signs that deployment's standing challenge. Strict mode then fetches the device document for the client's own challenge and requires a report whose signature chains to a pinned NVIDIA device root and whose signed challenge matches | The device report binds device and challenge but not host: nothing in either signature proves the attesting GPU is attached to the attesting VM. See section 6 |
+| T13 | Strict mode: a receipt bearing a composite `tee` claims a confidential GPU the deployment does not have, or quotes a device report captured for someone else | The label is only ever an operator's request, and the gateway will not start under it unless one of its accelerators signs that deployment's standing challenge. Strict mode then fetches the device document for the client's own challenge and requires a report whose signature chains to a pinned NVIDIA device root and whose signed challenge matches | Residual trust in one label choice: the operator picks the composite and the gateway confirms only that its platform quote and a device report answer the same challenge. See section 6 |
 
 ## 6. Current limitations, stated plainly
 
@@ -109,17 +109,17 @@ What is still true, in both modes:
   through `@ashaveri/sdk` in strict mode or `@ashaveri/cli`. That is deliberate, but it means a
   gateway that lied about its platform could still serve receipts: the detection lives on the
   verifying side.
-- **A composite claim has no proof of attachment.** `"snp+h100cc"` is never read off hardware.
-  An operator asks for it, and the gateway refuses to start under that label unless one of its
-  accelerators signs the deployment's standing challenge; a client then requires a device report
-  signing its own challenge under a pinned NVIDIA root. That establishes a genuine
-  confidential-computing GPU attesting to this request and a genuine SNP VM serving it. It does
-  not establish that the GPU is the card plugged into that VM, because the vendor's report carries
-  no host binding, so an operator with a CC GPU anywhere it can reach could pair the two
-  documents. TDISP/TEE-IO is the mechanism that would close this, and no deployment here has it.
-  Device collection costs a real device seconds, so the gateway asks once per challenge and
-  caches the answer, and a plain `"snp"` deployment is never upgraded into the claim or charged
-  for it.
+- **A composite claim has no proof of attachment.** Neither `"snp+h100cc"` nor `"tdx+h100cc"` is
+  ever read off hardware. An operator asks for it, and the gateway refuses to start under that
+  label unless one of its accelerators signs the deployment's standing challenge; a client then
+  requires a device report signing its own challenge under a pinned NVIDIA root. That establishes
+  a genuine confidential-computing GPU attesting to this request and a genuine SNP or TDX VM
+  serving it. It does not establish that the GPU is the card plugged into that VM, because the
+  vendor's report carries no host binding, so an operator with a CC GPU anywhere it can reach
+  could pair the two documents. TDISP/TEE-IO is the mechanism that would close this, and no
+  deployment here has it. Device collection costs a real device seconds, so the gateway asks once
+  per challenge and caches the answer, and a plain `"snp"` or `"tdx"` deployment is never upgraded
+  into the claim or charged for it.
 - **The producing path has not been answered by a real image.** The gateway calls dstack's v1
   device attestation route and serves the vendor's `nvattest` bundle unchanged; both are
   implemented from published shapes and tested against a fake guest. The guest agent's wire

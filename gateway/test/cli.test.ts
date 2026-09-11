@@ -72,7 +72,14 @@ describe('signerd cli', () => {
   it('rejects an unknown tee kind', () => {
     const result = run(...liveArgs('--model', 'm', '--tee', 'sgx'));
     expect(result.status).toBe(2);
-    expect(result.stderr).toContain("--tee must be snp, snp+h100cc or tdx");
+    expect(result.stderr).toContain("--tee must be one of snp, snp+h100cc, tdx, tdx+h100cc, got 'sgx'");
+  });
+
+  it('accepts a composite claim over TDX', () => {
+    // Past validation and as far as the guest agent, which this environment has none of.
+    const result = run(...liveArgs('--model', 'm', '--tee', 'tdx+h100cc'));
+    expect(result.stderr).not.toContain('--tee must be');
+    expect(result.stderr).toContain('GUEST_ENDPOINT_MISSING');
   });
 
   it('reports an unreachable guest agent without a stack trace', () => {

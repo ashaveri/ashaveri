@@ -373,3 +373,48 @@ describe('strict mode for a composite tee', () => {
     );
   });
 });
+
+// An Intel TDX host with an H100 in confidential-computing mode makes the same promise over a
+// TDX quote. As in the section above, no report a vendor signed can answer a challenge this file
+// invents, so the accepted pairing stays a live-hardware check; what is under test here is that
+// the claim is refused for its missing leg and for nothing else.
+describe('strict mode for a composite TDX tee', () => {
+  function verifyTdx(overrides: Partial<Parameters<typeof verifyCompletionEvidence>[0]> = {}) {
+    return verifyCompletionEvidence({
+      document: DOCUMENT,
+      expectedReportData: fromHex(REPORT_DATA),
+      payload: signedReceipt({ tee: 'tdx+h100cc' }),
+      now: NOW,
+      ...overrides,
+    });
+  }
+
+  it('refuses a tdx+h100cc receipt that carries no GPU evidence', () => {
+    expectSdkErrorCode(() => verifyTdx(), 'EVIDENCE_GPU_MISSING');
+  });
+
+  it('requires Intel roots for a TDX claim that also names an accelerator', () => {
+    expectSdkErrorCode(
+      () => verifyTdx({ anchors: { intelSgxRoots: [] } }),
+      'EVIDENCE_NO_TRUST_ANCHORS',
+    );
+  });
+
+  it('refuses a tdx+h100cc receipt whose GPU report answers another challenge', () => {
+    try {
+      verifyTdx({ gpuEvidence: [GPU_LEG] });
+      throw new Error('expected verification to fail');
+    } catch (err) {
+      expect(err).toBeInstanceOf(SdkError);
+      expect((err as SdkError).code).toBe('EVIDENCE_VERIFICATION_FAILED');
+      expect((err as SdkError).message).toContain('NONCE_MISMATCH');
+    }
+  });
+
+  it('refuses an snp+h100cc claim made over a TDX quote', () => {
+    expectSdkErrorCode(
+      () => verifyTdx({ payload: signedReceipt({ tee: 'snp+h100cc' }) }),
+      'EVIDENCE_TEE_MISMATCH',
+    );
+  });
+});

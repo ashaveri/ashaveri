@@ -1,6 +1,7 @@
 #!/usr/bin/env node
 import { readFileSync } from 'node:fs';
 import { parseArgs } from 'node:util';
+import { MEASUREMENT_BYTES, type TeeKind } from '@ashaveri/receipt';
 import { buildGateway } from './server.js';
 import { dstackDeployment } from './dstack.js';
 import { GuestClient } from './guest.js';
@@ -43,10 +44,18 @@ Options:
   --epk <n>                        Epoch of the signing key, published in the manifest.
   --issuer <id>                    Override the issuer derived from the event log.
   --instance <id>                  Override the instance id derived from the event log.
-  --tee <snp|snp+h100cc|tdx>       Refuse to start unless the evidence agrees.
+  --tee <environment>              Refuse to start unless the evidence agrees.
+                                   One of snp, snp+h100cc, tdx, tdx+h100cc; the
+                                   composite kinds also require a device report.
   --help                           Print this help.`;
 
-const HARDWARE_TEES: readonly HardwareTeeKind[] = ['snp', 'snp+h100cc', 'tdx'];
+/**
+ * Read off the receipt's measurement table: a kind the wire format allows has to be
+ * selectable here, and a hand-kept copy of that list is how it stops being so.
+ */
+const HARDWARE_TEES: readonly HardwareTeeKind[] = (Object.keys(MEASUREMENT_BYTES) as TeeKind[]).filter(
+  (tee): tee is HardwareTeeKind => tee !== 'software',
+);
 
 interface CliOptions {
   readonly mock?: boolean;
@@ -147,7 +156,7 @@ async function liveDeployment(values: CliOptions): Promise<Deployment> {
     fail(`--epk must be a non-negative integer, got '${String(values.epk)}'`);
   }
   if (values.tee !== undefined && !(HARDWARE_TEES as readonly string[]).includes(values.tee)) {
-    fail(`--tee must be snp, snp+h100cc or tdx, got '${values.tee}'`);
+    fail(`--tee must be one of ${HARDWARE_TEES.join(', ')}, got '${values.tee}'`);
   }
   return dstackDeployment({
     client: new GuestClient({ endpoint: values['guest-socket'] }),

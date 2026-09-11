@@ -14,7 +14,7 @@ import {
 import { ReceiptError } from './errors.js';
 
 /** `software` makes no TEE claim: `m` is the deployment's own digest of what it runs. */
-export type TeeKind = 'software' | 'snp' | 'snp+h100cc' | 'tdx';
+export type TeeKind = 'software' | 'snp' | 'snp+h100cc' | 'tdx' | 'tdx+h100cc';
 
 /**
  * Measurement bytes each kind must carry. A TEE reports its platform-native SHA-384
@@ -26,7 +26,19 @@ export const MEASUREMENT_BYTES: Readonly<Record<TeeKind, 32 | 48>> = {
   snp: 48,
   'snp+h100cc': 48,
   tdx: 48,
+  'tdx+h100cc': 48,
 };
+
+/**
+ * Whether this kind promises a device report beside the platform quote.
+ *
+ * A rule over the suffix rather than a list of literals, so a future composite cannot
+ * be added to the enum while the client and the gateway quietly disagree about whether
+ * it owes a second evidence leg.
+ */
+export function claimsConfidentialDevice(tee: TeeKind): boolean {
+  return tee.endsWith('+h100cc');
+}
 
 export function isTeeKind(value: unknown): value is TeeKind {
   return typeof value === 'string' && value in MEASUREMENT_BYTES;
