@@ -19,6 +19,8 @@ The Ashaveri Verifiable AI Inference SDK. OpenAI-compatible inference with crypt
 pnpm install
 pnpm build
 pnpm test
+pnpm typecheck
+pnpm lint
 ```
 
 The receipt wire format is normatively defined in `packages/receipt/receipt.cddl`,
