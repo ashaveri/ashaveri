@@ -93,7 +93,7 @@ function parsePayload(bytes: Uint8Array): ReceiptPayload {
   const ins = raw.get('ins');
   if (typeof ins !== 'string') throw bad('ins must be a tstr');
   const iat = raw.get('iat');
-  if (typeof iat !== 'number' || !Number.isSafeInteger(iat)) throw bad('iat must be an integer');
+  if (typeof iat !== 'number' || !Number.isSafeInteger(iat) || iat < 0) throw bad('iat must be a non-negative integer');
   const nce = raw.get('nce');
   if (!isUint8Array(nce) || nce.length !== 16) throw bad('nce must be a 16-byte bstr');
   const req = raw.get('req');
@@ -118,7 +118,7 @@ function parsePayload(bytes: Uint8Array): ReceiptPayload {
   const d = attRaw.get('d');
   if (!isUint8Array(d) || d.length !== 32) throw bad('att.d must be a 32-byte bstr');
   const ts = attRaw.get('ts');
-  if (typeof ts !== 'number' || !Number.isSafeInteger(ts)) throw bad('att.ts must be an integer');
+  if (typeof ts !== 'number' || !Number.isSafeInteger(ts) || ts < 0) throw bad('att.ts must be a non-negative integer');
   const url = attRaw.get('url');
   if (typeof url !== 'string') throw bad('att.url must be a tstr');
   const epk = raw.get('epk');

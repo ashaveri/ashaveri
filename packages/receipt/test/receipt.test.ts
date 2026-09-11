@@ -120,6 +120,20 @@ describe('COSE_Sign1 receipt codec', () => {
     expectErrorCode(() => verifyReceipt(bytes, { publicKey: key.publicKey, now: FIXED_NOW }), 'BAD_PAYLOAD');
   });
 
+  it('rejects a negative timestamp with BAD_PAYLOAD', () => {
+    const key = generateSigningKey();
+    const base = samplePayload();
+    // The spec fixes every integer as non-negative, so a signed document that breaks
+    // that rule is malformed even when its signature is valid.
+    const negativeIat = issueReceipt(samplePayload({ iat: -1 }), key);
+    expectErrorCode(() => verifyReceipt(negativeIat, { publicKey: key.publicKey, now: FIXED_NOW }), 'BAD_PAYLOAD');
+    const negativeEvidenceTs = issueReceipt(samplePayload({ att: { ...base.att, ts: -1 } }), key);
+    expectErrorCode(
+      () => verifyReceipt(negativeEvidenceTs, { publicKey: key.publicKey, now: FIXED_NOW }),
+      'BAD_PAYLOAD',
+    );
+  });
+
   it('carries a 48-byte hardware measurement', () => {
     const key = generateSigningKey();
     const launchDigest = new Uint8Array(48).fill(7);
