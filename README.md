@@ -65,8 +65,8 @@ The mock gateway signs with a development key in process memory, and its measure
 URL and weights digests are fixed development values. It reports `tee: "software"`, the one kind
 in the protocol that claims no hardware protection, so read a mock receipt as proof that the mock
 gateway signed those bytes and nothing more. See
-[docs/threat-model.md](docs/threat-model.md) for what receipts do and do not prove at each
-stage of the roadmap.
+[docs/threat-model.md](docs/threat-model.md) for what receipts do and do not prove in mock mode
+and in live mode.
 
 ## Verifying an attestation
 

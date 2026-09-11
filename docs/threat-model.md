@@ -66,7 +66,7 @@ explicit about the current gaps.
 
 The gateway has two modes, and the difference between them is the substance of this section.
 
-`signerd --live` (Week 4) closes the "nothing binds the claims to hardware" gap on the
+`signerd --live` closes the "nothing binds the claims to hardware" gap on the
 serving side:
 
 - The signing key is derived by the guest agent inside the CVM from `--key-path`, not a key

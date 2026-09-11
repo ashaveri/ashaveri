@@ -1,6 +1,6 @@
 # signerd on a dStack confidential VM
 
-This is the operating procedure for Week 4: a live CPU-only TEE deployment whose receipts an
+This is the operating procedure for a live CPU-only TEE deployment whose receipts an
 outside client can verify. It is written against the documented dStack 0.6 and `phala` CLI
 surface, and it has **not been executed end to end yet**. Lines marked `CONFIRM` are the
 points that depend on the account, the assigned hostname, or the exact flags that tier
