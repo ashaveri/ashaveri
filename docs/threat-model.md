@@ -12,7 +12,7 @@ deployment, under a specific key, with a specific claim about model, weights, me
 and token metering.
 
 What receipts do not protect: confidentiality of prompts or responses, availability, or the
-truthfulness of a gateway's claims about hardware it does not actually run on. Section 5 is
+truthfulness of a gateway's claims about hardware it does not actually run on. Section 6 is
 explicit about the current gaps.
 
 ## 2. Assets
@@ -21,7 +21,8 @@ explicit about the current gaps.
 - **A2 Request-response binding.** The receipt is about this request, not another one.
 - **A3 Gateway identity.** Which deployment, under which signing key, produced the response.
 - **A4 Deployment claims.** Model id, weights digest, TEE measurement, attestation evidence reference.
-- **A5 Token metering.** The billed token counts are the ones signed.
+- **A5 Token metering.** The counts a receipt signs cannot be revised afterwards, so whichever
+  gateway claimed them owns that claim. Where the counts came from is T9's problem, not A5's.
 - **A6 Client policy.** The client's pinned keys, issuers, instances, and measurements.
 
 ## 3. Actors and trust boundaries
@@ -72,17 +73,23 @@ The gateway has two modes, and the difference between them is the substance of t
 serving side:
 
 - The signing key is derived by the guest agent inside the CVM from `--key-path`, not a key
-  file, an environment variable, or process memory that survives a restart. Nothing outside
-  the confidential VM can extract it through the application.
+  file, an environment variable, or process memory that survives a restart. The application
+  never writes it anywhere, so nothing outside the confidential VM extracts it through this
+  code. Which agent is asked remains an operator setting: `--guest-socket` and
+  `DSTACK_SIMULATOR_ENDPOINT` point signerd at any socket or URL they name, so a key is only as
+  local as the peer that supplied it.
 - `meas`, the issuer and the instance are read out of the guest's own evidence at startup.
   A hand-entered value is only possible through the explicit `--issuer` / `--instance`
   overrides, and `--tee` refuses to start if the evidence contradicts the configured platform.
 - Every receipt points at evidence bound to that request's nonce: the gateway checks that the
   quote's report data equals `sha256(nonce, hashRequest(request))` before it publishes the
   document, so a quote captured for another request is rejected.
-- The entrypoint verifies the mounted weights against the manifest whose digest becomes `wts`
-  (see [enclave/README.md](../enclave/README.md)), so a swapped model file stops the process at
-  startup instead of quietly signing the wrong weights.
+- The entrypoint verifies the mounted model files against a manifest before `signerd` starts when
+  the container sets both `ASHAVERI_WEIGHTS_DIR` and `ASHAVERI_WEIGHTS_MANIFEST`, which the
+  bundled compose does (see [enclave/README.md](../enclave/README.md)), so a swapped model file
+  stops the process at startup instead of quietly signing the wrong weights. It is an opt-in
+  check reading environment variables while `wts` comes from the separate `--weights-manifest`
+  flag, so a deployment that sets one without the other signs a digest nothing checked at boot.
 
 What is still true, in both modes:
 
@@ -123,8 +130,12 @@ What is still true, in both modes:
   its `meas` and `att` fields are digests of fixed strings, and its evidence URL uses the
   `mock://` scheme. It reports `tee: "software"`, the member of the enum that claims no
   hardware protection, so no field of a mock receipt reads as a TEE assertion.
-- **Receipts live in process memory**, with no persistence and no key rotation (`epk` is
-  always 0). A real deployment needs a retention store and epoch rotation.
+- **Receipts live in process memory.** An issued receipt stays fetchable for the life of the
+  process, is lost on restart, and is never evicted, so the store grows with traffic where the
+  evidence caches beside it keep the most recent 256 documents each. There is no runtime key
+  rotation either: `--epk` publishes the epoch of the key a process started with, so rotating
+  means a new deployment with a new `--key-path` and a higher epoch. A real deployment needs a
+  retention window it can advertise and a rotation that survives a restart.
 - **The manifest is unsigned.** Strict-mode pinning is what gives it weight today; the
   intended end state is a manifest signed by a long-term deployment identity.
 - **The weights digest chain has one open link.** The receipt binds `sha256(manifest)` and the

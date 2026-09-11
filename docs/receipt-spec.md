@@ -64,8 +64,8 @@ counter-signature variants, if ever needed, would be a new format version.
 | `wts` | bstr (32) | sha256 digest of the deployment's weights manifest. |
 | `meas` | map | `{ tee, m }`: the environment kind, one of `"software"`, `"snp"`, `"snp+h100cc"`, `"tdx"`, and the measurement for that kind. A TEE reports its platform-native 48-byte SHA-384 value (SEV-SNP launch digest or TDX MRTD); `"software"` makes no hardware claim and carries a 32-byte SHA-256 digest of what the deployment runs. The width is fixed by the kind, so a digest that does not match its own kind is malformed. |
 | `att` | map | `{ d, ts, url }`: digest of the attestation evidence document, its timestamp (Unix seconds), and a URL where the evidence can be fetched and re-verified. |
-| `epk` | int | Signing-key epoch, for key rotation. The gateway increments it when it replaces its signing key. |
-| `tok` | map | `{ p, c }`: prompt and completion token counts for the call. |
+| `epk` | int | Signing-key epoch, for key rotation. A gateway publishes the value it was started with (`--epk` on signerd) and never changes it, so rotating a key means a new process with a higher epoch. |
+| `tok` | map | `{ p, c }`: prompt and completion token counts for the call, as the serving stack reported them. A receipt proves who claimed a count, not that the count is right. |
 
 All integers are non-negative. Maps use bytewise canonical key ordering per RFC 8949 CDE.
 
@@ -102,7 +102,10 @@ so in the same field without borrowing a value it does not own.
 
 ## 4. HTTP protocol
 
-Receipts ride alongside an OpenAI-compatible chat completions API.
+Receipts ride alongside an OpenAI-compatible chat completions API. The paths in this section are
+relative to the deployment's base URL, the value a client configures as `baseUrl`, and a signerd
+deployment mounts each one under `/v1`: on such a gateway the receipt route is
+`GET /v1/receipts/<receipt-id>`.
 
 ### 4.1 Request
 
@@ -134,8 +137,10 @@ GET /receipts/<receipt-id>    -> 200 application/cbor, receipt bytes
 ```
 
 Gateways may register a receipt shortly after the response body completes; clients should
-retry briefly on 404. Receipts remain fetchable for a retention window the gateway chooses
-and advertises out of band.
+retry briefly on 404. How long a receipt stays fetchable is the gateway's choice and the
+protocol does not carry that answer, so treat an id as a handle rather than a proof: a signerd
+process serves every receipt it issued until it restarts, and then serves none of them. Fetch
+the bytes and keep them if the proof has to outlive the deployment.
 
 ### 4.4 Deployment manifest
 
@@ -186,9 +191,11 @@ The body is the platform's native evidence envelope, not JSON: on dStack deploym
 the V1 msgpack structure carrying the hardware quote, the runtime event log and the app
 configuration. `sha256` of the served bytes must equal the `att.d` of any receipt naming this
 URL, so a client can confirm the document it verifies is the one that was signed. Evidence is
-re-fetchable only while the gateway retains it, for a window it chooses and advertises out of
-band; a receipt whose evidence can no longer be fetched still verifies cryptographically, but
-the client can no longer re-check the hardware claims and should treat it as an archived proof.
+re-fetchable only while the gateway retains it, and the protocol carries no announcement of
+that window; a signerd process keeps the most recent 256 documents on each evidence route and
+drops the oldest first. A receipt whose evidence can no longer be fetched still verifies
+cryptographically, but the client can no longer re-check the hardware claims and should treat
+it as an archived proof.
 
 ### 4.6 Device evidence
 
@@ -197,9 +204,12 @@ document:
 
 ```text
 GET /attestation/gpu?report_data=<64 hex> -> 200 application/octet-stream, device evidence
-                                          -> 400 if report_data is missing or not 64 hex characters
                                           -> 404 if the deployment makes no device claim
+                                          -> 400 if report_data is missing or not 64 hex characters
 ```
+
+A deployment answers the capability question first: one that makes no device claim returns 404
+without reading the query, because no parameter could make the answer yes.
 
 `report_data` is required here, where the platform route can serve a standing document without
 it: an accelerator report is only worth fetching if it names the challenge of the receipt being
