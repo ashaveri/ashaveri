@@ -74,6 +74,8 @@ describe('AshaveriClient.create', () => {
     expect(receipt).toBeNull();
     // only the completion request happened: no manifest or receipt fetches
     expect(gateway.requests).toHaveLength(1);
+    // a nonce the client will never check is a client identifier with no benefit
+    expect(gateway.requests[0]!.nonceHeader).toBeUndefined();
   });
 
   it('rejects a response body modified after signing', async () => {
@@ -191,12 +193,13 @@ describe('AshaveriClient.stream', () => {
   });
 
   it('settles the receipt to null in off mode', async () => {
-    const { client } = clientWith({}, () => ({ verify: 'off' as const }));
+    const { gateway, client } = clientWith({}, () => ({ verify: 'off' as const }));
     const stream = await client.chat.completions.stream({ messages: MESSAGES });
     for await (const _chunk of stream) {
       // drain
     }
     await expect(stream.receipt).resolves.toBeNull();
+    expect(gateway.requests[0]!.nonceHeader).toBeUndefined();
   });
 });
 
