@@ -1,4 +1,4 @@
-import { p384 } from '@noble/curves/p384';
+import { p384 } from '@noble/curves/nist.js';
 import { sha384 } from '@noble/hashes/sha2.js';
 import {
   checkCertificateValidity,
@@ -214,7 +214,7 @@ export function verifyNvidiaRats(evidence: NvidiaEvidence, options: NvidiaOption
   const der = derEcdsaSignature(
     toBigUint(signature.subarray(0, 48)),
     toBigUint(signature.subarray(48, SIGNATURE_BYTES)),
-    p384.CURVE.n,
+    p384.Point.CURVE().n,
   );
   if (!p384.verify(der, sha384(signed), leaf.publicKey.point, { format: 'der' })) {
     fail('BAD_SIGNATURE', 'GPU report signature does not verify under its own leaf certificate');

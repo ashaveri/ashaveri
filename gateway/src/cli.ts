@@ -101,7 +101,7 @@ try {
       instance: { type: 'string' },
       tee: { type: 'string' },
     },
-  }).values as CliOptions;
+  }).values;
 } catch (error) {
   fail(error instanceof Error ? error.message : String(error));
 }

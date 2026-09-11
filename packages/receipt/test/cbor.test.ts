@@ -48,7 +48,7 @@ describe('RFC 8949 core deterministic encoding', () => {
   }
 
   it('decodes and re-encodes to identical bytes (canonicality)', () => {
-    for (const { value, hex } of RFC8949_VECTORS) {
+    for (const { hex } of RFC8949_VECTORS) {
       const bytes = Buffer.from(hex, 'hex');
       const decoded = decodeCanonical(new Uint8Array(bytes));
       const reencoded = encodeCanonical(decoded);

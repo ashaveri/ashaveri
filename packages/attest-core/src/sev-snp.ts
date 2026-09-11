@@ -1,4 +1,4 @@
-import { p384 } from '@noble/curves/p384';
+import { p384 } from '@noble/curves/nist.js';
 import { sha384 } from '@noble/hashes/sha2.js';
 import {
   checkCertificateValidity,
@@ -150,7 +150,7 @@ export function productLineFromCpuid(family: number, model: number): string | nu
 // The AMD report stores R and S as fixed 72-byte little-endian buffers; ECDSA
 // wants them as a DER SEQUENCE of unsigned big-endian integers.
 export function snpReportSignatureDer(report: SnpReport): Uint8Array {
-  return derEcdsaSignature(leToBigint(report.signature.r), leToBigint(report.signature.s), p384.CURVE.n);
+  return derEcdsaSignature(leToBigint(report.signature.r), leToBigint(report.signature.s), p384.Point.CURVE().n);
 }
 
 function leToBigint(bytes: Uint8Array): bigint {

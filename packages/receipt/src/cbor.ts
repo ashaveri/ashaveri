@@ -17,3 +17,13 @@ export function decodeCanonical(bytes: Uint8Array, malformed: ReceiptErrorCode =
     throw new ReceiptError(malformed, err instanceof Error ? err.message : String(err));
   }
 }
+
+/**
+ * A decoded CBOR map arrives as `Map<any, any>`, which makes every value read look like
+ * `any` and stops the `typeof` and `instanceof` checks in the parsers from counting as
+ * narrowing. This performs the map check once and gives back unknown-valued reads, so a
+ * check decides the type instead of asserting it.
+ */
+export function decodedMap(value: unknown): Map<unknown, unknown> | null {
+  return value instanceof Map ? (value as Map<unknown, unknown>) : null;
+}

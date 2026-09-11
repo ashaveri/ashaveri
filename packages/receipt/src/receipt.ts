@@ -1,5 +1,5 @@
 import { sha256 } from '@noble/hashes/sha2.js';
-import { encodeCanonical, decodeCanonical } from './cbor.js';
+import { encodeCanonical, decodeCanonical, decodedMap } from './cbor.js';
 import type {
   CoseSign1,
   ProtectedHeader,
@@ -84,9 +84,9 @@ function isUint8Array(v: unknown): v is Uint8Array {
 }
 
 function parsePayload(bytes: Uint8Array): ReceiptPayload {
-  const raw = decodeCanonical(bytes, 'BAD_PAYLOAD');
-  if (!(raw instanceof Map)) throw new ReceiptError('BAD_PAYLOAD', 'payload is not a map');
   const bad = (detail: string): ReceiptError => new ReceiptError('BAD_PAYLOAD', detail);
+  const raw = decodedMap(decodeCanonical(bytes, 'BAD_PAYLOAD'));
+  if (raw === null) throw bad('payload is not a map');
   if (raw.get('v') !== 1) throw bad('v must be 1');
   const iss = raw.get('iss');
   if (typeof iss !== 'string') throw bad('iss must be a tstr');
@@ -104,30 +104,30 @@ function parsePayload(bytes: Uint8Array): ReceiptPayload {
   if (typeof mdl !== 'string') throw bad('mdl must be a tstr');
   const wts = raw.get('wts');
   if (!isUint8Array(wts) || wts.length !== 32) throw bad('wts must be a 32-byte bstr');
-  const measRaw = raw.get('meas');
-  if (!(measRaw instanceof Map)) throw bad('meas must be a map');
-  const tee = measRaw.get('tee');
+  const meas = decodedMap(raw.get('meas'));
+  if (meas === null) throw bad('meas must be a map');
+  const tee = meas.get('tee');
   if (!isTeeKind(tee)) throw bad('meas.tee is not a known environment kind');
-  const m = measRaw.get('m');
+  const m = meas.get('m');
   const width = MEASUREMENT_BYTES[tee];
   if (!isUint8Array(m) || m.length !== width) {
     throw bad(`meas.m must be a ${width}-byte bstr for tee '${tee}'`);
   }
-  const attRaw = raw.get('att');
-  if (!(attRaw instanceof Map)) throw bad('att must be a map');
-  const d = attRaw.get('d');
+  const att = decodedMap(raw.get('att'));
+  if (att === null) throw bad('att must be a map');
+  const d = att.get('d');
   if (!isUint8Array(d) || d.length !== 32) throw bad('att.d must be a 32-byte bstr');
-  const ts = attRaw.get('ts');
+  const ts = att.get('ts');
   if (typeof ts !== 'number' || !Number.isSafeInteger(ts) || ts < 0) throw bad('att.ts must be a non-negative integer');
-  const url = attRaw.get('url');
+  const url = att.get('url');
   if (typeof url !== 'string') throw bad('att.url must be a tstr');
   const epk = raw.get('epk');
   if (typeof epk !== 'number' || !Number.isSafeInteger(epk) || epk < 0) throw bad('epk must be a non-negative integer');
-  const tokRaw = raw.get('tok');
-  if (!(tokRaw instanceof Map)) throw bad('tok must be a map');
-  const p = tokRaw.get('p');
+  const tok = decodedMap(raw.get('tok'));
+  if (tok === null) throw bad('tok must be a map');
+  const p = tok.get('p');
   if (typeof p !== 'number' || !Number.isSafeInteger(p) || p < 0) throw bad('tok.p must be a non-negative integer');
-  const c = tokRaw.get('c');
+  const c = tok.get('c');
   if (typeof c !== 'number' || !Number.isSafeInteger(c) || c < 0) throw bad('tok.c must be a non-negative integer');
   return {
     v: 1,

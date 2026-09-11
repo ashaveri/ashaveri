@@ -19,7 +19,12 @@ The Ashaveri Verifiable AI Inference SDK. OpenAI-compatible inference with crypt
 pnpm install
 pnpm build
 pnpm test
+pnpm typecheck
+pnpm lint
 ```
+
+`pnpm lint` checks types through the declarations `pnpm build` emits, so the build has to
+run first; CI uses that order.
 
 The receipt wire format is normatively defined in `packages/receipt/receipt.cddl`,
 with the full protocol in [docs/receipt-spec.md](docs/receipt-spec.md) and the

@@ -11,5 +11,9 @@
     "test": "pnpm -r --filter \"@ashaveri/*\" test",
     "lint": "pnpm -r --filter \"@ashaveri/*\" lint",
     "typecheck": "pnpm -r --filter \"@ashaveri/*\" typecheck"
+  },
+  "devDependencies": {
+    "eslint": "^10.10.0",
+    "typescript-eslint": "^8.70.0"
   }
 }

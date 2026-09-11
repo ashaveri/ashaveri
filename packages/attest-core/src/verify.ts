@@ -305,7 +305,7 @@ function verifyTdx(attestation: Attestation, options: VerifyOptions): PlatformRe
   }
   validateEventLog(platform.eventLog, attestation.stack.runtimeEvents);
   const replayed = replayRtmr3(attestation.stack.runtimeEvents);
-  if (!equalBytes(replayed, quote.rtmr[3] as Uint8Array)) {
+  if (!equalBytes(replayed, quote.rtmr[3])) {
     fail('RTMR_MISMATCH', 'replayed RTMR3 from runtime events differs from the quote');
   }
   if (!equalBytes(attestation.stack.reportData, quote.reportData)) {

@@ -1,4 +1,4 @@
-import { p256 } from '@noble/curves/p256';
+import { p256 } from '@noble/curves/nist.js';
 import { sha256 } from '@noble/hashes/sha2.js';
 import {
   checkCertificateValidity,
@@ -250,7 +250,7 @@ function verifyEcdsaP256(rawSignature: Uint8Array, message: Uint8Array, point: U
   // Quotes carry ECDSA as raw r||s and noble only accepts DER; converting also
   // range-checks the pair, so a garbage signature is BAD_SIGNATURE rather than
   // an exception from inside the curve.
-  const der = derEcdsaSignature(beToBigint(rawSignature.subarray(0, half)), beToBigint(rawSignature.subarray(half)), p256.CURVE.n);
+  const der = derEcdsaSignature(beToBigint(rawSignature.subarray(0, half)), beToBigint(rawSignature.subarray(half)), p256.Point.CURVE().n);
   if (!p256.verify(der, sha256(message), point, { format: 'der' })) {
     fail('BAD_SIGNATURE', `${name} ECDSA-P256 signature does not verify`);
   }

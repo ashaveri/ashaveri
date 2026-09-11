@@ -250,6 +250,7 @@ export class AshaveriClient {
     if (response.body === null) {
       throw new SdkError('GATEWAY_ERROR', 'streaming response has no body');
     }
+    const stream: ReadableStream<Uint8Array> = response.body;
     const receiptId = response.headers.get('x-ashaveri-receipt-id');
     const requestHash = hashRequest(utf8(body));
     const decoder = new TextDecoder();
@@ -262,9 +263,11 @@ export class AshaveriClient {
       failVerification = reject;
     });
 
-    const client = this;
+    const strictMode = this.mode === 'strict';
+    const verifyEvidence = (id: string, challenge: Uint8Array, responseHash: Uint8Array) =>
+      this.verify(id, challenge, requestHash, responseHash);
     const iterator = async function* (): AsyncGenerator<ChatCompletionChunk> {
-      const reader = response.body!.getReader();
+      const reader = stream.getReader();
       try {
         for (;;) {
           const { done, value } = await reader.read();
@@ -292,7 +295,7 @@ export class AshaveriClient {
           return;
         }
         if (receiptId === null) {
-          if (client.mode === 'strict') {
+          if (strictMode) {
             const err = new SdkError('NOT_RECEIPTED', 'the gateway did not provide a receipt for the response');
             failVerification(err);
             throw err;
@@ -300,12 +303,10 @@ export class AshaveriClient {
           settleVerification({ receipt: null, attestation: null });
           return;
         }
-        const outcome = await client
-          .verify(receiptId, nonce, requestHash, hashRequest(concatBytes(parts)))
-          .catch((err: unknown) => {
-            failVerification(err);
-            throw err;
-          });
+        const outcome = await verifyEvidence(receiptId, nonce, hashRequest(concatBytes(parts))).catch((err: unknown) => {
+          failVerification(err);
+          throw err;
+        });
         settleVerification(outcome);
       } finally {
         reader.releaseLock();

@@ -130,7 +130,7 @@ export function completionSse(completion: MockCompletion): string {
       choices: [{ index: 0, delta, finish_reason: finishReason }],
     });
   let out = '';
-  out += `data: ${chunk({ role: 'assistant', content: pieces[0] as string }, null)}\n\n`;
+  out += `data: ${chunk({ role: 'assistant', content: pieces[0] }, null)}\n\n`;
   for (const piece of pieces.slice(1)) {
     out += `data: ${chunk({ content: piece }, null)}\n\n`;
   }

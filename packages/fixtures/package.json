@@ -19,6 +19,7 @@
   "scripts": {
     "build": "tsc -p tsconfig.json",
     "test": "vitest run",
+    "lint": "eslint .",
     "typecheck": "tsc -p tsconfig.json --noEmit",
     "generate": "node --experimental-strip-types scripts/generate.ts"
   },

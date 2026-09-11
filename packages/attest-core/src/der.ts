@@ -1,5 +1,4 @@
-import { p256 } from '@noble/curves/p256';
-import { p384 } from '@noble/curves/p384';
+import { p256, p384 } from '@noble/curves/nist.js';
 import { sha256, sha384 } from '@noble/hashes/sha2.js';
 import { fail } from './errors.js';
 import { verifyRsaPssSha384 } from './rsa-pss.js';
@@ -140,7 +139,7 @@ export interface ParsedCertificate {
 function parseSignatureAlgorithm(content: Uint8Array, context: string): SignatureAlgorithm {
   const oidTlv = expect(`${context} oid`, readTlv(content, 0, `${context} oid`), 0x06);
   const oid = readOid(oidTlv.content);
-  let offset = oidTlv.total;
+  const offset = oidTlv.total;
   if (oid === OID_ECDSA_SHA384) {
     if (offset !== content.length) {
       fail('UNSUPPORTED_CERT_ALGORITHM', `${context}: ECDSA-SHA384 parameters must be absent`);
@@ -353,7 +352,7 @@ export function parseCertificate(der: Uint8Array): ParsedCertificate {
           // BasicConstraints ::= SEQUENCE { cA BOOLEAN DEFAULT FALSE, pathLenConstraint INTEGER OPTIONAL }
           let bcOffset = 0;
           let ca = false;
-          if ((bc.content[bcOffset] as number | undefined) === 0x01) {
+          if (bc.content[bcOffset] === 0x01) {
             const caBool = expect('basic constraints cA', readTlv(bc.content, bcOffset, 'basic constraints cA'), 0x01);
             if (caBool.content.length !== 1) {
               fail('MALFORMED_CERTIFICATE', 'basic constraints cA BOOLEAN must be exactly one byte');

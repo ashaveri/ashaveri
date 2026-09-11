@@ -60,7 +60,9 @@ function concat(left: Uint8Array, right: Uint8Array): Uint8Array {
 
 function withTimeout<T>(promise: Promise<T>, ms: number, message: string): Promise<T> {
   return new Promise<T>((resolve, reject) => {
-    const timer = setTimeout(() => reject(new Error(message)), ms);
+    const timer = setTimeout(() => {
+      reject(new Error(message));
+    }, ms);
     promise.then(
       (value) => {
         clearTimeout(timer);
@@ -140,7 +142,7 @@ export function buildGateway(options: GatewayOptions = {}): FastifyInstance {
     // while the completion it belongs to is still in flight, so reads carry no signal
     // about which document will be asked for again.
     if (receipts.size >= receiptLimit) {
-      const oldest = receipts.keys().next().value as string | undefined;
+      const oldest = receipts.keys().next().value;
       if (oldest !== undefined) {
         receipts.delete(oldest);
       }
@@ -304,8 +306,11 @@ export function buildGateway(options: GatewayOptions = {}): FastifyInstance {
       },
       () => undefined,
     );
+    // The id lands in the callback above, so a direct read here would still be typed as
+    // the null it started at. Calling for it reads the same value with its real type.
+    const settledReceiptId = (): string | null => receiptId;
     try {
-      while (receiptId === null) {
+      while (settledReceiptId() === null) {
         const next = await withTimeout(iterator.next(), FIRST_EVENT_TIMEOUT_MS, 'inference upstream produced no completion id');
         if (next.done === true) {
           break;
@@ -318,11 +323,11 @@ export function buildGateway(options: GatewayOptions = {}): FastifyInstance {
       upstreamError(reply, errorMessage(err));
       return;
     }
-    if (receiptId === null) {
+    const id = settledReceiptId();
+    if (id === null) {
       upstreamError(reply, 'inference upstream produced no completion id');
       return;
     }
-    const id = receiptId;
     const hasher = createHash('sha256');
 
     // SSE is written to the raw response: Fastify's stream plumbing does not
@@ -335,9 +340,11 @@ export function buildGateway(options: GatewayOptions = {}): FastifyInstance {
       'x-ashaveri-receipt-id': id,
       'cache-control': 'no-cache',
     });
-    let aborted = false;
+    // Set from the close listener below, so it is held as a property: a `let` written only
+    // in a callback keeps the value it started with where the write loop reads it.
+    const client = { aborted: false };
     res.once('close', () => {
-      aborted = true;
+      client.aborted = true;
     });
 
     const write = async (chunk: Buffer): Promise<void> => {
@@ -360,14 +367,14 @@ export function buildGateway(options: GatewayOptions = {}): FastifyInstance {
       for (const chunk of early) {
         await write(chunk);
       }
-      while (!aborted) {
+      while (!client.aborted) {
         const next = await iterator.next();
         if (next.done === true) {
           break;
         }
         await write(Buffer.from(next.value));
       }
-      if (aborted) {
+      if (client.aborted) {
         void iterator.return?.();
         return;
       }
