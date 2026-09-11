@@ -272,6 +272,72 @@ describe('strict mode', () => {
     expect(gateway.requests.filter((request) => request.url.includes('/attestation'))).toHaveLength(1);
   });
 
+  // A composite receipt claims an accelerator beside the CPU, so the platform quote
+  // alone cannot settle strict mode. The fake gateway is a software deployment whose
+  // evidence route serves bytes no parser accepts, so every case below still ends in
+  // a refusal; what these pin is that the device route is consulted at all, with this
+  // request's own challenge, and that its answer is read before a verdict. The
+  // accepted pairing, where both documents are genuine, is exercised on live hardware.
+  const compositeTee = (payload: ReceiptPayload): ReceiptPayload => ({
+    ...payload,
+    meas: { tee: 'snp+h100cc', m: new Uint8Array(48) },
+  });
+  const gpuBundle = (devices: number): Uint8Array =>
+    new TextEncoder().encode(
+      JSON.stringify(
+        Array.from({ length: devices }, () => ({ evidence: 'AAAA', certificate: 'AAAA' })),
+      ),
+    );
+
+  /** The report data strict mode had to ask both routes for. */
+  async function compositeChallenge(gatewayOptions: Parameters<typeof createFakeGateway>[0]) {
+    const { gateway, client } = clientWith(gatewayOptions, (policy) => ({
+      verify: 'strict' as const,
+      policy,
+    }));
+    const failure = client.chat.completions.create({ messages: MESSAGES });
+    await expect(failure).rejects.toBeInstanceOf(SdkError);
+    const completion = gateway.requests.find((request) => request.url.endsWith('/chat/completions'))!;
+    return {
+      gateway,
+      challenge: toHex(
+        evidenceReportData(
+          fromBase64Url(completion.nonceHeader!),
+          hashRequest(new TextEncoder().encode(completion.body!)),
+        ),
+      ),
+    };
+  }
+
+  it('asks the device route for the same challenge as the platform route', async () => {
+    const { gateway, challenge } = await compositeChallenge({
+      mutatePayload: compositeTee,
+      deviceEvidenceDocument: gpuBundle(1),
+    });
+    expect(gateway.requests.filter((request) => request.url === `${FAKE_BASE_URL}/attestation?report_data=${challenge}`)).toHaveLength(1);
+    expect(
+      gateway.requests.filter((request) => request.url === `${FAKE_BASE_URL}/attestation/gpu?report_data=${challenge}`),
+    ).toHaveLength(1);
+  });
+
+  it('rejects a device document that is not the bundle nvattest writes', async () => {
+    const { client } = clientWith(
+      { mutatePayload: compositeTee, deviceEvidenceDocument: new TextEncoder().encode('not a bundle') },
+      (policy) => ({ verify: 'strict' as const, policy }),
+    );
+    await expect(client.chat.completions.create({ messages: MESSAGES })).rejects.toThrow(/MALFORMED_GPU_BUNDLE/);
+  });
+
+  it('holds the device route to the same retry window as the receipt', async () => {
+    const { gateway } = await compositeChallenge({ mutatePayload: compositeTee });
+    expect(gateway.requests.filter((request) => request.url.includes('/attestation/gpu'))).toHaveLength(3);
+  });
+
+  it('never asks the device route for a receipt that claims no device', async () => {
+    const { gateway } = await compositeChallenge({ mutatePayload: hardwareTee });
+    expect(gateway.requests.some((request) => request.url.includes('/attestation/gpu'))).toBe(false);
+  });
+
   it('rejects an issuer the policy does not pin', async () => {
     const { client } = clientWith({}, (policy) => ({
       verify: 'strict' as const,

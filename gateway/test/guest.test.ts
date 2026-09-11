@@ -129,6 +129,65 @@ describe('GuestClient evidence', () => {
   });
 });
 
+describe('GuestClient GPU evidence', () => {
+  it('collects device evidence for a 32-byte challenge over the v1 route', async () => {
+    const nonce = fromHex('cd'.repeat(32));
+    let seen: { path: string; body: Record<string, unknown> } | null = null;
+    const endpoint = await agent((path, body) => {
+      seen = { path, body };
+      return {
+        json: {
+          bundles: [
+            {
+              vendor: 'nvidia',
+              format: 'nvidia-nvattest-collect-evidence-json-v1',
+              evidence: toHex(Uint8Array.from([1, 2, 3])),
+            },
+          ],
+        },
+      };
+    });
+    const bundles = await client(endpoint).attestGpu(nonce);
+    expect(seen).toEqual({ path: '/v1/AttestGpu', body: { nonce: 'cd'.repeat(32) } });
+    expect(bundles).toEqual([
+      { vendor: 'nvidia', format: 'nvidia-nvattest-collect-evidence-json-v1', evidence: Uint8Array.from([1, 2, 3]) },
+    ]);
+  });
+
+  it('refuses a challenge that is not 32 bytes without asking the agent', async () => {
+    let calls = 0;
+    const endpoint = await agent(() => {
+      calls += 1;
+      return { json: { bundles: [] } };
+    });
+    await expectCode(() => client(endpoint).attestGpu(new Uint8Array(31)), 'GUEST_MALFORMED_RESPONSE');
+    await expectCode(() => client(endpoint).attestGpu(new Uint8Array(64)), 'GUEST_MALFORMED_RESPONSE');
+    expect(calls).toBe(0);
+  });
+
+  it('names an image that cannot attest its devices, and carries why', async () => {
+    const endpoint = await agent(() => ({
+      status: 501,
+      json: { error: 'nvattest is not available in this image' },
+    }));
+    const message = await expectCode(
+      () => client(endpoint).attestGpu(new Uint8Array(32)),
+      'GPU_ATTESTATION_UNAVAILABLE',
+    );
+    expect(message).toContain('nvattest is not available in this image');
+  });
+
+  it('treats a guest too old to mount v1 as an image that cannot attest its devices', async () => {
+    const endpoint = await agent(() => ({ status: 404, text: '<html>Not Found</html>' }));
+    await expectCode(() => client(endpoint).attestGpu(new Uint8Array(32)), 'GPU_ATTESTATION_UNAVAILABLE');
+  });
+
+  it('keeps a device failure that is not a missing capability an RPC failure', async () => {
+    const endpoint = await agent(() => ({ status: 500, json: { error: 'spdm session reset' } }));
+    await expectCode(() => client(endpoint).attestGpu(new Uint8Array(32)), 'GUEST_RPC_ERROR');
+  });
+});
+
 describe('GuestClient Info', () => {
   it('parses tcb_info out of the JSON string the agent wraps it in', async () => {
     const endpoint = await agent(() => ({ json: { tcb_info: '{"tcb_level":4}' } }));

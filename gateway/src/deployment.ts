@@ -36,6 +36,13 @@ export interface Deployment {
    * can bind one, or null for the deployment's standing evidence.
    */
   attestation(reportData: Uint8Array | null): Promise<AttestationBundle>;
+  /**
+   * Device evidence for one request, present only when the deployment claims an
+   * accelerator. `reportData` is the same value the platform quote carries, which is
+   * the whole link between the two documents: it says a genuine device signed this
+   * request, not that the device sits in the VM that served it.
+   */
+  deviceAttestation?(reportData: Uint8Array): Promise<AttestationBundle>;
 }
 
 export interface MockDeploymentOptions {

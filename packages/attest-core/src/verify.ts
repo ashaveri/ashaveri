@@ -15,6 +15,7 @@ import {
 } from './sev-snp.js';
 import { parseTdxQuote, isZero } from './tdx.js';
 import { verifyTdxQuote } from './tdx-dcap.js';
+import { verifyNvidiaRats, type NvidiaEvidence, type NvidiaVerification } from './nvidia.js';
 import type { Attestation, RuntimeEvent, SnpReport, TdxQuote } from './types.js';
 
 const MR_CONFIG_DOMAIN = 'dstack-mr-config-v3:';
@@ -54,6 +55,19 @@ export interface VerifyOptions {
    * without, the quote is only replayed.
    */
   readonly trustedIntelRoots?: readonly Uint8Array[];
+  /**
+   * GPU reports captured on the same machine, each an SPDM request followed by the
+   * response the device signed. The dstack envelope carries no GPU evidence, so a
+   * deployment claiming a confidential-computing GPU supplies them here.
+   */
+  readonly gpuEvidence?: readonly NvidiaEvidence[];
+  /** Pinned NVIDIA device identity roots as PEM or DER bytes. Each blob may hold several. */
+  readonly trustedNvidiaRoots?: readonly Uint8Array[];
+  /**
+   * The challenge every supplied GPU report must answer. Pass the same value the
+   * platform quote committed to in report_data and the two legs bind each other.
+   */
+  readonly gpuNonce?: Uint8Array;
   /** Accept reports whose guest policy permits debugging. Defaults to false. */
   readonly allowDebug?: boolean;
 }
@@ -99,21 +113,38 @@ export interface VerificationResult {
   readonly config: string;
   readonly snp?: SnpVerification;
   readonly tdx?: TdxVerification;
+  /** GPU devices whose reports verified beside this document. Empty when none were supplied. */
+  readonly gpus: readonly NvidiaVerification[];
 }
 
 export function verifyAttestation(bytes: Uint8Array, options: VerifyOptions = {}): VerificationResult {
   const attestation = decodeAttestation(bytes);
+  const gpus = verifyGpuEvidence(options);
   switch (attestation.platform.kind) {
     case 'sev-snp':
-      return verifySevSnp(attestation, options);
+      return { ...verifySevSnp(attestation, options), gpus };
     case 'tdx':
-      return verifyTdx(attestation, options);
+      return { ...verifyTdx(attestation, options), gpus };
     default:
       fail('UNSUPPORTED_PLATFORM', `verification is not implemented for platform kind ${attestation.platform.kind}`);
   }
 }
 
-function verifySevSnp(attestation: Attestation, options: VerifyOptions): VerificationResult {
+/**
+ * Verifies every GPU report supplied beside the document. A device signs the whole
+ * SPDM exchange, so each leg either chains to a pinned root with a matching signature
+ * or the run throws: a composite claim gains nothing from an unverifiable device.
+ */
+function verifyGpuEvidence(options: VerifyOptions): readonly NvidiaVerification[] {
+  const now = options.now ?? Date.now();
+  const roots = options.trustedNvidiaRoots ?? [];
+  const expectedNonce = options.gpuNonce;
+  return (options.gpuEvidence ?? []).map((evidence) => verifyNvidiaRats(evidence, { now, trustedRoots: roots, expectedNonce }));
+}
+
+type PlatformResult = Omit<VerificationResult, 'gpus'>;
+
+function verifySevSnp(attestation: Attestation, options: VerifyOptions): PlatformResult {
   const platform = attestation.platform;
   if (platform.kind !== 'sev-snp') {
     fail('UNSUPPORTED_PLATFORM', 'expected sev-snp platform evidence');
@@ -260,7 +291,7 @@ function readTdxMrConfig(mrConfigId: Uint8Array): TdxMrConfig | null {
   return { tag, digest: mrConfigId.slice(1, 1 + MR_CONFIG_DIGEST_SIZE) };
 }
 
-function verifyTdx(attestation: Attestation, options: VerifyOptions): VerificationResult {
+function verifyTdx(attestation: Attestation, options: VerifyOptions): PlatformResult {
   const platform = attestation.platform;
   if (platform.kind !== 'tdx') {
     fail('UNSUPPORTED_PLATFORM', 'expected tdx platform evidence');
@@ -300,6 +331,26 @@ export function platformMeasurement(result: VerificationResult): Uint8Array {
     return result.tdx.quote.mrTd;
   }
   return fail('UNSUPPORTED_PLATFORM', 'the verified result carries no platform measurement');
+}
+
+/**
+ * Whether quoted report data binds the value a caller asked for.
+ *
+ * The platform field is 64 bytes wide and the padding convention is not part of
+ * the documented interface, so the requested value is accepted at either end
+ * with the remainder zero. A zero pad on both ends is not a binding, and neither
+ * is an empty expectation, which would otherwise be a prefix of every field.
+ */
+export function reportDataBinds(quoted: Uint8Array, requested: Uint8Array): boolean {
+  if (requested.length === 0 || requested.length > quoted.length) {
+    return false;
+  }
+  const zeroRun = (bytes: Uint8Array): boolean => bytes.every((byte) => byte === 0);
+  const pad = quoted.length - requested.length;
+  return (
+    (equalBytes(quoted.subarray(0, requested.length), requested) && zeroRun(quoted.subarray(requested.length))) ||
+    (equalBytes(quoted.subarray(pad), requested) && zeroRun(quoted.subarray(0, pad)))
+  );
 }
 
 /**

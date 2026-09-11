@@ -8,12 +8,14 @@ export type AttestationErrorCode =
   | 'MALFORMED_QUOTE'
   | 'UNSUPPORTED_QUOTE'
   | 'MALFORMED_REPORT'
+  | 'MALFORMED_GPU_BUNDLE'
   | 'UNSUPPORTED_SIGNATURE_ALGO'
   | 'BAD_EVENT_DIGEST'
   | 'BAD_EVENT_PREIMAGE'
   | 'EVENT_LOG_MISMATCH'
   | 'RTMR_MISMATCH'
   | 'REPORT_DATA_MISMATCH'
+  | 'NONCE_MISMATCH'
   | 'QE_REPORT_MISMATCH'
   | 'MR_CONFIG_MISMATCH'
   | 'BAD_MR_CONFIG_ID'
@@ -38,12 +40,14 @@ const ERROR_MESSAGE: Record<AttestationErrorCode, string> = {
   MALFORMED_QUOTE: 'TDX quote bytes are malformed',
   UNSUPPORTED_QUOTE: 'TDX quote uses a format this package cannot verify',
   MALFORMED_REPORT: 'SEV-SNP report bytes are malformed',
+  MALFORMED_GPU_BUNDLE: 'device evidence is not the JSON bundle nvattest writes',
   UNSUPPORTED_SIGNATURE_ALGO: 'SEV-SNP report signature algorithm is not ECDSA-P384-SHA384',
   BAD_EVENT_DIGEST: 'event log digest does not match the recomputed digest',
   BAD_EVENT_PREIMAGE: 'V2 event digest preimage is missing or does not match',
   EVENT_LOG_MISMATCH: 'platform event log and stack runtime events disagree',
   RTMR_MISMATCH: 'replayed RTMR3 does not match the value in the TDX quote',
   REPORT_DATA_MISMATCH: 'attestation report data does not match the quote',
+  NONCE_MISMATCH: 'the attested device did not sign the challenge it is checked against',
   QE_REPORT_MISMATCH: 'the QE report inside the quote does not bind the attestation key that signed it',
   MR_CONFIG_MISMATCH: 'mr_config document does not match the measurement pinned by the platform',
   BAD_MR_CONFIG_ID: 'MR_CONFIG_ID is neither empty nor a recognized dstack configuration binding',

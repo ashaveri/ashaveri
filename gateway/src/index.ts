@@ -5,7 +5,7 @@ export type { BackendResponse, CompletionBackend, CompletionUsage } from './back
 export { mockDeployment, mockWeights } from './deployment.js';
 export type { AttestationBundle, Deployment, ModelInfo, MockDeploymentOptions, TeeKind } from './deployment.js';
 export { GuestClient, GuestError, MAX_REPORT_DATA_BYTES } from './guest.js';
-export type { GuestApi, GuestClientOptions, GuestErrorCode, GuestInfo, GuestKey } from './guest.js';
+export type { GpuEvidenceBundle, GuestApi, GuestClientOptions, GuestErrorCode, GuestInfo, GuestKey } from './guest.js';
 export { dstackDeployment, DstackError } from './dstack.js';
 export type { DstackDeploymentOptions, DstackErrorCode } from './dstack.js';
 export { upstreamBackend } from './upstream.js';

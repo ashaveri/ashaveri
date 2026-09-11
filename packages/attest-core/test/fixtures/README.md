@@ -5,8 +5,9 @@ SPDX-License-Identifier: Apache-2.0
 
 # Platform attestation test fixtures
 
-Real platform attestation captured from confidential VMs, used for offline
-end-to-end verification tests (nothing is fetched from AMD KDS or Intel PCS).
+Real platform attestation, used for offline end-to-end verification tests. The SNP and TDX
+documents were captured from confidential VMs; the GPU report is NVIDIA's own published sample.
+Nothing is fetched from AMD KDS, Intel PCS or NVIDIA while the tests run.
 
 ## Files
 
@@ -18,6 +19,10 @@ end-to-end verification tests (nothing is fetched from AMD KDS or Intel PCS).
 | `amd-ark-milan.pem` | AMD root key (ARK, `CN=ARK-Milan`), extracted from the go-sev-guest `snp-milan.cer` test certificate bundle. |
 | `tdx-quote-v4.bin` | 4936-byte Intel TD quote (version 4, TDX) carrying the ECDSA P-256 attestation key and signature, a 384-byte QE report with its signature, 32 bytes of QE auth data, and the 3-certificate PCK chain. |
 | `intel-sgx-root-ca.pem` | Pinned Intel SGX Root CA (`CN=Intel SGX Root CA`), the anchor the PCK chain must reach. |
+| `nvidia-hopper-report.bin` | 4052-byte NVIDIA GPU report: 37-byte SPDM `GET_MEASUREMENTS` request followed by a signed 4015-byte response ending in a raw P-384 signature. |
+| `nvidia-hopper-report-bad-signature.bin` | Second Hopper report, well-formed but carrying a signature NVIDIA marks as invalid. |
+| `nvidia-hopper-cert-chain.pem` | Five-certificate device chain, leaf first (`CN=GH100 A01 GSP FMC LF`) down to the device identity root. |
+| `nvidia-device-identity-ca.pem` | Pinned NVIDIA device identity root (`CN=NVIDIA Device Identity CA`), the anchor that chain must reach. |
 
 ## Provenance and attribution
 
@@ -50,6 +55,26 @@ end-to-end verification tests (nothing is fetched from AMD KDS or Intel PCS).
   valid 2018-05-21 to 2049-12-31). It is the third certificate of the quote's
   PCK chain, so pinning it is what makes the chain trustworthy rather than
   merely well-formed.
+- `nvidia-hopper-report.bin`, `nvidia-hopper-report-bad-signature.bin` and
+  `nvidia-hopper-cert-chain.pem` are NVIDIA's own golden samples, taken from
+  `nv-attestation-sdk-cpp/unit-tests/testdata/sample_attestation_data/gpu/` in
+  NVIDIA/attestation-sdk (Copyright 2025 NVIDIA Corporation, Apache-2.0) at commit
+  `73efa3ac1bec28ed7d7f0c0811a6c993e722dbd4`. Upstream stores the two reports as hex
+  text, so the `.bin` files are a byte-for-byte decode of `hopperAttestationReport.txt`
+  (blob `0fe5474d0c3dacf6990d18b8c7cff630c743d0e8`) and
+  `hopperAttestationReportInvalidSignature.txt` (blob
+  `ddf8f050f69b5a330fcb31ab0a953bcd30c164c3`); `hopperCertChain.txt` (blob
+  `ad1b89df4c26880b8877d549d3560947fdbe477f`) is copied verbatim. These are the vectors
+  NVIDIA's verifier is tested against, and the second one is NVIDIA's own named
+  bad-signature case, so the expected verdicts come from the vendor rather than from us.
+- `nvidia-device-identity-ca.pem` is `certs/verifier_device_root.pem` from
+  NVIDIA/nvtrust (`guest_tools/gpu_verifiers/local_gpu_verifier/src/verifier/`),
+  blob `00db2d93992ce2654b242ff140ca48997f9f674b`, taken at commit
+  `858ada9a17f58c482f578414ea2455498fa51e17`. The nvtrust repository carries an
+  Apache-2.0 `LICENSE` while the verifier package marks its files
+  `SPDX-License-Identifier: BSD-3-Clause`, so both notices are reproduced here.
+  `src/trust-anchors.ts` bundles these same bytes as `NVIDIA_DEVICE_IDENTITY_CA_PEM`,
+  and `test/trust-anchors.test.ts` asserts the two stay identical.
 
 ## Quote fields (informational)
 
@@ -69,6 +94,38 @@ bytes, which the end-to-end block in `test/tdx-dcap.test.ts` does; what this fix
 is a non-trivial replay, and that stays covered by the synthetic quotes in `test/tdx.test.ts` and
 by the live CVM. Verification time for the DCAP tests is pinned inside the PCK leaf window for the
 same reason the SNP tests pin one.
+
+## GPU report fields (informational)
+
+```
+request  37 bytes: SPDM 1.1 (0x11), GET_MEASUREMENTS (0xe0), attributes 0x01, blocks 0xff,
+         32 random bytes 27a328247bf7935c993341cf587be6f05986ccce4fe7ba2c54100bd616a58f66, slot 0
+response 4015 bytes: SPDM 1.1, MEASUREMENTS_RESPONSE (0x60), 64 blocks, 3520-byte measurement
+         record (= 64 × 55), nonce 08f2fd1f8bb769d087f6b0de1b389594e6cd2415c2f92cf4894fd617d8ddd7e6,
+         opaque data 357 bytes, raw P-384 r||s signature (96 bytes) at offset 3956, no trailing bytes
+chain    GH100 A01 GSP FMC LF (valid from 2020-10-17) → GH100 A01 GSP BROM →
+         NVIDIA GH100 Provisioner ICA 1 → NVIDIA GH100 Identity → NVIDIA Device Identity CA
+         (self-signed, serial 2d3670b1ca100411c1fec0e82a065b54, P-384, from 2021-11-05)
+```
+
+`test/nvidia.test.ts` pins 2024-01-15 as the evaluation time because the leaf only becomes valid
+in October 2020, and reaches `CERT_EXPIRED` from the same fixture by asking about 2019 instead. The
+bad-signature fixture has the same shape with 567 bytes of opaque data (nonce
+`60f0a94bf956f53b4509bb2eb4cfc6720f87a5471d9bb7f65eb73b51a6a9365d`, signature at offset 4166), which
+keeps the parser honest on a second real length. Upstream keeps `hopperAttestationReportExpired.txt`
+and `hopperCertChainExpired.txt` next to these files if expiry needs its own vector later.
+
+The nonce the verifier returns is the 32 bytes the GPU wrote into its response, and the tamper test
+flips one of them to show the field sits inside the signed span. Note that in this vendor sample
+that value differs from the request's own 32 random bytes, so the fixture proves the response nonce
+is covered by the signature; that a client can make a GPU sign a challenge it chose stays a
+property of the live device, and the live CVM is where it gets exercised.
+
+What is deliberately not checked: the measurement blocks are read only for their length, so no
+driver or VBIOS version is asserted; revocation status at `ocsp.ndis.nvidia.com` and the golden
+measurement values at `rim.attestation.nvidia.com` are not consulted. A successful verification
+therefore means the report is genuine NVIDIA-signed evidence from a device holding a chain to the
+pinned root, not that its measured software is a known-good release.
 
 ## Verified values (informational)
 

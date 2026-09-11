@@ -57,8 +57,11 @@ client's fetch so the same verification runs transparently, with receipts availa
 `strict`. Strict mode requires a policy pinning keys, issuers, instances and measurements, and
 adds the hardware step: it fetches the evidence whose digest the receipt signed, verifies the
 platform signature offline, and refuses a document whose report data or measurement disagrees
-with this request and the receipt. `@ashaveri/attest-core` bundles Intel's SGX root CA and the
-AMD Milan ARK as the roots to chain to; `policy.trustAnchors` replaces them.
+with this request and the receipt. `@ashaveri/attest-core` bundles Intel's SGX root CA, the
+AMD Milan ARK and NVIDIA's device identity root as the roots to chain to;
+`policy.trustAnchors` replaces them. A receipt whose `tee` claims a confidential-computing GPU
+costs a second fetch, the device bundle from the route beside the platform one, and is refused
+unless a device report that signed this request's digest verifies inside it.
 
 `--live` runs the same gateway inside a dStack confidential VM. There the signing key comes
 from the guest agent and the measurement, issuer and instance come out of the hardware
@@ -93,6 +96,15 @@ root CA. Without it, `quoteSignatureVerified` is `false` on TDX and the CLI says
 way the MVP does not fetch Intel collateral, so a verified TDX signature does not yet tell you
 that the platform's TCB is unexpired, that its QE identity is valid, or that its PCK has not
 been revoked.
+
+A confidential-computing GPU attests on its own: the dStack envelope carries no device
+report, so `--gpu-report <bin> --gpu-chain <pem>` supplies a captured NVIDIA SPDM
+measurements report and the chain it was signed under, paired by position, and
+`--gpu-root <pem>` names the device identity root that chain must reach. Each report's
+ECDSA P-384 signature is verified offline under that root, and the challenge the device
+signed is printed beside the report data above. With `--report-data` pinned, a device that
+answered a different challenge fails with `NONCE_MISMATCH`, because it is evidence of some
+other moment on the same machine.
 
 Verification proves an attestation is genuine; pinning turns it into a decision about *this*
 deployment. `--expect-measurement` compares the platform launch digest, the SEV-SNP launch

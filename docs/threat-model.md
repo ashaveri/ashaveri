@@ -62,6 +62,7 @@ explicit about the current gaps.
 | T10 | DoS: gateway refuses to serve receipts | Receipt and evidence fetches retry with a short window, then fail closed as `RECEIPT_NOT_FOUND` or `EVIDENCE_NOT_FOUND` rather than falling back to unverified acceptance | Availability is out of scope |
 | T11 | Side channels on prompt content via receipts | Receipts contain hashes and counts only, never content | Hashes reveal content length implicitly (already visible in the response) |
 | T12 | Strict mode: gateway serves evidence from other work, another instance, or one not matching the receipt | The client recomputes the expected report data from its own nonce and request bytes, requires `sha256(document) == att.d`, requires the quote's platform to agree with the receipt's `tee` (a `software` receipt is refused before the fetch), and requires the measured launch digest to equal `meas.m` | Collateral freshness. The signature chain is checked against a pinned vendor root, but TCB Info, the QE identity and the CRL are not consulted, so a since-revoked platform still verifies |
+| T13 | Strict mode: a receipt labelled `"snp+h100cc"` claims a confidential GPU the deployment does not have, or quotes a device report captured for someone else | The label is only ever an operator's request, and the gateway will not start under it unless one of its accelerators signs that deployment's standing challenge. Strict mode then fetches the device document for the client's own challenge and requires a report whose signature chains to a pinned NVIDIA device root and whose signed challenge matches | The device report binds device and challenge but not host: nothing in either signature proves the attesting GPU is attached to the attesting VM. See section 6 |
 
 ## 6. Current limitations, stated plainly
 
@@ -101,6 +102,23 @@ What is still true, in both modes:
   through `@ashaveri/sdk` in strict mode or `@ashaveri/cli`. That is deliberate, but it means a
   gateway that lied about its platform could still serve receipts: the detection lives on the
   verifying side.
+- **A composite claim has no proof of attachment.** `"snp+h100cc"` is never read off hardware.
+  An operator asks for it, and the gateway refuses to start under that label unless one of its
+  accelerators signs the deployment's standing challenge; a client then requires a device report
+  signing its own challenge under a pinned NVIDIA root. That establishes a genuine
+  confidential-computing GPU attesting to this request and a genuine SNP VM serving it. It does
+  not establish that the GPU is the card plugged into that VM, because the vendor's report carries
+  no host binding, so an operator with a CC GPU anywhere it can reach could pair the two
+  documents. TDISP/TEE-IO is the mechanism that would close this, and no deployment here has it.
+  Device collection costs a real device seconds, so the gateway asks once per challenge and
+  caches the answer, and a plain `"snp"` deployment is never upgraded into the claim or charged
+  for it.
+- **The producing path has not been answered by a real image.** The gateway calls dstack's v1
+  device attestation route and serves the vendor's `nvattest` bundle unchanged; both are
+  implemented from published shapes and tested against a fake guest. The guest agent's wire
+  contract and the per-device field names stay assumptions until a real dstack image replies to
+  the call. Nothing degrades silently in the meantime: an image that offers no device route stops
+  a deployment configured to claim one.
 - **The mock gateway is not a TEE deployment.** It signs with an ephemeral development key,
   its `meas` and `att` fields are digests of fixed strings, and its evidence URL uses the
   `mock://` scheme. It reports `tee: "software"`, the member of the enum that claims no
@@ -122,18 +140,22 @@ What is still true, in both modes:
 The SDK's `strict` mode verifies receipts and the manifest against pins and then fetches and
 deep-verifies the evidence each receipt commits to. What remains unproven is the end-to-end run:
 strict mode has accepted captured vendor-signed evidence replayed into a locally issued receipt,
-but no client has yet completed one against a live CVM. Until that has happened, the honest
+but no client has yet completed one against a live CVM. The composite case has not even been
+replayed: the published NVIDIA fixture signs the challenge named in its own provenance, not one
+this suite controls, so no report a vendor signed can answer a challenge the tests invent, and
+both legs together are covered only by live hardware. Until that has happened, the honest
 summary is: receipts deliver byte-level integrity and provenance, the hardware gate is implemented
 and tested against captured evidence rather than demonstrated live.
 
 ## 7. Relationship to attest-core
 
 `@ashaveri/attest-core` verifies attestation evidence: certificate chains against a pinned
-AMD ARK, report signatures, TCB, runtime event logs, and measurement values. The receipt's
-`att` field is the designed rendezvous point: once the gateway must present evidence whose
-digest matches `att.d`, freshness within `att.ts`, and a measurement consistent with `meas`,
-the T7 "consistent lying" residual shrinks from "trust the gateway's self-description" to
-"trust the hardware's measurement." The integration sequencing is deliberately staged: the
+AMD ARK, report signatures, TCB, runtime event logs, measurement values, and the NVIDIA SPDM
+device reports behind a composite claim. The receipt's `att` field is the designed rendezvous
+point: once the gateway must present evidence whose digest matches `att.d`, freshness within
+`att.ts`, and a measurement consistent with `meas`, the T7 "consistent lying" residual shrinks
+from "trust the gateway's self-description" to "trust the hardware's measurement." The
+integration sequencing is deliberately staged: the
 receipt format and client verification shipped first, so the hardware gate changes the
 gateway, not the clients. Strict mode is where that rendezvous is consumed, and consuming it
 added one step inside an existing mode rather than a new client API.

@@ -28,6 +28,8 @@ export interface FakeGatewayOptions {
   readonly receiptAvailableAfterAttempts?: number;
   /** Bytes the evidence endpoint serves. The receipt signs this document's digest. */
   readonly evidenceDocument?: Uint8Array;
+  /** Bytes the device evidence endpoint serves. Absent means the route is not there. */
+  readonly deviceEvidenceDocument?: Uint8Array;
   /** Answer 404 for evidence instead of serving a document. */
   readonly noEvidenceRoute?: boolean;
   /** Deliver streamed bodies in slices of this many bytes. */
@@ -159,6 +161,14 @@ export function createFakeGateway(options: FakeGatewayOptions = {}): FakeGateway
         return new Response('manifest unavailable', { status: options.manifestStatus });
       }
       return Response.json(manifestJson);
+    }
+
+    const deviceMatch = /\/attestation\/gpu\?report_data=([0-9a-fA-F]{64})$/.exec(url);
+    if (deviceMatch !== null && method === 'GET') {
+      if (options.deviceEvidenceDocument === undefined) {
+        return new Response('not found', { status: 404 });
+      }
+      return new Response(options.deviceEvidenceDocument, { headers: { 'content-type': 'application/octet-stream' } });
     }
 
     const evidenceMatch = /\/attestation\?report_data=([0-9a-fA-F]{64})$/.exec(url);

@@ -3,8 +3,8 @@ import { readFileSync } from 'node:fs';
 import { readFile } from 'node:fs/promises';
 import { parseArgs } from 'node:util';
 import { sha256 } from '@noble/hashes/sha2.js';
-import { AttestationError, equalBytes, pinnedComposeHash, platformMeasurement, verifyAttestation } from '@ashaveri/attest-core';
-import type { VerificationResult } from '@ashaveri/attest-core';
+import { AttestationError, equalBytes, pinnedComposeHash, platformMeasurement, reportDataBinds, verifyAttestation } from '@ashaveri/attest-core';
+import type { NvidiaEvidence, NvidiaVerification, VerificationResult } from '@ashaveri/attest-core';
 
 const REPORT_DATA_BYTES = 64;
 const PLATFORM_MEASUREMENT_BYTES = 48;
@@ -27,9 +27,19 @@ Options:
                      Trusted Intel SGX root CA, PEM or DER. Repeatable. With it,
                      a TDX quote must also verify through Intel DCAP, so a quote
                      that is not signed by an authorized Intel key is rejected.
+  --gpu-report <file>
+                     NVIDIA SPDM measurements report to verify beside the
+                     attestation. Repeatable; each report pairs with a --gpu-chain.
+  --gpu-chain <file> Certificate chain a GPU report was signed under, PEM or DER.
+                     Repeatable; pairs with --gpu-report by index.
+  --gpu-root <file>  Trusted NVIDIA device identity root, PEM or DER. Repeatable.
+                     Required with --gpu-report: nothing chains to a root the
+                     command has not been told to trust.
   --report-data <hex>
                      Expected REPORT_DATA binding. A 64-byte value must match
-                     exactly; a shorter value must be a prefix of the report data.
+                     exactly; a shorter value must sit at either end of the field
+                     with the rest zero, which is how a guest pads a digest. With
+                     --gpu-report, every device must have signed this value too.
   --expect-measurement <hex>
                      Pin the 96-hex platform launch measurement: the SEV-SNP
                      launch digest or the TDX MRTD, depending on the platform.
@@ -78,7 +88,7 @@ async function readInput(path: string): Promise<Uint8Array> {
   }
 }
 
-async function readCert(path: string, flag: string): Promise<Uint8Array> {
+async function readFlagFile(path: string, flag: string): Promise<Uint8Array> {
   try {
     return await readFile(path);
   } catch (err) {
@@ -102,11 +112,26 @@ function parseReportData(value: string): Uint8Array {
 }
 
 function checkReportDataBinding(expected: Uint8Array, actual: Uint8Array): void {
-  if (expected.length > actual.length || !equalBytes(expected, actual.slice(0, expected.length))) {
+  if (!reportDataBinds(actual, expected)) {
     throw new AttestationError(
       'REPORT_DATA_MISMATCH',
       `report data does not match the --report-data value (${toHex(expected)})`,
     );
+  }
+}
+
+/**
+ * A pinned report data is a claim about this request, so a device leg that answers
+ * another challenge is evidence of some other moment on the same machine.
+ */
+function checkGpuBinding(expected: Uint8Array, gpus: readonly NvidiaVerification[]): void {
+  for (const gpu of gpus) {
+    if (!reportDataBinds(expected, gpu.nonce)) {
+      throw new AttestationError(
+        'NONCE_MISMATCH',
+        `the GPU signed challenge ${toHex(gpu.nonce)}, --report-data pins ${toHex(expected)}`,
+      );
+    }
   }
 }
 
@@ -135,6 +160,21 @@ function describeEvents(events: readonly { version: number }[]): string {
   const versions = new Set(events.map((event) => event.version));
   const encoding = versions.size === 1 ? `v${events[0]?.version ?? 0}` : 'mixed';
   return `${events.length} (${encoding})`;
+}
+
+/**
+ * Verified device reports, one line each. The challenge is printed so the operator
+ * can read it against the report data above; --report-data asserts the two agree.
+ */
+function gpuLines(gpus: readonly NvidiaVerification[]): string[] {
+  if (gpus.length === 0) {
+    return [];
+  }
+  const noun = gpus.length === 1 ? 'device report verified' : 'device reports verified';
+  return [
+    `  gpu:              ${gpus.length} ${noun} (ECDSA P-384, chain to a pinned NVIDIA root)`,
+    ...gpus.map((gpu) => `  gpu challenge:    ${toHex(gpu.nonce)}`),
+  ];
 }
 
 function humanResult(result: VerificationResult, pinned: readonly string[] = []): string {
@@ -176,6 +216,7 @@ function humanResult(result: VerificationResult, pinned: readonly string[] = [])
     }
   }
   lines.push(`  report data:      ${toHex(result.reportData)}`);
+  lines.push(...gpuLines(result.gpus));
   for (const label of pinned) {
     lines.push(`  pinned:           ${label} matches the expected value`);
   }
@@ -198,6 +239,7 @@ function jsonResult(result: VerificationResult): string {
       payload: toHex(event.payload),
       version: event.version,
     })),
+    gpu: result.gpus.map((gpu) => ({ signatureVerified: gpu.signatureVerified, challenge: toHex(gpu.nonce) })),
     config,
   };
   if (result.snp) {
@@ -246,6 +288,9 @@ async function main(argv: string[]): Promise<number> {
         ask: { type: 'string' },
         vcek: { type: 'string' },
         'intel-root': { type: 'string', multiple: true },
+        'gpu-report': { type: 'string', multiple: true },
+        'gpu-chain': { type: 'string', multiple: true },
+        'gpu-root': { type: 'string', multiple: true },
         'report-data': { type: 'string' },
         'expect-measurement': { type: 'string' },
         'expect-compose-hash': { type: 'string' },
@@ -274,13 +319,32 @@ async function main(argv: string[]): Promise<number> {
   const attestation = await readInput(positionals[1] as string);
   const trustedArks: Uint8Array[] = [];
   for (const arkPath of values.ark ?? []) {
-    trustedArks.push(await readCert(arkPath, '--ark'));
+    trustedArks.push(await readFlagFile(arkPath, '--ark'));
   }
-  const askCert = values.ask !== undefined ? await readCert(values.ask, '--ask') : undefined;
-  const vcekCert = values.vcek !== undefined ? await readCert(values.vcek, '--vcek') : undefined;
+  const askCert = values.ask !== undefined ? await readFlagFile(values.ask, '--ask') : undefined;
+  const vcekCert = values.vcek !== undefined ? await readFlagFile(values.vcek, '--vcek') : undefined;
   const trustedIntelRoots: Uint8Array[] = [];
   for (const rootPath of values['intel-root'] ?? []) {
-    trustedIntelRoots.push(await readCert(rootPath, '--intel-root'));
+    trustedIntelRoots.push(await readFlagFile(rootPath, '--intel-root'));
+  }
+  const reportPaths = values['gpu-report'] ?? [];
+  const chainPaths = values['gpu-chain'] ?? [];
+  if (reportPaths.length !== chainPaths.length) {
+    throw new UsageError(
+      `--gpu-report and --gpu-chain must be given the same number of times (got ${reportPaths.length} and ${chainPaths.length})`,
+    );
+  }
+  const gpuEvidence: NvidiaEvidence[] = [];
+  for (const [index, reportPath] of reportPaths.entries()) {
+    const chainPath = chainPaths[index] as string;
+    gpuEvidence.push({
+      report: await readFlagFile(reportPath, '--gpu-report'),
+      certChain: await readFlagFile(chainPath, '--gpu-chain'),
+    });
+  }
+  const trustedNvidiaRoots: Uint8Array[] = [];
+  for (const rootPath of values['gpu-root'] ?? []) {
+    trustedNvidiaRoots.push(await readFlagFile(rootPath, '--gpu-root'));
   }
   let now: number | undefined;
   if (values.now !== undefined) {
@@ -305,10 +369,13 @@ async function main(argv: string[]): Promise<number> {
       askCert,
       vcekCert,
       trustedIntelRoots: trustedIntelRoots.length > 0 ? trustedIntelRoots : undefined,
+      gpuEvidence,
+      trustedNvidiaRoots: trustedNvidiaRoots.length > 0 ? trustedNvidiaRoots : undefined,
       allowDebug: values['allow-debug'],
     });
     if (expectedReportData) {
       checkReportDataBinding(expectedReportData, result.reportData);
+      checkGpuBinding(expectedReportData, result.gpus);
     }
     const pinned: string[] = [];
     if (expectedMeasurement) {

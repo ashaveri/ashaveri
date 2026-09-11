@@ -134,6 +134,34 @@ the hardware reports to equal the receipt's `meas.m`. The verified document come
 `attestation` field on the result, and as a promise on a stream. Any of those checks failing
 rejects the call; strict mode never degrades to a receipt-only verdict.
 
+## A confidential GPU claim needs more than these steps
+
+Everything above is a CPU-only deployment, and the compose text is what it measures: `llama.cpp`
+on CPU and `signerd`, with no device reservation. A receipt labelled `snp+h100cc` is a different
+deployment, and the gate is on the operator's side of it.
+
+Three things have to be true before `--tee snp+h100cc` starts:
+
+1. The instance is an AMD SEV-SNP VM with an H100 in confidential-computing mode. The `--tee`
+   value is a request, never an inference: the platform half is checked against the CPU quote,
+   and the label is adopted only if a device then answers the deployment's standing challenge.
+2. The guest image's agent answers the device attestation call, and `nvattest` is present in it
+   to produce the bundle. This repository has never had that call answered by a real image, so
+   an image that offers no device route stops the deployment at startup rather than serving a
+   weaker claim.
+3. Collection runs once per challenge and takes seconds on real hardware, so the gateway caches
+   each answer. A deployment that does not ask for the device label never triggers it.
+
+A client in strict mode then reads two documents for one request: the platform quote at
+`GET /v1/attestation?report_data=<hex>` and the device bundle at
+`GET /v1/attestation/gpu?report_data=<hex>`, both keyed by the same challenge it computed itself.
+The second is verified under a pinned NVIDIA device root, and a composite receipt with no
+verifiable device report is refused.
+
+What still is not proven by either document: that the attesting GPU is the card attached to the
+attesting VM. The vendor's report carries no host binding, and only TDISP/TEE-IO device binding
+would supply one. See section 6 of [docs/threat-model.md](../docs/threat-model.md).
+
 ## What this proves, and what it does not
 
 Proves, once run: a receipt signed by a key the guest derived, binding the exact request and

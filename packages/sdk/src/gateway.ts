@@ -1,6 +1,8 @@
 import { decodeReceipt, type VerifiedReceipt } from '@ashaveri/receipt';
 import { fromBase64Url, toHex } from './b64.js';
 import {
+  claimsConfidentialDevice,
+  deviceReports,
   evidenceReportData,
   requireHardwareEvidence,
   verifyCompletionEvidence,
@@ -103,6 +105,24 @@ export class GatewaySession {
     );
   }
 
+  /**
+   * Device evidence for the same report data, from the route beside the platform one.
+   *
+   * Only a composite receipt sends a client here. These bytes are the vendor's own
+   * array rather than a document the receipt commits to, so nothing anchors them but
+   * the signature: what makes them this request's evidence is a genuine device having
+   * signed this challenge, which is also why the URL is derived rather than read from
+   * the receipt.
+   */
+  async deviceAttestationBytes(reportData: Uint8Array): Promise<Uint8Array> {
+    return this.fetchBytes(
+      `${this.baseUrl}/attestation/gpu?report_data=${toHex(reportData)}`,
+      'device evidence',
+      'EVIDENCE_NOT_FOUND',
+      `for report data ${toHex(reportData)}`,
+    );
+  }
+
   async verifyReceipted(params: VerifyReceiptedParams): Promise<VerifiedReceipt> {
     const kid = decodeReceipt(params.receiptBytes).header.kid;
     const verifyKey = await this.resolveKey(kid);
@@ -127,20 +147,31 @@ export class GatewaySession {
    * The expected report data is recomputed from the client's own nonce and
    * request bytes rather than read from the gateway, so the gateway cannot point
    * the client at a quote for other work.
+   *
+   * A composite claim costs a second document. `att.d` covers only the platform
+   * quote, so the device report arrives beside it and is believed on the strength
+   * of its own signature over the same challenge; both legs are handed to
+   * `verifyCompletionEvidence` together rather than judged apart, because the
+   * claim is one sentence about one request.
    */
   async verifyCompletion(params: VerifyCompletionOptions): Promise<VerifiedCompletion> {
     const receipt = await this.verifyReceipted(params);
     if (params.verifyEvidence !== true) {
       return { receipt, attestation: null };
     }
-    requireHardwareEvidence(receipt.payload.meas.tee);
+    const tee = receipt.payload.meas.tee;
+    requireHardwareEvidence(tee);
     const expectedReportData = evidenceReportData(params.nonce, params.requestHash);
     const document = await this.attestationBytes(expectedReportData);
+    const gpuEvidence = claimsConfidentialDevice(tee)
+      ? deviceReports(await this.deviceAttestationBytes(expectedReportData))
+      : undefined;
     return {
       receipt,
       attestation: verifyCompletionEvidence({
         document,
         expectedReportData,
+        gpuEvidence,
         payload: receipt.payload,
         anchors: params.anchors ?? this.options.policy?.trustAnchors,
         now: params.now,
