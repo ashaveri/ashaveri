@@ -198,3 +198,48 @@ describe('dStack SEV-SNP attestation verification', () => {
     expectErrorCode(() => decodeAttestation(trailing), 'TRAILING_BYTES');
   });
 });
+
+// GPU evidence does not travel inside the dstack envelope, so a deployment that wants to claim
+// a confidential-computing GPU hands its reports in beside the document. See
+// docs/receipt-spec.md section 3.2: the claim still measures the CVM, so the extra leg adds a
+// verified device to the result without changing the measurement a receipt carries.
+describe('GPU evidence beside a platform document', () => {
+  const gpuReport = fixture('nvidia-hopper-report.bin');
+  const gpuChain = fixture('nvidia-hopper-cert-chain.pem');
+  const nvidiaRoots = [fixture('nvidia-device-identity-ca.pem')];
+
+  it('reports a GPU leg verified against the pinned device root', () => {
+    const result = verifyAttestation(ATTESTATION, {
+      ...OPTIONS,
+      gpuEvidence: [{ report: gpuReport, certChain: gpuChain }],
+      trustedNvidiaRoots: nvidiaRoots,
+    });
+
+    expect(result.gpus).toHaveLength(1);
+    expect(result.gpus?.[0]?.signatureVerified).toBe(true);
+    expect(result.gpus?.[0]?.nonce).toHaveLength(32);
+    expect(platformMeasurement(result)).toEqual(result.snp?.report.measurement);
+  });
+
+  it('fails the whole verification when a GPU leg does not verify', () => {
+    const badLeg = { report: fixture('nvidia-hopper-report-bad-signature.bin'), certChain: gpuChain };
+    expectErrorCode(
+      () => verifyAttestation(ATTESTATION, { ...OPTIONS, gpuEvidence: [badLeg], trustedNvidiaRoots: nvidiaRoots }),
+      'BAD_SIGNATURE',
+    );
+  });
+
+  it('refuses GPU evidence it holds no pinned root for', () => {
+    const leg = { report: gpuReport, certChain: gpuChain };
+    expectErrorCode(
+      () => verifyAttestation(ATTESTATION, { ...OPTIONS, gpuEvidence: [leg] }),
+      'MISSING_TRUST_ROOT',
+    );
+  });
+
+  it('reports no devices when the deployment supplies none', () => {
+    // A CPU-only deployment must keep verifying exactly as before, or adding the
+    // composite kind would quietly break every receipt already issued as 'snp'.
+    expect(verifyAttestation(ATTESTATION, OPTIONS).gpus).toEqual([]);
+  });
+});
