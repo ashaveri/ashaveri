@@ -1,5 +1,6 @@
 import { toHex } from './b64.js';
 import { fromBase64Url } from './b64.js';
+import type { EvidenceTrustAnchors } from './evidence.js';
 import type { DeploymentManifest } from './manifest.js';
 
 /**
@@ -16,6 +17,11 @@ export interface AshaveriPolicy {
   readonly measurements?: Readonly<Record<string, readonly string[]>>;
   readonly maxReceiptAgeSeconds?: number;
   readonly maxEvidenceAgeSeconds?: number;
+  /**
+   * Vendor roots hardware evidence must chain to. Omit to accept the roots
+   * bundled with `@ashaveri/attest-core`; set it to pin your own.
+   */
+  readonly trustAnchors?: EvidenceTrustAnchors;
 }
 
 export function policyFromManifest(manifest: DeploymentManifest): AshaveriPolicy {

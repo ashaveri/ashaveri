@@ -125,6 +125,15 @@ const client = new AshaveriClient({
 use and nothing more; the pinned values above have to come from somewhere else, ideally the
 operator out of band.
 
+On every completion, strict mode repeats the laptop checks against the deployment itself: it
+derives the report data from its own nonce and request bytes, fetches
+`GET /v1/attestation?report_data=<hex>`, requires the served bytes to hash to the `att.d` the
+gateway signed, chains the quote signature to a pinned vendor root (the Intel SGX root CA bundled
+with `@ashaveri/attest-core`, or your own through `policy.trustAnchors`), and requires the MRTD
+the hardware reports to equal the receipt's `meas.m`. The verified document comes back as the
+`attestation` field on the result, and as a promise on a stream. Any of those checks failing
+rejects the call; strict mode never degrades to a receipt-only verdict.
+
 ## What this proves, and what it does not
 
 Proves, once run: a receipt signed by a key the guest derived, binding the exact request and

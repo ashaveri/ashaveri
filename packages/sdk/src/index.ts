@@ -10,12 +10,20 @@ export type {
   ChatCompletionUsage,
   ChunkStream,
   CompletionResult,
+  VerificationOutcome,
   VerifyMode,
 } from './client.js';
 export { wrapOpenAI } from './wrap.js';
 export type { AshaveriTracker, WrapOptions } from './wrap.js';
 export { GatewaySession } from './gateway.js';
-export type { GatewaySessionOptions } from './gateway.js';
+export type {
+  GatewaySessionOptions,
+  VerifiedCompletion,
+  VerifyCompletionOptions,
+  VerifyReceiptedParams,
+} from './gateway.js';
+export { evidenceReportData, verifyCompletionEvidence } from './evidence.js';
+export type { EvidenceTrustAnchors, VerifiedEvidence, VerifyEvidenceParams } from './evidence.js';
 export { verifyCompletionReceipt } from './verify.js';
 export type { VerifyCompletionParams } from './verify.js';
 export { parseManifest } from './manifest.js';

@@ -218,9 +218,15 @@ importers:
 
   packages/sdk:
     dependencies:
+      '@ashaveri/attest-core':
+        specifier: workspace:*
+        version: link:../attest-core
       '@ashaveri/receipt':
         specifier: workspace:*
         version: link:../receipt
+      '@noble/hashes':
+        specifier: ^2.0.0
+        version: 2.4.0
     devDependencies:
       '@ashaveri/signerd':
         specifier: workspace:*

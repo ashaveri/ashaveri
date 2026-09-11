@@ -54,7 +54,11 @@ for await (const chunk of await client.chat.completions.stream({
 For existing code built on the official `openai` client, `wrapOpenAI(client)` wraps the
 client's fetch so the same verification runs transparently, with receipts available through
 `client.ashaveri.getReceipt(id)`. Verification modes are `off`, `receipt` (default), and
-`strict` (requires a policy pinning keys, issuers, instances, and measurements).
+`strict`. Strict mode requires a policy pinning keys, issuers, instances and measurements, and
+adds the hardware step: it fetches the evidence whose digest the receipt signed, verifies the
+platform signature offline, and refuses a document whose report data or measurement disagrees
+with this request and the receipt. `@ashaveri/attest-core` bundles Intel's SGX root CA and the
+AMD Milan ARK as the roots to chain to; `policy.trustAnchors` replaces them.
 
 `--live` runs the same gateway inside a dStack confidential VM. There the signing key comes
 from the guest agent and the measurement, issuer and instance come out of the hardware

@@ -53,12 +53,20 @@ describe('sdk against a live signerd --mock gateway', () => {
     expect(receipt!.payload.tok.c).toBeGreaterThan(0);
   });
 
-  it('accepts the deployment in strict mode with a policy built from its manifest', async () => {
+  it('accepts the deployment in receipt mode with a policy built from its manifest', async () => {
     const manifest = parseManifest(await (await fetch(`${base}/deployment-manifest`)).json());
-    const client = new AshaveriClient({ baseUrl: base, verify: 'strict', policy: policyFromManifest(manifest) });
+    const client = new AshaveriClient({ baseUrl: base, verify: 'receipt', policy: policyFromManifest(manifest) });
     const { receipt } = await client.chat.completions.create({ messages: MESSAGES });
     expect(receipt).not.toBeNull();
     expect(receipt!.payload.ins).toBe('mock-instance-1');
+  });
+
+  it('refuses the mock deployment in strict mode: it attests no hardware', async () => {
+    const manifest = parseManifest(await (await fetch(`${base}/deployment-manifest`)).json());
+    const client = new AshaveriClient({ baseUrl: base, verify: 'strict', policy: policyFromManifest(manifest) });
+    await expect(client.chat.completions.create({ messages: MESSAGES })).rejects.toMatchObject({
+      code: 'EVIDENCE_NOT_HARDWARE',
+    });
   });
 
   it('detects a response body modified in transit', async () => {

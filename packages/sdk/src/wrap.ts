@@ -75,15 +75,16 @@ export function wrapOpenAI<T extends object>(client: T, options: WrapOptions = {
     const verification: Promise<VerifiedReceipt> = (async () => {
       const responseHash = await hashStream(toHasher);
       const receiptBytes = await session.receiptBytes(receiptId);
-      const verified = await session.verifyReceipted({
+      const { receipt } = await session.verifyCompletion({
         receiptBytes,
         nonce,
         requestHash,
         responseHash,
+        verifyEvidence: mode === 'strict',
         now: options.now?.(),
       });
-      options.onReceipt?.(verified, receiptId);
-      return verified;
+      options.onReceipt?.(receipt, receiptId);
+      return receipt;
     })();
     // Keep a handler on the promise so a response that is abandoned before
     // verification finishes never surfaces as an unhandled rejection.

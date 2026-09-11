@@ -209,6 +209,15 @@ A verifying client proceeds as follows:
    received.
 8. **Check policy pins.** Issuer, instance, and measurement must each be pinned by the
    policy when the client pins that dimension.
+9. **Verify the evidence the receipt commits to.** Strict mode only. The client asks the
+   gateway for the attestation document whose report data equals
+   `sha256(nce, req)`, a value it recomputes rather than reads off the wire, then requires
+   that `sha256(document)` equals `att.d`, that the platform signature chains to a pinned
+   vendor root, that the document's platform agrees with `meas.tee`, and that the launch
+   digest the hardware reports equals `meas.m`. A `tee` of `"software"` claims no hardware,
+   so strict mode refuses it before the fetch. This is the receipt's only cross-protocol
+   link: the receipt format specifies a digest commitment and nothing else, and the checks
+   above belong to the evidence format that `@ashaveri/attest-core` parses.
 
 Steps 6 and 7 are what make the receipt a statement about *this* exchange rather than a
 generic artifact: a receipt whose hashes do not match the observed bytes is rejected even
@@ -222,7 +231,7 @@ The SDK exposes three levels:
 |---|---|
 | `off` | No nonce header, no verification, receipts never fetched. |
 | `receipt` | Nonce injected, receipt fetched and verified (steps 1 through 7). Key resolution uses the deployment manifest. An unreceipted response returns a `null` receipt instead of failing. |
-| `strict` | As `receipt`, plus a required policy (step 2 and 8 with pins, optional freshness), and an unreceipted response is an error. |
+| `strict` | As `receipt`, plus a required policy (step 2 and 8 with pins, optional freshness), an unreceipted response is an error, and the evidence behind step 9 is fetched and verified. |
 
 `receipt` mode proves the response came from the deployment that controls the manifest's
 keys. `strict` mode additionally freezes the deployment's identity: keys, issuer, instance,
