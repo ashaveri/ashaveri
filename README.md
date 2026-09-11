@@ -1,6 +1,6 @@
 # ashaveri
 
-The Ashaveri Verifiable AI Inference SDK. OpenAI-compatible inference with cryptographic receipts: every response ships with a signed COSE_Sign1 receipt binding the request hash, response hash, model, weights manifest, and TEE measurement.
+The Ashaveri Verifiable AI Inference SDK. OpenAI-compatible inference with cryptographic receipts: every completion returns an id whose document is a signed COSE_Sign1 binding the request hash, response hash, model, weights manifest, and TEE measurement.
 
 ## Packages
 
