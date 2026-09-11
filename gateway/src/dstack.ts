@@ -10,7 +10,7 @@ import {
   type NvidiaEvidence,
   type RuntimeEvent,
 } from '@ashaveri/attest-core';
-import { signingKeyFromSeed } from '@ashaveri/receipt';
+import { claimsConfidentialDevice, signingKeyFromSeed } from '@ashaveri/receipt';
 import { GuestClient, GuestError, type GuestApi, type GpuEvidenceBundle } from './guest.js';
 import { sha256, toHex } from './digest.js';
 import type { AttestationBundle, Deployment, HardwareTeeKind, ModelInfo, TeeKind } from './deployment.js';
@@ -178,12 +178,14 @@ export function nvidiaDeviceReports(bundle: GpuEvidenceBundle, challenge: Uint8A
 /**
  * The platform a composite claim rests on.
  *
- * `snp+h100cc` adds a device leg to an ordinary SEV-SNP deployment rather than naming a
- * different kind of CPU, so the two halves are checked apart: the launch digest comes from
- * the SNP quote and the accelerator has to answer a challenge of its own.
+ * `snp+h100cc` and `tdx+h100cc` each add a device leg to an ordinary deployment
+ * rather than naming a different kind of CPU, so the two halves are checked apart:
+ * the launch digest comes from the platform quote and the accelerator has to answer
+ * a challenge of its own. The label splits on its suffix instead of pairing
+ * literals, so a composite cannot arrive without a platform to stand on.
  */
 function platformHalf(tee: HardwareTeeKind): TeeKind {
-  return tee === 'snp+h100cc' ? 'snp' : tee;
+  return claimsConfidentialDevice(tee) ? (tee.slice(0, tee.lastIndexOf('+')) as TeeKind) : tee;
 }
 
 export async function dstackDeployment(options: DstackDeploymentOptions): Promise<Deployment> {
@@ -231,7 +233,7 @@ export async function dstackDeployment(options: DstackDeploymentOptions): Promis
       if (error instanceof GuestError && error.code === 'GPU_ATTESTATION_UNAVAILABLE') {
         throw new DstackError(
           'GPU_EVIDENCE_UNAVAILABLE',
-          `--tee snp+h100cc needs device evidence and this image gave none: ${error.detail}`,
+          `--tee ${options.tee} needs device evidence and this image gave none: ${error.detail}`,
         );
       }
       throw error;
@@ -274,7 +276,7 @@ export async function dstackDeployment(options: DstackDeploymentOptions): Promis
   // challenge to confirm the claim. Collection is slow, so this runs once at startup rather
   // than on every receipt, and the result is discarded because each receipt asks for its own.
   let tee: TeeKind = platform.tee;
-  if (options.tee === 'snp+h100cc') {
+  if (options.tee !== undefined && claimsConfidentialDevice(options.tee)) {
     const devices = (await askDevices(standingReportData)).flatMap((bundle) =>
       nvidiaDeviceReports(bundle, standingReportData),
     );
@@ -284,7 +286,7 @@ export async function dstackDeployment(options: DstackDeploymentOptions): Promis
         'no accelerator answered, so this deployment cannot claim a confidential GPU',
       );
     }
-    tee = 'snp+h100cc';
+    tee = options.tee;
   }
 
   const composeHash = eventPayload(platform.events, 'compose-hash');
@@ -309,6 +311,6 @@ export async function dstackDeployment(options: DstackDeploymentOptions): Promis
     async attestation(reportData: Uint8Array | null): Promise<AttestationBundle> {
       return fetchEvidence(reportData ?? standingReportData);
     },
-    deviceAttestation: tee === 'snp+h100cc' ? fetchDeviceEvidence : undefined,
+    deviceAttestation: claimsConfidentialDevice(tee) ? fetchDeviceEvidence : undefined,
   };
 }

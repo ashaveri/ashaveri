@@ -12,7 +12,7 @@ import {
   type RuntimeEvent,
   type VerificationResult,
 } from '@ashaveri/attest-core';
-import { MEASUREMENT_BYTES, equalBytes, type ReceiptPayload, type TeeKind } from '@ashaveri/receipt';
+import { MEASUREMENT_BYTES, claimsConfidentialDevice, equalBytes, type ReceiptPayload, type TeeKind } from '@ashaveri/receipt';
 import { sha256 } from '@noble/hashes/sha2.js';
 import { toHex } from './b64.js';
 import { SdkError } from './errors.js';
@@ -61,12 +61,12 @@ export interface VerifiedEvidence {
 }
 
 const PLATFORM_TEE_KINDS: Readonly<Record<VerificationResult['platformKind'], readonly TeeKind[]>> = {
-  // An SNP quote attests the CPU launch digest. A receipt labelled 'snp+h100cc'
-  // also claims a confidential-computing GPU, and only a verified device report
-  // signing the same challenge can show that, so the composite kind is legal
-  // here and separately requires a GPU leg below.
+  // A plain platform quote attests the CPU launch digest. A composite kind also
+  // claims a confidential-computing GPU, and only a verified device report signing
+  // the same challenge can show that, so both composites are legal labels for their
+  // platform and separately require a GPU leg below.
   'sev-snp': ['snp', 'snp+h100cc'],
-  tdx: ['tdx'],
+  tdx: ['tdx', 'tdx+h100cc'],
 };
 
 /**
@@ -84,18 +84,6 @@ export function requireHardwareEvidence(tee: TeeKind): void {
       "strict mode requires platform evidence but the receipt declares tee 'software', which claims no hardware protection",
     );
   }
-}
-
-/**
- * Whether a claim needs a device report beside the platform quote.
- *
- * The receipt's `tee` label is the only place this is decided on the client side:
- * strict mode fetches and requires a device report only when it says so, so a plain
- * `snp` receipt never pays for a second round trip and never gets a device leg it
- * was not promised.
- */
-export function claimsConfidentialDevice(tee: TeeKind): boolean {
-  return tee === 'snp+h100cc';
 }
 
 /**
@@ -167,7 +155,9 @@ export function verifyCompletionEvidence(params: VerifyEvidenceParams): Verified
   const trustedIntelRoots = anchors.intelSgxRoots ?? DEFAULT_INTEL_SGX_ROOTS;
   const trustedNvidiaRoots = anchors.nvidiaRoots ?? DEFAULT_NVIDIA_DEVICE_ROOTS;
   const gpuEvidence = params.gpuEvidence ?? [];
-  const requiredRoots = tee === 'tdx' ? trustedIntelRoots : trustedArks;
+  // The family decides which vendor has to anchor the quote, so a composite label
+  // cannot fall through to the other platform's roots.
+  const requiredRoots = tee.startsWith('tdx') ? trustedIntelRoots : trustedArks;
   if (requiredRoots.length === 0) {
     throw new SdkError(
       'EVIDENCE_NO_TRUST_ANCHORS',
@@ -216,7 +206,7 @@ export function verifyCompletionEvidence(params: VerifyEvidenceParams): Verified
   if (claimsConfidentialDevice(tee) && result.gpus.length === 0) {
     throw new SdkError(
       'EVIDENCE_GPU_MISSING',
-      "the receipt claims tee 'snp+h100cc' but no GPU report was verified beside it, so nothing attests the accelerator",
+      `the receipt claims tee '${tee}' but no GPU report was verified beside it, so nothing attests the accelerator`,
     );
   }
   const measurement = platformMeasurement(result);

@@ -62,7 +62,7 @@ counter-signature variants, if ever needed, would be a new format version.
 | `res` | bstr (32) | sha256 of the exact raw response body bytes, including SSE framing. |
 | `mdl` | tstr | Model id, e.g. "mock-model-1". |
 | `wts` | bstr (32) | sha256 digest of the deployment's weights manifest. |
-| `meas` | map | `{ tee, m }`: the environment kind, one of `"software"`, `"snp"`, `"snp+h100cc"`, `"tdx"`, and the measurement for that kind. A TEE reports its platform-native 48-byte SHA-384 value (SEV-SNP launch digest or TDX MRTD); `"software"` makes no hardware claim and carries a 32-byte SHA-256 digest of what the deployment runs. The width is fixed by the kind, so a digest that does not match its own kind is malformed. |
+| `meas` | map | `{ tee, m }`: the environment kind, one of `"software"`, `"snp"`, `"snp+h100cc"`, `"tdx"`, `"tdx+h100cc"`, plus the measurement for that kind. A TEE reports its platform-native 48-byte SHA-384 value (SEV-SNP launch digest or TDX MRTD); `"software"` makes no hardware claim and carries a 32-byte SHA-256 digest of what the deployment runs. The width is fixed by the kind, so a digest that does not match its own kind is malformed. |
 | `att` | map | `{ d, ts, url }`: digest of the attestation evidence document, its timestamp (Unix seconds), and a URL where the evidence can be fetched and re-verified. |
 | `epk` | int | Signing-key epoch, for key rotation. A gateway publishes the value it was started with (`--epk` on signerd) and never changes it, so rotating a key means a new process with a higher epoch. |
 | `tok` | map | `{ p, c }`: prompt and completion token counts for the call, as the serving stack reported them. A receipt proves who claimed a count, not that the count is right. |
@@ -93,6 +93,7 @@ output. Kind and width are therefore one decision, not two that can drift apart:
 | `"snp"` | 48 bytes | AMD SEV-SNP SHA-384 launch digest. |
 | `"snp+h100cc"` | 48 bytes | SNP launch digest, where the H100 half of the label is proven by the device report in section 4.6, not by this digest. |
 | `"tdx"` | 48 bytes | Intel TDX SHA-384 measurement (MRTD). |
+| `"tdx+h100cc"` | 48 bytes | TDX MRTD, where the accelerator half of the label is proven by the device report in section 4.6, not by this digest. |
 
 A decoder rejects a pair that disagrees, in both directions, even when the signature over it
 is valid: a 48-byte digest claiming `"software"` and a 32-byte digest claiming a TEE are both
@@ -200,8 +201,8 @@ it as an archived proof.
 
 ### 4.6 Device evidence
 
-A deployment whose receipts say `"snp+h100cc"` serves the accelerator half beside the platform
-document:
+A deployment whose receipts say `"snp+h100cc"` or `"tdx+h100cc"` serves the accelerator half
+beside the platform document:
 
 ```text
 GET /attestation/gpu?report_data=<64 hex> -> 200 application/octet-stream, device evidence
@@ -261,11 +262,11 @@ A verifying client proceeds as follows:
    digest the hardware reports equals `meas.m`. A `tee` of `"software"` claims no hardware,
    so strict mode refuses it before the fetch. This is the receipt's only cross-protocol
    link: the receipt format specifies a digest commitment and nothing else, and the checks
-   above belong to the evidence format that `@ashaveri/attest-core` parses. For the
-   composite `"snp+h100cc"` the client additionally fetches the device document from the
-   route in section 4.6, using the same challenge it just recomputed, and requires at least
-   one NVIDIA SPDM measurement report whose signature verifies under a chain anchored at a
-   pinned NVIDIA device root and whose signed challenge equals that same
+   above belong to the evidence format that `@ashaveri/attest-core` parses. For a composite
+   `"snp+h100cc"` or `"tdx+h100cc"` the client additionally fetches the device document from
+   the route in section 4.6, using the same challenge it just recomputed, and requires at
+   least one NVIDIA SPDM measurement report whose signature verifies under a chain anchored at
+   a pinned NVIDIA device root and whose signed challenge equals that same
    `sha256(nce, req)`. The shared challenge is the only link between the two documents:
    neither vendor's signature covers the other's bytes, so a client holding no device
    report has not verified the accelerator half of the label and must reject it.

@@ -22,7 +22,7 @@ export type {
   VerifyCompletionOptions,
   VerifyReceiptedParams,
 } from './gateway.js';
-export { claimsConfidentialDevice, deviceReports, evidenceReportData, verifyCompletionEvidence } from './evidence.js';
+export { deviceReports, evidenceReportData, verifyCompletionEvidence } from './evidence.js';
 export type { EvidenceTrustAnchors, VerifiedEvidence, VerifyEvidenceParams } from './evidence.js';
 export { verifyCompletionReceipt } from './verify.js';
 export type { VerifyCompletionParams } from './verify.js';
@@ -34,6 +34,7 @@ export { SdkError, sdkError } from './errors.js';
 export type { SdkErrorCode } from './errors.js';
 export { fromBase64Url, toBase64Url, toHex } from './b64.js';
 export {
+  claimsConfidentialDevice,
   decodeReceipt,
   generateSigningKey,
   hashRequest,

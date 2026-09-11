@@ -171,6 +171,18 @@ function snpGuest(events: readonly { event: string; payload: Uint8Array }[] = ca
   );
 }
 
+/**
+ * A TDX guest with no measured events: an MRTD at offset 0xb8 and nothing the log commits
+ * to, so the caller has to pass an issuer and an instance the way an operator would.
+ */
+function tdxGuest(): FakeGuest {
+  const quote = new Uint8Array(1024);
+  quote.set(Uint8Array.from({ length: 48 }, (_, i) => 0xa0 + (i % 32)), 0xb8);
+  return new FakeGuest((reportData) =>
+    v1Document({ platform: { kind: 'tdx', quote, eventLog: [] }, reportData: padReportData(reportData), events: [] }),
+  );
+}
+
 async function expectCode(fn: () => unknown, code: DstackError['code'] | ReceiptError['code']): Promise<string> {
   try {
     await fn();
@@ -507,15 +519,7 @@ describe('dstackDeployment device claim', () => {
   });
 
   it('stops a composite claim on a TDX box before asking its accelerators', async () => {
-    const quote = new Uint8Array(1024);
-    quote.set(Uint8Array.from({ length: 48 }, (_, i) => 0xa0 + (i % 32)), 0xb8);
-    const guest = new FakeGuest((reportData) =>
-      v1Document({
-        platform: { kind: 'tdx', quote, eventLog: [] },
-        reportData: padReportData(reportData),
-        events: [],
-      }),
-    );
+    const guest = tdxGuest();
     guest.gpu = (nonce) => deviceAnswering(nonce);
     await expectCode(
       () =>
@@ -530,6 +534,41 @@ describe('dstackDeployment device claim', () => {
       'TEE_MISMATCH',
     );
     expect(guest.gpuChallenges).toEqual([]);
+  });
+
+  it('claims a TDX accelerator once the device answers the standing challenge', async () => {
+    const guest = tdxGuest();
+    guest.gpu = (nonce) => deviceAnswering(nonce);
+    const deployment = await dstackDeployment({
+      client: guest,
+      models: MODELS,
+      evidenceBaseUrl: 'https://inference.ashaveri.test/v1',
+      tee: 'tdx+h100cc',
+      issuer: 'ashaveri-test',
+      instance: 'tdx-instance',
+    });
+    expect(deployment.tee).toBe('tdx+h100cc');
+    expect(guest.gpuChallenges).toEqual([STANDING]);
+    // The label has to switch on the device route too, or a receipt claiming two
+    // legs would be served only one.
+    const bundle = await deployment.deviceAttestation?.(STANDING);
+    expect(bundle?.url).toContain('/attestation/gpu?report_data=');
+  });
+
+  it('names the TDX claim when its image offers no device attestation', async () => {
+    const message = await expectCode(
+      () =>
+        dstackDeployment({
+          client: tdxGuest(),
+          models: MODELS,
+          evidenceBaseUrl: 'https://inference.ashaveri.test/v1',
+          tee: 'tdx+h100cc',
+          issuer: 'ashaveri-test',
+          instance: 'tdx-instance',
+        }),
+      'GPU_EVIDENCE_UNAVAILABLE',
+    );
+    expect(message).toContain('--tee tdx+h100cc');
   });
 
   it('leaves an unasked-for device claim alone, even when a device is present', async () => {

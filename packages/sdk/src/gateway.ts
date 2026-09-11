@@ -1,7 +1,6 @@
-import { decodeReceipt, type VerifiedReceipt } from '@ashaveri/receipt';
+import { claimsConfidentialDevice, decodeReceipt, type VerifiedReceipt } from '@ashaveri/receipt';
 import { fromBase64Url, toHex } from './b64.js';
 import {
-  claimsConfidentialDevice,
   deviceReports,
   evidenceReportData,
   requireHardwareEvidence,
