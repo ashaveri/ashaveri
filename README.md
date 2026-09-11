@@ -23,6 +23,9 @@ pnpm typecheck
 pnpm lint
 ```
 
+`pnpm lint` checks types through the declarations `pnpm build` emits, so the build has to
+run first; CI uses that order.
+
 The receipt wire format is normatively defined in `packages/receipt/receipt.cddl`,
 with the full protocol in [docs/receipt-spec.md](docs/receipt-spec.md) and the
 threat model in [docs/threat-model.md](docs/threat-model.md).
