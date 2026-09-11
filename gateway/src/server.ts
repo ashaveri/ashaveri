@@ -20,6 +20,8 @@ const FIRST_EVENT_TIMEOUT_MS = 120_000;
 const MAX_BUFFERED_BODY = 32 * 1024 * 1024;
 /** Evidence is addressed by the digest it binds to, which is what its URL says. */
 const REPORT_DATA_HEX = /^[0-9a-fA-F]{64}$/;
+/** Receipts are ~0.5 KB each; 10,000 entries keeps the store under ~5 MB. */
+const MAX_CACHED_RECEIPTS = 10_000;
 
 export interface GatewayOptions {
   readonly issuer?: string;
@@ -27,6 +29,8 @@ export interface GatewayOptions {
   readonly key?: SigningKey;
   readonly deployment?: Deployment;
   readonly backend?: CompletionBackend;
+  /** How many issued receipts stay fetchable. Raise it if clients fetch late. */
+  readonly maxReceipts?: number;
 }
 
 export interface ManifestJson {
@@ -88,6 +92,7 @@ export function buildGateway(options: GatewayOptions = {}): FastifyInstance {
     options.deployment ?? mockDeployment({ issuer: options.issuer, instance: options.instance, key: options.key });
   const backend = options.backend ?? mockBackend();
   const receipts = new Map<string, Uint8Array>();
+  const receiptLimit = options.maxReceipts ?? MAX_CACHED_RECEIPTS;
 
   const app = Fastify({ bodyLimit: 16 * 1024 * 1024, logger: false });
   // The receipt binds the exact bytes the client sent, so the body is kept raw
@@ -131,6 +136,15 @@ export function buildGateway(options: GatewayOptions = {}): FastifyInstance {
       epk: deployment.epk,
       tok: { p: args.usage.promptTokens, c: args.usage.completionTokens },
     };
+    // Oldest first rather than least recently used: a client fetches its receipt once,
+    // while the completion it belongs to is still in flight, so reads carry no signal
+    // about which document will be asked for again.
+    if (receipts.size >= receiptLimit) {
+      const oldest = receipts.keys().next().value as string | undefined;
+      if (oldest !== undefined) {
+        receipts.delete(oldest);
+      }
+    }
     receipts.set(args.id, issueReceipt(payload, deployment.key));
   }
 
