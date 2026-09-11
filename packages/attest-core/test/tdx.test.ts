@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest';
-import { decodeAttestation, fromHex, mrConfigDocumentDigest, pinnedComposeHash, platformMeasurement, replayRtmr3, verifyAttestation } from '../src/index.js';
+import { decodeAttestation, fromHex, mrConfigDocumentDigest, parseTdxQuote, pinnedComposeHash, platformMeasurement, replayRtmr3, verifyAttestation } from '../src/index.js';
 import type { RuntimeEvent, TdxEvent } from '../src/index.js';
-import { encodeV0Tdx, expectErrorCode, tdxEventsFor } from './helpers.js';
+import { encodeV0Tdx, expectErrorCode, fixture, tdxEventsFor } from './helpers.js';
 
 const reportData = new Uint8Array(64).fill(0xcd);
 const runtimeEvents: RuntimeEvent[] = [
@@ -9,8 +9,8 @@ const runtimeEvents: RuntimeEvent[] = [
   { event: 'app-id', payload: fromHex('86e59625be93207bc2351c4d1bba20037cec8e16'), version: 1 },
 ];
 
-// A synthetic TDX quote: only RTMR-3 and REPORT_DATA matter for the replay
-// checks; the Intel DCAP signature itself is out of scope for attest-core.
+// A synthetic TDX quote carrying only what the replay checks need: RTMR-3 and
+// REPORT_DATA, with no signature block. Real Intel-signed quotes are in tdx-dcap.
 function buildQuote(): Uint8Array {
   const quote = new Uint8Array(0x278);
   quote.set(replayRtmr3(runtimeEvents), 0x208);
@@ -153,5 +153,42 @@ describe('TDX pinning extraction', () => {
     const quote = quoteFor(events);
     const result = verifyAttestation(tdxAttestation(quote, tdxEventsFor(events), events));
     expect(pinnedComposeHash(result)).toEqual(composeHash);
+  });
+});
+
+// Pinning Intel roots turns "we did not look" into "this quote must verify", so
+// a deployment that has the collateral cannot silently fall back to replay-only.
+describe('TDX DCAP wiring', () => {
+  const trustedIntelRoots = [fixture('intel-sgx-root-ca.pem')];
+
+  it('rejects a quote that does not verify once Intel roots are pinned', () => {
+    expectErrorCode(
+      () => verifyAttestation(tdxAttestation(), { trustedIntelRoots }),
+      'MALFORMED_QUOTE',
+    );
+  });
+
+  it('keeps the replay-only path when no Intel roots are pinned', () => {
+    expect(verifyAttestation(tdxAttestation(), { trustedIntelRoots: [] }).quoteSignatureVerified).toBe(false);
+  });
+});
+
+describe('TDX quote header', () => {
+  // The header packs three separate numbers in its first eight bytes; a verifier
+  // needs each one on its own to reject the wrong quote kind.
+  function quoteWithHeader(version: number, attestationKeyType: number, teeType: number): Uint8Array {
+    const quote = buildQuote();
+    const view = new DataView(quote.buffer, quote.byteOffset, quote.byteLength);
+    view.setUint16(0x00, version, true);
+    view.setUint16(0x02, attestationKeyType, true);
+    view.setUint32(0x04, teeType, true);
+    return quote;
+  }
+
+  it('reads version, attestation key type and TEE type as separate fields', () => {
+    const parsed = parseTdxQuote(quoteWithHeader(4, 2, 0x81));
+    expect(parsed.version).toBe(4);
+    expect(parsed.attestationKeyType).toBe(2);
+    expect(parsed.teeType).toBe(0x81);
   });
 });

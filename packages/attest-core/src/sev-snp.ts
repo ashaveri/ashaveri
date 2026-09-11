@@ -1,9 +1,14 @@
 import { p384 } from '@noble/curves/p384';
 import { sha384 } from '@noble/hashes/sha2.js';
-import { CERT_OIDS, parseCertificateChain, type ParsedCertificate } from './der.js';
+import {
+  checkCertificateValidity,
+  derEcdsaSignature,
+  parseCertificateChain,
+  verifyCertificateSignature,
+  type ParsedCertificate,
+} from './der.js';
 import { fail } from './errors.js';
 import { equalBytes } from './events.js';
-import { verifyRsaPssSha384 } from './rsa-pss.js';
 import { tcbFromU64, type SnpPolicy, type SnpReport } from './types.js';
 
 export const SNP_REPORT_SIZE = 0x4a0;
@@ -145,18 +150,7 @@ export function productLineFromCpuid(family: number, model: number): string | nu
 // The AMD report stores R and S as fixed 72-byte little-endian buffers; ECDSA
 // wants them as a DER SEQUENCE of unsigned big-endian integers.
 export function snpReportSignatureDer(report: SnpReport): Uint8Array {
-  const r = leToBigint(report.signature.r);
-  const s = leToBigint(report.signature.s);
-  if (r <= 0n || r >= p384.CURVE.n || s <= 0n || s >= p384.CURVE.n) {
-    fail('BAD_SIGNATURE', 'report signature R or S is out of the P-384 order range');
-  }
-  const rDer = derInteger(r);
-  const sDer = derInteger(s);
-  const length = rDer.length + sDer.length;
-  if (length < 0x80) {
-    return Uint8Array.from([0x30, length, ...rDer, ...sDer]);
-  }
-  return Uint8Array.from([0x30, 0x81, length, ...rDer, ...sDer]);
+  return derEcdsaSignature(leToBigint(report.signature.r), leToBigint(report.signature.s), p384.CURVE.n);
 }
 
 function leToBigint(bytes: Uint8Array): bigint {
@@ -165,26 +159,6 @@ function leToBigint(bytes: Uint8Array): bigint {
     value = (value << 8n) | BigInt(bytes[i] as number);
   }
   return value;
-}
-
-function derInteger(value: bigint): Uint8Array {
-  let hex = value.toString(16);
-  if (hex.length % 2 === 1) {
-    hex = '0' + hex;
-  }
-  if (Number.parseInt(hex[0] as string, 16) >= 8) {
-    hex = '00' + hex;
-  }
-  const content = hexToBytes(hex);
-  return Uint8Array.from([0x02, content.length, ...content]);
-}
-
-function hexToBytes(hex: string): Uint8Array {
-  const out = new Uint8Array(hex.length / 2);
-  for (let i = 0; i < out.length; i++) {
-    out[i] = Number.parseInt(hex.slice(i * 2, i * 2 + 2), 16);
-  }
-  return out;
 }
 
 export function verifySnpReportSignature(report: SnpReport, vcek: ParsedCertificate): void {
@@ -242,41 +216,6 @@ function normalizeKernelCertTable(blob: Uint8Array): { ask: Uint8Array; vcek: Ui
   return { ask, vcek };
 }
 
-function verifyCertValidity(cert: ParsedCertificate, now: number, name: string): void {
-  if (now < cert.notBefore || now > cert.notAfter) {
-    fail('CERT_EXPIRED', `${name} certificate is not valid at the verification time`);
-  }
-}
-
-// Verifies `cert`'s signature under `issuer`'s public key. AMD KDS uses
-// RSASSA-PSS with SHA-384, MGF1-SHA384, and a 48-byte salt (ARK and ASK) and
-// ECDSA-SHA384 (VCEK, when signed by an EC key).
-function verifyCertSignature(issuer: ParsedCertificate, cert: ParsedCertificate, name: string): void {
-  const alg = cert.signatureAlgorithm;
-  if (alg.kind === 'rsa-pss') {
-    if (alg.hashOid !== CERT_OIDS.OID_SHA384 || alg.mgfOid !== CERT_OIDS.OID_MGF1 || alg.mgfHashOid !== CERT_OIDS.OID_SHA384 || alg.saltLength !== 48 || alg.trailerField !== 1) {
-      fail('UNSUPPORTED_CERT_ALGORITHM', `${name} RSA-PSS parameters must be SHA-384 with MGF1-SHA384 and a 48-byte salt`);
-    }
-    if (issuer.publicKey.kind !== 'rsa') {
-      fail('UNSUPPORTED_CERT_ALGORITHM', `${name} is RSA-PSS signed but the issuer key is not RSA`);
-    }
-    if (!verifyRsaPssSha384(cert.tbs, cert.signature, issuer.publicKey.modulus, issuer.publicKey.exponent, alg.saltLength)) {
-      fail('BAD_SIGNATURE', `${name} signature does not verify under its issuer`);
-    }
-    return;
-  }
-  if (alg.kind === 'ecdsa-sha384') {
-    if (issuer.publicKey.kind !== 'ec-p384') {
-      fail('UNSUPPORTED_CERT_ALGORITHM', `${name} is ECDSA-SHA384 signed but the issuer key is not EC P-384`);
-    }
-    if (!p384.verify(cert.signature, sha384(cert.tbs), issuer.publicKey.point, { format: 'der' })) {
-      fail('BAD_SIGNATURE', `${name} signature does not verify under its issuer`);
-    }
-    return;
-  }
-  fail('UNSUPPORTED_CERT_ALGORITHM', `${name} uses unsupported signature algorithm ${alg.oid}`);
-}
-
 // Verifies the AMD KDS chain shape: a self-signed ARK CA certifying the ASK CA
 // which certifies the VCEK. Issuer/subject are compared as raw DER so an
 // attacker cannot substitute a same-named certificate with different fields.
@@ -293,12 +232,12 @@ export function verifyAmdCertificateChain(ark: ParsedCertificate, ask: ParsedCer
   if (!equalBytes(vcek.issuer, ask.subject)) {
     fail('CERT_CHAIN_INVALID', 'VCEK issuer does not match the ASK subject');
   }
-  verifyCertValidity(ark, now, 'ARK');
-  verifyCertValidity(ask, now, 'ASK');
-  verifyCertValidity(vcek, now, 'VCEK');
-  verifyCertSignature(ark, ark, 'ARK');
-  verifyCertSignature(ark, ask, 'ASK');
-  verifyCertSignature(ask, vcek, 'VCEK');
+  checkCertificateValidity(ark, now, 'ARK');
+  checkCertificateValidity(ask, now, 'ASK');
+  checkCertificateValidity(vcek, now, 'VCEK');
+  verifyCertificateSignature(ark, ark, 'ARK');
+  verifyCertificateSignature(ark, ask, 'ASK');
+  verifyCertificateSignature(ask, vcek, 'VCEK');
 }
 
 // Selects the ARK (from the caller's trusted set) that actually issued the

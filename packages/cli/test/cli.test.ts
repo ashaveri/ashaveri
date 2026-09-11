@@ -11,6 +11,7 @@ const ATTESTATION = `${FIXTURES}sev-snp-attestation.bin`;
 const ARK = `${FIXTURES}amd-ark-milan.pem`;
 const ASK = `${FIXTURES}sev-snp-ask.pem`;
 const VCEK = `${FIXTURES}sev-snp-vcek.pem`;
+const INTEL_ROOT = `${FIXTURES}intel-sgx-root-ca.pem`;
 const NOW = '2026-09-10T00:00:00Z';
 const FIXTURE_REPORT_DATA = '6174746573742d746573742d666978747572652d32303236';
 const FIXTURE_MEASUREMENT =
@@ -217,6 +218,18 @@ describe('ashaveri verify', () => {
     expect(result.stderr).toContain('--ark');
   });
 
+  it('exits 2 for a missing Intel root certificate file', () => {
+    const result = runCli(['verify', ATTESTATION, '--intel-root', join(tempDir, 'missing-intel.pem'), '--now', NOW]);
+    expect(result.status).toBe(2);
+    expect(result.stderr).toContain('--intel-root');
+  });
+
+  it('leaves SEV-SNP verification untouched by a pinned Intel root', () => {
+    const result = runCli([...VERIFY_ARGS, '--intel-root', INTEL_ROOT]);
+    expect(result.status).toBe(0);
+    expect(result.stdout).toContain('SEV-SNP attestation verified');
+  });
+
   it('exits 2 for an invalid --report-data hex string', () => {
     const result = runCli([...VERIFY_ARGS, '--report-data', 'xyz']);
     expect(result.status).toBe(2);
@@ -248,6 +261,7 @@ describe('ashaveri verify', () => {
     expect(result.stdout).toContain('--report-data');
     expect(result.stdout).toContain('--expect-measurement');
     expect(result.stdout).toContain('--expect-compose-hash');
+    expect(result.stdout).toContain('--intel-root');
   });
 
   it('prints the version with --version', () => {

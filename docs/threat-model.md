@@ -84,11 +84,15 @@ serving side:
 
 What is still true, in both modes:
 
-- **TDX evidence is not signature-verified.** `@ashaveri/attest-core` parses a TDX quote,
-  replays the runtime event log into RTMR3 and checks the report-data binding, but it does not
-  verify the Intel DCAP quote signature, so `quoteSignatureVerified` is `false` for TDX.
-  SEV-SNP evidence does verify end to end offline against a pinned ARK. On TDX hardware the
-  client is therefore checking self-consistency plus its own pins, not an Intel signature.
+- **Intel and AMD collateral is never fetched.** With a pinned Intel root,
+  `@ashaveri/attest-core` verifies a TDX quote through Intel DCAP: the quote under its
+  attestation key, that key inside the QE report, and the report under a PCK chain reaching the
+  pinned root. Without a pinned root the TDX leg is replay-only, so `quoteSignatureVerified` is
+  `false` and the client is checking self-consistency plus its own pins, not an Intel signature.
+  In neither mode does the verifier consult Intel TCB Info, the QE Identity or the PCK CRL, and on
+  AMD it uses the ASK and VCEK files you supply rather than querying KDS. A platform that is
+  genuinely signed but since deprecated or revoked by the vendor therefore still verifies. Checking
+  freshness needs network access and is deliberately outside the offline verification path.
 - **The gateway does not deep-verify its own evidence.** It reads the measurement and the
   report-data binding; the certificate chain, TCB and event-log replay are the client's job,
   through `@ashaveri/cli`. That is deliberate, but it means a gateway that lied about its

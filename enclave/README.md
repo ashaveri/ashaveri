@@ -94,6 +94,7 @@ curl -s "$BASE/v1/attestation?report_data=$RD" -o attestation.bin
 
 node packages/cli/dist/cli.js verify attestation.bin \
   --report-data $RD \
+  --intel-root intel-sgx-root-ca.pem \
   --expect-measurement <96 hex from a source you trust> \
   --expect-compose-hash <64 hex of the compose text you deployed>
 ```
@@ -102,6 +103,13 @@ Exit 0 means the envelope decoded, the runtime events replayed into the platform
 report data matched, and both pins matched. `--expect-measurement` is the TDX MRTD on this
 hardware, and the compose hash comes from the `compose-hash` runtime event that the RTMR3
 replay ties to the quote.
+
+`--intel-root` is what makes this a hardware claim. The file is Intel's published SGX root CA,
+so with it the quote must carry an attestation key that the platform's PCK chain signed, and that
+chain must reach Intel; drop the flag and a forged quote that is merely self-consistent would
+pass. The root is also committed as a test fixture
+(`packages/attest-core/test/fixtures/intel-sgx-root-ca.pem`) if you want a copy to compare
+yours against.
 
 The SDK side is `verify: 'strict'` with a policy:
 
@@ -125,10 +133,14 @@ checked against values it did not learn from the deployment.
 
 Does not prove:
 
-- **Hardware signature on TDX.** `attest-core` parses the quote and replays the event log into
-  RTMR3, but it does not verify the Intel DCAP quote signature, so
-  `quoteSignatureVerified` is `false` for TDX. SEV-SNP evidence does verify end to end
-  offline, against a pinned ARK.
+- **Intel collateral freshness on TDX.** With a pinned Intel root (`--intel-root`),
+  `attest-core` verifies the Intel DCAP quote signature: the quote under its attestation key,
+  the key inside the QE report, and the report under a PCK chain reaching that root. Without a
+  pinned root the TDX leg is replay-only and `quoteSignatureVerified` is `false`. Either way no
+  Intel collateral is fetched, so a verified TDX signature does not show that the platform's TCB
+  is still trusted by Intel, that its QE identity is valid, or that its PCK is unrevoked. Only
+  version-4 TD quotes are accepted; a newer quote fails closed with `UNSUPPORTED_QUOTE`.
+  SEV-SNP evidence is checked the same way offline, against a pinned ARK, with no KDS lookup.
 - That the weights behind `wts` match the files in the container. The receipt binds the
   manifest digest; the manifest binds each file digest; the gap between the manifest and the
   mounted bytes is closed by the entrypoint check plus the measured compose text, not by the

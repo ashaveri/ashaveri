@@ -14,6 +14,7 @@ import {
   verifyVcekMatchesReport,
 } from './sev-snp.js';
 import { parseTdxQuote, isZero } from './tdx.js';
+import { verifyTdxQuote } from './tdx-dcap.js';
 import type { Attestation, RuntimeEvent, SnpReport, TdxQuote } from './types.js';
 
 const MR_CONFIG_DOMAIN = 'dstack-mr-config-v3:';
@@ -47,6 +48,12 @@ export interface VerifyOptions {
   readonly askCert?: Uint8Array;
   /** VCEK certificate for attestations whose cert_chain is empty (PEM or DER). */
   readonly vcekCert?: Uint8Array;
+  /**
+   * Pinned Intel SGX root CA certificates (PEM or DER). Each blob may hold
+   * several. With at least one, a TDX quote must verify through Intel DCAP;
+   * without, the quote is only replayed.
+   */
+  readonly trustedIntelRoots?: readonly Uint8Array[];
   /** Accept reports whose guest policy permits debugging. Defaults to false. */
   readonly allowDebug?: boolean;
 }
@@ -85,7 +92,7 @@ export interface TdxVerification {
 export interface VerificationResult {
   readonly version: 0 | 1;
   readonly platformKind: 'sev-snp' | 'tdx';
-  /** Whether the hardware quote's own signature was verified. False for TDX, where Intel DCAP verification is out of scope. */
+  /** Whether the hardware quote's own signature was verified. SEV-SNP always; TDX only when Intel roots were pinned. */
   readonly quoteSignatureVerified: boolean;
   readonly reportData: Uint8Array;
   readonly runtimeEvents: readonly RuntimeEvent[];
@@ -100,7 +107,7 @@ export function verifyAttestation(bytes: Uint8Array, options: VerifyOptions = {}
     case 'sev-snp':
       return verifySevSnp(attestation, options);
     case 'tdx':
-      return verifyTdx(attestation);
+      return verifyTdx(attestation, options);
     default:
       fail('UNSUPPORTED_PLATFORM', `verification is not implemented for platform kind ${attestation.platform.kind}`);
   }
@@ -253,12 +260,18 @@ function readTdxMrConfig(mrConfigId: Uint8Array): TdxMrConfig | null {
   return { tag, digest: mrConfigId.slice(1, 1 + MR_CONFIG_DIGEST_SIZE) };
 }
 
-function verifyTdx(attestation: Attestation): VerificationResult {
+function verifyTdx(attestation: Attestation, options: VerifyOptions): VerificationResult {
   const platform = attestation.platform;
   if (platform.kind !== 'tdx') {
     fail('UNSUPPORTED_PLATFORM', 'expected tdx platform evidence');
   }
   const quote = parseTdxQuote(platform.quote);
+  const trustedIntelRoots = options.trustedIntelRoots ?? [];
+  let quoteSignatureVerified = false;
+  if (trustedIntelRoots.length > 0) {
+    verifyTdxQuote(platform.quote, { trustedRoots: trustedIntelRoots, now: options.now ?? Date.now() });
+    quoteSignatureVerified = true;
+  }
   validateEventLog(platform.eventLog, attestation.stack.runtimeEvents);
   const replayed = replayRtmr3(attestation.stack.runtimeEvents);
   if (!equalBytes(replayed, quote.rtmr[3] as Uint8Array)) {
@@ -270,7 +283,7 @@ function verifyTdx(attestation: Attestation): VerificationResult {
   return {
     version: attestation.version,
     platformKind: 'tdx',
-    quoteSignatureVerified: false,
+    quoteSignatureVerified,
     reportData: attestation.stack.reportData,
     runtimeEvents: attestation.stack.runtimeEvents,
     config: attestation.stack.config,

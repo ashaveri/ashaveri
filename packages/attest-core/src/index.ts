@@ -11,6 +11,8 @@ export {
   validateEventLog,
 } from './events.js';
 export { parseTdxQuote } from './tdx.js';
+export { parseQeReportCertificationData, parseTdxQuoteSignature, verifyTdxQuote } from './tdx-dcap.js';
+export type { QeReportCertificationData, TdxDcapOptions, TdxQuoteSignature, TdxQuoteVerification } from './tdx-dcap.js';
 export {
   normalizeSnpCertificates,
   parseSnpReport,

@@ -81,9 +81,14 @@ certificate chain, the VCEK-to-report binding (chip id, product line, TCB), the 
 ECDSA P-384 signature, the guest policy, the runtime event log, and the mr_config to
 HOST_DATA binding. Exit code 0 means verified and every `--expect-*` pin matched; 1 means
 verification or a pin failed; 2 means usage or input error. Pass `--json` for
-machine-readable output and `--report-data <hex>` to bind a nonce. TDX attestations verify
-the event log and RTMR3 replay; Intel DCAP quote signature verification is out of scope for
-the MVP.
+machine-readable output and `--report-data <hex>` to bind a nonce. TDX attestations always
+verify the event log and RTMR3 replay. With `--intel-root <pem>` they also verify the Intel
+DCAP quote signature: the quote's ECDSA P-256 signature under its attestation key, that key
+bound by the QE report, and the report bound by a PCK chain that must reach the pinned Intel
+root CA. Without it, `quoteSignatureVerified` is `false` on TDX and the CLI says so. Either
+way the MVP does not fetch Intel collateral, so a verified TDX signature does not yet tell you
+that the platform's TCB is unexpired, that its QE identity is valid, or that its PCK has not
+been revoked.
 
 Verification proves an attestation is genuine; pinning turns it into a decision about *this*
 deployment. `--expect-measurement` compares the platform launch digest, the SEV-SNP launch

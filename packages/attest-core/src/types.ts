@@ -113,7 +113,10 @@ export interface SnpReport {
 
 export interface TdxQuote {
   readonly raw: Uint8Array;
-  readonly headerVersion: number;
+  /** Quote format version, currently 4 for the TD quotes dStack emits. */
+  readonly version: number;
+  /** Which key signed the quote; 2 is the PCK-based ECDSA-256 layout handled here. */
+  readonly attestationKeyType: number;
   readonly teeType: number;
   readonly mrTd: Uint8Array;
   readonly mrConfigId: Uint8Array;

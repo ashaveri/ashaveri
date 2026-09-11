@@ -23,6 +23,10 @@ Options:
                      the attestation must chain to one of them.
   --ask <file>       ASK certificate, for attestations that carry no cert chain.
   --vcek <file>      VCEK certificate, for attestations that carry no cert chain.
+  --intel-root <file>
+                     Trusted Intel SGX root CA, PEM or DER. Repeatable. With it,
+                     a TDX quote must also verify through Intel DCAP, so a quote
+                     that is not signed by an authorized Intel key is rejected.
   --report-data <hex>
                      Expected REPORT_DATA binding. A 64-byte value must match
                      exactly; a shorter value must be a prefix of the report data.
@@ -156,7 +160,11 @@ function humanResult(result: VerificationResult, pinned: readonly string[] = [])
     ].filter((part): part is string => part !== null);
     lines.push(`  mr config:        ${mrConfigParts.join(', ')}`);
   } else {
-    lines.push('  quote signature:  not verified (Intel DCAP quote verification is out of scope)');
+    lines.push(
+      result.quoteSignatureVerified
+        ? '  quote signature:  verified (Intel DCAP, PCK chain to a pinned Intel root)'
+        : '  quote signature:  not verified (RTMR replay only; pass --intel-root to require DCAP)',
+    );
     if (result.tdx) {
       lines.push(`  mr td:            ${toHex(result.tdx.quote.mrTd)}`);
       lines.push(`  rtmr3:            ${toHex(result.tdx.quote.rtmr[3] ?? new Uint8Array(0))}`);
@@ -237,6 +245,7 @@ async function main(argv: string[]): Promise<number> {
         ark: { type: 'string', multiple: true },
         ask: { type: 'string' },
         vcek: { type: 'string' },
+        'intel-root': { type: 'string', multiple: true },
         'report-data': { type: 'string' },
         'expect-measurement': { type: 'string' },
         'expect-compose-hash': { type: 'string' },
@@ -269,6 +278,10 @@ async function main(argv: string[]): Promise<number> {
   }
   const askCert = values.ask !== undefined ? await readCert(values.ask, '--ask') : undefined;
   const vcekCert = values.vcek !== undefined ? await readCert(values.vcek, '--vcek') : undefined;
+  const trustedIntelRoots: Uint8Array[] = [];
+  for (const rootPath of values['intel-root'] ?? []) {
+    trustedIntelRoots.push(await readCert(rootPath, '--intel-root'));
+  }
   let now: number | undefined;
   if (values.now !== undefined) {
     now = Date.parse(values.now);
@@ -291,6 +304,7 @@ async function main(argv: string[]): Promise<number> {
       trustedArks: trustedArks.length > 0 ? trustedArks : undefined,
       askCert,
       vcekCert,
+      trustedIntelRoots: trustedIntelRoots.length > 0 ? trustedIntelRoots : undefined,
       allowDebug: values['allow-debug'],
     });
     if (expectedReportData) {
