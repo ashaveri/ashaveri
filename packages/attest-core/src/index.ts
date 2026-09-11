@@ -33,7 +33,7 @@ export {
   SNP_SIGNED_SIZE,
   SNP_SIGNATURE_OFFSET,
 } from './sev-snp.js';
-export { verifyAttestation, mrConfigDocumentDigest, pinnedComposeHash, platformMeasurement } from './verify.js';
+export { reportDataBinds, verifyAttestation, mrConfigDocumentDigest, pinnedComposeHash, platformMeasurement } from './verify.js';
 export type {
   MrConfigDetails,
   SnpVerification,

@@ -3,7 +3,7 @@ import { readFileSync } from 'node:fs';
 import { readFile } from 'node:fs/promises';
 import { parseArgs } from 'node:util';
 import { sha256 } from '@noble/hashes/sha2.js';
-import { AttestationError, equalBytes, pinnedComposeHash, platformMeasurement, verifyAttestation } from '@ashaveri/attest-core';
+import { AttestationError, equalBytes, pinnedComposeHash, platformMeasurement, reportDataBinds, verifyAttestation } from '@ashaveri/attest-core';
 import type { VerificationResult } from '@ashaveri/attest-core';
 
 const REPORT_DATA_BYTES = 64;
@@ -29,7 +29,8 @@ Options:
                      that is not signed by an authorized Intel key is rejected.
   --report-data <hex>
                      Expected REPORT_DATA binding. A 64-byte value must match
-                     exactly; a shorter value must be a prefix of the report data.
+                     exactly; a shorter value must sit at either end of the field
+                     with the rest zero, which is how a guest pads a digest.
   --expect-measurement <hex>
                      Pin the 96-hex platform launch measurement: the SEV-SNP
                      launch digest or the TDX MRTD, depending on the platform.
@@ -102,7 +103,7 @@ function parseReportData(value: string): Uint8Array {
 }
 
 function checkReportDataBinding(expected: Uint8Array, actual: Uint8Array): void {
-  if (expected.length > actual.length || !equalBytes(expected, actual.slice(0, expected.length))) {
+  if (!reportDataBinds(actual, expected)) {
     throw new AttestationError(
       'REPORT_DATA_MISMATCH',
       `report data does not match the --report-data value (${toHex(expected)})`,

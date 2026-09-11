@@ -80,9 +80,18 @@ describe('ashaveri verify', () => {
     expect(parsed.config.sha256).toMatch(/^[0-9a-f]{64}$/);
   });
 
-  it('accepts a shorter --report-data value as a prefix binding', () => {
+  it('accepts a shorter --report-data value the platform zero-padded', () => {
     const result = runCli([...VERIFY_ARGS, '--report-data', FIXTURE_REPORT_DATA]);
     expect(result.status).toBe(0);
+  });
+
+  it('rejects a --report-data value that is only the start of the field', () => {
+    // 'attest' sits at the head of the quoted field but the bytes after it are
+    // the rest of the fixture's own value, not padding, so this proves nothing
+    // was bound. Any quote could be given this prefix.
+    const result = runCli([...VERIFY_ARGS, '--report-data', '617474657374']);
+    expect(result.status).toBe(1);
+    expect(result.stderr).toContain('verification failed (REPORT_DATA_MISMATCH)');
   });
 
   it('accepts a full 64-byte --report-data value as an exact binding', () => {

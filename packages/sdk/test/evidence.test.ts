@@ -196,6 +196,20 @@ describe('verifyCompletionEvidence', () => {
     );
   });
 
+  it('accepts an expectation the platform zero-padded to the full width', () => {
+    // The quote signs the 64-byte field, and this fixture's field is 28 ASCII
+    // bytes followed by 36 zeros. Asking for the unpadded value is the same
+    // shape as asking for a 32-byte digest the guest pads to 64, which is
+    // exactly what a live deployment answers.
+    const evidence = verifyCompletionEvidence({
+      document: DOCUMENT,
+      expectedReportData: utf8('Hello from Edgeless Systems!'),
+      payload: signedReceipt(),
+      now: NOW,
+    });
+    expect(toHex(evidence.reportData)).toBe(REPORT_DATA);
+  });
+
   it('rejects a measurement the hardware did not attest to', () => {
     expectSdkErrorCode(
       () => verify(DOCUMENT, signedReceipt({ measurement: new Uint8Array(48) })),

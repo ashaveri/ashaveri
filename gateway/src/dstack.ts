@@ -1,8 +1,8 @@
 import {
   decodeAttestation,
-  equalBytes,
   parseSnpReport,
   parseTdxQuote,
+  reportDataBinds,
   type RuntimeEvent,
 } from '@ashaveri/attest-core';
 import { signingKeyFromSeed } from '@ashaveri/receipt';
@@ -70,22 +70,15 @@ function utf8(value: string): Uint8Array {
 }
 
 /**
- * The platform field is 64 bytes wide and the guest's padding convention is not
- * part of the documented interface, so the check accepts the requested value at
- * either end with the remainder zero. A replayed or foreign quote fails it.
+ * The platform field is 64 bytes wide, so a document that quotes a shorter one
+ * is not the evidence this deployment can serve. The binding rule itself lives in
+ * attest-core so the client checking the same quote reaches the same verdict.
  */
 function assertReportDataBound(reported: Uint8Array, requested: Uint8Array, context: string): void {
   if (reported.length !== QUOTE_REPORT_DATA_BYTES) {
     throw new DstackError('EVIDENCE_UNDECODABLE', `${context} carries ${reported.length} report bytes`);
   }
-  const zeroRun = (bytes: Uint8Array): boolean => bytes.every((byte) => byte === 0);
-  const head = reported.subarray(0, requested.length);
-  const tail = reported.subarray(QUOTE_REPORT_DATA_BYTES - requested.length);
-  const leadingPad = reported.subarray(requested.length);
-  const trailingPad = reported.subarray(0, QUOTE_REPORT_DATA_BYTES - requested.length);
-  const boundAtHead = equalBytes(head, requested) && zeroRun(leadingPad);
-  const boundAtTail = equalBytes(tail, requested) && zeroRun(trailingPad);
-  if (!boundAtHead && !boundAtTail) {
+  if (!reportDataBinds(reported, requested)) {
     throw new DstackError(
       'EVIDENCE_REPORT_DATA_MISMATCH',
       `${context} is not bound to report data ${toHex(requested)}`,

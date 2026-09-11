@@ -4,6 +4,7 @@ import {
   DEFAULT_INTEL_SGX_ROOTS,
   pinnedComposeHash,
   platformMeasurement,
+  reportDataBinds,
   verifyAttestation,
   type RuntimeEvent,
   type VerificationResult,
@@ -145,7 +146,7 @@ export function verifyCompletionEvidence(params: VerifyEvidenceParams): Verified
       `the ${result.platformKind} quote was replayed but its own signature was not checked against a pinned root`,
     );
   }
-  if (!equalBytes(result.reportData, expectedReportData)) {
+  if (!reportDataBinds(result.reportData, expectedReportData)) {
     throw new SdkError(
       'EVIDENCE_REPORT_DATA_MISMATCH',
       `evidence is bound to report data ${toHex(result.reportData)}, this request expected ${toHex(expectedReportData)}`,

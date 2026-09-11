@@ -328,6 +328,26 @@ export function platformMeasurement(result: VerificationResult): Uint8Array {
 }
 
 /**
+ * Whether quoted report data binds the value a caller asked for.
+ *
+ * The platform field is 64 bytes wide and the padding convention is not part of
+ * the documented interface, so the requested value is accepted at either end
+ * with the remainder zero. A zero pad on both ends is not a binding, and neither
+ * is an empty expectation, which would otherwise be a prefix of every field.
+ */
+export function reportDataBinds(quoted: Uint8Array, requested: Uint8Array): boolean {
+  if (requested.length === 0 || requested.length > quoted.length) {
+    return false;
+  }
+  const zeroRun = (bytes: Uint8Array): boolean => bytes.every((byte) => byte === 0);
+  const pad = quoted.length - requested.length;
+  return (
+    (equalBytes(quoted.subarray(0, requested.length), requested) && zeroRun(quoted.subarray(requested.length))) ||
+    (equalBytes(quoted.subarray(pad), requested) && zeroRun(quoted.subarray(0, pad)))
+  );
+}
+
+/**
  * The compose hash the platform committed to. SEV-SNP hashes the mr_config
  * document into HOST_DATA, so the document itself is the authority. TDX carries
  * no document in the envelope, so the value comes from the runtime events, which
