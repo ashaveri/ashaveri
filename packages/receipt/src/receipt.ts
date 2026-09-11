@@ -84,7 +84,7 @@ function isUint8Array(v: unknown): v is Uint8Array {
 }
 
 function parsePayload(bytes: Uint8Array): ReceiptPayload {
-  const raw = decodeCanonical(bytes);
+  const raw = decodeCanonical(bytes, 'BAD_PAYLOAD');
   if (!(raw instanceof Map)) throw new ReceiptError('BAD_PAYLOAD', 'payload is not a map');
   const bad = (detail: string): ReceiptError => new ReceiptError('BAD_PAYLOAD', detail);
   if (raw.get('v') !== 1) throw bad('v must be 1');

@@ -10,8 +10,12 @@ import {
   ReceiptError,
   equalBytes,
   signCoseSign1,
+  decodeCoseSign1,
+  encodeCanonical,
+  COSE_SIGN1_TAG,
 } from '../src/index.js';
 import type { ReceiptPayload } from '../src/index.js';
+import { Tag } from 'cbor2';
 import { sha256, sha384 } from '@noble/hashes/sha2.js';
 
 const FIXED_NOW = 1_772_000_000;
@@ -130,6 +134,26 @@ describe('COSE_Sign1 receipt codec', () => {
     const negativeEvidenceTs = issueReceipt(samplePayload({ att: { ...base.att, ts: -1 } }), key);
     expectErrorCode(
       () => verifyReceipt(negativeEvidenceTs, { publicKey: key.publicKey, now: FIXED_NOW }),
+      'BAD_PAYLOAD',
+    );
+  });
+
+  it('names the failing part of an unparseable document', () => {
+    const key = generateSigningKey();
+    const bytes = issueReceipt(samplePayload(), key);
+    const cose = decodeCoseSign1(bytes);
+    const wrap = (parts: unknown[]): Uint8Array =>
+      new Uint8Array(encodeCanonical(new Tag(COSE_SIGN1_TAG, parts)));
+    // Each of these makes the CBOR reader throw its own exception. A caller branches
+    // on the error code, so an unclassified throw is a crash, not a verdict.
+    expectErrorCode(() => decodeReceipt(new Uint8Array(0)), 'MALFORMED_CBOR');
+    expectErrorCode(() => decodeReceipt(bytes.slice(0, 6)), 'MALFORMED_CBOR');
+    expectErrorCode(
+      () => decodeReceipt(wrap([new Uint8Array(0), new Map(), cose.payloadBytes, cose.signature])),
+      'BAD_PROTECTED_HEADER',
+    );
+    expectErrorCode(
+      () => decodeReceipt(wrap([cose.protectedBytes, new Map(), new Uint8Array(0), cose.signature])),
       'BAD_PAYLOAD',
     );
   });

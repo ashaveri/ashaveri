@@ -48,7 +48,7 @@ export function signingKeyFromSeed(seed: Uint8Array): SigningKey {
 }
 
 function parseProtectedHeader(bytes: Uint8Array): ProtectedHeader {
-  const raw = decodeCanonical(bytes);
+  const raw = decodeCanonical(bytes, 'BAD_PROTECTED_HEADER');
   if (!(raw instanceof Map)) throw new ReceiptError('BAD_PROTECTED_HEADER', 'not a map');
   const alg = raw.get(COSE_HEADER_ALG);
   if (alg !== ALG_EDDSA) throw new ReceiptError('UNSUPPORTED_ALG', `alg=${String(alg)}`);
