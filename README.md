@@ -60,8 +60,8 @@ platform signature offline, and refuses a document whose report data or measurem
 with this request and the receipt. `@ashaveri/attest-core` bundles Intel's SGX root CA, the
 AMD Milan ARK and NVIDIA's device identity root as the roots to chain to;
 `policy.trustAnchors` replaces them. A receipt whose `tee` claims a confidential-computing GPU
-is refused unless a device report that signed this request's digest verifies beside the
-platform document.
+costs a second fetch, the device bundle from the route beside the platform one, and is refused
+unless a device report that signed this request's digest verifies inside it.
 
 `--live` runs the same gateway inside a dStack confidential VM. There the signing key comes
 from the guest agent and the measurement, issuer and instance come out of the hardware

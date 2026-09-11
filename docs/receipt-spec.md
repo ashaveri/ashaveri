@@ -91,7 +91,7 @@ output. Kind and width are therefore one decision, not two that can drift apart:
 |---|---|---|
 | `"software"` | 32 bytes | No TEE. SHA-256 digest of what the deployment runs. |
 | `"snp"` | 48 bytes | AMD SEV-SNP SHA-384 launch digest. |
-| `"snp+h100cc"` | 48 bytes | SNP launch digest, where the H100 half of the label is proven by the device report in section 5, not by this digest. |
+| `"snp+h100cc"` | 48 bytes | SNP launch digest, where the H100 half of the label is proven by the device report in section 4.6, not by this digest. |
 | `"tdx"` | 48 bytes | Intel TDX SHA-384 measurement (MRTD). |
 
 A decoder rejects a pair that disagrees, in both directions, even when the signature over it
@@ -190,6 +190,39 @@ re-fetchable only while the gateway retains it, for a window it chooses and adve
 band; a receipt whose evidence can no longer be fetched still verifies cryptographically, but
 the client can no longer re-check the hardware claims and should treat it as an archived proof.
 
+### 4.6 Device evidence
+
+A deployment whose receipts say `"snp+h100cc"` serves the accelerator half beside the platform
+document:
+
+```text
+GET /attestation/gpu?report_data=<64 hex> -> 200 application/octet-stream, device evidence
+                                          -> 400 if report_data is missing or not 64 hex characters
+                                          -> 404 if the deployment makes no device claim
+```
+
+`report_data` is required here, where the platform route can serve a standing document without
+it: an accelerator report is only worth fetching if it names the challenge of the receipt being
+checked, and there is no general-purpose answer to fall back on. The body is the JSON array
+`nvattest --collect` wrote, byte for byte, each element carrying one device's base64 `evidence`
+(the SPDM request followed by its signed response) and `certificate` chain, so the same bytes
+still work in NVIDIA's own tool. Serving them unaltered is also why a deployment answers with a
+single device's array rather than merging several into a shape neither the vendor nor the
+verification library recognizes.
+
+The path is a convention rather than a published value: `att.url` names the platform document
+and `att.d` commits to it alone. A client reaches the device route by joining this path to the
+receipt's own challenge, which it recomputes, so the gateway never gets to point the client at
+evidence for other work.
+
+What the two documents jointly support is narrow, and worth stating exactly. A verified device
+report proves a genuine confidential-computing GPU signed `sha256(nce, req)`; the platform quote
+proves a genuine attesting VM served that same value. Neither signature covers the other's
+bytes, and the NVIDIA report binds the device and its challenge but not the host it sits in, so
+nothing here proves the two are the same machine. Only TDISP/TEE-IO device binding closes that
+gap. Until a deployment can show it, a composite label means "a real CC GPU attested to this
+request" and no more.
+
 ## 5. Verification algorithm
 
 A verifying client proceeds as follows:
@@ -218,9 +251,10 @@ A verifying client proceeds as follows:
    so strict mode refuses it before the fetch. This is the receipt's only cross-protocol
    link: the receipt format specifies a digest commitment and nothing else, and the checks
    above belong to the evidence format that `@ashaveri/attest-core` parses. For the
-   composite `"snp+h100cc"` the client must be given at least one NVIDIA SPDM measurement
-   report too, verify its signature under a chain anchored at a pinned NVIDIA device root,
-   and require the challenge inside its signed region to equal that same
+   composite `"snp+h100cc"` the client additionally fetches the device document from the
+   route in section 4.6, using the same challenge it just recomputed, and requires at least
+   one NVIDIA SPDM measurement report whose signature verifies under a chain anchored at a
+   pinned NVIDIA device root and whose signed challenge equals that same
    `sha256(nce, req)`. The shared challenge is the only link between the two documents:
    neither vendor's signature covers the other's bytes, so a client holding no device
    report has not verified the accelerator half of the label and must reject it.
