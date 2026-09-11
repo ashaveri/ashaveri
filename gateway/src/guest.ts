@@ -100,11 +100,8 @@ export class GuestClient implements GuestApi {
   async getKey(path: string, purpose: string, algorithm: 'ed25519'): Promise<GuestKey> {
     const result = await this.post<Record<string, unknown>>('/GetKey', { path, purpose, algorithm });
     const key = requireHex(result['key'], 'key');
-    const chain = result['signature_chain'];
-    if (!Array.isArray(chain) || !chain.every((entry) => typeof entry === 'string')) {
-      throw new GuestError('GUEST_MALFORMED_RESPONSE', 'signature_chain is not an array of hex strings');
-    }
-    return { key, signatureChain: chain.map((entry) => fromHex(entry as string)) };
+    const chain = requireStringArray(result['signature_chain'], 'signature_chain');
+    return { key, signatureChain: chain.map((entry) => fromHex(entry)) };
   }
 
   /** Evidence bound to reportData. The returned bytes are the attestation document a client re-verifies. */
@@ -192,7 +189,9 @@ export class GuestClient implements GuestApi {
       const onResponse = (response: IncomingMessage): void => {
         const chunks: Buffer[] = [];
         response.on('data', (chunk: Buffer) => chunks.push(chunk));
-        response.on('error', (err) => reject(new GuestError('GUEST_REQUEST_FAILED', err.message)));
+        response.on('error', (err) => {
+          reject(new GuestError('GUEST_REQUEST_FAILED', err.message));
+        });
         response.on('end', () => {
           const text = Buffer.concat(chunks).toString('utf8');
           const status = response.statusCode ?? 0;
@@ -209,14 +208,10 @@ export class GuestClient implements GuestApi {
             );
             return;
           }
-          if (parsed !== null && typeof parsed === 'object' && typeof (parsed as Record<string, unknown>)['error'] === 'string') {
-            reject(
-              new GuestError(
-                'GUEST_RPC_ERROR',
-                `${path}: ${(parsed as Record<string, unknown>)['error']}`,
-                status,
-              ),
-            );
+          const remoteError =
+            parsed !== null && typeof parsed === 'object' ? (parsed as Record<string, unknown>)['error'] : undefined;
+          if (typeof remoteError === 'string') {
+            reject(new GuestError('GUEST_RPC_ERROR', `${path}: ${remoteError}`, status));
             return;
           }
           resolve(parsed as T);
@@ -227,7 +222,9 @@ export class GuestClient implements GuestApi {
       request.setTimeout(this.timeoutMs, () => {
         request.destroy(new Error(`guest agent did not answer ${path} within ${this.timeoutMs} ms`));
       });
-      request.on('error', (err) => reject(new GuestError('GUEST_REQUEST_FAILED', err.message)));
+      request.on('error', (err) => {
+        reject(new GuestError('GUEST_REQUEST_FAILED', err.message));
+      });
       request.write(body);
       request.end();
     });
@@ -272,4 +269,18 @@ function requireString(value: unknown, field: string): string {
     throw new GuestError('GUEST_MALFORMED_RESPONSE', `${field} is not a string`);
   }
   return value;
+}
+
+// Array.isArray narrows to any[], which would leave every element to be cast again at
+// the call site; filtering on the predicate is what actually produces a string[].
+function requireStringArray(value: unknown, field: string): string[] {
+  if (!Array.isArray(value)) {
+    throw new GuestError('GUEST_MALFORMED_RESPONSE', `${field} is not an array of strings`);
+  }
+  const entries: unknown[] = value;
+  const strings = entries.filter((entry): entry is string => typeof entry === 'string');
+  if (strings.length !== entries.length) {
+    throw new GuestError('GUEST_MALFORMED_RESPONSE', `${field} is not an array of strings`);
+  }
+  return strings;
 }

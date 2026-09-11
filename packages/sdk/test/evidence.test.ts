@@ -1,6 +1,6 @@
 import { readFileSync } from 'node:fs';
 import { describe, expect, it } from 'vitest';
-import { decodeAttestation, parseTdxQuote } from '@ashaveri/attest-core';
+import { decodeAttestation } from '@ashaveri/attest-core';
 import { encodeV1Snp, pemToDer } from '../../attest-core/test/helpers.js';
 import { sha256 } from '@noble/hashes/sha2.js';
 import type { ReceiptPayload, SdkErrorCode, TeeKind } from '../src/index.js';

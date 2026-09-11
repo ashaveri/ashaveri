@@ -201,7 +201,7 @@ export async function dstackDeployment(options: DstackDeploymentOptions): Promis
   const deviceCache = new Map<string, AttestationBundle>();
   const remember = (store: Map<string, AttestationBundle>, hex: string, bundle: AttestationBundle): AttestationBundle => {
     if (store.size >= MAX_CACHED_EVIDENCE) {
-      const oldest = store.keys().next().value as string | undefined;
+      const oldest = store.keys().next().value;
       if (oldest !== undefined) {
         store.delete(oldest);
       }

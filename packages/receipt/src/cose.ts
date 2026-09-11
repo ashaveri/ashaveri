@@ -1,7 +1,7 @@
 import { ed25519 } from '@noble/curves/ed25519';
 import { sha256 } from '@noble/hashes/sha2.js';
 import { Tag } from 'cbor2';
-import { encodeCanonical, decodeCanonical } from './cbor.js';
+import { encodeCanonical, decodeCanonical, decodedMap } from './cbor.js';
 import { ReceiptError } from './errors.js';
 
 export const COSE_SIGN1_TAG = 18;
@@ -19,7 +19,7 @@ export interface ProtectedHeader {
 
 export interface CoseSign1 {
   protectedBytes: Uint8Array;
-  unprotected: Map<number, unknown>;
+  unprotected: Map<unknown, unknown>;
   payloadBytes: Uint8Array;
   signature: Uint8Array;
 }
@@ -48,17 +48,21 @@ export function signingKeyFromSeed(seed: Uint8Array): SigningKey {
 }
 
 function parseProtectedHeader(bytes: Uint8Array): ProtectedHeader {
-  const raw = decodeCanonical(bytes, 'BAD_PROTECTED_HEADER');
-  if (!(raw instanceof Map)) throw new ReceiptError('BAD_PROTECTED_HEADER', 'not a map');
+  const raw = decodedMap(decodeCanonical(bytes, 'BAD_PROTECTED_HEADER'));
+  if (raw === null) throw new ReceiptError('BAD_PROTECTED_HEADER', 'not a map');
   const alg = raw.get(COSE_HEADER_ALG);
-  if (alg !== ALG_EDDSA) throw new ReceiptError('UNSUPPORTED_ALG', `alg=${String(alg)}`);
+  if (typeof alg !== 'number') throw new ReceiptError('UNSUPPORTED_ALG', `alg must be an integer label, got ${typeof alg}`);
+  if (alg !== ALG_EDDSA) throw new ReceiptError('UNSUPPORTED_ALG', `alg=${alg}`);
   const kid = raw.get(COSE_HEADER_KID);
   if (!(kid instanceof Uint8Array) || kid.length !== 32) {
     throw new ReceiptError('BAD_PROTECTED_HEADER', 'kid must be a 32-byte bstr');
   }
   const contentType = raw.get(COSE_HEADER_CONTENT_TYPE);
+  if (typeof contentType !== 'string') {
+    throw new ReceiptError('BAD_PROTECTED_HEADER', `typ must be a tstr, got ${typeof contentType}`);
+  }
   if (contentType !== RECEIPT_CONTENT_TYPE) {
-    throw new ReceiptError('BAD_PROTECTED_HEADER', `typ=${String(contentType)}`);
+    throw new ReceiptError('BAD_PROTECTED_HEADER', `typ=${contentType}`);
   }
   return { alg: ALG_EDDSA, kid, contentType };
 }
@@ -95,9 +99,10 @@ export function decodeCoseSign1(bytes: Uint8Array): CoseSign1 & { header: Protec
   }
   const arr = top.contents;
   if (!Array.isArray(arr) || arr.length !== 4) throw new ReceiptError('NOT_COSE_SIGN1', 'not a 4-element array');
-  const [protectedBytes, unprotected, payloadBytes, signature] = arr;
+  const [protectedBytes, unprotectedMap, payloadBytes, signature] = arr as unknown[];
   if (!(protectedBytes instanceof Uint8Array)) throw new ReceiptError('NOT_COSE_SIGN1', 'protected is not a bstr');
-  if (!(unprotected instanceof Map)) throw new ReceiptError('NOT_COSE_SIGN1', 'unprotected is not a map');
+  const unprotected = decodedMap(unprotectedMap);
+  if (unprotected === null) throw new ReceiptError('NOT_COSE_SIGN1', 'unprotected is not a map');
   if (!(payloadBytes instanceof Uint8Array)) throw new ReceiptError('NOT_COSE_SIGN1', 'payload is not a bstr');
   if (!(signature instanceof Uint8Array) || signature.length !== 64) {
     throw new ReceiptError('NOT_COSE_SIGN1', 'signature is not a 64-byte bstr');
@@ -118,6 +123,6 @@ export function verifyCoseSign1(bytes: Uint8Array, publicKey: Uint8Array, extern
 export function equalBytes(a: Uint8Array, b: Uint8Array): boolean {
   if (a.length !== b.length) return false;
   let diff = 0;
-  for (let i = 0; i < a.length; i++) diff |= a[i]! ^ b[i]!;
+  for (const [i, byte] of a.entries()) diff |= byte ^ (b[i] ?? 0);
   return diff === 0;
 }

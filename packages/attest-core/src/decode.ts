@@ -1,7 +1,7 @@
 import { fail } from './errors.js';
 import { isMsgpackMapPrefix, MsgpackReader } from './msgpack.js';
 import { ScaleReader } from './scale.js';
-import type { Attestation, EventLogVersion, PlatformEvidence, StackEvidence, TdxEvent } from './types.js';
+import type { Attestation, EventLogVersion, PlatformEvidence, RuntimeEvent, StackEvidence, TdxEvent } from './types.js';
 
 export function decodeAttestation(bytes: Uint8Array): Attestation {
   if (bytes.length === 0) {
@@ -24,10 +24,10 @@ function decodeV0(reader: ScaleReader): Attestation {
   }
   const platform = decodeV0Platform(reader);
   const runtimeEvents = reader.readVecItems(
-    (ctx) => {
+    (ctx): RuntimeEvent => {
       const event = reader.readString(`${ctx}.event`);
       const payload = reader.readVec(`${ctx}.payload`);
-      return { event, payload, version: 1 as EventLogVersion };
+      return { event, payload, version: 1 };
     },
     'runtime_events',
   );
@@ -194,7 +194,7 @@ function decodeV1Stack(reader: MsgpackReader): StackEvidence {
   if (reportData.length !== 64) {
     fail('MALFORMED_ATTESTATION', `stack.report_data must be 64 bytes, got ${reportData.length}`);
   }
-  const runtimeEvents = requireArray(fields, 'runtime_events', 'stack').map((entry, i) => {
+  const runtimeEvents = requireArray(fields, 'runtime_events', 'stack').map((entry, i): RuntimeEvent => {
     if (entry === null || typeof entry !== 'object' || entry instanceof Uint8Array) {
       fail('MALFORMED_ATTESTATION', `stack.runtime_events[${i}] is not a map`);
     }
@@ -206,12 +206,12 @@ function decodeV1Stack(reader: MsgpackReader): StackEvidence {
     }
     const version = eventFields['version'];
     if (version === undefined || version === null) {
-      return { event, payload: payloadValue, version: 1 as EventLogVersion };
+      return { event, payload: payloadValue, version: 1 };
     }
     if (version !== 1 && version !== 2) {
-      fail('MALFORMED_ATTESTATION', `stack.runtime_events[${i}].version must be 1 or 2, got ${String(version)}`);
+      fail('MALFORMED_ATTESTATION', `stack.runtime_events[${i}].version must be 1 or 2, got ${describeValue(version)}`);
     }
-    return { event, payload: payloadValue, version: version as EventLogVersion };
+    return { event, payload: payloadValue, version };
   });
   const config = requireStr(fields, 'config', 'stack');
   const reportDataPayloadValue = fields['report_data_payload'];
@@ -239,7 +239,7 @@ function readTdxEvents(entries: unknown[], context: string): TdxEvent[] {
     let version: EventLogVersion = 1;
     if (versionValue !== undefined && versionValue !== null) {
       if (versionValue !== 1 && versionValue !== 2) {
-        fail('MALFORMED_ATTESTATION', `${context}[${i}].version must be 1 or 2, got ${String(versionValue)}`);
+        fail('MALFORMED_ATTESTATION', `${context}[${i}].version must be 1 or 2, got ${describeValue(versionValue)}`);
       }
       version = versionValue;
     }
@@ -283,4 +283,17 @@ function requireArray(fields: Record<string, unknown>, key: string, context: str
     fail('MALFORMED_ATTESTATION', `${context}.${key} is missing or not an array`);
   }
   return value;
+}
+
+// A rejected field is still `unknown` at the point of the diagnostic, and String() on a
+// map or array renders as '[object Object]', which hides exactly the fact worth reporting.
+// Scalars go out verbatim, a quoted string stays distinguishable from the same number,
+// and anything else is named by type.
+function describeValue(value: unknown): string {
+  if (value === null) return 'null';
+  if (typeof value === 'string') return JSON.stringify(value);
+  if (typeof value === 'number' || typeof value === 'boolean' || typeof value === 'bigint') return String(value);
+  if (Array.isArray(value)) return 'an array';
+  if (typeof value === 'object') return 'an object';
+  return `a ${typeof value}`;
 }

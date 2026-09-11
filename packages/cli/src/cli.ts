@@ -207,7 +207,7 @@ function humanResult(result: VerificationResult, pinned: readonly string[] = [])
     );
     if (result.tdx) {
       lines.push(`  mr td:            ${toHex(result.tdx.quote.mrTd)}`);
-      lines.push(`  rtmr3:            ${toHex(result.tdx.quote.rtmr[3] ?? new Uint8Array(0))}`);
+      lines.push(`  rtmr3:            ${toHex(result.tdx.quote.rtmr[3])}`);
       lines.push(
         result.tdx.mrConfig
           ? `  mr config:        digest ${toHex(result.tdx.mrConfig.digest)} (tag ${result.tdx.mrConfig.tag})`
