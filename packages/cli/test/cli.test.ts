@@ -12,13 +12,21 @@ const ARK = `${FIXTURES}amd-ark-milan.pem`;
 const ASK = `${FIXTURES}sev-snp-ask.pem`;
 const VCEK = `${FIXTURES}sev-snp-vcek.pem`;
 const INTEL_ROOT = `${FIXTURES}intel-sgx-root-ca.pem`;
+const GPU_REPORT = `${FIXTURES}nvidia-hopper-report.bin`;
+const GPU_CHAIN = `${FIXTURES}nvidia-hopper-cert-chain.pem`;
+const GPU_ROOT = `${FIXTURES}nvidia-device-identity-ca.pem`;
 const NOW = '2026-09-10T00:00:00Z';
 const FIXTURE_REPORT_DATA = '6174746573742d746573742d666978747572652d32303236';
+/** The challenge the Hopper sample signed, taken from inside its signed region. */
+const FIXTURE_GPU_CHALLENGE = '08f2fd1f8bb769d087f6b0de1b389594e6cd2415c2f92cf4894fd617d8ddd7e6';
 const FIXTURE_MEASUREMENT =
   '7f51e17f72a04d5422cb2c00998166536019a217376f3aa45a630e59c805a599847ff250dbffcd07e1ba639771d6f05d';
 const FIXTURE_COMPOSE_HASH = '86e59625be93207bc2351c4d1bba20037cec8e168da6b18f559af5af657b7a23';
 
 const VERIFY_ARGS = ['verify', ATTESTATION, '--ark', ARK, '--ask', ASK, '--vcek', VCEK, '--now', NOW];
+
+/** The Hopper sample and the root its chain reaches, as the operator would pass them. */
+const GPU_ARGS = ['--gpu-report', GPU_REPORT, '--gpu-chain', GPU_CHAIN, '--gpu-root', GPU_ROOT];
 
 const tempDir = mkdtempSync(join(tmpdir(), 'ashaveri-cli-'));
 
@@ -172,6 +180,49 @@ describe('ashaveri verify', () => {
     ]);
     expect(result.status).toBe(1);
     expect(result.stderr).toContain('MISSING_TRUST_ROOT');
+  });
+
+  it('verifies a GPU report supplied beside the platform document', () => {
+    const result = runCli([...VERIFY_ARGS, ...GPU_ARGS]);
+    expect(result.status).toBe(0);
+    expect(result.stderr).toBe('');
+    expect(result.stdout).toContain('gpu:              1 device report verified');
+    expect(result.stdout).toContain(`gpu challenge:    ${FIXTURE_GPU_CHALLENGE}`);
+  });
+
+  it('lists each verified device report in JSON output', () => {
+    const result = runCli([...VERIFY_ARGS, ...GPU_ARGS, '--json']);
+    expect(result.status).toBe(0);
+    const parsed = JSON.parse(result.stdout) as { gpu: { signatureVerified: boolean; challenge: string }[] };
+    expect(parsed.gpu).toEqual([{ signatureVerified: true, challenge: FIXTURE_GPU_CHALLENGE }]);
+  });
+
+  it('exits 2 when GPU reports and chains are given unequally many times', () => {
+    const result = runCli([...VERIFY_ARGS, '--gpu-report', GPU_REPORT, '--gpu-root', GPU_ROOT]);
+    expect(result.status).toBe(2);
+    expect(result.stderr).toContain('--gpu-report and --gpu-chain must be given the same number of times (got 1 and 0)');
+  });
+
+  it('refuses a GPU report with no pinned root', () => {
+    const result = runCli([...VERIFY_ARGS, '--gpu-report', GPU_REPORT, '--gpu-chain', GPU_CHAIN]);
+    expect(result.status).toBe(1);
+    expect(result.stderr).toContain('at least one pinned NVIDIA root');
+  });
+
+  it('refuses a GPU chain that does not reach the pinned --gpu-root', () => {
+    const result = runCli([...VERIFY_ARGS, '--gpu-report', GPU_REPORT, '--gpu-chain', GPU_CHAIN, '--gpu-root', ARK]);
+    expect(result.status).toBe(1);
+    expect(result.stderr).toContain('does not lead to any pinned NVIDIA root');
+  });
+
+  it('refuses a GPU report that did not sign the pinned --report-data value', () => {
+    // The fixture's report data is an ASCII label and the device signed a 32-byte
+    // challenge, so the two halves describe different moments. A pin that only the
+    // platform answers would let an unrelated GPU report ride along.
+    const result = runCli([...VERIFY_ARGS, ...GPU_ARGS, '--report-data', FIXTURE_REPORT_DATA]);
+    expect(result.status).toBe(1);
+    expect(result.stderr).toContain('verification failed (NONCE_MISMATCH)');
+    expect(result.stderr).toContain(`GPU signed challenge ${FIXTURE_GPU_CHALLENGE}`);
   });
 
   it('exits 2 for a measurement pin of the wrong width', () => {

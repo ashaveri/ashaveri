@@ -97,6 +97,15 @@ way the MVP does not fetch Intel collateral, so a verified TDX signature does no
 that the platform's TCB is unexpired, that its QE identity is valid, or that its PCK has not
 been revoked.
 
+A confidential-computing GPU attests on its own: the dStack envelope carries no device
+report, so `--gpu-report <bin> --gpu-chain <pem>` supplies a captured NVIDIA SPDM
+measurements report and the chain it was signed under, paired by position, and
+`--gpu-root <pem>` names the device identity root that chain must reach. Each report's
+ECDSA P-384 signature is verified offline under that root, and the challenge the device
+signed is printed beside the report data above. With `--report-data` pinned, a device that
+answered a different challenge fails with `NONCE_MISMATCH`, because it is evidence of some
+other moment on the same machine.
+
 Verification proves an attestation is genuine; pinning turns it into a decision about *this*
 deployment. `--expect-measurement` compares the platform launch digest, the SEV-SNP launch
 digest or the TDX MRTD, against the value you measured when you built the image.
