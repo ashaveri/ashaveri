@@ -5,13 +5,13 @@ import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import type { FastifyInstance } from 'fastify';
 import { afterAll, afterEach, describe, expect, it } from 'vitest';
-import { decodeAttestation, parseSnpReport, type PlatformEvidence } from '@ashaveri/attest-core';
+import { decodeAttestation, parseSnpReport, readNvidiaChallenge, type PlatformEvidence } from '@ashaveri/attest-core';
 import { hashRequest, keyId, ReceiptError, toHex, verifyReceipt } from '@ashaveri/receipt';
-import { dstackDeployment, DstackError } from '../src/dstack.js';
+import { dstackDeployment, DstackError, nvidiaDeviceReports } from '../src/dstack.js';
 import { sha256 } from '../src/digest.js';
 import { buildGateway } from '../src/server.js';
 import { fromBase64Url, toBase64Url } from '../src/b64.js';
-import type { GuestApi, GuestKey } from '../src/guest.js';
+import type { GpuEvidenceBundle, GuestApi, GuestKey } from '../src/guest.js';
 
 /**
  * Evidence comes from a real SEV-SNP attestation captured from a live dstack CVM
@@ -149,6 +149,11 @@ class FakeGuest implements GuestApi {
     this.attested.push(reportData);
     return this.document(reportData);
   }
+
+  /** Stands for a guest with no accelerators: the caller asked, and nothing answered. */
+  async attestGpu(): Promise<never> {
+    throw new Error('GUEST_MALFORMED_RESPONSE: this fake serves no devices');
+  }
 }
 
 function snpGuest(events: readonly { event: string; payload: Uint8Array }[] = captured.stack.runtimeEvents): FakeGuest {
@@ -157,7 +162,7 @@ function snpGuest(events: readonly { event: string; payload: Uint8Array }[] = ca
   );
 }
 
-async function expectCode(fn: () => Promise<unknown>, code: DstackError['code'] | ReceiptError['code']): Promise<string> {
+async function expectCode(fn: () => unknown, code: DstackError['code'] | ReceiptError['code']): Promise<string> {
   try {
     await fn();
   } catch (error) {
@@ -349,6 +354,83 @@ describe('dstackDeployment evidence binding', () => {
     expect(toHex(standing.document)).not.toBe(toHex(first.document));
     expect(standing.url).toContain(`report_data=${toHex(guest.attested[0]!)}`);
     expect(guest.attested.length).toBe(2);
+  });
+});
+
+/**
+ * Device evidence is the same public NVIDIA Hopper sample @ashaveri/attest-core verifies
+ * offline, wrapped the way a dstack image answers `AttestGpu`: one bundle whose `evidence`
+ * is the JSON array nvattest collected, each entry carrying base64 report and chain.
+ */
+const HOPPER_REPORT = new Uint8Array(
+  readFileSync(fileURLToPath(new URL('../../packages/attest-core/test/fixtures/nvidia-hopper-report.bin', import.meta.url))),
+);
+const HOPPER_CHAIN = new Uint8Array(
+  readFileSync(fileURLToPath(new URL('../../packages/attest-core/test/fixtures/nvidia-hopper-cert-chain.pem', import.meta.url))),
+);
+/** The challenge that sample signed, read from inside its signed region. */
+const HOPPER_CHALLENGE = readNvidiaChallenge(HOPPER_REPORT);
+
+function onDemandBundle(entries: unknown, format = 'nvidia-nvattest-collect-evidence-json-v1'): GpuEvidenceBundle {
+  return { vendor: 'nvidia', format, evidence: new TextEncoder().encode(JSON.stringify(entries)) };
+}
+
+function hopperEntry(): Record<string, string> {
+  return {
+    arch: 'HOPPER',
+    certificate: Buffer.from(HOPPER_CHAIN).toString('base64'),
+    driver_version: '570.124.06',
+    evidence: Buffer.from(HOPPER_REPORT).toString('base64'),
+    nonce: toHex(HOPPER_CHALLENGE),
+    vbios_version: '96.00.51.00.01',
+    version: '1.0',
+  };
+}
+
+describe('nvidiaDeviceReports', () => {
+  it('unwraps the per-device reports a live bundle carries', () => {
+    expect(nvidiaDeviceReports(onDemandBundle([hopperEntry()]), HOPPER_CHALLENGE)).toEqual([
+      { report: HOPPER_REPORT, certChain: HOPPER_CHAIN },
+    ]);
+  });
+
+  it('refuses boot-time evidence as an answer to a live challenge', async () => {
+    const bundle = onDemandBundle([hopperEntry()], 'nvidia-nvattest-boottime-json-v1');
+    const message = await expectCode(() => nvidiaDeviceReports(bundle, HOPPER_CHALLENGE), 'GPU_EVIDENCE_UNSUPPORTED');
+    expect(message).toContain('nvidia-nvattest-boottime-json-v1');
+  });
+
+  it('refuses a bundle from a vendor it has no parser for', async () => {
+    const bundle = { ...onDemandBundle([hopperEntry()]), vendor: 'amd' };
+    await expectCode(() => nvidiaDeviceReports(bundle, HOPPER_CHALLENGE), 'GPU_EVIDENCE_UNSUPPORTED');
+  });
+
+  it('refuses a payload that is not the JSON array the format promises', async () => {
+    const notJson: GpuEvidenceBundle = {
+      vendor: 'nvidia',
+      format: 'nvidia-nvattest-collect-evidence-json-v1',
+      evidence: new TextEncoder().encode('not json'),
+    };
+    await expectCode(() => nvidiaDeviceReports(notJson, HOPPER_CHALLENGE), 'GPU_EVIDENCE_UNSUPPORTED');
+    const notArray = onDemandBundle({ evidences: [] });
+    await expectCode(() => nvidiaDeviceReports(notArray, HOPPER_CHALLENGE), 'GPU_EVIDENCE_UNSUPPORTED');
+    const noReport = onDemandBundle([{ certificate: Buffer.from(HOPPER_CHAIN).toString('base64') }]);
+    await expectCode(() => nvidiaDeviceReports(noReport, HOPPER_CHALLENGE), 'GPU_EVIDENCE_UNSUPPORTED');
+  });
+
+  it('refuses a bundle that names no device', async () => {
+    await expectCode(() => nvidiaDeviceReports(onDemandBundle([]), HOPPER_CHALLENGE), 'GPU_EVIDENCE_UNAVAILABLE');
+  });
+
+  it('refuses a report that answers a different challenge', async () => {
+    const other = Uint8Array.from(HOPPER_CHALLENGE, (byte, index) =>
+      index === HOPPER_CHALLENGE.length - 1 ? byte ^ 0x01 : byte,
+    );
+    const message = await expectCode(
+      () => nvidiaDeviceReports(onDemandBundle([hopperEntry()]), other),
+      'GPU_EVIDENCE_UNBOUND',
+    );
+    expect(message).toContain(toHex(HOPPER_CHALLENGE));
   });
 });
 

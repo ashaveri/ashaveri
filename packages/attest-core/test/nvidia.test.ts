@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { verifyNvidiaRats } from '../src/index.js';
+import { readNvidiaChallenge, verifyNvidiaRats } from '../src/index.js';
 import { expectErrorCode, fixture } from './helpers.js';
 
 // A real Hopper GPU attestation report signed by the device itself, plus the
@@ -80,5 +80,13 @@ describe('NVIDIA GPU evidence', () => {
       () => verifyNvidiaRats({ report: tampered, certChain }, { now, trustedRoots: [deviceRoot] }),
       'BAD_SIGNATURE',
     );
+  });
+
+  it('reads which challenge a report answers without its certificate chain', () => {
+    expect(readNvidiaChallenge(report)).toEqual(CHALLENGE);
+  });
+
+  it('refuses to read a challenge out of a truncated report', () => {
+    expectErrorCode(() => readNvidiaChallenge(report.subarray(0, 100)), 'MALFORMED_REPORT');
   });
 });

@@ -22,19 +22,45 @@ const DEFAULT_TIMEOUT_MS = 30_000;
 /** Widest report_data the agent accepts; the platform field is 64 bytes and shorter values are zero padded. */
 export const MAX_REPORT_DATA_BYTES = 64;
 
+/** SPDM fixes the device challenge at 32 bytes; a longer digest must be taken by the caller. */
+export const GPU_NONCE_BYTES = 32;
+
+/**
+ * Answers that say the route is not in this image, as opposed to this request having failed:
+ * 501 for a build without nvattest, 404 and 405 for a guest agent too old to mount `v1`.
+ */
+const MISSING_ROUTE = new Set([404, 405, 501]);
+
+/**
+ * One accelerator's evidence as the guest agent ships it. `format` is the caller's
+ * cue for which verifier applies, and an unrecognized value has no verifier.
+ */
+export interface GpuEvidenceBundle {
+  readonly vendor: string;
+  readonly format: string;
+  readonly evidence: Uint8Array;
+}
+
 export type GuestErrorCode =
   | 'GUEST_ENDPOINT_MISSING'
   | 'GUEST_REQUEST_FAILED'
   | 'GUEST_RPC_ERROR'
-  | 'GUEST_MALFORMED_RESPONSE';
+  | 'GUEST_MALFORMED_RESPONSE'
+  | 'GPU_ATTESTATION_UNAVAILABLE';
 
 export class GuestError extends Error {
   readonly code: GuestErrorCode;
+  /** The message without its code prefix, so a caller can re-wrap a failure without cutting prose out of a string. */
+  readonly detail: string;
+  /** The HTTP status behind the failure, or undefined when no response caused it. */
+  readonly status: number | undefined;
 
-  constructor(code: GuestErrorCode, detail: string) {
+  constructor(code: GuestErrorCode, detail: string, status?: number) {
     super(`${code}: ${detail}`);
     this.name = 'GuestError';
     this.code = code;
+    this.detail = detail;
+    this.status = status;
   }
 }
 
@@ -54,10 +80,11 @@ export interface GuestInfo {
   readonly raw: Record<string, unknown>;
 }
 
-/** The subset of the guest agent a deployment needs: a derived key and bound evidence. */
+/** The subset of the guest agent a deployment needs: a derived key, bound platform evidence, and device evidence. */
 export interface GuestApi {
   getKey(path: string, purpose: string, algorithm: 'ed25519'): Promise<GuestKey>;
   attest(reportData: Uint8Array): Promise<Uint8Array>;
+  attestGpu(nonce: Uint8Array): Promise<readonly GpuEvidenceBundle[]>;
 }
 
 export class GuestClient implements GuestApi {
@@ -90,6 +117,46 @@ export class GuestClient implements GuestApi {
     }
     const result = await this.post<Record<string, unknown>>('/Attest', { report_data: toHex(reportData) });
     return requireHex(result['attestation'], 'attestation');
+  }
+
+  /**
+   * Evidence collected from the accelerators now, against a challenge the caller picks.
+   *
+   * The agent hands the nonce to each device verbatim, so the answer is bound to this
+   * moment and to no other. It binds the device, not the VM the device sits in; that
+   * second link needs TDISP/TEE-IO, which this platform does not expose.
+   */
+  async attestGpu(nonce: Uint8Array): Promise<readonly GpuEvidenceBundle[]> {
+    if (nonce.length !== GPU_NONCE_BYTES) {
+      throw new GuestError(
+        'GUEST_MALFORMED_RESPONSE',
+        `nonce must be exactly ${GPU_NONCE_BYTES} bytes, got ${nonce.length}`,
+      );
+    }
+    const result = await this.post<Record<string, unknown>>('/v1/AttestGpu', { nonce: toHex(nonce) }).catch((error: unknown) => {
+      if (error instanceof GuestError && error.status !== undefined && MISSING_ROUTE.has(error.status)) {
+        throw new GuestError(
+          'GPU_ATTESTATION_UNAVAILABLE',
+          `this image has no device attestation route (status ${error.status}), so it cannot produce GPU evidence. ${error.detail}`,
+        );
+      }
+      throw error;
+    });
+    const bundles = result['bundles'];
+    if (!Array.isArray(bundles)) {
+      throw new GuestError('GUEST_MALFORMED_RESPONSE', 'bundles is not an array');
+    }
+    return bundles.map((entry, index) => {
+      if (entry === null || typeof entry !== 'object') {
+        throw new GuestError('GUEST_MALFORMED_RESPONSE', `bundles[${index}] is not an object`);
+      }
+      const bundle = entry as Record<string, unknown>;
+      return {
+        vendor: requireString(bundle['vendor'], `bundles[${index}].vendor`),
+        format: requireString(bundle['format'], `bundles[${index}].format`),
+        evidence: requireHex(bundle['evidence'], `bundles[${index}].evidence`),
+      };
+    });
   }
 
   async info(): Promise<GuestInfo> {
@@ -128,21 +195,28 @@ export class GuestClient implements GuestApi {
         response.on('error', (err) => reject(new GuestError('GUEST_REQUEST_FAILED', err.message)));
         response.on('end', () => {
           const text = Buffer.concat(chunks).toString('utf8');
+          const status = response.statusCode ?? 0;
           let parsed: unknown;
           try {
             parsed = JSON.parse(text);
           } catch {
-            const status = response.statusCode ?? 0;
             reject(
               new GuestError(
                 'GUEST_MALFORMED_RESPONSE',
                 `${path} returned status ${status} and a non-JSON body: ${text.slice(0, 200)}`,
+                status,
               ),
             );
             return;
           }
           if (parsed !== null && typeof parsed === 'object' && typeof (parsed as Record<string, unknown>)['error'] === 'string') {
-            reject(new GuestError('GUEST_RPC_ERROR', `${path}: ${(parsed as Record<string, unknown>)['error']}`));
+            reject(
+              new GuestError(
+                'GUEST_RPC_ERROR',
+                `${path}: ${(parsed as Record<string, unknown>)['error']}`,
+                status,
+              ),
+            );
             return;
           }
           resolve(parsed as T);
@@ -187,4 +261,15 @@ function requireHex(value: unknown, field: string): Uint8Array {
   } catch {
     throw new GuestError('GUEST_MALFORMED_RESPONSE', `${field} is not valid hex`);
   }
+}
+
+/**
+ * A field the caller dispatches on. A bundle without its `vendor` and `format`
+ * routes the evidence to no verifier at all, quietly, so it is refused here.
+ */
+function requireString(value: unknown, field: string): string {
+  if (typeof value !== 'string') {
+    throw new GuestError('GUEST_MALFORMED_RESPONSE', `${field} is not a string`);
+  }
+  return value;
 }

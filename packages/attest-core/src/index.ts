@@ -13,7 +13,7 @@ export {
 export { parseTdxQuote } from './tdx.js';
 export { parseQeReportCertificationData, parseTdxQuoteSignature, verifyTdxQuote } from './tdx-dcap.js';
 export type { QeReportCertificationData, TdxDcapOptions, TdxQuoteSignature, TdxQuoteVerification } from './tdx-dcap.js';
-export { verifyNvidiaRats } from './nvidia.js';
+export { readNvidiaChallenge, verifyNvidiaRats } from './nvidia.js';
 export type { NvidiaEvidence, NvidiaOptions, NvidiaVerification } from './nvidia.js';
 export {
   AMD_ARK_MILAN_PEM,

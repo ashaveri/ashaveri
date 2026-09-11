@@ -136,6 +136,18 @@ function verifyDeviceChain(chain: readonly ParsedCertificate[], roots: readonly 
   return chain[0] as ParsedCertificate;
 }
 
+/**
+ * Which challenge a device report answers, read from inside the signed region.
+ *
+ * No signature check and no trust roots: this says nothing about whether the
+ * report is genuine, only about which request it claims to reply to. A producer
+ * needs exactly that much to refuse serving evidence collected for someone
+ * else's challenge; the verdict stays with `verifyNvidiaRats`.
+ */
+export function readNvidiaChallenge(report: Uint8Array): Uint8Array {
+  return parseSpdmMeasurements(report).nonce;
+}
+
 export function verifyNvidiaRats(evidence: NvidiaEvidence, options: NvidiaOptions): NvidiaVerification {
   const now = options.now ?? Date.now();
   const expectedNonce = options.expectedNonce;

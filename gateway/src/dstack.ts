@@ -1,12 +1,16 @@
 import {
   decodeAttestation,
+  equalBytes,
   parseSnpReport,
   parseTdxQuote,
+  readNvidiaChallenge,
   reportDataBinds,
+  type NvidiaEvidence,
   type RuntimeEvent,
 } from '@ashaveri/attest-core';
 import { signingKeyFromSeed } from '@ashaveri/receipt';
-import { GuestClient, type GuestApi } from './guest.js';
+import { GuestClient, type GuestApi, type GpuEvidenceBundle } from './guest.js';
+import { fromBase64 } from './b64.js';
 import { sha256, toHex } from './digest.js';
 import type { AttestationBundle, Deployment, HardwareTeeKind, ModelInfo, TeeKind } from './deployment.js';
 
@@ -24,12 +28,18 @@ const MAX_CACHED_EVIDENCE = 256;
 
 const QUOTE_REPORT_DATA_BYTES = 64;
 
+/** The only bundle format that answers a challenge this deployment chose; boot-time evidence answers one it never picked. */
+const NVIDIA_ON_DEMAND_FORMAT = 'nvidia-nvattest-collect-evidence-json-v1';
+
 export type DstackErrorCode =
   | 'EVIDENCE_UNDECODABLE'
   | 'PLATFORM_UNSUPPORTED'
   | 'TEE_MISMATCH'
   | 'IDENTITY_MISSING'
-  | 'EVIDENCE_REPORT_DATA_MISMATCH';
+  | 'EVIDENCE_REPORT_DATA_MISMATCH'
+  | 'GPU_EVIDENCE_UNSUPPORTED'
+  | 'GPU_EVIDENCE_UNAVAILABLE'
+  | 'GPU_EVIDENCE_UNBOUND';
 
 export class DstackError extends Error {
   readonly code: DstackErrorCode;
@@ -114,6 +124,69 @@ function measureEvidence(document: Uint8Array, requestedReportData: Uint8Array):
 
 function eventPayload(events: readonly RuntimeEvent[], name: string): Uint8Array | null {
   return events.find((event) => event.event === name)?.payload ?? null;
+}
+
+/**
+ * The per-device reports inside one live bundle, in the shape @ashaveri/attest-core verifies.
+ *
+ * Only the on-demand format qualifies: boot-time evidence was collected against a nonce the
+ * deployment never chose, so it answers this request no better than a photograph would. The
+ * challenge is compared against the nonce inside each report's signed region rather than the
+ * copy beside it in the JSON, because that is the value a client checks. Reading it is not a
+ * verdict on the device; appraising the signature stays the client's job.
+ */
+export function nvidiaDeviceReports(bundle: GpuEvidenceBundle, challenge: Uint8Array): NvidiaEvidence[] {
+  if (bundle.vendor !== 'nvidia' || bundle.format !== NVIDIA_ON_DEMAND_FORMAT) {
+    throw new DstackError(
+      'GPU_EVIDENCE_UNSUPPORTED',
+      `device evidence is '${bundle.vendor}' in format '${bundle.format}', this deployment serves only 'nvidia' in format '${NVIDIA_ON_DEMAND_FORMAT}'`,
+    );
+  }
+  let entries: unknown;
+  try {
+    entries = JSON.parse(new TextDecoder().decode(bundle.evidence));
+  } catch {
+    entries = undefined;
+  }
+  if (!Array.isArray(entries)) {
+    throw new DstackError('GPU_EVIDENCE_UNSUPPORTED', 'device evidence is not the JSON array the format promises');
+  }
+  if (entries.length === 0) {
+    throw new DstackError('GPU_EVIDENCE_UNAVAILABLE', 'the device bundle names no device, so nothing backs a GPU claim');
+  }
+  return entries.map((entry, index) => {
+    const report = deviceField(entry, 'evidence', index);
+    const certChain = deviceField(entry, 'certificate', index);
+    let signed: Uint8Array;
+    try {
+      signed = readNvidiaChallenge(report);
+    } catch (error) {
+      throw new DstackError(
+        'GPU_EVIDENCE_UNSUPPORTED',
+        `device ${index} report: ${error instanceof Error ? error.message : String(error)}`,
+      );
+    }
+    if (!equalBytes(signed, challenge)) {
+      throw new DstackError(
+        'GPU_EVIDENCE_UNBOUND',
+        `device ${index} signed a report for challenge ${toHex(signed)}, this request's device challenge is ${toHex(challenge)}`,
+      );
+    }
+    return { report, certChain };
+  });
+}
+
+/** A device's base64 payload, or the reason the bundle cannot be served. */
+function deviceField(entry: unknown, name: string, index: number): Uint8Array {
+  const value = entry !== null && typeof entry === 'object' ? (entry as Record<string, unknown>)[name] : undefined;
+  if (typeof value !== 'string') {
+    throw new DstackError('GPU_EVIDENCE_UNSUPPORTED', `device ${index} carries no ${name} string`);
+  }
+  try {
+    return fromBase64(value);
+  } catch {
+    throw new DstackError('GPU_EVIDENCE_UNSUPPORTED', `device ${index} has a ${name} that is not valid base64`);
+  }
 }
 
 export async function dstackDeployment(options: DstackDeploymentOptions): Promise<Deployment> {
