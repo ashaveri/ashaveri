@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { decodeAttestation, equalBytes, verifyAttestation } from '../src/index.js';
+import { decodeAttestation, equalBytes, pinnedComposeHash, platformMeasurement, verifyAttestation } from '../src/index.js';
 import type { Attestation } from '../src/index.js';
 import { encodeV0Snp, encodeV1Snp, expectErrorCode, fixture, pemToDer } from './helpers.js';
 
@@ -86,6 +86,18 @@ describe('dStack SEV-SNP attestation verification', () => {
     expect(mrConfig.composeHash.length).toBe(32);
     expect(mrConfig.appId).not.toBeNull();
     expect(mrConfig.instanceId).not.toBeNull();
+  });
+
+  it('exposes the compose hash and measurement a deployment pins', () => {
+    const result = verifyAttestation(ATTESTATION, OPTIONS);
+    const { report, mrConfig } = result.snp as NonNullable<typeof result.snp>;
+    expect(platformMeasurement(result)).toEqual(report.measurement);
+    expect(platformMeasurement(result)).toHaveLength(48);
+    expect(pinnedComposeHash(result)).toEqual(mrConfig.composeHash);
+    // The document is the authority for SEV-SNP; the event is the only source on TDX.
+    const event = result.runtimeEvents.find((entry) => entry.event === 'compose-hash');
+    expect(event).toBeDefined();
+    expect(equalBytes(mrConfig.composeHash, event?.payload ?? new Uint8Array())).toBe(true);
   });
 
   it('decodes the V0 envelope fields', () => {

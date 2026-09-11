@@ -11,8 +11,9 @@ export function parseTdxQuote(quote: Uint8Array): TdxQuote {
   const section = (offset: number, length: number) => quote.slice(offset, offset + length);
   return {
     raw: quote,
-    headerVersion: view.getUint32(0x00, true),
-    teeType: view.getUint32(0x08, true),
+    version: view.getUint16(0x00, true),
+    attestationKeyType: view.getUint16(0x02, true),
+    teeType: view.getUint32(0x04, true),
     mrTd: section(0xb8, 48),
     mrConfigId: section(0xe8, 48),
     mrOwner: section(0x118, 48),

@@ -21,7 +21,9 @@
     "typecheck": "tsc -p tsconfig.json --noEmit"
   },
   "dependencies": {
-    "@ashaveri/receipt": "workspace:*"
+    "@ashaveri/attest-core": "workspace:*",
+    "@ashaveri/receipt": "workspace:*",
+    "@noble/hashes": "^2.0.0"
   },
   "peerDependencies": {
     "openai": ">=4"

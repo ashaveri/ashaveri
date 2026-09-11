@@ -13,7 +13,24 @@ import {
 } from './cose.js';
 import { ReceiptError } from './errors.js';
 
-export type TeeKind = 'snp' | 'snp+h100cc' | 'tdx';
+/** `software` makes no TEE claim: `m` is the deployment's own digest of what it runs. */
+export type TeeKind = 'software' | 'snp' | 'snp+h100cc' | 'tdx';
+
+/**
+ * Measurement bytes each kind must carry. A TEE reports its platform-native SHA-384
+ * value (SEV-SNP launch digest, TDX MRTD), a software deployment measures with SHA-256,
+ * so width and kind are one fact rather than two that can disagree.
+ */
+export const MEASUREMENT_BYTES: Readonly<Record<TeeKind, 32 | 48>> = {
+  software: 32,
+  snp: 48,
+  'snp+h100cc': 48,
+  tdx: 48,
+};
+
+export function isTeeKind(value: unknown): value is TeeKind {
+  return typeof value === 'string' && value in MEASUREMENT_BYTES;
+}
 
 export interface Measurement {
   tee: TeeKind;
@@ -90,9 +107,12 @@ function parsePayload(bytes: Uint8Array): ReceiptPayload {
   const measRaw = raw.get('meas');
   if (!(measRaw instanceof Map)) throw bad('meas must be a map');
   const tee = measRaw.get('tee');
-  if (tee !== 'snp' && tee !== 'snp+h100cc' && tee !== 'tdx') throw bad('meas.tee is not a known TEE kind');
+  if (!isTeeKind(tee)) throw bad('meas.tee is not a known environment kind');
   const m = measRaw.get('m');
-  if (!isUint8Array(m) || m.length !== 32) throw bad('meas.m must be a 32-byte bstr');
+  const width = MEASUREMENT_BYTES[tee];
+  if (!isUint8Array(m) || m.length !== width) {
+    throw bad(`meas.m must be a ${width}-byte bstr for tee '${tee}'`);
+  }
   const attRaw = raw.get('att');
   if (!(attRaw instanceof Map)) throw bad('att must be a map');
   const d = attRaw.get('d');
@@ -149,6 +169,12 @@ export function encodePayload(payload: ReceiptPayload): Uint8Array {
 }
 
 export function issueReceipt(payload: ReceiptPayload, key: SigningKey): Uint8Array {
+  // Catch it here rather than after signing: a receipt whose measurement does not
+  // match its kind is one no verifier can accept.
+  const width = MEASUREMENT_BYTES[payload.meas.tee];
+  if (payload.meas.m.length !== width) {
+    throw new ReceiptError('BAD_PAYLOAD', `meas.m must be ${width} bytes for tee '${payload.meas.tee}'`);
+  }
   return signCoseSign1(encodePayload(payload), key);
 }
 

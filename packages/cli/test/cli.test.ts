@@ -11,8 +11,12 @@ const ATTESTATION = `${FIXTURES}sev-snp-attestation.bin`;
 const ARK = `${FIXTURES}amd-ark-milan.pem`;
 const ASK = `${FIXTURES}sev-snp-ask.pem`;
 const VCEK = `${FIXTURES}sev-snp-vcek.pem`;
+const INTEL_ROOT = `${FIXTURES}intel-sgx-root-ca.pem`;
 const NOW = '2026-09-10T00:00:00Z';
 const FIXTURE_REPORT_DATA = '6174746573742d746573742d666978747572652d32303236';
+const FIXTURE_MEASUREMENT =
+  '7f51e17f72a04d5422cb2c00998166536019a217376f3aa45a630e59c805a599847ff250dbffcd07e1ba639771d6f05d';
+const FIXTURE_COMPOSE_HASH = '86e59625be93207bc2351c4d1bba20037cec8e168da6b18f559af5af657b7a23';
 
 const VERIFY_ARGS = ['verify', ATTESTATION, '--ark', ARK, '--ask', ASK, '--vcek', VCEK, '--now', NOW];
 
@@ -102,6 +106,77 @@ describe('ashaveri verify', () => {
     expect(parsed.message).toContain('report data');
   });
 
+  it('accepts a measurement pin that matches the launch digest', () => {
+    const result = runCli([...VERIFY_ARGS, '--expect-measurement', FIXTURE_MEASUREMENT]);
+    expect(result.status).toBe(0);
+    expect(result.stdout).toContain('pinned:           measurement matches the expected value');
+  });
+
+  it('accepts measurement and compose hash pins together', () => {
+    const result = runCli([
+      ...VERIFY_ARGS,
+      '--expect-measurement',
+      FIXTURE_MEASUREMENT,
+      '--expect-compose-hash',
+      FIXTURE_COMPOSE_HASH,
+    ]);
+    expect(result.status).toBe(0);
+    expect(result.stdout.match(/pinned:/g)).toHaveLength(2);
+  });
+
+  it('rejects a measurement pin from a different build', () => {
+    const result = runCli([...VERIFY_ARGS, '--expect-measurement', `8${FIXTURE_MEASUREMENT.slice(1)}`]);
+    expect(result.status).toBe(1);
+    expect(result.stderr).toContain('verification failed (PIN_MISMATCH)');
+    expect(result.stderr).toContain(`measurement is ${FIXTURE_MEASUREMENT}`);
+    expect(result.stderr).toContain('--expect-measurement pins 8');
+  });
+
+  it('rejects a compose hash pin that does not match the deployment', () => {
+    const result = runCli([...VERIFY_ARGS, '--expect-compose-hash', 'ab'.repeat(32)]);
+    expect(result.status).toBe(1);
+    expect(result.stderr).toContain('verification failed (PIN_MISMATCH)');
+    expect(result.stderr).toContain('compose hash is');
+  });
+
+  it('reports a pin failure as JSON', () => {
+    const result = runCli([...VERIFY_ARGS, '--expect-compose-hash', 'ab'.repeat(32), '--json']);
+    expect(result.status).toBe(1);
+    const parsed = JSON.parse(result.stdout) as { ok: boolean; code: string; message: string };
+    expect(parsed.ok).toBe(false);
+    expect(parsed.code).toBe('PIN_MISMATCH');
+    expect(parsed.message).toContain('compose hash');
+  });
+
+  it('verifies before comparing pins, so an untrusted chain fails first', () => {
+    const result = runCli([
+      'verify',
+      ATTESTATION,
+      '--ask',
+      ASK,
+      '--vcek',
+      VCEK,
+      '--now',
+      NOW,
+      '--expect-measurement',
+      FIXTURE_MEASUREMENT,
+    ]);
+    expect(result.status).toBe(1);
+    expect(result.stderr).toContain('MISSING_TRUST_ROOT');
+  });
+
+  it('exits 2 for a measurement pin of the wrong width', () => {
+    const result = runCli([...VERIFY_ARGS, '--expect-measurement', FIXTURE_COMPOSE_HASH]);
+    expect(result.status).toBe(2);
+    expect(result.stderr).toContain('--expect-measurement must be 96 hex digits');
+  });
+
+  it('exits 2 for a non-hex compose hash pin', () => {
+    const result = runCli([...VERIFY_ARGS, '--expect-compose-hash', 'zz'.repeat(32)]);
+    expect(result.status).toBe(2);
+    expect(result.stderr).toContain('--expect-compose-hash must be 64 hex digits');
+  });
+
   it('rejects a tampered report signature with exit code 1', () => {
     const bytes = new Uint8Array(readFileSync(ATTESTATION));
     bytes[4 + 0x2a0] ^= 0x01;
@@ -143,6 +218,18 @@ describe('ashaveri verify', () => {
     expect(result.stderr).toContain('--ark');
   });
 
+  it('exits 2 for a missing Intel root certificate file', () => {
+    const result = runCli(['verify', ATTESTATION, '--intel-root', join(tempDir, 'missing-intel.pem'), '--now', NOW]);
+    expect(result.status).toBe(2);
+    expect(result.stderr).toContain('--intel-root');
+  });
+
+  it('leaves SEV-SNP verification untouched by a pinned Intel root', () => {
+    const result = runCli([...VERIFY_ARGS, '--intel-root', INTEL_ROOT]);
+    expect(result.status).toBe(0);
+    expect(result.stdout).toContain('SEV-SNP attestation verified');
+  });
+
   it('exits 2 for an invalid --report-data hex string', () => {
     const result = runCli([...VERIFY_ARGS, '--report-data', 'xyz']);
     expect(result.status).toBe(2);
@@ -172,6 +259,9 @@ describe('ashaveri verify', () => {
     expect(result.status).toBe(0);
     expect(result.stdout).toContain('Usage:');
     expect(result.stdout).toContain('--report-data');
+    expect(result.stdout).toContain('--expect-measurement');
+    expect(result.stdout).toContain('--expect-compose-hash');
+    expect(result.stdout).toContain('--intel-root');
   });
 
   it('prints the version with --version', () => {

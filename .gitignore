@@ -2,6 +2,8 @@ node_modules/
 dist/
 coverage/
 *.tsbuildinfo
+# Staged model weights and their manifest; see enclave/README.md
+enclave/release/
 .env
 .env.*
 .DS_Store

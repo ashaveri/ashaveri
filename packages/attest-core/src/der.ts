@@ -1,7 +1,13 @@
+import { p256 } from '@noble/curves/p256';
+import { p384 } from '@noble/curves/p384';
+import { sha256, sha384 } from '@noble/hashes/sha2.js';
 import { fail } from './errors.js';
+import { verifyRsaPssSha384 } from './rsa-pss.js';
 
 const OID_EC_PUBLIC_KEY = '1.2.840.10045.2.1';
+const OID_P256 = '1.2.840.10045.3.1.7';
 const OID_P384 = '1.3.132.0.34';
+const OID_ECDSA_SHA256 = '1.2.840.10045.4.3.2';
 const OID_ECDSA_SHA384 = '1.2.840.10045.4.3.3';
 const OID_RSA_ENCRYPTION = '1.2.840.113549.1.1.1';
 const OID_RSASSA_PSS = '1.2.840.113549.1.1.10';
@@ -105,11 +111,13 @@ function readTime(tlv: Tlv, context: string): number {
 
 export type CertificatePublicKey =
   | { readonly kind: 'ec-p384'; readonly point: Uint8Array }
+  | { readonly kind: 'ec-p256'; readonly point: Uint8Array }
   | { readonly kind: 'rsa'; readonly modulus: bigint; readonly exponent: bigint };
 
 export type SignatureAlgorithm =
   | { readonly kind: 'rsa-pss'; readonly hashOid: string; readonly mgfOid: string; readonly mgfHashOid: string; readonly saltLength: number; readonly trailerField: number }
   | { readonly kind: 'ecdsa-sha384' }
+  | { readonly kind: 'ecdsa-sha256' }
   | { readonly kind: 'unsupported'; readonly oid: string };
 
 export interface ParsedCertificate {
@@ -138,6 +146,12 @@ function parseSignatureAlgorithm(content: Uint8Array, context: string): Signatur
       fail('UNSUPPORTED_CERT_ALGORITHM', `${context}: ECDSA-SHA384 parameters must be absent`);
     }
     return { kind: 'ecdsa-sha384' };
+  }
+  if (oid === OID_ECDSA_SHA256) {
+    if (offset !== content.length) {
+      fail('UNSUPPORTED_CERT_ALGORITHM', `${context}: ECDSA-SHA256 parameters must be absent`);
+    }
+    return { kind: 'ecdsa-sha256' };
   }
   if (oid === OID_RSASSA_PSS) {
     // AMD KDS wraps the PSS parameters in an extra SEQUENCE; RFC 4055 puts
@@ -213,13 +227,16 @@ function parseSubjectPublicKeyInfo(spki: Uint8Array): CertificatePublicKey {
       fail('MALFORMED_CERTIFICATE', 'EC public key is missing its curve parameter');
     }
     const curveOid = readOid(expect('spki curve oid', readTlv(alg.content, oidTlv.total, 'spki curve oid'), 0x06).content);
-    if (curveOid !== OID_P384) {
-      fail('UNSUPPORTED_CERT_ALGORITHM', 'EC certificate uses a curve other than P-384');
+    const curve = curveOid === OID_P384 ? { kind: 'ec-p384' as const, name: 'P-384', pointLength: 97 }
+      : curveOid === OID_P256 ? { kind: 'ec-p256' as const, name: 'P-256', pointLength: 65 }
+      : null;
+    if (curve === null) {
+      fail('UNSUPPORTED_CERT_ALGORITHM', `EC certificate uses a curve other than P-256 or P-384 (${curveOid})`);
     }
-    if (point.length !== 97 || (point[0] as number) !== 0x04) {
-      fail('UNSUPPORTED_CERT_ALGORITHM', 'public key is not an uncompressed P-384 point');
+    if (point.length !== curve.pointLength || (point[0] as number) !== 0x04) {
+      fail('UNSUPPORTED_CERT_ALGORITHM', `public key is not an uncompressed ${curve.name} point`);
     }
-    return { kind: 'ec-p384', point };
+    return { kind: curve.kind, point };
   }
   if (algorithmOid === OID_RSA_ENCRYPTION) {
     const rsaKey = expect('rsa public key', readTlv(point, 0, 'rsa public key'), 0x30);
@@ -404,6 +421,81 @@ export function parseCertificateChain(data: Uint8Array): ParsedCertificate[] {
   return certs;
 }
 
+/** Rejects a certificate whose validity window does not contain `now`. */
+export function checkCertificateValidity(cert: ParsedCertificate, now: number, name: string): void {
+  if (now < cert.notBefore || now > cert.notAfter) {
+    fail('CERT_EXPIRED', `${name} certificate is not valid at the verification time`);
+  }
+}
+
+function derInteger(value: bigint): Uint8Array {
+  const bytes: number[] = [];
+  let remaining = value;
+  do {
+    bytes.unshift(Number(remaining & 0xffn));
+    remaining >>= 8n;
+  } while (remaining > 0n);
+  // A leading byte of 0x80 or more would read as a negative INTEGER.
+  if ((bytes[0] as number) >= 0x80) {
+    bytes.unshift(0);
+  }
+  return Uint8Array.from([0x02, bytes.length, ...bytes]);
+}
+
+/** DER-encodes an ECDSA signature pair, the form every verify call here wants. */
+export function derEcdsaSignature(r: bigint, s: bigint, curveOrder: bigint): Uint8Array {
+  if (r <= 0n || r >= curveOrder || s <= 0n || s >= curveOrder) {
+    fail('BAD_SIGNATURE', 'signature R or S is out of the curve order range');
+  }
+  const rDer = derInteger(r);
+  const sDer = derInteger(s);
+  const length = rDer.length + sDer.length;
+  if (length < 0x80) {
+    return Uint8Array.from([0x30, length, ...rDer, ...sDer]);
+  }
+  return Uint8Array.from([0x30, 0x81, length, ...rDer, ...sDer]);
+}
+
+/**
+ * Verifies `cert`'s signature under `issuer`'s public key over the DER of its
+ * TBSCertificate. RSA-PSS is accepted only with the parameters the AMD KDS
+ * certificates carry (SHA-384 digest, MGF1-SHA384, 48-byte salt), so a chain
+ * cannot weaken them; the ECDSA branches pair each hash with its own curve.
+ */
+export function verifyCertificateSignature(issuer: ParsedCertificate, cert: ParsedCertificate, name: string): void {
+  const alg = cert.signatureAlgorithm;
+  if (alg.kind === 'rsa-pss') {
+    if (alg.hashOid !== OID_SHA384 || alg.mgfOid !== OID_MGF1 || alg.mgfHashOid !== OID_SHA384 || alg.saltLength !== 48 || alg.trailerField !== 1) {
+      fail('UNSUPPORTED_CERT_ALGORITHM', `${name} RSA-PSS parameters must be SHA-384 with MGF1-SHA384 and a 48-byte salt`);
+    }
+    if (issuer.publicKey.kind !== 'rsa') {
+      fail('UNSUPPORTED_CERT_ALGORITHM', `${name} is RSA-PSS signed but the issuer key is not RSA`);
+    }
+    if (!verifyRsaPssSha384(cert.tbs, cert.signature, issuer.publicKey.modulus, issuer.publicKey.exponent, alg.saltLength)) {
+      fail('BAD_SIGNATURE', `${name} signature does not verify under its issuer`);
+    }
+    return;
+  }
+  if (alg.kind === 'unsupported') {
+    fail('UNSUPPORTED_CERT_ALGORITHM', `${name} uses unsupported signature algorithm ${alg.oid}`);
+  }
+  const key = issuer.publicKey;
+  if (key.kind !== 'ec-p384' && key.kind !== 'ec-p256') {
+    fail('UNSUPPORTED_CERT_ALGORITHM', `${name} is ${alg.kind} signed but the issuer key is not EC`);
+  }
+  // Each hash must be paired with its own curve: an ECDSA-SHA256 signature
+  // under a P-384 key is a substitution, not a weaker but acceptable choice.
+  if ((alg.kind === 'ecdsa-sha384') !== (key.kind === 'ec-p384')) {
+    fail('UNSUPPORTED_CERT_ALGORITHM', `${name} is ${alg.kind} signed but the issuer key is ${key.kind}`);
+  }
+  const valid = alg.kind === 'ecdsa-sha384'
+    ? p384.verify(cert.signature, sha384(cert.tbs), key.point, { format: 'der' })
+    : p256.verify(cert.signature, sha256(cert.tbs), key.point, { format: 'der' });
+  if (!valid) {
+    fail('BAD_SIGNATURE', `${name} signature does not verify under its issuer`);
+  }
+}
+
 export function decodeBase64(value: string): Uint8Array {
   if (value.length % 4 !== 0 || !/^[A-Za-z0-9+/]*={0,2}$/.test(value)) {
     fail('MALFORMED_CERTIFICATE', 'invalid base64 payload');
@@ -425,16 +517,3 @@ export function decodeBase64(value: string): Uint8Array {
   }
   return out;
 }
-
-export const CERT_OIDS = {
-  OID_EC_PUBLIC_KEY,
-  OID_P384,
-  OID_ECDSA_SHA384,
-  OID_RSA_ENCRYPTION,
-  OID_RSASSA_PSS,
-  OID_SHA384,
-  OID_MGF1,
-  OID_PRODUCT_NAME,
-  OID_HWID,
-  OID_BASIC_CONSTRAINTS,
-} as const;

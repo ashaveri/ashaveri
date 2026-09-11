@@ -1,4 +1,6 @@
-export type TeeKind = 'snp' | 'snp+h100cc' | 'tdx';
+import { MEASUREMENT_BYTES, isTeeKind, type TeeKind } from '@ashaveri/receipt';
+
+export type { TeeKind };
 
 export interface ManifestKey {
   readonly kid: string;
@@ -21,9 +23,11 @@ export interface DeploymentManifest {
   readonly meas: { readonly tee: TeeKind; readonly m: string };
 }
 
-const TEE_KINDS: readonly TeeKind[] = ['snp', 'snp+h100cc', 'tdx'];
 const HEX_64 = /^[0-9a-f]{64}$/;
 const BASE64URL_32 = /^[A-Za-z0-9_-]{43}$/;
+const HEX_MEASUREMENT = Object.fromEntries(
+  Object.entries(MEASUREMENT_BYTES).map(([kind, bytes]) => [kind, new RegExp(`^[0-9a-f]{${bytes * 2}}$`)]),
+) as Record<TeeKind, RegExp>;
 
 export function parseManifest(value: unknown): DeploymentManifest {
   const bad = (detail: string): Error => new Error(`deployment manifest is invalid: ${detail}`);
@@ -66,9 +70,12 @@ export function parseManifest(value: unknown): DeploymentManifest {
   if (typeof measRaw !== 'object' || measRaw === null) throw bad('meas must be an object');
   const tee = (measRaw as Record<string, unknown>)['tee'];
   const m = (measRaw as Record<string, unknown>)['m'];
-  if (typeof tee !== 'string' || !TEE_KINDS.includes(tee as TeeKind)) {
-    throw bad('meas.tee is not a known TEE kind');
+  if (!isTeeKind(tee)) {
+    throw bad('meas.tee is not a known environment kind');
   }
-  if (typeof m !== 'string' || !HEX_64.test(m)) throw bad('meas.m must be 64 hex characters');
-  return { v: 1, iss, ins, epk, keys, models, meas: { tee: tee as TeeKind, m } };
+  const hexChars = MEASUREMENT_BYTES[tee] * 2;
+  if (typeof m !== 'string' || !HEX_MEASUREMENT[tee].test(m)) {
+    throw bad(`meas.m must be ${hexChars} hex characters for tee '${tee}'`);
+  }
+  return { v: 1, iss, ins, epk, keys, models, meas: { tee, m } };
 }

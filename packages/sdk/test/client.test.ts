@@ -2,10 +2,14 @@ import { describe, expect, it } from 'vitest';
 import { hashRequest, randomNonce } from '@ashaveri/receipt';
 import {
   AshaveriClient,
+  evidenceReportData,
+  fromBase64Url,
   parseManifest,
   policyFromManifest,
   SdkError,
+  toHex,
   type AshaveriPolicy,
+  type ReceiptPayload,
 } from '../src/index.js';
 import {
   createFakeGateway,
@@ -123,6 +127,14 @@ describe('AshaveriClient.create', () => {
     expect(receipt!.payload.tok.p).toBe(FAKE_PROMPT_TOKENS);
   });
 
+  it('reports a receipt that never arrives as missing, not as a gateway failure', async () => {
+    const { gateway, client } = clientWith({ receiptAvailableAfterAttempts: 99 });
+    await expect(client.chat.completions.create({ messages: MESSAGES })).rejects.toMatchObject({
+      code: 'RECEIPT_NOT_FOUND',
+    });
+    expect(gateway.requests.filter((req) => req.url.includes('/receipts/'))).toHaveLength(3);
+  });
+
   it('throws a TypeError when called with stream: true', async () => {
     const { client } = clientWith();
     await expect(client.chat.completions.create({ messages: MESSAGES, stream: true })).rejects.toBeInstanceOf(
@@ -196,11 +208,68 @@ describe('strict mode', () => {
     );
   });
 
-  it('accepts a deployment pinned by a policy built from its manifest', async () => {
+  // The fake gateway is a software deployment. Relabelling its receipt is what
+  // lets a client get as far as the evidence stage.
+  const hardwareTee = (payload: ReceiptPayload): ReceiptPayload => ({
+    ...payload,
+    meas: { tee: 'tdx', m: new Uint8Array(48) },
+  });
+
+  it('refuses a deployment whose receipt claims no hardware', async () => {
     const { gateway, client } = clientWith({}, (policy) => ({ verify: 'strict' as const, policy }));
+    await expect(client.chat.completions.create({ messages: MESSAGES })).rejects.toMatchObject({
+      code: 'EVIDENCE_NOT_HARDWARE',
+    });
+    // The receipt verifies first, so nothing is fetched before it is refused.
+    expect(gateway.requests.some((request) => request.url.includes('/attestation'))).toBe(false);
+  });
+
+  it('never fetches evidence below strict mode', async () => {
+    const { gateway, client } = clientWith({ mutatePayload: hardwareTee });
     const { receipt } = await client.chat.completions.create({ messages: MESSAGES });
     expect(receipt).not.toBeNull();
-    expect(gateway.requests.length).toBeGreaterThanOrEqual(2);
+    expect(gateway.requests.some((request) => request.url.includes('/attestation'))).toBe(false);
+  });
+
+  it('asks for the evidence bound to the nonce and request it sent', async () => {
+    const { gateway, client } = clientWith({ mutatePayload: hardwareTee, noEvidenceRoute: true }, (policy) => ({
+      verify: 'strict' as const,
+      policy,
+    }));
+    await expect(client.chat.completions.create({ messages: MESSAGES })).rejects.toMatchObject({
+      code: 'EVIDENCE_NOT_FOUND',
+    });
+    const completion = gateway.requests.find((request) => request.url.endsWith('/chat/completions'))!;
+    const expected = toHex(
+      evidenceReportData(
+        fromBase64Url(completion.nonceHeader!),
+        hashRequest(new TextEncoder().encode(completion.body!)),
+      ),
+    );
+    const evidence = gateway.requests.filter((request) => request.url.includes('/attestation'));
+    expect(evidence).toHaveLength(3);
+    expect(evidence[0]!.url).toBe(`${FAKE_BASE_URL}/attestation?report_data=${expected}`);
+  });
+
+  it('rejects evidence that is not a platform document', async () => {
+    const { client } = clientWith({ mutatePayload: hardwareTee }, (policy) => ({
+      verify: 'strict' as const,
+      policy,
+    }));
+    await expect(client.chat.completions.create({ messages: MESSAGES })).rejects.toMatchObject({
+      code: 'EVIDENCE_VERIFICATION_FAILED',
+    });
+  });
+
+  it('refuses to verify against roots the policy did not pin', async () => {
+    const { gateway, client } = clientWith({ mutatePayload: hardwareTee }, (policy) => ({
+      verify: 'strict' as const,
+      policy: { ...policy, trustAnchors: { intelSgxRoots: [] } },
+    }));
+    await expect(client.chat.completions.create({ messages: MESSAGES })).rejects.toMatchObject({
+      code: 'EVIDENCE_NO_TRUST_ANCHORS',
+    });
+    expect(gateway.requests.filter((request) => request.url.includes('/attestation'))).toHaveLength(1);
   });
 
   it('rejects an issuer the policy does not pin', async () => {
@@ -226,7 +295,7 @@ describe('strict mode', () => {
   it('rejects a measurement the policy does not pin', async () => {
     const { client } = clientWith({}, (policy) => ({
       verify: 'strict' as const,
-      policy: { ...policy, measurements: { snp: ['00'.repeat(32)] } },
+      policy: { ...policy, measurements: { software: ['00'.repeat(32)] } },
     }));
     await expect(client.chat.completions.create({ messages: MESSAGES })).rejects.toMatchObject({
       code: 'MEASUREMENT_NOT_ALLOWED',
@@ -282,7 +351,7 @@ describe('strict mode', () => {
 
   it('accepts an old-dated receipt when the policy clock says it is fresh', async () => {
     const { client } = clientWith({}, (policy) => ({
-      verify: 'strict' as const,
+      verify: 'receipt' as const,
       policy: { ...policy, maxReceiptAgeSeconds: 60 },
       now: () => (FAKE_IAT + 30) * 1000,
     }));

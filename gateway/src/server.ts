@@ -1,29 +1,30 @@
 import Fastify, { type FastifyInstance } from 'fastify';
+import { createHash } from 'node:crypto';
 import {
-  generateSigningKey,
   hashRequest,
   issueReceipt,
   randomNonce,
   type ReceiptPayload,
   type SigningKey,
+  type TeeKind,
 } from '@ashaveri/receipt';
-import { fromBase64Url } from './b64.js';
-import {
-  DEFAULT_MOCK_MODEL,
-  completionJson,
-  completionSse,
-  mockCompletion,
-  parseChatCompletionRequest,
-  RequestError,
-  type MockCompletion,
-} from './mock.js';
+import { fromBase64Url, toBase64Url } from './b64.js';
+import { mockBackend, type BackendResponse, type CompletionBackend, type CompletionUsage } from './backend.js';
+import { mockDeployment, type AttestationBundle, type Deployment } from './deployment.js';
+import { fromHex, sha256, toHex } from './digest.js';
+import { parseChatCompletionRequest, RequestError } from './mock.js';
 
 const NONCE_BYTES = 16;
+// A cold model load can hold back the first streamed event for minutes.
+const FIRST_EVENT_TIMEOUT_MS = 120_000;
+const MAX_BUFFERED_BODY = 32 * 1024 * 1024;
 
 export interface GatewayOptions {
   readonly issuer?: string;
   readonly instance?: string;
   readonly key?: SigningKey;
+  readonly deployment?: Deployment;
+  readonly backend?: CompletionBackend;
 }
 
 export interface ManifestJson {
@@ -33,28 +34,57 @@ export interface ManifestJson {
   readonly epk: number;
   readonly keys: readonly { kid: string; alg: 'Ed25519'; publicKey: string }[];
   readonly models: readonly { id: string; wts: string }[];
-  readonly meas: { tee: 'snp' | 'snp+h100cc' | 'tdx'; m: string };
+  readonly meas: { tee: TeeKind; m: string };
 }
 
-function toHex(bytes: Uint8Array): string {
-  return Array.from(bytes, (b) => b.toString(16).padStart(2, '0')).join('');
+function errorMessage(error: unknown): string {
+  return error instanceof Error ? error.message : String(error);
 }
 
-function toBase64Url(bytes: Uint8Array): string {
-  let binary = '';
-  for (const b of bytes) {
-    binary += String.fromCharCode(b);
+function upstreamError(reply: { code: (n: number) => { send: (b: unknown) => unknown } }, message: string): void {
+  reply.code(502).send({ error: { message, type: 'upstream_error' } });
+}
+
+function concat(left: Uint8Array, right: Uint8Array): Uint8Array {
+  const out = new Uint8Array(left.length + right.length);
+  out.set(left);
+  out.set(right, left.length);
+  return out;
+}
+
+function withTimeout<T>(promise: Promise<T>, ms: number, message: string): Promise<T> {
+  return new Promise<T>((resolve, reject) => {
+    const timer = setTimeout(() => reject(new Error(message)), ms);
+    promise.then(
+      (value) => {
+        clearTimeout(timer);
+        resolve(value);
+      },
+      (error: unknown) => {
+        clearTimeout(timer);
+        reject(error instanceof Error ? error : new Error(String(error)));
+      },
+    );
+  });
+}
+
+async function collect(response: BackendResponse): Promise<Buffer> {
+  const chunks: Buffer[] = [];
+  let size = 0;
+  for await (const chunk of response.chunks) {
+    size += chunk.byteLength;
+    if (size > MAX_BUFFERED_BODY) {
+      throw new Error('inference upstream response exceeded the buffering limit');
+    }
+    chunks.push(Buffer.from(chunk));
   }
-  return btoa(binary).replaceAll('+', '-').replaceAll('/', '_').replace(/=+$/, '');
+  return Buffer.concat(chunks, size);
 }
 
 export function buildGateway(options: GatewayOptions = {}): FastifyInstance {
-  const issuer = options.issuer ?? 'ashaveri-mock';
-  const instance = options.instance ?? 'mock-instance-1';
-  const key = options.key ?? generateSigningKey();
-  const weightsDigest = hashRequest(new TextEncoder().encode(`mock-weights:${DEFAULT_MOCK_MODEL}`));
-  const measurement = hashRequest(new TextEncoder().encode('mock-measurement'));
-  const attestationDigest = hashRequest(new TextEncoder().encode('mock-attestation'));
+  const deployment =
+    options.deployment ?? mockDeployment({ issuer: options.issuer, instance: options.instance, key: options.key });
+  const backend = options.backend ?? mockBackend();
   const receipts = new Map<string, Uint8Array>();
 
   const app = Fastify({ bodyLimit: 16 * 1024 * 1024, logger: false });
@@ -66,37 +96,60 @@ export function buildGateway(options: GatewayOptions = {}): FastifyInstance {
 
   const manifest: ManifestJson = {
     v: 1,
-    iss: issuer,
-    ins: instance,
-    epk: 0,
-    keys: [{ kid: toHex(key.kid), alg: 'Ed25519', publicKey: toBase64Url(key.publicKey) }],
-    models: [{ id: DEFAULT_MOCK_MODEL, wts: toHex(weightsDigest) }],
-    meas: { tee: 'snp', m: toHex(measurement) },
+    iss: deployment.issuer,
+    ins: deployment.instance,
+    epk: deployment.epk,
+    keys: [{ kid: toHex(deployment.key.kid), alg: 'Ed25519', publicKey: toBase64Url(deployment.key.publicKey) }],
+    models: deployment.models.map((model) => ({ id: model.id, wts: toHex(model.wts) })),
+    meas: { tee: deployment.tee, m: toHex(deployment.measurement) },
   };
 
-  function issueFor(completion: MockCompletion, nonce: Uint8Array, requestBody: Buffer, responseBody: string): Uint8Array {
-    const iat = Math.floor(Date.now() / 1000);
+  function issue(args: {
+    id: string;
+    nonce: Uint8Array;
+    requestBody: Buffer;
+    responseHash: Uint8Array;
+    modelId: string;
+    weights: Uint8Array;
+    evidence: AttestationBundle;
+    usage: CompletionUsage;
+  }): void {
     const payload: ReceiptPayload = {
       v: 1,
-      iss: issuer,
-      ins: instance,
-      iat,
-      nce: nonce,
-      req: hashRequest(requestBody),
-      res: hashRequest(new TextEncoder().encode(responseBody)),
-      mdl: completion.model,
-      wts: hashRequest(new TextEncoder().encode(`mock-weights:${completion.model}`)),
-      meas: { tee: 'snp', m: measurement },
-      att: { d: attestationDigest, ts: iat, url: 'mock://attestation' },
-      epk: 0,
-      tok: { p: completion.promptTokens, c: completion.completionTokens },
+      iss: deployment.issuer,
+      ins: deployment.instance,
+      iat: Math.floor(Date.now() / 1000),
+      nce: args.nonce,
+      req: hashRequest(args.requestBody),
+      res: args.responseHash,
+      mdl: args.modelId,
+      wts: args.weights,
+      meas: { tee: deployment.tee, m: deployment.measurement },
+      att: { d: sha256(args.evidence.document), ts: args.evidence.timestamp, url: args.evidence.url },
+      epk: deployment.epk,
+      tok: { p: args.usage.promptTokens, c: args.usage.completionTokens },
     };
-    const bytes = issueReceipt(payload, key);
-    receipts.set(completion.id, bytes);
-    return bytes;
+    receipts.set(args.id, issueReceipt(payload, deployment.key));
   }
 
   app.get('/v1/deployment-manifest', async () => manifest);
+
+  app.get('/v1/attestation', async (request, reply) => {
+    const query = request.query as { report_data?: string };
+    let reportData: Uint8Array | null = null;
+    if (query.report_data !== undefined) {
+      if (!/^[0-9a-fA-F]{64}$/.test(query.report_data)) {
+        reply
+          .code(400)
+          .send({ error: { message: 'report_data must be 64 hex characters', type: 'invalid_request_error' } });
+        return;
+      }
+      reportData = fromHex(query.report_data);
+    }
+    const bundle = await deployment.attestation(reportData);
+    reply.header('content-type', 'application/octet-stream');
+    reply.send(Buffer.from(bundle.document));
+  });
 
   app.get('/v1/receipts/:id', async (request, reply) => {
     const id = (request.params as { id: string }).id;
@@ -114,12 +167,20 @@ export function buildGateway(options: GatewayOptions = {}): FastifyInstance {
       reply.code(400).send({ error: { message: 'request body must be application/json', type: 'invalid_request_error' } });
       return;
     }
-    let chatRequest;
+    const raw = request.body;
+    let parsed;
     try {
-      chatRequest = parseChatCompletionRequest(JSON.parse(request.body.toString('utf8')));
+      parsed = parseChatCompletionRequest(JSON.parse(raw.toString('utf8')));
     } catch (err) {
       const message = err instanceof RequestError ? err.message : 'request body is not valid JSON';
       reply.code(400).send({ error: { message, type: 'invalid_request_error' } });
+      return;
+    }
+    const declared = deployment.models.find((model) => model.id === parsed.model);
+    if (declared === undefined) {
+      reply.code(400).send({
+        error: { message: `model '${parsed.model}' is not served by this deployment`, type: 'invalid_request_error' },
+      });
       return;
     }
     let nonce: Uint8Array;
@@ -139,18 +200,165 @@ export function buildGateway(options: GatewayOptions = {}): FastifyInstance {
     } else {
       nonce = randomNonce();
     }
-    const completion = mockCompletion(chatRequest);
-    reply.header('x-ashaveri-receipt-id', completion.id);
-    if (chatRequest.stream) {
-      const body = completionSse(completion);
-      issueFor(completion, nonce, request.body, body);
-      reply.header('content-type', 'text/event-stream');
+
+    let response: BackendResponse;
+    try {
+      response = await backend.respond(raw, parsed);
+    } catch (err) {
+      upstreamError(reply, `inference upstream failed: ${errorMessage(err)}`);
+      return;
+    }
+
+    // Evidence is gathered while the model generates, so signing costs no extra
+    // round trip, and the report data ties it to this client's nonce and request.
+    const reportData = sha256(concat(nonce, hashRequest(raw)));
+    const evidencePromise = deployment.attestation(reportData);
+    evidencePromise.catch(() => undefined);
+    const failed = response.status >= 400;
+
+    if (failed || !response.contentType.includes('text/event-stream')) {
+      // A buffered body can be hashed and signed before a single byte reaches
+      // the client, so an unreceipted response is never observable.
+      let body: Buffer;
+      try {
+        body = await collect(response);
+      } catch (err) {
+        upstreamError(reply, errorMessage(err));
+        return;
+      }
+      reply.header('content-type', response.contentType);
+      if (failed) {
+        reply.status(response.status);
+        reply.send(body);
+        return;
+      }
+      let receiptId: string;
+      let usage: CompletionUsage;
+      try {
+        receiptId = await response.receiptId;
+        usage = await response.usage;
+      } catch (err) {
+        upstreamError(reply, errorMessage(err));
+        return;
+      }
+      if (usage.model.length > 0 && usage.model !== declared.id) {
+        upstreamError(reply, `inference upstream served '${usage.model}' instead of '${declared.id}'`);
+        return;
+      }
+      issue({
+        id: receiptId,
+        nonce,
+        requestBody: raw,
+        responseHash: sha256(new Uint8Array(body.buffer, body.byteOffset, body.byteLength)),
+        modelId: declared.id,
+        weights: declared.wts,
+        evidence: await evidencePromise,
+        usage,
+      });
+      reply.header('x-ashaveri-receipt-id', receiptId);
       reply.send(body);
-    } else {
-      const body = completionJson(completion);
-      issueFor(completion, nonce, request.body, body);
-      reply.header('content-type', 'application/json');
-      reply.send(body);
+      return;
+    }
+
+    const iterator = response.chunks[Symbol.asyncIterator]();
+    const early: Buffer[] = [];
+    let receiptId: string | null = null;
+    response.receiptId.then(
+      (id) => {
+        receiptId = id;
+      },
+      () => undefined,
+    );
+    try {
+      while (receiptId === null) {
+        const next = await withTimeout(iterator.next(), FIRST_EVENT_TIMEOUT_MS, 'inference upstream produced no completion id');
+        if (next.done === true) {
+          break;
+        }
+        early.push(Buffer.from(next.value));
+        // The id settles in a microtask while the chunk is scanned.
+        await new Promise((resolve) => setImmediate(resolve));
+      }
+    } catch (err) {
+      upstreamError(reply, errorMessage(err));
+      return;
+    }
+    if (receiptId === null) {
+      upstreamError(reply, 'inference upstream produced no completion id');
+      return;
+    }
+    const id = receiptId;
+    const hasher = createHash('sha256');
+
+    // SSE is written to the raw response: Fastify's stream plumbing does not
+    // reliably deliver a generator-backed body, and a completion whose bytes
+    // never reached the client must not be receipted.
+    reply.hijack();
+    const res = reply.raw;
+    res.writeHead(response.status, {
+      'content-type': response.contentType,
+      'x-ashaveri-receipt-id': id,
+      'cache-control': 'no-cache',
+    });
+    let aborted = false;
+    res.once('close', () => {
+      aborted = true;
+    });
+
+    const write = async (chunk: Buffer): Promise<void> => {
+      hasher.update(chunk);
+      if (res.write(chunk)) {
+        return;
+      }
+      await new Promise<void>((resolve) => {
+        const done = (): void => {
+          res.off('drain', done);
+          res.off('close', done);
+          resolve();
+        };
+        res.once('drain', done);
+        res.once('close', done);
+      });
+    };
+
+    try {
+      for (const chunk of early) {
+        await write(chunk);
+      }
+      while (!aborted) {
+        const next = await iterator.next();
+        if (next.done === true) {
+          break;
+        }
+        await write(Buffer.from(next.value));
+      }
+      if (aborted) {
+        void iterator.return?.();
+        return;
+      }
+      const usage = await response.usage;
+      if (usage.model.length > 0 && usage.model !== declared.id) {
+        res.destroy(new Error(`inference upstream served '${usage.model}' instead of '${declared.id}'`));
+        return;
+      }
+      // Signed before the closing byte, so a client that reads to the end and
+      // immediately fetches its receipt cannot lose the race.
+      issue({
+        id,
+        nonce,
+        requestBody: raw,
+        responseHash: new Uint8Array(hasher.digest()),
+        modelId: declared.id,
+        weights: declared.wts,
+        evidence: await evidencePromise,
+        usage,
+      });
+    } catch (error) {
+      res.destroy(error instanceof Error ? error : new Error(errorMessage(error)));
+    } finally {
+      if (!res.writableEnded && !res.destroyed) {
+        res.end();
+      }
     }
   });
 

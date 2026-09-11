@@ -6,6 +6,7 @@ import {
   type ReceiptPayload,
   type SigningKey,
 } from '@ashaveri/receipt';
+import { sha256 } from '@noble/hashes/sha2.js';
 
 export type ManifestKeyMode = 'real' | 'wrong' | 'none';
 
@@ -25,6 +26,10 @@ export interface FakeGatewayOptions {
   readonly completionStatus?: number;
   /** Answer 404 for the first N receipt fetches. */
   readonly receiptAvailableAfterAttempts?: number;
+  /** Bytes the evidence endpoint serves. The receipt signs this document's digest. */
+  readonly evidenceDocument?: Uint8Array;
+  /** Answer 404 for evidence instead of serving a document. */
+  readonly noEvidenceRoute?: boolean;
   /** Deliver streamed bodies in slices of this many bytes. */
   readonly streamChunkBytes?: number;
   /** Omit the receipt id response header entirely. */
@@ -120,6 +125,7 @@ export function createFakeGateway(options: FakeGatewayOptions = {}): FakeGateway
   const key = generateSigningKey();
   const receipts = new Map<string, Uint8Array>();
   const requests: RecordedRequest[] = [];
+  const evidenceDocument = options.evidenceDocument ?? utf8('fake-attestation');
   let receiptCalls = 0;
 
   const manifestKeyEntry = () => {
@@ -133,7 +139,7 @@ export function createFakeGateway(options: FakeGatewayOptions = {}): FakeGateway
     epk: 0,
     keys: options.manifestKeys === 'none' ? [] : [manifestKeyEntry()],
     models: [{ id: model, wts: toHex(hashRequest(utf8(`weights:${model}`))) }],
-    meas: { tee: 'snp', m: toHex(hashRequest(utf8('fake-measurement'))) },
+    meas: { tee: 'software', m: toHex(hashRequest(utf8('fake-measurement'))) },
   };
 
   const fetch: typeof fetch = async (input, init) => {
@@ -153,6 +159,14 @@ export function createFakeGateway(options: FakeGatewayOptions = {}): FakeGateway
         return new Response('manifest unavailable', { status: options.manifestStatus });
       }
       return Response.json(manifestJson);
+    }
+
+    const evidenceMatch = /\/attestation\?report_data=([0-9a-fA-F]{64})$/.exec(url);
+    if (evidenceMatch !== null && method === 'GET') {
+      if (options.noEvidenceRoute === true) {
+        return new Response('not found', { status: 404 });
+      }
+      return new Response(evidenceDocument, { headers: { 'content-type': 'application/octet-stream' } });
     }
 
     const receiptMatch = /\/receipts\/([^/]+)$/.exec(url);
@@ -209,8 +223,8 @@ export function createFakeGateway(options: FakeGatewayOptions = {}): FakeGateway
         res: hashRequest(utf8(responseBody)),
         mdl: requestModel,
         wts: hashRequest(utf8(`weights:${requestModel}`)),
-        meas: { tee: 'snp', m: hashRequest(utf8('fake-measurement')) },
-        att: { d: hashRequest(utf8('fake-attestation')), ts: FIXED_IAT, url: 'https://gateway.test/attestation' },
+        meas: { tee: 'software', m: hashRequest(utf8('fake-measurement')) },
+        att: { d: sha256(evidenceDocument), ts: FIXED_IAT, url: `${FAKE_BASE_URL}/attestation` },
         epk: 0,
         tok: { p: FAKE_PROMPT_TOKENS, c: FAKE_COMPLETION_TOKENS },
       };

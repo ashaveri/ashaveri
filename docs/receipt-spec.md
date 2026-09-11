@@ -62,7 +62,7 @@ counter-signature variants, if ever needed, would be a new format version.
 | `res` | bstr (32) | sha256 of the exact raw response body bytes, including SSE framing. |
 | `mdl` | tstr | Model id, e.g. "mock-model-1". |
 | `wts` | bstr (32) | sha256 digest of the deployment's weights manifest. |
-| `meas` | map | `{ tee, m }`: TEE kind ("snp", "snp+h100cc", or "tdx") and a 32-byte measurement digest. |
+| `meas` | map | `{ tee, m }`: the environment kind, one of `"software"`, `"snp"`, `"snp+h100cc"`, `"tdx"`, and the measurement for that kind. A TEE reports its platform-native 48-byte SHA-384 value (SEV-SNP launch digest or TDX MRTD); `"software"` makes no hardware claim and carries a 32-byte SHA-256 digest of what the deployment runs. The width is fixed by the kind, so a digest that does not match its own kind is malformed. |
 | `att` | map | `{ d, ts, url }`: digest of the attestation evidence document, its timestamp (Unix seconds), and a URL where the evidence can be fetched and re-verified. |
 | `epk` | int | Signing-key epoch, for key rotation. The gateway increments it when it replaces its signing key. |
 | `tok` | map | `{ p, c }`: prompt and completion token counts for the call. |
@@ -81,6 +81,24 @@ Both hashes are computed over raw bytes on the wire, before any decoding:
 
 This is why the gateway signs the bytes it forwarded, and the client hashes the bytes it
 received: any difference, including a transport-level re-encoding, breaks verification.
+
+### 3.2 Environment kinds
+
+`meas.tee` names what is vouching for the measurement, and `meas.m` is that thing's native
+output. Kind and width are therefore one decision, not two that can drift apart:
+
+| `tee` | `m` | Meaning |
+|---|---|---|
+| `"software"` | 32 bytes | No TEE. SHA-256 digest of what the deployment runs. |
+| `"snp"` | 48 bytes | AMD SEV-SNP SHA-384 launch digest. |
+| `"snp+h100cc"` | 48 bytes | SNP launch digest on an H100 in confidential-compute mode. |
+| `"tdx"` | 48 bytes | Intel TDX SHA-384 measurement (MRTD). |
+
+A decoder rejects a pair that disagrees, in both directions, even when the signature over it
+is valid: a 48-byte digest claiming `"software"` and a 32-byte digest claiming a TEE are both
+malformed. Enforcing the width per kind is what keeps a deployment from making a hardware claim
+it cannot produce hardware evidence for. `"software"` exists so a deployment with no TEE can say
+so in the same field without borrowing a value it does not own.
 
 ## 4. HTTP protocol
 
@@ -137,15 +155,40 @@ GET /deployment-manifest
   "models": [
     { "id": "mock-model-1", "wts": "<64 hex chars>" }
   ],
-  "meas": { "tee": "snp", "m": "<64 hex chars>" }
+  "meas": { "tee": "software", "m": "<64 hex chars>" }
 }
 ```
 
 `keys` lists the Ed25519 public keys the deployment currently signs with, keyed by the same
 kid the receipts carry. `models` lists model ids with the weights digest each receipt for
-that model must carry. `meas` is the TEE measurement claims for the deployment. The manifest
-is signed by the deployment's long-term identity out of band; in the current mock it is
-served over the same channel and must be pinned through a client policy to carry weight.
+that model must carry. `meas` is the launch measurement the deployment claims, and its width
+follows from its kind: 96 hex characters for an SEV-SNP launch digest or a TDX MRTD, 64 for a
+`"software"` deployment that has no hardware measurement to report. The example above is a
+mock deployment, so it reports `"software"`.
+
+The manifest carries no signature. It is a claim about the deployment, delivered over
+whatever transport the endpoint happens to use, so it cannot vouch for itself. A client
+gives it weight by treating its values as pins to be met rather than facts to be believed:
+fetch the evidence the receipts point at, verify it offline, and require the measurement and
+keys to match what was expected. A policy that pins issuers, keys, instances and
+measurements turns an unverified manifest into at most a failed check, which is the only
+reading of it that is safe.
+
+### 4.5 Attestation evidence
+
+```text
+GET /attestation                      -> 200 application/octet-stream, evidence document
+GET /attestation?report_data=<64 hex> -> 200, document bound to that report data
+                                      -> 400 if report_data is not 64 hex characters
+```
+
+The body is the platform's native evidence envelope, not JSON: on dStack deployments it is
+the V1 msgpack structure carrying the hardware quote, the runtime event log and the app
+configuration. `sha256` of the served bytes must equal the `att.d` of any receipt naming this
+URL, so a client can confirm the document it verifies is the one that was signed. Evidence is
+re-fetchable only while the gateway retains it, for a window it chooses and advertises out of
+band; a receipt whose evidence can no longer be fetched still verifies cryptographically, but
+the client can no longer re-check the hardware claims and should treat it as an archived proof.
 
 ## 5. Verification algorithm
 
@@ -166,6 +209,15 @@ A verifying client proceeds as follows:
    received.
 8. **Check policy pins.** Issuer, instance, and measurement must each be pinned by the
    policy when the client pins that dimension.
+9. **Verify the evidence the receipt commits to.** Strict mode only. The client asks the
+   gateway for the attestation document whose report data equals
+   `sha256(nce, req)`, a value it recomputes rather than reads off the wire, then requires
+   that `sha256(document)` equals `att.d`, that the platform signature chains to a pinned
+   vendor root, that the document's platform agrees with `meas.tee`, and that the launch
+   digest the hardware reports equals `meas.m`. A `tee` of `"software"` claims no hardware,
+   so strict mode refuses it before the fetch. This is the receipt's only cross-protocol
+   link: the receipt format specifies a digest commitment and nothing else, and the checks
+   above belong to the evidence format that `@ashaveri/attest-core` parses.
 
 Steps 6 and 7 are what make the receipt a statement about *this* exchange rather than a
 generic artifact: a receipt whose hashes do not match the observed bytes is rejected even
@@ -179,7 +231,7 @@ The SDK exposes three levels:
 |---|---|
 | `off` | No nonce header, no verification, receipts never fetched. |
 | `receipt` | Nonce injected, receipt fetched and verified (steps 1 through 7). Key resolution uses the deployment manifest. An unreceipted response returns a `null` receipt instead of failing. |
-| `strict` | As `receipt`, plus a required policy (step 2 and 8 with pins, optional freshness), and an unreceipted response is an error. |
+| `strict` | As `receipt`, plus a required policy (step 2 and 8 with pins, optional freshness), an unreceipted response is an error, and the evidence behind step 9 is fetched and verified. |
 
 `receipt` mode proves the response came from the deployment that controls the manifest's
 keys. `strict` mode additionally freezes the deployment's identity: keys, issuer, instance,
@@ -190,6 +242,13 @@ and measurements cannot change without the client updating its policy.
 The payload `v` field and the manifest `v` field are both 1. A verifier rejects values it
 does not know, which is the compatibility contract: a future format version must change `v`,
 and existing verifiers will refuse it rather than misinterpret it.
+
+The `"software"` kind and the rule that ties `m` to its kind were added without a version bump,
+because the contract above covers the direction that matters: a verifier from before the change
+refuses an unknown kind instead of reading it as a TEE it does not know, so it rejects a software
+receipt rather than misgrading it as a hardware claim. The other direction is a tightening rather
+than a break. An older verifier accepted either width for any kind, so it still waves through the
+mismatched pair that `receipt-meas-mismatch-v1` exists to catch.
 
 ## 7. References
 

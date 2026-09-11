@@ -8,6 +8,7 @@ export {
   RECEIPT_CONTENT_TYPE,
   keyId,
   generateSigningKey,
+  signingKeyFromSeed,
   signCoseSign1,
   decodeCoseSign1,
   verifyCoseSign1,
@@ -21,6 +22,8 @@ export {
   verifyReceipt,
   hashRequest,
   randomNonce,
+  MEASUREMENT_BYTES,
+  isTeeKind,
 } from './receipt.js';
 export type {
   ReceiptPayload,

@@ -111,6 +111,9 @@ importers:
 
   gateway:
     dependencies:
+      '@ashaveri/attest-core':
+        specifier: workspace:*
+        version: link:../packages/attest-core
       '@ashaveri/receipt':
         specifier: workspace:*
         version: link:../packages/receipt
@@ -203,6 +206,9 @@ importers:
         specifier: ^2.3.0
         version: 2.3.0
     devDependencies:
+      ajv:
+        specifier: ^8.20.0
+        version: 8.20.0
       typescript:
         specifier: ^5.9.3
         version: 5.9.3
@@ -212,9 +218,15 @@ importers:
 
   packages/sdk:
     dependencies:
+      '@ashaveri/attest-core':
+        specifier: workspace:*
+        version: link:../attest-core
       '@ashaveri/receipt':
         specifier: workspace:*
         version: link:../receipt
+      '@noble/hashes':
+        specifier: ^2.0.0
+        version: 2.4.0
     devDependencies:
       '@ashaveri/signerd':
         specifier: workspace:*

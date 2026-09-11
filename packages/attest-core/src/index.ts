@@ -11,6 +11,14 @@ export {
   validateEventLog,
 } from './events.js';
 export { parseTdxQuote } from './tdx.js';
+export { parseQeReportCertificationData, parseTdxQuoteSignature, verifyTdxQuote } from './tdx-dcap.js';
+export type { QeReportCertificationData, TdxDcapOptions, TdxQuoteSignature, TdxQuoteVerification } from './tdx-dcap.js';
+export {
+  AMD_ARK_MILAN_PEM,
+  DEFAULT_AMD_ARKS,
+  DEFAULT_INTEL_SGX_ROOTS,
+  INTEL_SGX_ROOT_CA_PEM,
+} from './trust-anchors.js';
 export {
   normalizeSnpCertificates,
   parseSnpReport,
@@ -21,8 +29,15 @@ export {
   SNP_SIGNED_SIZE,
   SNP_SIGNATURE_OFFSET,
 } from './sev-snp.js';
-export { verifyAttestation } from './verify.js';
-export type { MrConfigDetails, SnpVerification, TdxVerification, VerificationResult, VerifyOptions } from './verify.js';
+export { verifyAttestation, mrConfigDocumentDigest, pinnedComposeHash, platformMeasurement } from './verify.js';
+export type {
+  MrConfigDetails,
+  SnpVerification,
+  TdxMrConfig,
+  TdxVerification,
+  VerificationResult,
+  VerifyOptions,
+} from './verify.js';
 export { parseCertificate, parseCertificateChain } from './der.js';
 export type { CertificatePublicKey, ParsedCertificate, SignatureAlgorithm } from './der.js';
 export { DSTACK_RUNTIME_EVENT_TYPE, tcbFromU64 } from './types.js';

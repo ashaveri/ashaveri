@@ -1,10 +1,17 @@
 import { hashRequest, randomNonce, type VerifiedReceipt } from '@ashaveri/receipt';
 import { toBase64Url } from './b64.js';
-import { GatewaySession } from './gateway.js';
+import { GatewaySession, type VerifiedCompletion } from './gateway.js';
 import { SdkError } from './errors.js';
+import type { VerifiedEvidence } from './evidence.js';
 import type { AshaveriPolicy } from './policy.js';
 
 export type VerifyMode = 'off' | 'receipt' | 'strict';
+
+/** What one completion check yields; both fields are null when verification is off. */
+export interface VerificationOutcome {
+  readonly receipt: VerifiedReceipt | null;
+  readonly attestation: VerifiedEvidence | null;
+}
 
 export interface AshaveriClientOptions {
   /** Gateway base URL without a trailing slash, e.g. http://127.0.0.1:7173/v1 */
@@ -64,13 +71,14 @@ export interface ChatCompletionChunk {
   readonly choices: readonly ChatCompletionChunkChoice[];
 }
 
-export interface CompletionResult {
+export interface CompletionResult extends VerificationOutcome {
   readonly completion: ChatCompletion;
-  readonly receipt: VerifiedReceipt | null;
 }
 
 export interface ChunkStream extends AsyncIterable<ChatCompletionChunk> {
   readonly receipt: Promise<VerifiedReceipt | null>;
+  /** The verified evidence in strict mode and nothing otherwise, or the verification failure. */
+  readonly attestation: Promise<VerifiedEvidence | null>;
 }
 
 function utf8(value: string): Uint8Array {
@@ -189,13 +197,14 @@ export class AshaveriClient {
     nonce: Uint8Array,
     requestHash: Uint8Array,
     responseHash: Uint8Array,
-  ): Promise<VerifiedReceipt> {
+  ): Promise<VerifiedCompletion> {
     const receiptBytes = await this.session.receiptBytes(receiptId);
-    return this.session.verifyReceipted({
+    return this.session.verifyCompletion({
       receiptBytes,
       nonce,
       requestHash,
       responseHash,
+      verifyEvidence: this.mode === 'strict',
       now: this.now?.(),
     });
   }
@@ -211,16 +220,21 @@ export class AshaveriClient {
     const bytes = await readAll(response.body);
     const completion = parseCompletion(bytes);
     if (this.mode === 'off') {
-      return { completion, receipt: null };
+      return { completion, receipt: null, attestation: null };
     }
     if (receiptId === null) {
       if (this.mode === 'strict') {
         throw new SdkError('NOT_RECEIPTED', 'the gateway did not provide a receipt for the response');
       }
-      return { completion, receipt: null };
+      return { completion, receipt: null, attestation: null };
     }
-    const receipt = await this.verify(receiptId, nonce, hashRequest(utf8(body)), hashRequest(bytes));
-    return { completion, receipt };
+    const { receipt, attestation } = await this.verify(
+      receiptId,
+      nonce,
+      hashRequest(utf8(body)),
+      hashRequest(bytes),
+    );
+    return { completion, receipt, attestation };
   }
 
   async stream(params: ChatCompletionParams): Promise<ChunkStream> {
@@ -235,15 +249,12 @@ export class AshaveriClient {
     const decoder = new TextDecoder();
     const parts: Uint8Array[] = [];
     let buffer = '';
-    let settleReceipt: (receipt: VerifiedReceipt | null) => void = () => {};
-    let failReceipt: (err: unknown) => void = () => {};
-    const receipt = new Promise<VerifiedReceipt | null>((resolve, reject) => {
-      settleReceipt = resolve;
-      failReceipt = reject;
+    let settleVerification: (outcome: VerificationOutcome) => void = () => {};
+    let failVerification: (err: unknown) => void = () => {};
+    const verification = new Promise<VerificationOutcome>((resolve, reject) => {
+      settleVerification = resolve;
+      failVerification = reject;
     });
-    // Keep a handler on the promise so a stream that is abandoned before the
-    // receipt settles never surfaces as an unhandled rejection.
-    receipt.catch(() => undefined);
 
     const client = this;
     const iterator = async function* (): AsyncGenerator<ChatCompletionChunk> {
@@ -271,33 +282,41 @@ export class AshaveriClient {
           yield chunk;
         }
         if (client.mode === 'off') {
-          settleReceipt(null);
+          settleVerification({ receipt: null, attestation: null });
           return;
         }
         if (receiptId === null) {
           if (client.mode === 'strict') {
             const err = new SdkError('NOT_RECEIPTED', 'the gateway did not provide a receipt for the response');
-            failReceipt(err);
+            failVerification(err);
             throw err;
           }
-          settleReceipt(null);
+          settleVerification({ receipt: null, attestation: null });
           return;
         }
-        const receiptValue = await client
+        const outcome = await client
           .verify(receiptId, nonce, requestHash, hashRequest(concatBytes(parts)))
           .catch((err: unknown) => {
-            failReceipt(err);
+            failVerification(err);
             throw err;
           });
-        settleReceipt(receiptValue);
+        settleVerification(outcome);
       } finally {
         reader.releaseLock();
       }
     };
 
+    const receipt = verification.then((outcome) => outcome.receipt);
+    const attestation = verification.then((outcome) => outcome.attestation);
+    // Keep a handler on both so a stream abandoned before verification settles
+    // never surfaces as an unhandled rejection.
+    receipt.catch(() => undefined);
+    attestation.catch(() => undefined);
+
     return {
       [Symbol.asyncIterator]: iterator,
       receipt,
+      attestation,
     };
   }
 }
