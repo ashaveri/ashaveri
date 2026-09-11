@@ -130,12 +130,14 @@ What is still true, in both modes:
   its `meas` and `att` fields are digests of fixed strings, and its evidence URL uses the
   `mock://` scheme. It reports `tee: "software"`, the member of the enum that claims no
   hardware protection, so no field of a mock receipt reads as a TEE assertion.
-- **Receipts live in process memory.** An issued receipt stays fetchable for the life of the
-  process, is lost on restart, and is never evicted, so the store grows with traffic where the
-  evidence caches beside it keep the most recent 256 documents each. There is no runtime key
-  rotation either: `--epk` publishes the epoch of the key a process started with, so rotating
-  means a new deployment with a new `--key-path` and a higher epoch. A real deployment needs a
-  retention window it can advertise and a rotation that survives a restart.
+- **Receipts live in process memory.** An issued receipt stays fetchable until the process
+  restarts or until 10,000 later completions push it out of the store, whichever comes first,
+  the same shape as the evidence caches beside it that keep 256 documents each. A read does not
+  move a receipt, so a client that delays its fetch past that many completions loses the
+  document. There is no runtime key rotation either: `--epk` publishes the epoch of the key a
+  process started with, so rotating means a new deployment with a new `--key-path` and a higher
+  epoch. A real deployment needs a retention window it can state in time rather than count, and
+  storage that survives a restart.
 - **The manifest is unsigned.** Strict-mode pinning is what gives it weight today; the
   intended end state is a manifest signed by a long-term deployment identity.
 - **The weights digest chain has one open link.** The receipt binds `sha256(manifest)` and the

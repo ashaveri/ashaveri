@@ -13,7 +13,9 @@
     }
   },
   "files": [
-    "dist"
+    "dist",
+    "receipt.cddl",
+    "schemas"
   ],
   "scripts": {
     "build": "tsc -p tsconfig.json",

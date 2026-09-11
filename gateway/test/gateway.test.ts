@@ -223,3 +223,41 @@ describe('receipts', () => {
     expect(toHex(secondReq)).toBe(toHex(hashRequest(utf8(spaced))));
   });
 });
+
+describe('receipt retention', () => {
+  async function complete(bounded: FastifyInstance, text: string): Promise<string> {
+    const res = await bounded.inject({
+      method: 'POST',
+      url: '/v1/chat/completions',
+      headers: { 'content-type': 'application/json' },
+      payload: `{"model":"mock-model-1","messages":[{"role":"user","content":"${text}"}]}`,
+    });
+    return res.headers['x-ashaveri-receipt-id'] as string;
+  }
+
+  async function status(bounded: FastifyInstance, id: string): Promise<number> {
+    return (await bounded.inject({ method: 'GET', url: `/v1/receipts/${id}` })).statusCode;
+  }
+
+  it('drops the oldest receipt once the store is full', async () => {
+    const bounded = buildGateway({ maxReceipts: 2 });
+    const ids = [await complete(bounded, 'first'), await complete(bounded, 'second')];
+    expect(await status(bounded, ids[0]!)).toBe(200);
+    await complete(bounded, 'third');
+    expect(await status(bounded, ids[0]!)).toBe(404);
+    expect(await status(bounded, ids[1]!)).toBe(200);
+    await bounded.close();
+  });
+
+  it('forgets a receipt on capacity, not on the last fetch', async () => {
+    const bounded = buildGateway({ maxReceipts: 2 });
+    const first = await complete(bounded, 'first');
+    await complete(bounded, 'second');
+    // Fetching keeps a receipt readable while it is retained, but does not make it
+    // the newest entry, so the next completion is what evicts it.
+    expect(await status(bounded, first)).toBe(200);
+    await complete(bounded, 'third');
+    expect(await status(bounded, first)).toBe(404);
+    await bounded.close();
+  });
+});

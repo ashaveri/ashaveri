@@ -171,15 +171,19 @@ export class AshaveriClient {
     };
   }
 
-  private async post(body: string, nonce: Uint8Array): Promise<Response> {
+  private async post(body: string, nonce: Uint8Array | null): Promise<Response> {
+    // Off mode sends no nonce. The header only earns its keep when the client is
+    // going to check that the receipt echoes it, so asking for one there would be
+    // a per-request client identifier with nothing on the other side of the trade.
+    const headers: Record<string, string> = { 'content-type': 'application/json' };
+    if (nonce !== null) {
+      headers['x-ashaveri-nonce'] = toBase64Url(nonce);
+    }
     let response: Response;
     try {
       response = await this.fetchImpl(`${this.session.baseUrl}/chat/completions`, {
         method: 'POST',
-        headers: {
-          'content-type': 'application/json',
-          'x-ashaveri-nonce': toBase64Url(nonce),
-        },
+        headers,
         body,
       });
     } catch (err) {
@@ -214,12 +218,14 @@ export class AshaveriClient {
       throw new TypeError('use chat.completions.stream() for streaming requests');
     }
     const body = JSON.stringify(params);
-    const nonce = randomNonce();
+    const nonce = this.mode === 'off' ? null : randomNonce();
     const response = await this.post(body, nonce);
     const receiptId = response.headers.get('x-ashaveri-receipt-id');
     const bytes = await readAll(response.body);
     const completion = parseCompletion(bytes);
-    if (this.mode === 'off') {
+    // Asking for no nonce is the same request as asking for no verification, so the
+    // absence of one is what mode off means here.
+    if (nonce === null) {
       return { completion, receipt: null, attestation: null };
     }
     if (receiptId === null) {
@@ -239,7 +245,7 @@ export class AshaveriClient {
 
   async stream(params: ChatCompletionParams): Promise<ChunkStream> {
     const body = JSON.stringify({ ...params, stream: true });
-    const nonce = randomNonce();
+    const nonce = this.mode === 'off' ? null : randomNonce();
     const response = await this.post(body, nonce);
     if (response.body === null) {
       throw new SdkError('GATEWAY_ERROR', 'streaming response has no body');
@@ -281,7 +287,7 @@ export class AshaveriClient {
         for (const chunk of parseEvent(buffer)) {
           yield chunk;
         }
-        if (client.mode === 'off') {
+        if (nonce === null) {
           settleVerification({ receipt: null, attestation: null });
           return;
         }
