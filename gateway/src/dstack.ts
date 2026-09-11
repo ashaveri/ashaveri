@@ -1,6 +1,8 @@
 import {
+  AttestationError,
   decodeAttestation,
   equalBytes,
+  parseNvidiaEvidenceBundle,
   parseSnpReport,
   parseTdxQuote,
   readNvidiaChallenge,
@@ -9,8 +11,7 @@ import {
   type RuntimeEvent,
 } from '@ashaveri/attest-core';
 import { signingKeyFromSeed } from '@ashaveri/receipt';
-import { GuestClient, type GuestApi, type GpuEvidenceBundle } from './guest.js';
-import { fromBase64 } from './b64.js';
+import { GuestClient, GuestError, type GuestApi, type GpuEvidenceBundle } from './guest.js';
 import { sha256, toHex } from './digest.js';
 import type { AttestationBundle, Deployment, HardwareTeeKind, ModelInfo, TeeKind } from './deployment.js';
 
@@ -142,24 +143,22 @@ export function nvidiaDeviceReports(bundle: GpuEvidenceBundle, challenge: Uint8A
       `device evidence is '${bundle.vendor}' in format '${bundle.format}', this deployment serves only 'nvidia' in format '${NVIDIA_ON_DEMAND_FORMAT}'`,
     );
   }
-  let entries: unknown;
+  let entries: NvidiaEvidence[];
   try {
-    entries = JSON.parse(new TextDecoder().decode(bundle.evidence));
-  } catch {
-    entries = undefined;
-  }
-  if (!Array.isArray(entries)) {
-    throw new DstackError('GPU_EVIDENCE_UNSUPPORTED', 'device evidence is not the JSON array the format promises');
+    entries = parseNvidiaEvidenceBundle(bundle.evidence);
+  } catch (error) {
+    if (error instanceof AttestationError) {
+      throw new DstackError('GPU_EVIDENCE_UNSUPPORTED', `device bundle: ${error.message}`);
+    }
+    throw error;
   }
   if (entries.length === 0) {
     throw new DstackError('GPU_EVIDENCE_UNAVAILABLE', 'the device bundle names no device, so nothing backs a GPU claim');
   }
-  return entries.map((entry, index) => {
-    const report = deviceField(entry, 'evidence', index);
-    const certChain = deviceField(entry, 'certificate', index);
+  return entries.map((device, index) => {
     let signed: Uint8Array;
     try {
-      signed = readNvidiaChallenge(report);
+      signed = readNvidiaChallenge(device.report);
     } catch (error) {
       throw new DstackError(
         'GPU_EVIDENCE_UNSUPPORTED',
@@ -172,21 +171,19 @@ export function nvidiaDeviceReports(bundle: GpuEvidenceBundle, challenge: Uint8A
         `device ${index} signed a report for challenge ${toHex(signed)}, this request's device challenge is ${toHex(challenge)}`,
       );
     }
-    return { report, certChain };
+    return device;
   });
 }
 
-/** A device's base64 payload, or the reason the bundle cannot be served. */
-function deviceField(entry: unknown, name: string, index: number): Uint8Array {
-  const value = entry !== null && typeof entry === 'object' ? (entry as Record<string, unknown>)[name] : undefined;
-  if (typeof value !== 'string') {
-    throw new DstackError('GPU_EVIDENCE_UNSUPPORTED', `device ${index} carries no ${name} string`);
-  }
-  try {
-    return fromBase64(value);
-  } catch {
-    throw new DstackError('GPU_EVIDENCE_UNSUPPORTED', `device ${index} has a ${name} that is not valid base64`);
-  }
+/**
+ * The platform a composite claim rests on.
+ *
+ * `snp+h100cc` adds a device leg to an ordinary SEV-SNP deployment rather than naming a
+ * different kind of CPU, so the two halves are checked apart: the launch digest comes from
+ * the SNP quote and the accelerator has to answer a challenge of its own.
+ */
+function platformHalf(tee: HardwareTeeKind): TeeKind {
+  return tee === 'snp+h100cc' ? 'snp' : tee;
 }
 
 export async function dstackDeployment(options: DstackDeploymentOptions): Promise<Deployment> {
@@ -201,6 +198,18 @@ export async function dstackDeployment(options: DstackDeploymentOptions): Promis
   // Bounded so a long-running instance does not grow without limit; evidence is
   // re-fetchable only while it is retained, which is what the receipt's att.url promises.
   const cache = new Map<string, AttestationBundle>();
+  const deviceCache = new Map<string, AttestationBundle>();
+  const remember = (store: Map<string, AttestationBundle>, hex: string, bundle: AttestationBundle): AttestationBundle => {
+    if (store.size >= MAX_CACHED_EVIDENCE) {
+      const oldest = store.keys().next().value as string | undefined;
+      if (oldest !== undefined) {
+        store.delete(oldest);
+      }
+    }
+    store.set(hex, bundle);
+    return bundle;
+  };
+
   const fetchEvidence = async (reportData: Uint8Array): Promise<AttestationBundle> => {
     const hex = toHex(reportData);
     const cached = cache.get(hex);
@@ -209,25 +218,73 @@ export async function dstackDeployment(options: DstackDeploymentOptions): Promis
     }
     const document = await client.attest(reportData);
     measureEvidence(document, reportData);
-    const bundle: AttestationBundle = {
+    return remember(cache, hex, {
       document,
       timestamp: Math.floor(Date.now() / 1000),
       url: `${evidenceBaseUrl}/attestation?report_data=${hex}`,
-    };
-    if (cache.size >= MAX_CACHED_EVIDENCE) {
-      const oldest = cache.keys().next().value as string | undefined;
-      if (oldest !== undefined) {
-        cache.delete(oldest);
+    });
+  };
+
+  /** Device bundles answering one challenge, or the reason this image cannot back a device claim. */
+  const askDevices = (reportData: Uint8Array): Promise<readonly GpuEvidenceBundle[]> =>
+    client.attestGpu(reportData).catch((error: unknown) => {
+      if (error instanceof GuestError && error.code === 'GPU_ATTESTATION_UNAVAILABLE') {
+        throw new DstackError(
+          'GPU_EVIDENCE_UNAVAILABLE',
+          `--tee snp+h100cc needs device evidence and this image gave none: ${error.detail}`,
+        );
       }
+      throw error;
+    });
+
+  // Collection costs a real device seconds, so one answer serves every read of its challenge.
+  const fetchDeviceEvidence = async (reportData: Uint8Array): Promise<AttestationBundle> => {
+    const hex = toHex(reportData);
+    const cached = deviceCache.get(hex);
+    if (cached !== undefined) {
+      return cached;
     }
-    cache.set(hex, bundle);
-    return bundle;
+    const bundles = await askDevices(reportData);
+    const [bundle] = bundles;
+    // What gets served is the vendor's own array, unchanged, so a client can hand it to
+    // NVIDIA's tool. Several bundles would have to be merged into something neither the
+    // vendor nor @ashaveri/attest-core recognizes, and an empty answer backs no claim.
+    if (bundle === undefined || bundles.length !== 1) {
+      throw new DstackError(
+        'GPU_EVIDENCE_UNSUPPORTED',
+        `the device route answered with ${bundles.length} bundles and this deployment serves the one array nvattest wrote`,
+      );
+    }
+    nvidiaDeviceReports(bundle, reportData);
+    return remember(deviceCache, hex, {
+      document: bundle.evidence,
+      timestamp: Math.floor(Date.now() / 1000),
+      url: `${evidenceBaseUrl}/attestation/gpu?report_data=${hex}`,
+    });
   };
 
   const standing = await fetchEvidence(standingReportData);
   const platform = measureEvidence(standing.document, standingReportData);
-  if (options.tee !== undefined && options.tee !== platform.tee) {
+  if (options.tee !== undefined && platformHalf(options.tee) !== platform.tee) {
     throw new DstackError('TEE_MISMATCH', `configured '${options.tee}' but the evidence shows '${platform.tee}'`);
+  }
+
+  // The CPU quote says nothing about the accelerator, so a composite label is never inferred
+  // from hardware alone: the operator asks for it and a device has to answer the standing
+  // challenge to confirm the claim. Collection is slow, so this runs once at startup rather
+  // than on every receipt, and the result is discarded because each receipt asks for its own.
+  let tee: TeeKind = platform.tee;
+  if (options.tee === 'snp+h100cc') {
+    const devices = (await askDevices(standingReportData)).flatMap((bundle) =>
+      nvidiaDeviceReports(bundle, standingReportData),
+    );
+    if (devices.length === 0) {
+      throw new DstackError(
+        'GPU_EVIDENCE_UNAVAILABLE',
+        'no accelerator answered, so this deployment cannot claim a confidential GPU',
+      );
+    }
+    tee = 'snp+h100cc';
   }
 
   const composeHash = eventPayload(platform.events, 'compose-hash');
@@ -246,11 +303,12 @@ export async function dstackDeployment(options: DstackDeploymentOptions): Promis
     instance,
     key,
     epk: options.epk ?? 0,
-    tee: platform.tee,
+    tee,
     measurement: platform.measurement,
     models: options.models,
     async attestation(reportData: Uint8Array | null): Promise<AttestationBundle> {
       return fetchEvidence(reportData ?? standingReportData);
     },
+    deviceAttestation: tee === 'snp+h100cc' ? fetchDeviceEvidence : undefined,
   };
 }

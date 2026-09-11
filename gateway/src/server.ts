@@ -18,6 +18,8 @@ const NONCE_BYTES = 16;
 // A cold model load can hold back the first streamed event for minutes.
 const FIRST_EVENT_TIMEOUT_MS = 120_000;
 const MAX_BUFFERED_BODY = 32 * 1024 * 1024;
+/** Evidence is addressed by the digest it binds to, which is what its URL says. */
+const REPORT_DATA_HEX = /^[0-9a-fA-F]{64}$/;
 
 export interface GatewayOptions {
   readonly issuer?: string;
@@ -138,7 +140,7 @@ export function buildGateway(options: GatewayOptions = {}): FastifyInstance {
     const query = request.query as { report_data?: string };
     let reportData: Uint8Array | null = null;
     if (query.report_data !== undefined) {
-      if (!/^[0-9a-fA-F]{64}$/.test(query.report_data)) {
+      if (!REPORT_DATA_HEX.test(query.report_data)) {
         reply
           .code(400)
           .send({ error: { message: 'report_data must be 64 hex characters', type: 'invalid_request_error' } });
@@ -149,6 +151,25 @@ export function buildGateway(options: GatewayOptions = {}): FastifyInstance {
     const bundle = await deployment.attestation(reportData);
     reply.header('content-type', 'application/octet-stream');
     reply.send(Buffer.from(bundle.document));
+  });
+
+  // The device leg has no standing answer to fall back on: an accelerator document is
+  // only worth fetching if it names the challenge of the receipt being checked.
+  app.get('/v1/attestation/gpu', async (request, reply) => {
+    if (deployment.deviceAttestation === undefined) {
+      reply.code(404).send({ error: { message: 'this deployment makes no device claim', type: 'not_found' } });
+      return;
+    }
+    const query = request.query as { report_data?: string };
+    if (query.report_data === undefined || !REPORT_DATA_HEX.test(query.report_data)) {
+      reply.code(400).send({
+        error: { message: 'report_data must be 64 hex characters', type: 'invalid_request_error' },
+      });
+      return;
+    }
+    const device = await deployment.deviceAttestation(fromHex(query.report_data));
+    reply.header('content-type', 'application/octet-stream');
+    reply.send(Buffer.from(device.document));
   });
 
   app.get('/v1/receipts/:id', async (request, reply) => {

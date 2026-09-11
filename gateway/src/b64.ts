@@ -18,17 +18,3 @@ export function fromBase64Url(value: string): Uint8Array {
   }
   return out;
 }
-
-/**
- * Standard base64, the alphabet vendor payloads arrive in.
- *
- * Checked before decoding: node's decoder skips characters it does not recognize
- * and returns the bytes it managed, so a corrupted report would otherwise come
- * back as a shorter one that still looks plausible downstream.
- */
-export function fromBase64(value: string): Uint8Array {
-  if (!/^(?:[A-Za-z0-9+/]{4})*(?:[A-Za-z0-9+/]{2}==|[A-Za-z0-9+/]{3}=)?$/.test(value)) {
-    throw new Error('invalid base64');
-  }
-  return new Uint8Array(Buffer.from(value, 'base64'));
-}
