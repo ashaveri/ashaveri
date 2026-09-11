@@ -1,0 +1,69 @@
+import { describe, it, expect } from 'vitest';
+import { verifyNvidiaRats } from '../src/index.js';
+import { expectErrorCode, fixture } from './helpers.js';
+
+// A real Hopper GPU attestation report signed by the device itself, plus the
+// certificate chain it was captured with; see test/fixtures/README.md.
+const report = fixture('nvidia-hopper-report.bin');
+const certChain = fixture('nvidia-hopper-cert-chain.pem');
+const deviceRoot = fixture('nvidia-device-identity-ca.pem');
+
+// Pinned inside every certificate window in the chain: the leaf starts 2020-10-17
+// and the device root 2021-11-05, both expiring in the year 9999.
+const now = Date.UTC(2024, 0, 15);
+
+/** Where the 32-byte nonce sits: past the 37-byte request and the measurement record. */
+function nonceOffset(bytes: Uint8Array): number {
+  const recordLength = bytes[42] + (bytes[43] << 8) + (bytes[44] << 16);
+  return 37 + 8 + recordLength;
+}
+
+describe('NVIDIA GPU evidence', () => {
+  it('verifies a real Hopper report offline against the pinned device root', () => {
+    const result = verifyNvidiaRats({ report, certChain }, { now, trustedRoots: [deviceRoot] });
+
+    expect(result.signatureVerified).toBe(true);
+    // The nonce the GPU was challenged with, taken from the signed region of the
+    // response rather than from a field the host could overwrite.
+    expect(result.nonce).toEqual(
+      new Uint8Array([
+        0x08, 0xf2, 0xfd, 0x1f, 0x8b, 0xb7, 0x69, 0xd0, 0x87, 0xf6, 0xb0, 0xde, 0x1b, 0x38, 0x95, 0x94,
+        0xe6, 0xcd, 0x24, 0x15, 0xc2, 0xf9, 0x2c, 0xf4, 0x89, 0x4f, 0xd6, 0x17, 0xd8, 0xdd, 0xd7, 0xe6,
+      ]),
+    );
+  });
+
+  it('rejects a report whose signature does not match the bytes', () => {
+    expectErrorCode(
+      () => verifyNvidiaRats({ report: fixture('nvidia-hopper-report-bad-signature.bin'), certChain }, { now, trustedRoots: [deviceRoot] }),
+      'BAD_SIGNATURE',
+    );
+  });
+
+  it('refuses a chain that does not reach the pinned root', () => {
+    // The chain is well formed and self-consistent; only the anchor makes it a
+    // hardware claim, so pinning some other vendor's root must not satisfy it.
+    expectErrorCode(
+      () => verifyNvidiaRats({ report, certChain }, { now, trustedRoots: [fixture('amd-ark-milan.pem')] }),
+      'MISSING_TRUST_ROOT',
+    );
+  });
+
+  it('refuses to verify before the pinned root was valid', () => {
+    expectErrorCode(
+      () => verifyNvidiaRats({ report, certChain }, { now: Date.UTC(2019, 0, 1), trustedRoots: [deviceRoot] }),
+      'CERT_EXPIRED',
+    );
+  });
+
+  it('cannot be handed a substituted nonce without breaking the signature', () => {
+    const tampered = Uint8Array.from(report);
+    const offset = nonceOffset(tampered);
+    tampered[offset] ^= 0x01;
+    expect(offset + 32).toBeLessThan(tampered.length);
+    expectErrorCode(
+      () => verifyNvidiaRats({ report: tampered, certChain }, { now, trustedRoots: [deviceRoot] }),
+      'BAD_SIGNATURE',
+    );
+  });
+});

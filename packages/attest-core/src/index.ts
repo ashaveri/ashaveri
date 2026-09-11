@@ -13,11 +13,15 @@ export {
 export { parseTdxQuote } from './tdx.js';
 export { parseQeReportCertificationData, parseTdxQuoteSignature, verifyTdxQuote } from './tdx-dcap.js';
 export type { QeReportCertificationData, TdxDcapOptions, TdxQuoteSignature, TdxQuoteVerification } from './tdx-dcap.js';
+export { verifyNvidiaRats } from './nvidia.js';
+export type { NvidiaEvidence, NvidiaOptions, NvidiaVerification } from './nvidia.js';
 export {
   AMD_ARK_MILAN_PEM,
   DEFAULT_AMD_ARKS,
   DEFAULT_INTEL_SGX_ROOTS,
+  DEFAULT_NVIDIA_DEVICE_ROOTS,
   INTEL_SGX_ROOT_CA_PEM,
+  NVIDIA_DEVICE_IDENTITY_CA_PEM,
 } from './trust-anchors.js';
 export {
   normalizeSnpCertificates,

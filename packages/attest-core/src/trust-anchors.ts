@@ -1,5 +1,5 @@
 /**
- * The two vendor roots a remote verifier needs to decide that platform evidence
+ * The three vendor roots a remote verifier needs to decide that platform evidence
  * came from real hardware, embedded as defaults so verification works offline.
  *
  * These are public certification authorities, not secrets, and pinning them is
@@ -9,7 +9,9 @@
  * then plays no part.
  *
  * Only the anchor is pinned here, never any collateral: TCB Info, QE Identity,
- * SKR, and the AMD CRL still live at Intel PCS and AMD KDS and are not fetched.
+ * SKR, and the AMD CRL still live at Intel PCS and AMD KDS, and GPU certificate
+ * revocation and the golden driver and VBIOS measurements still live at NVIDIA,
+ * and none of it is fetched.
  */
 
 /**
@@ -91,8 +93,38 @@ function pem(text: string): Uint8Array {
   return new TextEncoder().encode(text);
 }
 
+/**
+ * NVIDIA Device Identity CA, the anchor every GPU device chain must reach.
+ *
+ * Taken from `certs/verifier_device_root.pem` in NVIDIA's nvtrust local GPU
+ * verifier, which is the same certificate the attestation SDK pins as
+ * `nvidia_device_root.pem`. CN=`NVIDIA Device Identity CA`, serial
+ * `2d3670b1ca100411c1fec0e82a065b54`, ECDSA P-384, SHA-256 fingerprint
+ * `102bf659d5419614c9d8e6aecebc80454eb26b1df6a769ac720b9a690b167b48`, valid
+ * 2021-11-05 to year 9999. Hopper chains run leaf, GSP BROM, provisioner ICA and
+ * GPU identity below this; Blackwell uses a second device root, so a fleet that
+ * mixes generations needs its own anchor list.
+ */
+export const NVIDIA_DEVICE_IDENTITY_CA_PEM = `-----BEGIN CERTIFICATE-----
+MIICCzCCAZCgAwIBAgIQLTZwscoQBBHB/sDoKgZbVDAKBggqhkjOPQQDAzA1MSIw
+IAYDVQQDDBlOVklESUEgRGV2aWNlIElkZW50aXR5IENBMQ8wDQYDVQQKDAZOVklE
+SUEwIBcNMjExMTA1MDAwMDAwWhgPOTk5OTEyMzEyMzU5NTlaMDUxIjAgBgNVBAMM
+GU5WSURJQSBEZXZpY2UgSWRlbnRpdHkgQ0ExDzANBgNVBAoMBk5WSURJQTB2MBAG
+ByqGSM49AgEGBSuBBAAiA2IABA5MFKM7+KViZljbQSlgfky/RRnEQScW9NDZF8SX
+gAW96r6u/Ve8ZggtcYpPi2BS4VFu6KfEIrhN6FcHG7WP05W+oM+hxj7nyA1r1jkB
+2Ry70YfThX3Ba1zOryOP+MJ9vaNjMGEwDwYDVR0TAQH/BAUwAwEB/zAOBgNVHQ8B
+Af8EBAMCAQYwHQYDVR0OBBYEFFeF/4PyY8xlfWi3Olv0jUrL+0lfMB8GA1UdIwQY
+MBaAFFeF/4PyY8xlfWi3Olv0jUrL+0lfMAoGCCqGSM49BAMDA2kAMGYCMQCPeFM3
+TASsKQVaT+8S0sO9u97PVGCpE9d/I42IT7k3UUOLSR/qvJynVOD1vQKVXf0CMQC+
+EY55WYoDBvs2wPAH1Gw4LbcwUN8QCff8bFmV4ZxjCRr4WXTLFHBKjbfneGSBWwA=
+-----END CERTIFICATE-----
+`;
+
 /** The bundled Intel SGX root, in the shape `VerifyOptions.trustedIntelRoots` takes. */
 export const DEFAULT_INTEL_SGX_ROOTS: readonly Uint8Array[] = [pem(INTEL_SGX_ROOT_CA_PEM)];
 
 /** The bundled AMD Milan ARK, in the shape `VerifyOptions.trustedArks` takes. */
 export const DEFAULT_AMD_ARKS: readonly Uint8Array[] = [pem(AMD_ARK_MILAN_PEM)];
+
+/** The bundled NVIDIA device root, in the shape `NvidiaOptions.trustedRoots` takes. */
+export const DEFAULT_NVIDIA_DEVICE_ROOTS: readonly Uint8Array[] = [pem(NVIDIA_DEVICE_IDENTITY_CA_PEM)];

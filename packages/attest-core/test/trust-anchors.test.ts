@@ -1,5 +1,12 @@
 import { describe, expect, it } from 'vitest';
-import { DEFAULT_AMD_ARKS, DEFAULT_INTEL_SGX_ROOTS, parseCertificate, verifyTdxQuote } from '../src/index.js';
+import {
+  DEFAULT_AMD_ARKS,
+  DEFAULT_INTEL_SGX_ROOTS,
+  DEFAULT_NVIDIA_DEVICE_ROOTS,
+  parseCertificate,
+  verifyNvidiaRats,
+  verifyTdxQuote,
+} from '../src/index.js';
 import { fixture, pemToDer } from './helpers.js';
 
 // Any moment inside the PCK chain's validity windows.
@@ -18,8 +25,12 @@ describe('bundled trust anchors', () => {
     expect(pemToDer(DEFAULT_AMD_ARKS[0]!)).toEqual(pemToDer(fixture('amd-ark-milan.pem')));
   });
 
+  it('ships the published NVIDIA device identity CA unchanged', () => {
+    expect(pemToDer(DEFAULT_NVIDIA_DEVICE_ROOTS[0]!)).toEqual(pemToDer(fixture('nvidia-device-identity-ca.pem')));
+  });
+
   it('carries only self-signed certificate authorities', () => {
-    for (const pem of [...DEFAULT_AMD_ARKS, ...DEFAULT_INTEL_SGX_ROOTS]) {
+    for (const pem of [...DEFAULT_AMD_ARKS, ...DEFAULT_INTEL_SGX_ROOTS, ...DEFAULT_NVIDIA_DEVICE_ROOTS]) {
       const cert = parseCertificate(pemToDer(pem));
       expect(cert.isCa).toBe(true);
       expect(cert.subject).toEqual(cert.issuer);
@@ -30,5 +41,13 @@ describe('bundled trust anchors', () => {
     const result = verifyTdxQuote(fixture('tdx-quote-v4.bin'), { trustedRoots: DEFAULT_INTEL_SGX_ROOTS, now: NOW });
     expect(result.pckChain).toHaveLength(3);
     expect(result.trustedRoot.isCa).toBe(true);
+  });
+
+  it('verifies a real NVIDIA-signed report with nothing but the defaults', () => {
+    const result = verifyNvidiaRats(
+      { report: fixture('nvidia-hopper-report.bin'), certChain: fixture('nvidia-hopper-cert-chain.pem') },
+      { trustedRoots: DEFAULT_NVIDIA_DEVICE_ROOTS, now: NOW },
+    );
+    expect(result.signatureVerified).toBe(true);
   });
 });
