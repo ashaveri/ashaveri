@@ -22,7 +22,7 @@ export type {
   VerifyCompletionOptions,
   VerifyReceiptedParams,
 } from './gateway.js';
-export { evidenceReportData, verifyCompletionEvidence } from './evidence.js';
+export { claimsConfidentialDevice, deviceReports, evidenceReportData, verifyCompletionEvidence } from './evidence.js';
 export type { EvidenceTrustAnchors, VerifiedEvidence, VerifyEvidenceParams } from './evidence.js';
 export { verifyCompletionReceipt } from './verify.js';
 export type { VerifyCompletionParams } from './verify.js';

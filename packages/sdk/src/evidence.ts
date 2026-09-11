@@ -3,6 +3,7 @@ import {
   DEFAULT_AMD_ARKS,
   DEFAULT_INTEL_SGX_ROOTS,
   DEFAULT_NVIDIA_DEVICE_ROOTS,
+  parseNvidiaEvidenceBundle,
   pinnedComposeHash,
   platformMeasurement,
   reportDataBinds,
@@ -86,6 +87,18 @@ export function requireHardwareEvidence(tee: TeeKind): void {
 }
 
 /**
+ * Whether a claim needs a device report beside the platform quote.
+ *
+ * The receipt's `tee` label is the only place this is decided on the client side:
+ * strict mode fetches and requires a device report only when it says so, so a plain
+ * `snp` receipt never pays for a second round trip and never gets a device leg it
+ * was not promised.
+ */
+export function claimsConfidentialDevice(tee: TeeKind): boolean {
+  return tee === 'snp+h100cc';
+}
+
+/**
  * The report data a gateway must attest to for one request.
  *
  * Mirrors the gateway's own rule (server.ts): the digest of the client nonce
@@ -98,6 +111,31 @@ export function evidenceReportData(nonce: Uint8Array, requestHash: Uint8Array): 
   bound.set(nonce, 0);
   bound.set(requestHash, nonce.length);
   return sha256(bound);
+}
+
+/**
+ * The device reports inside the bytes a gateway's device route served.
+ *
+ * Reading the vendor's array is kept apart from believing it: this only decodes
+ * the container, so an unreadable document is refused with the vendor's own error
+ * rather than a decoding crash, while a report becomes evidence solely once
+ * `verifyCompletionEvidence` chains its certificate to a pinned NVIDIA root and
+ * matches the challenge inside its signed region. Nothing in the receipt commits
+ * to these bytes, which is why that signature is the whole case.
+ */
+export function deviceReports(document: Uint8Array): NvidiaEvidence[] {
+  try {
+    return parseNvidiaEvidenceBundle(document);
+  } catch (err) {
+    throw asAttestationFailure(err);
+  }
+}
+
+function asAttestationFailure(err: unknown): SdkError {
+  if (err instanceof AttestationError) {
+    return new SdkError('EVIDENCE_VERIFICATION_FAILED', `${err.code}: ${err.message}`);
+  }
+  throw err;
 }
 
 /**
@@ -136,7 +174,7 @@ export function verifyCompletionEvidence(params: VerifyEvidenceParams): Verified
       `no pinned root is configured for tee '${tee}', so the quote signature cannot be verified offline`,
     );
   }
-  if ((tee === 'snp+h100cc' || gpuEvidence.length > 0) && trustedNvidiaRoots.length === 0) {
+  if ((claimsConfidentialDevice(tee) || gpuEvidence.length > 0) && trustedNvidiaRoots.length === 0) {
     throw new SdkError(
       'EVIDENCE_NO_TRUST_ANCHORS',
       "no pinned NVIDIA device root is configured, so a GPU report's signature cannot be verified offline",
@@ -154,10 +192,7 @@ export function verifyCompletionEvidence(params: VerifyEvidenceParams): Verified
       now: params.now,
     });
   } catch (err) {
-    if (err instanceof AttestationError) {
-      throw new SdkError('EVIDENCE_VERIFICATION_FAILED', `${err.code}: ${err.message}`);
-    }
-    throw err;
+    throw asAttestationFailure(err);
   }
 
   if (!result.quoteSignatureVerified) {
@@ -178,7 +213,7 @@ export function verifyCompletionEvidence(params: VerifyEvidenceParams): Verified
       `the receipt claims tee '${tee}' but the evidence is a ${result.platformKind} quote`,
     );
   }
-  if (tee === 'snp+h100cc' && result.gpus.length === 0) {
+  if (claimsConfidentialDevice(tee) && result.gpus.length === 0) {
     throw new SdkError(
       'EVIDENCE_GPU_MISSING',
       "the receipt claims tee 'snp+h100cc' but no GPU report was verified beside it, so nothing attests the accelerator",
