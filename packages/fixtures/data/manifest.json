@@ -6,7 +6,7 @@
     {
       "name": "receipt-valid-v1",
       "path": "receipts/receipt-valid-v1.cbor",
-      "digestSha256": "6cb1bf913f26ef3cd9f1dde44305a2acd55333d17235659f42c640ced0f5e03f",
+      "digestSha256": "b688a62b58f3f5e0587bd9f85f7a0b52fcf605f32acd1532d589190f40a7746c",
       "expected": "verify-ok"
     },
     {
@@ -25,7 +25,7 @@
     {
       "name": "receipt-tampered-v1",
       "path": "receipts/receipt-tampered-v1.cbor",
-      "digestSha256": "2beec14c4eb0043b1777127138edb9321a94cfd52ff392c70e580a9b4a9f0830",
+      "digestSha256": "86ff68e5cc432eb3f9f1a51ee61a87f8180afd69d665235ea89689d96dc3b551",
       "expected": "INVALID_SIGNATURE"
     }
   ]

@@ -43,7 +43,7 @@ function fixturePayload(overrides: Partial<ReceiptPayload> = {}): ReceiptPayload
     res: labeled('ashaveri-fixtures/response/v1'),
     mdl: 'meta-llama/Llama-3.1-8B-Instruct',
     wts: labeled('ashaveri-fixtures/manifest/v1'),
-    meas: { tee: 'snp+h100cc', m: sha384(new TextEncoder().encode('ashaveri-fixtures/measurement/v1')) },
+    meas: { tee: 'snp+gpucc', m: sha384(new TextEncoder().encode('ashaveri-fixtures/measurement/v1')) },
     att: {
       d: labeled('ashaveri-fixtures/evidence/v1'),
       ts: FIXED_IAT - 60,

@@ -32,7 +32,7 @@ function samplePayload(overrides: Partial<ReceiptPayload> = {}): ReceiptPayload 
     res: sha256(new TextEncoder().encode('{"choices":[]}')),
     mdl: 'meta-llama/Llama-3.1-8B-Instruct',
     wts: sha256(new TextEncoder().encode('manifest')),
-    meas: { tee: 'snp+h100cc', m: sha384(new TextEncoder().encode('launch-digest')) },
+    meas: { tee: 'snp+gpucc', m: sha384(new TextEncoder().encode('launch-digest')) },
     att: { d: sha256(new Uint8Array(64).fill(2)), ts: FIXED_NOW - 60, url: 'https://inference.ashaveri.com/v1/attestation' },
     epk: 3,
     tok: { p: 128, c: 64 },
@@ -180,22 +180,40 @@ describe('COSE_Sign1 receipt codec', () => {
   it('carries the TDX measurement for a claim that also names an accelerator', () => {
     const key = generateSigningKey();
     const mrtd = new Uint8Array(48).fill(11);
-    const bytes = issueReceipt(samplePayload({ meas: { tee: 'tdx+h100cc', m: mrtd } }), key);
+    const bytes = issueReceipt(samplePayload({ meas: { tee: 'tdx+gpucc', m: mrtd } }), key);
     const verified = verifyReceipt(bytes, { publicKey: key.publicKey, now: FIXED_NOW });
-    expect(verified.payload.meas.tee).toBe('tdx+h100cc');
+    expect(verified.payload.meas.tee).toBe('tdx+gpucc');
     expect(equalBytes(verified.payload.meas.m, mrtd)).toBe(true);
     expectErrorCode(
-      () => issueReceipt(samplePayload({ meas: { tee: 'tdx+h100cc', m: new Uint8Array(32) } }), key),
+      () => issueReceipt(samplePayload({ meas: { tee: 'tdx+gpucc', m: new Uint8Array(32) } }), key),
       'BAD_PAYLOAD',
     );
   });
 
   it('promises a device report exactly for the kinds that name an accelerator', () => {
-    expect(claimsConfidentialDevice('snp+h100cc')).toBe(true);
-    expect(claimsConfidentialDevice('tdx+h100cc')).toBe(true);
+    expect(claimsConfidentialDevice('snp+gpucc')).toBe(true);
+    expect(claimsConfidentialDevice('tdx+gpucc')).toBe(true);
     expect(claimsConfidentialDevice('snp')).toBe(false);
     expect(claimsConfidentialDevice('tdx')).toBe(false);
     expect(claimsConfidentialDevice('software')).toBe(false);
+  });
+
+  it('refuses a receipt signed under the superseded card-named composite', () => {
+    // Signed past issueReceipt rather than built through it: the point is that a
+    // verifier no longer recognises the label, so the bytes have to exist first.
+    const key = generateSigningKey();
+    const foreign = signCoseSign1(
+      encodePayload(samplePayload({ meas: { tee: 'snp+h100cc' as never, m: new Uint8Array(48).fill(7) } })),
+      key,
+    );
+    let caught: ReceiptError | null = null;
+    try {
+      verifyReceipt(foreign, { publicKey: key.publicKey, now: FIXED_NOW });
+    } catch (e) {
+      caught = e as ReceiptError;
+    }
+    expect(caught?.code).toBe('BAD_PAYLOAD');
+    expect(caught?.message).toContain('meas.tee is not a known environment kind');
   });
 
   it('refuses to issue a measurement whose width contradicts its kind', () => {

@@ -32,7 +32,7 @@
           "type": "object",
           "required": ["tee", "m"],
           "properties": {
-            "tee": { "enum": ["software", "snp", "snp+h100cc", "tdx", "tdx+h100cc"] },
+            "tee": { "enum": ["software", "snp", "snp+gpucc", "tdx", "tdx+gpucc"] },
             "m": {
               "$ref": "#/$defs/hexDigest",
               "description": "SHA-256 for a software deployment, the platform's SHA-384 measurement for a TEE"
@@ -44,7 +44,7 @@
               "then": { "properties": { "m": { "pattern": "^[0-9a-f]{64}$" } } }
             },
             {
-              "if": { "required": ["tee"], "properties": { "tee": { "enum": ["snp", "snp+h100cc", "tdx", "tdx+h100cc"] } } },
+              "if": { "required": ["tee"], "properties": { "tee": { "enum": ["snp", "snp+gpucc", "tdx", "tdx+gpucc"] } } },
               "then": { "properties": { "m": { "pattern": "^[0-9a-f]{96}$" } } }
             }
           ]

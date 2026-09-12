@@ -283,7 +283,7 @@ describe('strict mode', () => {
   // accepted pairing, where both documents are genuine, is exercised on live hardware.
   const compositeTee = (payload: ReceiptPayload): ReceiptPayload => ({
     ...payload,
-    meas: { tee: 'snp+h100cc', m: new Uint8Array(48) },
+    meas: { tee: 'snp+gpucc', m: new Uint8Array(48) },
   });
   const gpuBundle = (devices: number): Uint8Array =>
     new TextEncoder().encode(

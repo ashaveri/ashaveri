@@ -480,9 +480,9 @@ describe('dstackDeployment device claim', () => {
       client: guest,
       models: MODELS,
       evidenceBaseUrl: 'https://inference.ashaveri.test/v1',
-      tee: 'snp+h100cc',
+      tee: 'snp+gpucc',
     });
-    expect(deployment.tee).toBe('snp+h100cc');
+    expect(deployment.tee).toBe('snp+gpucc');
     expect(toHex(deployment.measurement)).toBe(toHex(MEASUREMENT));
     expect(guest.gpuChallenges).toEqual([STANDING]);
   });
@@ -494,11 +494,11 @@ describe('dstackDeployment device claim', () => {
           client: snpGuest(),
           models: MODELS,
           evidenceBaseUrl: 'https://inference.ashaveri.test/v1',
-          tee: 'snp+h100cc',
+          tee: 'snp+gpucc',
         }),
       'GPU_EVIDENCE_UNAVAILABLE',
     );
-    expect(message).toContain('--tee snp+h100cc');
+    expect(message).toContain('--tee snp+gpucc');
     expect(message).toContain('GPU attestation is not available in this image');
   });
 
@@ -511,7 +511,7 @@ describe('dstackDeployment device claim', () => {
           client: guest,
           models: MODELS,
           evidenceBaseUrl: 'https://inference.ashaveri.test/v1',
-          tee: 'snp+h100cc',
+          tee: 'snp+gpucc',
         }),
       'GPU_EVIDENCE_UNBOUND',
     );
@@ -527,7 +527,7 @@ describe('dstackDeployment device claim', () => {
           client: guest,
           models: MODELS,
           evidenceBaseUrl: 'https://inference.ashaveri.test/v1',
-          tee: 'snp+h100cc',
+          tee: 'snp+gpucc',
           issuer: 'ashaveri-test',
           instance: 'tdx-instance',
         }),
@@ -543,11 +543,11 @@ describe('dstackDeployment device claim', () => {
       client: guest,
       models: MODELS,
       evidenceBaseUrl: 'https://inference.ashaveri.test/v1',
-      tee: 'tdx+h100cc',
+      tee: 'tdx+gpucc',
       issuer: 'ashaveri-test',
       instance: 'tdx-instance',
     });
-    expect(deployment.tee).toBe('tdx+h100cc');
+    expect(deployment.tee).toBe('tdx+gpucc');
     expect(guest.gpuChallenges).toEqual([STANDING]);
     // The label has to switch on the device route too, or a receipt claiming two
     // legs would be served only one.
@@ -562,13 +562,13 @@ describe('dstackDeployment device claim', () => {
           client: tdxGuest(),
           models: MODELS,
           evidenceBaseUrl: 'https://inference.ashaveri.test/v1',
-          tee: 'tdx+h100cc',
+          tee: 'tdx+gpucc',
           issuer: 'ashaveri-test',
           instance: 'tdx-instance',
         }),
       'GPU_EVIDENCE_UNAVAILABLE',
     );
-    expect(message).toContain('--tee tdx+h100cc');
+    expect(message).toContain('--tee tdx+gpucc');
   });
 
   it('leaves an unasked-for device claim alone, even when a device is present', async () => {
@@ -601,7 +601,7 @@ describe('device evidence over HTTP', () => {
       client: guest,
       models: MODELS,
       evidenceBaseUrl: 'https://inference.ashaveri.test/v1',
-      tee: 'snp+h100cc',
+      tee: 'snp+gpucc',
     });
     const app = buildGateway({ deployment });
     apps.push(app);

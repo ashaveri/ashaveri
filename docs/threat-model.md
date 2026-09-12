@@ -109,7 +109,7 @@ What is still true, in both modes:
   through `@ashaveri/sdk` in strict mode or `@ashaveri/cli`. That is deliberate, but it means a
   gateway that lied about its platform could still serve receipts: the detection lives on the
   verifying side.
-- **A composite claim has no proof of attachment.** Neither `"snp+h100cc"` nor `"tdx+h100cc"` is
+- **A composite claim has no proof of attachment.** Neither `"snp+gpucc"` nor `"tdx+gpucc"` is
   ever read off hardware. An operator asks for it, and the gateway refuses to start under that
   label unless one of its accelerators signs the deployment's standing challenge; a client then
   requires a device report signing its own challenge under a pinned NVIDIA root. That establishes
