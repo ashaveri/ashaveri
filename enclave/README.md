@@ -138,13 +138,13 @@ rejects the call; strict mode never degrades to a receipt-only verdict.
 
 Everything above is a CPU-only deployment, and the compose text is what it measures: `llama.cpp`
 on CPU and `signerd`, with no device reservation. A receipt bearing a composite label,
-`snp+h100cc` or `tdx+h100cc`, is a different deployment, and the gate is on the operator's side
+`snp+gpucc` or `tdx+gpucc`, is a different deployment, and the gate is on the operator's side
 of it.
 
 Three things have to be true before `--tee` carries one:
 
-1. The instance is a confidential VM with an H100 in confidential-computing mode, the pairing the
-   label names: AMD SEV-SNP for `snp+h100cc`, Intel TDX for `tdx+h100cc`. The `--tee` value is a
+1. The instance is a confidential VM with a GPU in confidential-computing mode, the pairing the
+   label names: AMD SEV-SNP for `snp+gpucc`, Intel TDX for `tdx+gpucc`. The `--tee` value is a
    request, never an inference: the platform half is checked against the CPU quote, and the label
    is adopted only if a device then answers the deployment's standing challenge.
 2. The guest image's agent answers the device attestation call, and `nvattest` is present in it

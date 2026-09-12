@@ -15,7 +15,7 @@
     "mdl": "meta-llama/Llama-3.1-8B-Instruct",
     "wts": "2689570aecf5054284b06d6022554fb97942cad0a774d5dbc9308b2d0477d9b5",
     "meas": {
-      "tee": "snp+h100cc",
+      "tee": "snp+gpucc",
       "m": "bd7661367ea7c0fa027295b495a37d8c445e95889c09d6b7beb6ed4052719e30f16f0507827e2d004949b552f1e551f2"
     },
     "att": {
@@ -29,6 +29,6 @@
       "c": 64
     }
   },
-  "signature": "8c521a7a85fa8e9debd4ca966b1230d6a39acb9c98c6f003d3843498e276a3e0ec0e5b90e8d6257772e71439bf7a7daa9b00f6715998a102f1313565d6af9e03",
-  "digestSha256": "6cb1bf913f26ef3cd9f1dde44305a2acd55333d17235659f42c640ced0f5e03f"
+  "signature": "74c6a90ba448dad80527fb400f13d1f97ac3665ed563a07c7294712442b290bf0e507323e5d65967a296ed762259b23923f93b97385f2193fd07ffa18f930f0e",
+  "digestSha256": "b688a62b58f3f5e0587bd9f85f7a0b52fcf605f32acd1532d589190f40a7746c"
 }

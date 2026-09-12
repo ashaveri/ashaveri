@@ -13,8 +13,15 @@ import {
 } from './cose.js';
 import { ReceiptError } from './errors.js';
 
-/** `software` makes no TEE claim: `m` is the deployment's own digest of what it runs. */
-export type TeeKind = 'software' | 'snp' | 'snp+h100cc' | 'tdx' | 'tdx+h100cc';
+/**
+ * `software` makes no TEE claim: `m` is the deployment's own digest of what it runs.
+ *
+ * The composite suffix is generation-neutral on purpose. A card name in the wire format
+ * is honest on the card it names, and a false claim on the next one; the device
+ * certificate chain inside the evidence already names the silicon precisely, so the
+ * label never had to.
+ */
+export type TeeKind = 'software' | 'snp' | 'snp+gpucc' | 'tdx' | 'tdx+gpucc';
 
 /**
  * Measurement bytes each kind must carry. A TEE reports its platform-native SHA-384
@@ -24,9 +31,9 @@ export type TeeKind = 'software' | 'snp' | 'snp+h100cc' | 'tdx' | 'tdx+h100cc';
 export const MEASUREMENT_BYTES: Readonly<Record<TeeKind, 32 | 48>> = {
   software: 32,
   snp: 48,
-  'snp+h100cc': 48,
+  'snp+gpucc': 48,
   tdx: 48,
-  'tdx+h100cc': 48,
+  'tdx+gpucc': 48,
 };
 
 /**
@@ -37,7 +44,7 @@ export const MEASUREMENT_BYTES: Readonly<Record<TeeKind, 32 | 48>> = {
  * it owes a second evidence leg.
  */
 export function claimsConfidentialDevice(tee: TeeKind): boolean {
-  return tee.endsWith('+h100cc');
+  return tee.endsWith('+gpucc');
 }
 
 export function isTeeKind(value: unknown): value is TeeKind {

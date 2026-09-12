@@ -45,7 +45,7 @@ Options:
   --issuer <id>                    Override the issuer derived from the event log.
   --instance <id>                  Override the instance id derived from the event log.
   --tee <environment>              Refuse to start unless the evidence agrees.
-                                   One of snp, snp+h100cc, tdx, tdx+h100cc; the
+                                   One of snp, snp+gpucc, tdx, tdx+gpucc; the
                                    composite kinds also require a device report.
   --help                           Print this help.`;
 

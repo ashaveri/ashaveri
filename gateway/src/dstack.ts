@@ -178,7 +178,7 @@ export function nvidiaDeviceReports(bundle: GpuEvidenceBundle, challenge: Uint8A
 /**
  * The platform a composite claim rests on.
  *
- * `snp+h100cc` and `tdx+h100cc` each add a device leg to an ordinary deployment
+ * `snp+gpucc` and `tdx+gpucc` each add a device leg to an ordinary deployment
  * rather than naming a different kind of CPU, so the two halves are checked apart:
  * the launch digest comes from the platform quote and the accelerator has to answer
  * a challenge of its own. The label splits on its suffix instead of pairing

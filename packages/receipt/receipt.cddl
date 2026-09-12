@@ -35,7 +35,7 @@ Measurement = {
     tee: "software",
     m: bstr .size 32,          ; SHA-256, the deployment's own digest
 } / {
-    tee: "snp" / "snp+h100cc" / "tdx" / "tdx+h100cc",
+    tee: "snp" / "snp+gpucc" / "tdx" / "tdx+gpucc",
     m: bstr .size 48,          ; the platform's native SHA-384 measurement:
                                ; SNP launch digest or TDX MRTD
 }

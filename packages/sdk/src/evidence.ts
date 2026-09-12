@@ -65,8 +65,8 @@ const PLATFORM_TEE_KINDS: Readonly<Record<VerificationResult['platformKind'], re
   // claims a confidential-computing GPU, and only a verified device report signing
   // the same challenge can show that, so both composites are legal labels for their
   // platform and separately require a GPU leg below.
-  'sev-snp': ['snp', 'snp+h100cc'],
-  tdx: ['tdx', 'tdx+h100cc'],
+  'sev-snp': ['snp', 'snp+gpucc'],
+  tdx: ['tdx', 'tdx+gpucc'],
 };
 
 /**

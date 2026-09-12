@@ -333,7 +333,7 @@ function verifySnp(overrides: Partial<Parameters<typeof verifyCompletionEvidence
     document: SNP_DOCUMENT,
     expectedReportData: SNP_BINDING,
     payload: signedReceipt({
-      tee: 'snp+h100cc',
+      tee: 'snp+gpucc',
       measurement: fromHex(SNP_MEASUREMENT),
       evidenceDigest: sha256(SNP_DOCUMENT),
     }),
@@ -351,11 +351,11 @@ describe('strict mode for a composite tee', () => {
     expect(evidence.quoteSignatureVerified).toBe(true);
   });
 
-  it('refuses a snp+h100cc receipt that carries no GPU evidence', () => {
+  it('refuses a snp+gpucc receipt that carries no GPU evidence', () => {
     expectSdkErrorCode(() => verifySnp(), 'EVIDENCE_GPU_MISSING');
   });
 
-  it('refuses a snp+h100cc receipt whose GPU report answers another challenge', () => {
+  it('refuses a snp+gpucc receipt whose GPU report answers another challenge', () => {
     try {
       verifySnp({ gpuEvidence: [GPU_LEG] });
       throw new Error('expected verification to fail');
@@ -383,13 +383,13 @@ describe('strict mode for a composite TDX tee', () => {
     return verifyCompletionEvidence({
       document: DOCUMENT,
       expectedReportData: fromHex(REPORT_DATA),
-      payload: signedReceipt({ tee: 'tdx+h100cc' }),
+      payload: signedReceipt({ tee: 'tdx+gpucc' }),
       now: NOW,
       ...overrides,
     });
   }
 
-  it('refuses a tdx+h100cc receipt that carries no GPU evidence', () => {
+  it('refuses a tdx+gpucc receipt that carries no GPU evidence', () => {
     expectSdkErrorCode(() => verifyTdx(), 'EVIDENCE_GPU_MISSING');
   });
 
@@ -400,7 +400,7 @@ describe('strict mode for a composite TDX tee', () => {
     );
   });
 
-  it('refuses a tdx+h100cc receipt whose GPU report answers another challenge', () => {
+  it('refuses a tdx+gpucc receipt whose GPU report answers another challenge', () => {
     try {
       verifyTdx({ gpuEvidence: [GPU_LEG] });
       throw new Error('expected verification to fail');
@@ -411,9 +411,9 @@ describe('strict mode for a composite TDX tee', () => {
     }
   });
 
-  it('refuses an snp+h100cc claim made over a TDX quote', () => {
+  it('refuses an snp+gpucc claim made over a TDX quote', () => {
     expectSdkErrorCode(
-      () => verifyTdx({ payload: signedReceipt({ tee: 'snp+h100cc' }) }),
+      () => verifyTdx({ payload: signedReceipt({ tee: 'snp+gpucc' }) }),
       'EVIDENCE_TEE_MISMATCH',
     );
   });
