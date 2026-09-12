@@ -240,6 +240,23 @@ nothing here proves the two are the same machine. Only TDISP/TEE-IO device bindi
 gap. Until a deployment can show it, a composite label means "a real CC GPU attested to this
 request" and no more.
 
+One stronger statement is available on TDX and structurally unavailable on SEV-SNP. A TDX
+deployment can measure a boot-time GPU appraisal into its runtime event register, which the
+platform quote then covers, so the quote itself says this VM booted with this appraised device.
+SEV-SNP has no runtime event register, so on that platform the statement is not merely unserved,
+it cannot be made. The ceiling on it is as important as the statement: a boot appraisal says the
+device was present and appraised at boot, not that it served this request and not that it is still
+attached. It is stronger than a device report answered beside the quote and weaker than TDISP/TEE-IO.
+
+That difference is a property of the evidence a client received and the roots it pinned, not a
+property of the deployment, so it belongs to a verification result rather than to `meas.tee`. A
+kind per tier would describe the serving platform twice, cross the enum with every tier a verifier
+might reach, cost a payload version for a judgement made on the far side of the wire, and make the
+receipt assert something its signer cannot know, which is whether the client holds the anchors the
+tier needs. No verifier in this repository reports a tier yet, so read every composite kind at the
+weaker of the two strengths: this challenge was answered by a genuine confidential-computing GPU
+and by a genuine VM, and the pairing of the two is the operator's claim.
+
 ## 5. Verification algorithm
 
 A verifying client proceeds as follows:
