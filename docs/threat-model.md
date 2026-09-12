@@ -140,14 +140,19 @@ What is still true, in both modes:
   its `meas` and `att` fields are digests of fixed strings, and its evidence URL uses the
   `mock://` scheme. It reports `tee: "software"`, the member of the enum that claims no
   hardware protection, so no field of a mock receipt reads as a TEE assertion.
-- **Receipts live in process memory.** An issued receipt stays fetchable until the process
-  restarts or until 10,000 later completions push it out of the store, whichever comes first,
-  the same shape as the evidence caches beside it that keep 256 documents each. A read does not
-  move a receipt, so a client that delays its fetch past that many completions loses the
-  document. There is no runtime key rotation either: `--epk` publishes the epoch of the key a
-  process started with, so rotating means a new deployment with a new `--key-path` and a higher
-  epoch. A real deployment needs a retention window it can state in time rather than count, and
-  storage that survives a restart.
+- **Receipt retention is a deployment choice, not a protocol guarantee.** A signerd started with
+  `--receipts-dir` appends each receipt to a hash-chained file on that volume and keeps it for 184
+  days, or until 10,000 later receipts push it out as a bound on the volume, whichever comes
+  first, and the store then reports the window it actually kept rather than the one it was asked
+  for. Without the flag, receipts stay in this process's memory and are gone at restart, which is
+  the default the mock gateway and the test suite run on. Chaining buys one thing and not the
+  other: removing a record from the middle breaks every digest after it and the gateway refuses to
+  open the file, while retiring an aged prefix is written down as a record saying how many it
+  dropped. What it cannot do is resist an operator who holds every record and rebuilds the file
+  from scratch. Catching that needs the chain head kept somewhere the operator does not control
+  and compared for continuity across windows, and no client does that yet. There is no runtime key
+  rotation either: `--epk` publishes the epoch of the key a process started with, so rotating
+  means a new deployment with a new `--key-path` and a higher epoch.
 - **The manifest is unsigned.** Strict-mode pinning is what gives it weight today; the
   intended end state is a manifest signed by a long-term deployment identity.
 - **The weights digest chain has one open link.** The receipt binds `sha256(manifest)` and the

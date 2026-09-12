@@ -45,6 +45,18 @@ describe('signerd cli', () => {
     expect(result.stderr).toContain("invalid port 'not-a-port'");
   });
 
+  it('exits with 2 for a receipts directory that is not one', () => {
+    const result = run('--mock', '--receipts-dir', join(tempDir, 'not-mounted'));
+    expect(result.status).toBe(2);
+    expect(result.stderr).toContain('--receipts-dir must name an existing directory');
+  });
+
+  it('refuses a receipts directory that is a file', () => {
+    const result = run('--mock', '--receipts-dir', MANIFEST);
+    expect(result.status).toBe(2);
+    expect(result.stderr).toContain('--receipts-dir must name an existing directory');
+  });
+
   it('exits with 2 when both modes are requested', () => {
     const result = run('--mock', '--live');
     expect(result.status).toBe(2);
