@@ -85,6 +85,18 @@ Two properties of the managed platform shape this step:
 the signing key and of the evidence; there is no key file in the image, no key in an env var,
 and nothing to seal after the fact.
 
+This compose text starts the gateway without `--receipts-dir`, so issued receipts live in the
+gateway's memory and a restart clears them. A client that fetched promptly is unaffected, and one
+that delayed gets a 404 for a document it can still verify if it kept the bytes. Passing
+`--receipts-dir` with a mounted directory changes that: each receipt is appended to one file
+hashed into the record before it, so a receipt removed from the middle makes the gateway refuse to
+open the store rather than quietly 404 it, and the window is stated in time instead of in a
+count. Whether any directory on a given rail survives a restart is a platform property this
+repository cannot assert, so check it before promising it: mount a candidate path, write a probe
+file into it, redeploy with the compose text otherwise unchanged, and read the probe back. A path
+that fails that test is not a store location, and retention on that rail needs a sink outside the
+VM.
+
 ## 4. Verify from a laptop
 
 ```bash

@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-import { readFileSync } from 'node:fs';
+import { readFileSync, statSync } from 'node:fs';
 import { parseArgs } from 'node:util';
 import { MEASUREMENT_BYTES, type TeeKind } from '@ashaveri/receipt';
 import { buildGateway } from './server.js';
@@ -9,6 +9,13 @@ import { mockBackend, type CompletionBackend } from './backend.js';
 import { upstreamBackend } from './upstream.js';
 import { mockDeployment, type Deployment, type HardwareTeeKind, type ModelInfo } from './deployment.js';
 import { sha256, toHex } from './digest.js';
+import {
+  MINIMUM_RETENTION_SECONDS,
+  openFileReceiptStore,
+  openMemoryReceiptStore,
+  type ReceiptRetention,
+  type ReceiptStore,
+} from './store.js';
 
 const USAGE = `signerd - receipt-signing gateway for Ashaveri verifiable inference
 
@@ -47,6 +54,12 @@ Options:
   --tee <environment>              Refuse to start unless the evidence agrees.
                                    One of snp, snp+gpucc, tdx, tdx+gpucc; the
                                    composite kinds also require a device report.
+  --receipts-dir <path>            Keep issued receipts in this directory across
+                                   restarts, hashed into a chain so a removal
+                                   shows. The directory must already exist, so a
+                                   volume you forgot to mount is a refusal rather
+                                   than a store on the root filesystem.
+                                   Default: keep receipts in this process only.
   --help                           Print this help.`;
 
 /**
@@ -74,6 +87,7 @@ interface CliOptions {
   readonly issuer?: string;
   readonly instance?: string;
   readonly tee?: string;
+  readonly 'receipts-dir'?: string;
 }
 
 function fail(message: string): never {
@@ -109,6 +123,7 @@ try {
       issuer: { type: 'string' },
       instance: { type: 'string' },
       tee: { type: 'string' },
+      'receipts-dir': { type: 'string' },
     },
   }).values;
 } catch (error) {
@@ -137,6 +152,39 @@ function weightsOf(manifestPath: string): Uint8Array {
     fail(`--weights-manifest could not be read: ${error instanceof Error ? error.message : String(error)}`);
   }
   return sha256(new Uint8Array(bytes.buffer, bytes.byteOffset, bytes.byteLength));
+}
+
+function isDirectory(path: string): boolean {
+  try {
+    return statSync(path).isDirectory();
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * Receipts are ~0.5 KB each, so this holds the store to a few megabytes. It is a volume bound
+ * rather than a retention promise: the window is the promise, and a store that has to cut one
+ * short reports the window it actually kept.
+ */
+const MAX_SERVED_RECEIPTS = 10_000;
+const retention: ReceiptRetention = { maxAgeSeconds: MINIMUM_RETENTION_SECONDS, maxCount: MAX_SERVED_RECEIPTS };
+const receiptsDir = values['receipts-dir'];
+if (receiptsDir !== undefined && !isDirectory(receiptsDir)) {
+  fail('--receipts-dir must name an existing directory, so a volume you forgot to mount is a refusal and not a store on the root filesystem');
+}
+
+let store: ReceiptStore;
+try {
+  store =
+    receiptsDir === undefined
+      ? openMemoryReceiptStore({ retention })
+      : await openFileReceiptStore({ dir: receiptsDir, retention });
+} catch (error) {
+  // A store that will not open, such as one whose chain no longer closes, is a fact about the
+  // volume rather than about how signerd was invoked.
+  process.stderr.write(`signerd: ${error instanceof Error ? error.message : String(error)}\n`);
+  process.exit(1);
 }
 
 async function liveDeployment(values: CliOptions): Promise<Deployment> {
@@ -181,15 +229,20 @@ try {
 const backend: CompletionBackend =
   values.upstream === undefined ? mockBackend() : upstreamBackend({ baseUrl: values.upstream });
 
-const app = buildGateway({ deployment, backend });
+const app = buildGateway({ deployment, backend, store });
 await app.listen({ port, host });
 const label =
   values.mock === true
     ? 'mock'
     : `live ${deployment.tee} measurement ${toHex(deployment.measurement).slice(0, 16)}...`;
+const kept =
+  receiptsDir === undefined
+    ? 'receipts kept in this process only, and gone on restart'
+    : `receipts kept in ${receiptsDir} for ${Math.round(MINIMUM_RETENTION_SECONDS / 86_400)} days, up to ${String(MAX_SERVED_RECEIPTS)} at a time`;
 process.stdout.write(
   `signerd (${label}) listening on http://${host}:${port}\n` +
-    `  issuer ${deployment.issuer} instance ${deployment.instance}\n`,
+    `  issuer ${deployment.issuer} instance ${deployment.instance}\n` +
+    `  ${kept}\n`,
 );
 
 for (const signal of ['SIGINT', 'SIGTERM'] as const) {

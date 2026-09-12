@@ -8,7 +8,7 @@ import { fileURLToPath } from 'node:url';
  * it reads every code out of the declarations and every row out of the document, and requires
  * them to agree in both directions, including the counts the opening paragraph states.
  *
- * The unions are parsed from source rather than imported. Importing all five would make this
+ * The unions are parsed from source rather than imported. Importing them all would make this
  * package depend on every other one, and the document keys its rows by union name anyway, so
  * the name is the thing under test.
  */
@@ -18,6 +18,7 @@ const UNION_SOURCES: ReadonlyArray<readonly [union: string, file: string]> = [
   ['AttestationErrorCode', '../../attest-core/src/errors.ts'],
   ['GuestErrorCode', '../../../gateway/src/guest.ts'],
   ['DstackErrorCode', '../../../gateway/src/dstack.ts'],
+  ['StoreErrorCode', '../../../gateway/src/store.ts'],
 ];
 
 const DOC_PATH = '../../../docs/error-codes.md';

@@ -43,6 +43,9 @@ services:
       - tinyllama
       - --weights-manifest
       - /run/ashaveri/weights-manifest.json
+      # --receipts-dir is absent on purpose: with it receipts are appended to a chained file and
+      # survive a restart, which is a promise only a volume that outlives the VM can keep.
+      # README.md section 3 is the check to run before making it.
       - --tee
       - ${ASHAVERI_TEE:-tdx}
     ports:

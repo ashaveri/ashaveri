@@ -1,7 +1,7 @@
 # Error codes
 
 Every error code this workspace raises, what condition raises it, and what a caller should do
-about it. There are 76 declarations across five unions, resolving to 75 distinct strings;
+about it. There are 77 declarations across six unions, resolving to 76 distinct strings;
 `UNSUPPORTED_PLATFORM` is the one string two unions share, and the last section
 says why that pair is deliberate while every other overlap is not.
 
@@ -17,7 +17,7 @@ site knew, so the detail reads differently for a quote than for a certificate. B
 | **What the caller does** | The action that can change the outcome. "Refuse" means present the failure; the receipt is not proven and must not be treated as one. |
 | **Verdict** | `terminal`: the same bytes will fail the same way forever, so a retry only adds latency. `retryable`: a later attempt can differ without anything being fixed. Startup refusals are terminal for the process. |
 
-The five unions:
+The six unions:
 
 | Union | Package | Owns |
 |---|---|---|
@@ -26,6 +26,7 @@ The five unions:
 | `AttestationErrorCode` | `@ashaveri/attest-core` | Platform evidence: dStack envelopes, SNP reports, TDX quotes, device reports, X.509 |
 | `GuestErrorCode` | `@ashaveri/signerd` | The guest agent socket inside the confidential VM |
 | `DstackErrorCode` | `@ashaveri/signerd` | Gateway startup: the deployment's own evidence, identity and device claim |
+| `StoreErrorCode` | `@ashaveri/signerd` | The receipt store file on the deployment's volume |
 
 ## `ReceiptErrorCode`
 
@@ -136,6 +137,20 @@ would produce receipts whose labels are wider than their proofs.
 | `GPU_EVIDENCE_UNAVAILABLE` | `DstackErrorCode` | `--tee` claims a device and the image gave none, or no accelerator answered at all | Either drop to a plain platform claim or fix device collection. Silence is never promotion to a composite | terminal |
 | `GPU_EVIDENCE_UNBOUND` | `DstackErrorCode` | A device signed a report for a challenge other than the one this deployment chose | Restart with working device collection. A cached or borrowed report is evidence of another moment | terminal |
 
+## `StoreErrorCode`
+
+Raised while opening a receipt store, before the gateway serves a request. The store chains every
+record to the one before it, so this code is the file saying it was changed after it was written.
+The byte offset in the message names which of the three disagreements it found: a record whose
+digest does not match its own bytes, a record naming a predecessor other than the one before it, or
+a retirement record that does not sit at the very front. A record left half-written by an
+interrupted append is not one of them: that tail is repaired at open rather than reported, because
+no receipt was ever handed out for bytes that never finished.
+
+| Code | Union | Raised when | What the caller does | Verdict |
+|---|---|---|---|---|
+| `STORE_CHAIN_BROKEN` | `StoreErrorCode` | The store file fails to chain at open, at the byte offset the message gives | Stop, and do not serve from that file. Restore from a copy whose head a customer already holds, or investigate the offset: a deleted middle record and a hand-edited one look the same from here, and both mean retained receipts can no longer be shown to be complete | terminal |
+
 ## Why these strings do not overlap
 
 A bare code string has to say which layer failed. Two pairs did not, and both sides were renamed
@@ -157,7 +172,7 @@ the first publish it would cost a deprecation cycle.
 
 ## Keeping this file true
 
-`packages/fixtures/test/error-codes.test.ts` reads the five unions out of source and checks them
+`packages/fixtures/test/error-codes.test.ts` reads the six unions out of source and checks them
 against this file: every declared code has exactly one row, every code in a row is declared, and
 the counts in the opening paragraph agree. A new code with no row fails CI, which is the only
 reason a reference table like this one stays correct after its first month.

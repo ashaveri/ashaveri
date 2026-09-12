@@ -1,6 +1,10 @@
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import type { FastifyInstance } from 'fastify';
-import { buildGateway } from '../src/server.js';
+import { mkdtemp, rm } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
+import { buildGateway, type GatewayOptions } from '../src/server.js';
+import { openFileReceiptStore, openMemoryReceiptStore } from '../src/store.js';
 import { toBase64Url } from '../src/b64.js';
 import { decodeReceipt, hashRequest, toHex } from '@ashaveri/receipt';
 
@@ -224,6 +228,33 @@ describe('receipts', () => {
   });
 });
 
+describe('durable receipts', () => {
+  it('serves a receipt issued before the gateway restarted', async () => {
+    const dir = await mkdtemp(join(tmpdir(), 'ashaveri-gateway-'));
+    try {
+      const first = buildGateway({ store: await openFileReceiptStore({ dir }) });
+      const res = await first.inject({
+        method: 'POST',
+        url: '/v1/chat/completions',
+        headers: { 'content-type': 'application/json', 'x-ashaveri-nonce': toBase64Url(NONCE) },
+        payload: REQUEST_BODY,
+      });
+      const receiptId = res.headers['x-ashaveri-receipt-id'] as string;
+      await first.close();
+
+      const second = buildGateway({ store: await openFileReceiptStore({ dir }) });
+      const fetched = await second.inject({ method: 'GET', url: `/v1/receipts/${receiptId}` });
+      expect(fetched.statusCode).toBe(200);
+      const payload = decodeReceipt(new Uint8Array(fetched.rawPayload)).payload;
+      expect(toHex(payload.req)).toBe(toHex(hashRequest(utf8(REQUEST_BODY))));
+      expect(toHex(payload.res)).toBe(toHex(hashRequest(utf8(res.payload))));
+      await second.close();
+    } finally {
+      await rm(dir, { recursive: true, force: true });
+    }
+  });
+});
+
 describe('receipt retention', () => {
   async function complete(bounded: FastifyInstance, text: string): Promise<string> {
     const res = await bounded.inject({
@@ -239,8 +270,12 @@ describe('receipt retention', () => {
     return (await bounded.inject({ method: 'GET', url: `/v1/receipts/${id}` })).statusCode;
   }
 
+  const boundedStore = (): GatewayOptions => ({
+    store: openMemoryReceiptStore({ retention: { maxCount: 2 } }),
+  });
+
   it('drops the oldest receipt once the store is full', async () => {
-    const bounded = buildGateway({ maxReceipts: 2 });
+    const bounded = buildGateway(boundedStore());
     const ids = [await complete(bounded, 'first'), await complete(bounded, 'second')];
     expect(await status(bounded, ids[0]!)).toBe(200);
     await complete(bounded, 'third');
@@ -250,7 +285,7 @@ describe('receipt retention', () => {
   });
 
   it('forgets a receipt on capacity, not on the last fetch', async () => {
-    const bounded = buildGateway({ maxReceipts: 2 });
+    const bounded = buildGateway(boundedStore());
     const first = await complete(bounded, 'first');
     await complete(bounded, 'second');
     // Fetching keeps a receipt readable while it is retained, but does not make it

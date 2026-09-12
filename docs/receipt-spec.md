@@ -144,9 +144,11 @@ GET /receipts/<receipt-id>    -> 200 application/cbor, receipt bytes
 
 Gateways may register a receipt shortly after the response body completes; clients should
 retry briefly on 404. How long a receipt stays fetchable is the gateway's choice and the
-protocol does not carry that answer, so treat an id as a handle rather than a proof: signerd
-serves the 10,000 receipts it issued most recently, drops the oldest to make room for the next,
-and loses all of them on restart. Fetch the bytes and keep them if the proof has to outlive the
+protocol does not carry that answer, so treat an id as a handle rather than a proof. A signerd
+started with `--receipts-dir` appends each receipt to a hash-chained file on that volume and
+keeps it for 184 days, or until 10,000 later receipts push it out as a bound on the volume,
+whichever comes first; one started without it keeps receipts in process memory and serves none
+of them after a restart. Fetch the bytes and keep them if the proof has to outlive the
 deployment.
 
 ### 4.4 Deployment manifest

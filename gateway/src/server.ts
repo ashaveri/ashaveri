@@ -13,6 +13,7 @@ import { mockBackend, type BackendResponse, type CompletionBackend, type Complet
 import { mockDeployment, type AttestationBundle, type Deployment } from './deployment.js';
 import { fromHex, sha256, toHex } from './digest.js';
 import { parseChatCompletionRequest, RequestError } from './mock.js';
+import { openMemoryReceiptStore, type ReceiptStore } from './store.js';
 
 const NONCE_BYTES = 16;
 // A cold model load can hold back the first streamed event for minutes.
@@ -20,8 +21,6 @@ const FIRST_EVENT_TIMEOUT_MS = 120_000;
 const MAX_BUFFERED_BODY = 32 * 1024 * 1024;
 /** Evidence is addressed by the digest it binds to, which is what its URL says. */
 const REPORT_DATA_HEX = /^[0-9a-fA-F]{64}$/;
-/** Receipts are ~0.5 KB each; 10,000 entries keeps the store under ~5 MB. */
-const MAX_CACHED_RECEIPTS = 10_000;
 
 export interface GatewayOptions {
   readonly issuer?: string;
@@ -29,8 +28,11 @@ export interface GatewayOptions {
   readonly key?: SigningKey;
   readonly deployment?: Deployment;
   readonly backend?: CompletionBackend;
-  /** How many issued receipts stay fetchable. Raise it if clients fetch late. */
-  readonly maxReceipts?: number;
+  /**
+   * Where issued receipts are kept, and for how long they stay fetchable. The default holds them
+   * in this process, so they are gone when it stops; a deployment with a volume passes the file engine.
+   */
+  readonly store?: ReceiptStore;
 }
 
 export interface ManifestJson {
@@ -93,8 +95,7 @@ export function buildGateway(options: GatewayOptions = {}): FastifyInstance {
   const deployment =
     options.deployment ?? mockDeployment({ issuer: options.issuer, instance: options.instance, key: options.key });
   const backend = options.backend ?? mockBackend();
-  const receipts = new Map<string, Uint8Array>();
-  const receiptLimit = options.maxReceipts ?? MAX_CACHED_RECEIPTS;
+  const receipts = options.store ?? openMemoryReceiptStore();
 
   const app = Fastify({ bodyLimit: 16 * 1024 * 1024, logger: false });
   // The receipt binds the exact bytes the client sent, so the body is kept raw
@@ -113,7 +114,7 @@ export function buildGateway(options: GatewayOptions = {}): FastifyInstance {
     meas: { tee: deployment.tee, m: toHex(deployment.measurement) },
   };
 
-  function issue(args: {
+  async function issue(args: {
     id: string;
     nonce: Uint8Array;
     requestBody: Buffer;
@@ -122,12 +123,13 @@ export function buildGateway(options: GatewayOptions = {}): FastifyInstance {
     weights: Uint8Array;
     evidence: AttestationBundle;
     usage: CompletionUsage;
-  }): void {
+  }): Promise<void> {
+    const iat = Math.floor(Date.now() / 1000);
     const payload: ReceiptPayload = {
       v: 1,
       iss: deployment.issuer,
       ins: deployment.instance,
-      iat: Math.floor(Date.now() / 1000),
+      iat,
       nce: args.nonce,
       req: hashRequest(args.requestBody),
       res: args.responseHash,
@@ -138,16 +140,9 @@ export function buildGateway(options: GatewayOptions = {}): FastifyInstance {
       epk: deployment.epk,
       tok: { p: args.usage.promptTokens, c: args.usage.completionTokens },
     };
-    // Oldest first rather than least recently used: a client fetches its receipt once,
-    // while the completion it belongs to is still in flight, so reads carry no signal
-    // about which document will be asked for again.
-    if (receipts.size >= receiptLimit) {
-      const oldest = receipts.keys().next().value;
-      if (oldest !== undefined) {
-        receipts.delete(oldest);
-      }
-    }
-    receipts.set(args.id, issueReceipt(payload, deployment.key));
+    // How long this stays fetchable is the store's decision, so the gateway hands over the
+    // timestamp the decision is made from rather than making it here.
+    await receipts.put(args.id, issueReceipt(payload, deployment.key), iat);
   }
 
   app.get('/v1/deployment-manifest', async () => manifest);
@@ -190,8 +185,8 @@ export function buildGateway(options: GatewayOptions = {}): FastifyInstance {
 
   app.get('/v1/receipts/:id', async (request, reply) => {
     const id = (request.params as { id: string }).id;
-    const bytes = receipts.get(id);
-    if (!bytes) {
+    const bytes = await receipts.get(id);
+    if (bytes === null) {
       reply.code(404).send({ error: { message: `no receipt for id ${id}`, type: 'not_found' } });
       return;
     }
@@ -282,7 +277,7 @@ export function buildGateway(options: GatewayOptions = {}): FastifyInstance {
         upstreamError(reply, `inference upstream served '${usage.model}' instead of '${declared.id}'`);
         return;
       }
-      issue({
+      await issue({
         id: receiptId,
         nonce,
         requestBody: raw,
@@ -385,7 +380,7 @@ export function buildGateway(options: GatewayOptions = {}): FastifyInstance {
       }
       // Signed before the closing byte, so a client that reads to the end and
       // immediately fetches its receipt cannot lose the race.
-      issue({
+      await issue({
         id,
         nonce,
         requestBody: raw,
