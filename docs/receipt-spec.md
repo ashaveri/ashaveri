@@ -43,11 +43,11 @@ The protected header contains exactly three parameters:
 | 3 | typ | "ashaveri/receipt" |
 | 4 | kid | 32-byte key id, sha256 of the Ed25519 public key |
 
-The signature is computed over the RFC 9052 Sig_structure
+The signature is computed over the RFC 9052 Sig_structure (section 4.4)
 `["Signature1", protected, external_aad, payload]` with an empty external AAD.
 
 The unprotected header is empty. Receipts are always exactly one signature; multiparty or
-counter-signature variants, if ever needed, would be a new format version.
+countersignature variants (RFC 9338), if ever needed, would be a new format version.
 
 ## 3. Payload
 
@@ -327,6 +327,10 @@ mismatched pair that `receipt-meas-mismatch-v1` exists to catch.
 ## 7. References
 
 - RFC 8949, Concise Binary Object Representation (CBOR); section 4.2.1 Core Deterministic Encoding
-- RFC 9052, CBOR Object Signing and Encryption (COSE): Structures and Process
+- RFC 9052, CBOR Object Signing and Encryption (COSE): Structures and Process, as updated by
+  RFC 9338, CBOR Object Signing and Encryption (COSE): Countersignatures. RFC 9052 removed all
+  countersignature text from itself, and RFC 9338 supplies it again. Neither document changes the
+  two parts this format rests on: the Sign1 structure (section 4.2) and the Sig_structure
+  (section 4.4).
 - RFC 8032, Edwards-Curve Digital Signature Algorithm (EdDSA)
 - [Ashaveri threat model](threat-model.md)
