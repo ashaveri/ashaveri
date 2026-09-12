@@ -43,11 +43,11 @@ The protected header contains exactly three parameters:
 | 3 | typ | "ashaveri/receipt" |
 | 4 | kid | 32-byte key id, sha256 of the Ed25519 public key |
 
-The signature is computed over the RFC 9052 Sig_structure
+The signature is computed over the RFC 9052 Sig_structure (section 4.4)
 `["Signature1", protected, external_aad, payload]` with an empty external AAD.
 
 The unprotected header is empty. Receipts are always exactly one signature; multiparty or
-counter-signature variants, if ever needed, would be a new format version.
+countersignature variants (RFC 9338), if ever needed, would be a new format version.
 
 ## 3. Payload
 
@@ -240,6 +240,23 @@ nothing here proves the two are the same machine. Only TDISP/TEE-IO device bindi
 gap. Until a deployment can show it, a composite label means "a real CC GPU attested to this
 request" and no more.
 
+One stronger statement is available on TDX and structurally unavailable on SEV-SNP. A TDX
+deployment can measure a boot-time GPU appraisal into its runtime event register, which the
+platform quote then covers, so the quote itself says this VM booted with this appraised device.
+SEV-SNP has no runtime event register, so on that platform the statement is not merely unserved,
+it cannot be made. The ceiling on it is as important as the statement: a boot appraisal says the
+device was present and appraised at boot, not that it served this request and not that it is still
+attached. It is stronger than a device report answered beside the quote and weaker than TDISP/TEE-IO.
+
+That difference is a property of the evidence a client received and the roots it pinned, not a
+property of the deployment, so it belongs to a verification result rather than to `meas.tee`. A
+kind per tier would describe the serving platform twice, cross the enum with every tier a verifier
+might reach, cost a payload version for a judgement made on the far side of the wire, and make the
+receipt assert something its signer cannot know, which is whether the client holds the anchors the
+tier needs. No verifier in this repository reports a tier yet, so read every composite kind at the
+weaker of the two strengths: this challenge was answered by a genuine confidential-computing GPU
+and by a genuine VM, and the pairing of the two is the operator's claim.
+
 ## 5. Verification algorithm
 
 A verifying client proceeds as follows:
@@ -310,6 +327,10 @@ mismatched pair that `receipt-meas-mismatch-v1` exists to catch.
 ## 7. References
 
 - RFC 8949, Concise Binary Object Representation (CBOR); section 4.2.1 Core Deterministic Encoding
-- RFC 9052, CBOR Object Signing and Encryption (COSE): Structures and Process
+- RFC 9052, CBOR Object Signing and Encryption (COSE): Structures and Process, as updated by
+  RFC 9338, CBOR Object Signing and Encryption (COSE): Countersignatures. RFC 9052 removed all
+  countersignature text from itself, and RFC 9338 supplies it again. Neither document changes the
+  two parts this format rests on: the Sign1 structure (section 4.2) and the Sig_structure
+  (section 4.4).
 - RFC 8032, Edwards-Curve Digital Signature Algorithm (EdDSA)
 - [Ashaveri threat model](threat-model.md)

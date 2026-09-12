@@ -28,7 +28,9 @@ run first; CI uses that order.
 
 The receipt wire format is normatively defined in `packages/receipt/receipt.cddl`,
 with the full protocol in [docs/receipt-spec.md](docs/receipt-spec.md) and the
-threat model in [docs/threat-model.md](docs/threat-model.md).
+threat model in [docs/threat-model.md](docs/threat-model.md). Every error code those
+packages throw, with what raises it and what a caller should do, is tabulated in
+[docs/error-codes.md](docs/error-codes.md).
 Fixtures are regenerated deterministically with `pnpm --filter @ashaveri/fixtures generate`.
 
 ## Verifying inference receipts
@@ -108,7 +110,7 @@ measurements report and the chain it was signed under, paired by position, and
 `--gpu-root <pem>` names the device identity root that chain must reach. Each report's
 ECDSA P-384 signature is verified offline under that root, and the challenge the device
 signed is printed beside the report data above. With `--report-data` pinned, a device that
-answered a different challenge fails with `NONCE_MISMATCH`, because it is evidence of some
+answered a different challenge fails with `CHALLENGE_MISMATCH`, because it is evidence of some
 other moment on the same machine.
 
 Verification proves an attestation is genuine; pinning turns it into a decision about *this*

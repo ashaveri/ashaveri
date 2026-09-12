@@ -63,7 +63,7 @@ explicit about the current gaps.
 | T10 | DoS: gateway refuses to serve receipts | Receipt and evidence fetches retry with a short window, then fail closed as `RECEIPT_NOT_FOUND` or `EVIDENCE_NOT_FOUND` rather than falling back to unverified acceptance | Availability is out of scope |
 | T11 | Side channels on prompt content via receipts | Receipts contain hashes and counts only, never content | Hashes reveal content length implicitly (already visible in the response) |
 | T12 | Strict mode: gateway serves evidence from other work, another instance, or one not matching the receipt | The client recomputes the expected report data from its own nonce and request bytes, requires `sha256(document) == att.d`, requires the quote's platform to agree with the receipt's `tee` (a `software` receipt is refused before the fetch), and requires the measured launch digest to equal `meas.m` | Collateral freshness. The signature chain is checked against a pinned vendor root, but TCB Info, the QE identity and the CRL are not consulted, so a since-revoked platform still verifies |
-| T13 | Strict mode: a receipt bearing a composite `tee` claims a confidential GPU the deployment does not have, or quotes a device report captured for someone else | The label is only ever an operator's request, and the gateway will not start under it unless one of its accelerators signs that deployment's standing challenge. Strict mode then fetches the device document for the client's own challenge and requires a report whose signature chains to a pinned NVIDIA device root and whose signed challenge matches | Residual trust in one label choice: the operator picks the composite and the gateway confirms only that its platform quote and a device report answer the same challenge. See section 6 |
+| T13 | Strict mode: a receipt bearing a composite `tee` claims a confidential GPU the deployment does not have, or quotes a device report captured for someone else | The label is only ever an operator's request, and the gateway will not start under it unless one of its accelerators signs that deployment's standing challenge. The platform's agent collects that report today; the settled direction is for the vendor's own tool to run inside the deployment's container instead, which emits the same bundle format, so the client's checks stay checks on the bytes rather than on who collected them. Strict mode then fetches the device document for the client's own challenge and requires a report whose signature chains to a pinned NVIDIA device root and whose signed challenge matches | Residual trust in one label choice: the operator picks the composite and the gateway confirms only that its platform quote and a device report answer the same challenge. See section 6 |
 
 ## 6. Current limitations, stated plainly
 
@@ -120,12 +120,22 @@ What is still true, in both modes:
   deployment here has it. Device collection costs a real device seconds, so the gateway asks once
   per challenge and caches the answer, and a plain `"snp"` or `"tdx"` deployment is never upgraded
   into the claim or charged for it.
-- **The producing path has not been answered by a real image.** The gateway calls dstack's v1
+- **The producing path has not been answered by a real image.** Today the gateway asks dstack's v1
   device attestation route and serves the vendor's `nvattest` bundle unchanged; both are
   implemented from published shapes and tested against a fake guest. The guest agent's wire
   contract and the per-device field names stay assumptions until a real dstack image replies to
-  the call. Nothing degrades silently in the meantime: an image that offers no device route stops
-  a deployment configured to claim one.
+  the call. The settled direction, recorded 12 September 2026, is to collect device evidence
+  inside our own container with the vendor's own tool instead of depending on a guest-agent
+  release: that tool is what the platform's agent itself shells out to, other vendors document
+  their customers running it, and one producing path then serves every rail this stack can run on
+  rather than only the one rented first. That collection code is not in this repository yet. The
+  route already written stays and is used when an image offers it, since it is written and tested
+  and deleting it buys nothing. Both producers emit the vendor tool's own bundle format, so the
+  verifier cannot tell them apart and does not need to, and what the bundle proves is unchanged by
+  who collected it: a genuine confidential-computing GPU answered this challenge. Acceptance is
+  therefore the bundle verifying under a pinned device root against the challenge the platform
+  quote committed to, not the tool having run. Nothing degrades silently in the meantime: an image
+  that offers no device route stops a deployment configured to claim one.
 - **The mock gateway is not a TEE deployment.** It signs with an ephemeral development key,
   its `meas` and `att` fields are digests of fixed strings, and its evidence URL uses the
   `mock://` scheme. It reports `tee: "software"`, the member of the enum that claims no

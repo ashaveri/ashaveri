@@ -200,7 +200,7 @@ export function verifyNvidiaRats(evidence: NvidiaEvidence, options: NvidiaOption
   }
   const { signed, nonce, signature } = parseSpdmMeasurements(evidence.report);
   if (expectedNonce !== undefined && !equalBytes(expectedNonce, nonce)) {
-    fail('NONCE_MISMATCH', `the GPU signed a report for challenge ${toHex(nonce)}, this request expected ${toHex(expectedNonce)}`);
+    fail('CHALLENGE_MISMATCH', `the GPU signed a report for challenge ${toHex(nonce)}, this request expected ${toHex(expectedNonce)}`);
   }
   const chain = parseCertificateChain(evidence.certChain);
   if (chain.length === 0) {

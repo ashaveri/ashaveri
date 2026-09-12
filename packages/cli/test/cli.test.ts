@@ -221,7 +221,7 @@ describe('ashaveri verify', () => {
     // platform answers would let an unrelated GPU report ride along.
     const result = runCli([...VERIFY_ARGS, ...GPU_ARGS, '--report-data', FIXTURE_REPORT_DATA]);
     expect(result.status).toBe(1);
-    expect(result.stderr).toContain('verification failed (NONCE_MISMATCH)');
+    expect(result.stderr).toContain('verification failed (CHALLENGE_MISMATCH)');
     expect(result.stderr).toContain(`GPU signed challenge ${FIXTURE_GPU_CHALLENGE}`);
   });
 

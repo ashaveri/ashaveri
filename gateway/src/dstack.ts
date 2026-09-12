@@ -34,10 +34,10 @@ const NVIDIA_ON_DEMAND_FORMAT = 'nvidia-nvattest-collect-evidence-json-v1';
 
 export type DstackErrorCode =
   | 'EVIDENCE_UNDECODABLE'
-  | 'PLATFORM_UNSUPPORTED'
+  | 'UNSUPPORTED_PLATFORM'
   | 'TEE_MISMATCH'
   | 'IDENTITY_MISSING'
-  | 'EVIDENCE_REPORT_DATA_MISMATCH'
+  | 'GUEST_EVIDENCE_UNBOUND'
   | 'GPU_EVIDENCE_UNSUPPORTED'
   | 'GPU_EVIDENCE_UNAVAILABLE'
   | 'GPU_EVIDENCE_UNBOUND';
@@ -91,7 +91,7 @@ function assertReportDataBound(reported: Uint8Array, requested: Uint8Array, cont
   }
   if (!reportDataBinds(reported, requested)) {
     throw new DstackError(
-      'EVIDENCE_REPORT_DATA_MISMATCH',
+      'GUEST_EVIDENCE_UNBOUND',
       `${context} is not bound to report data ${toHex(requested)}`,
     );
   }
@@ -120,7 +120,7 @@ function measureEvidence(document: Uint8Array, requestedReportData: Uint8Array):
       events: attestation.stack.runtimeEvents,
     };
   }
-  throw new DstackError('PLATFORM_UNSUPPORTED', `no measurement is defined for platform kind '${platform.kind}'`);
+  throw new DstackError('UNSUPPORTED_PLATFORM', `no measurement is defined for platform kind '${platform.kind}'`);
 }
 
 function eventPayload(events: readonly RuntimeEvent[], name: string): Uint8Array | null {

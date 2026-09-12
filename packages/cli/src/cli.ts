@@ -128,7 +128,7 @@ function checkGpuBinding(expected: Uint8Array, gpus: readonly NvidiaVerification
   for (const gpu of gpus) {
     if (!reportDataBinds(expected, gpu.nonce)) {
       throw new AttestationError(
-        'NONCE_MISMATCH',
+        'CHALLENGE_MISMATCH',
         `the GPU signed challenge ${toHex(gpu.nonce)}, --report-data pins ${toHex(expected)}`,
       );
     }
