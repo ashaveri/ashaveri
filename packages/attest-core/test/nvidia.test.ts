@@ -47,7 +47,7 @@ describe('NVIDIA GPU evidence', () => {
     other[31] ^= 0x01;
     expectErrorCode(
       () => verifyNvidiaRats({ report, certChain }, { now, trustedRoots: [deviceRoot], expectedNonce: other }),
-      'NONCE_MISMATCH',
+      'CHALLENGE_MISMATCH',
     );
   });
 

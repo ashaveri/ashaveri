@@ -238,7 +238,7 @@ describe('GPU evidence beside a platform document', () => {
           trustedNvidiaRoots: nvidiaRoots,
           gpuNonce: new Uint8Array(32).fill(0x11),
         }),
-      'NONCE_MISMATCH',
+      'CHALLENGE_MISMATCH',
     );
   });
 

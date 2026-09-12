@@ -108,7 +108,7 @@ measurements report and the chain it was signed under, paired by position, and
 `--gpu-root <pem>` names the device identity root that chain must reach. Each report's
 ECDSA P-384 signature is verified offline under that root, and the challenge the device
 signed is printed beside the report data above. With `--report-data` pinned, a device that
-answered a different challenge fails with `NONCE_MISMATCH`, because it is evidence of some
+answered a different challenge fails with `CHALLENGE_MISMATCH`, because it is evidence of some
 other moment on the same machine.
 
 Verification proves an attestation is genuine; pinning turns it into a decision about *this*

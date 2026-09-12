@@ -362,7 +362,7 @@ describe('strict mode for a composite tee', () => {
     } catch (err) {
       expect(err).toBeInstanceOf(SdkError);
       expect((err as SdkError).code).toBe('EVIDENCE_VERIFICATION_FAILED');
-      expect((err as SdkError).message).toContain('NONCE_MISMATCH');
+      expect((err as SdkError).message).toContain('CHALLENGE_MISMATCH');
     }
   });
 
@@ -407,7 +407,7 @@ describe('strict mode for a composite TDX tee', () => {
     } catch (err) {
       expect(err).toBeInstanceOf(SdkError);
       expect((err as SdkError).code).toBe('EVIDENCE_VERIFICATION_FAILED');
-      expect((err as SdkError).message).toContain('NONCE_MISMATCH');
+      expect((err as SdkError).message).toContain('CHALLENGE_MISMATCH');
     }
   });
 

@@ -289,7 +289,7 @@ describe('dstackDeployment measurement', () => {
     );
     await expectCode(
       () => dstackDeployment({ client: guest, models: MODELS, evidenceBaseUrl: 'https://x.test/v1' }),
-      'PLATFORM_UNSUPPORTED',
+      'UNSUPPORTED_PLATFORM',
     );
   });
 
@@ -328,7 +328,7 @@ describe('dstackDeployment evidence binding', () => {
     );
     const message = await expectCode(
       () => dstackDeployment({ client: guest, models: MODELS, evidenceBaseUrl: 'https://x.test/v1' }),
-      'EVIDENCE_REPORT_DATA_MISMATCH',
+      'GUEST_EVIDENCE_UNBOUND',
     );
     expect(message).toContain('not bound to report data');
   });
