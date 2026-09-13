@@ -3,7 +3,7 @@ import { createHash } from 'node:crypto';
 import { appendFile, mkdtemp, readFile, rm, stat, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { openFileReceiptStore, RECEIPT_STORE_FILE, type ReceiptRetention } from '../src/store.js';
+import { openFileReceiptStore, openMemoryReceiptStore, RECEIPT_STORE_FILE, type ReceiptRetention } from '../src/store.js';
 
 const RECEIPT = Uint8Array.from(Array.from({ length: 64 }, (_, i) => (i * 7) % 256));
 const OTHER_RECEIPT = Uint8Array.from(Array.from({ length: 48 }, (_, i) => (i * 11) % 256));
@@ -82,9 +82,10 @@ describe('receipt store', () => {
     expect(await store.window()).toEqual({ from: 1_780_000_000, to: 1_780_000_120, count: 2 });
   });
 
-  it('yields a half-open range oldest first, with the bytes to verify', async () => {
+  it('yields a half-open range in the order the receipts were chained', async () => {
     const dir = await emptyDir();
     const store = await openFileReceiptStore({ dir });
+    // Written newest first, so the order a range comes back in cannot be the order of its stamps.
     await store.put('rcpt_03', RECEIPT, 1_780_000_240);
     await store.put('rcpt_01', OTHER_RECEIPT, 1_780_000_000);
     await store.put('rcpt_02', RECEIPT, 1_780_000_120);
@@ -95,13 +96,16 @@ describe('receipt store', () => {
     }
     expect(excluded).toEqual(['rcpt_01', 'rcpt_02']);
 
+    // A window is a statement about time, so the interval is the stamps'. A reader recomputing one
+    // digest per receipt has to visit them the way the store did, so the order is the chain's, and
+    // these three come back with their dates running backwards.
     const every: { id: string; iat: number; receipt: Uint8Array }[] = [];
     for await (const item of store.range(0, 2_000_000_000)) {
       every.push(item);
     }
-    expect(every.map((item) => item.id)).toEqual(['rcpt_01', 'rcpt_02', 'rcpt_03']);
-    expect(every[0]!.iat).toBe(1_780_000_000);
-    expect(Array.from(every[0]!.receipt)).toEqual(Array.from(OTHER_RECEIPT));
+    expect(every.map((item) => item.id)).toEqual(['rcpt_03', 'rcpt_01', 'rcpt_02']);
+    expect(every[0]!.iat).toBe(1_780_000_240);
+    expect(Array.from(every[0]!.receipt)).toEqual(Array.from(RECEIPT));
   });
 
   it('stops serving a receipt once it falls outside the retention window', async () => {
@@ -275,5 +279,79 @@ describe('receipt store', () => {
     await shortened.put('rcpt_02', OTHER_RECEIPT, 1_780_000_060);
     expect(Array.from(await shortened.head())).not.toEqual(Array.from(first));
     expect(await shortened.get('rcpt_02')).not.toBeNull();
+  });
+});
+
+describe('chain state', () => {
+  it('anchors an empty store at its own head, so a reader has one rule not two', async () => {
+    // With nothing retained there is no oldest record to take a predecessor from. Reporting the
+    // head means recomputing forward over zero items returns the anchor unchanged and the check
+    // the populated case passes is the same check this one passes.
+    const store = openMemoryReceiptStore();
+    const state = await store.chainState();
+    expect(Array.from(state.anchor)).toEqual(Array.from(await store.head()));
+    expect(state.retired).toEqual({ byAge: 0, byCount: 0, trims: [] });
+  });
+
+  it('credits a retirement to the age bound that caused it', async () => {
+    // window() can only report what survives, and a window that starts after its own cutoff is
+    // equally consistent with an old quiet store and with a cap that evicted most of a young one.
+    // Only the code that dropped the record knows which, so that is where the split has to come from.
+    const store = openMemoryReceiptStore({
+      retention: { maxAgeSeconds: 3_600, maxCount: 100, now: () => 1_780_000_000 },
+    });
+    await store.put('expired', RECEIPT, 1_779_996_399);
+    await store.put('recent', OTHER_RECEIPT, 1_780_000_000);
+
+    expect((await store.window()).count).toBe(1);
+    expect(await store.chainState()).toMatchObject({
+      retired: { byAge: 1, byCount: 0, trims: [] },
+    });
+  });
+
+  it('publishes an anchor the retained receipts chain forward to the head from', async () => {
+    // The whole reason an anchor is worth publishing is that a reader holding a pack and nothing
+    // else can start at the anchor, recompute a digest per receipt, and land on the head. That is
+    // a proof rather than a promise, and it only works if the anchor is the predecessor of the
+    // oldest retained receipt rather than wherever the chain happens to have finished.
+    const store = openMemoryReceiptStore({ retention: { maxCount: 2, now: () => 1_780_000_000 } });
+    await store.put('rcpt_01', RECEIPT, 1_780_000_000);
+    await store.put('rcpt_02', OTHER_RECEIPT, 1_780_000_060);
+    await store.put('rcpt_03', RECEIPT, 1_780_000_120);
+
+    const retained: { id: string; iat: number; receipt: Uint8Array }[] = [];
+    for await (const item of store.range(0, 2_000_000_000)) {
+      retained.push(item);
+    }
+    expect(retained.map((item) => item.id)).toEqual(['rcpt_02', 'rcpt_03']);
+
+    let prev = (await store.chainState()).anchor;
+    for (const item of retained) {
+      prev = digestOf(prev, item.iat, item.id, item.receipt);
+    }
+    expect(Array.from(prev)).toEqual(Array.from(await store.head()));
+  });
+
+  it('retires a prefix of the chain even when the timestamps do not line up that way', async () => {
+    // Three completions whose stamps were taken out of order: the oldest-dated receipt sits in the
+    // middle of the chain, so a policy that reads it as the oldest record would leave a hole where
+    // it stood. A hole is what the chain exists to make visible, and a retained set with one in it
+    // cannot be walked from any anchor to any head, so the store has to retire up to the chain and
+    // no further than the chain.
+    const store = openMemoryReceiptStore({ retention: { maxCount: 2, now: () => 1_780_000_000 } });
+    await store.put('rcpt_c', RECEIPT, 1_780_000_120);
+    await store.put('rcpt_a', OTHER_RECEIPT, 1_780_000_000);
+    await store.put('rcpt_b', RECEIPT, 1_780_000_060);
+
+    const retained: { id: string; iat: number; receipt: Uint8Array }[] = [];
+    for await (const item of store.range(0, 2_000_000_000)) {
+      retained.push(item);
+    }
+    const state = await store.chainState();
+    let prev = state.anchor;
+    for (const item of retained) {
+      prev = digestOf(prev, item.iat, item.id, item.receipt);
+    }
+    expect(Array.from(prev)).toEqual(Array.from(await store.head()));
   });
 });

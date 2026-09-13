@@ -10,11 +10,11 @@ import { sha256 } from './digest.js';
  * repaired instead of reported is a partial record at the tail, which is an append that never
  * finished rather than a receipt anyone was given the id for.
  *
- * Retention drops the oldest records, which are the file's prefix, and a prefix is the one
- * thing a chain cannot speak for: nothing after it changes. So a compaction writes a trim
- * record in front of what it kept, naming the digest the surviving chain starts from and how
- * many records retired. A hole in the middle stays a broken link; a retired prefix stays a
- * statement.
+ * Retention may only drop a prefix, and a prefix is the one thing a chain cannot speak for:
+ * nothing after it changes. So a policy that would evict a record sitting in the middle of the
+ * chain stops short of it, and a compaction writes a trim record in front of what it kept, naming
+ * the digest the surviving chain starts from and how many records retired. A hole in the middle
+ * stays a broken link; a retired prefix stays a statement.
  */
 
 /** The file a deployment backs up. Named because an operator needs to know which one it is. */
@@ -38,6 +38,8 @@ const KIND_TRIM = 1;
 /** Where one receipt sits in the file. */
 interface Location {
   readonly iat: number;
+  /** This record's position in the chain, which is the order a reader has to walk it in. */
+  readonly seq: number;
   /** The byte the record's length prefix starts at, so dead space is measurable. */
   readonly recordStart: number;
   readonly offset: number;
@@ -48,6 +50,8 @@ interface StoreState {
   records: Map<string, Location>;
   head: Buffer;
   size: number;
+  /** The position the next chained record takes, which is one past the last record ever written. */
+  nextSeq: number;
   /** Records retired by retention since the last trim was written. */
   dropped: number;
 }
@@ -101,6 +105,31 @@ export class StoreError extends Error {
   }
 }
 
+/** One compaction: when space was reclaimed, what left, and under what policy it left. */
+export interface TrimEvent {
+  readonly at: number;
+  readonly byAge: number;
+  readonly byCount: number;
+  readonly under: { readonly maxAgeSeconds?: number; readonly maxCount?: number };
+}
+
+/**
+ * What a retention manifest states about the chain and about the receipts no longer in it.
+ *
+ * `anchor` is the digest the oldest retained receipt was chained from, which is where a reader
+ * holding only a pack starts recomputing forward to `head()`. `retired` is the only place the
+ * store says which bound removed what, because `window()` reports the surviving set and cannot
+ * report why anything is missing from it.
+ */
+export interface ChainState {
+  readonly anchor: Uint8Array;
+  readonly retired: {
+    readonly byAge: number;
+    readonly byCount: number;
+    readonly trims: readonly TrimEvent[];
+  };
+}
+
 export interface ReceiptStore {
   put(id: string, receipt: Uint8Array, iat: number): Promise<void>;
   get(id: string): Promise<Uint8Array | null>;
@@ -108,11 +137,14 @@ export interface ReceiptStore {
   /** Inclusive bounds and a count, so a retention manifest can state them. */
   window(): Promise<{ from: number; to: number; count: number }>;
 
-  /** Every receipt in a half-open interval, oldest first, for pack generation. */
+  /** Every receipt stamped in a half-open interval, in the order they were chained, for packs. */
   range(from: number, to: number): AsyncIterable<StoredReceipt>;
 
   /** Head of the hash chain. Publishing it is what makes deletion detectable. */
   head(): Promise<Uint8Array>;
+
+  /** The anchor and the retirement history, which `window()` and `head()` cannot supply. */
+  chainState(): Promise<ChainState>;
 }
 
 /**
@@ -168,6 +200,7 @@ async function walk(path: string, file: FileHandle): Promise<StoreState> {
   // compacted store starts at the seam its leading trim record states instead.
   let expectedPrev = Buffer.alloc(PREV_BYTES);
   let offset = 0;
+  let seq = 0;
   while (offset + FRAME_LEN_BYTES <= bytes.length) {
     const length = bytes.readUInt32BE(offset);
     const body = offset + FRAME_LEN_BYTES;
@@ -210,6 +243,7 @@ async function walk(path: string, file: FileHandle): Promise<StoreState> {
       expectedPrev = digest;
       records.set(bytes.subarray(idStart, payloadStart).toString('utf8'), {
         iat: Number(bytes.readBigUInt64BE(body + KIND_BYTES + PREV_BYTES)),
+        seq: seq++,
         recordStart: offset,
         offset: payloadStart,
         length: payloadEnd - payloadStart,
@@ -224,41 +258,69 @@ async function walk(path: string, file: FileHandle): Promise<StoreState> {
     // By path, not through the handle: an append-mode handle cannot set the end of a file.
     await truncate(path, offset);
   }
-  return { records, head, size: offset, dropped: 0 };
+  return { records, head, size: offset, nextSeq: seq, dropped: 0 };
+}
+
+/** The ids each bound of a retention policy retired, kept apart because the cause is the report. */
+interface Retirement {
+  readonly byAge: string[];
+  readonly byCount: string[];
 }
 
 /**
- * The ids a retention policy retires: everything older than the window, then the oldest of what
- * is left until the count cap fits. Sorted rather than taken in write order because a place in
- * the store is not a promise about an `iat`. Equal timestamps fall out in write order, which is
- * how the index is built in both engines.
+ * The receipts a retention policy retires, which are always a prefix of the chain.
+ *
+ * Membership is the policy's: everything older than the window, then the oldest-dated of what is
+ * left until the count cap fits. The shape is the chain's: a hash chain tolerates losing a prefix
+ * and nothing else, so the retirement walks the records in the order they were chained and stops
+ * at the first one the policy would keep.
+ *
+ * That stop is the whole reason a stamp taken out of order cannot cost a receipt. Retiring a
+ * record in the middle of the chain leaves the hole the chain exists to make visible, and no
+ * reader could tell it apart from someone deleting evidence. Holding a receipt past its window by
+ * the skew of its neighbours is the same rule's cost, and it falls on the side that keeps data.
  */
 function retire(
-  entries: Iterable<readonly [string, { iat: number }]>,
+  entries: Iterable<readonly [string, { iat: number; seq: number }]>,
   retention: ReceiptRetention | undefined,
   now: number,
-): string[] {
+): Retirement {
+  const byAge: string[] = [];
+  const byCount: string[] = [];
   if (retention === undefined) {
-    return [];
+    return { byAge, byCount };
   }
   const cutoff = retention.maxAgeSeconds === undefined ? Number.NEGATIVE_INFINITY : now - retention.maxAgeSeconds;
+  const aged = new Set<string>();
   const live: [string, number][] = [];
-  const doomed: string[] = [];
   for (const [id, where] of entries) {
     if (where.iat < cutoff) {
-      doomed.push(id);
+      aged.add(id);
     } else {
       live.push([id, where.iat]);
     }
   }
+  // Sorted by stamp rather than by chain position because the cap is a statement about how many
+  // receipts are served, and the ones it gives up on are the ones the window covers least.
+  const capped = new Set<string>();
   const max = retention.maxCount;
   if (max !== undefined) {
     live.sort((a, b) => a[1] - b[1]);
     for (const [id] of live.slice(0, Math.max(0, live.length - max))) {
-      doomed.push(id);
+      capped.add(id);
     }
   }
-  return doomed;
+  const prefix = [...entries].sort((a, b) => a[1].seq - b[1].seq);
+  for (const [id] of prefix) {
+    if (aged.delete(id)) {
+      byAge.push(id);
+    } else if (capped.delete(id)) {
+      byCount.push(id);
+    } else {
+      break;
+    }
+  }
+  return { byAge, byCount };
 }
 
 /**
@@ -267,7 +329,8 @@ function retire(
  * is the only rewrite this store ever performs.
  */
 function prune(state: StoreState, retention: ReceiptRetention | undefined, now: number): void {
-  for (const id of retire(state.records, retention, now)) {
+  const { byAge, byCount } = retire(state.records, retention, now);
+  for (const id of [...byAge, ...byCount]) {
     state.records.delete(id);
     state.dropped += 1;
   }
@@ -324,6 +387,7 @@ async function compact(path: string, state: StoreState, trimmedAt: number): Prom
   state.records = recovered.records;
   state.head = recovered.head;
   state.size = recovered.size;
+  state.nextSeq = recovered.nextSeq;
   state.dropped = 0;
 }
 
@@ -344,19 +408,23 @@ function windowOf(retained: Iterable<{ iat: number }>): { from: number; to: numb
 }
 
 /**
- * What a half-open window covers, oldest first. A snapshot rather than a live walk: pack
- * generation reads for a long time, and a receipt issued halfway through belongs to the next
- * window. Equal timestamps keep the order the engine indexed them in, which is write order,
- * because the sort is stable.
+ * What a half-open stamp window covers, in the order the records were chained.
+ *
+ * The interval is the policy's, because a window is a statement about time. The order is the
+ * chain's, because a reader recomputing a digest per receipt has to visit them the way the store
+ * did, and two stamps taken out of order are still one record after the other.
+ *
+ * A snapshot rather than a live walk: pack generation reads for a long time, and a receipt issued
+ * halfway through belongs to the next window.
  */
-function inRange<T extends { iat: number }>(
+function inRange<T extends { iat: number; seq: number }>(
   entries: Iterable<readonly [string, T]>,
   from: number,
   to: number,
 ): readonly (readonly [string, T])[] {
   return [...entries]
     .filter(([, where]) => where.iat >= from && where.iat < to)
-    .sort((a, b) => a[1].iat - b[1].iat);
+    .sort((a, b) => a[1].seq - b[1].seq);
 }
 
 /**
@@ -428,6 +496,7 @@ export async function openFileReceiptStore(options: FileReceiptStoreOptions): Pr
         }
         state.records.set(id, {
           iat,
+          seq: state.nextSeq++,
           recordStart: state.size,
           offset: state.size + FRAME_LEN_BYTES + HEADER_BYTES + Buffer.byteLength(id, 'utf8'),
           length: receipt.length,
@@ -474,6 +543,13 @@ export async function openFileReceiptStore(options: FileReceiptStoreOptions): Pr
     async head(): Promise<Uint8Array> {
       return new Uint8Array(state.head);
     },
+
+    async chainState(): Promise<ChainState> {
+      return {
+        anchor: new Uint8Array(state.head),
+        retired: { byAge: 0, byCount: 0, trims: [] },
+      };
+    },
   };
 }
 
@@ -486,16 +562,23 @@ export async function openFileReceiptStore(options: FileReceiptStoreOptions): Pr
 export function openMemoryReceiptStore(options: { readonly retention?: ReceiptRetention } = {}): ReceiptStore {
   const retention = options.retention;
   const now = retention?.now ?? ((): number => Math.floor(Date.now() / 1000));
-  const entries = new Map<string, { iat: number; receipt: Uint8Array }>();
+  const entries = new Map<string, { iat: number; seq: number; prev: Uint8Array; receipt: Uint8Array }>();
   let chainHead: Uint8Array = new Uint8Array(PREV_BYTES);
+  let chainSeq = 0;
+  let retiredByAge = 0;
+  let retiredByCount = 0;
 
   return {
     async put(id, receipt, iat) {
+      const prev = chainHead;
       chainHead = encode(KIND_RECEIPT, chainHead, iat, id, receipt).digest;
-      entries.set(id, { iat, receipt });
-      for (const doomed of retire(entries, retention, now())) {
+      entries.set(id, { iat, seq: chainSeq++, prev, receipt });
+      const retired = retire(entries, retention, now());
+      for (const doomed of [...retired.byAge, ...retired.byCount]) {
         entries.delete(doomed);
       }
+      retiredByAge += retired.byAge.length;
+      retiredByCount += retired.byCount.length;
     },
 
     async get(id) {
@@ -519,6 +602,16 @@ export function openMemoryReceiptStore(options: { readonly retention?: ReceiptRe
 
     async head() {
       return new Uint8Array(chainHead);
+    },
+
+    async chainState(): Promise<ChainState> {
+      // The first item a reader would walk, in the order it would walk it: starting anywhere else
+      // means the digests recompute to a head this store never had.
+      const [oldest] = inRange(entries.entries(), Number.NEGATIVE_INFINITY, Number.POSITIVE_INFINITY);
+      return {
+        anchor: new Uint8Array(oldest === undefined ? chainHead : oldest[1].prev),
+        retired: { byAge: retiredByAge, byCount: retiredByCount, trims: [] },
+      };
     },
   };
 }
