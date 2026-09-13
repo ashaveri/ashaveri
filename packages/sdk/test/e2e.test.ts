@@ -19,7 +19,7 @@ afterAll(async () => {
 
 const MESSAGES = [{ role: 'user', content: 'hello ashaveri' }];
 
-describe('sdk against a live signerd --mock gateway', () => {
+describe('sdk against a signerd --mock gateway', () => {
   it('verifies a non-streaming completion end to end', async () => {
     const client = new AshaveriClient({ baseUrl: base });
     const { completion, receipt } = await client.chat.completions.create({ messages: MESSAGES });

@@ -110,8 +110,11 @@ measurements report and the chain it was signed under, paired by position, and
 `--gpu-root <pem>` names the device identity root that chain must reach. Each report's
 ECDSA P-384 signature is verified offline under that root, and the challenge the device
 signed is printed beside the report data above. With `--report-data` pinned, a device that
-answered a different challenge fails with `CHALLENGE_MISMATCH`, because it is evidence of some
-other moment on the same machine.
+answered a different challenge fails with `CHALLENGE_MISMATCH`, because it is evidence about
+some other request. What the check does not establish is that the device which signed the
+report is the one attached to the attesting VM. That needs TDISP, and no route purchasable
+today provides it, so a composite claim proves a genuine CPU TEE and a genuine device
+signature and stops there.
 
 Verification proves an attestation is genuine; pinning turns it into a decision about *this*
 deployment. `--expect-measurement` compares the platform launch digest, the SEV-SNP launch

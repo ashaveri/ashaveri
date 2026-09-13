@@ -24,6 +24,12 @@ export interface AshaveriPolicy {
   readonly trustAnchors?: EvidenceTrustAnchors;
 }
 
+/**
+ * The pins a deployment publishes, read out of its manifest. The manifest is unsigned and
+ * served over the same channel as the evidence, so these are trust-on-first-use values:
+ * strict mode checks the receipt against them, and only a pin supplied out of band can
+ * prove the manifest itself came from this deployment.
+ */
 export function policyFromManifest(manifest: DeploymentManifest): AshaveriPolicy {
   const keys: Record<string, string> = {};
   for (const key of manifest.keys) {
