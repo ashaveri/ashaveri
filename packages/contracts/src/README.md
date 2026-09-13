@@ -1,5 +1,7 @@
 # Contracts
 
-Formal CDDL and schema definitions for the ashaveri receipt and evidence pack.
+This directory is empty by design.
 
-Published at `packages/receipt/receipt.cddl`. This directory is reserved for future on-chain settlement contracts.
+ashaveri issues signed receipts for AI inference. It has no token, and there is no on-chain settlement to describe.
+
+The schema that matters in this repository is the receipt format, and it lives at `../../receipt/receipt.cddl`.
