@@ -1,6 +1,40 @@
+<div align="center">
+
+<a href="https://github.com/ashaveri/ashaveri">
+  <img src="assets/ashaveri-banner.png" width="1200" alt="ashaveri. Private by hardware. Proven by default." />
+</a>
+
+<a href="https://github.com/ashaveri/ashaveri/actions/workflows/ci.yml"><img src="https://img.shields.io/github/actions/workflow/status/ashaveri/ashaveri/ci.yml?branch=main&label=CI&labelColor=0A1517&color=0FA5A0" alt="CI on main" /></a>
+<a href="LICENSE"><img src="https://img.shields.io/badge/license-Apache--2.0-E8B84B?labelColor=0A1517" alt="License: Apache-2.0" /></a>
+<a href="tsconfig.base.json"><img src="https://img.shields.io/badge/TypeScript-strict-3178C6?labelColor=0A1517" alt="TypeScript strict mode" /></a>
+<a href="#packages"><img src="https://img.shields.io/badge/version-0.1.0--dev-0B7A77?labelColor=0A1517" alt="Version 0.1.0 in development" /></a>
+
+<!-- Publish day: replace the static version badge with these and drop the Status note.
+<a href="https://www.npmjs.com/package/@ashaveri/sdk"><img src="https://img.shields.io/npm/v/@ashaveri/sdk?label=@ashaveri/sdk&labelColor=0A1517&color=0FA5A0" alt="@ashaveri/sdk on npm" /></a>
+<a href="https://www.npmjs.com/package/@ashaveri/receipt"><img src="https://img.shields.io/npm/v/@ashaveri/receipt?label=@ashaveri/receipt&labelColor=0A1517&color=0FA5A0" alt="@ashaveri/receipt on npm" /></a>
+<a href="https://www.npmjs.com/package/@ashaveri/attest-core"><img src="https://img.shields.io/npm/v/@ashaveri/attest-core?label=@ashaveri/attest-core&labelColor=0A1517&color=0FA5A0" alt="@ashaveri/attest-core on npm" /></a>
+<a href="https://www.npmjs.com/package/@ashaveri/cli"><img src="https://img.shields.io/npm/v/@ashaveri/cli?label=@ashaveri/cli&labelColor=0A1517&color=0FA5A0" alt="@ashaveri/cli on npm" /></a>
+<a href="https://www.npmjs.com/package/@ashaveri/fixtures"><img src="https://img.shields.io/npm/v/@ashaveri/fixtures?label=@ashaveri/fixtures&labelColor=0A1517&color=0FA5A0" alt="@ashaveri/fixtures on npm" /></a>
+-->
+
+</div>
+
 # ashaveri
 
-The Ashaveri Verifiable AI Inference SDK. OpenAI-compatible inference with cryptographic receipts: every completion returns an id whose document is a signed COSE_Sign1 binding the request hash, response hash, model, weights manifest, and TEE measurement.
+ashaveri is the verifiable AI inference layer: OpenAI-compatible inference where every completion
+comes back with a signed receipt. A receipt is a COSE_Sign1 document binding the request hash, the
+response hash, the model, the weights manifest, and the measurement of the confidential hardware
+that answered, and `@ashaveri/sdk` verifies it before your code sees the answer. No verification
+service of ours sits in the loop: the checks are cryptographic, and the hardware trust roots, AMD's,
+Intel's and NVIDIA's published keys, ship inside `@ashaveri/attest-core`.
+
+## Status
+
+The five publishable packages are at `0.1.0` and are not on npm as of September 2026, so take them
+from this repository: `pnpm install && pnpm build`, then import them by path or link the workspace.
+Publishing is scheduled against a result rather than a date. `@ashaveri/*` goes to npm with trusted
+publishing from CI once a receipt issued by confidential hardware, not by the mock gateway, verifies
+end to end through the SDK in strict mode.
 
 ## Packages
 
