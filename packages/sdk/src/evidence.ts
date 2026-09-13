@@ -37,8 +37,8 @@ export interface VerifyEvidenceParams {
   readonly payload: ReceiptPayload;
   /**
    * GPU reports the gateway served for the same request. Each one has to sign this
-   * request's digest as its SPDM challenge, which is what ties the accelerator to
-   * the platform quote rather than to some other moment on the same machine.
+   * request's digest as its SPDM challenge, which makes the report about *this* request.
+   * It does not attach the accelerator to the platform that quoted, and only TDISP would.
    */
   readonly gpuEvidence?: readonly NvidiaEvidence[];
   readonly anchors?: EvidenceTrustAnchors;

@@ -56,16 +56,18 @@ export interface VerifyOptions {
    */
   readonly trustedIntelRoots?: readonly Uint8Array[];
   /**
-   * GPU reports captured on the same machine, each an SPDM request followed by the
+   * GPU reports supplied alongside this document, each an SPDM request followed by the
    * response the device signed. The dstack envelope carries no GPU evidence, so a
-   * deployment claiming a confidential-computing GPU supplies them here.
+   * deployment claiming a confidential-computing GPU supplies them here. A report proves
+   * a device signed it. It does not prove the device is attached to the attesting VM.
    */
   readonly gpuEvidence?: readonly NvidiaEvidence[];
   /** Pinned NVIDIA device identity roots as PEM or DER bytes. Each blob may hold several. */
   readonly trustedNvidiaRoots?: readonly Uint8Array[];
   /**
-   * The challenge every supplied GPU report must answer. Pass the same value the
-   * platform quote committed to in report_data and the two legs bind each other.
+   * The challenge every supplied GPU report must answer. Pass the same value the platform
+   * quote committed to in report_data. That makes both legs about one moment, which is a
+   * freshness binding and not a device binding: neither signature covers the other's bytes.
    */
   readonly gpuNonce?: Uint8Array;
   /** Accept reports whose guest policy permits debugging. Defaults to false. */

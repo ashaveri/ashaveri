@@ -62,9 +62,12 @@ export interface ReceiptRetention {
 }
 
 /**
- * What a deployment keeps by default: the six months of logs Article 19(1) and Article 26(6)
- * require it to be able to produce. Rounded up to whole days past the shortest six months, so
- * the window is never shorter than the one it answers to.
+ * What a deployment keeps by default. Six months is the floor Article 19(1) sets, not the period a
+ * financial institution owes: Articles 19(2) and 26(6) route its logs into Union financial-services
+ * law, where five years or more applies. A deployer inside that law raises this together with
+ * `MAX_SERVED_RECEIPTS` in the CLI, because the count bound closes a five-year window at about six
+ * months no matter how long the age bound is set to. Rounded up to whole days past the shortest six
+ * months, so the window is never shorter than the one it answers to.
  */
 export const MINIMUM_RETENTION_SECONDS = 184 * 24 * 60 * 60;
 

@@ -121,10 +121,11 @@ function checkReportDataBinding(expected: Uint8Array, actual: Uint8Array): void 
 }
 
 /**
- * A pinned report data is a claim about this request, so a device leg that answers
- * another challenge is evidence of some other moment on the same machine.
+ * A pinned report data is a claim about this request, so a device leg that answers another
+ * challenge is evidence about some other request. This buys freshness for the device leg.
+ * It says nothing about which device, or which slot, served it.
  */
-function checkGpuBinding(expected: Uint8Array, gpus: readonly NvidiaVerification[]): void {
+function checkGpuChallenge(expected: Uint8Array, gpus: readonly NvidiaVerification[]): void {
   for (const gpu of gpus) {
     if (!reportDataBinds(expected, gpu.nonce)) {
       throw new AttestationError(
@@ -375,7 +376,7 @@ async function main(argv: string[]): Promise<number> {
     });
     if (expectedReportData) {
       checkReportDataBinding(expectedReportData, result.reportData);
-      checkGpuBinding(expectedReportData, result.gpus);
+      checkGpuChallenge(expectedReportData, result.gpus);
     }
     const pinned: string[] = [];
     if (expectedMeasurement) {
