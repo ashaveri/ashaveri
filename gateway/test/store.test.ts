@@ -45,11 +45,83 @@ function frames(bytes: Buffer): Buffer[] {
   return out;
 }
 
+/**
+ * One frame read straight out of the layout, so a test can name the bytes a store is making a
+ * claim from. The payload is what the record's own digest covers along with its header, and the
+ * digest is the trailing 32 bytes of the frame.
+ */
+function readFrame(frame: Buffer): {
+  kind: number;
+  prev: Buffer;
+  iat: number;
+  id: string;
+  payload: Buffer;
+  digest: Buffer;
+} {
+  const idLength = frame.readUInt16BE(45);
+  return {
+    kind: frame.readUInt8(4),
+    prev: frame.subarray(5, 37),
+    iat: Number(frame.readBigUInt64BE(37)),
+    id: frame.subarray(47, 47 + idLength).toString('utf8'),
+    payload: frame.subarray(47 + idLength, frame.length - 32),
+    digest: frame.subarray(frame.length - 32),
+  };
+}
+
+/**
+ * One record's digest recomputed from its own bytes, so a test can check a link between two
+ * records without asking the store to agree with itself about what it wrote.
+ */
+function frameDigest(frame: Buffer): Uint8Array {
+  return sha256(frame.subarray(4, frame.length - 32));
+}
+
+/** A trim record's report, read out of the payload at the offsets the layout states. */
+function readTrimReport(payload: Buffer): {
+  seam: Buffer;
+  byAge: number;
+  byCount: number;
+  maxAgeSeconds: number;
+  maxCount: number;
+} {
+  return {
+    seam: payload.subarray(0, 32),
+    byAge: payload.readUInt32BE(32),
+    byCount: payload.readUInt32BE(36),
+    maxAgeSeconds: payload.readUInt32BE(40),
+    maxCount: payload.readUInt32BE(44),
+  };
+}
+
 let created: string[] = [];
 
 async function emptyDir(): Promise<string> {
   const dir = await mkdtemp(join(tmpdir(), 'ashaveri-store-'));
   created.push(dir);
+  return dir;
+}
+
+/**
+ * A store that has compacted twice, so its file begins with a run of two trim records and ends with
+ * the one receipt the second retirement left. The timestamps are fixed because a caller states the
+ * window it expects back.
+ */
+async function twiceCompacted(): Promise<string> {
+  const dir = await emptyDir();
+  let now = 1_780_000_000;
+  const retention = { maxAgeSeconds: 1_000, now: () => now };
+  const first = await openFileReceiptStore({ dir, retention });
+  for (let i = 0; i < 10; i++) {
+    await first.put(`old_${i}`, RECEIPT, now + i);
+  }
+  now = 1_780_001_010;
+  for (let i = 0; i < 4; i++) {
+    await first.put(`new_${i}`, RECEIPT, now + i);
+  }
+  now = 1_780_002_020;
+  const second = await openFileReceiptStore({ dir, retention });
+  await second.put('only', OTHER_RECEIPT, now);
   return dir;
 }
 
@@ -282,6 +354,117 @@ describe('receipt store', () => {
   });
 });
 
+describe('trim records', () => {
+  it('chains from the empty digest and carries the seam the survivors start from', async () => {
+    // A trim record describes the records that were in front of it, and the slot it has been using
+    // to say so is the one every other record spends on the digest it follows. That is why a file
+    // could only ever hold one: a second has nowhere to put what it knows.
+    const dir = await emptyDir();
+    let now = 1_780_000_000;
+    const store = await openFileReceiptStore({ dir, retention: { maxAgeSeconds: 1_000, now: () => now } });
+    for (let i = 0; i < 10; i++) {
+      await store.put(`old_${i}`, RECEIPT, now + i);
+    }
+    now = 1_780_001_010;
+    for (let i = 0; i < 4; i++) {
+      await store.put(`new_${i}`, RECEIPT, now + i);
+    }
+
+    const records = frames(await readFile(join(dir, RECEIPT_STORE_FILE)));
+    expect(records).toHaveLength(5);
+    const trim = readFrame(records[0]!);
+    const survivor = readFrame(records[1]!);
+    expect(trim.kind).toBe(1);
+    expect(trim.id).toBe('');
+    expect(Array.from(trim.prev)).toEqual(Array.from(ZERO_HEAD));
+    expect(Array.from(survivor.prev)).toEqual(Array.from(trim.payload.subarray(0, 32)));
+    // The seam is the digest of the last record the file no longer holds, and it is the whole
+    // claim the record makes, so a test that accepted zeros here would pass without checking it.
+    expect(Array.from(survivor.prev)).not.toEqual(Array.from(ZERO_HEAD));
+  });
+
+  it('keeps every retirement it has ever written down, chained in the order they happened', async () => {
+    // A compaction that overwrote the record the last one left would forget why the earlier
+    // receipts had gone, and a store that had to say so twice had nowhere to say it. Both are the
+    // same missing thing: a run of records that chain to each other instead of to the survivors.
+    const dir = await twiceCompacted();
+    const records = frames(await readFile(join(dir, RECEIPT_STORE_FILE)));
+    expect(records).toHaveLength(3);
+    const older = readFrame(records[0]!);
+    const newer = readFrame(records[1]!);
+    const survivor = readFrame(records[2]!);
+    expect([older.kind, newer.kind, survivor.kind]).toEqual([1, 1, 0]);
+    expect(Array.from(older.prev)).toEqual(Array.from(ZERO_HEAD));
+    expect(Array.from(newer.prev)).toEqual(Array.from(frameDigest(records[0]!)));
+    expect(Array.from(newer.digest)).toEqual(Array.from(frameDigest(records[1]!)));
+    expect(Array.from(survivor.prev)).toEqual(Array.from(newer.payload.subarray(0, 32)));
+    expect(Array.from(older.payload.subarray(0, 32))).not.toEqual(Array.from(survivor.prev));
+
+    const reopened = await openFileReceiptStore({ dir });
+    expect(Array.from((await reopened.get('only'))!)).toEqual(Array.from(OTHER_RECEIPT));
+    expect(await reopened.window()).toEqual({ from: 1_780_002_020, to: 1_780_002_020, count: 1 });
+  });
+
+  it('names the bound that retired each receipt and the policy it retired under', async () => {
+    // A surviving window cannot say which bound emptied it, and the window is all a manifest would
+    // otherwise have to go on. The compaction is the one moment that knows, and the only record
+    // that survives a restart knowing it, so both the pair and the policy behind it go in the file.
+    const agedDir = await emptyDir();
+    let now = 1_780_000_000;
+    const byAge = await openFileReceiptStore({ dir: agedDir, retention: { maxAgeSeconds: 1_000, now: () => now } });
+    for (let i = 0; i < 10; i++) {
+      await byAge.put(`old_${i}`, RECEIPT, now + i);
+    }
+    now = 1_780_001_010;
+    for (let i = 0; i < 4; i++) {
+      await byAge.put(`new_${i}`, RECEIPT, now + i);
+    }
+
+    const frame = frames(await readFile(join(agedDir, RECEIPT_STORE_FILE)))[0]!;
+    const trimmed = readFrame(frame);
+    expect(trimmed.payload).toHaveLength(48);
+    const aged = readTrimReport(trimmed.payload);
+    expect(aged.byAge).toBe(10);
+    expect(aged.byCount).toBe(0);
+    expect(aged.maxAgeSeconds).toBe(1_000);
+    // Zero is how the record says no cap was configured. A cap of one is a different store, and a
+    // reader that cannot tell the two apart cannot tell a full window from an uncapped one.
+    expect(aged.maxCount).toBe(0);
+
+    const cappedDir = await emptyDir();
+    const byCount = await openFileReceiptStore({
+      dir: cappedDir,
+      retention: { maxCount: 4, now: () => 1_780_000_000 },
+    });
+    for (let i = 0; i < 9; i++) {
+      await byCount.put(`rcpt_${i}`, RECEIPT, 1_780_000_000 + i);
+    }
+
+    const capped = readTrimReport(readFrame(frames(await readFile(join(cappedDir, RECEIPT_STORE_FILE)))[0]!).payload);
+    expect(capped.byAge).toBe(0);
+    expect(capped.byCount).toBe(5);
+    expect(capped.maxAgeSeconds).toBe(0);
+    expect(capped.maxCount).toBe(4);
+  });
+
+  it('refuses to open a store whose trim history was edited', async () => {
+    // The run is the only account the file gives of the receipts it no longer holds, so it is worth
+    // deleting for someone who wants a store to look smaller than it was. Each record in it names
+    // the digest of the one in front of it, and the survivors name the newest seam, so taking
+    // either out of a two record run leaves a link that does not close.
+    const dir = await twiceCompacted();
+    const file = join(dir, RECEIPT_STORE_FILE);
+    const records = frames(await readFile(file));
+    expect(records).toHaveLength(3);
+
+    await writeFile(file, Buffer.concat([records[0]!, records[2]!]));
+    await expect(openFileReceiptStore({ dir })).rejects.toMatchObject({ code: 'STORE_CHAIN_BROKEN' });
+
+    await writeFile(file, Buffer.concat([records[1]!, records[2]!]));
+    await expect(openFileReceiptStore({ dir })).rejects.toMatchObject({ code: 'STORE_CHAIN_BROKEN' });
+  });
+});
+
 describe('chain state', () => {
   it('anchors an empty store at its own head, so a reader has one rule not two', async () => {
     // With nothing retained there is no oldest record to take a predecessor from. Reporting the
@@ -353,5 +536,63 @@ describe('chain state', () => {
       prev = digestOf(prev, item.iat, item.id, item.receipt);
     }
     expect(Array.from(prev)).toEqual(Array.from(await store.head()));
+  });
+
+  it('walks a compacted store from its anchor to its head after a restart', async () => {
+    // The anchor is only worth publishing if a reader holding nothing but the pack can start at it
+    // and land on the head, and the store cannot answer that from memory: the receipts the chain
+    // starts from are no longer in the file, so the digest has to have been written down before
+    // they went.
+    const dir = await emptyDir();
+    let now = 1_780_000_000;
+    const retention = { maxAgeSeconds: 1_000, now: () => now };
+    const written = await openFileReceiptStore({ dir, retention });
+    for (let i = 0; i < 10; i++) {
+      await written.put(`old_${i}`, RECEIPT, now + i);
+    }
+    now = 1_780_001_010;
+    for (let i = 0; i < 4; i++) {
+      await written.put(`new_${i}`, OTHER_RECEIPT, now + i);
+    }
+
+    const store = await openFileReceiptStore({ dir, retention });
+    const retained: { id: string; iat: number; receipt: Uint8Array }[] = [];
+    for await (const item of store.range(0, 2_000_000_000)) {
+      retained.push(item);
+    }
+    expect(retained.map((item) => item.id)).toEqual(['new_0', 'new_1', 'new_2', 'new_3']);
+
+    let prev = (await store.chainState()).anchor;
+    for (const item of retained) {
+      prev = digestOf(prev, item.iat, item.id, item.receipt);
+    }
+    expect(Array.from(prev)).toEqual(Array.from(await store.head()));
+  });
+
+  it('states what a restarted store retired, and why', async () => {
+    // Nothing in the surviving window says which bound emptied it, and the process that applied the
+    // bound is gone. This is the one place the answer outlives it.
+    const dir = await emptyDir();
+    let now = 1_780_000_000;
+    const retention = { maxAgeSeconds: 1_000, maxCount: 100, now: () => now };
+    const written = await openFileReceiptStore({ dir, retention });
+    for (let i = 0; i < 10; i++) {
+      await written.put(`old_${i}`, RECEIPT, now + i);
+    }
+    now = 1_780_001_010;
+    for (let i = 0; i < 4; i++) {
+      await written.put(`new_${i}`, RECEIPT, now + i);
+    }
+
+    const store = await openFileReceiptStore({ dir, retention });
+    const state = await store.chainState();
+    expect(state.retired.trims).toEqual([
+      { at: 1_780_001_010, byAge: 10, byCount: 0, under: { maxAgeSeconds: 1_000, maxCount: 100 } },
+    ]);
+    expect(state.retired.byAge).toBe(10);
+    expect(state.retired.byCount).toBe(0);
+    // The equation a pack generator can assert and a verifier can re-check without being told the
+    // traffic: what is served plus what left is everything that was ever issued.
+    expect((await store.window()).count + state.retired.byAge + state.retired.byCount).toBe(14);
   });
 });

@@ -12,9 +12,10 @@ import { sha256 } from './digest.js';
  *
  * Retention may only drop a prefix, and a prefix is the one thing a chain cannot speak for:
  * nothing after it changes. So a policy that would evict a record sitting in the middle of the
- * chain stops short of it, and a compaction writes a trim record in front of what it kept, naming
- * the digest the surviving chain starts from and how many records retired. A hole in the middle
- * stays a broken link; a retired prefix stays a statement.
+ * chain stops short of it, and a compaction appends a trim record to the run at the front of the
+ * file, naming the digest the surviving chain starts from, which bound retired how many, and the
+ * policy it retired under. A hole in the middle stays a broken link; a retired prefix stays a
+ * statement that every later compaction leaves in place.
  */
 
 /** The file a deployment backs up. Named because an operator needs to know which one it is. */
@@ -27,13 +28,34 @@ const ID_LEN_BYTES = 2;
 const FRAME_LEN_BYTES = 4;
 const DIGEST_BYTES = 32;
 const COUNT_BYTES = 4;
+/** seam + two causes + the two bounds that produced them. */
+const TRIM_PAYLOAD_BYTES = PREV_BYTES + 4 * COUNT_BYTES;
 /** kind + prev + iat + idLen + digest, with the id and the payload still to come. */
 const MIN_BODY_BYTES = KIND_BYTES + PREV_BYTES + IAT_BYTES + ID_LEN_BYTES + DIGEST_BYTES;
 /** Everything before the id in a record body. */
 const HEADER_BYTES = KIND_BYTES + PREV_BYTES + IAT_BYTES + ID_LEN_BYTES;
 const MAX_ID_BYTES = 0xffff;
+const MAX_COUNTER = 0xffffffff;
 const KIND_RECEIPT = 0;
 const KIND_TRIM = 1;
+
+/** A record's own counts, which have no room to be anything but a 32 bit saturating integer. */
+function counter(value: number): Buffer {
+  const out = Buffer.alloc(COUNT_BYTES);
+  out.writeUInt32BE(value > MAX_COUNTER ? MAX_COUNTER : value);
+  return out;
+}
+
+/** Everything one trim record says, in the two places the layout keeps it. */
+interface TrimRecord {
+  readonly prev: Uint8Array;
+  readonly at: number;
+  readonly seam: Uint8Array;
+  readonly byAge: number;
+  readonly byCount: number;
+  readonly maxAgeSeconds: number;
+  readonly maxCount: number;
+}
 
 /** Where one receipt sits in the file. */
 interface Location {
@@ -48,12 +70,19 @@ interface Location {
 
 interface StoreState {
   records: Map<string, Location>;
+  /** The digest the next appended receipt names as its predecessor. */
   head: Buffer;
   size: number;
   /** The position the next chained record takes, which is one past the last record ever written. */
   nextSeq: number;
-  /** Records retired by retention since the last trim was written. */
-  dropped: number;
+  /** Bytes the leading run of trim records occupies, so a compaction keeps them rather than eats them. */
+  trimRunEnd: number;
+  /** The digest the oldest surviving receipt was chained from, which is the newest seam. */
+  anchor: Buffer;
+  /** What each compaction wrote down, oldest first. */
+  trims: TrimEvent[];
+  /** Receipts retired by retention since the last trim was written, by cause. */
+  dropped: { byAge: number; byCount: number };
 }
 
 export interface ReceiptRetention {
@@ -167,10 +196,55 @@ function encode(kind: number, prev: Uint8Array, iat: number, id: string, payload
   return { frame: Buffer.concat([prefix, body, digest]), digest };
 }
 
-function encodeTrimRecord(seam: Uint8Array, trimmedAt: number, dropped: number): Buffer {
-  const count = Buffer.alloc(COUNT_BYTES);
-  count.writeUInt32BE(dropped > 0xffffffff ? 0xffffffff : dropped);
-  return encode(KIND_TRIM, seam, trimmedAt, '', count).frame;
+/**
+ * A compaction written down. The predecessor the record names is the digest of whatever physically
+ * precedes it, which is the previous trim or the empty digest at the start of the file, so the run
+ * of them chains and a reader can tell a removed or reordered retirement from an edited one.
+ *
+ * `payload = seam:32 || byAge:u32 || byCount:u32 || maxAgeSeconds:u32 || maxCount:u32`. The seam is
+ * the digest the receipts the compaction kept were chained from, which no surviving record carries
+ * and no reader can recompute. A bound of zero says none was configured: the field has no other way
+ * to say it, and a reader has to tell "no cap" apart from a cap of one.
+ */
+function encodeTrimRecord(record: TrimRecord): Buffer {
+  return encode(
+    KIND_TRIM,
+    record.prev,
+    record.at,
+    '',
+    Buffer.concat([
+      Buffer.from(record.seam),
+      counter(record.byAge),
+      counter(record.byCount),
+      counter(record.maxAgeSeconds),
+      counter(record.maxCount),
+    ]),
+  ).frame;
+}
+
+function decodeTrimRecord(prev: Uint8Array, at: number, payload: Buffer): TrimRecord {
+  return {
+    prev,
+    at,
+    seam: payload.subarray(0, PREV_BYTES),
+    byAge: payload.readUInt32BE(32),
+    byCount: payload.readUInt32BE(36),
+    maxAgeSeconds: payload.readUInt32BE(40),
+    maxCount: payload.readUInt32BE(44),
+  };
+}
+
+/** The record states a bound of zero where the configuration states none, and the two meet here. */
+function trimEvent(record: TrimRecord): TrimEvent {
+  return {
+    at: record.at,
+    byAge: record.byAge,
+    byCount: record.byCount,
+    under: {
+      maxAgeSeconds: record.maxAgeSeconds === 0 ? undefined : record.maxAgeSeconds,
+      maxCount: record.maxCount === 0 ? undefined : record.maxCount,
+    },
+  };
 }
 
 /** Opens the store file, creating it when absent, and closes it once the walk is done. */
@@ -195,12 +269,16 @@ async function scan(path: string): Promise<StoreState> {
 async function walk(path: string, file: FileHandle): Promise<StoreState> {
   const bytes = await file.readFile();
   const records = new Map<string, Location>();
-  let head = Buffer.alloc(PREV_BYTES);
-  // The digest the next record has to name. An untouched store starts at the empty one, and a
-  // compacted store starts at the seam its leading trim record states instead.
+  const trims: TrimEvent[] = [];
+  // What a record's predecessor slot has to hold. A receipt follows the chain, so it names the
+  // digest of the record before it; a trim follows the file, so it names the digest of whatever
+  // byte lies in front of it, which is the previous trim or nothing at all.
+  let lastDigest = Buffer.alloc(PREV_BYTES);
   let expectedPrev = Buffer.alloc(PREV_BYTES);
+  let anchor = expectedPrev;
   let offset = 0;
   let seq = 0;
+  let trimRunEnd = 0;
   while (offset + FRAME_LEN_BYTES <= bytes.length) {
     const length = bytes.readUInt32BE(offset);
     const body = offset + FRAME_LEN_BYTES;
@@ -225,40 +303,62 @@ async function walk(path: string, file: FileHandle): Promise<StoreState> {
     }
     const kind = bytes.readUInt8(body);
     const prev = bytes.subarray(body + KIND_BYTES, body + KIND_BYTES + PREV_BYTES);
+    const iat = Number(bytes.readBigUInt64BE(body + KIND_BYTES + PREV_BYTES));
     const digest = bytes.subarray(payloadEnd, end);
     if (!digest.equals(Buffer.from(sha256(bytes.subarray(body, payloadEnd))))) {
       throw new StoreError('STORE_CHAIN_BROKEN', `receipt store chain is broken at byte ${offset}: a record's digest does not match its own bytes`);
     }
     if (kind === KIND_TRIM) {
-      // A retirement is only a fact about where the surviving records start, which is the front
-      // of the file. Anywhere else it describes a hole in the middle as if it were intended.
-      if (offset !== 0) {
-        throw new StoreError('STORE_CHAIN_BROKEN', `receipt store chain is broken at byte ${offset}: a trim record follows another record`);
+      // A retirement is a fact about where the surviving receipts start, which is the front of the
+      // file. Anywhere else it describes a hole in the middle as if it were intended.
+      if (seq !== 0) {
+        throw new StoreError('STORE_CHAIN_BROKEN', `receipt store chain is broken at byte ${offset}: a trim record follows a receipt`);
       }
-      expectedPrev = prev;
+      if (!prev.equals(lastDigest)) {
+        throw new StoreError('STORE_CHAIN_BROKEN', `receipt store chain is broken at byte ${offset}: a trim record names a predecessor that is not the record in front of it`);
+      }
+      if (payloadEnd - payloadStart !== TRIM_PAYLOAD_BYTES) {
+        throw new StoreError('STORE_CHAIN_BROKEN', `receipt store chain is broken at byte ${offset}: a trim record carries ${payloadEnd - payloadStart} bytes where the layout states ${TRIM_PAYLOAD_BYTES}`);
+      }
+      const trim = decodeTrimRecord(prev, iat, bytes.subarray(payloadStart, payloadEnd));
+      trims.push(trimEvent(trim));
+      // The survivors chain from the seam, not from the record that states it. Copied because a
+      // view of the file read would hold the whole file open for as long as the store is.
+      const seam = Buffer.from(trim.seam);
+      expectedPrev = seam;
+      anchor = seam;
+      lastDigest = digest;
+      trimRunEnd = end;
     } else {
       if (!prev.equals(expectedPrev)) {
         throw new StoreError('STORE_CHAIN_BROKEN', `receipt store chain is broken at byte ${offset}: a record names a predecessor that is not the one before it`);
       }
       expectedPrev = digest;
+      lastDigest = digest;
       records.set(bytes.subarray(idStart, payloadStart).toString('utf8'), {
-        iat: Number(bytes.readBigUInt64BE(body + KIND_BYTES + PREV_BYTES)),
+        iat,
         seq: seq++,
         recordStart: offset,
         offset: payloadStart,
         length: payloadEnd - payloadStart,
       });
     }
-    // A trim record is chained like anything else: it is the head's predecessor, and it is what
-    // the file says about its own start.
-    head = digest;
     offset = end;
   }
   if (offset < bytes.length) {
     // By path, not through the handle: an append-mode handle cannot set the end of a file.
     await truncate(path, offset);
   }
-  return { records, head, size: offset, nextSeq: seq, dropped: 0 };
+  return {
+    records,
+    head: expectedPrev,
+    size: offset,
+    nextSeq: seq,
+    trimRunEnd,
+    anchor,
+    trims,
+    dropped: { byAge: 0, byCount: 0 },
+  };
 }
 
 /** The ids each bound of a retention policy retired, kept apart because the cause is the report. */
@@ -324,44 +424,68 @@ function retire(
 }
 
 /**
- * Applies the policy to the index and counts what fell out of it. Dropping from the index is
- * what makes a receipt unserved; the bytes stay in the file until a compaction takes them, which
- * is the only rewrite this store ever performs.
+ * Applies the policy to the index and tallies what fell out of it. Dropping from the index is what
+ * makes a receipt unserved; the bytes stay in the file until a compaction takes them, which is the
+ * only rewrite this store ever performs.
+ *
+ * The tally is held here rather than left to the trim run because retirement and compaction are not
+ * the same moment: a reader asking what the store retired has to get an answer in between.
  */
 function prune(state: StoreState, retention: ReceiptRetention | undefined, now: number): void {
   const { byAge, byCount } = retire(state.records, retention, now);
-  for (const id of [...byAge, ...byCount]) {
+  for (const id of byAge) {
     state.records.delete(id);
-    state.dropped += 1;
   }
+  for (const id of byCount) {
+    state.records.delete(id);
+  }
+  state.dropped.byAge += byAge.length;
+  state.dropped.byCount += byCount.length;
+}
+
+/** A span the file's own indexing claims is there. A short read is a failure, never a short file. */
+async function readRange(file: FileHandle, length: number, position: number): Promise<Buffer> {
+  const buffer = Buffer.alloc(length);
+  const { bytesRead } = await file.read(buffer, 0, length, position);
+  if (bytesRead !== length) {
+    throw new Error(`store file ended ${length - bytesRead} bytes short of the span its index claims`);
+  }
+  return buffer;
 }
 
 /**
- * Rewrites the file as one trim record followed by the records retention kept, byte for byte.
+ * Rewrites the file as its own trim run, one more trim record, and the receipts retention kept.
  *
- * It runs only when the dead prefix outweighs the live tail, which amortizes the copy across
- * many appends instead of paying it on every one. Because it drops a prefix, no surviving
- * record's digest changes and the head the next pack publishes is the head before it: what the
- * rewrite cannot do is keep the chain honest about the records it removed, which is why it says
- * so in a chained record rather than leaving a hole for a reader to explain.
+ * It runs only when the dead prefix outweighs the live tail, which amortizes the copy across many
+ * appends instead of paying it on every one. Because it drops a prefix, no surviving record's
+ * digest changes and the head the next pack publishes is the head before it.
+ *
+ * What the rewrite cannot do is keep the chain honest about the records it removed, which is why it
+ * says so in a record rather than leaving a hole for a reader to explain. The run is copied rather
+ * than rewritten so every retirement the file has ever made stays in it and chained: a store that
+ * replaced its trim record on each compaction would forget the reason for all of the earlier ones
+ * the moment it reset the counter they were counted with.
  */
-async function compact(path: string, state: StoreState, trimmedAt: number): Promise<void> {
+async function compact(
+  path: string,
+  state: StoreState,
+  trimmedAt: number,
+  retention: ReceiptRetention | undefined,
+): Promise<void> {
   let first = state.size;
   for (const where of state.records.values()) {
     first = Math.min(first, where.recordStart);
   }
   const dead = first;
-  if (dead === 0 || dead <= state.size - dead) {
+  if (dead === state.trimRunEnd || dead <= state.size - dead) {
     return;
   }
   const file = await open(path, 'r');
+  let run: Buffer;
   let tail: Buffer;
   try {
-    tail = Buffer.alloc(state.size - dead);
-    const { bytesRead } = await file.read(tail, 0, tail.length, dead);
-    if (bytesRead !== tail.length) {
-      throw new Error(`store file ended ${tail.length - bytesRead} bytes short of its own index`);
-    }
+    run = await readRange(file, state.trimRunEnd, 0);
+    tail = await readRange(file, state.size - dead, dead);
   } finally {
     await file.close();
   }
@@ -371,7 +495,21 @@ async function compact(path: string, state: StoreState, trimmedAt: number): Prom
     tail.length === 0
       ? state.head
       : tail.subarray(FRAME_LEN_BYTES + KIND_BYTES, FRAME_LEN_BYTES + KIND_BYTES + PREV_BYTES);
-  const trimmed = Buffer.concat([encodeTrimRecord(seam, trimmedAt, state.dropped), tail]);
+  // A trim follows the file rather than the chain, so it names whatever byte sits in front of it.
+  const prev = run.length === 0 ? new Uint8Array(PREV_BYTES) : run.subarray(run.length - DIGEST_BYTES);
+  const trimmed = Buffer.concat([
+    run,
+    encodeTrimRecord({
+      prev,
+      at: trimmedAt,
+      seam,
+      byAge: state.dropped.byAge,
+      byCount: state.dropped.byCount,
+      maxAgeSeconds: retention?.maxAgeSeconds ?? 0,
+      maxCount: retention?.maxCount ?? 0,
+    }),
+    tail,
+  ]);
   // Written beside the file and moved over it, so an interrupted compaction leaves the
   // pre-compaction store intact rather than half a store.
   const temp = `${path}.compacting`;
@@ -388,7 +526,10 @@ async function compact(path: string, state: StoreState, trimmedAt: number): Prom
   state.head = recovered.head;
   state.size = recovered.size;
   state.nextSeq = recovered.nextSeq;
-  state.dropped = 0;
+  state.trimRunEnd = recovered.trimRunEnd;
+  state.anchor = recovered.anchor;
+  state.trims = recovered.trims;
+  state.dropped = { byAge: 0, byCount: 0 };
 }
 
 /**
@@ -494,6 +635,11 @@ export async function openFileReceiptStore(options: FileReceiptStoreOptions): Pr
         } finally {
           await file.close();
         }
+        // Nothing was retained, so this record is the oldest one and its predecessor is the anchor
+        // a reader starts from. Once a set exists it only ever grows at the back.
+        if (state.records.size === 0) {
+          state.anchor = state.head;
+        }
         state.records.set(id, {
           iat,
           seq: state.nextSeq++,
@@ -504,7 +650,7 @@ export async function openFileReceiptStore(options: FileReceiptStoreOptions): Pr
         state.head = record.digest;
         state.size += record.frame.length;
         prune(state, retention, now());
-        await compact(path, state, now());
+        await compact(path, state, now(), retention);
       });
     },
 
@@ -546,8 +692,12 @@ export async function openFileReceiptStore(options: FileReceiptStoreOptions): Pr
 
     async chainState(): Promise<ChainState> {
       return {
-        anchor: new Uint8Array(state.head),
-        retired: { byAge: 0, byCount: 0, trims: [] },
+        anchor: new Uint8Array(state.records.size === 0 ? state.head : state.anchor),
+        retired: {
+          byAge: state.trims.reduce((total, trim) => total + trim.byAge, state.dropped.byAge),
+          byCount: state.trims.reduce((total, trim) => total + trim.byCount, state.dropped.byCount),
+          trims: [...state.trims],
+        },
       };
     },
   };
