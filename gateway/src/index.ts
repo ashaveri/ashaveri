@@ -21,3 +21,23 @@ export type { ChatCompletionRequest, ChatMessage, MockCompletion } from './mock.
 export { RequestError } from './mock.js';
 export { fromBase64Url, toBase64Url } from './b64.js';
 export { fromHex, sha256, toHex } from './digest.js';
+// The store is exported because the evidence-pack generator is a separate program that reads a live
+// store through this contract. Declaring these types a second time where it lives could drift from
+// the engine without a compile error, and a chain head produced against a stale copy of the shape
+// is a number a regulator would read without knowing it had never been checked.
+export {
+  MINIMUM_RETENTION_SECONDS,
+  openFileReceiptStore,
+  openMemoryReceiptStore,
+  RECEIPT_STORE_FILE,
+  StoreError,
+} from './store.js';
+export type {
+  ChainState,
+  FileReceiptStoreOptions,
+  ReceiptRetention,
+  ReceiptStore,
+  StoreErrorCode,
+  StoredReceipt,
+  TrimEvent,
+} from './store.js';
