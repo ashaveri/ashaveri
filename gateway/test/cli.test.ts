@@ -17,7 +17,11 @@ afterAll(() => {
 function run(...args: string[]) {
   const env = { ...process.env };
   delete env['DSTACK_SIMULATOR_ENDPOINT'];
-  return spawnSync(process.execPath, [CLI, ...args], { encoding: 'utf8', env });
+  const result = spawnSync(process.execPath, [CLI, ...args], { encoding: 'utf8', env });
+  // Without this a process that never started leaves `status` null, which reads as the CLI
+  // exiting with the wrong code rather than as the spawn itself failing.
+  expect(result.error).toBeUndefined();
+  return result;
 }
 
 function liveArgs(...args: string[]): string[] {
