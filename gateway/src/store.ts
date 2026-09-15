@@ -95,12 +95,24 @@ export interface ReceiptRetention {
 }
 
 /**
- * What a deployment keeps by default. Six months is the floor Article 19(1) sets, not the period a
- * financial institution owes: Articles 19(2) and 26(6) route its logs into Union financial-services
- * law, where five years or more applies. A deployer inside that law raises this together with
- * `MAX_SERVED_RECEIPTS` in the CLI, because the count bound closes a five-year window at about six
- * months no matter how long the age bound is set to. Rounded up to whole days past the shortest six
- * months, so the window is never shorter than the one it answers to.
+ * What a deployment keeps by default, and which rule the default answers to. Article 19(1) requires
+ * providers of a high-risk AI system to keep the logs such a system generates automatically under
+ * Article 12(1), to the extent those logs are under their control, for a period appropriate to the
+ * system's intended purpose and of at least six months. Article 26(6) states the same duty for a
+ * deployer. This default treats a receipt as one of those logs, which is an assumption the code
+ * cannot check: whether a per-request receipt is an Article 12(1) log turns on the system and the
+ * actor, and neither is settled by anything in this file.
+ *
+ * Two qualifiers travel with the number. Both articles yield to applicable Union or national law,
+ * "in particular in Union law on the protection of personal data", so a data-protection rule can cut
+ * this window as well as lengthen it. And where the operator is itself a financial institution,
+ * Articles 19(2) and 26(6) maintain those logs as part of the documentation kept under the relevant
+ * financial-services law instead, where the applicable period is longer and is not ours to name.
+ *
+ * A deployer inside that law raises this together with `MAX_SERVED_RECEIPTS` in the CLI, because the
+ * count bound closes a multi-year window at about six months no matter how long the age bound is
+ * set to. Rounded up to whole days past the shortest six months, so the window is never shorter
+ * than the floor it answers to.
  */
 export const MINIMUM_RETENTION_SECONDS = 184 * 24 * 60 * 60;
 
