@@ -254,6 +254,25 @@ describe('bearer mode', () => {
     ).toBe('AUTH_UNKNOWN');
   });
 
+  it('refuses a bearer scope miss twice on a credential with one token to spend', () => {
+    const bearer = newBearerCredential({ id: 'ops-1', scopes: ['read'], now: NOW });
+    const tight: CredentialRecord = { ...bearer.record, rate: { perMinute: 1, burst: 1 } };
+    const s = store([tight], { allowBearer: true });
+    const secret = Buffer.from(bearer.secret).toString('base64url');
+    // Built fresh each time rather than reused, because a bearer request carries no nonce and no
+    // timestamp: the bucket is the only state two identical presentations could differ over.
+    const completion = (): AdmissionInput => ({
+      method: 'POST',
+      url: '/v1/chat/completions',
+      headers: { authorization: `Bearer ${secret}` },
+      body: null,
+    });
+    // The second refusal is the one that says a scope miss never spends budget. The first answers
+    // SCOPE_DENIED under either ordering, since the token is still there when it arrives.
+    expect(code(() => s.admit(completion()))).toBe('SCOPE_DENIED');
+    expect(code(() => s.admit(completion()))).toBe('SCOPE_DENIED');
+  });
+
   it('refuses a bearer record whose stored hash is malformed', () => {
     const bearer = newBearerCredential({ id: 'ops-1', now: NOW });
     const broken: CredentialRecord = { ...bearer.record, secretHash: new Uint8Array(31) };
