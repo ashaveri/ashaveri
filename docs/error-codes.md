@@ -22,7 +22,7 @@ The seven unions:
 | Union | Package | Owns |
 |---|---|---|
 | `ReceiptErrorCode` | `@ashaveri/receipt` | The COSE receipt wire format and the PoP Authorization header: decoding, signature, payload fields |
-| `SdkErrorCode` | `@ashaveri/sdk` | Client behaviour: transport, policy pins, strict-mode evidence verification |
+| `SdkErrorCode` | `@ashaveri/sdk` | Client behaviour: transport, policy pins, strict-mode evidence verification, credential refusal |
 | `AttestationErrorCode` | `@ashaveri/attest-core` | Platform evidence: dStack envelopes, SNP reports, TDX quotes, device reports, X.509 |
 | `GuestErrorCode` | `@ashaveri/signerd` | The guest agent socket inside the confidential VM |
 | `DstackErrorCode` | `@ashaveri/signerd` | Gateway startup: the deployment's own evidence, identity and device claim |
@@ -160,8 +160,8 @@ no receipt was ever handed out for bytes that never finished.
 
 What `CredentialStore.admit` answers a request with: the credential lookup, the proof of
 possession, the replay window, the route's scope and the rate bucket, in that order. The order is
-part of the meaning, because it decides which code a request that fails two of the five reports —
-always the earlier one, so a revoked credential is never asked to produce a signature and a
+part of the meaning, because a request that fails two of the five reports gets the earlier code:
+a revoked credential is never asked to produce a signature and a
 credential with no scope for the route never spends a token. Codes after the first three are 401,
 403, 409 or 429 on the request that earned them; the credential-file codes are 500s, because what
 is broken is the file the operator installed and no header a client sends can fix it.

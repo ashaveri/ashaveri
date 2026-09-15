@@ -6,7 +6,7 @@ import {
   signPopAuthorization,
   type PopFields,
 } from '@ashaveri/receipt';
-import { fromBase64Url, toBase64Url } from './b64.js';
+import { fromBase64Url, fromHex, toBase64Url } from './b64.js';
 import { SdkError } from './errors.js';
 
 export type AshaveriCredential =
@@ -38,27 +38,62 @@ function bodyBytes(body: RequestInit['body'] | undefined): Uint8Array | null {
 }
 
 /**
- * The gateway signs and verifies against `request.url`, which is origin-form: the path
- * and the query, no host. Deriving it from the URL keeps a client that reaches the
- * gateway through a reverse proxy at a different prefix from having to know that the
- * proxy rewrote it, because the target it signs is the one on the wire.
+ * The target signed is the target sent: this is the same origin-form path and query the
+ * gateway reads off the request it received, so the two agree as long as nothing rewrites
+ * the URL on the way. They do not agree through a proxy that changes the prefix, and the
+ * answer there is `AUTH_SIGNATURE`, which is the honest one: a signature is a commitment
+ * to the bytes this client sent, and a rewritten target is not those bytes.
  */
 function requestTarget(url: string): string {
   const parsed = new URL(url);
   return `${parsed.pathname}${parsed.search}`;
 }
 
+function decode(value: string, name: string, format: 'hex' | 'base64url'): Uint8Array {
+  try {
+    return format === 'hex' ? fromHex(value) : fromBase64Url(value);
+  } catch (err) {
+    throw new SdkError('AUTH_CONFIG', `${name} must be ${format}: ${err instanceof Error ? err.message : String(err)}`);
+  }
+}
+
 function readNonceHeader(headers: Headers): Uint8Array | null {
   const raw = headers.get('x-ashaveri-nonce');
   if (raw === null) return null;
-  const bytes = fromBase64Url(raw);
+  const bytes = decode(raw, 'x-ashaveri-nonce', 'base64url');
   if (bytes.length !== POP_NONCE_BYTES) {
     throw new SdkError('AUTH_CONFIG', `x-ashaveri-nonce must be ${String(POP_NONCE_BYTES)} bytes, got ${String(bytes.length)}`);
   }
   return bytes;
 }
 
-function applyCredential(credential: AshaveriCredential, url: string, init: RequestInit, options: AuthOptions): RequestInit {
+/**
+ * One request as the signature sees it: where it is going, what the transport will send, the
+ * bytes to hash. A `Request` input brings its own method and headers and `init` overrides only
+ * the keys it names, so both are seeded here; signing always writes a header list, so an init
+ * built from nothing would take the caller's method and unrelated headers off the wire. The
+ * body is reported apart from that init, which never carries a `Request`'s stream: the transport
+ * takes it from the `Request` itself and `bodyBytes` is what refuses it.
+ */
+interface Outgoing {
+  readonly url: string;
+  readonly init: RequestInit;
+  readonly body: RequestInit['body'] | undefined;
+}
+
+function outgoing(input: string | URL | Request, init: RequestInit | undefined): Outgoing {
+  if (!(input instanceof Request)) {
+    return { url: typeof input === 'string' ? input : input.href, init: init ?? {}, body: init?.body };
+  }
+  return {
+    url: input.url,
+    init: { ...init, method: init?.method ?? input.method, headers: init?.headers ?? input.headers },
+    body: init?.body ?? input.body ?? null,
+  };
+}
+
+function applyCredential(credential: AshaveriCredential, request: Outgoing, options: AuthOptions): RequestInit {
+  const init = request.init;
   const headers = new Headers(init.headers);
   if (headers.has('authorization')) return init;
   if (credential.kind === 'bearer') {
@@ -67,12 +102,12 @@ function applyCredential(credential: AshaveriCredential, url: string, init: Requ
   }
   const nonce = readNonceHeader(headers) ?? options.nonce?.() ?? randomNonce();
   headers.set('x-ashaveri-nonce', toBase64Url(nonce));
-  const body = bodyBytes(init.body);
+  const body = bodyBytes(request.body);
   const fields: PopFields = {
     ts: Math.floor((options.now?.() ?? Date.now()) / 1000),
     nonce,
     method: (init.method ?? 'GET').toUpperCase(),
-    target: requestTarget(url),
+    target: requestTarget(request.url),
     bodyDigestHex: body === null ? EMPTY_BODY_SHA256_HEX : sha256Hex(body),
   };
   headers.set('authorization', signPopAuthorization(fields, credential.id, credential.privateKey));
@@ -92,14 +127,11 @@ export function authorizedFetch(
   options: AuthOptions = {},
 ): typeof fetch {
   if (credential === undefined) return inner;
-  return async (input, init) => {
-    const url = typeof input === 'string' ? input : input instanceof URL ? input.href : input.url;
-    return inner(input, applyCredential(credential, url, init ?? {}, options));
-  };
+  return async (input, init) => inner(input, applyCredential(credential, outgoing(input, init), options));
 }
 
 function decodeSecret(value: string, kind: 'pop' | 'bearer'): Uint8Array {
-  const bytes = kind === 'pop' ? new Uint8Array(Buffer.from(value, 'hex')) : fromBase64Url(value);
+  const bytes = decode(value, CREDENTIAL_ENV.secret, kind === 'pop' ? 'hex' : 'base64url');
   if (kind === 'pop' && bytes.length !== 32) {
     throw new SdkError('AUTH_CONFIG', `${CREDENTIAL_ENV.secret} must be 64 hex digits for a PoP credential, got ${String(bytes.length)} bytes`);
   }

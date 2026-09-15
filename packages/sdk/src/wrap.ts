@@ -51,18 +51,21 @@ export function wrapOpenAI<T extends object>(client: T, options: WrapOptions = {
   const tracked = new Map<string, Promise<VerifiedReceipt>>();
 
   const wrappedFetch: FetchLike = async (input, init) => {
-    if (mode === 'off' || typeof init?.body !== 'string') {
-      return authed(input, init);
+    // The official client writes its own `Authorization` for a key this package never sees, and a
+    // caller-set one wins over a credential: on this path the header is the wrapper's to own.
+    const prepared = options.credential === undefined ? init : { ...init, headers: withoutAuthorization(init?.headers) };
+    if (mode === 'off' || prepared === undefined || typeof prepared.body !== 'string') {
+      return authed(input, prepared);
     }
     const url = typeof input === 'string' ? input : input instanceof URL ? input.href : input.url;
     const baseUrl = chatCompletionsBase(url);
     if (baseUrl === undefined) {
-      return authed(input, init);
+      return authed(input, prepared);
     }
     const nonce = randomNonce();
-    const headers = new Headers(init.headers);
+    const headers = new Headers(prepared.headers);
     headers.set('x-ashaveri-nonce', toBase64Url(nonce));
-    const response = await authed(input, { ...init, headers });
+    const response = await authed(input, { ...prepared, headers });
     const receiptId = response.headers.get('x-ashaveri-receipt-id');
     if (receiptId === null) {
       if (mode === 'strict') {
@@ -73,7 +76,7 @@ export function wrapOpenAI<T extends object>(client: T, options: WrapOptions = {
     if (response.body === null) {
       return response;
     }
-    const requestHash = hashRequest(new TextEncoder().encode(init.body));
+    const requestHash = hashRequest(new TextEncoder().encode(prepared.body));
     const session = sessionFor(baseUrl);
     const [toClient, toHasher] = response.body.tee();
     const verification: Promise<VerifiedReceipt> = (async () => {
@@ -128,6 +131,12 @@ export function wrapOpenAI<T extends object>(client: T, options: WrapOptions = {
     }
     return session;
   }
+}
+
+function withoutAuthorization(headers: RequestInit['headers']): Headers {
+  const copy = new Headers(headers);
+  copy.delete('authorization');
+  return copy;
 }
 
 function chatCompletionsBase(url: string): string | undefined {

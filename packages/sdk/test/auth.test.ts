@@ -20,7 +20,7 @@ const NOW_MS = 1_772_000_000_000;
 /** Records what the wrapper handed the transport, and answers with an empty response. */
 function transport() {
   const seen: { url: string; init: RequestInit }[] = [];
-  const inner = (async (input: RequestInfo | URL, init?: RequestInit) => {
+  const inner = (async (input: string | URL | Request, init?: RequestInit) => {
     seen.push({ url: String(input), init: init ?? {} });
     return new Response('{}', { status: 200 });
   }) as unknown as typeof fetch;
@@ -32,31 +32,49 @@ function header(call: { init: RequestInit }, name: string): string | undefined {
   return headers.get(name) ?? undefined;
 }
 
+/** Runs something expected to refuse, and hands back the error so a case can name its code. */
+function refusal(body: () => unknown): SdkError {
+  try {
+    body();
+  } catch (err) {
+    expect(err).toBeInstanceOf(SdkError);
+    return err as SdkError;
+  }
+  throw new Error('expected an SdkError');
+}
+
+function nonceOf(call: { init: RequestInit }): Uint8Array {
+  return new Uint8Array(Buffer.from(new Headers(call.init.headers).get('x-ashaveri-nonce') as string, 'base64url'));
+}
+
 describe('authorizedFetch, proof of possession', () => {
   it('signs the origin-form request target and the body digest', async () => {
-    const { inner, call } = transport();
-    const fetchImpl = authorizedFetch(CREDENTIAL, inner, { now: () => NOW_MS });
-    const body = '{"model":"m","messages":[]}';
-    await fetchImpl(`${BASE}/chat/completions`, { method: 'POST', body });
-    const presented = call();
-    const authorization = header(presented, 'authorization');
-    expect(authorization).toBeDefined();
-    const parsed = parsePopAuthorization(authorization as string);
-    const nonce = new Headers(presented.init.headers).get('x-ashaveri-nonce');
-    expect(nonce).toHaveLength(22);
-    expect(
-      verifyPopSignature(
-        {
-          ts: parsed.ts,
-          nonce: new Uint8Array(Buffer.from(nonce as string, 'base64url')),
-          method: 'POST',
-          target: '/v1/chat/completions',
-          bodyDigestHex: sha256Hex(new TextEncoder().encode(body)),
-        },
-        parsed.signature,
-        PUBLIC_KEY,
-      ),
-    ).toBe(true);
+    const text = '{"model":"m","messages":[]}';
+    const encoded = new TextEncoder().encode(text);
+    // The digest is of the bytes, so every form that carries these same bytes signs the same way.
+    for (const body of [text, encoded, encoded.buffer as ArrayBuffer]) {
+      const { inner, call } = transport();
+      const fetchImpl = authorizedFetch(CREDENTIAL, inner, { now: () => NOW_MS });
+      await fetchImpl(`${BASE}/chat/completions`, { method: 'POST', body });
+      const presented = call();
+      const authorization = header(presented, 'authorization');
+      expect(authorization).toBeDefined();
+      const parsed = parsePopAuthorization(authorization as string);
+      expect(header(presented, 'x-ashaveri-nonce')).toHaveLength(22);
+      expect(
+        verifyPopSignature(
+          {
+            ts: parsed.ts,
+            nonce: nonceOf(presented),
+            method: 'POST',
+            target: '/v1/chat/completions',
+            bodyDigestHex: sha256Hex(encoded),
+          },
+          parsed.signature,
+          PUBLIC_KEY,
+        ),
+      ).toBe(true);
+    }
   });
 
   it('keeps the nonce the caller already set, so the receipt still echoes the signed value', async () => {
@@ -121,6 +139,77 @@ describe('authorizedFetch, proof of possession', () => {
     ).rejects.toMatchObject({ code: 'AUTH_CONFIG' });
   });
 
+  it('signs with the nonce the options supply, so a fixed vector is reproducible', async () => {
+    const { inner, call } = transport();
+    const nonce = new Uint8Array(POP_NONCE_BYTES).fill(0x33);
+    const fetchImpl = authorizedFetch(CREDENTIAL, inner, { now: () => NOW_MS, nonce: () => nonce });
+    await fetchImpl(`${BASE}/deployment-manifest`);
+    const presented = call();
+    expect(nonceOf(presented)).toEqual(nonce);
+    const parsed = parsePopAuthorization(header(presented, 'authorization') as string);
+    expect(
+      verifyPopSignature(
+        { ts: parsed.ts, nonce, method: 'GET', target: '/v1/deployment-manifest', bodyDigestHex: EMPTY_BODY_SHA256_HEX },
+        parsed.signature,
+        PUBLIC_KEY,
+      ),
+    ).toBe(true);
+  });
+
+  it('refuses a caller-set nonce of the wrong width', async () => {
+    const { inner } = transport();
+    const fetchImpl = authorizedFetch(CREDENTIAL, inner, { now: () => NOW_MS });
+    const short = Buffer.from(new Uint8Array(POP_NONCE_BYTES - 1)).toString('base64url');
+    await expect(
+      fetchImpl(`${BASE}/chat/completions`, { method: 'POST', body: '{}', headers: { 'x-ashaveri-nonce': short } }),
+    ).rejects.toMatchObject({ code: 'AUTH_CONFIG' });
+  });
+
+  it('refuses a caller-set nonce that is not base64url as a configuration error', async () => {
+    const { inner } = transport();
+    const fetchImpl = authorizedFetch(CREDENTIAL, inner, { now: () => NOW_MS });
+    await expect(
+      fetchImpl(`${BASE}/chat/completions`, { method: 'POST', body: '{}', headers: { 'x-ashaveri-nonce': 'not base64url!' } }),
+    ).rejects.toMatchObject({ code: 'AUTH_CONFIG' });
+  });
+
+  it('signs the method a Request input carries, not the GET an empty init would give', async () => {
+    const { inner, call } = transport();
+    const fetchImpl = authorizedFetch(CREDENTIAL, inner, { now: () => NOW_MS });
+    await fetchImpl(new Request(`${BASE}/chat/completions`, { method: 'POST' }));
+    const presented = call();
+    expect(presented.init.method).toBe('POST');
+    const parsed = parsePopAuthorization(header(presented, 'authorization') as string);
+    expect(
+      verifyPopSignature(
+        { ts: parsed.ts, nonce: nonceOf(presented), method: 'POST', target: '/v1/chat/completions', bodyDigestHex: EMPTY_BODY_SHA256_HEX },
+        parsed.signature,
+        PUBLIC_KEY,
+      ),
+    ).toBe(true);
+  });
+
+  it('keeps the headers a Request input carries, and its caller-set authorization still wins', async () => {
+    const { inner, call } = transport();
+    const fetchImpl = authorizedFetch(CREDENTIAL, inner, { now: () => NOW_MS });
+    await fetchImpl(new Request(`${BASE}/deployment-manifest`, { headers: { 'x-keep-me': 'kept', 'content-type': 'application/json' } }));
+    expect(header(call(), 'x-keep-me')).toBe('kept');
+    expect(header(call(), 'content-type')).toBe('application/json');
+
+    const kept = transport();
+    const bearer = authorizedFetch({ kind: 'bearer', secret: new Uint8Array(32).fill(4) }, kept.inner);
+    await bearer(new Request(`${BASE}/deployment-manifest`, { headers: { authorization: 'Bearer theirs' } }));
+    expect(header(kept.call(), 'authorization')).toBe('Bearer theirs');
+  });
+
+  it('refuses a Request input whose body is a stream it cannot hash', async () => {
+    const { inner } = transport();
+    const fetchImpl = authorizedFetch(CREDENTIAL, inner, { now: () => NOW_MS });
+    await expect(fetchImpl(new Request(`${BASE}/chat/completions`, { method: 'POST', body: '{}' }))).rejects.toMatchObject({
+      code: 'AUTH_CONFIG',
+    });
+  });
+
   it('returns the transport unchanged when no credential is configured', async () => {
     const { inner, seen } = transport();
     const fetchImpl = authorizedFetch(undefined, inner);
@@ -169,13 +258,38 @@ describe('credentialFromEnv', () => {
 
   it('refuses a PoP key that is not 32 bytes', () => {
     const env = { [CREDENTIAL_ENV.id]: 'env-3', [CREDENTIAL_ENV.secret]: 'aa', [CREDENTIAL_ENV.kind]: 'pop' };
-    try {
-      credentialFromEnv(env);
-      throw new Error('expected an SdkError');
-    } catch (err) {
-      expect(err).toBeInstanceOf(SdkError);
-      expect((err as SdkError).code).toBe('AUTH_CONFIG');
-    }
+    expect(refusal(() => credentialFromEnv(env)).code).toBe('AUTH_CONFIG');
+  });
+
+  it('refuses a credential kind that is neither pop nor bearer', () => {
+    const env = { [CREDENTIAL_ENV.id]: 'env-4', [CREDENTIAL_ENV.secret]: 'aa'.repeat(32), [CREDENTIAL_ENV.kind]: 'mtls' };
+    expect(refusal(() => credentialFromEnv(env)).code).toBe('AUTH_CONFIG');
+  });
+
+  it('refuses a PoP key that is hex but the wrong width, and says so by name', () => {
+    const env = { [CREDENTIAL_ENV.id]: 'env-5', [CREDENTIAL_ENV.secret]: 'aa'.repeat(31), [CREDENTIAL_ENV.kind]: 'pop' };
+    const err = refusal(() => credentialFromEnv(env));
+    expect(err.code).toBe('AUTH_CONFIG');
+    expect(err.message).toContain(CREDENTIAL_ENV.secret);
+  });
+
+  it('refuses a PoP key with a corrupt tail instead of signing with a truncated one', () => {
+    // 64 hex digits plus two characters outside the alphabet: the 32 bytes before them would
+    // otherwise have become a key nobody was told about.
+    const env = { [CREDENTIAL_ENV.id]: 'env-6', [CREDENTIAL_ENV.secret]: `${'aa'.repeat(32)}zz`, [CREDENTIAL_ENV.kind]: 'pop' };
+    expect(refusal(() => credentialFromEnv(env)).code).toBe('AUTH_CONFIG');
+  });
+
+  it('refuses a PoP key of an odd length instead of dropping the last digit', () => {
+    // 65 digits: a lenient decoder stops after the 64th and hands back exactly the 32 bytes a PoP
+    // key needs, so the width check below it never fires and the lost digit is never mentioned.
+    const env = { [CREDENTIAL_ENV.id]: 'env-7', [CREDENTIAL_ENV.secret]: `${'aa'.repeat(32)}a`, [CREDENTIAL_ENV.kind]: 'pop' };
+    expect(refusal(() => credentialFromEnv(env)).code).toBe('AUTH_CONFIG');
+  });
+
+  it('refuses a bearer secret that is not base64url as a configuration error', () => {
+    const env = { [CREDENTIAL_ENV.id]: 'env-8', [CREDENTIAL_ENV.secret]: 'not base64url!', [CREDENTIAL_ENV.kind]: 'bearer' };
+    expect(refusal(() => credentialFromEnv(env)).code).toBe('AUTH_CONFIG');
   });
 });
 

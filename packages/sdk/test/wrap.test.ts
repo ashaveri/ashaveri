@@ -1,5 +1,7 @@
 import { describe, expect, it } from 'vitest';
-import { toBase64Url, wrapOpenAI } from '../src/index.js';
+import OpenAI from 'openai';
+import { parsePopAuthorization, sha256Hex, signingKeyFromSeed, verifyPopSignature } from '@ashaveri/receipt';
+import { toBase64Url, wrapOpenAI, type AshaveriCredential } from '../src/index.js';
 import {
   createFakeGateway,
   FAKE_BASE_URL,
@@ -9,6 +11,9 @@ import {
 
 const CHAT_URL = `${FAKE_BASE_URL}/chat/completions`;
 const REQUEST_BODY = JSON.stringify({ model: 'fake-model', messages: [{ role: 'user', content: 'hi' }] });
+const POP_SEED = new Uint8Array(32).fill(11);
+const POP_PUBLIC_KEY = signingKeyFromSeed(POP_SEED).publicKey;
+const POP_CREDENTIAL: AshaveriCredential = { kind: 'pop', id: 'sdk-wrap-1', privateKey: POP_SEED };
 
 function fakeOpenAiClient(gatewayOptions?: Parameters<typeof createFakeGateway>[0]) {
   const gateway = createFakeGateway(gatewayOptions);
@@ -124,6 +129,8 @@ describe('wrapOpenAI', () => {
     ).rejects.toMatchObject({ code: 'NOT_RECEIPTED' });
   });
 
+  // A hand-made holder proves what header shape the wrapper writes; the real client below proves
+  // which header the wrapper wins when the official client has already written one.
   it('sends the credential through the wrapped transport', async () => {
     let seen: Headers | null = null;
     const fake = { fetch: (async (_input: string, init?: RequestInit) => {
@@ -133,5 +140,40 @@ describe('wrapOpenAI', () => {
     const wrapped = wrapOpenAI(fake, { credential: { kind: 'bearer', secret: new Uint8Array(32) } });
     await (wrapped as unknown as { fetch: typeof fetch }).fetch('https://gw.example/v1/chat/completions', { method: 'POST', body: '{}' });
     expect(seen?.get('authorization')).toBe(`Bearer ${toBase64Url(new Uint8Array(32))}`);
+  });
+
+  it('replaces the placeholder key an official client writes with the credential it was given', async () => {
+    const seen: { headers: Headers; body: string | undefined }[] = [];
+    const recorder = (async (_input: string | URL | Request, init?: RequestInit) => {
+      seen.push({ headers: new Headers(init?.headers), body: typeof init?.body === 'string' ? init.body : undefined });
+      return new Response(JSON.stringify({ id: 'c1', object: 'chat.completion', created: 0, model: 'fake-model', choices: [] }), {
+        status: 200,
+        headers: { 'content-type': 'application/json' },
+      });
+    }) as unknown as typeof fetch;
+    const client = new OpenAI({ apiKey: 'placeholder-key', baseURL: 'https://gw.example/v1', fetch: recorder });
+    const wrapped = wrapOpenAI(client, { credential: POP_CREDENTIAL });
+    await wrapped.chat.completions.create({ model: 'fake-model', messages: [{ role: 'user', content: 'hi' }] });
+
+    const { headers, body } = seen[0]!;
+    const authorization = headers.get('authorization') as string;
+    expect(authorization).toMatch(/^Ashaveri-PoP credential=sdk-wrap-1,/u);
+    expect(authorization).not.toContain('placeholder-key');
+    const nonce = Buffer.from(headers.get('x-ashaveri-nonce') as string, 'base64url');
+    expect(nonce).toHaveLength(16);
+    const parsed = parsePopAuthorization(authorization);
+    expect(
+      verifyPopSignature(
+        {
+          ts: parsed.ts,
+          nonce: new Uint8Array(nonce),
+          method: 'POST',
+          target: '/v1/chat/completions',
+          bodyDigestHex: sha256Hex(new TextEncoder().encode(body as string)),
+        },
+        parsed.signature,
+        POP_PUBLIC_KEY,
+      ),
+    ).toBe(true);
   });
 });
