@@ -61,3 +61,32 @@ export function loadFixtureKey(): SigningKey {
 }
 
 export { DATA };
+
+export interface PopVector {
+  name: string;
+  note: string;
+  fields: {
+    ts: number;
+    nonce: string;
+    method: string;
+    target: string;
+    bodyBase64Url: string;
+    bodyDigestHex: string;
+  };
+  signingString: string;
+  authorization: string;
+}
+
+export interface PopVectorFile {
+  version: 1;
+  description: string;
+  scheme: string;
+  separator: string;
+  emptyBodySha256Hex: string;
+  key: { id: string; privateKeyHex: string; publicKeyHex: string };
+  vectors: PopVector[];
+}
+
+export function loadPopVectors(): PopVectorFile {
+  return JSON.parse(readFileSync(join(DATA, 'pop-v1.json'), 'utf8')) as PopVectorFile;
+}
