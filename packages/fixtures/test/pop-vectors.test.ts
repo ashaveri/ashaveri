@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import {
   EMPTY_BODY_SHA256_HEX,
+  POP_NONCE_BYTES,
   POP_SCHEME,
   fromBase64Url,
   parsePopAuthorization,
@@ -32,6 +33,19 @@ describe('data/pop-v1.json', () => {
     expect(file.separator).toBe('\n');
     expect(file.emptyBodySha256Hex).toBe(EMPTY_BODY_SHA256_HEX);
     expect(file.vectors.length).toBeGreaterThanOrEqual(4);
+  });
+
+  it('signs every vector with its own nonce of the width the scheme requires', () => {
+    const nonces = file.vectors.map((vector) => {
+      expect(fromBase64Url(vector.fields.nonce)).toHaveLength(POP_NONCE_BYTES);
+      return vector.fields.nonce;
+    });
+    // Reusing a nonce across two signed requests is the replay this scheme exists to catch,
+    // so a corpus that printed one nonce for all its cases would teach a client author the
+    // opposite of the rule. One frozen timestamp is fine and intended: it is what lets the
+    // file regenerate byte for byte.
+    expect(new Set(nonces).size).toBe(nonces.length);
+    expect(new Set(file.vectors.map((vector) => vector.fields.ts)).size).toBe(1);
   });
 
   it.each(file.vectors)('$name', (vector) => {
