@@ -1,13 +1,27 @@
-import { readFile } from 'node:fs/promises';
+import { readFile, stat } from 'node:fs/promises';
 import { randomBytes, randomUUID } from 'node:crypto';
-import { fromBase64Url, signingKeyFromSeed, toBase64Url } from '@ashaveri/receipt';
+import {
+  EMPTY_BODY_SHA256_HEX,
+  fromBase64Url,
+  parsePopAuthorization,
+  POP_NONCE_BYTES,
+  POP_TIMESTAMP_TOLERANCE_SECONDS,
+  ReceiptError,
+  sha256Hex,
+  signingKeyFromSeed,
+  toBase64Url,
+  verifyPopSignature,
+  type PopAuthorization,
+  type PopFields,
+} from '@ashaveri/receipt';
 import { fromHex, sha256, toHex } from './digest.js';
 
 /**
  * Who may ask the gateway for what. A credential file lists the identities the gateway knows,
  * the scopes each one carries and the rate each one is held to; the route table says what each
- * registered route requires. Everything here is parsing and lookup material: it turns bytes on
- * disk into records and refuses, with a code and an HTTP status, whatever it cannot use.
+ * registered route requires. Parsing, lookup and the admission decision therefore live in one
+ * file: it turns bytes on disk into records, answers whether a request may be served from them,
+ * and refuses with a code and an HTTP status whatever it cannot use.
  */
 
 export type AccessErrorCode =
@@ -20,6 +34,7 @@ export type AccessErrorCode =
   | 'AUTH_REVOKED'
   | 'AUTH_STALE'
   | 'AUTH_SIGNATURE'
+  | 'AUTH_NONCE_MISSING'
   | 'NONCE_SEEN'
   | 'SCOPE_DENIED'
   | 'RATE_LIMITED';
@@ -34,6 +49,7 @@ const ERROR_STATUS: Record<AccessErrorCode, number> = {
   AUTH_REVOKED: 401,
   AUTH_STALE: 401,
   AUTH_SIGNATURE: 401,
+  AUTH_NONCE_MISSING: 401,
   NONCE_SEEN: 409,
   SCOPE_DENIED: 403,
   RATE_LIMITED: 429,
@@ -49,6 +65,7 @@ const ERROR_MESSAGE: Record<AccessErrorCode, string> = {
   AUTH_REVOKED: 'the credential has been revoked',
   AUTH_STALE: 'the request timestamp is outside the accepted window',
   AUTH_SIGNATURE: 'the proof of possession signature did not verify',
+  AUTH_NONCE_MISSING: 'the x-ashaveri-nonce header is absent or is not unpadded base64url of a 16-byte nonce',
   NONCE_SEEN: 'this request nonce has already been presented',
   SCOPE_DENIED: 'the credential does not carry the scope this route requires',
   RATE_LIMITED: 'this credential is over its rate limit',
@@ -389,4 +406,430 @@ export function scopeSatisfied(granted: readonly Scope[], required: RouteScope):
   if (required === 'any') return true;
   if (required === 'complete') return granted.includes('complete');
   return granted.includes('read') || granted.includes('complete');
+}
+
+export const REPLAY_WINDOW_SECONDS = 900;
+const REPLAY_MAX_ENTRIES = 65_536;
+const SHA256_BYTES = 32;
+const BEARER_PREFIX = 'Bearer ';
+
+/** What a record without its own `rate` is held to. */
+export const DEFAULT_RATE: CredentialRate = { perMinute: 60, burst: 120 };
+
+/**
+ * The replay key is the canonical encoding of the *decoded* nonce rather than the header text that
+ * carried it: base64url ignores the unused bits of its last character, so two different texts can
+ * decode to one nonce, and a set keyed on the text would let an attacker replay a signature under a
+ * mutated header. A credential id is restricted to `[A-Za-z0-9_-]` and the base64url alphabet
+ * contains no colon, so one key can never stand for two credentials.
+ */
+function nonceKey(credentialId: string, nonce: Uint8Array): string {
+  return `${credentialId}:${toBase64Url(nonce)}`;
+}
+
+/**
+ * Insertion-ordered expiry map, swept on insert and capped, so memory is fixed whatever the
+ * traffic: an attacker who replays faster than the window drains cannot grow this set. The same
+ * shape as the evidence cache in dstack.ts, for the same reason.
+ */
+export class ReplaySet {
+  private readonly seen = new Map<string, number>();
+
+  constructor(
+    private readonly windowSeconds: number = REPLAY_WINDOW_SECONDS,
+    private readonly maxEntries: number = REPLAY_MAX_ENTRIES,
+    private readonly now: () => number = () => Date.now(),
+  ) {}
+
+  /** True when this key was already presented inside the window. */
+  see(key: string): boolean {
+    const at = this.now();
+    const expiry = this.seen.get(key);
+    if (expiry !== undefined) {
+      if (expiry > at) return true;
+      this.seen.delete(key);
+    }
+    this.seen.set(key, at + this.windowSeconds * 1000);
+    if (this.seen.size > this.maxEntries) {
+      // The oldest insertion is first in iteration order, so this drops the entries closest to
+      // expiring rather than a random sample.
+      const excess = this.seen.size - this.maxEntries;
+      let dropped = 0;
+      for (const entry of this.seen.keys()) {
+        if (dropped >= excess) break;
+        this.seen.delete(entry);
+        dropped += 1;
+      }
+    }
+    return false;
+  }
+
+  get size(): number {
+    return this.seen.size;
+  }
+}
+
+interface Bucket {
+  tokens: number;
+  updatedMs: number;
+}
+
+/**
+ * Deliberately hand-rolled rather than a plugin: a new package in a measured container changes the
+ * launch measurement, and the plugin's configuration surface is larger than the forty lines below.
+ * Keyed per credential, refilled at perMinute/60 tokens per second, capped at burst.
+ */
+export class TokenBucket {
+  private readonly buckets = new Map<string, Bucket>();
+
+  take(key: string, rate: CredentialRate, nowMs: number = Date.now()): { allowed: boolean; retryAfterSeconds: number } {
+    const bucket = this.buckets.get(key);
+    const refillPerMs = rate.perMinute / 60_000;
+    if (bucket === undefined) {
+      this.buckets.set(key, { tokens: rate.burst - 1, updatedMs: nowMs });
+      return { allowed: true, retryAfterSeconds: 0 };
+    }
+    const refilled = Math.min(rate.burst, bucket.tokens + (nowMs - bucket.updatedMs) * refillPerMs);
+    if (refilled < 1) {
+      bucket.tokens = refilled;
+      bucket.updatedMs = nowMs;
+      // A whole second, and never zero: a hint the client cannot act on invites it to retry
+      // immediately, which is the traffic this is meant to hold back. A rate that never refills has
+      // no finite answer, and this number is destined for a `Retry-After` header, so it is a number
+      // even then.
+      const waitMs = refillPerMs > 0 ? (1 - refilled) / refillPerMs : Number.MAX_SAFE_INTEGER;
+      return { allowed: false, retryAfterSeconds: Math.max(1, Math.ceil(waitMs / 1000)) };
+    }
+    bucket.tokens = refilled - 1;
+    bucket.updatedMs = nowMs;
+    return { allowed: true, retryAfterSeconds: 0 };
+  }
+}
+
+export interface AdmissionInput {
+  method: string;
+  url: string;
+  headers: Record<string, string | string[] | undefined>;
+  body: Uint8Array | null;
+  /** Seconds since the epoch the request is stamped with; this clock's own second when absent. */
+  nowSeconds?: number;
+}
+
+export interface Admission {
+  credentialId: string;
+  scope: RouteScope;
+  auth: 'pop' | 'bearer';
+  nonce: Uint8Array | null;
+  /** The artifact this target names, for the one route that names one; `null` otherwise. */
+  receiptId: string | null;
+}
+
+export interface CredentialStoreOptions {
+  /** Read from disk, and re-read when the file's mtime moves. */
+  path?: string;
+  /** In-memory file, for tests and for --mock. Mutually exclusive with path. */
+  file?: CredentialFile;
+  allowBearer?: boolean;
+  toleranceSeconds?: number;
+  /** Milliseconds since the epoch: one clock for the tolerance, the replay window and the buckets. */
+  now?: () => number;
+}
+
+function firstHeader(headers: AdmissionInput['headers'], name: string): string | undefined {
+  const raw = headers[name];
+  if (Array.isArray(raw)) return raw[0];
+  return raw;
+}
+
+/** The secret a `Bearer` header carries, or nothing when the header is not one. */
+function bearerSecret(header: string): string | undefined {
+  if (!header.startsWith(BEARER_PREFIX)) return undefined;
+  const secret = header.slice(BEARER_PREFIX.length).trim();
+  return secret.length === 0 ? undefined : secret;
+}
+
+/** A bodyless request signs the empty byte string, whose digest is a published constant. */
+function bodyDigest(body: Uint8Array | null): string {
+  if (body === null || body.length === 0) return EMPTY_BODY_SHA256_HEX;
+  return sha256Hex(body);
+}
+
+/** `/v1/receipts/<id>` is the only route whose path names an artifact, so it is the only receipt id admission reports. */
+function receiptIdFrom(url: string): string | null {
+  const path = url.split('?', 1)[0] ?? url;
+  const match = /^\/v1\/receipts\/([A-Za-z0-9_-]{1,64})$/u.exec(path);
+  return match?.[1] ?? null;
+}
+
+function constantTimeEquals(left: Uint8Array, right: Uint8Array): boolean {
+  if (left.length !== right.length) return false;
+  let diff = 0;
+  for (let i = 0; i < left.length; i++) diff |= (left[i] ?? 0) ^ (right[i] ?? 0);
+  return diff === 0;
+}
+
+/** What a record grants, in the words a refusal gives back. */
+function grantedScopes(scopes: readonly Scope[]): string {
+  return scopes.length === 0 ? 'nothing' : scopes.join('+');
+}
+
+/**
+ * A header that is not an `Ashaveri-PoP` header at all is a scheme disagreement and says nothing
+ * about a credential; one that names the scheme and still fails to parse is a client bug. Two
+ * codes, because the two conditions ask two different people to change something.
+ */
+function parseAuthorization(header: string): PopAuthorization {
+  try {
+    return parsePopAuthorization(header);
+  } catch (err) {
+    if (err instanceof ReceiptError && err.code === 'AUTH_SCHEME_MISMATCH') {
+      throw new AccessError('AUTH_SCHEME', 'the Authorization header is neither Ashaveri-PoP nor Bearer');
+    }
+    throw new AccessError('AUTH_MALFORMED', reason(err));
+  }
+}
+
+/**
+ * The nonce a request presents, which is both the replay-set key and the third term of the signing
+ * string. It is read here rather than taken from the header's parameters because the signature
+ * covers the nonce, not the text that spells it out.
+ */
+function presentedNonce(headers: AdmissionInput['headers']): Uint8Array {
+  const header = firstHeader(headers, 'x-ashaveri-nonce');
+  if (header === undefined) throw new AccessError('AUTH_NONCE_MISSING');
+  let nonce: Uint8Array;
+  try {
+    nonce = fromBase64Url(header, 'BAD_POP_NONCE');
+  } catch (err) {
+    throw new AccessError('AUTH_NONCE_MISSING', reason(err));
+  }
+  if (nonce.length !== POP_NONCE_BYTES) {
+    throw new AccessError('AUTH_NONCE_MISSING', `the nonce is ${nonce.length} bytes, not ${POP_NONCE_BYTES}`);
+  }
+  return nonce;
+}
+
+/**
+ * The key a proof-of-possession record can be verified against, or nothing when it cannot. The
+ * parser drops a stray `secretHash` beside a `pop` kind instead of refusing the record, and an
+ * in-memory file never reaches that parser at all, so the store checks the shape it was handed: a
+ * record whose key is the wrong width would otherwise fail the signature check and blame the client
+ * for an edit to the operator's file.
+ */
+function popPublicKeyOf(record: CredentialRecord): Uint8Array | undefined {
+  if (record.kind !== 'pop' || record.secretHash !== undefined) return undefined;
+  const key = record.publicKey;
+  if (key === undefined || key.length !== ED25519_PUBLIC_KEY_BYTES) return undefined;
+  return key;
+}
+
+/**
+ * The digest a bearer record can be matched against, or nothing when it cannot. A record that does
+ * not match its own kind is dropped from the scan rather than refused by name, and a revoked one is
+ * skipped as though it had never existed: `AUTH_UNKNOWN` is what a wrong secret already gets, so a
+ * distinct answer for either would tell a prober which ids the file holds and which of them were
+ * once live. A record whose digest is the wrong width could never match anything anyway.
+ */
+function bearerSecretHashOf(record: CredentialRecord): Uint8Array | undefined {
+  if (record.kind !== 'bearer' || record.publicKey !== undefined) return undefined;
+  const hash = record.secretHash;
+  if (hash === undefined || hash.length !== SHA256_BYTES) return undefined;
+  return hash;
+}
+
+interface Located {
+  readonly presented: PopAuthorization;
+  readonly record: CredentialRecord;
+  readonly key: Uint8Array;
+}
+
+export class CredentialStore {
+  private file: CredentialFile;
+  private byId: Map<string, CredentialRecord>;
+  private readonly replay: ReplaySet;
+  private readonly buckets = new TokenBucket();
+  private readonly path?: string;
+  private readonly allowBearer: boolean;
+  private readonly toleranceSeconds: number;
+  private readonly now: () => number;
+  private watchedMtimeMs = 0;
+  private reloading: Promise<void> | undefined;
+
+  constructor(options: CredentialStoreOptions) {
+    if (options.path !== undefined && options.file !== undefined) {
+      throw new AccessError('BAD_CREDENTIAL_FILE', 'a store reads either a file on disk or an in-memory one, not both');
+    }
+    if (options.path === undefined && options.file === undefined) {
+      throw new AccessError('BAD_CREDENTIAL_FILE', 'a store needs a path or an in-memory file');
+    }
+    this.path = options.path;
+    this.file = options.file ?? { version: CREDENTIALS_FILE_VERSION, credentials: [] };
+    this.byId = new Map(this.file.credentials.map((entry) => [entry.id, entry]));
+    this.allowBearer = options.allowBearer ?? false;
+    this.toleranceSeconds = options.toleranceSeconds ?? POP_TIMESTAMP_TOLERANCE_SECONDS;
+    this.now = options.now ?? (() => Date.now());
+    this.replay = new ReplaySet(REPLAY_WINDOW_SECONDS, REPLAY_MAX_ENTRIES, this.now);
+  }
+
+  credentials(): CredentialRecord[] {
+    return [...this.file.credentials];
+  }
+
+  /**
+   * Reload when the file changed. Revocation that waits for a restart is not revocation, so the
+   * gateway checks the mtime and re-reads in the background; a request in flight uses the file as of
+   * its start, which is the same guarantee a restart would give with worse latency for everyone
+   * else. A file that will not parse leaves the loaded records in place and the mtime unrecorded, so
+   * the next request tries again: the half-written file in the middle of an operator's edit is one
+   * failed reload rather than a deployment that has forgotten its credentials.
+   */
+  async reloadIfNeeded(): Promise<void> {
+    const path = this.path;
+    if (path === undefined) return;
+    if (this.reloading !== undefined) {
+      await this.reloading;
+      return;
+    }
+    let mtimeMs: number;
+    try {
+      mtimeMs = (await stat(path)).mtimeMs;
+    } catch {
+      return;
+    }
+    if (mtimeMs === this.watchedMtimeMs) return;
+    this.reloading = (async () => {
+      const next = await loadCredentialFile(path);
+      this.file = next;
+      this.byId = new Map(next.credentials.map((entry) => [entry.id, entry]));
+      this.watchedMtimeMs = mtimeMs;
+    })();
+    try {
+      await this.reloading;
+    } finally {
+      this.reloading = undefined;
+    }
+  }
+
+  /**
+   * The five checks, cheapest rejection first: resolve the credential, prove the request holds the
+   * key that credential names, prove the request is new, prove the route is one it may use, then
+   * spend a token against its rate. The order is the contract rather than an optimization: a request
+   * that fails two of them reports the earlier one, so a revoked credential is never asked to sign
+   * anything and a credential with no scope for the route never spends budget it was not going to
+   * use.
+   */
+  admit(input: AdmissionInput): Admission {
+    const path = input.url.split('?', 1)[0] ?? input.url;
+    const scope = routeScope(input.method, input.url);
+    if (scope === undefined) {
+      // A target outside the table has no requirement attached to it, and guessing `any` would
+      // serve a route nobody has scoped yet. This is a table read, so it stays ahead of everything
+      // that costs more than a lookup.
+      throw new AccessError('SCOPE_DENIED', `no scope row for ${input.method} ${path}`);
+    }
+    const header = firstHeader(input.headers, 'authorization');
+    if (header === undefined || header.trim().length === 0) {
+      throw new AccessError('AUTH_MALFORMED', 'no Authorization header');
+    }
+    const trimmed = header.trim();
+    const secret = bearerSecret(trimmed);
+    if (secret !== undefined) {
+      if (!this.allowBearer) {
+        throw new AccessError(
+          'AUTH_SCHEME',
+          'this deployment requires a proof of possession; a bearer-capable deployment sets --allow-bearer',
+        );
+      }
+      return this.admitBearer(secret, scope, input);
+    }
+    const { presented, record, key } = this.locate(trimmed);
+
+    const nowSeconds = input.nowSeconds ?? Math.floor(this.now() / 1000);
+    const skew = Math.abs(nowSeconds - presented.ts);
+    if (skew > this.toleranceSeconds) {
+      throw new AccessError(
+        'AUTH_STALE',
+        `the request is stamped ${skew}s from this clock, outside the ${this.toleranceSeconds}s tolerance: check the clock on the client or the deployment`,
+      );
+    }
+
+    const nonce = presentedNonce(input.headers);
+    const fields: PopFields = {
+      ts: presented.ts,
+      nonce,
+      method: input.method.toUpperCase(),
+      target: input.url,
+      bodyDigestHex: bodyDigest(input.body),
+    };
+    if (!verifyPopSignature(fields, presented.signature, key)) {
+      throw new AccessError('AUTH_SIGNATURE', presented.credential);
+    }
+    if (this.replay.see(nonceKey(presented.credential, nonce))) {
+      throw new AccessError('NONCE_SEEN', presented.credential);
+    }
+    if (!scopeSatisfied(record.scopes, scope)) {
+      throw new AccessError(
+        'SCOPE_DENIED',
+        `${presented.credential} holds ${grantedScopes(record.scopes)}, this route needs ${scope}`,
+      );
+    }
+    return this.charge(presented.credential, record, scope, input, 'pop', nonce);
+  }
+
+  /** Checks one and two of the pipeline: which record the header names, and whether it can be used. */
+  private locate(header: string): Located {
+    const presented = parseAuthorization(header);
+    const record = this.byId.get(presented.credential);
+    if (record === undefined) {
+      // One refusal for an id this file never carried and an id it no longer trusts, so the answer
+      // cannot be used to enumerate what a deployment has issued.
+      throw new AccessError('AUTH_UNKNOWN', presented.credential);
+    }
+    if (record.kind !== 'pop') throw new AccessError('AUTH_SCHEME', `${presented.credential} is a bearer credential`);
+    if (record.revokedAt !== undefined) throw new AccessError('AUTH_REVOKED', presented.credential);
+    const key = popPublicKeyOf(record);
+    if (key === undefined) {
+      throw new AccessError(
+        'BAD_CREDENTIAL_RECORD',
+        `${presented.credential} carries no ${ED25519_PUBLIC_KEY_BYTES}-byte public key for its kind`,
+      );
+    }
+    return { presented, record, key };
+  }
+
+  /**
+   * Bearer admission. The secret itself is never stored, so the only way to find whose it is comes
+   * from hashing what was presented and comparing every digest in the file with a loop that does not
+   * exit early on the first differing byte. A secret that is not base64url at all decodes to bytes
+   * that match nothing, which is the same refusal a wrong secret gets.
+   */
+  private admitBearer(secret: string, scope: RouteScope, input: AdmissionInput): Admission {
+    const wanted = hashSecret(new Uint8Array(Buffer.from(secret, 'base64url')));
+    for (const record of this.byId.values()) {
+      if (record.revokedAt !== undefined) continue;
+      const stored = bearerSecretHashOf(record);
+      if (stored === undefined || !constantTimeEquals(wanted, stored)) continue;
+      if (!scopeSatisfied(record.scopes, scope)) {
+        throw new AccessError('SCOPE_DENIED', `${record.id} holds ${grantedScopes(record.scopes)}, this route needs ${scope}`);
+      }
+      return this.charge(record.id, record, scope, input, 'bearer', null);
+    }
+    throw new AccessError('AUTH_UNKNOWN', 'no bearer credential matches the presented secret');
+  }
+
+  /** The last check for both kinds, and the answer: what was granted, and what it may be spent on. */
+  private charge(
+    id: string,
+    record: CredentialRecord,
+    scope: RouteScope,
+    input: AdmissionInput,
+    auth: Admission['auth'],
+    nonce: Uint8Array | null,
+  ): Admission {
+    const taken = this.buckets.take(id, record.rate ?? DEFAULT_RATE, this.now());
+    if (!taken.allowed) {
+      throw new AccessError('RATE_LIMITED', id, taken.retryAfterSeconds);
+    }
+    return { credentialId: id, scope, auth, nonce, receiptId: receiptIdFrom(input.url) };
+  }
 }

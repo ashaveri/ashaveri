@@ -19,6 +19,7 @@ const UNION_SOURCES: ReadonlyArray<readonly [union: string, file: string]> = [
   ['GuestErrorCode', '../../../gateway/src/guest.ts'],
   ['DstackErrorCode', '../../../gateway/src/dstack.ts'],
   ['StoreErrorCode', '../../../gateway/src/store.ts'],
+  ['AccessErrorCode', '../../../gateway/src/access.ts'],
 ];
 
 const DOC_PATH = '../../../docs/error-codes.md';

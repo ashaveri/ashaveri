@@ -1,7 +1,7 @@
 # Error codes
 
 Every error code this workspace raises, what condition raises it, and what a caller should do
-about it. There are 80 declarations across six unions, resolving to 79 distinct strings;
+about it. There are 93 declarations across seven unions, resolving to 92 distinct strings;
 `UNSUPPORTED_PLATFORM` is the one string two unions share, and the last section
 says why that pair is deliberate while every other overlap is not.
 
@@ -17,7 +17,7 @@ site knew, so the detail reads differently for a quote than for a certificate. B
 | **What the caller does** | The action that can change the outcome. "Refuse" means present the failure; the receipt is not proven and must not be treated as one. |
 | **Verdict** | `terminal`: the same bytes will fail the same way forever, so a retry only adds latency. `retryable`: a later attempt can differ without anything being fixed. Startup refusals are terminal for the process. |
 
-The six unions:
+The seven unions:
 
 | Union | Package | Owns |
 |---|---|---|
@@ -27,6 +27,7 @@ The six unions:
 | `GuestErrorCode` | `@ashaveri/signerd` | The guest agent socket inside the confidential VM |
 | `DstackErrorCode` | `@ashaveri/signerd` | Gateway startup: the deployment's own evidence, identity and device claim |
 | `StoreErrorCode` | `@ashaveri/signerd` | The receipt store file on the deployment's volume |
+| `AccessErrorCode` | `@ashaveri/signerd` | Admission of one request: the credential file, proof of possession, replay, scope, rate limit |
 
 ## `ReceiptErrorCode`
 
@@ -154,6 +155,32 @@ no receipt was ever handed out for bytes that never finished.
 |---|---|---|---|---|
 | `STORE_CHAIN_BROKEN` | `StoreErrorCode` | The store file fails to chain at open, at the byte offset the message gives | Stop, and do not serve from that file. Restore from a copy whose head a customer already holds, or investigate the offset: a deleted middle record and a hand-edited one look the same from here, and both mean retained receipts can no longer be shown to be complete | terminal |
 
+## `AccessErrorCode`
+
+What `CredentialStore.admit` answers a request with: the credential lookup, the proof of
+possession, the replay window, the route's scope and the rate bucket, in that order. The order is
+part of the meaning, because it decides which code a request that fails two of the five reports —
+always the earlier one, so a revoked credential is never asked to produce a signature and a
+credential with no scope for the route never spends a token. Codes after the first three are 401,
+403, 409 or 429 on the request that earned them; the credential-file codes are 500s, because what
+is broken is the file the operator installed and no header a client sends can fix it.
+
+| Code | Union | Raised when | What the caller does | Verdict |
+|---|---|---|---|---|
+| `BAD_CREDENTIAL_FILE` | `AccessErrorCode` | The file the gateway was pointed at cannot be used: unreadable, not JSON, a version other than the one this gateway writes, `credentials` not a list, more records than `MAX_CREDENTIALS`, or a store built with both a path and an in-memory file | Operator-side. Nothing is admitted until the file is fixed; a failed reload keeps the records already read and retries on the next request | terminal |
+| `BAD_CREDENTIAL_RECORD` | `AccessErrorCode` | One record is unusable: an id outside `[A-Za-z0-9_-]{1,64}`, an unknown kind, a public key or secret hash of the wrong width, an unknown scope, a missing `createdAt`, or at request time a `pop` record that carries no key its kind can be verified against | Fix that record. The request-time form names the id, because the file and the request are both fine and only the record is not | terminal |
+| `DUPLICATE_CREDENTIAL_ID` | `AccessErrorCode` | Two records in one file share an id, so a header naming it could resolve to either | Delete one record or rename it. Admission refuses rather than choosing | terminal |
+| `AUTH_MALFORMED` | `AccessErrorCode` | No `Authorization` header at all, or one that names `Ashaveri-PoP` and still does not parse: a missing parameter, a repeated one, a parameter the format does not define, or a `ts` or signature outside the width it allows | Fix the client. The request was never admitted and the same header will fail the same way | terminal |
+| `AUTH_SCHEME` | `AccessErrorCode` | The header is neither `Ashaveri-PoP` nor `Bearer`, or it is `Bearer` on a deployment that was not started with `--allow-bearer`, or it names a record that is a bearer credential while the request presents a proof of possession | Speak the scheme the deployment requires. A client that has a key pair and gets this has found a bearer-only deployment, not a bug in its signing | terminal |
+| `AUTH_UNKNOWN` | `AccessErrorCode` | Nothing in the file answers to the credential the header names, or no bearer digest matches the secret presented. One refusal for an id the file never carried and an id it no longer trusts, so the answer cannot enumerate what a deployment has issued | Check the id against the credential file the operator holds. A 401 here says the deployment has never heard of this credential, which is not the same message as `AUTH_REVOKED` | terminal |
+| `AUTH_REVOKED` | `AccessErrorCode` | The named record carries a `revokedAt`, so the operator has withdrawn it while the holder still has the key | Stop presenting it and get a new credential. Waiting does not help: the file is re-read when it changes, so the revocation is already live | terminal |
+| `AUTH_STALE` | `AccessErrorCode` | The request's `ts` is further from this clock than the accepted window, 120 seconds unless the deployment configures another value. Both directions, so a client running behind and one running ahead look the same from here | Fix the clock, not the request. A fresh `ts` on the same bytes is a new request that may be admitted | terminal |
+| `AUTH_SIGNATURE` | `AccessErrorCode` | EdDSA over the signing string fails: the record holds another key, or the method, target, body digest or nonce the header carries is not what was signed. This is also the answer to a nonce header that disagrees with the signed nonce, because the nonce is a signing-string term | Refuse. Either the key is wrong or something changed the request after it was signed; both are refusals, not retries | terminal |
+| `AUTH_NONCE_MISSING` | `AccessErrorCode` | The `x-ashaveri-nonce` header is absent, is not unpadded base64url, or decodes to something other than `POP_NONCE_BYTES` bytes. The nonce is a term of the signing string, so this header is where the gateway reads the bytes its replay set keys on | Fix the client: send the header with the same nonce that went into the signing string | terminal |
+| `NONCE_SEEN` | `AccessErrorCode` | The same credential presented the same nonce inside the replay window. The key is the decoded nonce bytes, so re-spelling the header in another valid base64url form is the same nonce | Send a new request with a fresh nonce. Resending these bytes is exactly what just failed | terminal |
+| `SCOPE_DENIED` | `AccessErrorCode` | The route requires a scope the credential does not carry, or the target is not in the route table at all, which is a refusal rather than a route that needs nothing | Use a credential that holds the scope, or ask the operator to scope the route. Rate budget is untouched by this answer | terminal |
+| `RATE_LIMITED` | `AccessErrorCode` | The credential's bucket is empty: it is over the `perMinute` it is held to, past its `burst`. `retryAfterSeconds` in the error says when the next token appears, never less than one | Wait the stated seconds, then send a new request. Splitting one workload across credentials is a deployment decision, not a client fix | retryable |
+
 ## Why these strings do not overlap
 
 A bare code string has to say which layer failed. Two pairs did not, and both sides were renamed
@@ -175,7 +202,7 @@ the first publish it would cost a deprecation cycle.
 
 ## Keeping this file true
 
-`packages/fixtures/test/error-codes.test.ts` reads the six unions out of source and checks them
+`packages/fixtures/test/error-codes.test.ts` reads the seven unions out of source and checks them
 against this file: every declared code has exactly one row, every code in a row is declared, and
 the counts in the opening paragraph agree. A new code with no row fails CI, which is the only
 reason a reference table like this one stays correct after its first month.

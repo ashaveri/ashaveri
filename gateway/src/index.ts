@@ -41,26 +41,35 @@ export type {
   StoredReceipt,
   TrimEvent,
 } from './store.js';
-// The credential file's shape is exported for the same reason the store's is: the tooling that
-// writes one and the code that reads one are compiled separately, and a second copy of these
-// types could drift from the parser that refuses them without a compile error anywhere.
+// The credential file's shape and the admission decision are exported for the same reason the
+// store's is: the tooling that writes a credential and the code that checks one are compiled
+// separately, and a second copy of these shapes could drift from the parser and the pipeline that
+// refuse them without a compile error anywhere.
 export {
-  AccessError,
   accessStatus,
+  AccessError,
+  CredentialStore,
   CREDENTIALS_FILE_VERSION,
+  DEFAULT_RATE,
   loadCredentialFile,
   MAX_CREDENTIALS,
   newBearerCredential,
   newPopCredential,
   parseCredentialFile,
+  ReplaySet,
+  REPLAY_WINDOW_SECONDS,
   ROUTE_SCOPES,
   routeScope,
   scopeSatisfied,
   serializeCredentialFile,
+  TokenBucket,
   type AccessErrorCode,
+  type Admission,
+  type AdmissionInput,
   type CredentialFile,
   type CredentialRate,
   type CredentialRecord,
+  type CredentialStoreOptions,
   type RouteScope,
   type Scope,
 } from './access.js';

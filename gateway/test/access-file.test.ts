@@ -184,20 +184,30 @@ describe('route scope table', () => {
 });
 
 describe('the status a refusal answers with', () => {
-  const statuses: ReadonlyArray<readonly [AccessErrorCode, number]> = [
-    ['BAD_CREDENTIAL_FILE', 500],
-    ['BAD_CREDENTIAL_RECORD', 500],
-    ['DUPLICATE_CREDENTIAL_ID', 500],
-    ['AUTH_MALFORMED', 401],
-    ['AUTH_SCHEME', 401],
-    ['AUTH_UNKNOWN', 401],
-    ['AUTH_REVOKED', 401],
-    ['AUTH_STALE', 401],
-    ['AUTH_SIGNATURE', 401],
-    ['NONCE_SEEN', 409],
-    ['SCOPE_DENIED', 403],
-    ['RATE_LIMITED', 429],
-  ];
+  // An object rather than a list of pairs, so the compiler counts the codes: a new
+  // `AccessErrorCode` with no status row here is a type error instead of a test that quietly
+  // never ran. The rows are then read back out of the same table the statuses came from.
+  const STATUSES = {
+    BAD_CREDENTIAL_FILE: 500,
+    BAD_CREDENTIAL_RECORD: 500,
+    DUPLICATE_CREDENTIAL_ID: 500,
+    AUTH_MALFORMED: 401,
+    AUTH_SCHEME: 401,
+    AUTH_UNKNOWN: 401,
+    AUTH_REVOKED: 401,
+    AUTH_STALE: 401,
+    AUTH_SIGNATURE: 401,
+    AUTH_NONCE_MISSING: 401,
+    NONCE_SEEN: 409,
+    SCOPE_DENIED: 403,
+    RATE_LIMITED: 429,
+  } satisfies Record<AccessErrorCode, number>;
+
+  type StatusRow = readonly [code: AccessErrorCode, status: number];
+
+  const statuses: ReadonlyArray<StatusRow> = Object.entries(STATUSES).map(
+    ([code, status]) => [code as AccessErrorCode, status],
+  );
 
   it.each(statuses)('%s answers %i', (code, expected) => {
     expect(accessStatus(code)).toBe(expected);
