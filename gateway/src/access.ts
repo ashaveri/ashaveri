@@ -489,7 +489,10 @@ export class TokenBucket {
       this.buckets.set(key, { tokens: rate.burst - 1, updatedMs: nowMs });
       return { allowed: true, retryAfterSeconds: 0 };
     }
-    const refilled = Math.min(rate.burst, bucket.tokens + (nowMs - bucket.updatedMs) * refillPerMs);
+    // A clock that steps backwards would otherwise refill by a negative amount and spend tokens
+    // nobody took, so the elapsed time is floored at nothing before it becomes tokens.
+    const gained = Math.max(0, (nowMs - bucket.updatedMs) * refillPerMs);
+    const refilled = Math.min(rate.burst, bucket.tokens + gained);
     if (refilled < 1) {
       bucket.tokens = refilled;
       bucket.updatedMs = nowMs;
@@ -571,6 +574,19 @@ function constantTimeEquals(left: Uint8Array, right: Uint8Array): boolean {
 /** What a record grants, in the words a refusal gives back. */
 function grantedScopes(scopes: readonly Scope[]): string {
   return scopes.length === 0 ? 'nothing' : scopes.join('+');
+}
+
+/**
+ * The two halves of a scope refusal in one place: the row the credential does not satisfy, and the
+ * row the table does not have. Only the second names the target, so the query is stripped on the
+ * requests that are refused rather than on every one that arrives.
+ */
+function scopeDenial(scope: RouteScope | undefined, record: CredentialRecord, input: AdmissionInput): string {
+  if (scope !== undefined) {
+    return `${record.id} holds ${grantedScopes(record.scopes)}, this route needs ${scope}`;
+  }
+  const path = input.url.split('?', 1)[0] ?? input.url;
+  return `no scope row for ${input.method} ${path}`;
 }
 
 /**
@@ -719,14 +735,10 @@ export class CredentialStore {
    * use.
    */
   admit(input: AdmissionInput): Admission {
-    const path = input.url.split('?', 1)[0] ?? input.url;
+    // The table read is the cheapest step, so it still runs first, but it answers only at the scope
+    // check: refusing a target outside the table before a credential is named would let anyone
+    // enumerate which paths this gateway has scoped.
     const scope = routeScope(input.method, input.url);
-    if (scope === undefined) {
-      // A target outside the table has no requirement attached to it, and guessing `any` would
-      // serve a route nobody has scoped yet. This is a table read, so it stays ahead of everything
-      // that costs more than a lookup.
-      throw new AccessError('SCOPE_DENIED', `no scope row for ${input.method} ${path}`);
-    }
     const header = firstHeader(input.headers, 'authorization');
     if (header === undefined || header.trim().length === 0) {
       throw new AccessError('AUTH_MALFORMED', 'no Authorization header');
@@ -767,11 +779,8 @@ export class CredentialStore {
     if (this.replay.see(nonceKey(presented.credential, nonce))) {
       throw new AccessError('NONCE_SEEN', presented.credential);
     }
-    if (!scopeSatisfied(record.scopes, scope)) {
-      throw new AccessError(
-        'SCOPE_DENIED',
-        `${presented.credential} holds ${grantedScopes(record.scopes)}, this route needs ${scope}`,
-      );
+    if (scope === undefined || !scopeSatisfied(record.scopes, scope)) {
+      throw new AccessError('SCOPE_DENIED', scopeDenial(scope, record, input));
     }
     return this.charge(presented.credential, record, scope, input, 'pop', nonce);
   }
@@ -803,14 +812,14 @@ export class CredentialStore {
    * exit early on the first differing byte. A secret that is not base64url at all decodes to bytes
    * that match nothing, which is the same refusal a wrong secret gets.
    */
-  private admitBearer(secret: string, scope: RouteScope, input: AdmissionInput): Admission {
+  private admitBearer(secret: string, scope: RouteScope | undefined, input: AdmissionInput): Admission {
     const wanted = hashSecret(new Uint8Array(Buffer.from(secret, 'base64url')));
     for (const record of this.byId.values()) {
       if (record.revokedAt !== undefined) continue;
       const stored = bearerSecretHashOf(record);
       if (stored === undefined || !constantTimeEquals(wanted, stored)) continue;
-      if (!scopeSatisfied(record.scopes, scope)) {
-        throw new AccessError('SCOPE_DENIED', `${record.id} holds ${grantedScopes(record.scopes)}, this route needs ${scope}`);
+      if (scope === undefined || !scopeSatisfied(record.scopes, scope)) {
+        throw new AccessError('SCOPE_DENIED', scopeDenial(scope, record, input));
       }
       return this.charge(record.id, record, scope, input, 'bearer', null);
     }

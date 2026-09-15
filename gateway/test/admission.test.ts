@@ -103,16 +103,18 @@ describe('CredentialStore.admit, the five checks in order', () => {
   it('resolves the credential before it verifies a signature', () => {
     const generated = record('svc-1', ['complete']);
     const wrongKey = new Uint8Array(32).fill(9);
-    // Signing with a key the record does not hold is a signature failure, and an id
-    // the file has never carried is an unknown credential. The two refusals differ,
-    // and neither one is allowed to reveal which ids exist.
+    // Both halves sign with a key no record in this file holds, so a signature failure is on
+    // offer in each one, and only the order of the two checks tells the refusals apart. Neither
+    // one is allowed to reveal which ids exist.
     expect(code(() => store([generated.record]).admit(signed({ id: 'svc-1', privateKey: wrongKey })))).toBe('AUTH_SIGNATURE');
-    expect(code(() => store([generated.record]).admit(signed({ id: 'nobody', privateKey: generated.privateKey })))).toBe('AUTH_UNKNOWN');
+    expect(code(() => store([generated.record]).admit(signed({ id: 'nobody', privateKey: wrongKey })))).toBe('AUTH_UNKNOWN');
   });
 
   it('refuses a revoked credential without looking at the signature', () => {
     const generated = record('svc-1', ['complete'], { revokedAt: NOW - 1 });
-    expect(code(() => store([generated.record]).admit(signed({ id: 'svc-1', privateKey: generated.privateKey })))).toBe('AUTH_REVOKED');
+    // Presented with a key that could never verify, so a pipeline that signed first would report
+    // AUTH_SIGNATURE here: the record is withdrawn before the gateway cares what it can sign.
+    expect(code(() => store([generated.record]).admit(signed({ id: 'svc-1', privateKey: new Uint8Array(32).fill(9) })))).toBe('AUTH_REVOKED');
   });
 
   it('refuses a timestamp outside the tolerance and names the clock', () => {
@@ -149,19 +151,24 @@ describe('CredentialStore.admit, the five checks in order', () => {
   });
 
   it('refuses a scope miss before the bucket is touched', () => {
-    const generated = record('read-only', ['read']);
+    const generated = record('read-only', ['read'], { rate: { perMinute: 1, burst: 1 } });
     const s = store([generated.record]);
-    expect(code(() => s.admit(signed({ id: 'read-only', privateKey: generated.privateKey })))).toBe('SCOPE_DENIED');
-    // A refusal that never reaches the bucket leaves the budget whole, so the same
-    // credential presenting a request it is entitled to still goes through. It has to be a
-    // fresh nonce to get that far: the first request's nonce is spent, replay or no scope.
-    expect(
-      code(() =>
-        s.admit(
-          signed({ id: 'read-only', privateKey: generated.privateKey, method: 'GET', target: '/v1/deployment-manifest', nonce: new Uint8Array(16).fill(2) }),
-        ),
-      ),
-    ).toBe('no-error');
+    const denied = (at: number): AdmissionInput =>
+      signed({ id: 'read-only', privateKey: generated.privateKey, nonce: new Uint8Array(16).fill(at) });
+    const entitled = (at: number): AdmissionInput =>
+      signed({
+        id: 'read-only',
+        privateKey: generated.privateKey,
+        method: 'GET',
+        target: '/v1/deployment-manifest',
+        nonce: new Uint8Array(16).fill(at),
+      });
+    // The scope miss is presented twice around a one-token budget. The second time the bucket is
+    // already empty, so a pipeline that charged it before testing scope would report RATE_LIMITED
+    // for a request that was never going to use it, and the GET between them shows it spent none.
+    expect(code(() => s.admit(denied(1)))).toBe('SCOPE_DENIED');
+    expect(code(() => s.admit(entitled(2)))).toBe('no-error');
+    expect(code(() => s.admit(denied(3)))).toBe('SCOPE_DENIED');
   });
 
   it('refuses a rate-exhausted credential with a retry hint', () => {
@@ -237,6 +244,14 @@ describe('bearer mode', () => {
     expect(
       code(() => s.admit({ method: 'POST', url: '/v1/chat/completions', headers: { authorization: `Bearer ${secret}` }, body: null })),
     ).toBe('SCOPE_DENIED');
+    // A target outside the table is refused the same way once a secret has matched, and a secret
+    // that matches nothing there gets the refusal a wrong secret always gets.
+    expect(
+      code(() => s.admit({ method: 'GET', url: '/v1/not-a-route', headers: { authorization: `Bearer ${secret}` }, body: null })),
+    ).toBe('SCOPE_DENIED');
+    expect(
+      code(() => s.admit({ method: 'GET', url: '/v1/not-a-route', headers: { authorization: 'Bearer wrong' }, body: null })),
+    ).toBe('AUTH_UNKNOWN');
   });
 
   it('refuses a bearer record whose stored hash is malformed', () => {
@@ -304,6 +319,17 @@ describe('TokenBucket', () => {
     expect(bucket.take('a', rate, clock).allowed).toBe(false);
   });
 
+  it('refills nothing for time that has not passed when the clock steps backwards', () => {
+    const bucket = new TokenBucket();
+    const rate = { perMinute: 60, burst: 3 };
+    expect(bucket.take('a', rate, 60_000).allowed).toBe(true);
+    expect(bucket.take('a', rate, 60_000).allowed).toBe(true);
+    // One token of three is left, and thirty seconds that have already been counted would
+    // otherwise read as a debt: a step backwards may not spend tokens nobody took.
+    expect(bucket.take('a', rate, 30_000).allowed).toBe(true);
+    expect(bucket.take('a', rate, 30_000).allowed).toBe(false);
+  });
+
   it('keeps one bucket per credential', () => {
     const bucket = new TokenBucket();
     const rate = { perMinute: 1, burst: 1 };
@@ -340,13 +366,18 @@ describe('TokenBucket', () => {
 describe('the refusals that come from the gateway side of the door', () => {
   it('refuses a target the route table does not name, rather than inventing a scope for it', () => {
     const generated = record('svc-1', ['read', 'complete']);
-    const s = store([generated.record]);
-    const unlisted = { method: 'GET', url: '/v1/not-a-route', headers: {}, body: null };
-    expect(code(() => s.admit(unlisted))).toBe('SCOPE_DENIED');
+    const gone = record('svc-gone', ['read', 'complete'], { revokedAt: NOW - 1 });
+    const s = store([generated.record, gone.record]);
+    const unlisted = (id: string, privateKey: Uint8Array, at: number): AdmissionInput =>
+      signed({ id, privateKey, method: 'GET', target: '/v1/not-a-route', nonce: new Uint8Array(16).fill(at) });
+    // An unscoped target is a scope requirement, so it answers through the credential that
+    // presented it: a refusal the table alone could give would let anyone probe which paths a
+    // deployment has scoped.
+    expect(code(() => s.admit({ method: 'GET', url: '/v1/not-a-route', headers: {}, body: null }))).toBe('AUTH_MALFORMED');
+    expect(code(() => s.admit(unlisted('svc-1', generated.privateKey, 1)))).toBe('SCOPE_DENIED');
     expect(accessStatus('SCOPE_DENIED')).toBe(403);
-    // The same headerless request on a listed route is an authentication refusal, so a route that
-    // was never scoped cannot look like a client that forgot its header.
-    expect(code(() => s.admit({ ...unlisted, url: '/v1/deployment-manifest' }))).toBe('AUTH_MALFORMED');
+    expect(code(() => s.admit(unlisted('nobody', generated.privateKey, 2)))).toBe('AUTH_UNKNOWN');
+    expect(code(() => s.admit(unlisted('svc-gone', gone.privateKey, 3)))).toBe('AUTH_REVOKED');
   });
 
   it('refuses a record that does not carry the key material its own kind names', () => {
