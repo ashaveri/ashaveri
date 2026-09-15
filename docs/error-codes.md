@@ -1,7 +1,7 @@
 # Error codes
 
 Every error code this workspace raises, what condition raises it, and what a caller should do
-about it. There are 77 declarations across six unions, resolving to 76 distinct strings;
+about it. There are 80 declarations across six unions, resolving to 79 distinct strings;
 `UNSUPPORTED_PLATFORM` is the one string two unions share, and the last section
 says why that pair is deliberate while every other overlap is not.
 
@@ -21,7 +21,7 @@ The six unions:
 
 | Union | Package | Owns |
 |---|---|---|
-| `ReceiptErrorCode` | `@ashaveri/receipt` | The COSE receipt wire format: decoding, signature, payload fields |
+| `ReceiptErrorCode` | `@ashaveri/receipt` | The COSE receipt wire format and the PoP Authorization header: decoding, signature, payload fields |
 | `SdkErrorCode` | `@ashaveri/sdk` | Client behaviour: transport, policy pins, strict-mode evidence verification |
 | `AttestationErrorCode` | `@ashaveri/attest-core` | Platform evidence: dStack envelopes, SNP reports, TDX quotes, device reports, X.509 |
 | `GuestErrorCode` | `@ashaveri/signerd` | The guest agent socket inside the confidential VM |
@@ -44,6 +44,9 @@ The six unions:
 | `STALE_EVIDENCE` | `ReceiptErrorCode` | `att.ts` is outside `evidenceFreshnessSeconds` of the verification time | Refuse; the platform evidence the receipt commits to has aged out. Re-attest | terminal |
 | `BAD_PAYLOAD` | `ReceiptErrorCode` | A payload field is missing, mis-typed, or has a version other than 1; also a measurement whose width disagrees with its kind, at issue time | Refuse; a signed garbage payload is still garbage | terminal |
 | `BAD_SIGNING_KEY` | `ReceiptErrorCode` | A signing seed handed to `signingKeyFromSeed` is not 32 bytes | Fix the key material; nothing was signed | terminal |
+| `BAD_POP_HEADER` | `ReceiptErrorCode` | A header that does name `Ashaveri-PoP` is missing `credential`, `ts` or `sig`, repeats a parameter, carries one the format does not define, or holds a `ts` or signature outside the width the format allows | Fix the client. The request was not admitted, and the same header will fail the same way | terminal |
+| `BAD_POP_NONCE` | `ReceiptErrorCode` | The nonce handed to `signPopAuthorization` is not `POP_NONCE_BYTES` long | Fix the nonce before signing. No signature was made, so nothing left the client | terminal |
+| `AUTH_SCHEME_MISMATCH` | `ReceiptErrorCode` | The `Authorization` header does not name the `Ashaveri-PoP` scheme, so no credential was ever named | Send the header form the deployment speaks. Nothing about the credential is known yet | terminal |
 
 ## `SdkErrorCode`
 
