@@ -1,4 +1,5 @@
 import { hashRequest, randomNonce, type VerifiedReceipt } from '@ashaveri/receipt';
+import { authorizedFetch, type AshaveriCredential } from './auth.js';
 import { toBase64Url } from './b64.js';
 import type { VerifyMode } from './client.js';
 import { GatewaySession } from './gateway.js';
@@ -11,6 +12,8 @@ export interface WrapOptions {
   /** Verification level. Default: 'receipt'. 'strict' requires a policy. */
   readonly verify?: VerifyMode;
   readonly policy?: AshaveriPolicy;
+  /** Proof of possession or bearer credential. Omit to talk to a gateway that requires none. */
+  readonly credential?: AshaveriCredential;
   /** Wall clock in milliseconds since the epoch; defaults to Date.now. */
   readonly now?: () => number;
   readonly onReceipt?: (receipt: VerifiedReceipt, id: string) => void;
@@ -43,22 +46,23 @@ export function wrapOpenAI<T extends object>(client: T, options: WrapOptions = {
     throw new SdkError('NO_POLICY', "verify: 'strict' requires a policy pinning keys and measurements");
   }
   const original = holder.fetch.bind(undefined);
+  const authed = authorizedFetch(options.credential, original, { now: options.now });
   const sessions = new Map<string, GatewaySession>();
   const tracked = new Map<string, Promise<VerifiedReceipt>>();
 
   const wrappedFetch: FetchLike = async (input, init) => {
     if (mode === 'off' || typeof init?.body !== 'string') {
-      return original(input, init);
+      return authed(input, init);
     }
     const url = typeof input === 'string' ? input : input instanceof URL ? input.href : input.url;
     const baseUrl = chatCompletionsBase(url);
     if (baseUrl === undefined) {
-      return original(input, init);
+      return authed(input, init);
     }
     const nonce = randomNonce();
     const headers = new Headers(init.headers);
     headers.set('x-ashaveri-nonce', toBase64Url(nonce));
-    const response = await original(input, { ...init, headers });
+    const response = await authed(input, { ...init, headers });
     const receiptId = response.headers.get('x-ashaveri-receipt-id');
     if (receiptId === null) {
       if (mode === 'strict') {
@@ -119,7 +123,7 @@ export function wrapOpenAI<T extends object>(client: T, options: WrapOptions = {
   function sessionFor(base: string): GatewaySession {
     let session = sessions.get(base);
     if (session === undefined) {
-      session = new GatewaySession(base, { fetchImpl: original, policy: options.policy });
+      session = new GatewaySession(base, { fetchImpl: authed, policy: options.policy });
       sessions.set(base, session);
     }
     return session;

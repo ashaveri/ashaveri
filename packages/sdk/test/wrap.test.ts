@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { wrapOpenAI } from '../src/index.js';
+import { toBase64Url, wrapOpenAI } from '../src/index.js';
 import {
   createFakeGateway,
   FAKE_BASE_URL,
@@ -122,5 +122,16 @@ describe('wrapOpenAI', () => {
         body: REQUEST_BODY,
       }),
     ).rejects.toMatchObject({ code: 'NOT_RECEIPTED' });
+  });
+
+  it('sends the credential through the wrapped transport', async () => {
+    let seen: Headers | null = null;
+    const fake = { fetch: (async (_input: string, init?: RequestInit) => {
+      seen = new Headers(init?.headers);
+      return new Response(JSON.stringify({ id: 'c1', object: 'chat.completion', created: 0, model: 'm', choices: [] }), { status: 200 });
+    }) as unknown as typeof fetch };
+    const wrapped = wrapOpenAI(fake, { credential: { kind: 'bearer', secret: new Uint8Array(32) } });
+    await (wrapped as unknown as { fetch: typeof fetch }).fetch('https://gw.example/v1/chat/completions', { method: 'POST', body: '{}' });
+    expect(seen?.get('authorization')).toBe(`Bearer ${toBase64Url(new Uint8Array(32))}`);
   });
 });

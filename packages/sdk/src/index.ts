@@ -13,6 +13,8 @@ export type {
   VerificationOutcome,
   VerifyMode,
 } from './client.js';
+export { authorizedFetch, credentialFromEnv, CREDENTIAL_ENV } from './auth.js';
+export type { AshaveriCredential, AuthOptions } from './auth.js';
 export { wrapOpenAI } from './wrap.js';
 export type { AshaveriTracker, WrapOptions } from './wrap.js';
 export { GatewaySession } from './gateway.js';

@@ -1,7 +1,7 @@
 # Error codes
 
 Every error code this workspace raises, what condition raises it, and what a caller should do
-about it. There are 93 declarations across seven unions, resolving to 92 distinct strings;
+about it. There are 94 declarations across seven unions, resolving to 93 distinct strings;
 `UNSUPPORTED_PLATFORM` is the one string two unions share, and the last section
 says why that pair is deliberate while every other overlap is not.
 
@@ -74,6 +74,7 @@ The seven unions:
 | `EVIDENCE_TEE_MISMATCH` | `SdkErrorCode` | The receipt's `tee` names a different platform family than the quote is from | Refuse; the label and the hardware disagree | terminal |
 | `EVIDENCE_GPU_MISSING` | `SdkErrorCode` | The receipt claims a composite kind and no device report was verified beside it | Refuse. The accelerator half of the claim is unevidenced | terminal |
 | `EVIDENCE_MEASUREMENT_MISMATCH` | `SdkErrorCode` | The platform's measured digest differs from the `meas.m` the receipt signed | Refuse; a different image served this, or the receipt is not from this deployment | terminal |
+| `AUTH_CONFIG` | `SdkErrorCode` | The credential a client was handed cannot be used: a PoP key that is not 32 bytes, an `ASHAVERI_CREDENTIAL_KIND` other than `pop` or `bearer`, an `x-ashaveri-nonce` header whose width is not the one the signing string commits to, or a request body this client cannot hash exactly | Fix the credential or the body form. Nothing was sent, so no gateway refused anything | terminal |
 
 ## `AttestationErrorCode`
 
