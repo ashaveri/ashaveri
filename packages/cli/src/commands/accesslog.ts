@@ -1,5 +1,6 @@
 import { readdir, readFile, rename, unlink, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
+import { checkId } from '../records.js';
 import { UsageError } from '../usage.js';
 
 const ACCESS_FILE = /^access-(\d{4}-\d{2}-\d{2})-(\d{3})\.jsonl$/u;
@@ -123,6 +124,9 @@ export async function runAccessLog(sub: string[], flags: AccessLogFlags, now: ()
   if (dir === undefined) throw new UsageError('accesslog scrub needs --access-log <dir>');
   const credential = flags.credential;
   if (credential === undefined) throw new UsageError('accesslog scrub needs --credential <id>');
+  // Checked before any file is rewritten: this value comes back in the summary line and in the
+  // marker, and an erasure whose own report can carry a forged line is a receipt that proves nothing.
+  checkId(credential, '--credential');
   const result = await accesslogScrub(dir, credential, now);
   if (flags.json === true) {
     process.stdout.write(`${JSON.stringify(result, null, 2)}\n`);

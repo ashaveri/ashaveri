@@ -1,6 +1,7 @@
 import { randomBytes } from 'node:crypto';
 import { fromBase64Url, generateSigningKey, toBase64Url, toHex } from '@ashaveri/receipt';
 import {
+  checkId,
   hashBearerSecret,
   MAX_CREDENTIALS,
   readCredentialFile,
@@ -13,8 +14,6 @@ import {
 import { shortId } from './keygen.js';
 import { UsageError } from '../usage.js';
 
-/** The same id rule the gateway applies to every record in the file, stated here before a write. */
-const CREDENTIAL_ID = /^[A-Za-z0-9_-]{1,64}$/u;
 const PUBLIC_KEY_BYTES = 32;
 
 const SUBCOMMANDS = ['add', 'revoke', 'list'] as const;
@@ -101,13 +100,6 @@ function parsePublicKey(raw: string): string {
   return toBase64Url(bytes);
 }
 
-function checkId(id: string): string {
-  if (!CREDENTIAL_ID.test(id)) {
-    throw new UsageError(`--id '${id}' is outside [A-Za-z0-9_-]{1,64}`);
-  }
-  return id;
-}
-
 export interface AddResult {
   readonly record: CredentialRecord;
   /** The only moment the secret exists outside the caller's own memory. */
@@ -117,7 +109,7 @@ export interface AddResult {
 export async function credentialAdd(input: AddInput): Promise<AddResult> {
   const { kind } = input;
   const file = await readCredentialFile(input.credentials);
-  const id = checkId(input.id ?? `${kind === 'pop' ? 'pop' : 'bearer'}-${shortId()}`);
+  const id = checkId(input.id ?? `${kind === 'pop' ? 'pop' : 'bearer'}-${shortId()}`, '--id');
   if (file.credentials.some((each) => each.id === id)) {
     throw new UsageError(`credential '${id}' already exists in ${input.credentials}`);
   }
@@ -216,15 +208,28 @@ function pad(value: string, width: number): string {
 
 /**
  * A label is free text, and a file need not have been written by this program, so the column is
- * printed as it is unless it carries something that would move the cursor: a newline in a label is
- * otherwise a row on the terminal that the credential file does not contain. JSON quoting escapes
- * the control character and stays copyable.
+ * printed as it is unless it carries something that would move the cursor or reorder what it draws:
+ * the C0 and C1 control ranges, the two line and paragraph separators, the bidi and zero-width
+ * formatting characters, and the quote and backslash that a copied value has to survive.
  */
-const NEEDS_QUOTING = /[\u0000-\u001f\u007f"\\]/u;
+const NEEDS_QUOTING = /[\u0000-\u001f\u007f-\u009f\u2028\u2029\u202a-\u202e\u2060-\u2064"\\]/u;
+
+/**
+ * What `JSON.stringify` hands back unescaped inside its own quotes. The C1 range is not a JSON
+ * control character and the formatting characters are not JSON specials at all, so quoting alone
+ * would still print a U+0085 a line-splitting reader obeys and a U+202E that reorders the rest of
+ * the row. These are the characters the class above exists to catch.
+ */
+const RAW_AFTER_QUOTING = /[\u0080-\u009f\u202a-\u202e\u2060-\u2064]/gu;
+
+function escapeCodePoint(char: string): string {
+  return `\\u${char.charCodeAt(0).toString(16).padStart(4, '0')}`;
+}
 
 function labelCell(label: string | undefined): string {
   if (label === undefined) return '';
-  return NEEDS_QUOTING.test(label) ? JSON.stringify(label) : label;
+  if (!NEEDS_QUOTING.test(label)) return label;
+  return JSON.stringify(label).replace(RAW_AFTER_QUOTING, escapeCodePoint);
 }
 
 function tableOf(views: CredentialView[]): string {
@@ -245,7 +250,9 @@ function printRecord(record: CredentialRecord): void {
   print('kind:', record.kind);
   print('scopes:', record.scopes.join(','));
   print('createdAt:', String(record.createdAt));
-  if (record.label !== undefined) print('label:', record.label);
+  // The same guard the table column applies: this echo is a line-by-line listing of a record, so a
+  // label with a newline in it would otherwise read as a field the file does not hold.
+  if (record.label !== undefined) print('label:', labelCell(record.label));
   if (record.rate !== undefined) print('rate:', `perMinute=${String(record.rate.perMinute)},burst=${String(record.rate.burst)}`);
 }
 

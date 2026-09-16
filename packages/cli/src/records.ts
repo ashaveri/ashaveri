@@ -1,5 +1,5 @@
 import { chmod, readFile, rename, writeFile } from 'node:fs/promises';
-import { sha256Hex } from '@ashaveri/receipt';
+import { fromBase64Url, sha256Hex } from '@ashaveri/receipt';
 import { UsageError } from './usage.js';
 
 export type Scope = 'read' | 'complete';
@@ -39,8 +39,11 @@ export const CREDENTIALS_FILE_VERSION = 1;
 
 /**
  * Re-declared from `@ashaveri/signerd` for the same reason the record shape is: the gateway package
- * is private, so an installed CLI cannot import its way out of this. `test/credential.test.ts`
- * asserts the two numbers still agree.
+ * is private, so an installed CLI cannot import its way out of this. Two cases in
+ * `test/credential.test.ts` pin the number against the gateway's own exported copy from the inside
+ * of behaviour rather than by comparing constants: a file of exactly this many records is refused
+ * by `add`, and a file one record longer is refused by `list`. If the two numbers ever drift, one
+ * of those two stops matching.
  */
 export const MAX_CREDENTIALS = 10_000;
 
@@ -69,19 +72,37 @@ export async function readCredentialFile(path: string): Promise<CredentialFile> 
 }
 
 /**
- * What `list` shows, what `add` compares a new id against, and what `revoke` finds a record by: the
- * five fields this program reads, and the id it reads all of them by. This is not a second copy of
- * the gateway's validator, and it does not try to be one. A rate, a label or a key this program
- * never reads travels through a rewrite untouched, so `test/credential.test.ts` reads a file it
- * wrote back through the gateway's parser.
+ * What `list` shows, what `add` compares a new id against, and what `revoke` finds a record by, plus
+ * the fields that decide whether the file is loadable at all. This reader mirrors every rule the
+ * gateway's `parseRecord` has, and the reason is measured rather than stylistic: `server.ts` reloads
+ * this file ahead of admission and outside the request's own error handling, so a record that stops
+ * parsing is a deployment answering 500 to every route, while a CLI that never checked that field
+ * lists the file and reports a revocation as a success. A rule the gateway gains and this reader
+ * does not is caught by the table in `test/credential.test.ts`, which drives a malformed shape
+ * through both parsers and requires both to refuse it.
  *
- * A field this program does read is a different case. `list` prints `revokedAt` and `revoke` finds a
- * record by `id`, so a string date or a repeated id is the CLI printing a revocation over a file the
- * gateway will not load: `"revokedAt": "tomorrow"` is a row that reads as a date, and the promise
- * after it is a write that changes nothing. Those two checks are here because this program is the
- * thing that made the promise.
+ * Two places the wording differs on purpose. The gateway's messages are for a log line and this
+ * program's are for an operator at a prompt, so the id rule is stated as a range instead of a code,
+ * and a `revokedAt` here says "number of seconds" rather than "a number": the gateway's `asNumber`
+ * takes `1.5` and `-0` without complaint, and a promise of whole seconds would be a rule neither
+ * side enforces.
  */
 const CREDENTIAL_ID = /^[A-Za-z0-9_-]{1,64}$/u;
+const HEX32 = /^[0-9a-f]{64}$/u;
+const PUBLIC_KEY_BYTES = 32;
+
+/**
+ * The gateway's id rule, stated once here because three commands repeat back an id they were handed:
+ * `credential add` and `credential revoke` name it in a sentence, `keygen` gives it a row of its
+ * own, and `accesslog scrub` interpolates it into a count. An id carrying a newline is a second line
+ * on the terminal that no record and no erasure occupies.
+ */
+export function checkId(value: string, flag: string): string {
+  if (!CREDENTIAL_ID.test(value)) {
+    throw new UsageError(`${flag} '${value}' is outside [A-Za-z0-9_-]{1,64}`);
+  }
+  return value;
+}
 
 function checkedRecord(value: unknown, where: string): CredentialRecord {
   const record = typeof value === 'object' && value !== null ? (value as Record<string, unknown>) : {};
@@ -93,17 +114,64 @@ function checkedRecord(value: unknown, where: string): CredentialRecord {
   if (kind !== 'pop' && kind !== 'bearer') {
     throw new UsageError(`${where}.kind must be pop or bearer`);
   }
+  // An empty scope list is loadable and means manifest-only: `scopeSatisfied` grants an `any` route
+  // to every credential and refuses `read` here, so this record can reach exactly one endpoint. The
+  // gateway reads it, so this reader has to, or the CLI cannot revoke a credential it cannot list.
   const scopes = record['scopes'];
-  if (!Array.isArray(scopes) || scopes.length === 0 || !scopes.every((each) => each === 'read' || each === 'complete')) {
-    throw new UsageError(`${where}.scopes must be a non-empty array of read and complete`);
+  if (!Array.isArray(scopes) || !scopes.every((each) => each === 'read' || each === 'complete')) {
+    throw new UsageError(`${where}.scopes must be an array of read and complete`);
+  }
+  if (kind === 'pop') {
+    const key = record['publicKey'];
+    if (typeof key !== 'string') {
+      throw new UsageError(`${where}.publicKey is not a string`);
+    }
+    // Decoded with the gateway's own reader, so a text whose trailing bits are set and a text that
+    // is merely the wrong length both fail here the way they fail there.
+    let bytes: Uint8Array;
+    try {
+      bytes = fromBase64Url(key);
+    } catch (err) {
+      throw new UsageError(`${where}.publicKey is not base64url: ${err instanceof Error ? err.message : String(err)}`);
+    }
+    if (bytes.length !== PUBLIC_KEY_BYTES) {
+      throw new UsageError(`${where}.publicKey is ${String(bytes.length)} bytes, not ${String(PUBLIC_KEY_BYTES)}`);
+    }
+  } else {
+    const hash = record['secretHash'];
+    if (typeof hash !== 'string') {
+      throw new UsageError(`${where}.secretHash is not a string`);
+    }
+    if (!HEX32.test(hash)) {
+      throw new UsageError(`${where}.secretHash is not 64 hex characters`);
+    }
   }
   const createdAt = record['createdAt'];
   if (typeof createdAt !== 'number' || !Number.isFinite(createdAt)) {
-    throw new UsageError(`${where}.createdAt must be a number of whole seconds`);
+    throw new UsageError(`${where}.createdAt must be a number of seconds`);
   }
   const revokedAt = record['revokedAt'];
   if (revokedAt !== undefined && (typeof revokedAt !== 'number' || !Number.isFinite(revokedAt))) {
-    throw new UsageError(`${where}.revokedAt must be a number of whole seconds when present`);
+    throw new UsageError(`${where}.revokedAt must be a number of seconds when present`);
+  }
+  // `list` prints this field and `add` echoes it, which is what makes it a field this program makes
+  // a promise about: a number there prints as itself and an array prints as its joined elements, so
+  // the row describes a value the file does not hold.
+  const label = record['label'];
+  if (label !== undefined && typeof label !== 'string') {
+    throw new UsageError(`${where}.label must be a string when present`);
+  }
+  const rate = record['rate'];
+  if (rate !== undefined) {
+    if (typeof rate !== 'object' || rate === null) {
+      throw new UsageError(`${where}.rate must be an object of perMinute and burst`);
+    }
+    const { perMinute, burst } = rate as { perMinute?: unknown; burst?: unknown };
+    for (const [name, limit] of [['perMinute', perMinute], ['burst', burst]] as const) {
+      if (typeof limit !== 'number' || !Number.isInteger(limit) || limit < 1) {
+        throw new UsageError(`${where}.rate.${name} must be an integer of at least 1`);
+      }
+    }
   }
   return value as CredentialRecord;
 }
@@ -115,6 +183,14 @@ function normalizeFile(value: unknown, path: string): CredentialFile {
   const raw = value as { version?: unknown; credentials: unknown[] };
   if (raw.version !== CREDENTIALS_FILE_VERSION) {
     throw new UsageError(`${path} has version ${String(raw.version)}, this build writes ${String(CREDENTIALS_FILE_VERSION)}`);
+  }
+  // The ceiling used to live only on the write path, which left `list` printing a table of records
+  // over a file no gateway will load and `revoke` reporting success against it. Checked here, before
+  // a row is built, because the refusal is about the whole file and not about a record in it.
+  if (raw.credentials.length > MAX_CREDENTIALS) {
+    throw new UsageError(
+      `${path} holds ${String(raw.credentials.length)} records, which exceeds the ${String(MAX_CREDENTIALS)} a gateway will scan per request`,
+    );
   }
   const credentials = raw.credentials.map((each, index) =>
     checkedRecord(each, `credentials[${String(index)}]`),

@@ -1,5 +1,5 @@
 import { spawnSync } from 'node:child_process';
-import { mkdtempSync, readFileSync, rmSync, statSync, writeFileSync } from 'node:fs';
+import { mkdirSync, mkdtempSync, readFileSync, rmSync, statSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -212,13 +212,14 @@ describe('ashaveri credential add', () => {
     // Every other field of this record is valid, so the scopes check is the only thing that can
     // fire. A parsed record is typed as carrying scopes, which is what lets an unvalidated cast
     // reach `list` and die there with exit 1 and a stack trace: the same shape of surprise the
-    // gateway would have had, moved one program earlier.
+    // gateway would have had, moved one program earlier. A missing `scopes` and a `scopes: []` are
+    // different files, and only the first one is refused here.
     const path = freshFile(
       `{"version":1,"credentials":[{"id":"no-scopes","kind":"bearer","secretHash":"${'0'.repeat(64)}","createdAt":1772000000}]}\n`,
     );
     const listed = runCli(['credential', 'list', '--credentials', path]);
     expect(listed.status).toBe(2);
-    expect(listed.stderr).toContain('credentials[0].scopes must be a non-empty array of read and complete');
+    expect(listed.stderr).toContain('credentials[0].scopes must be an array of read and complete');
     expect(listed.stderr).not.toContain('unexpected error');
     expect(listed.stdout).toBe('');
   });
@@ -347,7 +348,7 @@ describe('ashaveri credential revoke and list', () => {
     const before = readFileSync(path, 'utf8');
     const listed = runCli(['credential', 'list', '--credentials', path]);
     expect(listed.status).toBe(2);
-    expect(listed.stderr).toContain('credentials[0].revokedAt must be a number of whole seconds when present');
+    expect(listed.stderr).toContain('credentials[0].revokedAt must be a number of seconds when present');
     expect(listed.stdout).toBe('');
     const revoked = runCli(['credential', 'revoke', '--credentials', path, '--id', 'a', '--now', REVOKED_AT]);
     expect(revoked.status).toBe(2);
@@ -461,5 +462,211 @@ describe('a credential file the gateway can serve', () => {
         body: null,
       }),
     ).toThrow();
+  });
+});
+
+describe('what the CLI is allowed to print', () => {
+  it('refuses a label that is not a string, because the table prints it', () => {
+    // `list` reads `label` for the row, `--json` for the object, and `revoke` for the record echo, so
+    // a label is a field this program makes a promise about in exactly the way `revokedAt` is. A
+    // number prints as itself and an array prints as its joined elements, which is a row describing a
+    // value the file does not hold.
+    const path = freshFile(
+      `{"version":1,"credentials":[{"id":"a","kind":"bearer","secretHash":"${'0'.repeat(64)}","scopes":["read"],"createdAt":1772000000,"label":42}]}\n`,
+    );
+    const listed = runCli(['credential', 'list', '--credentials', path]);
+    expect(listed.status).toBe(2);
+    expect(listed.stderr).toContain('credentials[0].label must be a string when present');
+    expect(listed.stdout).not.toContain('42');
+    expect(() => parseCredentialFile(readFileSync(path, 'utf8'))).toThrow(/label/u);
+  });
+
+  it('lists and revokes a credential whose scopes are empty', () => {
+    // The gateway loads this record and serves it, but only for a route whose scope is `any`, so it is
+    // a manifest-only credential rather than a mistake. A CLI that refuses to read it cannot revoke it
+    // either, which makes the stricter rule the unsafe one.
+    const path = freshFile(
+      `{"version":1,"credentials":[{"id":"manifest-only","kind":"bearer","secretHash":"${'0'.repeat(64)}","scopes":[],"createdAt":1772000000}]}\n`,
+    );
+    const listed = runCli(['credential', 'list', '--credentials', path]);
+    expect(listed.status).toBe(0);
+    expect(listed.stdout).toContain('manifest-only');
+    const revoked = runCli(['credential', 'revoke', '--credentials', path, '--id', 'manifest-only', '--now', REVOKED_AT]);
+    expect(revoked.status).toBe(0);
+    expect(parseCredentialFile(readFileSync(path, 'utf8')).credentials[0]).toMatchObject({
+      scopes: [],
+      revokedAt: Date.parse(REVOKED_AT) / 1000,
+    });
+  });
+
+  it('still refuses to add a credential with no scope', () => {
+    // The read side above accepts an empty list because a file can arrive from an editor. The write
+    // side has no reason to create one from a command line, and `--scopes ''` is far more likely a
+    // dropped argument than a manifest-only credential.
+    const path = freshFile();
+    const added = runCli(addArgs(path, '--id', 'none', '--scopes', ''));
+    expect(added.status).toBe(2);
+    expect(added.stderr).toContain('--scopes must name at least one scope');
+    expect(() => readFileSync(path)).toThrow();
+  });
+
+  it('refuses a file longer than a gateway will load, before it prints a row about it', () => {
+    // This is one half of the assertion that the CLI's re-declared copy of the ceiling has not
+    // drifted: the file is built from the gateway's own exported number, and a longer one has to be
+    // refused here while the sibling case above refuses nothing at exactly that length.
+    const path = freshFile(
+      `{"version":1,"credentials":[${Array.from({ length: MAX_CREDENTIALS + 1 }, (_, i) =>
+        `{"id":"c${String(i)}","kind":"bearer","secretHash":"${'0'.repeat(64)}","scopes":["read"],"createdAt":1772000000}`,
+      ).join(',')}]}\n`,
+    );
+    const listed = runCli(['credential', 'list', '--credentials', path]);
+    expect(listed.status).toBe(2);
+    expect(listed.stderr).toContain(`${String(MAX_CREDENTIALS + 1)} records`);
+    expect(listed.stderr).toContain(String(MAX_CREDENTIALS));
+    expect(listed.stdout).toBe('');
+  });
+
+  it('keeps a newline inside the row a label was printed on', () => {
+    // `add` echoes the record it just wrote, and the label is free text: a second line out of that
+    // field reads as a second credential to anyone scanning the terminal on the way to a password
+    // manager, which is the same forgery the table column already refuses.
+    const path = freshFile();
+    const added = runCli(addArgs(path, '--label', 'alpha\nFORGED  bearer  read  1  1  forged row'));
+    expect(added.status).toBe(0);
+    expect(added.stdout).not.toMatch(/^FORGED/mu);
+    expect(added.stdout).toContain('label:          "alpha\\nFORGED');
+  });
+
+  it('escapes a label the terminal would otherwise obey', () => {
+    // Three different holes in one column. `a\u0085b` is the C1 range, which the old detection class
+    // never matched at all; `\u202e` reorders the characters after it, so a row can read as something
+    // else; and a quote and a backslash have to survive being copied back into an editor. JSON
+    // quoting handles the last two and neither of the first two, which is why the cell escapes what
+    // the stringifier leaves raw.
+    const path = freshFile();
+    runCli(addArgs(path, '--id', 'c1', '--label', 'a\u0085b'));
+    runCli(addArgs(path, '--id', 'bidi', '--label', 're\u202est'));
+    runCli(addArgs(path, '--id', 'quotes', '--label', 'say "x" \\ y'));
+    const listed = runCli(['credential', 'list', '--credentials', path]);
+    expect(listed.status).toBe(0);
+    const lines = listed.stdout.split('\n').filter((each) => each.length > 0);
+    expect(lines).toHaveLength(4);
+    expect(lines[1]).toContain('\\u0085');
+    expect(lines[2]).toContain('\\u202e');
+    expect(lines[3]).toContain('\\"x\\"');
+    expect(lines[3]).toContain('\\\\ y');
+    expect(listed.stdout).not.toMatch(/[\u0080-\u009f\u2028\u2029\u202a-\u202e\u2060-\u2064]/u);
+  });
+
+  it('refuses a keygen id the gateway would refuse a record for', () => {
+    const bad = runCli(['keygen', '--id', 'ok\nFORGED keygen row']);
+    expect(bad.status).toBe(2);
+    expect(bad.stderr).toContain('--id');
+    expect(bad.stdout).not.toContain('FORGED');
+    const space = runCli(['keygen', '--id', 'not valid']);
+    expect(space.status).toBe(2);
+    expect(space.stderr).toContain("--id 'not valid' is outside [A-Za-z0-9_-]{1,64}");
+    const good = runCli(['keygen', '--id', 'svc-a']);
+    expect(good.status).toBe(0);
+    expect(good.stdout).toMatch(/^id:\s+svc-a$/mu);
+  });
+
+  it('refuses a scrub credential that is not a credential id', () => {
+    const dir = join(tempDir, `scrub-id-${String(++counter)}`);
+    mkdirSync(dir);
+    writeFileSync(join(dir, 'access-2026-02-24-000.jsonl'), '');
+    const result = runCli(['accesslog', 'scrub', '--access-log', dir, '--credential', 'svc-a\nFORGED scrub row']);
+    expect(result.status).toBe(2);
+    expect(result.stderr).toContain('--credential');
+    expect(result.stdout).not.toContain('FORGED');
+  });
+
+  it('carries the one-time warning on stderr when keygen prints JSON', () => {
+    // `credential add --json` puts its notice there for the same reason: stdout has to be the object
+    // and nothing else, and a private half that leaves no warning anywhere is a private half an
+    // operator assumes a file holds.
+    const result = runCli(['keygen', '--json']);
+    expect(result.status).toBe(0);
+    expect(() => JSON.parse(result.stdout)).not.toThrow();
+    expect(result.stdout).not.toMatch(/terminal/i);
+    expect(result.stderr).toMatch(/private half/i);
+  });
+
+  it('warns once on stdout for each human-facing add, and on stderr for each machine one', () => {
+    // Every one of the three kinds hands over something that exists nowhere else afterwards: a
+    // generated private key, a bearer secret, or the news that no secret passed through at all. A
+    // shape that loses its sentence is a shape an operator reads as a quiet success.
+    const shapes: Array<[string, string[], RegExp]> = [
+      ['generated key', ['--id', 'w-pop'], /private key exists only in this terminal/u],
+      ['enrolled public key', ['--id', 'w-pub', '--public-key', 'A'.repeat(43)], /stored the public key only/u],
+      ['bearer secret', ['--id', 'w-bearer', '--kind', 'bearer'], /secret exists only in this terminal/u],
+    ];
+    for (const [name, args, notice] of shapes) {
+      const human = runCli(addArgs(freshFile(), ...args));
+      expect(human.status, name).toBe(0);
+      expect(human.stdout, name).toMatch(notice);
+      const machine = runCli(addArgs(freshFile(), ...args, '--json'));
+      expect(machine.status, name).toBe(0);
+      expect(() => JSON.parse(machine.stdout), name).not.toThrow();
+      expect(machine.stdout, name).not.toMatch(notice);
+      expect(machine.stderr, name).toMatch(notice);
+    }
+  });
+
+  it('states the scrub loss as the parts it rewrites, not as the whole directory', () => {
+    const help = runCli(['--help']);
+    expect(help.stdout).toMatch(/appended to a part between reading it and rewriting that part/u);
+    expect(help.stdout).not.toMatch(/every record appended while the scrub works through the directory/u);
+  });
+});
+
+describe('one record, two parsers', () => {
+  /**
+   * The CLI's reader mirrors the gateway's `parseRecord`, and a mirror goes stale silently: the day
+   * the gateway gains a rule the reader does not have is the day `list` prints a healthy row over a
+   * file that takes the deployment down. One entry per rule the gateway has, each differing from a
+   * loadable record in exactly one field, driven through both parsers.
+   */
+  const BEARER_FIELDS = `"id":"a","kind":"bearer","secretHash":"${'0'.repeat(64)}","scopes":["read"]`;
+  const BEARER = `${BEARER_FIELDS},"createdAt":1772000000`;
+  const REFUSED: Array<[string, string]> = [
+    ['a pop record with no public key', '"id":"a","kind":"pop","scopes":["read"],"createdAt":1772000000'],
+    ['a public key that is 31 bytes', `"id":"a","kind":"pop","publicKey":"${'A'.repeat(42)}","scopes":["read"],"createdAt":1772000000`],
+    ['a padded public key', `"id":"a","kind":"pop","publicKey":"${'A'.repeat(43)}=","scopes":["read"],"createdAt":1772000000`],
+    ['a public key that is not a string', `"id":"a","kind":"pop","publicKey":7,"scopes":["read"],"createdAt":1772000000`],
+    ['a bearer record with no secret hash', '"id":"a","kind":"bearer","scopes":["read"],"createdAt":1772000000'],
+    ['an upper-case secret hash', `"id":"a","kind":"bearer","secretHash":"${'0'.repeat(63)}A","scopes":["read"],"createdAt":1772000000`],
+    ['a short secret hash', `"id":"a","kind":"bearer","secretHash":"${'0'.repeat(63)}","scopes":["read"],"createdAt":1772000000`],
+    ['scopes that are not a list', `"id":"a","kind":"bearer","secretHash":"${'0'.repeat(64)}","scopes":"read","createdAt":1772000000`],
+    ['an unknown scope', `"id":"a","kind":"bearer","secretHash":"${'0'.repeat(64)}","scopes":["read","export"],"createdAt":1772000000`],
+    ['an id with a space in it', `"id":"a b","kind":"bearer","secretHash":"${'0'.repeat(64)}","scopes":["read"],"createdAt":1772000000`],
+    ['a kind that is neither', `"id":"a","kind":"apikey","secretHash":"${'0'.repeat(64)}","scopes":["read"],"createdAt":1772000000`],
+    ['a label that is a number', `${BEARER},"label":42`],
+    ['a rate that is not an object', `${BEARER},"rate":"fast"`],
+    ['a rate of zero', `${BEARER},"rate":{"perMinute":0,"burst":5}`],
+    ['a rate with no burst', `${BEARER},"rate":{"perMinute":5}`],
+    ['a createdAt that is a string', `${BEARER_FIELDS},"createdAt":"yesterday"`],
+    ['a revokedAt that is a string', `${BEARER},"revokedAt":"tomorrow"`],
+    ['a revokedAt that is not finite', `${BEARER},"revokedAt":1e999`],
+  ];
+
+  for (const [name, fields] of REFUSED) {
+    it(`refuses ${name}, and the gateway refuses it too`, () => {
+      const text = `{"version":1,"credentials":[{${fields}}]}\n`;
+      const listed = runCli(['credential', 'list', '--credentials', freshFile(text)]);
+      expect(listed.status).toBe(2);
+      expect(listed.stdout).toBe('');
+      expect(() => parseCredentialFile(text)).toThrow();
+    });
+  }
+
+  it('accepts the loadable record every entry above differs from', () => {
+    // Without this the table proves nothing: a typo that malformed every entry would leave fifteen
+    // passing assertions and no control.
+    const text = `{"version":1,"credentials":[{"id":"a","kind":"pop","publicKey":"${'A'.repeat(43)}","scopes":["read"],"createdAt":1772000000,"label":"a label","rate":{"perMinute":60,"burst":120}}]}\n`;
+    const listed = runCli(['credential', 'list', '--credentials', freshFile(text)]);
+    expect(listed.status).toBe(0);
+    expect(listed.stdout).toContain('a label');
+    expect(parseCredentialFile(text).credentials[0]).toMatchObject({ id: 'a', rate: { perMinute: 60, burst: 120 } });
   });
 });

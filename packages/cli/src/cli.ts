@@ -30,13 +30,16 @@ Arguments:
 The private key that keygen or credential add prints exists only in that terminal. --label
 is the one field of the credential file that can name a person, and the gateway never writes
 it anywhere; it is the field a data subject's request is about. accesslog scrub is the
-erasure route for the access log, and it leaves a marker naming the credential and the count
-it removed, because an erasure that looks identical to a gap proves nothing. The scrub holds
-no lock and no gateway stops writing while it runs: it reads a part, then renames its own copy
-over it, so every record appended while the scrub works through the directory is lost, not one.
-A part the scrub empties is deleted outright, and records lost that way are in no marker's
-count. Run it against a deployment that is not serving. --now sets the day a marker is named
-for, and a marker for a day the deployment no longer keeps is deleted by the next sweep.
+erasure route for the access log, and a run that removes a record leaves a marker naming that
+credential and the count it removed, because an erasure that looks identical to a gap proves
+nothing. A run that removes nothing leaves no marker, so a credential with no matching record
+and a scrub that never ran read the same from the directory. The scrub holds no lock and no
+gateway stops writing while it runs: it reads a part, then renames its own copy over it, so a
+record appended to a part between reading it and rewriting that part is lost with it. A part
+with nothing to remove is left alone, and a part the scrub empties is deleted outright, so its
+removals appear in no marker's count. Run it against a deployment that is not serving. --now
+sets the day a marker is named for, and a marker for a day the deployment no longer keeps is
+deleted by the next sweep.
 
 Verification options:
   --ark <file>       Trusted AMD root certificate (ARK), PEM or DER. Repeatable;
