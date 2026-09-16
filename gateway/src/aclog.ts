@@ -1,0 +1,313 @@
+import { mkdir, readdir, readFile, unlink, writeFile, appendFile } from 'node:fs/promises';
+import { join } from 'node:path';
+import type { AccessRecord } from './access-record.js';
+
+export type { AccessRecord } from './access-record.js';
+export const ACCESS_RECORD_FIELDS: readonly (keyof AccessRecord)[] = [
+  't',
+  'rid',
+  'cred',
+  'auth',
+  'scope',
+  'm',
+  'p',
+  'rcp',
+  'nce',
+  'st',
+  'dur',
+  'deny',
+];
+
+/** Pinned to `MINIMUM_RETENTION_SECONDS` in store.ts: one floor for both artifacts, so they cannot drift. */
+export const MINIMUM_RETENTION_DAYS = 184;
+export const MAX_ACCESS_FILE_BYTES = 32 * 1024 * 1024;
+const FILE_PREFIX = 'access-';
+const FILE_SUFFIX = '.jsonl';
+const FILE_NAME = /^access-(\d{4}-\d{2}-\d{2})-(\d{3})\.jsonl$/u;
+const DAY_MS = 86_400_000;
+const ACCESS_FIELD_NAMES: ReadonlySet<string> = new Set<string>(ACCESS_RECORD_FIELDS);
+
+export interface AccessWindow {
+  from: number | null;
+  to: number | null;
+  count: number;
+}
+
+export interface AccessLog {
+  record(entry: AccessRecord): Promise<void>;
+  drain(): Promise<void>;
+  window(): Promise<AccessWindow>;
+  files(): Promise<string[]>;
+  close(): Promise<void>;
+}
+
+export interface AccessLogOptions {
+  days?: number;
+  maxBytesPerFile?: number;
+  now?: () => number;
+}
+
+function dayOf(millis: number): string {
+  return new Date(millis).toISOString().slice(0, 10);
+}
+
+function isJsonObject(value: unknown): value is Record<string, unknown> {
+  return typeof value === 'object' && value !== null && !Array.isArray(value);
+}
+
+/**
+ * The allowlist is applied here rather than trusted from the caller: an object
+ * written by a future hook cannot add a field to the line, because only these names
+ * are read out of it. That is the whole control, so it does not live in the code
+ * that assembles the record.
+ */
+export function renderAccessLine(entry: AccessRecord): string {
+  const out: Record<string, unknown> = {};
+  for (const field of ACCESS_RECORD_FIELDS) out[field] = entry[field];
+  return `${JSON.stringify(out)}\n`;
+}
+
+function textField(raw: Record<string, unknown>, field: string): string {
+  const value = raw[field];
+  if (typeof value !== 'string') throw new Error(`access field ${field} is not a string`);
+  return value;
+}
+
+function numberField(raw: Record<string, unknown>, field: string): number {
+  const value = raw[field];
+  if (typeof value !== 'number') throw new Error(`access field ${field} is not a number`);
+  return value;
+}
+
+function nullableTextField(raw: Record<string, unknown>, field: string): string | null {
+  const value = raw[field];
+  if (value === null) return null;
+  if (typeof value !== 'string') throw new Error(`access field ${field} is neither a string nor null`);
+  return value;
+}
+
+export function parseAccessLine(line: string): AccessRecord {
+  const value: unknown = JSON.parse(line);
+  if (!isJsonObject(value)) {
+    throw new Error('access line is not an object');
+  }
+  for (const key of Object.keys(value)) {
+    if (!ACCESS_FIELD_NAMES.has(key)) {
+      throw new Error(`unknown field in access line: ${key}`);
+    }
+  }
+  for (const field of ACCESS_RECORD_FIELDS) {
+    if (!(field in value)) throw new Error(`missing field in access line: ${field}`);
+  }
+  const auth = nullableTextField(value, 'auth');
+  if (auth !== null && auth !== 'pop' && auth !== 'bearer') {
+    throw new Error('access field auth is neither pop, bearer, nor null');
+  }
+  return {
+    t: numberField(value, 't'),
+    rid: textField(value, 'rid'),
+    cred: nullableTextField(value, 'cred'),
+    auth,
+    scope: nullableTextField(value, 'scope'),
+    m: textField(value, 'm'),
+    p: textField(value, 'p'),
+    rcp: nullableTextField(value, 'rcp'),
+    nce: nullableTextField(value, 'nce'),
+    st: numberField(value, 'st'),
+    dur: numberField(value, 'dur'),
+    deny: nullableTextField(value, 'deny'),
+  };
+}
+
+export interface MemoryAccessLog extends AccessLog {
+  /** Test and inspection only; nothing on a request path reads this. */
+  entries(): AccessRecord[];
+  prune(atMillis: number): Promise<void>;
+}
+
+export function openMemoryAccessLog(options: AccessLogOptions = {}): MemoryAccessLog {
+  const days = options.days ?? MINIMUM_RETENTION_DAYS;
+  const now = options.now ?? (() => Date.now());
+  let kept: AccessRecord[] = [];
+  let closed = false;
+  async function pruneLocked(at: number): Promise<void> {
+    kept = kept.filter((entry) => entry.t > at - days * DAY_MS);
+  }
+  return {
+    async record(entry) {
+      if (closed) throw new Error('the access log is closed');
+      kept.push(entry);
+      await pruneLocked(now());
+    },
+    async drain() {},
+    async prune(at) {
+      await pruneLocked(at);
+    },
+    async window() {
+      if (kept.length === 0) return { from: null, to: null, count: 0 };
+      const times = kept.map((entry) => entry.t);
+      return { from: Math.min(...times), to: Math.max(...times), count: kept.length };
+    },
+    async files() {
+      return [];
+    },
+    entries() {
+      return [...kept];
+    },
+    async close() {
+      closed = true;
+      kept = [];
+    },
+  };
+}
+
+interface DayPart {
+  day: string;
+  part: number;
+}
+
+function ordered(parts: DayPart[]): DayPart[] {
+  return [...parts].sort((left, right) =>
+    left.day === right.day ? left.part - right.part : left.day < right.day ? -1 : 1,
+  );
+}
+
+function baseName(entry: DayPart): string {
+  return `${FILE_PREFIX}${entry.day}-${String(entry.part).padStart(3, '0')}${FILE_SUFFIX}`;
+}
+
+function fileOf(dir: string, entry: DayPart): string {
+  return join(dir, baseName(entry));
+}
+
+/** A missing `code` is not a missing file, so the `in` check carries the narrowing. */
+function isNotFound(err: unknown): boolean {
+  return err instanceof Error && 'code' in err && err.code === 'ENOENT';
+}
+
+export async function openFileAccessLog(options: AccessLogOptions & { dir: string }): Promise<AccessLog> {
+  const days = options.days ?? MINIMUM_RETENTION_DAYS;
+  const maxBytes = options.maxBytesPerFile ?? MAX_ACCESS_FILE_BYTES;
+  const now = options.now ?? (() => Date.now());
+  const dir = options.dir;
+  await mkdir(dir, { recursive: true });
+
+  let queue: Promise<void> = Promise.resolve();
+  let sizeOfCurrent = 0;
+  let currentDay: string | null = null;
+  let currentPart = 0;
+  let closed = false;
+
+  async function listOwnFiles(): Promise<DayPart[]> {
+    const names = await readdir(dir).catch((): string[] => []);
+    return ordered(
+      names.flatMap((name) => {
+        const match = FILE_NAME.exec(name);
+        if (match === null) return [];
+        const day = match[1];
+        const part = match[2];
+        if (day === undefined || part === undefined) return [];
+        return [{ day, part: Number(part) }];
+      }),
+    );
+  }
+
+  /**
+   * Age is read from the file name, not from a stat time. A volume can be mounted
+   * with whatever timestamps a copy gave it, and a rotation that trusted those would
+   * delete the newest data on an operator's bad `cp -a`.
+   */
+  async function pruneLocked(): Promise<void> {
+    const cutoff = dayOf(now() - days * DAY_MS);
+    for (const candidate of await listOwnFiles()) {
+      if (candidate.day < cutoff) {
+        await unlink(fileOf(dir, candidate)).catch(() => undefined);
+      }
+    }
+  }
+
+  /**
+   * Settles which file the next line belongs to and returns it, so no caller has to
+   * reach for the mutable state or promise that a day has been chosen.
+   */
+  async function rotateIfNeeded(day: string, bytesAboutToAdd: number): Promise<DayPart> {
+    if (currentDay === null) {
+      const newest = (await listOwnFiles()).at(-1);
+      if (newest !== undefined) {
+        currentDay = newest.day;
+        currentPart = newest.part;
+        sizeOfCurrent = await readFile(fileOf(dir, newest))
+          .then((buffer) => buffer.byteLength)
+          .catch(() => 0);
+      }
+    }
+    if (currentDay !== day || sizeOfCurrent + bytesAboutToAdd > maxBytes) {
+      if (currentDay !== day) {
+        currentDay = day;
+        currentPart = 0;
+        const names = await readdir(dir).catch((): string[] => []);
+        while (names.includes(baseName({ day, part: currentPart }))) {
+          currentPart += 1;
+        }
+      } else {
+        currentPart += 1;
+      }
+      sizeOfCurrent = 0;
+    }
+    return { day: currentDay, part: currentPart };
+  }
+
+  return {
+    record(entry) {
+      if (closed) return Promise.reject(new Error('the access log is closed'));
+      const line = renderAccessLine(entry);
+      const bytes = Buffer.byteLength(line);
+      queue = queue.then(async () => {
+        const path = fileOf(dir, await rotateIfNeeded(dayOf(entry.t), bytes));
+        await appendFile(path, line, 'utf8').catch(async (err: unknown) => {
+          if (!isNotFound(err)) throw err;
+          await mkdir(dir, { recursive: true });
+          await writeFile(path, line, 'utf8');
+        });
+        sizeOfCurrent += bytes;
+        await pruneLocked();
+      });
+      return queue;
+    },
+    async drain() {
+      await queue;
+    },
+    async window() {
+      await queue;
+      const files = await listOwnFiles();
+      if (files.length === 0) return { from: null, to: null, count: 0 };
+      let count = 0;
+      let from: number | null = null;
+      let to: number | null = null;
+      for (const each of files) {
+        const text = await readFile(fileOf(dir, each), 'utf8').catch(() => '');
+        for (const line of text.split('\n')) {
+          if (line.length === 0) continue;
+          let parsed: AccessRecord;
+          try {
+            parsed = parseAccessLine(line);
+          } catch {
+            continue;
+          }
+          count += 1;
+          from = from === null ? parsed.t : Math.min(from, parsed.t);
+          to = to === null ? parsed.t : Math.max(to, parsed.t);
+        }
+      }
+      return { from, to, count };
+    },
+    async files() {
+      await queue;
+      return (await listOwnFiles()).map((each) => fileOf(dir, each));
+    },
+    async close() {
+      await queue;
+      closed = true;
+    },
+  };
+}

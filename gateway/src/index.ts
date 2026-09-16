@@ -73,3 +73,20 @@ export {
   type RouteScope,
   type Scope,
 } from './access.js';
+// The scrub tooling rewrites these files from a separate program, so the renderer, the parser and
+// the field allowlist they are checked against are part of the entry point rather than private to
+// the writer that appends them.
+export {
+  ACCESS_RECORD_FIELDS,
+  MAX_ACCESS_FILE_BYTES,
+  MINIMUM_RETENTION_DAYS,
+  openFileAccessLog,
+  openMemoryAccessLog,
+  parseAccessLine,
+  renderAccessLine,
+  type AccessLog,
+  type AccessLogOptions,
+  type AccessRecord,
+  type AccessWindow,
+  type MemoryAccessLog,
+} from './aclog.js';
