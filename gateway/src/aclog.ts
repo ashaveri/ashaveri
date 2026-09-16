@@ -18,7 +18,12 @@ export const ACCESS_RECORD_FIELDS: readonly (keyof AccessRecord)[] = [
   'deny',
 ];
 
-/** Pinned to `MINIMUM_RETENTION_SECONDS` in store.ts: one floor for both artifacts, so they cannot drift. */
+/**
+ * The same floor as `MINIMUM_RETENTION_SECONDS` in store.ts, stated in days. They are two literals
+ * in two files, tied by an assertion in `test/aclog.test.ts`: drift is caught by a red test, not
+ * prevented by the type system, and an import of the store from here is the coupling this file
+ * does not have.
+ */
 export const MINIMUM_RETENTION_DAYS = 184;
 export const MAX_ACCESS_FILE_BYTES = 32 * 1024 * 1024;
 const FILE_PREFIX = 'access-';
@@ -42,6 +47,11 @@ export interface AccessLog {
 }
 
 export interface AccessLogOptions {
+  /**
+   * A request, not a clamp: `MINIMUM_RETENTION_DAYS` is the default when no value is named, and it
+   * binds as a floor only where a caller agrees to one. Enforcing it against a caller is the job of
+   * the surface that reads the operator's configuration.
+   */
   days?: number;
   maxBytesPerFile?: number;
   now?: () => number;
@@ -185,6 +195,19 @@ function isNotFound(err: unknown): boolean {
   return err instanceof Error && 'code' in err && err.code === 'ENOENT';
 }
 
+/**
+ * Turns a missing file into the empty answer it deserves and lets every other error through. A
+ * file deleted between listing and reading shortens nothing by lying; a file that cannot be read
+ * has to surface, because "nothing was retained" and "the retention is unreadable" are different
+ * answers to a compliance question.
+ */
+function whenNotFound<T>(fallback: T): (err: unknown) => T {
+  return (err: unknown): T => {
+    if (!isNotFound(err)) throw err;
+    return fallback;
+  };
+}
+
 export async function openFileAccessLog(options: AccessLogOptions & { dir: string }): Promise<AccessLog> {
   const days = options.days ?? MINIMUM_RETENTION_DAYS;
   const maxBytes = options.maxBytesPerFile ?? MAX_ACCESS_FILE_BYTES;
@@ -196,10 +219,11 @@ export async function openFileAccessLog(options: AccessLogOptions & { dir: strin
   let sizeOfCurrent = 0;
   let currentDay: string | null = null;
   let currentPart = 0;
+  let sweptDay: string | null = null;
   let closed = false;
 
   async function listOwnFiles(): Promise<DayPart[]> {
-    const names = await readdir(dir).catch((): string[] => []);
+    const names = await readdir(dir).catch(whenNotFound<string[]>([]));
     return ordered(
       names.flatMap((name) => {
         const match = FILE_NAME.exec(name);
@@ -227,6 +251,17 @@ export async function openFileAccessLog(options: AccessLogOptions & { dir: strin
   }
 
   /**
+   * Age is read from whole days in file names, so a second sweep inside the same incoming day can
+   * only re-see what the first deleted. Without this gate every request paid a `readdir` of the log
+   * directory; a rolled day always sweeps again, even if the clock only moved by a millisecond.
+   */
+  async function pruneOnNewDay(day: string): Promise<void> {
+    if (sweptDay === day) return;
+    sweptDay = day;
+    await pruneLocked();
+  }
+
+  /**
    * Settles which file the next line belongs to and returns it, so no caller has to
    * reach for the mutable state or promise that a day has been chosen.
    */
@@ -238,14 +273,14 @@ export async function openFileAccessLog(options: AccessLogOptions & { dir: strin
         currentPart = newest.part;
         sizeOfCurrent = await readFile(fileOf(dir, newest))
           .then((buffer) => buffer.byteLength)
-          .catch(() => 0);
+          .catch(whenNotFound(0));
       }
     }
     if (currentDay !== day || sizeOfCurrent + bytesAboutToAdd > maxBytes) {
       if (currentDay !== day) {
         currentDay = day;
         currentPart = 0;
-        const names = await readdir(dir).catch((): string[] => []);
+        const names = await readdir(dir).catch(whenNotFound<string[]>([]));
         while (names.includes(baseName({ day, part: currentPart }))) {
           currentPart += 1;
         }
@@ -257,22 +292,37 @@ export async function openFileAccessLog(options: AccessLogOptions & { dir: strin
     return { day: currentDay, part: currentPart };
   }
 
+  /**
+   * The chain itself only ever settles resolved, so a failed link cannot skip the links queued
+   * behind it: the rejection travels on the promise returned here, to the caller whose write it
+   * was, and nowhere else. Chaining the task onto a link that could reject would otherwise turn
+   * one bad write into a log that is silently and permanently off.
+   */
+  function enqueue(task: () => Promise<void>): Promise<void> {
+    const settled = queue.then(task);
+    queue = settled.then(
+      () => undefined,
+      () => undefined,
+    );
+    return settled;
+  }
+
   return {
-    record(entry) {
-      if (closed) return Promise.reject(new Error('the access log is closed'));
+    async record(entry) {
+      if (closed) throw new Error('the access log is closed');
       const line = renderAccessLine(entry);
       const bytes = Buffer.byteLength(line);
-      queue = queue.then(async () => {
-        const path = fileOf(dir, await rotateIfNeeded(dayOf(entry.t), bytes));
+      const day = dayOf(entry.t);
+      await enqueue(async () => {
+        const path = fileOf(dir, await rotateIfNeeded(day, bytes));
         await appendFile(path, line, 'utf8').catch(async (err: unknown) => {
           if (!isNotFound(err)) throw err;
           await mkdir(dir, { recursive: true });
           await writeFile(path, line, 'utf8');
         });
         sizeOfCurrent += bytes;
-        await pruneLocked();
+        await pruneOnNewDay(day);
       });
-      return queue;
     },
     async drain() {
       await queue;
@@ -285,7 +335,7 @@ export async function openFileAccessLog(options: AccessLogOptions & { dir: strin
       let from: number | null = null;
       let to: number | null = null;
       for (const each of files) {
-        const text = await readFile(fileOf(dir, each), 'utf8').catch(() => '');
+        const text = await readFile(fileOf(dir, each), 'utf8').catch(whenNotFound(''));
         for (const line of text.split('\n')) {
           if (line.length === 0) continue;
           let parsed: AccessRecord;

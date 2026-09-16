@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { mkdtemp, readFile, readdir, rm, writeFile } from 'node:fs/promises';
+import { mkdir, mkdtemp, readFile, readdir, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import {
@@ -12,6 +12,7 @@ import {
   renderAccessLine,
   type AccessRecord,
 } from '../src/aclog.js';
+import { MINIMUM_RETENTION_SECONDS } from '../src/store.js';
 
 /**
  * The instant every record below carries, and the clock every log below is opened with: retention
@@ -46,6 +47,14 @@ describe('the field allowlist', () => {
   it('renders exactly the approved fields, and nothing else', () => {
     const parsed = JSON.parse(renderAccessLine(entry())) as Record<string, unknown>;
     expect(Object.keys(parsed).sort()).toEqual([...ACCESS_RECORD_FIELDS].sort());
+  });
+
+  it('renders fields in the allowlist order, because a byte-level reader sees positions, not names', () => {
+    const keys = Object.keys(JSON.parse(renderAccessLine(entry())) as Record<string, unknown>);
+    expect(keys).toEqual([...ACCESS_RECORD_FIELDS]);
+    // The assertion above moves with the array, so it cannot catch the array itself being
+    // reordered. This literal is the approved wire order; changing it is a design decision.
+    expect(keys).toEqual(['t', 'rid', 'cred', 'auth', 'scope', 'm', 'p', 'rcp', 'nce', 'st', 'dur', 'deny']);
   });
 
   it('a field outside the allowlist cannot reach the line, however the caller names it', () => {
@@ -87,6 +96,24 @@ describe('openMemoryAccessLog', () => {
     expect(await log.window()).toEqual({ from: null, to: null, count: 0 });
   });
 
+  it('prunes against the wall clock when the caller names no clock', async () => {
+    const log = openMemoryAccessLog();
+    await log.record(entry({ rid: 'stale', t: Date.now() - 200 * 86_400_000 }));
+    await log.record(entry({ rid: 'fresh', t: Date.now() }));
+    expect(log.entries().map((each) => each.rid)).toEqual(['fresh']);
+    await log.close();
+  });
+
+  it('draws its cutoff at the exact millisecond, not at whole days like the file log', async () => {
+    const cutoff = T0 - 2 * 86_400_000;
+    const log = openMemoryAccessLog({ days: 2, now: () => T0 });
+    await log.record(entry({ rid: 'one-ms-too-old', t: cutoff - 1 }));
+    await log.record(entry({ rid: 'exactly-at-cutoff', t: cutoff }));
+    await log.record(entry({ rid: 'one-ms-fresh', t: cutoff + 1 }));
+    expect(log.entries().map((each) => each.rid)).toEqual(['one-ms-fresh']);
+    await log.close();
+  });
+
   it('defaults to the six-month floor, not to less', async () => {
     // One millisecond short of the floor's own window, so a shorter default drops the record.
     const log = openMemoryAccessLog({ now: () => T0 + MINIMUM_RETENTION_DAYS * 86_400_000 - 1 });
@@ -94,6 +121,7 @@ describe('openMemoryAccessLog', () => {
     const held = await log.window();
     expect(held.count).toBe(1);
     expect(MINIMUM_RETENTION_DAYS).toBe(184);
+    expect(MINIMUM_RETENTION_DAYS * 86_400).toBe(MINIMUM_RETENTION_SECONDS);
     await log.close();
   });
 });
@@ -160,7 +188,7 @@ describe('openFileAccessLog', () => {
     await rm(dir, { recursive: true, force: true });
   });
 
-  it('leaves a file it cannot name alone, and says so in the window rather than deleting it', async () => {
+  it('leaves a file it cannot name alone, rather than deleting it', async () => {
     const dir = await tempDir();
     await writeFile(join(dir, 'notes.txt'), 'keep me\n', 'utf8');
     const log = await openFileAccessLog({ dir, days: 184, now: () => T0 });
@@ -180,6 +208,154 @@ describe('openFileAccessLog', () => {
     await log.record(entry({ t: clock, rid: 'req-earlier' }));
     await log.drain();
     expect((await log.files()).length).toBeGreaterThan(1);
+    await log.close();
+    await rm(dir, { recursive: true, force: true });
+  });
+
+  it('prunes against the wall clock when the caller names no clock', async () => {
+    const dir = await tempDir();
+    const staleDay = new Date(Date.now() - 200 * 86_400_000).toISOString().slice(0, 10);
+    const stale = join(dir, `access-${staleDay}-000.jsonl`);
+    await writeFile(stale, renderAccessLine(entry({ t: Date.now() - 200 * 86_400_000 })), 'utf8');
+    const log = await openFileAccessLog({ dir });
+    await log.record(entry({ t: Date.now() }));
+    await log.drain();
+    expect((await log.files()).some((path) => path.includes(staleDay))).toBe(false);
+    expect((await log.window()).count).toBe(1);
+    await rm(dir, { recursive: true, force: true });
+  });
+
+  it('draws its cutoff at whole days, because a file is only named for a day: the cutoff day survives, the day before it goes', async () => {
+    const dir = await tempDir();
+    const atCutoff = T0 - 184 * 86_400_000;
+    const oneDayEarlier = T0 - 185 * 86_400_000;
+    const cutoffDay = new Date(atCutoff).toISOString().slice(0, 10);
+    const earlierDay = new Date(oneDayEarlier).toISOString().slice(0, 10);
+    await writeFile(join(dir, `access-${cutoffDay}-000.jsonl`), renderAccessLine(entry({ rid: 'cutoff-day', t: atCutoff })), 'utf8');
+    await writeFile(join(dir, `access-${earlierDay}-000.jsonl`), renderAccessLine(entry({ rid: 'earlier-day', t: oneDayEarlier })), 'utf8');
+    const log = await openFileAccessLog({ dir, days: 184, now: () => T0 });
+    await log.record(entry({ rid: 'fresh' }));
+    await log.drain();
+    const names = (await log.files()).map((path) => path.split(/[\\/]/u).pop());
+    expect(names).toContain(`access-${cutoffDay}-000.jsonl`);
+    expect(names.some((name) => name?.includes(earlierDay))).toBe(false);
+    const held = await log.window();
+    expect(held.count).toBe(2);
+    expect(held.from).toBe(atCutoff);
+    await log.close();
+    await rm(dir, { recursive: true, force: true });
+  });
+
+  it('resolves drain() only once every queued write has landed on disk', async () => {
+    const dir = await tempDir();
+    const log = await openFileAccessLog({ dir, days: 184, now: () => T0 });
+    // Sixty 8KB lines are sixty sequential file round trips: a drain() that resolved without
+    // waiting for the queue would find a half-written directory when this reads the disk back.
+    for (let i = 0; i < 60; i++) {
+      void log.record(entry({ rid: `req-${String(i)}`, p: 'x'.repeat(8_192) }));
+    }
+    await log.drain();
+    const names = await readdir(dir);
+    const lines = (
+      await Promise.all(names.map(async (name) => (await readFile(join(dir, name), 'utf8')).trimEnd().split('\n')))
+    ).flat();
+    expect(lines.filter((line) => line.length > 0)).toHaveLength(60);
+    await log.close();
+    await rm(dir, { recursive: true, force: true });
+  });
+
+  it('a failed write reaches its own caller and cannot silence the records after it', async () => {
+    const dir = await tempDir();
+    const day = new Date(T0).toISOString().slice(0, 10);
+    const target = join(dir, `access-${day}-000.jsonl`);
+    await mkdir(target);
+    const log = await openFileAccessLog({ dir, days: 184, now: () => T0 });
+    await expect(log.record(entry({ rid: 'poisoned' }))).rejects.toThrow(/EISDIR/u);
+    await rm(target, { recursive: true, force: true });
+    await log.record(entry({ rid: 'after' }));
+    await log.drain();
+    expect((await log.files()).map((path) => path.split(/[\\/]/u).pop())).toEqual([`access-${day}-000.jsonl`]);
+    expect(parseAccessLine((await readFile(target, 'utf8')).trimEnd()).rid).toBe('after');
+    expect((await log.window()).count).toBe(1);
+    // A day named outside the Date range poisons the queue too, from inside the queued task.
+    await expect(log.record(entry({ rid: 'far-future', t: 8_640_000_000_000_001 }))).rejects.toThrow(RangeError);
+    await log.record(entry({ rid: 'after-that', t: T0 + 60_000 }));
+    await log.drain();
+    expect((await log.window()).count).toBe(2);
+    await log.close();
+    await rm(dir, { recursive: true, force: true });
+  });
+
+  it('refuses to call an unreadable part a shorter window', async () => {
+    const dir = await tempDir();
+    const log = await openFileAccessLog({ dir, days: 184, maxBytesPerFile: 250, now: () => T0 });
+    await log.record(entry({ rid: 'req-1' }));
+    await log.record(entry({ rid: 'req-2', st: 401 }));
+    await log.record(entry({ rid: 'req-3', st: 500 }));
+    await log.drain();
+    const parts = await log.files();
+    expect(parts).toHaveLength(3);
+    expect((await log.window()).count).toBe(3);
+    const unreadable = parts[0] as string;
+    await rm(unreadable, { force: true });
+    await mkdir(unreadable);
+    // Records hidden behind an unreadable part must cost the operator an error, not a silent discount.
+    await expect(log.window()).rejects.toThrow(/EISDIR/u);
+    expect((await log.files()).length).toBe(3);
+    await log.close();
+    await rm(dir, { recursive: true, force: true });
+  });
+
+  it('lists parts oldest-first, ascending within a day and across a day boundary', async () => {
+    const dir = await tempDir();
+    const dayA = Date.UTC(2026, 8, 15, 12);
+    const dayB = Date.UTC(2026, 8, 16, 12);
+    const log = await openFileAccessLog({ dir, days: 184, maxBytesPerFile: 250, now: () => dayB });
+    await log.record(entry({ t: dayA }));
+    await log.record(entry({ t: dayA, rid: 'req-2' }));
+    await log.record(entry({ t: dayA, rid: 'req-3' }));
+    await log.record(entry({ t: dayB, rid: 'req-4' }));
+    await log.drain();
+    const names = (await log.files()).map((path) => path.split(/[\\/]/u).pop());
+    expect(names).toEqual([
+      'access-2026-09-15-000.jsonl',
+      'access-2026-09-15-001.jsonl',
+      'access-2026-09-15-002.jsonl',
+      'access-2026-09-16-000.jsonl',
+    ]);
+    await log.close();
+    await rm(dir, { recursive: true, force: true });
+  });
+
+  it('rejects a record whose rendering throws, instead of throwing across a Promise-typed call', async () => {
+    const dir = await tempDir();
+    const log = await openFileAccessLog({ dir, days: 184, now: () => T0 });
+    const trap: AccessRecord = {
+      ...entry(),
+      get t(): number {
+        throw new Error('a getter on an allowlisted key must reject, not escape');
+      },
+    };
+    await expect(log.record(trap)).rejects.toThrow('a getter on an allowlisted key');
+    await log.record(entry({ rid: 'after' }));
+    await log.drain();
+    expect((await log.window()).count).toBe(1);
+    await log.close();
+    await rm(dir, { recursive: true, force: true });
+  });
+
+  it('sweeps again when the day rolls over, because once per day is not once per process', async () => {
+    const dir = await tempDir();
+    const cutoffDay = new Date(T0 - 184 * 86_400_000).toISOString().slice(0, 10);
+    await writeFile(join(dir, `access-${cutoffDay}-000.jsonl`), renderAccessLine(entry({ rid: 'boundary', t: T0 - 184 * 86_400_000 })), 'utf8');
+    let clock = T0;
+    const log = await openFileAccessLog({ dir, days: 184, now: () => clock });
+    await log.record(entry());
+    expect((await log.files()).some((path) => path.includes(cutoffDay))).toBe(true);
+    clock = T0 + 2 * 86_400_000;
+    await log.record(entry({ rid: 'next-day', t: clock }));
+    await log.drain();
+    expect((await log.files()).some((path) => path.includes(cutoffDay))).toBe(false);
     await log.close();
     await rm(dir, { recursive: true, force: true });
   });
