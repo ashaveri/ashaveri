@@ -15,9 +15,11 @@ accepts; they get resolved the first time this runs.
 | `docker-entrypoint.sh` | Checks the mounted model files against the manifest when both weights environment variables are set, then execs `signerd`. |
 | `weights.mjs` | Emits and checks the model manifest whose sha256 every receipt carries as `wts`. |
 
-The compose text is what the platform measures: a rebuilt image tag or a changed `--tee` value moves
-the `compose-hash` runtime event, which the RTMR3 replay ties to the quote, and that is what
-`--expect-compose-hash` pins. A different model file does not move it, because the compose text names a
+The compose text is what the platform measures, and this file boots TDX unless `ASHAVERI_TEE` says
+otherwise. A rebuilt image tag or a changed `--tee` value moves the `compose-hash` runtime event, which
+the RTMR3 replay ties to the quote, and that is what `--expect-compose-hash` pins. On SEV-SNP the same
+hash reaches the report by a different route: it is a field of the `mr_config` document whose digest the
+platform carries in `HOST_DATA`. A different model file moves neither, because the compose text names a
 path and not bytes, so the mounted model is covered by the `wts` digest and the entrypoint check. The
 image is pinned by digest below for the same reason: a mutable tag is the one thing in the compose text
 whose contents can change underneath the hash that pins it.
@@ -75,10 +77,12 @@ Two properties of the managed platform shape this step:
 
 - The public hostname is assigned by the platform, so `ASHAVERI_PUBLIC_URL` cannot be known
   before the first boot. Boot once with a placeholder, read the hostname from `phala apps`,
-  then deploy again with the real value. The redeploy changes the compose hash, which is the
-  runtime event `--expect-compose-hash` pins, and that pin has to be reissued with the new
-  value; the launch measurement `--expect-measurement` pins, the TDX MRTD or the SNP launch
-  digest, does not move. Pin only after the URL is final. `--public-url` is used
+  then deploy again with the real value. The redeploy changes the compose hash, so the
+  `--expect-compose-hash` pin has to be reissued with the new value. On TDX it is the only pin that
+  moves: the compose hash is a runtime event, extended into RTMR3 after the MRTD that
+  `--expect-measurement` pins was already fixed. On SEV-SNP the compose hash rides inside the
+  `mr_config` document committed to the report at launch, so reissue both pins there rather than
+  reasoning about which one moved. Pin only after the URL is final. `--public-url` is used
   solely to build the `att.url` evidence link, so a stale value is visible to any client as a
   broken or wrong evidence URL rather than a silent inconsistency.
 - TLS terminates at the platform gateway, outside the TEE, and the container listens on plain
@@ -125,13 +129,17 @@ process.stdout.write(`signing key, print once and keep off any volume: ${toHex(k
 
 Two consequences of making every route ask for a credential:
 
-- Revocation is an edit to this file, and on a managed rail the file is part of the deployment, so the
-  edit means a redeploy. A redeploy changes the compose hash, the runtime event replayed into RTMR3 and
-  the value `--expect-compose-hash` pins; it leaves the launch measurement `--expect-measurement` pins,
-  the TDX MRTD or the SNP launch digest, where it was, so a client that pinned only the measurement
-  would notice nothing here. That is the same trade the key-rotation limitation in
-  [the threat model](../docs/threat-model.md) section 6 already names. A self-hosted deployment mounts a
-  rewritable file and the gateway re-reads it on its own, with no restart.
+- Revocation is an edit to this file, and on a managed rail the file travels with the deployment, so
+  the edit means a redeploy. The compose text is identical before and after it, so the value
+  `--expect-compose-hash` pins does not move either: the pin an operator reissues for a rebuilt image
+  or a new public URL says nothing about a revoked credential. What changes is the answer a refused
+  client gets, `AUTH_REVOKED`, and the `deny` field of the access log line. Whether a rail folds a
+  mounted file's bytes into something else it measures is a platform property this repository cannot
+  assert, so test it the way the receipts paragraph below tests a directory: revoke a credential on a
+  deployment, redeploy with the compose text otherwise unchanged, and see what a pinned client
+  notices. That is the same trade the key-rotation limitation in
+  [the threat model](../docs/threat-model.md) section 6 already names. A self-hosted deployment mounts
+  a rewritable file and the gateway re-reads it on its own, with no restart.
 - The container's healthcheck is a TCP probe rather than a request to `/v1/deployment-manifest`. It
   answers "is the gateway up", and nothing more.
 
