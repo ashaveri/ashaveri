@@ -5,7 +5,7 @@ import { UsageError } from './usage.js';
  * Whole-file write through a fresh name in the same directory, then a rename into place, so a reader
  * never sees half a file and a process watching the mtime reloads without a restart.
  *
- * Three rules `node:fs` makes the caller hold for itself, which is why both writers share this one:
+ * Four rules `node:fs` makes the caller hold for itself, which is why both writers share this one:
  *
  * - The temporary is opened `wx`. A plain `writeFile` ignores its `mode` for a path that already
  *   exists and follows a symlink at it, so a stale name from a killed run, or one planted by anything
@@ -15,17 +15,23 @@ import { UsageError } from './usage.js';
  *   process umask and the caller's value is the one that has to land.
  * - Only a temporary this call created is removed on the way out. One it merely found is left exactly
  *   as it was found, since it is not this call's to delete.
+ * - The mode is read as the nine permission bits and nothing above them. Both callers pass either a
+ *   literal or a masked `stat` value today, and an unmasked larger value would reach `chmod` exactly as
+ *   it was handed over, so the ceiling is held here rather than repeated at every call site: a
+ *   published command should not be able to put a set-user-id bit on a log part through a parameter
+ *   named `mode`.
  *
  * The name carries this process's id, so two runs writing the same file do not collide, and a refusal
  * that leaves nothing behind does not hide the earlier run that left something.
  */
 export async function writeAtomically(path: string, text: string, mode: number, refusal: string): Promise<void> {
   const tmp = `${path}.tmp-${String(process.pid)}`;
+  const keep = mode & 0o777;
   let created = false;
   try {
-    await writeFile(tmp, text, { mode, flag: 'wx' });
+    await writeFile(tmp, text, { mode: keep, flag: 'wx' });
     created = true;
-    await chmod(tmp, mode);
+    await chmod(tmp, keep);
     await rename(tmp, path);
   } catch (error) {
     if (created) await unlink(tmp).catch(() => undefined);

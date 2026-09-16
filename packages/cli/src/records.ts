@@ -82,11 +82,17 @@ export async function readCredentialFile(path: string): Promise<CredentialFile> 
  * reader does not is caught by the table in `test/credential.test.ts`, which drives a malformed
  * shape through both parsers and requires both to refuse it.
  *
- * Two places the wording differs on purpose. The gateway's messages are for a log line and this
+ * Three places the wording differs on purpose. The gateway's messages are for a log line and this
  * program's are for an operator at a prompt, so the id rule is stated as a range instead of a code,
  * and a `revokedAt` here says "number of seconds" rather than "a number": the gateway's `asNumber`
  * takes `1.5` and `-0` without complaint, and a promise of whole seconds would be a rule neither
- * side enforces.
+ * side enforces. The third is a value that is not an object at all, which the gateway refuses by name
+ * and this reader reports as a bad `id`, having had nothing else to blame.
+ *
+ * One difference the table cannot see, because both readers still accept the record: this one hands
+ * back the value it was given, so a field neither parser knows about survives an `add` or a `revoke`
+ * rewrite, while the gateway builds a record field by field and drops it. Same verdict, different file
+ * afterwards.
  */
 const CREDENTIAL_ID = /^[A-Za-z0-9_-]{1,64}$/u;
 const HEX32 = /^[0-9a-f]{64}$/u;

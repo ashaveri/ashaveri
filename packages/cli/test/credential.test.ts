@@ -251,10 +251,11 @@ describe('ashaveri credential add', () => {
     // cannot be created. Un-caught, that is an exit 1 and a stack trace whose first line repeats the
     // path in the `fs` module's own sentence, which is the shape the exit-2 guard exists to keep to
     // two lines. The next case takes the other half of the same writer, where the temporary exists and
-    // the rename onto the real name is what fails, on the one platform that can build it: a POSIX
-    // rename is a directory operation, so there the obstacle stops the write and this route is what
-    // witnesses the writer at all. The `stdout` assertion is a forward guard rather than a live one,
-    // since this command prints the new credential only after the file has taken it.
+    // the rename onto the real name is what fails: on Windows by marking the destination read-only,
+    // and on POSIX only through a name that cannot take a rename at all, since a rename there is a
+    // directory operation that ignores the destination file's own bits. The `stdout` assertion is a
+    // forward guard rather than a live one, since this command prints the new credential only after
+    // the file has taken it.
     const missing = join(tempDir, `no-such-dir-${String(++counter)}`, 'creds.json');
     const added = runCli(addArgs(missing));
     expect(added.status).toBe(2);
@@ -870,7 +871,7 @@ describe('one record, two parsers', () => {
   }
 
   it('accepts the loadable record every entry above differs from', () => {
-    // Without this the table proves nothing: a typo that malformed every entry would leave fifteen
+    // Without this the table proves nothing: a typo that malformed every entry would leave eighteen
     // passing assertions and no control.
     const text = `{"version":1,"credentials":[{"id":"a","kind":"pop","publicKey":"${'A'.repeat(43)}","scopes":["read"],"createdAt":1772000000,"label":"a label","rate":{"perMinute":60,"burst":120}}]}\n`;
     const listed = runCli(['credential', 'list', '--credentials', freshFile(text)]);

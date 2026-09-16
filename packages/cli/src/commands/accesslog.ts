@@ -80,19 +80,34 @@ export async function accesslogScrub(dir: string, credential: string, now: () =>
     // Records are gone at this point, and the marker is the only evidence an operator has of which
     // ones, so a scrub that dies halfway still writes the receipt for the parts it already rewrote
     // before it reports the failure. The refusal keeps its own first sentence: a marker that cannot
-    // be written is not the story, and it must not push the real one off the line.
-    if (removed === 0) throw error;
+    // be written is not the story, and it must not push the real one off the line. Both tests here
+    // come before the write, not after it: an error this function will not name on the line must not
+    // leave the marker it did make sitting in the directory either.
+    if (removed === 0 || !(error instanceof UsageError)) throw error;
     const receipt = await writeReceipt(dir, now(), credential, removed, touched).catch(() => null);
-    if (!(error instanceof UsageError) || receipt === null) throw error;
+    if (receipt === null) throw error;
     throw new UsageError(`${error.message}; the removals that landed are marked in '${receipt}'`);
   }
   if (removed === 0) return { removed: 0, files: 0, marker: null };
-  return { removed, files: touched, marker: await writeReceipt(dir, now(), credential, removed, touched) };
+  let marker: string;
+  try {
+    marker = await writeReceipt(dir, now(), credential, removed, touched);
+  } catch (error) {
+    // The erasure has already happened and cannot be taken back, so this refusal cannot be the
+    // writer's bare sentence about a file: a run that removed records and left no receipt is exactly
+    // the silence the marker exists to prevent, and the numbers have to reach the operator some other
+    // way.
+    const reason = error instanceof Error ? error.message : String(error);
+    throw new UsageError(
+      `${reason}; ${String(removed)} ${removed === 1 ? 'record' : 'records'} removed from ${String(touched)} ${touched === 1 ? 'file' : 'files'} with no marker written`,
+    );
+  }
+  return { removed, files: touched, marker };
 }
 
 /**
- * The receipt itself: named like a log part, one family of its own, so the retention sweep ages it out
- * on the day in its name and the log never reads one as a record.
+ * The receipt itself, at the mode this program chooses: the marker is a file the scrub makes, not a
+ * part whose bits it inherited from a running gateway, so `0600` is right for it and wrong for those.
  */
 async function writeReceipt(dir: string, atMillis: number, credential: string, removed: number, files: number): Promise<string> {
   const name = await nextScrubName(dir, atMillis);
@@ -127,32 +142,44 @@ async function readPart(path: string): Promise<string> {
 
 /**
  * The marker is named like a log part, one family of its own, so the retention sweep ages it out on
- * the day in its name and the log never reads one as a record.
+ * the day in its name and the log never reads one as a record. That reason is also the ceiling: the
+ * sweep matches exactly three digits, so a fourth is not a later marker but a file nothing will ever
+ * collect, holding a credential id. A day that has filled its thousand is refused out loud.
  */
-async function nextScrubName(dir: string, atMillis: number): Promise<string> {
-  const day = new Date(atMillis).toISOString().slice(0, 10);
-  const names = await readdirOrThrow(dir);
-  let seq = 0;
-  for (;;) {
+export function chooseScrubName(names: readonly string[], day: string): string {
+  for (let seq = 0; seq < 1000; seq += 1) {
     const candidate = `scrub-${day}-${String(seq).padStart(3, '0')}.jsonl`;
     if (!names.includes(candidate)) return candidate;
-    seq += 1;
   }
+  throw new UsageError(`--access-log already holds a thousand markers for ${day}; the slot is three digits because that is all the retention sweep matches`);
+}
+
+async function nextScrubName(dir: string, atMillis: number): Promise<string> {
+  const day = new Date(atMillis).toISOString().slice(0, 10);
+  return chooseScrubName(await readdirOrThrow(dir), day);
 }
 
 /**
  * A part's own permission bits, so a scrub run by one operator does not silently re-mode a file a
- * running gateway is appending to. `gateway/src/aclog.ts` creates parts with the default mode, and a
- * rewrite that picked its own would leave the writer unable to append, which the gateway reports as a
- * warning rather than a failure. A name that does not exist yet, which is the marker, gets `0600`,
- * and the write that follows says so if it turns out the file was removed underneath it.
+ * running gateway is appending to. `gateway/src/aclog.ts` creates parts with the process default mode,
+ * and a rewrite that imposed its own would leave that writer unable to append, which the gateway
+ * reports as a warning rather than a failure. The value has to be read rather than picked, because
+ * `rename` replaces the destination's inode whole: any mode not read here is a mode invented on the way
+ * out. A name that cannot be read is therefore a refusal, not a default: the common reason is the
+ * retention sweep having taken the part between the listing and here, and a rewrite that went ahead
+ * would put that name back on the volume carrying records the sweep had already aged out, at a mode
+ * nobody chose. The gap between this read and the rename is stated rather than closed, because nothing
+ * in `node:fs` makes a rename conditional on the destination being there already.
  */
 async function modeOf(path: string): Promise<number> {
+  let mode: number;
   try {
-    return (await stat(path)).mode & 0o777;
-  } catch {
-    return 0o600;
+    mode = (await stat(path)).mode;
+  } catch (err) {
+    const reason = err instanceof Error ? err.message : String(err);
+    throw new UsageError(`cannot read the permissions of access log part '${path}': ${reason}`);
   }
+  return mode & 0o777;
 }
 
 /**

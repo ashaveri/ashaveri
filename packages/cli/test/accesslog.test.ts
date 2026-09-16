@@ -4,7 +4,8 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { afterAll, describe, expect, it } from 'vitest';
-import { parseAccessLine, renderAccessLine, type AccessRecord } from '@ashaveri/signerd';
+import { parseAccessLine, renderAccessLine, RETENTION_SWEEP_NAME, type AccessRecord } from '@ashaveri/signerd';
+import { accesslogScrub, chooseScrubName } from '../src/commands/accesslog.js';
 
 const CLI = fileURLToPath(new URL('../dist/cli.js', import.meta.url));
 const tempDir = mkdtempSync(join(tmpdir(), 'ashaveri-scrub-'));
@@ -15,7 +16,9 @@ afterAll(() => {
 
 /** The instant every record below carries, so a scrubbed line is findable by its id alone. */
 const T0 = 1_772_000_000_000;
-const SCRUBBED_AT = '2026-02-26T00:00:00Z';
+/** The day `--now` above stamps a marker with, and the name every marker assertion quotes. */
+const SCRUB_DAY = '2026-02-26';
+const SCRUBBED_AT = `${SCRUB_DAY}T00:00:00Z`;
 
 function record(over: Partial<AccessRecord>): AccessRecord {
   return {
@@ -315,5 +318,88 @@ describe('ashaveri accesslog scrub', () => {
     expect(scrub(dir, 'svc-a').status).toBe(0);
     expect(readFileSync(join(dir, 'notes.txt'), 'utf8')).toBe('not a log part\n');
     expect(readdirSync(dir).sort()).toEqual(['a-subdirectory', 'notes.txt', 'scrub-2026-02-26-000.jsonl']);
+  });
+});
+
+/**
+ * The three cases below reach the writer's failure paths through a taken name rather than through a
+ * permission bit. A POSIX obstacle that blocks a part rewrite blocks the marker write too, because
+ * both create in the same directory, so the permission fixtures above cannot tell "counted what is
+ * still on disk" from "counted what is gone" on the host CI runs: these can, on any system, with the
+ * directory left fully writable.
+ */
+describe('a scrub whose own write is refused', () => {
+  const clock = () => Date.parse(SCRUBBED_AT);
+
+  it('certifies nothing when the rewrite is refused, and touches no name it did not make', async () => {
+    const dir = dirWith(
+      new Map([['access-2026-02-24-000.jsonl', [record({ cred: 'svc-a', rid: 'rid-1' }), record({ cred: 'svc-b', rid: 'rid-2' })]]]),
+    );
+    const part = join(dir, 'access-2026-02-24-000.jsonl');
+    const planted = `${part}.tmp-${String(process.pid)}`;
+    writeFileSync(planted, "not this writer's file\n");
+    const failure = await accesslogScrub(dir, 'svc-a', clock).catch((error: unknown) => error);
+    expect(failure).toBeInstanceOf(Error);
+    const message = (failure as Error).message;
+    expect(message).toContain(`cannot rewrite access log part '${part}'`);
+    expect(message).not.toContain('marked in');
+    // Both halves of the writer's discipline are here. A count taken during the scan would have
+    // written this run's marker, and an unlink that does not ask whether the name is its own would
+    // have removed the one it did not write.
+    expect(readdirSync(dir).sort()).toEqual([part.slice(dir.length + 1), planted.slice(dir.length + 1)]);
+    expect(readFileSync(part, 'utf8')).toContain('svc-a');
+    expect(readFileSync(planted, 'utf8')).toBe("not this writer's file\n");
+  });
+
+  it('carries the counts in the refusal when the marker is the write that fails', async () => {
+    // The erasure has landed by now and cannot be taken back, so a bare sentence about a file the
+    // operator has never heard of would leave them with a run that removed records and reported
+    // nothing about it. The marker name is the one the run is about to choose, planted as the
+    // temporary the writer makes before it renames.
+    const dir = dirWith(
+      new Map([['access-2026-02-24-000.jsonl', [record({ cred: 'svc-a', rid: 'rid-1' }), record({ cred: 'svc-b', rid: 'rid-2' })]]]),
+    );
+    const part = join(dir, 'access-2026-02-24-000.jsonl');
+    writeFileSync(join(dir, `scrub-${SCRUB_DAY}-000.jsonl.tmp-${String(process.pid)}`), 'planted\n');
+    const failure = await accesslogScrub(dir, 'svc-a', clock).catch((error: unknown) => error);
+    const message = (failure as Error).message;
+    expect(message).toContain('cannot write the scrub marker');
+    expect(message).toContain('1 record removed from 1 file with no marker written');
+    expect(existsSync(join(dir, `scrub-${SCRUB_DAY}-000.jsonl`))).toBe(false);
+    expect(readFileSync(part, 'utf8')).not.toContain('svc-a');
+    expect(readFileSync(part, 'utf8')).toContain('svc-b');
+  });
+
+  it.runIf(process.platform !== 'win32')('writes the marker at the mode the scrub owns, not the part\'s', () => {
+    // No other case reads a marker's bits, so the literal at `writeReceipt` is pinned here: a marker
+    // carries a credential id, and it is the one file in this directory whose mode this program picks.
+    const dir = dirWith(new Map([['access-2026-02-24-000.jsonl', [record({ cred: 'svc-a' }), record({ cred: 'svc-b', rid: 'rid-2' })]]]));
+    expect(scrub(dir, 'svc-a').status).toBe(0);
+    const names = markers(dir);
+    expect(names).toHaveLength(1);
+    expect(statSync(join(dir, names[0] as string)).mode & 0o777).toBe(0o600);
+  });
+});
+
+/**
+ * The marker's name is the erasure's receipt, and a name the retention sweep cannot match is a
+ * credential id left on the volume past the window that erased its subject. The published CLI cannot
+ * import the sweep at run time, so `RETENTION_SWEEP_NAME` comes from the gateway here rather than a
+ * second copy of the pattern being written out below; that import is the only thing that keeps the
+ * two packages' idea of a collectable name from drifting apart in silence.
+ */
+describe('chooseScrubName', () => {
+  it('fills a day within the digits the sweep matches, then refuses', () => {
+    const all = Array.from({ length: 1000 }, (_, seq) => `scrub-${SCRUB_DAY}-${String(seq).padStart(3, '0')}.jsonl`);
+    const lastOfAll = chooseScrubName(all.slice(0, 999), SCRUB_DAY);
+    expect(lastOfAll).toBe(all[999]);
+    expect(RETENTION_SWEEP_NAME.test(lastOfAll)).toBe(true);
+    expect(() => chooseScrubName(all, SCRUB_DAY)).toThrow(/a thousand markers for 2026-02-26/u);
+  });
+
+  it('steps over a marker that exists rather than renaming over it', () => {
+    expect(chooseScrubName([`scrub-${SCRUB_DAY}-000.jsonl`, 'access-2026-02-26-000.jsonl'], SCRUB_DAY)).toBe(
+      `scrub-${SCRUB_DAY}-001.jsonl`,
+    );
   });
 });
