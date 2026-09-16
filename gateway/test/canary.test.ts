@@ -17,7 +17,7 @@ import {
   type AccessLog,
 } from '../src/aclog.js';
 import { buildGateway, type GatewayInstance } from '../src/server.js';
-import { CLOCK_SECONDS, generated } from './helpers.js';
+import { generated } from './helpers.js';
 
 /**
  * Two strings that must never be found in the log, one for each way a completion can be answered:
@@ -28,17 +28,14 @@ import { CLOCK_SECONDS, generated } from './helpers.js';
 const CANARY_PROMPT = 'CANARY-PROMPT-9c1f4e-in-this-string-there-is-a-secret';
 const CANARY_STREAM = 'CANARY-STREAM-9c1f4e-in-this-string-there-is-a-secret';
 
-/**
- * The fixture clock is where this credential is born, which keeps it older than the requests below
- * the way a deployed credential file is. It is not where a request is stamped: the store answers on
- * the wall clock, so a proof of possession carries the present.
- */
-const KEY = generated('canary-1', ['complete', 'read'], { createdAt: CLOCK_SECONDS });
+const KEY = generated('canary-1', ['complete', 'read']);
 const SORTED_FIELDS = [...ACCESS_RECORD_FIELDS].sort();
 
 /**
  * A proof of possession covers the method, the full request target including its query, and the
- * digest of the exact bytes sent, so the bytes signed and the bytes injected are one string. A
+ * digest of the exact bytes sent, so the bytes signed and the bytes injected are one string. The
+ * stamp is this second rather than the fixture's birthday, because the store here answers on the
+ * wall clock and a frozen stamp would be refused as months stale before the signature was read. A
  * request carrying a body also names its media type, because Fastify picks the parser from that
  * header before the pipeline runs and would answer 415 to a signature it never got to read.
  */
