@@ -32,11 +32,11 @@ const targets: Record<string, string> = {
 
 const ROUTES = Object.keys(ROUTE_SCOPES);
 
-/**
- * The paths the table names, counted once each: Fastify clones a GET route into a HEAD of its
- * own, so `scopeCheckedRoutes` tallies paths and not the method-and-path pairs in `ROUTES`.
- */
+/** The paths the scope table names, which is the shape the gateway's registration tally reads as. */
 const ROUTE_PATHS = new Set(ROUTES.map((route) => route.split(' ')[1]));
+
+/** A key that is not the record's own: well-formed, and wrong, so only the proof can fail. */
+const NOT_THE_RECORDS_KEY = new Uint8Array(32).fill(7);
 
 function denyCode(json: Record<string, unknown>): string | undefined {
   const error = json['error'] as { code?: string } | undefined;
@@ -84,9 +84,10 @@ describe('the floor covers every route the instance has', () => {
 
   it('the onRoute hook inspected every path the instance registers', async () => {
     const h = await openWith([]);
-    // The count is the only visible trace of the order: a hook registered below the routes
-    // would check none of them, and every other assertion in this file would still pass.
-    expect(h.app.scopeCheckedRoutes()).toBe(ROUTE_PATHS.size);
+    // The tally is the only visible trace of the order: a hook registered below the routes would
+    // check none of them, and every other assertion in this file would still pass. Comparing the
+    // paths rather than their number is what makes the failure name the route that escaped.
+    expect(h.app.scopeCheckedRoutes()).toEqual([...ROUTE_PATHS].sort());
   });
 
   it.each(ROUTES)('%s refuses a request with no credential', async (route) => {
@@ -266,7 +267,7 @@ describe('the route matrix: five routes by ten states', () => {
             expect(denyCode(byPrefix.json), `${route} / bearer prefix code`).toBe('AUTH_SCHEME');
             Object.assign(
               headers,
-              h.signFor(bearerId, method as string, targets[route] as string, body, { key: new Uint8Array(32) }),
+              h.signFor(bearerId, method as string, targets[route] as string, body, { key: NOT_THE_RECORDS_KEY }),
             );
           } else if (state === 'stale-ts') {
             Object.assign(headers, h.signFor(credential.record.id, method as string, targets[route] as string, body, { ts: CLOCK_SECONDS - 121 }));
@@ -277,7 +278,7 @@ describe('the route matrix: five routes by ten states', () => {
             Object.assign(
               headers,
               h.signFor(credential.record.id, method as string, targets[route] as string, body, {
-                key: new Uint8Array(32).fill(7),
+                key: NOT_THE_RECORDS_KEY,
               }),
             );
           } else if (state === 'revoked' || state === 'insufficient-scope' || state === 'rate-exhausted' || state === 'valid-pop' || state === 'replayed-nonce') {
@@ -431,11 +432,10 @@ describe('the credential file the floor reads before it admits', () => {
     };
     try {
       await write([credential.record]);
-      const store = new CredentialStore({ path, now: () => CLOCK_SECONDS * 1000 });
+      const h = await harness({ credentials: [credential], storePath: path });
       // Read once here the way a deployment's start-up read would, so the only reload this
       // request path can be failing on is the one the gateway performs for itself.
-      await store.reloadIfNeeded();
-      const h = await harness({ credentials: [credential], store });
+      await h.store.reloadIfNeeded();
       const headers = h.signFor('reload-1', 'GET', '/v1/deployment-manifest', null);
       expect((await h.inject({ method: 'GET', url: '/v1/deployment-manifest', headers })).statusCode).toBe(200);
       await write([{ ...credential.record, revokedAt: CLOCK_SECONDS - 1 }]);

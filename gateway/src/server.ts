@@ -57,16 +57,14 @@ function errorMessage(error: unknown): string {
   return error instanceof Error ? error.message : String(error);
 }
 
-declare module 'fastify' {
-  interface FastifyInstance {
-    /**
-     * How many route paths the scope table was consulted for while this instance was being
-     * built. A gateway that booted with a route the hook never saw has one fewer than it has
-     * routes, which is the one way to see that the hook was registered too late.
-     */
-    scopeCheckedRoutes(): number;
-  }
-}
+/** A gateway this module built, which is the only place the tally below exists. */
+export type GatewayInstance = FastifyInstance & {
+  /**
+   * The route paths whose registration was checked against the scope table, sorted. One fewer than
+   * the instance has is the only way to see that the hook was registered after the routes.
+   */
+  scopeCheckedRoutes(): string[];
+};
 
 function upstreamError(reply: { code: (n: number) => { send: (b: unknown) => unknown } }, message: string): void {
   reply.code(502).send({ error: { message, type: 'upstream_error' } });
@@ -110,7 +108,7 @@ async function collect(response: BackendResponse): Promise<Buffer> {
   return Buffer.concat(chunks, size);
 }
 
-export function buildGateway(options: GatewayOptions): FastifyInstance {
+export function buildGateway(options: GatewayOptions): GatewayInstance {
   const { access, accessLog } = options;
   const deployment =
     options.deployment ?? mockDeployment({ issuer: options.issuer, instance: options.instance, key: options.key });
@@ -128,7 +126,6 @@ export function buildGateway(options: GatewayOptions): FastifyInstance {
   // has to propagate out of register and stop the process, and re-throwing a caught error to achieve
   // that only hides which line stopped it.
   const checkedPaths = new Set<string>();
-  app.decorate('scopeCheckedRoutes', () => checkedPaths.size);
   app.addHook('onRoute', (routeOptions) => {
     const methods = Array.isArray(routeOptions.method) ? routeOptions.method : [routeOptions.method];
     for (const each of methods) {
@@ -161,6 +158,8 @@ export function buildGateway(options: GatewayOptions): FastifyInstance {
   async function flush(request: FastifyRequest, reply: FastifyReply): Promise<void> {
     const state = stateOf(request);
     if (state === undefined || state.logged) return;
+    // Set before the write, so a log that rejects this record costs the request its only line: the
+    // alternative is a retry that can land a second line for one request once both listeners fire.
     state.logged = true;
     const record: AccessRecord = {
       t: state.startedAt,
@@ -531,5 +530,7 @@ export function buildGateway(options: GatewayOptions): FastifyInstance {
     }
   });
 
-  return app;
+  // Assigned rather than decorated, so the method's type lives on GatewayInstance and nowhere in
+  // Fastify's own interface.
+  return Object.assign(app, { scopeCheckedRoutes: (): string[] => [...checkedPaths].sort() });
 }

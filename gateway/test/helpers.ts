@@ -1,4 +1,3 @@
-import type { FastifyInstance } from 'fastify';
 import {
   EMPTY_BODY_SHA256_HEX,
   sha256Hex,
@@ -7,7 +6,7 @@ import {
   toBase64Url,
   type PopFields,
 } from '@ashaveri/receipt';
-import { buildGateway, type GatewayOptions } from '../src/server.js';
+import { buildGateway, type GatewayInstance, type GatewayOptions } from '../src/server.js';
 import {
   CredentialStore,
   newBearerCredential,
@@ -46,9 +45,14 @@ export function generated(id: string, scopes: Scope[], extra: Partial<Credential
 }
 
 export interface Harness {
-  app: FastifyInstance;
+  app: GatewayInstance;
   log: MemoryAccessLog;
   records: CredentialRecord[];
+  /**
+   * The store this harness made, whose start-up read a test that writes a credential file has to
+   * perform itself; the gateway only reloads a file it already served.
+   */
+  store: CredentialStore;
   /**
    * A header for one request. `key` is for a header naming a record this harness holds no key
    * for: without it, `unsignedKeyFor` refuses the id as an admission a test has no business
@@ -81,15 +85,14 @@ export interface HarnessInput {
    * deployment, an upstream backend or a bounded receipt store need a route through here, because
    * a second construction path outside `harness()` is exactly what this file exists to prevent.
    */
-  gateway?: Partial<GatewayOptions>;
+  gateway?: Partial<Omit<GatewayOptions, 'access' | 'accessLog'>>;
   /**
-   * A store the caller built, for the one thing this file cannot otherwise make: a credential
-   * file on a path, whose reload the gateway has to notice. The credentials named alongside it
-   * are still what `signFor` holds keys for, so they have to be the records that file carries,
-   * and the store's `now` has to name CLOCK_SECONDS or the floor reads a well-signed header as
-   * months stale.
+   * A credential file on disk to build the store from, for a test whose point is the reload the
+   * gateway performs. The store is still made here, so the pinned clock, the tolerance and the
+   * bearer rule are the ones every other harness gets. `credentials` has to name the records that
+   * file carries, because that is where `signFor` reads keys from.
    */
-  store?: CredentialStore;
+  storePath?: string;
 }
 
 const NONCE_BYTES = 16;
@@ -100,20 +103,19 @@ export async function harness(input: HarnessInput = {}): Promise<Harness> {
   const credentials = input.credentials ?? [];
   const records: CredentialRecord[] = [...credentials.map((each) => each.record), ...(input.extra ?? [])];
   const keys = new Map<string, Uint8Array>(credentials.map((each) => [each.record.id, each.privateKey]));
-  // A store from the caller carries its own clock, tolerance and bearer rule, so it has to name the
-  // instant `signFor` stamps at: the constraint is spelled out on `HarnessInput.store`.
-  const store =
-    input.store ??
-    new CredentialStore({
-      file: { version: 1, credentials: records },
-      allowBearer: input.allowBearer,
-      toleranceSeconds: input.toleranceSeconds,
-      // `signFor` stamps every header at CLOCK_SECONDS, so the store has to read the same instant: on
-      // the wall clock it would refuse a well-signed request as months stale, and the tolerance test
-      // would measure the age of the fixture rather than the offset it names. A test that wants a
-      // different instant asks for one with `ts`, which is what that parameter is for.
-      now: () => CLOCK_SECONDS * 1000,
-    });
+  // One construction site, so the clock, the tolerance and the bearer rule below are the ones every
+  // harness runs on: a store a caller built for itself would carry its own, and the pinned instant
+  // `signFor` stamps at would no longer be the one the floor reads.
+  const store = new CredentialStore({
+    ...(input.storePath === undefined ? { file: { version: 1, credentials: records } } : { path: input.storePath }),
+    allowBearer: input.allowBearer,
+    toleranceSeconds: input.toleranceSeconds,
+    // `signFor` stamps every header at CLOCK_SECONDS, so the store has to read the same instant: on
+    // the wall clock it would refuse a well-signed request as months stale, and the tolerance test
+    // would measure the age of the fixture rather than the offset it names. A test that wants a
+    // different instant asks for one with `ts`, which is what that parameter is for.
+    now: () => CLOCK_SECONDS * 1000,
+  });
   // Two clocks run through a harness, and only one of them is pinned. The store's `now`, set just
   // above, answers one question: is this stamp inside the window. The access record's `t` and `dur`
   // are stamped by the flush off the wall clock this process runs on, which a memory log carries
@@ -152,6 +154,7 @@ export async function harness(input: HarnessInput = {}): Promise<Harness> {
     app,
     log,
     records,
+    store,
     signFor(id, method, target, body, options) {
       const nonce = options?.nonce ?? implicitNonce();
       const fields: PopFields = {

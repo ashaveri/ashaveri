@@ -39,8 +39,10 @@ function runStopped(...args: string[]) {
     killSignal: 'SIGKILL',
   });
   // The only acceptable error is the stop itself: anything else means the process died on its own,
-  // and its stdout would then be a refusal message rather than the banner under test.
-  expect(String(result.error?.message ?? '')).toContain('ETIMEDOUT');
+  // and its stdout would then be a refusal message rather than the banner under test. A CLI that
+  // grows an exit path of its own must not pass that check by printing a line about a timeout.
+  const stopped = result.error as (Error & { code?: string }) | undefined;
+  expect(stopped?.code, `the spawn ended with: ${JSON.stringify(result.error)}`).toBe('ETIMEDOUT');
   return result.stdout.split('\n');
 }
 
@@ -135,9 +137,14 @@ describe('the banner a booted gateway prints', () => {
     'names the mode the printed dev credential belongs to',
     () => {
       const banner = runStopped('--mock', '--port', '0');
-      expect(banner[0]).toMatch(/^signerd \(mock\) listening on http:\/\/127\.0\.0\.1:\d+$/u);
+      const printed = banner.join('\n');
+      expect(banner[0], `no listening line; stdout held ${JSON.stringify(printed)}`).toMatch(
+        /^signerd \(mock\) listening on http:\/\/127\.0\.0\.1:\d+$/u,
+      );
       const credential = banner.find((line) => line.includes('id=dev privateKeyHex='));
-      expect(credential).toMatch(/^ {2}dev credential for this mock run: id=dev privateKeyHex=[0-9a-f]{64}$/u);
+      expect(credential, `no dev credential line; stdout held ${JSON.stringify(printed)}`).toMatch(
+        /^ {2}dev credential for this mock run: id=dev privateKeyHex=[0-9a-f]{64}$/u,
+      );
     },
     12_000,
   );
