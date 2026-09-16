@@ -276,12 +276,15 @@ describe('the flags that make the access floor real', () => {
   it('reports the posture a flagless mock run boots into', () => {
     const banner = runStopped('--mock', '--port', '0');
     const printed = banner.join('\n');
+    // `--port 0` is the operating system choosing, so a report that echoed the flag would print a
+    // port nothing can connect to. The nonzero requirement is the whole point of this pattern.
     expect(banner[0], `no listening line; stdout held ${JSON.stringify(printed)}`).toMatch(
-      /^signerd \(mock\) listening on http:\/\/127\.0\.0\.1:\d+$/u,
+      /^signerd \(mock\) listening on http:\/\/127\.0\.0\.1:[1-9]\d*$/u,
     );
     expect(banner, printed).toContain(
       '  auth: proof of possession, timestamps trusted within 120 seconds; bearer credentials refused',
     );
+    expect(banner, printed).toContain('  credentials: 1 record held in this process only');
     expect(banner, printed).toContain(
       '  access log: this process only, kept for 184 days and gone on restart',
     );
@@ -334,6 +337,13 @@ describe('the flags that make the access floor real', () => {
       expect(banner.some((each) => each.includes('id=dev privateKeyHex=')), banner.join('\n')).toBe(true);
       const held = runStopped('--mock', '--port', '0', '--credentials-path', CREDENTIALS);
       expect(held.some((each) => each.includes('id=dev')), held.join('\n')).toBe(false);
+      // An empty file parses, so nothing else about this gateway says that it will refuse everything.
+      expect(
+        held,
+        held.join('\n'),
+      ).toContain(
+        `  credentials: 0 records read from ${CREDENTIALS} at start-up, which leaves every request refused`,
+      );
     },
     12_000,
   );

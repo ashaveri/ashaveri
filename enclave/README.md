@@ -99,9 +99,9 @@ already read-only at `/run/ashaveri`:
 }
 ```
 
-A record holds a public key or a hash of a secret, never a signing key, so this file can sit beside the
-compose text and travel with the deployment. The private half goes to the client and nowhere else, and
-a bearer secret is the one credential kind that must never be mounted through a platform: it is the
+A record holds a public key or a hash of a secret, never a signing key, so this file can sit in the
+release directory and travel with the deployment. The private half goes to the client and nowhere else,
+and a bearer secret is the one credential kind that must never be mounted through a platform: it is the
 whole of the authentication, so shipping it to someone else's storage is shipping the credential. To
 make one now, from a built workspace:
 
@@ -139,17 +139,19 @@ VM.
 
 ## 4. Verify from a laptop
 
-Both documents now need a credential, so a bare `curl` gets a 401 and the SDK is the way to fetch them:
+Both documents now need a credential, so a bare `curl` gets a 401 and the SDK is the way to fetch them.
+The report data below is read from `$RD` by both halves, since a document fetched for one challenge
+cannot satisfy a check against another:
 
 ```bash
-RD=$(printf '%064x' 0xdeadbeef)                      # any 64-hex report data
+export RD=$(printf '%064x' 0xdeadbeef)               # any 64-hex report data
 node --input-type=module -e '
 import { writeFileSync } from "node:fs";
 const { GatewaySession, authorizedFetch, credentialFromEnv } = await import("./packages/sdk/dist/index.js");
 const session = new GatewaySession(`${process.env.BASE}/v1`, {
   fetchImpl: authorizedFetch(credentialFromEnv(process.env), globalThis.fetch),
 });
-const reportData = new Uint8Array(32).fill(0xad);
+const reportData = Buffer.from(process.env.RD, "hex");
 writeFileSync("manifest.json", JSON.stringify(await session.manifest(), null, 2));
 writeFileSync("attestation.bin", Buffer.from(await session.attestationBytes(reportData)));
 '

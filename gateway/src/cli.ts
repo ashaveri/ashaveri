@@ -254,20 +254,21 @@ const devCredential =
     : undefined;
 
 let access: CredentialStore;
+let loadedRecords: number;
 try {
   if (credentialsPath === undefined) {
+    const records = devCredential === undefined ? [] : [devCredential.record];
+    loadedRecords = records.length;
     access = new CredentialStore({
-      file: {
-        version: CREDENTIALS_FILE_VERSION,
-        credentials: devCredential === undefined ? [] : [devCredential.record],
-      },
+      file: { version: CREDENTIALS_FILE_VERSION, credentials: records },
       allowBearer,
       toleranceSeconds,
     });
   } else {
     // Read once here so a broken file is a refusal at start-up, then hand the store the path: a
     // revocation that waits for a restart is not a revocation.
-    await loadCredentialFile(credentialsPath);
+    const parsed = await loadCredentialFile(credentialsPath);
+    loadedRecords = parsed.credentials.length;
     access = new CredentialStore({ path: credentialsPath, allowBearer, toleranceSeconds });
   }
 } catch (error) {
@@ -341,7 +342,18 @@ const kept =
   receiptsDir === undefined
     ? 'receipts kept in this process only, and gone on restart'
     : `receipts kept in ${receiptsDir} for ${Math.round(MINIMUM_RETENTION_SECONDS / 86_400)} days, up to ${String(MAX_SERVED_RECEIPTS)} at a time`;
+// `--port 0` leaves the choice to the operating system, and this report is the only place a reader
+// learns where the process actually is, so the number comes off the listener rather than off the flag.
+const listening = app.server.address();
+const boundPort = typeof listening === 'object' && listening !== null ? listening.port : port;
 const held = accessLogPath === undefined ? [] : await accessLog.files();
+const recordWord = loadedRecords === 1 ? 'record' : 'records';
+const credentialsLabel =
+  credentialsPath === undefined
+    ? `credentials: ${String(loadedRecords)} ${recordWord} held in this process only`
+    : `credentials: ${String(loadedRecords)} ${recordWord} read from ${credentialsPath} at start-up${
+        loadedRecords === 0 ? ', which leaves every request refused' : ''
+      }`;
 const logLabel =
   accessLogPath === undefined
     ? `access log: this process only, kept for ${String(accessLogDays)} days and gone on restart`
@@ -349,12 +361,13 @@ const logLabel =
         held.length === 0 ? '' : `, with ${String(held.length)} file${held.length === 1 ? '' : 's'} from before this boot`
       }`;
 const lines: string[] = [
-  `signerd (${label}) listening on http://${host}:${port}`,
+  `signerd (${label}) listening on http://${host}:${boundPort}`,
   `  issuer ${deployment.issuer} instance ${deployment.instance}`,
   `  ${kept}`,
   allowBearer
     ? '  auth: bearer credentials also accepted, which is a refusal of the strongest posture here: a stolen bearer credential is undetectable, and a log record cannot tell its holder from a thief'
     : `  auth: proof of possession, timestamps trusted within ${String(toleranceSeconds)} seconds; bearer credentials refused`,
+  `  ${credentialsLabel}`,
   `  ${logLabel}`,
 ];
 if (accessLogDays < MINIMUM_RETENTION_DAYS) {
