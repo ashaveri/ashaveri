@@ -163,7 +163,9 @@ describe('ashaveri accesslog scrub', () => {
     // A renamed copy would keep every removed line on the volume under a name the gateway's
     // retention can never match again, which is the opposite of the erasure that was asked for.
     expect(readdirSync(dir).sort()).toEqual(['access-2026-02-25-000.jsonl', 'scrub-2026-02-26-000.jsonl']);
-    expect(markerOf(dir).files).toBe(1);
+    // Both counts, not just the file: the part that vanished held two records, and a marker that
+    // left them out would understate the erasure the operator is asked to prove.
+    expect(markerOf(dir)).toEqual({ t: Date.parse(SCRUBBED_AT), credential: 'svc-a', removed: 2, files: 1 });
   });
 
   it('keeps a line it cannot read byte for byte while removing the record beside it', () => {

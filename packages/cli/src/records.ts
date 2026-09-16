@@ -76,10 +76,10 @@ export async function readCredentialFile(path: string): Promise<CredentialFile> 
  * the fields that decide whether the file is loadable at all. This reader mirrors every rule the
  * gateway's `parseRecord` has, and the reason is measured rather than stylistic: `server.ts` reloads
  * this file ahead of admission and outside the request's own error handling, so a record that stops
- * parsing is a deployment answering 500 to every route, while a CLI that never checked that field
- * lists the file and reports a revocation as a success. A rule the gateway gains and this reader
- * does not is caught by the table in `test/credential.test.ts`, which drives a malformed shape
- * through both parsers and requires both to refuse it.
+ * parsing is a deployment answering 500 to every registered route, while a CLI that never checked
+ * that field lists the file and reports a revocation as a success. A rule the gateway gains and this
+ * reader does not is caught by the table in `test/credential.test.ts`, which drives a malformed
+ * shape through both parsers and requires both to refuse it.
  *
  * Two places the wording differs on purpose. The gateway's messages are for a log line and this
  * program's are for an operator at a prompt, so the id rule is stated as a range instead of a code,
@@ -92,10 +92,11 @@ const HEX32 = /^[0-9a-f]{64}$/u;
 const PUBLIC_KEY_BYTES = 32;
 
 /**
- * The gateway's id rule, stated once here because three commands repeat back an id they were handed:
- * `credential add` and `credential revoke` name it in a sentence, `keygen` gives it a row of its
- * own, and `accesslog scrub` interpolates it into a count. An id carrying a newline is a second line
- * on the terminal that no record and no erasure occupies.
+ * The gateway's id rule, stated once here because four commands repeat back an id they were handed:
+ * `credential add` and `credential revoke` each name it in a sentence, `keygen` gives it a row of its
+ * own, and `accesslog scrub` interpolates it into a count and into the marker it writes. An id
+ * carrying a newline is a second line on the terminal that no record and no erasure occupies, and a
+ * revocation is the line an operator keeps as evidence.
  */
 export function checkId(value: string, flag: string): string {
   if (!CREDENTIAL_ID.test(value)) {
@@ -126,8 +127,10 @@ function checkedRecord(value: unknown, where: string): CredentialRecord {
     if (typeof key !== 'string') {
       throw new UsageError(`${where}.publicKey is not a string`);
     }
-    // Decoded with the gateway's own reader, so a text whose trailing bits are set and a text that
-    // is merely the wrong length both fail here the way they fail there.
+    // Decoded with the gateway's own reader, so a text it refuses is refused here for the same
+    // reason: the alphabet, the padding, and a length that stands for no byte at all. What neither
+    // side checks is the trailing bits of a final character, so a key stored in that form loads on
+    // both and is canonical only when this program writes it.
     let bytes: Uint8Array;
     try {
       bytes = fromBase64Url(key);
@@ -208,9 +211,10 @@ function normalizeFile(value: unknown, path: string): CredentialFile {
 }
 
 /**
- * Same directory, temporary name, rename. A reader that never sees a half-written file is the whole
- * point: the gateway re-reads this file when its mtime moves, and a record torn in half is a
- * deployment that has forgotten its credentials until the next restart.
+ * Same directory, temporary name, rename. The gateway reloads this file when its mtime moves, and
+ * the reload runs ahead of admission and outside the request's own error handling, so a reader that
+ * catches a half-written file is a deployment answering 500 on every registered route until a whole
+ * one replaces it. That window is what the rename closes, and it closes it without a restart.
  */
 export async function writeCredentialFile(path: string, file: CredentialFile): Promise<void> {
   const tmp = `${path}.tmp-${String(process.pid)}`;

@@ -12,7 +12,7 @@ import {
   type Scope,
 } from '../records.js';
 import { shortId } from './keygen.js';
-import { UsageError } from '../usage.js';
+import { escapeInvisible, escapeInvisibleJson, NEEDS_QUOTING, UsageError } from '../usage.js';
 
 const PUBLIC_KEY_BYTES = 32;
 
@@ -71,8 +71,8 @@ function parseRate(raw: string | undefined): CredentialRate | undefined {
   if (match === null) throw new UsageError('--rate must look like perMinute=60,burst=120');
   const perMinute = Number(match[1]);
   const burst = Number(match[2]);
-  // The gateway refuses a record whose rate is not a positive integer, which would take the whole
-  // file down at its next start, so `perMinute=0` has to be caught here rather than stored.
+  // The gateway refuses a record whose rate is not a positive integer, and it reloads the file ahead
+  // of admitting the next request, so `perMinute=0` has to be caught here rather than stored.
   if (!Number.isSafeInteger(perMinute) || perMinute < 1 || !Number.isSafeInteger(burst) || burst < 1) {
     throw new UsageError('--rate perMinute and burst must be integers of at least 1');
   }
@@ -80,11 +80,13 @@ function parseRate(raw: string | undefined): CredentialRate | undefined {
 }
 
 /**
- * One operator typo in a public key is not a local mistake: the gateway refuses a credential file
- * whose record will not parse, so a bad key here takes the deployment down at its next restart, and
- * a running gateway keeps serving on the file it loaded before until the edit is reverted. Decoding
- * with the same reader the gateway uses is the point, and the canonical re-encoding is what stops a
- * text whose trailing bits are set from naming a key that looks different than it verifies.
+ * One operator typo in a public key is not a local mistake. The gateway reloads this file ahead of
+ * admitting a request, and the reload runs outside that request's own error handling, so a record
+ * whose key will not parse leaves every registered route answering 500 from the next request on
+ * until a parseable file replaces it. Decoding with the same reader the gateway uses is the point,
+ * and the canonical re-encoding is what stops a text whose trailing bits are set from naming a key
+ * that looks different than it verifies. Only the write path can make that second promise: the
+ * gateway's decoder accepts such a text, so a file that already holds one loads on both sides.
  */
 function parsePublicKey(raw: string): string {
   let bytes: Uint8Array;
@@ -208,28 +210,15 @@ function pad(value: string, width: number): string {
 
 /**
  * A label is free text, and a file need not have been written by this program, so the column is
- * printed as it is unless it carries something that would move the cursor or reorder what it draws:
- * the C0 and C1 control ranges, the two line and paragraph separators, the bidi and zero-width
- * formatting characters, and the quote and backslash that a copied value has to survive.
+ * printed as it is unless it carries something the shared guard classifies as invisible, or a quote
+ * or a backslash that a copied value has to survive. Quoting alone is not enough: `JSON.stringify`
+ * leaves the C1 range and every format character exactly as raw as they were, and those are the
+ * characters that move a cursor or reorder the rest of the row.
  */
-const NEEDS_QUOTING = /[\u0000-\u001f\u007f-\u009f\u2028\u2029\u202a-\u202e\u2060-\u2064"\\]/u;
-
-/**
- * What `JSON.stringify` hands back unescaped inside its own quotes. The C1 range is not a JSON
- * control character and the formatting characters are not JSON specials at all, so quoting alone
- * would still print a U+0085 a line-splitting reader obeys and a U+202E that reorders the rest of
- * the row. These are the characters the class above exists to catch.
- */
-const RAW_AFTER_QUOTING = /[\u0080-\u009f\u202a-\u202e\u2060-\u2064]/gu;
-
-function escapeCodePoint(char: string): string {
-  return `\\u${char.charCodeAt(0).toString(16).padStart(4, '0')}`;
-}
-
 function labelCell(label: string | undefined): string {
   if (label === undefined) return '';
   if (!NEEDS_QUOTING.test(label)) return label;
-  return JSON.stringify(label).replace(RAW_AFTER_QUOTING, escapeCodePoint);
+  return escapeInvisible(JSON.stringify(label));
 }
 
 function tableOf(views: CredentialView[]): string {
@@ -243,6 +232,17 @@ function tableOf(views: CredentialView[]): string {
 
 function print(label: string, value: string): void {
   process.stdout.write(`${label.padEnd(16)}${value}\n`);
+}
+
+/**
+ * The one machine-readable form of the three credential subcommands. A `--json` stream is piped into
+ * a file and read on a terminal on the way there, and `JSON.stringify` passes every invisible
+ * character through as raw text, so the escaping follows it. Only the quoted spans are rewritten:
+ * the newlines between an indented document's fields are structure, and inside a string an escape is
+ * the other spelling of the same character to anything that parses it.
+ */
+function writeJson(value: unknown): void {
+  process.stdout.write(`${escapeInvisibleJson(JSON.stringify(value, null, 2))}\n`);
 }
 
 function printRecord(record: CredentialRecord): void {
@@ -299,7 +299,7 @@ async function runAdd(path: string, flags: CredentialFlags, now: () => number): 
   });
   const notice = `${noticeFor(secret)}\n`;
   if (flags.json) {
-    process.stdout.write(`${JSON.stringify(machineOf(record, secret), null, 2)}\n`);
+    writeJson(machineOf(record, secret));
     process.stderr.write(notice);
     return 0;
   }
@@ -319,9 +319,13 @@ async function runAdd(path: string, flags: CredentialFlags, now: () => number): 
 async function runRevoke(path: string, flags: CredentialFlags, now: () => number): Promise<number> {
   const id = flags.id;
   if (id === undefined) throw new UsageError('credential revoke needs --id <id>');
+  // Checked here rather than deep in the lookup, because both of the sentences below print this id
+  // back: the refusal on stderr and the success line on stdout, which is the one output an operator
+  // keeps as evidence that a revocation happened.
+  checkId(id, '--id');
   const record = await credentialRevoke(path, id, now);
   if (flags.json) {
-    process.stdout.write(`${JSON.stringify(viewOf(record), null, 2)}\n`);
+    writeJson(viewOf(record));
     return 0;
   }
   process.stdout.write(
@@ -334,7 +338,8 @@ async function runRevoke(path: string, flags: CredentialFlags, now: () => number
 
 async function runList(path: string, flags: CredentialFlags): Promise<number> {
   const views = credentialViews(await credentialList(path));
-  process.stdout.write(flags.json ? `${JSON.stringify(views, null, 2)}\n` : tableOf(views));
+  if (flags.json) writeJson(views);
+  else process.stdout.write(tableOf(views));
   return 0;
 }
 

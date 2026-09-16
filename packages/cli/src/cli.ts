@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 import { readFileSync } from 'node:fs';
 import { parseArgs } from 'node:util';
-import { UsageError } from './usage.js';
+import { escapeInvisible, UsageError } from './usage.js';
 import { runKeygen } from './commands/keygen.js';
 import { runCredential } from './commands/credential.js';
 import { runAccessLog } from './commands/accesslog.js';
@@ -36,9 +36,9 @@ nothing. A run that removes nothing leaves no marker, so a credential with no ma
 and a scrub that never ran read the same from the directory. The scrub holds no lock and no
 gateway stops writing while it runs: it reads a part, then renames its own copy over it, so a
 record appended to a part between reading it and rewriting that part is lost with it. A part
-with nothing to remove is left alone, and a part the scrub empties is deleted outright, so its
-removals appear in no marker's count. Run it against a deployment that is not serving. --now
-sets the day a marker is named for, and a marker for a day the deployment no longer keeps is
+with nothing to remove is left alone, and a part the scrub empties is deleted outright, its
+removals counted in the marker beside the rest. Run it against a deployment that is not serving.
+--now sets the day a marker is named for, and a marker for a day the deployment no longer keeps is
 deleted by the next sweep.
 
 Verification options:
@@ -193,7 +193,10 @@ try {
   process.exitCode = await main(process.argv.slice(2));
 } catch (err) {
   if (err instanceof UsageError) {
-    process.stderr.write(`ashaveri: ${err.message}\nTry 'ashaveri --help' for usage.\n`);
+    // Every message here carries a token the caller typed or a path the operating system repeats
+    // back inside its own error text, so the guard belongs at the one place a refusal becomes a
+    // line: escaped, the message still names what it refused, and it stays one line.
+    process.stderr.write(`ashaveri: ${escapeInvisible(err.message)}\nTry 'ashaveri --help' for usage.\n`);
     process.exitCode = 2;
   } else {
     const detail = err instanceof Error ? (err.stack ?? err.message) : String(err);

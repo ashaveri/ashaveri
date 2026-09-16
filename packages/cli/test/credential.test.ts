@@ -54,6 +54,15 @@ function addArgs(path: string, ...extra: string[]) {
   return ['credential', 'add', '--credentials', path, '--now', ADDED_AT, ...extra];
 }
 
+/**
+ * The characters in the guard's own class, looked at one code point at a time. A newline is left out
+ * because a row is allowed to end with one, and each case that cares about that pairs this with the
+ * number of lines the output has: the two together say the only newlines are the ones written here.
+ */
+function rawInvisible(text: string): string[] {
+  return [...text].filter((each) => each !== '\n' && /[\p{Cc}\p{Cf}\u{e0000}-\u{e007f}]/u.test(each));
+}
+
 afterAll(() => {
   rmSync(tempDir, { recursive: true, force: true });
 });
@@ -558,6 +567,75 @@ describe('what the CLI is allowed to print', () => {
     expect(listed.stdout).not.toMatch(/[\u0080-\u009f\u2028\u2029\u202a-\u202e\u2060-\u2064]/u);
   });
 
+  it('escapes what a terminal hides or obeys, in the row and in the object', () => {
+    // The class the guard carries and the list an earlier version enumerated are not the same set. A
+    // zero-width space and a right-to-left mark are format characters rather than control ones, so a
+    // class built from the control ranges never saw them; DEL sits above the C0 range that class
+    // stopped at; a tag character is astral, which is where an escape written per code point rather
+    // than per code unit hands back the high half alone; and a soft hyphen is invisible without being
+    // a control at all. The object form is in the same case because `JSON.stringify` is the step that
+    // left every one of them raw.
+    const shapes = ['a\u200bb', 'a\u200fb', 'a\u061cb', 'a\u00adb', 'a\ufeffb', 'a\u007fb', `a\u{e0020}b`, 'a\u2066b'];
+    const escapes = ['\\u200b', '\\u200f', '\\u061c', '\\u00ad', '\\ufeff', '\\u007f', '\\udb40\\udc20', '\\u2066'];
+    const path = freshFile();
+    shapes.forEach((label, index) => {
+      const added = runCli(addArgs(path, '--id', `u${String(index)}`, '--label', label));
+      expect(added.status, shapes[index]).toBe(0);
+    });
+
+    const listed = runCli(['credential', 'list', '--credentials', path]);
+    expect(listed.status).toBe(0);
+    expect(listed.stdout.split('\n').filter((each) => each.length > 0)).toHaveLength(shapes.length + 1);
+    expect(rawInvisible(listed.stdout)).toEqual([]);
+    for (const escape of escapes) expect(listed.stdout, escape).toContain(escape);
+
+    const machine = runCli(['credential', 'list', '--credentials', path, '--json']);
+    expect(rawInvisible(machine.stdout)).toEqual([]);
+    // An escape is the other spelling of the same character, so the two forms have to agree: what the
+    // object carries is the label the file holds, and the row is that label rendered.
+    const views = JSON.parse(machine.stdout) as { label: string }[];
+    expect(views.map((each) => each.label)).toEqual(shapes);
+  });
+
+  it('keeps a refusal about a token on one line, wherever the token came from', () => {
+    // A message that names what it refused has to carry the token, and four of these tokens are
+    // repeated back by the operating system inside its own error text, so the guard sits where a
+    // message becomes a line rather than at each call site. `--access-log` is the case that proves
+    // the difference: its refusal holds both this program's path and the `fs` module's.
+    const path = freshFile();
+    const refusals: Array<[string, string[]]> = [
+      ['--kind', ['credential', 'add', '--credentials', path, '--kind', 'pop\nFORGED kind']],
+      ['--public-key', ['credential', 'add', '--credentials', path, '--public-key', 'zz\nFORGED key']],
+      ['--now', ['credential', 'add', '--credentials', path, '--now', 'someday\nFORGED clock']],
+      ['--access-log', ['accesslog', 'scrub', '--access-log', `no/such\nFORGED dir`, '--credential', 'a']],
+      ['a command', ['\nFORGED command']],
+    ];
+    for (const [name, args] of refusals) {
+      const result = runCli(args);
+      expect(result.status, name).toBe(2);
+      expect(result.stderr.split('\n').filter((each) => each.length > 0), name).toHaveLength(2);
+      expect(result.stderr, name).not.toMatch(/^FORGED/mu);
+      expect(result.stderr, name).toContain('\\u000aFORGED');
+    }
+  });
+
+  it('refuses a revoke id it would otherwise print back, and says which flag it came from', () => {
+    const path = freshFile();
+    runCli(addArgs(path, '--id', 'here'));
+    const spaced = runCli(['credential', 'revoke', '--credentials', path, '--id', 'client 1', '--now', REVOKED_AT]);
+    expect(spaced.status).toBe(2);
+    expect(spaced.stderr).toContain("--id 'client 1' is outside [A-Za-z0-9_-]{1,64}");
+    // Refused as a bad name rather than as a missing record: the second sentence would carry the same
+    // token, and a token carrying a newline is a second stderr line whose every word this program
+    // wrote. The escape is what the message keeps instead of the character.
+    const forged = runCli(['credential', 'revoke', '--credentials', path, '--id', 'x\nFORGED revocation', '--now', REVOKED_AT]);
+    expect(forged.status).toBe(2);
+    expect(forged.stderr).toContain('is outside [A-Za-z0-9_-]{1,64}');
+    expect(forged.stderr).toContain("\\u000aFORGED revocation'");
+    expect(forged.stderr).not.toMatch(/^FORGED/mu);
+    expect(readFileSync(path, 'utf8')).not.toContain('revokedAt');
+  });
+
   it('refuses a keygen id the gateway would refuse a record for', () => {
     const bad = runCli(['keygen', '--id', 'ok\nFORGED keygen row']);
     expect(bad.status).toBe(2);
@@ -617,6 +695,11 @@ describe('what the CLI is allowed to print', () => {
     const help = runCli(['--help']);
     expect(help.stdout).toMatch(/appended to a part between reading it and rewriting that part/u);
     expect(help.stdout).not.toMatch(/every record appended while the scrub works through the directory/u);
+    // A deleted part is still a part the scrub acted on, and the file counter moves on that branch
+    // too, so the help text may not promise a count that excludes it: the marker an operator files
+    // as the answer to a request would understate the erasure by exactly the emptied part.
+    expect(help.stdout).toMatch(/its\s+removals\s+counted\s+in\s+the\s+marker\s+beside\s+the\s+rest/u);
+    expect(help.stdout).not.toMatch(/appear in no marker'?s count/u);
   });
 });
 
