@@ -1,5 +1,6 @@
-import { chmod, readFile, rename, unlink, writeFile } from 'node:fs/promises';
+import { readFile } from 'node:fs/promises';
 import { fromBase64Url, sha256Hex } from '@ashaveri/receipt';
+import { writeAtomically } from './atomic.js';
 import { UsageError } from './usage.js';
 
 export type Scope = 'read' | 'complete';
@@ -215,24 +216,13 @@ function normalizeFile(value: unknown, path: string): CredentialFile {
  * the reload runs ahead of admission and outside the request's own error handling, so a reader that
  * catches a half-written file is a deployment answering 500 on every registered route until a whole
  * one replaces it. That window is what the rename closes, and it closes it without a restart.
+ *
+ * The mode is `0600` because the file holds a secret hash and a public key, and a directory that will
+ * not take the write answers with the one-line refusal every other fixable failure gets, not with a
+ * stack trace over the operator's path.
  */
 export async function writeCredentialFile(path: string, file: CredentialFile): Promise<void> {
-  const tmp = `${path}.tmp-${String(process.pid)}`;
-  try {
-    await writeFile(tmp, `${JSON.stringify(file, null, 2)}\n`, { mode: 0o600 });
-    // `writeFile`'s `mode` is skipped when the file already exists, which a retried write or an
-    // operator's leftover temporary name can do, so the permission is set again rather than trusted.
-    await chmod(tmp, 0o600);
-    await rename(tmp, path);
-  } catch (error) {
-    // A path that cannot be written is the operator's to fix, so it gets the exit 2 and the single
-    // line every other fixable refusal gets. `fs` puts the path it was handed inside its own message
-    // and Node prints the whole error with a stack when nothing catches it, which is a line about a
-    // credential file that no guard has read.
-    const reason = error instanceof Error ? error.message : String(error);
-    await unlink(tmp).catch(() => undefined);
-    throw new UsageError(`cannot write the credential file '${path}': ${reason}`);
-  }
+  await writeAtomically(path, `${JSON.stringify(file, null, 2)}\n`, 0o600, 'cannot write the credential file');
 }
 
 /**

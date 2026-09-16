@@ -3,7 +3,7 @@ import { sha256 } from '@noble/hashes/sha2.js';
 import { AttestationError, equalBytes, pinnedComposeHash, platformMeasurement, reportDataBinds, verifyAttestation } from '@ashaveri/attest-core';
 import type { NvidiaEvidence, NvidiaVerification, VerificationResult } from '@ashaveri/attest-core';
 import { toHex } from '@ashaveri/receipt';
-import { escapeInvisible, escapeInvisibleJson, UsageError } from '../usage.js';
+import { escapeInvisible, UsageError, writeJson } from '../usage.js';
 
 const REPORT_DATA_BYTES = 64;
 const PLATFORM_MEASUREMENT_BYTES = 48;
@@ -145,7 +145,10 @@ function humanResult(result: VerificationResult, pinned: readonly string[] = [])
     // the platform wrote into the report, which makes it the deployment owner's own text. The guard
     // stays because whoever runs this command is usually not whoever chose either value, and neither
     // string is bounded by this file. No input this repository can build carries a separator in
-    // either field, since both sit inside the signed report, so no test gates these two calls.
+    // either field, so no test gates these two calls: the product line is inside the report the
+    // platform signs, and the key provider name reaches here only through the configuration document
+    // whose digest the platform wrote into that report, which a verifier only accepts with the
+    // matching chain behind it.
     if (report.productLine) {
       lines.push(`  product:          ${escapeInvisible(report.productLine)}`);
     }
@@ -188,7 +191,7 @@ function humanResult(result: VerificationResult, pinned: readonly string[] = [])
   return lines.join('\n');
 }
 
-function jsonResult(result: VerificationResult): string {
+function jsonResult(result: VerificationResult): Record<string, unknown> {
   const config = configSummary(result.config);
   const out: Record<string, unknown> = {
     ok: true,
@@ -236,11 +239,7 @@ function jsonResult(result: VerificationResult): string {
         : null,
     };
   }
-  // `JSON.stringify` escapes the control characters and leaves the two line separators raw inside its
-  // own quotes, so the document this command prints about someone else's attestation needs the same
-  // guard the printed table gets. A `\uXXXX` escape is the other spelling of the same character to
-  // anything that parses the result.
-  return escapeInvisibleJson(JSON.stringify(out, null, 2));
+  return out;
 }
 
 /** `ashaveri verify <attestation> [options]`, the whole command including its exit codes. */
@@ -318,15 +317,18 @@ export async function runVerify(positionals: string[], values: VerifyFlags): Pro
       checkPin('compose hash', '--expect-compose-hash', expectedComposeHash, pinnedComposeHash(result));
       pinned.push('compose hash');
     }
-    process.stdout.write(`${values.json ? jsonResult(result) : humanResult(result, pinned)}\n`);
+    if (values.json) {
+      writeJson(jsonResult(result));
+    } else {
+      process.stdout.write(`${humanResult(result, pinned)}\n`);
+    }
     return 0;
   } catch (err) {
     if (err instanceof AttestationError) {
       // A parser's message can quote the bytes it choked on, and those bytes are the attester's, so
       // the two failure reports need the guard the success report gets.
       if (values.json) {
-        const document = JSON.stringify({ ok: false, code: err.code, message: err.message }, null, 2);
-        process.stdout.write(`${escapeInvisibleJson(document)}\n`);
+        writeJson({ ok: false, code: err.code, message: err.message });
       } else {
         process.stderr.write(`verification failed (${err.code}): ${escapeInvisible(err.message)}\n`);
       }

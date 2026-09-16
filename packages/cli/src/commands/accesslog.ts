@@ -1,5 +1,6 @@
-import { readdir, readFile, rename, unlink, writeFile } from 'node:fs/promises';
+import { readdir, readFile, stat, unlink } from 'node:fs/promises';
 import { join } from 'node:path';
+import { writeAtomically } from '../atomic.js';
 import { checkId } from '../records.js';
 import { UsageError, writeJson } from '../usage.js';
 
@@ -42,43 +43,62 @@ export async function accesslogScrub(dir: string, credential: string, now: () =>
   }
   let removed = 0;
   let touched = 0;
-  for (const name of targets) {
-    const path = join(dir, name);
-    const lines = (await readPart(path)).split('\n');
-    const kept: string[] = [];
-    let present = 0;
-    for (const line of lines) {
-      if (line.length === 0) continue;
-      present += 1;
-      let cred: unknown;
-      try {
-        cred = (JSON.parse(line) as { cred?: unknown }).cred;
-      } catch {
+  try {
+    for (const name of targets) {
+      const path = join(dir, name);
+      const lines = (await readPart(path)).split('\n');
+      const kept: string[] = [];
+      let present = 0;
+      for (const line of lines) {
+        if (line.length === 0) continue;
+        present += 1;
+        let cred: unknown;
+        try {
+          cred = (JSON.parse(line) as { cred?: unknown }).cred;
+        } catch {
+          kept.push(line);
+          continue;
+        }
+        if (cred === credential) continue;
         kept.push(line);
-        continue;
       }
-      if (cred === credential) {
-        removed += 1;
-        continue;
+      if (kept.length === present) continue;
+      if (kept.length === 0) {
+        // A fully scrubbed part is unlinked, not renamed. A copy under a name the gateway's retention
+        // can no longer match would keep every removed line on the volume forever, and it would read
+        // as a completed erasure that left the data behind.
+        await removePart(path);
+      } else {
+        await writeAtomically(path, `${kept.join('\n')}\n`, await modeOf(path), 'cannot rewrite access log part');
       }
-      kept.push(line);
+      // Counted only once the part carrying them is gone: a scan that matched records and then failed
+      // to write has removed nothing, and a marker claiming otherwise is worse than no marker.
+      removed += present - kept.length;
+      touched += 1;
     }
-    if (kept.length === present) continue;
-    if (kept.length === 0) {
-      // A fully scrubbed part is unlinked, not renamed. A copy under a name the gateway's retention
-      // can no longer match would keep every removed line on the volume forever, and it would read
-      // as a completed erasure that left the data behind.
-      await removePart(path);
-    } else {
-      await writeAtomic(path, `${kept.join('\n')}\n`);
-    }
-    touched += 1;
+  } catch (error) {
+    // Records are gone at this point, and the marker is the only evidence an operator has of which
+    // ones, so a scrub that dies halfway still writes the receipt for the parts it already rewrote
+    // before it reports the failure. The refusal keeps its own first sentence: a marker that cannot
+    // be written is not the story, and it must not push the real one off the line.
+    if (removed === 0) throw error;
+    const receipt = await writeReceipt(dir, now(), credential, removed, touched).catch(() => null);
+    if (!(error instanceof UsageError) || receipt === null) throw error;
+    throw new UsageError(`${error.message}; the removals that landed are marked in '${receipt}'`);
   }
   if (removed === 0) return { removed: 0, files: 0, marker: null };
-  const marker = await nextScrubName(dir, now());
-  const receipt: ScrubMarker = { t: now(), credential, removed, files: touched };
-  await writeAtomic(join(dir, marker), `${JSON.stringify(receipt)}\n`);
-  return { removed, files: touched, marker };
+  return { removed, files: touched, marker: await writeReceipt(dir, now(), credential, removed, touched) };
+}
+
+/**
+ * The receipt itself: named like a log part, one family of its own, so the retention sweep ages it out
+ * on the day in its name and the log never reads one as a record.
+ */
+async function writeReceipt(dir: string, atMillis: number, credential: string, removed: number, files: number): Promise<string> {
+  const name = await nextScrubName(dir, atMillis);
+  const receipt: ScrubMarker = { t: atMillis, credential, removed, files };
+  await writeAtomically(join(dir, name), `${JSON.stringify(receipt)}\n`, 0o600, 'cannot write the scrub marker');
+  return name;
 }
 
 async function readdirOrThrow(dir: string): Promise<string[]> {
@@ -91,9 +111,10 @@ async function readdirOrThrow(dir: string): Promise<string[]> {
 }
 
 /**
- * A part the listing named but the open refused is a fixable condition with a name worth printing: the
- * operating system repeats the whole directory path inside its own message, and an uncaught error
- * reaches the terminal as a stack over several lines that no guard has read.
+ * A part the listing named but the open refused is a fixable condition with a name worth printing by
+ * hand: the operating system's own sentence carries no path for this failure (`EISDIR: illegal
+ * operation on a directory, read`), and an uncaught error reaches the terminal as a stack over several
+ * lines that no guard has read.
  */
 async function readPart(path: string): Promise<string> {
   try {
@@ -120,25 +141,17 @@ async function nextScrubName(dir: string, atMillis: number): Promise<string> {
 }
 
 /**
- * Same-directory write and rename, because this rewrites files a running gateway is appending to: a
- * reader that polls the mtime never has to see half of a scrub.
- *
- * A failure is the operator's to fix, so it gets the same one-line refusal every other fixable failure
- * gets. Left bare, `fs` composes its message around the path this program was handed, Node prints the
- * whole error with a stack when nothing catches it, and the temporary name appears beside the real one,
- * which turns a directory of log parts into several terminal lines that no guard has read. The
- * temporary file is removed first because a leftover matches neither the pattern this command reads nor
- * the retention sweep's, so it would survive in a directory an operator believes is aged out.
+ * A part's own permission bits, so a scrub run by one operator does not silently re-mode a file a
+ * running gateway is appending to. `gateway/src/aclog.ts` creates parts with the default mode, and a
+ * rewrite that picked its own would leave the writer unable to append, which the gateway reports as a
+ * warning rather than a failure. A name that does not exist yet, which is the marker, gets `0600`,
+ * and the write that follows says so if it turns out the file was removed underneath it.
  */
-async function writeAtomic(path: string, text: string): Promise<void> {
-  const tmp = `${path}.tmp-${String(process.pid)}`;
+async function modeOf(path: string): Promise<number> {
   try {
-    await writeFile(tmp, text, { mode: 0o600 });
-    await rename(tmp, path);
-  } catch (error) {
-    const reason = error instanceof Error ? error.message : String(error);
-    await unlink(tmp).catch(() => undefined);
-    throw new UsageError(`cannot rewrite access log part '${path}': ${reason}`);
+    return (await stat(path)).mode & 0o777;
+  } catch {
+    return 0o600;
   }
 }
 

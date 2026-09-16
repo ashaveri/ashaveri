@@ -1,5 +1,5 @@
 import { spawnSync } from 'node:child_process';
-import { chmodSync, existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { chmodSync, existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, statSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -232,21 +232,52 @@ describe('ashaveri accesslog scrub', () => {
     expect(readFileSync(part, 'utf8')).toContain('svc-a');
   });
 
+  it.runIf(process.platform !== 'win32')('leaves a rewritten part readable by whoever the deployment made it readable to', () => {
+    // The scrub renames its own copy over a file a running gateway is appending to, so the copy has to
+    // arrive with the original's permission bits. `gateway/src/aclog.ts` creates parts with the default
+    // mode, and a rewrite that imposed `0600` would leave that writer unable to append, which the
+    // gateway reports as a warning rather than a failure. `0666` is the value that makes the test about
+    // the `chmod` and not about the create: a create mode is masked by the process umask, so under the
+    // common `022` a missing `chmod` lands on `0644` here. Under a umask of zero the two are the same
+    // file, and this case cannot tell them apart.
+    const dir = dirWith(
+      new Map([['access-2026-02-24-000.jsonl', [record({ cred: 'svc-a', rid: 'rid-1' }), record({ cred: 'svc-b', rid: 'rid-2' })]]]),
+    );
+    const part = join(dir, 'access-2026-02-24-000.jsonl');
+    chmodSync(part, 0o666);
+    const result = scrub(dir, 'svc-a');
+    expect(result.status).toBe(0);
+    expect(statSync(part).mode & 0o777).toBe(0o666);
+    expect(readFileSync(part, 'utf8')).not.toContain('svc-a');
+  });
+
   it('refuses a name the listing calls a part but the open does not', () => {
     // A directory whose name matches the log pattern is the portable way to make one part
     // unreadable: both systems answer a read of a directory with a refusal, and no permission bit is
     // involved, so this fails the same way on a Windows laptop and in a Linux CI job. The listing is
     // taken first and the read happens per file, which is also the shape of a real rotation racing a
-    // sweep. A refusal to read one part must name that part; un-caught it is an exit 1 stack that
-    // repeats the directory, and a scrub that stops halfway has to say where.
+    // sweep. A refusal to read one part must name that part; un-caught it is an exit 1 stack. The
+    // other half is what a stopped run leaves behind: the first part is already scrubbed here, so a
+    // run that reports only its failure looks exactly like a run that removed nothing, and the
+    // marker for the record that is genuinely gone has to exist and be named on the line.
     const dir = dirWith(new Map([['access-2026-02-24-000.jsonl', [record({ cred: 'svc-a', rid: 'rid-1' })]]]));
     mkdirSync(join(dir, 'access-2026-02-24-001.jsonl'));
     const result = scrub(dir, 'svc-a');
     expect(result.status).toBe(2);
     expect(result.stderr).toContain(`cannot read access log part '${join(dir, 'access-2026-02-24-001.jsonl')}'`);
     expect(result.stderr).not.toMatch(/^\s+at /mu);
+    expect(result.stderr.trimEnd().split('\n')).toHaveLength(2);
     expect(result.stdout).toBe('');
-    expect(markers(dir)).toEqual([]);
+    const marker = markers(dir);
+    expect(marker).toHaveLength(1);
+    expect(markerOf(dir)).toEqual({
+      t: Date.parse(SCRUBBED_AT),
+      credential: 'svc-a',
+      removed: 1,
+      files: 1,
+    });
+    expect(result.stderr).toContain(`the removals that landed are marked in '${String(marker[0])}'`);
+    expect(existsSync(join(dir, 'access-2026-02-24-000.jsonl'))).toBe(false);
   });
 
   it.runIf(process.platform !== 'win32')('refuses an emptied part it cannot delete, instead of claiming an erasure', () => {

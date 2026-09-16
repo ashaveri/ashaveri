@@ -250,8 +250,11 @@ describe('ashaveri credential add', () => {
     // The parent directory is missing, so the temporary name this program writes before the rename
     // cannot be created. Un-caught, that is an exit 1 and a stack trace whose first line repeats the
     // path in the `fs` module's own sentence, which is the shape the exit-2 guard exists to keep to
-    // two lines. The next case covers the other half of the same writer, where the temporary exists
-    // and the rename onto the real name is what fails.
+    // two lines. The next case takes the other half of the same writer, where the temporary exists and
+    // the rename onto the real name is what fails, on the one platform that can build it: a POSIX
+    // rename is a directory operation, so there the obstacle stops the write and this route is what
+    // witnesses the writer at all. The `stdout` assertion is a forward guard rather than a live one,
+    // since this command prints the new credential only after the file has taken it.
     const missing = join(tempDir, `no-such-dir-${String(++counter)}`, 'creds.json');
     const added = runCli(addArgs(missing));
     expect(added.status).toBe(2);
