@@ -14,13 +14,15 @@
     "build": "tsc -p tsconfig.json",
     "test": "vitest run",
     "lint": "eslint .",
-    "typecheck": "tsc -p tsconfig.json --noEmit"
+    "typecheck": "tsc -p tsconfig.json --noEmit && tsc -p tsconfig.test.json"
   },
   "dependencies": {
     "@ashaveri/attest-core": "workspace:*",
+    "@ashaveri/receipt": "workspace:*",
     "@noble/hashes": "^2.4.0"
   },
   "devDependencies": {
+    "@ashaveri/signerd": "workspace:*",
     "@types/node": "^22.20.1",
     "typescript": "^5.9.3",
     "vitest": "^3.2.4"

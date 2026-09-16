@@ -29,6 +29,13 @@ export const MAX_ACCESS_FILE_BYTES = 32 * 1024 * 1024;
 const FILE_PREFIX = 'access-';
 const FILE_SUFFIX = '.jsonl';
 const FILE_NAME = /^access-(\d{4}-\d{2}-\d{2})-(\d{3})\.jsonl$/u;
+/**
+ * The two families retention owns. A scrub marker is personal data at the level of a credential id,
+ * so it cannot outlive the window that erased its subject, and it carries a date in its name for
+ * exactly that reason. Only the sweep matches it: a marker is not a part this log writes to, counts
+ * in its window, or shows in the start-up file list, and all three read names through `FILE_NAME`.
+ */
+const SWEEP_NAME = /^(?:access|scrub)-(\d{4}-\d{2}-\d{2})-(\d{3})\.jsonl$/u;
 const DAY_MS = 86_400_000;
 const ACCESS_FIELD_NAMES: ReadonlySet<string> = new Set<string>(ACCESS_RECORD_FIELDS);
 
@@ -176,7 +183,12 @@ interface DayPart {
   part: number;
 }
 
-function ordered(parts: DayPart[]): DayPart[] {
+/** A `DayPart` plus the name it was listed under, which is the only thing two families share. */
+interface ListedFile extends DayPart {
+  name: string;
+}
+
+function ordered<T extends DayPart>(parts: T[]): T[] {
   return [...parts].sort((left, right) =>
     left.day === right.day ? left.part - right.part : left.day < right.day ? -1 : 1,
   );
@@ -222,18 +234,26 @@ export async function openFileAccessLog(options: AccessLogOptions & { dir: strin
   let sweptDay: string | null = null;
   let closed = false;
 
-  async function listOwnFiles(): Promise<DayPart[]> {
+  /**
+   * One name parse behind both patterns, and a listing carries the name it was read from: rebuilding
+   * `access-<day>-<part>.jsonl` from a marker's day and part would name a part that is not the file.
+   */
+  async function listNamed(pattern: RegExp): Promise<ListedFile[]> {
     const names = await readdir(dir).catch(whenNotFound<string[]>([]));
     return ordered(
       names.flatMap((name) => {
-        const match = FILE_NAME.exec(name);
+        const match = pattern.exec(name);
         if (match === null) return [];
         const day = match[1];
         const part = match[2];
         if (day === undefined || part === undefined) return [];
-        return [{ day, part: Number(part) }];
+        return [{ day, part: Number(part), name }];
       }),
     );
+  }
+
+  function listOwnFiles(): Promise<DayPart[]> {
+    return listNamed(FILE_NAME);
   }
 
   /**
@@ -243,9 +263,12 @@ export async function openFileAccessLog(options: AccessLogOptions & { dir: strin
    */
   async function pruneLocked(): Promise<void> {
     const cutoff = dayOf(now() - days * DAY_MS);
-    for (const candidate of await listOwnFiles()) {
+    for (const candidate of await listNamed(SWEEP_NAME)) {
       if (candidate.day < cutoff) {
-        await unlink(fileOf(dir, candidate)).catch(() => undefined);
+        // Only a file that vanished between the listing and this call is forgiven. Swallowing every
+        // failure would let a directory the process cannot delete age out of the retention in the
+        // operator's head while its bytes stayed on the volume.
+        await unlink(join(dir, candidate.name)).catch(whenNotFound(undefined));
       }
     }
   }
@@ -254,11 +277,18 @@ export async function openFileAccessLog(options: AccessLogOptions & { dir: strin
    * Age is read from whole days in file names, so a second sweep inside the same incoming day can
    * only re-see what the first deleted. Without this gate every request paid a `readdir` of the log
    * directory; a rolled day always sweeps again, even if the clock only moved by a millisecond.
+   *
+   * `sweptDay` moves only after a sweep has finished without throwing, so a sweep that failed on an
+   * unreadable or undeletable file is attempted again by the next request rather than waiting for
+   * the day to roll. That makes `record()` reject for a reason the caller did not cause, which is
+   * deliberate and safe in this order: the line is on disk before the sweep runs, so the request
+   * that triggers a failing sweep has already had its record written, and `server.ts` turns the
+   * rejection into a warning line rather than a failed response.
    */
   async function pruneOnNewDay(day: string): Promise<void> {
     if (sweptDay === day) return;
-    sweptDay = day;
     await pruneLocked();
+    sweptDay = day;
   }
 
   /**

@@ -44,6 +44,8 @@ function runCli(args: string[], input?: Uint8Array): CliResult {
   const result = spawnSync(process.execPath, [CLI, ...args], {
     input: input === undefined ? undefined : Buffer.from(input),
     encoding: 'utf8',
+    timeout: 8000,
+    killSignal: 'SIGKILL',
   });
   expect(result.error).toBeUndefined();
   return { status: result.status, stdout: result.stdout ?? '', stderr: result.stderr ?? '' };
@@ -239,7 +241,7 @@ describe('ashaveri verify', () => {
 
   it('rejects a tampered report signature with exit code 1', () => {
     const bytes = new Uint8Array(readFileSync(ATTESTATION));
-    bytes[4 + 0x2a0] ^= 0x01;
+    bytes[4 + 0x2a0] = (bytes[4 + 0x2a0] as number) ^ 0x01;
     const tampered = join(tempDir, 'tampered.bin');
     writeFileSync(tampered, bytes);
     const result = runCli(['verify', tampered, '--ark', ARK, '--ask', ASK, '--vcek', VCEK, '--now', NOW]);
@@ -302,10 +304,22 @@ describe('ashaveri verify', () => {
     expect(result.stderr).toContain('at most 64 bytes');
   });
 
-  it('exits 2 with no arguments', () => {
-    const result = runCli([]);
-    expect(result.status).toBe(2);
-    expect(result.stderr).toContain("expected exactly one command: 'verify <attestation>'");
+  it('exits 2, naming the argument, when verify is given the wrong number of them', () => {
+    const none = runCli(['verify', '--ark', ARK, '--now', NOW]);
+    expect(none.status).toBe(2);
+    expect(none.stderr).toContain("expected exactly one argument: 'verify <attestation>'");
+    const two = runCli(['verify', ATTESTATION, ATTESTATION, '--ark', ARK, '--now', NOW]);
+    expect(two.status).toBe(2);
+    expect(two.stderr).toContain("expected exactly one argument: 'verify <attestation>'");
+  });
+
+  it('exits 2, naming the command list, for no command and for one that does not exist', () => {
+    const none = runCli([]);
+    expect(none.status).toBe(2);
+    expect(none.stderr).toContain('expected a command: verify, keygen, credential, accesslog');
+    const unknown = runCli(['frobnicate', 'anything']);
+    expect(unknown.status).toBe(2);
+    expect(unknown.stderr).toContain("unknown command 'frobnicate': expected one of verify, keygen, credential, accesslog");
   });
 
   it('exits 2 for an unknown option', () => {

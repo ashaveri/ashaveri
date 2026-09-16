@@ -165,10 +165,16 @@ importers:
       '@ashaveri/attest-core':
         specifier: workspace:*
         version: link:../attest-core
+      '@ashaveri/receipt':
+        specifier: workspace:*
+        version: link:../receipt
       '@noble/hashes':
         specifier: ^2.4.0
         version: 2.4.0
     devDependencies:
+      '@ashaveri/signerd':
+        specifier: workspace:*
+        version: link:../../gateway
       '@types/node':
         specifier: ^22.20.1
         version: 22.20.1

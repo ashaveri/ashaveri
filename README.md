@@ -44,7 +44,7 @@ end to end through the SDK in strict mode.
 | `@ashaveri/attest-core` | Offline verification of dStack confidential-VM attestations (SEV-SNP and TDX) |
 | `@ashaveri/sdk` | Client SDK: `AshaveriClient` and `wrapOpenAI` with receipt verification |
 | `@ashaveri/signerd` | Receipt-signing gateway: mock mode for development, live dStack CVM mode |
-| `@ashaveri/cli` | `ashaveri verify` command with CI-friendly exit codes |
+| `@ashaveri/cli` | `ashaveri` binary: `verify` for offline attestation checks, plus `keygen`, `credential` and `accesslog` operator commands, with CI-friendly exit codes |
 | `@ashaveri/fixtures` | Golden conformance vectors shared by every implementation |
 
 ## Development

@@ -359,4 +359,49 @@ describe('openFileAccessLog', () => {
     await log.close();
     await rm(dir, { recursive: true, force: true });
   });
+
+  it('ages a scrub marker out with the day it belongs to, and never treats one as a part', async () => {
+    const dir = await tempDir();
+    const at = Date.parse('2026-03-01T00:00:00Z');
+    await writeFile(join(dir, 'scrub-2026-01-01-000.jsonl'), '{"t":1,"credential":"a","removed":2,"files":1}\n', 'utf8');
+    await writeFile(join(dir, 'access-2026-01-01-000.jsonl'), '', 'utf8');
+    // A marker inside the window stays on disk, so this is the case that says what the log does
+    // with one it can still see: nothing. Its `t` is the moment a scrub ran, not a request.
+    await writeFile(join(dir, 'scrub-2026-03-01-000.jsonl'), `{"t":${at},"credential":"a","removed":0,"files":0}\n`, 'utf8');
+    const log = await openFileAccessLog({ dir, days: 30, now: () => at });
+    // Opening does not sweep and drain() only waits for the queue, so one record carries the day
+    // roll that does, exactly as it does behind a live gateway.
+    await log.record(entry({ rid: 'after-sweep', t: at }));
+    const names = await readdir(dir);
+    expect(names).not.toContain('scrub-2026-01-01-000.jsonl');
+    expect(names).not.toContain('access-2026-01-01-000.jsonl');
+    expect(names).toContain('scrub-2026-03-01-000.jsonl');
+    expect((await log.files()).map((path) => path.split(/[\\/]/u).pop())).toEqual(['access-2026-03-01-000.jsonl']);
+    expect((await log.window()).count).toBe(1);
+    await log.close();
+    await rm(dir, { recursive: true, force: true });
+  });
+
+  it('reports a sweep it cannot finish and tries it again on the next record', async () => {
+    const dir = await tempDir();
+    const at = Date.parse('2026-03-01T00:00:00Z');
+    // A directory wearing a part's name: `unlink` fails on it for a reason, on Linux with EISDIR
+    // and on Windows with EPERM, and neither is the vanished-file case the sweep is allowed to
+    // ignore. Naming the file rather than the code is what makes this portable.
+    const poison = join(dir, 'access-2026-01-01-000.jsonl');
+    await mkdir(poison);
+    await writeFile(join(dir, 'access-2026-01-02-000.jsonl'), renderAccessLine(entry({ t: Date.parse('2026-01-02T00:00:00Z') })), 'utf8');
+    const log = await openFileAccessLog({ dir, days: 30, now: () => at });
+    await expect(log.record(entry({ rid: 'first', t: at }))).rejects.toThrow(/access-2026-01-01-000\.jsonl/u);
+    // The sweep stopped at the name it could not delete, so the younger aged part is still there.
+    expect(await readdir(dir)).toContain('access-2026-01-02-000.jsonl');
+    await rm(poison, { recursive: true, force: true });
+    await log.record(entry({ rid: 'second', t: at + 60_000 }));
+    // A sweep that failed is not a sweep that ran: the same day retries it, and both records the
+    // two requests wrote are on disk, because the append happens before the sweep.
+    expect(await readdir(dir)).not.toContain('access-2026-01-02-000.jsonl');
+    expect((await log.window()).count).toBe(2);
+    await log.close();
+    await rm(dir, { recursive: true, force: true });
+  });
 });
