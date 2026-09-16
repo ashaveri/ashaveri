@@ -20,8 +20,13 @@ export class UsageError extends Error {}
  * Detection and replacement are built from this one string because an earlier version of this guard
  * had a class that noticed U+007F in a label and a second class that escaped everything except
  * U+007F. A character that is noticed but not escaped is a hole sitting next to a passing test.
+ *
+ * The two line separators are spelled out because no property class here catches them: U+2028 and
+ * U+2029 are category Zl and Zp, neither a control character nor a format character, and a reader
+ * that splits text on lines treats them as one. `JSON.stringify` leaves them raw inside its own
+ * quotes, so the machine-readable form needs them as much as the printed row does.
  */
-const INVISIBLE = '\\p{Cc}\\p{Cf}\\u{e0000}-\\u{e007f}';
+const INVISIBLE = '\\p{Cc}\\p{Cf}\\u{2028}\\u{2029}\\u{e0000}-\\u{e007f}';
 
 /**
  * The set above plus the two characters a quoted value has to survive being copied back into an

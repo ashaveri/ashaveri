@@ -58,9 +58,18 @@ function addArgs(path: string, ...extra: string[]) {
  * The characters in the guard's own class, looked at one code point at a time. A newline is left out
  * because a row is allowed to end with one, and each case that cares about that pairs this with the
  * number of lines the output has: the two together say the only newlines are the ones written here.
+ * The two line separators are in the class because a line-splitting reader obeys them and the control
+ * range does not contain them, which is the whole reason they are spelled out in the guard.
  */
 function rawInvisible(text: string): string[] {
-  return [...text].filter((each) => each !== '\n' && /[\p{Cc}\p{Cf}\u{e0000}-\u{e007f}]/u.test(each));
+  return [...text].filter(
+    (each) => each !== '\n' && /[\p{Cc}\p{Cf}\u{2028}\u{2029}\u{e0000}-\u{e007f}]/u.test(each),
+  );
+}
+
+/** How many lines a reader that splits on any of the four line terminators would count. */
+function jsLines(text: string): number {
+  return text.split(/[\n\r\u2028\u2029]/u).filter((each) => each.length > 0).length;
 }
 
 afterAll(() => {
@@ -110,11 +119,31 @@ describe('ashaveri credential add', () => {
     if (process.platform !== 'win32') expect(modeOf(path)).toBe(0o600);
   });
 
+  it('reads a key that begins with a dash when the value is spelled as an option argument', () => {
+    // A base64url key is 43 characters of an alphabet that contains a dash, so one key in sixty-four
+    // that keygen hands out begins with one. Passed with a space, that value is not read as this
+    // option's argument at all; the cases that enroll a generated key pass the `=` form for that
+    // reason, and this is the case that says so rather than leaving it to which key was generated.
+    const path = freshFile();
+    const dashLeading = `-${'A'.repeat(42)}`;
+    const spaced = runCli(addArgs(path, '--id', 'dash-a', '--public-key', dashLeading));
+    expect(spaced.status).toBe(2);
+    expect(spaced.stderr).toContain("Option '--public-key' argument is ambiguous");
+    expect(() => readFileSync(path)).toThrow();
+    const equals = runCli(addArgs(path, '--id', 'dash-b', `--public-key=${dashLeading}`));
+    expect(equals.status).toBe(0);
+    expect(parseCredentialFile(readFileSync(path, 'utf8')).credentials[0]?.publicKey).toEqual(
+      new Uint8Array(Buffer.from(dashLeading, 'base64url')),
+    );
+  });
+
   it('enrolls a public key the caller generated, without ever seeing a private one', () => {
     const path = freshFile();
     const generated = runCli(['keygen']);
     const publicKey = /publicKey:\s+([A-Za-z0-9_-]{43})/.exec(generated.stdout)?.[1];
-    const result = runCli(addArgs(path, '--id', 'only-pub', '--public-key', publicKey as string));
+    // The `=` form because this key is random: one key in sixty-four begins with a dash, and a
+    // space-separated argument starting that way is not read as an option's value.
+    const result = runCli(addArgs(path, '--id', 'only-pub', `--public-key=${publicKey as string}`));
     expect(result.status).toBe(0);
     expect(result.stdout).not.toMatch(/[0-9a-f]{64}/);
     expect(result.stdout).toContain('stored the public key only');
@@ -215,6 +244,21 @@ describe('ashaveri credential add', () => {
     expect(listed.stderr).toContain('cannot read');
     expect(listed.stderr).toContain(dir);
     expect(listed.stdout).toBe('');
+  });
+
+  it('refuses a credential path it cannot write', () => {
+    // The parent directory is missing, so the temporary name this program writes before the rename
+    // cannot be created. Un-caught, that is an exit 1 and a stack trace whose first line repeats the
+    // path in the `fs` module's own sentence, which is the shape the exit-2 guard exists to keep to
+    // two lines. `credential revoke` reaches the same wrap through a file it has already stamped, so
+    // a path it cannot replace is a revocation reported as done; that route needs a readable file in
+    // an un-writable directory, which is not a thing this suite can build on Windows.
+    const missing = join(tempDir, `no-such-dir-${String(++counter)}`, 'creds.json');
+    const added = runCli(addArgs(missing));
+    expect(added.status).toBe(2);
+    expect(added.stderr).toContain(`cannot write the credential file '${missing}'`);
+    expect(added.stderr).not.toMatch(/^\s+at /mu);
+    expect(added.stdout).not.toMatch(/secret|private key/iu);
   });
 
   it('names the field of a record it cannot read, instead of crashing on it', () => {
@@ -423,7 +467,7 @@ describe('a credential file the gateway can serve', () => {
     const publicKey = /publicKey:\s+([A-Za-z0-9_-]{43})/.exec(generated.stdout)?.[1];
     const privateKeyHex = /privateKeyHex:\s+([0-9a-f]{64})/.exec(generated.stdout)?.[1];
     const path = freshFile();
-    const added = runCli(addArgs(path, '--id', 'e2e-pop', '--public-key', publicKey as string));
+    const added = runCli(addArgs(path, '--id', 'e2e-pop', `--public-key=${publicKey as string}`));
     expect(added.status).toBe(0);
     const store = new CredentialStore({ file: parseCredentialFile(readFileSync(path, 'utf8')) });
     const ts = Math.floor(Date.parse(ADDED_AT) / 1000);
@@ -597,25 +641,69 @@ describe('what the CLI is allowed to print', () => {
     expect(views.map((each) => each.label)).toEqual(shapes);
   });
 
+  it('escapes the two characters that end a line without being a control', () => {
+    // A reader that splits text on lines obeys four characters, and the control ranges hold only two
+    // of them: U+2028 and U+2029 are category Zl and Zp, and `JSON.stringify` leaves both raw inside
+    // its own quotes. So the row a label is printed on, and the object the same label is serialized
+    // into, each need the range the class would otherwise have missed. Counting the lines twice, once
+    // on newlines and once on all four terminators, is what makes this case able to fail: an escaped
+    // separator gives the same count both ways, and a raw one gives one more row than was written.
+    const shapes = [
+      'a\u2028FORGED  bearer  read  1  1  forged row',
+      'a\u2029FORGED  bearer  read  1  1  forged row',
+    ];
+    const path = freshFile();
+    shapes.forEach((label, index) => {
+      const added = runCli(addArgs(path, '--id', `sep${String(index)}`, '--label', label));
+      expect(added.status, shapes[index]).toBe(0);
+      expect(added.stdout, shapes[index]).not.toMatch(/^FORGED/mu);
+      expect(jsLines(added.stdout), shapes[index]).toBe(added.stdout.split('\n').filter((each) => each.length > 0).length);
+    });
+
+    const listed = runCli(['credential', 'list', '--credentials', path]);
+    expect(listed.status).toBe(0);
+    const rows = listed.stdout.split('\n').filter((each) => each.length > 0);
+    expect(rows).toHaveLength(3);
+    expect(jsLines(listed.stdout)).toBe(rows.length);
+    expect(rawInvisible(listed.stdout)).toEqual([]);
+    expect(listed.stdout).toContain('\\u2028');
+    expect(listed.stdout).toContain('\\u2029');
+
+    const machine = runCli(['credential', 'list', '--credentials', path, '--json']);
+    expect(rawInvisible(machine.stdout)).toEqual([]);
+    expect(jsLines(machine.stdout)).toBe(machine.stdout.split('\n').filter((each) => each.length > 0).length);
+    const views = JSON.parse(machine.stdout) as { label: string }[];
+    expect(views.map((each) => each.label)).toEqual(shapes);
+  });
+
   it('keeps a refusal about a token on one line, wherever the token came from', () => {
     // A message that names what it refused has to carry the token, and four of these tokens are
     // repeated back by the operating system inside its own error text, so the guard sits where a
     // message becomes a line rather than at each call site. `--access-log` is the case that proves
     // the difference: its refusal holds both this program's path and the `fs` module's.
     const path = freshFile();
-    const refusals: Array<[string, string[]]> = [
-      ['--kind', ['credential', 'add', '--credentials', path, '--kind', 'pop\nFORGED kind']],
-      ['--public-key', ['credential', 'add', '--credentials', path, '--public-key', 'zz\nFORGED key']],
-      ['--now', ['credential', 'add', '--credentials', path, '--now', 'someday\nFORGED clock']],
-      ['--access-log', ['accesslog', 'scrub', '--access-log', `no/such\nFORGED dir`, '--credential', 'a']],
-      ['a command', ['\nFORGED command']],
+    // Each row carries the escape its token has to come back as, because the two separators are the
+    // ones the guard's first class missed: a refusal that counts its newlines and obeys them would
+    // pass with a raw separator still in the message.
+    const refusals: Array<[string, string[], string]> = [
+      ['--kind', ['credential', 'add', '--credentials', path, '--kind', 'pop\nFORGED kind'], '\\u000aFORGED'],
+      ['--public-key', ['credential', 'add', '--credentials', path, '--public-key', 'zz\nFORGED key'], '\\u000aFORGED'],
+      ['--now', ['credential', 'add', '--credentials', path, '--now', 'someday\nFORGED clock'], '\\u000aFORGED'],
+      ['--access-log', ['accesslog', 'scrub', '--access-log', `no/such\nFORGED dir`, '--credential', 'a'], '\\u000aFORGED'],
+      ['a command', ['\nFORGED command'], '\\u000aFORGED'],
+      ['--kind and U+2028', ['credential', 'add', '--credentials', path, '--kind', 'pop\u2028FORGED kind'], '\\u2028FORGED'],
+      ['--public-key and U+2029', ['credential', 'add', '--credentials', path, '--public-key', 'zz\u2029FORGED key'], '\\u2029FORGED'],
+      ['--access-log and U+2028', ['accesslog', 'scrub', '--access-log', `no/such\u2028FORGED dir`, '--credential', 'a'], '\\u2028FORGED'],
     ];
-    for (const [name, args] of refusals) {
+    for (const [name, args, escape] of refusals) {
       const result = runCli(args);
       expect(result.status, name).toBe(2);
-      expect(result.stderr.split('\n').filter((each) => each.length > 0), name).toHaveLength(2);
+      expect(result.stderr, name).toContain(escape);
+      expect(jsLines(result.stderr), name).toBe(
+        result.stderr.split('\n').filter((each) => each.length > 0).length,
+      );
+      expect(jsLines(result.stderr), name).toBe(2);
       expect(result.stderr, name).not.toMatch(/^FORGED/mu);
-      expect(result.stderr, name).toContain('\\u000aFORGED');
     }
   });
 

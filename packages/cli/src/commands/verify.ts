@@ -3,7 +3,7 @@ import { sha256 } from '@noble/hashes/sha2.js';
 import { AttestationError, equalBytes, pinnedComposeHash, platformMeasurement, reportDataBinds, verifyAttestation } from '@ashaveri/attest-core';
 import type { NvidiaEvidence, NvidiaVerification, VerificationResult } from '@ashaveri/attest-core';
 import { toHex } from '@ashaveri/receipt';
-import { UsageError } from '../usage.js';
+import { escapeInvisible, escapeInvisibleJson, UsageError } from '../usage.js';
 
 const REPORT_DATA_BYTES = 64;
 const PLATFORM_MEASUREMENT_BYTES = 48;
@@ -139,8 +139,11 @@ function humanResult(result: VerificationResult, pinned: readonly string[] = [])
   if (result.snp) {
     lines.push('  quote signature:  verified (AMD ARK -> ASK -> VCEK chain, ECDSA P-384)');
     const { report, mrConfig } = result.snp;
+    // Everything else in this report reaches the terminal as hex. These two are the strings: one is
+    // text the guest wrote into its own document, and neither is bounded by this file, so both are
+    // escaped where they are printed rather than trusted because of what they were last time.
     if (report.productLine) {
-      lines.push(`  product:          ${report.productLine}`);
+      lines.push(`  product:          ${escapeInvisible(report.productLine)}`);
     }
     lines.push(
       `  tcb:              boot loader ${report.currentTcb.blSPL}, SNP firmware ${report.currentTcb.snpSPL}, microcode ${report.currentTcb.ucodeSPL}`,
@@ -151,7 +154,7 @@ function humanResult(result: VerificationResult, pinned: readonly string[] = [])
     const mrConfigParts = [
       mrConfig.appId ? `app id ${toHex(mrConfig.appId)}` : null,
       `compose hash ${toHex(mrConfig.composeHash)}`,
-      mrConfig.keyProvider ? `key provider ${mrConfig.keyProvider}` : null,
+      mrConfig.keyProvider ? `key provider ${escapeInvisible(mrConfig.keyProvider)}` : null,
     ].filter((part): part is string => part !== null);
     lines.push(`  mr config:        ${mrConfigParts.join(', ')}`);
   } else {
@@ -229,7 +232,11 @@ function jsonResult(result: VerificationResult): string {
         : null,
     };
   }
-  return JSON.stringify(out, null, 2);
+  // `JSON.stringify` escapes the control characters and leaves the two line separators raw inside its
+  // own quotes, so the document this command prints about someone else's attestation needs the same
+  // guard the printed table gets. A `\uXXXX` escape is the other spelling of the same character to
+  // anything that parses the result.
+  return escapeInvisibleJson(JSON.stringify(out, null, 2));
 }
 
 /** `ashaveri verify <attestation> [options]`, the whole command including its exit codes. */
@@ -311,10 +318,13 @@ export async function runVerify(positionals: string[], values: VerifyFlags): Pro
     return 0;
   } catch (err) {
     if (err instanceof AttestationError) {
+      // A parser's message can quote the bytes it choked on, and those bytes are the attester's, so
+      // the two failure reports need the guard the success report gets.
       if (values.json) {
-        process.stdout.write(`${JSON.stringify({ ok: false, code: err.code, message: err.message }, null, 2)}\n`);
+        const document = JSON.stringify({ ok: false, code: err.code, message: err.message }, null, 2);
+        process.stdout.write(`${escapeInvisibleJson(document)}\n`);
       } else {
-        process.stderr.write(`verification failed (${err.code}): ${err.message}\n`);
+        process.stderr.write(`verification failed (${err.code}): ${escapeInvisible(err.message)}\n`);
       }
       return 1;
     }

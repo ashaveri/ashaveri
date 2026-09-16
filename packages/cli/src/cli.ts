@@ -87,7 +87,9 @@ Credential and log options:
   --label <text>     credential add: free text naming the principal. Nothing else records it.
   --public-key <b64url>
                      credential add: enroll a key made by keygen or by any other tool, so the
-                     private half never passes through this program.
+                     private half never passes through this program. Base64url includes a dash in
+                     its alphabet, and an argument that starts with one is not read as this
+                     option's value, so pass such a key as --public-key=<value>.
 
 Options for every command:
   --now <iso>        The clock the command stamps with, instead of the wall clock: the
