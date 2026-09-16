@@ -13,6 +13,7 @@ import {
 import {
   CredentialStore,
   loadCredentialFile,
+  MAX_CREDENTIALS,
   parseCredentialFile,
   serializeCredentialFile,
   type CredentialFile,
@@ -65,6 +66,17 @@ describe('ashaveri keygen', () => {
     expect(result.stdout).toMatch(/publicKey:      [A-Za-z0-9_-]{43}/);
     expect(result.stdout).toMatch(/privateKeyHex:  [0-9a-f]{64}/);
     expect(result.stdout).toContain('Give the public key to credential add. The private half leaves this terminal');
+  });
+
+  it('prints json when asked, with no prose to parse around it', () => {
+    const result = runCli(['keygen', '--id', 'svc-json', '--json']);
+    expect(result.status).toBe(0);
+    const out = JSON.parse(result.stdout) as Record<string, unknown>;
+    expect(Object.keys(out).sort()).toEqual(['id', 'privateKeyHex', 'publicKey']);
+    expect(out).toMatchObject({ id: 'svc-json' });
+    expect(out['publicKey']).toMatch(/^[A-Za-z0-9_-]{43}$/u);
+    expect(out['privateKeyHex']).toMatch(/^[0-9a-f]{64}$/u);
+    expect(result.stdout).not.toContain('Give the public key');
   });
 });
 
@@ -223,6 +235,60 @@ describe('ashaveri credential add', () => {
     // look like a successful edit and read as a deployment that has forgotten every credential.
     expect(readFileSync(path, 'utf8')).toBe(before);
   });
+
+  it('prints json when asked, and keeps the prose off stdout', () => {
+    const path = freshFile();
+    const result = runCli(addArgs(path, '--id', 'j', '--label', 'svc', '--rate', 'perMinute=60,burst=120', '--json'));
+    expect(result.status).toBe(0);
+    const out = JSON.parse(result.stdout) as Record<string, unknown>;
+    expect(Object.keys(out).sort()).toEqual(
+      ['createdAt', 'id', 'kind', 'label', 'privateKeyHex', 'publicKey', 'rate', 'scopes'],
+    );
+    expect(out).toMatchObject({ id: 'j', label: 'svc', kind: 'pop', scopes: 'read,complete', rate: { perMinute: 60, burst: 120 } });
+    expect(out['publicKey']).toMatch(/^[A-Za-z0-9_-]{43}$/u);
+    expect(out['privateKeyHex']).toMatch(/^[0-9a-f]{64}$/u);
+    // The sentence that says not to keep the secret is the one line a captured stdout should not
+    // carry with it, so it travels on the terminal and not in the object.
+    expect(result.stderr).toContain('exists only in this terminal');
+    expect(readFileSync(path, 'utf8')).not.toContain(String(out['privateKeyHex']));
+  });
+
+  it('writes a rate the gateway loads back unchanged', async () => {
+    const path = freshFile();
+    const added = runCli(addArgs(path, '--id', 'rated', '--rate', 'perMinute=60,burst=120'));
+    expect(added.status).toBe(0);
+    expect(added.stdout).toContain('rate:           perMinute=60,burst=120');
+    // Every other refusal above is the CLI guessing what the gateway wants. This is the check: the
+    // file this write produced goes through the gateway's own loader and the rate survives it.
+    const loaded = await loadCredentialFile(path);
+    expect(loaded.credentials[0]?.rate).toEqual({ perMinute: 60, burst: 120 });
+  });
+
+  it('refuses a file that lists one id twice', () => {
+    const one = `{"id":"twice","kind":"bearer","secretHash":"${'0'.repeat(64)}","scopes":["read"],"createdAt":1772000000}`;
+    const path = freshFile(`{"version":1,"credentials":[${one},${one}]}\n`);
+    const listed = runCli(['credential', 'list', '--credentials', path]);
+    expect(listed.status).toBe(2);
+    expect(listed.stderr).toContain("lists 'twice' twice");
+    // A revocation over this file would stamp the first record and leave the second signing, so the
+    // write is refused as well rather than reported as a success.
+    const revoked = runCli(['credential', 'revoke', '--credentials', path, '--id', 'twice', '--now', REVOKED_AT]);
+    expect(revoked.status).toBe(2);
+    expect(revoked.stderr).toContain("lists 'twice' twice");
+  });
+
+  it('refuses the credential that would take the file past what a gateway scans', () => {
+    // Built from the gateway's own ceiling, imported rather than restated: this case is also the
+    // assertion that the CLI's re-declared copy of the number has not drifted.
+    const filler = { kind: 'bearer', secretHash: '0'.repeat(64), scopes: ['read'], createdAt: 1_772_000_000 };
+    const records = Array.from({ length: MAX_CREDENTIALS }, (_, index) => ({ ...filler, id: `c${String(index)}` }));
+    const path = freshFile(JSON.stringify({ version: 1, credentials: records }));
+    const before = readFileSync(path, 'utf8');
+    const result = runCli(addArgs(path, '--id', 'one-too-many'));
+    expect(result.status).toBe(2);
+    expect(result.stderr).toContain(`already holds ${String(MAX_CREDENTIALS)} credentials`);
+    expect(readFileSync(path, 'utf8')).toBe(before);
+  });
 });
 
 describe('ashaveri credential revoke and list', () => {
@@ -269,6 +335,59 @@ describe('ashaveri credential revoke and list', () => {
     expect(views[0]).toMatchObject({ id: 'svc-a', label: 'alpha', kind: 'pop', scopes: 'read,complete' });
     expect(listed.stdout).not.toMatch(/[0-9a-f]{64}/);
     expect(listed.stdout).not.toMatch(/[A-Za-z0-9_-]{43}/);
+  });
+
+  it('refuses a revokedAt the gateway would refuse the record for', () => {
+    // Every other field is one this reader accepts, so the only thing that can fire is the revokedAt
+    // check. Without it this record prints `revoked 'a' at tomorrow` and exits 0 over a file the
+    // gateway will not load, and the revocation the operator believes they made wrote nothing.
+    const path = freshFile(
+      `{"version":1,"credentials":[{"id":"a","kind":"bearer","secretHash":"${'0'.repeat(64)}","scopes":["read"],"createdAt":1772000000,"revokedAt":"tomorrow"}]}\n`,
+    );
+    const before = readFileSync(path, 'utf8');
+    const listed = runCli(['credential', 'list', '--credentials', path]);
+    expect(listed.status).toBe(2);
+    expect(listed.stderr).toContain('credentials[0].revokedAt must be a number of whole seconds when present');
+    expect(listed.stdout).toBe('');
+    const revoked = runCli(['credential', 'revoke', '--credentials', path, '--id', 'a', '--now', REVOKED_AT]);
+    expect(revoked.status).toBe(2);
+    expect(revoked.stderr).toContain('credentials[0].revokedAt');
+    expect(readFileSync(path, 'utf8')).toBe(before);
+  });
+
+  it('prints a revocation as json, and shows revokedAt in a listing', () => {
+    const path = freshFile();
+    runCli(addArgs(path, '--id', 'gone', '--label', 'alpha'));
+    const revoked = runCli(['credential', 'revoke', '--credentials', path, '--id', 'gone', '--now', REVOKED_AT, '--json']);
+    expect(revoked.status).toBe(0);
+    const record = JSON.parse(revoked.stdout) as Record<string, unknown>;
+    expect(Object.keys(record).sort()).toEqual(['createdAt', 'id', 'kind', 'label', 'revokedAt', 'scopes']);
+    expect(record['revokedAt']).toBe(Math.floor(Date.parse(REVOKED_AT) / 1000));
+
+    const listed = runCli(['credential', 'list', '--credentials', path, '--json']);
+    const [first] = JSON.parse(listed.stdout) as Record<string, unknown>[];
+    expect(Object.keys(first as Record<string, unknown>).sort()).toEqual(
+      ['createdAt', 'id', 'kind', 'label', 'revokedAt', 'scopes'],
+    );
+    // The stamp is the whole answer to an erasure or a dispute, so a listing that dropped it would
+    // read as a credential that never was revoked.
+    expect(first?.revokedAt).toBe(record['revokedAt']);
+  });
+
+  it('keeps a label with a newline inside its own row', () => {
+    // Nothing on the write side stops this: a label is free text, and a file can also arrive from an
+    // editor. Printed raw, the second half of it is a row on the terminal that no record occupies.
+    const path = freshFile();
+    const added = runCli(addArgs(path, '--id', 'a', '--label', 'alpha\nFORGED  bearer  read  1  1  forged row'));
+    expect(added.status).toBe(0);
+    const listed = runCli(['credential', 'list', '--credentials', path]);
+    expect(listed.status).toBe(0);
+    const lines = listed.stdout.split('\n').filter((each) => each.length > 0);
+    expect(lines).toHaveLength(2);
+    expect(lines[1]).toContain('"alpha\\nFORGED');
+    // The quoted label still carries the forged words, so the claim is about rows: nothing on the
+    // terminal starts a second one.
+    expect(lines.filter((each) => each.startsWith('FORGED'))).toHaveLength(0);
   });
 
   it('survives a file the gateway wrote, and the gateway survives ours', async () => {

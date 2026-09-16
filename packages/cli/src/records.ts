@@ -38,6 +38,13 @@ export interface CredentialFile {
 export const CREDENTIALS_FILE_VERSION = 1;
 
 /**
+ * Re-declared from `@ashaveri/signerd` for the same reason the record shape is: the gateway package
+ * is private, so an installed CLI cannot import its way out of this. `test/credential.test.ts`
+ * asserts the two numbers still agree.
+ */
+export const MAX_CREDENTIALS = 10_000;
+
+/**
  * The gateway refuses a credential file it cannot parse as a whole, so a caller that meant to add
  * one record would otherwise be the reason nothing loads. A missing file is the empty case rather
  * than an error, because `credential add` on a fresh deployment is the first write.
@@ -63,9 +70,16 @@ export async function readCredentialFile(path: string): Promise<CredentialFile> 
 
 /**
  * What `list` shows, what `add` compares a new id against, and what `revoke` finds a record by: the
- * four fields this program reads. This is not a second copy of the gateway's validator, and it does
- * not try to be one. A rate, a label or a key this program never reads travels through a rewrite
- * untouched, so `test/credential.test.ts` reads a file it wrote back through the gateway's parser.
+ * five fields this program reads, and the id it reads all of them by. This is not a second copy of
+ * the gateway's validator, and it does not try to be one. A rate, a label or a key this program
+ * never reads travels through a rewrite untouched, so `test/credential.test.ts` reads a file it
+ * wrote back through the gateway's parser.
+ *
+ * A field this program does read is a different case. `list` prints `revokedAt` and `revoke` finds a
+ * record by `id`, so a string date or a repeated id is the CLI printing a revocation over a file the
+ * gateway will not load: `"revokedAt": "tomorrow"` is a row that reads as a date, and the promise
+ * after it is a write that changes nothing. Those two checks are here because this program is the
+ * thing that made the promise.
  */
 const CREDENTIAL_ID = /^[A-Za-z0-9_-]{1,64}$/u;
 
@@ -87,6 +101,10 @@ function checkedRecord(value: unknown, where: string): CredentialRecord {
   if (typeof createdAt !== 'number' || !Number.isFinite(createdAt)) {
     throw new UsageError(`${where}.createdAt must be a number of whole seconds`);
   }
+  const revokedAt = record['revokedAt'];
+  if (revokedAt !== undefined && (typeof revokedAt !== 'number' || !Number.isFinite(revokedAt))) {
+    throw new UsageError(`${where}.revokedAt must be a number of whole seconds when present`);
+  }
   return value as CredentialRecord;
 }
 
@@ -98,10 +116,19 @@ function normalizeFile(value: unknown, path: string): CredentialFile {
   if (raw.version !== CREDENTIALS_FILE_VERSION) {
     throw new UsageError(`${path} has version ${String(raw.version)}, this build writes ${String(CREDENTIALS_FILE_VERSION)}`);
   }
-  return {
-    version: CREDENTIALS_FILE_VERSION,
-    credentials: raw.credentials.map((each, index) => checkedRecord(each, `credentials[${String(index)}]`)),
-  };
+  const credentials = raw.credentials.map((each, index) =>
+    checkedRecord(each, `credentials[${String(index)}]`),
+  );
+  const seen = new Set<string>();
+  for (const each of credentials) {
+    // `revoke` finds a record with `find`, so without this a repeated id is a command that revokes
+    // one of them, reports success, and leaves the other signing requests.
+    if (seen.has(each.id)) {
+      throw new UsageError(`${path} lists '${each.id}' twice; the gateway refuses a file with a duplicate id`);
+    }
+    seen.add(each.id);
+  }
+  return { version: CREDENTIALS_FILE_VERSION, credentials };
 }
 
 /**

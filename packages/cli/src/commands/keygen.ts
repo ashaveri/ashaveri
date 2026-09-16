@@ -34,8 +34,12 @@ function line(name: string, value: string): string {
   return `${name.padEnd(16)}${value}\n`;
 }
 
-export function runKeygen(id: string | undefined): number {
+export function runKeygen(id: string | undefined, json: boolean): number {
   const out = keygen(id);
+  if (json) {
+    process.stdout.write(`${JSON.stringify(out, null, 2)}\n`);
+    return 0;
+  }
   process.stdout.write(
     line('id:', out.id) +
       line('publicKey:', out.publicKey) +

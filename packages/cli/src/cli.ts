@@ -17,13 +17,13 @@ Usage:
 
 Arguments:
   ashaveri verify <attestation> [options]
-  ashaveri keygen [--id <id>]
+  ashaveri keygen [--id <id>] [--json]
   ashaveri credential add --credentials <file> [--id <id>] [--kind pop|bearer]
                           [--scopes read,complete] [--label <text>]
-                          [--rate perMinute=60,burst=120] [--public-key <b64url>]
-  ashaveri credential revoke --credentials <file> --id <id>
+                          [--rate perMinute=60,burst=120] [--public-key <b64url>] [--json]
+  ashaveri credential revoke --credentials <file> --id <id> [--json]
   ashaveri credential list --credentials <file> [--json]
-  ashaveri accesslog scrub --access-log <dir> --credential <id> [--now <iso>]
+  ashaveri accesslog scrub --access-log <dir> --credential <id> [--now <iso>] [--json]
 
   <attestation>      Path to a dStack VersionedAttestation file, or - for stdin.
 
@@ -31,10 +31,12 @@ The private key that keygen or credential add prints exists only in that termina
 is the one field of the credential file that can name a person, and the gateway never writes
 it anywhere; it is the field a data subject's request is about. accesslog scrub is the
 erasure route for the access log, and it leaves a marker naming the credential and the count
-it removed, because an erasure that looks identical to a gap proves nothing. The scrub
-rewrites files a running gateway is appending to and holds no lock, so a record written while
-one of those files is being rewritten is lost: run it against a deployment that is not
-serving, or accept that one line.
+it removed, because an erasure that looks identical to a gap proves nothing. The scrub holds
+no lock and no gateway stops writing while it runs: it reads a part, then renames its own copy
+over it, so every record appended while the scrub works through the directory is lost, not one.
+A part the scrub empties is deleted outright, and records lost that way are in no marker's
+count. Run it against a deployment that is not serving. --now sets the day a marker is named
+for, and a marker for a day the deployment no longer keeps is deleted by the next sweep.
 
 Verification options:
   --ark <file>       Trusted AMD root certificate (ARK), PEM or DER. Repeatable;
@@ -89,8 +91,11 @@ Options for every command:
                      verification time for verify, the whole-second createdAt or revokedAt of
                      a credential record for credential add and revoke, and the day a scrub
                      marker is named for in accesslog scrub.
-  --json             Machine-readable output: the verification result, or the credential
-                     listing with the keys and digests left out of it.
+  --json             Machine-readable output for every command: the verification result, a
+                     credential listing or the record just touched, a scrub's counts and its
+                     marker name. On keygen and credential add the object carries the one-time
+                     private half, because it exists nowhere else; on credential add the warning
+                     about keeping it is written to stderr, so stdout stays something to parse.
   --version          Print the CLI version.
   --help             Print this help.
 
@@ -171,7 +176,7 @@ async function main(argv: string[]): Promise<number> {
     case 'verify':
       return runVerify(positionals.slice(1), values);
     case 'keygen':
-      return runKeygen(values.id);
+      return runKeygen(values.id, values.json === true);
     case 'credential':
       return runCredential(positionals.slice(1), values, clockOf(values.now));
     case 'accesslog':

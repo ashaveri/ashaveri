@@ -20,6 +20,7 @@ export interface ScrubResult {
 export interface AccessLogFlags {
   'access-log'?: string;
   credential?: string;
+  json?: boolean;
 }
 
 /**
@@ -123,6 +124,10 @@ export async function runAccessLog(sub: string[], flags: AccessLogFlags, now: ()
   const credential = flags.credential;
   if (credential === undefined) throw new UsageError('accesslog scrub needs --credential <id>');
   const result = await accesslogScrub(dir, credential, now);
+  if (flags.json === true) {
+    process.stdout.write(`${JSON.stringify(result, null, 2)}\n`);
+    return 0;
+  }
   const noun = result.files === 1 ? 'file' : 'files';
   const count = result.removed === 1 ? 'record' : 'records';
   process.stdout.write(`removed ${String(result.removed)} ${count} for ${credential} in ${String(result.files)} ${noun}\n`);

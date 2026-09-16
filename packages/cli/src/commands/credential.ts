@@ -2,6 +2,7 @@ import { randomBytes } from 'node:crypto';
 import { fromBase64Url, generateSigningKey, toBase64Url, toHex } from '@ashaveri/receipt';
 import {
   hashBearerSecret,
+  MAX_CREDENTIALS,
   readCredentialFile,
   writeCredentialFile,
   type CredentialFile,
@@ -120,6 +121,13 @@ export async function credentialAdd(input: AddInput): Promise<AddResult> {
   if (file.credentials.some((each) => each.id === id)) {
     throw new UsageError(`credential '${id}' already exists in ${input.credentials}`);
   }
+  // The gateway will not load a file this long, so the record this call meant to add would be the
+  // reason none of the others are served: the count has to be refused before the write.
+  if (file.credentials.length >= MAX_CREDENTIALS) {
+    throw new UsageError(
+      `${input.credentials} already holds ${String(MAX_CREDENTIALS)} credentials, which is the most a gateway will scan per request`,
+    );
+  }
   const scopes = parseScopes(input.scopes);
   const rate = parseRate(input.rate);
   if (input.publicKey !== undefined && kind !== 'pop') {
@@ -206,11 +214,24 @@ function pad(value: string, width: number): string {
   return value.length > width ? value : `${value}${' '.repeat(width - value.length)}`;
 }
 
+/**
+ * A label is free text, and a file need not have been written by this program, so the column is
+ * printed as it is unless it carries something that would move the cursor: a newline in a label is
+ * otherwise a row on the terminal that the credential file does not contain. JSON quoting escapes
+ * the control character and stays copyable.
+ */
+const NEEDS_QUOTING = /[\u0000-\u001f\u007f"\\]/u;
+
+function labelCell(label: string | undefined): string {
+  if (label === undefined) return '';
+  return NEEDS_QUOTING.test(label) ? JSON.stringify(label) : label;
+}
+
 function tableOf(views: CredentialView[]): string {
   const header = `${pad('ID', 24)}${pad('KIND', 8)}${pad('SCOPES', 16)}${pad('CREATED', 12)}${pad('REVOKED', 12)}LABEL`;
   const rows = views.map(
     (each) =>
-      `${pad(each.id, 24)}${pad(each.kind, 8)}${pad(each.scopes, 16)}${pad(String(each.createdAt), 12)}${pad(each.revokedAt === undefined ? '' : String(each.revokedAt), 12)}${each.label ?? ''}`,
+      `${pad(each.id, 24)}${pad(each.kind, 8)}${pad(each.scopes, 16)}${pad(String(each.createdAt), 12)}${pad(each.revokedAt === undefined ? '' : String(each.revokedAt), 12)}${labelCell(each.label)}`,
   );
   return `${[header, ...rows].join('\n')}\n`;
 }
@@ -228,6 +249,36 @@ function printRecord(record: CredentialRecord): void {
   if (record.rate !== undefined) print('rate:', `perMinute=${String(record.rate.perMinute)},burst=${String(record.rate.burst)}`);
 }
 
+/**
+ * The warning each of the three kinds earns, spelled once because both output forms have to carry
+ * it. It is not in the JSON object: `--json` means stdout is something a program reads and keeps,
+ * and this sentence is the opposite of a thing to keep.
+ */
+function noticeFor(secret: AddResult['secret']): string {
+  if (secret.privateKeyHex !== undefined) {
+    return 'The private key exists only in this terminal. Give it to the client as ASHAVERI_CREDENTIAL_SECRET and keep no copy here.';
+  }
+  if (secret.bearerSecret !== undefined) {
+    return 'The secret exists only in this terminal, and it is the whole credential: a bearer-capable gateway has to be started with --allow-bearer.';
+  }
+  return 'stored the public key only; the private half never passed through this program.';
+}
+
+/**
+ * `add --json`: the listing's view, plus the rate the view leaves out, plus the secret. The secret
+ * is here because it exists nowhere else, and a caller that asked for machine-readable output still
+ * has to be handed the credential.
+ */
+function machineOf(record: CredentialRecord, secret: AddResult['secret']): Record<string, unknown> {
+  return {
+    ...viewOf(record),
+    ...(record.rate === undefined ? {} : { rate: record.rate }),
+    ...(secret.publicKey === undefined ? {} : { publicKey: secret.publicKey }),
+    ...(secret.privateKeyHex === undefined ? {} : { privateKeyHex: secret.privateKeyHex }),
+    ...(secret.bearerSecret === undefined ? {} : { bearerSecret: secret.bearerSecret }),
+  };
+}
+
 async function runAdd(path: string, flags: CredentialFlags, now: () => number): Promise<number> {
   const { record, secret } = await credentialAdd({
     credentials: path,
@@ -239,22 +290,22 @@ async function runAdd(path: string, flags: CredentialFlags, now: () => number): 
     ...(flags['public-key'] === undefined ? {} : { publicKey: flags['public-key'] }),
     now,
   });
+  const notice = `${noticeFor(secret)}\n`;
+  if (flags.json) {
+    process.stdout.write(`${JSON.stringify(machineOf(record, secret), null, 2)}\n`);
+    process.stderr.write(notice);
+    return 0;
+  }
   printRecord(record);
   if (secret.privateKeyHex !== undefined) {
     print('publicKey:', secret.publicKey ?? '');
     print('privateKeyHex:', secret.privateKeyHex);
-    process.stdout.write(
-      'The private key exists only in this terminal. Give it to the client as ASHAVERI_CREDENTIAL_SECRET and keep no copy here.\n',
-    );
   } else if (secret.bearerSecret !== undefined) {
     print('secret:', secret.bearerSecret);
-    process.stdout.write(
-      'The secret exists only in this terminal, and it is the whole credential: a bearer-capable gateway has to be started with --allow-bearer.\n',
-    );
   } else {
     print('publicKey:', secret.publicKey ?? '');
-    process.stdout.write('stored the public key only; the private half never passed through this program.\n');
   }
+  process.stdout.write(notice);
   return 0;
 }
 

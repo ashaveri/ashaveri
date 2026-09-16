@@ -111,6 +111,17 @@ describe('ashaveri accesslog scrub', () => {
     expect(readFileSync(join(dir, 'access-2026-02-24-000.jsonl'), 'utf8')).toBe(before);
   });
 
+  it('prints json when asked, with the same counts the prose carries', () => {
+    const dir = dirWith(
+      new Map([['access-2026-02-24-000.jsonl', [record({ rid: 'rid-1' }), record({ rid: 'rid-2', cred: 'svc-b' })]]]),
+    );
+    const result = scrub(dir, 'svc-a', '--json');
+    expect(result.status).toBe(0);
+    const out = JSON.parse(result.stdout) as { removed: number; files: number; marker: string | null };
+    expect(out).toEqual({ removed: 1, files: 1, marker: 'scrub-2026-02-26-000.jsonl' });
+    expect(result.stdout).not.toContain('removed 1 record');
+  });
+
   it('leaves a part with nothing to remove unwritten, last byte included', () => {
     // No trailing newline on purpose: this is the shape a part has while an append is in flight, and
     // a scrub that rewrote files it found nothing in would move that byte and reopen the window the
