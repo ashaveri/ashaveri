@@ -85,6 +85,46 @@ Two properties of the managed platform shape this step:
 the signing key and of the evidence; there is no key file in the image, no key in an env var,
 and nothing to seal after the fact.
 
+### The credential file the gateway reads
+
+`--credentials-path` names one JSON file, and this compose text mounts it from `./release`, which is
+already read-only at `/run/ashaveri`:
+
+```json
+{
+  "version": 1,
+  "credentials": [
+    { "id": "client-1", "kind": "pop", "publicKey": "<32 bytes, base64url>", "scopes": ["complete", "read"], "createdAt": 1772000000 }
+  ]
+}
+```
+
+A record holds a public key or a hash of a secret, never a signing key, so this file can sit beside the
+compose text and travel with the deployment. The private half goes to the client and nowhere else, and
+a bearer secret is the one credential kind that must never be mounted through a platform: it is the
+whole of the authentication, so shipping it to someone else's storage is shipping the credential. To
+make one now, from a built workspace:
+
+```bash
+node --input-type=module -e '
+import { writeFileSync } from "node:fs";
+const { newPopCredential, serializeCredentialFile, toHex } = await import("./gateway/dist/index.js");
+const key = newPopCredential({ id: "client-1", scopes: ["complete", "read"] });
+writeFileSync("enclave/release/credentials.json", serializeCredentialFile({ version: 1, credentials: [key.record] }));
+process.stdout.write(`signing key, print once and keep off any volume: ${toHex(key.privateKey)}\n`);
+'
+```
+
+Two consequences of making every route ask for a credential:
+
+- Revocation is an edit to this file, and on a managed rail the file is part of the deployment, so the
+  edit means a redeploy. A redeploy changes the compose hash and therefore the measurement, which is
+  the same trade the key-rotation limitation in [the threat model](../docs/threat-model.md) section 6
+  already names. A self-hosted deployment mounts a rewritable file and the gateway re-reads it on its
+  own, with no restart.
+- The container's healthcheck is a TCP probe rather than a request to `/v1/deployment-manifest`. It
+  answers "is the gateway up", and nothing more.
+
 This compose text starts the gateway without `--receipts-dir`, so issued receipts live in the
 gateway's memory and a restart clears them. A client that fetched promptly is unaffected, and one
 that delayed gets a 404 for a document it can still verify if it kept the bytes. Passing
@@ -99,10 +139,20 @@ VM.
 
 ## 4. Verify from a laptop
 
+Both documents now need a credential, so a bare `curl` gets a 401 and the SDK is the way to fetch them:
+
 ```bash
 RD=$(printf '%064x' 0xdeadbeef)                      # any 64-hex report data
-curl -s "$BASE/v1/deployment-manifest" -o manifest.json
-curl -s "$BASE/v1/attestation?report_data=$RD" -o attestation.bin
+node --input-type=module -e '
+import { writeFileSync } from "node:fs";
+const { GatewaySession, authorizedFetch, credentialFromEnv } = await import("./packages/sdk/dist/index.js");
+const session = new GatewaySession(`${process.env.BASE}/v1`, {
+  fetchImpl: authorizedFetch(credentialFromEnv(process.env), globalThis.fetch),
+});
+const reportData = new Uint8Array(32).fill(0xad);
+writeFileSync("manifest.json", JSON.stringify(await session.manifest(), null, 2));
+writeFileSync("attestation.bin", Buffer.from(await session.attestationBytes(reportData)));
+'
 
 node packages/cli/dist/cli.js verify attestation.bin \
   --report-data $RD \

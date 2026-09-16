@@ -17,6 +17,10 @@ RUN chmod 755 /app/docker-entrypoint.sh
 FROM node:24-bookworm-slim AS runtime
 WORKDIR /app
 COPY --from=build /app /app
+# A named volume mounted at an existing path inherits its ownership, so the log directory has to
+# exist and belong to the runtime user before the volume lands on it. Without this, signerd opens the
+# file, gets EACCES, and the container dies at its first request rather than at startup.
+RUN mkdir -p /var/lib/ashaveri/access-log && chown -R node:node /var/lib/ashaveri
 USER node
 EXPOSE 8081
 ENTRYPOINT ["/app/docker-entrypoint.sh"]
