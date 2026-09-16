@@ -1,12 +1,13 @@
 import { describe, expect, it } from 'vitest';
 import type { AddressInfo } from 'node:net';
+import type { HTTPMethods } from 'fastify';
 import { decodeReceipt, hashRequest, toHex } from '@ashaveri/receipt';
-import { buildGateway } from '../src/server.js';
 import { mockDeployment } from '../src/deployment.js';
 import { upstreamBackend } from '../src/upstream.js';
-import { toBase64Url } from '../src/b64.js';
+import { generated, harness, type Harness } from './helpers.js';
 
 const MODEL = 'Qwen/Qwen2.5-0.5B-Instruct';
+const CREDENTIAL = 'upstream';
 const NONCE = Uint8Array.from({ length: 16 }, (_, i) => i + 1);
 const REQUEST_BODY = `{"model":"${MODEL}","messages":[{"role":"user","content":"hello"}]}`;
 const STREAM_REQUEST_BODY = `{"model":"${MODEL}","messages":[{"role":"user","content":"hello"}],"stream":true}`;
@@ -66,13 +67,29 @@ function fakeUpstream(make: (body: Record<string, unknown>) => Response | Promis
   };
 }
 
-function gatewayWith(upstream: FakeUpstream) {
-  const deployment = mockDeployment({ model: MODEL });
-  const app = buildGateway({
-    deployment,
-    backend: upstreamBackend({ baseUrl: 'http://inference.test/v1', fetchImpl: upstream.fetchImpl }),
+async function gatewayWith(upstream: FakeUpstream): Promise<Harness> {
+  return await harness({
+    credentials: [generated(CREDENTIAL, ['complete', 'read'])],
+    gateway: {
+      deployment: mockDeployment({ model: MODEL }),
+      backend: upstreamBackend({ baseUrl: 'http://inference.test/v1', fetchImpl: upstream.fetchImpl }),
+    },
   });
-  return { app, deployment };
+}
+
+/** The floor refuses what it cannot verify, so a request here signs the bytes it is about to send. */
+async function send(h: Harness, method: HTTPMethods, target: string, body: string | null, nonce?: Uint8Array) {
+  return await h.app.inject({
+    // A literal method pins inject's awaitable Response overload; the HTTPMethods union selects
+    // the chainable form, whose awaited value carries no statusCode or rawPayload.
+    method: method as 'GET',
+    url: target,
+    headers: {
+      ...(body === null ? {} : { 'content-type': 'application/json' }),
+      ...h.signFor(CREDENTIAL, method, target, body, nonce === undefined ? undefined : { nonce }),
+    },
+    ...(body === null ? {} : { payload: body }),
+  });
 }
 
 function usageEvent(promptTokens: number, completionTokens: number): Record<string, unknown> {
@@ -86,8 +103,8 @@ function usageEvent(promptTokens: number, completionTokens: number): Record<stri
   };
 }
 
-async function receiptFor(app: ReturnType<typeof buildGateway>, id: string) {
-  const res = await app.inject({ method: 'GET', url: `/v1/receipts/${id}` });
+async function receiptFor(h: Harness, id: string) {
+  const res = await send(h, 'GET', `/v1/receipts/${id}`, null);
   expect(res.statusCode).toBe(200);
   return decodeReceipt(new Uint8Array(res.rawPayload)).payload;
 }
@@ -96,13 +113,8 @@ describe('upstream backend: non-streaming', () => {
   it('forwards the upstream body verbatim and binds it', async () => {
     const body = JSON.stringify(usageEvent(11, 7));
     const upstream = fakeUpstream(() => jsonResponse(body));
-    const { app } = gatewayWith(upstream);
-    const res = await app.inject({
-      method: 'POST',
-      url: '/v1/chat/completions',
-      headers: { 'content-type': 'application/json', 'x-ashaveri-nonce': toBase64Url(NONCE) },
-      payload: REQUEST_BODY,
-    });
+    const app = await gatewayWith(upstream);
+    const res = await send(app, 'POST', '/v1/chat/completions', REQUEST_BODY, NONCE);
     expect(res.statusCode).toBe(200);
     expect(res.payload).toBe(body);
     const payload = await receiptFor(app, res.headers['x-ashaveri-receipt-id'] as string);
@@ -114,13 +126,8 @@ describe('upstream backend: non-streaming', () => {
 
   it('takes real token counts rather than estimating them', async () => {
     const upstream = fakeUpstream(() => jsonResponse(JSON.stringify(usageEvent(1234, 56))));
-    const { app } = gatewayWith(upstream);
-    const res = await app.inject({
-      method: 'POST',
-      url: '/v1/chat/completions',
-      headers: { 'content-type': 'application/json' },
-      payload: REQUEST_BODY,
-    });
+    const app = await gatewayWith(upstream);
+    const res = await send(app, 'POST', '/v1/chat/completions', REQUEST_BODY);
     const payload = await receiptFor(app, res.headers['x-ashaveri-receipt-id'] as string);
     expect(payload.tok.p).toBe(1234);
     expect(payload.tok.c).toBe(56);
@@ -128,26 +135,16 @@ describe('upstream backend: non-streaming', () => {
 
   it('passes an upstream error through without issuing a receipt', async () => {
     const upstream = fakeUpstream(() => new Response('{"error":{"message":"model not found"}}', { status: 404 }));
-    const { app } = gatewayWith(upstream);
-    const res = await app.inject({
-      method: 'POST',
-      url: '/v1/chat/completions',
-      headers: { 'content-type': 'application/json' },
-      payload: REQUEST_BODY,
-    });
+    const app = await gatewayWith(upstream);
+    const res = await send(app, 'POST', '/v1/chat/completions', REQUEST_BODY);
     expect(res.statusCode).toBe(404);
     expect(res.headers['x-ashaveri-receipt-id']).toBeUndefined();
   });
 
   it('refuses to sign when the upstream served a different model', async () => {
     const upstream = fakeUpstream(() => jsonResponse(JSON.stringify({ ...usageEvent(11, 7), model: 'other/model' })));
-    const { app } = gatewayWith(upstream);
-    const res = await app.inject({
-      method: 'POST',
-      url: '/v1/chat/completions',
-      headers: { 'content-type': 'application/json' },
-      payload: REQUEST_BODY,
-    });
+    const app = await gatewayWith(upstream);
+    const res = await send(app, 'POST', '/v1/chat/completions', REQUEST_BODY);
     expect(res.statusCode).toBe(502);
     expect(res.json()).toMatchObject({ error: { type: 'upstream_error' } });
   });
@@ -167,13 +164,8 @@ describe('upstream backend: streaming', () => {
   it('reassembles events that arrive split across network chunks', async () => {
     const events = streamEvents();
     const upstream = fakeUpstream(() => streamResponse(events));
-    const { app } = gatewayWith(upstream);
-    const res = await app.inject({
-      method: 'POST',
-      url: '/v1/chat/completions',
-      headers: { 'content-type': 'application/json', 'x-ashaveri-nonce': toBase64Url(NONCE) },
-      payload: STREAM_REQUEST_BODY,
-    });
+    const app = await gatewayWith(upstream);
+    const res = await send(app, 'POST', '/v1/chat/completions', STREAM_REQUEST_BODY, NONCE);
     expect(res.statusCode).toBe(200);
     expect(res.headers['content-type']).toContain('text/event-stream');
     expect(res.payload).toBe(events.join(''));
@@ -184,13 +176,8 @@ describe('upstream backend: streaming', () => {
 
   it('asks the upstream for usage without changing the bytes the receipt binds', async () => {
     const upstream = fakeUpstream(() => streamResponse(streamEvents()));
-    const { app } = gatewayWith(upstream);
-    const res = await app.inject({
-      method: 'POST',
-      url: '/v1/chat/completions',
-      headers: { 'content-type': 'application/json' },
-      payload: STREAM_REQUEST_BODY,
-    });
+    const app = await gatewayWith(upstream);
+    const res = await send(app, 'POST', '/v1/chat/completions', STREAM_REQUEST_BODY);
     expect(upstream.requests[0]?.body).toMatchObject({ stream: true, stream_options: { include_usage: true } });
     const payload = await receiptFor(app, res.headers['x-ashaveri-receipt-id'] as string);
     expect(toHex(payload.req)).toBe(toHex(hashRequest(new TextEncoder().encode(STREAM_REQUEST_BODY))));
@@ -200,13 +187,16 @@ describe('upstream backend: streaming', () => {
     const upstream = fakeUpstream(
       () => streamResponse(streamEvents(), 40),
     );
-    const { app } = gatewayWith(upstream);
-    await app.listen({ port: 0, host: '127.0.0.1' });
-    const port = (app.server.address() as AddressInfo).port;
+    const app = await gatewayWith(upstream);
+    await app.app.listen({ port: 0, host: '127.0.0.1' });
+    const port = (app.app.server.address() as AddressInfo).port;
     const controller = new AbortController();
     const res = await fetch(`http://127.0.0.1:${port}/v1/chat/completions`, {
       method: 'POST',
-      headers: { 'content-type': 'application/json' },
+      headers: {
+        'content-type': 'application/json',
+        ...app.signFor(CREDENTIAL, 'POST', '/v1/chat/completions', STREAM_REQUEST_BODY),
+      },
       body: STREAM_REQUEST_BODY,
       signal: controller.signal,
     });
@@ -217,22 +207,25 @@ describe('upstream backend: streaming', () => {
     await reader?.read();
     controller.abort();
     await new Promise((resolve) => setTimeout(resolve, 250));
-    const receiptRes = await fetch(`http://127.0.0.1:${port}/v1/receipts/${receiptId as string}`);
+    const target = `/v1/receipts/${receiptId as string}`;
+    const receiptRes = await fetch(`http://127.0.0.1:${port}${target}`, {
+      headers: app.signFor(CREDENTIAL, 'GET', target, null),
+    });
     expect(receiptRes.status).toBe(404);
-    await app.close();
+    await app.app.close();
   });
 });
 
 describe('deployment model guard', () => {
   it('rejects a model the deployment does not serve before contacting the upstream', async () => {
     const upstream = fakeUpstream(() => jsonResponse('{}'));
-    const { app } = gatewayWith(upstream);
-    const res = await app.inject({
-      method: 'POST',
-      url: '/v1/chat/completions',
-      headers: { 'content-type': 'application/json' },
-      payload: '{"model":"not-served","messages":[{"role":"user","content":"hi"}]}',
-    });
+    const app = await gatewayWith(upstream);
+    const res = await send(
+      app,
+      'POST',
+      '/v1/chat/completions',
+      '{"model":"not-served","messages":[{"role":"user","content":"hi"}]}',
+    );
     expect(res.statusCode).toBe(400);
     expect(res.json()).toMatchObject({ error: { message: "model 'not-served' is not served by this deployment" } });
     expect(upstream.requests).toHaveLength(0);
@@ -241,18 +234,18 @@ describe('deployment model guard', () => {
 
 describe('attestation route', () => {
   it('serves the deployment evidence document', async () => {
-    const { app } = gatewayWith(fakeUpstream(() => jsonResponse('{}')));
-    const res = await app.inject({ method: 'GET', url: '/v1/attestation' });
+    const app = await gatewayWith(fakeUpstream(() => jsonResponse('{}')));
+    const res = await send(app, 'GET', '/v1/attestation', null);
     expect(res.statusCode).toBe(200);
     expect(res.headers['content-type']).toContain('application/octet-stream');
     expect(res.payload).toBe('mock-attestation');
   });
 
   it('accepts a 32-byte hex report_data binding', async () => {
-    const { app } = gatewayWith(fakeUpstream(() => jsonResponse('{}')));
-    const good = await app.inject({ method: 'GET', url: `/v1/attestation?report_data=${'ab'.repeat(32)}` });
+    const app = await gatewayWith(fakeUpstream(() => jsonResponse('{}')));
+    const good = await send(app, 'GET', `/v1/attestation?report_data=${'ab'.repeat(32)}`, null);
     expect(good.statusCode).toBe(200);
-    const bad = await app.inject({ method: 'GET', url: '/v1/attestation?report_data=zz' });
+    const bad = await send(app, 'GET', '/v1/attestation?report_data=zz', null);
     expect(bad.statusCode).toBe(400);
   });
 });

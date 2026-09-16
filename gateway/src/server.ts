@@ -1,5 +1,5 @@
-import Fastify, { type FastifyInstance } from 'fastify';
-import { createHash } from 'node:crypto';
+import Fastify, { type FastifyInstance, type FastifyReply, type FastifyRequest } from 'fastify';
+import { createHash, randomUUID } from 'node:crypto';
 import {
   hashRequest,
   issueReceipt,
@@ -8,6 +8,8 @@ import {
   type SigningKey,
   type TeeKind,
 } from '@ashaveri/receipt';
+import type { AccessLog, AccessRecord } from './aclog.js';
+import { AccessError, requireRouteScope, type CredentialStore } from './access.js';
 import { fromBase64Url, toBase64Url } from './b64.js';
 import { mockBackend, type BackendResponse, type CompletionBackend, type CompletionUsage } from './backend.js';
 import { mockDeployment, type AttestationBundle, type Deployment } from './deployment.js';
@@ -33,6 +35,12 @@ export interface GatewayOptions {
    * in this process, so they are gone when it stops; a deployment with a volume passes the file engine.
    */
   readonly store?: ReceiptStore;
+  /**
+   * The pipeline every route runs through. Required: there is no gateway without it,
+   * and a default that admits everything would be a floor that opts out.
+   */
+  readonly access: CredentialStore;
+  readonly accessLog: AccessLog;
 }
 
 export interface ManifestJson {
@@ -91,7 +99,8 @@ async function collect(response: BackendResponse): Promise<Buffer> {
   return Buffer.concat(chunks, size);
 }
 
-export function buildGateway(options: GatewayOptions = {}): FastifyInstance {
+export function buildGateway(options: GatewayOptions): FastifyInstance {
+  const { access, accessLog } = options;
   const deployment =
     options.deployment ?? mockDeployment({ issuer: options.issuer, instance: options.instance, key: options.key });
   const backend = options.backend ?? mockBackend();
@@ -102,6 +111,112 @@ export function buildGateway(options: GatewayOptions = {}): FastifyInstance {
   // instead of being parsed into a JS object first.
   app.addContentTypeParser('application/json', { parseAs: 'buffer' }, (_request, body, done) => {
     done(null, body);
+  });
+
+  // requireRouteScope is where the refusal lives, so no try/catch belongs here: an undeclared route
+  // has to propagate out of register and stop the process, and re-throwing a caught error to achieve
+  // that only hides which line stopped it.
+  app.addHook('onRoute', (routeOptions) => {
+    const methods = Array.isArray(routeOptions.method) ? routeOptions.method : [routeOptions.method];
+    for (const each of methods) {
+      requireRouteScope(String(each), routeOptions.url);
+    }
+  });
+
+  interface RequestState {
+    startedAt: number;
+    rid: string;
+    credential: string | null;
+    auth: 'pop' | 'bearer' | null;
+    scope: string | null;
+    nonce: string | null;
+    receiptId: string | null;
+    deny: string | null;
+    logged: boolean;
+  }
+
+  const states = new WeakMap<FastifyRequest, RequestState>();
+
+  function stateOf(request: FastifyRequest): RequestState | undefined {
+    return states.get(request);
+  }
+
+  async function flush(request: FastifyRequest, reply: FastifyReply): Promise<void> {
+    const state = stateOf(request);
+    if (state === undefined || state.logged) return;
+    state.logged = true;
+    const record: AccessRecord = {
+      t: state.startedAt,
+      rid: state.rid,
+      cred: state.credential,
+      auth: state.auth,
+      scope: state.scope,
+      m: request.method,
+      p: request.url.split('?', 1)[0] ?? request.url,
+      rcp: state.receiptId,
+      nce: state.nonce,
+      st: reply.statusCode,
+      dur: Date.now() - state.startedAt,
+      deny: state.deny,
+    };
+    // A log that cannot take a line is an incident, not a reason to fail a request the pipeline
+    // already decided. The rejection stops here so it cannot become an unhandled one.
+    try {
+      await accessLog.record(record);
+    } catch (err) {
+      request.log.warn({ err }, 'the access log refused a record');
+    }
+  }
+
+  app.addHook('onRequest', async (request, reply) => {
+    states.set(request, {
+      startedAt: Date.now(),
+      rid: randomUUID(),
+      credential: null,
+      auth: null,
+      scope: null,
+      nonce: null,
+      receiptId: null,
+      deny: null,
+      logged: false,
+    });
+    // finish and close, both, because a hijacked streaming reply ends on close and a
+    // buffered one on finish, and a record this process loses is a gap nobody can
+    // account for later. The logged flag makes the pair idempotent.
+    reply.raw.once('finish', () => {
+      void flush(request, reply);
+    });
+    reply.raw.once('close', () => {
+      void flush(request, reply);
+    });
+  });
+
+  app.addHook('preHandler', async (request, reply) => {
+    const state = stateOf(request);
+    if (state === undefined) return;
+    // Before any admission: a store opened on a path serves decisions from the file it
+    // loaded at boot until this reloads it, and a bearer request must see a fresh file too.
+    await access.reloadIfNeeded();
+    try {
+      const admitted = access.admit({
+        method: request.method,
+        url: request.url,
+        headers: request.headers,
+        body: request.body instanceof Buffer ? new Uint8Array(request.body.buffer, request.body.byteOffset, request.body.byteLength) : null,
+      });
+      state.credential = admitted.credentialId;
+      state.auth = admitted.auth;
+      state.scope = admitted.scope;
+      state.nonce = admitted.nonce === null ? null : toBase64Url(admitted.nonce);
+      state.receiptId = admitted.receiptId;
+    } catch (err) {
+      if (!(err instanceof AccessError)) throw err;
+      state.deny = err.code;
+      if (state.credential === null) state.credential = err.credentialId ?? null;
+      if (err.retryAfterSeconds !== undefined) reply.header('retry-after', String(err.retryAfterSeconds));
+      await reply.code(err.status).send({ error: { message: err.message, type: 'authentication_error', code: err.code } });
+      return;
+    }
   });
 
   const manifest: ManifestJson = {

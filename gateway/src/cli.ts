@@ -3,6 +3,8 @@ import { readFileSync, statSync } from 'node:fs';
 import { parseArgs } from 'node:util';
 import { MEASUREMENT_BYTES, type TeeKind } from '@ashaveri/receipt';
 import { buildGateway } from './server.js';
+import { CredentialStore, newPopCredential } from './access.js';
+import { openMemoryAccessLog } from './aclog.js';
 import { dstackDeployment } from './dstack.js';
 import { GuestClient } from './guest.js';
 import { mockBackend, type CompletionBackend } from './backend.js';
@@ -229,7 +231,14 @@ try {
 const backend: CompletionBackend =
   values.upstream === undefined ? mockBackend() : upstreamBackend({ baseUrl: values.upstream });
 
-const app = buildGateway({ deployment, backend, store });
+// Until this command reads a credential file and an access log path, a gateway started here mints one
+// credential for its own use and holds its access records in memory. The key is printed once, with
+// the banner, because a process that admits nothing is not a process anybody can use; it lives no
+// longer than this process does.
+const dev = newPopCredential({ id: 'dev', scopes: ['complete', 'read'] });
+const access = new CredentialStore({ file: { version: 1, credentials: [dev.record] } });
+const accessLog = openMemoryAccessLog();
+const app = buildGateway({ deployment, backend, store, access, accessLog });
 await app.listen({ port, host });
 const label =
   values.mock === true
@@ -242,11 +251,17 @@ const kept =
 process.stdout.write(
   `signerd (${label}) listening on http://${host}:${port}\n` +
     `  issuer ${deployment.issuer} instance ${deployment.instance}\n` +
-    `  ${kept}\n`,
+    `  ${kept}\n` +
+    `  dev credential (mock only): id=dev privateKeyHex=${toHex(dev.privateKey)}\n`,
 );
 
 for (const signal of ['SIGINT', 'SIGTERM'] as const) {
   process.on(signal, () => {
-    void app.close().then(() => process.exit(0));
+    // The log gets one chance to take what is already written, and a refusal to close it is not a
+    // reason to hold a process the operator just asked to stop.
+    void app
+      .close()
+      .then(() => accessLog.close().catch(() => undefined))
+      .then(() => process.exit(0));
   });
 }

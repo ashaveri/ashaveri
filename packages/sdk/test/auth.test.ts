@@ -10,6 +10,7 @@ import {
 import { SdkError } from '../src/errors.js';
 import { CREDENTIAL_ENV, authorizedFetch, credentialFromEnv, type AshaveriCredential } from '../src/auth.js';
 import { AshaveriClient } from '../src/client.js';
+import { buildGateway, CredentialStore, newPopCredential, openMemoryAccessLog } from '@ashaveri/signerd';
 
 const SEED = new Uint8Array(32).fill(11);
 const CREDENTIAL: AshaveriCredential = { kind: 'pop', id: 'sdk-test-1', privateKey: SEED };
@@ -321,5 +322,47 @@ describe('AshaveriClient transport', () => {
     const client = new AshaveriClient({ baseUrl: 'https://gw.example/v1', fetch: capture });
     await expect(client.chat.completions.create({ messages: [{ role: 'user', content: 'hi' }] })).rejects.toThrow();
     expect(seen?.get('authorization')).toBeNull();
+  });
+});
+
+describe('AshaveriClient against a credentialed gateway', () => {
+  it('completes, and the gateway records one proof-of-possession admission', async () => {
+    const credential = newPopCredential({ id: 'client-test', scopes: ['complete', 'read'] });
+    const log = openMemoryAccessLog();
+    const app = buildGateway({
+      access: new CredentialStore({ file: { version: 1, credentials: [credential.record] } }),
+      accessLog: log,
+    });
+    await app.listen({ port: 0, host: '127.0.0.1' });
+    const address = app.server.address();
+    if (address === null || typeof address === 'string') throw new Error('the gateway did not bind a port');
+    const base = `http://127.0.0.1:${String(address.port)}/v1`;
+    const client = new AshaveriClient({
+      baseUrl: base,
+      credential: { kind: 'pop', id: 'client-test', privateKey: credential.privateKey },
+    });
+    const { completion } = await client.chat.completions.create({ messages: [{ role: 'user', content: 'hi' }] });
+    expect(completion.object).toBe('chat.completion');
+    await app.close();
+    expect(log.entries().filter((entry) => entry.p === '/v1/chat/completions')).toMatchObject([
+      { cred: 'client-test', auth: 'pop', st: 200, deny: null },
+    ]);
+  });
+
+  it('surfaces the gateway refusal, with its code, through the client', async () => {
+    const credential = newPopCredential({ id: 'client-test', scopes: ['read'] });
+    const app = buildGateway({
+      access: new CredentialStore({ file: { version: 1, credentials: [credential.record] } }),
+      accessLog: openMemoryAccessLog(),
+    });
+    await app.listen({ port: 0, host: '127.0.0.1' });
+    const address = app.server.address();
+    if (address === null || typeof address === 'string') throw new Error('the gateway did not bind a port');
+    const client = new AshaveriClient({
+      baseUrl: `http://127.0.0.1:${String(address.port)}/v1`,
+      credential: { kind: 'pop', id: 'client-test', privateKey: credential.privateKey },
+    });
+    await expect(client.chat.completions.create({ messages: [] })).rejects.toThrow(/SCOPE_DENIED/u);
+    await app.close();
   });
 });

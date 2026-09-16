@@ -88,13 +88,20 @@ export class AccessError extends Error {
   readonly code: AccessErrorCode;
   readonly status: number;
   readonly retryAfterSeconds: number | undefined;
+  /**
+   * Which credential this refusal is about, when the pipeline knew. The access record wants a
+   * name and a message is not a place to read one from: prose is rewritten for the reader's
+   * benefit, while this field is the string the store was asked about.
+   */
+  readonly credentialId: string | undefined;
 
-  constructor(code: AccessErrorCode, detail?: string, retryAfterSeconds?: number) {
+  constructor(code: AccessErrorCode, detail?: string, retryAfterSeconds?: number, credentialId?: string) {
     super(detail === undefined ? ERROR_MESSAGE[code] : `${ERROR_MESSAGE[code]}: ${detail}`);
     this.name = 'AccessError';
     this.code = code;
     this.status = accessStatus(code);
     this.retryAfterSeconds = retryAfterSeconds;
+    this.credentialId = credentialId;
   }
 }
 
@@ -406,6 +413,32 @@ export function scopeSatisfied(granted: readonly Scope[], required: RouteScope):
   if (required === 'any') return true;
   if (required === 'complete') return granted.includes('complete');
   return granted.includes('read') || granted.includes('complete');
+}
+
+/**
+ * Thrown at registration, not at request time: a route nobody put in the table is a
+ * route with no scope decision, and the only safe moment to find that out is before
+ * the process can serve it.
+ */
+export class UndeclaredRouteError extends Error {
+  constructor(route: string) {
+    super(`ROUTE_UNDECLARED: ${route} has no row in the scope table, so it could not be admitted or refused`);
+    this.name = 'UndeclaredRouteError';
+  }
+}
+
+/**
+ * The registration-time form of the lookup. A route is declared with a pattern, and a pattern is not
+ * a request: `matchesPath` reads `:id` as a value slot, so the receipt route's own URL fails the
+ * receipt-id rule it is there to enforce, and matching the table's rows against the table alone would
+ * stop the process from booting. Naming the row is therefore tried first, and the request-shaped
+ * match is left for a route whose URL is a literal the pipeline can still classify.
+ */
+export function requireRouteScope(method: string, url: string): RouteScope {
+  const normalized = method === 'HEAD' ? 'GET' : method.toUpperCase();
+  const scope = ROUTE_SCOPES[`${normalized} ${url}`] ?? routeScope(method, url);
+  if (scope === undefined) throw new UndeclaredRouteError(`${method} ${url}`);
+  return scope;
 }
 
 export const REPLAY_WINDOW_SECONDS = 900;
@@ -774,13 +807,13 @@ export class CredentialStore {
       bodyDigestHex: bodyDigest(input.body),
     };
     if (!verifyPopSignature(fields, presented.signature, key)) {
-      throw new AccessError('AUTH_SIGNATURE', presented.credential);
+      throw new AccessError('AUTH_SIGNATURE', presented.credential, undefined, presented.credential);
     }
     if (this.replay.see(nonceKey(presented.credential, nonce))) {
-      throw new AccessError('NONCE_SEEN', presented.credential);
+      throw new AccessError('NONCE_SEEN', presented.credential, undefined, presented.credential);
     }
     if (scope === undefined || !scopeSatisfied(record.scopes, scope)) {
-      throw new AccessError('SCOPE_DENIED', scopeDenial(scope, record, input));
+      throw new AccessError('SCOPE_DENIED', scopeDenial(scope, record, input), undefined, record.id);
     }
     return this.charge(presented.credential, record, scope, input, 'pop', nonce);
   }
@@ -792,10 +825,14 @@ export class CredentialStore {
     if (record === undefined) {
       // One refusal for an id this file never carried and an id it no longer trusts, so the answer
       // cannot be used to enumerate what a deployment has issued.
-      throw new AccessError('AUTH_UNKNOWN', presented.credential);
+      throw new AccessError('AUTH_UNKNOWN', presented.credential, undefined, presented.credential);
     }
-    if (record.kind !== 'pop') throw new AccessError('AUTH_SCHEME', `${presented.credential} is a bearer credential`);
-    if (record.revokedAt !== undefined) throw new AccessError('AUTH_REVOKED', presented.credential);
+    if (record.kind !== 'pop') {
+      throw new AccessError('AUTH_SCHEME', `${presented.credential} is a bearer credential`, undefined, presented.credential);
+    }
+    if (record.revokedAt !== undefined) {
+      throw new AccessError('AUTH_REVOKED', presented.credential, undefined, presented.credential);
+    }
     const key = popPublicKeyOf(record);
     if (key === undefined) {
       throw new AccessError(
@@ -819,7 +856,7 @@ export class CredentialStore {
       const stored = bearerSecretHashOf(record);
       if (stored === undefined || !constantTimeEquals(wanted, stored)) continue;
       if (scope === undefined || !scopeSatisfied(record.scopes, scope)) {
-        throw new AccessError('SCOPE_DENIED', scopeDenial(scope, record, input));
+        throw new AccessError('SCOPE_DENIED', scopeDenial(scope, record, input), undefined, record.id);
       }
       return this.charge(record.id, record, scope, input, 'bearer', null);
     }
@@ -837,7 +874,7 @@ export class CredentialStore {
   ): Admission {
     const taken = this.buckets.take(id, record.rate ?? DEFAULT_RATE, this.now());
     if (!taken.allowed) {
-      throw new AccessError('RATE_LIMITED', id, taken.retryAfterSeconds);
+      throw new AccessError('RATE_LIMITED', id, taken.retryAfterSeconds, id);
     }
     return { credentialId: id, scope, auth, nonce, receiptId: receiptIdFrom(input.url) };
   }
