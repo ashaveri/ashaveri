@@ -57,11 +57,12 @@ function errorMessage(error: unknown): string {
   return error instanceof Error ? error.message : String(error);
 }
 
-/** A gateway this module built, which is the only place the tally below exists. */
+/** A gateway this module built, which is the only instance that carries the registration tally. */
 export type GatewayInstance = FastifyInstance & {
   /**
-   * The route paths whose registration was checked against the scope table, sorted. One fewer than
-   * the instance has is the only way to see that the hook was registered after the routes.
+   * The route paths whose registration was checked against the scope table, sorted. A path this
+   * list omits is a route that booted ungated, which is the one way to see that the hook was
+   * registered after the routes it should have inspected.
    */
   scopeCheckedRoutes(): string[];
 };

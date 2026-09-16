@@ -1,18 +1,11 @@
 import { afterAll, describe, expect, it } from 'vitest';
-import { mkdtemp, rm, utimes, writeFile } from 'node:fs/promises';
+import { mkdtemp, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { buildGateway } from '../src/server.js';
-import {
-  CredentialStore,
-  ROUTE_SCOPES,
-  newBearerCredential,
-  serializeCredentialFile,
-  type CredentialRecord,
-  type Scope,
-} from '../src/access.js';
+import { CredentialStore, ROUTE_SCOPES, newBearerCredential, type CredentialRecord, type Scope } from '../src/access.js';
 import { openMemoryAccessLog } from '../src/aclog.js';
-import { CLOCK_SECONDS, generated, harness, type Generated, type Harness } from './helpers.js';
+import { CLOCK_SECONDS, credentialFileAt, generated, harness, type Generated, type Harness } from './helpers.js';
 
 const bodies: Record<string, string | null> = {
   'POST /v1/chat/completions': '{"model":"mock-model-1","messages":[{"role":"user","content":"hello"}]}',
@@ -420,25 +413,15 @@ describe('the credential file the floor reads before it admits', () => {
     const dir = await mkdtemp(join(tmpdir(), 'ashaveri-pipeline-'));
     const path = join(dir, 'credentials.json');
     const credential = generated('reload-1', ['complete']);
-    let tick = 1_772_000_000_000;
-    const write = async (records: CredentialRecord[]): Promise<void> => {
-      // An explicit mtime, because the reload reacts to the file's timestamp and a rewrite that
-      // lands in the same tick as the write before it is, to a store watching that timestamp, a
-      // file that never moved.
-      tick += 60_000;
-      const when = new Date(tick);
-      await writeFile(path, serializeCredentialFile({ version: 1, credentials: records }), 'utf8');
-      await utimes(path, when, when);
-    };
     try {
-      await write([credential.record]);
+      await credentialFileAt(path, [credential.record]);
       const h = await harness({ credentials: [credential], storePath: path });
       // Read once here the way a deployment's start-up read would, so the only reload this
       // request path can be failing on is the one the gateway performs for itself.
       await h.store.reloadIfNeeded();
       const headers = h.signFor('reload-1', 'GET', '/v1/deployment-manifest', null);
       expect((await h.inject({ method: 'GET', url: '/v1/deployment-manifest', headers })).statusCode).toBe(200);
-      await write([{ ...credential.record, revokedAt: CLOCK_SECONDS - 1 }]);
+      await credentialFileAt(path, [{ ...credential.record, revokedAt: CLOCK_SECONDS - 1 }]);
       const refused = await h.inject({
         method: 'GET',
         url: '/v1/deployment-manifest',

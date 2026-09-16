@@ -1,3 +1,4 @@
+import { writeFile, utimes } from 'node:fs/promises';
 import {
   EMPTY_BODY_SHA256_HEX,
   sha256Hex,
@@ -11,6 +12,7 @@ import {
   CredentialStore,
   newBearerCredential,
   newPopCredential,
+  serializeCredentialFile,
   type CredentialRecord,
   type Scope,
 } from '../src/access.js';
@@ -44,13 +46,28 @@ export function generated(id: string, scopes: Scope[], extra: Partial<Credential
   };
 }
 
+let fileTick = CLOCK_SECONDS * 1000;
+/**
+ * A credential file whose timestamp moves on every write. The explicit stamp keeps the reload from
+ * depending on how finely this volume records a write: measured here, a rewrite is noticed on the
+ * filesystem's own timestamps, so this is a portability floor under the test rather than the thing
+ * that makes it pass.
+ */
+export async function credentialFileAt(path: string, records: CredentialRecord[]): Promise<void> {
+  fileTick += 60_000;
+  const when = new Date(fileTick);
+  await writeFile(path, serializeCredentialFile({ version: 1, credentials: records }), 'utf8');
+  await utimes(path, when, when);
+}
+
 export interface Harness {
   app: GatewayInstance;
   log: MemoryAccessLog;
   records: CredentialRecord[];
   /**
-   * The store this harness made, whose start-up read a test that writes a credential file has to
-   * perform itself; the gateway only reloads a file it already served.
+   * The store this harness made. A test with a credential file on disk reads it once here, the way
+   * a deployment reads it at start-up, which leaves the gateway's own per-request reload as the
+   * only reload a cell about noticing a change can be failing on.
    */
   store: CredentialStore;
   /**

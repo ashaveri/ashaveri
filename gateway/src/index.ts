@@ -1,5 +1,5 @@
 export { buildGateway } from './server.js';
-export type { GatewayOptions, ManifestJson } from './server.js';
+export type { GatewayInstance, GatewayOptions, ManifestJson } from './server.js';
 export { mockBackend } from './backend.js';
 export type { BackendResponse, CompletionBackend, CompletionUsage } from './backend.js';
 export { mockDeployment, mockWeights } from './deployment.js';
