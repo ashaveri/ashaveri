@@ -57,6 +57,17 @@ function errorMessage(error: unknown): string {
   return error instanceof Error ? error.message : String(error);
 }
 
+declare module 'fastify' {
+  interface FastifyInstance {
+    /**
+     * How many route paths the scope table was consulted for while this instance was being
+     * built. A gateway that booted with a route the hook never saw has one fewer than it has
+     * routes, which is the one way to see that the hook was registered too late.
+     */
+    scopeCheckedRoutes(): number;
+  }
+}
+
 function upstreamError(reply: { code: (n: number) => { send: (b: unknown) => unknown } }, message: string): void {
   reply.code(502).send({ error: { message, type: 'upstream_error' } });
 }
@@ -116,11 +127,17 @@ export function buildGateway(options: GatewayOptions): FastifyInstance {
   // requireRouteScope is where the refusal lives, so no try/catch belongs here: an undeclared route
   // has to propagate out of register and stop the process, and re-throwing a caught error to achieve
   // that only hides which line stopped it.
+  const checkedPaths = new Set<string>();
+  app.decorate('scopeCheckedRoutes', () => checkedPaths.size);
   app.addHook('onRoute', (routeOptions) => {
     const methods = Array.isArray(routeOptions.method) ? routeOptions.method : [routeOptions.method];
     for (const each of methods) {
       requireRouteScope(String(each), routeOptions.url);
     }
+    // Counted after the lookups, so a route that stopped the boot is not also tallied as checked.
+    // Fastify clones each GET into a HEAD of its own, so the tally is of paths and not of the
+    // method-and-path pairs the loop above answers.
+    checkedPaths.add(routeOptions.url);
   });
 
   interface RequestState {

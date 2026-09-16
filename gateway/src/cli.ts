@@ -234,16 +234,18 @@ const backend: CompletionBackend =
 // Until this command reads a credential file and an access log path, a gateway started here mints one
 // credential for its own use and holds its access records in memory. The key is printed once, with
 // the banner, because a process that admits nothing is not a process anybody can use; it lives no
-// longer than this process does.
+// longer than this process does. A live run prints it too, and prints it as what it is there: the
+// only credential that gateway will admit, not an artifact of mock mode.
 const dev = newPopCredential({ id: 'dev', scopes: ['complete', 'read'] });
 const access = new CredentialStore({ file: { version: 1, credentials: [dev.record] } });
 const accessLog = openMemoryAccessLog();
 const app = buildGateway({ deployment, backend, store, access, accessLog });
 await app.listen({ port, host });
+// One decision about the run's mode, read by both lines that describe it below, so neither can claim
+// a mode the process is not in.
+const mode = values.mock === true ? 'mock' : 'live';
 const label =
-  values.mock === true
-    ? 'mock'
-    : `live ${deployment.tee} measurement ${toHex(deployment.measurement).slice(0, 16)}...`;
+  mode === 'mock' ? 'mock' : `live ${deployment.tee} measurement ${toHex(deployment.measurement).slice(0, 16)}...`;
 const kept =
   receiptsDir === undefined
     ? 'receipts kept in this process only, and gone on restart'
@@ -252,7 +254,7 @@ process.stdout.write(
   `signerd (${label}) listening on http://${host}:${port}\n` +
     `  issuer ${deployment.issuer} instance ${deployment.instance}\n` +
     `  ${kept}\n` +
-    `  dev credential (mock only): id=dev privateKeyHex=${toHex(dev.privateKey)}\n`,
+    `  dev credential for this ${mode} run: id=dev privateKeyHex=${toHex(dev.privateKey)}\n`,
 );
 
 for (const signal of ['SIGINT', 'SIGTERM'] as const) {

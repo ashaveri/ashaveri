@@ -24,6 +24,26 @@ function run(...args: string[]) {
   return result;
 }
 
+/**
+ * Start a gateway that serves, read what it printed, and stop it. Every other case in this file is an
+ * exit path, so the command returns by itself; a booted gateway has no such ending, which is why the
+ * spawn timeout here is the way the test finishes rather than a symptom of one failing.
+ */
+function runStopped(...args: string[]) {
+  const env = { ...process.env };
+  delete env['DSTACK_SIMULATOR_ENDPOINT'];
+  const result = spawnSync(process.execPath, [CLI, ...args], {
+    encoding: 'utf8',
+    env,
+    timeout: 4000,
+    killSignal: 'SIGKILL',
+  });
+  // The only acceptable error is the stop itself: anything else means the process died on its own,
+  // and its stdout would then be a refusal message rather than the banner under test.
+  expect(String(result.error?.message ?? '')).toContain('ETIMEDOUT');
+  return result.stdout.split('\n');
+}
+
 function liveArgs(...args: string[]): string[] {
   return ['--live', '--public-url', 'https://inference.ashaveri.test', '--weights-manifest', MANIFEST, ...args];
 }
@@ -104,4 +124,21 @@ describe('signerd cli', () => {
     expect(result.stderr).toContain('GUEST_ENDPOINT_MISSING');
     expect(result.stderr).not.toContain('    at ');
   });
+});
+
+describe('the banner a booted gateway prints', () => {
+  // A live run cannot boot here: it stops at the guest agent, so only the mock half of the mode
+  // label can be seen from a test. The two lines are still pinned to each other, because the first
+  // one is what the second one claims to match. The timeout is the stop plus room to reach it,
+  // since this case spends most of its life waiting to be interrupted.
+  it(
+    'names the mode the printed dev credential belongs to',
+    () => {
+      const banner = runStopped('--mock', '--port', '0');
+      expect(banner[0]).toMatch(/^signerd \(mock\) listening on http:\/\/127\.0\.0\.1:\d+$/u);
+      const credential = banner.find((line) => line.includes('id=dev privateKeyHex='));
+      expect(credential).toMatch(/^ {2}dev credential for this mock run: id=dev privateKeyHex=[0-9a-f]{64}$/u);
+    },
+    12_000,
+  );
 });

@@ -792,9 +792,13 @@ export class CredentialStore {
     const nowSeconds = input.nowSeconds ?? Math.floor(this.now() / 1000);
     const skew = Math.abs(nowSeconds - presented.ts);
     if (skew > this.toleranceSeconds) {
+      // The id is already in hand from `locate`, and it goes on the refusal: a stale request is one
+      // from a credential this file knows, and a record that names none cannot be traced back to it.
       throw new AccessError(
         'AUTH_STALE',
         `the request is stamped ${skew}s from this clock, outside the ${this.toleranceSeconds}s tolerance: check the clock on the client or the deployment`,
+        undefined,
+        presented.credential,
       );
     }
 

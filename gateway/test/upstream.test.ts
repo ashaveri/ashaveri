@@ -212,6 +212,11 @@ describe('upstream backend: streaming', () => {
       headers: app.signFor(CREDENTIAL, 'GET', target, null),
     });
     expect(receiptRes.status).toBe(404);
+    // The record of an aborted stream travels on the `close` event, since a hijacked
+    // reply never emits `finish`: without this line that listener could be deleted and
+    // every suite here would still pass.
+    const streamed = app.log.entries().filter((each) => each.p === '/v1/chat/completions');
+    expect(streamed).toMatchObject([{ cred: CREDENTIAL, auth: 'pop', st: 200, deny: null }]);
     await app.app.close();
   });
 });

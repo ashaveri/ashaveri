@@ -16,8 +16,19 @@ import {
   type Scope,
 } from '../src/access.js';
 import { openMemoryAccessLog, type MemoryAccessLog } from '../src/aclog.js';
+import { sha256 } from '../src/digest.js';
 
 export const CLOCK_SECONDS = 1_772_000_000;
+
+/**
+ * The one seed rule behind every fixture key pair: the id's own bytes, so two fixtures whose ids
+ * happen to be the same length still hold different keys. A seed read off the length let either of
+ * them sign as the other, and an assertion about one credential's admission would then have been
+ * an assertion about the other's key.
+ */
+function seedOf(id: string): Uint8Array {
+  return sha256(new TextEncoder().encode(id));
+}
 
 export interface Generated {
   record: CredentialRecord;
@@ -27,7 +38,7 @@ export interface Generated {
 /** One generation per cell, so a nonce cannot leak between two assertions. */
 export function generated(id: string, scopes: Scope[], extra: Partial<CredentialRecord> = {}): Generated {
   const fresh = newPopCredential({ id, scopes, now: CLOCK_SECONDS });
-  const seed = new Uint8Array(32).fill(id.length);
+  const seed = seedOf(id);
   return {
     record: { ...fresh.record, publicKey: signingKeyFromSeed(seed).publicKey, ...extra },
     privateKey: seed,
@@ -38,12 +49,17 @@ export interface Harness {
   app: FastifyInstance;
   log: MemoryAccessLog;
   records: CredentialRecord[];
+  /**
+   * A header for one request. `key` is for a header naming a record this harness holds no key
+   * for: without it, `unsignedKeyFor` refuses the id as an admission a test has no business
+   * inventing.
+   */
   signFor(
     id: string,
     method: string,
     target: string,
     body: string | null,
-    options?: { ts?: number; nonce?: Uint8Array },
+    options?: { ts?: number; nonce?: Uint8Array; key?: Uint8Array },
   ): Record<string, string>;
   inject(options: {
     method: string;
@@ -66,6 +82,14 @@ export interface HarnessInput {
    * a second construction path outside `harness()` is exactly what this file exists to prevent.
    */
   gateway?: Partial<GatewayOptions>;
+  /**
+   * A store the caller built, for the one thing this file cannot otherwise make: a credential
+   * file on a path, whose reload the gateway has to notice. The credentials named alongside it
+   * are still what `signFor` holds keys for, so they have to be the records that file carries,
+   * and the store's `now` has to name CLOCK_SECONDS or the floor reads a well-signed header as
+   * months stale.
+   */
+  store?: CredentialStore;
 }
 
 const NONCE_BYTES = 16;
@@ -76,16 +100,25 @@ export async function harness(input: HarnessInput = {}): Promise<Harness> {
   const credentials = input.credentials ?? [];
   const records: CredentialRecord[] = [...credentials.map((each) => each.record), ...(input.extra ?? [])];
   const keys = new Map<string, Uint8Array>(credentials.map((each) => [each.record.id, each.privateKey]));
-  const store = new CredentialStore({
-    file: { version: 1, credentials: records },
-    allowBearer: input.allowBearer,
-    toleranceSeconds: input.toleranceSeconds,
-    // `signFor` stamps every header at CLOCK_SECONDS, so the store has to read the same instant: on
-    // the wall clock it would refuse a well-signed request as months stale, and the tolerance test
-    // would measure the age of the fixture rather than the offset it names. A test that wants a
-    // different instant asks for one with `ts`, which is what that parameter is for.
-    now: () => CLOCK_SECONDS * 1000,
-  });
+  // A store from the caller carries its own clock, tolerance and bearer rule, so it has to name the
+  // instant `signFor` stamps at: the constraint is spelled out on `HarnessInput.store`.
+  const store =
+    input.store ??
+    new CredentialStore({
+      file: { version: 1, credentials: records },
+      allowBearer: input.allowBearer,
+      toleranceSeconds: input.toleranceSeconds,
+      // `signFor` stamps every header at CLOCK_SECONDS, so the store has to read the same instant: on
+      // the wall clock it would refuse a well-signed request as months stale, and the tolerance test
+      // would measure the age of the fixture rather than the offset it names. A test that wants a
+      // different instant asks for one with `ts`, which is what that parameter is for.
+      now: () => CLOCK_SECONDS * 1000,
+    });
+  // Two clocks run through a harness, and only one of them is pinned. The store's `now`, set just
+  // above, answers one question: is this stamp inside the window. The access record's `t` and `dur`
+  // are stamped by the flush off the wall clock this process runs on, which a memory log carries
+  // without ever reading them back. A suite that wants a fixed instant in a written line has to
+  // bring its own log rather than assume the clock here reaches the record.
   const log = openMemoryAccessLog();
   const app = buildGateway({ ...input.gateway, access: store, accessLog: log });
   // The replay key is a credential id and a nonce, so one nonce used twice by the same credential
@@ -104,16 +137,16 @@ export async function harness(input: HarnessInput = {}): Promise<Harness> {
   }
   /**
    * A header naming a credential this store never carried is the one refusal a test can be asked to
-   * produce without holding anything: nothing is protected by a key that does not exist, so the
-   * seed `generated()` would have used is re-derived here. An id that *is* in the store with no key
-   * in `keys` is a different matter. That record arrived through `extra` because its secret belongs
+   * produce without holding anything: nothing is protected by a key that does not exist, so the same
+   * seed rule `generated()` follows is re-derived here. An id that *is* in the store with no key in
+   * `keys` is a different matter. That record arrived through `extra` because its secret belongs
    * to someone else, and signing as it would be a test inventing an admission.
    */
   function unsignedKeyFor(id: string): Uint8Array {
     if (records.some((entry) => entry.id === id)) {
       throw new Error(`harness: ${id} is in the store but its key is not held here`);
     }
-    return new Uint8Array(32).fill(id.length);
+    return seedOf(id);
   }
   return {
     app,
@@ -128,7 +161,9 @@ export async function harness(input: HarnessInput = {}): Promise<Harness> {
         target,
         bodyDigestHex: body === null ? EMPTY_BODY_SHA256_HEX : sha256Hex(new TextEncoder().encode(body)),
       };
-      const key = keys.get(id) ?? unsignedKeyFor(id);
+      // A key from the caller is the one case `unsignedKeyFor` cannot serve: a header naming a
+      // record whose admission the floor refuses before it looks at the signature.
+      const key = options?.key ?? keys.get(id) ?? unsignedKeyFor(id);
       return {
         authorization: signPopAuthorization(fields, id, key),
         'x-ashaveri-nonce': toBase64Url(nonce),

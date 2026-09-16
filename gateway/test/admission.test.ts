@@ -127,6 +127,9 @@ describe('CredentialStore.admit, the five checks in order', () => {
     } catch (err) {
       expect(err).toBeInstanceOf(AccessError);
       expect((err as AccessError).code).toBe('AUTH_STALE');
+      // The record's `cred` is filled from this field, so a refusal raised after the lookup has to
+      // carry the name out with it or the line logs no credential for a known one.
+      expect((err as AccessError).credentialId).toBe('svc-1');
       expect((err as AccessError).message.toLowerCase()).toContain('clock');
     }
     expect(code(() => s.admit(signed({ id: 'svc-1', privateKey: generated.privateKey, ts: NOW + 121 })))).toBe('AUTH_STALE');

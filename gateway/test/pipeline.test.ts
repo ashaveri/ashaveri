@@ -1,9 +1,13 @@
 import { afterAll, describe, expect, it } from 'vitest';
+import { mkdtemp, rm, utimes, writeFile } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 import { buildGateway } from '../src/server.js';
 import {
   CredentialStore,
   ROUTE_SCOPES,
   newBearerCredential,
+  serializeCredentialFile,
   type CredentialRecord,
   type Scope,
 } from '../src/access.js';
@@ -27,6 +31,12 @@ const targets: Record<string, string> = {
 };
 
 const ROUTES = Object.keys(ROUTE_SCOPES);
+
+/**
+ * The paths the table names, counted once each: Fastify clones a GET route into a HEAD of its
+ * own, so `scopeCheckedRoutes` tallies paths and not the method-and-path pairs in `ROUTES`.
+ */
+const ROUTE_PATHS = new Set(ROUTES.map((route) => route.split(' ')[1]));
 
 function denyCode(json: Record<string, unknown>): string | undefined {
   const error = json['error'] as { code?: string } | undefined;
@@ -72,14 +82,20 @@ describe('the floor covers every route the instance has', () => {
     for (const route of declared) expect(normalized.has(route), `route ${route} is declared but not registered`).toBe(true);
   });
 
+  it('the onRoute hook inspected every path the instance registers', async () => {
+    const h = await openWith([]);
+    // The count is the only visible trace of the order: a hook registered below the routes
+    // would check none of them, and every other assertion in this file would still pass.
+    expect(h.app.scopeCheckedRoutes()).toBe(ROUTE_PATHS.size);
+  });
+
   it.each(ROUTES)('%s refuses a request with no credential', async (route) => {
-    const [method, pattern] = route.split(' ');
+    const [method] = route.split(' ');
     const h = await openWith([]);
     const response = await h.inject({ method: method as string, url: targets[route] as string });
     expect(response.statusCode).toBe(401);
     expect(denyCode(response.json)).toBe('AUTH_MALFORMED');
     expect(response.json['error']).toMatchObject({ type: 'authentication_error' });
-    void pattern;
   });
 
   it('an undeclared route stops the process at registration, not at request time', () => {
@@ -87,6 +103,26 @@ describe('the floor covers every route the instance has', () => {
     const app = buildGateway({ access: store, accessLog: openMemoryAccessLog() });
     expect(() => app.get('/v1/not-in-the-table', async () => ({}))).toThrow(/ROUTE_UNDECLARED/u);
     return app.close();
+  });
+
+  it('a path outside the table answers the credential, never the path', async () => {
+    const credential = generated('cred-outside-table', ['read']);
+    const h = await openWith([credential]);
+    // Both halves matter. A request that names no credential is refused for that reason alone, so an
+    // anonymous walk cannot tell a scoped path from an unscoped one and this gateway's route list is
+    // not readable from outside. The same path with a live credential does reach the scope check, and
+    // a row the table never carried admits nothing: the refusal is the credential's, not a hint about
+    // what else is here.
+    const anonymous = await h.inject({ method: 'GET', url: '/v1/not-in-the-table' });
+    expect(anonymous.statusCode).toBe(401);
+    expect(denyCode(anonymous.json)).toBe('AUTH_MALFORMED');
+    const presented = await h.inject({
+      method: 'GET',
+      url: '/v1/not-in-the-table',
+      headers: h.signFor(credential.record.id, 'GET', '/v1/not-in-the-table', null),
+    });
+    expect(presented.statusCode).toBe(403);
+    expect(denyCode(presented.json)).toBe('SCOPE_DENIED');
   });
 });
 
@@ -96,6 +132,7 @@ type State =
   | 'bearer-presented'
   | 'valid-pop'
   | 'stale-ts'
+  | 'forged-signature'
   | 'replayed-nonce'
   | 'insufficient-scope'
   | 'rate-exhausted'
@@ -107,6 +144,7 @@ const STATES: readonly State[] = [
   'bearer-presented',
   'valid-pop',
   'stale-ts',
+  'forged-signature',
   'replayed-nonce',
   'insufficient-scope',
   'rate-exhausted',
@@ -159,6 +197,8 @@ function cell(route: string, state: State): Cell {
       return { status: 401, code: 'AUTH_SCHEME' };
     case 'stale-ts':
       return { status: 401, code: 'AUTH_STALE' };
+    case 'forged-signature':
+      return { status: 401, code: 'AUTH_SIGNATURE' };
     case 'revoked':
       return { status: 401, code: 'AUTH_REVOKED' };
     case 'replayed-nonce':
@@ -166,16 +206,19 @@ function cell(route: string, state: State): Cell {
     case 'rate-exhausted':
       return { status: 429, code: 'RATE_LIMITED' };
     case 'insufficient-scope':
-      return required === 'complete'
-        ? { status: 403, code: 'SCOPE_DENIED' }
-        : { status: 0, code: undefined, skip: 'this route accepts any scope, so a scope miss is unreachable' };
+      // Only a row of `any` has no scope to miss. A `read` row is just as missable as a
+      // `complete` one, so skipping it here would leave the scope check ungated at the
+      // HTTP layer on three of the five routes.
+      return required === 'any'
+        ? { status: 0, code: undefined, skip: 'this route accepts any scope, so a scope miss is unreachable' }
+        : { status: 403, code: 'SCOPE_DENIED' };
     case 'valid-pop':
       // The route's own answer, which the floor must not disturb.
       return { status: admittedStatus(route), code: undefined };
   }
 }
 
-describe('the route matrix: five routes by nine states', () => {
+describe('the route matrix: five routes by ten states', () => {
   for (const route of ROUTES) {
     describe(route, () => {
       for (const state of STATES) {
@@ -193,26 +236,53 @@ describe('the route matrix: five routes by nine states', () => {
           const credential = generated(`cred-${state}`, suited);
           const records: CredentialRecord[] = [credential.record];
           let allowBearer = false;
+          // Its own id, not the PoP credential's: two records under one name would make the
+          // refusal this state is about ambiguous about which one it found.
+          const bearerId = `cred-${state}-bearer`;
           if (state === 'bearer-presented') {
             allowBearer = false;
-            records.push(newBearerCredential({ id: `cred-${state}`, scopes: suited, now: CLOCK_SECONDS }).record);
+            records.push(newBearerCredential({ id: bearerId, scopes: suited, now: CLOCK_SECONDS }).record);
           }
           if (state === 'revoked') credential.record.revokedAt = CLOCK_SECONDS - 1;
           if (state === 'rate-exhausted') credential.record.rate = { perMinute: 1, burst: 1 };
           const h = await harness({ credentials: [credential], extra: records.slice(1), allowBearer });
+          const payload = body ?? undefined;
           const headers: Record<string, string> = {};
           if (state === 'absent-header') {
             // nothing to add
           } else if (state === 'unknown-credential') {
             Object.assign(headers, h.signFor('never-issued', method as string, targets[route] as string, body));
           } else if (state === 'bearer-presented') {
-            headers.authorization = 'Bearer dGVzdA';
+            // Two doors to one code. A `Bearer` header is turned away by the scheme dispatch
+            // before any record is looked up; a proof of possession naming a bearer record is
+            // turned away by the lookup itself, which is the refusal that answers with an id.
+            const byPrefix = await h.inject({
+              method: method as string,
+              url: targets[route] as string,
+              headers: { authorization: 'Bearer dGVzdA' },
+              payload,
+            });
+            expect(byPrefix.statusCode, `${route} / bearer prefix`).toBe(401);
+            expect(denyCode(byPrefix.json), `${route} / bearer prefix code`).toBe('AUTH_SCHEME');
+            Object.assign(
+              headers,
+              h.signFor(bearerId, method as string, targets[route] as string, body, { key: new Uint8Array(32) }),
+            );
           } else if (state === 'stale-ts') {
             Object.assign(headers, h.signFor(credential.record.id, method as string, targets[route] as string, body, { ts: CLOCK_SECONDS - 121 }));
+          } else if (state === 'forged-signature') {
+            // The id is one this store carries and the stamp is inside the window, so the request
+            // gets as far as the proof itself and fails there. A signature check the HTTP layer
+            // never exercises is a signature check a change to `access.ts` can delete unnoticed.
+            Object.assign(
+              headers,
+              h.signFor(credential.record.id, method as string, targets[route] as string, body, {
+                key: new Uint8Array(32).fill(7),
+              }),
+            );
           } else if (state === 'revoked' || state === 'insufficient-scope' || state === 'rate-exhausted' || state === 'valid-pop' || state === 'replayed-nonce') {
             Object.assign(headers, h.signFor(credential.record.id, method as string, targets[route] as string, body));
           }
-          const payload = body ?? undefined;
           if (state === 'replayed-nonce') {
             const first = await h.inject({ method: method as string, url: targets[route] as string, headers, payload });
             expect([200, 404]).toContain(first.statusCode);
@@ -232,6 +302,26 @@ describe('the route matrix: five routes by nine states', () => {
           const response = await h.inject({ method: method as string, url: targets[route] as string, headers, payload });
           expect(response.statusCode, `${route} / ${state}`).toBe(expectation.status);
           if (expectation.code !== undefined) expect(denyCode(response.json), `${route} / ${state} code`).toBe(expectation.code);
+          if (state === 'bearer-presented') {
+            // The refusal is the only place this id surfaces to the operator, and it surfaces
+            // because the lookup carried it out of the store on the error.
+            expect(h.log.entries().at(-1), `${route} / ${state} record`).toMatchObject({
+              cred: bearerId,
+              auth: null,
+              deny: 'AUTH_SCHEME',
+              st: 401,
+            });
+          }
+          if (state === 'stale-ts') {
+            // This refusal happens after the lookup, so the id is known and there is no reason for
+            // the line to lose it: an operator reading a spike of stale requests has to be able to
+            // say whose clock is the one off.
+            expect(h.log.entries().at(-1), `${route} / ${state} record`).toMatchObject({
+              cred: credential.record.id,
+              deny: 'AUTH_STALE',
+              st: 401,
+            });
+          }
           await h.app.close();
         });
       }
@@ -296,5 +386,69 @@ describe('what the floor writes and does not write', () => {
     expect(refused.statusCode).toBe(429);
     expect(Number(refused.headers['retry-after'])).toBeGreaterThanOrEqual(1);
     await h.app.close();
+  });
+});
+
+describe('the key a fixture credential is signed with', () => {
+  it('derives a different key for two ids of the same length', () => {
+    const left = generated('equal-length-a', ['complete']);
+    const right = generated('equal-length-b', ['complete']);
+    // Same width on purpose: a key read off the length of the id made these two one credential,
+    // and an assertion about admitting either was an assertion about the other's key.
+    expect(left.record.id).toHaveLength(right.record.id.length);
+    expect(left.record.publicKey).not.toEqual(right.record.publicKey);
+  });
+
+  it('refuses a header signed for one credential with the key of another of the same length', async () => {
+    const mine = generated('equal-length-a', ['complete']);
+    const other = generated('equal-length-b', ['complete']);
+    const h = await harness({ credentials: [mine] });
+    const response = await h.inject({
+      method: 'GET',
+      url: '/v1/deployment-manifest',
+      headers: h.signFor(mine.record.id, 'GET', '/v1/deployment-manifest', null, { key: other.privateKey }),
+    });
+    expect(response.statusCode).toBe(401);
+    expect(denyCode(response.json)).toBe('AUTH_SIGNATURE');
+    await h.app.close();
+  });
+});
+
+describe('the credential file the floor reads before it admits', () => {
+  it('takes a revocation on the next request rather than on the next restart', async () => {
+    const dir = await mkdtemp(join(tmpdir(), 'ashaveri-pipeline-'));
+    const path = join(dir, 'credentials.json');
+    const credential = generated('reload-1', ['complete']);
+    let tick = 1_772_000_000_000;
+    const write = async (records: CredentialRecord[]): Promise<void> => {
+      // An explicit mtime, because the reload reacts to the file's timestamp and a rewrite that
+      // lands in the same tick as the write before it is, to a store watching that timestamp, a
+      // file that never moved.
+      tick += 60_000;
+      const when = new Date(tick);
+      await writeFile(path, serializeCredentialFile({ version: 1, credentials: records }), 'utf8');
+      await utimes(path, when, when);
+    };
+    try {
+      await write([credential.record]);
+      const store = new CredentialStore({ path, now: () => CLOCK_SECONDS * 1000 });
+      // Read once here the way a deployment's start-up read would, so the only reload this
+      // request path can be failing on is the one the gateway performs for itself.
+      await store.reloadIfNeeded();
+      const h = await harness({ credentials: [credential], store });
+      const headers = h.signFor('reload-1', 'GET', '/v1/deployment-manifest', null);
+      expect((await h.inject({ method: 'GET', url: '/v1/deployment-manifest', headers })).statusCode).toBe(200);
+      await write([{ ...credential.record, revokedAt: CLOCK_SECONDS - 1 }]);
+      const refused = await h.inject({
+        method: 'GET',
+        url: '/v1/deployment-manifest',
+        headers: h.signFor('reload-1', 'GET', '/v1/deployment-manifest', null),
+      });
+      expect(refused.statusCode).toBe(401);
+      expect(denyCode(refused.json)).toBe('AUTH_REVOKED');
+      await h.app.close();
+    } finally {
+      await rm(dir, { recursive: true, force: true });
+    }
   });
 });
