@@ -119,8 +119,13 @@ describe('what the access log never writes', () => {
     expect(text).not.toContain('mock-model-1');
     expect(text).not.toContain('authorization');
     expect(text).not.toContain(toBase64Url(KEY.privateKey));
+    // A field added to the twelve would pass every name check above, so this asks for the body's
+    // own digest, the value a body-derived field would most plausibly carry.
+    expect(text).not.toContain(sha256Hex(new TextEncoder().encode(body)));
     for (const line of lines(text)) {
-      expect(Object.keys(parseAccessLine(line)).sort()).toEqual(SORTED_FIELDS);
+      // Off the bytes rather than off `parseAccessLine`, whose return value carries the names it
+      // chose to read no matter what the line held.
+      expect(Object.keys(JSON.parse(line) as Record<string, unknown>).sort()).toEqual(SORTED_FIELDS);
     }
   });
 
@@ -145,6 +150,7 @@ describe('what the access log never writes', () => {
     const after = lines(await written());
     expect(after).toHaveLength(before + 2);
     expect(after.join('')).not.toContain(CANARY_STREAM);
+    expect(after.join('')).not.toContain(sha256Hex(new TextEncoder().encode(body)));
     const admitted = parseAccessLine(after[before] as string);
     const denied = parseAccessLine(after[before + 1] as string);
     expect(admitted).toMatchObject({ cred: 'canary-1', auth: 'pop', st: 200, deny: null, p: '/v1/chat/completions' });
