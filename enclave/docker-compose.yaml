@@ -49,7 +49,7 @@ services:
       - --tee
       - ${ASHAVERI_TEE:-tdx}
       - --credentials-path
-      - /run/ashaveri/credentials.json
+      - /etc/ashaveri/credentials.json
       - --access-log-path
       - /var/lib/ashaveri/access-log
     ports:
@@ -60,6 +60,12 @@ services:
     volumes:
       - /var/run/dstack.sock:/var/run/dstack.sock
       - ./release:/run/ashaveri:ro
+      # The credential file gets its own mount, outside ./release, because the entrypoint hashes
+      # everything under ASHAVERI_WEIGHTS_DIR: a file the manifest does not list makes
+      # `weights.mjs verify` exit 1 and the container never starts, and adding it to the manifest
+      # instead would put an operator-edited file inside the digest every receipt carries as `wts`,
+      # so a routine enrolment or rotation would move the model's attested identity.
+      - ./config:/etc/ashaveri:ro
       - access-log:/var/lib/ashaveri/access-log
     depends_on:
       - inference

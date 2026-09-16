@@ -4,6 +4,8 @@ coverage/
 *.tsbuildinfo
 # Staged model weights and their manifest; see enclave/README.md
 enclave/release/
+# The gateway's credential file, mounted read-only at /etc/ashaveri; see enclave/README.md
+enclave/config/
 .env
 .env.*
 .DS_Store

@@ -94,6 +94,12 @@ export class AccessError extends Error {
    * benefit, while this field is the string the store was asked about.
    */
   readonly credentialId: string | undefined;
+  /**
+   * The detail as it was handed in, before this code's sentence was prefixed to it. A caller that
+   * re-wraps an error to add where it came from writes here and not into `message`, because
+   * `message` already carries that sentence and prepending it again prints the clause twice.
+   */
+  readonly detail: string | undefined;
 
   constructor(code: AccessErrorCode, detail?: string, retryAfterSeconds?: number, credentialId?: string) {
     super(detail === undefined ? ERROR_MESSAGE[code] : `${ERROR_MESSAGE[code]}: ${detail}`);
@@ -102,6 +108,7 @@ export class AccessError extends Error {
     this.status = accessStatus(code);
     this.retryAfterSeconds = retryAfterSeconds;
     this.credentialId = credentialId;
+    this.detail = detail;
   }
 }
 
@@ -318,7 +325,9 @@ export async function loadCredentialFile(path: string): Promise<CredentialFile> 
     return parseCredentialFile(text);
   } catch (err) {
     if (err instanceof AccessError) {
-      throw new AccessError(err.code, `${path}: ${err.message}`);
+      // The path goes on the detail, not on the message, because the message already opens with the
+      // clause this constructor prefixes: writing it there printed the same sentence twice.
+      throw new AccessError(err.code, err.detail === undefined ? path : `${path}: ${err.detail}`);
     }
     throw err;
   }

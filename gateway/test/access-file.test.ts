@@ -154,6 +154,22 @@ describe('loadCredentialFile', () => {
     });
     await rm(dir, { recursive: true, force: true });
   });
+
+  // The re-wrap adds where the refusal came from, and it adds it to the detail rather than to the
+  // message: the message already opens with the sentence the constructor prefixes, and writing the
+  // path in front of that printed the same clause twice.
+  it('names the file on the detail and the clause once in the message', async () => {
+    const dir = await mkdtemp(join(tmpdir(), 'ashaveri-creds-'));
+    const path = join(dir, 'credentials.json');
+    await writeFile(path, '{"version":2,"credentials":[]}', 'utf8');
+    const refusal = await loadCredentialFile(path).catch((error: unknown) => error);
+    expect(refusal, JSON.stringify(refusal)).toBeInstanceOf(AccessError);
+    const err = refusal as AccessError;
+    expect(err.detail, err.message).toContain(path);
+    expect(err.detail, err.detail ?? '<no detail>').toContain('version 2');
+    expect(err.message.match(/the credential file cannot be used/gu)?.length ?? 0, err.message).toBe(1);
+    await rm(dir, { recursive: true, force: true });
+  });
 });
 
 describe('route scope table', () => {

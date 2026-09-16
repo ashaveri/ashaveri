@@ -77,10 +77,11 @@ Options:
                                    mode. The directory must already exist, so a volume you forgot to
                                    mount is a refusal rather than a log on the root filesystem.
                                    Default: this process only, and gone on restart.
-  --access-log-days <n>            How long to keep access log files. Default: 184, which is the
-                                   six-month floor AI Act Article 19(1) and 26(6) set for a deployer
-                                   whose system is in Annex III point 1(a). Shorter is allowed, and
-                                   the start-up report says so.
+  --access-log-days <n>            How long to keep access log files. Default: 184, six months
+                                   rounded up to whole days, which is the access log retention floor
+                                   Article 19(1) sets for a provider of a high-risk system and
+                                   Article 26(6) states in the same terms for a deployer. Shorter is
+                                   allowed, and the start-up report says so.
   --allow-bearer                   Accept bearer credentials beside proof of possession. Off by
                                    default, and never per credential.
   --pop-tolerance <seconds>        Clock slack accepted for a proof-of-possession timestamp.
@@ -372,7 +373,7 @@ const lines: string[] = [
 ];
 if (accessLogDays < MINIMUM_RETENTION_DAYS) {
   lines.push(
-    `  note: ${String(accessLogDays)} days is below the 184-day floor AI Act Article 19(1) and Article 26(6) set for a deployer whose system is in Annex III point 1(a), and this run was started with the shorter window`,
+    `  note: ${String(accessLogDays)} days is below the 184-day floor, six months rounded up to whole days, that Article 19(1) sets for a provider of a high-risk system and Article 26(6) states in the same terms for a deployer, and this run was started with the shorter window`,
   );
 }
 if (devCredential !== undefined) {

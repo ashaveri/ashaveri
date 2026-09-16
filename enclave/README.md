@@ -15,9 +15,12 @@ accepts; they get resolved the first time this runs.
 | `docker-entrypoint.sh` | Checks the mounted model files against the manifest when both weights environment variables are set, then execs `signerd`. |
 | `weights.mjs` | Emits and checks the model manifest whose sha256 every receipt carries as `wts`. |
 
-The compose text is the measurement. A rebuilt image tag, a different model file, or a changed
-`--tee` value changes what the hardware attests to, which is why the image is pinned by digest
-below and why `--expect-compose-hash` exists in `ashaveri verify`.
+The compose text is what the platform measures: a rebuilt image tag or a changed `--tee` value moves
+the `compose-hash` runtime event, which the RTMR3 replay ties to the quote, and that is what
+`--expect-compose-hash` pins. A different model file does not move it, because the compose text names a
+path and not bytes, so the mounted model is covered by the `wts` digest and the entrypoint check. The
+image is pinned by digest below for the same reason: a mutable tag is the one thing in the compose text
+whose contents can change underneath the hash that pins it.
 
 ## 1. Build and publish the gateway image
 
@@ -72,8 +75,10 @@ Two properties of the managed platform shape this step:
 
 - The public hostname is assigned by the platform, so `ASHAVERI_PUBLIC_URL` cannot be known
   before the first boot. Boot once with a placeholder, read the hostname from `phala apps`,
-  then deploy again with the real value. The redeploy changes the compose hash and therefore
-  the measurement, which is expected: pin only after the URL is final. `--public-url` is used
+  then deploy again with the real value. The redeploy changes the compose hash, which is the
+  runtime event `--expect-compose-hash` pins, and that pin has to be reissued with the new
+  value; the launch measurement `--expect-measurement` pins, the TDX MRTD or the SNP launch
+  digest, does not move. Pin only after the URL is final. `--public-url` is used
   solely to build the `att.url` evidence link, so a stale value is visible to any client as a
   broken or wrong evidence URL rather than a silent inconsistency.
 - TLS terminates at the platform gateway, outside the TEE, and the container listens on plain
@@ -87,8 +92,8 @@ and nothing to seal after the fact.
 
 ### The credential file the gateway reads
 
-`--credentials-path` names one JSON file, and this compose text mounts it from `./release`, which is
-already read-only at `/run/ashaveri`:
+`--credentials-path` names one JSON file. This compose text mounts it read-only at `/etc/ashaveri`,
+from `enclave/config/`, which is not the directory the entrypoint hashes:
 
 ```json
 {
@@ -99,18 +104,21 @@ already read-only at `/run/ashaveri`:
 }
 ```
 
-A record holds a public key or a hash of a secret, never a signing key, so this file can sit in the
-release directory and travel with the deployment. The private half goes to the client and nowhere else,
-and a bearer secret is the one credential kind that must never be mounted through a platform: it is the
-whole of the authentication, so shipping it to someone else's storage is shipping the credential. To
-make one now, from a built workspace:
+A record holds a public key or a hash of a secret, never a signing key, so this file can travel with
+the deployment. It travels beside the release directory rather than inside it: the entrypoint hashes
+every file under `ASHAVERI_WEIGHTS_DIR`, so a credential written there either stops the boot or, once
+listed in the manifest to make it boot, moves the `wts` digest a client pins as the model's identity.
+The private half goes to the client and nowhere else, and a bearer secret is the one credential kind
+that must never be mounted through a platform: it is the whole of the authentication, so shipping it to
+someone else's storage is shipping the credential. To make one now, from a built workspace:
 
 ```bash
 node --input-type=module -e '
-import { writeFileSync } from "node:fs";
+import { mkdirSync, writeFileSync } from "node:fs";
 const { newPopCredential, serializeCredentialFile, toHex } = await import("./gateway/dist/index.js");
 const key = newPopCredential({ id: "client-1", scopes: ["complete", "read"] });
-writeFileSync("enclave/release/credentials.json", serializeCredentialFile({ version: 1, credentials: [key.record] }));
+mkdirSync("enclave/config", { recursive: true });
+writeFileSync("enclave/config/credentials.json", serializeCredentialFile({ version: 1, credentials: [key.record] }));
 process.stdout.write(`signing key, print once and keep off any volume: ${toHex(key.privateKey)}\n`);
 '
 ```
@@ -118,10 +126,12 @@ process.stdout.write(`signing key, print once and keep off any volume: ${toHex(k
 Two consequences of making every route ask for a credential:
 
 - Revocation is an edit to this file, and on a managed rail the file is part of the deployment, so the
-  edit means a redeploy. A redeploy changes the compose hash and therefore the measurement, which is
-  the same trade the key-rotation limitation in [the threat model](../docs/threat-model.md) section 6
-  already names. A self-hosted deployment mounts a rewritable file and the gateway re-reads it on its
-  own, with no restart.
+  edit means a redeploy. A redeploy changes the compose hash, the runtime event replayed into RTMR3 and
+  the value `--expect-compose-hash` pins; it leaves the launch measurement `--expect-measurement` pins,
+  the TDX MRTD or the SNP launch digest, where it was, so a client that pinned only the measurement
+  would notice nothing here. That is the same trade the key-rotation limitation in
+  [the threat model](../docs/threat-model.md) section 6 already names. A self-hosted deployment mounts a
+  rewritable file and the gateway re-reads it on its own, with no restart.
 - The container's healthcheck is a TCP probe rather than a request to `/v1/deployment-manifest`. It
   answers "is the gateway up", and nothing more.
 
