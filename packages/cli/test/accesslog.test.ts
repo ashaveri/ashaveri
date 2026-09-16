@@ -1,5 +1,5 @@
 import { spawnSync } from 'node:child_process';
-import { mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { chmodSync, existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -200,6 +200,81 @@ describe('ashaveri accesslog scrub', () => {
     const result = scrub(join(tempDir, 'no-such-dir'), 'svc-a');
     expect(result.status).toBe(2);
     expect(result.stderr).toContain('cannot read --access-log directory');
+  });
+
+  it('refuses a part it cannot rewrite, naming the part and leaving no temporary behind', () => {
+    // The two platforms refuse for different reasons, so the fixture branches: Windows marks a
+    // read-only file and rejects the rename onto it, while a POSIX rename is a directory operation
+    // that ignores the file's own bits, so the directory has to be the un-writable thing and the
+    // failure lands on the write instead. Both routes end in the same catch, and what is being
+    // pinned is the shape of the answer. Uncaught, this is the case where the operating system's
+    // message, which repeats the directory the operator typed, reaches the terminal as a multi-line
+    // stack beside a leftover `.tmp-` file no retention sweep will ever match.
+    const dir = dirWith(
+      new Map([['access-2026-02-24-000.jsonl', [record({ cred: 'svc-a', rid: 'rid-1' }), record({ cred: 'svc-b', rid: 'rid-2' })]]]),
+    );
+    const part = join(dir, 'access-2026-02-24-000.jsonl');
+    if (process.platform === 'win32') chmodSync(part, 0o444);
+    else chmodSync(dir, 0o500);
+    let result: { status: number | null; stdout: string; stderr: string };
+    try {
+      result = scrub(dir, 'svc-a');
+    } finally {
+      chmodSync(dir, 0o700);
+      chmodSync(part, 0o600);
+    }
+    expect(result.status).toBe(2);
+    expect(result.stderr).toContain(`cannot rewrite access log part '${part}'`);
+    expect(result.stderr).not.toMatch(/^\s+at /mu);
+    expect(result.stderr.trimEnd().split('\n')).toHaveLength(2);
+    expect(result.stdout).toBe('');
+    expect(readdirSync(dir)).toEqual(['access-2026-02-24-000.jsonl']);
+    expect(readFileSync(part, 'utf8')).toContain('svc-a');
+  });
+
+  it('refuses a name the listing calls a part but the open does not', () => {
+    // A directory whose name matches the log pattern is the portable way to make one part
+    // unreadable: both systems answer a read of a directory with a refusal, and no permission bit is
+    // involved, so this fails the same way on a Windows laptop and in a Linux CI job. The listing is
+    // taken first and the read happens per file, which is also the shape of a real rotation racing a
+    // sweep. A refusal to read one part must name that part; un-caught it is an exit 1 stack that
+    // repeats the directory, and a scrub that stops halfway has to say where.
+    const dir = dirWith(new Map([['access-2026-02-24-000.jsonl', [record({ cred: 'svc-a', rid: 'rid-1' })]]]));
+    mkdirSync(join(dir, 'access-2026-02-24-001.jsonl'));
+    const result = scrub(dir, 'svc-a');
+    expect(result.status).toBe(2);
+    expect(result.stderr).toContain(`cannot read access log part '${join(dir, 'access-2026-02-24-001.jsonl')}'`);
+    expect(result.stderr).not.toMatch(/^\s+at /mu);
+    expect(result.stdout).toBe('');
+    expect(markers(dir)).toEqual([]);
+  });
+
+  it.runIf(process.platform !== 'win32')('refuses an emptied part it cannot delete, instead of claiming an erasure', () => {
+    // An erasure that did not happen has to arrive as a refusal naming the file, because the exit code
+    // is the only evidence an operator has that the record is gone. Un-caught it is an exit 1 stack
+    // that repeats the directory path, which reads as a crash in a program that deleted nothing.
+    // This obstacle is POSIX-only, and the reason is measured rather than assumed: the read-only
+    // attribute does not stop this deletion on Windows (the part was removed under it, and the
+    // restore below then found no file to restore), and on either system unlink is an operation on the
+    // directory, so on POSIX the directory is what loses its write permission. On Windows the same
+    // wrap is reachable only through a permission the file system has to be told about, so the
+    // rewrite case above is what guards this file's shared error shape on that platform.
+    const dir = dirWith(new Map([['access-2026-02-24-000.jsonl', [record({ cred: 'svc-a', rid: 'rid-1' })]]]));
+    const part = join(dir, 'access-2026-02-24-000.jsonl');
+    chmodSync(dir, 0o500);
+    let result: { status: number | null; stdout: string; stderr: string };
+    try {
+      result = scrub(dir, 'svc-a');
+    } finally {
+      chmodSync(dir, 0o700);
+      if (existsSync(part)) chmodSync(part, 0o600);
+    }
+    expect(result.status).toBe(2);
+    expect(result.stderr).toContain(`cannot remove emptied access log part '${part}'`);
+    expect(result.stderr).not.toMatch(/^\s+at /mu);
+    expect(result.stdout).toBe('');
+    expect(readFileSync(part, 'utf8')).toContain('svc-a');
+    expect(markers(dir)).toEqual([]);
   });
 
   it('leaves a file the log does not own alone in the directory', () => {

@@ -1,6 +1,7 @@
 import { randomUUID } from 'node:crypto';
 import { generateSigningKey, toBase64Url, toHex } from '@ashaveri/receipt';
 import { checkId } from '../records.js';
+import { writeJson } from '../usage.js';
 
 /**
  * Eight characters, the same slice the gateway's own `credentialId` takes for a default id, so a
@@ -48,7 +49,7 @@ export function runKeygen(id: string | undefined, json: boolean): number {
   if (id !== undefined) checkId(id, '--id');
   const out = keygen(id);
   if (json) {
-    process.stdout.write(`${JSON.stringify(out, null, 2)}\n`);
+    writeJson(out);
     process.stderr.write(PRIVATE_HALF_NOTICE);
     return 0;
   }

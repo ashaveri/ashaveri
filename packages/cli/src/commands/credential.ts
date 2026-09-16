@@ -12,7 +12,7 @@ import {
   type Scope,
 } from '../records.js';
 import { shortId } from './keygen.js';
-import { escapeInvisible, escapeInvisibleJson, NEEDS_QUOTING, UsageError } from '../usage.js';
+import { escapeInvisible, NEEDS_QUOTING, UsageError, writeJson } from '../usage.js';
 
 const PUBLIC_KEY_BYTES = 32;
 
@@ -232,17 +232,6 @@ function tableOf(views: CredentialView[]): string {
 
 function print(label: string, value: string): void {
   process.stdout.write(`${label.padEnd(16)}${value}\n`);
-}
-
-/**
- * The one machine-readable form of the three credential subcommands. A `--json` stream is piped into
- * a file and read on a terminal on the way there, and `JSON.stringify` passes every invisible
- * character through as raw text, so the escaping follows it. Only the quoted spans are rewritten:
- * the newlines between an indented document's fields are structure, and inside a string an escape is
- * the other spelling of the same character to anything that parses it.
- */
-function writeJson(value: unknown): void {
-  process.stdout.write(`${escapeInvisibleJson(JSON.stringify(value, null, 2))}\n`);
 }
 
 function printRecord(record: CredentialRecord): void {

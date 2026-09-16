@@ -139,9 +139,13 @@ function humanResult(result: VerificationResult, pinned: readonly string[] = [])
   if (result.snp) {
     lines.push('  quote signature:  verified (AMD ARK -> ASK -> VCEK chain, ECDSA P-384)');
     const { report, mrConfig } = result.snp;
-    // Everything else in this report reaches the terminal as hex. These two are the strings: one is
-    // text the guest wrote into its own document, and neither is bounded by this file, so both are
-    // escaped where they are printed rather than trusted because of what they were last time.
+    // The only two strings in this report; everything else is hex or a number. Neither is authored by
+    // the workload: the product line is read out of CPUID family and model bits through a table of
+    // three, and the key provider name comes from the application configuration document whose digest
+    // the platform wrote into the report, which makes it the deployment owner's own text. The guard
+    // stays because whoever runs this command is usually not whoever chose either value, and neither
+    // string is bounded by this file. No input this repository can build carries a separator in
+    // either field, since both sit inside the signed report, so no test gates these two calls.
     if (report.productLine) {
       lines.push(`  product:          ${escapeInvisible(report.productLine)}`);
     }

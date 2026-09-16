@@ -1,7 +1,7 @@
 import { readdir, readFile, rename, unlink, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { checkId } from '../records.js';
-import { UsageError } from '../usage.js';
+import { UsageError, writeJson } from '../usage.js';
 
 const ACCESS_FILE = /^access-(\d{4}-\d{2}-\d{2})-(\d{3})\.jsonl$/u;
 
@@ -44,7 +44,7 @@ export async function accesslogScrub(dir: string, credential: string, now: () =>
   let touched = 0;
   for (const name of targets) {
     const path = join(dir, name);
-    const lines = (await readFile(path, 'utf8')).split('\n');
+    const lines = (await readPart(path)).split('\n');
     const kept: string[] = [];
     let present = 0;
     for (const line of lines) {
@@ -68,7 +68,7 @@ export async function accesslogScrub(dir: string, credential: string, now: () =>
       // A fully scrubbed part is unlinked, not renamed. A copy under a name the gateway's retention
       // can no longer match would keep every removed line on the volume forever, and it would read
       // as a completed erasure that left the data behind.
-      await unlink(path);
+      await removePart(path);
     } else {
       await writeAtomic(path, `${kept.join('\n')}\n`);
     }
@@ -91,6 +91,20 @@ async function readdirOrThrow(dir: string): Promise<string[]> {
 }
 
 /**
+ * A part the listing named but the open refused is a fixable condition with a name worth printing: the
+ * operating system repeats the whole directory path inside its own message, and an uncaught error
+ * reaches the terminal as a stack over several lines that no guard has read.
+ */
+async function readPart(path: string): Promise<string> {
+  try {
+    return await readFile(path, 'utf8');
+  } catch (err) {
+    const reason = err instanceof Error ? err.message : String(err);
+    throw new UsageError(`cannot read access log part '${path}': ${reason}`);
+  }
+}
+
+/**
  * The marker is named like a log part, one family of its own, so the retention sweep ages it out on
  * the day in its name and the log never reads one as a record.
  */
@@ -108,11 +122,38 @@ async function nextScrubName(dir: string, atMillis: number): Promise<string> {
 /**
  * Same-directory write and rename, because this rewrites files a running gateway is appending to: a
  * reader that polls the mtime never has to see half of a scrub.
+ *
+ * A failure is the operator's to fix, so it gets the same one-line refusal every other fixable failure
+ * gets. Left bare, `fs` composes its message around the path this program was handed, Node prints the
+ * whole error with a stack when nothing catches it, and the temporary name appears beside the real one,
+ * which turns a directory of log parts into several terminal lines that no guard has read. The
+ * temporary file is removed first because a leftover matches neither the pattern this command reads nor
+ * the retention sweep's, so it would survive in a directory an operator believes is aged out.
  */
 async function writeAtomic(path: string, text: string): Promise<void> {
   const tmp = `${path}.tmp-${String(process.pid)}`;
-  await writeFile(tmp, text, { mode: 0o600 });
-  await rename(tmp, path);
+  try {
+    await writeFile(tmp, text, { mode: 0o600 });
+    await rename(tmp, path);
+  } catch (error) {
+    const reason = error instanceof Error ? error.message : String(error);
+    await unlink(tmp).catch(() => undefined);
+    throw new UsageError(`cannot rewrite access log part '${path}': ${reason}`);
+  }
+}
+
+/**
+ * An emptied part is deleted, and a deletion that fails has to say so: the scrub's whole claim is that
+ * the removed lines are gone, and a refusal that exits 1 with a stack reads as a crash rather than as
+ * the erasure that did not happen.
+ */
+async function removePart(path: string): Promise<void> {
+  try {
+    await unlink(path);
+  } catch (error) {
+    const reason = error instanceof Error ? error.message : String(error);
+    throw new UsageError(`cannot remove emptied access log part '${path}': ${reason}`);
+  }
 }
 
 export async function runAccessLog(sub: string[], flags: AccessLogFlags, now: () => number): Promise<number> {
@@ -129,7 +170,7 @@ export async function runAccessLog(sub: string[], flags: AccessLogFlags, now: ()
   checkId(credential, '--credential');
   const result = await accesslogScrub(dir, credential, now);
   if (flags.json === true) {
-    process.stdout.write(`${JSON.stringify(result, null, 2)}\n`);
+    writeJson(result);
     return 0;
   }
   const noun = result.files === 1 ? 'file' : 'files';

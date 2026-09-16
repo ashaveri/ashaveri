@@ -63,3 +63,16 @@ export function escapeInvisible(text: string): string {
 export function escapeInvisibleJson(document: string): string {
   return document.replace(/"(?:[^"\\]|\\[\s\S])*"/g, (literal) => escapeInvisible(literal));
 }
+
+/**
+ * One machine-readable document per call, so no command has to decide for itself whether it needs the
+ * guard above. A `--json` stream is piped into a file and read on a terminal on the way there, and
+ * `JSON.stringify` passes every invisible character through as raw text, so the escaping follows it.
+ * Only the quoted spans are rewritten: the newlines between an indented document's fields are
+ * structure, and inside a string an escape is the other spelling of the same character to anything
+ * that parses it. Every value printed here has usually been validated first, and this does not
+ * assume it was, because the validation lives in another file.
+ */
+export function writeJson(value: unknown): void {
+  process.stdout.write(`${escapeInvisibleJson(JSON.stringify(value, null, 2))}\n`);
+}

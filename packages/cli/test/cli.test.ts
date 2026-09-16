@@ -318,7 +318,12 @@ describe('ashaveri verify', () => {
 
     const human = runCli(args);
     expect(human.status).toBe(0);
-    expect(countLines(human.stdout)).toBe(human.stdout.split('\n').filter((each) => each.length > 0).length);
+    // The printed table names the event count and the log's encoding version and never a name, so the
+    // forged bytes cannot reach it. Asserting the absence rather than a line count, because a count
+    // holds however a name is printed: this is the case that has to be rewritten, and the report
+    // guarded, the day a human line carries an event name.
+    expect(human.stdout).not.toContain('FORGED');
+    expect(human.stdout).toContain('runtime events:');
 
     const machine = runCli([...args, '--json']);
     expect(machine.status).toBe(0);

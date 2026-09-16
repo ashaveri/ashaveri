@@ -1,5 +1,5 @@
 import { spawnSync } from 'node:child_process';
-import { mkdirSync, mkdtempSync, readFileSync, rmSync, statSync, writeFileSync } from 'node:fs';
+import { chmodSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, statSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -250,15 +250,50 @@ describe('ashaveri credential add', () => {
     // The parent directory is missing, so the temporary name this program writes before the rename
     // cannot be created. Un-caught, that is an exit 1 and a stack trace whose first line repeats the
     // path in the `fs` module's own sentence, which is the shape the exit-2 guard exists to keep to
-    // two lines. `credential revoke` reaches the same wrap through a file it has already stamped, so
-    // a path it cannot replace is a revocation reported as done; that route needs a readable file in
-    // an un-writable directory, which is not a thing this suite can build on Windows.
+    // two lines. The next case covers the other half of the same writer, where the temporary exists
+    // and the rename onto the real name is what fails.
     const missing = join(tempDir, `no-such-dir-${String(++counter)}`, 'creds.json');
     const added = runCli(addArgs(missing));
     expect(added.status).toBe(2);
     expect(added.stderr).toContain(`cannot write the credential file '${missing}'`);
     expect(added.stderr).not.toMatch(/^\s+at /mu);
     expect(added.stdout).not.toMatch(/secret|private key/iu);
+  });
+
+  it('refuses a credential file it cannot replace, and takes its temporary with the refusal', () => {
+    // A `revoke` that could read the file but not write it back is the one that matters: the stamp
+    // would be applied in memory, printed as a completed revocation, and gone when the process exits.
+    // The two platforms need different obstacles because a POSIX rename is a directory operation that
+    // ignores the destination file's own permission bits, so Windows is where the rename itself can be
+    // blocked, by marking the destination read-only; on POSIX the directory is made un-writable, which
+    // stops the write that comes first. Either way the assertions are the same, and the one about the
+    // directory listing is what proves the failed write did not leave a `.tmp-<pid>` credential file,
+    // holding a fresh secret, next to the one the operator can see.
+    const path = freshFile();
+    expect(runCli(addArgs(path, '--id', 'keep-me', '--kind', 'bearer', '--scopes', 'read')).status).toBe(0);
+    const dir = join(path, '..');
+    if (process.platform === 'win32') chmodSync(path, 0o444);
+    else chmodSync(dir, 0o500);
+    let added: { status: number | null; stdout: string; stderr: string };
+    let revoked: { status: number | null; stdout: string; stderr: string };
+    try {
+      added = runCli(addArgs(path, '--id', 'never-lands', '--kind', 'bearer', '--scopes', 'read'));
+      revoked = runCli(['credential', 'revoke', '--credentials', path, '--id', 'keep-me', '--now', REVOKED_AT]);
+    } finally {
+      chmodSync(dir, 0o700);
+      chmodSync(path, 0o600);
+    }
+    for (const [name, result] of [['add', added], ['revoke', revoked]] as const) {
+      expect(result.status, name).toBe(2);
+      expect(result.stderr, name).toContain(`cannot write the credential file '${path}'`);
+      expect(result.stderr, name).not.toMatch(/^\s+at /mu);
+      expect(result.stdout, name).not.toMatch(/secret|private key/iu);
+    }
+    const base = path.slice(dir.length + 1);
+    expect(readdirSync(dir).filter((each) => each.startsWith(base))).toEqual([base]);
+    const stored = parseCredentialFile(readFileSync(path, 'utf8'));
+    expect(stored.credentials.map((each) => each.id)).toEqual(['keep-me']);
+    expect(stored.credentials[0]?.revokedAt).toBeUndefined();
   });
 
   it('names the field of a record it cannot read, instead of crashing on it', () => {
