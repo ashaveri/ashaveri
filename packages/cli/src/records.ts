@@ -92,7 +92,10 @@ export async function readCredentialFile(path: string): Promise<CredentialFile> 
  * One difference the table cannot see, because both readers still accept the record: this one hands
  * back the value it was given, so a field neither parser knows about survives an `add` or a `revoke`
  * rewrite, while the gateway builds a record field by field and drops it. Same verdict, different file
- * afterwards.
+ * afterwards, and that direction is the chosen one. The gateway never writes this file, so its drop is
+ * in memory and lasts until the next reload; this program does write it back, so a field it discarded
+ * would be gone from the deployment for good, and an older CLI run against a newer gateway would delete
+ * whatever that gateway had started to carry.
  */
 const CREDENTIAL_ID = /^[A-Za-z0-9_-]{1,64}$/u;
 const HEX32 = /^[0-9a-f]{64}$/u;

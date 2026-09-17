@@ -27,6 +27,9 @@ let counter = 0;
 const ADDED_AT = '2026-02-24T00:00:00Z';
 const REVOKED_AT = '2026-02-24T01:00:00Z';
 
+/** A root process ignores mode bits, so an un-writable directory is no obstacle to one. */
+const modeBitsBind = !(typeof process.getuid === 'function' && process.getuid() === 0);
+
 function runCli(args: string[]) {
   // Every case below is an exit path, so a process still alive after eight seconds is a bug rather
   // than a slow machine. The deadline is what turns a handle that never closes into the named
@@ -265,7 +268,7 @@ describe('ashaveri credential add', () => {
     expect(added.stdout).not.toMatch(/secret|private key/iu);
   });
 
-  it('refuses a credential file it cannot replace, and takes its temporary with the refusal', () => {
+  it.runIf(modeBitsBind)('refuses a credential file it cannot replace, and takes its temporary with the refusal', () => {
     // A `revoke` that could read the file but not write it back is the one that matters: the stamp
     // would be applied in memory, printed as a completed revocation, and gone when the process exits.
     // The two platforms need different obstacles because a POSIX rename is a directory operation that
@@ -821,8 +824,10 @@ describe('what the CLI is allowed to print', () => {
 
   it('states the scrub loss as the parts it rewrites, not as the whole directory', () => {
     const help = runCli(['--help']);
-    expect(help.stdout).toMatch(/appended to a part between reading it and rewriting that part/u);
+    expect(help.stdout).toMatch(/appended\s+to\s+a\s+part\s+between\s+reading\s+it\s+and\s+rewriting\s+that\s+part/u);
     expect(help.stdout).not.toMatch(/every record appended while the scrub works through the directory/u);
+    // The assertions above join on `\s+` because the help text is hand-wrapped prose printed verbatim,
+    // so a rewrap moves a line break into the middle of a tested sentence without changing it.
     // A deleted part is still a part the scrub acted on, and the file counter moves on that branch
     // too, so the help text may not promise a count that excludes it: the marker an operator files
     // as the answer to a request would understate the erasure by exactly the emptied part.

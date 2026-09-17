@@ -2,10 +2,10 @@ import { chmodSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, s
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterAll, describe, expect, it } from 'vitest';
-import { writeAtomically } from '../src/atomic.js';
+import { publishNew, writeAtomically } from '../src/atomic.js';
 
 /**
- * The writer both `credential` and `accesslog scrub` share, run against its own unit rather than
+ * The writers both `credential` and `accesslog scrub` share, run against their own units rather than
  * through a spawned command. These cases are in-process on purpose: the temporary name carries this
  * process's id, so a spawned run is a name the test cannot predict and the two rules about that name
  * could not be asserted at all.
@@ -87,5 +87,41 @@ describe('writeAtomically', () => {
     await writeAtomically(above, '{}\n', 0o4600, 'cannot write example file');
     expect(statSync(above).mode & 0o7777).toBe(0o600);
     chmodSync(above, 0o600);
+  });
+});
+
+describe('publishNew', () => {
+  it('refuses to publish over a name that is already taken, and leaves those bytes alone', async () => {
+    // This is the gate on the promise the scrub's marker is written under: two runs that read the same
+    // directory settle on the same free slot, and the later one has to be told the slot is gone rather
+    // than allowed to replace the receipt the earlier one left. `rename` cannot make that distinction,
+    // which is why this writer goes to the final name with an exclusive create instead.
+    const path = pathFor('taken-slot');
+    writeFileSync(path, '{"credential":"someone-else","removed":40}\n');
+    expect(await publishNew(path, '{"credential":"svc-a","removed":1}\n', 0o600, 'cannot write example slot')).toBe(false);
+    expect(readFileSync(path, 'utf8')).toBe('{"credential":"someone-else","removed":40}\n');
+  });
+
+  it('publishes at a name that is free, and says so', async () => {
+    const path = pathFor('free-slot');
+    expect(await publishNew(path, '{"removed":1}\n', 0o600, 'cannot write example slot')).toBe(true);
+    expect(readFileSync(path, 'utf8')).toBe('{"removed":1}\n');
+    // Nothing is left behind to be mistaken for a second receipt, or for a part no retention sweep can
+    // name: this writer makes no temporary, which is the half of its bargain the scrub keeps.
+    const base = path.slice(tempDir.length + 1);
+    expect(readdirSync(tempDir).filter((each) => each.startsWith(base))).toEqual([base]);
+  });
+
+  it('refuses a slot it cannot write, rather than reporting the name as free', async () => {
+    // The distinction the caller cannot make for itself: `false` means the slot is taken, and anything
+    // else means the directory has a problem. A write failure folded into `false` would send the scrub
+    // through every slot of the day and have it refuse with "a thousand markers already exist", which
+    // names a full day when the volume is the thing that is broken. The obstacle has to be one that is
+    // not EEXIST: on Windows a create whose name is a directory fails with exactly that code, so a
+    // missing parent directory is what says "this name could not have been written at all" on both.
+    const missing = `gone-${String(++counter)}`;
+    await expect(
+      publishNew(join(tempDir, missing, 'nested.jsonl'), '{}\n', 0o600, 'cannot write example slot'),
+    ).rejects.toThrow(/cannot write example slot .*ENOENT/u);
   });
 });

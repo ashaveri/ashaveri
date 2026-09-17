@@ -75,9 +75,11 @@ export {
 } from './access.js';
 // The scrub tooling rewrites these files from a separate program, so the renderer, the parser and
 // the field allowlist they are checked against are part of the entry point rather than private to
-// the writer that appends them, and so is the name pattern the sweep collects by: the CLI names a
-// marker it cannot import anything from here to match.
+// the writer that appends them. So are the two name patterns: the CLI names a marker and opens parts
+// it cannot import anything from here to match, and a rule that lives in two packages is worth one
+// test that reads both copies from the same place.
 export {
+  ACCESS_PART_NAME,
   ACCESS_RECORD_FIELDS,
   MAX_ACCESS_FILE_BYTES,
   MINIMUM_RETENTION_DAYS,

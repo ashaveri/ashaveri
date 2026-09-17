@@ -1,10 +1,19 @@
 import { readdir, readFile, stat, unlink } from 'node:fs/promises';
 import { join } from 'node:path';
-import { writeAtomically } from '../atomic.js';
+import { publishNew, writeAtomically } from '../atomic.js';
 import { checkId } from '../records.js';
 import { UsageError, writeJson } from '../usage.js';
 
-const ACCESS_FILE = /^access-(\d{4}-\d{2}-\d{2})-(\d{3})\.jsonl$/u;
+/**
+ * The parts this program will open, which is the gateway's own log-file name copied rather than
+ * imported: the published CLI cannot depend on the private package at run time. Exported so
+ * `test/accesslog.test.ts` can hold the two ideas of a collectable name to the same set of names.
+ */
+export const ACCESS_FILE = /^access-(\d{4}-\d{2}-\d{2})-(\d{3})\.jsonl$/u;
+
+/** A day's whole allotment of marker names, and the mode one is published at. */
+const MARKER_SLOTS = 1_000;
+const MARKER_MODE = 0o600;
 
 export interface ScrubMarker {
   t: number;
@@ -36,6 +45,11 @@ export interface AccessLogFlags {
  * promise is per-line preservation plus a possible trailing newline in a file that had none.
  */
 export async function accesslogScrub(dir: string, credential: string, now: () => number): Promise<ScrubResult> {
+  // Settled first, before a single part is opened: a day the retention sweep cannot match would
+  // otherwise be discovered after the erasure it is meant to record, which leaves the operator the
+  // choice between a receipt nothing will collect and no receipt at all.
+  const at = now();
+  const day = markerDay(at);
   const names = await readdirOrThrow(dir);
   const targets = names.filter((each) => ACCESS_FILE.test(each)).sort();
   if (targets.length === 0) {
@@ -78,42 +92,60 @@ export async function accesslogScrub(dir: string, credential: string, now: () =>
     }
   } catch (error) {
     // Records are gone at this point, and the marker is the only evidence an operator has of which
-    // ones, so a scrub that dies halfway still writes the receipt for the parts it already rewrote
-    // before it reports the failure. The refusal keeps its own first sentence: a marker that cannot
-    // be written is not the story, and it must not push the real one off the line. Both tests here
-    // come before the write, not after it: an error this function will not name on the line must not
-    // leave the marker it did make sitting in the directory either.
-    if (removed === 0 || !(error instanceof UsageError)) throw error;
-    const receipt = await writeReceipt(dir, now(), credential, removed, touched).catch(() => null);
-    if (receipt === null) throw error;
-    throw new UsageError(`${error.message}; the removals that landed are marked in '${receipt}'`);
+    // ones, so a scrub that dies halfway writes the receipt for the parts it already rewrote before it
+    // reports the failure. The refusal keeps its own first sentence: a marker that cannot be written is
+    // not the story, and it must not push the real one off the line. Nothing is attempted when this run
+    // has removed nothing, because then there is no erasure to evidence and the failure stands alone.
+    if (removed === 0) throw error;
+    const reason = error instanceof Error ? error.message : String(error);
+    const receipt = await writeReceipt(dir, at, day, credential, removed, touched).catch(() => null);
+    if (receipt === null) throw counts(reason, removed, touched);
+    throw new UsageError(`${reason}; the removals that landed are marked in '${receipt}'`);
   }
   if (removed === 0) return { removed: 0, files: 0, marker: null };
-  let marker: string;
-  try {
-    marker = await writeReceipt(dir, now(), credential, removed, touched);
-  } catch (error) {
-    // The erasure has already happened and cannot be taken back, so this refusal cannot be the
-    // writer's bare sentence about a file: a run that removed records and left no receipt is exactly
-    // the silence the marker exists to prevent, and the numbers have to reach the operator some other
-    // way.
-    const reason = error instanceof Error ? error.message : String(error);
-    throw new UsageError(
-      `${reason}; ${String(removed)} ${removed === 1 ? 'record' : 'records'} removed from ${String(touched)} ${touched === 1 ? 'file' : 'files'} with no marker written`,
-    );
-  }
+  // The erasure has already happened and cannot be taken back, so this refusal cannot be the writer's
+  // bare sentence about a file: a run that removed records and left no receipt is exactly the silence
+  // the marker exists to prevent, and the numbers have to reach the operator some other way.
+  const marker = await writeReceipt(dir, at, day, credential, removed, touched).catch((error: unknown) => {
+    throw counts(error instanceof Error ? error.message : String(error), removed, touched);
+  });
   return { removed, files: touched, marker };
+}
+
+/**
+ * The counts a scrub has taken out of the volume, appended to the sentence about the failure that
+ * stopped it. Both routes here are a run that has erased and reported nothing, and the second is the
+ * easier to lose: a failure halfway through the loop reports the part that stopped the run, while the
+ * numbers belong to the parts behind it, and a re-run reads `removed 0` because those lines are gone.
+ */
+function counts(reason: string, removed: number, files: number): UsageError {
+  const record = removed === 1 ? 'record' : 'records';
+  const part = files === 1 ? 'file' : 'files';
+  return new UsageError(
+    `${reason}; ${String(removed)} ${record} removed from ${String(files)} ${part} with no marker written`,
+  );
 }
 
 /**
  * The receipt itself, at the mode this program chooses: the marker is a file the scrub makes, not a
  * part whose bits it inherited from a running gateway, so `0600` is right for it and wrong for those.
+ * The name is claimed as part of the write rather than chosen and then renamed into, because a rename
+ * replaces whatever stands at the name, which would destroy the receipt an earlier run left there.
  */
-async function writeReceipt(dir: string, atMillis: number, credential: string, removed: number, files: number): Promise<string> {
-  const name = await nextScrubName(dir, atMillis);
+async function writeReceipt(
+  dir: string,
+  atMillis: number,
+  day: string,
+  credential: string,
+  removed: number,
+  files: number,
+): Promise<string> {
   const receipt: ScrubMarker = { t: atMillis, credential, removed, files };
-  await writeAtomically(join(dir, name), `${JSON.stringify(receipt)}\n`, 0o600, 'cannot write the scrub marker');
-  return name;
+  const text = `${JSON.stringify(receipt)}\n`;
+  const names = await readdirOrThrow(dir);
+  return chooseScrubName(names, day, async (name) =>
+    publishNew(join(dir, name), text, MARKER_MODE, 'cannot write the scrub marker'),
+  );
 }
 
 async function readdirOrThrow(dir: string): Promise<string[]> {
@@ -145,18 +177,51 @@ async function readPart(path: string): Promise<string> {
  * the day in its name and the log never reads one as a record. That reason is also the ceiling: the
  * sweep matches exactly three digits, so a fourth is not a later marker but a file nothing will ever
  * collect, holding a credential id. A day that has filled its thousand is refused out loud.
+ *
+ * The listing is a moment old by the time it is read, so a name it calls free is only a candidate.
+ * `claim` publishes at it and reports whether the name was there to take, and a name another run has
+ * since filled is passed over like one the listing had already seen. Without that, the search would
+ * end in a write that replaces the earlier run's marker, destroying the only receipt that erasure has
+ * while this one prints a line saying it made its own.
  */
-export function chooseScrubName(names: readonly string[], day: string): string {
-  for (let seq = 0; seq < 1000; seq += 1) {
+export async function chooseScrubName(
+  names: readonly string[],
+  day: string,
+  claim: (name: string) => Promise<boolean>,
+): Promise<string> {
+  checkDay(day);
+  const taken = new Set(names);
+  for (let seq = 0; seq < MARKER_SLOTS; seq += 1) {
     const candidate = `scrub-${day}-${String(seq).padStart(3, '0')}.jsonl`;
-    if (!names.includes(candidate)) return candidate;
+    if (taken.has(candidate)) continue;
+    if (await claim(candidate)) return candidate;
+    taken.add(candidate);
   }
-  throw new UsageError(`--access-log already holds a thousand markers for ${day}; the slot is three digits because that is all the retention sweep matches`);
+  throw new UsageError(
+    `--access-log already holds a thousand markers for ${day}; the slot is three digits because that is all the retention sweep matches`,
+  );
 }
 
-async function nextScrubName(dir: string, atMillis: number): Promise<string> {
-  const day = new Date(atMillis).toISOString().slice(0, 10);
-  return chooseScrubName(await readdirOrThrow(dir), day);
+/**
+ * The day a marker is named for, in the only shape its name can carry: four digits, a dash, two, a
+ * dash, two. `toISOString()` leaves that shape for a clock outside the years it can hold, printing a
+ * signed six-digit year instead, and `--now` reaches such a clock. A name in that form is not a later
+ * marker but a file nothing will collect, holding a credential id on the volume past the window that
+ * aged its subject out, so it is a refusal rather than a name.
+ */
+const DAY = /^\d{4}-\d{2}-\d{2}$/u;
+
+function checkDay(day: string): string {
+  if (!DAY.test(day)) {
+    throw new UsageError(
+      `cannot name a scrub marker for the day '${day}': the retention sweep matches a date of four digits`,
+    );
+  }
+  return day;
+}
+
+function markerDay(atMillis: number): string {
+  return checkDay(new Date(atMillis).toISOString().slice(0, 10));
 }
 
 /**
@@ -169,9 +234,12 @@ async function nextScrubName(dir: string, atMillis: number): Promise<string> {
  * retention sweep having taken the part between the listing and here, and a rewrite that went ahead
  * would put that name back on the volume carrying records the sweep had already aged out, at a mode
  * nobody chose. The gap between this read and the rename is stated rather than closed, because nothing
- * in `node:fs` makes a rename conditional on the destination being there already.
+ * in `node:fs` makes a rename conditional on the destination being there already. Exported because the
+ * refusal has no gate at the command's own height: making `stat` fail on a name the listing produced
+ * takes a permission bit, and the same bit stops the write that follows a step later, so the only route
+ * that reaches this sentence is the function itself.
  */
-async function modeOf(path: string): Promise<number> {
+export async function modeOf(path: string): Promise<number> {
   let mode: number;
   try {
     mode = (await stat(path)).mode;

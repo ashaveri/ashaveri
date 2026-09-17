@@ -28,17 +28,25 @@ export const MINIMUM_RETENTION_DAYS = 184;
 export const MAX_ACCESS_FILE_BYTES = 32 * 1024 * 1024;
 const FILE_PREFIX = 'access-';
 const FILE_SUFFIX = '.jsonl';
-const FILE_NAME = /^access-(\d{4}-\d{2}-\d{2})-(\d{3})\.jsonl$/u;
+/**
+ * The name this writer makes and the name the sweep collects. Exported for the same reason as the
+ * pattern below: the published CLI opens these files and cannot import this module at run time, so it
+ * carries its own copy of this shape, and `packages/cli/test/accesslog.test.ts` holds the two copies
+ * to the same set of names. Without that gate a widened part name here would leave the scrub skipping
+ * real parts while reporting a count and a marker, which reads as an erasure that did not happen.
+ */
+export const ACCESS_PART_NAME = /^access-(\d{4}-\d{2}-\d{2})-(\d{3})\.jsonl$/u;
 /**
  * The two families retention owns. A scrub marker is personal data at the level of a credential id,
  * so it cannot outlive the window that erased its subject, and it carries a date in its name for
  * exactly that reason. Only the sweep matches it: a marker is not a part this log writes to, counts
- * in its window, or shows in the start-up file list, and all three read names through `FILE_NAME`.
+ * in its window, or shows in the start-up file list, and all three read names through
+ * `ACCESS_PART_NAME`.
  *
  * Exported because the published CLI writes these names and cannot import this module at run time, so
  * the rule that a marker must be collectable lives in both packages. Its naming function is checked
- * against this pattern in `packages/cli/test/accesslog.test.ts`, which is the only thing that keeps
- * the two copies from drifting apart in silence.
+ * against this pattern, and the CLI's copy of the part pattern above is checked against both, in
+ * `packages/cli/test/accesslog.test.ts`.
  */
 export const RETENTION_SWEEP_NAME = /^(?:access|scrub)-(\d{4}-\d{2}-\d{2})-(\d{3})\.jsonl$/u;
 const DAY_MS = 86_400_000;
@@ -258,7 +266,7 @@ export async function openFileAccessLog(options: AccessLogOptions & { dir: strin
   }
 
   function listOwnFiles(): Promise<DayPart[]> {
-    return listNamed(FILE_NAME);
+    return listNamed(ACCESS_PART_NAME);
   }
 
   /**
