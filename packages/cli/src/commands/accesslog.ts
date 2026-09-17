@@ -1,6 +1,7 @@
 import { readdir, readFile, stat, unlink } from 'node:fs/promises';
 import { join } from 'node:path';
-import { publishNew, writeAtomically } from '../atomic.js';
+import { sha256Hex } from '@ashaveri/receipt';
+import { publishNew, writeGuarded } from '../atomic.js';
 import { checkId } from '../records.js';
 import { UsageError, writeJson } from '../usage.js';
 
@@ -15,11 +16,51 @@ export const ACCESS_FILE = /^access-(\d{4}-\d{2}-\d{2})-(\d{3})\.jsonl$/u;
 const MARKER_SLOTS = 1_000;
 const MARKER_MODE = 0o600;
 
+/**
+ * How many times one part is read, filtered and offered to the writer before this run refuses it.
+ * A retry is what closes the window between reading a part and publishing over it, and the window that
+ * survives is the one between the last look at the destination and the rename that follows it, which
+ * nothing in `node:fs` can be made conditional. Three turns is enough to be past an append that
+ * happens to land mid-run and short enough that a part written on every pass is a refusal the operator
+ * reads rather than a loop that never ends.
+ */
+const PART_ATTEMPTS = 3;
+
+/** The longest request reference a marker carries. See `ScrubMarker` for what the field is for. */
+const REQUEST_MAX = 200;
+
+/**
+ * One part this run rewrote, on both sides of the rewrite. A count says how many records left the
+ * volume and nothing about the volume, so a third party holding the marker can check the arithmetic of
+ * the erasure against `sha256sum` of the file in front of them: these are the byte lengths and the
+ * SHA-256 digests of the exact bytes this run read, and of the exact bytes at that name when this run
+ * read it back after publishing. Both reads come off the disk, not from the copy this run held. The
+ * second pair agrees with the file only while nobody has appended to that part since, which is why the
+ * command asks for a deployment that is not serving.
+ */
+export interface ScrubPartRecord {
+  name: string;
+  beforeBytes: number;
+  beforeSha256: string;
+  afterBytes: number;
+  afterSha256: string;
+}
+
 export interface ScrubMarker {
   t: number;
   credential: string;
   removed: number;
   files: number;
+  parts: ScrubPartRecord[];
+  /**
+   * The operator's own reference for the instruction this erasure discharges, or `null`. A marker says
+   * what was removed and where the bytes went; it cannot say why anyone was allowed to move them, and
+   * that is the question a marker is later asked. The field exists so a removal can be traced back to
+   * the instruction behind it, which is a fact about the paper trail and not about the volume, so the
+   * operator supplies it and nothing here invents it. It is `null` rather than absent when no reference
+   * was given so that two markers read the same way.
+   */
+  request: string | null;
 }
 
 export interface ScrubResult {
@@ -31,20 +72,38 @@ export interface ScrubResult {
 export interface AccessLogFlags {
   'access-log'?: string;
   credential?: string;
+  request?: string;
   json?: boolean;
+}
+
+export interface ScrubOptions {
+  /** The request reference, validated by `runAccessLog`. Absent here means a marker with `null`. */
+  request?: string | null;
+  /**
+   * The directory listing the marker's slot search works from. This is a seam and not a setting: the
+   * only way to make a listing stale on purpose inside one process is to hand one over, and a listing
+   * that predates the markers on the volume is the state the claim below exists for. See the case named
+   * in `test/accesslog.test.ts` that passes it an empty listing over a directory holding two markers.
+   */
+  markerListing?: (dir: string) => Promise<string[]>;
 }
 
 /**
  * Erasure with a receipt of itself. An erasure request that leaves a silence cannot be told apart
- * from a gap in the retention, so the scrub records that it happened, names the credential it
- * emptied, and carries a count and nothing else.
+ * from a gap in the retention, so the scrub records that it happened, names the credential it emptied,
+ * carries the count, and carries the bytes on both sides of every rewrite so the count can be checked.
  *
  * A line this program cannot read stays in the file exactly as it was found, byte for byte: the
  * erasure was asked for one credential's records, and a scrub that quietly discarded what it did not
  * understand is not a scrub. The bytes that can move are the ones the writer always appends, so the
  * promise is per-line preservation plus a possible trailing newline in a file that had none.
  */
-export async function accesslogScrub(dir: string, credential: string, now: () => number): Promise<ScrubResult> {
+export async function accesslogScrub(
+  dir: string,
+  credential: string,
+  now: () => number,
+  options: ScrubOptions = {},
+): Promise<ScrubResult> {
   // Settled first, before a single part is opened: a day the retention sweep cannot match would
   // otherwise be discovered after the erasure it is meant to record, which leaves the operator the
   // choice between a receipt nothing will collect and no receipt at all.
@@ -55,61 +114,44 @@ export async function accesslogScrub(dir: string, credential: string, now: () =>
   if (targets.length === 0) {
     throw new UsageError('--access-log holds no access-*.jsonl files; point it at the directory signerd writes');
   }
+  const request = options.request ?? null;
+  const markerListing = options.markerListing ?? readdirOrThrow;
+  const parts: ScrubPartRecord[] = [];
   let removed = 0;
-  let touched = 0;
   try {
     for (const name of targets) {
-      const path = join(dir, name);
-      const lines = (await readPart(path)).split('\n');
-      const kept: string[] = [];
-      let present = 0;
-      for (const line of lines) {
-        if (line.length === 0) continue;
-        present += 1;
-        let cred: unknown;
-        try {
-          cred = (JSON.parse(line) as { cred?: unknown }).cred;
-        } catch {
-          kept.push(line);
-          continue;
-        }
-        if (cred === credential) continue;
-        kept.push(line);
-      }
-      if (kept.length === present) continue;
-      if (kept.length === 0) {
-        // A fully scrubbed part is unlinked, not renamed. A copy under a name the gateway's retention
-        // can no longer match would keep every removed line on the volume forever, and it would read
-        // as a completed erasure that left the data behind.
-        await removePart(path);
-      } else {
-        await writeAtomically(path, `${kept.join('\n')}\n`, await modeOf(path), 'cannot rewrite access log part');
-      }
-      // Counted only once the part carrying them is gone: a scan that matched records and then failed
-      // to write has removed nothing, and a marker claiming otherwise is worse than no marker.
-      removed += present - kept.length;
-      touched += 1;
+      const outcome = await scrubPart(dir, name, credential);
+      if (outcome === null) continue;
+      // Counted and recorded only once the part carrying them is gone or rewritten: a scan that matched
+      // records and then failed to write has removed nothing, and a marker claiming otherwise is worse
+      // than no marker.
+      parts.push(outcome.record);
+      removed += outcome.removed;
     }
   } catch (error) {
     // Records are gone at this point, and the marker is the only evidence an operator has of which
     // ones, so a scrub that dies halfway writes the receipt for the parts it already rewrote before it
     // reports the failure. The refusal keeps its own first sentence: a marker that cannot be written is
     // not the story, and it must not push the real one off the line. Nothing is attempted when this run
-    // has removed nothing, because then there is no erasure to evidence and the failure stands alone.
-    if (removed === 0) throw error;
-    const reason = error instanceof Error ? error.message : String(error);
-    const receipt = await writeReceipt(dir, at, day, credential, removed, touched).catch(() => null);
-    if (receipt === null) throw counts(reason, removed, touched);
-    throw new UsageError(`${reason}; the removals that landed are marked in '${receipt}'`);
+    // has landed nothing at any name, because then there is no change to evidence and the failure
+    // stands alone.
+    if (parts.length === 0) throw error;
+    const receipt = await writeReceipt(
+      dir, at, day, credential, removed, parts, request, markerListing,
+    ).catch(() => null);
+    if (receipt === null) throw counts(reasonOf(error), removed, parts.length);
+    throw new UsageError(`${reasonOf(error)}; the removals that landed are marked in '${receipt}'`);
   }
-  if (removed === 0) return { removed: 0, files: 0, marker: null };
+  if (parts.length === 0) return { removed: 0, files: 0, marker: null };
   // The erasure has already happened and cannot be taken back, so this refusal cannot be the writer's
   // bare sentence about a file: a run that removed records and left no receipt is exactly the silence
   // the marker exists to prevent, and the numbers have to reach the operator some other way.
-  const marker = await writeReceipt(dir, at, day, credential, removed, touched).catch((error: unknown) => {
-    throw counts(error instanceof Error ? error.message : String(error), removed, touched);
-  });
-  return { removed, files: touched, marker };
+  const marker = await writeReceipt(dir, at, day, credential, removed, parts, request, markerListing).catch(
+    (error: unknown) => {
+      throw counts(reasonOf(error), removed, parts.length);
+    },
+  );
+  return { removed, files: parts.length, marker };
 }
 
 /**
@@ -126,6 +168,202 @@ function counts(reason: string, removed: number, files: number): UsageError {
   );
 }
 
+/** A part's bytes as this run read them, with everything derived from those bytes and nothing else. */
+interface PartSnapshot {
+  bytes: Buffer;
+  length: number;
+  sha256: string;
+  lines: string[];
+  present: number;
+}
+
+/** What a name holds when it holds nothing, which is also the facts of a part this run deleted. */
+const NOTHING: PartSnapshot = snapshotOf(Buffer.alloc(0));
+
+function snapshotOf(bytes: Buffer): PartSnapshot {
+  const lines = bytes.toString('utf8').split('\n');
+  let present = 0;
+  for (const line of lines) {
+    if (line.length > 0) present += 1;
+  }
+  return { bytes, length: Buffer.byteLength(bytes), sha256: sha256Hex(bytes), lines, present };
+}
+
+/** Two reads of one name, decided on the exact bytes rather than on a timestamp a clock can move. */
+function sameBytes(one: PartSnapshot, other: PartSnapshot): boolean {
+  return one.length === other.length && one.sha256 === other.sha256;
+}
+
+/**
+ * The lines that survive, kept as the strings that were read rather than as parsed-and-rendered
+ * records. A line this program cannot read is a line it has no business re-spelling: the erasure asked
+ * for one credential's records, and a scrub that quietly discarded what it did not understand is not a
+ * scrub. `present` and this length agreeing is therefore the whole test of whether a part holds
+ * anything to remove.
+ */
+function linesExceptTarget(lines: readonly string[], credential: string): string[] {
+  return lines.filter((line) => line.length > 0 && !isSubjectLine(line, credential));
+}
+
+/** Whether one raw line is a record of the credential being erased, read for the one field that says. */
+function isSubjectLine(line: string, credential: string): boolean {
+  if (line.length === 0) return false;
+  try {
+    return (JSON.parse(line) as { cred?: unknown }).cred === credential;
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * How many of a read's lines belong to the subject. The per-part count is the difference of two of
+ * these rather than a difference of line totals, because a total counts whatever a gateway appended
+ * after this run published, and an unrelated record is not this run putting one back.
+ */
+function heldBy(snapshot: PartSnapshot, credential: string): number {
+  return snapshot.lines.filter((line) => isSubjectLine(line, credential)).length;
+}
+
+/**
+ * What one part gave up: the subject's records in the bytes this run read, less the subject's records
+ * at that name when this run last looked. Floored at zero because a peer that renames an older copy
+ * back can leave more of the subject's lines at the name than this run read, and a count this run
+ * publishes must not go negative on someone else's stale write. Both digest pairs carry that case in
+ * full, so nothing is hidden by the floor, and a re-run of this command takes the returned lines out
+ * again.
+ */
+function heldDelta(before: PartSnapshot, after: PartSnapshot, credential: string): number {
+  return Math.max(0, heldBy(before, credential) - heldBy(after, credential));
+}
+
+/**
+ * One part, read once and published only while the bytes on disk are the bytes that were read.
+ * Returns `null` when the part holds nothing for this credential, which is the case that has to keep
+ * touching nothing at all: the rewrite is owed to parts that held a record, and rewriting a part for
+ * no reason is how a scrub reopens the window it is here to narrow.
+ *
+ * Each attempt filters the snapshot it holds, so `kept` never comes from a second read, and each
+ * attempt ends by reading the destination back off the disk. The count and both pairs of bytes and
+ * digests come from those reads, not from the string this run wrote.
+ */
+async function scrubPart(
+  dir: string,
+  name: string,
+  credential: string,
+): Promise<{ record: ScrubPartRecord; removed: number } | null> {
+  const path = join(dir, name);
+  let snapshot = await readPart(path);
+  for (let attempt = 1; attempt <= PART_ATTEMPTS; attempt += 1) {
+    const kept = linesExceptTarget(snapshot.lines, credential);
+    if (kept.length === snapshot.present) return null;
+    if (kept.length === 0) {
+      // A fully scrubbed part is unlinked, not renamed. A copy under a name the gateway's retention
+      // can no longer match would keep every removed line on the volume forever, and it would read
+      // as a completed erasure that left the data behind. The comparison runs here for the same
+      // reason it runs before a rename: an unlink takes whatever a gateway appended since this run
+      // read the part, and that append is not one this run was asked to erase.
+      const seen = await readPart(path);
+      if (!sameBytes(seen, snapshot)) {
+        snapshot = seen;
+        continue;
+      }
+      await removePart(path);
+      // The after read of a name that is gone holds no lines at all, so this is the subject's whole
+      // count from the snapshot. It is written as the same difference the rewrite uses because a name
+      // that came back, holding the subject's records again, is a part this run did not clear.
+      const after = await readAfterRemoval(path);
+      return { record: partRecord(name, snapshot, after), removed: heldDelta(snapshot, after, credential) };
+    }
+    // Read again on every attempt rather than once per part, because the copy is renamed over the part
+    // and `rename` replaces the destination's inode whole: the mode this run publishes is the mode the
+    // gateway wakes up to on its next append.
+    const mode = await modeOf(path);
+    refuseUnwritable(path, mode);
+    const text = `${kept.join('\n')}\n`;
+    const published = snapshotOf(Buffer.from(text, 'utf8'));
+    const held = await writeGuarded(path, text, mode, 'cannot rewrite access log part', () => holdsStill(path, snapshot));
+    if (!held) {
+      // Somebody wrote between this run's read and its rename, so the copy in hand is a snapshot of a
+      // file that no longer exists. It is dropped, not patched, and the newer bytes are filtered from
+      // the start: a scrub that merged the two would be writing its own opinion of a log line.
+      snapshot = await readPart(path);
+      continue;
+    }
+    const after = await confirmPublished(path, published);
+    return { record: partRecord(name, snapshot, after), removed: heldDelta(snapshot, after, credential) };
+  }
+  throw new UsageError(
+    `cannot rewrite access log part '${path}': it would not hold still across ${String(PART_ATTEMPTS)} attempts, and this run published nothing to it`,
+  );
+}
+
+function partRecord(name: string, before: PartSnapshot, after: PartSnapshot): ScrubPartRecord {
+  return {
+    name,
+    beforeBytes: before.length,
+    beforeSha256: before.sha256,
+    afterBytes: after.length,
+    afterSha256: after.sha256,
+  };
+}
+
+/**
+ * The question the writer asks in the instant before the rename. A false answer costs this run's
+ * temporary and nothing else: the name keeps the bytes it had, and this run goes and reads them.
+ *
+ * This is as close to the rename as `node:fs` reaches, and it is not the rename itself. An append that
+ * lands in the moment between this read and that call is the residue the usage text states, and it is
+ * why the receipt reports digests rather than a promise: the bytes it names are the bytes this run
+ * published, and the ones that never reached them are in no count.
+ */
+async function holdsStill(path: string, snapshot: PartSnapshot): Promise<boolean> {
+  return sameBytes(await readSnapshot(path), snapshot);
+}
+
+/**
+ * The destination read back after the rename, for the facts the receipt carries and for one test: that
+ * the bytes this run published are the bytes now at the name. A mismatch has two shapes and they are not
+ * the same event. A gateway that appends while this runs leaves a destination that begins with exactly
+ * this run's copy and then holds someone's newer record, which is a publish that landed and is the
+ * ordinary state of a serving log; measuring it as a refusal made a run that had erased everything it
+ * was asked to erase exit 2 over a line the deployment wrote afterwards. A destination that does not
+ * begin with those bytes is a peer that renamed its own copy over this one, and a receipt about a file
+ * nobody holds is not something a retry can undo, so that one is the refusal.
+ */
+async function confirmPublished(path: string, published: PartSnapshot): Promise<PartSnapshot> {
+  let after: PartSnapshot;
+  try {
+    after = await readSnapshot(path);
+  } catch (error) {
+    throw new UsageError(`cannot confirm access log part '${path}': ${reasonOf(error)}`);
+  }
+  if (!sameBytes(after, published) && !after.bytes.subarray(0, published.length).equals(published.bytes)) {
+    throw new UsageError(
+      `cannot confirm access log part '${path}': the bytes there are ${String(after.length)} of them and do not begin with the ${String(published.length)} this run published`,
+    );
+  }
+  return after;
+}
+
+/**
+ * A part the running gateway cannot write to is not this command's to republish. `rename` replaces the
+ * destination's inode whole, so the mode this run publishes is the mode the part carries afterwards: a
+ * part found at a mode with no owner write bit and renamed back at that same mode leaves a gateway
+ * unable to append to its own log, which was measured as `EACCES` on the append after a printed
+ * success. Refusing is the only answer that leaves the live log alone, and the name has to be in the
+ * sentence because the operator has to go and decide what those bits mean.
+ */
+function refuseUnwritable(path: string, mode: number): void {
+  if ((mode & 0o200) !== 0) return;
+  throw new UsageError(
+    `cannot rewrite access log part '${path}': its mode ${modeText(mode)} gives its owner no write bit, and this command will not take a live log's permission to write away`,
+  );
+}
+
+function modeText(mode: number): string {
+  return (mode & 0o777).toString(8).padStart(3, '0');
+}
+
 /**
  * The receipt itself, at the mode this program chooses: the marker is a file the scrub makes, not a
  * part whose bits it inherited from a running gateway, so `0600` is right for it and wrong for those.
@@ -138,11 +376,13 @@ async function writeReceipt(
   day: string,
   credential: string,
   removed: number,
-  files: number,
+  parts: readonly ScrubPartRecord[],
+  request: string | null,
+  listing: (dir: string) => Promise<string[]>,
 ): Promise<string> {
-  const receipt: ScrubMarker = { t: atMillis, credential, removed, files };
+  const receipt: ScrubMarker = { t: atMillis, credential, removed, files: parts.length, parts: [...parts], request };
   const text = `${JSON.stringify(receipt)}\n`;
-  const names = await readdirOrThrow(dir);
+  const names = await listing(dir);
   return chooseScrubName(names, day, async (name) =>
     publishNew(join(dir, name), text, MARKER_MODE, 'cannot write the scrub marker'),
   );
@@ -163,13 +403,39 @@ async function readdirOrThrow(dir: string): Promise<string[]> {
  * operation on a directory, read`), and an uncaught error reaches the terminal as a stack over several
  * lines that no guard has read.
  */
-async function readPart(path: string): Promise<string> {
+async function readPart(path: string): Promise<PartSnapshot> {
   try {
-    return await readFile(path, 'utf8');
+    return await readSnapshot(path);
   } catch (err) {
-    const reason = err instanceof Error ? err.message : String(err);
-    throw new UsageError(`cannot read access log part '${path}': ${reason}`);
+    throw new UsageError(`cannot read access log part '${path}': ${reasonOf(err)}`);
   }
+}
+
+/** The same read with the operating system's own refusal left whole, for a caller that wraps it. */
+async function readSnapshot(path: string): Promise<PartSnapshot> {
+  return snapshotOf(await readFile(path));
+}
+
+/**
+ * What a name holds after an unlink. The name being gone is the expected answer and is this run's own
+ * doing, so the part's after-facts are the empty file's; a name that came back holds a writer's newer
+ * bytes, and the honest receipt reports those rather than the nothing this run removed.
+ */
+async function readAfterRemoval(path: string): Promise<PartSnapshot> {
+  try {
+    return await readSnapshot(path);
+  } catch (err) {
+    if (isNotFound(err)) return NOTHING;
+    throw new UsageError(`cannot confirm removed access log part '${path}': ${reasonOf(err)}`);
+  }
+}
+
+function reasonOf(error: unknown): string {
+  return error instanceof Error ? error.message : String(error);
+}
+
+function isNotFound(error: unknown): boolean {
+  return error instanceof Error && 'code' in error && error.code === 'ENOENT';
 }
 
 /**
@@ -233,19 +499,33 @@ function markerDay(atMillis: number): string {
  * out. A name that cannot be read is therefore a refusal, not a default: the common reason is the
  * retention sweep having taken the part between the listing and here, and a rewrite that went ahead
  * would put that name back on the volume carrying records the sweep had already aged out, at a mode
- * nobody chose. The gap between this read and the rename is stated rather than closed, because nothing
- * in `node:fs` makes a rename conditional on the destination being there already. Exported because the
- * refusal has no gate at the command's own height: making `stat` fail on a name the listing produced
- * takes a permission bit, and the same bit stops the write that follows a step later, so the only route
- * that reaches this sentence is the function itself.
+ * nobody chose. A name that is a directory is refused beside it, and for the same reason: a
+ * directory's bits describe a directory, and measured on both systems `stat` answers that name without
+ * objection, `666` on Windows and `755` on Linux, so a function that only masked bits would hand a
+ * directory's own bits to whatever reaches the rename. Checking `isDirectory` on the stat this function
+ * already performs is what keeps a name that is not a part from being published over at all. The gap
+ * between this read and the rename is stated rather than closed, because nothing in `node:fs` makes a
+ * rename conditional on the destination being there already.
+ *
+ * Both of this function's refusals are gated at its own height, which is why it is exported. They miss
+ * the command's height for different reasons: a name that is a directory is refused one step earlier,
+ * where the read answers `EISDIR` on either system, and making `stat` itself refuse takes a permission
+ * bit, which stops the write that follows a step later too.
  */
 export async function modeOf(path: string): Promise<number> {
   let mode: number;
+  let isDir: boolean;
   try {
-    mode = (await stat(path)).mode;
+    const info = await stat(path);
+    mode = info.mode;
+    isDir = info.isDirectory();
   } catch (err) {
-    const reason = err instanceof Error ? err.message : String(err);
-    throw new UsageError(`cannot read the permissions of access log part '${path}': ${reason}`);
+    throw new UsageError(`cannot read the permissions of access log part '${path}': ${reasonOf(err)}`);
+  }
+  if (isDir) {
+    throw new UsageError(
+      `cannot read the permissions of access log part '${path}': it is a directory, and a directory's mode bits are not a log part's`,
+    );
   }
   return mode & 0o777;
 }
@@ -259,8 +539,7 @@ async function removePart(path: string): Promise<void> {
   try {
     await unlink(path);
   } catch (error) {
-    const reason = error instanceof Error ? error.message : String(error);
-    throw new UsageError(`cannot remove emptied access log part '${path}': ${reason}`);
+    throw new UsageError(`cannot remove emptied access log part '${path}': ${reasonOf(error)}`);
   }
 }
 
@@ -276,7 +555,7 @@ export async function runAccessLog(sub: string[], flags: AccessLogFlags, now: ()
   // Checked before any file is rewritten: this value comes back in the summary line and in the
   // marker, and an erasure whose own report can carry a forged line is a receipt that proves nothing.
   checkId(credential, '--credential');
-  const result = await accesslogScrub(dir, credential, now);
+  const result = await accesslogScrub(dir, credential, now, { request: requestOf(flags.request) });
   if (flags.json === true) {
     writeJson(result);
     return 0;
@@ -288,4 +567,25 @@ export async function runAccessLog(sub: string[], flags: AccessLogFlags, now: ()
     process.stdout.write(`marker: ${result.marker}\n`);
   }
   return 0;
+}
+
+/**
+ * The operator's reference for the instruction the erasure answers, in the shape the marker keeps.
+ * Trimmed, because the value is typed at a prompt and the whitespace around a reference is not part of
+ * it, and a reference that trims to nothing names nothing so it is stored as `null` like an absent one.
+ * Bounded at {@link REQUEST_MAX} because the marker is one line that a person reads: a field longer
+ * than that is a document, and a document belongs in the operator's own system next to the reference
+ * that points at it. Nothing else about it is checked, because nothing here can tell a real reference
+ * from an invented one; that is why the field says who was asked and not what was proven.
+ */
+function requestOf(raw: string | undefined): string | null {
+  if (raw === undefined) return null;
+  const trimmed = raw.trim();
+  if (trimmed.length === 0) return null;
+  if (trimmed.length > REQUEST_MAX) {
+    throw new UsageError(
+      `--request is ${String(trimmed.length)} characters, over the ${String(REQUEST_MAX)} a marker carries`,
+    );
+  }
+  return trimmed;
 }

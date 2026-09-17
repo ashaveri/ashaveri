@@ -1,11 +1,12 @@
 import { spawnSync } from 'node:child_process';
+import { createHash } from 'node:crypto';
 import { chmodSync, existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, statSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { afterAll, describe, expect, it } from 'vitest';
 import { ACCESS_PART_NAME, parseAccessLine, renderAccessLine, RETENTION_SWEEP_NAME, type AccessRecord } from '@ashaveri/signerd';
-import { ACCESS_FILE, accesslogScrub, chooseScrubName, modeOf } from '../src/commands/accesslog.js';
+import { ACCESS_FILE, accesslogScrub, chooseScrubName, modeOf, type ScrubMarker, type ScrubPartRecord } from '../src/commands/accesslog.js';
 
 const CLI = fileURLToPath(new URL('../dist/cli.js', import.meta.url));
 const tempDir = mkdtempSync(join(tmpdir(), 'ashaveri-scrub-'));
@@ -79,19 +80,64 @@ function markers(dir: string): string[] {
   return readdirSync(dir).filter((each) => each.startsWith('scrub-'));
 }
 
-function markerOf(dir: string): { t: number; credential: string; removed: number; files: number } {
+/** The instant an in-process scrub stamps with, which is the day every marker name below quotes. */
+const clock = (): number => Date.parse(SCRUBBED_AT);
+
+function markerOf(dir: string): ScrubMarker {
   const names = markers(dir);
   expect(names).toHaveLength(1);
   return markerNamed(dir, names[0] as string);
 }
 
-function markerNamed(dir: string, name: string): { t: number; credential: string; removed: number; files: number } {
-  return JSON.parse(readFileSync(join(dir, name), 'utf8').trim()) as {
-    t: number;
-    credential: string;
-    removed: number;
-    files: number;
+function markerNamed(dir: string, name: string): ScrubMarker {
+  return JSON.parse(readFileSync(join(dir, name), 'utf8').trim()) as ScrubMarker;
+}
+
+/**
+ * The half of a receipt a case can write out by hand: the counts, whose credential, which parts, and
+ * the reference the operator gave. The digests are the rest of the marker and every one of them is
+ * asserted where a second implementation can recompute it, in
+ * `receipts the bytes on both sides of each rewrite` below, so the two never agree by quoting the
+ * same number twice.
+ */
+function receiptOf(marker: ScrubMarker): {
+  t: number;
+  credential: string;
+  removed: number;
+  files: number;
+  parts: string[];
+  request: string | null;
+} {
+  return {
+    t: marker.t,
+    credential: marker.credential,
+    removed: marker.removed,
+    files: marker.files,
+    parts: marker.parts.map((part) => part.name),
+    request: marker.request,
   };
+}
+
+/** SHA-256 from `node:crypto`, which is not the implementation the marker's digests come from. */
+function digestOf(text: string): string {
+  return createHash('sha256').update(Buffer.from(text, 'utf8')).digest('hex');
+}
+
+/** One part's facts, found by the name the receipt gives it rather than by a position in its array. */
+function recordFor(marker: ScrubMarker, name: string): ScrubPartRecord {
+  const found = marker.parts.find((each) => each.name === name);
+  if (found === undefined) throw new Error(`the marker names no part called '${name}'`);
+  return found;
+}
+
+/** How many of a subject's records a stretch of log text holds, counted by a reader that is not the scrub. */
+function heldBy(text: string, credential: string): number {
+  let total = 0;
+  for (const line of text.split('\n')) {
+    if (line.length === 0) continue;
+    if ((JSON.parse(line) as { cred?: string }).cred === credential) total += 1;
+  }
+  return total;
 }
 
 describe('ashaveri accesslog scrub', () => {
@@ -112,7 +158,14 @@ describe('ashaveri accesslog scrub', () => {
     expect(kept).not.toContain('rid-3');
     expect(readFileSync(join(dir, 'access-2026-02-25-000.jsonl'), 'utf8')).toContain('rid-4');
     expect(markers(dir)).toEqual(['scrub-2026-02-26-000.jsonl']);
-    expect(markerOf(dir)).toEqual({ t: Date.parse(SCRUBBED_AT), credential: 'svc-a', removed: 2, files: 1 });
+    expect(receiptOf(markerOf(dir))).toEqual({
+      t: Date.parse(SCRUBBED_AT),
+      credential: 'svc-a',
+      removed: 2,
+      files: 1,
+      parts: ['access-2026-02-24-000.jsonl'],
+      request: null,
+    });
   });
 
   it('reports zero and writes no marker when the credential never appears', () => {
@@ -180,8 +233,17 @@ describe('ashaveri accesslog scrub', () => {
     // retention can never match again, which is the opposite of the erasure that was asked for.
     expect(readdirSync(dir).sort()).toEqual(['access-2026-02-25-000.jsonl', 'scrub-2026-02-26-000.jsonl']);
     // Both counts, not just the file: the part that vanished held two records, and a marker that
-    // left them out would understate the erasure the operator is asked to prove.
-    expect(markerOf(dir)).toEqual({ t: Date.parse(SCRUBBED_AT), credential: 'svc-a', removed: 2, files: 1 });
+    // left them out would understate the erasure the operator is asked to prove. The vanished part is
+    // named all the same, because the receipt for bytes nobody can list any more has to say what it
+    // once held.
+    expect(receiptOf(markerOf(dir))).toEqual({
+      t: Date.parse(SCRUBBED_AT),
+      credential: 'svc-a',
+      removed: 2,
+      files: 1,
+      parts: ['access-2026-02-24-000.jsonl'],
+      request: null,
+    });
   });
 
   it('keeps a line it cannot read byte for byte while removing the record beside it', () => {
@@ -218,22 +280,23 @@ describe('ashaveri accesslog scrub', () => {
     expect(result.stderr).toContain('cannot read --access-log directory');
   });
 
-  it.runIf(modeBitsBind)('refuses a part it cannot rewrite, naming the part and leaving no temporary behind', () => {
-    // The two platforms refuse for different reasons, so the fixture branches: Windows marks a
-    // read-only file and rejects the rename onto it, while a POSIX rename is a directory operation
-    // that ignores the file's own bits, so the directory has to be the un-writable thing and the
-    // failure lands on the write instead. Both routes end in the same catch, and what is being pinned
-    // is the shape of the answer. Either route is an obstacle only to a process the operating system
-    // will let be told what to do, so the case is skipped for a uid of zero. Uncaught, this is the
-    // case where the operating system's message, which repeats the directory the operator typed,
-    // reaches the terminal as a multi-line stack beside a leftover `.tmp-` file no retention sweep
-    // will ever match.
+  it.runIf(process.platform !== 'win32' && modeBitsBind)('refuses a part it cannot rewrite, naming the part and leaving no temporary behind', () => {
+    // A POSIX rename is a directory operation that ignores the file's own bits, so the directory is the
+    // un-writable thing here and the failure lands on the write. What is pinned is the shape of the
+    // answer: the operating system's message for this failure repeats the directory the operator typed,
+    // and un-caught it reaches the terminal as a multi-line stack beside a leftover `.tmp-` file no
+    // retention sweep will ever match. Windows is excluded for a reason measured rather than assumed:
+    // its obstacle is the part's own read-only attribute, and a part found at a mode with no owner write
+    // bit is now refused before this run writes anything at all, so a Windows fixture here gates the
+    // permission sentence of the next two cases and not the write failure this one names. That write
+    // failure is still reached on either system one level down, by the planted temporary in the block
+    // below and by the writer's own case in `test/atomic.test.ts`. This obstacle holds only for a uid the
+    // operating system lets be refused.
     const dir = dirWith(
       new Map([['access-2026-02-24-000.jsonl', [record({ cred: 'svc-a', rid: 'rid-1' }), record({ cred: 'svc-b', rid: 'rid-2' })]]]),
     );
     const part = join(dir, 'access-2026-02-24-000.jsonl');
-    if (process.platform === 'win32') chmodSync(part, 0o444);
-    else chmodSync(dir, 0o500);
+    chmodSync(dir, 0o500);
     let result: { status: number | null; stdout: string; stderr: string };
     try {
       result = scrub(dir, 'svc-a');
@@ -248,6 +311,82 @@ describe('ashaveri accesslog scrub', () => {
     expect(result.stdout).toBe('');
     expect(readdirSync(dir)).toEqual(['access-2026-02-24-000.jsonl']);
     expect(readFileSync(part, 'utf8')).toContain('svc-a');
+  });
+
+  it('refuses a part whose mode gives its owner no write bit, and leaves that part exactly as it found it', () => {
+    // Preserving this part's mode would be the bug, not the fix. `rename` replaces the destination's
+    // inode whole, so the mode this run publishes is the mode the gateway wakes up to on its next
+    // append, and a part republished at `0444` was measured leaving that writer with `EACCES` on the
+    // append *after* the scrub printed a success. Nothing here can decide what those bits mean on a live
+    // log, so the answer is to refuse the part by name and let the operator decide, and to leave the
+    // volume alone until they do: the bytes, the mode and the directory listing are all asserted below.
+    // This one is not a permission-bit obstacle and so binds a uid of zero too, which is the point: a
+    // root-run scrub takes the write permission away from a gateway that is not root just as surely as
+    // any other operator, and the operating system will not refuse it on anyone's behalf.
+    const dir = dirWith(onePart('svc-a', 'svc-b'));
+    const part = join(dir, 'access-2026-02-24-000.jsonl');
+    chmodSync(part, 0o444);
+    const before = readFileSync(part, 'utf8');
+    let result: { status: number | null; stdout: string; stderr: string };
+    try {
+      result = scrub(dir, 'svc-a');
+      expect(readFileSync(part, 'utf8')).toBe(before);
+      expect(statSync(part).mode & 0o777).toBe(0o444);
+      expect(markers(dir)).toEqual([]);
+    } finally {
+      chmodSync(part, 0o600);
+    }
+    expect(result.status).toBe(2);
+    expect(result.stderr).toContain(`cannot rewrite access log part '${part}'`);
+    expect(result.stderr).toContain('its mode 444 gives its owner no write bit');
+    expect(result.stderr).not.toMatch(/^\s+at /mu);
+    expect(result.stderr.trimEnd().split('\n')).toHaveLength(2);
+    expect(result.stdout).toBe('');
+  });
+
+  it('takes no interest in the mode of a part it has nothing to remove from', () => {
+    // The refusal above is for a part this run is about to rewrite, and the byte-level promise that a
+    // part with nothing of the subject's in it is not touched at all is the other half of the same
+    // discipline: a scrub that opened every part for writing would refuse a live log it was asked to
+    // leave alone. Both parts are readable, so this run has one part holding the subject and one part
+    // to walk past, and only the first is owed any interest in its bits.
+    const dir = mkdtempSync(join(tempDir, 'readonly-untouched-'));
+    const rewrite = join(dir, 'access-2026-02-24-000.jsonl');
+    const untouched = join(dir, 'access-2026-02-25-000.jsonl');
+    writeFileSync(rewrite, renderAccessLine(record({ cred: 'svc-a', rid: 'rid-1' })));
+    const held = renderAccessLine(record({ cred: 'svc-b', rid: 'rid-2' }));
+    writeFileSync(untouched, held);
+    chmodSync(untouched, 0o444);
+    expect(scrub(dir, 'svc-a').status).toBe(0);
+    expect(readFileSync(untouched, 'utf8')).toBe(held);
+    expect(statSync(untouched).mode & 0o777).toBe(0o444);
+    // Its one record erased, the other part is emptied and deleted, and the marker counts one file.
+    expect(receiptOf(markerOf(dir))).toEqual({
+      t: Date.parse(SCRUBBED_AT),
+      credential: 'svc-a',
+      removed: 1,
+      files: 1,
+      parts: ['access-2026-02-24-000.jsonl'],
+      request: null,
+    });
+  });
+
+  it('deletes a read-only part whose every line is the subject\'s, because a gone name takes no permission away', () => {
+    // The refusal is placed on the rewrite and nowhere else, and a check hoisted to the top of the part
+    // pass would be the over-refusal this case catches: an emptied part is unlinked rather than
+    // republished, so no writer is left holding a mode it cannot append to, and a scrub that refused
+    // here would leave the subject's records on the volume out of caution about a permission nobody is
+    // going to use. Measured on Windows, the read-only attribute does not stop this deletion; on POSIX
+    // unlink is an operation on the directory, which the operator of a scrub can write to by definition.
+    const dir = dirWith(
+      new Map([['access-2026-02-24-000.jsonl', [record({ cred: 'svc-a', rid: 'rid-1' }), record({ cred: 'svc-a', rid: 'rid-2' })]]]),
+    );
+    const part = join(dir, 'access-2026-02-24-000.jsonl');
+    chmodSync(part, 0o444);
+    const result = scrub(dir, 'svc-a');
+    expect(result.status).toBe(0);
+    expect(result.stdout).toContain('removed 2 records for svc-a');
+    expect(existsSync(part)).toBe(false);
   });
 
   it.runIf(process.platform !== 'win32')('leaves a rewritten part readable by whoever the deployment made it readable to', () => {
@@ -288,11 +427,13 @@ describe('ashaveri accesslog scrub', () => {
     expect(result.stdout).toBe('');
     const marker = markers(dir);
     expect(marker).toHaveLength(1);
-    expect(markerOf(dir)).toEqual({
+    expect(receiptOf(markerOf(dir))).toEqual({
       t: Date.parse(SCRUBBED_AT),
       credential: 'svc-a',
       removed: 1,
       files: 1,
+      parts: ['access-2026-02-24-000.jsonl'],
+      request: null,
     });
     expect(result.stderr).toContain(`the removals that landed are marked in '${String(marker[0])}'`);
     expect(existsSync(join(dir, 'access-2026-02-24-000.jsonl'))).toBe(false);
@@ -356,8 +497,6 @@ function onePart(cred: string, other: string): Map<string, AccessRecord[]> {
 }
 
 describe('a scrub whose own write is refused', () => {
-  const clock = () => Date.parse(SCRUBBED_AT);
-
   it('certifies nothing when the rewrite is refused, and touches no name it did not make', async () => {
     const dir = dirWith(onePart('svc-a', 'svc-b'));
     const part = join(dir, 'access-2026-02-24-000.jsonl');
@@ -448,11 +587,10 @@ describe('a scrub whose own write is refused', () => {
     // whatever is at the chosen name destroys the first run's evidence while printing the second one's.
     // The marker is the only receipt an erasure has, so it is created new or not at all. What this case
     // can reach is the sequential route only: one process lists the directory, so the name it picks is
-    // already absent from the listing it read. The concurrent route, where two runs list the same free
-    // name and one publishes after the other, has no deterministic gate at this height, because nothing
-    // here can put a file at a name in the instant between this program's listing and its write. That
-    // half is held one level down, by the case on the publish primitive in `test/atomic.test.ts`, which
-    // is where the claim that a taken name is refused rather than replaced is actually decided.
+    // already absent from the listing it read and the chooser never has to ask the volume. The route
+    // where the volume is ahead of the listing is held by the seam case below, which hands the scrub a
+    // listing that is stale on purpose, and the primitive that answers a taken name with a refusal is
+    // in `test/atomic.test.ts`.
     const dir = dirWith(onePart('svc-a', 'svc-b'));
     const first = `scrub-${SCRUB_DAY}-000.jsonl`;
     writeFileSync(join(dir, first), '{"credential":"someone-else","removed":40}\n');
@@ -460,23 +598,62 @@ describe('a scrub whose own write is refused', () => {
     expect(result.status).toBe(0);
     expect(result.stdout).toContain(`scrub-${SCRUB_DAY}-001.jsonl`);
     expect(readFileSync(join(dir, first), 'utf8')).toBe('{"credential":"someone-else","removed":40}\n');
-    expect(markerNamed(dir, `scrub-${SCRUB_DAY}-001.jsonl`)).toEqual({
+    expect(receiptOf(markerNamed(dir, `scrub-${SCRUB_DAY}-001.jsonl`))).toEqual({
       t: Date.parse(SCRUBBED_AT),
       credential: 'svc-a',
       removed: 1,
       files: 1,
+      parts: ['access-2026-02-24-000.jsonl'],
+      request: null,
     });
     expect(RETENTION_SWEEP_NAME.test(first)).toBe(true);
   });
 });
 
 describe('the marker a scrub leaves behind', () => {
+  it('claims a slot its own listing called free, rather than filing over the marker there', async () => {
+    // What the seam stands for, and why one is needed at this height: a listing that is behind the
+    // volume is what two scrubs of the same day produce for real, and no test running one process can
+    // be handed one by accident, because nothing else writes between the listing and the publish. So
+    // `markerListing` exists for this case and nothing else hands it over. A mutant that dropped the
+    // claim step is genuinely equivalent inside one process, which is the honest reason the gate has to
+    // be a stale listing rather than a race, and it is why the assertion below is not the returned name
+    // on its own. Two markers are planted first and the listing says the day is empty, so the first two
+    // names this run is offered are names a racer has already filed receipts at. A run that trusted its
+    // listing would bury the older erasure's evidence under its own and print one line about itself.
+    const dir = dirWith(onePart('svc-a', 'svc-b'));
+    const heldByFirst = '{"credential":"someone-else","removed":40}\n';
+    const heldBySecond = '{"credential":"another","removed":7}\n';
+    writeFileSync(join(dir, `scrub-${SCRUB_DAY}-000.jsonl`), heldByFirst);
+    writeFileSync(join(dir, `scrub-${SCRUB_DAY}-001.jsonl`), heldBySecond);
+    const result = await accesslogScrub(dir, 'svc-a', clock, { markerListing: async () => [] });
+    expect(result.marker).toBe(`scrub-${SCRUB_DAY}-002.jsonl`);
+    expect(markers(dir).sort()).toEqual([
+      `scrub-${SCRUB_DAY}-000.jsonl`,
+      `scrub-${SCRUB_DAY}-001.jsonl`,
+      `scrub-${SCRUB_DAY}-002.jsonl`,
+    ]);
+    expect(readFileSync(join(dir, `scrub-${SCRUB_DAY}-000.jsonl`), 'utf8')).toBe(heldByFirst);
+    expect(readFileSync(join(dir, `scrub-${SCRUB_DAY}-001.jsonl`), 'utf8')).toBe(heldBySecond);
+    expect(receiptOf(markerNamed(dir, `scrub-${SCRUB_DAY}-002.jsonl`))).toEqual({
+      t: Date.parse(SCRUBBED_AT),
+      credential: 'svc-a',
+      removed: 1,
+      files: 1,
+      parts: ['access-2026-02-24-000.jsonl'],
+      request: null,
+    });
+  });
+
   it.runIf(process.platform !== 'win32')('is written at the mode the scrub owns, whatever the part it joined was created with', () => {
     // Windows reports `0666` for every file it holds, so neither mode reading below is observable there
-    // and the case could only ever fail. No other case reads a marker's bits, so this is the gate on the
-    // mode the receipt is written at. The part is set to `0666` first: the gateway creates parts with
+    // and the case could only ever fail. The part is set to `0666` first: the gateway creates parts with
     // the process default, and a fixture that inherited its mode from the umask would let a marker at
-    // the part's own mode pass this case on a host whose umask happens to be `0077`.
+    // the part's own mode pass this case on a host whose umask happens to be `0077`, which is exactly
+    // where it does go quiet. A marker created at `0666` lands at `0600` under that umask, and this
+    // case cannot tell the two apart. The host-independent gate on the mode the receipt is written at
+    // is the captured create argument in `test/fs-calls.test.ts`, which sees the argument and not the
+    // bits a umask was free to choose.
     const dir = dirWith(onePart('svc-a', 'svc-b'));
     const part = join(dir, 'access-2026-02-24-000.jsonl');
     chmodSync(part, 0o666);
@@ -485,6 +662,118 @@ describe('the marker a scrub leaves behind', () => {
     expect(names).toHaveLength(1);
     expect(statSync(join(dir, names[0] as string)).mode & 0o777).toBe(0o600);
     expect(statSync(part).mode & 0o777).toBe(0o666);
+  });
+});
+
+/**
+ * The marker's digests are its claim to be evidence rather than a count, and a claim is only worth
+ * what the check against it is worth. Everything below recomputes from bytes this file writes and
+ * holds, with `node:crypto`, which is a second implementation of SHA-256 and not the one the product
+ * reaches for, so the two agreeing is a fact about the volume and not about a shared library.
+ */
+describe('the receipt a third party can re-check', () => {
+  const line = (rid: string, cred: string): string => renderAccessLine(record({ rid, cred }));
+
+  it('names the bytes on both sides of each rewrite, at a length and a digest that recompute', () => {
+    const dir = mkdtempSync(join(tempDir, 'digests-'));
+    const first = join(dir, 'access-2026-02-24-000.jsonl');
+    const untouched = join(dir, 'access-2026-02-25-000.jsonl');
+    const emptied = join(dir, 'access-2026-02-26-000.jsonl');
+    const heldFirst = line('rid-1', 'svc-a') + line('rid-2', 'svc-b') + line('rid-3', 'svc-a');
+    const heldUntouched = line('rid-4', 'svc-b');
+    const heldEmptied = line('rid-5', 'svc-a');
+    writeFileSync(first, heldFirst);
+    writeFileSync(untouched, heldUntouched);
+    writeFileSync(emptied, heldEmptied);
+    expect(scrub(dir, 'svc-a').status).toBe(0);
+    const marker = markerOf(dir);
+    expect(receiptOf(marker)).toEqual({
+      t: Date.parse(SCRUBBED_AT),
+      credential: 'svc-a',
+      removed: 3,
+      files: 2,
+      parts: ['access-2026-02-24-000.jsonl', 'access-2026-02-26-000.jsonl'],
+      request: null,
+    });
+    // A part with nothing of the subject's in it is absent from the receipt, which is the byte-level
+    // promise readable from the marker alone: nothing was rewritten, so there is nothing to name.
+    expect(marker.parts.map((each) => each.name)).not.toContain('access-2026-02-25-000.jsonl');
+
+    const kept = line('rid-2', 'svc-b');
+    const rewrote = recordFor(marker, 'access-2026-02-24-000.jsonl');
+    expect(rewrote.beforeBytes).toBe(Buffer.byteLength(heldFirst));
+    expect(rewrote.beforeSha256).toBe(digestOf(heldFirst));
+    expect(readFileSync(first, 'utf8')).toBe(kept);
+    expect(rewrote.afterBytes).toBe(Buffer.byteLength(kept));
+    expect(rewrote.afterSha256).toBe(digestOf(kept));
+    // The two sides of a rewrite that removed something cannot read as the same bytes, and a receipt
+    // that reported one snapshot on both sides would pass every equality check above.
+    expect(rewrote.beforeSha256).not.toBe(rewrote.afterSha256);
+    expect(rewrote.beforeBytes).toBeGreaterThan(rewrote.afterBytes);
+
+    const deleted = recordFor(marker, 'access-2026-02-26-000.jsonl');
+    expect(existsSync(emptied)).toBe(false);
+    expect(deleted.beforeBytes).toBe(Buffer.byteLength(heldEmptied));
+    expect(deleted.beforeSha256).toBe(digestOf(heldEmptied));
+    // What is left of a deleted part is nothing, and the digest of nothing is reported rather than
+    // omitted so an auditor's `sha256sum` of the file they cannot open agrees with the receipt.
+    expect(deleted.afterBytes).toBe(0);
+    expect(deleted.afterSha256).toBe(digestOf(''));
+
+    // The arithmetic an auditor is actually handed: the count is the subject's records in the bytes
+    // this run digested before, less the ones in the bytes it digested after, recomputed here from
+    // both sides rather than taken from the marker.
+    expect(marker.removed).toBe(
+      heldBy(heldFirst, 'svc-a') + heldBy(heldEmptied, 'svc-a') - heldBy(kept, 'svc-a') - heldBy('', 'svc-a'),
+    );
+    expect(heldBy(readFileSync(untouched, 'utf8'), 'svc-a')).toBe(0);
+  });
+});
+
+/**
+ * The reference is the operator's own words, and the only thing here that connects an erasure to the
+ * instruction behind it. It is also the one marker field an argument can put anything into, so its
+ * limits are asserted from the published command's exit code, not from a call of the function.
+ */
+describe('the reference an operator gives a marker', () => {
+  it('is stored beside the digests, kept trimmed, and present whether or not it was given', () => {
+    const dir = dirWith(onePart('svc-a', 'svc-b'));
+    expect(scrub(dir, 'svc-a', '--request', '  DSR-2026-0142  ').status).toBe(0);
+    const marker = markerOf(dir);
+    expect(marker.request).toBe('DSR-2026-0142');
+    // The field order is part of the shape: a reader that walks a marker's keys sees the same
+    // document from one run to the next, and a reference that went absent rather than null would make
+    // two runs of the same command leave two different shapes on the volume.
+    expect(Object.keys(marker)).toEqual(['t', 'credential', 'removed', 'files', 'parts', 'request']);
+  });
+
+  it('reads as null for a run given nothing and for a run given only spaces', () => {
+    for (const extra of [[], ['--request', ''], ['--request', '   ']]) {
+      const dir = dirWith(onePart('svc-a', 'svc-b'));
+      expect(scrub(dir, 'svc-a', ...extra).status).toBe(0);
+      const marker = markerOf(dir);
+      expect('request' in marker).toBe(true);
+      expect(marker.request).toBeNull();
+    }
+  });
+
+  it('takes a reference at the length a marker carries and refuses one longer before opening a part', () => {
+    const atTheLimit = 'y'.repeat(200);
+    const kept = dirWith(onePart('svc-a', 'svc-b'));
+    expect(scrub(kept, 'svc-a', '--request', atTheLimit).status).toBe(0);
+    expect(markerOf(kept).request).toBe(atTheLimit);
+
+    const tooLong = 'x'.repeat(201);
+    const dir = dirWith(onePart('svc-a', 'svc-b'));
+    const part = join(dir, 'access-2026-02-24-000.jsonl');
+    const before = readFileSync(part, 'utf8');
+    const result = scrub(dir, 'svc-a', '--request', tooLong);
+    expect(result.status).toBe(2);
+    expect(result.stderr).toContain('--request is 201 characters, over the 200 a marker carries');
+    // An erasure cannot be undone, so a reference the marker will not carry has to be settled before
+    // the first line is taken out, and a run that reached this sentence should have touched nothing.
+    expect(readFileSync(part, 'utf8')).toBe(before);
+    expect(markers(dir)).toEqual([]);
   });
 });
 
@@ -562,9 +851,11 @@ describe('chooseScrubName', () => {
 
 /**
  * The mode a rewritten part carries is read from the part, because the scrub has no way to know what
- * the deployment made it. Both halves are gated here rather than through a spawned run: the only
- * obstacle that makes `stat` refuse on a name a listing produced is a permission bit, and the same bit
- * stops the write that follows a step later, so the command never reaches this code on its way out.
+ * the deployment made it. These refusals are gated here rather than through a spawned run, and the
+ * reason differs by half. A permission bit is the only obstacle that makes `stat` refuse on a name a
+ * listing produced, and the same bit stops the write that follows a step later, so the command never
+ * reaches the refusal on its way out. A name that is a directory is refused earlier than this by the
+ * command on either system, which leaves this check with no route to it but its own height.
  */
 describe('the mode a scrub reads off a part', () => {
   it('refuses a name whose permissions it cannot read, instead of inventing a mode for it', async () => {
@@ -574,6 +865,25 @@ describe('the mode a scrub reads off a part', () => {
     await expect(modeOf(join(tempDir, 'no-such-part.jsonl'))).rejects.toThrow(
       /cannot read the permissions of access log part/u,
     );
+  });
+
+  it('refuses a name that is a directory, which is a mode of a thing this writer cannot replace', async () => {
+    // Measured on both systems, so the reason this check exists is not a guess about one of them: the
+    // read the command does first answers `EISDIR` on Linux and `EISDIR` on this Windows host too,
+    // while `stat` on Windows reports `666` for a directory without objection and `755` for one on
+    // Linux. A `modeOf` that only masked bits therefore handed a directory's own bits to the writer as
+    // though they were a log part's, and the obstacle on the rename that followed came back as
+    // `EPERM` on one system and `EISDIR` on the other, which is a refusal nobody wrote. Checking
+    // `isDirectory` on the stat this function already performs is what keeps a name that is not a part
+    // from being published over at all, and it holds on either system because it is not a permission
+    // bit and so binds a uid of zero as well.
+    const dir = mkdtempSync(join(tempDir, 'directory-name-'));
+    const name = join(dir, 'access-2026-02-24-000.jsonl');
+    mkdirSync(name);
+    await expect(modeOf(name)).rejects.toThrow(
+      /cannot read the permissions of access log part .*it is a directory/u,
+    );
+    expect(existsSync(name)).toBe(true);
   });
 
   it.runIf(process.platform !== 'win32')('takes the nine permission bits and nothing above them', async () => {
