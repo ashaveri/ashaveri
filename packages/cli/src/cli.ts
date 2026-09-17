@@ -35,15 +35,19 @@ erasure route for the access log, and a run that removes a record leaves a marke
 credential and the count it removed, because an erasure that looks identical to a gap proves
 nothing. The marker also carries, for every part the run rewrote, the byte length and the
 SHA-256 of the part as this run read it and of the bytes at that name when it read the part
-back, so a third party holding the marker and a log nobody has written to since can recompute
-the second pair with sha256sum instead of taking the count on trust. The first pair names
-bytes that exist nowhere any more: it is this run's own account of what it took out.
+back. Only the second pair is something a third party can check, and only with a log nobody
+has written to since: sha256sum of the file in front of them should answer with it, which
+ties this run's count to that file rather than to a claim about some other one. The first pair
+names bytes that exist nowhere any more: it is this run's own account of what it took out, and
+nothing but this run's word connects it to a number. The printed line gives the count of
+records taken out and the tally of parts this run rewrote, and those two are not the same
+measure: a part whose records came back is in the tally and adds nothing to the count.
 --request is the operator's own reference for the instruction the erasure
 answers, stored in the marker beside those digests: the digests say what left the volume, and
 only the reference says what it was done for. A run that stops partway leaves the same marker
 for the records it already removed, and names it in its refusal; when the marker itself cannot
 be written, the refusal carries those counts instead, so an erasure is never reported as a run
-that removed nothing. A run that removes nothing leaves no marker, so a credential with no
+that removed nothing. A run that rewrites no part leaves no marker, so a credential with no
 matching record and a scrub that never ran read the same from the directory. The scrub holds no
 lock and no gateway stops writing while it runs: it reads a part, and it compares that part
 with the bytes on disk in the last instant before it renames its copy over it, so a record
@@ -97,7 +101,8 @@ Credential and log options:
                      goes to a temporary name in the same directory and is renamed over the
                      original, because the gateway re-reads the file when its mtime moves.
   --access-log <dir> Directory the gateway writes its access log into.
-  --credential <id>  accesslog scrub: whose records are erased.
+  --credential <id>  accesslog scrub: the credential whose records the run filters out, matched on the
+                     credential field the log writes per record.
   --request <ref>    accesslog scrub: your own reference for the instruction the erasure answers, a
                      note number or a ticket, stored in the marker beside the digests of what it
                      removed. The marker can say which bytes left the volume and only you can say who

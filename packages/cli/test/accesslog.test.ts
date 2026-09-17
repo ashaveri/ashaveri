@@ -205,9 +205,13 @@ describe('ashaveri accesslog scrub', () => {
 
   it('refuses a directory that holds no access files, rather than reporting success', () => {
     const dir = mkdtempSync(join(tempDir, 'empty-'));
+    // One name that starts like a part and is not one, because the sentence names the shape it looked
+    // for: a directory holding somebody's notes file is refused for a reason that reads true of it.
+    writeFileSync(join(dir, 'access-notes.jsonl'), 'not a log part\n');
     const result = run(['accesslog', 'scrub', '--access-log', dir, '--credential', 'svc-a']);
     expect(result.status).toBe(2);
-    expect(result.stderr).toContain('--access-log holds no access-*.jsonl files');
+    expect(result.stderr).toContain('--access-log holds no file named access-YYYY-MM-DD-NNN.jsonl');
+    expect(result.stderr).toContain('the directory the gateway writes its access log into');
   });
 
   it('names the credential that is being scrubbed and nothing about what they did', () => {
@@ -615,12 +619,14 @@ describe('the marker a scrub leaves behind', () => {
     // What the seam stands for, and why one is needed at this height: a listing that is behind the
     // volume is what two scrubs of the same day produce for real, and no test running one process can
     // be handed one by accident, because nothing else writes between the listing and the publish. So
-    // `markerListing` exists for this case and nothing else hands it over. A mutant that dropped the
-    // claim step is genuinely equivalent inside one process, which is the honest reason the gate has to
-    // be a stale listing rather than a race, and it is why the assertion below is not the returned name
-    // on its own. Two markers are planted first and the listing says the day is empty, so the first two
-    // names this run is offered are names a racer has already filed receipts at. A run that trusted its
-    // listing would bury the older erasure's evidence under its own and print one line about itself.
+    // `markerListing` exists for this case and nothing else hands it over. With a real listing the
+    // first slot of the day is free, so the create answers yes and a run that never looked at the
+    // answer behaves exactly like one that did; the stale listing is what makes the claim step
+    // observable at all, and that is why the assertions below are the two planted markers' bytes
+    // rather than the returned name on its own. Two markers are planted first and the listing says the
+    // day is empty, so the first two names this run is offered are names a racer has already filed
+    // receipts at. A run that trusted its listing would bury the older erasure's evidence under its own
+    // and print one line about itself.
     const dir = dirWith(onePart('svc-a', 'svc-b'));
     const heldByFirst = '{"credential":"someone-else","removed":40}\n';
     const heldBySecond = '{"credential":"another","removed":7}\n';
@@ -755,6 +761,24 @@ describe('the reference an operator gives a marker', () => {
       expect('request' in marker).toBe(true);
       expect(marker.request).toBeNull();
     }
+  });
+
+  it('leaves one line on the volume when the reference carries a character a terminal hides or obeys', async () => {
+    // The escaping is what keeps a marker a one-line document. `JSON.stringify` turns a control
+    // character into an escape and leaves every format character and both line separators raw inside
+    // its own quotes, so a reference carrying U+2028 would end this file early for anything that splits
+    // lines that way, and a directional override would show an auditor a sentence other than the bytes
+    // stored. Called in process because the point is the bytes written, not how a host hands a
+    // non-ASCII argument to a child.
+    const reference = 'DSR-2026-0142 \u2028 second half \u202e and this';
+    const dir = dirWith(onePart('svc-a', 'svc-b'));
+    await accesslogScrub(dir, 'svc-a', clock, { request: reference });
+    const raw = readFileSync(join(dir, markers(dir)[0] as string), 'utf8');
+    // The document and the newline that ends it, and nothing in between.
+    expect(raw.split('\n')).toHaveLength(2);
+    expect(raw).not.toContain('\u2028');
+    expect(raw).not.toContain('\u202e');
+    expect(markerOf(dir).request).toBe(reference);
   });
 
   it('takes a reference at the length a marker carries and refuses one longer before opening a part', () => {

@@ -3,7 +3,7 @@ import { join } from 'node:path';
 import { sha256Hex } from '@ashaveri/receipt';
 import { publishNew, writeGuarded } from '../atomic.js';
 import { checkId } from '../records.js';
-import { UsageError, writeJson } from '../usage.js';
+import { escapeInvisibleJson, UsageError, writeJson } from '../usage.js';
 
 /**
  * The parts this program will open, which is the gateway's own log-file name copied rather than
@@ -46,6 +46,13 @@ export interface ScrubPartRecord {
   afterSha256: string;
 }
 
+/**
+ * The line the scrub files as its receipt. Two of its numbers are not one measure: `removed` is the
+ * records this run can attribute to itself, floored at zero per part, and `files` is the parts it
+ * rewrote. A peer or a gateway can hand back every record this run took out, and the marker then
+ * carries a `parts` entry naming the rewrite and a `removed` of zero, which is the shape that says a
+ * scrub ran on a part and the part kept the subject's lines.
+ */
 export interface ScrubMarker {
   t: number;
   credential: string;
@@ -63,6 +70,11 @@ export interface ScrubMarker {
   request: string | null;
 }
 
+/**
+ * What one scrub run reports. `marker` is `null` exactly when no part was rewritten, so a zero count
+ * beside a marker name is a run that did rewrite something and had the records come back; see
+ * {@link ScrubMarker} for why the two numbers are not one measure.
+ */
 export interface ScrubResult {
   removed: number;
   files: number;
@@ -112,7 +124,9 @@ export async function accesslogScrub(
   const names = await readdirOrThrow(dir);
   const targets = names.filter((each) => ACCESS_FILE.test(each)).sort();
   if (targets.length === 0) {
-    throw new UsageError('--access-log holds no access-*.jsonl files; point it at the directory signerd writes');
+    throw new UsageError(
+      '--access-log holds no file named access-YYYY-MM-DD-NNN.jsonl; point it at the directory the gateway writes its access log into',
+    );
   }
   const request = options.request ?? null;
   const markerListing = options.markerListing ?? readdirOrThrow;
@@ -228,9 +242,10 @@ function heldBy(snapshot: PartSnapshot, credential: string): number {
  * What one part gave up: the subject's records in the bytes this run read, less the subject's records
  * at that name when this run last looked. Floored at zero because a peer that renames an older copy
  * back can leave more of the subject's lines at the name than this run read, and a count this run
- * publishes must not go negative on someone else's stale write. Both digest pairs carry that case in
- * full, so nothing is hidden by the floor, and a re-run of this command takes the returned lines out
- * again.
+ * publishes must not go negative on someone else's stale write. The floor does hide that case from the
+ * number: what carries it is the after-pair, a digest of bytes that still hold those records, so a
+ * reader who can reproduce them sees the subject's lines at the name beside a count that omits them,
+ * and a re-run of this command takes them out again.
  */
 function heldDelta(before: PartSnapshot, after: PartSnapshot, credential: string): number {
   return Math.max(0, heldBy(before, credential) - heldBy(after, credential));
@@ -313,8 +328,9 @@ function partRecord(name: string, before: PartSnapshot, after: PartSnapshot): Sc
  *
  * This is as close to the rename as `node:fs` reaches, and it is not the rename itself. An append that
  * lands in the moment between this read and that call is the residue the usage text states, and it is
- * why the receipt reports digests rather than a promise: the bytes it names are the bytes this run
- * published, and the ones that never reached them are in no count.
+ * why the receipt reports digests rather than a promise: the two reads it names are the bytes this run
+ * took from the part and the bytes it found at the name afterwards, and the records that arrived in
+ * between belong to neither, so they appear in no count and under no digest.
  */
 async function holdsStill(path: string, snapshot: PartSnapshot): Promise<boolean> {
   return sameBytes(await readSnapshot(path), snapshot);
@@ -329,13 +345,24 @@ async function holdsStill(path: string, snapshot: PartSnapshot): Promise<boolean
  * was asked to erase exit 2 over a line the deployment wrote afterwards. A destination that does not
  * begin with those bytes is a peer that renamed its own copy over this one, and a receipt about a file
  * nobody holds is not something a retry can undo, so that one is the refusal.
+ *
+ * A read that fails outright has the same two shapes. No such name is the retention sweep having aged
+ * the part out in the moment after this rename, which is this run's own erasure completed by somebody
+ * else's deletion: the after-facts are the empty file's, exactly as after an unlink, and refusing here
+ * would throw away a run that had already taken the record out and file no receipt for it. Any other
+ * refusal, an `EACCES` on a directory whose bits changed under this run, is a name this run did rewrite
+ * and cannot now read, so the sentence says both: the rewrite is at that name, and nothing has been
+ * filed for it.
  */
 async function confirmPublished(path: string, published: PartSnapshot): Promise<PartSnapshot> {
   let after: PartSnapshot;
   try {
     after = await readSnapshot(path);
   } catch (error) {
-    throw new UsageError(`cannot confirm access log part '${path}': ${reasonOf(error)}`);
+    if (isNotFound(error)) return NOTHING;
+    throw new UsageError(
+      `cannot confirm access log part '${path}': ${reasonOf(error)}. The rewrite is at that name and no marker has been filed for it`,
+    );
   }
   if (!sameBytes(after, published) && !after.bytes.subarray(0, published.length).equals(published.bytes)) {
     throw new UsageError(
@@ -350,8 +377,10 @@ async function confirmPublished(path: string, published: PartSnapshot): Promise<
  * destination's inode whole, so the mode this run publishes is the mode the part carries afterwards: a
  * part found at a mode with no owner write bit and renamed back at that same mode leaves a gateway
  * unable to append to its own log, which was measured as `EACCES` on the append after a printed
- * success. Refusing is the only answer that leaves the live log alone, and the name has to be in the
- * sentence because the operator has to go and decide what those bits mean.
+ * success. Adding the bit back would reach a writable log by another route, and it is not this
+ * command's to choose: a part pinned against its owner's write is somebody's decision about a live
+ * log, so the run refuses, and the name has to be in the sentence because the operator has to go and
+ * read what those bits mean.
  */
 function refuseUnwritable(path: string, mode: number): void {
   if ((mode & 0o200) !== 0) return;
@@ -381,7 +410,11 @@ async function writeReceipt(
   listing: (dir: string) => Promise<string[]>,
 ): Promise<string> {
   const receipt: ScrubMarker = { t: atMillis, credential, removed, files: parts.length, parts: [...parts], request };
-  const text = `${JSON.stringify(receipt)}\n`;
+  // `JSON.stringify` escapes the controls but leaves U+2028, U+2029 and every format character raw
+  // inside its own quotes, and `--request` is operator text that only gets trimmed and measured. One of
+  // those in the middle of a marker makes it a two-line document to anything that splits lines that
+  // way, and a directional override makes it read as something other than the bytes stored.
+  const text = `${escapeInvisibleJson(JSON.stringify(receipt))}\n`;
   const names = await listing(dir);
   return chooseScrubName(names, day, async (name) =>
     publishNew(join(dir, name), text, MARKER_MODE, 'cannot write the scrub marker'),

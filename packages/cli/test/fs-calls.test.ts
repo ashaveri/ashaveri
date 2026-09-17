@@ -5,8 +5,8 @@ import { writeAtomically } from '../src/atomic.js';
 import { accesslogScrub } from '../src/commands/accesslog.js';
 
 /**
- * A scripted `node:fs/promises`, so that four facts about the writers are decided by the arguments a
- * call passed and the order the calls arrived in rather than by the host that happens to run them.
+ * A scripted `node:fs/promises`, so that the writer rules are decided by the arguments a call passed
+ * and the order the calls arrived in rather than by the host that happens to run them.
  * What a host can decline to show is not small: a umask decides whether a masked create is
  * distinguishable from a corrected one, a uid decides whether a permission bit binds at all, and
  * Windows reports every file as `0666`, so three of the mode rules this file holds could only ever be
@@ -15,9 +15,12 @@ import { accesslogScrub } from '../src/commands/accesslog.js';
  * published. The script below fixes a umask, answers `wx` with `EEXIST`, applies a mask to a create
  * and leaves a `chmod` to correct it, and lets a case queue a write behind the next read of one name,
  * which is the only way an append can be made to land exactly between this run's read and its own
- * comparison. What it cannot do is say what a real file system does with those arguments, and every
- * rule here is paired with a case in another file that reads bits off a volume where a volume will
- * show them.
+ * comparison. What it cannot do is say what a real file system does with those arguments, and the mode
+ * rules here are each paired with a case in `test/atomic.test.ts` or `test/accesslog.test.ts` that
+ * reads bits off a volume where a volume will show them. The other rules have no such partner, and
+ * that is the point of scripting them: an `EEXIST` that reaches a rename, an append landing between two
+ * calls of one run, and a name that is gone when it is read back are states no host is obliged to
+ * produce on a test's schedule.
  */
 
 /** Outside any repository: nothing below ever reaches a disk. */
@@ -38,6 +41,10 @@ const host = vi.hoisted(() => ({
   appendsAfter: new Map<string, string>(),
   /** Names that are gone the moment this run renames onto them, which is a retention sweep. */
   vanishesAfter: new Set<string>(),
+  /** Names whose open answers `EACCES` once this run has renamed onto them, its own publish undone. */
+  unreadableAfter: new Set<string>(),
+  /** Where a name in `unreadableAfter` goes at the rename: an open refuses it from then on. */
+  refused: new Set<string>(),
   renameFails: null as string | null,
 }));
 
@@ -51,6 +58,7 @@ vi.mock('node:fs/promises', () => {
     EISDIR: 'illegal operation on a directory',
     ENOENT: 'no such file or directory',
     EPERM: 'operation not permitted',
+    EACCES: 'permission denied',
   };
 
   function fail(code: string, syscall: string, path: string): never {
@@ -92,6 +100,7 @@ vi.mock('node:fs/promises', () => {
       const entry = host.entries.get(path);
       if (entry === undefined) fail('ENOENT', 'open', path);
       if (entry.directory) fail('EISDIR', 'open', path);
+      if (host.refused.has(path)) fail('EACCES', 'open', path);
       // The answer is taken before the queue is drained, so a scripted append lands after this read
       // the way a real one lands after a real read: nothing sees the new bytes on the way out.
       const bytes = Buffer.from(entry.bytes);
@@ -141,10 +150,10 @@ vi.mock('node:fs/promises', () => {
       // publishes is the mode the next append finds rather than the one the writer read.
       host.entries.delete(from);
       host.entries.set(to, entry);
-      // The three states a publish cannot see from inside itself: somebody else's copy at the name
-      // already, that copy grown by an append, and no name at all. None of them is reachable on a host
-      // on a schedule a test does not own, and all three are what the read after the rename is there to
-      // find out.
+      // The four states a publish cannot see from inside itself: somebody else's copy at the name
+      // already, that copy grown by an append, no name at all, and a name this run can no longer open.
+      // None of them is reachable on a host on a schedule a test does not own, and all four are what the
+      // read after the rename is there to find out.
       const peer = host.landsAfter.get(to);
       if (peer !== undefined) {
         const moved = host.entries.get(to);
@@ -153,6 +162,7 @@ vi.mock('node:fs/promises', () => {
       const appended = host.appendsAfter.get(to);
       if (appended !== undefined) host.entries.get(to)?.bytes.push(...Buffer.from(appended, 'utf8'));
       if (host.vanishesAfter.has(to)) host.entries.delete(to);
+      if (host.unreadableAfter.has(to)) host.refused.add(to);
     },
 
     async unlink(path: string): Promise<void> {
@@ -181,6 +191,13 @@ function scriptFile(name: string, text: string, mode: number): string {
   return path;
 }
 
+/** A name shaped like a part that is a directory, which the listing hands over like any other. */
+function scriptDir(name: string): string {
+  const path = join(DIR, name);
+  host.entries.set(path, { bytes: [], mode: 0o755, directory: true });
+  return path;
+}
+
 function callsOf(op: string, path: string): Array<{ op: string; path: string; mode: number | null; flag: string | null }> {
   return host.calls.filter((each) => each.op === op && each.path === path);
 }
@@ -197,10 +214,11 @@ function modeAt(path: string): number {
   return entry.mode & 0o777;
 }
 
-function markerAt(path: string): { parts: Array<{ name: string; beforeBytes: number; afterBytes: number }>; removed: number } {
+function markerAt(path: string): { parts: Array<{ name: string; beforeBytes: number; afterBytes: number }>; removed: number; files: number } {
   return JSON.parse(bytesAt(path)) as {
     parts: Array<{ name: string; beforeBytes: number; afterBytes: number }>;
     removed: number;
+    files: number;
   };
 }
 
@@ -218,6 +236,8 @@ beforeEach(() => {
   host.landsAfter.clear();
   host.appendsAfter.clear();
   host.vanishesAfter.clear();
+  host.unreadableAfter.clear();
+  host.refused.clear();
   host.renameFails = null;
 });
 
@@ -226,8 +246,9 @@ describe('the arguments a write reaches the volume with', () => {
     // A `stat` mode carries twelve bits and the top three are the set-user-id, set-group-id and sticky
     // ones, which are not readability settings a scrub means to publish. On a real volume that is only
     // observable where a file system reports the fourth digit at all, so what is asserted here is the
-    // argument both writers hand down: a dropped mask reaches a create and a `chmod` alike, and both
-    // are named below.
+    // argument a write hands down: a dropped mask reaches a create and a `chmod` alike, and both are
+    // named below. The other writer's create argument is named in the marker case, and the landed
+    // fourth digit is read off a volume in `test/atomic.test.ts`.
     const path = join(DIR, 'credentials.json');
     await writeAtomically(path, '{"version":1}\n', 0o4600, 'cannot write example file');
     const temporary = temporaryFor(path);
@@ -240,7 +261,7 @@ describe('the arguments a write reaches the volume with', () => {
 
   it('corrects the create mode with a chmod, because a masked create is not the mode it asked for', async () => {
     // The scripted umask is `022`, the common one, and the reason a bare create of a `0666` part lands
-    // at `0644`: a scrub that renamed that back over the log would take the group's read away from a
+    // at `0644`: a scrub that renamed that back over the log would take the group's write away from a
     // deployment that had granted it. `0666` is the mode where a create and a create-then-correct
     // differ under this umask, so the second call is what this case reads rather than a coincidence
     // about the first.
@@ -369,7 +390,8 @@ describe('a part that is written to while the scrub works through it', () => {
     // per record, so a line can arrive after this run's copy is already at the name. Those bytes are on
     // the volume, this run's bytes are under them, and the erasure landed, so a run that answered this
     // with a refusal exited 2 over a record nobody asked it about and left its own receipt unfiled.
-    // Measured on the host with a real writer, this shape was the majority of the mismatches.
+    // The gateway appends one record at a time to the name, so a line arriving after this run's rename
+    // is the expected state of a serving log rather than an exceptional one.
     const part = scriptFile('access-2026-02-24-000.jsonl', lines(['rid-1', 'svc-a'], ['rid-2', 'svc-b']), 0o600);
     const after = lines(['rid-2', 'svc-b']);
     const late = lines(['rid-late', 'svc-c']);
@@ -386,12 +408,14 @@ describe('a part that is written to while the scrub works through it', () => {
   });
 
   it('receipts a part whose record came back, with a count of nothing and the part named', async () => {
-    // The subject using a serving deployment is the worst case for a count: this run takes one record
-    // out and the gateway writes two in, so the raw difference is minus one and the honest number is
-    // zero. The part is still one this run rewrote, and a receipt that omitted it would leave the
-    // volume holding records for a credential someone filed an erasure about with no paper naming it.
-    // This is also the only gate on the count being a difference that cannot go negative, and on a run
-    // deciding that it landed something from the parts it completed rather than from that count.
+    // A scrub run against a deployment that is still serving is the worst case for a count: this run
+    // takes one record out and the gateway writes two in, so the raw difference is minus one and the
+    // honest number is zero. The part is still one this run rewrote, and a receipt that omitted it
+    // would leave the volume holding records for a credential someone filed an erasure about with no
+    // paper naming it. This is also the only gate on the count being a difference that cannot go
+    // negative, and on the success route deciding that it landed something from the parts it completed
+    // rather than from that count. The halfway route makes the same decision and is gated beside it,
+    // below.
     const part = scriptFile('access-2026-02-24-000.jsonl', lines(['rid-1', 'svc-a'], ['rid-2', 'svc-b']), 0o600);
     const after = lines(['rid-2', 'svc-b']);
     const back = lines(['rid-new', 'svc-a'], ['rid-newer', 'svc-a']);
@@ -406,19 +430,62 @@ describe('a part that is written to while the scrub works through it', () => {
     expect(receipt.parts[0]?.afterBytes).toBe(Buffer.byteLength(after + back));
   });
 
-  it('refuses a name the sweep took between the publish and the read that confirms it', async () => {
+  it('receipts a name the sweep took between the publish and the read that confirms it', async () => {
     // The other thing a rename does not report: a name that was there and is not any more, which here
-    // is the retention sweep aged the part out between the two calls. Un-wrapped, this is the
-    // operating system's own `ENOENT` reaching the terminal as a stack over an exit code that reads as
-    // a crash, from a run that had already erased the record.
+    // is the retention sweep aged the part out between the two calls. This run's erasure landed and
+    // somebody else's deletion finished it, so the after-facts are the empty file's and the count is
+    // every subject record this run read out. Refusing instead would throw away a completed erasure,
+    // leave no marker for it, and print the operating system's own `ENOENT` over an exit code that
+    // reads as a crash.
     const part = scriptFile('access-2026-02-24-000.jsonl', lines(['rid-1', 'svc-a'], ['rid-2', 'svc-b']), 0o600);
     host.vanishesAfter.add(part);
+    const result = await accesslogScrub(DIR, 'svc-a', clock);
+    expect(result).toEqual({ removed: 1, files: 1, marker: 'scrub-2026-02-26-000.jsonl' });
+    expect(host.entries.has(part)).toBe(false);
+    const receipt = markerAt(MARKER);
+    expect(receipt.removed).toBe(1);
+    expect(receipt.files).toBe(1);
+    expect(receipt.parts[0]?.afterBytes).toBe(0);
+    expect(receipt.parts[0]?.beforeBytes).toBe(Buffer.byteLength(lines(['rid-1', 'svc-a'], ['rid-2', 'svc-b'])));
+  });
+
+  it('refuses a name it published into and can no longer open, and says the rewrite is there', async () => {
+    // The fourth state, and the one no count can be carried for: the bits of a live log's directory
+    // moved under this run between its rename and its read, so the bytes this run published are at the
+    // name and nothing can say what else is there beside them. The refusal is right here and it has to
+    // carry two facts, because an operator who reads only a confirmation failure cannot tell whether
+    // the erasure happened: this run's rewrite is at that name, and no marker has been filed for it.
+    const part = scriptFile('access-2026-02-24-000.jsonl', lines(['rid-1', 'svc-a'], ['rid-2', 'svc-b']), 0o600);
+    host.unreadableAfter.add(part);
     const failure = await accesslogScrub(DIR, 'svc-a', clock).catch((error: unknown) => error);
     expect(failure).toBeInstanceOf(Error);
     const message = (failure as Error).message;
     expect(message).toContain(`cannot confirm access log part '${part}'`);
-    expect(message).toContain('ENOENT');
-    expect(host.entries.has(part)).toBe(false);
+    expect(message).toContain('EACCES');
+    expect(message).toContain('The rewrite is at that name and no marker has been filed for it');
+    expect(bytesAt(part)).toBe(lines(['rid-2', 'svc-b']));
     expect(host.entries.has(MARKER)).toBe(false);
+  });
+
+  it('receipts a part whose records came back when a later part cannot be read at all', async () => {
+    // The catch route decides whether this run landed something by asking whether it rewrote anything,
+    // and the two questions part company here: the first part is a net-zero rewrite, so the count this
+    // route would carry is zero while the volume holds a part this run did publish. A run that tested
+    // the count instead rethrows, the erasure it completed goes unreceipted, and the re-run that would
+    // discover the mistake reads a directory with nothing in it. The second part is a name shaped like
+    // a log part that is a directory, which is the listing handing over something no open can read.
+    const rewritten = scriptFile('access-2026-02-24-000.jsonl', lines(['rid-1', 'svc-a'], ['rid-2', 'svc-b']), 0o600);
+    const directory = scriptDir('access-2026-02-25-000.jsonl');
+    host.appendsAfter.set(rewritten, lines(['rid-new', 'svc-a'], ['rid-newer', 'svc-a']));
+    const failure = await accesslogScrub(DIR, 'svc-a', clock).catch((error: unknown) => error);
+    expect(failure).toBeInstanceOf(Error);
+    const message = (failure as Error).message;
+    expect(message).toContain(`cannot read access log part '${directory}'`);
+    expect(message).toContain('EISDIR');
+    expect(message).toContain("the removals that landed are marked in 'scrub-2026-02-26-000.jsonl'");
+    const receipt = markerAt(MARKER);
+    expect(receipt.removed).toBe(0);
+    expect(receipt.files).toBe(1);
+    expect(receipt.parts.map((each) => each.name)).toEqual(['access-2026-02-24-000.jsonl']);
   });
 });

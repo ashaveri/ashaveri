@@ -38,8 +38,10 @@ function reasonOf(error: unknown): string {
  *   literal or a masked `stat` value today, and an unmasked larger value would reach `chmod` exactly as
  *   it was handed over, so the ceiling is held here rather than repeated at every call site: a
  *   published command should not be able to put a set-user-id bit on a log part through a parameter
- *   named `mode`. Nothing in the product reaches it today, so it is gated by the captured arguments in
- *   `test/fs-calls.test.ts` and not by a file's bits, which a host can refuse to show.
+ *   named `mode`. Nothing in the product reaches it today. The arguments a write hands to its create
+ *   and to `chmod` are captured in `test/fs-calls.test.ts`, which holds on any host, and the landed
+ *   fourth digit is read back in `test/atomic.test.ts`, where a file system will show it: that case
+ *   writes at `0o4600` and asserts a mode of `0o600` read over four digits rather than three.
  *
  * The name carries this process's id, so two runs writing the same file do not collide, and a refusal
  * that leaves nothing behind does not hide the earlier run that left something.
