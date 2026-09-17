@@ -12,15 +12,21 @@ import { accesslogScrub } from '../src/commands/accesslog.js';
  * Windows reports every file as `0666`, so three of the mode rules this file holds could only ever be
  * read as predictions about a real volume. A race is worse still, because a real one needs two
  * processes and a scheduler that cooperates, and the outcome under test is which bytes the loser
- * published. The script below fixes a umask, answers `wx` with `EEXIST`, applies a mask to a create
- * and leaves a `chmod` to correct it, and lets a case queue a write behind the next read of one name,
- * which is the only way an append can be made to land exactly between this run's read and its own
- * comparison. What it cannot do is say what a real file system does with those arguments, and the mode
- * rules here are each paired with a case in `test/atomic.test.ts` or `test/accesslog.test.ts` that
- * reads bits off a volume where a volume will show them. The other rules have no such partner, and
- * that is the point of scripting them: an `EEXIST` that reaches a rename, an append landing between two
- * calls of one run, and a name that is gone when it is read back are states no host is obliged to
- * produce on a test's schedule.
+ * published. The script below fixes a umask, answers `wx` with `EEXIST`, applies a mask to a create and
+ * leaves a `chmod` to correct it, lets a case queue a write behind the next read of one name, which is
+ * how an append is made to land exactly between this run's read and its own comparison, and lets a case
+ * say how many names hold a part's bytes, which is how a rewrite's false claim is reached without a
+ * second process. What it cannot do is say what a real file system does with those arguments. Each of
+ * the three mode rules has a partner case in `test/atomic.test.ts` or `test/accesslog.test.ts` that
+ * reads bits off a volume, and every one of those partners is gated to a POSIX host: on Windows the
+ * argument capture in this file is not one of a pair, it is the only witness there is. The rules below
+ * have no volume partner for the shape they are asserted in here, which is the point of scripting them:
+ * an `EEXIST` that reaches a rename, an append landing between two calls of one run, a name that is gone
+ * or unopenable when it is read back, a net-zero rewrite followed by a part the open refuses, a part
+ * whose name is shared with a second name or is a link, and a directory carrying the link count a Linux
+ * volume answers for one. Of those, the three about a name's own character are reachable on a volume
+ * before a run starts, and `test/accesslog.test.ts` holds those cases; the rest need a second writer
+ * that arrives on a test's schedule, which no host is obliged to provide.
  */
 
 /** Outside any repository: nothing below ever reaches a disk. */
@@ -41,10 +47,18 @@ const host = vi.hoisted(() => ({
   appendsAfter: new Map<string, string>(),
   /** Names that are gone the moment this run renames onto them, which is a retention sweep. */
   vanishesAfter: new Set<string>(),
-  /** Names whose open answers `EACCES` once this run has renamed onto them, its own publish undone. */
+  /** Names whose open answers `EACCES` once this run has renamed onto them, its own publish unreadable. */
   unreadableAfter: new Set<string>(),
   /** Where a name in `unreadableAfter` goes at the rename: an open refuses it from then on. */
   refused: new Set<string>(),
+  /** How many names hold a file's bytes, which is a backup tool's shape and not a race. */
+  sharedNames: new Map<string, number>(),
+  /** Names that are a symlink rather than the file itself. */
+  symlinked: new Set<string>(),
+  /** Names the listing still hands over that every open and every `stat` answers `ENOENT` for. */
+  gone: new Set<string>(),
+  /** Names whose `stat` and `lstat` answer `EACCES` while the bytes behind them stay readable. */
+  inspectRefuses: new Set<string>(),
   renameFails: null as string | null,
 }));
 
@@ -86,6 +100,19 @@ vi.mock('node:fs/promises', () => {
     entry.bytes.push(...Buffer.from(text, 'utf8'));
   }
 
+  /**
+   * What both stat calls answer with: the bytes' facts, whether the name is itself, and whether what is
+   * there is a regular file, which is the only thing a link count is a fact about.
+   */
+  interface Stats {
+    mode: number;
+    size: number;
+    nlink: number;
+    isFile: () => boolean;
+    isDirectory: () => boolean;
+    isSymbolicLink: () => boolean;
+  }
+
   return {
     async readdir(path: string): Promise<string[]> {
       note('readdir', path);
@@ -97,6 +124,7 @@ vi.mock('node:fs/promises', () => {
 
     async readFile(path: string): Promise<Buffer> {
       note('readFile', path);
+      if (host.gone.has(path)) fail('ENOENT', 'open', path);
       const entry = host.entries.get(path);
       if (entry === undefined) fail('ENOENT', 'open', path);
       if (entry.directory) fail('EISDIR', 'open', path);
@@ -113,11 +141,48 @@ vi.mock('node:fs/promises', () => {
       return bytes;
     },
 
-    async stat(path: string): Promise<{ mode: number; size: number; isDirectory: () => boolean }> {
+    async stat(path: string): Promise<Stats> {
       note('stat', path);
+      if (host.inspectRefuses.has(path)) fail('EACCES', 'stat', path);
+      if (host.gone.has(path)) fail('ENOENT', 'stat', path);
       const entry = host.entries.get(path);
       if (entry === undefined) fail('ENOENT', 'stat', path);
-      return { mode: entry.mode, size: entry.bytes.length, isDirectory: () => entry.directory };
+      // `stat` follows a link, so the bytes and the mode it reports are the file's, and the name's own
+      // character is invisible to it. That is exactly why the check under test asks `lstat` as well.
+      return {
+        mode: entry.mode,
+        size: entry.bytes.length,
+        nlink: host.sharedNames.get(path) ?? 1,
+        isFile: () => !entry.directory,
+        isDirectory: () => entry.directory,
+        isSymbolicLink: () => false,
+      };
+    },
+
+    async lstat(path: string): Promise<Stats> {
+      note('lstat', path);
+      if (host.inspectRefuses.has(path)) fail('EACCES', 'lstat', path);
+      if (host.gone.has(path)) fail('ENOENT', 'lstat', path);
+      if (host.symlinked.has(path)) {
+        return {
+          mode: 0o777,
+          size: 0,
+          nlink: 1,
+          isFile: () => false,
+          isDirectory: () => false,
+          isSymbolicLink: () => true,
+        };
+      }
+      const entry = host.entries.get(path);
+      if (entry === undefined) fail('ENOENT', 'lstat', path);
+      return {
+        mode: entry.mode,
+        size: entry.bytes.length,
+        nlink: host.sharedNames.get(path) ?? 1,
+        isFile: () => !entry.directory,
+        isDirectory: () => entry.directory,
+        isSymbolicLink: () => false,
+      };
     },
 
     async writeFile(path: string, data: unknown, options: unknown): Promise<void> {
@@ -153,7 +218,10 @@ vi.mock('node:fs/promises', () => {
       // The four states a publish cannot see from inside itself: somebody else's copy at the name
       // already, that copy grown by an append, no name at all, and a name this run can no longer open.
       // None of them is reachable on a host on a schedule a test does not own, and all four are what the
-      // read after the rename is there to find out.
+      // read after the rename is there to find out. The name's own character is a different case: a link
+      // at a name is a state a volume can be put in before a run starts, and `test/accesslog.test.ts`
+      // plants one. This script holds the symlink answer only so the order of the two questions is
+      // visible, which is what no volume case can settle.
       const peer = host.landsAfter.get(to);
       if (peer !== undefined) {
         const moved = host.entries.get(to);
@@ -208,10 +276,15 @@ function bytesAt(path: string): string {
   return Buffer.from(entry.bytes).toString('utf8');
 }
 
+/**
+ * The mode as the script holds it, over four digits rather than three. A three-digit reader cannot see
+ * the bit this file's first case is about, so a drop that failed would land at `0o4600` and still read
+ * back as `0o600` here.
+ */
 function modeAt(path: string): number {
   const entry = host.entries.get(path);
   if (entry === undefined) throw new Error(`the script holds no name '${path}'`);
-  return entry.mode & 0o777;
+  return entry.mode & 0o7777;
 }
 
 function markerAt(path: string): { parts: Array<{ name: string; beforeBytes: number; afterBytes: number }>; removed: number; files: number } {
@@ -238,17 +311,24 @@ beforeEach(() => {
   host.vanishesAfter.clear();
   host.unreadableAfter.clear();
   host.refused.clear();
+  host.sharedNames.clear();
+  host.symlinked.clear();
+  host.gone.clear();
+  host.inspectRefuses.clear();
   host.renameFails = null;
 });
 
 describe('the arguments a write reaches the volume with', () => {
   it('keeps the nine permission bits and drops everything above them, twice over', async () => {
     // A `stat` mode carries twelve bits and the top three are the set-user-id, set-group-id and sticky
-    // ones, which are not readability settings a scrub means to publish. On a real volume that is only
-    // observable where a file system reports the fourth digit at all, so what is asserted here is the
-    // argument a write hands down: a dropped mask reaches a create and a `chmod` alike, and both are
-    // named below. The other writer's create argument is named in the marker case, and the landed
-    // fourth digit is read off a volume in `test/atomic.test.ts`.
+    // ones, which are not readability settings a scrub means to publish. This case holds three
+    // witnesses to the drop: the argument the create receives, the argument the `chmod` receives, and
+    // the mode the script is left holding at the name, read over four digits so a bit that survived the
+    // ceiling would show here. The first two are what a Windows host can be given, since it reports
+    // every file as `0666` and cannot separate a landed mode from a masked create; the third is this
+    // script's own arithmetic, which says the writer asked for `0600` and not that a volume agreed.
+    // `test/atomic.test.ts` reads a landed fourth digit off a real volume, and is gated to a POSIX host
+    // for exactly that reason. The other writer's create argument is named in the marker case below.
     const path = join(DIR, 'credentials.json');
     await writeAtomically(path, '{"version":1}\n', 0o4600, 'cannot write example file');
     const temporary = temporaryFor(path);
@@ -296,9 +376,12 @@ describe('the arguments a write reaches the volume with', () => {
 
   it('takes its own temporary back when the rename is what answers `EEXIST`', async () => {
     // A temporary holding log bytes must not survive a failed publish, and the one case that has to
-    // survive is an `EEXIST` from the create, which names a file this call never owned. No real volume
-    // is obliged to answer a rename with `EEXIST` at all, so the flag that tells those two failures
-    // apart has no gate on a host; here the create succeeds and the rename is what refuses.
+    // survive is an `EEXIST` from the create, which names a file this call never owned. The two halves
+    // of that distinction are gated one apiece: the `EEXIST` that came from the create is the taken-name
+    // case in `test/atomic.test.ts`, whose temporary is planted on a real volume, and the half that asks
+    // whether the failing call was the create is this one, where the create succeeds and the rename is
+    // what refuses. No real volume is obliged to answer a rename with `EEXIST` at all, which is why the
+    // half that needs one is scripted.
     const path = join(DIR, 'credentials.json');
     const temporary = temporaryFor(path);
     host.renameFails = 'EEXIST';
@@ -325,8 +408,10 @@ describe('a part that is written to while the scrub works through it', () => {
     host.queued.set(part, [lines(['rid-late', 'svc-c'])]);
     const result = await accesslogScrub(DIR, 'svc-a', clock);
     expect(result).toEqual({ removed: 2, files: 1, marker: 'scrub-2026-02-26-000.jsonl' });
-    // The appended record survived the erasure that ran beside it, which is the whole property.
-    expect(bytesAt(part)).toBe(lines(['rid-2', 'svc-b'], ['rid-late', 'svc-c']));
+    // The appended record survived the erasure that ran beside it, which is the whole property. One
+    // expectation, read by two readers: the bytes at the name and the length the receipt names for them.
+    const kept = lines(['rid-2', 'svc-b'], ['rid-late', 'svc-c']);
+    expect(bytesAt(part)).toBe(kept);
     const temporary = temporaryFor(part);
     // Two turns at one part, the first turn's copy thrown away: the counts below are what make the
     // retry visible rather than inferred, and they also say the run refiltered the newer bytes instead
@@ -337,7 +422,7 @@ describe('a part that is written to while the scrub works through it', () => {
     // The receipt is written from the bytes the run that published actually read, so its before length
     // is the length after the append, not before it.
     expect(receipt.parts[0]?.beforeBytes).toBe(Buffer.byteLength(lines(['rid-1', 'svc-a'], ['rid-2', 'svc-b'], ['rid-3', 'svc-a'], ['rid-late', 'svc-c'])));
-    expect(receipt.parts[0]?.afterBytes).toBe(Buffer.byteLength(bytesAt(part)));
+    expect(receipt.parts[0]?.afterBytes).toBe(Buffer.byteLength(kept));
     expect(receipt.removed).toBe(2);
   });
 
@@ -412,10 +497,10 @@ describe('a part that is written to while the scrub works through it', () => {
     // takes one record out and the gateway writes two in, so the raw difference is minus one and the
     // honest number is zero. The part is still one this run rewrote, and a receipt that omitted it
     // would leave the volume holding records for a credential someone filed an erasure about with no
-    // paper naming it. This is also the only gate on the count being a difference that cannot go
-    // negative, and on the success route deciding that it landed something from the parts it completed
-    // rather than from that count. The halfway route makes the same decision and is gated beside it,
-    // below.
+    // paper naming it. What this case holds alone is the success route deciding it landed something from
+    // the parts it completed rather than from that count. The floor it also exercises is reached a second
+    // time by the halfway refusal at the end of this block, where the same zero is carried into a marker
+    // that this run files and then refuses over a part it cannot read.
     const part = scriptFile('access-2026-02-24-000.jsonl', lines(['rid-1', 'svc-a'], ['rid-2', 'svc-b']), 0o600);
     const after = lines(['rid-2', 'svc-b']);
     const back = lines(['rid-new', 'svc-a'], ['rid-newer', 'svc-a']);
@@ -434,9 +519,10 @@ describe('a part that is written to while the scrub works through it', () => {
     // The other thing a rename does not report: a name that was there and is not any more, which here
     // is the retention sweep aged the part out between the two calls. This run's erasure landed and
     // somebody else's deletion finished it, so the after-facts are the empty file's and the count is
-    // every subject record this run read out. Refusing instead would throw away a completed erasure,
-    // leave no marker for it, and print the operating system's own `ENOENT` over an exit code that
-    // reads as a crash.
+    // every subject record this run read out. Refusing here would spend a completed erasure on a fact no
+    // operator can act on: the run would exit 2, name a part that no longer exists, and file no marker
+    // for records that are genuinely gone. The alternative this replaced did exit 2, with a usage error
+    // about a missing file, so the difference is the receipt and not the exit code.
     const part = scriptFile('access-2026-02-24-000.jsonl', lines(['rid-1', 'svc-a'], ['rid-2', 'svc-b']), 0o600);
     host.vanishesAfter.add(part);
     const result = await accesslogScrub(DIR, 'svc-a', clock);
@@ -449,31 +535,49 @@ describe('a part that is written to while the scrub works through it', () => {
     expect(receipt.parts[0]?.beforeBytes).toBe(Buffer.byteLength(lines(['rid-1', 'svc-a'], ['rid-2', 'svc-b'])));
   });
 
-  it('refuses a name it published into and can no longer open, and says the rewrite is there', async () => {
-    // The fourth state, and the one no count can be carried for: the bits of a live log's directory
-    // moved under this run between its rename and its read, so the bytes this run published are at the
-    // name and nothing can say what else is there beside them. The refusal is right here and it has to
-    // carry two facts, because an operator who reads only a confirmation failure cannot tell whether
-    // the erasure happened: this run's rewrite is at that name, and no marker has been filed for it.
-    const part = scriptFile('access-2026-02-24-000.jsonl', lines(['rid-1', 'svc-a'], ['rid-2', 'svc-b']), 0o600);
+  it('refuses a name it published into and can no longer open, and carries the count in the sentence', async () => {
+    // The fourth state, and the one no receipt can be written for: the bits of a live log's directory
+    // moved under this run between its rename and its read. What the run knows is two facts and nothing
+    // more, its own rename returned and this read failed, which is why the sentence names exactly those
+    // two. It has to carry the count as well, because the marker that would have held it is never filed,
+    // and an operator left with only this line has to be able to tell that the erasure happened and how
+    // many records it took. That the bytes at the name are this run's is the script's doing, asserted
+    // below as a check on the script; no read of the product establishes it on a real volume.
+    const part = scriptFile(
+      'access-2026-02-24-000.jsonl',
+      lines(['rid-1', 'svc-a'], ['rid-2', 'svc-b'], ['rid-3', 'svc-a']),
+      0o600,
+    );
     host.unreadableAfter.add(part);
     const failure = await accesslogScrub(DIR, 'svc-a', clock).catch((error: unknown) => error);
     expect(failure).toBeInstanceOf(Error);
     const message = (failure as Error).message;
     expect(message).toContain(`cannot confirm access log part '${part}'`);
     expect(message).toContain('EACCES');
-    expect(message).toContain('The rewrite is at that name and no marker has been filed for it');
+    expect(message).toContain('left none of the 2 records it had read there');
+    expect(message).toContain('no marker has been filed for it');
     expect(bytesAt(part)).toBe(lines(['rid-2', 'svc-b']));
     expect(host.entries.has(MARKER)).toBe(false);
+  });
+
+  it('says that count as one record when the part it published held one', async () => {
+    // The same sentence's other arm, gated because it is operator-facing text and a plural glued to `1`
+    // is the mistake the branch is there to avoid. What is counted is the subject's records in the bytes
+    // this run read, so a part that keeps one line of somebody else's still says one.
+    const part = scriptFile('access-2026-02-24-000.jsonl', lines(['rid-1', 'svc-a'], ['rid-2', 'svc-b']), 0o600);
+    host.unreadableAfter.add(part);
+    const failure = await accesslogScrub(DIR, 'svc-a', clock).catch((error: unknown) => error);
+    expect((failure as Error).message).toContain('left none of the 1 record it had read there');
   });
 
   it('receipts a part whose records came back when a later part cannot be read at all', async () => {
     // The catch route decides whether this run landed something by asking whether it rewrote anything,
     // and the two questions part company here: the first part is a net-zero rewrite, so the count this
-    // route would carry is zero while the volume holds a part this run did publish. A run that tested
-    // the count instead rethrows, the erasure it completed goes unreceipted, and the re-run that would
-    // discover the mistake reads a directory with nothing in it. The second part is a name shaped like
-    // a log part that is a directory, which is the listing handing over something no open can read.
+    // route would carry is zero while the volume holds a part this run did publish. A run that tested the
+    // count instead rethrows and files nothing, which leaves a rewritten part with no receipt naming it:
+    // the paper that says whose credential this run was asked about, and what the bytes beside that
+    // credential's records were when it looked. The second part is a name shaped like a log part that is
+    // a directory, which is the listing handing over something no open can read.
     const rewritten = scriptFile('access-2026-02-24-000.jsonl', lines(['rid-1', 'svc-a'], ['rid-2', 'svc-b']), 0o600);
     const directory = scriptDir('access-2026-02-25-000.jsonl');
     host.appendsAfter.set(rewritten, lines(['rid-new', 'svc-a'], ['rid-newer', 'svc-a']));
@@ -487,5 +591,103 @@ describe('a part that is written to while the scrub works through it', () => {
     expect(receipt.removed).toBe(0);
     expect(receipt.files).toBe(1);
     expect(receipt.parts.map((each) => each.name)).toEqual(['access-2026-02-24-000.jsonl']);
+  });
+});
+
+describe('a part whose name is not the file itself', () => {
+  it('refuses a part a second name also holds, before reading a line of it', async () => {
+    // `rename` replaces a name and not the bytes behind it, so a part that a second name also holds is
+    // one this run can take records out of at one name while the other keeps every line. The marker's
+    // `removed` would then read as records leaving the volume, and nothing would have left. This is a
+    // backup tool's shape rather than an attacker's: a snapshot-style backup hard-links an append-only
+    // log it does not want to copy twice. `test/accesslog.test.ts` plants a second name on a real volume
+    // and reads the link count back, which is the half no script can settle; what this case holds is the
+    // order, that the question is asked before a line of the part is read, which a volume cannot show
+    // because nothing observable changes when a run reads a shared file.
+    const part = scriptFile('access-2026-02-24-000.jsonl', lines(['rid-1', 'svc-a'], ['rid-2', 'svc-b']), 0o600);
+    host.sharedNames.set(part, 2);
+    const failure = await accesslogScrub(DIR, 'svc-a', clock).catch((error: unknown) => error);
+    expect(failure).toBeInstanceOf(Error);
+    const message = (failure as Error).message;
+    expect(message).toContain(`cannot scrub access log part '${part}'`);
+    expect(message).toContain('2 names hold those bytes');
+    // Asked and answered before the bytes: a run that read first would have nothing to point at except
+    // a count it had already printed.
+    expect(callsOf('readFile', part)).toEqual([]);
+    expect(callsOf('writeFile', temporaryFor(part))).toEqual([]);
+    expect(callsOf('unlink', part)).toEqual([]);
+    expect(bytesAt(part)).toBe(lines(['rid-1', 'svc-a'], ['rid-2', 'svc-b']));
+    expect(host.entries.has(MARKER)).toBe(false);
+  });
+
+  it('refuses a part whose name is a symlink, because the file it points at keeps the records', async () => {
+    // The other way a name and its bytes come apart. A rewrite here publishes over the link, which
+    // replaces the link with this run's file and leaves the target holding every record the receipt
+    // names as removed. `stat` cannot see this at all, since it follows the link and reports the
+    // target's facts, so the check has to ask `lstat` as well, and this case is the one that notices a
+    // run that stops asking it. `test/accesslog.test.ts` reaches the same rule over a real link, on a
+    // POSIX host only because making one there needs a privilege Windows withholds from a test.
+    const part = scriptFile('access-2026-02-24-000.jsonl', lines(['rid-1', 'svc-a'], ['rid-2', 'svc-b']), 0o600);
+    host.symlinked.add(part);
+    const failure = await accesslogScrub(DIR, 'svc-a', clock).catch((error: unknown) => error);
+    expect(failure).toBeInstanceOf(Error);
+    const message = (failure as Error).message;
+    expect(message).toContain(`cannot scrub access log part '${part}'`);
+    expect(message).toContain('the name is a symlink');
+    expect(callsOf('lstat', part)).toHaveLength(1);
+    expect(callsOf('readFile', part)).toEqual([]);
+    expect(host.entries.has(MARKER)).toBe(false);
+  });
+
+  it('leaves a name the sweep took between the listing and the check to the read that follows', async () => {
+    // A name can be gone by the time this run reaches it, and that is not the shared-name check's
+    // refusal to make: the read one step later owns a missing part, and its sentence names the part as
+    // something the run tried to read. The check's answer to `ENOENT` is therefore silence, which is the
+    // arm this case holds open. A run that refused here would tell an operator about links on a directory
+    // the retention sweep was emptying, and name a cause the operator cannot go and look at.
+    const part = scriptFile('access-2026-02-24-000.jsonl', lines(['rid-1', 'svc-a'], ['rid-2', 'svc-b']), 0o600);
+    host.gone.add(part);
+    const failure = await accesslogScrub(DIR, 'svc-a', clock).catch((error: unknown) => error);
+    expect(failure).toBeInstanceOf(Error);
+    const message = (failure as Error).message;
+    expect(message).toContain(`cannot read access log part '${part}'`);
+    expect(message).not.toContain('cannot inspect');
+    expect(message).not.toContain('names hold those bytes');
+    expect(host.entries.has(MARKER)).toBe(false);
+  });
+
+  it('refuses a name whose permissions it cannot read, instead of guessing that nothing shares it', async () => {
+    // The check asks a question of the directory, and a directory can answer it with `EACCES`. A
+    // missing link count read as a link count of one would be the guess this refuses: the run would go
+    // on to publish a receipt about bytes it never established it owned alone, so the failure to look
+    // has to be the failure to proceed, and it has to name the part.
+    const part = scriptFile('access-2026-02-24-000.jsonl', lines(['rid-1', 'svc-a'], ['rid-2', 'svc-b']), 0o600);
+    host.inspectRefuses.add(part);
+    const failure = await accesslogScrub(DIR, 'svc-a', clock).catch((error: unknown) => error);
+    expect(failure).toBeInstanceOf(Error);
+    const message = (failure as Error).message;
+    expect(message).toContain(`cannot inspect access log part '${part}'`);
+    expect(message).toContain('EACCES');
+    expect(callsOf('readFile', part)).toEqual([]);
+    expect(host.entries.has(MARKER)).toBe(false);
+  });
+
+  it('asks the link question of no name that is not a file', async () => {
+    // A directory's `nlink` counts the entries inside it, not names holding it: 2 on an empty one and one
+    // more per subdirectory. Asked of a directory, the shared-name check answers with a number that means
+    // something else and refuses a part shape the read owns. This state is what two cases in
+    // `test/accesslog.test.ts` plant as the portable unreadable part, and it passed here while failing on
+    // Linux, because this host answers `nlink` 1 for a directory while a Linux volume answers 2 or more.
+    // So the count is scripted at the Linux value: the gate is that no link count, however large, makes
+    // this run speak about a name it cannot rewrite.
+    const directory = scriptDir('access-2026-02-25-000.jsonl');
+    host.sharedNames.set(directory, 3);
+    const failure = await accesslogScrub(DIR, 'svc-a', clock).catch((error: unknown) => error);
+    expect(failure).toBeInstanceOf(Error);
+    const message = (failure as Error).message;
+    expect(message).toContain(`cannot read access log part '${directory}'`);
+    expect(message).not.toContain('names hold those bytes');
+    expect(message).not.toContain('cannot inspect');
+    expect(host.entries.has(MARKER)).toBe(false);
   });
 });

@@ -30,40 +30,46 @@ Arguments:
 
 The private key that keygen or credential add prints exists only in that terminal. --label
 is the one field of the credential file that can name a person, and the gateway never writes
-it anywhere; it is the field a data subject's request is about. accesslog scrub is the
-erasure route for the access log, and a run that removes a record leaves a marker naming that
-credential and the count it removed, because an erasure that looks identical to a gap proves
-nothing. The marker also carries, for every part the run rewrote, the byte length and the
-SHA-256 of the part as this run read it and of the bytes at that name when it read the part
-back. Only the second pair is something a third party can check, and only with a log nobody
-has written to since: sha256sum of the file in front of them should answer with it, which
-ties this run's count to that file rather than to a claim about some other one. The first pair
-names bytes that exist nowhere any more: it is this run's own account of what it took out, and
-nothing but this run's word connects it to a number. The printed line gives the count of
-records taken out and the tally of parts this run rewrote, and those two are not the same
-measure: a part whose records came back is in the tally and adds nothing to the count.
---request is the operator's own reference for the instruction the erasure
-answers, stored in the marker beside those digests: the digests say what left the volume, and
-only the reference says what it was done for. A run that stops partway leaves the same marker
-for the records it already removed, and names it in its refusal; when the marker itself cannot
-be written, the refusal carries those counts instead, so an erasure is never reported as a run
-that removed nothing. A run that rewrites no part leaves no marker, so a credential with no
-matching record and a scrub that never ran read the same from the directory. The scrub holds no
-lock and no gateway stops writing while it runs: it reads a part, and it compares that part
-with the bytes on disk in the last instant before it renames its copy over it, so a record
-appended to a part between reading it and rewriting that part is caught, and the part is read
-and done again up to three times. What that leaves is one append landing after the last
-comparison and before the rename: those bytes are gone, they appear in no count and under no
-digest, and no marker discloses them. An append that arrives after the rename is the other
-case, and the ordinary one on a serving log: it stays on the volume, this run's copy is the
-bytes beneath it, and the read back reports the two of them together. A part with nothing to
-remove is left alone, and a part the scrub empties is deleted outright, its removals counted in
-the marker beside the rest. A
-part that will not hold still across three attempts is refused by name, and the parts already
-done are receipted. Run it against a deployment that is not serving.
---now sets the day a marker is named for, and a marker for a day the deployment no longer keeps is
-deleted by the next sweep. A day the sweep cannot name at all is refused before any record is
-touched.
+it anywhere; it is the field a data subject's request is about. accesslog scrub is the erasure
+route for the access log, and a run that removes a record leaves a marker naming that credential
+and the count it removed, because an erasure that looks identical to a gap proves nothing. The
+marker also carries, for every part the run rewrote or deleted, the byte length and the SHA-256 of
+the part as this run read it and of the bytes at that name when it read the part back. Only the
+second pair is something a third party can check, and only with a log nobody has written to since:
+where a part is still there to read, sha256sum of the file in front of them should answer with it,
+which ties this run's count to that file rather than to a claim about some other one. A part that
+is no longer there at all is given the empty file's pair, which is true of the name and is not a
+checksum of anything. The first pair names bytes that exist nowhere any more: it is this run's own
+account of what it took out, and nothing but this run's word connects it to a number. The printed
+line gives the count of records taken out and the tally of parts this run rewrote or deleted, and
+those two are not the same measure: a part whose records came back is in the tally and adds nothing
+to the count. --request is the operator's own reference for the instruction the erasure answers,
+stored in the marker beside those digests: the digests say what left the volume, and only the
+reference says what it was done for. Three routes refuse after bytes have already left, and each of
+them says which: a run that stops partway leaves the marker for the parts it already finished and
+names it in its refusal; a run whose own marker cannot be written carries those counts in the
+refusal instead; and a run that published a part and can no longer read that name back files
+nothing and gives that part's count in its own sentence, because no other line will ever carry it.
+So an erasure is never reported as a run that removed nothing, and never reported as one that left
+a receipt it did not write. A run that rewrote and deleted no part leaves no marker, so a
+credential with no matching record and a scrub that never ran read the same from the directory. The
+scrub holds no lock and no gateway stops writing while it runs: it reads a part, and it compares
+that part with the bytes on disk in the last instant before it renames its copy over it, so a
+record appended to a part between reading it and rewriting that part is caught, and the part is
+read and done again up to three times. What that leaves is an append landing after the last
+comparison and before the rename, and nothing bounds how many of them a moment can hold: those
+bytes are gone, they appear in no count and under no digest, and no marker discloses them. An
+append that arrives after the rename is the other case, and the ordinary one on a serving log: it
+stays on the volume, this run's copy is the bytes beneath it, and the read back reports the two of
+them together. A part with nothing to remove is left alone, and a part the scrub empties is
+deleted outright, its removals counted in the marker beside the rest. A part that a second name
+also holds, through a hard link or a symlink, is refused before it is read: this run empties one
+name and the records would stand at the other, and a marker claiming they left the volume would be
+the one thing this command exists not to write. A part that will not hold still across three
+attempts is refused by name, and the parts already done are receipted. Run it against a deployment
+that is not serving. --now sets the day a marker is named for, and a marker for a day the
+deployment no longer keeps is deleted by the next sweep. A day the sweep cannot name at all is
+refused before any record is touched.
 
 Verification options:
   --ark <file>       Trusted AMD root certificate (ARK), PEM or DER. Repeatable;
@@ -140,9 +146,10 @@ Exit codes:
      matched, a credential added or revoked, a listing printed, a scrub run
   1  verification or a pin failed, or a command met an error it was not written to expect
   2  usage or input error, including a credential file this program cannot parse. A scrub can exit 2
-     having already erased records, because its refusal comes after the parts it rewrote, and on both
-     of its refusal routes the numbers are in the message: counted there directly, or in the marker it
-     names. Neither route turns into an object under --json, which stays a refusal on stderr, so read
+     having already erased records, because its refusal comes after the parts it rewrote, and every
+     refusal route puts the numbers in the message: counted there directly, named in the marker it
+     points at, or, for a part it published and can no longer read, carried in that part's own sentence.
+     None of them turns into an object under --json, which stays a refusal on stderr, so read
      a nonzero exit from there and not from stdout.`;
 
 function cliVersion(): string {

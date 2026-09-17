@@ -39,9 +39,11 @@ function reasonOf(error: unknown): string {
  *   it was handed over, so the ceiling is held here rather than repeated at every call site: a
  *   published command should not be able to put a set-user-id bit on a log part through a parameter
  *   named `mode`. Nothing in the product reaches it today. The arguments a write hands to its create
- *   and to `chmod` are captured in `test/fs-calls.test.ts`, which holds on any host, and the landed
- *   fourth digit is read back in `test/atomic.test.ts`, where a file system will show it: that case
- *   writes at `0o4600` and asserts a mode of `0o600` read over four digits rather than three.
+ *   and to `chmod` are captured in `test/fs-calls.test.ts`, which holds on any host. The landed fourth
+ *   digit is read back in `test/atomic.test.ts` only where a file system reports it, and that case is
+ *   gated to a POSIX host because Windows answers every mode with `0666`: there the argument capture is
+ *   the only witness. `publishNew`'s copy of the ceiling has no gate at all, because its one caller
+ *   hands it the literal `0o600` and a masked and an unmasked `0600` cannot be told apart.
  *
  * The name carries this process's id, so two runs writing the same file do not collide, and a refusal
  * that leaves nothing behind does not hide the earlier run that left something.

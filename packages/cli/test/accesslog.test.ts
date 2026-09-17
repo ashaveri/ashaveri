@@ -1,6 +1,6 @@
 import { spawnSync } from 'node:child_process';
 import { createHash } from 'node:crypto';
-import { chmodSync, existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, statSync, writeFileSync } from 'node:fs';
+import { chmodSync, existsSync, linkSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, renameSync, rmSync, statSync, symlinkSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -393,6 +393,50 @@ describe('ashaveri accesslog scrub', () => {
     expect(existsSync(part)).toBe(false);
   });
 
+  it('refuses a part a second name also holds, because those bytes keep every record', () => {
+    // This is the one shape where a printed count can be simply wrong rather than narrow: `rename`
+    // replaces a name, not the bytes behind it, so a part that two names hold comes back scrubbed at the
+    // listed name while the other name keeps the subject's record verbatim, and the marker says that
+    // record left the volume. A snapshot-style backup hard-links an append-only log for exactly this
+    // reason, so it is an operator's mistake and not an attacker's. The link count is read off a real
+    // volume here, which is the part no script can settle; `test/fs-calls.test.ts` holds the partner
+    // that decides the check arrives before the part is read, which needs a host that cooperates.
+    const dir = dirWith(onePart('svc-a', 'svc-b'));
+    const part = join(dir, 'access-2026-02-24-000.jsonl');
+    const backup = join(dir, 'backup-copy.jsonl');
+    linkSync(part, backup);
+    expect(statSync(part).nlink).toBe(2);
+    const result = scrub(dir, 'svc-a');
+    expect(result.status).toBe(2);
+    expect(result.stderr).toContain(`cannot scrub access log part '${part}'`);
+    expect(result.stderr).toContain('2 names hold those bytes');
+    expect(result.stderr.trimEnd().split('\n')).toHaveLength(2);
+    expect(result.stdout).toBe('');
+    expect(readFileSync(part, 'utf8')).toContain('svc-a');
+    expect(readFileSync(backup, 'utf8')).toContain('svc-a');
+    expect(markers(dir)).toEqual([]);
+  });
+
+  it.runIf(process.platform !== 'win32')('refuses a part whose name is a symlink, because the file behind it keeps every record', () => {
+    // The same false claim by the other route: `rename` replaces the link itself, so the run's copy ends
+    // up at the listed name and the file the link pointed at keeps the subject's records under a name no
+    // listing will ever show. Gated to a POSIX host because making a symlink on Windows needs a
+    // privilege a test does not hold, which the hard link above does not need; the scripted case in
+    // `test/fs-calls.test.ts` is what decides the rule on either system.
+    const dir = dirWith(onePart('svc-a', 'svc-b'));
+    const part = join(dir, 'access-2026-02-24-000.jsonl');
+    const target = join(dir, 'the-file-the-name-points-at.jsonl');
+    renameSync(part, target);
+    symlinkSync(target, part);
+    const result = scrub(dir, 'svc-a');
+    expect(result.status).toBe(2);
+    expect(result.stderr).toContain(`cannot scrub access log part '${part}'`);
+    expect(result.stderr).toContain('the name is a symlink');
+    expect(readFileSync(target, 'utf8')).toContain('svc-a');
+    expect(readdirSync(dir).sort()).toEqual(['access-2026-02-24-000.jsonl', 'the-file-the-name-points-at.jsonl']);
+    expect(markers(dir)).toEqual([]);
+  });
+
   it.runIf(process.platform !== 'win32')('leaves a rewritten part readable by whoever the deployment made it readable to', () => {
     // The scrub renames its own copy over a file a running gateway is appending to, so the copy has to
     // arrive with the original's permission bits. `gateway/src/aclog.ts` creates parts with the default
@@ -774,8 +818,10 @@ describe('the reference an operator gives a marker', () => {
     const dir = dirWith(onePart('svc-a', 'svc-b'));
     await accesslogScrub(dir, 'svc-a', clock, { request: reference });
     const raw = readFileSync(join(dir, markers(dir)[0] as string), 'utf8');
-    // The document and the newline that ends it, and nothing in between.
-    expect(raw.split('\n')).toHaveLength(2);
+    // The document and the newline that ends it, and nothing in between, counted the way a line-reader
+    // counts. A `split('\n')` is not this gate: JavaScript does not end a line at U+2028, so it would
+    // answer two pieces for a marker that a terminal reads as three, which is the defect being held out.
+    expect(raw.split(/[\n\r\u2028\u2029]/u)).toHaveLength(2);
     expect(raw).not.toContain('\u2028');
     expect(raw).not.toContain('\u202e');
     expect(markerOf(dir).request).toBe(reference);

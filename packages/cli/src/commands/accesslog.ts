@@ -1,4 +1,4 @@
-import { readdir, readFile, stat, unlink } from 'node:fs/promises';
+import { lstat, readdir, readFile, stat, unlink } from 'node:fs/promises';
 import { join } from 'node:path';
 import { sha256Hex } from '@ashaveri/receipt';
 import { publishNew, writeGuarded } from '../atomic.js';
@@ -30,13 +30,17 @@ const PART_ATTEMPTS = 3;
 const REQUEST_MAX = 200;
 
 /**
- * One part this run rewrote, on both sides of the rewrite. A count says how many records left the
+ * One part this run worked on, on both sides of the rewrite. A count says how many records left the
  * volume and nothing about the volume, so a third party holding the marker can check the arithmetic of
  * the erasure against `sha256sum` of the file in front of them: these are the byte lengths and the
  * SHA-256 digests of the exact bytes this run read, and of the exact bytes at that name when this run
- * read it back after publishing. Both reads come off the disk, not from the copy this run held. The
- * second pair agrees with the file only while nobody has appended to that part since, which is why the
- * command asks for a deployment that is not serving.
+ * read it back after publishing. The before pair always comes off the disk. The after pair does too
+ * except where the name is gone, and a gone name is given the empty file's facts because that is the
+ * whole of what can be said about it: this run deleted the part itself, or a sweep or a second scrub
+ * deleted it a moment after this run rewrote it. Those three share one pair, `0` and the digest of no
+ * bytes, and nothing in this record separates them. The second pair agrees with the file only while
+ * nobody has appended to that part since, which is why the command asks for a deployment that is not
+ * serving.
  */
 export interface ScrubPartRecord {
   name: string;
@@ -48,10 +52,11 @@ export interface ScrubPartRecord {
 
 /**
  * The line the scrub files as its receipt. Two of its numbers are not one measure: `removed` is the
- * records this run can attribute to itself, floored at zero per part, and `files` is the parts it
- * rewrote. A peer or a gateway can hand back every record this run took out, and the marker then
- * carries a `parts` entry naming the rewrite and a `removed` of zero, which is the shape that says a
- * scrub ran on a part and the part kept the subject's lines.
+ * records this run can attribute to itself, floored at zero per part and then summed, and `files` is the
+ * parts it rewrote or deleted. A peer or a gateway can hand back every record this run took out, and the
+ * marker then carries a `parts` entry naming the part and no count of its own, because the count lives
+ * only in the total: a clean part beside one whose records came back reads as a run that removed
+ * something, and nothing but the digests says which part gave nothing back.
  */
 export interface ScrubMarker {
   t: number;
@@ -71,9 +76,10 @@ export interface ScrubMarker {
 }
 
 /**
- * What one scrub run reports. `marker` is `null` exactly when no part was rewritten, so a zero count
- * beside a marker name is a run that did rewrite something and had the records come back; see
- * {@link ScrubMarker} for why the two numbers are not one measure.
+ * What one scrub run reports. `marker` is `null` exactly when no part was rewritten or deleted, which is
+ * not the same as when nothing was removed: a part holding only the subject's records is deleted outright
+ * and is receipted. A zero count beside a marker name is therefore a run that worked on a part and had
+ * its records come back; see {@link ScrubMarker} for why the two numbers are not one measure.
  */
 export interface ScrubResult {
   removed: number;
@@ -259,7 +265,9 @@ function heldDelta(before: PartSnapshot, after: PartSnapshot, credential: string
  *
  * Each attempt filters the snapshot it holds, so `kept` never comes from a second read, and each
  * attempt ends by reading the destination back off the disk. The count and both pairs of bytes and
- * digests come from those reads, not from the string this run wrote.
+ * digests come from those reads, not from the string this run wrote, with one exception the reads force:
+ * a destination that has been deleted since this run looked gives the empty file's facts, because no
+ * read of it is possible and a name that is gone holds nothing.
  */
 async function scrubPart(
   dir: string,
@@ -267,6 +275,10 @@ async function scrubPart(
   credential: string,
 ): Promise<{ record: ScrubPartRecord; removed: number } | null> {
   const path = join(dir, name);
+  // Asked before the read, because both of this function's outcomes publish a receipt: a rewrite that
+  // leaves a second name holding the old bytes and an unlink that removes one name of several are the
+  // same false claim, and neither is improved by having read the part first.
+  await refuseSharedName(path);
   let snapshot = await readPart(path);
   for (let attempt = 1; attempt <= PART_ATTEMPTS; attempt += 1) {
     const kept = linesExceptTarget(snapshot.lines, credential);
@@ -304,7 +316,7 @@ async function scrubPart(
       snapshot = await readPart(path);
       continue;
     }
-    const after = await confirmPublished(path, published);
+    const after = await confirmPublished(path, published, heldBy(snapshot, credential));
     return { record: partRecord(name, snapshot, after), removed: heldDelta(snapshot, after, credential) };
   }
   throw new UsageError(
@@ -346,22 +358,26 @@ async function holdsStill(path: string, snapshot: PartSnapshot): Promise<boolean
  * begin with those bytes is a peer that renamed its own copy over this one, and a receipt about a file
  * nobody holds is not something a retry can undo, so that one is the refusal.
  *
- * A read that fails outright has the same two shapes. No such name is the retention sweep having aged
- * the part out in the moment after this rename, which is this run's own erasure completed by somebody
- * else's deletion: the after-facts are the empty file's, exactly as after an unlink, and refusing here
- * would throw away a run that had already taken the record out and file no receipt for it. Any other
- * refusal, an `EACCES` on a directory whose bits changed under this run, is a name this run did rewrite
- * and cannot now read, so the sentence says both: the rewrite is at that name, and nothing has been
- * filed for it.
+ * A read that fails outright has the same two shapes. A name that is gone is this run's own erasure
+ * completed by somebody else's deletion, and there are three ways to that: the retention sweep ageing
+ * the part out, a second scrub of another credential emptying and unlinking the same part, and a parent
+ * directory that has been moved, which answers `ENOENT` for the file on either system. All three leave
+ * the same after-facts as an `unlink` did, the empty file's, and refusing would throw away a run that had
+ * already taken the record out and file no receipt for it. Every other code, and this arm is a bucket and
+ * not an example, since `EACCES`, `EISDIR`, `EPERM` and `EBUSY` each reach it on a host that is holding
+ * the name open, is a name this run rewrote and cannot now read. Nothing can then say what stands at it,
+ * so the sentence claims only the two facts this run holds: its own rename reported success at that name,
+ * and the count it published away is named there because no marker will ever carry it.
  */
-async function confirmPublished(path: string, published: PartSnapshot): Promise<PartSnapshot> {
+async function confirmPublished(path: string, published: PartSnapshot, erased: number): Promise<PartSnapshot> {
   let after: PartSnapshot;
   try {
     after = await readSnapshot(path);
   } catch (error) {
     if (isNotFound(error)) return NOTHING;
+    const record = erased === 1 ? 'record' : 'records';
     throw new UsageError(
-      `cannot confirm access log part '${path}': ${reasonOf(error)}. The rewrite is at that name and no marker has been filed for it`,
+      `cannot confirm access log part '${path}': ${reasonOf(error)}. This run's rename at that name reported success and left none of the ${String(erased)} ${record} it had read there, and no marker has been filed for it`,
     );
   }
   if (!sameBytes(after, published) && !after.bytes.subarray(0, published.length).equals(published.bytes)) {
@@ -410,10 +426,10 @@ async function writeReceipt(
   listing: (dir: string) => Promise<string[]>,
 ): Promise<string> {
   const receipt: ScrubMarker = { t: atMillis, credential, removed, files: parts.length, parts: [...parts], request };
-  // `JSON.stringify` escapes the controls but leaves U+2028, U+2029 and every format character raw
-  // inside its own quotes, and `--request` is operator text that only gets trimmed and measured. One of
-  // those in the middle of a marker makes it a two-line document to anything that splits lines that
-  // way, and a directional override makes it read as something other than the bytes stored.
+  // `escapeInvisibleJson` says why the platform's own stringifier is not enough here. What is local to
+  // this call is that `--request` is operator text which nothing sanitises, only trims and measures, so
+  // one line separator inside it would make this receipt a two-line document to anything that splits
+  // lines that way, and a directional override would show a reader a sentence other than the bytes.
   const text = `${escapeInvisibleJson(JSON.stringify(receipt))}\n`;
   const names = await listing(dir);
   return chooseScrubName(names, day, async (name) =>
@@ -561,6 +577,56 @@ export async function modeOf(path: string): Promise<number> {
     );
   }
   return mode & 0o777;
+}
+
+/**
+ * A part that another name also holds is a part this command cannot honestly receipt, so it is refused
+ * before a single line of it is read.
+ *
+ * The marker's `removed` says records left the volume, and a rewrite or an `unlink` takes them out of one
+ * name. `rename` replaces the destination name, not the bytes behind it, so a hard link leaves the second
+ * name holding the original lines and a symlink leaves the file it points at doing the same; the run then
+ * exits 0 with a receipt naming a count of records that are still on the disk. Measured: a part linked to
+ * a second name came back `removed 1` with the second name still holding the subject's line, byte for
+ * byte. This is not a hostile shape either. A snapshot-style backup is exactly the tool that hard-links an
+ * append-only log it does not want to copy, and the operator of that deployment is the person who would
+ * otherwise read a receipt for an erasure that did not happen.
+ *
+ * One check per part, before the first read, because the bytes being shared is a property of the name and
+ * not of an attempt, and the retry loop would re-ask a question nothing inside this run can change. What
+ * it does not do is close the window: a link planted between this `stat` and the rename is invisible to
+ * it, and no `node:fs` call makes a rename conditional on anything. Refusing what can be seen is the whole
+ * claim, which is why the sentence names the count of links rather than only saying no.
+ */
+async function refuseSharedName(path: string): Promise<void> {
+  let here: Awaited<ReturnType<typeof lstat>>;
+  let file: Awaited<ReturnType<typeof stat>>;
+  try {
+    here = await lstat(path);
+    file = await stat(path);
+  } catch (error) {
+    // A name that is already gone has its own refusal one step later, raised by the read that was asked
+    // to find a part. This function's answer to a missing name is therefore silence.
+    if (isNotFound(error)) return;
+    throw new UsageError(`cannot inspect access log part '${path}': ${reasonOf(error)}`);
+  }
+  if (here.isSymbolicLink()) {
+    throw new UsageError(
+      `cannot scrub access log part '${path}': the name is a symlink, and a rewrite would leave the file it points at holding every record this run reports removed`,
+    );
+  }
+  // The link count is a fact about a regular file. A directory's `nlink` is `2` plus its subdirectories,
+  // which counts entries inside it and not names holding it, so asking the question of one answers with a
+  // number that means something else entirely. Measured on Linux: a part name holding a directory came
+  // back `nlink` 2 and was refused as "2 names hold those bytes", while this host answers 1 for the same
+  // directory and the case that plants one fell through to the read. Anything that is not a regular file
+  // this run cannot rewrite anyway, and the read one step later refuses it in its own words.
+  if (!here.isFile()) return;
+  if (file.nlink > 1) {
+    throw new UsageError(
+      `cannot scrub access log part '${path}': ${String(file.nlink)} names hold those bytes, and this run can take the records out of one of them`,
+    );
+  }
 }
 
 /**
