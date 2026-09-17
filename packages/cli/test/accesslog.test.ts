@@ -400,7 +400,8 @@ describe('ashaveri accesslog scrub', () => {
     // record left the volume. A snapshot-style backup hard-links an append-only log for exactly this
     // reason, so it is an operator's mistake and not an attacker's. The link count is read off a real
     // volume here, which is the part no script can settle; `test/fs-calls.test.ts` holds the partner
-    // that decides the check arrives before the part is read, which needs a host that cooperates.
+    // that decides nothing is written, renamed or unlinked at a shared name, which needs a host that
+    // cooperates.
     const dir = dirWith(onePart('svc-a', 'svc-b'));
     const part = join(dir, 'access-2026-02-24-000.jsonl');
     const backup = join(dir, 'backup-copy.jsonl');
@@ -415,6 +416,39 @@ describe('ashaveri accesslog scrub', () => {
     expect(readFileSync(part, 'utf8')).toContain('svc-a');
     expect(readFileSync(backup, 'utf8')).toContain('svc-a');
     expect(markers(dir)).toEqual([]);
+  });
+
+  it('erases from one part while a backup holds a second name on another the subject never wrote to', () => {
+    // The guard's other edge, and the one the first version cut the wrong way. A backup of a whole log
+    // directory hard-links every part in it, including the parts holding everybody else's records, and a
+    // run that asked the link question before it knew whose lines were inside refused every credential in
+    // the file. The erasure asked for here is honest whether or not the other part is shared, because
+    // nothing is written at that name at all.
+    const dir = dirWith(
+      new Map([
+        ['access-2026-02-24-000.jsonl', [record({ cred: 'svc-b', rid: 'rid-keep' })]],
+        [
+          'access-2026-02-25-000.jsonl',
+          [record({ cred: 'svc-a', rid: 'rid-gone' }), record({ cred: 'svc-b', rid: 'rid-also' })],
+        ],
+      ]),
+    );
+    const untouched = join(dir, 'access-2026-02-24-000.jsonl');
+    const held = renderAccessLine(record({ cred: 'svc-b', rid: 'rid-keep' }));
+    linkSync(untouched, join(dir, 'backup-copy.jsonl'));
+    expect(statSync(untouched).nlink).toBe(2);
+    const result = scrub(dir, 'svc-a');
+    expect(result.status).toBe(0);
+    expect(result.stderr).not.toContain('names hold those bytes');
+    expect(readFileSync(untouched, 'utf8')).toBe(held);
+    expect(receiptOf(markerOf(dir))).toEqual({
+      t: Date.parse(SCRUBBED_AT),
+      credential: 'svc-a',
+      removed: 1,
+      files: 1,
+      parts: ['access-2026-02-25-000.jsonl'],
+      request: null,
+    });
   });
 
   it.runIf(process.platform !== 'win32')('refuses a part whose name is a symlink, because the file behind it keeps every record', () => {

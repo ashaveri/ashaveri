@@ -275,14 +275,18 @@ async function scrubPart(
   credential: string,
 ): Promise<{ record: ScrubPartRecord; removed: number } | null> {
   const path = join(dir, name);
-  // Asked before the read, because both of this function's outcomes publish a receipt: a rewrite that
-  // leaves a second name holding the old bytes and an unlink that removes one name of several are the
-  // same false claim, and neither is improved by having read the part first.
-  await refuseSharedName(path);
   let snapshot = await readPart(path);
   for (let attempt = 1; attempt <= PART_ATTEMPTS; attempt += 1) {
     const kept = linesExceptTarget(snapshot.lines, credential);
     if (kept.length === snapshot.present) return null;
+    // Asked of a part this run has something to remove from, and before it publishes anything at the
+    // name, because both of the remaining outcomes receipt the bytes: a rewrite that leaves a second
+    // name holding them and an unlink that removes one name of several are the same false claim. Not
+    // higher up, because a shared name the subject has never written to is no reason to refuse the
+    // erasure, and a backup that hard-links a whole log would make this command useless about every
+    // credential in it. That is the same discipline that leaves a read-only part alone when it holds
+    // nothing of the subject's.
+    await refuseSharedName(path);
     if (kept.length === 0) {
       // A fully scrubbed part is unlinked, not renamed. A copy under a name the gateway's retention
       // can no longer match would keep every removed line on the volume forever, and it would read
@@ -456,8 +460,27 @@ async function readPart(path: string): Promise<PartSnapshot> {
   try {
     return await readSnapshot(path);
   } catch (err) {
+    // A link to nothing is read as a missing file, and an operator told that a name standing in the
+    // listing is not there goes looking for a deletion rather than for the link. Only the refusal path
+    // pays for this question.
+    if (isNotFound(err) && (await isLinkAt(path))) throw linkRefusal(path);
     throw new UsageError(`cannot read access log part '${path}': ${reasonOf(err)}`);
   }
+}
+
+/** Whether the name itself is a link, as far as one `lstat` can tell. */
+async function isLinkAt(path: string): Promise<boolean> {
+  try {
+    return (await lstat(path)).isSymbolicLink();
+  } catch {
+    return false;
+  }
+}
+
+function linkRefusal(path: string): UsageError {
+  return new UsageError(
+    `cannot scrub access log part '${path}': the name is a symlink, and neither a rewrite nor a deletion of it touches the file it points at, which holds every record this run reports removed`,
+  );
 }
 
 /** The same read with the operating system's own refusal left whole, for a caller that wraps it. */
@@ -581,7 +604,7 @@ export async function modeOf(path: string): Promise<number> {
 
 /**
  * A part that another name also holds is a part this command cannot honestly receipt, so it is refused
- * before a single line of it is read.
+ * before this run publishes anything at that name.
  *
  * The marker's `removed` says records left the volume, and a rewrite or an `unlink` takes them out of one
  * name. `rename` replaces the destination name, not the bytes behind it, so a hard link leaves the second
@@ -592,39 +615,43 @@ export async function modeOf(path: string): Promise<number> {
  * append-only log it does not want to copy, and the operator of that deployment is the person who would
  * otherwise read a receipt for an erasure that did not happen.
  *
- * One check per part, before the first read, because the bytes being shared is a property of the name and
- * not of an attempt, and the retry loop would re-ask a question nothing inside this run can change. What
- * it does not do is close the window: a link planted between this `stat` and the rename is invisible to
- * it, and no `node:fs` call makes a rename conditional on anything. Refusing what can be seen is the whole
- * claim, which is why the sentence names the count of links rather than only saying no.
+ * Asked once per attempt rather than once per part, because the question is only worth asking of a part
+ * this run is about to change, which is not known until the part has been read and filtered, and because a
+ * link planted while this run was working is the one it can still catch on the next pass. What it does not
+ * do is close the window: a link planted between this answer and the rename is invisible to it, and no
+ * `node:fs` call makes a rename conditional on anything. Refusing what can be seen is the whole claim,
+ * which is why the sentence names the count of links rather than only saying no.
  */
 async function refuseSharedName(path: string): Promise<void> {
   let here: Awaited<ReturnType<typeof lstat>>;
-  let file: Awaited<ReturnType<typeof stat>>;
   try {
     here = await lstat(path);
-    file = await stat(path);
   } catch (error) {
-    // A name that is already gone has its own refusal one step later, raised by the read that was asked
-    // to find a part. This function's answer to a missing name is therefore silence.
+    // The read that comes before this question already holds the part's lines, so a name missing here is
+    // one the sweep took while this run was deciding what else to ask. Its refusal belongs to whichever
+    // step asks the next question, which is the second read on the deletion route and the mode read on
+    // the rewrite route, and not to a function that was asked about links. This one's answer is silence.
     if (isNotFound(error)) return;
     throw new UsageError(`cannot inspect access log part '${path}': ${reasonOf(error)}`);
   }
-  if (here.isSymbolicLink()) {
-    throw new UsageError(
-      `cannot scrub access log part '${path}': the name is a symlink, and a rewrite would leave the file it points at holding every record this run reports removed`,
-    );
-  }
+  // Asked of the `lstat` result and not the `stat` one, because a link whose target is gone answers the
+  // second call with `ENOENT`. A run that looked through the link to decide would then call that name
+  // missing, and an operator reading "no such file or directory" about a file standing in the listing
+  // would be sent to look for a deletion rather than for the link.
+  if (here.isSymbolicLink()) throw linkRefusal(path);
   // The link count is a fact about a regular file. A directory's `nlink` is `2` plus its subdirectories,
   // which counts entries inside it and not names holding it, so asking the question of one answers with a
   // number that means something else entirely. Measured on Linux: a part name holding a directory came
   // back `nlink` 2 and was refused as "2 names hold those bytes", while this host answers 1 for the same
   // directory and the case that plants one fell through to the read. Anything that is not a regular file
-  // this run cannot rewrite anyway, and the read one step later refuses it in its own words.
+  // this run cannot rewrite anyway, and the step that next asks about the name refuses it in its own words.
   if (!here.isFile()) return;
-  if (file.nlink > 1) {
+  // Once the name is known to be a regular file there is nothing left to look through, so `lstat` and
+  // `stat` report the same inode and the same count of names holding it. Asking the second call anyway
+  // would add a window in which the answer can change and a refusal that is not this run's to make.
+  if (here.nlink > 1) {
     throw new UsageError(
-      `cannot scrub access log part '${path}': ${String(file.nlink)} names hold those bytes, and this run can take the records out of one of them`,
+      `cannot scrub access log part '${path}': ${String(here.nlink)} names hold those bytes, and this run can take the records out of one of them`,
     );
   }
 }

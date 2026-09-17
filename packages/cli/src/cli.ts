@@ -63,13 +63,14 @@ append that arrives after the rename is the other case, and the ordinary one on 
 stays on the volume, this run's copy is the bytes beneath it, and the read back reports the two of
 them together. A part with nothing to remove is left alone, and a part the scrub empties is
 deleted outright, its removals counted in the marker beside the rest. A part that a second name
-also holds, through a hard link or a symlink, is refused before it is read: this run empties one
-name and the records would stand at the other, and a marker claiming they left the volume would be
-the one thing this command exists not to write. A part that will not hold still across three
-attempts is refused by name, and the parts already done are receipted. Run it against a deployment
-that is not serving. --now sets the day a marker is named for, and a marker for a day the
-deployment no longer keeps is deleted by the next sweep. A day the sweep cannot name at all is
-refused before any record is touched.
+also holds, through a hard link or a symlink, is refused before this run writes, renames or deletes
+anything at it: this run empties one name and the records would stand at the other, and a marker
+claiming they left the volume would be the one thing this command exists not to write. A shared
+name holding none of the subject's records is left alone, as any other part is. A part that will
+not hold still across three attempts is refused by name, and the parts already done are
+receipted. Run it against a deployment that is not serving. --now sets the day a marker is named
+for, and a marker for a day the deployment no longer keeps is deleted by the next sweep. A day
+the sweep cannot name at all is refused before any record is touched.
 
 Verification options:
   --ark <file>       Trusted AMD root certificate (ARK), PEM or DER. Repeatable;
