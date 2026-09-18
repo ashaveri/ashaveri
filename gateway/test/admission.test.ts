@@ -174,6 +174,28 @@ describe('CredentialStore.admit, the five checks in order', () => {
     expect(code(() => s.admit(denied(3)))).toBe('SCOPE_DENIED');
   });
 
+  it('refuses either shape of a scope miss with the budget whole', () => {
+    const generated = record('read-only', ['read'], { rate: { perMinute: 1, burst: 1 } });
+    const s = store([generated.record]);
+    const miss = (target: string, at: number): AdmissionInput =>
+      signed({ id: 'read-only', privateKey: generated.privateKey, target, nonce: new Uint8Array(16).fill(at) });
+    const entitled = (at: number): AdmissionInput =>
+      signed({
+        id: 'read-only',
+        privateKey: generated.privateKey,
+        method: 'GET',
+        target: '/v1/deployment-manifest',
+        nonce: new Uint8Array(16).fill(at),
+      });
+    // The two refusals come from different halves of one condition: the table names
+    // `/v1/chat/completions` and asks `complete` of it, which this `read` grant does not satisfy,
+    // and it names `/v1/completions` not at all. Both arrive ahead of the single token this record
+    // holds, and the GET after them is what says neither spent it.
+    expect(code(() => s.admit(miss('/v1/chat/completions', 1)))).toBe('SCOPE_DENIED');
+    expect(code(() => s.admit(miss('/v1/completions', 2)))).toBe('SCOPE_DENIED');
+    expect(code(() => s.admit(entitled(3)))).toBe('no-error');
+  });
+
   it('refuses a rate-exhausted credential with a retry hint', () => {
     const generated = record('svc-1', ['complete'], { rate: { perMinute: 1, burst: 1 } });
     const s = store([generated.record]);
@@ -276,6 +298,29 @@ describe('bearer mode', () => {
     expect(code(() => s.admit(completion()))).toBe('SCOPE_DENIED');
   });
 
+  it('refuses either shape of a bearer scope miss with the budget whole', () => {
+    const bearer = newBearerCredential({ id: 'ops-1', scopes: ['read'], now: NOW });
+    const tight: CredentialRecord = { ...bearer.record, rate: { perMinute: 1, burst: 1 } };
+    const s = store([tight], { allowBearer: true });
+    const secret = Buffer.from(bearer.secret).toString('base64url');
+    const miss = (target: string): AdmissionInput => ({
+      method: 'POST',
+      url: target,
+      headers: { authorization: `Bearer ${secret}` },
+      body: null,
+    });
+    // A bearer request presents no nonce, so the two refusals differ only by target, and the GET
+    // after them is what shows a refusal spent nothing: the record holds one token, and it is still
+    // there for the route this credential may use.
+    expect(code(() => s.admit(miss('/v1/chat/completions')))).toBe('SCOPE_DENIED');
+    expect(code(() => s.admit(miss('/v1/completions')))).toBe('SCOPE_DENIED');
+    expect(
+      code(() =>
+        s.admit({ method: 'GET', url: '/v1/deployment-manifest', headers: { authorization: `Bearer ${secret}` }, body: null }),
+      ),
+    ).toBe('no-error');
+  });
+
   it('refuses a bearer record whose stored hash is malformed', () => {
     const bearer = newBearerCredential({ id: 'ops-1', now: NOW });
     const broken: CredentialRecord = { ...bearer.record, secretHash: new Uint8Array(31) };
@@ -350,6 +395,21 @@ describe('TokenBucket', () => {
     // otherwise read as a debt: a step backwards may not spend tokens nobody took.
     expect(bucket.take('a', rate, 30_000).allowed).toBe(true);
     expect(bucket.take('a', rate, 30_000).allowed).toBe(false);
+  });
+
+  it('grants a clock that wobbles no more than the same stamps without the wobble', () => {
+    const rate = { perMinute: 60, burst: 2 };
+    const admitted = (stamps: number[]): number => {
+      const bucket = new TokenBucket();
+      return stamps.filter((stamp) => bucket.take('a', rate, stamp).allowed).length;
+    };
+    // Two backwards steps, each followed by a forward one that re-crosses the stamp it fell from.
+    // A bucket that records the lower stamp as its base pays that interval out a second time, so
+    // the wobbly run buys more than the run whose backwards steps never happened.
+    const wobbly = [2_000, 1_000, 2_000, 1_500, 2_500];
+    const forwardOnly = wobbly.filter((stamp, index) => index === 0 || stamp >= (wobbly[index - 1] ?? 0));
+    expect(forwardOnly.length).toBeLessThan(wobbly.length);
+    expect(admitted(wobbly)).toBeLessThanOrEqual(admitted(forwardOnly));
   });
 
   it('keeps one bucket per credential', () => {

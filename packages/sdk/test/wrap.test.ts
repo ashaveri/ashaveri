@@ -148,6 +148,27 @@ describe('wrapOpenAI', () => {
     expect(captured(seen).get('authorization')).toBe(`Bearer ${toBase64Url(new Uint8Array(32))}`);
   });
 
+  it('keeps the headers a Request input carries when it applies the credential', async () => {
+    const { gateway, client } = fakeOpenAiClient();
+    const secret = new Uint8Array(32);
+    const wrapped = wrapOpenAI(client, { credential: { kind: 'bearer', secret } });
+    const request = new Request(CHAT_URL, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json', 'x-request-id': 'call-1', authorization: 'Bearer stale-placeholder' },
+      body: REQUEST_BODY,
+    });
+    const response = await wrapped.fetch(request);
+    expect(response.status).toBe(200);
+    const recorded = gateway.requests[0]!;
+    // A `Request` brings its own method, headers and body, and the header the wrapper owns is
+    // `authorization` alone: everything else the caller wrote has to reach the gateway with it.
+    expect(recorded.method).toBe('POST');
+    expect(recorded.body).toBe(REQUEST_BODY);
+    expect(recorded.headers['content-type']).toBe('application/json');
+    expect(recorded.headers['x-request-id']).toBe('call-1');
+    expect(recorded.headers['authorization']).toBe(`Bearer ${toBase64Url(secret)}`);
+  });
+
   it('replaces the placeholder key an official client writes with the credential it was given', async () => {
     const seen: { headers: Headers; body: string | undefined }[] = [];
     const recorder = (async (_input: string | URL | Request, init?: RequestInit) => {

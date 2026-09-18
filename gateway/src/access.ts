@@ -682,7 +682,10 @@ export class TokenBucket {
     const refilled = Math.min(rate.burst, bucket.tokens + gained);
     if (refilled < 1) {
       bucket.tokens = refilled;
-      bucket.updatedMs = nowMs;
+      // The base moves forward and never back: a stamp taken from behind it would let the next
+      // forward step recompute an interval this bucket has already paid out, so a clock that steps
+      // back and returns would buy more than `burst`.
+      bucket.updatedMs = Math.max(bucket.updatedMs, nowMs);
       // A whole second, and never zero: a hint the client cannot act on invites it to retry
       // immediately, which is the traffic this is meant to hold back. A rate that never refills has
       // no finite answer, and this number is destined for a `Retry-After` header, so it is a number
@@ -691,7 +694,8 @@ export class TokenBucket {
       return { allowed: false, retryAfterSeconds: Math.max(1, Math.ceil(waitMs / 1000)) };
     }
     bucket.tokens = refilled - 1;
-    bucket.updatedMs = nowMs;
+    // The same rule on the grant, which is where a backwards step that spent a token is recorded.
+    bucket.updatedMs = Math.max(bucket.updatedMs, nowMs);
     return { allowed: true, retryAfterSeconds: 0 };
   }
 }

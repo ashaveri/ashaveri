@@ -52,8 +52,13 @@ export function wrapOpenAI<T extends object>(client: T, options: WrapOptions = {
 
   const wrappedFetch: FetchLike = async (input, init) => {
     // The official client writes its own `Authorization` for a key this package never sees, and a
-    // caller-set one wins over a credential: on this path the header is the wrapper's to own.
-    const prepared = options.credential === undefined ? init : { ...init, headers: withoutAuthorization(init?.headers) };
+    // caller-set one wins over a credential: on this path the header is the wrapper's to own. A
+    // `Request` input carries its headers on the request rather than in the init, so seeding from
+    // the init alone would send an empty list and drop every header the caller had written.
+    const prepared =
+      options.credential === undefined
+        ? init
+        : { ...init, headers: withoutAuthorization(init?.headers ?? (input instanceof Request ? input.headers : undefined)) };
     if (mode === 'off' || prepared === undefined || typeof prepared.body !== 'string') {
       return authed(input, prepared);
     }
