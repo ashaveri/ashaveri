@@ -196,6 +196,21 @@ describe('ashaveri credential add', () => {
     expect(() => readFileSync(path)).toThrow();
   });
 
+  it('refuses --scopes complete without read, and writes nothing', () => {
+    // The gateway will not load a record carrying `complete` alone, because the receipt for a
+    // completion is a `read` route: such a credential could send an inference it could never fetch
+    // the evidence for. Refusing it here is what keeps an operator who types the flag from being left
+    // with a file the deployment will not boot on. The listing of the same path is the promise that
+    // nothing landed, and `--scopes complete,read` one case above is the control.
+    const path = freshFile();
+    const result = runCli(addArgs(path, '--id', 'writer', '--scopes', 'complete'));
+    expect(result.status).toBe(2);
+    expect(result.stderr).toContain('--scopes complete is missing read');
+    const listed = runCli(['credential', 'list', '--credentials', path]);
+    expect(listed.status).toBe(0);
+    expect(listed.stdout).not.toContain('writer');
+  });
+
   it('refuses a rate the gateway would refuse the whole file for', () => {
     const path = freshFile();
     const result = runCli(addArgs(path, '--id', 'r', '--rate', 'perMinute=0,burst=120'));
@@ -887,6 +902,20 @@ describe('one record, two parsers', () => {
     expect(listed.status).toBe(0);
     expect(listed.stdout).toMatch(/\bbearer\b/u);
     expect(() => parseCredentialFile(text)).toThrow(/digest of no bytes/u);
+  });
+
+  it('lists and revokes the credential that completes without reading, which the gateway will not load', () => {
+    // The second row where the two parsers differ on purpose, for the reason spelled out at
+    // `records.ts`: the gateway refuses the record at load, but a reader that refused here would
+    // leave no command naming the row an operator has to delete. The CLI write path will not produce
+    // this shape, so a file carrying it was hand-written or merged.
+    const text = `{"version":1,"credentials":[{"id":"a","kind":"pop","publicKey":"${'A'.repeat(43)}","scopes":["complete"],"createdAt":1772000000}]}\n`;
+    const listed = runCli(['credential', 'list', '--credentials', freshFile(text)]);
+    expect(listed.status).toBe(0);
+    expect(listed.stdout).toMatch(/\bcomplete\b/u);
+    const revoked = runCli(['credential', 'revoke', '--credentials', freshFile(text), '--id', 'a']);
+    expect(revoked.status).toBe(0);
+    expect(() => parseCredentialFile(text)).toThrow(/without 'read'/u);
   });
 
   it('accepts the loadable record every entry above differs from', () => {

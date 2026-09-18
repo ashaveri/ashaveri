@@ -82,12 +82,42 @@ describe('parseCredentialFile', () => {
     ['a bearer record whose hash is the digest of no bytes', 'BAD_CREDENTIAL_RECORD', 500, JSON.stringify({ version: 1, credentials: [{ id: 'a', kind: 'bearer', secretHash: EMPTY_DIGEST, scopes: [], createdAt: 1 }] })],
     ['scopes not a list', 'BAD_CREDENTIAL_RECORD', 500, JSON.stringify({ version: 1, credentials: [{ id: 'a', kind: 'pop', publicKey: 'dGVzdC1wdWIta2V5LTAwMDAwMDAwMDAwMDAwMDAwMDA', scopes: 'read', createdAt: 1 }] })],
     ['an unknown scope', 'BAD_CREDENTIAL_RECORD', 500, JSON.stringify({ version: 1, credentials: [{ id: 'a', kind: 'pop', publicKey: 'dGVzdC1wdWIta2V5LTAwMDAwMDAwMDAwMDAwMDAwMDA', scopes: ['export'], createdAt: 1 }] })],
+    ['a scope list that completes without reading', 'BAD_CREDENTIAL_RECORD', 500, JSON.stringify({ version: 1, credentials: [{ id: 'a', kind: 'pop', publicKey: 'dGVzdC1wdWIta2V5LTAwMDAwMDAwMDAwMDAwMDAwMDA', scopes: ['complete'], createdAt: 1 }] })],
     ['no createdAt', 'BAD_CREDENTIAL_RECORD', 500, JSON.stringify({ version: 1, credentials: [{ id: 'a', kind: 'pop', publicKey: 'dGVzdC1wdWIta2V5LTAwMDAwMDAwMDAwMDAwMDAwMDA', scopes: [] }] })],
     ['a rate with no burst', 'BAD_CREDENTIAL_RECORD', 500, JSON.stringify({ version: 1, credentials: [{ id: 'a', kind: 'pop', publicKey: 'dGVzdC1wdWIta2V5LTAwMDAwMDAwMDAwMDAwMDAwMDA', scopes: [], createdAt: 1, rate: { perMinute: 5 } }] })],
   ];
 
   it.each(refusals)('refuses %s with %s %i', (_name, expected, status, text) => {
     expect(refusal(() => parseCredentialFile(text))).toEqual([expected, status]);
+  });
+
+  it('refuses a credential that completes without reading, naming the id and the missing scope', () => {
+    // The table above proves the code; this proves the sentence an operator reads in a log line. A
+    // record holding `complete` alone could send completions and could not fetch the receipt for any
+    // of them, because that route is granted to `read`, so the file is refused at load and named.
+    const fileWith = (scopes: string[]) =>
+      JSON.stringify({
+        version: 1,
+        credentials: [
+          { id: 'svc-complete-only', kind: 'pop', publicKey: 'dGVzdC1wdWIta2V5LTAwMDAwMDAwMDAwMDAwMDAwMDA', scopes, createdAt: 1 },
+        ],
+      });
+    const err = (() => {
+      try {
+        parseCredentialFile(fileWith(['complete']));
+        return undefined;
+      } catch (caught) {
+        return caught;
+      }
+    })();
+    expect(err).toBeInstanceOf(AccessError);
+    const detail = (err as AccessError).detail ?? (err as Error).message;
+    expect(detail).toContain("'svc-complete-only'");
+    expect(detail).toMatch(/'complete' without 'read'/u);
+    // The control, so the refusal above is the pairing and not the file: the same record with the
+    // scope the rule asks for loads, and a `read`-only one does too.
+    expect(parseCredentialFile(fileWith(['read', 'complete'])).credentials[0]?.scopes).toEqual(['read', 'complete']);
+    expect(parseCredentialFile(fileWith(['read'])).credentials[0]?.scopes).toEqual(['read']);
   });
 
   it('refuses a duplicate id, because admission would resolve it arbitrarily', () => {

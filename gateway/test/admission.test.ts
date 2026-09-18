@@ -455,7 +455,10 @@ describe('a store that reads its credential file from disk', () => {
 
   it('admits nobody until it has read, and re-reads when the file moves', async () => {
     const { dir, path, write, file } = await dirOf();
-    const generated = newPopCredential({ id: 'svc-1', scopes: ['complete'], now: NOW });
+    // The coherent pair, not `complete` alone: this cell is about the reload, and a record that
+    // completes without reading is refused at load, so an incoherent list here would test the pairing
+    // rule from a cell that means to test something else.
+    const generated = newPopCredential({ id: 'svc-1', scopes: ['read', 'complete'], now: NOW });
     try {
       await write(file([generated.record]));
       const s = new CredentialStore({ path });
@@ -479,7 +482,10 @@ describe('a store that reads its credential file from disk', () => {
 
   it('keeps the records it has while the file on disk does not parse, and recovers after', async () => {
     const { dir, path, write, file } = await dirOf();
-    const generated = newPopCredential({ id: 'svc-1', scopes: ['complete'], now: NOW });
+    // The coherent pair, not `complete` alone: this cell is about the reload, and a record that
+    // completes without reading is refused at load, so an incoherent list here would test the pairing
+    // rule from a cell that means to test something else.
+    const generated = newPopCredential({ id: 'svc-1', scopes: ['read', 'complete'], now: NOW });
     try {
       await write(file([generated.record]));
       const s = new CredentialStore({ path });

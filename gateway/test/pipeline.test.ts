@@ -412,7 +412,7 @@ describe('the credential file the floor reads before it admits', () => {
   it('takes a revocation on the next request rather than on the next restart', async () => {
     const dir = await mkdtemp(join(tmpdir(), 'ashaveri-pipeline-'));
     const path = join(dir, 'credentials.json');
-    const credential = generated('reload-1', ['complete']);
+    const credential = generated('reload-1', ['read', 'complete']);
     try {
       await credentialFileAt(path, [credential.record]);
       const h = await harness({ credentials: [credential], storePath: path });

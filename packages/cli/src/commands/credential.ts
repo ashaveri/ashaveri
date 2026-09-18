@@ -62,6 +62,15 @@ function parseScopes(raw: string | undefined): Scope[] {
     if (!out.includes(part)) out.push(part);
   }
   if (out.length === 0) throw new UsageError('--scopes must name at least one scope');
+  // The pairing the gateway's parser refuses to load, enforced one step earlier so an operator who
+  // types `--scopes complete` gets a one-line refusal at the prompt instead of a credential file the
+  // gateway will not boot on. `read` is the scope the receipt route is granted to, so a credential
+  // that holds only `complete` could send completions and never fetch the receipt for them.
+  if (out.includes('complete') && !out.includes('read')) {
+    throw new UsageError(
+      "--scopes complete is missing read: a credential that sends completions has to be able to read the receipt for them, so pass --scopes read,complete",
+    );
+  }
   return out;
 }
 

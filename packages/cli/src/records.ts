@@ -80,8 +80,9 @@ export async function readCredentialFile(path: string): Promise<CredentialFile> 
  * parsing is a deployment answering 500 to every registered route, while a CLI that never checked
  * that field lists the file and reports a revocation as a success. A rule the gateway gains and this
  * reader does not is caught by the table in `test/credential.test.ts`, which drives a malformed
- * shape through both parsers and requires both to refuse it. That table has one row where the two
- * answers differ on purpose, and it is the rule named below rather than a rule this reader is late to.
+ * shape through both parsers and requires both to refuse it. That table has two rows where the two
+ * answers differ on purpose, and they are the two rules named below rather than rules this reader is
+ * late to.
  *
  * Three places the wording differs on purpose. The gateway's messages are for a log line and this
  * program's are for an operator at a prompt, so the id rule is stated as a range instead of a code,
@@ -96,6 +97,14 @@ export async function readCredentialFile(path: string): Promise<CredentialFile> 
  * `revoke` is how the file gets rewritten, and a reader that refused the whole file would leave no
  * command that names the one record to delete. Nothing in this program admits a request, so a digest
  * it can list is a value it cannot spend.
+ *
+ * The second rule this reader does not carry is a record whose scopes grant `complete` without
+ * `read`, which the gateway's `parseRecord` refuses at load because such a credential could send
+ * completions whose receipt it cannot fetch. `list` and `revoke` are again the reason: the shape is
+ * invalid for a deployment but it is still a record in a file, and refusing the file would hide the
+ * row the operator has to name to delete it. This program's own write path will not produce one,
+ * because `parseScopes` in `commands/credential.ts` refuses `--scopes complete`, so a file holding
+ * the shape was hand-written or merged, which is exactly the case a listing is for.
  *
  * One difference the table cannot see, because both readers still accept the record: this one hands
  * back the value it was given, so a field neither parser knows about survives an `add` or a `revoke`

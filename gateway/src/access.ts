@@ -237,6 +237,19 @@ function parseRecord(value: unknown, index: number): CredentialRecord {
   }
 
   const scopes = parseScopes(raw['scopes'], where);
+  // A credential that may send completions must also be able to fetch the receipt for them, because
+  // `GET /v1/receipts/:id` is granted to `read`. The receipt is the interpretation tool this product
+  // ships: an oversight duty is met with the evidence in hand, and a deployment that can complete
+  // what it cannot read has built that failure in. So `complete` alone is not a credential shape,
+  // and it is refused here, where a credential enters, rather than at admission, where the route
+  // table's plain lookup would have to become a set-inclusion test. The id is safe to print: the
+  // wire character set was checked above, and this sentence goes to a log line.
+  if (scopes.includes('complete') && !scopes.includes('read')) {
+    refuse(
+      'BAD_CREDENTIAL_RECORD',
+      `${where}.scopes of '${id}' grants 'complete' without 'read', so it could send completions whose receipt it cannot fetch`,
+    );
+  }
   const createdAt = asNumber(raw['createdAt'], `${where}.createdAt`);
   const record: CredentialRecord = { id, kind, scopes, createdAt };
   if (kind === 'pop') {

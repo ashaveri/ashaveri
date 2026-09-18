@@ -318,8 +318,10 @@ describe('the flags that make the access floor real', () => {
   });
 
   it('refuses a record with no public key, and says which one', () => {
+    // `read` and not `complete` alone, because a record that completes without reading is refused for
+    // its scope pairing before the loader reaches the key field, and this cell is about the key.
     const path = credentialFile(
-      '{"version":1,"credentials":[{"id":"a","kind":"pop","scopes":["complete"],"createdAt":1}]}',
+      '{"version":1,"credentials":[{"id":"a","kind":"pop","scopes":["read"],"createdAt":1}]}',
     );
     const result = run(...liveArgs('--model', 'm', '--credentials-path', path));
     expect(result.status).toBe(2);
@@ -328,8 +330,9 @@ describe('the flags that make the access floor real', () => {
   });
 
   it('refuses a bearer hash that is malformed even with bearer allowed', () => {
+    // Coherent scopes, for the same reason as the case above: this cell is about the hash.
     const path = credentialFile(
-      '{"version":1,"credentials":[{"id":"b","kind":"bearer","secretHash":"deadbeef","scopes":["complete"],"createdAt":1}]}',
+      '{"version":1,"credentials":[{"id":"b","kind":"bearer","secretHash":"deadbeef","scopes":["read"],"createdAt":1}]}',
     );
     const result = run(...liveArgs('--model', 'm', '--allow-bearer', '--credentials-path', path));
     expect(result.status).toBe(2);
