@@ -126,3 +126,82 @@ jobs:
             }
             console.log("reported both test secrets and nothing else");
           ' "$report" "$selftest_dir"
+
+  sbom:
+    name: Bill of materials from the lockfile
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 12.3.4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+
+      - name: Write the CycloneDX document
+        run: |
+          set -euo pipefail
+          mkdir -p sbom
+          pnpm sbom --sbom-format cyclonedx --sbom-type application --lockfile-only > sbom/ashaveri.cdx.json
+
+      - name: Check the document describes the locked graph
+        run: |
+          set -euo pipefail
+          node -e '
+            const fs = require("node:fs");
+            const bom = JSON.parse(fs.readFileSync(process.argv[1], "utf8"));
+            const components = bom.components || [];
+            const problems = [];
+            if (bom.bomFormat !== "CycloneDX") problems.push(`bomFormat is ${bom.bomFormat}`);
+            if (bom.specVersion !== "1.7") problems.push(`specVersion is ${bom.specVersion}`);
+            if (!bom.serialNumber) problems.push("serialNumber is missing");
+            if (components.length === 0) problems.push("the document lists no components");
+            if (!components.every((c) => c["bom-ref"] && c.version && c.purl)) {
+              problems.push("a component has no bom-ref, version or purl");
+            }
+            if (problems.length > 0) {
+              console.error(problems.join("\n"));
+              process.exit(1);
+            }
+            const named = components.filter((c) => c.scope !== "excluded").length;
+            console.log(`CycloneDX ${bom.specVersion}: ${components.length} components, ${named} outside the excluded scope, ${(bom.dependencies || []).length} dependency entries`);
+          ' "$GITHUB_WORKSPACE/sbom/ashaveri.cdx.json"
+
+      - name: Upload the document
+        uses: actions/upload-artifact@v4
+        with:
+          name: sbom-cyclonedx
+          path: sbom/ashaveri.cdx.json
+          retention-days: 90
+          if-no-files-found: error
+
+  codeql:
+    name: CodeQL analysis of the JavaScript and TypeScript sources
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    permissions:
+      contents: read
+      security-events: write
+      actions: read
+    steps:
+      - uses: actions/checkout@v4
+      - uses: github/codeql-action/init@v4
+        with:
+          languages: javascript-typescript
+      - uses: github/codeql-action/analyze@v4
+
+  dependency-review:
+    name: Dependency review on pull requests
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: read
+      pull-requests: write
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/dependency-review-action@v5.0.0
