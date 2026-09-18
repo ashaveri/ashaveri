@@ -69,7 +69,7 @@ once, with the least scope it accepts.
 
 | Route | Required scope | Why |
 |---|---|---|
-| `GET /v1/deployment-manifest` | `any` | An auditor holding a signed receipt needs the manifest to check it, and that person is usually not the deployer. Nothing sensitive is on this route, so the row is an intentional opening |
+| `GET /v1/deployment-manifest` | `any` | `any` is not anonymous: the pipeline runs first, and the SDK's manifest fetch goes out over the same credential-signed transport as its completions. What this row drops is the scope test, so a credential holding only `read` can fetch what it needs to check a receipt. Requiring `complete` here would leave a verifier holding a reader's credential unable to verify the receipt it was given |
 | `GET /v1/attestation` | `read` | It hands out live evidence, so the deployment chose to attribute the fetch |
 | `GET /v1/attestation/gpu` | `read` | Device evidence, fetched with a caller-named `report_data`, which makes the fetch attributable in a way a signed completion's route is not |
 | `POST /v1/chat/completions` | `complete` | The route that costs money, generates content, and has a privacy surface |
@@ -253,13 +253,17 @@ that request began. A file that will not parse leaves the records already loaded
 mtime unrecorded, so the next request tries again; a half-written file in the middle of an operator's
 edit is one failed reload rather than a deployment that has forgotten its credentials.
 
-On a managed confidential rail, the edit is a redeploy with a new measurement. The credential file is
-part of what a measured deployment launches with, so changing it changes the artifact a receipt's
-measurement refers to: the revocation itself becomes visible in the deployment's history, and a
-verifier sees a different measurement value after the change rather than the same one with different
-credentials behind it. The re-read path is for an operator who edits the file on a volume the process
-can see without a rebuild; a rail that seals its configuration produces a new measurement on every
-change, which is the property that makes confidential deployment auditable.
+**What a revocation does not move.** A credential edit changes neither digest a receipt carries.
+`wts` is the gateway's hash of a manifest that lists every file under the deployment's weights
+directory, and `enclave/docker-compose.yaml` mounts the credential file outside that directory for
+this reason: an operator-edited file inside it would either fail the entrypoint's check or put the
+edit inside the digest every receipt carries, so a routine enrolment or revocation would move the
+deployment's attested identity. `meas.m` is a platform launch value, a statement about what runs
+rather than a hash of what it is pointed at. What a revocation changes is the answer and the record:
+`AUTH_REVOKED` on a proof-of-possession credential, `AUTH_UNKNOWN` on a bearer one, each written to
+the access log with the credential id it refused. A verifier that pins a measurement and a weights
+digest pins the software a deployment runs, and not the list of who may call it; that list is the
+deployer's, and the log is where its use shows.
 
 ## 6. Flags that change the access floor
 
@@ -321,10 +325,10 @@ rather than stopping it. Section 8.2 says where 184 comes from and what a longer
 on.
 
 `window()` reports what the process actually holds: the earliest and latest timestamp on the volume
-and a count of the lines in the files still present. The count is a count of what survives, not of
-what was written, so an operator who pruned early sees a shorter window rather than a number that
-implies the missing days exist somewhere. `--access-log-days` is the request; the window is the
-result.
+and a count of the records it can read back. A line that fails to parse is skipped, so the number is
+of readable records rather than of lines. It is a count of what survives, not of what was written, so
+an operator who pruned early sees a shorter window rather than a number that implies the missing days
+exist somewhere. `--access-log-days` is the request; the window is the result.
 
 ### Erasure
 
