@@ -85,8 +85,9 @@ registers is checked against the table when it is registered, and a route with n
 gateway that booted cannot be serving an unclassified path.
 
 That sentence is about registration. A request for a target the server never registered is a
-separate case, and admission runs on it too: the pipeline answers before routing does, so an
-unmatched path comes back as a credential refusal rather than as a 404. Measured on a gateway
+separate case, and admission runs on it too: the unmatched lookup falls to Fastify's not-found
+route, and the pre-handler hook that admits requests runs on that route as it runs on a declared
+one, so an unmatched path comes back as a credential refusal rather than as a 404. Measured on a gateway
 holding one credential, with no signed header on the request, `GET /v1/nope`, `GET
 /v1/deployment-manifest` and `GET /` each answered 401 with `AUTH_MALFORMED`, and each wrote an
 access record whose `cred`, `auth`, `scope`, `rcp` and `nce` were null and whose `deny` carried
@@ -260,8 +261,9 @@ this reason: an operator-edited file inside it would either fail the entrypoint'
 edit inside the digest every receipt carries, so a routine enrolment or revocation would move the
 deployment's attested identity. `meas.m` is a platform launch value, a statement about what runs
 rather than a hash of what it is pointed at. What a revocation changes is the answer and the record:
-`AUTH_REVOKED` on a proof-of-possession credential, `AUTH_UNKNOWN` on a bearer one, each written to
-the access log with the credential id it refused. A verifier that pins a measurement and a weights
+`AUTH_REVOKED` on a proof-of-possession credential, written to the access log with the credential id
+it refused, and `AUTH_UNKNOWN` on a bearer one, written with `cred` null because a bearer request
+names no id and the refusal invents none. A verifier that pins a measurement and a weights
 digest pins the software a deployment runs, and not the list of who may call it; that list is the
 deployer's, and the log is where its use shows.
 
@@ -277,7 +279,8 @@ deployer's, and the log is where its use shows.
 
 ## 7. The access log
 
-One JSON object per line, one line per request, written whether the request was admitted or refused.
+One JSON object per line, one line per request this process routes, written whether the request was
+admitted or refused; a request the HTTP parser refuses before a route is looked up leaves no line.
 The field names are the entire allowlist: the writer reads exactly these keys out of an object, so an
 object a future hook learns to assemble cannot widen the record. There is no field for a body, a
 header, a key, a secret, or an address to be written into.
@@ -288,13 +291,13 @@ The twelve fields, in the order the writer emits them:
 |---|---|
 | `t` | Epoch milliseconds at the request's arrival |
 | `rid` | Server-generated request id, the join key between a line and a support ticket |
-| `cred` | Which credential made the request; `null` only when the request named none, since a refusal that got as far as reading an id records the id the header carried, known to the file or not |
-| `auth` | `pop`, `bearer`, or `null`. What this request was verified as, so the two postures read differently even in one bearer-capable deployment |
-| `scope` | Which scope the route needed, so a reader can compare it against the credential's grant without reloading the credential file |
+| `cred` | Which credential made the request. A refusal that got as far as reading an id records the id the header carried, known to the file or not; `null` covers the rest, which is a request that named none, the bearer scan's `AUTH_UNKNOWN`, and the 500 for a `pop` record the store cannot use |
+| `auth` | `pop`, `bearer`, or `null`. What this request was verified as, so the two postures read differently even in one bearer-capable deployment; `null` on a refusal, since what was verified is the thing the refusal says did not happen |
+| `scope` | Which scope the route needed, on a request the pipeline admitted. A refusal records `null`, and the row it was refused against is named in that refusal's own message |
 | `m` | The HTTP method |
 | `p` | The path only, with the query string dropped: it can carry a report-data challenge and receipt ids |
 | `rcp` | The receipt a read route was asked for. Only `GET /v1/receipts/:id` names one in its target, so a completion that issues a receipt records nothing here |
-| `nce` | The request's nonce, so a record can be tied to a receipt |
+| `nce` | The request's nonce, so a record can be tied to a receipt; `null` on a bearer request, which presents no nonce to record |
 | `st` | The HTTP status this gateway answered with |
 | `dur` | Request duration in milliseconds |
 | `deny` | The refusal code from section 1's table, on a request the pipeline rejected |
@@ -313,8 +316,10 @@ it does.
 
 ### Rotation and retention
 
-Files are named `access-YYYY-MM-DD-NNN.jsonl`. The date is the UTC day the writer was on when the
-line was produced, and a new part begins on the day boundary and again when a file passes 32 MiB, so
+Files are named `access-YYYY-MM-DD-NNN.jsonl`. The date is the UTC day of the line's own `t`, the
+stamp taken when the request arrived and not when the append runs, so a request that straddles
+midnight is filed under the day it began, and a new part begins on that day's boundary and again
+when a file passes 32 MiB, so
 a busy day's records are spread across parts and a quiet day is one file. `--access-log-days` prunes
 by name read from the file name, not by inode mtime: a file system whose timestamps have been touched
 does not change which day a file belongs to. 184 days is the default, and the log itself neither

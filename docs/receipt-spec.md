@@ -366,7 +366,7 @@ The SDK exposes three levels:
 
 | Mode | Behavior |
 |---|---|
-| `off` | No nonce header, no verification, receipts never fetched. |
+| `off` | No nonce of the client's own, no verification, receipts never fetched. It is not a claim about the wire: a proof-of-possession client still sends `x-ashaveri-nonce`, because the signing wrapper has to put a nonce under the signature and the gateway refuses a PoP request that carries none. |
 | `receipt` | Nonce injected, receipt fetched and verified (steps 1 through 7). Key resolution uses the deployment manifest. An unreceipted response returns a `null` receipt instead of failing. |
 | `strict` | As `receipt`, plus a required policy (step 2 and 8 with pins, optional freshness), an unreceipted response is an error, and the evidence behind step 9 is fetched and verified. |
 
