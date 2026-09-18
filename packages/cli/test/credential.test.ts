@@ -876,6 +876,19 @@ describe('one record, two parsers', () => {
     });
   }
 
+  it('lists the one record the gateway will not load, because a reader that refused it names nothing', () => {
+    // Every rule above is mirrored, and this is the exception by design. A `bearer` hash carrying the
+    // digest of no bytes is opened by any token that decodes to no bytes, so the gateway refuses the
+    // file outright; `list` is how an operator finds the row to delete and `revoke` is how the file is
+    // written back, so a reader that refused here would leave no command that names the record. The
+    // digest is inert in this program either way: nothing here admits anything.
+    const text = `{"version":1,"credentials":[{"id":"a","kind":"bearer","secretHash":"${EMPTY_BODY_SHA256_HEX}","scopes":["read"],"createdAt":1772000000}]}\n`;
+    const listed = runCli(['credential', 'list', '--credentials', freshFile(text)]);
+    expect(listed.status).toBe(0);
+    expect(listed.stdout).toMatch(/\bbearer\b/u);
+    expect(() => parseCredentialFile(text)).toThrow(/digest of no bytes/u);
+  });
+
   it('accepts the loadable record every entry above differs from', () => {
     // Without this the table proves nothing: a typo that malformed every entry would leave eighteen
     // passing assertions and no control.

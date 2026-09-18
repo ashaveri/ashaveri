@@ -80,7 +80,8 @@ export async function readCredentialFile(path: string): Promise<CredentialFile> 
  * parsing is a deployment answering 500 to every registered route, while a CLI that never checked
  * that field lists the file and reports a revocation as a success. A rule the gateway gains and this
  * reader does not is caught by the table in `test/credential.test.ts`, which drives a malformed
- * shape through both parsers and requires both to refuse it.
+ * shape through both parsers and requires both to refuse it. That table has one row where the two
+ * answers differ on purpose, and it is the rule named below rather than a rule this reader is late to.
  *
  * Three places the wording differs on purpose. The gateway's messages are for a log line and this
  * program's are for an operator at a prompt, so the id rule is stated as a range instead of a code,
@@ -88,6 +89,13 @@ export async function readCredentialFile(path: string): Promise<CredentialFile> 
  * takes `1.5` and `-0` without complaint, and a promise of whole seconds would be a rule neither
  * side enforces. The third is a value that is not an object at all, which the gateway refuses by name
  * and this reader reports as a bad `id`, having had nothing else to blame.
+ *
+ * The rule this reader does not carry is a `bearer` `secretHash` equal to the digest of no bytes,
+ * which the gateway's parser refuses because such a record is opened by every bearer token that
+ * decodes to no bytes. Here the record still has to print: `list` is how an operator finds the row,
+ * `revoke` is how the file gets rewritten, and a reader that refused the whole file would leave no
+ * command that names the one record to delete. Nothing in this program admits a request, so a digest
+ * it can list is a value it cannot spend.
  *
  * One difference the table cannot see, because both readers still accept the record: this one hands
  * back the value it was given, so a field neither parser knows about survives an `add` or a `revoke`

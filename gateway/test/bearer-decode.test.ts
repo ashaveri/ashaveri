@@ -316,6 +316,16 @@ function refuseCodeOf(text: string): string {
   }
 }
 
+/** The sentence a refusal carries, which is the only way to tell which of two rules fired. */
+function refuseDetailOf(text: string): string {
+  try {
+    parseCredentialFile(text);
+    return 'accepted';
+  } catch (err) {
+    return err instanceof AccessError ? (err.detail ?? '') : 'threw';
+  }
+}
+
 /**
  * The record the parser refuses, handed to the store the way a caller that builds records in memory
  * hands over any other: `bearerSecretHashOf` polices a digest's width and nothing about its entropy,
@@ -332,6 +342,9 @@ describe('the digest of nothing: refused as a file, and a secret anyone can pres
     // well-formed digest of a real message, namely of nothing. `parseRecord` now names it.
     expect(toHex(NOTHING_DIGEST)).toBe(NOTHING_DIGEST_HEX);
     expect(refuseCodeOf(handWrittenCredentialFile(true))).toBe('refuse:BAD_CREDENTIAL_RECORD');
+    // The code alone would not tell this rule from the width rule above it, and the two are only
+    // separable by their sentence: a file whose hash is upper-case hex is refused for its shape.
+    expect(refuseDetailOf(handWrittenCredentialFile(true))).toContain('digest of no bytes');
     expect(parseCredentialFile(handWrittenCredentialFile(false)).credentials.map((record) => record.id)).toEqual([
       'ops-0',
     ]);
@@ -359,12 +372,21 @@ describe('the digest of nothing: refused as a file, and a secret anyone can pres
     expect({ ...garbage, credentialId: 'shared' }).toEqual({ ...genuine, credentialId: 'shared' });
   });
 
-  it('has no canonical member of the nothing class that is a bearer secret', () => {
-    // The shortest text decoding to zero bytes is the empty text, and `bearerSecret` refuses it, so the
-    // class is reachable only through out-of-alphabet text. Two spellings of one byte string, two answers.
+  it('has no canonical member of the nothing class that a bearer secret can be, and admits the in-alphabet members', () => {
+    // The canonical spelling of no bytes is the empty text, and `admit` trims the header before the
+    // prefix is looked for, so `Bearer ` has no token left to hash: `bearerSecret` answers nothing, and
+    // the AUTH_SCHEME comes from `parseAuthorization`. What the class does hold is every text shorter
+    // than one byte of bits, and two of those are characters a canonical spelling is made of, so this
+    // secret needs no punctuation to present at all.
     expect(decode('').length).toBe(0);
     expect(answer(NOTHING_STORE, '')).toBe('refuse:AUTH_SCHEME');
     expect(answer(NOTHING_STORE, '!!!!')).toBe('admit:no-secret');
+    for (const text of ['-', '_']) {
+      expect(ALPHABET).toContain(text);
+      expect(decode(text).length).toBe(0);
+      expect(answer(NOTHING_STORE, text)).toBe('admit:no-secret');
+      expect(answer(STORE, text)).toBe('refuse:AUTH_UNKNOWN');
+    }
   });
 
   it('cannot be enrolled by the generator, which draws 32 random bytes', () => {

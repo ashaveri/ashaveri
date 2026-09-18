@@ -872,8 +872,10 @@ export class CredentialStore {
    * Bearer admission. The secret itself is never stored, so the only way to find whose it is comes
    * from hashing what was presented and comparing every digest in the file with a loop that does not
    * exit early on the first differing byte. A secret that is not base64url at all decodes to no bytes,
-   * and `parseRecord` refuses the one record whose digest is of no bytes, so every such token gets the
-   * same refusal a wrong secret gets.
+   * and `parseRecord` refuses the one `secretHash` that is the digest of no bytes, so on a store read
+   * from a credential file every such token gets the same refusal a wrong secret gets. A store handed
+   * its records in memory never reaches that rule, and this scan drops a digest for its width and
+   * nothing else, which is the case `bearer-decode.test.ts` pins rather than fixes.
    */
   private admitBearer(secret: string, scope: RouteScope | undefined, input: AdmissionInput): Admission {
     const wanted = hashSecret(new Uint8Array(Buffer.from(secret, 'base64url')));
