@@ -1,0 +1,36 @@
+title = "Ashaveri secret scan configuration"
+
+# The built-in rules do the detection and this file only extends them. That distinction
+# is load-bearing: a config that lists allowlists without useDefault replaces the built-in
+# rule set with an empty one, which reports nothing on a tree holding live credentials and
+# reads exactly like a clean repository. Measured on 8.30.1, deleting the two lines below
+# turned a repository holding a fabricated npm token into a scan that passed.
+[extend]
+useDefault = true
+
+# Two deterministic test keys are published here deliberately, each in the same object as
+# the public half it pairs with, so a scanner with no context has to be told they are not
+# credentials. The match is over the secret value and the finding's repository-relative
+# path together: measured on a copy of this repository, a third key planted inside either
+# of these files is still reported, and either of these two values copied to any other
+# path is still reported. A path entry names one file rather than a directory because a
+# directory would widen the same exemption over every file under it.
+#
+# One limit, measured rather than assumed: the value half of that pairing is enforced when
+# a scan reads commits, which is how CI runs it, and not when a scan reads a working tree.
+# On one tree, one config and gitleaks 8.30.1, the commit scan reported a second key
+# inside a file named below and the working-tree scan reported nothing. Both files named
+# below are generated from code, so a value pasted over a fixture's own slot also fails
+# the check that regenerates them.
+[[allowlists]]
+description = "Published fixture signing keys: these two values, these two files"
+condition = "AND"
+regexTarget = "secret"
+regexes = [
+  '''^d1332ee54c62ab3f5336167d4d694944ed98509395a5529e165e043013de19dd$''',
+  '''^83323642bdd8d84c58b3d208d07b4dfc7d84be7b4d670d2272a7ea328f2a06b7$''',
+]
+paths = [
+  '''^packages/fixtures/data/pop-v1\.json$''',
+  '''^packages/fixtures/data/keys/receipt-key-v1\.json$''',
+]

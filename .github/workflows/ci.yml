@@ -42,3 +42,87 @@ jobs:
       - run: pnpm -C packages/fixtures generate
       - run: pnpm -C packages/fixtures generate:pop
       - run: git diff --exit-code packages/fixtures/data
+
+  secret-scan:
+    name: Secret scan over the full commit history
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Download gitleaks 8.30.1
+        run: |
+          set -euo pipefail
+          version=8.30.1
+          archive_sha256=551f6fc83ea457d62a0d98237cbad105af8d557003051f41f3e7ca7b3f2470eb
+          mkdir -p "$RUNNER_TEMP/bin"
+          curl -sSfL -o "$RUNNER_TEMP/gitleaks.tar.gz" \
+            "https://github.com/gitleaks/gitleaks/releases/download/v${version}/gitleaks_${version}_linux_x64.tar.gz"
+          printf '%s  %s\n' "$archive_sha256" "$RUNNER_TEMP/gitleaks.tar.gz" | sha256sum --check --status
+          tar -xzf "$RUNNER_TEMP/gitleaks.tar.gz" -C "$RUNNER_TEMP/bin" gitleaks
+          "$RUNNER_TEMP/bin/gitleaks" version
+
+      - name: Scan committed history
+        run: |
+          set -uo pipefail
+          report="$RUNNER_TEMP/secrets-in-history.json"
+          "$RUNNER_TEMP/bin/gitleaks" git . -c "$GITHUB_WORKSPACE/.gitleaks.toml" \
+            -f json -r "$report" --redact --exit-code 3 --no-banner --no-color
+          status=$?
+          case "$status" in
+            0) ;;
+            3) echo "gitleaks reported findings, exit $status";;
+            *) echo "gitleaks exited $status without reporting findings";;
+          esac
+          if [ ! -s "$report" ]; then
+            echo "gitleaks wrote no report, so .gitleaks.toml did not load"
+            exit 1
+          fi
+          node -e '
+            const report = require(process.argv[1]);
+            if (report.length > 0) {
+              console.error(report.map((f) => `${f.RuleID} @ ${f.File}:${f.StartLine}`).join("\n"));
+              process.exit(3);
+            }
+          ' "$report"
+          exit "$status"
+
+      - name: Check that a test secret is caught
+        run: |
+          set -uo pipefail
+          selftest_dir=.secret-scan-selftest
+          seed=ashaveri-secret-scan-self-test
+          report="$RUNNER_TEMP/secrets-self-test.json"
+          mkdir -p "$GITHUB_WORKSPACE/$selftest_dir"
+          printf '{ "privateKey": "%s" }\n' \
+            "$(printf '%s' "$seed" | sha256sum | cut -c1-64)" > "$GITHUB_WORKSPACE/$selftest_dir/key.json"
+          printf '_authToken = npm_%s\n' \
+            "$(printf '%s token' "$seed" | sha256sum | cut -c1-36)" > "$GITHUB_WORKSPACE/$selftest_dir/npmrc.txt"
+          git add -- "$GITHUB_WORKSPACE/$selftest_dir"
+          git -c user.name=github-actions -c user.email=github-actions@github.com \
+            commit --no-verify -q -m "Secret scan self test"
+          "$RUNNER_TEMP/bin/gitleaks" git . -c "$GITHUB_WORKSPACE/.gitleaks.toml" \
+            -f json -r "$report" --redact --exit-code 3 --no-banner --no-color
+          status=$?
+          if [ ! -s "$report" ]; then
+            echo "gitleaks wrote no report, so .gitleaks.toml did not load"
+            exit 1
+          fi
+          if [ "$status" -ne 3 ]; then
+            echo "the test secrets were not reported, gitleaks exited $status"
+            exit 1
+          fi
+          node -e '
+            const report = require(process.argv[1]);
+            const selftestDir = process.argv[2];
+            const outside = report.filter((f) => !f.File.startsWith(selftestDir + "/"));
+            const rules = report.map((f) => f.RuleID).sort().join(",");
+            if (outside.length > 0 || rules !== "generic-api-key,npm-access-token") {
+              console.error(report.map((f) => `${f.RuleID} @ ${f.File}:${f.StartLine}`).join("\n"));
+              process.exit(1);
+            }
+            console.log("reported both test secrets and nothing else");
+          ' "$report" "$selftest_dir"
