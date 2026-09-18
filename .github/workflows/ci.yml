@@ -9,6 +9,8 @@ jobs:
   test:
     runs-on: ubuntu-latest
     timeout-minutes: 15
+    permissions:
+      contents: read
     steps:
       - uses: actions/checkout@v4
       - uses: pnpm/action-setup@v4
@@ -21,13 +23,20 @@ jobs:
       - run: pnpm install --frozen-lockfile
       - run: pnpm build
       - run: pnpm lint
-      - run: pnpm test
+      # The suite asserts on file modes it sets, and a mode is only observable against the
+      # process umask, so the step states the umask rather than inheriting whatever the host has.
+      - name: Run the workspace test suite
+        run: |
+          umask 0022
+          pnpm test
       - run: pnpm typecheck
 
   generated-vectors:
     name: Regenerating the vectors changes nothing
     runs-on: ubuntu-latest
     timeout-minutes: 15
+    permissions:
+      contents: read
     steps:
       - uses: actions/checkout@v4
       - uses: pnpm/action-setup@v4
@@ -47,6 +56,8 @@ jobs:
     name: Secret scan over the full commit history
     runs-on: ubuntu-latest
     timeout-minutes: 15
+    permissions:
+      contents: read
     steps:
       - uses: actions/checkout@v4
         with:
