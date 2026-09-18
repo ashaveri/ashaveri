@@ -115,25 +115,62 @@ deployment mounts each one under `/v1`: on such a gateway the receipt route is
 
 ### 4.1 Request
 
-The client POSTs to `/chat/completions` with header:
+The client POSTs to `/chat/completions`. A deployment that requires a proof of possession refuses
+the request before any inference runs unless it carries an `Authorization` header that names a
+credential and signs the request:
 
 ```text
+Authorization: Ashaveri-PoP credential=<id>, ts=<seconds>, sig=<base64url>
 x-ashaveri-nonce: <base64url, 16 random bytes>
 ```
 
-The nonce must be fresh per request and generated with a cryptographic RNG. A gateway that
-does not receive the header MAY generate its own nonce, in which case the receipt carries no
-anti-replay value for the client.
+The header carries the credential id, the request timestamp, and the signature, and nothing else
+about the credential: the id is looked up in the deployment's own credential set, and the signature
+proves the caller holds the key that id names. `sig` is the Ed25519 signature over a signing string
+of six components joined by `\n`, in this order:
+
+1. the scheme string `ashaveri-pop-v1`,
+2. `ts`, the same Unix-seconds value the header carries, written in decimal,
+3. the nonce as unpadded base64url, exactly the sixteen bytes in `x-ashaveri-nonce`,
+4. the HTTP method, upper-cased,
+5. the request target the client actually sent, the path and query including the deployment's mount
+   prefix, so `/v1/chat/completions` on a signerd gateway,
+6. the lowercase hex SHA-256 of the request body, or of the empty byte string when the request has
+   none.
+
+The gateway checks that signature against the key the named credential holds. It also requires the
+request to be fresh: a `ts` further from the gateway's own clock than the deployment's tolerance, in
+either direction, is refused, and 120 seconds is what a deployment that sets nothing runs with. On
+this deployment the nonce is not something the gateway invents. A proof-of-possession request whose
+`x-ashaveri-nonce` header is absent, or is not unpadded base64url for sixteen bytes, is refused with
+`AUTH_NONCE_MISSING`, and the bytes in that header must be the same sixteen that went into
+component 3, because the signature covers them.
+
+A deployment that runs in bearer mode admits the same completion without a signed header. There the
+client MAY omit `x-ashaveri-nonce`, and a gateway that does not receive it generates its own nonce;
+a receipt made over a generated nonce carries no anti-replay value for the client, because the
+client never chose it. A header that is present and unreadable is not replaced: the completion
+handler answers 400 for it, so a bearer client that sends a nonce had better send sixteen bytes of
+it.
 
 ### 4.2 Response
 
 Responses carry one additional header:
 
 ```text
-x-ashaveri-receipt-id: <opaque id>
+x-ashaveri-receipt-id: <id>
 ```
 
-The id is meaningful only to the gateway that issued it.
+The id is a handle to bytes only this gateway holds, not a proof: only the issuing deployment
+resolves it to a receipt, its second half is fresh randomness nobody can guess, and it is the key
+the store is looked up by. It is not, however, opaque about where it came from. The id is 48
+lowercase hex characters: the first 16 are an eight-byte tag the gateway derives from the minting
+credential's id, and the remaining 32 are the random bytes. Anyone holding the id can read that
+tag off its front, so two ids that share the prefix were minted by the same credential: the id
+links receipts to each other even to a reader with no secret. Recovering which credential a tag
+stands for takes the key the gateway derives tags under, which the deployment keeps, so an id on
+its own does not hand a stranger a name. Fetching the bytes the id points at needs the `read`
+scope and the tag check described in section 4.7.
 
 ### 4.3 Fetching a receipt
 
@@ -260,6 +297,28 @@ receipt assert something its signer cannot know, which is whether the client hol
 tier needs. No verifier in this repository reports a tier yet, so read every composite kind at the
 weaker of the two strengths: this challenge was answered by a genuine confidential-computing GPU
 and by a genuine VM, and the pairing of the two is the operator's claim.
+
+### 4.7 Receipt authorization
+
+The fetch in section 4.3 is not a public read. On a gateway that keeps a credential set the route
+`GET /receipts/<id>` is granted to the `read` scope, so a request for it is admitted on the same
+proof-of-possession or bearer terms as any other route, and one that names no usable credential is
+turned away before the gateway looks at the id. The scope table and the fuller account of what each
+route demands are in `docs/access-control.md`; this section records only what the fetch route itself
+does with the id.
+
+A credential with `read` still cannot read another credential's receipt. The gateway derives the
+caller's own tag from the credential it just admitted and checks that tag against the first sixteen
+characters of the id before it asks the store for anything. An id carrying a different tag, or one
+too short to carry a tag at all, is refused at that check and the store is never read.
+
+A refusal at the tag check is answered exactly as a request for an id this gateway never minted:
+status 404 with the message `no receipt for id <id>`, the caller's id quoted back unchanged. The
+compare does not fail early on the first differing character, and the two refusals share one text,
+so the route discloses nothing about whether bytes exist for someone else. It answers whether this
+caller's credential could have minted the id, not whether the id exists. What the tag prefix reveals
+to a holder of the id, and what erasing the access log can and cannot undo around it, is treated in
+`docs/access-control.md`.
 
 ## 5. Verification algorithm
 
