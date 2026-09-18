@@ -21,14 +21,13 @@ const schema = JSON.parse(readFileSync(schemaPath, 'utf8')) as object;
  * reimplementer has to match, not the formats: nothing here reads the URL's shape, and a real
  * uri validator would add a rule the signed payload does not commit to.
  *
- * `strictTypes` logs instead of throwing for one named reason: the two `then` branches at
- * `payload.properties.meas.allOf/0` and `/1` constrain `m` with a `pattern` and no `type`, so
- * each subschema is looser than the `$ref` it narrows. The fix is a `type: "string"` in
- * `schemas/receipt-v1.schema.json`, not a wider option here.
+ * `strictTypes` is at its default, so a subschema that is looser than the `$ref` it narrows is a
+ * compile error rather than a log line: the two `then` branches at
+ * `payload.properties.meas.allOf/0` and `/1` each declare `type: "string"` next to their `pattern`.
  */
 function compile(s: object): ValidateFunction<unknown> {
   const acceptsAnything = () => true;
-  const ajv = new Ajv2020({ strict: true, strictTypes: 'log', formats: { uri: acceptsAnything } });
+  const ajv = new Ajv2020({ strict: true, formats: { uri: acceptsAnything } });
   return ajv.compile(s);
 }
 

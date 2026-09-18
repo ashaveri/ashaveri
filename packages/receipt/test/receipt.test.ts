@@ -119,7 +119,8 @@ describe('COSE_Sign1 receipt codec', () => {
   it('rejects structurally invalid payloads with BAD_PAYLOAD', () => {
     const key = generateSigningKey();
     const payload = samplePayload();
-    // @ts-expect-error deliberately malformed
+    // A 15-byte nonce satisfies the field's type but not the codec's fixed 16-byte
+    // length, so the payload this line builds is structurally invalid.
     const bad = { ...payload, nce: new Uint8Array(15) };
     const bytes = issueReceipt(bad as ReceiptPayload, key);
     expectErrorCode(() => verifyReceipt(bytes, { publicKey: key.publicKey, now: FIXED_NOW }), 'BAD_PAYLOAD');

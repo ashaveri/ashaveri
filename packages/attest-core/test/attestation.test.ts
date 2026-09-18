@@ -104,9 +104,13 @@ describe('dStack SEV-SNP attestation verification', () => {
     const attestation = decodeFixture();
     expect(attestation.version).toBe(0);
     expect(attestation.platform.kind).toBe('sev-snp');
-    expect(attestation.platform.report.length).toBe(1184);
-    expect(attestation.platform.certChain).toEqual([]);
-    expect(attestation.platform.mrConfig).toContain('"key_provider":"kms"');
+    const platform = attestation.platform;
+    if (platform.kind !== 'sev-snp') {
+      throw new Error(`expected a sev-snp platform, got ${platform.kind}`);
+    }
+    expect(platform.report.length).toBe(1184);
+    expect(platform.certChain).toEqual([]);
+    expect(platform.mrConfig).toContain('"key_provider":"kms"');
     expect(attestation.stack.reportData.length).toBe(64);
     expect(attestation.stack.runtimeEvents.length).toBe(9);
     expect(attestation.stack.stackKind).toBe('dstack');

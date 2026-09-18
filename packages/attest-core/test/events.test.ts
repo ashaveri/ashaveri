@@ -9,7 +9,7 @@ import {
   runtimeEventPreimage,
   validateEventLog,
 } from '../src/index.js';
-import type { RuntimeEvent } from '../src/index.js';
+import type { RuntimeEvent, TdxEvent } from '../src/index.js';
 import { expectErrorCode, tdxEventsFor } from './helpers.js';
 
 function sha384(...parts: Uint8Array[]): Uint8Array {
@@ -120,7 +120,7 @@ describe('event log validation', () => {
       version: 2,
     };
     const canonical = runtimeEventPreimage(event);
-    const log = [
+    const log: TdxEvent[] = [
       {
         imr: 3,
         eventType: 0x08000001,
