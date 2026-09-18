@@ -15,7 +15,8 @@ export interface AccessRecord {
   readonly m: string;
   /** Path only. The query string is dropped: it carries report data and receipt ids. */
   readonly p: string;
-  /** The receipt this request read or issued, when it named one. */
+  /** The receipt a read route was asked for. Only /v1/receipts/:id names one in its target, so a
+   * completion that issues a receipt leaves this null, as does a request refused before admission. */
   readonly rcp: string | null;
   readonly nce: string | null;
   readonly st: number;

@@ -43,7 +43,7 @@ end to end through the SDK in strict mode.
 | `@ashaveri/receipt` | Deterministic CBOR + COSE_Sign1 receipt codec (RFC 8949 / RFC 9052) |
 | `@ashaveri/attest-core` | Offline verification of dStack confidential-VM attestations (SEV-SNP and TDX) |
 | `@ashaveri/sdk` | Client SDK: `AshaveriClient` and `wrapOpenAI` with receipt verification |
-| `@ashaveri/signerd` | Receipt-signing gateway: mock mode for development, live dStack CVM mode |
+| `@ashaveri/signerd` | Receipt-signing gateway: mock mode for development, live dStack CVM mode. Every route it serves demands a credential, checks the scope that route needs and rejects a replay and a spent rate bucket before it answers, and writes one access-log line per request; a live start requires `--credentials-path` and `--access-log-path` |
 | `@ashaveri/cli` | `ashaveri` binary: `verify` for offline attestation checks, plus `keygen`, `credential` and `accesslog` operator commands, with CI-friendly exit codes |
 | `@ashaveri/fixtures` | Golden conformance vectors shared by every implementation |
 
@@ -64,7 +64,10 @@ The receipt wire format is normatively defined in `packages/receipt/receipt.cddl
 with the full protocol in [docs/receipt-spec.md](docs/receipt-spec.md) and the
 threat model in [docs/threat-model.md](docs/threat-model.md). Every error code those
 packages throw, with what raises it and what a caller should do, is tabulated in
-[docs/error-codes.md](docs/error-codes.md).
+[docs/error-codes.md](docs/error-codes.md). Who may call at all is
+[docs/access-control.md](docs/access-control.md): the admission checks every route runs,
+the scope each one needs, and what the per-request access log holds, how long it keeps it,
+and how a line is erased.
 Fixtures are regenerated deterministically with `pnpm --filter @ashaveri/fixtures generate`.
 
 ## Verifying inference receipts
@@ -75,10 +78,15 @@ Start the mock gateway, then call it through the SDK:
 node gateway/dist/cli.js --mock --port 7173
 ```
 
-```ts
-import { AshaveriClient } from '@ashaveri/sdk';
+Every route a signerd gateway serves refuses a request that names no credential, so the
+client signs each request with one. `--mock` prints a development credential at start-up, and
+`credentialFromEnv` reads that id and key from the environment:
 
-const client = new AshaveriClient({ baseUrl: 'http://127.0.0.1:7173/v1' });
+```ts
+import { AshaveriClient, credentialFromEnv } from '@ashaveri/sdk';
+
+// ASHAVERI_CREDENTIAL_ID=dev ASHAVERI_CREDENTIAL_SECRET=<the privateKeyHex the gateway printed>
+const client = new AshaveriClient({ baseUrl: 'http://127.0.0.1:7173/v1', credential: credentialFromEnv(process.env) });
 const { completion, receipt } = await client.chat.completions.create({
   messages: [{ role: 'user', content: 'hello' }],
 });
