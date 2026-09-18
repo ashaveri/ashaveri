@@ -416,18 +416,24 @@ designation is actually made is the deployer's own Article 30 record, and it is 
 One link does not live in the log, and saying so is part of what an erasure can be asked to do. The
 first sixteen hex characters of a receipt id, eight bytes, are a tag derived from the minting
 credential's id, and that id is what the `x-ashaveri-receipt-id` response header carries, what a
-client fetches the receipt by, and what `rcp` copies on a read. So the link survives an erasure
-wherever the id itself is held: anyone with the id can read the producing credential's tag off its
-front, and with a credential file in front of them name the credential. The signed receipt bytes
-carry no id, and their `nce` claim is the request nonce rather than the handle, so a holder of
-receipt bytes alone is not that reader. That is not a property of the log: erasing the log does not
-disturb it, because the chain is append-only. The link the log creates is a read event, and only a
-read event is erasable.
+client fetches the receipt by, and what `rcp` copies on a read. What the link discloses is narrower
+than the word "derived" suggests, and the difference matters to anyone reading an erasure's residue.
+The tag is a keyed hash: its key comes from this deployment's own signing seed, so a tag is
+not a name and cannot be reversed into one. A reader holding an id, the receipt behind it and every
+credential file the deployment keeps still cannot say which credential minted it. Two things remain true
+without that. Ids carrying the same tag came from the same credential, so anyone who sees both ids can tell they
+belong together, which is linkability rather than identification. And the deployment itself, holding the seed,
+can compute each credential's tag and so name the credential behind any id it is shown. The strongest reader of a
+tag is the operator who already holds the log.
 
-That limit is the cost of unguessability: an id a stranger cannot walk is an id whose origin is
-still legible to anyone who has the id. The tag is what makes the fetch route refuse one tenant's
-receipt to another without storing ownership state that could drift, and the same value is what
-survives an erasure.
+The signed receipt bytes carry no id, and their `nce` claim is the request nonce rather than the handle, so a
+holder of receipt bytes alone is not that reader. That is not a property of the log: erasing the log does not
+disturb it, because the chain is append-only. The link the log creates is a read event, and only a read event is
+erasable.
+
+That limit is the cost of unguessability: an id a stranger cannot walk is an id whose tag is still legible
+to anyone who has the id. The tag is what makes the fetch route refuse one tenant's receipt to another
+without storing ownership state that could drift, and the same value is what survives an erasure.
 
 ## 9. Appendix: data map
 
