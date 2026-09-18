@@ -295,9 +295,12 @@ describe('ashaveri verify', () => {
       expect(machine.stdout, name).not.toMatch(/^FORGED/mu);
       const parsed = JSON.parse(machine.stdout) as { ok: boolean; code: string; message: string };
       expect(parsed.ok).toBe(false);
-      // Escaping has to be a change of spelling and not a change of meaning: the parser reading the
-      // document gets back the character the attestation carried.
-      expect(parsed.message, name).toContain(key);
+      // The sentence about the document arrives here already escaped, by the package that raises it,
+      // so the guard in this program is a pass-through on that route. A value in this report stays
+      // verbatim, because a client may have to read it; a message is prose, and `code` is the field a
+      // program branches on. The gateway quotes these messages in an error reply of its own, which is
+      // why the escape belongs where the message is made and not only in front of this terminal.
+      expect(parsed.message, name).toContain(escape);
       expect(countLines(machine.stdout), name).toBe(5);
     }
   });

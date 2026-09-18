@@ -45,11 +45,33 @@ function bounded(detail: string): string {
   return detail.length > MAX_DETAIL ? `${detail.slice(0, MAX_DETAIL)}...` : detail;
 }
 
+/**
+ * Bounding the length does not close the second way a header can write itself into a message.
+ * `parsePopAuthorization` quotes a parameter name it did not recognise, and a name is anything up
+ * to an `=` sign, which includes a line feed. A refusal that carries one is two lines to anything
+ * that reads a log by lines. The character set is the one the CLI escapes before printing, stated
+ * again here because the packages share no module and the promise belongs to whoever builds the
+ * message: a `ReceiptError` is one line of visible text, whoever raised it. The bound runs first,
+ * on the raw text, so what it limits is what the caller sent rather than how long the escapes got.
+ */
+const INVISIBLE = /[\p{Cc}\p{Cf}\u{2028}\u{2029}\u{e0000}-\u{e007f}]/gu;
+
+function asOneLine(message: string): string {
+  return message.replace(INVISIBLE, (char) => {
+    // One escape per UTF-16 unit, walked by index, so a surrogate pair leaves no half behind.
+    const units: string[] = [];
+    for (let index = 0; index < char.length; index += 1) {
+      units.push(`\\u${char.charCodeAt(index).toString(16).padStart(4, '0')}`);
+    }
+    return units.join('');
+  });
+}
+
 export class ReceiptError extends Error {
   readonly code: ReceiptErrorCode;
 
   constructor(code: ReceiptErrorCode, detail?: string) {
-    super(detail ? `${ERROR_MESSAGE[code]}: ${bounded(detail)}` : ERROR_MESSAGE[code]);
+    super(asOneLine(detail ? `${ERROR_MESSAGE[code]}: ${bounded(detail)}` : ERROR_MESSAGE[code]));
     this.name = 'ReceiptError';
     this.code = code;
   }

@@ -63,11 +63,37 @@ const ERROR_MESSAGE: Record<AttestationErrorCode, string> = {
   POLICY_NOT_ALLOWED: 'SEV-SNP report policy violates the verification profile',
 };
 
+/**
+ * Some of the messages this class carries quote a name the document chose: `decode.ts` folds a
+ * decoded msgpack key into the context of whatever follows it, and a key is only checked to be
+ * valid UTF-8, which a newline is. A refusal that carries one is two lines to anything that reads
+ * a log by lines, and the second line is written by whoever sent the document.
+ *
+ * The set is the one the CLI escapes before printing (`packages/cli/src/usage.ts`): the control
+ * characters, which include both line feeds and the C1 next-line, the format characters, which
+ * include the bidi overrides that make a credential id read as something other than what it is,
+ * and the two Unicode separators. Restated here rather than imported because the packages share
+ * no module, and because the promise belongs to whoever builds the message: an `AttestationError`
+ * is one line of visible text, whoever raised it.
+ */
+const INVISIBLE = /[\p{Cc}\p{Cf}\u{2028}\u{2029}\u{e0000}-\u{e007f}]/gu;
+
+function asOneLine(message: string): string {
+  return message.replace(INVISIBLE, (char) => {
+    // One escape per UTF-16 unit, walked by index, so a surrogate pair leaves no half behind.
+    const units: string[] = [];
+    for (let index = 0; index < char.length; index += 1) {
+      units.push(`\\u${char.charCodeAt(index).toString(16).padStart(4, '0')}`);
+    }
+    return units.join('');
+  });
+}
+
 export class AttestationError extends Error {
   readonly code: AttestationErrorCode;
 
   constructor(code: AttestationErrorCode, detail?: string) {
-    super(detail ? `${ERROR_MESSAGE[code]}: ${detail}` : ERROR_MESSAGE[code]);
+    super(asOneLine(detail ? `${ERROR_MESSAGE[code]}: ${detail}` : ERROR_MESSAGE[code]));
     this.name = 'AttestationError';
     this.code = code;
   }
