@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { ed25519 } from '@noble/curves/ed25519';
+import { ed25519, ED25519_TORSION_SUBGROUP } from '@noble/curves/ed25519';
 import { fromBase64Url, toBase64Url } from '../src/b64.js';
 import {
   EMPTY_BODY_SHA256_HEX,
@@ -183,5 +183,69 @@ describe('PoP signature', () => {
 
   it('exports the tolerance a caller reads to decide staleness', () => {
     expect(POP_TIMESTAMP_TOLERANCE_SECONDS).toBe(120);
+  });
+});
+
+describe('proof of possession against small-order public keys', () => {
+  const FIELD_PRIME = 2n ** 255n - 19n;
+  const HONEST_SEED = new Uint8Array(32).fill(11);
+  const HONEST_PUBLIC_KEY = ed25519.getPublicKey(HONEST_SEED);
+
+  function fromHexString(digits: string): Uint8Array {
+    const bytes = new Uint8Array(digits.length / 2);
+    for (let i = 0; i < bytes.length; i += 1) {
+      bytes[i] = Number.parseInt(digits.slice(i * 2, i * 2 + 2), 16);
+    }
+    return bytes;
+  }
+
+  function toHexString(bytes: Uint8Array): string {
+    let out = '';
+    for (const byte of bytes) out += byte.toString(16).padStart(2, '0');
+    return out;
+  }
+
+  /**
+   * The `y + p` spelling of the same point. A decoder that reduces the field element modulo `p`
+   * reads it back as the same key, so a verifier that accepts it accepts a second encoding of every
+   * small-order point. Only a point whose `y` is below 19 has one, and this subgroup list holds
+   * three of them.
+   */
+  function plusPEncoding(bytes: Uint8Array): Uint8Array | undefined {
+    let y = 0n;
+    for (let i = 31; i >= 0; i -= 1) y = (y << 8n) | BigInt((bytes[i] ?? 0) & 0x7f);
+    const signBit = ((bytes[31] ?? 0) & 0x80) === 0 ? 0n : 2n ** 255n;
+    const shifted = y + FIELD_PRIME;
+    if (shifted >= 2n ** 255n) return undefined;
+    const encoded = new Uint8Array(32);
+    let value = shifted | signBit;
+    for (let i = 0; i < 32; i += 1) {
+      encoded[i] = Number(value & 0xffn);
+      value >>= 8n;
+    }
+    return encoded;
+  }
+
+  const canonicalKeys = [...new Set(ED25519_TORSION_SUBGROUP)].map(fromHexString);
+  const nonCanonicalKeys = canonicalKeys.flatMap((encoded) => {
+    const alternative = plusPEncoding(encoded);
+    return alternative === undefined ? [] : [alternative];
+  });
+
+  it('refuses a signature nobody made, for every encoding of every small-order key', () => {
+    // The counts name the shape of the attack surface: eight distinct subgroup points, three of
+    // them reachable by a second encoding, so eleven keys that would each accept any request.
+    expect(canonicalKeys).toHaveLength(8);
+    expect(nonCanonicalKeys).toHaveLength(3);
+    const zeroSignature = new Uint8Array(64);
+    for (const smallOrderKey of [...canonicalKeys, ...nonCanonicalKeys]) {
+      expect(verifyPopSignature(fields(), zeroSignature, smallOrderKey), toHexString(smallOrderKey)).toBe(false);
+    }
+  });
+
+  it('accepts a real signature under an honest key, so the refusals above are not an always-false verifier', () => {
+    const signature = ed25519.sign(new TextEncoder().encode(popSigningString(fields())), HONEST_SEED);
+    expect(verifyPopSignature(fields(), signature, HONEST_PUBLIC_KEY)).toBe(true);
+    expect(verifyPopSignature({ ...fields(), target: '/v1/other' }, signature, HONEST_PUBLIC_KEY)).toBe(false);
   });
 });

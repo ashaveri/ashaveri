@@ -4,8 +4,11 @@ import fc from 'fast-check';
  * A second copy of `packages/attest-core/test/generators.ts`, on purpose. The two packages do not
  * import from each other's test directories: a relative import that walks out of a package works
  * in this workspace and breaks the moment either package is published on its own, so each keeps
- * the generators it needs. Only `snpReportCorpus` and the fixture reader differ, because this
- * package has no fixture files: both corpora here are built by the package's own writers.
+ * the generators it needs. Two items differ. `snpReportCorpus` is only in that copy, because only
+ * there does a corpus have to be carved out of a larger document. `hostileText` is only here,
+ * because every parser in the other package takes bytes and the header parser takes text. What a
+ * corpus is read from is not this file's business either: that is `test/helpers.ts` in the other
+ * package, and this one reads no file, because both corpora here are built by its own writers.
  */
 
 /** Set from the environment so a red run replays exactly: `FC_SEED=1234` on the package's test run. */
@@ -103,8 +106,10 @@ export function outcome<T>(parse: (input: T) => unknown, input: T, isOwnError: (
  * written false only for the corpus value, `[[corpus]]` reports a failure after one test and
  * `[corpus]` reports nothing at all, the same as passing no examples. A byte corpus and a text
  * corpus both behave that way. Dropping the wrap would therefore void the claim that a green run
- * parsed the real document, and nothing would go red. That claim is asserted directly as well, by
- * the case which measures the length at which each parser starts accepting its corpus.
+ * parsed the real document, and nothing would go red. A probe that disagrees has usually tested a
+ * value that is not iterable: a number example goes red under either spelling, so a property over
+ * `fc.integer` says nothing about a corpus of bytes or text. That claim is asserted directly as
+ * well, by the case which measures the length at which each parser starts accepting its corpus.
  */
 export function check<T>(
   arbitrary: fc.Arbitrary<T>,

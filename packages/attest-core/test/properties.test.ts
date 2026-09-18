@@ -161,7 +161,6 @@ describe('untrusted parsers, by property', () => {
         // asserting a boundary that came from nowhere. This is also the claim that a corpus which
         // stopped being readable cannot quietly pass the other three.
         expect(boundary).toBe(target.layoutMinimum);
-        expect(target.source.length).toBeGreaterThanOrEqual(target.layoutMinimum);
       });
 
       it('either returns a value or throws its own error, for any input', () => {
@@ -197,8 +196,11 @@ describe('untrusted parsers, by property', () => {
           if (result.kind !== 'value') {
             return true;
           }
-          // Nothing in the value may be wider than the bytes that were handed over, and a field
-          // the format pins to a width has to carry that width: a short one is a read past the end.
+          // Nothing in the value may be wider than the bytes that were handed over. No input can
+          // make that false of the parsers this file runs, because each of them slices what it was
+          // given: the clause is a pin on a future parser that pads a field to a length the document
+          // declares rather than reading the bytes that are there, which is the same mistake as a
+          // short field, a read past the end, wearing the other clothes.
           if (longestByteField(target.parse(input)) > input.length) {
             return false;
           }
@@ -341,6 +343,27 @@ describe('a refusal that quotes a name out of the document', () => {
       // it reads one, since a message that never carried the name has nothing to escape.
       expect(failure.message).toContain('attestation.att\\u000ax');
       expect(failure.message.split('\n')).toHaveLength(1);
+    }
+  });
+
+  it('bounds the name it quoted, so a key as long as a document stays a sentence', () => {
+    // Two limits meet here: a document is admitted up to the 10 MiB the decoder allows, and a map
+    // key inside it is checked only to be valid UTF-8, so the quoted part is the one piece of a
+    // refusal whose length the caller picks. 3,200 is the fixed sentence, the 512 raw characters
+    // the bound keeps, the three that mark where it stopped, and room for every one of them to be
+    // a character the escaper expands by six.
+    try {
+      decodeAttestation(v1Quoting('k'.repeat(5_000)));
+      throw new Error('expected a refusal');
+    } catch (err) {
+      expect(err).toBeInstanceOf(AttestationError);
+      const failure = err as AttestationError;
+      expect(failure.code).toBe('MALFORMED_ATTESTATION');
+      // The detail the bounder sees is the context the decoder folds the key into plus the key, so
+      // of the 512 characters it keeps, 12 name where the key was found and the rest is its head.
+      const keptKey = 'k'.repeat(512 - 'attestation.'.length);
+      expect(failure.message.endsWith(`${keptKey}...`), failure.message.slice(-40)).toBe(true);
+      expect(failure.message.length).toBeLessThanOrEqual(3_200);
     }
   });
 });

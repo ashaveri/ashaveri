@@ -295,12 +295,17 @@ describe('ashaveri verify', () => {
       expect(machine.stdout, name).not.toMatch(/^FORGED/mu);
       const parsed = JSON.parse(machine.stdout) as { ok: boolean; code: string; message: string };
       expect(parsed.ok).toBe(false);
-      // The sentence about the document arrives here already escaped, by the package that raises it,
-      // so the guard in this program is a pass-through on that route. A value in this report stays
-      // verbatim, because a client may have to read it; a message is prose, and `code` is the field a
-      // program branches on. The gateway quotes these messages in an error reply of its own, which is
-      // why the escape belongs where the message is made and not only in front of this terminal.
+      // The refusal document is three fields and all three are read here: `ok` says the check
+      // failed, `code` is the machine contract a client branches on, and `message` is the prose
+      // about the document. The prose is escaped by the package that raised it, and the two
+      // assertions below are what show it, one for each way that can go wrong: the escaped spelling
+      // is there, and no backslash has been escaped on top of it, so nothing ran a second pass over
+      // text that was already safe. The gateway quotes these messages in an error reply of its own
+      // with no guard of its own, which is why the escape belongs where the message is made and not
+      // only in front of this terminal.
       expect(parsed.message, name).toContain(escape);
+      expect(parsed.message, name).not.toContain('\\' + escape);
+      expect(parsed.code, name).toBe('MALFORMED_ATTESTATION');
       expect(countLines(machine.stdout), name).toBe(5);
     }
   });

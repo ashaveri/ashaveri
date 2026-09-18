@@ -148,13 +148,22 @@ export function parsePopAuthorization(header: string): PopAuthorization {
   return { credential, ts: asNumber, signature: bytes };
 }
 
+/**
+ * Strict (RFC 8032) verification rather than the subgroup-tolerant default the library picks,
+ * because the option is the difference between a key that can absorb a signature nobody made and
+ * a key that cannot. A public key of small order is a universal acceptor under the relaxed rule,
+ * where one all-zero signature verifies for every message, and this option is what refuses it.
+ * What it costs is a signature whose encoding is not canonical, which is nothing here: every
+ * signature on this wire format is produced by `signPopAuthorization` in this file or by the SDK
+ * that calls it, and both emit canonical encodings.
+ */
 export function verifyPopSignature(
   fields: PopFields,
   signature: Uint8Array,
   publicKey: Uint8Array,
 ): boolean {
   if (signature.length !== 64 || publicKey.length !== 32) return false;
-  return ed25519.verify(signature, utf8ToBytes(popSigningString(fields)), publicKey);
+  return ed25519.verify(signature, utf8ToBytes(popSigningString(fields)), publicKey, { zip215: false });
 }
 
 function required(seen: Map<string, string>, name: 'credential' | 'ts' | 'sig'): string {

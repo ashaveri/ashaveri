@@ -16,9 +16,8 @@ import { describe, expect, it } from 'vitest';
  */
 const SNP_REPORT_SIZE = 0x4a0;
 
-/** Where the SNP report sits inside the captured envelope, and the quote's fixed-layout floor. */
+/** Where the SNP report sits inside the captured envelope. */
 const REPORT_OFFSET = 4;
-const QUOTE_LAYOUT_BYTES = 0x238 + 64;
 
 const CORPORA: ReadonlyArray<{ readonly path: string; readonly bytes: number; readonly sha384: string }> = [
   {
@@ -50,11 +49,10 @@ describe('the corpora that hostile input is built from', () => {
   for (const corpus of CORPORA) {
     it(`${corpus.path.split('/').at(-1)} is present, unchanged and large enough to mutate`, () => {
       const bytes = read(corpus.path);
+      // The length is pinned to the byte, so "large enough to truncate" is settled by the number
+      // above rather than by a floor that would have to be right for four different formats.
       expect(bytes.length).toBe(corpus.bytes);
       expect(sha384(bytes)).toBe(corpus.sha384);
-      // Below this there is no document to truncate, so a truncation family would be the random
-      // family wearing its clothes.
-      expect(bytes.length).toBeGreaterThan(QUOTE_LAYOUT_BYTES);
     });
   }
 
@@ -90,12 +88,9 @@ describe('the corpora that hostile input is built from', () => {
     );
     expect(bundle.length).toBe(11908);
     expect(sha384(bundle)).toBe('5024feb5426b5c0ca146047ba38c879af0c6624aa5008237f0c7e3af937c4fba3c54ef67335559e5794d8adb3e3e2b42');
-    // The two payloads are inside it as text, so a truncation of the bundle is a truncation of a
-    // device's evidence or of its chain and not of a number the assembler invented.
-    const asText = new TextDecoder().decode(bundle);
-    expect(asText).toContain(Buffer.from(report).toString('base64'));
-    expect(asText).toContain(Buffer.from(chain).toString('base64'));
-    // An empty document would satisfy a minimum of two bytes and starve every family above it.
-    expect(bundle.length).toBeGreaterThan(report.length);
+    // That the two payloads sit inside as text is the assembly above, not an assertion below it:
+    // base64's alphabet carries no quote and no backslash, so `JSON.stringify` cannot change either
+    // string, and a containment check here agrees with its own construction whatever the fixtures
+    // hold. The digest is what makes the assembly the one the properties mutate.
   });
 });

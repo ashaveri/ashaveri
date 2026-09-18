@@ -89,11 +89,32 @@ function asOneLine(message: string): string {
   });
 }
 
+/**
+ * A detail quotes what the raise site was looking at, and the sites that decode a document quote
+ * names chosen by whoever sent it, so this bounds the quoted part before it is escaped: a refusal
+ * stays a readable sentence instead of becoming a copy of the document on its way into a log line
+ * and a reply body. The order matters, and it is the order `ReceiptError` uses: the bound runs
+ * first, on the raw text, so what it limits is what the caller sent rather than how long the
+ * escapes got, and a detail of this many raw characters still comes out six times wider when every
+ * one of them is a control character spelled as an escape.
+ *
+ * The number is not `ReceiptError`'s 200, because a sentence here can be legitimately longer than a
+ * header parameter: a pin refusal names both the measurement the evidence carries and the one the
+ * operator pinned, 96 hexadecimal characters each, and at 200 the cut lands in the middle of the
+ * pair, taking the second value, which is the one an operator has to read off the reply to fix the
+ * pin. 512 is headroom over that sentence, not a measured ceiling on this package's vocabulary.
+ */
+const MAX_DETAIL = 512;
+
+function bounded(detail: string): string {
+  return detail.length > MAX_DETAIL ? `${detail.slice(0, MAX_DETAIL)}...` : detail;
+}
+
 export class AttestationError extends Error {
   readonly code: AttestationErrorCode;
 
   constructor(code: AttestationErrorCode, detail?: string) {
-    super(asOneLine(detail ? `${ERROR_MESSAGE[code]}: ${detail}` : ERROR_MESSAGE[code]));
+    super(asOneLine(detail ? `${ERROR_MESSAGE[code]}: ${bounded(detail)}` : ERROR_MESSAGE[code]));
     this.name = 'AttestationError';
     this.code = code;
   }

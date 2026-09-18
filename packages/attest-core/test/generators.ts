@@ -50,20 +50,6 @@ export function hostile(source: Uint8Array): fc.Arbitrary<Uint8Array> {
   return fc.oneof(random, edited, truncated, extended);
 }
 
-/** The same three families for a parser that takes text instead of bytes. */
-export function hostileText(source: string): fc.Arbitrary<string> {
-  const random = fc.string({ maxLength: Math.max(64, source.length * 2) });
-  const alphabet = fc.constantFrom(...[...'abzABZ019=-_,/ +\n\t']);
-  const edited = fc
-    .tuple(fc.nat({ max: Math.max(0, source.length - 1) }), alphabet)
-    .map(([index, value]) => `${source.slice(0, index)}${value}${source.slice(index + 1)}`);
-  const truncated = fc.integer({ min: 0, max: source.length }).map((length) => source.slice(0, length));
-  const extended = fc
-    .tuple(truncated, fc.string({ minLength: 1, maxLength: 8 }))
-    .map(([head, tail]) => `${head}${tail}`);
-  return fc.oneof(random, edited, truncated, extended);
-}
-
 /**
  * A stable sketch of a parsed value, so two runs over the same bytes can be compared without a
  * deep-equality library: byte strings become their length, numbers and bigints become their text,
@@ -91,7 +77,10 @@ export function fingerprint(value: unknown): string {
 }
 
 /** What a parser decided about one input: the value it built, or the code it refused with. */
-export type Outcome = { readonly kind: 'value'; readonly shape: string } | { readonly kind: 'error'; readonly code: string } | { readonly kind: 'foreign'; readonly name: string };
+export type Outcome =
+  | { readonly kind: 'value'; readonly shape: string }
+  | { readonly kind: 'error'; readonly code: string }
+  | { readonly kind: 'foreign'; readonly name: string };
 
 /**
  * Runs a parser and records how it got out, distinguishing the package's own error from any
@@ -115,8 +104,10 @@ export function outcome<T>(parse: (input: T) => unknown, input: T, isOwnError: (
  * written false only for the corpus value, `[[corpus]]` reports a failure after one test and
  * `[corpus]` reports nothing at all, the same as passing no examples. A byte corpus and a text
  * corpus both behave that way. Dropping the wrap would therefore void the claim that a green run
- * parsed the real document, and nothing would go red. That claim is asserted directly as well, by
- * the case which measures the length at which each parser starts accepting its corpus.
+ * parsed the real document, and nothing would go red. A probe that disagrees has usually tested a
+ * value that is not iterable: a number example goes red under either spelling, so a property over
+ * `fc.integer` says nothing about a corpus of bytes or text. That claim is asserted directly as
+ * well, by the case which measures the length at which each parser starts accepting its corpus.
  */
 export function check<T>(
   arbitrary: fc.Arbitrary<T>,

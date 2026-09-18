@@ -164,6 +164,8 @@ describe('receipt and PoP parsers, by property', () => {
   });
 
   it('decodeReceipt: the same bytes decide the same way twice, and are left alone', () => {
+    // No twin of this case over the header parser, on purpose: a string cannot be written through,
+    // so the same assertion there would agree with itself whatever the input was.
     check(hostile(signed), [signed], (input) => {
       const before = input.slice();
       const first = outcome(decodeReceipt, input, isOwnError);
@@ -190,12 +192,6 @@ describe('receipt and PoP parsers, by property', () => {
     check(hostileText(header), [header, ''], (input) => {
       const result = outcome(parsePopAuthorization, input, isOwnError);
       return result.kind === 'error' || (result.kind === 'value' && result.shape !== 'undefined:undefined');
-    });
-  });
-
-  it('parsePopAuthorization: the same header decides the same way twice', () => {
-    check(hostileText(header), [header], (input) => {
-      return sameOutcome(outcome(parsePopAuthorization, input, isOwnError), outcome(parsePopAuthorization, input, isOwnError));
     });
   });
 
@@ -241,7 +237,16 @@ describe('receipt and PoP parsers, by property', () => {
       // The same signature has to be refused once the request moves, or the header is a bearer
       // token rather than a proof of possession of one.
       const other: PopFields = { ...generated, target: `${generated.target}/moved` };
-      return !verifyPopSignature(other, parsed.signature, key.publicKey);
+      // And refused when only the nonce changes: the nonce says which request this signature was
+      // made for, and flipping one byte keeps the width legal while naming another request.
+      const otherNonce: PopFields = {
+        ...generated,
+        nonce: Uint8Array.from(generated.nonce, (byte) => byte ^ 0x01),
+      };
+      return (
+        !verifyPopSignature(other, parsed.signature, key.publicKey) &&
+        !verifyPopSignature(otherNonce, parsed.signature, key.publicKey)
+      );
     });
     // A signature that exists but was not made, so the refusal above is not a verifier that simply
     // answers false, and the header above is not a parser that never returns.

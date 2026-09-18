@@ -174,11 +174,13 @@ GET /deployment-manifest
 ```
 
 `keys` lists the Ed25519 public keys the deployment currently signs with, keyed by the same
-kid the receipts carry. `models` lists model ids with the weights digest each receipt for
-that model must carry. `meas` is the launch measurement the deployment claims, and its width
-follows from its kind: 96 hex characters for an SEV-SNP launch digest or a TDX MRTD, 64 for a
-`"software"` deployment that has no hardware measurement to report. The example above is a
-mock deployment, so it reports `"software"`.
+kid the receipts carry. A verifier reads such a key as untrusted input and checks signatures
+against it under the strict (RFC 8032) rule, so a key of small order and a signature whose
+encoding is not canonical are refused instead of accepting every message. `models` lists model
+ids with the weights digest each receipt for that model must carry. `meas` is the launch
+measurement the deployment claims, and its width follows from its kind: 96 hex characters for
+an SEV-SNP launch digest or a TDX MRTD, 64 for a `"software"` deployment that has no hardware
+measurement to report. The example above is a mock deployment, so it reports `"software"`.
 
 The manifest carries no signature. It is a claim about the deployment, delivered over
 whatever transport the endpoint happens to use, so it cannot vouch for itself. A client
