@@ -67,6 +67,20 @@ export type GatewayInstance = FastifyInstance & {
   scopeCheckedRoutes(): string[];
 };
 
+/**
+ * A reply body is one line of whatever log the client keeps, and `JSON.stringify` is silent on U+2028 and
+ * U+2029, so text that arrives standing as it was goes into a message as a second line. One site needs
+ * this: a model name read out of a JSON body, which `JSON.parse` hands over unchanged. The request-chosen
+ * text elsewhere is already held by something measured, not assumed. A socket carrying either separator in
+ * a request line or a header name is refused 400 before a route runs, and a target quoted back by
+ * admission therefore only ever holds the percent-encoded spelling; a credential id passes a character rule
+ * on the way in and on the way out; and the parser packages escape these two where they build a message.
+ * `asOneLine` in `packages/receipt/src/errors.ts` is the same rule for the same reason.
+ */
+function asOneLine(text: string): string {
+  return text.replace(/[\p{Cc}\p{Cf}\u2028\u2029]/gu, ' ');
+}
+
 function upstreamError(reply: { code: (n: number) => { send: (b: unknown) => unknown } }, message: string): void {
   reply.code(502).send({ error: { message, type: 'upstream_error' } });
 }
@@ -343,7 +357,7 @@ export function buildGateway(options: GatewayOptions): GatewayInstance {
     const declared = deployment.models.find((model) => model.id === parsed.model);
     if (declared === undefined) {
       reply.code(400).send({
-        error: { message: `model '${parsed.model}' is not served by this deployment`, type: 'invalid_request_error' },
+        error: { message: asOneLine(`model '${parsed.model}' is not served by this deployment`), type: 'invalid_request_error' },
       });
       return;
     }
