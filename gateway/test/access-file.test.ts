@@ -59,6 +59,10 @@ describe('parseCredentialFile', () => {
     expect(parseCredentialFile(JSON.stringify({ version: 1, credentials: [] })).credentials).toEqual([]);
   });
 
+  // The digest of no bytes at all. Node's base64url decoder turns a token made of punctuation into zero
+  // bytes, so this is the digest such a token presents, and a record holding it is opened by any of them.
+  const EMPTY_DIGEST = 'e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855';
+
   // name, then the code and status it must refuse with, then the file text, so a case title
   // names both halves of the promise: `refuses not JSON with BAD_CREDENTIAL_FILE 500`.
   const refusals: ReadonlyArray<readonly [string, AccessErrorCode, number, string]> = [
@@ -75,6 +79,7 @@ describe('parseCredentialFile', () => {
     ['bearer with no hash', 'BAD_CREDENTIAL_RECORD', 500, JSON.stringify({ version: 1, credentials: [{ id: 'a', kind: 'bearer', scopes: [], createdAt: 1 }] })],
     ['a public key of the wrong width', 'BAD_CREDENTIAL_RECORD', 500, JSON.stringify({ version: 1, credentials: [{ id: 'a', kind: 'pop', publicKey: 'aGk', scopes: [], createdAt: 1 }] })],
     ['a secret hash that is not 32 bytes of hex', 'BAD_CREDENTIAL_RECORD', 500, JSON.stringify({ version: 1, credentials: [{ id: 'a', kind: 'bearer', secretHash: 'ff', scopes: [], createdAt: 1 }] })],
+    ['a bearer record whose hash is the digest of no bytes', 'BAD_CREDENTIAL_RECORD', 500, JSON.stringify({ version: 1, credentials: [{ id: 'a', kind: 'bearer', secretHash: EMPTY_DIGEST, scopes: [], createdAt: 1 }] })],
     ['scopes not a list', 'BAD_CREDENTIAL_RECORD', 500, JSON.stringify({ version: 1, credentials: [{ id: 'a', kind: 'pop', publicKey: 'dGVzdC1wdWIta2V5LTAwMDAwMDAwMDAwMDAwMDAwMDA', scopes: 'read', createdAt: 1 }] })],
     ['an unknown scope', 'BAD_CREDENTIAL_RECORD', 500, JSON.stringify({ version: 1, credentials: [{ id: 'a', kind: 'pop', publicKey: 'dGVzdC1wdWIta2V5LTAwMDAwMDAwMDAwMDAwMDAwMDA', scopes: ['export'], createdAt: 1 }] })],
     ['no createdAt', 'BAD_CREDENTIAL_RECORD', 500, JSON.stringify({ version: 1, credentials: [{ id: 'a', kind: 'pop', publicKey: 'dGVzdC1wdWIta2V5LTAwMDAwMDAwMDAwMDAwMDAwMDA', scopes: [] }] })],

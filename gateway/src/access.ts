@@ -246,6 +246,18 @@ function parseRecord(value: unknown, index: number): CredentialRecord {
     if (!HEX32.test(hash)) {
       refuse('BAD_CREDENTIAL_RECORD', `${where}.secretHash is not 64 hex characters`);
     }
+    // Node's base64url decoder drops the characters it does not know instead of refusing them, so a token
+    // made of punctuation spells no bytes at all and digests to this one value. A record carrying it is
+    // therefore opened by every such token, which is the opposite of a credential, and there are 2^64 of
+    // them. `newBearerCredential` draws 32 random bytes and cannot write one, so this refuses a typed or a
+    // pasted file and nothing this repository produces. `EMPTY_BODY_SHA256_HEX` names the same thirty-two
+    // bytes for the other thing they are the digest of: the body a bodyless request signs.
+    if (hash === EMPTY_BODY_SHA256_HEX) {
+      refuse(
+        'BAD_CREDENTIAL_RECORD',
+        `${where}.secretHash is the digest of no bytes, which a bearer token that decodes to nothing presents`,
+      );
+    }
     record.secretHash = fromHex(hash);
   }
 
@@ -859,8 +871,9 @@ export class CredentialStore {
   /**
    * Bearer admission. The secret itself is never stored, so the only way to find whose it is comes
    * from hashing what was presented and comparing every digest in the file with a loop that does not
-   * exit early on the first differing byte. A secret that is not base64url at all decodes to bytes
-   * that match nothing, which is the same refusal a wrong secret gets.
+   * exit early on the first differing byte. A secret that is not base64url at all decodes to no bytes,
+   * and `parseRecord` refuses the one record whose digest is of no bytes, so every such token gets the
+   * same refusal a wrong secret gets.
    */
   private admitBearer(secret: string, scope: RouteScope | undefined, input: AdmissionInput): Admission {
     const wanted = hashSecret(new Uint8Array(Buffer.from(secret, 'base64url')));
