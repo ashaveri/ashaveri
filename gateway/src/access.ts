@@ -981,8 +981,11 @@ export class CredentialStore {
     const presented = parseAuthorization(header);
     const record = this.byId.get(presented.credential);
     if (record === undefined) {
-      // One refusal for an id this file never carried and an id it no longer trusts, so the answer
-      // cannot be used to enumerate what a deployment has issued.
+      // This file carries no record under this id. That is not a collapse, and it is not meant to
+      // be: an id this store does carry is answered by `AUTH_SCHEME` or `AUTH_REVOKED` on the two
+      // checks that follow. A proof-of-possession holder keeps a usable key whichever answer comes
+      // back, so the one party who can act on a withdrawal is the one told. `bearerSecretHashOf`,
+      // above, records why the bearer scan collapses where this path does not.
       throw new AccessError('AUTH_UNKNOWN', presented.credential, undefined, presented.credential);
     }
     if (record.kind !== 'pop') {
