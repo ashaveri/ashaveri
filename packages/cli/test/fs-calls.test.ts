@@ -24,11 +24,12 @@ import { accesslogScrub } from '../src/commands/accesslog.js';
  * have no volume partner for the shape they are asserted in here, which is the point of scripting them:
  * an `EEXIST` that reaches a rename, an append landing between two calls of one run, a name that is gone
  * or unopenable when it is read back, a net-zero rewrite followed by a part the open refuses, a part
- * whose name is shared with a second name or is a link, a link whose target is gone, a name that changes
- * character or is gone between this run's read and its next question, and a directory carrying the link
- * count a Linux volume answers for one. Of those, the ones about a name's own character are reachable on
- * a volume before a run starts, and `test/accesslog.test.ts` holds those cases; the rest need a second
- * writer that arrives on a test's schedule, which no host is obliged to provide.
+ * whose name is shared with a second name or is a link, a link whose target is gone, a link planted
+ * between two attempts at one part, a name that changes character or is gone between this run's read
+ * and its next question, and a directory carrying the link count a Linux volume answers for one. Of
+ * those, the ones about a name's own character are reachable on a volume before a run starts, and
+ * `test/accesslog.test.ts` holds those cases; the rest need a second writer that arrives on a test's
+ * schedule, which no host is obliged to provide.
  */
 
 /** Outside any repository: nothing below ever reaches a disk. */
@@ -59,6 +60,9 @@ const host = vi.hoisted(() => ({
   symlinked: new Set<string>(),
   /** Names whose `lstat` answers a link and whose `stat` answers `ENOENT`, a link to nothing. */
   dangling: new Set<string>(),
+  /** Names one `lstat` finds as themselves and every later one finds as a link, which is a link planted
+   * while this run was working. The value counts the asks, because the answer has to change on one. */
+  plantedLink: new Map<string, number>(),
   /** Names the first read finds as a file and every `stat` after it finds as a directory. */
   turnsToDirectory: new Set<string>(),
   /** Names the listing still hands over that every open and every `stat` answers `ENOENT` for. */
@@ -106,6 +110,18 @@ vi.mock('node:fs/promises', () => {
     const entry = host.entries.get(path);
     if (entry === undefined) return;
     entry.bytes.push(...Buffer.from(text, 'utf8'));
+  }
+
+  /** The answer for a name that is itself a link: no mode of its own and nothing countable through it. */
+  function linkStats(): Stats {
+    return {
+      mode: 0o777,
+      size: 0,
+      nlink: 1,
+      isFile: () => false,
+      isDirectory: () => false,
+      isSymbolicLink: () => true,
+    };
   }
 
   /**
@@ -183,16 +199,13 @@ vi.mock('node:fs/promises', () => {
       note('lstat', path);
       if (host.inspectRefuses.has(path)) fail('EACCES', 'lstat', path);
       if (host.gone.has(path)) fail('ENOENT', 'lstat', path);
-      if (host.symlinked.has(path) || host.dangling.has(path)) {
-        return {
-          mode: 0o777,
-          size: 0,
-          nlink: 1,
-          isFile: () => false,
-          isDirectory: () => false,
-          isSymbolicLink: () => true,
-        };
-      }
+      // A link that was not there when this run first asked. The counter is the whole fixture: the
+      // guard's answer has to change between one attempt at a part and the next, because that is the
+      // only way a run that asks once per part differs from one that asks once per attempt.
+      const asks = host.plantedLink.get(path);
+      if (asks !== undefined) host.plantedLink.set(path, asks + 1);
+      if (asks !== undefined && asks >= 1) return linkStats();
+      if (host.symlinked.has(path) || host.dangling.has(path)) return linkStats();
       const entry = host.entries.get(path);
       if (entry === undefined) fail('ENOENT', 'lstat', path);
       return {
@@ -334,6 +347,7 @@ beforeEach(() => {
   host.sharedNames.clear();
   host.symlinked.clear();
   host.dangling.clear();
+  host.plantedLink.clear();
   host.turnsToDirectory.clear();
   host.gone.clear();
   host.goneBeforeCheck.clear();
@@ -347,9 +361,10 @@ describe('the arguments a write reaches the volume with', () => {
     // ones, which are not readability settings a scrub means to publish. This case holds three
     // witnesses to the drop: the argument the create receives, the argument the `chmod` receives, and
     // the mode the script is left holding at the name, read over four digits so a bit that survived the
-    // ceiling would show here. The first two are what a Windows host can be given, since it reports
-    // every file as `0666` and cannot separate a landed mode from a masked create; the third is this
-    // script's own arithmetic, which says the writer asked for `0600` and not that a volume agreed.
+    // ceiling would show here. The first two are what a Windows host can be given, since it reports a
+    // writable file as `0666` whatever its bits and cannot separate a landed mode from a masked create;
+    // the third is this script's own arithmetic, which says the writer asked for `0600` and not that a
+    // volume agreed.
     // `test/atomic.test.ts` reads a landed fourth digit off a real volume, and is gated to a POSIX host
     // for exactly that reason. The other writer's create argument is named in the marker case below.
     const path = join(DIR, 'credentials.json');
@@ -637,7 +652,10 @@ describe('a part whose name is not the file itself', () => {
     expect(message).toContain('2 names hold those bytes');
     expect(callsOf('readFile', part)).toHaveLength(1);
     expect(callsOf('writeFile', temporaryFor(part))).toEqual([]);
-    expect(callsOf('rename', part)).toEqual([]);
+    // The only rename that could put bytes at a part name starts at this run's own temporary, so that is
+    // the call to look for. A part is never a rename's source, which makes the part's own name here an
+    // assertion that can never fail.
+    expect(callsOf('rename', temporaryFor(part))).toEqual([]);
     expect(callsOf('unlink', part)).toEqual([]);
     expect(bytesAt(part)).toBe(lines(['rid-1', 'svc-a'], ['rid-2', 'svc-b']));
     expect(host.entries.has(MARKER)).toBe(false);
@@ -674,9 +692,34 @@ describe('a part whose name is not the file itself', () => {
     const message = (failure as Error).message;
     expect(message).toContain(`cannot scrub access log part '${part}'`);
     expect(message).toContain('the name is a symlink');
+    expect(message).toContain('asked to remove');
     expect(callsOf('lstat', part)).toHaveLength(1);
-    expect(callsOf('rename', part)).toEqual([]);
+    expect(callsOf('writeFile', temporaryFor(part))).toEqual([]);
+    expect(callsOf('rename', temporaryFor(part))).toEqual([]);
     expect(callsOf('unlink', part)).toEqual([]);
+    expect(host.entries.has(MARKER)).toBe(false);
+  });
+
+  it('asks the link question again on a second attempt, when a link appeared between them', async () => {
+    // The guard is asked once per attempt rather than once per part, and this is the state that claim is
+    // about: the first look found the file the listing named, a gateway appended to it so this run starts
+    // again from a fresh read, and in between a backup or an operator replaced the name with a link. A
+    // run that asked once would publish over that link on the second turn and receipt records that still
+    // stand at the file the name points at, which is the false claim the guard exists to stop. The
+    // queued append is what makes a second attempt happen, and the count below is the whole point: an
+    // answer that has to change between two asks needs two asks.
+    const part = scriptFile('access-2026-02-24-000.jsonl', lines(['rid-1', 'svc-a'], ['rid-2', 'svc-b']), 0o600);
+    host.queued.set(part, [lines(['rid-late', 'svc-c'])]);
+    host.plantedLink.set(part, 0);
+    const failure = await accesslogScrub(DIR, 'svc-a', clock).catch((error: unknown) => error);
+    expect(failure).toBeInstanceOf(Error);
+    const message = (failure as Error).message;
+    expect(message).toContain(`cannot scrub access log part '${part}'`);
+    expect(message).toContain('the name is a symlink');
+    expect(callsOf('lstat', part)).toHaveLength(2);
+    expect(callsOf('rename', temporaryFor(part))).toEqual([]);
+    expect(callsOf('unlink', part)).toEqual([]);
+    expect(bytesAt(part)).toBe(lines(['rid-1', 'svc-a'], ['rid-2', 'svc-b'], ['rid-late', 'svc-c']));
     expect(host.entries.has(MARKER)).toBe(false);
   });
 
@@ -686,6 +729,12 @@ describe('a part whose name is not the file itself', () => {
     // name as missing. An operator reading "no such file or directory" about a part the listing just
     // handed over goes looking for a deletion, when what is there is a link to somewhere else. So the
     // name's own character is decided by `lstat` alone, before anything follows it.
+    //
+    // This is the one route that reaches the link sentence without having read a line: the open failed,
+    // so nothing was filtered, nothing was published and nothing is being reported as removed. The
+    // guard's version of the sentence says where those records stand, and importing that here would
+    // describe bytes this run never saw, so this case holds the read route's own wording by refusing
+    // the guard's.
     const part = scriptFile('access-2026-02-24-000.jsonl', lines(['rid-1', 'svc-a'], ['rid-2', 'svc-b']), 0o600);
     host.dangling.add(part);
     const failure = await accesslogScrub(DIR, 'svc-a', clock).catch((error: unknown) => error);
@@ -694,21 +743,28 @@ describe('a part whose name is not the file itself', () => {
     expect(message).toContain('the name is a symlink');
     expect(message).not.toContain('no such file');
     expect(message).not.toContain('names hold those bytes');
+    expect(message).not.toContain('asked to remove');
+    expect(message).not.toContain('cannot inspect');
+    expect(message).not.toContain('cannot read the permissions');
     expect(host.entries.has(MARKER)).toBe(false);
   });
 
-  it('leaves a name the sweep took between the listing and the check to the read that follows', async () => {
-    // A name can be gone by the time this run reaches it, and that is not the shared-name check's
-    // refusal to make: the read one step later owns a missing part, and its sentence names the part as
-    // something the run tried to read. The check's answer to `ENOENT` is therefore silence, which is the
-    // arm this case holds open. A run that refused here would tell an operator about links on a directory
-    // the retention sweep was emptying, and name a cause the operator cannot go and look at.
+  it('leaves a name the sweep took before the first read to the read that owns it', async () => {
+    // The listing is a moment old by the time it is used, so a name it hands over can be gone before
+    // this run ever opens it. That is the read's refusal to make, and its sentence names the part as
+    // something the run tried to read. The shared-name check is not reached at all on this route: the
+    // arm of it that answers `ENOENT` with silence is gated by the case below, which is the state that
+    // arm exists for. What separates this one from the link above is that a missing name is reported as
+    // missing, so the run's own link question is asked and answers nothing, and an operator watching a
+    // retention sweep is not told about a symlink.
     const part = scriptFile('access-2026-02-24-000.jsonl', lines(['rid-1', 'svc-a'], ['rid-2', 'svc-b']), 0o600);
     host.gone.add(part);
     const failure = await accesslogScrub(DIR, 'svc-a', clock).catch((error: unknown) => error);
     expect(failure).toBeInstanceOf(Error);
     const message = (failure as Error).message;
     expect(message).toContain(`cannot read access log part '${part}'`);
+    expect(message).toContain('ENOENT');
+    expect(message).not.toContain('the name is a symlink');
     expect(message).not.toContain('cannot inspect');
     expect(message).not.toContain('names hold those bytes');
     expect(host.entries.has(MARKER)).toBe(false);
@@ -744,24 +800,26 @@ describe('a part whose name is not the file itself', () => {
     const message = (failure as Error).message;
     expect(message).toContain(`cannot inspect access log part '${part}'`);
     expect(message).toContain('EACCES');
-    expect(callsOf('rename', part)).toEqual([]);
+    expect(callsOf('rename', temporaryFor(part))).toEqual([]);
     expect(host.entries.has(MARKER)).toBe(false);
   });
 
   it('asks the link question of no name that is not a file', async () => {
     // A directory's `nlink` counts the entries inside it, not names holding it: 2 on an empty one and one
-    // more per subdirectory. Asked of a directory, the shared-name check answers with a number that means
-    // something else and refuses a part shape the read owns. This state is what two cases in
-    // `test/accesslog.test.ts` plant as the portable unreadable part, and it passed there while failing on
-    // Linux, because this host answers `nlink` 1 for a directory while a Linux volume answers 2 or more.
-    // So the count is scripted at the Linux value: the gate is that no link count, however large, makes
-    // this run speak about a name it cannot rewrite.
+    // more per subdirectory, so asking the shared-name question of one answers with a number that means
+    // something else. That is why the count is scripted here at the value a Linux volume gives a
+    // directory: this host answers 1, which is how a full suite stayed green on one machine and went red
+    // on the other. The guard's own `isFile` answer, for a name the read found as a file and the next
+    // question found as something else, is the case below. What this one holds is the order: the listing
+    // hands over a directory, the read refuses it in the operating system's words, and no link question
+    // is asked of it at all.
     const directory = scriptDir('access-2026-02-25-000.jsonl');
     host.sharedNames.set(directory, 3);
     const failure = await accesslogScrub(DIR, 'svc-a', clock).catch((error: unknown) => error);
     expect(failure).toBeInstanceOf(Error);
     const message = (failure as Error).message;
     expect(message).toContain(`cannot read access log part '${directory}'`);
+    expect(callsOf('lstat', directory)).toEqual([]);
     expect(message).not.toContain('names hold those bytes');
     expect(message).not.toContain('cannot inspect');
     expect(host.entries.has(MARKER)).toBe(false);

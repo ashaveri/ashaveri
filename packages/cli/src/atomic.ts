@@ -42,9 +42,10 @@ function reasonOf(error: unknown): string {
  *   and to `chmod` are captured in `test/fs-calls.test.ts`, which holds on any host. The landed fourth
  *   digit is read back in `test/atomic.test.ts` only where a file system reports it, and that case is
  *   gated to a POSIX host because Windows answers `0666` for every writable mode and `0444` once a file
- *   is marked read-only, measured on this host by `chmodSync(path, 0o400)`: there the argument capture is
- *   the only witness. `publishNew`'s copy of the ceiling has no gate at all, because its one caller
- *   hands it the literal `0o600` and a masked and an unmasked `0600` cannot be told apart.
+ *   is marked read-only, which the read-only refusal case in `test/accesslog.test.ts` prints on either
+ *   host: there the argument capture is the only witness. `publishNew`'s copy of the ceiling has no gate
+ *   at all, because its one caller hands it the literal `0o600` and a masked and an unmasked `0600`
+ *   cannot be told apart.
  *
  * The name carries this process's id, so two runs writing the same file do not collide, and a refusal
  * that leaves nothing behind does not hide the earlier run that left something.

@@ -730,14 +730,14 @@ describe('the marker a scrub leaves behind', () => {
   });
 
   it.runIf(process.platform !== 'win32')('is written at the mode the scrub owns, whatever the part it joined was created with', () => {
-    // Windows reports `0666` for every file it holds, so neither mode reading below is observable there
-    // and the case could only ever fail. The part is set to `0666` first: the gateway creates parts with
-    // the process default, and a fixture that inherited its mode from the umask would let a marker at
-    // the part's own mode pass this case on a host whose umask happens to be `0077`, which is exactly
-    // where it does go quiet. A marker created at `0666` lands at `0600` under that umask, and this
-    // case cannot tell the two apart. The host-independent gate on the mode the receipt is written at
-    // is the captured create argument in `test/fs-calls.test.ts`, which sees the argument and not the
-    // bits a umask was free to choose.
+    // Windows reports a writable file as `0666` whatever its bits, so neither mode reading below is
+    // observable there and the case could only ever fail. The part is set to `0666` first: the gateway
+    // creates parts with the process default, and a fixture that inherited its mode from the umask would
+    // let a marker at the part's own mode pass this case on a host whose umask happens to be `0077`,
+    // which is exactly where it does go quiet. A marker created at `0666` lands at `0600` under that
+    // umask, and this case cannot tell the two apart. The host-independent gate on the mode the receipt
+    // is written at is the captured create argument in `test/fs-calls.test.ts`, which sees the argument
+    // and not the bits a umask was free to choose.
     const dir = dirWith(onePart('svc-a', 'svc-b'));
     const part = join(dir, 'access-2026-02-24-000.jsonl');
     chmodSync(part, 0o666);
@@ -991,7 +991,7 @@ describe('the mode a scrub reads off a part', () => {
   });
 
   it.runIf(process.platform !== 'win32')('takes the nine permission bits and nothing above them', async () => {
-    // Windows reports every file as `0666`, so a mode it holds cannot be distinguished from one a
+    // Windows reports a writable file as `0666`, so a mode it holds cannot be distinguished from one a
     // create allowed. The fourth digit is the point: a set-user-id mode read through this function
     // would be handed to the writer as though it were a readability setting.
     const dir = dirWith(onePart('svc-a', 'svc-b'));

@@ -463,7 +463,9 @@ async function readPart(path: string): Promise<PartSnapshot> {
     // A link to nothing is read as a missing file, and an operator told that a name standing in the
     // listing is not there goes looking for a deletion rather than for the link. Only the refusal path
     // pays for this question.
-    if (isNotFound(err) && (await isLinkAt(path))) throw linkRefusal(path);
+    if (isNotFound(err) && (await isLinkAt(path))) {
+      throw linkRefusal(path, '; this run cannot read the part, because the link leads to a file that is not there');
+    }
     throw new UsageError(`cannot read access log part '${path}': ${reasonOf(err)}`);
   }
 }
@@ -477,9 +479,16 @@ async function isLinkAt(path: string): Promise<boolean> {
   }
 }
 
-function linkRefusal(path: string): UsageError {
+/**
+ * Raised from two routes, so the head is shared and the tail is not, because what a link hides depends on
+ * which question was being asked. At the guard this run already holds the part's bytes, which it read
+ * through the link, so it can say where those records stand. At the read the target is by definition not
+ * there, which is why the open answered `ENOENT`, and a sentence about records standing at a file would
+ * describe bytes this run never saw.
+ */
+function linkRefusal(path: string, tail: string): UsageError {
   return new UsageError(
-    `cannot scrub access log part '${path}': the name is a symlink, and neither a rewrite nor a deletion of it touches the file it points at, which holds every record this run reports removed`,
+    `cannot scrub access log part '${path}': the name is a symlink, and neither a rewrite nor a deletion of it touches the file it points at${tail}`,
   );
 }
 
@@ -638,7 +647,9 @@ async function refuseSharedName(path: string): Promise<void> {
   // second call with `ENOENT`. A run that looked through the link to decide would then call that name
   // missing, and an operator reading "no such file or directory" about a file standing in the listing
   // would be sent to look for a deletion rather than for the link.
-  if (here.isSymbolicLink()) throw linkRefusal(path);
+  if (here.isSymbolicLink()) {
+    throw linkRefusal(path, '; that file is where every record this run was asked to remove would still stand');
+  }
   // The link count is a fact about a regular file. A directory's `nlink` is `2` plus its subdirectories,
   // which counts entries inside it and not names holding it, so asking the question of one answers with a
   // number that means something else entirely. Measured on Linux: a part name holding a directory came
