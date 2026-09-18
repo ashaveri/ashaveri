@@ -1,5 +1,4 @@
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
-import type { FastifyInstance } from 'fastify';
 import { buildGateway, CredentialStore, newPopCredential, openMemoryAccessLog } from '@ashaveri/signerd';
 import {
   AshaveriClient,
@@ -19,7 +18,10 @@ const credential: AshaveriCredential = { kind: 'pop', id: 'e2e', privateKey: iss
 // puts on its own requests, and the inline arrow is what keeps `fetch` bound to the global.
 const signedFetch = authorizedFetch(credential, (input, init) => fetch(input, init));
 
-let app: FastifyInstance;
+// Derived from the factory rather than named from fastify, which this package does not depend on.
+type Gateway = Awaited<ReturnType<typeof buildGateway>>;
+
+let app: Gateway;
 let base: string;
 
 beforeAll(async () => {

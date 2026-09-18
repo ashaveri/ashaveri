@@ -25,7 +25,16 @@ function transport() {
     seen.push({ url: String(input), init: init ?? {} });
     return new Response('{}', { status: 200 });
   }) as unknown as typeof fetch;
-  return { inner, seen, call: () => seen[seen.length - 1] };
+  return {
+    inner,
+    seen,
+    /** The last request the SDK sent. An empty `seen` is a broken test, so it says so by name rather than handing back `undefined`. */
+    call: () => {
+      const last = seen[seen.length - 1];
+      if (last === undefined) throw new Error('the SDK sent no request');
+      return last;
+    },
+  };
 }
 
 function header(call: { init: RequestInit }, name: string): string | undefined {
@@ -46,6 +55,12 @@ function refusal(body: () => unknown): SdkError {
 
 function nonceOf(call: { init: RequestInit }): Uint8Array {
   return new Uint8Array(Buffer.from(new Headers(call.init.headers).get('x-ashaveri-nonce') as string, 'base64url'));
+}
+
+/** Reads headers a capture transport stored from inside its own callback. The compiler cannot follow that assignment, so it needs a guard that names the case where nothing was captured. */
+function captured(headers: Headers | null): Headers {
+  if (headers === null) throw new Error('the transport captured no request headers');
+  return headers;
 }
 
 describe('authorizedFetch, proof of possession', () => {
@@ -309,8 +324,8 @@ describe('AshaveriClient transport', () => {
       credential: { kind: 'pop', id: 'svc-1', privateKey: CLIENT_SEED },
     });
     await expect(client.chat.completions.create({ messages: [{ role: 'user', content: 'hi' }] })).rejects.toThrow();
-    expect(seen?.get('authorization')).toMatch(/^Ashaveri-PoP credential=svc-1,/u);
-    expect(seen?.get('x-ashaveri-nonce')).toMatch(/^[A-Za-z0-9_-]{22}$/u);
+    expect(captured(seen).get('authorization')).toMatch(/^Ashaveri-PoP credential=svc-1,/u);
+    expect(captured(seen).get('x-ashaveri-nonce')).toMatch(/^[A-Za-z0-9_-]{22}$/u);
   });
 
   it('sends nothing that looks like a credential when none is configured', async () => {
@@ -321,7 +336,7 @@ describe('AshaveriClient transport', () => {
     };
     const client = new AshaveriClient({ baseUrl: 'https://gw.example/v1', fetch: capture });
     await expect(client.chat.completions.create({ messages: [{ role: 'user', content: 'hi' }] })).rejects.toThrow();
-    expect(seen?.get('authorization')).toBeNull();
+    expect(captured(seen).get('authorization')).toBeNull();
   });
 });
 

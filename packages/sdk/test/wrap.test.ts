@@ -15,6 +15,12 @@ const POP_SEED = new Uint8Array(32).fill(11);
 const POP_PUBLIC_KEY = signingKeyFromSeed(POP_SEED).publicKey;
 const POP_CREDENTIAL: AshaveriCredential = { kind: 'pop', id: 'sdk-wrap-1', privateKey: POP_SEED };
 
+/** Reads headers a capture transport stored from inside its own callback. The compiler cannot follow that assignment, so it needs a guard that names the case where nothing was captured. */
+function captured(headers: Headers | null): Headers {
+  if (headers === null) throw new Error('the transport captured no request headers');
+  return headers;
+}
+
 function fakeOpenAiClient(gatewayOptions?: Parameters<typeof createFakeGateway>[0]) {
   const gateway = createFakeGateway(gatewayOptions);
   const client = { apiKey: 'test-key', fetch: gateway.fetch };
@@ -139,7 +145,7 @@ describe('wrapOpenAI', () => {
     }) as unknown as typeof fetch };
     const wrapped = wrapOpenAI(fake, { credential: { kind: 'bearer', secret: new Uint8Array(32) } });
     await (wrapped as unknown as { fetch: typeof fetch }).fetch('https://gw.example/v1/chat/completions', { method: 'POST', body: '{}' });
-    expect(seen?.get('authorization')).toBe(`Bearer ${toBase64Url(new Uint8Array(32))}`);
+    expect(captured(seen).get('authorization')).toBe(`Bearer ${toBase64Url(new Uint8Array(32))}`);
   });
 
   it('replaces the placeholder key an official client writes with the credential it was given', async () => {

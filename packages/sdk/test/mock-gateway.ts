@@ -144,7 +144,7 @@ export function createFakeGateway(options: FakeGatewayOptions = {}): FakeGateway
     meas: { tee: 'software', m: toHex(hashRequest(utf8('fake-measurement'))) },
   };
 
-  const fetch: typeof fetch = async (input, init) => {
+  const fetch: typeof globalThis.fetch = async (input, init) => {
     const url = typeof input === 'string' ? input : input instanceof URL ? input.href : input.url;
     const method = (init?.method ?? 'GET').toUpperCase();
     const headers = new Headers(init?.headers);
