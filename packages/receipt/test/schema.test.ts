@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
-import Ajv2020 from 'ajv/dist/2020.js';
+import { Ajv2020, type ValidateFunction } from 'ajv/dist/2020.js';
 import {
   MEASUREMENT_BYTES,
   receiptToJson,
@@ -11,9 +11,28 @@ import {
 
 const schemaPath = fileURLToPath(new URL('../schemas/receipt-v1.schema.json', import.meta.url));
 const schema = JSON.parse(readFileSync(schemaPath, 'utf8')) as object;
-// strict:false because no format validator is registered for "uri". The patterns in the
-// schema, not the formats, carry the constraints a reimplementer has to match.
-const validate = new Ajv2020({ strict: false }).compile(schema) as (value: unknown) => boolean;
+
+/**
+ * Compiles a receipt schema with Ajv's strict mode on, so a keyword this schema does not
+ * define fails at compile time instead of being ignored.
+ *
+ * `uri` is given a validator that accepts everything. The schema's only format is a label on
+ * `att.url`, and it is the patterns in `$defs` and under `meas` that carry the constraints a
+ * reimplementer has to match, not the formats: nothing here reads the URL's shape, and a real
+ * uri validator would add a rule the signed payload does not commit to.
+ *
+ * `strictTypes` logs instead of throwing for one named reason: the two `then` branches at
+ * `payload.properties.meas.allOf/0` and `/1` constrain `m` with a `pattern` and no `type`, so
+ * each subschema is looser than the `$ref` it narrows. The fix is a `type: "string"` in
+ * `schemas/receipt-v1.schema.json`, not a wider option here.
+ */
+function compile(s: object): ValidateFunction<unknown> {
+  const acceptsAnything = () => true;
+  const ajv = new Ajv2020({ strict: true, strictTypes: 'log', formats: { uri: acceptsAnything } });
+  return ajv.compile(s);
+}
+
+const validate = compile(schema);
 
 const DIGEST = new Uint8Array(32).fill(2);
 
@@ -60,5 +79,17 @@ describe('receipt-v1 JSON Schema', () => {
 
   it('rejects an unknown environment kind', () => {
     expect(outcome('sgx', 48)).not.toBeNull();
+  });
+
+  it('refuses to compile a keyword this schema does not define', () => {
+    // The same text with `strict: false` compiled and silently dropped the keyword, so this
+    // is the case that shows strict mode is on.
+    const misspelled = JSON.parse(readFileSync(schemaPath, 'utf8')) as {
+      $defs: { hex16: Record<string, unknown> };
+    };
+    misspelled.$defs.hex16.patterntypo = misspelled.$defs.hex16.pattern;
+    delete misspelled.$defs.hex16.pattern;
+    expect(() => compile(misspelled)).toThrow(/unknown keyword/);
+    expect(() => compile(JSON.parse(readFileSync(schemaPath, 'utf8')) as object)).not.toThrow();
   });
 });

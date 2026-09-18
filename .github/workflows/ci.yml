@@ -8,6 +8,7 @@ on:
 jobs:
   test:
     runs-on: ubuntu-latest
+    timeout-minutes: 15
     steps:
       - uses: actions/checkout@v4
       - uses: pnpm/action-setup@v4
@@ -22,3 +23,22 @@ jobs:
       - run: pnpm lint
       - run: pnpm test
       - run: pnpm typecheck
+
+  generated-vectors:
+    name: Regenerating the vectors changes nothing
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 12.3.4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm build
+      - run: pnpm -C packages/fixtures generate
+      - run: pnpm -C packages/fixtures generate:pop
+      - run: git diff --exit-code packages/fixtures/data
