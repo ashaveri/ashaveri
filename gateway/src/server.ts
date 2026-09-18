@@ -9,7 +9,7 @@ import {
   type TeeKind,
 } from '@ashaveri/receipt';
 import type { AccessLog, AccessRecord } from './aclog.js';
-import { AccessError, requireRouteScope, type CredentialStore } from './access.js';
+import { AccessError, ReceiptNamespace, requireRouteScope, type CredentialStore } from './access.js';
 import { fromBase64Url, toBase64Url } from './b64.js';
 import { mockBackend, type BackendResponse, type CompletionBackend, type CompletionUsage } from './backend.js';
 import { mockDeployment, type AttestationBundle, type Deployment } from './deployment.js';
@@ -129,6 +129,10 @@ export function buildGateway(options: GatewayOptions): GatewayInstance {
     options.deployment ?? mockDeployment({ issuer: options.issuer, instance: options.instance, key: options.key });
   const backend = options.backend ?? mockBackend();
   const receipts = options.store ?? openMemoryReceiptStore();
+  // One HKDF over the deployment's own signing seed, for the whole process. The id a receipt is
+  // fetched by is minted here rather than taken from the upstream, and nothing is written down to
+  // make the fetch work: the id carries the tag of the credential that minted it.
+  const receiptIds = new ReceiptNamespace(deployment.key);
 
   const app = Fastify({ bodyLimit: 16 * 1024 * 1024, logger: false });
   // The receipt binds the exact bytes the client sent, so the body is kept raw
@@ -156,6 +160,8 @@ export function buildGateway(options: GatewayOptions): GatewayInstance {
     startedAt: number;
     rid: string;
     credential: string | null;
+    /** The minting tag of the admitted credential, held so a route pays no derivation. */
+    tag: string | null;
     auth: 'pop' | 'bearer' | null;
     scope: string | null;
     nonce: string | null;
@@ -204,6 +210,7 @@ export function buildGateway(options: GatewayOptions): GatewayInstance {
       startedAt: Date.now(),
       rid: randomUUID(),
       credential: null,
+      tag: null,
       auth: null,
       scope: null,
       nonce: null,
@@ -236,6 +243,9 @@ export function buildGateway(options: GatewayOptions): GatewayInstance {
         body: request.body instanceof Buffer ? new Uint8Array(request.body.buffer, request.body.byteOffset, request.body.byteLength) : null,
       });
       state.credential = admitted.credentialId;
+      // Held on the request the moment admission names the credential, so a mint and a read compare
+      // the same value they were admitted with rather than looking one up again per request.
+      state.tag = receiptIds.tagFor(admitted.credentialId);
       state.auth = admitted.auth;
       state.scope = admitted.scope;
       state.nonce = admitted.nonce === null ? null : toBase64Url(admitted.nonce);
@@ -331,7 +341,12 @@ export function buildGateway(options: GatewayOptions): GatewayInstance {
 
   app.get('/v1/receipts/:id', async (request, reply) => {
     const id = (request.params as { id: string }).id;
-    const bytes = await receipts.get(id);
+    // The tag is checked before the store is asked, and a mismatch is answered exactly as an absent
+    // record is: this route discloses nothing about whether the bytes exist for another tenant. The
+    // id this caller presented still goes into the message, unchanged, because a refusal that quotes
+    // a different text would itself be a signal.
+    const tag = stateOf(request)?.tag;
+    const bytes = typeof tag !== 'string' || !receiptIds.carries(id, tag) ? null : await receipts.get(id);
     if (bytes === null) {
       reply.code(404).send({ error: { message: `no receipt for id ${id}`, type: 'not_found' } });
       return;
@@ -379,6 +394,21 @@ export function buildGateway(options: GatewayOptions): GatewayInstance {
       nonce = randomNonce();
     }
 
+    // The id each arm below mints is this credential's tag plus fresh randomness. Read once, before
+    // the upstream is called: a completion whose receipt cannot be addressed is not worth an
+    // inference call, and a mint without a tag would be addressed by a prefix no credential computes,
+    // so its receipt would be unreadable by everyone including its owner.
+    const receiptTag = stateOf(request)?.tag;
+    if (typeof receiptTag !== 'string') {
+      reply.code(500).send({
+        error: {
+          message: 'this request was admitted without a credential, so its receipt could not be addressed',
+          type: 'server_error',
+        },
+      });
+      return;
+    }
+
     let response: BackendResponse;
     try {
       response = await backend.respond(raw, parsed);
@@ -410,10 +440,8 @@ export function buildGateway(options: GatewayOptions): GatewayInstance {
         reply.send(body);
         return;
       }
-      let receiptId: string;
       let usage: CompletionUsage;
       try {
-        receiptId = await response.receiptId;
         usage = await response.usage;
       } catch (err) {
         upstreamError(reply, errorMessage(err));
@@ -423,6 +451,7 @@ export function buildGateway(options: GatewayOptions): GatewayInstance {
         upstreamError(reply, `inference upstream served '${usage.model}' instead of '${declared.id}'`);
         return;
       }
+      const receiptId = receiptIds.mint(receiptTag);
       await issue({
         id: receiptId,
         nonce,
@@ -440,35 +469,27 @@ export function buildGateway(options: GatewayOptions): GatewayInstance {
 
     const iterator = response.chunks[Symbol.asyncIterator]();
     const early: Buffer[] = [];
-    let receiptId: string | null = null;
-    response.receiptId.then(
-      (id) => {
-        receiptId = id;
-      },
-      () => undefined,
-    );
-    // The id lands in the callback above, so a direct read here would still be typed as
-    // the null it started at. Calling for it reads the same value with its real type.
-    const settledReceiptId = (): string | null => receiptId;
+    // Hold the headers until the upstream has produced bytes, so an upstream that accepts the
+    // connection and then says nothing is a 502 rather than a receipted empty 200. That is the one
+    // job the old wait for a completion id did, and it is stated as a bytes check now that the id
+    // arriving in those bytes names nothing this gateway looks up.
     try {
-      while (settledReceiptId() === null) {
-        const next = await withTimeout(iterator.next(), FIRST_EVENT_TIMEOUT_MS, 'inference upstream produced no completion id');
+      while (early.length === 0) {
+        const next = await withTimeout(iterator.next(), FIRST_EVENT_TIMEOUT_MS, 'inference upstream produced no response bytes');
         if (next.done === true) {
           break;
         }
         early.push(Buffer.from(next.value));
-        // The id settles in a microtask while the chunk is scanned.
-        await new Promise((resolve) => setImmediate(resolve));
       }
     } catch (err) {
       upstreamError(reply, errorMessage(err));
       return;
     }
-    const id = settledReceiptId();
-    if (id === null) {
-      upstreamError(reply, 'inference upstream produced no completion id');
+    if (early.length === 0) {
+      upstreamError(reply, 'inference upstream produced an empty response body');
       return;
     }
+    const id = receiptIds.mint(receiptTag);
     const hasher = createHash('sha256');
 
     // SSE is written to the raw response: Fastify's stream plumbing does not

@@ -14,13 +14,14 @@ export interface CompletionUsage {
 /**
  * A completed upstream exchange, described in terms the receipt layer needs.
  * `chunks` must yield exactly the bytes the client receives, because `res` is
- * the hash of that stream rather than of a re-serialization.
+ * the hash of that stream rather than of a re-serialization. The upstream's own
+ * completion id is not part of this contract: it names nothing the gateway looks
+ * up, because a receipt is addressed by the id this gateway mints for the
+ * credential that asked.
  */
 export interface BackendResponse {
   readonly status: number;
   readonly contentType: string;
-  /** Resolves once the completion id is known, so the receipt header can be set before the body starts. */
-  readonly receiptId: Promise<string>;
   readonly chunks: AsyncIterable<Uint8Array>;
   /** Resolves after `chunks` is exhausted. Rejected only if the exchange failed mid-body. */
   readonly usage: Promise<CompletionUsage>;
@@ -44,7 +45,6 @@ export function mockBackend(): CompletionBackend {
       return {
         status: 200,
         contentType: request.stream ? 'text/event-stream' : 'application/json',
-        receiptId: Promise.resolve(completion.id),
         chunks: oneShot(body),
         usage: Promise.resolve({
           model: completion.model,

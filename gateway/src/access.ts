@@ -1,5 +1,5 @@
 import { readFile, stat } from 'node:fs/promises';
-import { randomBytes, randomUUID } from 'node:crypto';
+import { createHmac, hkdfSync, randomBytes, randomUUID } from 'node:crypto';
 import {
   EMPTY_BODY_SHA256_HEX,
   fromBase64Url,
@@ -13,6 +13,7 @@ import {
   verifyPopSignature,
   type PopAuthorization,
   type PopFields,
+  type SigningKey,
 } from '@ashaveri/receipt';
 import { fromHex, sha256, toHex } from './digest.js';
 
@@ -413,7 +414,126 @@ export const ROUTE_SCOPES: Record<string, RouteScope> = {
   'POST /v1/chat/completions': 'complete',
 };
 
-const RECEIPT_ID = /^[A-Za-z0-9_-]{1,64}$/u;
+/**
+ * Every id this gateway mints satisfies this, and every id the route accepts is checked against
+ * it. Exported because the mint's promise is a promise about this pattern, and a gate that holds a
+ * second copy of the regular expression is a gate that can pass while the two drift.
+ */
+export const RECEIPT_ID = /^[A-Za-z0-9_-]{1,64}$/u;
+
+/**
+ * A receipt id is the presenting credential's tag and then sixteen freshly drawn bytes: forty-eight
+ * lower-case hex characters, inside the sixty-four this pattern allows, so the route rule is
+ * unchanged and the prefix compare needs no case fold.
+ *
+ * The tag is `HMAC-SHA256(namespaceKey, credentialId)` truncated to eight bytes and printed as hex.
+ * The value it replaced is not a tag and never was one: the gateway used to publish the id the
+ * inference server chose, so a server that answers with a counter or a timestamp would have put
+ * every receipt this deployment has signed behind numbers another tenant could walk, since the
+ * route asked only whether the caller holds `read`. Unguessability is now this gateway's own job.
+ *
+ * The namespace key is an HKDF over the deployment's Ed25519 seed, so it is derived at boot from a
+ * secret the deployment already holds and rotates on redeploy, nothing new is written to disk, and
+ * a tenant cannot compute another tenant's tag without that seed. The credential *id* is the tag's
+ * input rather than the credential's key, because an id survives a credential's key rotation: a
+ * tenant that changes its own key still addresses the receipts it minted before.
+ */
+export const RECEIPT_ID_TAG_BYTES = 8;
+export const RECEIPT_ID_TAG_HEX_CHARS = RECEIPT_ID_TAG_BYTES * 2;
+export const RECEIPT_ID_RANDOM_BYTES = 16;
+/** `tag || random`, counted in characters. */
+export const RECEIPT_ID_CHARS = (RECEIPT_ID_TAG_BYTES + RECEIPT_ID_RANDOM_BYTES) * 2;
+
+const HKDF_KEY_BYTES = 32;
+const ED25519_SEED_BYTES = 32;
+
+/**
+ * Mixed into the derivation so that changing the scheme moves to a different namespace rather than
+ * silently colliding with an old deployment's ids. Both carry a version: editing either re-namespaces
+ * every id in existence, which is the same consequence a signing-key rotation already has, so they
+ * change together with the rule and not on their own.
+ */
+export const RECEIPT_NAMESPACE_SALT = 'ashaveri-receipt-namespace-v1';
+export const RECEIPT_NAMESPACE_INFO = 'ashaveri-receipt-id-tag-v1';
+
+function utf8Bytes(text: string): Uint8Array {
+  return new TextEncoder().encode(text);
+}
+
+/** The namespace key for one deployment. Called once per process, by `ReceiptNamespace`. */
+export function deriveReceiptNamespaceKey(seed: Uint8Array): Uint8Array {
+  const derived = hkdfSync(
+    'sha256',
+    seed,
+    utf8Bytes(RECEIPT_NAMESPACE_SALT),
+    utf8Bytes(RECEIPT_NAMESPACE_INFO),
+    HKDF_KEY_BYTES,
+  );
+  // Node's declared return type has moved between ArrayBuffer and Buffer across releases, so both
+  // spellings are accepted here rather than one of them asserted.
+  return derived instanceof Uint8Array ? derived : new Uint8Array(derived);
+}
+
+/**
+ * The minting and the checking half of one rule, held by the gateway that serves the receipts. One
+ * instance per process, built from the deployment the receipts are signed with.
+ */
+export class ReceiptNamespace {
+  private readonly key: Uint8Array;
+  /**
+   * One HMAC per credential id per process, so a request pays a string compare and nothing else.
+   * Keyed only from credentials the store has already admitted, never from a URL or a header, so
+   * nothing a caller sends can grow it: its ceiling is the credential file's own record count.
+   */
+  private readonly tags = new Map<string, string>();
+
+  constructor(signingKey: SigningKey) {
+    // `SigningKey.privateKey` *is* the 32-byte seed, which is what makes it a usable HKDF input:
+    // `signingKeyFromSeed` in `packages/receipt` is the only other writer of the field and it
+    // enforces the same width, so a key this repository can build always passes this check.
+    if (signingKey.privateKey.length !== ED25519_SEED_BYTES) {
+      throw new ReceiptError(
+        'BAD_SIGNING_KEY',
+        `the receipt namespace needs a ${ED25519_SEED_BYTES}-byte Ed25519 seed, got ${String(signingKey.privateKey.length)} bytes`,
+      );
+    }
+    this.key = deriveReceiptNamespaceKey(signingKey.privateKey);
+  }
+
+  /** The sixteen hex characters that stand for this credential inside an id. */
+  tagFor(credentialId: string): string {
+    const known = this.tags.get(credentialId);
+    if (known !== undefined) return known;
+    const tag = createHmac('sha256', this.key)
+      .update(utf8Bytes(credentialId))
+      .digest()
+      .subarray(0, RECEIPT_ID_TAG_BYTES)
+      .toString('hex');
+    this.tags.set(credentialId, tag);
+    return tag;
+  }
+
+  /** A fresh id for one completion under `tag`: the tag, then sixteen bytes nobody else can predict. */
+  mint(tag: string): string {
+    return `${tag}${randomBytes(RECEIPT_ID_RANDOM_BYTES).toString('hex')}`;
+  }
+
+  /**
+   * Whether this id was minted for this credential. A mismatch gets no distinct answer: the caller is
+   * held to the same refusal as one asking for an id that never existed, which is the whole point of
+   * checking a tag rather than ownership state. The compare is the file's existing constant-time one,
+   * because the value it checks is derived from a secret and a short-circuit on the first differing
+   * character is a signal a prober can read. An id shorter than the tag compares unequal by length,
+   * so no separate width rule is needed, and a matching prefix on an id this gateway never wrote
+   * still finds no bytes to serve.
+   */
+  carries(id: string, tag: string): boolean {
+    return constantTimeEquals(
+      Buffer.from(id.slice(0, RECEIPT_ID_TAG_HEX_CHARS), 'utf8'),
+      Buffer.from(tag, 'utf8'),
+    );
+  }
+}
 
 function matchesPath(pattern: string, path: string): boolean {
   const want = pattern.split('/');

@@ -219,6 +219,26 @@ describe('upstream backend: streaming', () => {
     expect(streamed).toMatchObject([{ cred: CREDENTIAL, auth: 'pop', st: 200, deny: null }]);
     await app.app.close();
   });
+
+  it('refuses an upstream that opens a stream and sends no bytes at all', async () => {
+    // Nothing in those bytes names a receipt any more, so holding the headers back is a check on
+    // bytes and not on an id: an empty 200 must stay unreceipted rather than be signed as a
+    // completion the client never saw.
+    const upstream = fakeUpstream(
+      () =>
+        new Response(chunkStream([]), {
+          status: 200,
+          headers: { 'content-type': 'text/event-stream' },
+        }),
+    );
+    const app = await gatewayWith(upstream);
+    const res = await send(app, 'POST', '/v1/chat/completions', STREAM_REQUEST_BODY, NONCE);
+    expect(res.statusCode).toBe(502);
+    expect(res.json()).toMatchObject({
+      error: { type: 'upstream_error', message: 'inference upstream produced an empty response body' },
+    });
+    expect(res.headers['x-ashaveri-receipt-id']).toBeUndefined();
+  });
 });
 
 describe('deployment model guard', () => {
