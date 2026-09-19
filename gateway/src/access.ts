@@ -619,6 +619,29 @@ const BEARER_PREFIX = 'Bearer ';
 export const DEFAULT_RATE: CredentialRate = { perMinute: 60, burst: 120 };
 
 /**
+ * What a connection address is held to ahead of every credential, so that an unauthenticated guess
+ * costs something other than the asking. Measured on this workspace's `@noble/curves` under node 24:
+ * one `verifyPopSignature` over a forged 64-byte signature is ~183 microseconds, so ~5,500 a second
+ * is a single core, and a guessing loop with no bound in front of it is the whole process. Three
+ * hundred tokens in hand and nine hundred a minute leaves a peer ~55ms of crypto for the burst and
+ * fifteen verifications a second thereafter, three tenths of one percent of a core: a real client
+ * asking fifteen requests a second of one address is not what this is for, and a credential held to
+ * `DEFAULT_RATE` is a fifteenth of that rate anyway. A loop that wants five thousand guesses a second
+ * is answered `RATE_LIMITED` from the three hundred and first in a row. What this bounds is what one
+ * connection can demand, not what all of them can: see `MAX_TRACKED_PEERS`.
+ */
+export const DEFAULT_PEER_RATE: CredentialRate = { perMinute: 900, burst: 300 };
+
+/**
+ * How many connection addresses the peer bucket remembers. Nothing bounds who connects, so this cap is
+ * what keeps a control on what a guess costs from opening a door onto memory: each entry is two
+ * numbers, and the count is fixed whatever the traffic, as the replay set's cap is. A peer that is
+ * evicted gets a full bucket back on its next request, which is the right loss: the cap holds memory
+ * down rather than holding an address refused.
+ */
+const MAX_TRACKED_PEERS = 16_384;
+
+/**
  * The replay key is the canonical encoding of the *decoded* nonce rather than the header text that
  * carried it: base64url ignores the unused bits of its last character, so two different texts can
  * decode to one nonce, and a set keyed on the text would let an attacker replay a signature under a
@@ -679,18 +702,34 @@ interface Bucket {
 /**
  * Deliberately hand-rolled rather than a plugin: a new package in a measured container changes the
  * launch measurement, and the plugin's configuration surface is larger than the forty lines below.
- * Keyed per credential, refilled at perMinute/60 tokens per second, capped at burst.
+ * Refilled at perMinute/60 tokens per second, capped at burst, one bucket per key: per credential for
+ * the bucket admission takes last, and per connection address for the one it takes first.
  */
 export class TokenBucket {
   private readonly buckets = new Map<string, Bucket>();
+
+  /**
+   * How many keys this map may hold. Left unlimited where the keys come from a credential file, which
+   * `MAX_CREDENTIALS` already bounds, and set where they come from whoever connects, which nothing
+   * else bounds: a counter that grew with the number of peers a process had ever met would replace a
+   * control on what a request costs with a door onto memory, which is the trade this bucket exists to
+   * avoid. Eviction gives up on the key presented least recently, so the peers who lose a bucket are
+   * the quiet ones - who get a full one back - and not the busy one a bucket exists to hold.
+   */
+  constructor(private readonly maxKeys: number = Number.POSITIVE_INFINITY) {}
 
   take(key: string, rate: CredentialRate, nowMs: number = Date.now()): { allowed: boolean; retryAfterSeconds: number } {
     const bucket = this.buckets.get(key);
     const refillPerMs = rate.perMinute / 60_000;
     if (bucket === undefined) {
       this.buckets.set(key, { tokens: rate.burst - 1, updatedMs: nowMs });
+      this.trim();
       return { allowed: true, retryAfterSeconds: 0 };
     }
+    // Presentation order rather than insertion order: a touched key moves to the back of the map, so
+    // the eviction in `trim` is least-recently-presented and not first-seen.
+    this.buckets.delete(key);
+    this.buckets.set(key, bucket);
     // A clock that steps backwards would otherwise refill by a negative amount and spend tokens
     // nobody took, so the elapsed time is floored at nothing before it becomes tokens.
     const gained = Math.max(0, (nowMs - bucket.updatedMs) * refillPerMs);
@@ -713,6 +752,23 @@ export class TokenBucket {
     bucket.updatedMs = Math.max(bucket.updatedMs, nowMs);
     return { allowed: true, retryAfterSeconds: 0 };
   }
+
+  /**
+   * Drop back to the cap, oldest presentation first. A bucket that is given up on is not a refusal:
+   * the next request from that key opens a fresh one at full burst, which is why the cap bounds
+   * memory rather than behaviour, and why an unlimited map keyed on whoever happens to connect is the
+   * one shape here that has to be impossible.
+   */
+  private trim(): void {
+    if (this.buckets.size <= this.maxKeys) return;
+    const excess = this.buckets.size - this.maxKeys;
+    let dropped = 0;
+    for (const entry of this.buckets.keys()) {
+      if (dropped >= excess) break;
+      this.buckets.delete(entry);
+      dropped += 1;
+    }
+  }
 }
 
 export interface AdmissionInput {
@@ -722,6 +778,15 @@ export interface AdmissionInput {
   body: Uint8Array | null;
   /** Seconds since the epoch the request is stamped with; this clock's own second when absent. */
   nowSeconds?: number;
+  /**
+   * The peer address of the connection this request arrived on, which is the key the request bound
+   * taken ahead of any crypto is held on. The transport fills it from the socket and from nothing the
+   * caller wrote: no header may supply an address, neither `Forwarded` nor `X-Forwarded-For`, because a
+   * key a guesser chooses is a bucket a guesser empties or evades. Absent means no transport spoke - a
+   * store handed requests directly - and a bucket with no key to charge is not charged at all, which is
+   * why the gateway's own `preHandler` fills this on every request it admits.
+   */
+  peerAddress?: string;
 }
 
 export interface Admission {
@@ -742,6 +807,22 @@ export interface CredentialStoreOptions {
   toleranceSeconds?: number;
   /** Milliseconds since the epoch: one clock for the tolerance, the replay window and the buckets. */
   now?: () => number;
+  /**
+   * What a connection address is held to before this store spends any crypto on it;
+   * `DEFAULT_PEER_RATE` when unset. Injectable for the same reason the clock is, and for a sharper
+   * one: a property walk over a matrix of requests inside one process is not a guessing loop, and a
+   * bound that refused it would read as a disclosure failure. A harness held to no bound says so
+   * where it builds the store, rather than leaving the number to be raised in the software until a
+   * test goes green.
+   */
+  peerRate?: CredentialRate;
+  /**
+   * Called once per Ed25519 verification this store performs. It takes no arguments, is given no
+   * verdict, and its return value is unread, so it cannot become the branch the collapsed refusal must
+   * never be: what it counts is that a verification happened, which is the only honest way to assert
+   * that a shed guess spent no crypto. Nothing in the shipped gateway passes one.
+   */
+  countVerification?: () => void;
 }
 
 function firstHeader(headers: AdmissionInput['headers'], name: string): string | undefined {
@@ -927,9 +1008,13 @@ export class CredentialStore {
   private byId: Map<string, Ingested> = new Map();
   private readonly replay: ReplaySet;
   private readonly buckets = new TokenBucket();
+  /** Keyed on the connection address rather than a credential, and capped because nothing caps who connects. */
+  private readonly peerBuckets = new TokenBucket(MAX_TRACKED_PEERS);
   private readonly path?: string;
   private readonly allowBearer: boolean;
   private readonly toleranceSeconds: number;
+  private readonly peerRate: CredentialRate;
+  private readonly countVerification: (() => void) | undefined;
   private readonly now: () => number;
   private watchedMtimeMs = 0;
   private reloading: Promise<void> | undefined;
@@ -945,6 +1030,8 @@ export class CredentialStore {
     this.install(options.file ?? { version: CREDENTIALS_FILE_VERSION, credentials: [] });
     this.allowBearer = options.allowBearer ?? false;
     this.toleranceSeconds = options.toleranceSeconds ?? POP_TIMESTAMP_TOLERANCE_SECONDS;
+    this.peerRate = options.peerRate ?? DEFAULT_PEER_RATE;
+    this.countVerification = options.countVerification;
     this.now = options.now ?? (() => Date.now());
     this.replay = new ReplaySet(REPLAY_WINDOW_SECONDS, REPLAY_MAX_ENTRIES, this.now);
   }
@@ -1002,15 +1089,22 @@ export class CredentialStore {
 
   /**
    * The checks, in the order the answers are safe to give. Name-independent refusals come first,
-   * cheapest first: the header the caller wrote, the stamp it carries, the nonce it presents. Among
-   * the name-dependent ones the only answer this gateway gives before a signature verifies is the
-   * answer that a signature did not verify, which is also the answer a name the file does not carry
-   * gets. What the file says about a credential it does hold - revoked, replayed, out of scope, over
-   * budget - is told to the one party who can act on it, the caller that proved it holds the key the
-   * header names. The order is therefore sorted by what it discloses rather than by what it costs,
-   * and a request that fails two checks still reports the earlier one.
+   * cheapest first: the connection's own request bound, then the header the caller wrote, the stamp it
+   * carries, the nonce it presents. Among the name-dependent ones the only answer this gateway gives
+   * before a signature verifies is the answer that a signature did not verify, which is also the answer
+   * a name the file does not carry gets. What the file says about a credential it does hold - revoked,
+   * replayed, out of scope, over budget - is told to the one party who can act on it, the caller that
+   * proved it holds the key the header names. The order is therefore sorted by what it discloses rather
+   * than by what it costs, and a request that fails two checks still reports the earlier one.
    */
   admit(input: AdmissionInput): Admission {
+    // The connection's budget, taken ahead of reading anything out of the header. This is the one check
+    // that runs before this store looks at what a caller wrote at all, and that is what makes it lawful
+    // under the placement test: every request meets it, whoever it names and whatever its header says,
+    // so a refusal here is a statement about the deployment and cannot be an answer about the file. It
+    // sits above the crypto because that is the point of it - a guess is refused for the cost it would
+    // have spent, one Ed25519 verification, and not for the cost it saves, a map lookup.
+    this.chargePeer(input.peerAddress);
     // The table read is the cheapest step, so it still runs first, but it answers only at the scope
     // check: refusing a target outside the table before a credential is named would let anyone
     // enumerate which paths this gateway has scoped.
@@ -1059,7 +1153,7 @@ export class CredentialStore {
     // are both answered inside `locate`: one verification against a key that is in no file, then
     // this refusal, whatever that verification answered.
     const { record, key } = this.locate(presented, fields);
-    if (!verifyPopSignature(fields, presented.signature, key)) {
+    if (!this.verify(fields, presented.signature, key)) {
       throw new AccessError('AUTH_SIGNATURE', presented.credential, undefined, presented.credential);
     }
     if (record.revokedAt !== undefined) {
@@ -1108,8 +1202,55 @@ export class CredentialStore {
    * has proved nothing is owed is the one a caller with a bad signature already receives.
    */
   private collapsedRefusal(presented: PopAuthorization, fields: PopFields, logCode: AccessErrorCode): AccessError {
-    verifyPopSignature(fields, presented.signature, DUMMY_VERIFICATION_KEY);
+    this.verify(fields, presented.signature, DUMMY_VERIFICATION_KEY);
     return new AccessError('AUTH_SIGNATURE', presented.credential, undefined, presented.credential, logCode);
+  }
+
+  /**
+   * The one place this store calls the verifier, so that "one Ed25519 verification performed" is a fact
+   * that can be counted rather than inferred. Both paths reach it - a name the file carries is checked
+   * against its own key, a name it does not against the dummy one - which is the collapse. The counter
+   * is told only that a verification happened: it sees no verdict and can change none, so a measuring
+   * seam cannot become the branch the paragraph above refuses.
+   */
+  private verify(fields: PopFields, signature: Uint8Array, key: Uint8Array): boolean {
+    this.countVerification?.();
+    return verifyPopSignature(fields, signature, key);
+  }
+
+  /**
+   * The connection's budget, taken before any of what a request says is read. Now that an unknown name
+   * is answered as a failed signature, a guess about a name costs this store one Ed25519 verification,
+   * and the per-credential bucket cannot bound that because a guess is not holding a credential to
+   * charge. So the charge goes on the address the socket reported, and a peer out of tokens is told so
+   * plainly: `RATE_LIMITED`, with its 429 and its `retry-after`, the same words in a store that holds
+   * the name and one that does not, because nothing about the answer depends on a name. That uniformity
+   * is the whole of its lawful placement, and it is also what the caller learns: that a limit exists
+   * and that they are inside it, which is a fact about this deployment rather than about an id.
+   *
+   * The bucket is in memory, is never written to disk, and does not outlive the process. It is not a
+   * field of the access record and cannot become one: the log's allowlist is closed, and an ephemeral
+   * counter that sheds load is not the retention decision that allowlist is drawn around. Behind a
+   * reverse proxy every peer address is the proxy's, which is why no header is asked for an address and
+   * why this is not a per-client limit unless an operator puts a trusted proxy in front and passes the
+   * real address on.
+   */
+  private chargePeer(peerAddress: string | undefined): void {
+    // Nothing to charge, rather than a shared bucket for everyone the transport could not place: the
+    // gateway's own transport fills this from the socket on every request, so the only stores that see
+    // an absent address are the ones handed requests directly, which are tests and `--mock`.
+    if (peerAddress === undefined) return;
+    const taken = this.peerBuckets.take(peerAddress, this.peerRate, this.now());
+    if (!taken.allowed) {
+      // The detail says which bucket fired, because the retry differs: waiting refills this one, and a
+      // different credential would not. It names no credential, since the caller has proved nothing,
+      // and no address, since the response is not where a connection learns its own number.
+      throw new AccessError(
+        'RATE_LIMITED',
+        'this is the request bound held per connection address, ahead of any credential',
+        taken.retryAfterSeconds,
+      );
+    }
   }
 
   /**

@@ -241,6 +241,15 @@ export function buildGateway(options: GatewayOptions): GatewayInstance {
         url: request.url,
         headers: request.headers,
         body: request.body instanceof Buffer ? new Uint8Array(request.body.buffer, request.body.byteOffset, request.body.byteLength) : null,
+        // The socket's own peer, and not `request.ip`: Fastify documents that value as derived from the
+        // forwarding headers once an operator turns `trustProxy` on for some other reason, and a throttle
+        // keyed on a header the caller writes is one the caller can point at somebody else's address or
+        // reset on every request. So no header supplies an address here, in either spelling. The cost is
+        // honest and stated in `docs/access-control.md`: behind a reverse proxy every peer address is the
+        // proxy's, and this is not a per-client limit unless an operator puts a trusted proxy in front
+        // and has it pass the real address on. Doing that takes a deliberate trust decision at this line,
+        // which is where anyone reaching for `X-Forwarded-For` will find this paragraph.
+        peerAddress: request.socket.remoteAddress,
       });
       state.credential = admitted.credentialId;
       // Held on the request the moment admission names the credential, so a mint and a read compare

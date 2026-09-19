@@ -21,6 +21,7 @@ import {
   newPopCredential,
   routeScope,
   type AdmissionInput,
+  type CredentialRate,
   type CredentialRecord,
   type Scope,
 } from '../src/access.js';
@@ -1161,13 +1162,36 @@ function sharedRecords(): CredentialRecord[] {
   return [pop, { ...bearer.record, rate: { perMinute: 60, burst: 8 } }];
 }
 
+/**
+ * The connection the whole walk presents as, and the bound it runs under.
+ *
+ * A request bound held per address sits ahead of every other check, so a walk of 125 shapes from one
+ * address is, from the store's side of the seam, a guessing loop. The bound below is one the walk cannot
+ * hit, and it is stated rather than left to the software's default on purpose: the harness is what has to
+ * be unbounded here, and a default raised until this file went green would have raised it for every real
+ * guessing loop with it. The address goes on every cell so the walk runs the charged path rather than a
+ * path it quietly skips by presenting nothing.
+ */
+const WALK_PEER = '203.0.113.112';
+const WALK_PEER_RATE: CredentialRate = { perMinute: 1_000_000, burst: 1_000_000 };
+
 /** Two files that differ by one record, rebuilt per cell so no cell inherits another's replay set or bucket. */
 function storesFor(probed: Probed): { holds: CredentialStore; lacks: CredentialStore } {
   const shared = sharedRecords();
   const now = () => CLOCK_MS;
   return {
-    holds: new CredentialStore({ file: { version: 1, credentials: [...shared, probed.record] }, allowBearer: true, now }),
-    lacks: new CredentialStore({ file: { version: 1, credentials: [...shared] }, allowBearer: true, now }),
+    holds: new CredentialStore({
+      file: { version: 1, credentials: [...shared, probed.record] },
+      allowBearer: true,
+      now,
+      peerRate: WALK_PEER_RATE,
+    }),
+    lacks: new CredentialStore({
+      file: { version: 1, credentials: [...shared] },
+      allowBearer: true,
+      now,
+      peerRate: WALK_PEER_RATE,
+    }),
   };
 }
 
@@ -1312,8 +1336,11 @@ interface Answer {
 }
 
 function answer(store: CredentialStore, input: AdmissionInput): Answer {
+  // One connection for the whole walk, which is what the request bound ahead of the crypto is keyed on.
+  // `WALK_PEER_RATE` is what keeps that bound from being the answer any cell gets.
+  const presented: AdmissionInput = { ...input, peerAddress: WALK_PEER };
   try {
-    const granted = store.admit(input);
+    const granted = store.admit(presented);
     return { kind: 'admitted', code: 'SERVED', status: 'served', message: `served as ${granted.credentialId} for ${granted.scope} by ${granted.auth}` };
   } catch (err) {
     if (err instanceof AccessError) {
