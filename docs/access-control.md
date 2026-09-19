@@ -12,11 +12,12 @@ design addresses and the ones it leaves open.
 
 ## 1. The pipeline
 
-`CredentialStore.admit` runs five checks in a fixed order, and the order is the contract rather than
-an optimization. It sorts by what an answer discloses, not by what a check costs, and it keeps the
-property that makes the difference knowable: a request that fails two of them reports the earlier
-one. Each check is listed below with what it proves and, in parentheses, the refusal it raises when
-it fails.
+`CredentialStore.admit` runs five checks in a fixed order, and one bound on the connection ahead of all
+five. The order is the contract rather than an optimization. It sorts by what an answer discloses, not by
+what a check costs, and it keeps the property that makes the difference knowable: a request that fails two
+of them reports the earlier one. Each check is listed below with what it proves and, in parentheses, the
+refusal it raises when it fails; the bound is described with them, because it answers with one of their
+codes.
 
 1. **The request says who it is, and when.** The `Authorization` header parses and speaks a scheme
    this deployment runs; the `ts` parameter is within the deployment's tolerance; the
@@ -35,6 +36,34 @@ it fails.
 4. **The route accepts the credential's scope.** The request target is in the route table, and the
    scopes the record grants include what that row requires (`SCOPE_DENIED`).
 5. **The credential is within its rate.** A token is taken from its bucket (`RATE_LIMITED`).
+
+**Ahead of all five sits one bound, and it is held on the connection rather than on a credential.** Before
+the request has said anything about itself, the gateway asks how many requests the address it arrived on has
+made recently, and one from an address that has spent its allowance is refused `RATE_LIMITED` without its
+header being read. The bound is there because check 2 gives a guess a cost: a name this file does not carry
+is answered by performing one Ed25519 verification, so a loop over names would otherwise buy computation for
+the price of sending it. Check 5 cannot bound that, because a guess holds no credential to charge, so the
+charge goes on the thing a guesser cannot choose - the address its connection came from. It is set generously
+and it is a floor rather than an allowance: 300 requests in a burst and 900 a minute from one address, which
+is fifteen requests a second sustained and no client of this gateway's shape reaching it. A refused request
+costs this process a lookup and a 429.
+
+That placement is lawful for the same reason the freshness window's is, and it is the reason the bound has to
+be uniform: every request meets it, whoever it names and whatever its header says, so the answer is a
+statement about this deployment and never about the file. What a throttled caller learns is that it is
+throttled. It is answered in the same words either bucket gives - `RATE_LIMITED`, status 429, and a
+`retry-after` - and the sentence says which one fired, because waiting refills the connection's and the fix
+for the credential's is the rate the operator set. Nothing in that answer depends on whether a name the
+caller typed is in the file, and it names none.
+
+Two consequences follow from keying a bound on a connection. Behind a reverse proxy every request arrives
+from the proxy's address, so this is not a per-client limit unless the operator puts a trusted proxy in front
+and has the real address passed on; and no header is consulted for an address at all, `X-Forwarded-For` and
+`Forwarded` included, because a key the caller chooses is a bound the caller can move or reset. Neither
+figure is a flag: the software holds the floor, and a deployment that needs per-client limits needs a proxy
+that can name the client. The counter is memory only, is never written down, and does not outlive the
+process, so it is not the record section 7 declines to keep an address in; how many addresses it remembers is
+capped, so it cannot be grown by making the gateway meet more of them.
 
 `BAD_CREDENTIAL_RECORD` is not a refusal the pipeline answers a request with, as of 19 September
 2026. A `pop` record carrying no key its kind can be verified against never reaches a request: it is
@@ -112,7 +141,7 @@ definition.
 | `AUTH_SIGNATURE` | 401 | EdDSA over the signing string failed, or the name the header carries is not one the file holds, or the record it names is a bearer one with no key to verify against | Refuse. The key is wrong, or something changed the request after it was signed, or the credential id is not one this deployment holds. Check the id and the key; none of the three is a retry |
 | `NONCE_SEEN` | 409 | This credential presented this nonce inside the replay window | Build a new request with a fresh nonce. Resending these bytes is exactly what just failed |
 | `SCOPE_DENIED` | 403 | The route needs a scope the credential does not hold, or the target has no row | Use a credential that holds it, or ask the operator to scope the route. Rate budget is untouched |
-| `RATE_LIMITED` | 429 | The credential's bucket is empty | Wait `retryAfterSeconds`, then send a new request |
+| `RATE_LIMITED` | 429 | Either the credential's bucket is empty or the connection has spent the request bound held ahead of the five checks. The refusal's own sentence says which, and it names no credential on the connection's answer | Wait `retryAfterSeconds`, then send a new request. One answer is fixed by the rate the operator set for the credential; the other by how much this one address is asking at once |
 | `BAD_CREDENTIAL_FILE`, `BAD_CREDENTIAL_RECORD`, `DUPLICATE_CREDENTIAL_ID` | 500 | The operator's file is unusable. None of the three is a refusal the pipeline gives a request: they answer where records enter the store, at start-up and on reload | Not a client fix. A file that will not parse, or that holds a record with no key its kind can be verified against, stops the boot; a reload that fails keeps the records already loaded answering later requests while the file is repaired |
 
 ## 2. Routes and scopes
@@ -391,7 +420,9 @@ limiter, "to the extent strictly necessary and proportionate": the allowlist is 
 that is nice to have in a debugging session is not within that phrase. Article 32(4) reaches people
 acting under a controller's or processor's authority, which is the population one credential per
 principal attributes; it does not reach every caller of an API, and this document does not claim that
-it does.
+it does. The connection bound in section 1 does not reopen this. It counts requests per address in
+memory to decide what this process will spend on one, is never written to a log line, and dies with the
+process; the counter is not a record of who connected, and there is no field for it to be recorded into.
 
 ### Rotation and retention
 
