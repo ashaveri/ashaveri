@@ -80,9 +80,11 @@ jobs:
         run: |
           set -uo pipefail
           report="$RUNNER_TEMP/secrets-in-history.json"
+          status=0
+          # A run step is `bash -e`, so a non-zero status has to be captured on the
+          # command itself; a following `status=$?` line never runs.
           "$RUNNER_TEMP/bin/gitleaks" git . -c "$GITHUB_WORKSPACE/.gitleaks.toml" \
-            -f json -r "$report" --redact --exit-code 3 --no-banner --no-color
-          status=$?
+            -f json -r "$report" --redact --exit-code 3 --no-banner --no-color || status=$?
           case "$status" in
             0) ;;
             3) echo "gitleaks reported findings, exit $status";;
@@ -115,9 +117,9 @@ jobs:
           git add -- "$GITHUB_WORKSPACE/$selftest_dir"
           git -c user.name=github-actions -c user.email=github-actions@github.com \
             commit --no-verify -q -m "Secret scan self test"
+          status=0
           "$RUNNER_TEMP/bin/gitleaks" git . -c "$GITHUB_WORKSPACE/.gitleaks.toml" \
-            -f json -r "$report" --redact --exit-code 3 --no-banner --no-color
-          status=$?
+            -f json -r "$report" --redact --exit-code 3 --no-banner --no-color || status=$?
           if [ ! -s "$report" ]; then
             echo "gitleaks wrote no report, so .gitleaks.toml did not load"
             exit 1
