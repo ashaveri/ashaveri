@@ -99,10 +99,10 @@ export function accessStatus(code: AccessErrorCode): number {
 
 /**
  * A refusal's optional tail, one key per field. Named rather than ordered because `detail` and
- * `credentialId` are both strings with `retryAfterSeconds` between them, so a site that means the two
- * names has to hand in `undefined` for the middle one and a reader cannot tell that hole from a
- * refusal carrying a retry bound. This is only the shape a throw site hands in; what each value
- * becomes once it is on the error is on the matching field below.
+ * `credentialId` are both strings with `retryAfterSeconds` between them, so a site that fills the two
+ * names has to hand in `undefined` to hold the middle slot open, and that hole reads the same as a
+ * refusal with nothing to say about a retry bound. This is only the shape a throw site hands in; what
+ * each value becomes once it is on the error is on the matching field below.
  */
 export interface AccessErrorOptions {
   readonly detail?: string;
