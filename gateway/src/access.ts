@@ -97,6 +97,20 @@ export function accessStatus(code: AccessErrorCode): number {
   return ERROR_STATUS[code];
 }
 
+/**
+ * A refusal's optional tail, one key per field. Named rather than ordered because `detail` and
+ * `credentialId` are both strings with `retryAfterSeconds` between them, so a site that means the two
+ * names has to hand in `undefined` for the middle one and a reader cannot tell that hole from a
+ * refusal carrying a retry bound. This is only the shape a throw site hands in; what each value
+ * becomes once it is on the error is on the matching field below.
+ */
+export interface AccessErrorOptions {
+  readonly detail?: string;
+  readonly retryAfterSeconds?: number;
+  readonly credentialId?: string;
+  readonly logCode?: DenyCode;
+}
+
 export class AccessError extends Error {
   readonly code: AccessErrorCode;
   /**
@@ -124,21 +138,15 @@ export class AccessError extends Error {
    */
   readonly detail: string | undefined;
 
-  constructor(
-    code: AccessErrorCode,
-    detail?: string,
-    retryAfterSeconds?: number,
-    credentialId?: string,
-    logCode?: DenyCode,
-  ) {
-    super(detail === undefined ? ERROR_MESSAGE[code] : `${ERROR_MESSAGE[code]}: ${detail}`);
+  constructor(code: AccessErrorCode, options: AccessErrorOptions = {}) {
+    super(options.detail === undefined ? ERROR_MESSAGE[code] : `${ERROR_MESSAGE[code]}: ${options.detail}`);
     this.name = 'AccessError';
     this.code = code;
-    this.logCode = logCode ?? code;
+    this.logCode = options.logCode ?? code;
     this.status = accessStatus(code);
-    this.retryAfterSeconds = retryAfterSeconds;
-    this.credentialId = credentialId;
-    this.detail = detail;
+    this.retryAfterSeconds = options.retryAfterSeconds;
+    this.credentialId = options.credentialId;
+    this.detail = options.detail;
   }
 }
 
@@ -174,7 +182,7 @@ const ED25519_PUBLIC_KEY_BYTES = 32;
 const HEX32 = /^[0-9a-f]{64}$/u;
 
 function refuse(code: AccessErrorCode, detail: string): never {
-  throw new AccessError(code, detail);
+  throw new AccessError(code, { detail });
 }
 
 /** What went wrong, in one clause, without assuming the thrown value is an Error. */
@@ -382,7 +390,9 @@ export async function loadCredentialFile(path: string): Promise<CredentialFile> 
     if (err instanceof AccessError) {
       // The path goes on the detail, not on the message, because the message already opens with the
       // clause this constructor prefixes: writing it there printed the same sentence twice.
-      throw new AccessError(err.code, err.detail === undefined ? path : `${path}: ${err.detail}`);
+      throw new AccessError(err.code, {
+        detail: err.detail === undefined ? path : `${path}: ${err.detail}`,
+      });
     }
     throw err;
   }
@@ -913,9 +923,11 @@ function parseAuthorization(header: string): PopAuthorization {
     return parsePopAuthorization(header);
   } catch (err) {
     if (err instanceof ReceiptError && err.code === 'AUTH_SCHEME_MISMATCH') {
-      throw new AccessError('AUTH_SCHEME', 'the Authorization header is neither Ashaveri-PoP nor Bearer');
+      throw new AccessError('AUTH_SCHEME', {
+        detail: 'the Authorization header is neither Ashaveri-PoP nor Bearer',
+      });
     }
-    throw new AccessError('AUTH_MALFORMED', reason(err));
+    throw new AccessError('AUTH_MALFORMED', { detail: reason(err) });
   }
 }
 
@@ -931,10 +943,12 @@ function presentedNonce(headers: AdmissionInput['headers']): Uint8Array {
   try {
     nonce = fromBase64Url(header, 'BAD_POP_NONCE');
   } catch (err) {
-    throw new AccessError('AUTH_NONCE_MISSING', reason(err));
+    throw new AccessError('AUTH_NONCE_MISSING', { detail: reason(err) });
   }
   if (nonce.length !== POP_NONCE_BYTES) {
-    throw new AccessError('AUTH_NONCE_MISSING', `the nonce is ${nonce.length} bytes, not ${POP_NONCE_BYTES}`);
+    throw new AccessError('AUTH_NONCE_MISSING', {
+      detail: `the nonce is ${nonce.length} bytes, not ${POP_NONCE_BYTES}`,
+    });
   }
   return nonce;
 }
@@ -1048,10 +1062,12 @@ export class CredentialStore {
 
   constructor(options: CredentialStoreOptions) {
     if (options.path !== undefined && options.file !== undefined) {
-      throw new AccessError('BAD_CREDENTIAL_FILE', 'a store reads either a file on disk or an in-memory one, not both');
+      throw new AccessError('BAD_CREDENTIAL_FILE', {
+        detail: 'a store reads either a file on disk or an in-memory one, not both',
+      });
     }
     if (options.path === undefined && options.file === undefined) {
-      throw new AccessError('BAD_CREDENTIAL_FILE', 'a store needs a path or an in-memory file');
+      throw new AccessError('BAD_CREDENTIAL_FILE', { detail: 'a store needs a path or an in-memory file' });
     }
     this.path = options.path;
     this.install(options.file ?? { version: CREDENTIALS_FILE_VERSION, credentials: [] });
@@ -1138,16 +1154,16 @@ export class CredentialStore {
     const scope = routeScope(input.method, input.url);
     const header = firstHeader(input.headers, 'authorization');
     if (header === undefined || header.trim().length === 0) {
-      throw new AccessError('AUTH_MALFORMED', 'no Authorization header');
+      throw new AccessError('AUTH_MALFORMED', { detail: 'no Authorization header' });
     }
     const trimmed = header.trim();
     const secret = bearerSecret(trimmed);
     if (secret !== undefined) {
       if (!this.allowBearer) {
-        throw new AccessError(
-          'AUTH_SCHEME',
-          'this deployment requires a proof of possession; a bearer-capable deployment sets --allow-bearer',
-        );
+        throw new AccessError('AUTH_SCHEME', {
+          detail:
+            'this deployment requires a proof of possession; a bearer-capable deployment sets --allow-bearer',
+        });
       }
       return this.admitBearer(secret, scope, input);
     }
@@ -1160,12 +1176,10 @@ export class CredentialStore {
     const nowSeconds = input.nowSeconds ?? Math.floor(this.now() / 1000);
     const skew = Math.abs(nowSeconds - presented.ts);
     if (skew > this.toleranceSeconds) {
-      throw new AccessError(
-        'AUTH_STALE',
-        `the request is stamped ${skew}s from this clock, outside the ${this.toleranceSeconds}s tolerance: check the clock on the client or the deployment`,
-        undefined,
-        presented.credential,
-      );
+      throw new AccessError('AUTH_STALE', {
+        detail: `the request is stamped ${skew}s from this clock, outside the ${this.toleranceSeconds}s tolerance: check the clock on the client or the deployment`,
+        credentialId: presented.credential,
+      });
     }
     const nonce = presentedNonce(input.headers);
     const fields: PopFields = {
@@ -1181,16 +1195,28 @@ export class CredentialStore {
     // this refusal, whatever that verification answered.
     const { record, key } = this.locate(presented, fields);
     if (!this.verify(fields, presented.signature, key)) {
-      throw new AccessError('AUTH_SIGNATURE', presented.credential, undefined, presented.credential);
+      throw new AccessError('AUTH_SIGNATURE', {
+        detail: presented.credential,
+        credentialId: presented.credential,
+      });
     }
     if (record.revokedAt !== undefined) {
-      throw new AccessError('AUTH_REVOKED', presented.credential, undefined, presented.credential);
+      throw new AccessError('AUTH_REVOKED', {
+        detail: presented.credential,
+        credentialId: presented.credential,
+      });
     }
     if (this.replay.see(nonceKey(presented.credential, nonce))) {
-      throw new AccessError('NONCE_SEEN', presented.credential, undefined, presented.credential);
+      throw new AccessError('NONCE_SEEN', {
+        detail: presented.credential,
+        credentialId: presented.credential,
+      });
     }
     if (scope === undefined || !scopeSatisfied(record.scopes, scope)) {
-      throw new AccessError('SCOPE_DENIED', scopeDenial(scope, record, input), undefined, record.id);
+      throw new AccessError('SCOPE_DENIED', {
+        detail: scopeDenial(scope, record, input),
+        credentialId: record.id,
+      });
     }
     return this.charge(presented.credential, record, scope, input, 'pop', nonce);
   }
@@ -1230,7 +1256,11 @@ export class CredentialStore {
    */
   private collapsedRefusal(presented: PopAuthorization, fields: PopFields, logCode: AccessErrorCode): AccessError {
     this.verify(fields, presented.signature, DUMMY_VERIFICATION_KEY);
-    return new AccessError('AUTH_SIGNATURE', presented.credential, undefined, presented.credential, logCode);
+    return new AccessError('AUTH_SIGNATURE', {
+      detail: presented.credential,
+      credentialId: presented.credential,
+      logCode,
+    });
   }
 
   /**
@@ -1275,15 +1305,13 @@ export class CredentialStore {
     if (!taken.allowed) {
       // The detail says which bucket fired, because the retry differs: waiting refills this one, and a
       // different credential would not. It names no credential, since the caller has proved nothing,
-      // and no address, since the response is not where a connection learns its own number. The fifth
-      // argument is the reason that stays inside, for the reason the note above gives.
-      throw new AccessError(
-        'RATE_LIMITED',
-        'this is the request bound held per connection address, ahead of any credential',
-        taken.retryAfterSeconds,
-        undefined,
-        'PEER_RATE_LIMITED',
-      );
+      // and no address, since the response is not where a connection learns its own number. The log
+      // code is the reason that stays inside, for the reason the note above gives.
+      throw new AccessError('RATE_LIMITED', {
+        detail: 'this is the request bound held per connection address, ahead of any credential',
+        retryAfterSeconds: taken.retryAfterSeconds,
+        logCode: 'PEER_RATE_LIMITED',
+      });
     }
   }
 
@@ -1303,11 +1331,14 @@ export class CredentialStore {
       const stored = bearerSecretHashOf(record);
       if (stored === undefined || !constantTimeEquals(wanted, stored)) continue;
       if (scope === undefined || !scopeSatisfied(record.scopes, scope)) {
-        throw new AccessError('SCOPE_DENIED', scopeDenial(scope, record, input), undefined, record.id);
+        throw new AccessError('SCOPE_DENIED', {
+          detail: scopeDenial(scope, record, input),
+          credentialId: record.id,
+        });
       }
       return this.charge(record.id, record, scope, input, 'bearer', null);
     }
-    throw new AccessError('AUTH_UNKNOWN', 'no bearer credential matches the presented secret');
+    throw new AccessError('AUTH_UNKNOWN', { detail: 'no bearer credential matches the presented secret' });
   }
 
   /** The last check for both kinds, and the answer: what was granted, and what it may be spent on. */
@@ -1321,7 +1352,11 @@ export class CredentialStore {
   ): Admission {
     const taken = this.buckets.take(id, record.rate ?? DEFAULT_RATE, this.now());
     if (!taken.allowed) {
-      throw new AccessError('RATE_LIMITED', id, taken.retryAfterSeconds, id);
+      throw new AccessError('RATE_LIMITED', {
+        detail: id,
+        retryAfterSeconds: taken.retryAfterSeconds,
+        credentialId: id,
+      });
     }
     return { credentialId: id, scope, auth, nonce, receiptId: receiptIdFrom(input.url) };
   }
