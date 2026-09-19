@@ -136,6 +136,21 @@ describe('docs/access-control.md', () => {
       fieldsTheWriterEmits().length,
     );
   });
+
+  it('says that a check ahead of the credential file applies to every request whoever it names', () => {
+    // The request bound sits before the file is read on one condition, and the document states it:
+    // the check is uniform, so what it answers is a fact about the deployment and never about who is
+    // in the file. Without this pinned, a rewrite of the section can drop the rule and leave a later
+    // change moving a name-dependent check ahead of the lookup with nothing in the contract to
+    // contradict it, which is the enumeration oracle the whole ordering exists to keep out.
+    const rule =
+      'every request meets it, whoever it names and whatever its header says, so the answer is a ' +
+      'statement about this deployment and never about the file';
+    // Read as one boolean rather than a `toContain` because the document is long enough that
+    // echoing it back on a failure buries the sentence that went missing.
+    const prose = documentText().replace(/\s+/gu, ' ');
+    expect(prose.includes(rule), `section 1 states the uniformity the placement rests on: ${rule}`).toBe(true);
+  });
 });
 
 describe('the refusal tables against gateway/src/access.ts', () => {
