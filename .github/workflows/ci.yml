@@ -31,6 +31,32 @@ jobs:
           pnpm test
       - run: pnpm typecheck
 
+  windows-test:
+    name: The filesystem-touching suites pass on Windows
+    runs-on: windows-latest
+    timeout-minutes: 20
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 12.3.4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      # These are the two suites that read file modes and rename behaviour back off disk, which is what
+      # differs between platforms; the other four stay on Linux on cost grounds. The `...` pulls in the
+      # packages these two import, whose declarations are build output, so it is a build of the tested
+      # pair and their dependencies, not a wider run.
+      - run: pnpm -r --filter "@ashaveri/signerd..." --filter "@ashaveri/cli..." build
+      - run: pnpm -r --filter "@ashaveri/signerd" --filter "@ashaveri/cli" typecheck
+      - run: pnpm -r --filter "@ashaveri/signerd" --filter "@ashaveri/cli" test
+
   generated-vectors:
     name: Regenerating the vectors changes nothing
     runs-on: ubuntu-latest
