@@ -124,6 +124,10 @@ export class AccessError extends Error {
    */
   readonly logCode: DenyCode;
   readonly status: number;
+  /**
+   * How long a caller should wait before trying again, in seconds. Only the two rate refusals set it,
+   * and the transport turns a present value into a `retry-after` header and nothing else.
+   */
   readonly retryAfterSeconds: number | undefined;
   /**
    * Which credential this refusal is about, when the pipeline knew. The access record wants a
