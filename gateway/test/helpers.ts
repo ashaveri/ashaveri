@@ -1,6 +1,7 @@
 import { writeFile, utimes } from 'node:fs/promises';
 import {
   EMPTY_BODY_SHA256_HEX,
+  POP_NONCE_BYTES,
   sha256Hex,
   signPopAuthorization,
   signingKeyFromSeed,
@@ -120,9 +121,35 @@ export interface HarnessInput {
   storePath?: string;
 }
 
-const NONCE_BYTES = 16;
 /** The prefix every implicit nonce carries, so a failure names a harness nonce at a glance. */
 const NONCE_TAG = 0x33;
+
+/**
+ * A nonce per presentation: `marker` in the leading bytes and the big-endian counter `at` in the last
+ * four, so two requests of one credential never land on the same replay-set key, and a nonce seen in
+ * a line or a failure says which builder made it. Each caller brings its own marker because that is
+ * all any of them distinguishes.
+ */
+export function nonceAt(at: number, marker: number): Uint8Array {
+  const nonce = new Uint8Array(POP_NONCE_BYTES).fill(marker, 0, POP_NONCE_BYTES - 4);
+  nonce[POP_NONCE_BYTES - 4] = (at >>> 24) & 0xff;
+  nonce[POP_NONCE_BYTES - 3] = (at >>> 16) & 0xff;
+  nonce[POP_NONCE_BYTES - 2] = (at >>> 8) & 0xff;
+  nonce[POP_NONCE_BYTES - 1] = at & 0xff;
+  return nonce;
+}
+
+/** The three fields of an admission answer a caller can observe, and nothing the access log keeps. */
+export interface ObservableAnswer {
+  readonly code: string;
+  readonly status: string | number;
+  readonly message: string;
+}
+
+/** One answer as a line, which is how the two-store walk and the throttle suite say what they saw. */
+export function observable(answer: ObservableAnswer): string {
+  return `${answer.code} ${answer.status} "${answer.message}"`;
+}
 
 export async function harness(input: HarnessInput = {}): Promise<Harness> {
   const credentials = input.credentials ?? [];
@@ -154,14 +181,9 @@ export async function harness(input: HarnessInput = {}): Promise<Harness> {
   // "sign me a header for this request" a question about one request instead of a bookkeeping task.
   let signed = 0;
   function implicitNonce(): Uint8Array {
-    const bytes = new Uint8Array(NONCE_BYTES).fill(NONCE_TAG, 0, 12);
     const at = signed;
     signed += 1;
-    bytes[12] = (at >>> 24) & 0xff;
-    bytes[13] = (at >>> 16) & 0xff;
-    bytes[14] = (at >>> 8) & 0xff;
-    bytes[15] = at & 0xff;
-    return bytes;
+    return nonceAt(at, NONCE_TAG);
   }
   /**
    * A header naming a credential this store never carried is the one refusal a test can be asked to
