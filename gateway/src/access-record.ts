@@ -21,6 +21,6 @@ export interface AccessRecord {
   readonly nce: string | null;
   readonly st: number;
   readonly dur: number;
-  /** The refusal code, on any request the pipeline rejected. */
+  /** What this gateway decided a rejection was, which for a collapsed refusal is not the code the caller was told. */
   readonly deny: string | null;
 }

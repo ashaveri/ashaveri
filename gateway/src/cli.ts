@@ -7,8 +7,11 @@ import {
   AccessError,
   CredentialStore,
   CREDENTIALS_FILE_VERSION,
+  DEFAULT_PEER_RATE,
+  DEFAULT_RATE,
   loadCredentialFile,
   newPopCredential,
+  type CredentialRate,
 } from './access.js';
 import { MINIMUM_RETENTION_DAYS, openFileAccessLog, openMemoryAccessLog, type AccessLog } from './aclog.js';
 import { dstackDeployment } from './dstack.js';
@@ -86,6 +89,20 @@ Options:
                                    default, and never per credential.
   --pop-tolerance <seconds>        Clock slack accepted for a proof-of-possession timestamp.
                                    Default: 120.
+  --peer-rate perMinute=<n>,burst=<n>
+                                   How many requests a connection address may make per minute, and how
+                                   many of those at once, before this gateway reads that request's header
+                                   or verifies anything in it. Every request from one address spends from
+                                   this bucket, so behind a reverse proxy it is the whole deployment
+                                   sharing one allowance. Default:
+                                   perMinute=6000,burst=2000, which is a hundred requests a second from
+                                   one address, one ~183 microsecond signature check behind each of them,
+                                   and under two per cent of one core spent on a guessing loop. A bound
+                                   below the traffic one address legitimately carries refuses signed
+                                   requests instead of guesses: fifteen credentials at their own default
+                                   of 60 a minute are 900 a minute down one proxy. No flag takes the
+                                   bound off, and a large number is the off switch; the start-up report
+                                   prints whichever number this process is holding.
   --help                           Print this help.`;
 
 /**
@@ -119,6 +136,7 @@ interface CliOptions {
   readonly 'access-log-days'?: string;
   readonly 'allow-bearer'?: boolean;
   readonly 'pop-tolerance'?: string;
+  readonly 'peer-rate'?: string;
 }
 
 function fail(message: string): never {
@@ -141,6 +159,50 @@ function wholeNumber(raw: string | undefined, flag: string, unit: string, fallba
     fail(`--${flag} must be a positive whole number of ${unit}, got '${raw}'`);
   }
   return parsed;
+}
+
+/** The two halves of a rate, the same pair a credential's own `rate` field carries in the file. */
+const RATE_FIELDS = ['perMinute', 'burst'] as const;
+const WANTED_RATE = 'perMinute=<n>,burst=<n>';
+
+function rateField(raw: string | undefined, flag: string, unit: string): number {
+  // Digits only, then the same floor the other numeric flags hold: a positive whole number. A bound the
+  // bucket cannot hold is refused here rather than arriving as `Infinity`, a hex literal or `1e30` and
+  // coming back on the banner as a number nobody wrote.
+  const parsed = Number(raw);
+  if (raw === undefined || !/^\d+$/u.test(raw) || !Number.isInteger(parsed) || parsed < 1) {
+    fail(`--${flag} must be a positive whole number of ${unit}, got '${String(raw)}'`);
+  }
+  return parsed;
+}
+
+/**
+ * `--peer-rate perMinute=<n>,burst=<n>`: the bound one connection address is held to ahead of every
+ * credential, in the two fields a credential's own rate uses and held to the same rule, a whole number of
+ * at least one. Both halves are required because the pair is one decision, an unknown name is refused
+ * because a flag that quietly ignored a misspelling would report a bound the process is not running, and
+ * there is deliberately no spelling here that turns the bound off: the off switch is a number large
+ * enough to never be reached, and it says so in the banner.
+ */
+function parsePeerRate(raw: string | undefined): CredentialRate {
+  if (raw === undefined) return DEFAULT_PEER_RATE;
+  const given = new Map<string, string>();
+  for (const piece of raw.split(',')) {
+    const at = piece.indexOf('=');
+    const name = at === -1 ? '' : piece.slice(0, at);
+    if (at === -1 || !(RATE_FIELDS as readonly string[]).includes(name)) {
+      fail(`--peer-rate wants ${WANTED_RATE}, got '${raw}': '${piece}' is not one of those two fields`);
+    }
+    if (given.has(name)) fail(`--peer-rate wants ${WANTED_RATE}, got '${raw}': ${name} is given twice`);
+    given.set(name, piece.slice(at + 1));
+  }
+  for (const name of RATE_FIELDS) {
+    if (!given.has(name)) fail(`--peer-rate wants ${WANTED_RATE}, got '${raw}': ${name} is missing`);
+  }
+  return {
+    perMinute: rateField(given.get('perMinute'), 'peer-rate perMinute', 'requests a minute'),
+    burst: rateField(given.get('burst'), 'peer-rate burst', 'requests at once'),
+  };
 }
 
 let values: CliOptions;
@@ -169,6 +231,7 @@ try {
       'access-log-days': { type: 'string' },
       'allow-bearer': { type: 'boolean' },
       'pop-tolerance': { type: 'string' },
+      'peer-rate': { type: 'string' },
     },
   }).values;
 } catch (error) {
@@ -248,6 +311,8 @@ const toleranceSeconds = wholeNumber(
   'seconds',
   POP_TIMESTAMP_TOLERANCE_SECONDS,
 );
+const peerRate = parsePeerRate(values['peer-rate']);
+const peerRateGiven = values['peer-rate'] !== undefined;
 const accessLogDays = wholeNumber(values['access-log-days'], 'access-log-days', 'days', MINIMUM_RETENTION_DAYS);
 const devCredential =
   values.mock === true && credentialsPath === undefined
@@ -255,27 +320,34 @@ const devCredential =
     : undefined;
 
 let access: CredentialStore;
-let loadedRecords: number;
 try {
   if (credentialsPath === undefined) {
     const records = devCredential === undefined ? [] : [devCredential.record];
-    loadedRecords = records.length;
     access = new CredentialStore({
       file: { version: CREDENTIALS_FILE_VERSION, credentials: records },
       allowBearer,
       toleranceSeconds,
+      peerRate,
     });
   } else {
-    // Read once here so a broken file is a refusal at start-up, then hand the store the path: a
-    // revocation that waits for a restart is not a revocation.
-    const parsed = await loadCredentialFile(credentialsPath);
-    loadedRecords = parsed.credentials.length;
-    access = new CredentialStore({ path: credentialsPath, allowBearer, toleranceSeconds });
+    // Read once here, before the store exists, so a path that is absent or a file that will not
+    // parse is a refusal at start-up rather than a process serving nobody: a reload keeps the
+    // records it already has, and one that has none has nothing to keep. Then hand the store the
+    // path and let it read the file for itself, because a revocation that waits for a restart is
+    // not a revocation.
+    await loadCredentialFile(credentialsPath);
+    access = new CredentialStore({ path: credentialsPath, allowBearer, toleranceSeconds, peerRate });
+    await access.reloadIfNeeded();
   }
 } catch (error) {
   if (error instanceof AccessError) fail(`--credentials-path ${error.message}`);
   throw error;
 }
+// The banner reports what this process installed, which is the store's own count and not the count
+// of the read above that checked the file and handed nothing over. The two agree on every file the
+// parser accepts, and the check is the point: a record the store refuses at ingest never becomes one
+// it serves, so the number an operator reads is the number admission can name.
+const loadedRecords = access.credentials().length;
 
 let accessLog: AccessLog;
 try {
@@ -361,6 +433,15 @@ const logLabel =
     : `access log: ${accessLogPath}, kept for ${String(accessLogDays)} days${
         held.length === 0 ? '' : `, with ${String(held.length)} file${held.length === 1 ? '' : 's'} from before this boot`
       }`;
+// The two rate limits a request spends, printed as this process holds them rather than as the flags
+// spelled it: every request from one address, signed or not, spends from the first bucket, so behind a
+// reverse proxy that number is the deployment's capacity and not a per-client one. The second is what a
+// record with no `rate` of its own is held to, which is the quantity an operator multiplies by the number
+// of credentials to know whether the first is big enough.
+const rateLabel =
+  `rate limits: ${String(peerRate.perMinute)} requests a minute and ${String(peerRate.burst)} at once per connection address, ` +
+  `taken ahead of every credential check, ${peerRateGiven ? 'from --peer-rate' : 'the default'}; ` +
+  `a credential with no rate in its record holds ${String(DEFAULT_RATE.perMinute)} a minute and ${String(DEFAULT_RATE.burst)} at once`;
 const lines: string[] = [
   `signerd (${label}) listening on http://${host}:${boundPort}`,
   `  issuer ${deployment.issuer} instance ${deployment.instance}`,
@@ -368,6 +449,7 @@ const lines: string[] = [
   allowBearer
     ? '  auth: bearer credentials also accepted, which is a refusal of the strongest posture here: a stolen bearer credential is undetectable, and a log record cannot tell its holder from a thief'
     : `  auth: proof of possession, timestamps trusted within ${String(toleranceSeconds)} seconds; bearer credentials refused`,
+  `  ${rateLabel}`,
   `  ${credentialsLabel}`,
   `  ${logLabel}`,
 ];

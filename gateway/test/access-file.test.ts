@@ -59,6 +59,31 @@ describe('parseCredentialFile', () => {
     expect(parseCredentialFile(JSON.stringify({ version: 1, credentials: [] })).credentials).toEqual([]);
   });
 
+  it('reads a proof-of-possession record that carries a secret hash without that field', () => {
+    // `parseRecord` reaches for `secretHash` on one branch only, and a `pop` record does not take it,
+    // so a file carrying the field beside a `pop` kind is not repaired into something else: the field
+    // is simply never read, and the record that comes out is the record without it. The store's own
+    // ingest does the same to a file handed to it in memory, which never passed this function, and
+    // `admission.test.ts` holds the two together.
+    const text = JSON.stringify({
+      version: 1,
+      credentials: [
+        {
+          id: 'analyst-1',
+          kind: 'pop',
+          publicKey: 'dGVzdC1wdWIta2V5LTAwMDAwMDAwMDAwMDAwMDAwMDA',
+          secretHash: 'abababababababababababababababababababababababababababababababab',
+          scopes: ['read'],
+          createdAt: 1_772_000_000,
+        },
+      ],
+    });
+    const parsed = parseCredentialFile(text);
+    expect(parsed.credentials[0]?.secretHash).toBeUndefined();
+    expect(parsed.credentials[0]?.publicKey).toBeInstanceOf(Uint8Array);
+    expect(parsed.credentials[0]?.publicKey).toHaveLength(32);
+  });
+
   // The digest of no bytes at all. Node's base64url decoder turns a token made of punctuation into zero
   // bytes, so this is the digest such a token presents, and a record holding it is opened by any of them.
   const EMPTY_DIGEST = 'e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855';

@@ -79,8 +79,12 @@ node gateway/dist/cli.js --mock --port 7173
 ```
 
 Every route a signerd gateway serves refuses a request that names no credential, so the
-client signs each request with one. `--mock` prints a development credential at start-up, and
-`credentialFromEnv` reads that id and key from the environment:
+client signs each request with one. `--mock` prints a development credential at start-up: the id
+`dev`, and a key generated when that process starts and gone when it stops. That record is a fixture
+of a process that refuses nothing real. `dev` names nothing outside the run that printed it, and a
+live gateway answers from the credential file its operator installed, where an id the file does not
+carry is refused exactly as a bad signature is. `credentialFromEnv` reads the id and key from the
+environment:
 
 ```ts
 import { AshaveriClient, credentialFromEnv } from '@ashaveri/sdk';

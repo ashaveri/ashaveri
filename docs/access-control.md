@@ -12,35 +12,122 @@ design addresses and the ones it leaves open.
 
 ## 1. The pipeline
 
-`CredentialStore.admit` runs five checks in a fixed order, and the order is the contract rather than
-an optimization. Each check is listed below with what it proves and, in parentheses, the refusal it
-raises when it fails.
+`CredentialStore.admit` runs five checks in a fixed order, and one bound on the connection ahead of all
+five. The order is the contract rather than an optimization. It sorts by what an answer discloses, not by
+what a check costs, and it keeps the property that makes the difference knowable: a request that fails two
+of them reports the earlier one. Each check is listed below with what it proves and, in parentheses, the
+refusal it raises when it fails; the bound is described with them, because it answers with one of their
+codes.
 
-1. **The credential resolves and is usable.** The `Authorization` header names one record in the
-   credential file; that record must exist, must be of the kind the header speaks, must not be
-   revoked, and must carry a key its kind can be verified against
-   (`AUTH_UNKNOWN`, `AUTH_SCHEME`, `AUTH_REVOKED`, `BAD_CREDENTIAL_RECORD`).
-2. **The request proves possession of that credential's key.** The `ts` parameter is within the
-   deployment's tolerance; the `x-ashaveri-nonce` header carries exactly the sixteen signed bytes;
-   and an Ed25519 signature over the signing string verifies under the key in the file
-   (`AUTH_STALE`, `AUTH_NONCE_MISSING`, `AUTH_SIGNATURE`).
-3. **The request is new.** The credential-and-nonce pair has not been presented inside the replay
-   window (`NONCE_SEEN`).
+1. **The request says who it is, and when.** The `Authorization` header parses and speaks a scheme
+   this deployment runs; the `ts` parameter is within the deployment's tolerance; the
+   `x-ashaveri-nonce` header carries exactly the sixteen signed bytes
+   (`AUTH_MALFORMED`, `AUTH_SCHEME`, `AUTH_STALE`, `AUTH_NONCE_MISSING`). Each of these reads only
+   what the caller wrote, so each is owed to every proof-of-possession request whoever it names, and
+   each answers identically to a request naming a credential this file holds and to one naming a
+   credential it does not.
+2. **The request proves possession of the key its header names.** The named record is looked up, and
+   an Ed25519 signature over the signing string verifies against the key that record carries
+   (`AUTH_SIGNATURE`). A name the file does not carry, and a name whose record is a bearer one and so
+   offers no key to verify against, are refused with this same code through this same path.
+3. **What the file says about a credential it holds.** The record carries no `revokedAt`
+   (`AUTH_REVOKED`), and the credential-and-nonce pair has not been presented inside the replay
+   window (`NONCE_SEEN`). Both are reachable only by a request whose signature verified.
 4. **The route accepts the credential's scope.** The request target is in the route table, and the
    scopes the record grants include what that row requires (`SCOPE_DENIED`).
 5. **The credential is within its rate.** A token is taken from its bucket (`RATE_LIMITED`).
 
-The reason for the order: a request that fails two of them reports the earlier one, so a revoked
-credential is never asked to sign anything and a credential that has no scope for the route never
-spends budget it was not going to use. Two placements carry that further than they look. The route
-table is read first, because it is the cheapest step, but it answers only at check four: refusing an
-unlisted target before a credential is named would let anyone enumerate which paths this gateway has
-scoped. And check three runs before scope, which means a replay is refused as a replay even when the
-replayed request would also have been a scope violation.
+**Ahead of all five sits one bound, and it is held on the connection rather than on a credential.** Before
+the request has said anything about itself, the gateway asks how many requests the address it arrived on has
+made recently, and one from an address that has spent its allowance is refused `RATE_LIMITED` without its
+header being read. The bound is there because check 2 gives a guess a cost: a name this file does not carry
+is answered by performing one Ed25519 verification, so a loop over names would otherwise buy computation for
+the price of sending it. Check 5 cannot bound that, because a guess holds no credential to charge, so the
+charge goes on the thing a guesser cannot choose - the address its connection came from. It is set generously
+and it is a floor rather than an allowance: 2,000 requests in a burst and 6,000 a minute from one address,
+which is a hundred requests a second sustained and no single client of this gateway's shape reaching it. The
+number has to clear the traffic the shape does carry, because the bucket is shared: a deployment behind one
+reverse proxy puts every request it serves through one address, and fifteen credentials running their own
+default of 60 a minute are 900 requests a minute down that one pipe. An operator whose deployment is bigger
+sets both halves with `--peer-rate perMinute=<n>,burst=<n>` (section 6), and there is no flag that takes the
+bound off, because a large number does that and says so. A refused request costs this process a lookup and
+a 429.
 
-The bearer path is a different shape and is documented that way rather than blurred: it is check 1
-by digest scan, then check 4, then check 5, with no replay step at all, because a bearer request has
-no signed nonce to check. Section 4 says what that costs.
+That placement is lawful for the same reason the freshness window's is, and it is the reason the bound has to
+be uniform: every request meets it, whoever it names and whatever its header says, so the answer is a
+statement about this deployment and never about the file. What a throttled caller learns is that it is
+throttled. It is answered in the same words either bucket gives - `RATE_LIMITED`, status 429, and a
+`retry-after` - and the sentence says which one fired, because waiting refills the connection's and the fix
+for the credential's is the rate the operator set. Nothing in that answer depends on whether a name the
+caller typed is in the file, and it names none.
+
+Two consequences follow from keying a bound on a connection. Behind a reverse proxy every request arrives
+from the proxy's address, so this is not a per-client limit unless the operator puts a trusted proxy in front
+and has the real address passed on; and no header is consulted for an address at all, `X-Forwarded-For` and
+`Forwarded` included, because a key the caller chooses is a bound the caller can move or reset. Neither
+figure is a flag: the software holds the floor, and a deployment that needs per-client limits needs a proxy
+that can name the client. The counter is memory only, is never written down, and does not outlive the
+process, so it is not the record section 7 declines to keep an address in; how many addresses it remembers is
+capped, so it cannot be grown by making the gateway meet more of them.
+
+`BAD_CREDENTIAL_RECORD` is not a refusal the pipeline answers a request with, as of 19 September
+2026. A `pop` record carrying no key its kind can be verified against never reaches a request: it is
+refused where records enter the store, so a credential file with such a record in it stops the boot,
+and a reload that hits one keeps serving the records it already had. Section 5 says what each of
+those does.
+
+### The rule the order comes from
+
+**Answer a request out of what the credential file holds only after that request has proved it holds
+the key its own header names.** The reason is that any refusal which varies with the file's contents
+is a yes-or-no question a caller can put by typing a name. Credential ids are the operator's own
+words rather than random handles, so an answer that distinguishes a name this file holds from one it
+does not tells whoever sent both which names this deployment issued, without their holding a single
+key.
+
+Restated as a test of where a check may sit, which is the form a port to another language has to
+reproduce: a check has exactly two lawful homes. It runs before the file is consulted and applies
+identically to a request that names a record and to a request that names nothing, or it runs after a
+signature verifies. A check placed between those two points is an enumeration oracle whatever its
+message text says.
+
+Two placements follow from that test, and both are load-bearing rather than stylistic. The freshness
+window and the presented nonce run ahead of the lookup, because a stale stamp and a malformed nonce
+are properties of the bytes the caller wrote and vary with nothing in the file. An unknown name is
+answered behind the lookup by performing one Ed25519 verification against a key that is in no
+credential file and is made once when the process starts, and then throwing `AUTH_SIGNATURE` without
+reading what that verification answered. The verification is the same function, called the same way,
+that every other proof-of-possession request is checked with, and the throw is unconditional. A port
+that branches on the dummy verification's result, or that reaches past `verifyPopSignature` for the
+Ed25519 library directly, rebuilds the oracle: the library this gateway verifies with,
+`@noble/curves`, accepts a 64-byte zero signature against a 32-byte constant key under its own
+defaults, because such a key is a point of small order, and what refuses it is that function's width
+checks and its strict verification options. An accepted signature for a name the file does not hold
+discloses more than the refusal this path exists to make indistinguishable.
+
+Two things this arrangement does not claim, and a port must not upgrade it into either. It does not
+make the two paths equal in time: a name the file holds and a name it does not each perform one
+verification, which is the point of the arrangement, but a lookup that hits and a lookup that misses
+are not the same duration on any machine, and nothing here bounds or observes the difference. It does
+not withhold anything from a caller who verified. Once a signature checks out, the answers this
+gateway gives are specific: revoked, already presented, out of scope, over rate. That caller is the
+only party who can do anything about any of the four. What is closed is what an
+unauthenticated guesser learns; the residue is threat row T15 of
+[threat-model.md](threat-model.md).
+
+Two placements carry the order further than they look. The route table is read first, because it is
+the cheapest step, but it answers only at check 4: refusing an unlisted target before a credential
+is named would let anyone enumerate which paths this gateway has scoped. And the replay test runs
+before scope, which means a replay is refused as a replay even when the replayed request would also
+have been a scope violation. The ordering gives something up. A revoked credential is asked to sign
+before it is told it is revoked: the withdrawal reaches the party holding the key, and a caller that
+typed the id without the key gets the answer any failed signature gets.
+
+The bearer path is a different shape and is documented that way rather than blurred: the header
+checks of check 1, then a digest scan of the whole file, then check 4, then check 5, with no replay
+step at all, because a bearer request has no signed nonce to check. Nothing on that path names an id,
+so nothing about an id can be disclosed by it, and the check-2 collapse does not reach it:
+`AUTH_UNKNOWN` is what a bearer request gets, as described below. Section 4 says what that costs.
 
 ### Refusals, and what a client does
 
@@ -51,16 +138,16 @@ definition.
 | Code | HTTP | Meaning | What a client does |
 |---|---|---|---|
 | `AUTH_MALFORMED` | 401 | No `Authorization` header, or one that names `Ashaveri-PoP` and still does not parse | Fix the client. These bytes will fail the same way on any route |
-| `AUTH_SCHEME` | 401 | The header is neither `Ashaveri-PoP` nor `Bearer`; or it is `Bearer` on a deployment started without `--allow-bearer`; or it names a bearer record while presenting a proof of possession | Speak the scheme this deployment runs. A key pair and this answer means the deployment is bearer-only |
-| `AUTH_UNKNOWN` | 401 | Nothing in the file answers to the named id, or no stored digest matches the presented secret | Check the id against the credential file. The deployment has never heard of this credential |
-| `AUTH_REVOKED` | 401 | The record carries a `revokedAt` | Stop presenting it and get a new credential. Waiting does not help: the file is re-read when it changes |
-| `AUTH_STALE` | 401 | `ts` is further from this clock than the tolerance, either side | Fix the clock, not the request. A fresh `ts` over the same bytes is a new request that may be admitted |
-| `AUTH_NONCE_MISSING` | 401 | The nonce header is absent, is not unpadded base64url, or does not decode to sixteen bytes | Send the header carrying the same nonce that went into the signing string |
-| `AUTH_SIGNATURE` | 401 | EdDSA over the signing string failed | Refuse. Either the key is wrong or something changed the request after it was signed; neither is a retry |
+| `AUTH_SCHEME` | 401 | The header is neither `Ashaveri-PoP` nor `Bearer`, or it is `Bearer` on a deployment started without `--allow-bearer`. An `Ashaveri-PoP` header naming a record that is a bearer one is refused as `AUTH_SIGNATURE` rather than as this | Speak the scheme this deployment runs. A key pair and this answer means the deployment is bearer-only |
+| `AUTH_UNKNOWN` | 401 | No stored digest matches the bearer secret presented. That one answer covers a secret belonging to a retired record as well as one this file never held. A proof-of-possession request is never answered with this code | Check the secret against the credential file. The deployment has never heard of this credential, or retired it, and the two are deliberately the same answer |
+| `AUTH_REVOKED` | 401 | The named record carries a `revokedAt`, and the request's signature verified against the key that record still holds | Stop presenting it and get a new credential. Waiting does not help: the file is re-read when it changes |
+| `AUTH_STALE` | 401 | `ts` is further from this clock than the tolerance, either side. Answered before the file is read, whoever the header names | Fix the clock, not the request. A fresh `ts` over the same bytes is a new request that may be admitted |
+| `AUTH_NONCE_MISSING` | 401 | The nonce header is absent, is not unpadded base64url, or does not decode to sixteen bytes. Answered before the file is read, so it reaches a caller naming a real credential and a caller inventing one alike | Send the header carrying the same nonce that went into the signing string |
+| `AUTH_SIGNATURE` | 401 | EdDSA over the signing string failed, or the name the header carries is not one the file holds, or the record it names is a bearer one with no key to verify against | Refuse. The key is wrong, or something changed the request after it was signed, or the credential id is not one this deployment holds. Check the id and the key; none of the three is a retry |
 | `NONCE_SEEN` | 409 | This credential presented this nonce inside the replay window | Build a new request with a fresh nonce. Resending these bytes is exactly what just failed |
-| `SCOPE_DENIED` | 403 | The route needs a scope the credential does not hold, or the target has no row | Use a credential that holds it, or ask the operator to scope the route. Rate budget is untouched |
-| `RATE_LIMITED` | 429 | The credential's bucket is empty | Wait `retryAfterSeconds`, then send a new request |
-| `BAD_CREDENTIAL_FILE`, `BAD_CREDENTIAL_RECORD`, `DUPLICATE_CREDENTIAL_ID` | 500 | The operator's file is unusable | Not a client fix. Nothing is admitted until the file is repaired |
+| `SCOPE_DENIED` | 403 | The route needs a scope the credential does not hold, or the target has no row | Use a credential that holds it, or ask the operator to scope the route. This answer takes no token from the credential's own bucket, though the connection's bound was charged before it was decided |
+| `RATE_LIMITED` | 429 | Either the credential's bucket is empty or the connection has spent the request bound held ahead of the five checks. The refusal's own sentence says which, and it names no credential on the connection's answer | Wait `retryAfterSeconds`, then send a new request. One answer is fixed by the rate the operator set for the credential; the other by how much this one address is asking at once |
+| `BAD_CREDENTIAL_FILE`, `BAD_CREDENTIAL_RECORD`, `DUPLICATE_CREDENTIAL_ID` | 500 | The operator's file is unusable. None of the three is a refusal the pipeline gives a request: they answer where records enter the store, at start-up and on reload | Not a client fix. A file that will not parse, or that holds a record with no key its kind can be verified against, stops the boot; a reload that fails keeps the records already loaded answering later requests while the file is repaired |
 
 ## 2. Routes and scopes
 
@@ -222,9 +309,25 @@ gateway invents a reading for.
 unpadded base64url of an Ed25519 key, and no secret: the rule is about the decoded bytes, which must
 be exactly 32, so two spellings of one key name one record and a 64-character hex string is a
 48-byte decode the parser refuses. A `bearer` record carries `secretHash`, the lower-case hex of the
-SHA-256 of the bearer secret, and no key. A record whose material does not match its `kind` is a
-parse failure or is skipped during admission, so it is never silently treated as the other kind. An
-id is `[A-Za-z0-9_-]{1,64}`; two records sharing one id are refused.
+SHA-256 of the bearer secret, and no key. Material that does not match its `kind` never becomes a
+record that speaks the other kind. Read from a file, a `pop` record with no public key of the width
+its kind needs is a parse failure, and a `secretHash` beside a `pop` kind or a `publicKey` beside a
+`bearer` one is a field the parser never reads, so the record it returns carries one kind's material
+and nothing else. Records handed to a store in memory go through that store's own ingest, which
+refuses a `pop` record with no key of the width its kind needs, on the rule the parser already
+applies to a file, and clears a stray `secretHash` beside a `pop` kind so the record is the one the
+disk route would have returned. Two shapes the in-memory route can still hold are passed over rather
+than refused: a `bearer` record whose digest is not 32 bytes, which no presented secret can match,
+and a `bearer` record that also carries a public key, which takes no part in the digest scan. An id
+is `[A-Za-z0-9_-]{1,64}`; two records sharing one id are refused.
+
+**Records are checked where they enter the store, not where a request reads them.** Every route into
+a `CredentialStore` ends at the same ingest, so a file read from disk and a set of records handed
+over in memory are held to one rule rather than two. A record the ingest refuses is never served, and
+it is never a request's answer either: the refusal lands at start-up, where the process stops rather
+than booting over a file it cannot use, or on a reload, where the records already loaded keep
+serving, as described below. That placement is what keeps a wrong file visible to the operator who
+can fix it while a caller who can fix nothing learns nothing about which names the file holds.
 
 `scopes` is the list admission checks the route table against, and it is documented in section 2.
 A list that grants `complete` without `read` is refused at parse time; the gateway has no coherent
@@ -242,17 +345,25 @@ data to keep.
 `createdAt` and `revokedAt` are whole seconds since the epoch, which is the unit the command that
 writes this file uses and prints. `revokedAt` is optional, and the gateway reads it as a flag rather
 than a date: any value present revokes the record, whatever it is, and nothing compares it to a
-clock. A revoked `pop` record answers `AUTH_REVOKED`. A revoked `bearer` record answers
-`AUTH_UNKNOWN`, because the digest scan passes over it as though it had never existed, and a
-distinct answer for it would tell a prober which ids the file holds and which of them were once
-live.
+clock. A revoked `pop` record answers `AUTH_REVOKED`, and only to a request whose signature verifies
+against the key that record still carries: revocation withdraws the credential, it does not delete
+the key, and the party who can act on a withdrawal is the party holding it. A caller that names a
+revoked id without proving the key is refused as `AUTH_SIGNATURE`, the answer every other failed
+signature gets. A revoked `bearer` record answers `AUTH_UNKNOWN`, because the digest scan passes over
+it as though it had never existed, and a distinct answer for it would tell a prober which ids the
+file holds and which of them were once live.
 
 **The file is re-read when it changes.** The gateway checks the file's mtime on each request and
 reloads in the background when it has moved, so a revoked record stops working without a restart.
 One reload covers a whole edit: a request in flight is admitted against the file as it stood when
-that request began. A file that will not parse leaves the records already loaded in place and the
-mtime unrecorded, so the next request tries again; a half-written file in the middle of an operator's
-edit is one failed reload rather than a deployment that has forgotten its credentials.
+that request began. A file that will not parse, or that parses into a record the ingest refuses,
+leaves the records already loaded in place and the mtime unrecorded, so the next request tries again;
+a half-written file in the middle of an operator's edit is one failed reload rather than a deployment
+that has forgotten its credentials. A reload that fails on one unusable record is reported with that
+record and the file it came from named, and admission keeps answering from the records that had
+already loaded: dropping to none would turn one typo in a large file into an outage that reads as the
+gateway misbehaving. A request that triggered a failed read is not admitted against the file that
+failed it, and the read is tried again on the next one.
 
 **What a revocation does not move.** A credential edit changes neither digest a receipt carries.
 `wts` is the gateway's hash of a manifest that lists every file under the deployment's weights
@@ -261,9 +372,11 @@ this reason: an operator-edited file inside it would either fail the entrypoint'
 edit inside the digest every receipt carries, so a routine enrolment or revocation would move the
 deployment's attested identity. `meas.m` is a platform launch value, a statement about what runs
 rather than a hash of what it is pointed at. What a revocation changes is the answer and the record:
-`AUTH_REVOKED` on a proof-of-possession credential, written to the access log with the credential id
-it refused, and `AUTH_UNKNOWN` on a bearer one, written with `cred` null because a bearer request
-names no id and the refusal invents none. A verifier that pins a measurement and a weights
+`AUTH_REVOKED` on a proof-of-possession credential whose signature verified, written to the access
+log with the credential id it refused, and `AUTH_UNKNOWN` on a bearer one, written with `cred` null
+because a bearer request names no id and the refusal invents none. A proof-of-possession request that
+names a revoked id without a valid signature is refused as `AUTH_SIGNATURE`, and its line still names
+the id it was asked about. A verifier that pins a measurement and a weights
 digest pins the software a deployment runs, and not the list of who may call it; that list is the
 deployer's, and the log is where its use shows.
 
@@ -271,10 +384,11 @@ deployer's, and the log is where its use shows.
 
 | Flag | Default | Effect |
 |---|---|---|
-| `--credentials-path <file>` | required in a live start | The file every request must present a credential from. In `--mock` it is optional, and without it the process keeps its own in-memory records |
+| `--credentials-path <file>` | required in a live start | The file every request must present a credential from. In `--mock` it is optional, and without it the process holds one credential in memory under the id `dev` and prints its key at start-up. That record is a fixture of a process that refuses nothing real: it exists so a quick start has something to sign with, the key is generated when the process starts and dies with it, and `dev` names nothing outside that run. A live gateway answers from whatever its operator's file holds, and its refusals are built so that a name alone earns no answer about that file |
 | `--access-log-path <dir>` | required in a live start | Where the per-request log is written. The value must name an existing directory, so a volume that was not mounted is a refusal rather than a log written onto the root filesystem |
 | `--access-log-days <n>` | 184 | How long log files are kept, in days. 184 is the default and the floor the code names, and it is not enforced as a ceiling on the operator's choice: a shorter value starts, and the start-up report says out loud that the run is below the floor (section 8.2) |
 | `--pop-tolerance <seconds>` | 120 | Clock slack accepted for a proof-of-possession timestamp, in both directions |
+| `--peer-rate perMinute=<n>,burst=<n>` | `perMinute=6000,burst=2000` | The request bound one connection address is held to ahead of every credential check, which section 1 explains: behind one proxy this is the whole deployment sharing one bucket. Both fields are required, each is a whole number of at least 1, and a value that is not stops the start rather than falling back to the default. No value removes the bound, and a large number is the way to stop being shed; the start-up report prints the number the process is holding and says whether it came from this flag |
 | `--allow-bearer` | off | Accepts bearer credentials deployment-wide, says so at start-up, and writes `auth=bearer` on every record a bearer secret admitted |
 
 ## 7. The access log
@@ -291,7 +405,7 @@ The twelve fields, in the order the writer emits them:
 |---|---|
 | `t` | Epoch milliseconds at the request's arrival |
 | `rid` | Server-generated request id, the join key between a line and a support ticket |
-| `cred` | Which credential made the request. A refusal that got as far as reading an id records the id the header carried, known to the file or not; `null` covers the rest, which is a request that named none, the bearer scan's `AUTH_UNKNOWN`, and the 500 for a `pop` record the store cannot use |
+| `cred` | Which credential made the request. A refusal that got as far as reading an id records the id the header carried, known to the file or not, including a name the file does not carry whose response said only that the signature failed; `null` covers the rest, which is a request that named none, a refusal raised before the header's id could be read, and the bearer scan's `AUTH_UNKNOWN` |
 | `auth` | `pop`, `bearer`, or `null`. What this request was verified as, so the two postures read differently even in one bearer-capable deployment; `null` on a refusal, since what was verified is the thing the refusal says did not happen |
 | `scope` | Which scope the route needed, on a request the pipeline admitted. A refusal records `null`, and the row it was refused against is named in that refusal's own message |
 | `m` | The HTTP method |
@@ -300,7 +414,7 @@ The twelve fields, in the order the writer emits them:
 | `nce` | The request's nonce, so a record can be tied to a receipt; `null` on a bearer request, which presents no nonce to record |
 | `st` | The HTTP status this gateway answered with |
 | `dur` | Request duration in milliseconds |
-| `deny` | The refusal code from section 1's table, on a request the pipeline rejected |
+| `deny` | What this gateway decided the refusal was, on a request the pipeline rejected. This is not always the code the caller was told, and the difference is deliberate: where a refusal is collapsed the two parts differ. An id this file does not carry is answered to its caller as `AUTH_SIGNATURE` and written here as `AUTH_UNKNOWN`, because the line sits inside the trust boundary and the response outside it, and an operator reading a spike needs the reason rather than the cover. Nothing the caller can observe changes: the status and the body both carry the collapsed answer. A line whose `deny` names a credential the response never acknowledged is still that credential's record, so the scrub described below erases it on the same instruction |
 
 Deliberately not recorded: request and response bodies, so no prompt and no completion; the
 `Authorization` header; bearer secrets; public keys; query strings; source IP; user agent.
@@ -312,7 +426,9 @@ limiter, "to the extent strictly necessary and proportionate": the allowlist is 
 that is nice to have in a debugging session is not within that phrase. Article 32(4) reaches people
 acting under a controller's or processor's authority, which is the population one credential per
 principal attributes; it does not reach every caller of an API, and this document does not claim that
-it does.
+it does. The connection bound in section 1 does not reopen this. It counts requests per address in
+memory to decide what this process will spend on one, is never written to a log line, and dies with the
+process; the counter is not a record of who connected, and there is no field for it to be recorded into.
 
 ### Rotation and retention
 
@@ -340,7 +456,10 @@ exist somewhere. `--access-log-days` is the request; the window is the result.
 `ashaveri accesslog scrub --credential <id>` is the erasure route. It filters one credential's
 records out of every part, publishes its counts and rewrites each affected part at the permission
 bits read back from that part, since a publish replaces the part whole and the mode is the only
-setting that carries across, and leaves a marker named `scrub-<day>-<seq>.jsonl`. The marker is the
+setting that carries across, and leaves a marker named `scrub-<day>-<seq>.jsonl`. The filter is the
+`cred` field, so a line this gateway refused without ever acknowledging the name it was given is
+erased with the rest: a collapsed refusal still records which credential the request named, and that
+record is about the subject even when the response said nothing about it. The marker is the
 proof that an erasure ran, which matters for Article 15(5)'s notification duty: the deployer who
 erases has to be able to say the erasure happened, and the log's own lines cannot do that once they
 are gone. The retention sweep collects markers on their own day's schedule, because a marker is

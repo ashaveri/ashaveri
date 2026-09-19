@@ -4,6 +4,7 @@ import {
   EMPTY_BODY_SHA256_HEX,
   POP_NONCE_BYTES,
   POP_TIMESTAMP_TOLERANCE_SECONDS,
+  encodePopAuthorization,
   parsePopAuthorization,
   sha256Hex,
   signPopAuthorization,
@@ -20,6 +21,7 @@ import {
   newPopCredential,
   routeScope,
   type AdmissionInput,
+  type CredentialRate,
   type CredentialRecord,
   type Scope,
 } from '../src/access.js';
@@ -190,7 +192,13 @@ function popRequest(options: PopRequestOptions): AdmissionInput {
   return { method: options.method, url: options.url, headers, body: null, nowSeconds: NOW_SECONDS };
 }
 
-type Identity = 'known' | 'unknown' | 'revoked' | 'other-kind' | 'no-verifiable-key';
+/**
+ * Which record the probe's name resolves to. There is no state here for a `pop` record with no key
+ * of the width its kind needs: the store refuses one when it takes its records, so a case that
+ * wanted to stand for it would have no store to run against, and the refusal it used to pin is
+ * pinned at construction instead.
+ */
+type Identity = 'known' | 'unknown' | 'revoked' | 'other-kind';
 type Stamp = 'fresh' | 'stale';
 type NonceHeader = 'present' | 'absent';
 type Signature = 'valid' | 'forged';
@@ -239,24 +247,31 @@ function recordsFor(c: PopCase): CredentialRecord[] {
     ...generated.record,
     ...(c.identity === 'unknown' ? { id: 'someone-else' } : {}),
     ...(c.identity === 'revoked' ? { revokedAt: NOW_SECONDS - 1 } : {}),
-    ...(c.identity === 'no-verifiable-key' ? { publicKey: new Uint8Array(31) } : { publicKey: RECORD_PUBLIC_KEY }),
+    publicKey: RECORD_PUBLIC_KEY,
     rate: { perMinute: 60, burst: c.burst },
   };
   return [record];
 }
 
 /**
- * The five checks, in the order `admit` reaches them. This list is the claim: the first entry whose
- * condition holds is the code the client sees, and everything after it is not run.
+ * The checks, in the order `admit` reaches them. This list is the claim: the first entry whose
+ * condition holds is the code the client sees, and everything after it is not run. The two refusals
+ * a request is owed whoever it names sit above the credential lookup, so they lead this list. A name
+ * the file does not carry, a name carrying the other kind of record, and a signature that does not
+ * verify are one answer given by one code path, so they are one entry here and it sits where the
+ * signature has always sat; what the file says about a record whose key did verify starts at the
+ * entry below it. Nothing in this list turns on the shape of the record it found: a `pop` record
+ * carrying no key of the width its kind needs is refused where records enter the store, so no
+ * request this walk sends can meet a 500 that names one id and not another.
  */
 const CHECKS: ReadonlyArray<{ readonly code: string; readonly refuses: (c: PopCase) => boolean }> = [
-  { code: 'AUTH_UNKNOWN', refuses: (c) => c.identity === 'unknown' },
-  { code: 'AUTH_SCHEME', refuses: (c) => c.identity === 'other-kind' },
-  { code: 'AUTH_REVOKED', refuses: (c) => c.identity === 'revoked' },
-  { code: 'BAD_CREDENTIAL_RECORD', refuses: (c) => c.identity === 'no-verifiable-key' },
   { code: 'AUTH_STALE', refuses: (c) => c.stamp === 'stale' },
   { code: 'AUTH_NONCE_MISSING', refuses: (c) => c.nonceHeader === 'absent' },
-  { code: 'AUTH_SIGNATURE', refuses: (c) => c.signature === 'forged' },
+  {
+    code: 'AUTH_SIGNATURE',
+    refuses: (c) => c.identity === 'unknown' || c.identity === 'other-kind' || c.signature === 'forged',
+  },
+  { code: 'AUTH_REVOKED', refuses: (c) => c.identity === 'revoked' },
   { code: 'NONCE_SEEN', refuses: (c) => c.presentation === 'replayed' },
   { code: 'SCOPE_DENIED', refuses: (c) => c.target !== 'entitled' },
   { code: 'RATE_LIMITED', refuses: (c) => c.budget === 'exhausted' },
@@ -393,7 +408,7 @@ function runBearerCase(c: BearerCase, withProbe: boolean): PopRun {
   return { code, admitted };
 }
 
-const IDENTITIES: readonly Identity[] = ['known', 'unknown', 'revoked', 'other-kind', 'no-verifiable-key'];
+const IDENTITIES: readonly Identity[] = ['known', 'unknown', 'revoked', 'other-kind'];
 const STAMPS: readonly Stamp[] = ['fresh', 'stale'];
 const NONCE_HEADERS: readonly NonceHeader[] = ['present', 'absent'];
 const SIGNATURES: readonly Signature[] = ['valid', 'forged'];
@@ -1007,7 +1022,7 @@ describe('what the signature check answers when it cannot check', () => {
     );
   });
 
-  it('refuses a record whose key is the wrong width before it asks the verifier anything', () => {
+  it('refuses a record whose key is the wrong width where records enter the store', () => {
     const keyWidthArbitrary: fc.Arbitrary<number> = fc.oneof(fc.integer({ min: 0, max: 31 }), fc.integer({ min: 33, max: 96 }));
     check(keyWidthArbitrary, [0, 1, 31, 33, 64, 96], (width) => {
       const record: CredentialRecord = {
@@ -1015,16 +1030,14 @@ describe('what the signature check answers when it cannot check', () => {
         publicKey: new Uint8Array(width).fill(0xed),
         rate: { perMinute: 60, burst: 1 },
       };
-      const store = new CredentialStore({ file: { version: 1, credentials: [record] }, now: () => CLOCK_MS });
-      // The two refusals say different things, and only one of them is a gateway that kept its hands off
-      // the verifier: short bytes handed to the library would answer `AUTH_SIGNATURE` and blame the
-      // client's signature for the store's own record.
-      const code = observe(() =>
-        store.admit(
-          popRequest({ id: PROBE_ID, key: RECORD_SEED, ...WORK_ROUTE, nonce: nonceAt(43), stamp: 'fresh', withNonceHeader: true }),
-        ),
-      );
-      return code === 'BAD_CREDENTIAL_RECORD';
+      // The store refuses the record and the request is never asked. The claim this replaces was that
+      // `admit` answered `BAD_CREDENTIAL_RECORD` rather than letting the short bytes reach the
+      // verifier, where they would answer `AUTH_SIGNATURE` and blame a client's signature for the
+      // store's own record; that half still has to hold, and the only way to hold it without also
+      // giving one id a 500 and another a 401 is to refuse the record before any request names it.
+      // `admission.test.ts` pins the same refusal through the parser, which is where this rule came
+      // from: the bytes above are the file a deployment cannot load, handed in as an object.
+      return observe(() => new CredentialStore({ file: { version: 1, credentials: [record] }, now: () => CLOCK_MS })) === 'BAD_CREDENTIAL_RECORD';
     });
   });
 
@@ -1038,6 +1051,387 @@ describe('what the signature check answers when it cannot check', () => {
   });
 });
 
+/**
+ * Two stores that differ in exactly one way: one of them holds a record named `probe-svc` and the other
+ * holds nothing named `probe-svc`. Both hold the same two unrelated records, so the second is a
+ * credential file with a hole in it rather than an empty one. For every request shape the gateway can be
+ * given, the two must answer with the same code, the same status and the same words, and neither may
+ * answer by serving the request.
+ *
+ * What that guards is the question a caller can otherwise ask about which ids this file holds. Every
+ * refusal on the proof-of-possession path is reached by reading the record the header names, so any one
+ * of them given for a name and withheld for another tells the caller the name is there. The only answer
+ * allowed to depend on the file is the one given after the request has proved it holds the key its own
+ * header names.
+ *
+ * `proves` is how this walk records that the test itself made such a request: it signed the bytes with
+ * the secret whose public key it then wrote into the record. That is a fact about how the request was
+ * built, not about what a verifier answered, and the difference matters because a signature can verify
+ * for the wrong reason. `verifyPopSignature` is strict where the library under it is relaxed, and the
+ * relaxation is measurable: on the installed `@noble/curves`, `ed25519.verify` with its own defaults
+ * answers true for a run of 64 zero bytes against an all-zero 32-byte key, the identity point of the
+ * torsion subgroup, for any message at all, where `verifyPopSignature` answers false. The strict side is
+ * pinned in `packages/receipt/test/pop.test.ts` by the case 'refuses a signature nobody made, for every
+ * encoding of every small-order key'. So
+ * a store that reached for the library directly, or that read a `true` from a placeholder key as
+ * permission to carry on, would serve a request naming a record it does not hold, and a property stated
+ * in terms of what verified would have filtered out exactly that shape. The clause that nothing is
+ * served therefore has no exception at all, and the acceptor class sits inside the matrix rather than
+ * under it: `small-order-key` puts that very key in the record and `unsigned/zero-signature` presents
+ * those very bytes.
+ *
+ * Every cell is walked rather than drawn, because the matrix is small and a cell that never arrives is a
+ * hole in the property nobody would notice. Set `TWO_STORE_MATRIX=1` on the run to print all of it; the
+ * divergences are printed either way.
+ */
+
+/** A record both stores hold, so the walk can see what an admission looks like in each of them. */
+const SHARED_NAME = 'edge-svc';
+const SHARED_SEED = new Uint8Array(32).fill(0x23);
+const SHARED_PUBLIC_KEY = signingKeyFromSeed(SHARED_SEED).publicKey;
+/** A bearer secret enrolled in neither store, so a bearer request that matches nothing is refused twice. */
+const UNENROLLED_SECRET = new Uint8Array(32).fill(0x24);
+
+const STALE_TS = NOW_SECONDS - POP_TIMESTAMP_TOLERANCE_SECONDS - 1;
+/** One nonce for every shape, so the only thing a shape varies is the header that carries it. */
+const SHAPE_NONCE = nonceAt(0x1430);
+const ANOTHER_NONCE = nonceAt(0x1431);
+const ZERO_SIGNATURE = new Uint8Array(64);
+const SATURATED_SIGNATURE = new Uint8Array(64).fill(0xff);
+
+/**
+ * The states `N` is put into: the record axis ranges over what the file says about it, not just
+ * whether it is there.
+ *
+ * A wrong-width key is not on this axis any more, because the store will not hold one: it is refused
+ * where records enter, so the state cannot be built and there is no answer for either store to
+ * disagree about. `pop-with-secret-hash` stays, and stays as it is written, because the field is the
+ * point: a file read from disk never carries it, so this is the state that asks whether the in-memory
+ * route holds the same record the parser would have produced.
+ */
+type ProbedState = 'live-pop' | 'revoked-pop' | 'bearer' | 'small-order-key' | 'pop-with-secret-hash';
+
+const PROBED_STATES: readonly ProbedState[] = [
+  'live-pop',
+  'revoked-pop',
+  'bearer',
+  'small-order-key',
+  'pop-with-secret-hash',
+];
+
+interface Probed {
+  readonly state: ProbedState;
+  readonly record: CredentialRecord;
+  /** The secret whose public key the record carries, or nothing when the test cannot sign as this record. */
+  readonly ownKey: Uint8Array | null;
+  /** The bearer secret this record matches, or one that matches no record in either store. */
+  readonly bearerSecret: Uint8Array;
+}
+
+function probedAs(state: ProbedState): Probed {
+  if (state === 'bearer') {
+    const enrolled = newBearerCredential({ id: PROBE_ID, scopes: ALL_GRANTS, now: NOW_SECONDS });
+    return {
+      state,
+      record: { ...enrolled.record, rate: { perMinute: 60, burst: 8 } },
+      ownKey: null,
+      bearerSecret: enrolled.secret,
+    };
+  }
+  const generated = newPopCredential({ id: PROBE_ID, scopes: ALL_GRANTS, now: NOW_SECONDS });
+  const record: CredentialRecord = {
+    ...generated.record,
+    publicKey: RECORD_PUBLIC_KEY,
+    rate: { perMinute: 60, burst: 8 },
+    scopes: ALL_GRANTS,
+    ...(state === 'revoked-pop' ? { revokedAt: NOW_SECONDS - 1 } : {}),
+    ...(state === 'small-order-key' ? { publicKey: new Uint8Array(32) } : {}),
+    ...(state === 'pop-with-secret-hash' ? { secretHash: new Uint8Array(32) } : {}),
+  };
+  const signable = state === 'live-pop' || state === 'revoked-pop';
+  return { state, record, ownKey: signable ? RECORD_SEED : null, bearerSecret: UNENROLLED_SECRET };
+}
+
+/** The records that are not the probe: one proof of possession and one bearer key, present in both stores. */
+function sharedRecords(): CredentialRecord[] {
+  const pop: CredentialRecord = {
+    ...newPopCredential({ id: SHARED_NAME, scopes: ALL_GRANTS, now: NOW_SECONDS }).record,
+    publicKey: SHARED_PUBLIC_KEY,
+    rate: { perMinute: 60, burst: 8 },
+  };
+  const bearer = newBearerCredential({ id: 'ops-shared', scopes: ALL_GRANTS, now: NOW_SECONDS });
+  return [pop, { ...bearer.record, rate: { perMinute: 60, burst: 8 } }];
+}
+
+/**
+ * The connection the whole walk presents as, and the bound it runs under.
+ *
+ * A request bound held per address sits ahead of every other check, so a walk of 125 shapes from one
+ * address is, from the store's side of the seam, a guessing loop. The bound below is one the walk cannot
+ * hit, and it is stated rather than left to the software's default on purpose: the harness is what has to
+ * be unbounded here, and a default raised until this file went green would have raised it for every real
+ * guessing loop with it. The address goes on every cell so the walk runs the charged path rather than a
+ * path it quietly skips by presenting nothing.
+ */
+const WALK_PEER = '203.0.113.112';
+const WALK_PEER_RATE: CredentialRate = { perMinute: 1_000_000, burst: 1_000_000 };
+
+/** Two files that differ by one record, rebuilt per cell so no cell inherits another's replay set or bucket. */
+function storesFor(probed: Probed): { holds: CredentialStore; lacks: CredentialStore } {
+  const shared = sharedRecords();
+  const now = () => CLOCK_MS;
+  return {
+    holds: new CredentialStore({
+      file: { version: 1, credentials: [...shared, probed.record] },
+      allowBearer: true,
+      now,
+      peerRate: WALK_PEER_RATE,
+    }),
+    lacks: new CredentialStore({
+      file: { version: 1, credentials: [...shared] },
+      allowBearer: true,
+      now,
+      peerRate: WALK_PEER_RATE,
+    }),
+  };
+}
+
+type NonceSpelling = 'present' | 'absent' | 'too-short' | 'not-base64url' | 'differs-from-signed';
+
+function nonceHeaderFor(spelling: NonceSpelling, signed: Uint8Array): Record<string, string> {
+  switch (spelling) {
+    case 'present':
+      return { 'x-ashaveri-nonce': toBase64Url(signed) };
+    case 'differs-from-signed':
+      return { 'x-ashaveri-nonce': toBase64Url(ANOTHER_NONCE) };
+    case 'too-short':
+      return { 'x-ashaveri-nonce': toBase64Url(signed.slice(0, POP_NONCE_BYTES - 1)) };
+    case 'not-base64url':
+      return { 'x-ashaveri-nonce': 'not base64url at all' };
+    case 'absent':
+      return {};
+  }
+}
+
+function shapeInput(header: string, spelling: NonceSpelling, route: HttpRoute): AdmissionInput {
+  return {
+    method: route.method,
+    url: route.url,
+    headers: { authorization: header, ...nonceHeaderFor(spelling, SHAPE_NONCE) },
+    body: null,
+    nowSeconds: NOW_SECONDS,
+  };
+}
+
+function signedHeader(key: Uint8Array, ts: number, route: HttpRoute, credential: string = PROBE_ID): string {
+  return signPopAuthorization(
+    { ts, nonce: SHAPE_NONCE, method: route.method.toUpperCase(), target: route.url, bodyDigestHex: EMPTY_BODY_SHA256_HEX },
+    credential,
+    key,
+  );
+}
+
+interface Cell {
+  readonly input: AdmissionInput;
+  /** True when the test signed these bytes with the key the record carries, on a request well-formed enough to reach the checks behind the signature. */
+  readonly proves: boolean;
+}
+
+interface Shape {
+  readonly name: string;
+  readonly make: (probed: Probed) => Cell;
+}
+
+/**
+ * A proof-of-possession request naming `N`. Where the record carries no key the test can sign with, the
+ * `record-key` shapes are signed with the foreign key instead, which is the same class of refusal from the
+ * store's point of view and is marked as proving nothing.
+ */
+function popShape(name: string, signer: 'record-key' | 'foreign-key', stamp: Stamp, spelling: NonceSpelling, route: HttpRoute): Shape {
+  return {
+    name,
+    make: (probed) => {
+      const own = signer === 'record-key' ? probed.ownKey : null;
+      const ts = stamp === 'stale' ? STALE_TS : NOW_SECONDS;
+      return {
+        input: shapeInput(signedHeader(own ?? FORGER_SEED, ts, route), spelling, route),
+        proves: own !== null && stamp === 'fresh' && spelling === 'present',
+      };
+    },
+  };
+}
+
+/** A header whose signature is bytes nobody signed, which is the shape a relaxed verifier accepts against a small-order key. */
+function handWrittenShape(name: string, signature: Uint8Array, stamp: Stamp, spelling: NonceSpelling, route: HttpRoute): Shape {
+  return {
+    name,
+    make: () => ({
+      input: shapeInput(
+        encodePopAuthorization({ credential: PROBE_ID, ts: stamp === 'stale' ? STALE_TS : NOW_SECONDS, signature }),
+        spelling,
+        route,
+      ),
+      proves: false,
+    }),
+  };
+}
+
+/** A header the store is asked to read but never reaches: the scheme or the parameter list is settled at the door. */
+function doorShape(name: string, header: string | undefined): Shape {
+  return {
+    name,
+    make: () => ({
+      input: {
+        method: WORK_ROUTE.method,
+        url: WORK_ROUTE.url,
+        headers: header === undefined ? {} : { authorization: header },
+        body: null,
+        nowSeconds: NOW_SECONDS,
+      },
+      proves: false,
+    }),
+  };
+}
+
+function bearerShape(name: string, secret: (probed: Probed) => Uint8Array, provesBearer: (probed: Probed) => boolean): Shape {
+  return {
+    name,
+    make: (probed) => ({ input: bearerInput(WORK_ROUTE, secret(probed)), proves: provesBearer(probed) }),
+  };
+}
+
+const SHAPES: readonly Shape[] = [
+  popShape('record-key/fresh/nonce-present/work', 'record-key', 'fresh', 'present', WORK_ROUTE),
+  popShape('record-key/fresh/nonce-present/unlisted', 'record-key', 'fresh', 'present', UNLISTED_ROUTE),
+  popShape('record-key/fresh/nonce-present/complete', 'record-key', 'fresh', 'present', COMPLETE_ROUTE),
+  popShape('record-key/fresh/nonce-differs-from-signed', 'record-key', 'fresh', 'differs-from-signed', WORK_ROUTE),
+  popShape('record-key/stale/nonce-present', 'record-key', 'stale', 'present', WORK_ROUTE),
+  popShape('record-key/fresh/nonce-absent', 'record-key', 'fresh', 'absent', WORK_ROUTE),
+  popShape('record-key/fresh/nonce-too-short', 'record-key', 'fresh', 'too-short', WORK_ROUTE),
+  popShape('record-key/fresh/nonce-not-base64url', 'record-key', 'fresh', 'not-base64url', WORK_ROUTE),
+  popShape('foreign-key/fresh/nonce-present/work', 'foreign-key', 'fresh', 'present', WORK_ROUTE),
+  popShape('foreign-key/stale/nonce-present/work', 'foreign-key', 'stale', 'present', WORK_ROUTE),
+  popShape('foreign-key/fresh/nonce-absent/work', 'foreign-key', 'fresh', 'absent', WORK_ROUTE),
+  popShape('foreign-key/fresh/nonce-present/unlisted', 'foreign-key', 'fresh', 'present', UNLISTED_ROUTE),
+  popShape('foreign-key/fresh/nonce-present/complete', 'foreign-key', 'fresh', 'present', COMPLETE_ROUTE),
+  handWrittenShape('unsigned/zero-signature/fresh/nonce-present/work', ZERO_SIGNATURE, 'fresh', 'present', WORK_ROUTE),
+  handWrittenShape('unsigned/saturated-signature/fresh/nonce-present/work', SATURATED_SIGNATURE, 'fresh', 'present', WORK_ROUTE),
+  handWrittenShape('unsigned/zero-signature/fresh/nonce-present/unlisted', ZERO_SIGNATURE, 'fresh', 'present', UNLISTED_ROUTE),
+  handWrittenShape('unsigned/zero-signature/stale/nonce-present/work', ZERO_SIGNATURE, 'stale', 'present', WORK_ROUTE),
+  doorShape('door/absent-header', undefined),
+  doorShape('door/blank-header', '   '),
+  doorShape('door/other-scheme', 'Basic dXNlcjpwYXNz'),
+  doorShape('door/pop-with-no-parameters', 'Ashaveri-PoP'),
+  doorShape('door/pop-with-unknown-parameter', `${signedHeader(FORGER_SEED, NOW_SECONDS, WORK_ROUTE)}, algo=ed25519`),
+  doorShape('door/pop-with-short-signature', `Ashaveri-PoP credential=${PROBE_ID}, ts=${String(NOW_SECONDS)}, sig=${toBase64Url(new Uint8Array(8))}`),
+  bearerShape('bearer/presents-the-probes-secret', (probed) => probed.bearerSecret, (probed) => probed.state === 'bearer'),
+  bearerShape('bearer/presents-an-unenrolled-secret', () => UNENROLLED_SECRET, () => false),
+];
+
+/** What one store answered one request: the whole of what the caller can observe. */
+interface Answer {
+  readonly kind: 'admitted' | 'refused' | 'escaped';
+  readonly code: string;
+  readonly status: string;
+  readonly message: string;
+}
+
+function answer(store: CredentialStore, input: AdmissionInput): Answer {
+  // One connection for the whole walk, which is what the request bound ahead of the crypto is keyed on.
+  // `WALK_PEER_RATE` is what keeps that bound from being the answer any cell gets.
+  const presented: AdmissionInput = { ...input, peerAddress: WALK_PEER };
+  try {
+    const granted = store.admit(presented);
+    return { kind: 'admitted', code: 'SERVED', status: 'served', message: `served as ${granted.credentialId} for ${granted.scope} by ${granted.auth}` };
+  } catch (err) {
+    if (err instanceof AccessError) {
+      return { kind: 'refused', code: err.code, status: String(err.status), message: err.message };
+    }
+    const text = err instanceof Error ? `${err.name}: ${err.message}` : String(err);
+    return { kind: 'escaped', code: 'ESCAPED', status: 'threw', message: text };
+  }
+}
+
+function show(a: Answer): string {
+  return `${a.code} ${a.status} "${a.message}"`;
+}
+
+function identical(a: Answer, b: Answer): boolean {
+  return a.code === b.code && a.status === b.status && a.message === b.message;
+}
+
+/** A request naming a record both files hold, which has to be served by both or the walk is not reaching a store. */
+function controlRequest(): AdmissionInput {
+  return shapeInput(signedHeader(SHARED_SEED, NOW_SECONDS, WORK_ROUTE, SHARED_NAME), 'present', WORK_ROUTE);
+}
+
+describe('two stores that differ only in whether they hold one name', () => {
+  it('answers every request shape the same way and serves neither store', { timeout: 120_000 }, () => {
+    const printed = process.env['TWO_STORE_MATRIX'] !== undefined;
+    const lines: string[] = [];
+    const failures: string[] = [];
+    const tally = new Map<string, number>();
+    let cells = 0;
+    let proofCarrying = 0;
+
+    for (const state of PROBED_STATES) {
+      const probed = probedAs(state);
+      const premise = storesFor(probed);
+      expect(probed.record.id, `the probe record is the name the walk is about: ${state}`).toBe(PROBE_ID);
+      expect(
+        premise.holds.credentials().some((each) => each.id === PROBE_ID),
+        `one store has to hold ${PROBE_ID}`,
+      ).toBe(true);
+      expect(
+        premise.lacks.credentials().some((each) => each.id === PROBE_ID),
+        `the other store has to hold nothing named ${PROBE_ID}`,
+      ).toBe(false);
+      expect(premise.holds.credentials()).toHaveLength(premise.lacks.credentials().length + 1);
+
+      const controlHolds = answer(premise.holds, controlRequest());
+      const controlLacks = answer(premise.lacks, controlRequest());
+      expect(controlHolds.kind, `the control request naming a record both stores hold was not served: ${show(controlHolds)}`).toBe('admitted');
+      expect(controlLacks.kind, `the same control was not served by the store without the probe: ${show(controlLacks)}`).toBe('admitted');
+      expect(identical(controlHolds, controlLacks), `the control has to read the same in both: ${show(controlHolds)} / ${show(controlLacks)}`).toBe(true);
+
+      for (const shape of SHAPES) {
+        cells += 1;
+        const { input, proves } = shape.make(probed);
+        if (proves) proofCarrying += 1;
+        const stores = storesFor(probed);
+        const holds = answer(stores.holds, input);
+        const lacks = answer(stores.lacks, input);
+        const where = `${state} x ${shape.name}${proves ? ' [proves]' : ''}`;
+        if (printed) lines.push(`${where.padEnd(58)} holds ${show(holds)} | lacks ${show(lacks)}`);
+
+        if (lacks.kind === 'admitted') {
+          failures.push(`${where}: the store holding nothing named ${PROBE_ID} served the request: ${show(lacks)}`);
+        }
+        if (proves) continue;
+        if (holds.kind === 'admitted') {
+          failures.push(`${where}: the store holding a ${state} record served a request that proves nothing: ${show(holds)}`);
+        }
+        if (identical(holds, lacks)) continue;
+        const pair = `${holds.code}/${holds.status} vs ${lacks.code}/${lacks.status}`;
+        tally.set(pair, (tally.get(pair) ?? 0) + 1);
+        failures.push(`${where}: the name is answered differently\n    holds N: ${show(holds)}\n    lacks N: ${show(lacks)}`);
+      }
+    }
+
+    const grouped = [...tally.entries()]
+      .sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0]))
+      .map(([pair, count]) => `  ${String(count).padStart(3)} cells: ${pair}`);
+    process.stdout.write(
+      `two-store: ${String(cells)} cells over ${String(PROBED_STATES.length)} records and ${String(SHAPES.length)} shapes, ` +
+        `${String(proofCarrying)} proof-carrying, ${String(tally.size)} answer pairs diverge, ${String(failures.length)} failures\n` +
+        `${grouped.join('\n')}\n`,
+    );
+    if (printed) process.stdout.write(`${lines.join('\n')}\n`);
+    if (failures.length > 0) process.stdout.write(`${failures.join('\n')}\n`);
+    expect(failures.length, `the two stores answered differently, or one of them served a request:\n${failures.slice(0, 12).join('\n')}`).toBe(0);
+  });
+});
+
 afterAll(() => {
   const seconds = ((performance.now() - STARTED_AT) / 1000).toFixed(2);
   process.stdout.write(
@@ -1045,3 +1439,4 @@ afterAll(() => {
       `${String(predicateCalls)} predicate calls, ${String(walkedRows)} walk rows, wall clock ${seconds}s\n`,
   );
 });
+

@@ -186,9 +186,14 @@ function cell(route: string, state: State): Cell {
     case 'absent-header':
       return { status: 401, code: 'AUTH_MALFORMED' };
     case 'unknown-credential':
-      return { status: 401, code: 'AUTH_UNKNOWN' };
+      // A name this file does not carry is answered exactly as a signature that did not verify, so this
+      // cell and `forged-signature` below are one refusal at the HTTP layer.
+      return { status: 401, code: 'AUTH_SIGNATURE' };
     case 'bearer-presented':
-      return { status: 401, code: 'AUTH_SCHEME' };
+      // The `Bearer` prefix is turned away by the scheme dispatch, which is a fact about the deployment.
+      // The proof-of-possession half of this state names a bearer record, which has no key to verify
+      // with, and is answered the same way a failed verification is.
+      return { status: 401, code: 'AUTH_SIGNATURE' };
     case 'stale-ts':
       return { status: 401, code: 'AUTH_STALE' };
     case 'forged-signature':
@@ -247,9 +252,10 @@ describe('the route matrix: five routes by ten states', () => {
           } else if (state === 'unknown-credential') {
             Object.assign(headers, h.signFor('never-issued', method as string, targets[route] as string, body));
           } else if (state === 'bearer-presented') {
-            // Two doors to one code. A `Bearer` header is turned away by the scheme dispatch
-            // before any record is looked up; a proof of possession naming a bearer record is
-            // turned away by the lookup itself, which is the refusal that answers with an id.
+            // Two doors, two answers. A `Bearer` header is turned away by the scheme dispatch before any
+            // record is looked up, which is a property of the deployment. A proof of possession naming a
+            // bearer record is turned away the way a failed verification is, because a bearer record
+            // carries no key for the proof to be checked against.
             const byPrefix = await h.inject({
               method: method as string,
               url: targets[route] as string,
@@ -297,8 +303,10 @@ describe('the route matrix: five routes by ten states', () => {
           expect(response.statusCode, `${route} / ${state}`).toBe(expectation.status);
           if (expectation.code !== undefined) expect(denyCode(response.json), `${route} / ${state} code`).toBe(expectation.code);
           if (state === 'bearer-presented') {
-            // The refusal is the only place this id surfaces to the operator, and it surfaces
-            // because the lookup carried it out of the store on the error.
+            // What the caller was told and what this gateway decided are two different codes here, and
+            // this line is where the second one survives: the response says the proof did not verify,
+            // the record says the name it carried is a bearer credential. The id is the caller's own
+            // header, so the line keeps it either way.
             expect(h.log.entries().at(-1), `${route} / ${state} record`).toMatchObject({
               cred: bearerId,
               auth: null,
@@ -307,9 +315,9 @@ describe('the route matrix: five routes by ten states', () => {
             });
           }
           if (state === 'stale-ts') {
-            // This refusal happens after the lookup, so the id is known and there is no reason for
-            // the line to lose it: an operator reading a spike of stale requests has to be able to
-            // say whose clock is the one off.
+            // The stamp is read out of the header, so no name has to be known for the id to be: an
+            // operator reading a spike of stale requests has to be able to say whose clock is the one
+            // off, and the answer they need is in the line.
             expect(h.log.entries().at(-1), `${route} / ${state} record`).toMatchObject({
               cred: credential.record.id,
               deny: 'AUTH_STALE',

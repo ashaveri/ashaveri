@@ -13,6 +13,7 @@ import {
   newBearerCredential,
   newPopCredential,
   serializeCredentialFile,
+  type CredentialRate,
   type CredentialRecord,
   type Scope,
 } from '../src/access.js';
@@ -98,6 +99,13 @@ export interface HarnessInput {
   allowBearer?: boolean;
   toleranceSeconds?: number;
   /**
+   * What a connection address is held to ahead of any crypto. Every request this harness injects
+   * arrives on one socket address, so a suite that counts admissions is spending from one peer bucket
+   * whatever credential it names: a test that wants to see the throttle, or to be sure it never sees
+   * it, says so here rather than discovering the default.
+   */
+  peerRate?: CredentialRate;
+  /**
    * What `buildGateway` takes besides the two access options. The suites that serve a live
    * deployment, an upstream backend or a bounded receipt store need a route through here, because
    * a second construction path outside `harness()` is exactly what this file exists to prevent.
@@ -127,6 +135,7 @@ export async function harness(input: HarnessInput = {}): Promise<Harness> {
     ...(input.storePath === undefined ? { file: { version: 1, credentials: records } } : { path: input.storePath }),
     allowBearer: input.allowBearer,
     toleranceSeconds: input.toleranceSeconds,
+    peerRate: input.peerRate,
     // `signFor` stamps every header at CLOCK_SECONDS, so the store has to read the same instant: on
     // the wall clock it would refuse a well-signed request as months stale, and the tolerance test
     // would measure the age of the fixture rather than the offset it names. A test that wants a
