@@ -44,9 +44,14 @@ header being read. The bound is there because check 2 gives a guess a cost: a na
 is answered by performing one Ed25519 verification, so a loop over names would otherwise buy computation for
 the price of sending it. Check 5 cannot bound that, because a guess holds no credential to charge, so the
 charge goes on the thing a guesser cannot choose - the address its connection came from. It is set generously
-and it is a floor rather than an allowance: 300 requests in a burst and 900 a minute from one address, which
-is fifteen requests a second sustained and no client of this gateway's shape reaching it. A refused request
-costs this process a lookup and a 429.
+and it is a floor rather than an allowance: 2,000 requests in a burst and 6,000 a minute from one address,
+which is a hundred requests a second sustained and no single client of this gateway's shape reaching it. The
+number has to clear the traffic the shape does carry, because the bucket is shared: a deployment behind one
+reverse proxy puts every request it serves through one address, and fifteen credentials running their own
+default of 60 a minute are 900 requests a minute down that one pipe. An operator whose deployment is bigger
+sets both halves with `--peer-rate perMinute=<n>,burst=<n>` (section 6), and there is no flag that takes the
+bound off, because a large number does that and says so. A refused request costs this process a lookup and
+a 429.
 
 That placement is lawful for the same reason the freshness window's is, and it is the reason the bound has to
 be uniform: every request meets it, whoever it names and whatever its header says, so the answer is a
@@ -383,6 +388,7 @@ deployer's, and the log is where its use shows.
 | `--access-log-path <dir>` | required in a live start | Where the per-request log is written. The value must name an existing directory, so a volume that was not mounted is a refusal rather than a log written onto the root filesystem |
 | `--access-log-days <n>` | 184 | How long log files are kept, in days. 184 is the default and the floor the code names, and it is not enforced as a ceiling on the operator's choice: a shorter value starts, and the start-up report says out loud that the run is below the floor (section 8.2) |
 | `--pop-tolerance <seconds>` | 120 | Clock slack accepted for a proof-of-possession timestamp, in both directions |
+| `--peer-rate perMinute=<n>,burst=<n>` | `perMinute=6000,burst=2000` | The request bound one connection address is held to ahead of every credential check, which section 1 explains: behind one proxy this is the whole deployment sharing one bucket. Both fields are required, each is a whole number of at least 1, and a value that is not stops the start rather than falling back to the default. No value removes the bound, and a large number is the way to stop being shed; the start-up report prints the number the process is holding and says whether it came from this flag |
 | `--allow-bearer` | off | Accepts bearer credentials deployment-wide, says so at start-up, and writes `auth=bearer` on every record a bearer secret admitted |
 
 ## 7. The access log

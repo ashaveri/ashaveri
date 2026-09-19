@@ -620,17 +620,30 @@ export const DEFAULT_RATE: CredentialRate = { perMinute: 60, burst: 120 };
 
 /**
  * What a connection address is held to ahead of every credential, so that an unauthenticated guess
- * costs something other than the asking. Measured on this workspace's `@noble/curves` under node 24:
- * one `verifyPopSignature` over a forged 64-byte signature is ~183 microseconds, so ~5,500 a second
- * is a single core, and a guessing loop with no bound in front of it is the whole process. Three
- * hundred tokens in hand and nine hundred a minute leaves a peer ~55ms of crypto for the burst and
- * fifteen verifications a second thereafter, three tenths of one percent of a core: a real client
- * asking fifteen requests a second of one address is not what this is for, and a credential held to
- * `DEFAULT_RATE` is a fifteenth of that rate anyway. A loop that wants five thousand guesses a second
- * is answered `RATE_LIMITED` from the three hundred and first in a row. What this bounds is what one
- * connection can demand, not what all of them can: see `MAX_TRACKED_PEERS`.
+ * costs something other than the asking. Measured on this workspace's `@noble/curves` under node 24: one
+ * `verifyPopSignature` over a forged 64-byte signature is ~183 microseconds, so ~5,500 a second fills a
+ * single core.
+ *
+ * The size comes from what a deployment carries, not from what a guesser fails to do, and it has to be
+ * read against the traffic shape this repository ships: `server.ts` takes the address off the socket and
+ * no header, so behind one reverse proxy every legitimate request arrives from one address and spends
+ * from one bucket. A credential without its own `rate` is held to `DEFAULT_RATE`, 60 a minute, so fifteen
+ * credentials running their own defaults are 900 requests a minute, and a bound set at 900 refuses a
+ * deployment's correctly signed aggregate on the same arithmetic that empties a guessing loop. The floor
+ * has to sit above the traffic and below the cost, and this is where both hold.
+ *
+ * Six thousand a minute is a hundred requests a second from one address, so a hundred verifications a
+ * second, which is 18.3 milliseconds of crypto in every second and 1.8 per cent of one core. The two
+ * thousand burst is 366 milliseconds, the most one peer can demand of a core at once, and an address
+ * asking past it is refused for the cost its next request would have spent rather than the cost it saves,
+ * a map lookup. Reaching either half means asking a hundred requests a second of one address, or two
+ * thousand in the instant the bucket opened, and neither is what the credentials above do, while a loop
+ * that wants five thousand guesses a second is answered `RATE_LIMITED` from the two thousand and first in
+ * a row. What this bounds is what one connection can demand, not what all of them can: see
+ * `MAX_TRACKED_PEERS`. An operator whose deployment is bigger than this sets both halves with
+ * `--peer-rate`.
  */
-export const DEFAULT_PEER_RATE: CredentialRate = { perMinute: 900, burst: 300 };
+export const DEFAULT_PEER_RATE: CredentialRate = { perMinute: 6000, burst: 2000 };
 
 /**
  * How many connection addresses the peer bucket remembers. Nothing bounds who connects, so this cap is
@@ -809,11 +822,11 @@ export interface CredentialStoreOptions {
   now?: () => number;
   /**
    * What a connection address is held to before this store spends any crypto on it;
-   * `DEFAULT_PEER_RATE` when unset. Injectable for the same reason the clock is, and for a sharper
-   * one: a property walk over a matrix of requests inside one process is not a guessing loop, and a
-   * bound that refused it would read as a disclosure failure. A harness held to no bound says so
-   * where it builds the store, rather than leaving the number to be raised in the software until a
-   * test goes green.
+   * `DEFAULT_PEER_RATE` when unset, which is what the gateway's `--peer-rate` flag sets. Injectable for
+   * the same reason the clock is, and for a sharper one: a property walk over a matrix of requests
+   * inside one process is not a guessing loop, and a bound that refused it would read as a disclosure
+   * failure. A harness held to no bound says so where it builds the store, rather than leaving the
+   * number to be raised in the software until a test goes green.
    */
   peerRate?: CredentialRate;
   /**

@@ -12,6 +12,7 @@ import {
   AccessError,
   CredentialStore,
   DEFAULT_PEER_RATE,
+  DEFAULT_RATE,
   TokenBucket,
   newBearerCredential,
   newPopCredential,
@@ -165,14 +166,14 @@ function fills(count: number, value: string): string[] {
 function watchedStore(
   credentials: CredentialRecord[],
   peerRate: CredentialRate,
-  options: { allowBearer?: boolean } = {},
+  options: { allowBearer?: boolean; now?: () => number } = {},
 ): { store: CredentialStore; verifications(): number } {
   let verifications = 0;
   const store = new CredentialStore({
     file: { version: 1, credentials },
     allowBearer: options.allowBearer ?? false,
     peerRate,
-    now: () => CLOCK_MS,
+    now: options.now ?? (() => CLOCK_MS),
     countVerification: () => {
       verifications += 1;
     },
@@ -384,12 +385,82 @@ describe('the request bound a connection meets ahead of the crypto', () => {
 
 describe('the bound itself', () => {
   it('is a number a guessing loop reaches and a client does not', () => {
-    // Pinned, because the size is the design decision: loose enough that no honest client meets it,
-    // tight enough that a loop does long before it has spent a second of crypto. At the ~183 microseconds
-    // one forged verification measures on this workspace's library, the burst is ~55ms of the process and
-    // the refill fifteen verifications a second, against the ~5,500 a second an unbounded loop asks for.
-    expect(DEFAULT_PEER_RATE).toEqual({ perMinute: 900, burst: 300 });
+    // Pinned, because the size is the design decision: loose enough that no honest client meets it, tight
+    // enough that a loop does long before it has spent a second of crypto. At the ~183 microseconds one
+    // forged verification measures on this workspace's library, the 2,000 burst is 366 ms of one core and
+    // the 6,000 a minute is a hundred verifications a second, 18.3 ms of every second, 1.8 per cent of one
+    // core, against the ~5,500 a second an unbounded loop asks for.
+    expect(DEFAULT_PEER_RATE).toEqual({ perMinute: 6000, burst: 2000 });
+    // The relation the number has to hold, and not only the number. The charge is on every request and one
+    // address shares one bucket, so a bound at or under the aggregate a deployment of defaults carries
+    // refuses its own customers, and the case below is that aggregate: fifteen credentials with no rate of
+    // their own are 15 times `DEFAULT_RATE.perMinute` a minute. A bound of 900 lands exactly on that line,
+    // which is why the floor sits above it rather than on it.
+    const fifteenDefaults = 15 * DEFAULT_RATE.perMinute;
+    expect(fifteenDefaults).toBe(900);
+    expect(
+      DEFAULT_PEER_RATE.perMinute,
+      `the per-connection bound has to clear the traffic fifteen default credentials carry (${String(fifteenDefaults)} a minute), and does not`,
+    ).toBeGreaterThan(fifteenDefaults);
   });
+
+  it('carries fifteen default credentials and one busy customer behind one address', () => {
+    // The traffic shape this repository ships: `server.ts` keys the bucket on the socket and asks no
+    // header, so behind one reverse proxy every request a deployment's customers make spends from one
+    // bucket. Fifteen credentials running their own default rate are 900 requests a minute, and one
+    // customer whose record raises its rate to 5,000 makes the aggregate 5,900 in a minute, all of it
+    // correctly signed. A bound that sheds any of it is refusing customers rather than guessers.
+    const PROXY = '198.51.100.1';
+    const QUIET_CREDENTIALS = 15;
+    const BUSY_REQUESTS = 5000;
+    const MINUTE_SECONDS = 60;
+    const busy = newPopCredential({ id: 'busy-customer', scopes: ['read', 'complete'], now: NOW_SECONDS });
+    const quiet = Array.from({ length: QUIET_CREDENTIALS }, (_, at) =>
+      newPopCredential({ id: `svc-${String(at)}`, scopes: ['read', 'complete'], now: NOW_SECONDS }),
+    );
+    const records: CredentialRecord[] = [
+      { ...busy.record, rate: { perMinute: BUSY_REQUESTS, burst: BUSY_REQUESTS } },
+      // No `rate` on these, which is what "running their own defaults" means: each is held to
+      // `DEFAULT_RATE`, and this case is about the sum they make on one address.
+      ...quiet.map((each) => each.record),
+    ];
+
+    let nowMs = CLOCK_MS;
+    const { store, verifications } = watchedStore(records, DEFAULT_PEER_RATE, { now: () => nowMs });
+    const codes: string[] = [];
+    let presented = 0;
+    const ask = (id: string, privateKey: Uint8Array): void => {
+      presented += 1;
+      codes.push(answer(store, guess(id, presented, { key: privateKey, peer: PROXY })).code);
+    };
+    // A minute arriving second by second, since a bound of 6,000 a minute is a refill and not a bigger
+    // burst: a frozen clock would be testing `burst` and reporting it as the rate. The busy customer's
+    // 5,000 requests are 83 or 84 a second, and each quiet credential sends its one.
+    const busyPerSecond = Math.floor(BUSY_REQUESTS / MINUTE_SECONDS);
+    for (let second = 0; second < MINUTE_SECONDS; second++) {
+      const busyNow = second < BUSY_REQUESTS % MINUTE_SECONDS ? busyPerSecond + 1 : busyPerSecond;
+      for (let at = 0; at < busyNow; at++) ask(busy.record.id, busy.privateKey);
+      for (const each of quiet) ask(each.record.id, each.privateKey);
+      nowMs += 1000;
+    }
+
+    expect(presented).toBe(BUSY_REQUESTS + QUIET_CREDENTIALS * MINUTE_SECONDS);
+    const shed = codes.filter((code) => code === 'RATE_LIMITED');
+    expect(shed, `${String(shed.length)} of ${String(presented)} signed requests were refused`).toHaveLength(0);
+    expect(codes).toEqual(fills(codes.length, 'no-error'));
+    // The count and not only the codes: a request this bound refuses never reaches the verifier, so a
+    // verification count short of the traffic presented is a signed request shed for the shape of the
+    // address it came from. This is the case a bound at the fifteen-credential aggregate fails inside its
+    // fourth simulated second, which is why it is here rather than a comment on a constant.
+    expect(verifications()).toBe(presented);
+    process.stdout.write(
+      `peer-aggregate: ${String(presented)} signed requests in one minute from one address (${String(
+        QUIET_CREDENTIALS,
+      )} credentials at their default rate and one at ${String(BUSY_REQUESTS)} a minute), ${String(
+        verifications(),
+      )} served and ${String(shed.length)} shed\n`,
+    );
+  }, 120_000);
 
   it('caps how many addresses it remembers, and gives an evicted peer a fresh bucket', () => {
     // The keys are whoever connects, which nothing else bounds, so an uncapped map would trade a control

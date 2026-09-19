@@ -163,6 +163,10 @@ describe('signerd cli', () => {
     expect(result.stdout).toContain('access log retention');
     expect(result.stdout).toContain('Default: 184');
     expect(result.stdout).not.toContain('Annex III');
+    // The connection bound is a limit an operator can set, so its flag and its default are both in the
+    // first text they read, and the shape of the value is spelled out rather than left to be guessed.
+    expect(result.stdout).toContain('--peer-rate perMinute=<n>,burst=<n>');
+    expect(result.stdout).toContain('perMinute=6000,burst=2000');
   });
 
   it('exits with 2 when --mock is missing', () => {
@@ -380,6 +384,12 @@ describe('the flags that make the access floor real', () => {
     expect(banner, printed).toContain(
       '  access log: this process only, kept for 184 days and gone on restart',
     );
+    // The bound a flagless run boots with is a fact an operator has to be able to see without reading
+    // the source, and it is the number the fifteen-default-credential case in `peer-throttle.test.ts` is
+    // set against.
+    expect(banner, printed).toContain(
+      '  rate limits: 6000 requests a minute and 2000 at once per connection address, taken ahead of every credential check, the default; a credential with no rate in its record holds 60 a minute and 120 at once',
+    );
     // `banner` is an array, so `not.toContain` with a line prefix compared whole elements and could
     // never have found what it was looking for: this asks the lines themselves.
     expect(banner.some((line) => line.includes('bearer credentials also accepted')), printed).toBe(false);
@@ -486,7 +496,101 @@ describe('the flags that make the access floor real', () => {
 });
 
 /**
- * What the two flags do to a request, as opposed to what they do to a line of text. Both cases boot
+ * `--peer-rate` is the only knob on the bound every request spends from, so both halves of it are
+ * checked: that a value the bucket cannot hold stops the boot, and that a value it can hold is the number
+ * the process reports and the number a request is refused by.
+ */
+describe('the bound one connection address is held to', () => {
+  it('refuses a peer rate with one of its two fields missing', () => {
+    const noBurst = run('--mock', '--peer-rate', 'perMinute=6000');
+    expect(noBurst.status).toBe(2);
+    expect(noBurst.stderr).toContain("--peer-rate wants perMinute=<n>,burst=<n>, got 'perMinute=6000': burst is missing");
+    const noRate = run('--mock', '--peer-rate', 'burst=300');
+    expect(noRate.status).toBe(2);
+    expect(noRate.stderr).toContain(
+      "--peer-rate wants perMinute=<n>,burst=<n>, got 'burst=300': perMinute is missing",
+    );
+    // Nothing after the flag at all, which is the parse layer's refusal and not this one, and the same
+    // exit the rest of the usage errors take.
+    const noValue = run('--mock', '--peer-rate');
+    expect(noValue.status).toBe(2);
+    expect(noValue.stderr).toContain('--peer-rate');
+  });
+
+  it('refuses a peer rate whose numbers are not counts of requests', () => {
+    for (const bad of ['perMinute=0,burst=300', 'perMinute=6000,burst=0']) {
+      const result = run('--mock', '--peer-rate', bad);
+      expect(result.status, bad).toBe(2);
+      expect(result.stderr, bad).toContain('must be a positive whole number');
+      expect(result.stderr, bad).toContain("got '0'");
+      // A bound of nothing at all is the way to disable a control through a flag that looks like it only
+      // sets a size, so it is refused rather than clamped.
+      expect(result.stdout, bad).not.toContain('listening on');
+    }
+    const fractional = run('--mock', '--peer-rate', 'perMinute=12.5,burst=300');
+    expect(fractional.status).toBe(2);
+    expect(fractional.stderr).toContain("--peer-rate perMinute must be a positive whole number of requests a minute, got '12.5'");
+    // A spelling `Number` would accept and no operator wrote: the digits-only rule is what refuses them.
+    for (const exotic of ['perMinute=0x10,burst=300', 'perMinute=1e3,burst=300', 'perMinute=-60,burst=300']) {
+      const result = run('--mock', '--peer-rate', exotic);
+      expect(result.status, exotic).toBe(2);
+      expect(result.stderr, exotic).toContain('must be a positive whole number');
+    }
+  });
+
+  it('refuses a peer rate field it does not have, and one given twice', () => {
+    const unknown = run('--mock', '--peer-rate', 'perMinute=6000,bursts=300');
+    expect(unknown.status).toBe(2);
+    expect(unknown.stderr).toContain("'bursts=300' is not one of those two fields");
+    const repeated = run('--mock', '--peer-rate', 'perMinute=6000,perMinute=100');
+    expect(repeated.status).toBe(2);
+    expect(repeated.stderr).toContain('perMinute is given twice');
+    const bare = run('--mock', '--peer-rate', '6000,300');
+    expect(bare.status).toBe(2);
+    expect(bare.stderr).toContain("'6000' is not one of those two fields");
+  });
+
+  it('prints the bound it was given, and says that it was given', () => {
+    const banner = runStopped('--mock', '--port', '0', '--peer-rate', 'perMinute=1234,burst=56');
+    const printed = banner.join('\n');
+    const line = banner.find((each) => each.startsWith('  rate limits: '));
+    expect(line, `no rate limits line; stdout held ${JSON.stringify(printed)}`).toContain(
+      '1234 requests a minute and 56 at once per connection address',
+    );
+    expect(line, printed).toContain('from --peer-rate');
+    expect(line, printed).not.toContain('the default');
+  });
+
+  it('has no spelling that takes the bound off, and one that amounts to it', () => {
+    // `0` and a bare word are the two shapes a reader reaches for when they want the control out of the
+    // way, and both are refused: a bound of nothing would shed every request this process serves, and a
+    // flag that accepted "off" would be a way to remove a security control from a deployment that thinks
+    // it has one.
+    for (const value of ['off', 'none', '0', 'perMinute=0,burst=0', 'perMinute=0']) {
+      const result = run('--mock', '--peer-rate', value);
+      expect(result.status, value).toBe(2);
+      expect(result.stderr, value).toContain('--peer-rate');
+      expect(result.stdout, value).not.toContain('listening on');
+    }
+    // The way out is a number big enough never to be reached, and it stays a number the banner reports:
+    // a run that is effectively unbounded reads as one with a large limit, not as one with none. This
+    // case stops at the credential file, which the rate is parsed before, so it says the value was taken
+    // without booting a listener.
+    const huge = run(
+      '--mock',
+      '--peer-rate',
+      'perMinute=999999999,burst=999999999',
+      '--credentials-path',
+      join(tempDir, 'not-mounted.json'),
+    );
+    expect(huge.stderr).not.toContain('--peer-rate wants');
+    expect(huge.stderr).not.toContain('must be a positive whole number');
+    expect(huge.stderr).toContain('--credentials-path');
+  });
+});
+
+/**
+ * What the access flags do to a request, as opposed to what they do to a line of text. Each case boots
  * the built CLI for real, because the flag is read at start-up and the decision is made in the
  * process that holds the store: nothing in this file up to here has shown a request outcome move.
  */
@@ -522,6 +626,67 @@ describe('a gateway that serves answers the way its banner says', () => {
         expect(body).toContain('this deployment requires a proof of possession');
       } finally {
         await refused.kill();
+      }
+    },
+    20_000,
+  );
+
+  it(
+    'holds one connection to the bound the flag set it',
+    async () => {
+      // A burst of three on an address, far below the 2,000 this process would have booted with, so the
+      // only way the fourth signed request is refused is that the flag reached the store the requests are
+      // admitted by. The minute behind the burst is sixty rather than a large number because these five
+      // requests are milliseconds apart on a wall clock, and a bucket refilling at ten tokens a
+      // millisecond would never be seen empty: what is pinned here is the burst the flag set.
+      const pop = newPopCredential({ id: 'peer-rate-pop', scopes: ['read', 'complete'] });
+      const path = credentialFile(serializeCredentialFile({ version: 1, credentials: [pop.record] }));
+      const served = await bootServing([
+        '--credentials-path',
+        path,
+        '--peer-rate',
+        'perMinute=60,burst=3',
+      ]);
+      const target = '/v1/deployment-manifest';
+      try {
+        const codes: Array<string | undefined> = [];
+        const messages: string[] = [];
+        const statuses: number[] = [];
+        const retryAfters: Array<string | null> = [];
+        for (let at = 0; at < 5; at++) {
+          const nonce = randomNonce();
+          const fields: PopFields = {
+            ts: Math.floor(Date.now() / 1000),
+            nonce,
+            method: 'GET',
+            target,
+            bodyDigestHex: EMPTY_BODY_SHA256_HEX,
+          };
+          const response = await fetch(url(served.port), {
+            headers: {
+              authorization: signPopAuthorization(fields, pop.record.id, pop.privateKey),
+              'x-ashaveri-nonce': toBase64Url(nonce),
+            },
+          });
+          const body = await response.text();
+          statuses.push(response.status);
+          messages.push(body);
+          retryAfters.push(response.headers.get('retry-after'));
+          codes.push((JSON.parse(body) as { error?: { code?: string } }).error?.code);
+        }
+        // Three served, then the bound the flag set, in the words that name which bucket fired. Under
+        // the bound this process would have booted with, all five are served, so the pair of lines below
+        // is what says the number travelled from the flag to the store rather than only to the banner.
+        expect(codes.slice(0, 3), JSON.stringify(codes)).toEqual([undefined, undefined, undefined]);
+        expect(codes.slice(3), JSON.stringify(codes)).toEqual(['RATE_LIMITED', 'RATE_LIMITED']);
+        expect(statuses.slice(0, 3), JSON.stringify(statuses)).toEqual([200, 200, 200]);
+        expect(statuses.slice(3), JSON.stringify(statuses)).toEqual([429, 429]);
+        expect(messages[4]).toContain('per connection address');
+        // The hint is a header, and it is the reason this refusal is retryable at all.
+        expect(Number(retryAfters[3]), JSON.stringify(retryAfters)).toBeGreaterThanOrEqual(1);
+        expect(Number(retryAfters[4]), JSON.stringify(retryAfters)).toBeGreaterThanOrEqual(1);
+      } finally {
+        await served.kill();
       }
     },
     20_000,
