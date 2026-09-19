@@ -507,6 +507,12 @@ describe('the bound itself', () => {
     expect(credentialThrottle.status).toBe(429);
     expect(credentialThrottle.message).not.toContain('per connection address');
     expect(credentialThrottle.message).toContain(HELD_NAME);
+    // The clause the two share is about the request, not about a credential: the connection's answer is
+    // issued before any credential is read, so an opening that named one would print as fact what the
+    // pipeline cannot know.
+    const opening = (refusal: Answer): string => (refusal.message.split(':')[0] ?? '').trim();
+    expect(opening(peerThrottle)).toBe(opening(credentialThrottle));
+    expect(opening(credentialThrottle)).not.toContain('credential');
     // One verification for each of the six requests that reached the signature check, and none for the
     // two the peer bound refused.
     expect(verifications()).toBe(6);

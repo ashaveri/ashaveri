@@ -69,7 +69,10 @@ const ERROR_MESSAGE: Record<AccessErrorCode, string> = {
   AUTH_NONCE_MISSING: 'the x-ashaveri-nonce header is absent or is not unpadded base64url of a 16-byte nonce',
   NONCE_SEEN: 'this request nonce has already been presented',
   SCOPE_DENIED: 'the credential does not carry the scope this route requires',
-  RATE_LIMITED: 'this credential is over its rate limit',
+  // Names no credential on purpose: this is the one code two different buckets answer with, and the
+  // connection's is refused before any credential is read, so a caller-facing sentence that asserted
+  // one would print a fact the pipeline does not know. Which limit was spent is the detail's job.
+  RATE_LIMITED: 'this request is over a rate limit',
 };
 
 /**
