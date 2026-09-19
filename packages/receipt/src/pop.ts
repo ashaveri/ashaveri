@@ -69,8 +69,8 @@ export function encodePopAuthorization(input: {
   if (!CREDENTIAL_ID.test(input.credential)) {
     throw new ReceiptError('BAD_POP_HEADER', `credential id ${input.credential} is not 1-64 of [A-Za-z0-9_-]`);
   }
-  if (!Number.isInteger(input.ts) || input.ts < 0) {
-    throw new ReceiptError('BAD_POP_HEADER', `ts must be a non-negative integer, got ${input.ts}`);
+  if (!Number.isSafeInteger(input.ts) || input.ts < 0) {
+    throw new ReceiptError('BAD_POP_HEADER', `ts must be a non-negative safe integer, got ${input.ts}`);
   }
   if (input.signature.length !== 64) {
     throw new ReceiptError('BAD_POP_HEADER', `signature must be 64 bytes, got ${input.signature.length}`);
@@ -106,7 +106,10 @@ export function signPopAuthorization(
  */
 export function parsePopAuthorization(header: string): PopAuthorization {
   const trimmed = header.trim();
-  if (!trimmed.startsWith(POP_AUTH_PREFIX)) {
+  // The scheme is a whole token, not a prefix of one. `Ashaveri-PoPv2 credential=...` names no
+  // credential under this scheme: it is a scheme disagreement, which is the condition
+  // AUTH_SCHEME_MISMATCH exists to separate from a client that wrote this scheme badly.
+  if (trimmed.split(/\s+/u, 1)[0] !== POP_AUTH_PREFIX) {
     throw new ReceiptError('AUTH_SCHEME_MISMATCH', 'the Authorization header is not an Ashaveri-PoP header');
   }
   const seen = new Map<string, string>();

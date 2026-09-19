@@ -142,6 +142,34 @@ describe('PoP Authorization header', () => {
     }
   });
 
+  // `Ashaveri-PoPv2` is somebody else's scheme: no credential was ever named, so the refusal is a
+  // scheme disagreement. A tab between the scheme and the parameters is still this scheme, because
+  // `encodePopAuthorization` writes the parameters after whitespace and the parser trims each part.
+  it('requires the scheme to be the whole first token, not a prefix of it', () => {
+    for (const header of [
+      'Ashaveri-PoPv2 credential=c, ts=1, sig=aa',
+      'Ashaveri-PoPv10 credential=c, ts=1, sig=aa',
+      'Ashaveri-PoP-2 credential=c, ts=1, sig=aa',
+      'Ashaveri-PoPXYZ credential=c, ts=1, sig=aa',
+    ]) {
+      expect(errorCodeOf(() => parsePopAuthorization(header)), header).toBe('AUTH_SCHEME_MISMATCH');
+    }
+    expect(errorCodeOf(() => parsePopAuthorization('Ashaveri-PoP\tcredential=c, ts=1, sig=aa'))).toBe('BAD_POP_HEADER');
+  });
+
+  // A `ts` outside the safe integer range cannot be read back by this same file's parser, so an
+  // encoder that emitted one would be publishing a header no verifier can use.
+  it('refuses to encode a timestamp its own parser would refuse', () => {
+    const signature = new Uint8Array(64);
+    for (const ts of [2 ** 53, 2 ** 53 + 2, 2 ** 60, Number.MAX_SAFE_INTEGER + 2]) {
+      expect(errorCodeOf(() => encodePopAuthorization({ credential: 'cred-1', ts, signature })), String(ts)).toBe(
+        'BAD_POP_HEADER',
+      );
+    }
+    const widest = encodePopAuthorization({ credential: 'cred-1', ts: Number.MAX_SAFE_INTEGER, signature });
+    expect(parsePopAuthorization(widest).ts).toBe(Number.MAX_SAFE_INTEGER);
+  });
+
   it('refuses a credential id longer than the file format can store', () => {
     const long = 'x'.repeat(65);
     expect(() => parsePopAuthorization(`Ashaveri-PoP credential=${long}, ts=1, sig=aa`)).toThrow(ReceiptError);
@@ -165,7 +193,22 @@ describe('PoP Authorization header', () => {
       message = err instanceof ReceiptError ? err.message : `not a ReceiptError: ${String(err)}`;
     }
     expect(message).toContain('the PoP Authorization header is not parseable');
-    expect(message.length).toBeLessThanOrEqual(300);
+    // The measured ceiling, not a round number: 45 characters of canned sentence, ': ', and a
+    // detail cut to MAX_DETAIL 200 plus '...'. The old 300 left 50 characters of slack.
+    expect(message.length).toBeLessThanOrEqual(250);
+
+    // That 250 is not slack: a header one character over it exists, and this is how. A control
+    // character is quoted into the detail as a six-character `\uXXXX` escape by `asOneLine`, which
+    // runs after the bound, so 29 of them give 45 + 2 + 11 + 29 * 6 + 19 = 251 characters. A
+    // bound this side of that is a bound on the quoted text, not on the escaped one.
+    const oneOver = `Ashaveri-PoP ${'\u0001'.repeat(29)}, ts=1, sig=aa`;
+    let overMessage = 'nothing was refused';
+    try {
+      parsePopAuthorization(oneOver);
+    } catch (err) {
+      overMessage = err instanceof ReceiptError ? err.message : 'not a ReceiptError';
+    }
+    expect(overMessage.length).toBeGreaterThan(250);
   });
 });
 

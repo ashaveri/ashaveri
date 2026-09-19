@@ -29,7 +29,17 @@ export function toBase64Url(bytes: Uint8Array): string {
     if (third === undefined) break;
     chars.push(ALPHABET.charCodeAt(third & 0b111111));
   }
-  return String.fromCharCode(...chars);
+  // Spread into `String.fromCharCode` takes one argument per character and a call frame cannot
+  // hold an unbounded number of them: on this host (Node 24 / V8) the bare call answers at
+  // 124,757 arguments and raises RangeError at 124,758, which is about 91 KB of input, and the
+  // cliff sits lower the deeper the caller's stack already is. This helper is exported, so the
+  // bound is not ours to assume about a caller. Chunk instead, well inside any stack: 8,192
+  // characters is 6,144 bytes per call.
+  let out = '';
+  for (let start = 0; start < chars.length; start += 8192) {
+    out += String.fromCharCode(...chars.slice(start, start + 8192));
+  }
+  return out;
 }
 
 /**

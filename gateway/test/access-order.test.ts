@@ -520,13 +520,18 @@ describe('the order admit runs the five checks in', () => {
 
   it('refuses an Authorization header it cannot read before it looks a credential up', () => {
     // No `=` and no space in this alphabet, so no text drawn from it can carry a `name=value`
-    // parameter or the `Bearer ` prefix: whatever the store answers, it answered at the door, and the
-    // two refusal codes are decided by the prefix alone.
+    // parameter or the `Bearer ` prefix: whatever the store answers, it answered at the door, and
+    // the two refusal codes are decided by the first token alone. A tab or a newline is a token
+    // separator here, so `Ashaveri-PoP` must be the whole of it: a longer token such as
+    // `Ashaveri-PoPzz` is somebody else's scheme, which is a scheme disagreement and not a
+    // malformed one. This is the codec's rule restated, not imported from it, so the property
+    // checks the gateway against an expectation a reader can audit by eye.
     const alphabet = fc.constantFrom(...[...'Ashaveri-PoPabcXYZ019-_/+.\t\n'].filter((char) => char !== ' '));
     const headerText = fc.array(alphabet, { maxLength: 40 }).map((chars) => chars.join(''));
     check(headerText, ['', ' ', '\t', 'Ashaveri-PoP', 'Ashaveri-PoPzz', 'Basic abc', 'bearer abc'], (text) => {
       const trimmed = text.trim();
-      const expected = trimmed.length === 0 ? 'AUTH_MALFORMED' : trimmed.startsWith('Ashaveri-PoP') ? 'AUTH_MALFORMED' : 'AUTH_SCHEME';
+      const firstToken = trimmed.split(/\s+/u)[0];
+      const expected = trimmed.length === 0 ? 'AUTH_MALFORMED' : firstToken === 'Ashaveri-PoP' ? 'AUTH_MALFORMED' : 'AUTH_SCHEME';
       const store = new CredentialStore({
         file: {
           version: 1,

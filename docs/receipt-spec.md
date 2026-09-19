@@ -144,7 +144,11 @@ either direction, is refused, and 120 seconds is what a deployment that sets not
 this deployment the nonce is not something the gateway invents. A proof-of-possession request whose
 `x-ashaveri-nonce` header is absent, or is not unpadded base64url for sixteen bytes, is refused with
 `AUTH_NONCE_MISSING`, and the bytes in that header must be the same sixteen that went into
-component 3, because the signature covers them.
+component 3, because the signature covers them. The published proof-of-possession vectors in
+`packages/fixtures/data/pop-v1.json` all carry one fixed `ts` chosen for reproducibility rather than
+plausibility, which sits outside the 120-second window above, so a verifier that applies the
+freshness rule refuses those authorizations on the timestamp alone even though each signature
+verifies over the published signing string.
 
 A deployment that runs in bearer mode admits the same completion without a signed header. There the
 client MAY omit `x-ashaveri-nonce`, and a gateway that does not receive it generates its own nonce;
