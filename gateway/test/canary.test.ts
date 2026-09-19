@@ -38,12 +38,18 @@ const SORTED_FIELDS = [...ACCESS_RECORD_FIELDS].sort();
  * wall clock and a frozen stamp would be refused as months stale before the signature was read. A
  * request carrying a body also names its media type, because Fastify picks the parser from that
  * header before the pipeline runs and would answer 415 to a signature it never got to read.
+ *
+ * The id and the key default to the fixture credential; passing them is for a header naming a
+ * record this store has never carried, which is the one admission a test can invent without holding
+ * anything.
  */
 function popHeaders(
   method: string,
   target: string,
   body: string | null,
   nonce: Uint8Array,
+  id: string = KEY.record.id,
+  key: Uint8Array = KEY.privateKey,
 ): Record<string, string> {
   const fields: PopFields = {
     ts: Math.floor(Date.now() / 1000),
@@ -54,7 +60,7 @@ function popHeaders(
   };
   return {
     ...(body === null ? {} : { 'content-type': 'application/json' }),
-    authorization: signPopAuthorization(fields, KEY.record.id, KEY.privateKey),
+    authorization: signPopAuthorization(fields, id, key),
     'x-ashaveri-nonce': toBase64Url(nonce),
   };
 }
@@ -171,5 +177,39 @@ describe('what the access log never writes', () => {
     expect(text).not.toContain(reportData);
     expect(text).not.toContain('report_data');
     expect(parseAccessLine(lines(text).at(-1) as string).p).toBe('/v1/attestation');
+  });
+});
+
+/**
+ * The other side of these bytes: the file an erasure is asked to clean has to hold the lines it
+ * means to find. `packages/cli/test/accesslog.test.ts` pins the half where the erasure route reads
+ * such a line back and removes it.
+ */
+describe('what a refusal leaves in the file an erasure reads', () => {
+  it('names a collapsed refusal credential on the volume, so an erasure has a line to reach', async () => {
+    // The promise this guards is that erasing a credential erases the lines naming it whether or not
+    // that credential was ever admitted, and it is worth nothing if the refused name never reaches
+    // disk. So this is the real handler and the real writer, read back off the volume: a literal
+    // record handed to the writer would prove the writer and leave the refusal untested. A collapsed
+    // answer that stopped naming the credential it turned away, or a record that lost the name on
+    // its way to the line, is what this would let through.
+    const invented = 'canary-never-issued';
+    const before = lines(await written()).length;
+    const refused = await app.inject({
+      method: 'GET',
+      url: '/v1/deployment-manifest',
+      headers: popHeaders('GET', '/v1/deployment-manifest', null, nonceFilled(0x44), invented, generated(invented, []).privateKey),
+    });
+    expect(refused.statusCode).toBe(401);
+    expect((JSON.parse(refused.body) as { error?: { code?: string } }).error?.code).toBe('AUTH_SIGNATURE');
+    const after = lines(await written());
+    expect(after).toHaveLength(before + 1);
+    expect(parseAccessLine(after.at(-1) as string)).toMatchObject({
+      cred: invented,
+      auth: null,
+      scope: null,
+      st: 401,
+      deny: 'AUTH_UNKNOWN',
+    });
   });
 });
