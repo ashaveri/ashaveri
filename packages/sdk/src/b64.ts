@@ -22,3 +22,19 @@ export function fromBase64Url(value: string): Uint8Array {
 export function toHex(bytes: Uint8Array): string {
   return Array.from(bytes, (b) => b.toString(16).padStart(2, '0')).join('');
 }
+
+// Whole pairs or nothing: `Buffer.from(value, 'hex')` stops at the first nibble it cannot read and
+// returns the bytes before it, so a 66-character secret with a corrupt tail would decode to the
+// same 32-byte key as its first 64 characters.
+const HEX_PAIRS = /^(?:[\da-fA-F]{2})*$/u;
+
+export function fromHex(value: string): Uint8Array {
+  if (!HEX_PAIRS.test(value)) {
+    throw new Error('invalid hex: expected an even number of hex digits');
+  }
+  const out = new Uint8Array(value.length / 2);
+  for (let i = 0; i < out.length; i++) {
+    out[i] = Number.parseInt(value.slice(i * 2, i * 2 + 2), 16);
+  }
+  return out;
+}

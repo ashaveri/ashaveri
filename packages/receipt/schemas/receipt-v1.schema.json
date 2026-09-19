@@ -41,11 +41,11 @@
           "allOf": [
             {
               "if": { "required": ["tee"], "properties": { "tee": { "const": "software" } } },
-              "then": { "properties": { "m": { "pattern": "^[0-9a-f]{64}$" } } }
+              "then": { "properties": { "m": { "type": "string", "pattern": "^[0-9a-f]{64}$" } } }
             },
             {
               "if": { "required": ["tee"], "properties": { "tee": { "enum": ["snp", "snp+gpucc", "tdx", "tdx+gpucc"] } } },
-              "then": { "properties": { "m": { "pattern": "^[0-9a-f]{96}$" } } }
+              "then": { "properties": { "m": { "type": "string", "pattern": "^[0-9a-f]{96}$" } } }
             }
           ]
         },

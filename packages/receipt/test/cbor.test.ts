@@ -31,7 +31,7 @@ const RFC8949_VECTORS: Array<{ name: string; value: unknown; hex: string }> = [
   { name: 'array of 25 elements', value: Array.from({ length: 25 }, (_, i) => i), hex: '9819000102030405060708090a0b0c0d0e0f10111213141516171818' },
   { name: 'empty map', value: new Map(), hex: 'a0' },
   { name: 'map {1:2,3:4}', value: new Map([[1, 2], [3, 4]]), hex: 'a201020304' },
-  { name: 'map {"a":1,"b":[2,3]}', value: new Map([['a', 1], ['b', [2, 3]]]), hex: 'a26161016162820203' },
+  { name: 'map {"a":1,"b":[2,3]}', value: new Map<string, number | number[]>([['a', 1], ['b', [2, 3]]]), hex: 'a26161016162820203' },
   {
     name: 'map {"a":"A","b":"B","c":"C","d":"D","e":"E"}',
     value: new Map([['a', 'A'], ['b', 'B'], ['c', 'C'], ['d', 'D'], ['e', 'E']]),

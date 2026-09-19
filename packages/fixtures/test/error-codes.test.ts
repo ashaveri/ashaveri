@@ -19,6 +19,7 @@ const UNION_SOURCES: ReadonlyArray<readonly [union: string, file: string]> = [
   ['GuestErrorCode', '../../../gateway/src/guest.ts'],
   ['DstackErrorCode', '../../../gateway/src/dstack.ts'],
   ['StoreErrorCode', '../../../gateway/src/store.ts'],
+  ['AccessErrorCode', '../../../gateway/src/access.ts'],
 ];
 
 const DOC_PATH = '../../../docs/error-codes.md';
@@ -36,7 +37,8 @@ function declaredCodes(union: string, file: string): string[] {
   const rest = source.slice(start + marker.length);
   const end = rest.indexOf(';');
   if (end < 0) throw new Error(`${union} in ${file} has no terminating semicolon`);
-  return [...rest.slice(0, end).matchAll(/'([A-Z0-9_]+)'/g)].map((found) => found[1]);
+  // The pattern carries exactly one capture group, so group 1 is present in every match it yields.
+  return [...rest.slice(0, end).matchAll(/'([A-Z0-9_]+)'/g)].map((found) => found[1]!);
 }
 
 interface Row {
@@ -52,13 +54,16 @@ function documentedSections(markdown: string): Map<string, Row[]> {
     const heading = /^## `([A-Za-z]+ErrorCode)`$/u.exec(line);
     if (heading) {
       current = [];
-      sections.set(heading[1], current);
+      sections.set(heading[1]!, current);
       continue;
     }
     if (line.startsWith('## ')) current = undefined;
     if (!current || !line.startsWith('| `')) continue;
     const cells = line.split('|').map((cell) => cell.trim().replace(/`/gu, ''));
-    current.push({ code: cells[1], union: cells[2] });
+    const code = cells[1];
+    const union = cells[2];
+    if (code === undefined || union === undefined) throw new Error(`table row has fewer than two cells: ${line}`);
+    current.push({ code, union });
   }
   return sections;
 }

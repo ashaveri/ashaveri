@@ -63,11 +63,58 @@ const ERROR_MESSAGE: Record<AttestationErrorCode, string> = {
   POLICY_NOT_ALLOWED: 'SEV-SNP report policy violates the verification profile',
 };
 
+/**
+ * Some of the messages this class carries quote a name the document chose: `decode.ts` folds a
+ * decoded msgpack key into the context of whatever follows it, and a key is only checked to be
+ * valid UTF-8, which a newline is. A refusal that carries one is two lines to anything that reads
+ * a log by lines, and the second line is written by whoever sent the document.
+ *
+ * The set is the one the CLI escapes before printing (`packages/cli/src/usage.ts`): the control
+ * characters, which include both line feeds and the C1 next-line, the format characters, which
+ * include the bidi overrides that make a credential id read as something other than what it is,
+ * and the two Unicode separators. Restated here rather than imported because the packages share
+ * no module, and because the promise belongs to whoever builds the message: an `AttestationError`
+ * is one line of visible text, whoever raised it.
+ */
+const INVISIBLE = /[\p{Cc}\p{Cf}\u{2028}\u{2029}\u{e0000}-\u{e007f}]/gu;
+
+function asOneLine(message: string): string {
+  return message.replace(INVISIBLE, (char) => {
+    // One escape per UTF-16 unit, walked by index, so a surrogate pair leaves no half behind.
+    const units: string[] = [];
+    for (let index = 0; index < char.length; index += 1) {
+      units.push(`\\u${char.charCodeAt(index).toString(16).padStart(4, '0')}`);
+    }
+    return units.join('');
+  });
+}
+
+/**
+ * A detail quotes what the raise site was looking at, and the sites that decode a document quote
+ * names chosen by whoever sent it, so this bounds the quoted part before it is escaped: a refusal
+ * stays a readable sentence instead of becoming a copy of the document on its way into a log line
+ * and a reply body. The order matters, and it is the order `ReceiptError` uses: the bound runs
+ * first, on the raw text, so what it limits is what the caller sent rather than how long the
+ * escapes got, and a detail of this many raw characters still comes out six times wider when every
+ * one of them is a control character spelled as an escape.
+ *
+ * The number is not `ReceiptError`'s 200, because a sentence here can be legitimately longer than a
+ * header parameter: a pin refusal names both the measurement the evidence carries and the one the
+ * operator pinned, 96 hexadecimal characters each, and at 200 the cut lands in the middle of the
+ * pair, taking the second value, which is the one an operator has to read off the reply to fix the
+ * pin. 512 is headroom over that sentence, not a measured ceiling on this package's vocabulary.
+ */
+const MAX_DETAIL = 512;
+
+function bounded(detail: string): string {
+  return detail.length > MAX_DETAIL ? `${detail.slice(0, MAX_DETAIL)}...` : detail;
+}
+
 export class AttestationError extends Error {
   readonly code: AttestationErrorCode;
 
   constructor(code: AttestationErrorCode, detail?: string) {
-    super(detail ? `${ERROR_MESSAGE[code]}: ${detail}` : ERROR_MESSAGE[code]);
+    super(asOneLine(detail ? `${ERROR_MESSAGE[code]}: ${bounded(detail)}` : ERROR_MESSAGE[code]));
     this.name = 'AttestationError';
     this.code = code;
   }

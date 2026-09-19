@@ -59,10 +59,13 @@ export class ScaleReader {
         ((this.bytes[this.pos + 2] as number) << 16) |
         ((this.bytes[this.pos + 3] as number) * 0x1000000);
       this.pos += 4;
-      if (v > MAX_ATTESTATION_BYTES) {
-        throw new AttestationError('MALFORMED_ATTESTATION', `${context} length ${v} exceeds size limit`);
+      // The two low bits are the mode, so the length is the remaining 30: reading this field
+      // without the shift hands back about four times the bytes the document promised.
+      const len = v >>> 2;
+      if (len > MAX_ATTESTATION_BYTES) {
+        throw new AttestationError('MALFORMED_ATTESTATION', `${context} length ${len} exceeds size limit`);
       }
-      return v;
+      return len;
     }
     throw new AttestationError('MALFORMED_ATTESTATION', `${context} uses big-integer compact encoding`);
   }
@@ -81,8 +84,11 @@ export class ScaleReader {
 
   readString(context: string): string {
     const bytes = this.readVec(context);
-    const text = new TextDecoder('utf-8', { fatal: true }).decode(bytes);
-    return text;
+    try {
+      return new TextDecoder('utf-8', { fatal: true }).decode(bytes);
+    } catch {
+      throw new AttestationError('MALFORMED_ATTESTATION', `${context} is not valid UTF-8 at offset ${this.pos - bytes.length}`);
+    }
   }
 
   readVecItems<T>(readItem: (context: string) => T, context: string): T[] {

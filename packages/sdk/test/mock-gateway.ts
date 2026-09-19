@@ -144,14 +144,31 @@ export function createFakeGateway(options: FakeGatewayOptions = {}): FakeGateway
     meas: { tee: 'software', m: toHex(hashRequest(utf8('fake-measurement'))) },
   };
 
-  const fetch: typeof fetch = async (input, init) => {
+  /**
+   * Whatever payload the caller handed the transport, as the text the receipt hashes. A `Request`
+   * carries its body as a stream rather than as a field of an init, so this is where the double can
+   * drain it; a payload in another shape stays unrecorded, as it always did.
+   */
+  const payloadOf = async (raw: RequestInit['body'] | undefined): Promise<string | undefined> => {
+    if (typeof raw === 'string') {
+      return raw;
+    }
+    if (raw instanceof ReadableStream) {
+      return new Response(raw).text();
+    }
+    return undefined;
+  };
+
+  const fetch: typeof globalThis.fetch = async (input, init) => {
+    const request = input instanceof Request ? input : undefined;
     const url = typeof input === 'string' ? input : input instanceof URL ? input.href : input.url;
-    const method = (init?.method ?? 'GET').toUpperCase();
-    const headers = new Headers(init?.headers);
+    const method = (init?.method ?? request?.method ?? 'GET').toUpperCase();
+    const headers = new Headers(init?.headers ?? request?.headers);
+    const body = await payloadOf(init?.body ?? request?.body);
     requests.push({
       url,
       method,
-      body: typeof init?.body === 'string' ? init.body : undefined,
+      body,
       headers: Object.fromEntries(headers.entries()),
       nonceHeader: headers.get('x-ashaveri-nonce') ?? undefined,
     });
@@ -194,8 +211,7 @@ export function createFakeGateway(options: FakeGatewayOptions = {}): FakeGateway
       if (options.completionStatus !== undefined) {
         return new Response('gateway exploded', { status: options.completionStatus });
       }
-      const body = init?.body;
-      if (typeof body !== 'string') {
+      if (body === undefined) {
         return new Response('body must be a string', { status: 400 });
       }
       const parsed = JSON.parse(body) as { model?: string; messages?: unknown[]; stream?: boolean };

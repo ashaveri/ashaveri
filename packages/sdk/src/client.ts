@@ -1,4 +1,5 @@
 import { hashRequest, randomNonce, type VerifiedReceipt } from '@ashaveri/receipt';
+import { authorizedFetch, type AshaveriCredential } from './auth.js';
 import { toBase64Url } from './b64.js';
 import { GatewaySession, type VerifiedCompletion } from './gateway.js';
 import { SdkError } from './errors.js';
@@ -20,6 +21,11 @@ export interface AshaveriClientOptions {
   readonly verify?: VerifyMode;
   readonly policy?: AshaveriPolicy;
   readonly fetch?: typeof fetch;
+  /**
+   * Proof-of-possession or bearer credential. Every route a signerd gateway serves refuses a request
+   * that names no credential, so omitting this only works against a server that asks for nothing.
+   */
+  readonly credential?: AshaveriCredential;
   /** Wall clock in milliseconds since the epoch; defaults to Date.now. */
   readonly now?: () => number;
 }
@@ -160,9 +166,10 @@ export class AshaveriClient {
     if (this.mode === 'strict' && options.policy === undefined) {
       throw new SdkError('NO_POLICY', "verify: 'strict' requires a policy pinning keys and measurements");
     }
-    this.fetchImpl = options.fetch ?? globalThis.fetch;
-    this.session = new GatewaySession(baseUrl, { fetchImpl: this.fetchImpl, policy: options.policy });
     this.now = options.now;
+    const transport = options.fetch ?? globalThis.fetch;
+    this.fetchImpl = authorizedFetch(options.credential, transport, { now: this.now });
+    this.session = new GatewaySession(baseUrl, { fetchImpl: this.fetchImpl, policy: options.policy });
     this.chat = {
       completions: {
         create: (params) => this.create(params),
@@ -172,9 +179,12 @@ export class AshaveriClient {
   }
 
   private async post(body: string, nonce: Uint8Array | null): Promise<Response> {
-    // Off mode sends no nonce. The header only earns its keep when the client is
-    // going to check that the receipt echoes it, so asking for one there would be
-    // a per-request client identifier with nothing on the other side of the trade.
+    // In off mode this client asks for no verification and adds no nonce header of its own here.
+    // That is not a claim about the wire. A proof-of-possession request is signed by
+    // authorizedFetch (see auth.ts) and the signature covers a nonce, so that wrapper takes the
+    // nonce from this method when it sent one and mints a fresh one when it did not. What off
+    // declines is the client's own nonce and the receipt check, not the header a signed request
+    // has to carry.
     const headers: Record<string, string> = { 'content-type': 'application/json' };
     if (nonce !== null) {
       headers['x-ashaveri-nonce'] = toBase64Url(nonce);

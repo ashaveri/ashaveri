@@ -1,5 +1,5 @@
 export { buildGateway } from './server.js';
-export type { GatewayOptions, ManifestJson } from './server.js';
+export type { GatewayInstance, GatewayOptions, ManifestJson } from './server.js';
 export { mockBackend } from './backend.js';
 export type { BackendResponse, CompletionBackend, CompletionUsage } from './backend.js';
 export { mockDeployment, mockWeights } from './deployment.js';
@@ -41,3 +41,56 @@ export type {
   StoredReceipt,
   TrimEvent,
 } from './store.js';
+// The credential file's shape and the admission decision are exported for the same reason the
+// store's is: the tooling that writes a credential and the code that checks one are compiled
+// separately, and a second copy of these shapes could drift from the parser and the pipeline that
+// refuse them without a compile error anywhere.
+export {
+  accessStatus,
+  AccessError,
+  CredentialStore,
+  CREDENTIALS_FILE_VERSION,
+  DEFAULT_RATE,
+  loadCredentialFile,
+  MAX_CREDENTIALS,
+  newBearerCredential,
+  newPopCredential,
+  parseCredentialFile,
+  ReplaySet,
+  REPLAY_WINDOW_SECONDS,
+  ROUTE_SCOPES,
+  routeScope,
+  scopeSatisfied,
+  serializeCredentialFile,
+  TokenBucket,
+  type AccessErrorCode,
+  type Admission,
+  type AdmissionInput,
+  type CredentialFile,
+  type CredentialRate,
+  type CredentialRecord,
+  type CredentialStoreOptions,
+  type RouteScope,
+  type Scope,
+} from './access.js';
+// The scrub tooling rewrites these files from a separate program, so the renderer, the parser and
+// the field allowlist they are checked against are part of the entry point rather than private to
+// the writer that appends them. So are the two name patterns: the CLI names a marker and opens parts
+// it cannot import anything from here to match, and a rule that lives in two packages is worth one
+// test that reads both copies from the same place.
+export {
+  ACCESS_PART_NAME,
+  ACCESS_RECORD_FIELDS,
+  MAX_ACCESS_FILE_BYTES,
+  MINIMUM_RETENTION_DAYS,
+  RETENTION_SWEEP_NAME,
+  openFileAccessLog,
+  openMemoryAccessLog,
+  parseAccessLine,
+  renderAccessLine,
+  type AccessLog,
+  type AccessLogOptions,
+  type AccessRecord,
+  type AccessWindow,
+  type MemoryAccessLog,
+} from './aclog.js';

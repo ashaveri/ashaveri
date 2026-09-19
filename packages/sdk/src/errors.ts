@@ -21,7 +21,9 @@ export type SdkErrorCode =
   | 'EVIDENCE_REPORT_DATA_MISMATCH'
   | 'EVIDENCE_TEE_MISMATCH'
   | 'EVIDENCE_GPU_MISSING'
-  | 'EVIDENCE_MEASUREMENT_MISMATCH';
+  | 'EVIDENCE_MEASUREMENT_MISMATCH'
+  // A credential the client cannot use, refused before anything went on the wire.
+  | 'AUTH_CONFIG';
 
 export class SdkError extends Error {
   readonly code: SdkErrorCode;

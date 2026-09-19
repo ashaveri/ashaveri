@@ -21,9 +21,18 @@ const CHALLENGE = new Uint8Array([
   0xe6, 0xcd, 0x24, 0x15, 0xc2, 0xf9, 0x2c, 0xf4, 0x89, 0x4f, 0xd6, 0x17, 0xd8, 0xdd, 0xd7, 0xe6,
 ]);
 
+/** One byte of a buffer. A missing byte means these are not the bytes this file describes. */
+function byteAt(bytes: Uint8Array, offset: number): number {
+  const byte = bytes[offset];
+  if (byte === undefined) {
+    throw new Error(`no byte at offset ${offset} of a ${bytes.length}-byte buffer`);
+  }
+  return byte;
+}
+
 /** Where the 32-byte nonce sits: past the 37-byte request and the measurement record. */
 function nonceOffset(bytes: Uint8Array): number {
-  const recordLength = bytes[42] + (bytes[43] << 8) + (bytes[44] << 16);
+  const recordLength = byteAt(bytes, 42) + (byteAt(bytes, 43) << 8) + (byteAt(bytes, 44) << 16);
   return 37 + 8 + recordLength;
 }
 
@@ -44,7 +53,7 @@ describe('NVIDIA GPU evidence', () => {
 
   it('rejects a report that answers a different challenge', () => {
     const other = Uint8Array.from(CHALLENGE);
-    other[31] ^= 0x01;
+    other[31] = byteAt(other, 31) ^ 0x01;
     expectErrorCode(
       () => verifyNvidiaRats({ report, certChain }, { now, trustedRoots: [deviceRoot], expectedNonce: other }),
       'CHALLENGE_MISMATCH',
@@ -77,7 +86,7 @@ describe('NVIDIA GPU evidence', () => {
   it('cannot be handed a substituted nonce without breaking the signature', () => {
     const tampered = Uint8Array.from(report);
     const offset = nonceOffset(tampered);
-    tampered[offset] ^= 0x01;
+    tampered[offset] = byteAt(tampered, offset) ^ 0x01;
     expect(offset + 32).toBeLessThan(tampered.length);
     expectErrorCode(
       () => verifyNvidiaRats({ report: tampered, certChain }, { now, trustedRoots: [deviceRoot] }),

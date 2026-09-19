@@ -48,6 +48,10 @@ services:
       # README.md section 3 is the check to run before making it.
       - --tee
       - ${ASHAVERI_TEE:-tdx}
+      - --credentials-path
+      - /etc/ashaveri/credentials.json
+      - --access-log-path
+      - /var/lib/ashaveri/access-log
     ports:
       - "8081:8081"
     environment:
@@ -56,18 +60,26 @@ services:
     volumes:
       - /var/run/dstack.sock:/var/run/dstack.sock
       - ./release:/run/ashaveri:ro
+      # The credential file gets its own mount, outside ./release, because the entrypoint hashes
+      # everything under ASHAVERI_WEIGHTS_DIR: a file the manifest does not list makes
+      # `weights.mjs verify` exit 1 and the container never starts, and adding it to the manifest
+      # instead would put an operator-edited file inside the digest every receipt carries as `wts`,
+      # so a routine enrolment or rotation would move the model's attested identity.
+      - ./config:/etc/ashaveri:ro
+      - access-log:/var/lib/ashaveri/access-log
     depends_on:
       - inference
     restart: unless-stopped
     healthcheck:
-      # A cheap always-200 GET. Nothing is served before startup completes anyway: the CLI
-      # resolves the guest key and the first quote before it listens. signerd has no
-      # /v1/models route.
+      # Every route needs a credential now, so a probe looking for a 200 would have to carry one, and a
+      # probe that can authenticate is a probe that can be mistaken for a client. Whether the listener
+      # accepts a connection is the fact this probe owns; who may use it is decided on every real
+      # request, by the pipeline.
       test:
         - CMD
         - node
         - -e
-        - "fetch('http://127.0.0.1:8081/v1/deployment-manifest').then((r) => process.exit(r.ok ? 0 : 1), () => process.exit(1))"
+        - "const net=require('node:net');const s=net.connect(8081,'127.0.0.1');s.on('connect',()=>{s.end();process.exit(0)});s.on('error',()=>process.exit(1));setTimeout(()=>process.exit(1),4000)"
       interval: 30s
       timeout: 5s
       retries: 3
@@ -77,3 +89,10 @@ services:
       options:
         max-size: "100m"
         max-file: "3"
+
+volumes:
+  # The access log lives here because it is the one artifact the gateway writes and cannot
+  # reconstruct. A named volume still dies with the VM, so the window this container reports is the
+  # window of this boot rather than of the deployment, and the start-up line is what says so.
+  # README.md section 3 is the check that decides whether that is enough here.
+  access-log:

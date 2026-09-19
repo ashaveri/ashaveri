@@ -2,6 +2,22 @@ import { AttestationError } from './errors.js';
 
 const MAX_ATTESTATION_BYTES = 10 * 1024 * 1024;
 
+/**
+ * The bytes of a string are the one part of an envelope no caller produces: they are whatever the
+ * machine that wrote it put there, so an invalid sequence is attacker-chosen input like a bad marker
+ * is. `TextDecoder` reports one by throwing a bare `TypeError`, which is not a code any consumer of
+ * this package can name, so it is answered the same way `readStr` answers a wrong marker. The
+ * offset is the first byte of the field rather than the offending sequence, because a decoder that
+ * rejects an encoding does not say where inside the bytes it gave up on.
+ */
+function decodeUtf8(bytes: Uint8Array, offset: number, context: string): string {
+  try {
+    return new TextDecoder('utf-8', { fatal: true }).decode(bytes);
+  } catch {
+    throw new AttestationError('MALFORMED_ATTESTATION', `${context} is not valid UTF-8 at offset ${offset}`);
+  }
+}
+
 export class MsgpackReader {
   private pos = 0;
 
@@ -81,9 +97,10 @@ export class MsgpackReader {
     else if (marker === 0xdb) len = this.readSize(4, context);
     else throw new AttestationError('MALFORMED_ATTESTATION', `${context} is not a msgpack string`);
     this.require(len, context);
-    const bytes = this.bytes.slice(this.pos, this.pos + len);
+    const start = this.pos;
+    const bytes = this.bytes.slice(start, start + len);
     this.pos += len;
-    return new TextDecoder('utf-8', { fatal: true }).decode(bytes);
+    return decodeUtf8(bytes, start, context);
   }
 
   readNil(context: string): null {
@@ -128,9 +145,10 @@ export class MsgpackReader {
               ? this.readSize(2, context)
               : this.readSize(4, context);
       this.require(len, context);
-      const bytes = this.bytes.slice(this.pos, this.pos + len);
+      const start = this.pos;
+      const bytes = this.bytes.slice(start, start + len);
       this.pos += len;
-      return new TextDecoder('utf-8', { fatal: true }).decode(bytes);
+      return decodeUtf8(bytes, start, context);
     }
     if (marker === 0xc4 || marker === 0xc5 || marker === 0xc6) {
       const len = marker === 0xc4 ? this.readByte(context) : marker === 0xc5 ? this.readSize(2, context) : this.readSize(4, context);

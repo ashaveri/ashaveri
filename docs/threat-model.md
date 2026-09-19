@@ -1,7 +1,8 @@
 # Ashaveri Threat Model
 
 Status: Draft. This is the working threat model for the receipt protocol specified in
-[receipt-spec.md](receipt-spec.md). It describes the threats the current implementation
+[receipt-spec.md](receipt-spec.md) and for the gateway access floor specified in
+[access-control.md](access-control.md). It describes the threats the current implementation
 addresses, and, just as importantly, the ones it does not.
 
 ## 1. Scope
@@ -12,8 +13,11 @@ deployment, under a specific key, with a specific claim about model, weights, me
 and token metering.
 
 What receipts do not protect: confidentiality of prompts or responses, availability, or the
-truthfulness of a gateway's claims about hardware it does not actually run on. Section 6 is
-explicit about the current gaps.
+truthfulness of a gateway's claims about hardware it does not actually run on. Nor do they decide
+who may ask: every route this gateway serves sits behind the admission pipeline in
+[access-control.md](access-control.md), which holds no prompt and no response bytes, and every
+request that reaches it, admitted or refused, writes one line to an access log the deployer holds on
+a retention window of its own. Section 6 is explicit about the current gaps on both sides.
 
 ## 2. Assets
 
@@ -64,6 +68,9 @@ explicit about the current gaps.
 | T11 | Side channels on prompt content via receipts | Receipts contain hashes and counts only, never content | Hashes reveal content length implicitly (already visible in the response) |
 | T12 | Strict mode: gateway serves evidence from other work, another instance, or one not matching the receipt | The client recomputes the expected report data from its own nonce and request bytes, requires `sha256(document) == att.d`, requires the quote's platform to agree with the receipt's `tee` (a `software` receipt is refused before the fetch), and requires the measured launch digest to equal `meas.m` | Collateral freshness. The signature chain is checked against a pinned vendor root, but TCB Info, the QE identity and the CRL are not consulted, so a since-revoked platform still verifies |
 | T13 | Strict mode: a receipt bearing a composite `tee` claims a confidential GPU the deployment does not have, or quotes a device report captured for someone else | The label is only ever an operator's request, and the gateway will not start under it unless one of its accelerators signs that deployment's standing challenge. The platform's agent collects that report today; the settled direction is for the vendor's own tool to run inside the deployment's container instead, which emits the same bundle format, so the client's checks stay checks on the bytes rather than on who collected them. Strict mode then fetches the device document for the client's own challenge and requires a report whose signature chains to a pinned NVIDIA device root and whose signed challenge matches | Residual trust in one label choice: the operator picks the composite and the gateway confirms only that its platform quote and a device report answer the same challenge. See section 6 |
+| T14 | A bearer credential is stolen, and someone else presents it | `--allow-bearer` is off by default, and it is deployment-wide rather than per credential, so a process is bearer-capable or it is not and one convenience fallback cannot be introduced for a single record. A bearer secret is held only as its SHA-256 and every stored digest is compared in a loop that does not exit early on the first differing byte, so a wrong secret reveals nothing about which one was close. Each record a bearer secret admitted writes `auth=bearer` on its own line, so the log says which posture produced it rather than the widest thing the process tolerates | The start-up banner states this and this document does not soften it: a stolen bearer credential is undetectable, and a log record cannot tell its holder from a thief. The secret is the whole credential, it does not expire on its own, and it authorizes any request its scopes allow from any address. A bearer path also has no replay step at all, because it has no signed nonce to check |
+| T15 | Refusals used as an oracle to enumerate which credential ids a deployment has issued, or which paths it has scoped | On the bearer path the answers are collapsed deliberately: a secret matching no stored digest and a revoked record both end as `AUTH_UNKNOWN`, because the digest scan passes over a revoked record as though it had never existed, and a distinct answer would tell a prober which ids the file holds and which were once live. An unlisted target is read off the route table first but answered only at the scope check, so a caller who has named no credential is refused for the credential it omitted (`AUTH_MALFORMED`, `AUTH_SCHEME`, `AUTH_UNKNOWN`) and learns nothing about the path, whether or not the server registered it. Rate limiting cannot be turned into an oracle either: the bucket is taken at the last check, after scope, so an id the file does not hold is refused before any budget is consulted | The collapse is bearer-only. A named `pop` id that resolves to a record is disclosed by whichever check follows it: `AUTH_SCHEME` when the record is a bearer one, `AUTH_REVOKED` when it was retired, `AUTH_SIGNATURE` or `AUTH_STALE` when it is live, against `AUTH_UNKNOWN` when the file never carried it. Credential ids are the operator's own names rather than random handles, so this distinguishes real from invented ids to anyone who can spell a header. After a credential is named, a `SCOPE_DENIED` refusal says in its message whether the table has no row for the target or the credential lacks the row's scope, so paths are enumerable from inside. Nothing here observes timing, and the digest scan's cost grows with the size of the credential file rather than with how close a guess was |
+| T16 | A receipt id reaches someone it was not issued to, in a log line, a proxy access record, or a pasted URL, and that holder reads whose credential minted it, or walks the deployment's other receipts | This gateway mints every id itself: sixteen hex tag characters then thirty-two hex characters from a fresh draw, replacing the upstream-chosen id a counter or a timestamp could have made walkable. The tag is `HMAC-SHA256(namespaceKey, credentialId)` truncated to eight bytes, and the namespace key is an HKDF over the deployment's own Ed25519 signing seed, so a holder of an id cannot reverse the tag into a credential id and cannot compute the tag for one: neither is possible without the seed. The fetch route then asks whether the presenting credential's own tag heads the id and serves nothing when it does not, which is why no ownership state is kept that could drift out of step with the receipts it governs | Linkability, not identification, plus the operator's own reach, which is the reading [access-control.md](access-control.md) section 8.3 gives. Two ids carrying one tag came from one credential, so anyone who sees both knows they belong together; and the deployment holding the seed can compute each credential's tag and so name the credential behind any id shown to it. An erasure does not close either: the tag is not a log field, it is a prefix of the id, and the receipt chain is append-only, so scrubbing a credential's lines leaves every id it ever read in place. See section 6 |
 
 ## 6. Current limitations, stated plainly
 
@@ -140,6 +147,17 @@ What is still true, in both modes:
   its `meas` and `att` fields are digests of fixed strings, and its evidence URL uses the
   `mock://` scheme. It reports `tee: "software"`, the member of the enum that claims no
   hardware protection, so no field of a mock receipt reads as a TEE assertion.
+- **The access floor attributes requests, it does not conceal them.** Admission runs before any
+  route answers, including a target the server never registered, so an unmatched path is refused for
+  the credential its caller omitted rather than as a 404 ([access-control.md](access-control.md)
+  section 2). What that decision costs is one line of twelve allowlisted fields per request, admitted
+  or refused, and the field list is the whole record: no body, header, secret, key, query string,
+  source address or user agent has anywhere to be written. The line is the deployer's artifact, kept
+  for `--access-log-days` (184 by default, and a shorter value starts with a note rather than a
+  refusal), and `ashaveri accesslog scrub --credential <id>` empties one credential's lines and
+  files a marker saying it ran. Two things sit outside that erasure, and they are the residuals of
+  T15 and T16: a `pop` credential id is distinguishable from an invented one by which refusal follows
+  it, and a receipt id's tag is legible to whoever holds the signing seed, log or no log.
 - **Receipt retention is a deployment choice, not a protocol guarantee.** A signerd started with
   `--receipts-dir` appends each receipt to a hash-chained file on that volume and keeps it for 184
   days, or until 10,000 later receipts push it out as a bound on the volume, whichever comes

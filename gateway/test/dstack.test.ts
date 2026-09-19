@@ -3,14 +3,15 @@ import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import type { FastifyInstance } from 'fastify';
+import type { HTTPMethods } from 'fastify';
 import { afterAll, afterEach, describe, expect, it } from 'vitest';
 import { decodeAttestation, parseSnpReport, readNvidiaChallenge, type PlatformEvidence } from '@ashaveri/attest-core';
 import { hashRequest, keyId, ReceiptError, toHex, verifyReceipt } from '@ashaveri/receipt';
 import { dstackDeployment, DstackError, nvidiaDeviceReports } from '../src/dstack.js';
 import { sha256 } from '../src/digest.js';
-import { buildGateway } from '../src/server.js';
-import { fromBase64Url, toBase64Url } from '../src/b64.js';
+import type { Deployment } from '../src/deployment.js';
+import { fromBase64Url } from '../src/b64.js';
+import { generated, harness, type Harness } from './helpers.js';
 import { GuestError, type GpuEvidenceBundle, type GuestApi, type GuestKey } from '../src/guest.js';
 
 /**
@@ -193,13 +194,40 @@ async function expectCode(fn: () => unknown, code: DstackError['code'] | Receipt
   throw new Error(`expected ${code}, but the call succeeded`);
 }
 
-const apps: FastifyInstance[] = [];
+const apps: Harness[] = [];
+
+const CREDENTIAL = 'dstack';
 
 afterEach(async () => {
-  for (const app of apps.splice(0)) {
-    await app.close();
+  for (const each of apps.splice(0)) {
+    await each.app.close();
   }
 });
+
+/** Every gateway this file serves comes with the credential its routes admit. */
+async function gatewayFor(deployment: Deployment): Promise<Harness> {
+  const h = await harness({ credentials: [generated(CREDENTIAL, ['read', 'complete'])], gateway: { deployment } });
+  apps.push(h);
+  return h;
+}
+
+/**
+ * The floor signs the target it is asked about, query string included, so a caller hands `send` the
+ * same string it expects the route to see.
+ */
+async function send(h: Harness, method: HTTPMethods, target: string, body: string | null, nonce?: Uint8Array) {
+  return await h.app.inject({
+    // A literal method pins inject's awaitable Response overload; the HTTPMethods union selects
+    // the chainable form, whose awaited value carries no statusCode or rawPayload.
+    method: method as 'GET',
+    url: target,
+    headers: {
+      ...(body === null ? {} : { 'content-type': 'application/json' }),
+      ...h.signFor(CREDENTIAL, method, target, body, nonce === undefined ? undefined : { nonce }),
+    },
+    ...(body === null ? {} : { payload: body }),
+  });
+}
 
 describe('dstackDeployment key material', () => {
   it('signs with the key the guest derives, under the default path', async () => {
@@ -603,9 +631,7 @@ describe('device evidence over HTTP', () => {
       evidenceBaseUrl: 'https://inference.ashaveri.test/v1',
       tee: 'snp+gpucc',
     });
-    const app = buildGateway({ deployment });
-    apps.push(app);
-    return { app, guest };
+    return { app: await gatewayFor(deployment), guest };
   }
 
   /** Both legs of a receipt answer this one value: sha256 over the client nonce and the request. */
@@ -617,8 +643,8 @@ describe('device evidence over HTTP', () => {
     return sha256(bound);
   }
 
-  async function servedDeviceDocument(app: FastifyInstance, challenge: Uint8Array): Promise<Uint8Array> {
-    const response = await app.inject({ method: 'GET', url: `/v1/attestation/gpu?report_data=${toHex(challenge)}` });
+  async function servedDeviceDocument(h: Harness, challenge: Uint8Array): Promise<Uint8Array> {
+    const response = await send(h, 'GET', `/v1/attestation/gpu?report_data=${toHex(challenge)}`, null);
     expect(response.statusCode).toBe(200);
     expect(response.headers['content-type']).toContain('application/octet-stream');
     return new Uint8Array(response.rawPayload);
@@ -628,12 +654,7 @@ describe('device evidence over HTTP', () => {
     const { app, guest } = await compositeApp();
     const nonce = new Uint8Array(16).fill(0x3a);
     const body = '{"model":"tinyllama","messages":[{"role":"user","content":"hello"}]}';
-    const completion = await app.inject({
-      method: 'POST',
-      url: '/v1/chat/completions',
-      headers: { 'content-type': 'application/json', 'x-ashaveri-nonce': toBase64Url(nonce) },
-      payload: body,
-    });
+    const completion = await send(app, 'POST', '/v1/chat/completions', body, nonce);
     expect(completion.statusCode).toBe(200);
     const challenge = requestChallenge(nonce, body);
 
@@ -663,34 +684,32 @@ describe('device evidence over HTTP', () => {
       models: MODELS,
       evidenceBaseUrl: 'https://inference.ashaveri.test/v1',
     });
-    const app = buildGateway({ deployment });
-    apps.push(app);
-    const response = await app.inject({ method: 'GET', url: `/v1/attestation/gpu?report_data=${toHex(STANDING)}` });
+    const app = await gatewayFor(deployment);
+    const response = await send(app, 'GET', `/v1/attestation/gpu?report_data=${toHex(STANDING)}`, null);
     expect(response.statusCode).toBe(404);
   });
 
   it('refuses a device request whose report data is not one digest', async () => {
     const { app } = await compositeApp();
     for (const bad of ['', 'zz', toHex(STANDING).slice(1)]) {
-      const response = await app.inject({ method: 'GET', url: `/v1/attestation/gpu?report_data=${bad}` });
+      const response = await send(app, 'GET', `/v1/attestation/gpu?report_data=${bad}`, null);
       expect(response.statusCode).toBe(400);
     }
-    const missing = await app.inject({ method: 'GET', url: '/v1/attestation/gpu' });
+    const missing = await send(app, 'GET', '/v1/attestation/gpu', null);
     expect(missing.statusCode).toBe(400);
   });
 });
 
 describe('gateway on a live deployment', () => {
   it('publishes the hardware measurement in the manifest', async () => {
-    const app = buildGateway({
-      deployment: await dstackDeployment({
+    const app = await gatewayFor(
+      await dstackDeployment({
         client: snpGuest(),
         models: MODELS,
         evidenceBaseUrl: 'https://inference.ashaveri.test/v1',
       }),
-    });
-    apps.push(app);
-    const res = await app.inject({ method: 'GET', url: '/v1/deployment-manifest' });
+    );
+    const res = await send(app, 'GET', '/v1/deployment-manifest', null);
     const manifest = res.json() as { meas: { tee: string; m: string }; models: { id: string; wts: string }[] };
     expect(manifest.meas).toEqual({ tee: 'snp', m: toHex(MEASUREMENT) });
     expect(manifest.meas.m).toMatch(/^[0-9a-f]{96}$/);
@@ -704,22 +723,16 @@ describe('gateway on a live deployment', () => {
       models: MODELS,
       evidenceBaseUrl: 'https://inference.ashaveri.test/v1',
     });
-    const app = buildGateway({ deployment });
-    apps.push(app);
+    const app = await gatewayFor(deployment);
     const nonce = new Uint8Array(16).fill(0x42);
     const body = '{"model":"tinyllama","messages":[{"role":"user","content":"hello"}]}';
-    const completion = await app.inject({
-      method: 'POST',
-      url: '/v1/chat/completions',
-      headers: { 'content-type': 'application/json', 'x-ashaveri-nonce': toBase64Url(nonce) },
-      payload: body,
-    });
+    const completion = await send(app, 'POST', '/v1/chat/completions', body, nonce);
     expect(completion.statusCode).toBe(200);
     const receiptId = completion.headers['x-ashaveri-receipt-id'] as string;
-    const receipt = await app.inject({ method: 'GET', url: `/v1/receipts/${receiptId}` });
+    const receipt = await send(app, 'GET', `/v1/receipts/${receiptId}`, null);
     expect(receipt.statusCode).toBe(200);
 
-    const manifest = (await app.inject({ method: 'GET', url: '/v1/deployment-manifest' })).json() as {
+    const manifest = (await send(app, 'GET', '/v1/deployment-manifest', null)).json() as {
       keys: { publicKey: string }[];
     };
     const verified = verifyReceipt(new Uint8Array(receipt.rawPayload), {
@@ -733,7 +746,8 @@ describe('gateway on a live deployment', () => {
     expect(toHex(payload.res)).toBe(toHex(sha256(new Uint8Array(completion.rawPayload))));
     expect(toHex(payload.meas.m)).toBe(toHex(MEASUREMENT));
 
-    const served = await app.inject({ method: 'GET', url: new URL(payload.att.url).pathname + new URL(payload.att.url).search });
+    const evidence = new URL(payload.att.url);
+    const served = await send(app, 'GET', evidence.pathname + evidence.search, null);
     expect(served.statusCode).toBe(200);
     expect(served.headers['content-type']).toContain('application/octet-stream');
     expect(toHex(sha256(new Uint8Array(served.rawPayload)))).toBe(toHex(payload.att.d));
@@ -761,18 +775,17 @@ afterAll(() => {
 });
 
 async function servedEvidence(): Promise<Uint8Array> {
-  const app = buildGateway({
-    deployment: await dstackDeployment({
+  const app = await gatewayFor(
+    await dstackDeployment({
       client: snpGuest(),
       models: MODELS,
       evidenceBaseUrl: 'https://inference.ashaveri.test/v1',
     }),
-  });
-  apps.push(app);
+  );
   // The guest zero-pads the caller's 32-byte request on the right, so asking for the
   // first half of the fixture's own binding returns the bytes its signature covers.
   const binding = toHex(parseSnpReport(SNP_REPORT).reportData.subarray(0, 32));
-  const response = await app.inject({ method: 'GET', url: `/v1/attestation?report_data=${binding}` });
+  const response = await send(app, 'GET', `/v1/attestation?report_data=${binding}`, null);
   expect(response.statusCode).toBe(200);
   return new Uint8Array(response.rawPayload);
 }

@@ -40,10 +40,31 @@ interface CliResult {
   readonly stderr: string;
 }
 
+/**
+ * A V1 envelope the reader accepts as version 1 and then trips over: one unknown key whose value is
+ * msgpack's unused 0xc1 marker. The reader puts the key it was skipping into the error it raises,
+ * which is how the caller's own string gets into this command's sentence about it.
+ */
+function msgpackWithUnknownKey(key: string): Uint8Array {
+  const encoded = new TextEncoder().encode(key);
+  if (encoded.length > 31) {
+    throw new Error('the fixture is built on msgpack fixstr headers, which cap a key at 31 bytes');
+  }
+  const version = new TextEncoder().encode('version');
+  return new Uint8Array([0x82, 0xa0 | version.length, ...version, 0x01, 0xa0 | encoded.length, ...encoded, 0xc1]);
+}
+
+/** Lines as a reader that splits text on any terminator counts them, which is four characters, not one. */
+function countLines(text: string): number {
+  return text.split(/[\n\r\u2028\u2029]/u).filter((each) => each.length > 0).length;
+}
+
 function runCli(args: string[], input?: Uint8Array): CliResult {
   const result = spawnSync(process.execPath, [CLI, ...args], {
     input: input === undefined ? undefined : Buffer.from(input),
     encoding: 'utf8',
+    timeout: 8000,
+    killSignal: 'SIGKILL',
   });
   expect(result.error).toBeUndefined();
   return { status: result.status, stdout: result.stdout ?? '', stderr: result.stderr ?? '' };
@@ -239,12 +260,86 @@ describe('ashaveri verify', () => {
 
   it('rejects a tampered report signature with exit code 1', () => {
     const bytes = new Uint8Array(readFileSync(ATTESTATION));
-    bytes[4 + 0x2a0] ^= 0x01;
+    bytes[4 + 0x2a0] = (bytes[4 + 0x2a0] as number) ^ 0x01;
     const tampered = join(tempDir, 'tampered.bin');
     writeFileSync(tampered, bytes);
     const result = runCli(['verify', tampered, '--ark', ARK, '--ask', ASK, '--vcek', VCEK, '--now', NOW]);
     expect(result.status).toBe(1);
     expect(result.stderr).toContain('verification failed (BAD_SIGNATURE)');
+  });
+
+  it('keeps a string from the document out of the line it refuses on', () => {
+    // `verify` is the one command whose input is written by a stranger, and it writes its report
+    // straight to a stream instead of through the guard the other commands pass. The reader names the
+    // field it was skipping inside its error, so a document can put any text it likes into the
+    // sentence this program prints about it. The line separators are the case worth pinning: a
+    // newline in a JSON string is escaped by the serializer, and these two are not.
+    const hostile: Array<[string, string, string]> = [
+      ['line separator', 'attestation\u2028FORGED key', '\\u2028FORGED'],
+      ['paragraph separator', 'attestation\u2029FORGED key', '\\u2029FORGED'],
+      ['reordering mark', 'attestation\u202eFORGED key', '\\u202eFORGED'],
+      ['newline', 'attestation\nFORGED key', '\\u000aFORGED'],
+    ];
+    for (const [name, key, escape] of hostile) {
+      const file = join(tempDir, `hostile-${name.replace(/ /gu, '-')}.bin`);
+      writeFileSync(file, msgpackWithUnknownKey(key));
+
+      const human = runCli(['verify', file, '--now', NOW]);
+      expect(human.status, name).toBe(1);
+      expect(human.stderr, name).toContain(escape);
+      expect(human.stderr, name).not.toMatch(/^FORGED/mu);
+      expect(countLines(human.stderr), name).toBe(1);
+
+      const machine = runCli(['verify', file, '--now', NOW, '--json']);
+      expect(machine.status, name).toBe(1);
+      expect(machine.stdout, name).not.toMatch(/^FORGED/mu);
+      const parsed = JSON.parse(machine.stdout) as { ok: boolean; code: string; message: string };
+      expect(parsed.ok).toBe(false);
+      // The refusal document is three fields and all three are read here: `ok` says the check
+      // failed, `code` is the machine contract a client branches on, and `message` is the prose
+      // about the document. The prose is escaped by the package that raised it, and the two
+      // assertions below are what show it, one for each way that can go wrong: the escaped spelling
+      // is there, and no backslash has been escaped on top of it, so nothing ran a second pass over
+      // text that was already safe. The gateway quotes these messages in an error reply of its own
+      // with no guard of its own, which is why the escape belongs where the message is made and not
+      // only in front of this terminal.
+      expect(parsed.message, name).toContain(escape);
+      expect(parsed.message, name).not.toContain('\\' + escape);
+      expect(parsed.code, name).toBe('MALFORMED_ATTESTATION');
+      expect(countLines(machine.stdout), name).toBe(5);
+    }
+  });
+
+  it('escapes an event name in a report that verified', () => {
+    // The event log an envelope carries is not what the report's signature covers, and an event name
+    // this program has never heard of verifies and prints, so the success report needs the guard the
+    // refusal gets. The stand-in name is the same number of bytes as the one it replaces, which keeps
+    // the string's length prefix true: six characters and the two separators are a twelve-byte name.
+    const bytes = Buffer.from(readFileSync(ATTESTATION));
+    const needle = Buffer.from('boot-mr-done', 'utf8');
+    const at = bytes.indexOf(needle);
+    expect(at).toBeGreaterThanOrEqual(0);
+    bytes.set(Buffer.from('FORGED\u2028\u2029', 'utf8'), at);
+    const file = join(tempDir, 'event-name.bin');
+    writeFileSync(file, bytes);
+    const args = ['verify', file, '--ark', ARK, '--ask', ASK, '--vcek', VCEK, '--now', NOW];
+
+    const human = runCli(args);
+    expect(human.status).toBe(0);
+    // The printed table names the event count and the log's encoding version and never a name, so the
+    // forged bytes cannot reach it. Asserting the absence rather than a line count, because a count
+    // holds however a name is printed: this is the case that has to be rewritten, and the report
+    // guarded, the day a human line carries an event name.
+    expect(human.stdout).not.toContain('FORGED');
+    expect(human.stdout).toContain('runtime events:');
+
+    const machine = runCli([...args, '--json']);
+    expect(machine.status).toBe(0);
+    expect(machine.stdout).toContain('FORGED');
+    expect(machine.stdout).not.toMatch(/^FORGED/mu);
+    expect(countLines(machine.stdout)).toBe(machine.stdout.split('\n').filter((each) => each.length > 0).length);
+    const parsed = JSON.parse(machine.stdout) as { runtimeEvents: Array<{ event: string }> };
+    expect(parsed.runtimeEvents.map((each) => each.event)).toContain('FORGED\u2028\u2029');
   });
 
   it('reads the attestation from stdin with -', () => {
@@ -302,10 +397,22 @@ describe('ashaveri verify', () => {
     expect(result.stderr).toContain('at most 64 bytes');
   });
 
-  it('exits 2 with no arguments', () => {
-    const result = runCli([]);
-    expect(result.status).toBe(2);
-    expect(result.stderr).toContain("expected exactly one command: 'verify <attestation>'");
+  it('exits 2, naming the argument, when verify is given the wrong number of them', () => {
+    const none = runCli(['verify', '--ark', ARK, '--now', NOW]);
+    expect(none.status).toBe(2);
+    expect(none.stderr).toContain("expected exactly one argument: 'verify <attestation>'");
+    const two = runCli(['verify', ATTESTATION, ATTESTATION, '--ark', ARK, '--now', NOW]);
+    expect(two.status).toBe(2);
+    expect(two.stderr).toContain("expected exactly one argument: 'verify <attestation>'");
+  });
+
+  it('exits 2, naming the command list, for no command and for one that does not exist', () => {
+    const none = runCli([]);
+    expect(none.status).toBe(2);
+    expect(none.stderr).toContain('expected a command: verify, keygen, credential, accesslog');
+    const unknown = runCli(['frobnicate', 'anything']);
+    expect(unknown.status).toBe(2);
+    expect(unknown.stderr).toContain("unknown command 'frobnicate': expected one of verify, keygen, credential, accesslog");
   });
 
   it('exits 2 for an unknown option', () => {
@@ -322,6 +429,7 @@ describe('ashaveri verify', () => {
     expect(result.stdout).toContain('--expect-measurement');
     expect(result.stdout).toContain('--expect-compose-hash');
     expect(result.stdout).toContain('--intel-root');
+    expect(result.stdout).toContain("--public-key=<value>");
   });
 
   it('prints the version with --version', () => {

@@ -1,8 +1,16 @@
 #!/usr/bin/env node
 import { readFileSync, statSync } from 'node:fs';
 import { parseArgs } from 'node:util';
-import { MEASUREMENT_BYTES, type TeeKind } from '@ashaveri/receipt';
+import { MEASUREMENT_BYTES, POP_TIMESTAMP_TOLERANCE_SECONDS, type TeeKind } from '@ashaveri/receipt';
 import { buildGateway } from './server.js';
+import {
+  AccessError,
+  CredentialStore,
+  CREDENTIALS_FILE_VERSION,
+  loadCredentialFile,
+  newPopCredential,
+} from './access.js';
+import { MINIMUM_RETENTION_DAYS, openFileAccessLog, openMemoryAccessLog, type AccessLog } from './aclog.js';
 import { dstackDeployment } from './dstack.js';
 import { GuestClient } from './guest.js';
 import { mockBackend, type CompletionBackend } from './backend.js';
@@ -60,6 +68,24 @@ Options:
                                    volume you forgot to mount is a refusal rather
                                    than a store on the root filesystem.
                                    Default: keep receipts in this process only.
+  --credentials-path <file>        The credential records every request has to present one from.
+                                   Required in live mode; a mock run with no file makes one up and
+                                   prints it. The file holds public keys and hashes only, never a
+                                   signing key, so mounting it through a platform is safe in a way a
+                                   secret file never is.
+  --access-log-path <dir>          Where the per-request access log is written. Required in live
+                                   mode. The directory must already exist, so a volume you forgot to
+                                   mount is a refusal rather than a log on the root filesystem.
+                                   Default: this process only, and gone on restart.
+  --access-log-days <n>            How long to keep access log files. Default: 184, six months
+                                   rounded up to whole days, which is the access log retention floor
+                                   Article 19(1) sets for a provider of a high-risk system and
+                                   Article 26(6) states in the same terms for a deployer. Shorter is
+                                   allowed, and the start-up report says so.
+  --allow-bearer                   Accept bearer credentials beside proof of possession. Off by
+                                   default, and never per credential.
+  --pop-tolerance <seconds>        Clock slack accepted for a proof-of-possession timestamp.
+                                   Default: 120.
   --help                           Print this help.`;
 
 /**
@@ -88,6 +114,11 @@ interface CliOptions {
   readonly instance?: string;
   readonly tee?: string;
   readonly 'receipts-dir'?: string;
+  readonly 'credentials-path'?: string;
+  readonly 'access-log-path'?: string;
+  readonly 'access-log-days'?: string;
+  readonly 'allow-bearer'?: boolean;
+  readonly 'pop-tolerance'?: string;
 }
 
 function fail(message: string): never {
@@ -101,6 +132,15 @@ function required(values: CliOptions, name: keyof CliOptions): string {
     fail(`--${name} is required in live mode`);
   }
   return value;
+}
+
+function wholeNumber(raw: string | undefined, flag: string, unit: string, fallback: number): number {
+  if (raw === undefined) return fallback;
+  const parsed = Number(raw);
+  if (!Number.isInteger(parsed) || parsed < 1) {
+    fail(`--${flag} must be a positive whole number of ${unit}, got '${raw}'`);
+  }
+  return parsed;
 }
 
 let values: CliOptions;
@@ -124,6 +164,11 @@ try {
       instance: { type: 'string' },
       tee: { type: 'string' },
       'receipts-dir': { type: 'string' },
+      'credentials-path': { type: 'string' },
+      'access-log-path': { type: 'string' },
+      'access-log-days': { type: 'string' },
+      'allow-bearer': { type: 'boolean' },
+      'pop-tolerance': { type: 'string' },
     },
   }).values;
 } catch (error) {
@@ -187,6 +232,64 @@ try {
   process.exit(1);
 }
 
+// Live mode asks for both of these because a gateway that started without them is a gateway serving
+// unauthenticated traffic and forgetting every request it served. Mock mode makes one dev credential
+// and keeps its log in memory, because the point of a mock run is that nothing else has to exist yet.
+const credentialsPath =
+  values.mock === true ? values['credentials-path'] : required(values, 'credentials-path');
+const accessLogPath = values.mock === true ? values['access-log-path'] : required(values, 'access-log-path');
+if (accessLogPath !== undefined && !isDirectory(accessLogPath)) {
+  fail('--access-log-path must name an existing directory, so a volume you forgot to mount is a refusal and not a log on the root filesystem');
+}
+const allowBearer = values['allow-bearer'] === true;
+const toleranceSeconds = wholeNumber(
+  values['pop-tolerance'],
+  'pop-tolerance',
+  'seconds',
+  POP_TIMESTAMP_TOLERANCE_SECONDS,
+);
+const accessLogDays = wholeNumber(values['access-log-days'], 'access-log-days', 'days', MINIMUM_RETENTION_DAYS);
+const devCredential =
+  values.mock === true && credentialsPath === undefined
+    ? newPopCredential({ id: 'dev', scopes: ['complete', 'read'] })
+    : undefined;
+
+let access: CredentialStore;
+let loadedRecords: number;
+try {
+  if (credentialsPath === undefined) {
+    const records = devCredential === undefined ? [] : [devCredential.record];
+    loadedRecords = records.length;
+    access = new CredentialStore({
+      file: { version: CREDENTIALS_FILE_VERSION, credentials: records },
+      allowBearer,
+      toleranceSeconds,
+    });
+  } else {
+    // Read once here so a broken file is a refusal at start-up, then hand the store the path: a
+    // revocation that waits for a restart is not a revocation.
+    const parsed = await loadCredentialFile(credentialsPath);
+    loadedRecords = parsed.credentials.length;
+    access = new CredentialStore({ path: credentialsPath, allowBearer, toleranceSeconds });
+  }
+} catch (error) {
+  if (error instanceof AccessError) fail(`--credentials-path ${error.message}`);
+  throw error;
+}
+
+let accessLog: AccessLog;
+try {
+  accessLog =
+    accessLogPath === undefined
+      ? openMemoryAccessLog({ days: accessLogDays })
+      : await openFileAccessLog({ dir: accessLogPath, days: accessLogDays });
+} catch (error) {
+  // A log that will not open on a directory that exists is a fact about the volume, the same way a
+  // receipt store's broken chain is, so it is reported as an exit rather than as bad usage.
+  process.stderr.write(`signerd: --access-log-path ${error instanceof Error ? error.message : String(error)}\n`);
+  process.exit(1);
+}
+
 async function liveDeployment(values: CliOptions): Promise<Deployment> {
   let publicUrl: URL;
   try {
@@ -229,24 +332,64 @@ try {
 const backend: CompletionBackend =
   values.upstream === undefined ? mockBackend() : upstreamBackend({ baseUrl: values.upstream });
 
-const app = buildGateway({ deployment, backend, store });
+const app = buildGateway({ deployment, backend, store, access, accessLog });
 await app.listen({ port, host });
+// One decision about the run's mode, read by both lines that describe it below, so neither can claim
+// a mode the process is not in.
+const mode = values.mock === true ? 'mock' : 'live';
 const label =
-  values.mock === true
-    ? 'mock'
-    : `live ${deployment.tee} measurement ${toHex(deployment.measurement).slice(0, 16)}...`;
+  mode === 'mock' ? 'mock' : `live ${deployment.tee} measurement ${toHex(deployment.measurement).slice(0, 16)}...`;
 const kept =
   receiptsDir === undefined
     ? 'receipts kept in this process only, and gone on restart'
     : `receipts kept in ${receiptsDir} for ${Math.round(MINIMUM_RETENTION_SECONDS / 86_400)} days, up to ${String(MAX_SERVED_RECEIPTS)} at a time`;
-process.stdout.write(
-  `signerd (${label}) listening on http://${host}:${port}\n` +
-    `  issuer ${deployment.issuer} instance ${deployment.instance}\n` +
-    `  ${kept}\n`,
-);
+// `--port 0` leaves the choice to the operating system, and this report is the only place a reader
+// learns where the process actually is, so the number comes off the listener rather than off the flag.
+const listening = app.server.address();
+const boundPort = typeof listening === 'object' && listening !== null ? listening.port : port;
+const held = accessLogPath === undefined ? [] : await accessLog.files();
+const recordWord = loadedRecords === 1 ? 'record' : 'records';
+const credentialsLabel =
+  credentialsPath === undefined
+    ? `credentials: ${String(loadedRecords)} ${recordWord} held in this process only`
+    : `credentials: ${String(loadedRecords)} ${recordWord} read from ${credentialsPath} at start-up${
+        loadedRecords === 0 ? ', which leaves every request refused' : ''
+      }`;
+const logLabel =
+  accessLogPath === undefined
+    ? `access log: this process only, kept for ${String(accessLogDays)} days and gone on restart`
+    : `access log: ${accessLogPath}, kept for ${String(accessLogDays)} days${
+        held.length === 0 ? '' : `, with ${String(held.length)} file${held.length === 1 ? '' : 's'} from before this boot`
+      }`;
+const lines: string[] = [
+  `signerd (${label}) listening on http://${host}:${boundPort}`,
+  `  issuer ${deployment.issuer} instance ${deployment.instance}`,
+  `  ${kept}`,
+  allowBearer
+    ? '  auth: bearer credentials also accepted, which is a refusal of the strongest posture here: a stolen bearer credential is undetectable, and a log record cannot tell its holder from a thief'
+    : `  auth: proof of possession, timestamps trusted within ${String(toleranceSeconds)} seconds; bearer credentials refused`,
+  `  ${credentialsLabel}`,
+  `  ${logLabel}`,
+];
+if (accessLogDays < MINIMUM_RETENTION_DAYS) {
+  lines.push(
+    `  note: ${String(accessLogDays)} days is below the 184-day floor, six months rounded up to whole days, that Article 19(1) sets for a provider of a high-risk system and Article 26(6) states in the same terms for a deployer, and this run was started with the shorter window`,
+  );
+}
+if (devCredential !== undefined) {
+  lines.push(
+    `  dev credential for this ${mode} run: id=dev privateKeyHex=${toHex(devCredential.privateKey)}`,
+  );
+}
+process.stdout.write(`${lines.join('\n')}\n`);
 
 for (const signal of ['SIGINT', 'SIGTERM'] as const) {
   process.on(signal, () => {
-    void app.close().then(() => process.exit(0));
+    // The log gets one chance to take what is already written, and a refusal to close it is not a
+    // reason to hold a process the operator just asked to stop.
+    void app
+      .close()
+      .then(() => accessLog.close().catch(() => undefined))
+      .then(() => process.exit(0));
   });
 }

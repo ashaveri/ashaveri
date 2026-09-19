@@ -15,6 +15,21 @@ export {
   equalBytes,
 } from './cose.js';
 export type { SigningKey, ProtectedHeader, CoseSign1 } from './cose.js';
+export { toBase64Url, fromBase64Url } from './b64.js';
+export {
+  POP_SCHEME,
+  POP_AUTH_PREFIX,
+  POP_NONCE_BYTES,
+  POP_TIMESTAMP_TOLERANCE_SECONDS,
+  EMPTY_BODY_SHA256_HEX,
+  sha256Hex,
+  popSigningString,
+  encodePopAuthorization,
+  signPopAuthorization,
+  parsePopAuthorization,
+  verifyPopSignature,
+} from './pop.js';
+export type { PopFields, PopAuthorization } from './pop.js';
 export {
   encodePayload,
   issueReceipt,

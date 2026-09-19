@@ -1,0 +1,70 @@
+{
+  "version": 1,
+  "description": "TEST ONLY. The private key in this file is a published wire-format vector, generated from a fixed seed so every language can reproduce every signature. It protects nothing and must never be used to sign a real request. Every vector also carries the same fixed ts, which is a reproducibility value and not a plausible request time: it sits outside the 120-second freshness window, so a verifier that applies that window as well as checking the signature refuses these authorizations on the timestamp alone, while the signature over the published signing string verifies.",
+  "scheme": "ashaveri-pop-v1",
+  "separator": "\n",
+  "emptyBodySha256Hex": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+  "key": {
+    "id": "pop-vector-key-v1",
+    "privateKeyHex": "d1332ee54c62ab3f5336167d4d694944ed98509395a5529e165e043013de19dd",
+    "publicKeyHex": "6eba020f7a7c86e778cabcb42813e24d4c81546106bbd4ef5d4fc9e1d052bdb7"
+  },
+  "vectors": [
+    {
+      "name": "completion-post",
+      "note": "A buffered completion. Its body digest is the req claim a live receipt over these same request bytes would carry.",
+      "fields": {
+        "ts": 1772000000,
+        "nonce": "UFdDxyVjlgySSGS0GFRbMg",
+        "method": "POST",
+        "target": "/v1/chat/completions",
+        "bodyBase64Url": "eyJtb2RlbCI6Im1ldGEtbGxhbWEvTGxhbWEtMy4xLThCLUluc3RydWN0IiwibWVzc2FnZXMiOlt7InJvbGUiOiJ1c2VyIiwiY29udGVudCI6ImhlbGxvIn1dfQ",
+        "bodyDigestHex": "98e1ee609c31e633262268087e341cc85c22a10867f7f77cf1c9a1e910dc4907"
+      },
+      "signingString": "ashaveri-pop-v1\n1772000000\nUFdDxyVjlgySSGS0GFRbMg\nPOST\n/v1/chat/completions\n98e1ee609c31e633262268087e341cc85c22a10867f7f77cf1c9a1e910dc4907",
+      "authorization": "Ashaveri-PoP credential=pop-vector-key-v1, ts=1772000000, sig=RBVTLYaU8wCPNfzMLoOm3L7r8S0LplP22bHMdjJ-hSQ_bVBUFhFJ118NqUE7CjGmSAc3apUqyZTg6FFNdcviAA"
+    },
+    {
+      "name": "streaming-post",
+      "note": "Identical to a buffered completion at the signing layer: the PoP covers the request, never the response.",
+      "fields": {
+        "ts": 1772000000,
+        "nonce": "nYPd-lYHTYUbt6X17n4Nyw",
+        "method": "POST",
+        "target": "/v1/chat/completions",
+        "bodyBase64Url": "eyJtb2RlbCI6Im1ldGEtbGxhbWEvTGxhbWEtMy4xLThCLUluc3RydWN0IiwibWVzc2FnZXMiOlt7InJvbGUiOiJ1c2VyIiwiY29udGVudCI6ImhlbGxvIn1dLCJzdHJlYW0iOnRydWV9",
+        "bodyDigestHex": "73a298f64b79de4b98c754f61c6c32d454fd0fec56da56ccd23a01b6d6bd6c98"
+      },
+      "signingString": "ashaveri-pop-v1\n1772000000\nnYPd-lYHTYUbt6X17n4Nyw\nPOST\n/v1/chat/completions\n73a298f64b79de4b98c754f61c6c32d454fd0fec56da56ccd23a01b6d6bd6c98",
+      "authorization": "Ashaveri-PoP credential=pop-vector-key-v1, ts=1772000000, sig=V9RW_lOKxoDlKzxgniv5P9O5pcFJVyaJ-LLfbFbFwakBpm9gpDl7wGqSzrnZ8fLDcH7GODzLbOfQnRm9ytGcBw"
+    },
+    {
+      "name": "manifest-get",
+      "note": "A bodyless route signs the empty-body digest, stated here so a client author does not guess.",
+      "fields": {
+        "ts": 1772000000,
+        "nonce": "jVGQ5aKIQ-MmyiO99bF4Pg",
+        "method": "GET",
+        "target": "/v1/deployment-manifest",
+        "bodyBase64Url": "",
+        "bodyDigestHex": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+      },
+      "signingString": "ashaveri-pop-v1\n1772000000\njVGQ5aKIQ-MmyiO99bF4Pg\nGET\n/v1/deployment-manifest\ne3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "authorization": "Ashaveri-PoP credential=pop-vector-key-v1, ts=1772000000, sig=_72jo85sOaumUQnfm0RzopqkS4WF3WN8TiIE4iQNpmIpiAeX-PxZwFV_AXVk64X_2tRf_kNrsdykqwSk2o8UDA"
+    },
+    {
+      "name": "attestation-get",
+      "note": "The request target is signed whole, query included, because for this route the query is the request.",
+      "fields": {
+        "ts": 1772000000,
+        "nonce": "Qv0_r0zq9kOL2nlRRYJ4Lg",
+        "method": "GET",
+        "target": "/v1/attestation?report_data=abababababababababababababababababababababababababababababababab",
+        "bodyBase64Url": "",
+        "bodyDigestHex": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+      },
+      "signingString": "ashaveri-pop-v1\n1772000000\nQv0_r0zq9kOL2nlRRYJ4Lg\nGET\n/v1/attestation?report_data=abababababababababababababababababababababababababababababababab\ne3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "authorization": "Ashaveri-PoP credential=pop-vector-key-v1, ts=1772000000, sig=reSlKWIpjke9fsP8vyPdLk08zvk5hwDfIwlm23iGZIPRRmXSmVLwi2PMdpVg0kdn4FiPPysxkMpeE_a9NCehAA"
+    }
+  ]
+}

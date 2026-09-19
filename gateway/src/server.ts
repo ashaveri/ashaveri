@@ -1,5 +1,5 @@
-import Fastify, { type FastifyInstance } from 'fastify';
-import { createHash } from 'node:crypto';
+import Fastify, { type FastifyInstance, type FastifyReply, type FastifyRequest } from 'fastify';
+import { createHash, randomUUID } from 'node:crypto';
 import {
   hashRequest,
   issueReceipt,
@@ -8,6 +8,8 @@ import {
   type SigningKey,
   type TeeKind,
 } from '@ashaveri/receipt';
+import type { AccessLog, AccessRecord } from './aclog.js';
+import { AccessError, ReceiptNamespace, requireRouteScope, type CredentialStore } from './access.js';
 import { fromBase64Url, toBase64Url } from './b64.js';
 import { mockBackend, type BackendResponse, type CompletionBackend, type CompletionUsage } from './backend.js';
 import { mockDeployment, type AttestationBundle, type Deployment } from './deployment.js';
@@ -33,6 +35,12 @@ export interface GatewayOptions {
    * in this process, so they are gone when it stops; a deployment with a volume passes the file engine.
    */
   readonly store?: ReceiptStore;
+  /**
+   * The pipeline every route runs through. Required: there is no gateway without it,
+   * and a default that admits everything would be a floor that opts out.
+   */
+  readonly access: CredentialStore;
+  readonly accessLog: AccessLog;
 }
 
 export interface ManifestJson {
@@ -47,6 +55,30 @@ export interface ManifestJson {
 
 function errorMessage(error: unknown): string {
   return error instanceof Error ? error.message : String(error);
+}
+
+/** A gateway this module built, which is the only instance that carries the registration tally. */
+export type GatewayInstance = FastifyInstance & {
+  /**
+   * The route paths whose registration was checked against the scope table, sorted. A path this
+   * list omits is a route that booted ungated, which is the one way to see that the hook was
+   * registered after the routes it should have inspected.
+   */
+  scopeCheckedRoutes(): string[];
+};
+
+/**
+ * A reply body is one line of whatever log the client keeps, and `JSON.stringify` is silent on U+2028 and
+ * U+2029, so text that arrives standing as it was goes into a message as a second line. One site needs
+ * this: a model name read out of a JSON body, which `JSON.parse` hands over unchanged. The request-chosen
+ * text elsewhere is already held by something measured, not assumed. A socket carrying either separator in
+ * a request line or a header name is refused 400 before a route runs, and a target quoted back by
+ * admission therefore only ever holds the percent-encoded spelling; a credential id passes a character rule
+ * on the way in and on the way out; and the parser packages escape these two where they build a message.
+ * `asOneLine` in `packages/receipt/src/errors.ts` is the same rule for the same reason.
+ */
+function asOneLine(text: string): string {
+  return text.replace(/[\p{Cc}\p{Cf}\u2028\u2029]/gu, ' ');
 }
 
 function upstreamError(reply: { code: (n: number) => { send: (b: unknown) => unknown } }, message: string): void {
@@ -91,17 +123,141 @@ async function collect(response: BackendResponse): Promise<Buffer> {
   return Buffer.concat(chunks, size);
 }
 
-export function buildGateway(options: GatewayOptions = {}): FastifyInstance {
+export function buildGateway(options: GatewayOptions): GatewayInstance {
+  const { access, accessLog } = options;
   const deployment =
     options.deployment ?? mockDeployment({ issuer: options.issuer, instance: options.instance, key: options.key });
   const backend = options.backend ?? mockBackend();
   const receipts = options.store ?? openMemoryReceiptStore();
+  // One HKDF over the deployment's own signing seed, for the whole process. The id a receipt is
+  // fetched by is minted here rather than taken from the upstream, and nothing is written down to
+  // make the fetch work: the id carries the tag of the credential that minted it.
+  const receiptIds = new ReceiptNamespace(deployment.key);
 
   const app = Fastify({ bodyLimit: 16 * 1024 * 1024, logger: false });
   // The receipt binds the exact bytes the client sent, so the body is kept raw
   // instead of being parsed into a JS object first.
   app.addContentTypeParser('application/json', { parseAs: 'buffer' }, (_request, body, done) => {
     done(null, body);
+  });
+
+  // requireRouteScope is where the refusal lives, so no try/catch belongs here: an undeclared route
+  // has to propagate out of register and stop the process, and re-throwing a caught error to achieve
+  // that only hides which line stopped it.
+  const checkedPaths = new Set<string>();
+  app.addHook('onRoute', (routeOptions) => {
+    const methods = Array.isArray(routeOptions.method) ? routeOptions.method : [routeOptions.method];
+    for (const each of methods) {
+      requireRouteScope(String(each), routeOptions.url);
+    }
+    // Counted after the lookups, so a route that stopped the boot is not also tallied as checked.
+    // Fastify clones each GET into a HEAD of its own, so the tally is of paths and not of the
+    // method-and-path pairs the loop above answers.
+    checkedPaths.add(routeOptions.url);
+  });
+
+  interface RequestState {
+    startedAt: number;
+    rid: string;
+    credential: string | null;
+    /** The minting tag of the admitted credential, held so a route pays no derivation. */
+    tag: string | null;
+    auth: 'pop' | 'bearer' | null;
+    scope: string | null;
+    nonce: string | null;
+    receiptId: string | null;
+    deny: string | null;
+    logged: boolean;
+  }
+
+  const states = new WeakMap<FastifyRequest, RequestState>();
+
+  function stateOf(request: FastifyRequest): RequestState | undefined {
+    return states.get(request);
+  }
+
+  async function flush(request: FastifyRequest, reply: FastifyReply): Promise<void> {
+    const state = stateOf(request);
+    if (state === undefined || state.logged) return;
+    // Set before the write, so a log that rejects this record costs the request its only line: the
+    // alternative is a retry that can land a second line for one request once both listeners fire.
+    state.logged = true;
+    const record: AccessRecord = {
+      t: state.startedAt,
+      rid: state.rid,
+      cred: state.credential,
+      auth: state.auth,
+      scope: state.scope,
+      m: request.method,
+      p: request.url.split('?', 1)[0] ?? request.url,
+      rcp: state.receiptId,
+      nce: state.nonce,
+      st: reply.statusCode,
+      dur: Date.now() - state.startedAt,
+      deny: state.deny,
+    };
+    // A log that cannot take a line is an incident, not a reason to fail a request the pipeline
+    // already decided. The rejection stops here so it cannot become an unhandled one.
+    try {
+      await accessLog.record(record);
+    } catch (err) {
+      request.log.warn({ err }, 'the access log refused a record');
+    }
+  }
+
+  app.addHook('onRequest', async (request, reply) => {
+    states.set(request, {
+      startedAt: Date.now(),
+      rid: randomUUID(),
+      credential: null,
+      tag: null,
+      auth: null,
+      scope: null,
+      nonce: null,
+      receiptId: null,
+      deny: null,
+      logged: false,
+    });
+    // finish and close, both, because a hijacked streaming reply ends on close and a
+    // buffered one on finish, and a record this process loses is a gap nobody can
+    // account for later. The logged flag makes the pair idempotent.
+    reply.raw.once('finish', () => {
+      void flush(request, reply);
+    });
+    reply.raw.once('close', () => {
+      void flush(request, reply);
+    });
+  });
+
+  app.addHook('preHandler', async (request, reply) => {
+    const state = stateOf(request);
+    if (state === undefined) return;
+    // Before any admission: a store opened on a path serves decisions from the file it
+    // loaded at boot until this reloads it, and a bearer request must see a fresh file too.
+    await access.reloadIfNeeded();
+    try {
+      const admitted = access.admit({
+        method: request.method,
+        url: request.url,
+        headers: request.headers,
+        body: request.body instanceof Buffer ? new Uint8Array(request.body.buffer, request.body.byteOffset, request.body.byteLength) : null,
+      });
+      state.credential = admitted.credentialId;
+      // Held on the request the moment admission names the credential, so a mint and a read compare
+      // the same value they were admitted with rather than looking one up again per request.
+      state.tag = receiptIds.tagFor(admitted.credentialId);
+      state.auth = admitted.auth;
+      state.scope = admitted.scope;
+      state.nonce = admitted.nonce === null ? null : toBase64Url(admitted.nonce);
+      state.receiptId = admitted.receiptId;
+    } catch (err) {
+      if (!(err instanceof AccessError)) throw err;
+      state.deny = err.code;
+      if (state.credential === null) state.credential = err.credentialId ?? null;
+      if (err.retryAfterSeconds !== undefined) reply.header('retry-after', String(err.retryAfterSeconds));
+      await reply.code(err.status).send({ error: { message: err.message, type: 'authentication_error', code: err.code } });
+      return;
+    }
   });
 
   const manifest: ManifestJson = {
@@ -185,7 +341,12 @@ export function buildGateway(options: GatewayOptions = {}): FastifyInstance {
 
   app.get('/v1/receipts/:id', async (request, reply) => {
     const id = (request.params as { id: string }).id;
-    const bytes = await receipts.get(id);
+    // The tag is checked before the store is asked, and a mismatch is answered exactly as an absent
+    // record is: this route discloses nothing about whether the bytes exist for another tenant. The
+    // id this caller presented still goes into the message, unchanged, because a refusal that quotes
+    // a different text would itself be a signal.
+    const tag = stateOf(request)?.tag;
+    const bytes = typeof tag !== 'string' || !receiptIds.carries(id, tag) ? null : await receipts.get(id);
     if (bytes === null) {
       reply.code(404).send({ error: { message: `no receipt for id ${id}`, type: 'not_found' } });
       return;
@@ -211,7 +372,7 @@ export function buildGateway(options: GatewayOptions = {}): FastifyInstance {
     const declared = deployment.models.find((model) => model.id === parsed.model);
     if (declared === undefined) {
       reply.code(400).send({
-        error: { message: `model '${parsed.model}' is not served by this deployment`, type: 'invalid_request_error' },
+        error: { message: asOneLine(`model '${parsed.model}' is not served by this deployment`), type: 'invalid_request_error' },
       });
       return;
     }
@@ -231,6 +392,21 @@ export function buildGateway(options: GatewayOptions = {}): FastifyInstance {
       }
     } else {
       nonce = randomNonce();
+    }
+
+    // The id each arm below mints is this credential's tag plus fresh randomness. Read once, before
+    // the upstream is called: a completion whose receipt cannot be addressed is not worth an
+    // inference call, and a mint without a tag would be addressed by a prefix no credential computes,
+    // so its receipt would be unreadable by everyone including its owner.
+    const receiptTag = stateOf(request)?.tag;
+    if (typeof receiptTag !== 'string') {
+      reply.code(500).send({
+        error: {
+          message: 'this request was admitted without a credential, so its receipt could not be addressed',
+          type: 'server_error',
+        },
+      });
+      return;
     }
 
     let response: BackendResponse;
@@ -264,10 +440,8 @@ export function buildGateway(options: GatewayOptions = {}): FastifyInstance {
         reply.send(body);
         return;
       }
-      let receiptId: string;
       let usage: CompletionUsage;
       try {
-        receiptId = await response.receiptId;
         usage = await response.usage;
       } catch (err) {
         upstreamError(reply, errorMessage(err));
@@ -277,6 +451,7 @@ export function buildGateway(options: GatewayOptions = {}): FastifyInstance {
         upstreamError(reply, `inference upstream served '${usage.model}' instead of '${declared.id}'`);
         return;
       }
+      const receiptId = receiptIds.mint(receiptTag);
       await issue({
         id: receiptId,
         nonce,
@@ -294,35 +469,27 @@ export function buildGateway(options: GatewayOptions = {}): FastifyInstance {
 
     const iterator = response.chunks[Symbol.asyncIterator]();
     const early: Buffer[] = [];
-    let receiptId: string | null = null;
-    response.receiptId.then(
-      (id) => {
-        receiptId = id;
-      },
-      () => undefined,
-    );
-    // The id lands in the callback above, so a direct read here would still be typed as
-    // the null it started at. Calling for it reads the same value with its real type.
-    const settledReceiptId = (): string | null => receiptId;
+    // Hold the headers until the upstream has produced bytes, so an upstream that accepts the
+    // connection and then says nothing is a 502 rather than a receipted empty 200. That is the one
+    // job the old wait for a completion id did, and it is stated as a bytes check now that the id
+    // arriving in those bytes names nothing this gateway looks up.
     try {
-      while (settledReceiptId() === null) {
-        const next = await withTimeout(iterator.next(), FIRST_EVENT_TIMEOUT_MS, 'inference upstream produced no completion id');
+      while (early.length === 0) {
+        const next = await withTimeout(iterator.next(), FIRST_EVENT_TIMEOUT_MS, 'inference upstream produced no response bytes');
         if (next.done === true) {
           break;
         }
         early.push(Buffer.from(next.value));
-        // The id settles in a microtask while the chunk is scanned.
-        await new Promise((resolve) => setImmediate(resolve));
       }
     } catch (err) {
       upstreamError(reply, errorMessage(err));
       return;
     }
-    const id = settledReceiptId();
-    if (id === null) {
-      upstreamError(reply, 'inference upstream produced no completion id');
+    if (early.length === 0) {
+      upstreamError(reply, 'inference upstream produced an empty response body');
       return;
     }
+    const id = receiptIds.mint(receiptTag);
     const hasher = createHash('sha256');
 
     // SSE is written to the raw response: Fastify's stream plumbing does not
@@ -399,5 +566,7 @@ export function buildGateway(options: GatewayOptions = {}): FastifyInstance {
     }
   });
 
-  return app;
+  // Assigned rather than decorated, so the method's type lives on GatewayInstance and nowhere in
+  // Fastify's own interface.
+  return Object.assign(app, { scopeCheckedRoutes: (): string[] => [...checkedPaths].sort() });
 }

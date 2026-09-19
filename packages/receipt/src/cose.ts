@@ -116,7 +116,11 @@ export function verifyCoseSign1(bytes: Uint8Array, publicKey: Uint8Array, extern
   const expectedKid = keyId(publicKey);
   if (!equalBytes(cose.header.kid, expectedKid)) throw new ReceiptError('KID_MISMATCH');
   const toSign = sigStructure(cose.protectedBytes, externalAad, cose.payloadBytes);
-  if (!ed25519.verify(cose.signature, toSign, publicKey)) throw new ReceiptError('INVALID_SIGNATURE');
+  // Strict (RFC 8032) verification, the same rule the proof-of-possession verifier keeps to, because
+  // both are handed a public key that an operator configured and pasted into a manifest.
+  if (!ed25519.verify(cose.signature, toSign, publicKey, { zip215: false })) {
+    throw new ReceiptError('INVALID_SIGNATURE');
+  }
   return cose;
 }
 

@@ -12,16 +12,12 @@ import {
 import { writeFileSync, mkdirSync } from 'node:fs';
 import { join, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { labeled } from './seed.ts';
 
 const DATA = join(dirname(fileURLToPath(import.meta.url)), '..', 'data');
 
 function toHex(bytes: Uint8Array): string {
   return Array.from(bytes, (b) => b.toString(16).padStart(2, '0')).join('');
-}
-
-function labeled(label: string, length?: number): Uint8Array {
-  const digest = sha256(new TextEncoder().encode(label));
-  return length ? digest.slice(0, length) : digest;
 }
 
 function fixtureKey(): SigningKey {

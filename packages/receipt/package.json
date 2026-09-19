@@ -21,7 +21,7 @@
     "build": "tsc -p tsconfig.json",
     "test": "vitest run",
     "lint": "eslint .",
-    "typecheck": "tsc -p tsconfig.json --noEmit"
+    "typecheck": "tsc -p tsconfig.json --noEmit && tsc -p tsconfig.test.json"
   },
   "dependencies": {
     "@noble/curves": "^1.9.7",
@@ -30,6 +30,7 @@
   },
   "devDependencies": {
     "ajv": "^8.20.0",
+    "fast-check": "^4.10.1",
     "typescript": "^5.9.3",
     "vitest": "^3.2.4"
   }

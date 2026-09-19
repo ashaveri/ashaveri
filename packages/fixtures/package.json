@@ -20,8 +20,9 @@
     "build": "tsc -p tsconfig.json",
     "test": "vitest run",
     "lint": "eslint .",
-    "typecheck": "tsc -p tsconfig.json --noEmit",
-    "generate": "node --experimental-strip-types scripts/generate.ts"
+    "typecheck": "tsc -p tsconfig.json --noEmit && tsc -p tsconfig.test.json",
+    "generate": "node --experimental-strip-types scripts/generate.ts",
+    "generate:pop": "node --experimental-strip-types scripts/pop-vectors.ts"
   },
   "dependencies": {
     "@ashaveri/receipt": "workspace:*",

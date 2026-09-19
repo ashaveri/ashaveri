@@ -1,0 +1,11 @@
+{
+  "extends": "./tsconfig.json",
+  "compilerOptions": {
+    "noEmit": true,
+    // test/evidence.test.ts imports ../attest-core/test/helpers.ts, so the root
+    // has to span the workspace rather than this package.
+    "rootDir": "../..",
+    "types": ["node"]
+  },
+  "include": ["src", "test"]
+}

@@ -15,9 +15,14 @@ accepts; they get resolved the first time this runs.
 | `docker-entrypoint.sh` | Checks the mounted model files against the manifest when both weights environment variables are set, then execs `signerd`. |
 | `weights.mjs` | Emits and checks the model manifest whose sha256 every receipt carries as `wts`. |
 
-The compose text is the measurement. A rebuilt image tag, a different model file, or a changed
-`--tee` value changes what the hardware attests to, which is why the image is pinned by digest
-below and why `--expect-compose-hash` exists in `ashaveri verify`.
+The compose text is what the platform measures, and this file boots TDX unless `ASHAVERI_TEE` says
+otherwise. A rebuilt image tag or a changed `--tee` value moves the `compose-hash` runtime event, which
+the RTMR3 replay ties to the quote, and that is what `--expect-compose-hash` pins. On SEV-SNP the same
+hash reaches the report by a different route: it is a field of the `mr_config` document whose digest the
+platform carries in `HOST_DATA`. A different model file moves neither, because the compose text names a
+path and not bytes, so the mounted model is covered by the `wts` digest and the entrypoint check. The
+image is pinned by digest below for the same reason: a mutable tag is the one thing in the compose text
+whose contents can change underneath the hash that pins it.
 
 ## 1. Build and publish the gateway image
 
@@ -72,8 +77,12 @@ Two properties of the managed platform shape this step:
 
 - The public hostname is assigned by the platform, so `ASHAVERI_PUBLIC_URL` cannot be known
   before the first boot. Boot once with a placeholder, read the hostname from `phala apps`,
-  then deploy again with the real value. The redeploy changes the compose hash and therefore
-  the measurement, which is expected: pin only after the URL is final. `--public-url` is used
+  then deploy again with the real value. The redeploy changes the compose hash, so the
+  `--expect-compose-hash` pin has to be reissued with the new value. On TDX it is the only pin that
+  moves: the compose hash is a runtime event, extended into RTMR3 after the MRTD that
+  `--expect-measurement` pins was already fixed. On SEV-SNP the compose hash rides inside the
+  `mr_config` document committed to the report at launch, so reissue both pins there rather than
+  reasoning about which one moved. Pin only after the URL is final. `--public-url` is used
   solely to build the `att.url` evidence link, so a stale value is visible to any client as a
   broken or wrong evidence URL rather than a silent inconsistency.
 - TLS terminates at the platform gateway, outside the TEE, and the container listens on plain
@@ -84,6 +93,55 @@ Two properties of the managed platform shape this step:
 `/var/run/dstack.sock` is mounted into the gateway container. That socket is the only source of
 the signing key and of the evidence; there is no key file in the image, no key in an env var,
 and nothing to seal after the fact.
+
+### The credential file the gateway reads
+
+`--credentials-path` names one JSON file. This compose text mounts it read-only at `/etc/ashaveri`,
+from `enclave/config/`, which is not the directory the entrypoint hashes:
+
+```json
+{
+  "version": 1,
+  "credentials": [
+    { "id": "client-1", "kind": "pop", "publicKey": "<32 bytes, base64url>", "scopes": ["complete", "read"], "createdAt": 1772000000 }
+  ]
+}
+```
+
+A record holds a public key or a hash of a secret, never a signing key, so this file can travel with
+the deployment. It travels beside the release directory rather than inside it: the entrypoint hashes
+every file under `ASHAVERI_WEIGHTS_DIR`, so a credential written there either stops the boot or, once
+listed in the manifest to make it boot, moves the `wts` digest a client pins as the model's identity.
+The private half goes to the client and nowhere else, and a bearer secret is the one credential kind
+that must never be mounted through a platform: it is the whole of the authentication, so shipping it to
+someone else's storage is shipping the credential. To make one now, from a built workspace:
+
+```bash
+node --input-type=module -e '
+import { mkdirSync, writeFileSync } from "node:fs";
+const { newPopCredential, serializeCredentialFile, toHex } = await import("./gateway/dist/index.js");
+const key = newPopCredential({ id: "client-1", scopes: ["complete", "read"] });
+mkdirSync("enclave/config", { recursive: true });
+writeFileSync("enclave/config/credentials.json", serializeCredentialFile({ version: 1, credentials: [key.record] }));
+process.stdout.write(`signing key, print once and keep off any volume: ${toHex(key.privateKey)}\n`);
+'
+```
+
+Two consequences of making every route ask for a credential:
+
+- Revocation is an edit to this file, and on a managed rail the file travels with the deployment, so
+  the edit means a redeploy. The compose text is identical before and after it, so the value
+  `--expect-compose-hash` pins does not move either: the pin an operator reissues for a rebuilt image
+  or a new public URL says nothing about a revoked credential. What changes is the answer a refused
+  client gets, `AUTH_REVOKED`, and the `deny` field of the access log line. Whether a rail folds a
+  mounted file's bytes into something else it measures is a platform property this repository cannot
+  assert, so test it the way the receipts paragraph below tests a directory: revoke a credential on a
+  deployment, redeploy with the compose text otherwise unchanged, and see what a pinned client
+  notices. That is the same trade the key-rotation limitation in
+  [the threat model](../docs/threat-model.md) section 6 already names. A self-hosted deployment mounts
+  a rewritable file and the gateway re-reads it on its own, with no restart.
+- The container's healthcheck is a TCP probe rather than a request to `/v1/deployment-manifest`. It
+  answers "is the gateway up", and nothing more.
 
 This compose text starts the gateway without `--receipts-dir`, so issued receipts live in the
 gateway's memory and a restart clears them. A client that fetched promptly is unaffected, and one
@@ -99,10 +157,22 @@ VM.
 
 ## 4. Verify from a laptop
 
+Both documents now need a credential, so a bare `curl` gets a 401 and the SDK is the way to fetch them.
+The report data below is read from `$RD` by both halves, since a document fetched for one challenge
+cannot satisfy a check against another:
+
 ```bash
-RD=$(printf '%064x' 0xdeadbeef)                      # any 64-hex report data
-curl -s "$BASE/v1/deployment-manifest" -o manifest.json
-curl -s "$BASE/v1/attestation?report_data=$RD" -o attestation.bin
+export RD=$(printf '%064x' 0xdeadbeef)               # any 64-hex report data
+node --input-type=module -e '
+import { writeFileSync } from "node:fs";
+const { GatewaySession, authorizedFetch, credentialFromEnv } = await import("./packages/sdk/dist/index.js");
+const session = new GatewaySession(`${process.env.BASE}/v1`, {
+  fetchImpl: authorizedFetch(credentialFromEnv(process.env), globalThis.fetch),
+});
+const reportData = Buffer.from(process.env.RD, "hex");
+writeFileSync("manifest.json", JSON.stringify(await session.manifest(), null, 2));
+writeFileSync("attestation.bin", Buffer.from(await session.attestationBytes(reportData)));
+'
 
 node packages/cli/dist/cli.js verify attestation.bin \
   --report-data $RD \

@@ -8,6 +8,9 @@ on:
 jobs:
   test:
     runs-on: ubuntu-latest
+    timeout-minutes: 15
+    permissions:
+      contents: read
     steps:
       - uses: actions/checkout@v4
       - uses: pnpm/action-setup@v4
@@ -20,5 +23,198 @@ jobs:
       - run: pnpm install --frozen-lockfile
       - run: pnpm build
       - run: pnpm lint
-      - run: pnpm test
+      # The suite asserts on file modes it sets, and a mode is only observable against the
+      # process umask, so the step states the umask rather than inheriting whatever the host has.
+      - name: Run the workspace test suite
+        run: |
+          umask 0022
+          pnpm test
       - run: pnpm typecheck
+
+  generated-vectors:
+    name: Regenerating the vectors changes nothing
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 12.3.4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm build
+      - run: pnpm -C packages/fixtures generate
+      - run: pnpm -C packages/fixtures generate:pop
+      - run: git diff --exit-code packages/fixtures/data
+
+  secret-scan:
+    name: Secret scan over the full commit history
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Download gitleaks 8.30.1
+        run: |
+          set -euo pipefail
+          version=8.30.1
+          archive_sha256=551f6fc83ea457d62a0d98237cbad105af8d557003051f41f3e7ca7b3f2470eb
+          mkdir -p "$RUNNER_TEMP/bin"
+          curl -sSfL -o "$RUNNER_TEMP/gitleaks.tar.gz" \
+            "https://github.com/gitleaks/gitleaks/releases/download/v${version}/gitleaks_${version}_linux_x64.tar.gz"
+          printf '%s  %s\n' "$archive_sha256" "$RUNNER_TEMP/gitleaks.tar.gz" | sha256sum --check --status
+          tar -xzf "$RUNNER_TEMP/gitleaks.tar.gz" -C "$RUNNER_TEMP/bin" gitleaks
+          "$RUNNER_TEMP/bin/gitleaks" version
+
+      - name: Scan committed history
+        run: |
+          set -uo pipefail
+          report="$RUNNER_TEMP/secrets-in-history.json"
+          status=0
+          # A run step is `bash -e`, so a non-zero status has to be captured on the
+          # command itself; a following `status=$?` line never runs.
+          "$RUNNER_TEMP/bin/gitleaks" git . -c "$GITHUB_WORKSPACE/.gitleaks.toml" \
+            -f json -r "$report" --redact --exit-code 3 --no-banner --no-color || status=$?
+          case "$status" in
+            0) ;;
+            3) echo "gitleaks reported findings, exit $status";;
+            *) echo "gitleaks exited $status without reporting findings";;
+          esac
+          if [ ! -s "$report" ]; then
+            echo "gitleaks wrote no report, so .gitleaks.toml did not load"
+            exit 1
+          fi
+          node -e '
+            const report = require(process.argv[1]);
+            if (report.length > 0) {
+              console.error(report.map((f) => `${f.RuleID} @ ${f.File}:${f.StartLine}`).join("\n"));
+              process.exit(3);
+            }
+          ' "$report"
+          exit "$status"
+
+      - name: Check that a test secret is caught
+        run: |
+          set -uo pipefail
+          selftest_dir=.secret-scan-selftest
+          seed=ashaveri-secret-scan-self-test
+          report="$RUNNER_TEMP/secrets-self-test.json"
+          mkdir -p "$GITHUB_WORKSPACE/$selftest_dir"
+          printf '{ "privateKey": "%s" }\n' \
+            "$(printf '%s' "$seed" | sha256sum | cut -c1-64)" > "$GITHUB_WORKSPACE/$selftest_dir/key.json"
+          printf '_authToken = npm_%s\n' \
+            "$(printf '%s token' "$seed" | sha256sum | cut -c1-36)" > "$GITHUB_WORKSPACE/$selftest_dir/npmrc.txt"
+          git add -- "$GITHUB_WORKSPACE/$selftest_dir"
+          git -c user.name=github-actions -c user.email=github-actions@github.com \
+            commit --no-verify -q -m "Secret scan self test"
+          status=0
+          "$RUNNER_TEMP/bin/gitleaks" git . -c "$GITHUB_WORKSPACE/.gitleaks.toml" \
+            -f json -r "$report" --redact --exit-code 3 --no-banner --no-color || status=$?
+          if [ ! -s "$report" ]; then
+            echo "gitleaks wrote no report, so .gitleaks.toml did not load"
+            exit 1
+          fi
+          if [ "$status" -ne 3 ]; then
+            echo "the test secrets were not reported, gitleaks exited $status"
+            exit 1
+          fi
+          node -e '
+            const report = require(process.argv[1]);
+            const selftestDir = process.argv[2];
+            const outside = report.filter((f) => !f.File.startsWith(selftestDir + "/"));
+            const rules = report.map((f) => f.RuleID).sort().join(",");
+            if (outside.length > 0 || rules !== "generic-api-key,npm-access-token") {
+              console.error(report.map((f) => `${f.RuleID} @ ${f.File}:${f.StartLine}`).join("\n"));
+              process.exit(1);
+            }
+            console.log("reported both test secrets and nothing else");
+          ' "$report" "$selftest_dir"
+
+  sbom:
+    name: Bill of materials from the lockfile
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 12.3.4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+
+      - name: Write the CycloneDX document
+        run: |
+          set -euo pipefail
+          mkdir -p sbom
+          pnpm sbom --sbom-format cyclonedx --sbom-type application --lockfile-only > sbom/ashaveri.cdx.json
+
+      - name: Check the document describes the locked graph
+        run: |
+          set -euo pipefail
+          node -e '
+            const fs = require("node:fs");
+            const bom = JSON.parse(fs.readFileSync(process.argv[1], "utf8"));
+            const components = bom.components || [];
+            const problems = [];
+            if (bom.bomFormat !== "CycloneDX") problems.push(`bomFormat is ${bom.bomFormat}`);
+            if (bom.specVersion !== "1.7") problems.push(`specVersion is ${bom.specVersion}`);
+            if (!bom.serialNumber) problems.push("serialNumber is missing");
+            if (components.length === 0) problems.push("the document lists no components");
+            if (!components.every((c) => c["bom-ref"] && c.version && c.purl)) {
+              problems.push("a component has no bom-ref, version or purl");
+            }
+            if (problems.length > 0) {
+              console.error(problems.join("\n"));
+              process.exit(1);
+            }
+            const named = components.filter((c) => c.scope !== "excluded").length;
+            console.log(`CycloneDX ${bom.specVersion}: ${components.length} components, ${named} outside the excluded scope, ${(bom.dependencies || []).length} dependency entries`);
+          ' "$GITHUB_WORKSPACE/sbom/ashaveri.cdx.json"
+
+      - name: Upload the document
+        uses: actions/upload-artifact@v4
+        with:
+          name: sbom-cyclonedx
+          path: sbom/ashaveri.cdx.json
+          retention-days: 90
+          if-no-files-found: error
+
+  codeql:
+    name: CodeQL analysis of the JavaScript and TypeScript sources
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    permissions:
+      contents: read
+      security-events: write
+      actions: read
+    steps:
+      - uses: actions/checkout@v4
+      - uses: github/codeql-action/init@v4
+        with:
+          languages: javascript-typescript
+      - uses: github/codeql-action/analyze@v4
+
+  dependency-review:
+    name: Dependency review on pull requests
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: read
+      pull-requests: write
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/dependency-review-action@v5.0.0

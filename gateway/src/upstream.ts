@@ -43,7 +43,6 @@ function requestForUpstream(raw: Buffer): Buffer {
 }
 
 interface CompletionEvent {
-  readonly id?: unknown;
   readonly model?: unknown;
   readonly usage?: { prompt_tokens?: unknown; completion_tokens?: unknown } | null;
 }
@@ -92,7 +91,6 @@ export function upstreamBackend(options: UpstreamOptions): CompletionBackend {
         return {
           status: upstream.status,
           contentType: upstream.headers.get('content-type') ?? 'application/json',
-          receiptId: Promise.resolve(''),
           chunks: (async function* () {
             yield body;
           })(),
@@ -106,22 +104,20 @@ export function upstreamBackend(options: UpstreamOptions): CompletionBackend {
       // here or every chunk read below arrives untyped.
       const stream: ReadableStream<Uint8Array> = upstream.body;
       const streaming = contentType.includes('text/event-stream');
-      const idSlot = deferred<string>();
       const usageSlot = deferred<CompletionUsage>();
-      // An aborted client stops consuming before these settle, and an awaited
+      // An aborted client stops consuming before this settles, and an awaited
       // promise nobody settles would surface as an unhandled rejection.
-      idSlot.promise.catch(() => undefined);
       usageSlot.promise.catch(() => undefined);
 
-      const seen = { id: false, usage: false };
+      const seen = { usage: false };
       let model = '';
+      // The scan reads the model and the usage out of the stream and nothing else. The completion
+      // id every event carries is forwarded to the client untouched, but it names no receipt: an id
+      // chosen by the inference server is a lookup key only as long as that server is unguessable,
+      // and this gateway mints its own instead.
       const remember = (event: CompletionEvent): void => {
         if (typeof event.model === 'string' && event.model.length > 0) {
           model = event.model;
-        }
-        if (!seen.id && typeof event.id === 'string' && event.id.length > 0) {
-          seen.id = true;
-          idSlot.resolve(event.id);
         }
         const usage = usageOf(event);
         if (usage !== null && !seen.usage) {
@@ -141,9 +137,8 @@ export function upstreamBackend(options: UpstreamOptions): CompletionBackend {
               break;
             }
             const value = next.value;
-            // Scan before yielding so the id is known the moment the server
-            // takes the chunk, and forward verbatim so the receipt hashes
-            // exactly what the client sees.
+            // Scan before yielding so the usage is known the moment the server takes the
+            // chunk, and forward verbatim so the receipt hashes exactly what the client sees.
             pending += decoder.decode(value, { stream: true });
             if (streaming) {
               let boundary = /\r?\n\r?\n/.exec(pending);
@@ -163,16 +158,10 @@ export function upstreamBackend(options: UpstreamOptions): CompletionBackend {
           if (!streaming && pending.length > 0) {
             remember(toFields(JSON.parse(pending)) ?? {});
           }
-          if (!seen.id) {
-            idSlot.reject(new Error('upstream response carried no completion id'));
-          }
           if (!seen.usage) {
             usageSlot.resolve({ model, promptTokens: 0, completionTokens: 0 });
           }
         } catch (error) {
-          if (!seen.id) {
-            idSlot.reject(error);
-          }
           if (!seen.usage) {
             usageSlot.reject(error);
           }
@@ -182,7 +171,7 @@ export function upstreamBackend(options: UpstreamOptions): CompletionBackend {
         }
       })();
 
-      return { status: upstream.status, contentType, receiptId: idSlot.promise, chunks, usage: usageSlot.promise };
+      return { status: upstream.status, contentType, chunks, usage: usageSlot.promise };
     },
   };
 }
