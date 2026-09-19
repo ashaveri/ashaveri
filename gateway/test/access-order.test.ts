@@ -1070,8 +1070,9 @@ describe('what the signature check answers when it cannot check', () => {
  * for the wrong reason. `verifyPopSignature` is strict where the library under it is relaxed, and the
  * relaxation is measurable: on the installed `@noble/curves`, `ed25519.verify` with its own defaults
  * answers true for a run of 64 zero bytes against an all-zero 32-byte key, the identity point of the
- * torsion subgroup, for any message at all, where `verifyPopSignature` answers false. The strict side
- * is pinned for every encoding of every small-order key at `packages/receipt/test/pop.test.ts:278`. So
+ * torsion subgroup, for any message at all, where `verifyPopSignature` answers false. The strict side is
+ * pinned in `packages/receipt/test/pop.test.ts` by the case 'refuses a signature nobody made, for every
+ * encoding of every small-order key'. So
  * a store that reached for the library directly, or that read a `true` from a placeholder key as
  * permission to carry on, would serve a request naming a record it does not hold, and a property stated
  * in terms of what verified would have filtered out exactly that shape. The clause that nothing is
