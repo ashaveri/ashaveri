@@ -121,7 +121,10 @@ function headerless(peer: string): AdmissionInput {
 
 interface Answer {
   readonly code: string;
-  /** What the access log would record for this refusal, which differs from `code` only where a refusal is collapsed. */
+  /**
+   * What the access log would record for this refusal: the code the caller was told where there is no
+   * reason to separate the two, and the reason itself where separating them is the point.
+   */
   readonly logCode: string;
   readonly status: number;
   readonly message: string;
@@ -285,11 +288,14 @@ describe('the request bound a connection meets ahead of the crypto', () => {
     });
     expect(shed, 'the pair never reached the throttle, so it proved nothing about it').toBeGreaterThan(0);
 
-    // Unlike the collapsed refusal, the throttle needs no split between the code logged and the code
-    // returned: nothing about it depends on a name, and it names none.
+    // The answer is one code whichever store holds the name, which is what the pair above is for. The
+    // record is a reason of its own: the two buckets answer alike on purpose, and only the volume can
+    // tell a guessing loop from a deployment whose requests all arrive on one proxy address.
+    // `observable()` leaves `logCode` out, so nothing above says which reason was written; this is the
+    // split pinned, and the request below is the same pair at the HTTP boundary.
     const last = answer(holds.store, guess(GUESSED_NAME, 99));
     expect(last.code).toBe('RATE_LIMITED');
-    expect(last.logCode).toBe('RATE_LIMITED');
+    expect(last.logCode, 'the reason the record keeps and no caller is told').toBe('PEER_RATE_LIMITED');
     expect(last.credentialId, 'a shed request names no credential, so the line cannot carry one').toBeNull();
     expect(observable(last)).not.toContain(GUESSED_NAME);
     expect(observable(last)).not.toContain(HELD_NAME);
@@ -372,7 +378,9 @@ describe('the request bound a connection meets ahead of the crypto', () => {
 
     const entries = h.log.entries();
     expect(entries).toHaveLength(9);
-    expect(entries.at(-1)).toMatchObject({ deny: 'RATE_LIMITED', cred: null, st: 429 });
+    // The written reason, not the answered one: this is the line a deployer reads, and the eight
+    // responses above all say `RATE_LIMITED`.
+    expect(entries.at(-1)).toMatchObject({ deny: 'PEER_RATE_LIMITED', cred: null, st: 429 });
     // The bound is not a recorded field and cannot become one: the allowlist is closed, so nothing in
     // this process says which peers were shed.
     expect(Object.keys(entries.at(-1) ?? {}).sort()).toEqual([...ACCESS_RECORD_FIELDS].sort());
@@ -380,6 +388,51 @@ describe('the request bound a connection meets ahead of the crypto', () => {
     expect(JSON.stringify(entries)).not.toContain('198.51.100.');
     expect(JSON.stringify(entries)).not.toContain('127.0.0.1');
     await h.app.close();
+  });
+
+  it('answers the bound by its cover and records it by its reason, on one request', async () => {
+    // The whole design in one request: what the caller is told is `RATE_LIMITED`, the code a caller
+    // that catches one knows, and what the volume carries is `PEER_RATE_LIMITED`, the reason an
+    // operator needs to tell a guessing loop from a deployment behind one proxy. Both halves are read
+    // off the same request because they separate on the far side of one statement in `server.ts`, and
+    // a case that checked the answer and the record against different requests would pass with the two
+    // swapped for each other.
+    const h = await harness({
+      extra: [heldRecord({ perMinute: 60, burst: 60 })],
+      peerRate: { perMinute: 60, burst: 1 },
+    });
+    try {
+      const ask = () =>
+        h.app.inject({
+          method: 'GET',
+          url: WORK_ROUTE.url,
+          headers: h.signFor(GUESSED_NAME, 'GET', WORK_ROUTE.url, null, { key: FOREIGN_SECRET }),
+        });
+
+      // One token, spent by this request. It has to reach the signature check and be refused there,
+      // because otherwise the 429 below would only show that a bound of one sheds at some point rather
+      // than that the bucket emptied.
+      const admittedPastTheBound = await ask();
+      expect(admittedPastTheBound.statusCode, 'the first request is refused for its proof, not its rate').toBe(401);
+
+      const refused = await ask();
+      expect(refused.statusCode).toBe(429);
+      const body = JSON.parse(refused.payload) as { error?: { code?: string; message?: string } };
+      expect(body.error?.code, 'the answer names the limit and not the reason').toBe('RATE_LIMITED');
+      expect(body.error?.message).toContain('per connection address');
+      expect(Number(refused.headers['retry-after'])).toBeGreaterThanOrEqual(1);
+      // The leak this pins, stated where it would be seen: the reason appears in the payload nowhere,
+      // while `message` above carries the clause that says which bucket fired.
+      expect(refused.payload).not.toContain('PEER_RATE_LIMITED');
+
+      const entries = h.log.entries();
+      expect(entries).toHaveLength(2);
+      // No `cred` here, whatever the header wrote: the bound is taken ahead of the header being read,
+      // so the line records a reason and no name, which is the same fact the response states.
+      expect(entries.at(-1)).toMatchObject({ deny: 'PEER_RATE_LIMITED', cred: null, st: 429 });
+    } finally {
+      await h.app.close();
+    }
   });
 });
 
