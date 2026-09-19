@@ -65,6 +65,35 @@ function declaredCodes(): string[] {
   return unionMembers('AccessErrorCode', ACCESS_SOURCE);
 }
 
+/**
+ * What the access log is allowed to record beyond what a caller can be told. `unionMembers` reads
+ * quoted literals only, so it returns no member for the `AccessErrorCode` half of the log's type and
+ * what is left is exactly the vocabulary that is never in a reply.
+ */
+function reasonsNoCallerIsTold(): string[] {
+  const answers = new Set(declaredCodes());
+  return unionMembers('DenyCode', ACCESS_SOURCE).filter((code) => !answers.has(code));
+}
+
+/** Everything the log may write in its refusal field: the codes a caller catches, and the reasons. */
+function codesTheLogMayRecord(): string[] {
+  return [...declaredCodes(), ...reasonsNoCallerIsTold()];
+}
+
+/** The `deny` row's prose, which is the whole of what the field table says about refusals. */
+function denyRowProse(): string {
+  const [row] = tableRows(documentText(), FIELD_TABLE).filter((cells) => (cells[1] ?? '').replace(/`/gu, '') === 'deny');
+  if (row === undefined) throw new Error('the field table has no `deny` row for this to read');
+  // Everything from cell 2 on, rejoined: a row's prose is one markdown cell, and a stray pipe inside
+  // it would have to be reported as a broken table rather than silently truncate what is read.
+  return row.slice(2).join('|');
+}
+
+/** The codes a piece of prose names in backticks, in the shape this repository spells refusals. */
+function codesNamedIn(text: string): string[] {
+  return [...text.matchAll(/`([A-Z][A-Z0-9_]+)`/gu)].map((found) => found[1]!);
+}
+
 /** What `accessStatus` answers each declared code with, read off the map it reads. */
 function statusOfEachCode(): Map<string, number> {
   return new Map(literalEntries('ERROR_STATUS', ACCESS_SOURCE).map((entry) => [entry.key, Number(entry.value)]));
@@ -135,6 +164,27 @@ describe('docs/access-control.md', () => {
     expect(spelledNumber(stated?.[1] ?? ''), 'the count the sentence states').toBe(
       fieldsTheWriterEmits().length,
     );
+  });
+
+  it('names the reason a caller is never told, and names nothing the log cannot carry', () => {
+    // The field table is where a deployer reads what the `deny` field holds, and one of the values it
+    // holds exists to be read there and nowhere else. Both directions are needed: a reason missing from
+    // the row leaves a parser meeting a value on the volume that no document names, which is the failure
+    // this change invites by adding one; a value named in the row that the log's own type does not
+    // declare teaches a tool to expect a refusal nothing in this codebase ever writes.
+    const logOnly = reasonsNoCallerIsTold();
+    expect(
+      logOnly.length,
+      'the log records at least one reason no reply carries, which is the fact this row has to keep naming',
+    ).toBeGreaterThan(0);
+    const named = [...new Set(codesNamedIn(denyRowProse()))];
+    for (const reason of logOnly) {
+      expect(named, `the deny row has to name ${reason}`).toContain(reason);
+    }
+    expect(
+      named.filter((code) => !codesTheLogMayRecord().includes(code)),
+      'every code the deny row names is one the access log may record',
+    ).toEqual([]);
   });
 
   it('says that a check ahead of the credential file applies to every request whoever it names', () => {
