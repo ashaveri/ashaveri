@@ -350,19 +350,15 @@ describe('what the floor writes and does not write', () => {
   });
 
   it('writes the reason a collapsed refusal hides, beside the name it turned away', async () => {
-    // The caller and the line are meant to disagree here, and the disagreement was only half
-    // asserted before this case: the route matrix reads a response for a name the file does not
-    // carry and a written line for a name it carries as a bearer record, so no other cell holds
-    // both halves of one collapsed refusal. Had the handler copied the caller's code into the
-    // record instead of the code this gateway decided, a spike of invented names would read back to
-    // an operator as nothing but failed signatures, and only this pair would say so.
+    // The caller and the line are meant to disagree here. The route matrix already reads both halves
+    // for a name the file carries as a bearer record, and the store-level cases read the pair off the
+    // thrown error, so what this adds is the absent name seen through the handler rather than through
+    // the store: one request, the answer it gets and the reason the record keeps. Had the handler
+    // copied the caller's code into the record instead of the code this gateway decided, a spike of
+    // invented names would read back to an operator as nothing but failed signatures, and this is the
+    // cell that says so.
     const absentName = 'log-collapsed-absent';
-    const bearerName = 'log-collapsed-bearer';
-    const h = await harness({
-      extra: [newBearerCredential({ id: bearerName, scopes: [], now: CLOCK_SECONDS }).record],
-    });
-    // A name this file does not carry, and a name it carries as a bearer record with no key a proof
-    // can be checked against, are the two shapes the collapse answers alike.
+    const h = await harness();
     const absent = await h.inject({
       method: 'GET',
       url: '/v1/deployment-manifest',
@@ -376,20 +372,6 @@ describe('what the floor writes and does not write', () => {
       scope: null,
       st: 401,
       deny: 'AUTH_UNKNOWN',
-    });
-    const bearer = await h.inject({
-      method: 'GET',
-      url: '/v1/deployment-manifest',
-      headers: h.signFor(bearerName, 'GET', '/v1/deployment-manifest', null, { key: NOT_THE_RECORDS_KEY }),
-    });
-    expect(bearer.statusCode).toBe(401);
-    expect(denyCode(bearer.json), 'the answer to a bearer name').toBe('AUTH_SIGNATURE');
-    expect(h.log.entries().at(-1), 'the line for a bearer name').toMatchObject({
-      cred: bearerName,
-      auth: null,
-      scope: null,
-      st: 401,
-      deny: 'AUTH_SCHEME',
     });
     await h.app.close();
   });
