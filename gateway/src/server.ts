@@ -252,7 +252,9 @@ export function buildGateway(options: GatewayOptions): GatewayInstance {
       state.receiptId = admitted.receiptId;
     } catch (err) {
       if (!(err instanceof AccessError)) throw err;
-      state.deny = err.code;
+      // What this gateway decided, not what the caller was told: the two differ by design where a
+      // refusal is collapsed, and an operator reading a spike needs the reason and not the cover.
+      state.deny = err.logCode;
       if (state.credential === null) state.credential = err.credentialId ?? null;
       if (err.retryAfterSeconds !== undefined) reply.header('retry-after', String(err.retryAfterSeconds));
       await reply.code(err.status).send({ error: { message: err.message, type: 'authentication_error', code: err.code } });

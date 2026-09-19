@@ -255,27 +255,33 @@ const devCredential =
     : undefined;
 
 let access: CredentialStore;
-let loadedRecords: number;
 try {
   if (credentialsPath === undefined) {
     const records = devCredential === undefined ? [] : [devCredential.record];
-    loadedRecords = records.length;
     access = new CredentialStore({
       file: { version: CREDENTIALS_FILE_VERSION, credentials: records },
       allowBearer,
       toleranceSeconds,
     });
   } else {
-    // Read once here so a broken file is a refusal at start-up, then hand the store the path: a
-    // revocation that waits for a restart is not a revocation.
-    const parsed = await loadCredentialFile(credentialsPath);
-    loadedRecords = parsed.credentials.length;
+    // Read once here, before the store exists, so a path that is absent or a file that will not
+    // parse is a refusal at start-up rather than a process serving nobody: a reload keeps the
+    // records it already has, and one that has none has nothing to keep. Then hand the store the
+    // path and let it read the file for itself, because a revocation that waits for a restart is
+    // not a revocation.
+    await loadCredentialFile(credentialsPath);
     access = new CredentialStore({ path: credentialsPath, allowBearer, toleranceSeconds });
+    await access.reloadIfNeeded();
   }
 } catch (error) {
   if (error instanceof AccessError) fail(`--credentials-path ${error.message}`);
   throw error;
 }
+// The banner reports what this process installed, which is the store's own count and not the count
+// of the read above that checked the file and handed nothing over. The two agree on every file the
+// parser accepts, and the check is the point: a record the store refuses at ingest never becomes one
+// it serves, so the number an operator reads is the number admission can name.
+const loadedRecords = access.credentials().length;
 
 let accessLog: AccessLog;
 try {

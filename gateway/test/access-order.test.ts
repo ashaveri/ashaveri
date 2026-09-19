@@ -191,7 +191,13 @@ function popRequest(options: PopRequestOptions): AdmissionInput {
   return { method: options.method, url: options.url, headers, body: null, nowSeconds: NOW_SECONDS };
 }
 
-type Identity = 'known' | 'unknown' | 'revoked' | 'other-kind' | 'no-verifiable-key';
+/**
+ * Which record the probe's name resolves to. There is no state here for a `pop` record with no key
+ * of the width its kind needs: the store refuses one when it takes its records, so a case that
+ * wanted to stand for it would have no store to run against, and the refusal it used to pin is
+ * pinned at construction instead.
+ */
+type Identity = 'known' | 'unknown' | 'revoked' | 'other-kind';
 type Stamp = 'fresh' | 'stale';
 type NonceHeader = 'present' | 'absent';
 type Signature = 'valid' | 'forged';
@@ -240,24 +246,31 @@ function recordsFor(c: PopCase): CredentialRecord[] {
     ...generated.record,
     ...(c.identity === 'unknown' ? { id: 'someone-else' } : {}),
     ...(c.identity === 'revoked' ? { revokedAt: NOW_SECONDS - 1 } : {}),
-    ...(c.identity === 'no-verifiable-key' ? { publicKey: new Uint8Array(31) } : { publicKey: RECORD_PUBLIC_KEY }),
+    publicKey: RECORD_PUBLIC_KEY,
     rate: { perMinute: 60, burst: c.burst },
   };
   return [record];
 }
 
 /**
- * The five checks, in the order `admit` reaches them. This list is the claim: the first entry whose
- * condition holds is the code the client sees, and everything after it is not run.
+ * The checks, in the order `admit` reaches them. This list is the claim: the first entry whose
+ * condition holds is the code the client sees, and everything after it is not run. The two refusals
+ * a request is owed whoever it names sit above the credential lookup, so they lead this list. A name
+ * the file does not carry, a name carrying the other kind of record, and a signature that does not
+ * verify are one answer given by one code path, so they are one entry here and it sits where the
+ * signature has always sat; what the file says about a record whose key did verify starts at the
+ * entry below it. Nothing in this list turns on the shape of the record it found: a `pop` record
+ * carrying no key of the width its kind needs is refused where records enter the store, so no
+ * request this walk sends can meet a 500 that names one id and not another.
  */
 const CHECKS: ReadonlyArray<{ readonly code: string; readonly refuses: (c: PopCase) => boolean }> = [
-  { code: 'AUTH_UNKNOWN', refuses: (c) => c.identity === 'unknown' },
-  { code: 'AUTH_SCHEME', refuses: (c) => c.identity === 'other-kind' },
-  { code: 'AUTH_REVOKED', refuses: (c) => c.identity === 'revoked' },
-  { code: 'BAD_CREDENTIAL_RECORD', refuses: (c) => c.identity === 'no-verifiable-key' },
   { code: 'AUTH_STALE', refuses: (c) => c.stamp === 'stale' },
   { code: 'AUTH_NONCE_MISSING', refuses: (c) => c.nonceHeader === 'absent' },
-  { code: 'AUTH_SIGNATURE', refuses: (c) => c.signature === 'forged' },
+  {
+    code: 'AUTH_SIGNATURE',
+    refuses: (c) => c.identity === 'unknown' || c.identity === 'other-kind' || c.signature === 'forged',
+  },
+  { code: 'AUTH_REVOKED', refuses: (c) => c.identity === 'revoked' },
   { code: 'NONCE_SEEN', refuses: (c) => c.presentation === 'replayed' },
   { code: 'SCOPE_DENIED', refuses: (c) => c.target !== 'entitled' },
   { code: 'RATE_LIMITED', refuses: (c) => c.budget === 'exhausted' },
@@ -394,7 +407,7 @@ function runBearerCase(c: BearerCase, withProbe: boolean): PopRun {
   return { code, admitted };
 }
 
-const IDENTITIES: readonly Identity[] = ['known', 'unknown', 'revoked', 'other-kind', 'no-verifiable-key'];
+const IDENTITIES: readonly Identity[] = ['known', 'unknown', 'revoked', 'other-kind'];
 const STAMPS: readonly Stamp[] = ['fresh', 'stale'];
 const NONCE_HEADERS: readonly NonceHeader[] = ['present', 'absent'];
 const SIGNATURES: readonly Signature[] = ['valid', 'forged'];
@@ -1008,7 +1021,7 @@ describe('what the signature check answers when it cannot check', () => {
     );
   });
 
-  it('refuses a record whose key is the wrong width before it asks the verifier anything', () => {
+  it('refuses a record whose key is the wrong width where records enter the store', () => {
     const keyWidthArbitrary: fc.Arbitrary<number> = fc.oneof(fc.integer({ min: 0, max: 31 }), fc.integer({ min: 33, max: 96 }));
     check(keyWidthArbitrary, [0, 1, 31, 33, 64, 96], (width) => {
       const record: CredentialRecord = {
@@ -1016,16 +1029,14 @@ describe('what the signature check answers when it cannot check', () => {
         publicKey: new Uint8Array(width).fill(0xed),
         rate: { perMinute: 60, burst: 1 },
       };
-      const store = new CredentialStore({ file: { version: 1, credentials: [record] }, now: () => CLOCK_MS });
-      // The two refusals say different things, and only one of them is a gateway that kept its hands off
-      // the verifier: short bytes handed to the library would answer `AUTH_SIGNATURE` and blame the
-      // client's signature for the store's own record.
-      const code = observe(() =>
-        store.admit(
-          popRequest({ id: PROBE_ID, key: RECORD_SEED, ...WORK_ROUTE, nonce: nonceAt(43), stamp: 'fresh', withNonceHeader: true }),
-        ),
-      );
-      return code === 'BAD_CREDENTIAL_RECORD';
+      // The store refuses the record and the request is never asked. The claim this replaces was that
+      // `admit` answered `BAD_CREDENTIAL_RECORD` rather than letting the short bytes reach the
+      // verifier, where they would answer `AUTH_SIGNATURE` and blame a client's signature for the
+      // store's own record; that half still has to hold, and the only way to hold it without also
+      // giving one id a 500 and another a 401 is to refuse the record before any request names it.
+      // `admission.test.ts` pins the same refusal through the parser, which is where this rule came
+      // from: the bytes above are the file a deployment cannot load, handed in as an object.
+      return observe(() => new CredentialStore({ file: { version: 1, credentials: [record] }, now: () => CLOCK_MS })) === 'BAD_CREDENTIAL_RECORD';
     });
   });
 
@@ -1086,14 +1097,22 @@ const ANOTHER_NONCE = nonceAt(0x1431);
 const ZERO_SIGNATURE = new Uint8Array(64);
 const SATURATED_SIGNATURE = new Uint8Array(64).fill(0xff);
 
-/** The states `N` is put into: the record axis ranges over what the file says about it, not just whether it is there. */
-type ProbedState = 'live-pop' | 'revoked-pop' | 'bearer' | 'key-too-short' | 'small-order-key' | 'pop-with-secret-hash';
+/**
+ * The states `N` is put into: the record axis ranges over what the file says about it, not just
+ * whether it is there.
+ *
+ * A wrong-width key is not on this axis any more, because the store will not hold one: it is refused
+ * where records enter, so the state cannot be built and there is no answer for either store to
+ * disagree about. `pop-with-secret-hash` stays, and stays as it is written, because the field is the
+ * point: a file read from disk never carries it, so this is the state that asks whether the in-memory
+ * route holds the same record the parser would have produced.
+ */
+type ProbedState = 'live-pop' | 'revoked-pop' | 'bearer' | 'small-order-key' | 'pop-with-secret-hash';
 
 const PROBED_STATES: readonly ProbedState[] = [
   'live-pop',
   'revoked-pop',
   'bearer',
-  'key-too-short',
   'small-order-key',
   'pop-with-secret-hash',
 ];
@@ -1124,7 +1143,6 @@ function probedAs(state: ProbedState): Probed {
     rate: { perMinute: 60, burst: 8 },
     scopes: ALL_GRANTS,
     ...(state === 'revoked-pop' ? { revokedAt: NOW_SECONDS - 1 } : {}),
-    ...(state === 'key-too-short' ? { publicKey: new Uint8Array(31) } : {}),
     ...(state === 'small-order-key' ? { publicKey: new Uint8Array(32) } : {}),
     ...(state === 'pop-with-secret-hash' ? { secretHash: new Uint8Array(32) } : {}),
   };

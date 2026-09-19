@@ -446,6 +446,43 @@ describe('the flags that make the access floor real', () => {
     },
     12_000,
   );
+
+  // The count that line prints is the store's own, so this is the half that says where it came from:
+  // a file with two records in it is read once to check it and again by the store, and the banner
+  // reports what the store installed. The pair below is what makes the claim mean something - the
+  // same process on a file the store will not finish taking prints no banner at all, so the number
+  // cannot be a constant, a flag's presence, or a count of what survived.
+  it(
+    'reports the records the store installed, and refuses to boot on a file it cannot take',
+    () => {
+      const pop = newPopCredential({ id: 'banner-pop', scopes: ['read', 'complete'] });
+      const bearer = newBearerCredential({ id: 'banner-bearer', scopes: ['read'] });
+      const path = credentialFile(serializeCredentialFile({ version: 1, credentials: [pop.record, bearer.record] }));
+      const banner = runStopped('--mock', '--port', '0', '--credentials-path', path);
+      expect(
+        banner.some((each) => each.startsWith(`  credentials: 2 records read from ${path} at start-up`)),
+        banner.join('\n'),
+      ).toBe(true);
+
+      // A record whose key is a byte short of the width its kind needs: the parser refuses the file,
+      // which is the same rule the store applies to a file handed to it in memory, and start-up is
+      // where an operator reads it rather than a request that named the id.
+      const short = credentialFile(
+        serializeCredentialFile({
+          version: 1,
+          credentials: [
+            pop.record,
+            { id: 'banner-short', kind: 'pop', scopes: ['read'], createdAt: 1_772_000_000, publicKey: new Uint8Array(3) },
+          ],
+        }),
+      );
+      const refused = run('--mock', '--port', '0', '--credentials-path', short);
+      expect(refused.status, refused.stdout).not.toBe(0);
+      expect(refused.stderr).toMatch(/3 bytes, not 32/u);
+      expect(refused.stdout, 'a process that refused to boot printed a banner').not.toContain('listening on');
+    },
+    12_000,
+  );
 });
 
 /**

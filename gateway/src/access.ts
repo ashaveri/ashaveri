@@ -87,6 +87,14 @@ export function accessStatus(code: AccessErrorCode): number {
 
 export class AccessError extends Error {
   readonly code: AccessErrorCode;
+  /**
+   * The code the access log records, which is what this gateway decided, as distinct from `code`,
+   * which is what the caller is told. The two are the same value everywhere except where a refusal
+   * is collapsed: a name this file does not carry is answered to its caller as a failed signature,
+   * and an operator diagnosing a misconfigured client still needs to read that the name was unknown.
+   * Only the record differs; the status and the words the caller sees are the collapsed answer's.
+   */
+  readonly logCode: AccessErrorCode;
   readonly status: number;
   readonly retryAfterSeconds: number | undefined;
   /**
@@ -102,10 +110,17 @@ export class AccessError extends Error {
    */
   readonly detail: string | undefined;
 
-  constructor(code: AccessErrorCode, detail?: string, retryAfterSeconds?: number, credentialId?: string) {
+  constructor(
+    code: AccessErrorCode,
+    detail?: string,
+    retryAfterSeconds?: number,
+    credentialId?: string,
+    logCode?: AccessErrorCode,
+  ) {
     super(detail === undefined ? ERROR_MESSAGE[code] : `${ERROR_MESSAGE[code]}: ${detail}`);
     this.name = 'AccessError';
     this.code = code;
+    this.logCode = logCode ?? code;
     this.status = accessStatus(code);
     this.retryAfterSeconds = retryAfterSeconds;
     this.credentialId = credentialId;
@@ -817,17 +832,60 @@ function presentedNonce(headers: AdmissionInput['headers']): Uint8Array {
 }
 
 /**
- * The key a proof-of-possession record can be verified against, or nothing when it cannot. The
- * parser drops a stray `secretHash` beside a `pop` kind instead of refusing the record, and an
- * in-memory file never reaches that parser at all, so the store checks the shape it was handed: a
- * record whose key is the wrong width would otherwise fail the signature check and blame the client
- * for an edit to the operator's file.
+ * A record as the store holds it: the record `admit` reads, beside the one fact about it no request
+ * has to be refused for learning - the key a proof of possession verifies against. `null` is a
+ * record that carries no key because it is a bearer one, which after ingest is the only reason left
+ * for a name the file does hold to be answered as a failed signature.
  */
-function popPublicKeyOf(record: CredentialRecord): Uint8Array | undefined {
-  if (record.kind !== 'pop' || record.secretHash !== undefined) return undefined;
+interface Ingested {
+  readonly record: CredentialRecord;
+  readonly popKey: Uint8Array | null;
+}
+
+/**
+ * The one place a record becomes something this store serves. Both routes reach it: the in-memory
+ * file a test or `--mock` hands the constructor, and the disk read `reloadIfNeeded` installs. The
+ * shape of a record is therefore a fact about start-up rather than about a request, which is what
+ * `admit` needs: a refusal that answers 500 because of what a file says about one id is the most
+ * distinguishable answer in the whole set, and the collapse cannot keep it on the request path
+ * without keeping the question a prober asks with it.
+ *
+ * Both rules are taken from the parser rather than invented here, because an in-memory file never
+ * passes through it:
+ *
+ * - A `pop` record's `secretHash` is dropped. `parseRecord` reads that field only on its `bearer`
+ *   branch, so the same bytes on disk become a record that carries no such field, and only the
+ *   route that bypasses the parser could hold one. Clearing it here makes the two paths agree about
+ *   a policy the parser already has; the record is not repaired into anything the disk route would
+ *   not have produced, it becomes the record the disk route would have produced.
+ * - A `pop` record with no public key of the width its kind needs is refused, the way
+ *   `parseKeyField` refuses one read from a file. It is not repaired: a key of the wrong width is
+ *   the operator's file being wrong, and a store that served a different key than the record names
+ *   would be a worse fault than a boot that refuses.
+ *
+ * Refused at ingest means never served, so `BAD_CREDENTIAL_RECORD` cannot be produced by a request
+ * at all. The operator keeps the signal in the other direction: the message names the record, and
+ * start-up exits on it while a reload that hits one keeps serving the records it already had. The
+ * id is in that sentence because it is what a reader looks the file up by; on the disk route
+ * `parseRecord` has already refused an id outside the wire character set, and on the in-memory
+ * route the id is code the caller wrote rather than anything a request presented.
+ */
+function ingestCredential(record: CredentialRecord, index: number): Ingested {
+  if (record.kind !== 'pop') return { record, popKey: null };
   const key = record.publicKey;
-  if (key === undefined || key.length !== ED25519_PUBLIC_KEY_BYTES) return undefined;
-  return key;
+  if (key === undefined || key.length !== ED25519_PUBLIC_KEY_BYTES) {
+    refuse(
+      'BAD_CREDENTIAL_RECORD',
+      `credentials[${index}] ('${record.id}') is a 'pop' record carrying ${
+        key === undefined ? 'no publicKey' : `a ${key.length}-byte publicKey`
+      }, not the ${ED25519_PUBLIC_KEY_BYTES} bytes its kind has to be verified against`,
+    );
+  }
+  if (record.secretHash === undefined) return { record, popKey: key };
+  // A copy rather than an edit in place, because the record belongs to whoever handed it in:
+  // `--mock` and every test read back the records they built after the store has taken them.
+  const { secretHash: _unread, ...carried } = record;
+  return { record: carried, popKey: key };
 }
 
 /**
@@ -844,15 +902,29 @@ function bearerSecretHashOf(record: CredentialRecord): Uint8Array | undefined {
   return hash;
 }
 
+/**
+ * A key that is in no credential file, made once per process and never replaced. A request naming a
+ * record this file does not carry is verified against this one before it is refused, so the refused
+ * name and the refused signature run the same code path and perform the same single Ed25519
+ * verification, and the answer a prober gets is the answer a client with a broken signature gets.
+ *
+ * The verification's own verdict is never read. A zero signature against a constant 32-byte key
+ * verifies under the signing library's own defaults, because such a key is a point of small order,
+ * and what refuses it is `verifyPopSignature`'s width checks and its strict option. Reading a
+ * `true` from this path as permission to carry on, or reaching past that function for the library,
+ * would hand a caller who named nothing an accepted signature and re-open the question this path
+ * exists to close.
+ */
+const DUMMY_VERIFICATION_KEY = signingKeyFromSeed(randomBytes(ED25519_PUBLIC_KEY_BYTES)).publicKey;
+
 interface Located {
-  readonly presented: PopAuthorization;
   readonly record: CredentialRecord;
   readonly key: Uint8Array;
 }
 
 export class CredentialStore {
-  private file: CredentialFile;
-  private byId: Map<string, CredentialRecord>;
+  private file: CredentialFile = { version: CREDENTIALS_FILE_VERSION, credentials: [] };
+  private byId: Map<string, Ingested> = new Map();
   private readonly replay: ReplaySet;
   private readonly buckets = new TokenBucket();
   private readonly path?: string;
@@ -870,12 +942,22 @@ export class CredentialStore {
       throw new AccessError('BAD_CREDENTIAL_FILE', 'a store needs a path or an in-memory file');
     }
     this.path = options.path;
-    this.file = options.file ?? { version: CREDENTIALS_FILE_VERSION, credentials: [] };
-    this.byId = new Map(this.file.credentials.map((entry) => [entry.id, entry]));
+    this.install(options.file ?? { version: CREDENTIALS_FILE_VERSION, credentials: [] });
     this.allowBearer = options.allowBearer ?? false;
     this.toleranceSeconds = options.toleranceSeconds ?? POP_TIMESTAMP_TOLERANCE_SECONDS;
     this.now = options.now ?? (() => Date.now());
     this.replay = new ReplaySet(REPLAY_WINDOW_SECONDS, REPLAY_MAX_ENTRIES, this.now);
+  }
+
+  /**
+   * Take one parsed file as the records this store serves, through `ingestCredential`. Assignment
+   * happens only once every record has been ingested, so a file with one unusable record in it
+   * leaves the previously installed records in place rather than replacing them with a partial set.
+   */
+  private install(file: CredentialFile): void {
+    const ingested = file.credentials.map(ingestCredential);
+    this.file = { version: file.version, credentials: ingested.map((entry) => entry.record) };
+    this.byId = new Map(ingested.map((entry) => [entry.record.id, entry]));
   }
 
   credentials(): CredentialRecord[] {
@@ -886,9 +968,11 @@ export class CredentialStore {
    * Reload when the file changed. Revocation that waits for a restart is not revocation, so the
    * gateway checks the mtime and re-reads in the background; a request in flight uses the file as of
    * its start, which is the same guarantee a restart would give with worse latency for everyone
-   * else. A file that will not parse leaves the loaded records in place and the mtime unrecorded, so
-   * the next request tries again: the half-written file in the middle of an operator's edit is one
-   * failed reload rather than a deployment that has forgotten its credentials.
+   * else. A file that will not parse, or that parses into a record ingest refuses, leaves the loaded
+   * records in place and the mtime unrecorded, so the next request tries again: the half-written
+   * file in the middle of an operator's edit is one failed reload rather than a deployment that has
+   * forgotten its credentials. The failure is reported either way, because the records that stopped
+   * a reload from landing are the reason the operator has to read.
    */
   async reloadIfNeeded(): Promise<void> {
     const path = this.path;
@@ -906,8 +990,7 @@ export class CredentialStore {
     if (mtimeMs === this.watchedMtimeMs) return;
     this.reloading = (async () => {
       const next = await loadCredentialFile(path);
-      this.file = next;
-      this.byId = new Map(next.credentials.map((entry) => [entry.id, entry]));
+      this.install(next);
       this.watchedMtimeMs = mtimeMs;
     })();
     try {
@@ -918,12 +1001,14 @@ export class CredentialStore {
   }
 
   /**
-   * The five checks, cheapest rejection first: resolve the credential, prove the request holds the
-   * key that credential names, prove the request is new, prove the route is one it may use, then
-   * spend a token against its rate. The order is the contract rather than an optimization: a request
-   * that fails two of them reports the earlier one, so a revoked credential is never asked to sign
-   * anything and a credential with no scope for the route never spends budget it was not going to
-   * use.
+   * The checks, in the order the answers are safe to give. Name-independent refusals come first,
+   * cheapest first: the header the caller wrote, the stamp it carries, the nonce it presents. Among
+   * the name-dependent ones the only answer this gateway gives before a signature verifies is the
+   * answer that a signature did not verify, which is also the answer a name the file does not carry
+   * gets. What the file says about a credential it does hold - revoked, replayed, out of scope, over
+   * budget - is told to the one party who can act on it, the caller that proved it holds the key the
+   * header names. The order is therefore sorted by what it discloses rather than by what it costs,
+   * and a request that fails two checks still reports the earlier one.
    */
   admit(input: AdmissionInput): Admission {
     // The table read is the cheapest step, so it still runs first, but it answers only at the scope
@@ -945,13 +1030,15 @@ export class CredentialStore {
       }
       return this.admitBearer(secret, scope, input);
     }
-    const { presented, record, key } = this.locate(trimmed);
+    const presented = parseAuthorization(trimmed);
 
+    // Both of these read only what the caller wrote - the stamp in the header and the nonce beside it
+    // - so both are a statement about the request rather than about the file, and both are owed to
+    // every proof-of-possession request whoever it names. The nonce has to be read before the
+    // signature is checked anyway, because it is a term of the signing string.
     const nowSeconds = input.nowSeconds ?? Math.floor(this.now() / 1000);
     const skew = Math.abs(nowSeconds - presented.ts);
     if (skew > this.toleranceSeconds) {
-      // The id is already in hand from `locate`, and it goes on the refusal: a stale request is one
-      // from a credential this file knows, and a record that names none cannot be traced back to it.
       throw new AccessError(
         'AUTH_STALE',
         `the request is stamped ${skew}s from this clock, outside the ${this.toleranceSeconds}s tolerance: check the clock on the client or the deployment`,
@@ -959,7 +1046,6 @@ export class CredentialStore {
         presented.credential,
       );
     }
-
     const nonce = presentedNonce(input.headers);
     const fields: PopFields = {
       ts: presented.ts,
@@ -968,8 +1054,16 @@ export class CredentialStore {
       target: input.url,
       bodyDigestHex: bodyDigest(input.body),
     };
+
+    // A name the file does not carry, and a bearer record named by a proof-of-possession request,
+    // are both answered inside `locate`: one verification against a key that is in no file, then
+    // this refusal, whatever that verification answered.
+    const { record, key } = this.locate(presented, fields);
     if (!verifyPopSignature(fields, presented.signature, key)) {
       throw new AccessError('AUTH_SIGNATURE', presented.credential, undefined, presented.credential);
+    }
+    if (record.revokedAt !== undefined) {
+      throw new AccessError('AUTH_REVOKED', presented.credential, undefined, presented.credential);
     }
     if (this.replay.see(nonceKey(presented.credential, nonce))) {
       throw new AccessError('NONCE_SEEN', presented.credential, undefined, presented.credential);
@@ -980,32 +1074,42 @@ export class CredentialStore {
     return this.charge(presented.credential, record, scope, input, 'pop', nonce);
   }
 
-  /** Checks one and two of the pipeline: which record the header names, and whether it can be used. */
-  private locate(header: string): Located {
-    const presented = parseAuthorization(header);
-    const record = this.byId.get(presented.credential);
-    if (record === undefined) {
-      // This file carries no record under this id. That is not a collapse, and it is not meant to
-      // be: an id this store does carry is answered by `AUTH_SCHEME` or `AUTH_REVOKED` on the two
-      // checks that follow. A proof-of-possession holder keeps a usable key whichever answer comes
-      // back, so the one party who can act on a withdrawal is the one told. `bearerSecretHashOf`,
-      // above, records why the bearer scan collapses where this path does not.
-      throw new AccessError('AUTH_UNKNOWN', presented.credential, undefined, presented.credential);
+  /**
+   * The record a header names and the key it can be verified against. A name this file does not
+   * carry, and a name that carries a record of the other kind, are refused here through the dummy
+   * verification, so neither answer is distinguishable from a failed signature; the true reason
+   * survives only in the code the access log records. What the file says about a record it holds and
+   * can verify is withheld until the signature proves the caller holds the key.
+   *
+   * Nothing here refuses a record for its shape. `ingestCredential` took the keys this map holds and
+   * refused the ones it could not, so a `pop` name in it always has a key of the width the verifier
+   * needs, and the only reason left for a record to offer no key is that it is a bearer one. A
+   * refusal that answered 500 for one id and 401 for another is therefore not reachable from a
+   * request: what the file says about a record it holds is told to a caller that verified, and a
+   * record the file cannot be verified against never became part of the file.
+   */
+  private locate(presented: PopAuthorization, fields: PopFields): Located {
+    const held = this.byId.get(presented.credential);
+    if (held === undefined) {
+      throw this.collapsedRefusal(presented, fields, 'AUTH_UNKNOWN');
     }
-    if (record.kind !== 'pop') {
-      throw new AccessError('AUTH_SCHEME', `${presented.credential} is a bearer credential`, undefined, presented.credential);
+    if (held.popKey === null) {
+      throw this.collapsedRefusal(presented, fields, 'AUTH_SCHEME');
     }
-    if (record.revokedAt !== undefined) {
-      throw new AccessError('AUTH_REVOKED', presented.credential, undefined, presented.credential);
-    }
-    const key = popPublicKeyOf(record);
-    if (key === undefined) {
-      throw new AccessError(
-        'BAD_CREDENTIAL_RECORD',
-        `${presented.credential} carries no ${ED25519_PUBLIC_KEY_BYTES}-byte public key for its kind`,
-      );
-    }
-    return { presented, record, key };
+    return { record: held.record, key: held.popKey };
+  }
+
+  /**
+   * The refusal a caller who cannot be answered about the file gets, whether the name it wrote is
+   * absent or belongs to a record that offers no key to verify against: one verification, the same
+   * one every other proof-of-possession request performs, against a key no credential file holds,
+   * and then `AUTH_SIGNATURE` thrown for it unconditionally. Nothing here reads the verdict, because
+   * a verdict this store could act on would be an answer about the file, and the answer a caller who
+   * has proved nothing is owed is the one a caller with a bad signature already receives.
+   */
+  private collapsedRefusal(presented: PopAuthorization, fields: PopFields, logCode: AccessErrorCode): AccessError {
+    verifyPopSignature(fields, presented.signature, DUMMY_VERIFICATION_KEY);
+    return new AccessError('AUTH_SIGNATURE', presented.credential, undefined, presented.credential, logCode);
   }
 
   /**
@@ -1019,7 +1123,7 @@ export class CredentialStore {
    */
   private admitBearer(secret: string, scope: RouteScope | undefined, input: AdmissionInput): Admission {
     const wanted = hashSecret(new Uint8Array(Buffer.from(secret, 'base64url')));
-    for (const record of this.byId.values()) {
+    for (const { record } of this.byId.values()) {
       if (record.revokedAt !== undefined) continue;
       const stored = bearerSecretHashOf(record);
       if (stored === undefined || !constantTimeEquals(wanted, stored)) continue;
