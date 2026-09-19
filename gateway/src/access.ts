@@ -41,22 +41,11 @@ export type AccessErrorCode =
   | 'RATE_LIMITED';
 
 /**
- * What the access log records: every code a caller can be told, plus the reasons that never leave
- * this process.
- *
- * The second half is the reason the type exists. `AccessErrorCode` is the vocabulary a caller
- * catches, and three things are keyed on it exactly: `ERROR_STATUS` and `ERROR_MESSAGE` below, which
- * would fail to compile over a member with no answer to give, and the caller-facing table this
- * repository documents and holds to that union row for row. A reason that only the deployer's volume
- * carries belongs to none of them, so it gets a type of its own rather than a status it never answers
- * with and a sentence no caller is ever read.
- *
- * What this does not do is keep a log-only reason out of a response. Nothing about the type stops
- * `server.ts` from sending `logCode` where it sends `code`; the boundary is that one line, and the
- * tests that pin a throttled request's answer beside its written line are what hold it. What would
- * slip past unremarked is a client handed a code no contract declares and no document tells it to
- * catch, which is the first step on the way to a caller branching on what this process decided
- * internally rather than on what it is owed.
+ * What the access log records: every code a caller can be told, plus the reasons that never leave this
+ * process. `AccessErrorCode` has three things keyed on it, `ERROR_STATUS` and `ERROR_MESSAGE` below and
+ * the caller-facing table `docs/error-codes.md` holds row for row, so a reason only the deployer ever
+ * reads gets a type of its own rather than a status it never answers with and a sentence no caller is
+ * ever told. Nothing here keeps such a reason out of a response, and `server.ts` says what does.
  */
 export type DenyCode = AccessErrorCode | 'PEER_RATE_LIMITED';
 
@@ -114,12 +103,10 @@ export class AccessError extends Error {
    * The code the access log records, which is what this gateway decided, as distinct from `code`,
    * which is what the caller is told. The two are the same value everywhere except where a refusal is
    * collapsed: a name this file does not carry is answered to its caller as a failed signature, and an
-   * operator diagnosing a misconfigured client still needs to read that the name was unknown. The one
-   * place they differ without one being cover for the other is the connection's rate bound: it answers
-   * `RATE_LIMITED`, in the same words the credential's bucket uses, and writes `PEER_RATE_LIMITED`,
-   * because what differs between those two refusals is the operator's fix and not the client's, which
-   * is to wait either way. Either way it is the record that differs: the status and the words the
-   * caller sees are `code`'s.
+   * operator diagnosing a misconfigured client still needs to read that the name was unknown. The other
+   * way they differ, where neither is cover for the other, is the connection's rate bound, and
+   * `chargePeer` says why that one splits. Either way it is the record that differs: the status and the
+   * words the caller sees are `code`'s.
    */
   readonly logCode: DenyCode;
   readonly status: number;
@@ -1269,13 +1256,8 @@ export class CredentialStore {
    * and that they are inside it, which is a fact about this deployment rather than about an id.
    *
    * The answer's uniformity is one thing and the reason another. Two incidents reach this line and want
-   * opposite fixes - one client asking too much of one address, and one deployment whose whole
-   * population shares a proxy - and the record separates them where the answer does not: this refusal
-   * writes `PEER_RATE_LIMITED` and its caller is told `RATE_LIMITED`, in the same words the
-   * credential's bucket uses. A line holds no refusal message, so a counted `deny` value is the shape
-   * the distinction takes for whoever reads the volume. Keeping the reason out of the answer is what
-   * keeps `AccessErrorCode` the whole of what a caller can be told, which is the property the collapse,
-   * the status map and the caller-facing table each rest on.
+   * opposite fixes, one client asking too much of one address and one deployment whose whole population
+   * shares a proxy, and the record separates them where the answer must not.
    *
    * The bucket is in memory, is never written to disk, and does not outlive the process. It is not a
    * field of the access record and cannot become one: the log's allowlist is closed, and an ephemeral
@@ -1293,15 +1275,8 @@ export class CredentialStore {
     if (!taken.allowed) {
       // The detail says which bucket fired, because the retry differs: waiting refills this one, and a
       // different credential would not. It names no credential, since the caller has proved nothing,
-      // and no address, since the response is not where a connection learns its own number.
-      //
-      // The fifth argument is the whole of the separation, and it is the only argument here that never
-      // reaches a caller. `server.ts` writes this value into the record and writes `code` into the body;
-      // `PEER_RATE_LIMITED` is in no status map, no message map and no caller-facing table, so a
-      // response carrying it would hand out a code nothing in this repository declares. The answer is
-      // `RATE_LIMITED` with its 429 and its `retry-after` for exactly that reason, and
-      // `test/peer-throttle.test.ts` pins the pair on one request: the day the log-only half reaches a
-      // response, a run says so rather than a reader noticing.
+      // and no address, since the response is not where a connection learns its own number. The fifth
+      // argument is the reason that stays inside, for the reason the note above gives.
       throw new AccessError(
         'RATE_LIMITED',
         'this is the request bound held per connection address, ahead of any credential',
