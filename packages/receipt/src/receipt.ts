@@ -67,8 +67,46 @@ export interface TokenMetering {
   c: number;
 }
 
-export interface ReceiptPayload {
-  v: 1;
+/**
+ * The payload versions this package reads. `2` exists because of what `mk` attests: a v1 reader
+ * checks thirteen fields, finds nothing about a mark, and would verify a receipt over an unmarked
+ * response as readily as over a marked one, which is silence read as a claim.
+ */
+export type ReceiptVersion = 1 | 2;
+
+function isReceiptVersion(value: unknown): value is ReceiptVersion {
+  return value === 1 || value === 2;
+}
+
+/**
+ * A label from the marking-scheme registry.
+ *
+ * `none` declares that no region of the response is marked, and `provenance-v1` names the extractor
+ * rule for the member the design settles on. Which of the two a receipt attests is a value of the
+ * field either way, so unmarked and undecided are different bytes.
+ */
+export type MarkingScheme = 'none' | 'provenance-v1';
+
+/**
+ * The registry this package can interpret, which is the whole set today. A label outside it is a
+ * refusal rather than a best guess, because reading a region under another scheme's rule is the
+ * scheme-confusion failure and this is the code that answers it.
+ */
+function isMarkingScheme(value: string): value is MarkingScheme {
+  return value === 'none' || value === 'provenance-v1';
+}
+
+export interface Marking {
+  sch: MarkingScheme;
+  /** sha256 of the marked region exactly as it appears in the response, not of the whole response. */
+  d: Uint8Array;
+}
+
+/**
+ * The twelve fields every receipt carries, named once so that v2 being v1 plus one member is a
+ * fact of the type rather than a second copy that can drift out of step with the first.
+ */
+interface ReceiptFields {
   iss: string;
   ins: string;
   iat: number;
@@ -83,6 +121,17 @@ export interface ReceiptPayload {
   tok: TokenMetering;
 }
 
+export interface ReceiptPayloadV1 extends ReceiptFields {
+  v: 1;
+}
+
+export interface ReceiptPayloadV2 extends ReceiptFields {
+  v: 2;
+  mk: Marking;
+}
+
+export type ReceiptPayload = ReceiptPayloadV1 | ReceiptPayloadV2;
+
 export interface VerifyOptions {
   publicKey?: Uint8Array;
   resolveKey?: (kid: Uint8Array) => Uint8Array | undefined;
@@ -90,6 +139,13 @@ export interface VerifyOptions {
   now?: number;
   freshnessSeconds?: number;
   evidenceFreshnessSeconds?: number;
+  /**
+   * Which payload versions this call accepts, defaulting to every version this package parses.
+   * The default is deliberately the wide one: narrowing to `[1]` is how a caller refuses a marked
+   * receipt on purpose, and it must not be the setting a caller gets for free the day a
+   * deployment starts marking.
+   */
+  acceptedVersions?: readonly ReceiptVersion[];
 }
 
 export interface VerifiedReceipt {
@@ -102,89 +158,134 @@ function isUint8Array(v: unknown): v is Uint8Array {
   return v instanceof Uint8Array;
 }
 
-function parsePayload(bytes: Uint8Array): ReceiptPayload {
-  const bad = (detail: string): ReceiptError => new ReceiptError('BAD_PAYLOAD', detail);
-  const raw = decodedMap(decodeCanonical(bytes, 'BAD_PAYLOAD'));
-  if (raw === null) throw bad('payload is not a map');
-  if (raw.get('v') !== 1) throw bad('v must be 1');
+function badPayload(detail: string): ReceiptError {
+  return new ReceiptError('BAD_PAYLOAD', detail);
+}
+
+/**
+ * The versions a call accepts when it did not say. It is the set this package parses, spelled out
+ * rather than derived, so widening what this package can read is a decision someone has to make
+ * twice.
+ */
+const ACCEPTED_BY_DEFAULT: readonly ReceiptVersion[] = [1, 2];
+
+/**
+ * Which version the bytes claim, settled before a single field is read. A member that is not an
+ * integer at all is a malformed payload rather than a version; an integer this package cannot read
+ * and one the caller did not accept are answered alike, because which of the two it was is not a
+ * fact about the bytes, and a second code would let a caller probe where the boundary sits.
+ */
+function claimedVersion(value: unknown, accepted: readonly ReceiptVersion[]): ReceiptVersion {
+  if (typeof value !== 'number' || !Number.isInteger(value)) throw badPayload('v must be an integer receipt version');
+  if (!isReceiptVersion(value)) {
+    throw new ReceiptError('UNSUPPORTED_VERSION', `receipt payload version ${value} is not a format this package reads`);
+  }
+  if (!accepted.includes(value)) {
+    throw new ReceiptError('UNSUPPORTED_VERSION', `receipt payload version ${value} is not in acceptedVersions`);
+  }
+  return value;
+}
+
+/** The twelve members every version carries, checked in the order the CDDL lists them. */
+function readReceiptFields(raw: Map<unknown, unknown>): ReceiptFields {
   const iss = raw.get('iss');
-  if (typeof iss !== 'string') throw bad('iss must be a tstr');
+  if (typeof iss !== 'string') throw badPayload('iss must be a tstr');
   const ins = raw.get('ins');
-  if (typeof ins !== 'string') throw bad('ins must be a tstr');
+  if (typeof ins !== 'string') throw badPayload('ins must be a tstr');
   const iat = raw.get('iat');
-  if (typeof iat !== 'number' || !Number.isSafeInteger(iat) || iat < 0) throw bad('iat must be a non-negative integer');
+  if (typeof iat !== 'number' || !Number.isSafeInteger(iat) || iat < 0) throw badPayload('iat must be a non-negative integer');
   const nce = raw.get('nce');
-  if (!isUint8Array(nce) || nce.length !== 16) throw bad('nce must be a 16-byte bstr');
+  if (!isUint8Array(nce) || nce.length !== 16) throw badPayload('nce must be a 16-byte bstr');
   const req = raw.get('req');
-  if (!isUint8Array(req) || req.length !== 32) throw bad('req must be a 32-byte bstr');
+  if (!isUint8Array(req) || req.length !== 32) throw badPayload('req must be a 32-byte bstr');
   const res = raw.get('res');
-  if (!isUint8Array(res) || res.length !== 32) throw bad('res must be a 32-byte bstr');
+  if (!isUint8Array(res) || res.length !== 32) throw badPayload('res must be a 32-byte bstr');
   const mdl = raw.get('mdl');
-  if (typeof mdl !== 'string') throw bad('mdl must be a tstr');
+  if (typeof mdl !== 'string') throw badPayload('mdl must be a tstr');
   const wts = raw.get('wts');
-  if (!isUint8Array(wts) || wts.length !== 32) throw bad('wts must be a 32-byte bstr');
+  if (!isUint8Array(wts) || wts.length !== 32) throw badPayload('wts must be a 32-byte bstr');
   const meas = decodedMap(raw.get('meas'));
-  if (meas === null) throw bad('meas must be a map');
+  if (meas === null) throw badPayload('meas must be a map');
   const tee = meas.get('tee');
-  if (!isTeeKind(tee)) throw bad('meas.tee is not a known environment kind');
+  if (!isTeeKind(tee)) throw badPayload('meas.tee is not a known environment kind');
   const m = meas.get('m');
   const width = MEASUREMENT_BYTES[tee];
   if (!isUint8Array(m) || m.length !== width) {
-    throw bad(`meas.m must be a ${width}-byte bstr for tee '${tee}'`);
+    throw badPayload(`meas.m must be a ${width}-byte bstr for tee '${tee}'`);
   }
   const att = decodedMap(raw.get('att'));
-  if (att === null) throw bad('att must be a map');
+  if (att === null) throw badPayload('att must be a map');
   const d = att.get('d');
-  if (!isUint8Array(d) || d.length !== 32) throw bad('att.d must be a 32-byte bstr');
+  if (!isUint8Array(d) || d.length !== 32) throw badPayload('att.d must be a 32-byte bstr');
   const ts = att.get('ts');
-  if (typeof ts !== 'number' || !Number.isSafeInteger(ts) || ts < 0) throw bad('att.ts must be a non-negative integer');
+  if (typeof ts !== 'number' || !Number.isSafeInteger(ts) || ts < 0) throw badPayload('att.ts must be a non-negative integer');
   const url = att.get('url');
-  if (typeof url !== 'string') throw bad('att.url must be a tstr');
+  if (typeof url !== 'string') throw badPayload('att.url must be a tstr');
   const epk = raw.get('epk');
-  if (typeof epk !== 'number' || !Number.isSafeInteger(epk) || epk < 0) throw bad('epk must be a non-negative integer');
+  if (typeof epk !== 'number' || !Number.isSafeInteger(epk) || epk < 0) throw badPayload('epk must be a non-negative integer');
   const tok = decodedMap(raw.get('tok'));
-  if (tok === null) throw bad('tok must be a map');
+  if (tok === null) throw badPayload('tok must be a map');
   const p = tok.get('p');
-  if (typeof p !== 'number' || !Number.isSafeInteger(p) || p < 0) throw bad('tok.p must be a non-negative integer');
+  if (typeof p !== 'number' || !Number.isSafeInteger(p) || p < 0) throw badPayload('tok.p must be a non-negative integer');
   const c = tok.get('c');
-  if (typeof c !== 'number' || !Number.isSafeInteger(c) || c < 0) throw bad('tok.c must be a non-negative integer');
-  return {
-    v: 1,
-    iss,
-    ins,
-    iat,
-    nce,
-    req,
-    res,
-    mdl,
-    wts,
-    meas: { tee, m },
-    att: { d, ts, url },
-    epk,
-    tok: { p, c },
-  };
+  if (typeof c !== 'number' || !Number.isSafeInteger(c) || c < 0) throw badPayload('tok.c must be a non-negative integer');
+  return { iss, ins, iat, nce, req, res, mdl, wts, meas: { tee, m }, att: { d, ts, url }, epk, tok: { p, c } };
+}
+
+/**
+ * `mk` is required, so an absent one is a payload failure and never a reading of "unmarked": the
+ * silence would be indistinguishable from "this receipt predates marking", which is exactly the
+ * claim a reader must not be able to make. Unmarked is `sch: "none"`, and only the verification
+ * step that holds the response bytes can say whether its digest of the empty region agrees.
+ */
+function readMarking(raw: Map<unknown, unknown>): Marking {
+  const value = raw.get('mk');
+  if (value === undefined) throw badPayload('v2 requires an mk member; absence is mk.sch "none", not a missing mk');
+  const mk = decodedMap(value);
+  if (mk === null) throw badPayload('mk must be a map');
+  const sch = mk.get('sch');
+  if (typeof sch !== 'string') throw badPayload('mk.sch must be a tstr');
+  if (!isMarkingScheme(sch)) {
+    throw new ReceiptError('UNSUPPORTED_SCHEME', `marking scheme '${sch}' is not one this package can interpret`);
+  }
+  const d = mk.get('d');
+  if (!isUint8Array(d) || d.length !== 32) throw badPayload('mk.d must be a 32-byte bstr');
+  return { sch, d };
+}
+
+function parsePayload(bytes: Uint8Array, accepted: readonly ReceiptVersion[]): ReceiptPayload {
+  const raw = decodedMap(decodeCanonical(bytes, 'BAD_PAYLOAD'));
+  if (raw === null) throw badPayload('payload is not a map');
+  const version = claimedVersion(raw.get('v'), accepted);
+  const fields = readReceiptFields(raw);
+  if (version === 2) return { v: 2, ...fields, mk: readMarking(raw) };
+  return { v: 1, ...fields };
 }
 
 export function encodePayload(payload: ReceiptPayload): Uint8Array {
   // Maps (not plain objects) so key ordering is bytewise per RFC 8949 CDE,
   // independent of any TS field ordering.
-  return encodeCanonical(
-    new Map<string, unknown>([
-      ['v', payload.v],
-      ['iss', payload.iss],
-      ['ins', payload.ins],
-      ['iat', payload.iat],
-      ['nce', payload.nce],
-      ['req', payload.req],
-      ['res', payload.res],
-      ['mdl', payload.mdl],
-      ['wts', payload.wts],
-      ['meas', new Map<string, unknown>([['tee', payload.meas.tee], ['m', payload.meas.m]])],
-      ['att', new Map<string, unknown>([['d', payload.att.d], ['ts', payload.att.ts], ['url', payload.att.url]])],
-      ['epk', payload.epk],
-      ['tok', new Map<string, unknown>([['p', payload.tok.p], ['c', payload.tok.c]])],
-    ]),
-  );
+  const fields: Array<readonly [string, unknown]> = [
+    ['v', payload.v],
+    ['iss', payload.iss],
+    ['ins', payload.ins],
+    ['iat', payload.iat],
+    ['nce', payload.nce],
+    ['req', payload.req],
+    ['res', payload.res],
+    ['mdl', payload.mdl],
+    ['wts', payload.wts],
+    ['meas', new Map<string, unknown>([['tee', payload.meas.tee], ['m', payload.meas.m]])],
+    ['att', new Map<string, unknown>([['d', payload.att.d], ['ts', payload.att.ts], ['url', payload.att.url]])],
+    ['epk', payload.epk],
+    ['tok', new Map<string, unknown>([['p', payload.tok.p], ['c', payload.tok.c]])],
+  ];
+  // Only a v2 document gains the member, so the bytes a v1 payload encodes to are exactly the
+  // bytes it encoded to before `mk` existed and stay signed by a verifier that never heard of it.
+  if (payload.v === 2) {
+    fields.push(['mk', new Map<string, unknown>([['sch', payload.mk.sch], ['d', payload.mk.d]])]);
+  }
+  return encodeCanonical(new Map(fields));
 }
 
 export function issueReceipt(payload: ReceiptPayload, key: SigningKey): Uint8Array {
@@ -197,9 +298,15 @@ export function issueReceipt(payload: ReceiptPayload, key: SigningKey): Uint8Arr
   return signCoseSign1(encodePayload(payload), key);
 }
 
-export function decodeReceipt(bytes: Uint8Array): VerifiedReceipt {
+/**
+ * Reads a receipt's payload without checking its signature: this is how a document is inspected
+ * before anyone has decided to trust it. It takes the same version narrowing as verification, so a
+ * caller that has decided not to read a version hears that refusal whichever way it opens bytes.
+ */
+export function decodeReceipt(bytes: Uint8Array, options?: VerifyOptions): VerifiedReceipt {
   const cose = decodeCoseSign1(bytes);
-  return { payload: parsePayload(cose.payloadBytes), header: cose.header, cose };
+  const payload = parsePayload(cose.payloadBytes, options?.acceptedVersions ?? ACCEPTED_BY_DEFAULT);
+  return { payload, header: cose.header, cose };
 }
 
 export function verifyReceipt(bytes: Uint8Array, options: VerifyOptions): VerifiedReceipt {
@@ -214,7 +321,9 @@ export function verifyReceipt(bytes: Uint8Array, options: VerifyOptions): Verifi
   } else {
     throw new ReceiptError('UNKNOWN_KEY', 'no publicKey or resolveKey provided');
   }
-  const payload = parsePayload(cose.payloadBytes);
+  // After the signature check, so a document nobody has signed cannot get a version answer out of
+  // this package at all.
+  const payload = parsePayload(cose.payloadBytes, options.acceptedVersions ?? ACCEPTED_BY_DEFAULT);
 
   if (options.expectedNonce && !equalBytes(payload.nce, options.expectedNonce)) {
     throw new ReceiptError('NONCE_MISMATCH');

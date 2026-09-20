@@ -86,8 +86,8 @@ describe('docs/error-codes.md', () => {
     ]);
   });
 
-  it('keeps the shared string down to the one the document explains', () => {
+  it('keeps the shared strings down to the ones the document explains', () => {
     const shared = [...distinctCodes].filter((code) => allCodes.filter((each) => each === code).length > 1);
-    expect(shared).toEqual(['UNSUPPORTED_PLATFORM']);
+    expect([...shared].sort()).toEqual(['UNSUPPORTED_PLATFORM', 'UNSUPPORTED_VERSION']);
   });
 });

@@ -1,9 +1,9 @@
 # Error codes
 
 Every error code this workspace raises, what condition raises it, and what a caller should do
-about it. There are 100 declarations across seven unions, resolving to 99 distinct strings;
-`UNSUPPORTED_PLATFORM` is the one string two unions share, and the last section
-says why that pair is deliberate while every other overlap is not.
+about it. There are 103 declarations across seven unions, resolving to 101 distinct strings;
+`UNSUPPORTED_PLATFORM` and `UNSUPPORTED_VERSION` are the two strings two unions share, and the last
+section says why those pairs are deliberate while every other overlap is not.
 
 Codes are stable identifiers. Messages are not: each is a fixed sentence plus whatever the raise
 site knew, so the detail reads differently for a quote than for a certificate. Branch on `code`.
@@ -43,7 +43,10 @@ The seven unions:
 | `NONCE_MISMATCH` | `ReceiptErrorCode` | `nce` differs from the client nonce the caller expected | Refuse; the receipt answers a different request than the one sent | terminal |
 | `STALE_RECEIPT` | `ReceiptErrorCode` | `iat` is outside `freshnessSeconds` of the verification time, in either direction; `@ashaveri/sdk` supplies a 300-second window for that option whenever the caller verified against a policy | Refuse for this receipt; a new request gets a fresh `iat` | terminal |
 | `STALE_EVIDENCE` | `ReceiptErrorCode` | `att.ts` is outside `evidenceFreshnessSeconds` of the verification time, in either direction; `@ashaveri/sdk` supplies a 900-second window for that option whenever the caller verified against a policy | Refuse; the platform evidence the receipt commits to has aged out. Re-attest, or widen the window deliberately for an archive | terminal |
-| `BAD_PAYLOAD` | `ReceiptErrorCode` | A payload field is missing, mis-typed, or has a version other than 1; also a measurement whose width disagrees with its kind, at issue time | Refuse; a signed garbage payload is still garbage | terminal |
+| `UNSUPPORTED_VERSION` | `ReceiptErrorCode` | The payload's `v` is an integer this package cannot parse, or one the caller's `acceptedVersions` did not accept. The two are one answer, because which of them it was is not a property of the bytes and a second code would let a caller probe the boundary. A `v` that is not an integer at all is a malformed payload, so it is `BAD_PAYLOAD` | Refuse; this is not a receipt this verifier was told to read. A caller that means to take only one version narrows `acceptedVersions`; nothing re-asks with the other | terminal |
+| `BAD_PAYLOAD` | `ReceiptErrorCode` | A payload field is missing or mis-typed: a `v` that is not an integer, a `v: 2` document with no `mk`, a member the format makes a map and is not one, an integer where the format promises a non-negative one. Also a measurement whose width disagrees with its kind, at issue time | Refuse; a signed garbage payload is still garbage | terminal |
+| `UNSUPPORTED_SCHEME` | `ReceiptErrorCode` | `mk.sch` names a marking scheme outside the registry this package reads, which holds `none` and `provenance-v1`. A label the reader cannot interpret is refused rather than guessed at, because reading a region under another scheme's extraction rule is the confusion this code is the answer to | Refuse; the receipt attests a mark this verifier cannot look for, and nothing about the region is inferred from a label it does not know | terminal |
+| `MARK_MISMATCH` | `ReceiptErrorCode` | `sha256` of the marked region, taken by the extraction rule `mk.sch` names, does not equal the `d` this receipt signed. Its raise site is a reader holding the response bytes: neither `verifyReceipt` nor `decodeReceipt` reaches it, because neither is handed the stream the region is carved out of | Refuse; the response carries a mark that is not the one the receipt attests. Deleting the mark is a different failure and announces itself as the response no longer hashing to `res` | terminal |
 | `BAD_SIGNING_KEY` | `ReceiptErrorCode` | A signing seed handed to `signingKeyFromSeed` is not 32 bytes | Fix the key material; nothing was signed | terminal |
 | `BAD_POP_HEADER` | `ReceiptErrorCode` | A header that does name `Ashaveri-PoP` is missing `credential`, `ts` or `sig`, repeats a parameter, carries one the format does not define, holds a piece that is not a `name=value` pair, carries a credential id outside the character set the wire allows, or holds a `ts` or signature outside the width the format allows | Fix the client. The request was not admitted, and the same header will fail the same way | terminal |
 | `BAD_POP_NONCE` | `ReceiptErrorCode` | The nonce handed to `signPopAuthorization` is not `POP_NONCE_BYTES` long | Fix the nonce before signing. No signature was made, so nothing left the client | terminal |
@@ -211,9 +214,18 @@ platform kind neither layer can handle, seen from the verifier and from the depl
 it onto attest-core's spelling costs a search and replace while nothing is published, and after
 the first publish it would cost a deprecation cycle.
 
+`UNSUPPORTED_VERSION` is the second pair, and it is the same shape of claim: a document whose
+declared version this reader cannot interpret, once in a receipt payload and once in a platform
+evidence envelope. Neither answer depends on the other layer's vocabulary, because both are a
+refusal to read the document rather than a verdict on a field of it, and a caller that caught two
+names for that branch would do the one thing either way: refuse, and say which reader refused. The
+receipt's own message says payload and attest-core's says attestation, so a log line that carries
+the message still names its layer even where the code does not.
+
 ## Keeping this file true
 
 `packages/fixtures/test/error-codes.test.ts` reads the seven unions out of source and checks them
-against this file: every declared code has exactly one row, every code in a row is declared, and
-the counts in the opening paragraph agree. A new code with no row fails CI, which is the only
+against this file: every declared code has exactly one row, every code in a row is declared, the
+counts in the opening paragraph agree, and the only strings two unions share are the two this
+section explains. A new code with no row fails CI, which is the only
 reason a reference table like this one stays correct after its first month.

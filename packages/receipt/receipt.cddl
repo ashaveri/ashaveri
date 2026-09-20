@@ -15,7 +15,13 @@ Ashaveri-Protected-Header = {
     3: "ashaveri/receipt",    ; typ
 }
 
-Ashaveri-Receipt-Payload = {
+; A receipt's version says what its fields attest, not which software wrote them. v2 is v1's
+; thirteen fields plus `mk`, and a v1 reader that ignored the addition would verify a receipt
+; whose response carries no mark while its holder believed it carried one. Silence must not read
+; as compliance, so the mark is a new version rather than an optional member of v1.
+Ashaveri-Receipt-Payload = Ashaveri-Receipt-Payload-v1 / Ashaveri-Receipt-Payload-v2
+
+Ashaveri-Receipt-Payload-v1 = {
     v: 1,                     ; format version
     iss: tstr,                ; deployment id (dStack compose-hash prefix)
     ins: tstr,                ; CVM instance id
@@ -29,6 +35,23 @@ Ashaveri-Receipt-Payload = {
     att: EvidenceRef,
     epk: int,                 ; signing-key epoch
     tok: TokenMetering,
+}
+
+Ashaveri-Receipt-Payload-v2 = {
+    v: 2,                     ; format version
+    ; every v: 1 field, unchanged in name, order, width and meaning:
+    iss: tstr, ins: tstr, iat: int, nce: bstr .size 16,
+    req: bstr .size 32, res: bstr .size 32, mdl: tstr, wts: bstr .size 32,
+    meas: Measurement, att: EvidenceRef, epk: int, tok: TokenMetering,
+    mk: Marking,              ; required: v2 attests that marking was considered
+}
+
+; Absence is declared here rather than inferred from a missing member: `sch: "none"` carries the
+; digest of the empty region, so `mk` is never optional and a reader never has to decide what an
+; omitted field meant.
+Marking = {
+    sch: "none" / tstr,       ; a label from the marking-scheme registry
+    d: bstr .size 32,         ; sha256 of the marked region, exactly as it appears in the response
 }
 
 Measurement = {
