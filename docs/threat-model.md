@@ -287,9 +287,10 @@ What is still true, in both modes:
   the two clients here do with the shapes a mark could take is measured, in
   `packages/sdk/test/unknown-response-members.test.ts`: a buffered completion carrying one top-level
   member no chat completion schema declares reaches the official OpenAI client and this SDK with that
-  member intact, on the object a caller holds and on the bytes it re-serialises, and a streamed
-  response carrying the same member on a final chunk whose `choices` is empty reaches both the raw
-  iterator and the official accumulator the same way. A `data:` frame that is neither a chunk nor the
+  member intact on the object each hands its caller, and it is intact in the official client's
+  re-serialised bytes too, which is the only re-serialisation measured here. A streamed response
+  carrying the same member on a final chunk whose `choices` is empty reaches both the raw iterator
+  and the official accumulator the same way. A `data:` frame that is neither a chunk nor the
   `[DONE]` sentinel is the shape neither reader gets through unharmed: the official client hands the
   frame to an iterator that is not looking inside it, and stops the moment a consumer adds the stream
   up, with `chunk.choices is not iterable` after the content chunks have already been delivered, while
