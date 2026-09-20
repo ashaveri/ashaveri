@@ -81,21 +81,27 @@ const SCENARIOS: readonly Scenario[] = [
   },
 ];
 
-function decodeFrames(image: Uint8Array): Uint8Array[] {
+/** One frame of a file image, beside the offset the file puts it at. */
+interface Framed {
+  readonly offset: number;
+  readonly frame: Uint8Array;
+}
+
+function decodeFrames(image: Uint8Array): Framed[] {
   const view = Buffer.from(image);
-  const out: Uint8Array[] = [];
+  const out: Framed[] = [];
   let offset = 0;
   while (offset + LENGTH_BYTES <= view.length) {
     const length = view.readUInt32BE(offset);
-    out.push(new Uint8Array(view.subarray(offset, offset + LENGTH_BYTES + length)));
+    out.push({ offset, frame: new Uint8Array(view.subarray(offset, offset + LENGTH_BYTES + length)) });
     offset += LENGTH_BYTES + length;
   }
   return out;
 }
 
-/** One frame, field by field, as the layout states it. */
-function describeFrame(frame: Uint8Array): Record<string, unknown> {
-  const buffer = Buffer.from(frame);
+/** One frame, field by field, as the layout states it, at the offset the file holds it at. */
+function describeFrame(framed: Framed): Record<string, unknown> {
+  const buffer = Buffer.from(framed.frame);
   const length = buffer.readUInt32BE(0);
   const end = LENGTH_BYTES + length;
   const idStart = LENGTH_BYTES + HEADER_BYTES;
@@ -104,6 +110,10 @@ function describeFrame(frame: Uint8Array): Record<string, unknown> {
   const payloadEnd = end - DIGEST_BYTES;
   const kind = buffer.readUInt8(LENGTH_BYTES);
   const record: Record<string, unknown> = {
+    // Where the frame starts, counted in bytes from the first byte of the file. A reader that found a
+    // difference inside one record has to say which record, and the offsets of the frames in front of
+    // it are the only way to know; the walking is done here so the table carries the answer.
+    offset: framed.offset,
     kind,
     // What the length prefix states: the span from the kind byte through the digest.
     length,
@@ -347,6 +357,7 @@ async function main(): Promise<void> {
             'A bound of zero in a trim states that no such bound was configured, which a reader has to tell apart from a bound of one.',
             'A partial record at the tail is an append that never finished: a reader takes it back off the file and opens the rest, and nothing can sit behind it because it was never written.',
             'Deleting a record from the middle of a chain, or editing one, is refused rather than worked around, and the refusal names the byte offset it stopped at.',
+            'Each record states the offset its frame starts at, counted in bytes from the first byte of the file image, beside the frame, so a difference localizes to a record without adding up the lengths of everything ahead of it.',
           ],
         },
         scenarios,

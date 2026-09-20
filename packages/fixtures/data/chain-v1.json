@@ -20,7 +20,8 @@
       "The seam a trim carries is the digest the surviving receipts chain from, which the first survivor also names in its own header.",
       "A bound of zero in a trim states that no such bound was configured, which a reader has to tell apart from a bound of one.",
       "A partial record at the tail is an append that never finished: a reader takes it back off the file and opens the rest, and nothing can sit behind it because it was never written.",
-      "Deleting a record from the middle of a chain, or editing one, is refused rather than worked around, and the refusal names the byte offset it stopped at."
+      "Deleting a record from the middle of a chain, or editing one, is refused rather than worked around, and the refusal names the byte offset it stopped at.",
+      "Each record states the offset its frame starts at, counted in bytes from the first byte of the file image, beside the frame, so a difference localizes to a record without adding up the lengths of everything ahead of it."
     ]
   },
   "scenarios": [
@@ -39,6 +40,7 @@
       "fileByteLength": 191,
       "records": [
         {
+          "offset": 0,
           "kind": 0,
           "length": 187,
           "frameByteLength": 191,
@@ -88,6 +90,7 @@
       "fileByteLength": 382,
       "records": [
         {
+          "offset": 0,
           "kind": 0,
           "length": 187,
           "frameByteLength": 191,
@@ -99,6 +102,7 @@
           "frameBase64Url": "AAAAuwAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAABpnpMAADA3YWM3YTk4N2Q1OGZkNDY5NGJjMTFjYjJmNGJjMWQ5OTllZTU3ZTJhZTU3NDBiYzPfoTIi1leJE68A1EFIHKSLHA0uO1fCjivbJXt0sT-deuF7cQWovMnodHGdKBuCK39v5h5Nwo2Ie7oPLwahfWUOpHsXr4D0NVoEghJU_6ov7eG8QNg734K3klVzp0sEbG0"
         },
         {
+          "offset": 191,
           "kind": 0,
           "length": 187,
           "frameByteLength": 191,
@@ -157,6 +161,7 @@
       "fileByteLength": 318,
       "records": [
         {
+          "offset": 0,
           "kind": 1,
           "length": 123,
           "frameByteLength": 127,
@@ -175,6 +180,7 @@
           }
         },
         {
+          "offset": 127,
           "kind": 0,
           "length": 187,
           "frameByteLength": 191,
@@ -231,6 +237,7 @@
       "fileByteLength": 127,
       "records": [
         {
+          "offset": 0,
           "kind": 1,
           "length": 123,
           "frameByteLength": 127,
@@ -298,6 +305,7 @@
       "imageAfterNextBase64Url": "AAAAuwAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAABpnpMAADA3YWM3YTk4N2Q1OGZkNDY5NGJjMTFjYjJmNGJjMWQ5OTllZTU3ZTJhZTU3NDBiYzPfoTIi1leJE68A1EFIHKSLHA0uO1fCjivbJXt0sT-deuF7cQWovMnodHGdKBuCK39v5h5Nwo2Ie7oPLwahfWUOpHsXr4D0NVoEghJU_6ov7eG8QNg734K3klVzp0sEbG0AAAC7AKR7F6-A9DVaBIISVP-qL-3hvEDYO9-Ct5JVc6dLBGxtAAAAAGmekwkAMDVhYTc5YmYyZjBlNGYyMjIyYmU5YzU0NDkwNGFhMDIwYjU1ZmZjYzQ4Y2I5Y2IwZWoU_4bLMXIN_DT3cYgwgIOyczt0ZHcweu86gimiPlXWpagiVdUM7ldUc_PQDjLzo20AKjuAn3veUPzZCSNskO7RDtMl0xBmIXHhfQAYXIKnIf4pKtFt_hPbQFs-kEGdrA",
       "recordsAfterNext": [
         {
+          "offset": 0,
           "kind": 0,
           "length": 187,
           "frameByteLength": 191,
@@ -309,6 +317,7 @@
           "frameBase64Url": "AAAAuwAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAABpnpMAADA3YWM3YTk4N2Q1OGZkNDY5NGJjMTFjYjJmNGJjMWQ5OTllZTU3ZTJhZTU3NDBiYzPfoTIi1leJE68A1EFIHKSLHA0uO1fCjivbJXt0sT-deuF7cQWovMnodHGdKBuCK39v5h5Nwo2Ie7oPLwahfWUOpHsXr4D0NVoEghJU_6ov7eG8QNg734K3klVzp0sEbG0"
         },
         {
+          "offset": 191,
           "kind": 0,
           "length": 187,
           "frameByteLength": 191,

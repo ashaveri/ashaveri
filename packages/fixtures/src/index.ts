@@ -164,6 +164,8 @@ export interface ChainTrimPayload {
 
 /** One record of a store file, field by field, with its own bytes beside it. */
 export interface ChainRecord {
+  /** Where the frame starts in the file image, in bytes from the file's first byte. */
+  offset: number;
   kind: number;
   length: number;
   frameByteLength: number;

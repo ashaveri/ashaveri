@@ -120,6 +120,7 @@ function decodeFrames(image: Buffer): ChainRecord[] {
     const payloadStart = idStart + idLength;
     const payloadEnd = LENGTH_BYTES + length - DIGEST_BYTES;
     out.push({
+      offset,
       kind: frame.readUInt8(LENGTH_BYTES),
       length,
       frameByteLength: frame.length,
@@ -218,6 +219,10 @@ describe('data/chain-v1.json', () => {
         const frame = assemble(record);
         expect(frame, `${scenario.name} field table against its frame`).toEqual(bytes(record.frameBase64Url));
         expect(record.length + LENGTH_BYTES).toBe(record.frameByteLength);
+        // The boundary the frames ahead of this one add up to, which is what the published offset has
+        // to be. A port told a difference localizes to a width, an endianness or a coverage rule is
+        // pointed at a record by that number, so it is published rather than left to be summed.
+        expect(record.offset, `${scenario.name} record at ${offset}`).toBe(offset);
         expect(image.subarray(offset, offset + record.frameByteLength)).toEqual(frame);
         if (record.kind === file.layout.kinds.trim) {
           expect(assembleTrim(record)).toEqual(bytes(record.payloadBase64Url));
@@ -368,6 +373,7 @@ describe('data/chain-v1.json', () => {
       const continued = await readFile(join(dir, RECEIPT_STORE_FILE));
       expect(continued).toEqual(bytes(tail.imageAfterNextBase64Url));
       const records = decodeFrames(continued);
+      expect(records.map((record) => record.offset)).toEqual(tail.recordsAfterNext.map((record) => record.offset));
       expect(records.map((record) => record.digestHex)).toEqual(tail.recordsAfterNext.map((record) => record.digestHex));
       expect(records.map((record) => record.prevHex)).toEqual(tail.recordsAfterNext.map((record) => record.prevHex));
       expect(records[1]?.prevHex).toBe(tail.headHex);
