@@ -51,6 +51,9 @@ Ashaveri-Receipt-Payload-v2 = {
     mk: Marking,              ; required: v2 attests that marking was considered
 }
 
+; Closedness stops at the payload map: `Marking`, `Measurement`, `EvidenceRef` and `TokenMetering`
+; are open, so a member inside one of them that its block does not name is dropped, not refused.
+
 ; Absence is declared here rather than inferred from a missing member: `sch: "none"` carries the
 ; digest of the empty region, so `mk` is never optional and a reader never has to decide what an
 ; omitted field meant.
