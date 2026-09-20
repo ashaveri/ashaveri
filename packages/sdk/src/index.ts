@@ -30,7 +30,12 @@ export { verifyCompletionReceipt } from './verify.js';
 export type { VerifyCompletionParams } from './verify.js';
 export { parseManifest } from './manifest.js';
 export type { DeploymentManifest, ManifestKey, ManifestModel, TeeKind } from './manifest.js';
-export { policyFromManifest, policyKeyByKid } from './policy.js';
+export {
+  DEFAULT_MAX_EVIDENCE_AGE_SECONDS,
+  DEFAULT_MAX_RECEIPT_AGE_SECONDS,
+  policyFromManifest,
+  policyKeyByKid,
+} from './policy.js';
 export type { AshaveriPolicy } from './policy.js';
 export { SdkError, sdkError } from './errors.js';
 export type { SdkErrorCode } from './errors.js';

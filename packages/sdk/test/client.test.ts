@@ -35,6 +35,11 @@ function clientWith(gatewayOptions?: Parameters<typeof createFakeGateway>[0], bu
   const client = new AshaveriClient({
     baseUrl: FAKE_BASE_URL,
     fetch: gateway.fetch,
+    // The fake gateway stamps every receipt it signs at one fixed second, and a policy now brings
+    // a default window with it, so a client here has to believe a clock near that stamp to get as
+    // far as the check each test is about. Five seconds is what a client that verifies its own
+    // completion takes in fact. The staleness cases below pass their own `now` and move it.
+    now: () => (FAKE_IAT + 5) * 1000,
     ...buildClientOptions(policy),
   });
   return { gateway, client, policy };
