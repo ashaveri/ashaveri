@@ -4,8 +4,8 @@ How to reach this project about a vulnerability, what to expect back, and which 
 
 ## Reporting a vulnerability
 
-Write to `info@ashaveri.com`. That mailbox is the only intake channel this repository publishes, and
-it is the only one: there is no second address, no form and no private tracker behind it.
+Write to `info@ashaveri.com`. It is the only intake channel this repository publishes: no second
+address, no form and no private tracker is published here.
 
 Send the smallest reproducible case. What that means here: the input, the command you ran, what
 happened, and what you expected, in a form that does not depend on anything of ours running. Name
