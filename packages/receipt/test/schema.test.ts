@@ -65,7 +65,7 @@ function cddlMembers(cddl: string, version: 1 | 2): string[] {
 
 /**
  * One string for a whole document's worth of line breaks: a sentence in these files spans the lines it
- * wrapped at, so a leg that pins a sentence has to read the prose rather than the wrapping. An edit
+ * wrapped at, so a check that pins a sentence has to read the prose rather than the wrapping. An edit
  * that reflows a paragraph then leaves the assertion alone, and an edit that rewords it does not.
  */
 function flat(text: string): string {
@@ -94,7 +94,7 @@ function saidOnce(where: string, text: string, phrase: string): void {
 /**
  * The body of one `## ` section of a markdown document, from its heading to the next `## ` heading: a
  * `### ` subsection belongs to its section and stays inside the body, which is what the sentence
- * count below wants — a subsection repeating section 6's rule is the second voice that leg is there
+ * count below wants — a subsection repeating section 6's rule is the second voice the check is there
  * to catch.
  */
 function sectionBody(markdown: string, heading: string): string {
