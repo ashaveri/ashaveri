@@ -56,14 +56,14 @@ countersignature variants (RFC 9338), if ever needed, would be a new format vers
 | `v` | int | Format version. Always 1 in this version. |
 | `iss` | tstr | Issuing deployment identity. |
 | `ins` | tstr | Issuing instance identity. |
-| `iat` | int | Issuance time, Unix seconds. |
+| `iat` | int | Issuance time, Unix seconds: the moment the gateway signed this receipt, and the instant a verifier's receipt window is measured from. |
 | `nce` | bstr (16) | The client nonce echoed back. See section 4. |
 | `req` | bstr (32) | sha256 of the exact raw request body bytes. |
 | `res` | bstr (32) | sha256 of the exact raw response body bytes, including SSE framing. |
 | `mdl` | tstr | Model id, e.g. "mock-model-1". |
 | `wts` | bstr (32) | sha256 digest of the deployment's weights manifest. |
 | `meas` | map | `{ tee, m }`: the environment kind, one of `"software"`, `"snp"`, `"snp+gpucc"`, `"tdx"`, `"tdx+gpucc"`, plus the measurement for that kind. A TEE reports its platform-native 48-byte SHA-384 value (SEV-SNP launch digest or TDX MRTD); `"software"` makes no hardware claim and carries a 32-byte SHA-256 digest of what the deployment runs. The width is fixed by the kind, so a digest that does not match its own kind is malformed. |
-| `att` | map | `{ d, ts, url }`: digest of the attestation evidence document, its timestamp (Unix seconds), and a URL where the evidence can be fetched and re-verified. |
+| `att` | map | `{ d, ts, url }`: digest of the attestation evidence document, its timestamp (Unix seconds) — the moment the evidence was collected, which is the instant a verifier's evidence window is measured from, and is earlier than `iat` on a deployment that quotes per request — and a URL where the evidence can be fetched and re-verified. |
 | `epk` | int | Signing-key epoch, for key rotation. A gateway publishes the value it was started with (`--epk` on signerd) and never changes it, so rotating a key means a new process with a higher epoch. |
 | `tok` | map | `{ p, c }`: prompt and completion token counts for the call, as the serving stack reported them. A receipt proves who claimed a count, not that the count is right. |
 
@@ -336,8 +336,20 @@ A verifying client proceeds as follows:
 3. **Verify the signature.** Ed25519 over the Sig_structure. Reject on failure.
 4. **Check the nonce.** The payload `nce` must equal the nonce the client sent for this
    request. Reject otherwise (replay or cross-request substitution).
-5. **Check freshness.** If the client sets a freshness window, `iat` must be within it; the
-   evidence timestamp `att.ts` may have its own window. Reject stale receipts.
+5. **Check freshness.** `iat` must be within the verifier's receipt window of the checking moment,
+   and `att.ts` within its evidence window; both are compared as magnitudes, so a stamp hours in
+   the future is refused exactly as one hours in the past is. The two windows measure different
+   things: the receipt window bounds how long after issuance a receipt may be presented, and the
+   evidence window bounds how old the attestation may be relative to when it was read, which on a
+   per-request deployment is the whole duration of the request plus the presentation delay. That is
+   why a client that pins a policy and sets neither number still checks a clock, and why the two
+   defaults it gets are not equal: 300 seconds on `iat`, 900 on `att.ts`
+   (`DEFAULT_MAX_RECEIPT_AGE_SECONDS` and `DEFAULT_MAX_EVIDENCE_AGE_SECONDS` in
+   `packages/sdk/src/policy.ts`). A policy that names its own number replaces the default, and a
+   policy that names `Number.POSITIVE_INFINITY` switches that one window off, which is the way to
+   say so out loud when verifying an archived receipt. A verifier handed no policy at all, which is
+   what `@ashaveri/receipt` gives an offline auditor working on last year's receipt, checks no
+   clock: the format never assumes one.
 6. **Check the request hash.** `req` must equal sha256 of the exact bytes the client sent.
 7. **Check the response hash.** `res` must equal sha256 of the exact bytes the client
    received.
@@ -371,8 +383,8 @@ The SDK exposes three levels:
 | Mode | Behavior |
 |---|---|
 | `off` | No nonce of the client's own, no verification, receipts never fetched. It is not a claim about the wire: a proof-of-possession client still sends `x-ashaveri-nonce`, because the signing wrapper has to put a nonce under the signature and the gateway refuses a PoP request that carries none. |
-| `receipt` | Nonce injected, receipt fetched and verified (steps 1 through 7). Key resolution uses the deployment manifest. An unreceipted response returns a `null` receipt instead of failing. |
-| `strict` | As `receipt`, plus a required policy (step 2 and 8 with pins, optional freshness), an unreceipted response is an error, and the evidence behind step 9 is fetched and verified. |
+| `receipt` | Nonce injected, receipt fetched and verified (steps 1 through 7, step 5 only for a caller that hands the verifier a window). Key resolution uses the deployment manifest. An unreceipted response returns a `null` receipt instead of failing. |
+| `strict` | As `receipt`, plus a required policy (step 2 and 8 with pins, and step 5's two freshness windows, which run at the SDK's shipped defaults unless the policy names its own numbers), an unreceipted response is an error, and the evidence behind step 9 is fetched and verified. |
 
 `receipt` mode proves the response came from the deployment that controls the manifest's
 keys. `strict` mode additionally freezes the deployment's identity: keys, issuer, instance,

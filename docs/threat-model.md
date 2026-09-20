@@ -27,7 +27,8 @@ a retention window of its own. Section 6 is explicit about the current gaps on b
 - **A4 Deployment claims.** Model id, weights digest, TEE measurement, attestation evidence reference.
 - **A5 Token metering.** The counts a receipt signs cannot be revised afterwards, so whichever
   gateway claimed them owns that claim. Where the counts came from is T9's problem, not A5's.
-- **A6 Client policy.** The client's pinned keys, issuers, instances, and measurements.
+- **A6 Client policy.** The client's pinned keys, issuers, instances, and measurements, and the two
+  freshness windows a strict verification measures a receipt's stamps against.
 
 ## 3. Actors and trust boundaries
 
@@ -57,7 +58,7 @@ a retention window of its own. Section 6 is explicit about the current gaps on b
 |---|---|---|---|
 | T1 | Network attacker modifies the response body in transit | `res` binds the exact response bytes; hash mismatch fails verification | None within the crypto assumptions |
 | T2 | Attacker substitutes a different valid response (cross-request) | `req` binds the exact request bytes, `nce` the per-request nonce | None; a receipt for another request cannot verify against this one |
-| T3 | Replay of an old but valid receipt for a fresh request | Client-generated nonce must be echoed; optional freshness windows on `iat` and `att.ts` | None if freshness is configured |
+| T3 | Replay of an old but valid receipt for a fresh request | Client-generated nonce must be echoed, and strict mode measures `iat` against the client's clock by default (300 seconds) and `att.ts` against its own (900 seconds), either of which a policy can override or switch off | Below strict mode there is no policy and so no window: a replay still has to match the nonce this client chose for this request. In strict mode the clock is on unless the caller wrote infinity into one of the two fields, which is the archive case and says so |
 | T4 | Gateway signs a receipt, then serves different bytes | Same as T1: the served bytes fail the `res` check | None |
 | T5 | A different key signs receipts (gateway compromise or impersonation) | `kid` must resolve to a manifest-declared key; in strict mode, to a policy-pinned key that also matches the manifest | In `receipt` mode a gateway that controls its own manifest can introduce a new key; strict mode closes this |
 | T6 | Gateway omits receipts selectively | Strict mode rejects unreceipted responses | `receipt` mode returns a null receipt by design; callers must check for it |
@@ -111,6 +112,15 @@ What is still true, in both modes:
   AMD it uses the ASK and VCEK files you supply rather than querying KDS. A platform that is
   genuinely signed but since deprecated or revoked by the vendor therefore still verifies. Checking
   freshness needs network access and is deliberately outside the offline verification path.
+- **The client's clock is a stranger's, and its two windows are chosen numbers.** In strict mode the
+  client refuses a receipt whose `iat` is more than 300 seconds from its own clock, and evidence
+  whose `att.ts` is more than 900 seconds from it. Those bound how much skew between two
+  uncoordinated machines, and how much of a request's own generation time, the SDK will absorb; they
+  measure no deployment. Nothing bounds how long a completion may stream, so past roughly fifteen
+  minutes of generation it is the evidence window that refuses the response, not anything about its
+  content, and a client pointed at a long-streaming deployment has to widen
+  `maxEvidenceAgeSeconds` or switch it off. Both numbers are the client's to set, and neither is
+  read from the wire.
 - **The gateway does not deep-verify its own evidence.** It reads the measurement and the
   report-data binding; the certificate chain, TCB and event-log replay are the client's job,
   through `@ashaveri/sdk` in strict mode or `@ashaveri/cli`. That is deliberate, but it means a
