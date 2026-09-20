@@ -349,6 +349,33 @@ describe('what the floor writes and does not write', () => {
     await h.app.close();
   });
 
+  it('writes the reason a collapsed refusal hides, beside the name it turned away', async () => {
+    // The caller and the line are meant to disagree here. The route matrix already reads both halves
+    // for a name the file carries as a bearer record, and the store-level cases read the pair off the
+    // thrown error, so what this adds is the absent name seen through the handler rather than through
+    // the store: one request, the answer it gets and the reason the record keeps. Had the handler
+    // copied the caller's code into the record instead of the code this gateway decided, a spike of
+    // invented names would read back to an operator as nothing but failed signatures, and this is the
+    // cell that says so.
+    const absentName = 'log-collapsed-absent';
+    const h = await harness();
+    const absent = await h.inject({
+      method: 'GET',
+      url: '/v1/deployment-manifest',
+      headers: h.signFor(absentName, 'GET', '/v1/deployment-manifest', null),
+    });
+    expect(absent.statusCode).toBe(401);
+    expect(denyCode(absent.json), 'the answer to an unlisted name').toBe('AUTH_SIGNATURE');
+    expect(h.log.entries().at(-1), 'the line for an unlisted name').toMatchObject({
+      cred: absentName,
+      auth: null,
+      scope: null,
+      st: 401,
+      deny: 'AUTH_UNKNOWN',
+    });
+    await h.app.close();
+  });
+
   it('names the receipt a read route was asked for, and only on that route', async () => {
     const credential = generated('log-rcp', ['read']);
     const h = await harness({ credentials: [credential] });

@@ -5,7 +5,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { afterAll, describe, expect, it } from 'vitest';
-import { ACCESS_PART_NAME, parseAccessLine, renderAccessLine, RETENTION_SWEEP_NAME, type AccessRecord } from '@ashaveri/signerd';
+import { ACCESS_PART_NAME, openFileAccessLog, parseAccessLine, renderAccessLine, RETENTION_SWEEP_NAME, type AccessRecord } from '@ashaveri/signerd';
 import { ACCESS_FILE, accesslogScrub, chooseScrubName, modeOf, type ScrubMarker, type ScrubPartRecord } from '../src/commands/accesslog.js';
 
 const CLI = fileURLToPath(new URL('../dist/cli.js', import.meta.url));
@@ -164,6 +164,50 @@ describe('ashaveri accesslog scrub', () => {
       removed: 2,
       files: 1,
       parts: ['access-2026-02-24-000.jsonl'],
+      request: null,
+    });
+  });
+
+  it('erases a line whose credential was never admitted, and accounts for it in the receipt', async () => {
+    // The other half of the promise `gateway/test/canary.test.ts` makes: a collapsed refusal answers
+    // the caller as a bad signature and still records the name it was handed, so the erasure owed to
+    // that name has to reach a line no request was ever admitted on. The input is built by the
+    // gateway's writer rather than by a string written here, because what an operator scrubs is the
+    // bytes a deployment appends, and the name of the part it appends them to is the name this
+    // program agrees to open. A filter that read a line's outcome beside its name would leave the
+    // refused row on the volume and receipt the run as if it had gone.
+    const dir = mkdtempSync(join(tempDir, 'refused-'));
+    const log = await openFileAccessLog({ dir, days: 184, now: () => T0 });
+    await log.record(record({ cred: 'never-issued', rid: 'rid-refused', auth: null, scope: null, rcp: null, nce: null, st: 401, deny: 'AUTH_UNKNOWN' }));
+    await log.record(record({ cred: 'svc-b', rid: 'rid-keep' }));
+    await log.drain();
+    const parts = readdirSync(dir).filter((name) => ACCESS_FILE.test(name));
+    expect(parts).toHaveLength(1);
+    const part = parts[0] as string;
+    // The row this run is about, seen before anything touches it: named by a credential, refused, and
+    // admitted by nothing. Without this the case could be reading an ordinary record and proving the
+    // promise nowhere.
+    const [refused, keptLine] = readFileSync(join(dir, part), 'utf8').trimEnd().split('\n');
+    expect(parseAccessLine((refused as string).trimEnd())).toMatchObject({
+      cred: 'never-issued',
+      auth: null,
+      st: 401,
+      deny: 'AUTH_UNKNOWN',
+    });
+    await log.close();
+    const result = scrub(dir, 'never-issued');
+    expect(result.status).toBe(0);
+    expect(result.stdout).toContain('removed 1 record for never-issued');
+    const kept = readFileSync(join(dir, part), 'utf8');
+    expect(kept).not.toContain('never-issued');
+    expect(heldBy(kept, 'never-issued')).toBe(0);
+    expect(kept.trimEnd()).toBe((keptLine as string).trimEnd());
+    expect(receiptOf(markerOf(dir))).toEqual({
+      t: Date.parse(SCRUBBED_AT),
+      credential: 'never-issued',
+      removed: 1,
+      files: 1,
+      parts: [part],
       request: null,
     });
   });
@@ -573,6 +617,14 @@ function fillDay(dir: string, day: string): number {
   return 1000;
 }
 
+/**
+ * A thousand writes plus the spawned command pass vitest's five-second default on a Windows runner,
+ * where the same pair has been measured under half a second on a workstation. The window is generous
+ * on purpose: anything under the eight-second deadline in `run` would let the harness report a
+ * timeout before the command's own guard names which handle never closed.
+ */
+const FILLED_DAY = { timeout: 60_000 };
+
 /** One part with the credential in it and another subject's record beside it, so a count can be wrong. */
 function onePart(cred: string, other: string): Map<string, AccessRecord[]> {
   return new Map([['access-2026-02-24-000.jsonl', [record({ cred }), record({ cred: other, rid: 'rid-keep' })]]]);
@@ -597,7 +649,7 @@ describe('a scrub whose own write is refused', () => {
     expect(readFileSync(planted, 'utf8')).toBe("not this writer's file\n");
   });
 
-  it('carries the counts in the refusal when the marker is the write that fails', () => {
+  it('carries the counts in the refusal when the marker is the write that fails', FILLED_DAY, () => {
     // The erasure has landed by now and cannot be taken back, so a bare sentence about a file the
     // operator has never heard of would leave them with a run that removed records and reported
     // nothing about it. Spawning the published command is the point: the numbers have to survive the
@@ -628,7 +680,7 @@ describe('a scrub whose own write is refused', () => {
     expect(markers(dir)).toHaveLength(1000);
   });
 
-  it('carries the counts when a later part fails after an earlier one was already rewritten', () => {
+  it('carries the counts when a later part fails after an earlier one was already rewritten', FILLED_DAY, () => {
     // The route the marker inside the `catch` does not cover: the receipt it tries to write fails for
     // the same reason the directory is short, and the error the operator then sees is the first one,
     // which names no count at all. Records are gone, no marker exists, and re-running reports zero
