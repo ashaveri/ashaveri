@@ -1,7 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import {
   EMPTY_BODY_SHA256_HEX,
-  POP_NONCE_BYTES,
   POP_TIMESTAMP_TOLERANCE_SECONDS,
   signPopAuthorization,
   signingKeyFromSeed,
@@ -21,7 +20,7 @@ import {
   type CredentialRecord,
 } from '../src/access.js';
 import { ACCESS_RECORD_FIELDS } from '../src/aclog.js';
-import { harness } from './helpers.js';
+import { harness, nonceAt, observable } from './helpers.js';
 
 /**
  * The request bound a connection is held to before this gateway spends any crypto on it.
@@ -58,15 +57,8 @@ function heldRecord(rate: CredentialRate): CredentialRecord {
   return { ...generated.record, publicKey: signingKeyFromSeed(HELD_SEED).publicKey, rate };
 }
 
-/** A nonce per presentation, so no cell's answer is ever the replay set's. */
-function nonceAt(at: number): Uint8Array {
-  const nonce = new Uint8Array(POP_NONCE_BYTES).fill(0x77, 0, POP_NONCE_BYTES - 4);
-  nonce[POP_NONCE_BYTES - 4] = (at >>> 24) & 0xff;
-  nonce[POP_NONCE_BYTES - 3] = (at >>> 16) & 0xff;
-  nonce[POP_NONCE_BYTES - 2] = (at >>> 8) & 0xff;
-  nonce[POP_NONCE_BYTES - 1] = at & 0xff;
-  return nonce;
-}
+/** The leading bytes every nonce this suite presents carries; `nonceAt` says what they are for. */
+const NONCE_MARKER = 0x77;
 
 interface AskOptions {
   /** The key these bytes are signed with: the foreign one is a guess, the held one is a real client. */
@@ -82,7 +74,7 @@ interface AskOptions {
  * refusals too, because the ordering claims below are about a shed peer never reaching them.
  */
 function guess(name: string, at: number, options: AskOptions = {}): AdmissionInput {
-  const nonce = nonceAt(at);
+  const nonce = nonceAt(at, NONCE_MARKER);
   const ts = options.stamp === 'stale' ? NOW_SECONDS - POP_TIMESTAMP_TOLERANCE_SECONDS - 1 : NOW_SECONDS;
   const fields: PopFields = {
     ts,
@@ -154,11 +146,6 @@ function answer(store: CredentialStore, input: AdmissionInput): Answer {
       credentialId: err.credentialId ?? null,
     };
   }
-}
-
-/** Everything a caller can observe about one answer, and nothing the access log keeps. */
-function observable(a: Answer): string {
-  return `${a.code} ${a.status} "${a.message}"`;
 }
 
 function fills(count: number, value: string): string[] {
