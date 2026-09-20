@@ -465,6 +465,26 @@ describe('receipt payload v2 and the versions a call accepts', () => {
     // about releases, and two answers would let a caller find it out.
     expectErrorCode(() => verifyReceipt(bytes, { publicKey: key.publicKey, now: FIXED_NOW }), 'UNSUPPORTED_VERSION');
     expectErrorCode(() => decodeReceipt(bytes), 'UNSUPPORTED_VERSION');
+
+    // Closedness is settled after the version, so these two refusals never compete for one document:
+    // a version a reader cannot take answers with the version code whichever members it carries, and
+    // so does a version a caller narrowed away. Without this, the one answer the format promises
+    // would depend on what else the bytes happened to hold.
+    const unreadable = membersOf(samplePayload());
+    unreadable.set('v', 3);
+    unreadable.set('mk', new Map<string, unknown>());
+    const unreadableBytes = signMembers(unreadable, key);
+    expectErrorCode(() => verifyReceipt(unreadableBytes, { publicKey: key.publicKey, now: FIXED_NOW }), 'UNSUPPORTED_VERSION');
+    expectErrorCode(() => decodeReceipt(unreadableBytes), 'UNSUPPORTED_VERSION');
+
+    const narrowed = membersOf(markedPayload());
+    narrowed.set('not_a_member', 'x');
+    const narrowedBytes = signMembers(narrowed, key);
+    expectErrorCode(
+      () => verifyReceipt(narrowedBytes, { publicKey: key.publicKey, now: FIXED_NOW, acceptedVersions: [1] }),
+      'UNSUPPORTED_VERSION',
+    );
+    expectErrorCode(() => decodeReceipt(narrowedBytes, { acceptedVersions: [1] }), 'UNSUPPORTED_VERSION');
   });
 
   it('refuses both versions when the accepted set is empty', () => {
