@@ -19,6 +19,23 @@ who may ask: every route this gateway serves sits behind the admission pipeline 
 request that reaches it, admitted or refused, writes one line to an access log the deployer holds on
 a retention window of its own. Section 6 is explicit about the current gaps on both sides.
 
+Marking is a third thing, and the duty on it does not fall to this repository. Article 50(2) of
+Regulation (EU) 2024/1689 binds the provider of the AI system that generates the synthetic content:
+that provider has the output marked in a machine-readable format and made detectable as artificially
+generated, and the article's next sentence asks of the technical solutions that they be effective,
+interoperable, robust and reliable "as far as this is technically feasible, taking into account the
+specificities and limitations of various types of content, the costs of implementation and the
+generally acknowledged state of the art". What ashaveri supplies is a marking mechanism and a record
+that the mechanism was applied to one particular response. Whether a given deployment is that
+provider, or is serving one, is a fact about the deployment and the system it runs, and this document
+does not decide it. Two dates from the consolidated text as amended by
+Regulation (EU) 2026/1744 are the ones the marking work is planned against. Article 50 sits in
+Chapter IV, which Article 113 does not carve out of the general date of application, so the
+transparency obligations run from 2 August 2026. Article 111(4) then gives providers of AI systems
+generating synthetic content that were on the market before 2 August 2026 until 2 December 2026 to
+take the necessary steps for Article 50(2). Nothing here says that any system meets that article, and
+the mechanism described below is a mark plus the evidence of a mark, not a certification of anything.
+
 ## 2. Assets
 
 - **A1 Response integrity.** The completion the user saw is the completion the gateway signed.
@@ -29,17 +46,48 @@ a retention window of its own. Section 6 is explicit about the current gaps on b
   gateway claimed them owns that claim. Where the counts came from is T9's problem, not A5's.
 - **A6 Client policy.** The client's pinned keys, issuers, instances, and measurements, and the two
   freshness windows a strict verification measures a receipt's stamps against.
+- **A7 The marked response.** Under the design, a response whose own bytes carry a machine-readable
+  marking: one extra top-level member on a buffered completion, or one extra server-sent-events data
+  frame on a streamed one, put there through the same path every other byte of that response takes,
+  so that `res`, the digest in section 3.1 of [receipt-spec.md](receipt-spec.md), covers it as part of
+  the same job rather than through a second mechanism. The payload names the scheme a mark is written
+  under and carries a digest of that region alone, so a detector can be told what to look for and can
+  check it in isolation. The mark is not the evidence; the receipt is. A mark is bytes anyone holding
+  the response can delete, and the signed statement about those bytes is the part that cannot be
+  edited without the edit showing. Neither the member, the frame, nor the field is built: nothing in
+  this repository writes a mark into a response today, and no verifier here parses a payload claiming
+  to carry one.
+- **A8 The marking-scheme registry.** Also under the design, and equally unbuilt: the table that binds
+  every scheme label to exactly one byte shape, which is what lets a reader who was not present when a
+  response was written decide what to look for. It is an asset because its failure mode is silent: a
+  label standing for two shapes turns each detector's answer into a guess about which shape it
+  happened to read.
 
 ## 3. Actors and trust boundaries
 
 - **Client** holds the policy (A6) and generates nonces. Trusted by itself.
 - **signerd gateway** signs receipts. Trusted only as far as its signature and the client's pins go.
+- **Mark writer.** Under the design this is the gateway and nothing else: it adds its marking to the
+  response through the same write path every other byte of that response takes, and digests the region
+  from the bytes it just handed to the response hash, so there is no route by which a receipt is
+  issued over bytes that were never marked. No code writes a mark today (A7).
+- **Mark remover.** Anyone holding the response bytes, which is every party that ever receives or
+  stores them: the client that kept its copy, a deployment's own archive, anyone a transcript was
+  forwarded to. Removing a marking member or frame takes no key and no privilege. What is not
+  available to any of them is keeping a receipt verifying afterwards (T17).
 - **Inference backend** computes completions behind the gateway. Untrusted from the client's
-  perspective; the gateway vouches for what it forwarded.
+  perspective; the gateway vouches for what it forwarded. It is also the one party positioned to put
+  mark-shaped bytes into a stream from the inside, since the gateway forwards and hashes whatever the
+  backend yields without reading it (T20).
 - **Network** between client and gateway. Fully untrusted (TLS is assumed for confidentiality
   and authentication of the transport, but receipts are designed to not depend on it).
 - **Manifest channel**. The deployment manifest is fetched from the gateway. In `strict`
   mode its contents must match the client's pins to matter.
+- **Marking-scheme registry**. The boundary between whoever writes a mark and everyone who reads one,
+  holding each scheme label against the one byte shape it names. A label is bound to that shape for
+  as long as it exists and is never repurposed, and a label a reader does not know is a refusal
+  rather than an interpretation. What this boundary does not carry is authority over genuineness: it
+  cannot tell a mark a gateway wrote from a well-shaped copy of one (T19).
 
 ## 4. Assumptions
 
@@ -72,6 +120,10 @@ a retention window of its own. Section 6 is explicit about the current gaps on b
 | T14 | A bearer credential is stolen, and someone else presents it | `--allow-bearer` is off by default, and it is deployment-wide rather than per credential, so a process is bearer-capable or it is not and one convenience fallback cannot be introduced for a single record. A bearer secret is held only as its SHA-256 and every stored digest is compared in a loop that does not exit early on the first differing byte, so a wrong secret reveals nothing about which one was close. Each record a bearer secret admitted writes `auth=bearer` on its own line, so the log says which posture produced it rather than the widest thing the process tolerates | The start-up banner states this and this document does not soften it: a stolen bearer credential is undetectable, and a log record cannot tell its holder from a thief. The secret is the whole credential, it does not expire on its own, and it authorizes any request its scopes allow from any address. A bearer path also has no replay step at all, because it has no signed nonce to check |
 | T15 | Refusals used as an oracle to enumerate which credential ids a deployment has issued, or which paths it has scoped | On both paths the answers are collapsed. Bearer: a secret matching no stored digest and a revoked record both end as `AUTH_UNKNOWN`, because the digest scan passes over a revoked record as though it had never existed, and a distinct answer would tell a prober which ids the file holds and which were once live. Proof of possession, since 19 September 2026: a `credential` this file does not carry, and a name whose record is a bearer one with no key to verify against, are refused through the same code path as a failed signature and with the same code, `AUTH_SIGNATURE`, after one Ed25519 verification against a key that is in no credential file and whose result is discarded rather than read. The timestamp window and the presented nonce are checked before the file is consulted, so they answer alike whoever the header names, and what the file says about a record it holds is told only to a request whose signature verified. An unlisted target is read off the route table first but answered only at the scope check, so a caller who presented nothing usable is refused for that (`AUTH_MALFORMED`, `AUTH_SCHEME`) and learns nothing about the path, whether or not the server registered it. Rate limiting cannot be turned into an oracle either: the credential's bucket is taken at the last check, after scope, so an id the file does not hold is refused before any credential budget is consulted, and the one budget taken ahead of that, the request bound held on the connection address, is taken from every request whoever it names and answers with the same words whether or not the file holds the id the header wrote. That answer is what the caller catches, and it is unchanged by the record's separation: a refusal of this bound writes `PEER_RATE_LIMITED` to the access log's `deny` field where a credential over its own rate writes `RATE_LIMITED`, and the line sits inside the trust boundary the response sits outside, so nothing a caller is handed distinguishes the two by a code it can branch on | What an unauthenticated guesser learns is closed; what a stopwatch and a key holder learn is not. A lookup that hits and a lookup that misses do not take the same time, and an unknown name now costs one verification rather than a map read, which makes the two paths do the same work rather than the same number of nanoseconds: nothing here measures or bounds that difference, and no constant-time claim belongs in this row. Behind a valid signature the answers are specific by design, revoked, replayed, out of scope, over limit, because that caller is the one who can act on them. A `SCOPE_DENIED` refusal still says in its message whether the table has no row for the target or the credential lacks the row's scope, so paths remain enumerable from inside, by a credential this deployment issued. None of this makes the credential file invisible to the people who hold it: an operator, a reader of that volume, or anything that can write it knows every id in it, and the access log names the id a refused request presented even where the response never acknowledged it. The bearer digest scan's cost also grows with the size of the credential file rather than with how close a guess was |
 | T16 | A receipt id reaches someone it was not issued to, in a log line, a proxy access record, or a pasted URL, and that holder reads whose credential minted it, or walks the deployment's other receipts | This gateway mints every id itself: sixteen hex tag characters then thirty-two hex characters from a fresh draw, replacing the upstream-chosen id a counter or a timestamp could have made walkable. The tag is `HMAC-SHA256(namespaceKey, credentialId)` truncated to eight bytes, and the namespace key is an HKDF over the deployment's own Ed25519 signing seed, so a holder of an id cannot reverse the tag into a credential id and cannot compute the tag for one: neither is possible without the seed. The fetch route then asks whether the presenting credential's own tag heads the id and serves nothing when it does not, which is why no ownership state is kept that could drift out of step with the receipts it governs | Linkability, not identification, plus the operator's own reach, which is the reading [access-control.md](access-control.md) section 8.3 gives. Two ids carrying one tag came from one credential, so anyone who sees both knows they belong together; and the deployment holding the seed can compute each credential's tag and so name the credential behind any id shown to it. An erasure does not close either: the tag is not a log field, it is a prefix of the id, and the receipt chain is append-only, so scrubbing a credential's lines leaves every id it ever read in place. See section 6 |
+| T17 | Strip the mark. A party holding the response bytes deletes the marking member from a buffered completion, or the marking frame from a stream, before storing, showing, or republishing the transcript, so the content reads as though it were never marked | The response digest is taken over exactly those bytes, so the deletion is not a clean removal: it moves the bytes away from what the receipt attests. `res` is sha256 of the buffered body the gateway is about to send, and for a stream it is the digest of every chunk as it passes through the same closure that puts it on the socket (`gateway/src/server.ts`), and a verifier hashes the bytes it is holding and compares them, so the stripped transcript fails as `RESPONSE_HASH_MISMATCH` through the SDK's comparison (`packages/sdk/src/verify.ts`) and as a plain recompute failure for an auditor holding no software of ours. Nothing new is spent to get that refusal, and that is the design's point: the mark rides inside bytes `res` already covers, so removing it costs the receipt rather than clearing the record of ever having been marked. The mark is not the evidence; the receipt is, and this row is about the artifact anybody can edit | The pairing is the residue. A party who controls both the stored bytes and how they are presented can show a clean transcript beside a valid receipt made for different bytes and say which goes with which, because the two artifacts are separate documents and nothing in either one names the other except digests. What defeats that is recomputation by a checker who holds the bytes and the receipt from channels the presenter does not control: `res` over the transcript being offered, and the marked region's digest over the region inside it, both read off the signed payload. A viewer handed both by the same party and checking neither has no cryptographic protection, and routing around the presenter does not help them either, because fetching a receipt needs the `read` scope and that caller's own tag on the id ([receipt-spec.md](receipt-spec.md) section 4.7). Two further readings stay honest: a receipt that declares its response unmarked is a valid receipt over an unmarked response, so an unmarked transcript is not by itself evidence of a stripping, and whether a deployment marks at all is the deployment's own unmade decision (section 6) |
+| T18 | Move or forge the mark. A plausible marking member or frame is written into a transcript that never carried one, or a genuine marking is moved onto other bytes, so that human-authored text reads as machine generated, or a deployment is quoted as having served a response it never served | A mark pasted into a transcript changes that transcript's bytes, so it no longer hashes to the `res` of the receipt that attested the original, and the pasted region does not hash to the region digest any signed payload names. Producing a receipt for the forged pair takes the deployment's signing key, which is T5 and not this row. The design separates the region check from the response check on purpose, because the case the region digest catches is the one `res` cannot see: a transcript that is whole, complete, and hashes correctly but carries a marking that was not the attested one. That separation is not in this code yet, and the refusal it would need is not declared in `packages/receipt/src/errors.ts` today. No verifier here computes a digest of a sub-region of a response, because no code here identifies a marked region | A marking standing alone in a transcript, with no receipt beside it, is a string anyone can type and a reader cannot check, which is exactly why the mark cannot be the evidence. So a forged mark is fully effective against an audience that pattern-matches on the transcript instead of verifying it, and that is a claim about that audience's diligence rather than about anything in this format. A genuine marked response whose receipt was not kept is the mirror case and is unfalsifiable from the transcript alone, since a receipt stays fetchable only for as long as the deployment decides ([receipt-spec.md](receipt-spec.md) section 4.3) |
+| T19 | Scheme confusion. A detector reads a scheme label and applies the wrong extractor, either because a label was reused after its byte shape changed or because a mark written under one scheme is judged by another scheme's rule, so its verdict about a mark being present or absent is a reading of bytes it never correctly looked at | The registry (A8) is where this is settled, and what it guarantees is narrow enough to hold: a label is bound to one byte shape for as long as it exists and is never repurposed, so a shape change takes a new label, and a new label is something an un-updated reader refuses rather than reinterprets. A label a reader does not know is a refusal and not a guess, which is the whole of what the registry can do about a reader that is behind the times. The same reasoning sits one level up in the design, where a payload version outside the set a verifier accepts and a version it has never heard of are refused with one code, because the difference between those two is a fact about a release schedule and not a secret worth a distinguishable answer. What the registry guarantees is therefore about shapes and never about truth: a label is a pointer to an extractor, and genuineness belongs to the region digest and the signature over it (T18) | This is a guarantee about a table, written by one party and read by parties outside this repository, and nothing in the design puts a signature on the table itself. A detector shipping the wrong shape rule, or reading a stale copy of the registry, is wrong in a way no cryptographic check catches, since the bytes it accepts and the bytes it rejects are each self-consistent under the rule it holds. Where the registry is published, and which labels a first implementation carries, are unsettled here. None of it exists yet: there is no registry, no label, and no extractor in this repository |
+| T20 | Injection by the model backend. A backend emits a marking frame or member of its own, so the stream the gateway forwards and hashes carries two candidate regions and a reader cannot tell the one the gateway digested from the one the model wrote for itself | A receipt attests one region digest, so a stream carrying two candidate regions is a stream no receipt can be about, and that is why the extraction rule the design settles on is exactly one: a response with more than one region matching a label's shape is a verification failure, not a choice between candidates. The gateway's own marking is computed over the bytes it wrote through the same path as the rest of the stream, so the two candidates are distinguished by which one the signature names and not by anything observable in the bytes. That the attack is open at all is a property of this gateway's own byte handling rather than of a filter it forgot: the streaming path takes every buffer the backend yields straight into the hash and the socket without reading what is inside it, which is the contract `gateway/src/backend.ts` states for `res` and the reason the insertion point for a mark has to be that same write path ahead of the finalised digest | The rule would have to be held by a verifier that extracts a region from bytes it is holding, and nothing here does that today: the live SDK path is handed a hash of the response rather than the response (`packages/sdk/src/verify.ts`), so it has no region to check even in principle, and whether the live client ever verifies a mark is unchosen. A backend can also write mark-shaped text into the assistant's content, where it is model output and `res` covers it as the transcript it is, so a reader looking for the shape rather than at the region reports a marking the deployment never wrote; the exactly-one rule counts frames, and keeping a sentence inside a paragraph out of that count is a claim about one scheme's shape rule being precise, which is a registry question and not a signature one |
 
 ## 6. Current limitations, stated plainly
 
@@ -197,6 +249,34 @@ What is still true, in both modes:
   platform edge, not on a channel the workload terminates inside the enclave.
 - **Nothing here measures model behaviour.** A receipt proves who served which bytes; it says
   nothing about quality, alignment, or the prompt template behind the completion.
+- **Marking is a design and none of it is built.** `packages/receipt/receipt.cddl` declares thirteen
+  payload fields and no marking among them, and the payload parser answers `BAD_PAYLOAD` for any
+  version that is not 1 (`packages/receipt/src/receipt.ts`), so a receipt claiming to attest a mark is
+  refused by the software shipped today rather than misread by it. That refusal is the compatibility
+  contract in section 6 of [receipt-spec.md](receipt-spec.md) doing its job, and it is why a marking
+  field belongs to a new version rather than arriving as an optional member of the current one: a v1
+  verifier checks the thirteen fields it knows, finds nothing about a mark, and would verify a
+  receipt over an unmarked response exactly as readily as over a marked one, which is silence read as
+  a claim. Whether a deployment marks at all, and whether the mark is checked by the live client or
+  only by an auditor holding response bytes, are both unchosen, and T17 through T20 are written to
+  hold under either answer.
+- **A mark is detectable only by someone who has the bytes, and nothing here reaches further.** The
+  marking the design describes is a member of the response envelope or a frame of the stream, never a
+  property of the words, so a consumer of the text alone, pasted out of a chat window or retyped, has
+  nothing to find and no way to tell marked content from unmarked. That is stated as the limit it is,
+  and it is not on a roadmap to close. A statistical watermark carried in the text itself is out of
+  technical reach for text at the reliability Article 50(2) asks for on that article's own feasibility
+  terms, it changes what the user reads, and claiming it is the model vendor's ground rather than
+  ours. What this stack can offer such a consumer is the receipt, and the receipt needs the bytes it
+  attests or a holder of them.
+- **A marked response has not been shown to survive a client, and our own client is one.** The
+  streaming shape the design proposes would fail here first: `parseChunk` in
+  `packages/sdk/src/client.ts` requires a string `id` and an array `choices` on every `data:` frame it
+  reads and raises `GATEWAY_ERROR` otherwise, so a marking frame written into a stream surfaces to a
+  native-SDK caller today as a gateway failure rather than as an extra to ignore, while one more
+  top-level member on a buffered completion passes that same path untouched. Neither shape has been
+  measured against the official OpenAI client, which is what the design says has to happen before the
+  wire shape is settled, and the streaming answer may change with the measurement.
 
 The SDK's `strict` mode verifies receipts and the manifest against pins and then fetches and
 deep-verifies the evidence each receipt commits to. What remains unproven is the end-to-end run:
