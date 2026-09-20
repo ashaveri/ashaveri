@@ -39,8 +39,8 @@ paragraph of that file counts the declarations, the unions and the distinct stri
 numbers have to still match the source: `packages/fixtures/test/error-codes.test.ts` reads every code
 out of the declarations and every row out of the document, and fails the run when either direction
 disagrees or a count is off. A bare code string has to name the layer that raised it, which is why
-two unions sharing one string is a deliberate decision rather than a collision to fix; the last
-section of `docs/error-codes.md` explains that pair.
+two unions sharing one string is a deliberate decision rather than a collision to fix; the section
+"Why these strings do not overlap" in `docs/error-codes.md` explains that pair.
 
 **Regenerated fixtures, never hand-edited ones.**
 
@@ -50,8 +50,10 @@ pnpm --filter @ashaveri/fixtures generate      # data/receipts/*.cbor, the .json
 pnpm --filter @ashaveri/fixtures generate:pop  # data/pop-v1.json
 ```
 
-Every byte those write comes out of a labelled SHA-256 seed (`packages/fixtures/scripts/seed.ts`), so
-the output is reproducible and a hand-edited vector is visible the moment anyone re-runs a generator.
+The generators derive their key material and most of their digests from a labelled SHA-256 seed
+(`packages/fixtures/scripts/seed.ts`); the framing, the labels and the structure around those come
+from the generator itself. Nothing is drawn at random, so the output is reproducible and a
+hand-edited vector is visible the moment anyone re-runs a generator.
 If your change was not meant to move a vector, regenerating produces an empty diff — that is the check
 the vectors job runs, `git diff --exit-code packages/fixtures/data` after both generators. A non-empty
 diff you did not intend means your change moved a signed byte.
@@ -70,17 +72,21 @@ behaviours live in. A document that stops agreeing with the code can fail a run 
 
 ## Commit messages
 
-Conventional Commits v1.0.0: <https://www.conventionalcommits.org/en/v1.0.0/>. This history uses
-`type(scope): subject`, with the scope naming the package or the document the change touches —
-`feat(sdk)`, `fix(gateway)`, `docs(access)`, `test(fixtures)`. Keep the subject to one clause and in
-the imperative; put the reasoning in the body, where it survives a collapsed diff view.
+Conventional Commits v1.0.0: <https://www.conventionalcommits.org/en/v1.0.0/>. Most of this history
+uses `type(scope): subject`, with the scope naming the package or the document the change touches —
+`feat(sdk)`, `fix(gateway)`, `docs(access)`, `test(fixtures)` — and that is the form a new commit is
+asked for. Keep the subject to one clause and in the imperative; put the reasoning in the body, where
+it survives a collapsed diff view.
 
 ## Licensing
 
-Everything here is offered under the Apache License 2.0 (`LICENSE`), with one exception:
-`@ashaveri/fixtures`, whose golden conformance vectors are dedicated to the public domain under CC0-1.0
-(`packages/fixtures/LICENSE`) so a reimplementation elsewhere carries no attribution obligation. A
-contribution is accepted under the licence that already covers the files you touched. Nothing is
+The code in this workspace is offered under the Apache License 2.0 (`LICENSE`). The one package-level
+exception is `@ashaveri/fixtures`, whose golden conformance vectors are dedicated to the public domain
+under CC0-1.0 (`packages/fixtures/LICENSE`) so a reimplementation elsewhere carries no attribution
+obligation. Those two sentences speak for this workspace's own material; the pinned third-party
+attestation fixtures are recorded file by file, with their provenance and their licence terms, in
+`packages/attest-core/test/fixtures/README.md`. A contribution is accepted under the licence that
+already covers the files you touched. Nothing is
 assigned to us and there is no contributor licence agreement to sign: section 5 of Apache-2.0 is what
 carries a contribution in, because anything you intentionally submit for inclusion arrives under the
 terms of that licence and no additional ones unless you say otherwise, and submitting is the act that
