@@ -82,8 +82,8 @@ function isReceiptVersion(value: unknown): value is ReceiptVersion {
  * A label from the marking-scheme registry.
  *
  * `none` declares that no region of the response is marked, and `provenance-v1` names the extractor
- * rule for the member the design settles on. Which of the two a receipt attests is a value of the
- * field either way, so unmarked and undecided are different bytes.
+ * rule for the `ashaveri` member a marked response carries. Which of the two a receipt attests is a
+ * value of the field either way, so unmarked and undecided are different bytes.
  */
 export type MarkingScheme = 'none' | 'provenance-v1';
 
