@@ -87,13 +87,12 @@ obligation. Those two sentences speak for this workspace's own material; the pin
 attestation fixtures are recorded file by file, with their provenance and their licence terms, in
 `packages/attest-core/test/fixtures/README.md`. A contribution is accepted under the licence that
 already covers the files you touched. Nothing is assigned to us and there is no contributor licence
-agreement to sign: section 5 of Apache-2.0 is what
-carries a contribution in, because anything you intentionally submit for inclusion arrives under the
-terms of that licence and no additional ones unless you say otherwise, and submitting is the act that
-grants the copyright licence of section 2 and the patent licence of section 3. Do not submit code you
-have no right to license this way. This is a policy statement about how this repository accepts
-contributions, not legal advice; if it and the licence text ever read differently, the licence text
-governs.
+agreement to sign: section 5 of Apache-2.0 is what carries a contribution in, because anything you
+intentionally submit for inclusion arrives under the terms of that licence and no additional ones
+unless you say otherwise, and submitting is the act that grants the copyright licence of section 2
+and the patent licence of section 3. Do not submit code you have no right to license this way. This
+is a policy statement about how this repository accepts contributions, not legal advice; if it and
+the licence text ever read differently, the licence text governs.
 
 Contributing does not create an employment, contractor or agency relationship between you and this
 project.
