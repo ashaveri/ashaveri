@@ -392,6 +392,11 @@ The SDK exposes three levels:
 keys. `strict` mode additionally freezes the deployment's identity: keys, issuer, instance,
 and measurements cannot change without the client updating its policy.
 
+Which payload versions a call reads is none of these three choices to make. Section 6's
+`acceptedVersions` is an option on `@ashaveri/receipt`'s own `verifyReceipt` and `decodeReceipt`, and
+no mode above passes it, so an integrator verifying through the SDK gets the default set, which
+today admits both versions, and has no flag to refuse a `v: 2` receipt with.
+
 ## 6. Versioning
 
 Two payload versions are defined. `v: 1` is section 3's thirteen fields, and `v: 2` is those same
