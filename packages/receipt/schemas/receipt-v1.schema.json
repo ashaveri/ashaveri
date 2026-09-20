@@ -1,6 +1,6 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$id": "https://ashaveri.com/schemas/receipt-v1.json",
+  "$id": "https://ashaveri.com/schemas/receipt.json",
   "title": "Ashaveri Inference Receipt (JSON twin of the CBOR/COSE wire format)",
   "description": "Display-only projection of the signed COSE_Sign1 receipt. The CBOR bytes are canonical; this JSON form is never signed directly. The payload branch describes both versions the CDDL defines: receipt-v1's thirteen fields, and receipt-v2, which is those same fields plus the marking attestation.",
   "type": "object",
