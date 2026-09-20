@@ -18,12 +18,16 @@ const cddlPath = fileURLToPath(new URL('../receipt.cddl', import.meta.url));
 const specPath = fileURLToPath(new URL('../../../docs/receipt-spec.md', import.meta.url));
 const schema = JSON.parse(readFileSync(schemaPath, 'utf8')) as object;
 
-/** The parts of this schema the agreement test below reads: one branch per payload version. */
+/**
+ * The parts of this schema the agreement test below reads: one branch per payload version, and the
+ * three descriptions that say which level each of them closes.
+ */
 interface SchemaShape {
+  description: string;
   $defs: {
     payloadFields: { properties: Record<string, unknown> };
-    payloadV1: { properties: Record<string, unknown> };
-    payloadV2: { properties: Record<string, unknown> };
+    payloadV1: { properties: Record<string, unknown>; description: string };
+    payloadV2: { properties: Record<string, unknown>; description: string };
   };
 }
 
@@ -59,7 +63,40 @@ function cddlMembers(cddl: string, version: 1 | 2): string[] {
   return members;
 }
 
-/** The body of one `## ` section of a markdown document, up to the next heading of any level. */
+/**
+ * One string for a whole document's worth of line breaks: a sentence in these files spans the lines it
+ * wrapped at, so a leg that pins a sentence has to read the prose rather than the wrapping. An edit
+ * that reflows a paragraph then leaves the assertion alone, and an edit that rewords it does not.
+ */
+function flat(text: string): string {
+  return text.replace(/\s+/gu, ' ').trim();
+}
+
+/**
+ * The CDDL's full-line comments as prose. A trailing comment sits next to a type expression and
+ * belongs to that member; these are the file's paragraphs, and they are what a stranger reading the
+ * format definition actually reads.
+ */
+function cddlProse(cddl: string): string {
+  return flat(cddl.split('\n').filter((line) => line.startsWith(';')).map((line) => line.slice(1)).join('\n'));
+}
+
+/**
+ * `where` says `phrase` exactly once: zero is a document that stopped stating the rule, two is one
+ * that started stating it in two voices. The name and the phrase ride along in the failure because a
+ * bare length assertion cannot say which of the four texts went quiet.
+ */
+function saidOnce(where: string, text: string, phrase: string): void {
+  const hits = text.split(phrase).length - 1;
+  expect(hits, `${where} says "${phrase}" ${hits} times, not once`).toBe(1);
+}
+
+/**
+ * The body of one `## ` section of a markdown document, from its heading to the next `## ` heading: a
+ * `### ` subsection belongs to its section and stays inside the body, which is what the sentence
+ * count below wants — a subsection repeating section 6's rule is the second voice that leg is there
+ * to catch.
+ */
 function sectionBody(markdown: string, heading: string): string {
   const lines = markdown.split('\n');
   const start = lines.indexOf(heading);
@@ -189,10 +226,26 @@ describe('the receipt JSON Schema', () => {
     expect(twinMembers('payloadV2').sort()).toEqual([...membersPerVersion[2]].sort());
 
     // The CDDL's closure is the absence of `...` in the two payload blocks, said out loud so a port
-    // need not decide whether the absence was a rule or an oversight.
-    expect(cddl).toMatch(/;[^\n]*\bclosed\b/iu);
+    // need not decide whether the absence was a rule or an oversight. The pin is the sentence rather
+    // than the word "closed": a comment saying the opposite still contains that word.
+    const prose = cddlProse(cddl);
+    saidOnce('the CDDL payload note', prose, 'A payload map is closed at both versions');
+    saidOnce('the CDDL payload note', prose, 'the absence of `...` in the two blocks below is that rule rather than an oversight');
     expect(cddlRule(cddl, 'Ashaveri-Receipt-Payload-v1').includes('...')).toBe(false);
     expect(cddlRule(cddl, 'Ashaveri-Receipt-Payload-v2').includes('...')).toBe(false);
+
+    // Where that rule stops is a boundary no type expression shows. The four nested blocks omit the
+    // marker too, so the file reads as closed at that level, and the parser and the twin are the ones
+    // that do not enforce it there. The note has to name that divergence rather than the leniency: a
+    // port that believes these blocks are open by the format builds a verifier laxer than the
+    // normative text, which is the one mistake this file exists to prevent.
+    saidOnce('the CDDL boundary note', prose, 'Closedness stops at the payload map');
+    saidOnce('the CDDL boundary note', prose, 'below carry no `...` either');
+    saidOnce('the CDDL boundary note', prose, 'the parser and the JSON twin do not enforce it there');
+    for (const block of ['Marking', 'Measurement', 'EvidenceRef', 'TokenMetering']) {
+      expect(prose.includes(`\`${block}\``), `the CDDL names ${block}`).toBe(true);
+    }
+    expect(prose).not.toMatch(/\bare open\b/u);
 
     // And the specification states the refusal once in the field table and once in section 6, which
     // is the pair a reader of the prose gets. Zero occurrences means the sentence was edited away;
@@ -203,6 +256,33 @@ describe('the receipt JSON Schema', () => {
     expect(versionRow[0]!.split(' does not define')).toHaveLength(2);
     const section = sectionBody(spec, '## 6. Versioning');
     expect(section.split('does not define')).toHaveLength(2);
+
+    // Section 6 carries the same boundary in the same direction, named by the four keys a reader of
+    // the field table has, and pointing at the file that decides it instead of at itself.
+    const specProse = flat(section);
+    saidOnce('section 6', specProse, 'The rule stops at the payload map');
+    saidOnce('section 6', specProse, 'the four maps nested inside it, `meas`, `att`, `tok` and `mk`');
+    saidOnce('section 6', specProse, 'carry no `...` in the normative CDDL either');
+    saidOnce('section 6', specProse, 'reads what it names there and drops the rest rather than refusing the document');
+    expect(specProse).not.toMatch(/\bare open\b/u);
+
+    // The twin says the same thing, and its three closedness descriptions have to agree on the level.
+    // The root is the only one that speaks below the payload map, and it names all four nested keys
+    // and says the keyword is absent there; each branch description closes its own map and names
+    // nothing inside it, so neither can be read as constraining a level this schema does not.
+    saidOnce('the twin', shape.description, 'Each branch is closed');
+    saidOnce('the twin', shape.description, 'Closure is at that one level');
+    saidOnce('the twin', shape.description, 'carry no such keyword');
+    for (const key of ['meas', 'att', 'tok', 'mk']) {
+      expect(shape.description.includes(`\`${key}\``), `the twin names ${key}`).toBe(true);
+    }
+    for (const branch of ['payloadV1', 'payloadV2'] as const) {
+      const doc = shape.$defs[branch].description;
+      saidOnce(`the twin's ${branch} description`, doc, 'The map is closed');
+      for (const key of ['meas', 'att', 'tok', 'mk']) {
+        expect(doc.includes(`\`${key}\``), `the twin's ${branch} description stops at its own map`).toBe(false);
+      }
+    }
   });
 
   it('describes the mark as a label and a 32-byte digest', () => {
