@@ -19,6 +19,11 @@ Ashaveri-Protected-Header = {
 ; thirteen fields plus `mk`, and a v1 reader that ignored the addition would verify a receipt
 ; whose response carries no mark while its holder believed it carried one. Silence must not read
 ; as compliance, so the mark is a new version rather than an optional member of v1.
+;
+; A payload map is closed at both versions, and the absence of `...` in the two blocks below is
+; that rule rather than an oversight: a member the version a document names does not define,
+; including one the other version defines, makes the document invalid. It is not read with the
+; unexpected member dropped.
 Ashaveri-Receipt-Payload = Ashaveri-Receipt-Payload-v1 / Ashaveri-Receipt-Payload-v2
 
 Ashaveri-Receipt-Payload-v1 = {

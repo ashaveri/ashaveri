@@ -54,7 +54,7 @@ countersignature variants (RFC 9338), if ever needed, would be a new format vers
 
 | Field | Type | Meaning |
 |---|---|---|
-| `v` | int | Payload version, and the member that says which shape the rest of the map is: `1` is the thirteen fields of this table, `2` is those same thirteen plus a required `mk`, the marking attestation [`receipt.cddl`](../packages/receipt/receipt.cddl) defines. Which of the two a verifier reads is section 6's rule. |
+| `v` | int | Payload version, and the member that says which shape the rest of the map is: `1` is the thirteen fields of this table, `2` is those same thirteen plus a required `mk`, the marking attestation [`receipt.cddl`](../packages/receipt/receipt.cddl) defines. Which of the two a verifier reads is section 6's rule, and the map is closed, so a member a document carries that its own version does not define is a malformed payload rather than one the reader leaves out. |
 | `iss` | tstr | Issuing deployment identity. |
 | `ins` | tstr | Issuing instance identity. |
 | `iat` | int | Issuance time, Unix seconds: the moment the gateway signed this receipt, and the instant a verifier's receipt window is measured from. |
@@ -67,7 +67,7 @@ countersignature variants (RFC 9338), if ever needed, would be a new format vers
 | `att` | map | `{ d, ts, url }`: digest of the attestation evidence document, its timestamp (Unix seconds) — the moment the evidence was collected, which is the instant a verifier's evidence window is measured from, and is earlier than `iat` on a deployment that quotes per request — and a URL where the evidence can be fetched and re-verified. |
 | `epk` | int | Signing-key epoch, for key rotation. A gateway publishes the value it was started with (`--epk` on signerd) and never changes it, so rotating a key means a new process with a higher epoch. |
 | `tok` | map | `{ p, c }`: prompt and completion token counts for the call, as the serving stack reported them. A receipt proves who claimed a count, not that the count is right. |
-| `mk` | map | `{ sch, d }`: the marking attestation, and the only member `v: 2` adds to the thirteen above, where `v: 1` carries no `mk` at all. It is required in v2, so an absent `mk` is a malformed payload (`BAD_PAYLOAD`) rather than a reading of "unmarked": unmarked is a declared value of `sch`, never an omitted member. `d` is sha256 of the marked region exactly as the response bytes carry it, not of the whole response. The shape is `Marking` in [`receipt.cddl`](../packages/receipt/receipt.cddl), and the label set `sch` draws on is a registry question this document does not settle. |
+| `mk` | map | `{ sch, d }`: the marking attestation, and the only member `v: 2` adds to the thirteen above, where `v: 1` carries no `mk` at all because the closed map named in the row above refuses a v1 document that does. It is required in v2, so an absent `mk` is a malformed payload (`BAD_PAYLOAD`) rather than a reading of "unmarked": unmarked is a declared value of `sch`, never an omitted member. `d` is sha256 of the marked region exactly as the response bytes carry it, not of the whole response. The shape is `Marking` in [`receipt.cddl`](../packages/receipt/receipt.cddl), and the label set `sch` draws on is a registry question this document does not settle. |
 
 All integers are non-negative. Maps use bytewise canonical key ordering per RFC 8949 CDE.
 
@@ -400,10 +400,13 @@ today admits both versions, and has no flag to refuse a `v: 2` receipt with.
 ## 6. Versioning
 
 Two payload versions are defined. `v: 1` is section 3's thirteen fields, and `v: 2` is those same
-thirteen plus a required `mk`. The mark is why the number moved rather than the field arriving as
-an optional member of v1: a reader of a v1 payload looks at thirteen fields, finds nothing about a
-mark, and verifies a receipt over an unmarked response exactly as readily as over a marked one. The
-deployment manifest is a different document and still has the one version, `v: 1`.
+thirteen plus a required `mk`. A payload map is closed at either version, so a member the version a
+document names does not define is a malformed payload (`BAD_PAYLOAD`) rather than a member the reader
+agrees to leave out: that is what makes "`v: 1` carries no `mk`" a fact of the format rather than an
+expectation about it. The mark is why the number moved rather than the field arriving as an optional
+member of v1: a reader of a v1 payload looks at thirteen fields, finds nothing about a mark, and
+verifies a receipt over an unmarked response exactly as readily as over a marked one. The deployment
+manifest is a different document and still has the one version, `v: 1`.
 
 Which versions a call reads is a setting rather than a fact about the format. `acceptedVersions`
 names them on both `verifyReceipt` and `decodeReceipt`, and its default is every version the
@@ -417,7 +420,7 @@ malformed payload and gets `BAD_PAYLOAD`, the same answer as any other mis-typed
 The compatibility contract itself is unchanged, and it is the reason a version is the right place
 for an addition: software released before payload version 2 existed refuses a `v` that is not 1
 with `BAD_PAYLOAD`, which is a fact about the verifiers already in customers' hands and not
-something a later release can alter. A marked receipt therefore reaches an un-updated verifier as a
+something any verifier can alter. A marked receipt therefore reaches an un-updated verifier as a
 refusal rather than as a misreading, and a future format version must still change `v`, which
 existing verifiers will refuse rather than misinterpret.
 

@@ -14,7 +14,60 @@ import {
 } from '../src/index.js';
 
 const schemaPath = fileURLToPath(new URL('../schemas/receipt-v1.schema.json', import.meta.url));
+const cddlPath = fileURLToPath(new URL('../receipt.cddl', import.meta.url));
+const specPath = fileURLToPath(new URL('../../../docs/receipt-spec.md', import.meta.url));
 const schema = JSON.parse(readFileSync(schemaPath, 'utf8')) as object;
+
+/** The parts of this schema the agreement test below reads: one branch per payload version. */
+interface SchemaShape {
+  $defs: {
+    payloadFields: { properties: Record<string, unknown> };
+    payloadV1: { properties: Record<string, unknown> };
+    payloadV2: { properties: Record<string, unknown> };
+  };
+}
+
+const shape = schema as SchemaShape;
+
+/**
+ * The text of one CDDL rule, from its opening brace to the first line that closes it. A rule the
+ * reader could not find has to fail the run rather than hand back an empty string, because an empty
+ * block reads as a format that stopped declaring any members.
+ */
+function cddlRule(cddl: string, rule: string): string {
+  const start = cddl.indexOf(`${rule} = {`);
+  if (start < 0) throw new Error(`${rule} is not declared in ${cddlPath}`);
+  const end = cddl.indexOf('\n}', start);
+  if (end < 0) throw new Error(`${rule} in ${cddlPath} never closes`);
+  return cddl.slice(start, end);
+}
+
+/**
+ * The members one payload block declares, in the order it declares them: comments stripped, then
+ * every `name:` read off the commas that separate the members. The order is not decoration — v2's
+ * block puts `mk` after the thirteen, and the twin and the parser both claim that list as theirs.
+ */
+function cddlMembers(cddl: string, version: 1 | 2): string[] {
+  const members: string[] = [];
+  for (const line of cddlRule(cddl, `Ashaveri-Receipt-Payload-v${version}`).split('\n').slice(1)) {
+    for (const piece of line.split(';')[0]!.split(',')) {
+      const found = /^\s*([a-z][a-z0-9_]*)\s*:/u.exec(piece);
+      if (found) members.push(found[1]!);
+    }
+  }
+  if (members.length === 0) throw new Error(`the payload v${version} block declares no members`);
+  return members;
+}
+
+/** The body of one `## ` section of a markdown document, up to the next heading of any level. */
+function sectionBody(markdown: string, heading: string): string {
+  const lines = markdown.split('\n');
+  const start = lines.indexOf(heading);
+  if (start < 0) throw new Error(`${heading} is not a heading in ${specPath}`);
+  const rest = lines.slice(start + 1);
+  const end = rest.findIndex((line) => line.startsWith('## '));
+  return (end < 0 ? rest : rest.slice(0, end)).join('\n');
+}
 
 /**
  * Compiles a receipt schema with Ajv's strict mode on, so a keyword this schema does not
@@ -27,7 +80,7 @@ const schema = JSON.parse(readFileSync(schemaPath, 'utf8')) as object;
  *
  * `strictTypes` is at its default, so a subschema that is looser than the `$ref` it narrows is a
  * compile error rather than a log line: the two `then` branches at
- * `$defs.payloadV1/properties/meas/allOf/0` and `/1` each declare `type: "string"` next to their
+ * `$defs.payloadFields/properties/meas/allOf/0` and `/1` each declare `type: "string"` next to their
  * `pattern`.
  */
 function compile(s: object): ValidateFunction<unknown> {
@@ -110,11 +163,46 @@ describe('the receipt JSON Schema', () => {
     expect(outcome(rewritten(v2({ sch: 'provenance-v1', d: DIGEST }), (members) => { delete members.mk; }))).not.toBeNull();
   });
 
-  it('holds a v1 payload to thirteen members and a v2 payload to fourteen', () => {
-    // The branches are exclusive on `v`, which is what makes the version a discriminant rather
-    // than a hint: neither of these is a document, and neither reads as the other.
+  it('holds a v1 payload to its thirteen members and a v2 payload to its fourteen', () => {
+    // Both halves of the discriminant, now that the branches are closed: a v1 document rewritten to
+    // `v: 2` is missing a member it now needs, and a v1 document that keeps its thirteen and adds
+    // the marking attestation is a document no version defines. The twin refuses both, which is what
+    // makes "v: 1 carries no mk" something the schema states rather than something a reader hopes.
     expect(outcome(rewritten(v1('software', DIGEST), (members) => { members.v = 2; }))).not.toBeNull();
-    expect(outcome(rewritten(v1('software', DIGEST), (members) => { members.mk = { sch: 'none', d: toHex(DIGEST) }; }))).toBeNull();
+    expect(outcome(rewritten(v1('software', DIGEST), (members) => { members.mk = { sch: 'none', d: toHex(DIGEST) }; }))).not.toBeNull();
+    expect(outcome(rewritten(v2({ sch: 'none', d: DIGEST }), (members) => { members.not_a_member = 'x'; }))).not.toBeNull();
+  });
+
+  it('closes the payload map in the twin, the CDDL and the spec alike', () => {
+    // The rule is one rule, written down four times: the parser, this schema, the normative CDDL
+    // and the specification. A reader porting the format reads the last two, so a document that
+    // stopped saying it would leave the port to guess, which is how an open map comes back.
+    const cddl = readFileSync(cddlPath, 'utf8');
+    const membersPerVersion: Record<1 | 2, string[]> = { 1: cddlMembers(cddl, 1), 2: cddlMembers(cddl, 2) };
+    expect(membersPerVersion[1].length).toBe(13);
+    expect(membersPerVersion[2]).toEqual([...membersPerVersion[1], 'mk']);
+    const twinMembers = (branch: 'payloadV1' | 'payloadV2'): string[] => [
+      ...Object.keys(shape.$defs.payloadFields.properties),
+      ...Object.keys(shape.$defs[branch].properties),
+    ];
+    expect(twinMembers('payloadV1').sort()).toEqual([...membersPerVersion[1]].sort());
+    expect(twinMembers('payloadV2').sort()).toEqual([...membersPerVersion[2]].sort());
+
+    // The CDDL's closure is the absence of `...` in the two payload blocks, said out loud so a port
+    // need not decide whether the absence was a rule or an oversight.
+    expect(cddl).toMatch(/;[^\n]*\bclosed\b/iu);
+    expect(cddlRule(cddl, 'Ashaveri-Receipt-Payload-v1').includes('...')).toBe(false);
+    expect(cddlRule(cddl, 'Ashaveri-Receipt-Payload-v2').includes('...')).toBe(false);
+
+    // And the specification states the refusal once in the field table and once in section 6, which
+    // is the pair a reader of the prose gets. Zero occurrences means the sentence was edited away;
+    // more than the one each means the document started saying the same thing in two voices.
+    const spec = readFileSync(specPath, 'utf8');
+    const versionRow = spec.split('\n').filter((line) => line.startsWith('| `v` | int |'));
+    expect(versionRow).toHaveLength(1);
+    expect(versionRow[0]!.split(' does not define')).toHaveLength(2);
+    const section = sectionBody(spec, '## 6. Versioning');
+    expect(section.split('does not define')).toHaveLength(2);
   });
 
   it('describes the mark as a label and a 32-byte digest', () => {

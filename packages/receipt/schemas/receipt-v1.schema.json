@@ -2,7 +2,7 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "https://ashaveri.com/schemas/receipt.json",
   "title": "Ashaveri Inference Receipt (JSON twin of the CBOR/COSE wire format)",
-  "description": "Display-only projection of the signed COSE_Sign1 receipt. The CBOR bytes are canonical; this JSON form is never signed directly. The payload branch describes both versions the CDDL defines: receipt-v1's thirteen fields, and receipt-v2, which is those same fields plus the marking attestation.",
+  "description": "Display-only projection of the signed COSE_Sign1 receipt. The CBOR bytes are canonical; this JSON form is never signed directly. The payload branch describes both versions the CDDL defines: receipt-v1's thirteen fields, and receipt-v2, which is those same fields plus the marking attestation. Each branch is closed, so a member its version does not name is a refusal here exactly as it is in the CDDL and in the parser.",
   "type": "object",
   "required": ["protectedHeader", "payload"],
   "properties": {
@@ -84,7 +84,9 @@
       "required": ["v"],
       "properties": {
         "v": { "const": 1 }
-      }
+      },
+      "unevaluatedProperties": false,
+      "description": "A v1 document and nothing else. The map is closed: `unevaluatedProperties` refuses any member payloadFields and `v` do not name, so a v1 payload cannot carry a marking attestation, and a reader never has to work out what became of a member it did not read."
     },
     "payloadV2": {
       "allOf": [{ "$ref": "#/$defs/payloadFields" }],
@@ -106,7 +108,9 @@
             }
           }
         }
-      }
+      },
+      "unevaluatedProperties": false,
+      "description": "A v2 document and nothing else. The map is closed the same way v1's is: fourteen members are the whole of it, so a member outside this list is a malformed payload rather than a member a reader agreed to forget."
     },
     "hex16": { "type": "string", "pattern": "^[0-9a-f]{32}$" },
     "hex32": { "type": "string", "pattern": "^[0-9a-f]{64}$" },
