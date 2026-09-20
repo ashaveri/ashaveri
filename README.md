@@ -70,6 +70,9 @@ the scope each one needs, and what the per-request access log holds, how long it
 and how a line is erased.
 Fixtures are regenerated deterministically with `pnpm --filter @ashaveri/fixtures generate`.
 
+Reporting a vulnerability and submitting a change have their own pages:
+[SECURITY.md](SECURITY.md) and [CONTRIBUTING.md](CONTRIBUTING.md).
+
 ## Verifying inference receipts
 
 Start the mock gateway, then call it through the SDK:
