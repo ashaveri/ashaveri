@@ -381,8 +381,9 @@ describe('receipt payload v2 and the versions a call accepts', () => {
 
   it('refuses any member the payload version does not define, not only the marking one', () => {
     const key = generateSigningKey();
-    // One list per version rather than a case per name, so these are refused by the same check: a
-    // member the design ruled out of v2, and a name no version has ever used.
+    // One list per version rather than a case per name, so the check that fires for one name fires
+    // for every other: an extra member that looks like it could belong to this format, and one that
+    // plainly does not belong to any version of it.
     for (const [name, value] of [
       ['enc', new Uint8Array(32).fill(9)],
       ['not_a_member', 'x'],
@@ -406,8 +407,8 @@ describe('receipt payload v2 and the versions a call accepts', () => {
     const key = generateSigningKey();
     // Both spellings of "not an integer at all" land here, and neither is the version code: a
     // document a reader cannot take a version from is a malformed payload, which is what the spec
-    // and the code table both say. The `v: 3` case above proves the other half, that an integer
-    // this package does not read is a version answer rather than a payload one.
+    // and the code table both say. The `v: 3` case further down this block proves the other half,
+    // that an integer this package does not read is a version answer rather than a payload one.
     const textVersion = membersOf(samplePayload());
     textVersion.set('v', '1');
     const text = signMembers(textVersion, key);
