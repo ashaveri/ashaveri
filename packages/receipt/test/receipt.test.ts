@@ -403,6 +403,33 @@ describe('receipt payload v2 and the versions a call accepts', () => {
     expect(failure.message).toContain('a bstr key of length 1');
   });
 
+  it('names a key the bytes chose without letting it write the message', () => {
+    const key = generateSigningKey();
+    // The closedness detail is the one part of this refusal whose text comes out of bytes whoever
+    // sent the receipt wrote, so it lives under the promise `ReceiptError` makes about every quoted
+    // detail: the sentence is fixed and only the quote is bounded, and no control character survives
+    // the message, so a key cannot end the log line it is written into or drive a terminal. That
+    // promise is what lets this site hand back a name it does not control, and a tstr key is as long
+    // as the document carrying it, so this is the case taken at four thousand characters with an
+    // escape sequence inside it.
+    const hostile = `mk\u001b[2J${'q'.repeat(4_000)}`;
+    const members = new Map<unknown, unknown>([...membersOf(samplePayload()), [hostile, 'x']]);
+    const failure = expectFailure(
+      () => verifyReceipt(signMembers(members, key), { publicKey: key.publicKey, now: FIXED_NOW }),
+    );
+    expect(failure.message).toContain('payload carries a member version 1 does not define:');
+    // One line of visible text, and the escape sequence arrives as a name for itself rather than as
+    // a command: what a reader sees is the six characters `u001b` behind a backslash.
+    expect(failure.message).not.toMatch(/[\p{Cc}\p{Cf}\u{2028}\u{2029}]/u);
+    expect(failure.message).toContain('\\u001b');
+    // Bounded, and announced as bounded: four thousand characters of name reach the reader as the
+    // head of the detail and an ellipsis, which says text was dropped rather than that the key was
+    // short. The cap is 200 characters of the detail and the fixed sentence around it is shorter
+    // still, so a message this package builds cannot run to the length of the document.
+    expect(failure.message.length).toBeLessThan(400);
+    expect(failure.message).toContain('...');
+  });
+
   it('refuses a v that is not an integer, which is the malformed half of the version read', () => {
     const key = generateSigningKey();
     // Both spellings of "not an integer at all" land here, and neither is the version code: a
