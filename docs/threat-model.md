@@ -249,17 +249,25 @@ What is still true, in both modes:
   platform edge, not on a channel the workload terminates inside the enclave.
 - **Nothing here measures model behaviour.** A receipt proves who served which bytes; it says
   nothing about quality, alignment, or the prompt template behind the completion.
-- **Marking is a design and none of it is built.** `packages/receipt/receipt.cddl` declares thirteen
-  payload fields and no marking among them, and the payload parser answers `BAD_PAYLOAD` for any
-  version that is not 1 (`packages/receipt/src/receipt.ts`), so a receipt claiming to attest a mark is
-  refused by the software shipped today rather than misread by it. That refusal is the compatibility
-  contract in section 6 of [receipt-spec.md](receipt-spec.md) doing its job, and it is why a marking
-  field belongs to a new version rather than arriving as an optional member of the current one: a v1
-  verifier checks the thirteen fields it knows, finds nothing about a mark, and would verify a
-  receipt over an unmarked response exactly as readily as over a marked one, which is silence read as
-  a claim. Whether a deployment marks at all, and whether the mark is checked by the live client or
-  only by an auditor holding response bytes, are both unchosen, and T17 through T20 are written to
-  hold under either answer.
+- **Nothing issues a marked receipt, and nothing checks a mark.** A payload whose `v` is 2 parses, so
+  such a receipt has its signature verified, its nonce matched and its `res` compared like any other,
+  and `res` is the digest the marked region sits inside. The step that would make `mk` worth signing
+  happens nowhere in this repository: no code carves a region out of response bytes to compare its
+  digest against the signed `d`, because no code here identifies a region and no verifier here is
+  handed the response — the live SDK path receives `sha256` of it (`packages/sdk/src/verify.ts`). What
+  a receipt carrying `mk` does establish is that the holder of a deployment's signing key paired one
+  labelled extraction rule and one 32-byte digest with the bytes of one response; what it establishes
+  about those bytes is nothing, and the refusal that would say so is `MARK_MISMATCH`, declared with no
+  raise site. Nor does anything issue one: the gateway writes v1 (`gateway/src/server.ts`) and every
+  conformance vector is a v1 document. That is a limit on what gets served, not a guard for a
+  reader: a marked receipt verifies anywhere the accepted version set is left at its default, which
+  is every version the package parses, and no client in this estate narrows it. Whether a
+  deployment marks at all, and whether the mark is checked by the live client or only by an auditor
+  holding response bytes, are both unchosen, and T17 through T20 are written to hold under either
+  answer. Why a mark took a new version rather than arriving as an optional member of the old one is
+  section 6 of [receipt-spec.md](receipt-spec.md), and it holds: a v1 reader checks the thirteen fields
+  it knows, finds nothing about a mark, and would verify a receipt over an unmarked response exactly
+  as readily as over a marked one, which is silence read as a claim.
 - **A mark is detectable only by someone who has the bytes, and nothing here reaches further.** The
   marking the design describes is a member of the response envelope or a frame of the stream, never a
   property of the words, so a consumer of the text alone, pasted out of a chat window or retyped, has
