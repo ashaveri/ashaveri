@@ -22,9 +22,12 @@ each shape.
 | Response digest | `packages/fixtures/data/res-v1.json` | The `res` a receipt claims, over exact response bytes including framing | `version: 1` |
 | Receipt store chain | `packages/fixtures/data/chain-v1.json` | The record frames a gateway writes to `receipts.log`, the state a reader derives from them, and what it refuses | `version: 1` |
 
-Each file carries a `description` stating its rule in prose, and the digest and chain suites carry a
-`rule` or `layout` block naming the fields, the widths and the byte order, so a reader never has to
-guess what an array of hex is standing for.
+`pop-v1.json`, `req-v1.json`, `res-v1.json` and `chain-v1.json` each carry a `description` stating
+their rule in prose, and the digest and chain suites carry a `rule` or `layout` block naming the
+fields, the widths and the byte order, so a reader never has to guess what an array of hex is
+standing for. The manifest carries no `description`, because it lists the receipt fixtures rather
+than stating a rule of its own; what they are for is written in
+[receipt-spec.md](receipt-spec.md).
 
 ## How to consume a suite
 
@@ -65,12 +68,13 @@ specific to that case.
   reproduce it with your writer and compare the image byte for byte, or read the published image with
   your reader and compare what you derive — the head, the served set, the retention window and the
   chain state — against what the file states. The `records` table beside each image decomposes it
-  into fields with their offsets, so a difference localizes to a width, an endianness or a coverage
-  rule rather than to a whole file. `refusals` are images no writer produced: one bit flipped in a
-  payload, a record lifted out of the middle, a retirement written behind a receipt, and a frame
-  lying about its length. Each carries the refusal the reader gave, and your reader has to refuse
-  them too. Its sentence may differ; the fact that it stops may not. `tails` states an append that
-  never finished, which is the one case a reader repairs rather than refuses.
+  into fields with their offsets — each row states the byte its frame starts at and that frame's
+  whole length — so a difference localizes to a width, an endianness or a coverage rule rather than
+  to a whole file. `refusals` are images no writer produced: one bit flipped in a payload, a record
+  lifted out of the middle, a retirement written behind a receipt, and a frame lying about its
+  length. Each carries the refusal the reader gave, and your reader has to refuse them too. Its
+  sentence may differ; the fact that it stops may not. `tails` states an append that never finished,
+  which is the one case a reader repairs rather than refuses.
 
 ## Regenerating
 
