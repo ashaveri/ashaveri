@@ -25,6 +25,7 @@ import {
   type CredentialRecord,
   type Scope,
 } from '../src/access.js';
+import { nonceAt, observable } from './helpers.js';
 
 /**
  * Properties over the order `CredentialStore.admit` runs its checks in, and over what each refusal
@@ -63,6 +64,9 @@ function check<T>(arbitrary: fc.Arbitrary<T>, examples: readonly T[], predicate:
 const NOW_SECONDS = 1_772_000_000;
 /** One frozen millisecond clock, so no case can refill a bucket while the test is counting it. */
 const CLOCK_MS = NOW_SECONDS * 1000;
+
+/** The leading bytes every nonce this suite presents carries; `nonceAt` says what they are for. */
+const NONCE_MARKER = 0x5a;
 
 const RECORD_SEED = new Uint8Array(32).fill(0x21);
 const FORGER_SEED = new Uint8Array(32).fill(0x22);
@@ -135,22 +139,12 @@ interface PresentationIdentity {
 function admitCount(store: CredentialStore, who: PresentationIdentity, limit: number): number {
   let admitted = 0;
   for (let at = 0; at < limit; at++) {
-    if (observe(() => store.admit(popRequest({ ...who, ...WORK_ROUTE, nonce: nonceAt(1_000 + at), stamp: 'fresh', withNonceHeader: true }))) !== 'no-error') {
+    if (observe(() => store.admit(popRequest({ ...who, ...WORK_ROUTE, nonce: nonceAt(1_000 + at, NONCE_MARKER), stamp: 'fresh', withNonceHeader: true }))) !== 'no-error') {
       break;
     }
     admitted += 1;
   }
   return admitted;
-}
-
-/** A nonce per presentation, so one case's replay prime cannot collide with another case's request. */
-function nonceAt(at: number): Uint8Array {
-  const nonce = new Uint8Array(POP_NONCE_BYTES).fill(0x5a, 0, POP_NONCE_BYTES - 4);
-  nonce[POP_NONCE_BYTES - 4] = (at >>> 24) & 0xff;
-  nonce[POP_NONCE_BYTES - 3] = (at >>> 16) & 0xff;
-  nonce[POP_NONCE_BYTES - 2] = (at >>> 8) & 0xff;
-  nonce[POP_NONCE_BYTES - 1] = at & 0xff;
-  return nonce;
 }
 
 /** The code a presentation answered with, or the name of whatever escaped the store instead. */
@@ -300,7 +294,7 @@ function runPopCase(c: PopCase, withProbe: boolean): PopRun {
   const present = (input: AdmissionInput): string => observe(() => store.admit(input));
   const atWork = (nonce: Uint8Array): AdmissionInput =>
     popRequest({ id: PROBE_ID, key: RECORD_SEED, ...WORK_ROUTE, nonce, stamp: 'fresh', withNonceHeader: true });
-  const probeNonce = nonceAt(0x8000);
+  const probeNonce = nonceAt(0x8000, NONCE_MARKER);
 
   // The replay prime is a well-formed request for the work route, so it reaches the replay check
   // whatever the probe itself will be refused for. It is admitted, and that is the price of arranging
@@ -308,7 +302,7 @@ function runPopCase(c: PopCase, withProbe: boolean): PopRun {
   if (resolves(c) && c.presentation === 'replayed') present(atWork(probeNonce));
   if (resolves(c) && c.budget === 'exhausted') {
     for (let at = 1; at <= c.burst; at++) {
-      if (present(atWork(nonceAt(at))) !== 'no-error') break;
+      if (present(atWork(nonceAt(at, NONCE_MARKER))) !== 'no-error') break;
     }
   }
 
@@ -648,7 +642,7 @@ const EMPTY_PARAMETER_ROUTE: HttpRoute = { method: 'GET', url: '/v1/receipts/' }
 const UNANSWERED_METHOD_ROUTE: HttpRoute = { method: 'TRACE', url: WORK_ROUTE.url };
 
 /** The count's own request, and never the one a case is probing with. */
-const CONTROL_NONCE = nonceAt(9_000);
+const CONTROL_NONCE = nonceAt(9_000, NONCE_MARKER);
 
 const unlistedPopCaseArbitrary: fc.Arbitrary<UnlistedPopCase> = fc.record({
   keySeed: fc.uint8Array({ minLength: 32, maxLength: 32 }),
@@ -752,9 +746,9 @@ describe('what a target the route table does not name costs', () => {
     check(
       unlistedPopCaseArbitrary,
       [
-        { keySeed: RECORD_SEED, credential: PROBE_ID, scopes: ALL_GRANTS, route: UNLISTED_ROUTE, nonce: nonceAt(21), burst: 1 },
-        { keySeed: RECORD_SEED, credential: PROBE_ID, scopes: NO_GRANTS, route: WRONG_METHOD_ROUTE, nonce: nonceAt(22), burst: 3 },
-        { keySeed: FORGER_SEED, credential: 'edge-svc', scopes: ALL_GRANTS, route: EMPTY_PARAMETER_ROUTE, nonce: nonceAt(23), burst: 2 },
+        { keySeed: RECORD_SEED, credential: PROBE_ID, scopes: ALL_GRANTS, route: UNLISTED_ROUTE, nonce: nonceAt(21, NONCE_MARKER), burst: 1 },
+        { keySeed: RECORD_SEED, credential: PROBE_ID, scopes: NO_GRANTS, route: WRONG_METHOD_ROUTE, nonce: nonceAt(22, NONCE_MARKER), burst: 3 },
+        { keySeed: FORGER_SEED, credential: 'edge-svc', scopes: ALL_GRANTS, route: EMPTY_PARAMETER_ROUTE, nonce: nonceAt(23, NONCE_MARKER), burst: 2 },
       ],
       (c) => {
         // The premise, asked of the code on every draw rather than assumed from how the route was built.
@@ -797,7 +791,7 @@ describe('what a target the route table does not name costs', () => {
       rate: { perMinute: 60, burst: 10 },
     };
     const ask = (store: CredentialStore, route: HttpRoute, at: number): string =>
-      observe(() => store.admit(popRequest({ id: PROBE_ID, key: RECORD_SEED, ...route, nonce: nonceAt(at), stamp: 'fresh', withNonceHeader: true })));
+      observe(() => store.admit(popRequest({ id: PROBE_ID, key: RECORD_SEED, ...route, nonce: nonceAt(at, NONCE_MARKER), stamp: 'fresh', withNonceHeader: true })));
 
     // The replay check sits before the scope check, so the nonce a refused request presented is kept
     // and its second presentation is refused for the nonce rather than for the route. The route table
@@ -842,7 +836,7 @@ const SWEEP_RUNS = Number(process.env['FC_SWEEP'] ?? '100000');
 /** The fields the verifier is handed, so a case varies only the bytes it is attacking. */
 const SWEEP_FIELDS: PopFields = {
   ts: NOW_SECONDS,
-  nonce: nonceAt(31),
+  nonce: nonceAt(31, NONCE_MARKER),
   method: 'GET',
   target: WORK_ROUTE.url,
   bodyDigestHex: EMPTY_BODY_SHA256_HEX,
@@ -934,7 +928,7 @@ function refusalCode(c: RefusalCase): string {
   const store = new CredentialStore({ file: { version: 1, credentials: [record] }, now: () => CLOCK_MS });
   return observe(() =>
     store.admit(
-      popRequest({ id: PROBE_ID, key: c.signerSeed, ...WORK_ROUTE, nonce: nonceAt(41), stamp: 'fresh', withNonceHeader: true }),
+      popRequest({ id: PROBE_ID, key: c.signerSeed, ...WORK_ROUTE, nonce: nonceAt(41, NONCE_MARKER), stamp: 'fresh', withNonceHeader: true }),
     ),
   );
 }
@@ -1094,8 +1088,8 @@ const UNENROLLED_SECRET = new Uint8Array(32).fill(0x24);
 
 const STALE_TS = NOW_SECONDS - POP_TIMESTAMP_TOLERANCE_SECONDS - 1;
 /** One nonce for every shape, so the only thing a shape varies is the header that carries it. */
-const SHAPE_NONCE = nonceAt(0x1430);
-const ANOTHER_NONCE = nonceAt(0x1431);
+const SHAPE_NONCE = nonceAt(0x1430, NONCE_MARKER);
+const ANOTHER_NONCE = nonceAt(0x1431, NONCE_MARKER);
 const ZERO_SIGNATURE = new Uint8Array(64);
 const SATURATED_SIGNATURE = new Uint8Array(64).fill(0xff);
 
@@ -1352,10 +1346,6 @@ function answer(store: CredentialStore, input: AdmissionInput): Answer {
   }
 }
 
-function show(a: Answer): string {
-  return `${a.code} ${a.status} "${a.message}"`;
-}
-
 function identical(a: Answer, b: Answer): boolean {
   return a.code === b.code && a.status === b.status && a.message === b.message;
 }
@@ -1390,9 +1380,9 @@ describe('two stores that differ only in whether they hold one name', () => {
 
       const controlHolds = answer(premise.holds, controlRequest());
       const controlLacks = answer(premise.lacks, controlRequest());
-      expect(controlHolds.kind, `the control request naming a record both stores hold was not served: ${show(controlHolds)}`).toBe('admitted');
-      expect(controlLacks.kind, `the same control was not served by the store without the probe: ${show(controlLacks)}`).toBe('admitted');
-      expect(identical(controlHolds, controlLacks), `the control has to read the same in both: ${show(controlHolds)} / ${show(controlLacks)}`).toBe(true);
+      expect(controlHolds.kind, `the control request naming a record both stores hold was not served: ${observable(controlHolds)}`).toBe('admitted');
+      expect(controlLacks.kind, `the same control was not served by the store without the probe: ${observable(controlLacks)}`).toBe('admitted');
+      expect(identical(controlHolds, controlLacks), `the control has to read the same in both: ${observable(controlHolds)} / ${observable(controlLacks)}`).toBe(true);
 
       for (const shape of SHAPES) {
         cells += 1;
@@ -1402,19 +1392,19 @@ describe('two stores that differ only in whether they hold one name', () => {
         const holds = answer(stores.holds, input);
         const lacks = answer(stores.lacks, input);
         const where = `${state} x ${shape.name}${proves ? ' [proves]' : ''}`;
-        if (printed) lines.push(`${where.padEnd(58)} holds ${show(holds)} | lacks ${show(lacks)}`);
+        if (printed) lines.push(`${where.padEnd(58)} holds ${observable(holds)} | lacks ${observable(lacks)}`);
 
         if (lacks.kind === 'admitted') {
-          failures.push(`${where}: the store holding nothing named ${PROBE_ID} served the request: ${show(lacks)}`);
+          failures.push(`${where}: the store holding nothing named ${PROBE_ID} served the request: ${observable(lacks)}`);
         }
         if (proves) continue;
         if (holds.kind === 'admitted') {
-          failures.push(`${where}: the store holding a ${state} record served a request that proves nothing: ${show(holds)}`);
+          failures.push(`${where}: the store holding a ${state} record served a request that proves nothing: ${observable(holds)}`);
         }
         if (identical(holds, lacks)) continue;
         const pair = `${holds.code}/${holds.status} vs ${lacks.code}/${lacks.status}`;
         tally.set(pair, (tally.get(pair) ?? 0) + 1);
-        failures.push(`${where}: the name is answered differently\n    holds N: ${show(holds)}\n    lacks N: ${show(lacks)}`);
+        failures.push(`${where}: the name is answered differently\n    holds N: ${observable(holds)}\n    lacks N: ${observable(lacks)}`);
       }
     }
 
