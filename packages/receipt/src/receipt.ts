@@ -132,6 +132,23 @@ export interface ReceiptPayloadV2 extends ReceiptFields {
 
 export type ReceiptPayload = ReceiptPayloadV1 | ReceiptPayloadV2;
 
+/**
+ * The members the two payload versions have in common, in the order `receipt.cddl` lists them.
+ * `mk` is absent from this list because it belongs to one version, which is the whole of what makes
+ * it a v2 member rather than an optional one.
+ */
+const SHARED_MEMBERS = ['v', 'iss', 'ins', 'iat', 'nce', 'req', 'res', 'mdl', 'wts', 'meas', 'att', 'epk', 'tok'] as const;
+
+/**
+ * Which members a payload of each version defines. A payload map is closed for every one of them:
+ * carrying a member the version does not define makes the document malformed rather than a document
+ * read with the extra member dropped.
+ */
+const DEFINED_MEMBERS: Readonly<Record<ReceiptVersion, readonly string[]>> = {
+  1: SHARED_MEMBERS,
+  2: [...SHARED_MEMBERS, 'mk'],
+};
+
 export interface VerifyOptions {
   publicKey?: Uint8Array;
   resolveKey?: (kid: Uint8Array) => Uint8Array | undefined;
@@ -184,6 +201,34 @@ function claimedVersion(value: unknown, accepted: readonly ReceiptVersion[]): Re
     throw new ReceiptError('UNSUPPORTED_VERSION', `receipt payload version ${value} is not in acceptedVersions`);
   }
   return value;
+}
+
+/**
+ * How a document names a member the reader was not told about, in the refusal that names it back.
+ * A map key is whatever the bytes carried, so a name that is not a text label is described by what
+ * it is rather than rendered through an object's default `toString`.
+ */
+function memberName(key: unknown): string {
+  if (typeof key === 'string') return `'${key}'`;
+  if (key instanceof Uint8Array) return `a bstr key of ${key.length} bytes`;
+  return `a key that is not a text label`;
+}
+
+/**
+ * The closedness rule, applied to both arms from the one member list the version selects. It runs
+ * before a single field is read, so an unexpected member is the answer a caller hears whatever else
+ * the document is missing, and one rule retires the whole class rather than the one name that
+ * reached a review: a `v: 1` payload carrying `mk` read with the member dropped would hand a reader
+ * a verified receipt that says nothing about a mark, which is the silence the version exists to
+ * refuse, and any other undefined name buys the same silence about whatever it stood for.
+ */
+function assertMembersAreDefined(raw: Map<unknown, unknown>, version: ReceiptVersion): void {
+  const defined = DEFINED_MEMBERS[version];
+  for (const key of raw.keys()) {
+    if (typeof key !== 'string' || !defined.includes(key)) {
+      throw badPayload(`payload carries a member version ${version} does not define: ${memberName(key)}`);
+    }
+  }
 }
 
 /** The twelve members every version carries, checked in the order the CDDL lists them. */
@@ -257,6 +302,7 @@ function parsePayload(bytes: Uint8Array, accepted: readonly ReceiptVersion[]): R
   const raw = decodedMap(decodeCanonical(bytes, 'BAD_PAYLOAD'));
   if (raw === null) throw badPayload('payload is not a map');
   const version = claimedVersion(raw.get('v'), accepted);
+  assertMembersAreDefined(raw, version);
   const fields = readReceiptFields(raw);
   if (version === 2) return { v: 2, ...fields, mk: readMarking(raw) };
   return { v: 1, ...fields };
