@@ -400,7 +400,7 @@ describe('receipt payload v2 and the versions a call accepts', () => {
     const failure = expectFailure(
       () => verifyReceipt(signMembers(foreignKey, key), { publicKey: key.publicKey, now: FIXED_NOW }),
     );
-    expect(failure.message).toContain('a bstr key of 1 bytes');
+    expect(failure.message).toContain('a bstr key of length 1');
   });
 
   it('refuses a v that is not an integer, which is the malformed half of the version read', () => {

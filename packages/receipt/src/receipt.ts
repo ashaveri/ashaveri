@@ -215,7 +215,7 @@ function claimedVersion(value: unknown, accepted: readonly ReceiptVersion[]): Re
  */
 function memberName(key: unknown): string {
   if (typeof key === 'string') return `'${key}'`;
-  if (key instanceof Uint8Array) return `a bstr key of ${key.length} bytes`;
+  if (key instanceof Uint8Array) return `a bstr key of length ${key.length}`;
   return `a key that is not a text label`;
 }
 
