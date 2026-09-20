@@ -86,8 +86,8 @@ under CC0-1.0 (`packages/fixtures/LICENSE`) so a reimplementation elsewhere carr
 obligation. Those two sentences speak for this workspace's own material; the pinned third-party
 attestation fixtures are recorded file by file, with their provenance and their licence terms, in
 `packages/attest-core/test/fixtures/README.md`. A contribution is accepted under the licence that
-already covers the files you touched. Nothing is
-assigned to us and there is no contributor licence agreement to sign: section 5 of Apache-2.0 is what
+already covers the files you touched. Nothing is assigned to us and there is no contributor licence
+agreement to sign: section 5 of Apache-2.0 is what
 carries a contribution in, because anything you intentionally submit for inclusion arrives under the
 terms of that licence and no additional ones unless you say otherwise, and submitting is the act that
 grants the copyright licence of section 2 and the patent licence of section 3. Do not submit code you
