@@ -101,6 +101,19 @@ Verification options:
   --expect-compose-hash <hex>
                      Pin the 64-hex dstack compose hash the deployment was
                      started with, so a rebuilt image is rejected.
+  --policy <file>    Take the trust anchors and the platform measurement pin from
+                     a policy document instead of naming them here, and print the
+                     digest that document hashes to, so a run can be cited by the
+                     policy it enforced rather than by the flags someone typed.
+                     Refused together with --ark, --intel-root, --gpu-root,
+                     --expect-measurement and --expect-compose-hash: a file and a
+                     flag pinning one thing leave the printed digest describing a
+                     check that did not run. Anchor paths in the document are read
+                     against the directory holding it, either separator, and a
+                     family the document leaves out accepts the roots bundled with
+                     this verifier. The receipt pins a document carries - issuers,
+                     instances, keys, age windows - are read by a client checking a
+                     receipt, and this command neither applies nor relaxes them.
   --allow-debug      Accept SEV-SNP guest policies that permit debugging.
 
 Credential and log options:
@@ -189,6 +202,7 @@ async function main(argv: string[]): Promise<number> {
         'report-data': { type: 'string' },
         'expect-measurement': { type: 'string' },
         'expect-compose-hash': { type: 'string' },
+        policy: { type: 'string' },
         now: { type: 'string' },
         'allow-debug': { type: 'boolean' },
         json: { type: 'boolean' },

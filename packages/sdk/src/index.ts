@@ -37,6 +37,27 @@ export {
   policyKeyByKid,
 } from './policy.js';
 export type { AshaveriPolicy } from './policy.js';
+export {
+  ANCHOR_FAMILIES,
+  loadPolicyFile,
+  loadPolicyFromText,
+  parsePolicyFile,
+  PINNED_TEXT_PATTERN,
+  POLICY_DIGEST_PREFIX,
+  POLICY_FORMAT_VERSION,
+  policyFileDigest,
+  policyFileFromPolicy,
+  policyFileToJson,
+} from './policy-file.js';
+export type {
+  AnchorFamily,
+  LoadedPolicy,
+  LoadedPolicyAnchor,
+  PolicyAnchorFamily,
+  PolicyFile,
+  PolicyFileTrustAnchors,
+  PolicyTrustAnchor,
+} from './policy-file.js';
 export { SdkError, sdkError } from './errors.js';
 export type { SdkErrorCode } from './errors.js';
 export { fromBase64Url, toBase64Url, toHex } from './b64.js';

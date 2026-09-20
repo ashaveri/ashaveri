@@ -1,7 +1,7 @@
 # Error codes
 
 Every error code this workspace raises, what condition raises it, and what a caller should do
-about it. There are 94 declarations across seven unions, resolving to 93 distinct strings;
+about it. There are 100 declarations across seven unions, resolving to 99 distinct strings;
 `UNSUPPORTED_PLATFORM` is the one string two unions share, and the last section
 says why that pair is deliberate while every other overlap is not.
 
@@ -75,6 +75,12 @@ The seven unions:
 | `EVIDENCE_GPU_MISSING` | `SdkErrorCode` | The receipt claims a composite kind and no device report was verified beside it | Refuse. The accelerator half of the claim is unevidenced | terminal |
 | `EVIDENCE_MEASUREMENT_MISMATCH` | `SdkErrorCode` | The platform's measured digest differs from the `meas.m` the receipt signed | Refuse; a different image served this, or the receipt is not from this deployment | terminal |
 | `AUTH_CONFIG` | `SdkErrorCode` | The credential a client was handed cannot be used, or the request cannot be signed. A `pop` secret that is not 64 hex digits, or is the wrong width once decoded; a `bearer` secret that is not base64url; an `ASHAVERI_CREDENTIAL_KIND` other than `pop` or `bearer`; an `x-ashaveri-nonce` header that is not base64url, or decodes to something other than the 16 bytes the signing string commits to; a request body in a form this client cannot hash byte for byte | Fix the credential or the body form: re-read the id and the secret from wherever they are kept, and pass a body as a string or a `Uint8Array`. Nothing was sent, so no gateway refused anything | terminal |
+| `POLICY_FILE_INVALID` | `SdkErrorCode` | A policy document is not one JSON object, repeats a key, carries a key this format does not define or lacks one it requires, holds a value of the wrong type, gives hex or base64url that is not what it claims to be, names an environment kind that is not defined, or gives an anchor path that is absolute or climbs out of the directory holding the document | Fix the document. Every one of these is a refusal because the loader cannot tell which of two readings it was handed, and a digest published over a misread policy is a digest of a policy nobody pinned | terminal |
+| `POLICY_FILE_UNREADABLE` | `SdkErrorCode` | The policy file named on the command line or by the loader cannot be read | Check the path. Nothing was pinned yet, so nothing was verified either | terminal |
+| `POLICY_NOTHING_PINNED` | `SdkErrorCode` | A policy names none of `issuers`, `instances`, `keys` or `measurements`, which is the document equivalent of strict mode with no policy | Pin at least one dimension, or do not call it a policy. A trust anchor that anchors nothing accepts every receipt | terminal |
+| `POLICY_EMPTY_PIN` | `SdkErrorCode` | One of those four fields is present but empty: `[]`, `{}`, or an empty list under a named environment kind | Name a value or delete the field. An empty list reads as no check at all, so it accepts anything | terminal |
+| `POLICY_ANCHOR_UNREADABLE` | `SdkErrorCode` | The file at a pinned trust anchor's path cannot be read | Put the root where the document says, or repoint the path. The path is resolved below the directory holding the policy file | terminal |
+| `POLICY_ANCHOR_DIGEST_MISMATCH` | `SdkErrorCode` | The bytes at a pinned trust anchor's path do not hash to the SHA-256 the policy records | Restore the file the policy was written against, or repin deliberately. A checkout that rewrites a PEM's line endings lands here: the recorded digest is of the bytes, so the fix is to re-record it, not to accept the drift | terminal |
 
 ## `AttestationErrorCode`
 

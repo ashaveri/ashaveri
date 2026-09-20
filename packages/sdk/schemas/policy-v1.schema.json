@@ -1,0 +1,105 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://ashaveri.com/schemas/policy-v1.json",
+  "title": "Ashaveri Verification Policy (v1)",
+  "description": "A client's pinning policy as a document: the issuers, instances, signing keys, measurements and vendor roots a verifier will accept, in the form a customer can read, diff, sign and hand to an auditor. The shape is strict in both directions on purpose. Unknown keys, missing required keys, wrong types and malformed hex or base64url are refusals, because a reader that dropped a field the operator wrote would publish a digest for a policy that is not the one they think they pinned. The digest is over the loaded document, canonically re-encoded: sorted object keys, pin lists sorted and deduplicated, and the normalised defaults written out. Reformatting a file therefore cannot change its identity. Fields that are normalised: every object's key order; the order of issuers, instances, measurements and anchor entries, each read as a set and deduplicated; a missing maxReceiptAgeSeconds or maxEvidenceAgeSeconds, which means no window and hashes as null; a missing trustAnchors family, which means the verifier's bundled root for that vendor and hashes as null; and a backslash in an anchor path, which is read as a separator on every platform and hashed as a forward slash. Fields deliberately NOT normalised to their effective value: an unpinned trustAnchors family. The bundled roots belong to whichever @ashaveri/attest-core is installed, so substituting their digests would tie a signed document to a library version; null records that no root was pinned here. A policy that names none of issuers, instances, keys or measurements is refused, as is any of those four present but empty: an empty list would accept anything, and this document is a trust anchor.",
+  "type": "object",
+  "required": ["v"],
+  "additionalProperties": false,
+  "properties": {
+    "v": {
+      "const": 1,
+      "description": "Document version. A reader refuses a version it does not know."
+    },
+    "issuers": {
+      "type": "array",
+      "minItems": 1,
+      "items": { "$ref": "#/$defs/pinnedText" },
+      "description": "Deployment ids the receipt's iss may carry. Read as a set."
+    },
+    "instances": {
+      "type": "array",
+      "minItems": 1,
+      "items": { "$ref": "#/$defs/pinnedText" },
+      "description": "CVM instance ids the receipt's ins may carry. Read as a set."
+    },
+    "keys": {
+      "type": "object",
+      "minProperties": 1,
+      "propertyNames": { "type": "string", "pattern": "^[0-9a-f]{64}$" },
+      "additionalProperties": { "$ref": "#/$defs/publicKey" },
+      "description": "Ed25519 receipt signing keys, by the kid the receipt header carries."
+    },
+    "measurements": {
+      "type": "object",
+      "minProperties": 1,
+      "additionalProperties": false,
+      "description": "Allowed launch measurements by environment kind. A kind is only ever a key here, so a measurement can never be offered against a kind it was not measured for.",
+      "properties": {
+        "software": { "type": "array", "minItems": 1, "items": { "$ref": "#/$defs/hex32" } },
+        "snp": { "type": "array", "minItems": 1, "items": { "$ref": "#/$defs/hex48" } },
+        "snp+gpucc": { "type": "array", "minItems": 1, "items": { "$ref": "#/$defs/hex48" } },
+        "tdx": { "type": "array", "minItems": 1, "items": { "$ref": "#/$defs/hex48" } },
+        "tdx+gpucc": { "type": "array", "minItems": 1, "items": { "$ref": "#/$defs/hex48" } }
+      }
+    },
+    "maxReceiptAgeSeconds": {
+      "type": ["integer", "null"],
+      "minimum": 1,
+      "description": "How far the receipt's iat may sit from the verification clock. null, or the field left out, sets no window, and both hash the same."
+    },
+    "maxEvidenceAgeSeconds": {
+      "type": ["integer", "null"],
+      "minimum": 1,
+      "description": "How far the evidence timestamp att.ts may sit from the verification clock. null, or the field left out, sets no window, and both hash the same."
+    },
+    "trustAnchors": {
+      "type": ["object", "null"],
+      "additionalProperties": false,
+      "description": "The vendor roots platform evidence must chain to. null, or the field left out, accepts the roots bundled with the verifier. An empty list under a family means the opposite: trust nothing in it, and refuse any evidence that claims it.",
+      "properties": {
+        "amdArks": { "type": ["array", "null"], "items": { "$ref": "#/$defs/anchor" } },
+        "intelSgxRoots": { "type": ["array", "null"], "items": { "$ref": "#/$defs/anchor" } },
+        "nvidiaRoots": { "type": ["array", "null"], "items": { "$ref": "#/$defs/anchor" } }
+      }
+    }
+  },
+  "anyOf": [
+    { "required": ["issuers"], "properties": { "issuers": {} } },
+    { "required": ["instances"], "properties": { "instances": {} } },
+    { "required": ["keys"], "properties": { "keys": {} } },
+    { "required": ["measurements"], "properties": { "measurements": {} } }
+  ],
+  "$defs": {
+    "pinnedText": {
+      "type": "string",
+      "pattern": "^[^\\u0000-\\u001F\\u007F-\\u009F\\u00AD\\u200B-\\u200F\\u2028\\u2029\\u202A-\\u202E\\u2060-\\u2064\\uFEFF\\uFFF9-\\uFFFB]+$",
+      "description": "A value the verifier compares byte for byte, so nothing in it may be a character a reader cannot see. The class is exported by the loader as one string, and a test holds the two spellings against each other. Every escape is written as \\uXXXX rather than \\u{XXXX}, so the class stays inside the Basic Multilingual Plane and reads the same to a regex engine that compiles this pattern with or without the unicode flag."
+    },
+    "publicKey": {
+      "type": "string",
+      "pattern": "^[A-Za-z0-9_-]{43}$",
+      "description": "An Ed25519 public key: 32 bytes as base64url, 43 characters, no padding. The loader additionally requires this to be the canonical spelling of the bytes it decodes to, so that two documents naming one key cannot be written two ways."
+    },
+    "hex32": { "type": "string", "pattern": "^[0-9a-f]{64}$" },
+    "hex48": { "type": "string", "pattern": "^[0-9a-f]{96}$" },
+    "anchor": {
+      "type": "object",
+      "required": ["path", "sha256"],
+      "additionalProperties": false,
+      "description": "One vendor root, externalised because a certificate is bytes rather than a value: the document names where it is and the SHA-256 of the bytes there. The policy digest covers this pair and never the raw text, so no formatting of the anchor file can move it. The loader reads the file, requires its bytes to hash to sha256, and refuses one that does not by name: a checkout that rewrites a PEM's line endings therefore changes the recorded digest and says so, rather than quietly standing in for the root that was signed. The path is read with either separator and normalised to a forward slash; it must also stay below the directory holding the policy file, which the loader enforces because a pattern cannot count segments.",
+      "properties": {
+        "path": {
+          "type": "string",
+          "pattern": "^(?!/)(?![A-Za-z]:)[^\\u0000-\\u001F\\u007F-\\u009F\\u00AD\\u200B-\\u200F\\u2028\\u2029\\u202A-\\u202E\\u2060-\\u2064\\uFEFF\\uFFF9-\\uFFFB]+$",
+          "description": "Where the root is, relative to the directory holding this document."
+        },
+        "sha256": {
+          "type": "string",
+          "pattern": "^[0-9a-f]{64}$",
+          "description": "The SHA-256 of the bytes at path, lowercase hex."
+        }
+      }
+    }
+  }
+}

@@ -1,13 +1,45 @@
 import { readFile } from 'node:fs/promises';
 import { sha256 } from '@noble/hashes/sha2.js';
-import { AttestationError, equalBytes, pinnedComposeHash, platformMeasurement, reportDataBinds, verifyAttestation } from '@ashaveri/attest-core';
+import {
+  AttestationError,
+  DEFAULT_AMD_ARKS,
+  DEFAULT_INTEL_SGX_ROOTS,
+  DEFAULT_NVIDIA_DEVICE_ROOTS,
+  equalBytes,
+  pinnedComposeHash,
+  platformMeasurement,
+  reportDataBinds,
+  verifyAttestation,
+} from '@ashaveri/attest-core';
 import type { NvidiaEvidence, NvidiaVerification, VerificationResult } from '@ashaveri/attest-core';
-import { toHex } from '@ashaveri/receipt';
+import { toHex, type TeeKind } from '@ashaveri/receipt';
+import { loadPolicyFile, SdkError, type AnchorFamily, type LoadedPolicy } from '@ashaveri/sdk';
 import { escapeInvisible, UsageError, writeJson } from '../usage.js';
 
 const REPORT_DATA_BYTES = 64;
 const PLATFORM_MEASUREMENT_BYTES = 48;
 const COMPOSE_HASH_BYTES = 32;
+
+/** The environment kind a platform quote of each family is a measurement of. */
+const PLATFORM_TEE_KIND: Readonly<Record<VerificationResult['platformKind'], TeeKind>> = {
+  'sev-snp': 'snp',
+  tdx: 'tdx',
+};
+
+/**
+ * The flags `--policy` replaces, and the thing each one pins.
+ *
+ * Only the flags that decide what is trusted are here. `--ask`, `--vcek`, `--gpu-report` and
+ * `--gpu-chain` carry bytes a verification needs rather than a claim about what is acceptable, and
+ * `--report-data` is this request's challenge, which no policy could fix in advance.
+ */
+const POLICY_CLASHING_FLAGS: ReadonlyArray<readonly [flag: string, pinned: string, read: (values: VerifyFlags) => unknown]> = [
+  ['--ark', 'the AMD roots', (values) => values.ark],
+  ['--intel-root', 'the Intel roots', (values) => values['intel-root']],
+  ['--gpu-root', 'the NVIDIA roots', (values) => values['gpu-root']],
+  ['--expect-measurement', 'the launch measurement', (values) => values['expect-measurement']],
+  ['--expect-compose-hash', 'the compose hash', (values) => values['expect-compose-hash']],
+];
 
 /** The flags `verify` reads, typed as the one parse in `cli.ts` produces them. */
 export interface VerifyFlags {
@@ -21,9 +53,86 @@ export interface VerifyFlags {
   'report-data'?: string;
   'expect-measurement'?: string;
   'expect-compose-hash'?: string;
+  policy?: string;
   now?: string;
   'allow-debug'?: boolean;
   json?: boolean;
+}
+
+/**
+ * A policy document and the pin flags are alternatives, so a run that names both is refused.
+ *
+ * No precedence is defined either way: a file an operator signed and a command line that quietly
+ * overrode part of it would leave the printed digest describing something other than the check that
+ * ran, which is the one thing a citable policy must not do.
+ */
+function refuseMixingPolicyWithPins(values: VerifyFlags): void {
+  if (values.policy === undefined) return;
+  const given = POLICY_CLASHING_FLAGS.filter(([, , read]) => read(values) !== undefined).map(
+    ([flag, pinned]) => `${flag} (${pinned})`,
+  );
+  if (given.length > 0) {
+    throw new UsageError(
+      `--policy and ${given.join(', ')} both decide the same pins, and neither one wins: pass the policy file or those flags, not both`,
+    );
+  }
+}
+
+/** A policy the operator named, or the refusal that says why it could not be read. */
+async function readPolicyFile(path: string): Promise<LoadedPolicy> {
+  try {
+    return await loadPolicyFile(path);
+  } catch (err) {
+    if (err instanceof SdkError) {
+      throw new UsageError(`policy file '${path}' refused (${err.code}): ${escapeInvisible(err.message)}`);
+    }
+    throw err;
+  }
+}
+
+/** The measurement a policy pins for the platform this quote turned out to be, checked against it. */
+function checkPolicyMeasurement(loaded: LoadedPolicy, result: VerificationResult): string | null {
+  const pinned = loaded.policy.measurements;
+  if (pinned === undefined) return null;
+  const tee = PLATFORM_TEE_KIND[result.platformKind];
+  const allowed = pinned[tee];
+  if (allowed === undefined) {
+    const kinds = Object.keys(pinned).map((kind) => `'${kind}'`).join(', ');
+    throw new AttestationError(
+      'PIN_MISMATCH',
+      `the policy pins measurements for ${kinds}, and a ${result.platformKind} attestation is a '${tee}' measurement, which none of them covers`,
+    );
+  }
+  const actual = toHex(platformMeasurement(result));
+  if (!allowed.includes(actual)) {
+    throw new AttestationError(
+      'PIN_MISMATCH',
+      `measurement is ${actual}, ${loaded.digest} pins ${allowed.join(' or ')}`,
+    );
+  }
+  return 'measurement matches the policy file';
+}
+
+/**
+ * The roots one family is trusted at.
+ *
+ * A document decides this in three states rather than two. A family it lists, even as an empty list,
+ * is the set evidence has to chain to; a family it leaves out accepts the roots bundled with the
+ * verifier, which is the default `AshaveriPolicy.trustAnchors` documents. Bundling is a property of
+ * whichever `@ashaveri/attest-core` is installed rather than of the document, so the digest covers
+ * the path and the bytes where the operator named them and says nothing at all where they did not.
+ *
+ * With no document the flags decide, and a root nobody named on the command line is not trusted: the
+ * default has to stay a refusal there, or the absence of a flag becomes a statement about trust.
+ */
+function rootsForFamily(
+  family: AnchorFamily,
+  loaded: LoadedPolicy | null,
+  fromFlags: readonly Uint8Array[],
+  bundled: readonly Uint8Array[],
+): readonly Uint8Array[] {
+  if (loaded === null) return fromFlags;
+  return loaded.policy.trustAnchors?.[family] ?? bundled;
 }
 
 async function readInput(path: string): Promise<Uint8Array> {
@@ -132,7 +241,25 @@ function gpuLines(gpus: readonly NvidiaVerification[]): string[] {
   ];
 }
 
-function humanResult(result: VerificationResult, pinned: readonly string[] = []): string {
+interface Report {
+  /** One line per pin this run checked and this evidence satisfied, in the order they were checked. */
+  readonly pinned: readonly string[];
+  /** The document the pins came from, or null when the flags decided them. */
+  readonly policy: { readonly digest: string; readonly file: string } | null;
+}
+
+/**
+ * What a run cites when a document decided its pins: the digest an auditor compares, and the name
+ * the file was read from so the digest is never detached from the bytes it stands for.
+ *
+ * `file` is the path as the operator typed it rather than the resolved one, because the refusal and
+ * the report should name the thing they were handed.
+ */
+function policyReport(loaded: LoadedPolicy | null, file: string | undefined): Report['policy'] {
+  return loaded === null || file === undefined ? null : { digest: loaded.digest, file };
+}
+
+function humanResult(result: VerificationResult, outcome: Report): string {
   const lines: string[] = [];
   const platform = result.platformKind === 'sev-snp' ? 'SEV-SNP' : 'TDX';
   lines.push(`${platform} attestation verified (envelope v${result.version})`);
@@ -182,8 +309,11 @@ function humanResult(result: VerificationResult, pinned: readonly string[] = [])
   }
   lines.push(`  report data:      ${toHex(result.reportData)}`);
   lines.push(...gpuLines(result.gpus));
-  for (const label of pinned) {
-    lines.push(`  pinned:           ${label} matches the expected value`);
+  if (outcome.policy !== null) {
+    lines.push(`  policy:           ${outcome.policy.digest}`);
+  }
+  for (const label of outcome.pinned) {
+    lines.push(`  pinned:           ${label}`);
   }
   lines.push(`  runtime events:   ${describeEvents(result.runtimeEvents)}`);
   const config = configSummary(result.config);
@@ -191,7 +321,7 @@ function humanResult(result: VerificationResult, pinned: readonly string[] = [])
   return lines.join('\n');
 }
 
-function jsonResult(result: VerificationResult): Record<string, unknown> {
+function jsonResult(result: VerificationResult, outcome: Report): Record<string, unknown> {
   const config = configSummary(result.config);
   const out: Record<string, unknown> = {
     ok: true,
@@ -205,6 +335,8 @@ function jsonResult(result: VerificationResult): Record<string, unknown> {
       version: event.version,
     })),
     gpu: result.gpus.map((gpu) => ({ signatureVerified: gpu.signatureVerified, challenge: toHex(gpu.nonce) })),
+    pinned: outcome.pinned,
+    policy: outcome.policy,
     config,
   };
   if (result.snp) {
@@ -247,6 +379,9 @@ export async function runVerify(positionals: string[], values: VerifyFlags): Pro
   if (positionals.length !== 1) {
     throw new UsageError("expected exactly one argument: 'verify <attestation>'");
   }
+  refuseMixingPolicyWithPins(values);
+  const policyPath = values.policy;
+  const loaded = policyPath === undefined ? null : await readPolicyFile(policyPath);
   const attestation = await readInput(positionals[0] as string);
   const trustedArks: Uint8Array[] = [];
   for (const arkPath of values.ark ?? []) {
@@ -296,12 +431,12 @@ export async function runVerify(positionals: string[], values: VerifyFlags): Pro
   try {
     const result = verifyAttestation(attestation, {
       now,
-      trustedArks: trustedArks.length > 0 ? trustedArks : undefined,
+      trustedArks: rootsForFamily('amdArks', loaded, trustedArks, DEFAULT_AMD_ARKS),
       askCert,
       vcekCert,
-      trustedIntelRoots: trustedIntelRoots.length > 0 ? trustedIntelRoots : undefined,
+      trustedIntelRoots: rootsForFamily('intelSgxRoots', loaded, trustedIntelRoots, DEFAULT_INTEL_SGX_ROOTS),
       gpuEvidence,
-      trustedNvidiaRoots: trustedNvidiaRoots.length > 0 ? trustedNvidiaRoots : undefined,
+      trustedNvidiaRoots: rootsForFamily('nvidiaRoots', loaded, trustedNvidiaRoots, DEFAULT_NVIDIA_DEVICE_ROOTS),
       allowDebug: values['allow-debug'],
     });
     if (expectedReportData) {
@@ -311,16 +446,24 @@ export async function runVerify(positionals: string[], values: VerifyFlags): Pro
     const pinned: string[] = [];
     if (expectedMeasurement) {
       checkPin('measurement', '--expect-measurement', expectedMeasurement, platformMeasurement(result));
-      pinned.push('measurement');
+      pinned.push('measurement matches the expected value');
     }
     if (expectedComposeHash) {
       checkPin('compose hash', '--expect-compose-hash', expectedComposeHash, pinnedComposeHash(result));
-      pinned.push('compose hash');
+      pinned.push('compose hash matches the expected value');
     }
+    const policyMeasurement = loaded === null ? null : checkPolicyMeasurement(loaded, result);
+    if (policyMeasurement !== null) {
+      pinned.push(policyMeasurement);
+    }
+    const outcome: Report = {
+      pinned,
+      policy: policyReport(loaded, policyPath),
+    };
     if (values.json) {
-      writeJson(jsonResult(result));
+      writeJson(jsonResult(result, outcome));
     } else {
-      process.stdout.write(`${humanResult(result, pinned)}\n`);
+      process.stdout.write(`${humanResult(result, outcome)}\n`);
     }
     return 0;
   } catch (err) {

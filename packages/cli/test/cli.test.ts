@@ -1,9 +1,11 @@
 import { spawnSync } from 'node:child_process';
-import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { createHash } from 'node:crypto';
+import { copyFileSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { afterAll, describe, expect, it } from 'vitest';
+import { parsePolicyFile, policyFileDigest } from '@ashaveri/sdk';
 
 const CLI = fileURLToPath(new URL('../dist/cli.js', import.meta.url));
 const FIXTURES = fileURLToPath(new URL('../../attest-core/test/fixtures/', import.meta.url));
@@ -436,5 +438,224 @@ describe('ashaveri verify', () => {
     const result = runCli(['--version']);
     expect(result.status).toBe(0);
     expect(result.stdout.trim()).toMatch(/^\d+\.\d+\.\d+$/);
+  });
+});
+
+/**
+ * `verify --policy <file>`, the same pins the flags above take read out of a document instead.
+ *
+ * A policy file names its trust anchor by a path relative to itself, so every case here copies the
+ * ARK fixture beside the document it writes, which is the shape a deployment publishes: a directory
+ * with a policy in it and the roots it pins next to that policy.
+ */
+
+const POLICY_DIR = join(tempDir, 'policy');
+mkdirSync(POLICY_DIR, { recursive: true });
+mkdirSync(join(POLICY_DIR, 'roots'), { recursive: true });
+copyFileSync(ARK, join(POLICY_DIR, 'ark.pem'));
+copyFileSync(ARK, join(POLICY_DIR, 'roots', 'ark.pem'));
+const ARK_SHA = createHash('sha256').update(readFileSync(ARK)).digest('hex');
+
+/** Writes one policy document and answers with the path to hand to --policy. */
+function policyFile(name: string, document: Record<string, unknown>): string {
+  const path = join(POLICY_DIR, `${name}.json`);
+  writeFileSync(path, `${JSON.stringify(document, null, 2)}\n`);
+  return path;
+}
+
+function pins(overrides: Record<string, unknown> = {}): Record<string, unknown> {
+  return {
+    v: 1,
+    issuers: ['ashaveri-mock'],
+    instances: ['mock-instance-1'],
+    measurements: { snp: [FIXTURE_MEASUREMENT] },
+    trustAnchors: { amdArks: [{ path: 'ark.pem', sha256: ARK_SHA }] },
+    ...overrides,
+  };
+}
+
+/**
+ * A verification whose pins come out of a document.
+ *
+ * `--ask` and `--vcek` stay on the command line here because the SEV-SNP fixture carries an empty
+ * `cert_chain`, and a policy document pins roots and not the intermediates below them: the ASK and
+ * VCEK are the bytes a chain is built out of rather than a claim about what is acceptable, which is
+ * the line `--policy` draws.
+ */
+const POLICY_ARGS = ['verify', ATTESTATION, '--ask', ASK, '--vcek', VCEK, '--now', NOW];
+const DIGEST_LINE = /policy: +(sha256:[0-9a-f]{64})/u;
+
+describe('ashaveri verify --policy', () => {
+  it('takes the vendor root and the measurement pin from the document', () => {
+    const result = runCli([...POLICY_ARGS, '--policy', policyFile('pins-everything', pins())]);
+    expect(result.stderr).toBe('');
+    expect(result.status).toBe(0);
+    expect(result.stdout).toContain('SEV-SNP attestation verified');
+    expect(result.stdout).toContain('pinned:           measurement matches the policy file');
+  });
+
+  it('prints the digest the library publishes for the same document', () => {
+    const path = policyFile('digest', pins());
+    const printed = runCli([...POLICY_ARGS, '--policy', path]);
+    expect(printed.status).toBe(0);
+    const digest = DIGEST_LINE.exec(printed.stdout)?.[1];
+    expect(digest).toBeDefined();
+    expect(digest).toBe(policyFileDigest(parsePolicyFile(readFileSync(path, 'utf8'))));
+
+    const machine = runCli([...POLICY_ARGS, '--policy', path, '--json']);
+    const parsed = JSON.parse(machine.stdout) as { policy: { digest: string; file: string } };
+    expect(parsed.policy.digest).toBe(digest);
+    expect(parsed.policy.file).toBe(path);
+  });
+
+  it('holds the digest steady across a reformat of the same policy', () => {
+    const tidy = policyFile('reformat-tidy', pins());
+    const messy = join(POLICY_DIR, 'reformat-messy.json');
+    const document = JSON.parse(readFileSync(tidy, 'utf8')) as Record<string, unknown>;
+    const reordered = {
+      trustAnchors: document['trustAnchors'],
+      measurements: document['measurements'],
+      instances: document['instances'],
+      issuers: document['issuers'],
+      v: document['v'],
+    };
+    writeFileSync(messy, `${JSON.stringify(reordered, null, 7).replace(/\n/gu, '\r\n')}\r\n`);
+    const first = runCli([...POLICY_ARGS, '--policy', tidy]);
+    const second = runCli([...POLICY_ARGS, '--policy', messy]);
+    expect(first.status).toBe(0);
+    expect(second.status).toBe(0);
+    expect(readFileSync(messy)).not.toEqual(readFileSync(tidy));
+    expect(DIGEST_LINE.exec(second.stdout)?.[1]).toBe(DIGEST_LINE.exec(first.stdout)?.[1]);
+  });
+
+  it('moves the digest when the pinned measurement moves', () => {
+    const pinned = runCli([...POLICY_ARGS, '--policy', policyFile('pinned', pins())]);
+    // The set this document pins moves by one value the evidence does not carry, which is a
+    // different policy by digest and still a policy this attestation satisfies. A document whose
+    // only measurement is another build's is a refusal and prints no report, which the case below
+    // is about.
+    const other = runCli([
+      ...POLICY_ARGS,
+      '--policy',
+      policyFile('other', pins({ measurements: { snp: [FIXTURE_MEASUREMENT, `8${FIXTURE_MEASUREMENT.slice(1)}`] } })),
+    ]);
+    expect(DIGEST_LINE.exec(other.stdout)?.[1]).toBeDefined();
+    expect(DIGEST_LINE.exec(other.stdout)?.[1]).not.toBe(DIGEST_LINE.exec(pinned.stdout)?.[1]);
+  });
+
+  it('reads a backslash in an anchor path as the separator it names', () => {
+    const path = policyFile(
+      'backslash',
+      pins({ trustAnchors: { amdArks: [{ path: 'roots\\ark.pem', sha256: ARK_SHA }] } }),
+    );
+    const result = runCli([...POLICY_ARGS, '--policy', path]);
+    expect(result.status).toBe(0);
+    expect(result.stdout).toContain('SEV-SNP attestation verified');
+  });
+
+  it('accepts the bundled root when the document pins none, which is what leaving it out means', () => {
+    const path = policyFile('no-anchors', {
+      v: 1,
+      issuers: ['ashaveri-mock'],
+      measurements: { snp: [FIXTURE_MEASUREMENT] },
+    });
+    const result = runCli([...POLICY_ARGS, '--policy', path]);
+    expect(result.status).toBe(0);
+    expect(result.stdout).toContain('SEV-SNP attestation verified');
+  });
+
+  it('trusts nothing at all when a family is pinned to an empty list', () => {
+    const result = runCli([...POLICY_ARGS, '--policy', policyFile('trust-nothing', pins({ trustAnchors: { amdArks: [] } }))]);
+    expect(result.status).toBe(1);
+    expect(result.stderr).toContain('MISSING_TRUST_ROOT');
+  });
+
+  it('refuses a measurement pinned for a platform this attestation is not', () => {
+    const result = runCli([
+      ...POLICY_ARGS,
+      '--policy',
+      policyFile('tdx-only', pins({ measurements: { tdx: [FIXTURE_MEASUREMENT] } })),
+    ]);
+    expect(result.status).toBe(1);
+    expect(result.stderr).toContain('verification failed (PIN_MISMATCH)');
+    expect(result.stderr).toContain("'tdx'");
+    expect(result.stderr).toContain("'snp'");
+  });
+
+  it('refuses a pinned measurement the evidence does not carry', () => {
+    const result = runCli([
+      ...POLICY_ARGS,
+      '--policy',
+      policyFile('wrong-measurement', pins({ measurements: { snp: [`8${FIXTURE_MEASUREMENT.slice(1)}`] } })),
+    ]);
+    expect(result.status).toBe(1);
+    expect(result.stderr).toContain('verification failed (PIN_MISMATCH)');
+    expect(result.stderr).toContain('measurement is');
+  });
+
+  it('refuses an anchor whose bytes are not what the document recorded, naming the path', () => {
+    const path = policyFile('bad-anchor', pins({ trustAnchors: { amdArks: [{ path: 'ark.pem', sha256: 'ab'.repeat(32) }] } }));
+    const result = runCli([...POLICY_ARGS, '--policy', path]);
+    expect(result.status).toBe(2);
+    expect(result.stderr).toContain('POLICY_ANCHOR_DIGEST_MISMATCH');
+    expect(result.stderr).toContain('ark.pem');
+  });
+
+  it('refuses a document with a key the format does not define', () => {
+    const result = runCli([...POLICY_ARGS, '--policy', policyFile('unknown-key', { ...pins(), issuer: 'ashaveri-mock' })]);
+    expect(result.status).toBe(2);
+    expect(result.stderr).toContain('POLICY_FILE_INVALID');
+    expect(result.stderr).toContain("unknown key 'issuer'");
+  });
+
+  it('refuses a document that pins nothing', () => {
+    const result = runCli([...POLICY_ARGS, '--policy', policyFile('empty', { v: 1 })]);
+    expect(result.status).toBe(2);
+    expect(result.stderr).toContain('POLICY_NOTHING_PINNED');
+  });
+
+  it('refuses a policy file that is not there', () => {
+    const result = runCli([...POLICY_ARGS, '--policy', join(POLICY_DIR, 'absent.json')]);
+    expect(result.status).toBe(2);
+    expect(result.stderr).toContain('POLICY_FILE_UNREADABLE');
+  });
+
+  it('refuses to mix --policy with a pin flag, and names the flags involved', () => {
+    const path = policyFile('mixed', pins());
+    const clashes: Array<[string, string[]]> = [
+      ['--ark', ['--ark', ARK]],
+      ['--intel-root', ['--intel-root', INTEL_ROOT]],
+      ['--gpu-root', ['--gpu-root', GPU_ROOT]],
+      ['--expect-measurement', ['--expect-measurement', FIXTURE_MEASUREMENT]],
+      ['--expect-compose-hash', ['--expect-compose-hash', FIXTURE_COMPOSE_HASH]],
+    ];
+    for (const [flag, args] of clashes) {
+      const result = runCli([...POLICY_ARGS, '--policy', path, ...args]);
+      expect(result.status, flag).toBe(2);
+      expect(result.stderr, flag).toContain('--policy');
+      expect(result.stderr, flag).toContain(flag);
+    }
+  });
+
+  it('leaves the flags that carry bytes rather than pins alone', () => {
+    // --ask and --vcek supply the chain under a pinned root, --gpu-report the device leg, and
+    // --report-data this request's challenge. None of them is a dimension a policy could pin.
+    const result = runCli([
+      ...POLICY_ARGS,
+      '--policy',
+      policyFile('alongside', pins()),
+      '--ask',
+      ASK,
+      '--vcek',
+      VCEK,
+      '--report-data',
+      FIXTURE_REPORT_DATA,
+    ]);
+    expect(result.status).toBe(0);
+    expect(result.stdout).toContain('SEV-SNP attestation verified');
+  });
+
+  it('mentions --policy in the help text', () => {
+    expect(runCli(['--help']).stdout).toContain('--policy');
   });
 });
