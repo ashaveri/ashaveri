@@ -7,7 +7,7 @@ import {
   encodePayload,
   signCoseSign1,
   type SigningKey,
-  type ReceiptPayload,
+  type ReceiptPayloadV1,
 } from '@ashaveri/receipt';
 import { writeFileSync, mkdirSync } from 'node:fs';
 import { join, dirname } from 'node:path';
@@ -28,7 +28,12 @@ function fixtureKey(): SigningKey {
 
 const FIXED_IAT = 1_772_000_000;
 
-function fixturePayload(overrides: Partial<ReceiptPayload> = {}): ReceiptPayload {
+/**
+ * Every vector this script writes is a v1 receipt, so the helper names that version rather than the
+ * union. `v` is pinned in the literal below and an override cannot move a published fixture into a
+ * format its bytes never claimed.
+ */
+function fixturePayload(overrides: Partial<ReceiptPayloadV1> = {}): ReceiptPayloadV1 {
   return {
     v: 1,
     iss: 'dpl-9f2a41c3',
