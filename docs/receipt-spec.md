@@ -404,8 +404,9 @@ thirteen plus a required `mk`. A payload map is closed at either version, so a m
 document names does not define is a malformed payload (`BAD_PAYLOAD`) rather than a member the reader
 agrees to leave out: that is what makes "`v: 1` carries no `mk`" a fact of the format rather than an
 expectation about it. The rule stops at the payload map: the four maps nested inside it, `meas`,
-`att`, `tok` and `mk`, are open, and `@ashaveri/receipt` reads what it names there and drops the
-rest rather than refusing the document. The mark is why the number moved rather than the field
+`att`, `tok` and `mk`, carry no `...` in the normative CDDL either, so that file reads as closed at
+that level too, while `@ashaveri/receipt` reads what it names there and drops the rest rather than
+refusing the document. The mark is why the number moved rather than the field
 arriving as an optional member of v1: a reader of a v1 payload looks at thirteen fields, finds
 nothing about a mark, and verifies a receipt over an unmarked response exactly as readily as over a
 marked one. The deployment manifest is a different document and still has the one version, `v: 1`.
