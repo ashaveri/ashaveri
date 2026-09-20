@@ -23,7 +23,15 @@ export type SdkErrorCode =
   | 'EVIDENCE_GPU_MISSING'
   | 'EVIDENCE_MEASUREMENT_MISMATCH'
   // A credential the client cannot use, refused before anything went on the wire.
-  | 'AUTH_CONFIG';
+  | 'AUTH_CONFIG'
+  // A verification policy read out of a file. The format is a trust anchor, so every one of these
+  // is a refusal to publish a digest over a document the loader is not certain it read correctly.
+  | 'POLICY_FILE_INVALID'
+  | 'POLICY_FILE_UNREADABLE'
+  | 'POLICY_NOTHING_PINNED'
+  | 'POLICY_EMPTY_PIN'
+  | 'POLICY_ANCHOR_UNREADABLE'
+  | 'POLICY_ANCHOR_DIGEST_MISMATCH';
 
 export class SdkError extends Error {
   readonly code: SdkErrorCode;

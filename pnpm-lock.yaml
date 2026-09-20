@@ -259,6 +259,9 @@ importers:
       '@types/node':
         specifier: ^22.20.1
         version: 22.20.1
+      ajv:
+        specifier: ^8.20.0
+        version: 8.20.0
       openai:
         specifier: ^7.13.0
         version: 7.13.0
