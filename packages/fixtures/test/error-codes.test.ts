@@ -1,6 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { readFileSync } from 'node:fs';
-import { fileURLToPath } from 'node:url';
+import { readSourceFile, unionMembers } from './doc-contract.js';
 
 /**
  * docs/error-codes.md is where a caller looks up what to do with a code it has caught. A table
@@ -23,23 +22,6 @@ const UNION_SOURCES: ReadonlyArray<readonly [union: string, file: string]> = [
 ];
 
 const DOC_PATH = '../../../docs/error-codes.md';
-
-function read(file: string): string {
-  return readFileSync(fileURLToPath(new URL(file, import.meta.url)), 'utf8');
-}
-
-/** The members of `export type <union> = ... ;`, in declaration order. */
-function declaredCodes(union: string, file: string): string[] {
-  const source = read(file);
-  const marker = `export type ${union} =`;
-  const start = source.indexOf(marker);
-  if (start < 0) throw new Error(`${union} is not declared in ${file}`);
-  const rest = source.slice(start + marker.length);
-  const end = rest.indexOf(';');
-  if (end < 0) throw new Error(`${union} in ${file} has no terminating semicolon`);
-  // The pattern carries exactly one capture group, so group 1 is present in every match it yields.
-  return [...rest.slice(0, end).matchAll(/'([A-Z0-9_]+)'/g)].map((found) => found[1]!);
-}
 
 interface Row {
   readonly code: string;
@@ -68,8 +50,8 @@ function documentedSections(markdown: string): Map<string, Row[]> {
   return sections;
 }
 
-const sections = documentedSections(read(DOC_PATH));
-const declared = new Map(UNION_SOURCES.map(([union, file]) => [union, declaredCodes(union, file)]));
+const sections = documentedSections(readSourceFile(DOC_PATH));
+const declared = new Map(UNION_SOURCES.map(([union, file]) => [union, unionMembers(union, file)]));
 const allCodes = [...declared.values()].flat();
 const distinctCodes = new Set(allCodes);
 
@@ -95,7 +77,7 @@ describe('docs/error-codes.md', () => {
 
   it('states the real counts in the opening paragraph', () => {
     const stated = /There are (\d+) declarations across \w+ unions, resolving to (\d+) distinct strings/u.exec(
-      read(DOC_PATH),
+      readSourceFile(DOC_PATH),
     );
     expect(stated, 'the opening paragraph must give both counts as digits').not.toBeNull();
     expect([Number(stated?.[1]), Number(stated?.[2])], 'declared, distinct').toEqual([

@@ -261,8 +261,11 @@ export function buildGateway(options: GatewayOptions): GatewayInstance {
       state.receiptId = admitted.receiptId;
     } catch (err) {
       if (!(err instanceof AccessError)) throw err;
-      // What this gateway decided, not what the caller was told: the two differ by design where a
-      // refusal is collapsed, and an operator reading a spike needs the reason and not the cover.
+      // What this gateway decided, not what the caller was told. The two differ where a refusal is
+      // collapsed and where one answer covers two limits: the reason belongs to the deployer, and the
+      // answer stays uniform on purpose. This is the only place a refusal's code reaches a caller, and
+      // nothing in the types stops `logCode` being sent instead, so this line's `err.code` is held by
+      // `test/peer-throttle.test.ts` and the route matrix rather than by the compiler.
       state.deny = err.logCode;
       if (state.credential === null) state.credential = err.credentialId ?? null;
       if (err.retryAfterSeconds !== undefined) reply.header('retry-after', String(err.retryAfterSeconds));

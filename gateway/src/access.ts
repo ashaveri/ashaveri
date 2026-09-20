@@ -40,6 +40,15 @@ export type AccessErrorCode =
   | 'SCOPE_DENIED'
   | 'RATE_LIMITED';
 
+/**
+ * What the access log records: every code a caller can be told, plus the reasons that never leave this
+ * process. `AccessErrorCode` has three things keyed on it, `ERROR_STATUS` and `ERROR_MESSAGE` below and
+ * the caller-facing table `docs/error-codes.md` holds row for row, so a reason only the deployer ever
+ * reads gets a type of its own rather than a status it never answers with and a sentence no caller is
+ * ever told. Nothing here keeps such a reason out of a response, and `server.ts` says what does.
+ */
+export type DenyCode = AccessErrorCode | 'PEER_RATE_LIMITED';
+
 const ERROR_STATUS: Record<AccessErrorCode, number> = {
   BAD_CREDENTIAL_FILE: 500,
   BAD_CREDENTIAL_RECORD: 500,
@@ -92,12 +101,14 @@ export class AccessError extends Error {
   readonly code: AccessErrorCode;
   /**
    * The code the access log records, which is what this gateway decided, as distinct from `code`,
-   * which is what the caller is told. The two are the same value everywhere except where a refusal
-   * is collapsed: a name this file does not carry is answered to its caller as a failed signature,
-   * and an operator diagnosing a misconfigured client still needs to read that the name was unknown.
-   * Only the record differs; the status and the words the caller sees are the collapsed answer's.
+   * which is what the caller is told. The two are the same value everywhere except where a refusal is
+   * collapsed: a name this file does not carry is answered to its caller as a failed signature, and an
+   * operator diagnosing a misconfigured client still needs to read that the name was unknown. The other
+   * way they differ, where neither is cover for the other, is the connection's rate bound, and
+   * `chargePeer` says why that one splits. Either way it is the record that differs: the status and the
+   * words the caller sees are `code`'s.
    */
-  readonly logCode: AccessErrorCode;
+  readonly logCode: DenyCode;
   readonly status: number;
   readonly retryAfterSeconds: number | undefined;
   /**
@@ -118,7 +129,7 @@ export class AccessError extends Error {
     detail?: string,
     retryAfterSeconds?: number,
     credentialId?: string,
-    logCode?: AccessErrorCode,
+    logCode?: DenyCode,
   ) {
     super(detail === undefined ? ERROR_MESSAGE[code] : `${ERROR_MESSAGE[code]}: ${detail}`);
     this.name = 'AccessError';
@@ -1244,6 +1255,10 @@ export class CredentialStore {
    * is the whole of its lawful placement, and it is also what the caller learns: that a limit exists
    * and that they are inside it, which is a fact about this deployment rather than about an id.
    *
+   * The answer's uniformity is one thing and the reason another. Two incidents reach this line and want
+   * opposite fixes, one client asking too much of one address and one deployment whose whole population
+   * shares a proxy, and the record separates them where the answer must not.
+   *
    * The bucket is in memory, is never written to disk, and does not outlive the process. It is not a
    * field of the access record and cannot become one: the log's allowlist is closed, and an ephemeral
    * counter that sheds load is not the retention decision that allowlist is drawn around. Behind a
@@ -1260,11 +1275,14 @@ export class CredentialStore {
     if (!taken.allowed) {
       // The detail says which bucket fired, because the retry differs: waiting refills this one, and a
       // different credential would not. It names no credential, since the caller has proved nothing,
-      // and no address, since the response is not where a connection learns its own number.
+      // and no address, since the response is not where a connection learns its own number. The fifth
+      // argument is the reason that stays inside, for the reason the note above gives.
       throw new AccessError(
         'RATE_LIMITED',
         'this is the request bound held per connection address, ahead of any credential',
         taken.retryAfterSeconds,
+        undefined,
+        'PEER_RATE_LIMITED',
       );
     }
   }
