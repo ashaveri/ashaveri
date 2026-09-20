@@ -68,32 +68,34 @@ export interface TokenMetering {
 }
 
 /**
- * The payload versions this package reads. `2` exists because of what `mk` attests: a v1 reader
- * checks thirteen fields, finds nothing about a mark, and would verify a receipt over an unmarked
- * response as readily as over a marked one, which is silence read as a claim.
+ * The payload versions this package reads, the one place that set is written. `2` exists because of
+ * what `mk` attests: a v1 reader checks thirteen fields, finds nothing about a mark, and would
+ * verify a receipt over an unmarked response as readily as over a marked one, which is silence read
+ * as a claim.
  */
-export type ReceiptVersion = 1 | 2;
+const PARSED_VERSIONS = [1, 2] as const;
+
+export type ReceiptVersion = (typeof PARSED_VERSIONS)[number];
 
 function isReceiptVersion(value: unknown): value is ReceiptVersion {
-  return value === 1 || value === 2;
+  return (PARSED_VERSIONS as readonly unknown[]).includes(value);
 }
 
 /**
- * A label from the marking-scheme registry.
+ * The labels this package can interpret, which is the whole registry today. A label outside them is
+ * a refusal rather than a best guess, because reading a region under another scheme's rule is the
+ * scheme-confusion failure and this is the code that answers it.
  *
  * `none` declares that no region of the response is marked, and `provenance-v1` names the extractor
  * rule for the `ashaveri` member a marked response carries. Which of the two a receipt attests is a
  * value of the field either way, so unmarked and undecided are different bytes.
  */
-export type MarkingScheme = 'none' | 'provenance-v1';
+const MARKING_SCHEMES = ['none', 'provenance-v1'] as const;
 
-/**
- * The registry this package can interpret, which is the whole set today. A label outside it is a
- * refusal rather than a best guess, because reading a region under another scheme's rule is the
- * scheme-confusion failure and this is the code that answers it.
- */
+export type MarkingScheme = (typeof MARKING_SCHEMES)[number];
+
 function isMarkingScheme(value: string): value is MarkingScheme {
-  return value === 'none' || value === 'provenance-v1';
+  return (MARKING_SCHEMES as readonly string[]).includes(value);
 }
 
 export interface Marking {
@@ -180,11 +182,14 @@ function badPayload(detail: string): ReceiptError {
 }
 
 /**
- * The versions a call accepts when it did not say. It is the set this package parses, spelled out
- * rather than derived, so widening what this package can read is a decision someone has to make
- * twice.
+ * The versions a call accepts when it did not say, which is the set this package parses read off the
+ * one list that holds it. Spelled a second time, the two can disagree and only one direction of the
+ * disagreement is quiet: a default that forgot a version refuses real receipts no caller chose to
+ * refuse, and a default that names a version nothing parses promises an acceptance the package
+ * cannot deliver. Widening what this package reads is therefore one decision, taken where the set of
+ * what it reads lives.
  */
-const ACCEPTED_BY_DEFAULT: readonly ReceiptVersion[] = [1, 2];
+const ACCEPTED_BY_DEFAULT: readonly ReceiptVersion[] = PARSED_VERSIONS;
 
 /**
  * Which version the bytes claim, settled before a single field is read. A member that is not an
