@@ -142,9 +142,9 @@ export type ReceiptPayload = ReceiptPayloadV1 | ReceiptPayloadV2;
 const SHARED_MEMBERS = ['v', 'iss', 'ins', 'iat', 'nce', 'req', 'res', 'mdl', 'wts', 'meas', 'att', 'epk', 'tok'] as const;
 
 /**
- * Which members a payload of each version defines. A payload map is closed for every one of them:
- * carrying a member the version does not define makes the document malformed rather than a document
- * read with the extra member dropped.
+ * Which members a payload of each version defines. A payload map is closed: carrying a member the
+ * version does not define makes the document malformed rather than a document read with the extra
+ * member dropped.
  */
 const DEFINED_MEMBERS: Readonly<Record<ReceiptVersion, readonly string[]>> = {
   1: SHARED_MEMBERS,
@@ -221,11 +221,11 @@ function memberName(key: unknown): string {
 
 /**
  * The closedness rule, applied to both arms from the one member list the version selects. It runs
- * before a single field is read, so an unexpected member is the answer a caller hears whatever else
- * the document is missing, and one rule retires the whole class rather than the one name that
+ * before any field's value is checked, so an unexpected member is the answer a caller hears whatever
+ * else the document is missing, and one rule retires the whole class rather than the one name that
  * reached a review: a `v: 1` payload carrying `mk` read with the member dropped would hand a reader
  * a verified receipt that says nothing about a mark, which is the silence the version exists to
- * refuse, and any other undefined name buys the same silence about whatever it stood for.
+ * refuse, and any other unexpected name buys the same silence about whatever it stood for.
  */
 function assertMembersAreDefined(raw: Map<unknown, unknown>, version: ReceiptVersion): void {
   const defined = DEFINED_MEMBERS[version];
