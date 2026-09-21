@@ -332,6 +332,18 @@ describe('the protected header closes and the unprotected one does not', () => {
     // and before a signature is checked, so an unread receipt answers as a verified one does.
     expectFailure(() => decodeReceipt(refused), 'BAD_PROTECTED_HEADER');
 
+    // The same refusal for a label carrying the other sign RFC 9052 section 3.1 admits, which is the
+    // shape a closure by number has to survive and a range check would not: -1 is as legal a header key
+    // as 5 is, and this format declares neither. It travels here because the set this refusal is built
+    // from is derived from `receipt.cddl` in `schema.test.ts`, and a reader of that file that saw only
+    // unsigned digits would keep the two lists equal over a label like this one.
+    const negative = new Map<unknown, unknown>([...declaredProtectedHeader(key.kid), [-1, 0]]);
+    const negativeFailure = expectFailure(
+      () => verifyReceipt(signWithHeaders(payloadBytes, key, negative), { publicKey: key.publicKey, now: FIXED_NOW }),
+      'BAD_PROTECTED_HEADER',
+    );
+    expect(negativeFailure.message).toBe(`${UNDECLARED_LABEL_REFUSAL} -1`);
+
     // The mirror, and the reason the two halves are one case: the same label and the same value in
     // the map the signature does not cover. The format declares that one open by decision, so this
     // document verifies and the entry arrives intact. It is the case that says the refusal above

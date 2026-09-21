@@ -114,12 +114,31 @@ function cddlMembers(cddl: string, rule: string): string[] {
  * spells them and why `labeledMembers` reads none of them: COSE names header parameters from its own
  * registry rather than after the format carrying them. A block that names no integer is a header that
  * declared nothing, so it stops the run instead of reading as an empty one.
+ *
+ * A label's sign is part of it, because RFC 9052 section 3.1 makes a header key a negative integer as
+ * legal a thing as an unsigned one ("we use text strings, negative integers, and unsigned integers as
+ * map keys"), and a reader matching unsigned digits derived `[1, 3, 4]` from a block that declared a
+ * fourth member by a negative label: the set the tie compares stayed equal, the run went green, and the
+ * parser refused a label the format declares. The same reasoning closes the second blind spot: a line
+ * this reader cannot parse has to stop the run rather than be walked past, because a label spelled in a
+ * shape the tie does not understand is the same hole in another shape, and two declarations on one line
+ * hand back a set that is short by however many it dropped.
  */
 function cddlIntegerLabels(block: string): number[] {
   const labels: number[] = [];
   for (const line of block.split('\n').slice(1)) {
-    const found = /^\s*(\d+)\s*:/u.exec(line.split(';')[0]!);
-    if (found) labels.push(Number(found[1]));
+    // `;` opens a comment to the end of the line in CDDL, so what is left is the declaration. A line
+    // that is blank once the comment is gone declares nothing and is skipped; one that declares
+    // something the reader cannot spell out as one integer-labelled member throws.
+    const declaration = line.split(';')[0]!;
+    if (declaration.trim() === '') continue;
+    const found = /^\s*(-?\d+)\s*:\s*[^,\s][^,]*,?\s*$/u.exec(declaration);
+    if (!found) {
+      throw new Error(
+        `this reader takes one member per line, labelled by an integer, and cannot read "${declaration.trim()}" from ${cddlPath}`,
+      );
+    }
+    labels.push(Number(found[1]));
   }
   if (labels.length === 0) throw new Error('the block declares no member by integer label');
   return labels;
@@ -466,9 +485,11 @@ describe('the receipt JSON Schema', () => {
     saidOnce('the CDDL closure note', prose, 'The parser refuses the unknown label by number');
     saidOnce('the CDDL closure note', prose, 'One map this file leaves a signer free to fill, and that is a decision rather than a gap');
     saidOnce('the CDDL closure note', prose, 'What the format declares of it is therefore only that it carries no claim');
-    // The two sentences the previous round needed and this one refutes, pinned as absent. Restoring
-    // either would put the file back into describing a rule the parser no longer runs and an emptiness
-    // nothing enforces, which is the defect this branch keeps finding in documents.
+    // Two phrasings held out of the note by name. The first exempted the signed header from the closure
+    // rule, which is now the rule the parser refuses a label by; the second described the unprotected map
+    // as a divergence between what the format writes and what a reader takes, which the widened type on
+    // its own line says out loud instead. Either returning is the format file stating something the code
+    // no longer does, and a reader of the definition has nothing but the code to check it against.
     expect(prose).not.toContain('sit outside that rule');
     expect(prose).not.toContain('takes any map at all where the format writes');
     // The header's closure is the absence of `...` in its block, as the payload's is, and the
@@ -710,11 +731,15 @@ describe("the parser's member lists", () => {
 
   it('binds the labels a protected header may carry to the block that declares them', () => {
     // The pairing above reaches every map whose members are text labels, and the signed header is the
-    // one map whose are not, so nothing there could see which labels it closes against. It closes
-    // under the same rule as the payload now, so the set the parser refuses everything else with is
-    // compared with the block rather than with a second copy in this file. Both directions bear: a
-    // label the format declares and the parser refuses rejects receipts an issuer legitimately signs,
-    // and a label the parser takes that the format does not declare is the hole this round closes.
+    // one map whose are not, so nothing there could see which labels it closes against. The parser
+    // refuses a label the block does not name by number, before it reads any declared one, so the set it
+    // refuses everything else with is compared with the block rather than with a second copy in this
+    // file. Both directions bear: a label the format declares and the parser refuses rejects receipts an
+    // issuer legitimately signs, and a label the parser takes that the format does not declare is an
+    // authenticated parameter no version of this format granted. What makes the comparison worth running
+    // is that the reader of the block can lose a declaration without noticing, so it reads a signed label
+    // as signed, and a line it cannot parse stops the run: an equality between a set derived by a partial
+    // reader and a set the parser wrote is agreement about nothing.
     const cddl = readFileSync(cddlPath, 'utf8');
     const declared = cddlIntegerLabels(cddlRule(cddl, 'Ashaveri-Protected-Header'));
     const accepted = [...coseCodec.DECLARED_PROTECTED_LABELS];
@@ -723,7 +748,8 @@ describe("the parser's member lists", () => {
       `src/cose.ts accepts labels ${accepted.join(', ')} and the CDDL declares ${declared.join(', ')}`,
     ).toEqual(declared.slice().sort((a, b) => a - b));
     // And the block itself still names the three the COSE registry fixes, so an equality between two
-    // sides that both lost a label cannot pass for agreement.
+    // sides that both lost a label cannot pass for agreement. A fourth declaration of either sign, or of
+    // any shape this reader will not spell, is refused above or by the reader throwing.
     expect(declared.slice().sort((a, b) => a - b)).toEqual([1, 3, 4]);
   });
 });
