@@ -12,6 +12,7 @@ import {
   type ReceiptPayloadV1,
   type ReceiptPayloadV2,
 } from '../src/index.js';
+import * as receiptParser from '../src/receipt.js';
 
 const schemaPath = fileURLToPath(new URL('../schemas/receipt-v1.schema.json', import.meta.url));
 const cddlPath = fileURLToPath(new URL('../receipt.cddl', import.meta.url));
@@ -70,17 +71,74 @@ function cddlRule(cddl: string, rule: string): string {
  * The members one CDDL block declares, in the order it declares them: comments stripped, then every
  * `name:` read off the commas that separate the members. The order is not decoration: v2's block
  * puts `mk` after the thirteen, and the twin and the parser both claim that list as theirs.
+ *
+ * A block that names nothing by label comes back empty rather than throwing, because the reader of
+ * every map in the file has to be able to tell `Ashaveri-Protected-Header`, whose keys are the COSE
+ * registry's integers, apart from a map that has lost its members.
  */
-function cddlMembers(cddl: string, rule: string): string[] {
+function labeledMembers(block: string): string[] {
   const members: string[] = [];
-  for (const line of cddlRule(cddl, rule).split('\n').slice(1)) {
+  for (const line of block.split('\n').slice(1)) {
     for (const piece of line.split(';')[0]!.split(',')) {
       const found = /^\s*([a-z][a-z0-9_]*)\s*:/u.exec(piece);
       if (found) members.push(found[1]!);
     }
   }
+  return members;
+}
+
+function cddlMembers(cddl: string, rule: string): string[] {
+  const members = labeledMembers(cddlRule(cddl, rule));
   if (members.length === 0) throw new Error(`the ${rule} block declares no members`);
   return members;
+}
+
+/**
+ * The names of every rule the file opens as a map: `Name = {` at the start of a line. Read off the
+ * text so that a map added to the format later is in this set the day it lands, rather than a name
+ * somebody has to remember to write down a second time.
+ */
+function cddlMapRuleNames(cddl: string): string[] {
+  const names: string[] = [];
+  for (const line of cddl.split('\n')) {
+    const found = /^([A-Za-z][A-Za-z0-9_-]*) = \{/u.exec(line);
+    if (found) names.push(found[1]!);
+  }
+  if (names.length === 0) throw new Error(`no map rule is declared in ${cddlPath}`);
+  return names;
+}
+
+/**
+ * The blocks of a rule written as a map, or a choice between maps. `Measurement` is two blocks that
+ * name the same members at different widths, and the second one is invisible to `cddlRule`, which
+ * stops at the first closing brace: a member arriving in one arm alone would be a map no list stands
+ * behind. A block that never closes throws rather than reading as an empty one.
+ */
+function cddlRuleArms(cddl: string, rule: string): string[] {
+  const start = cddl.indexOf(`${rule} = {`);
+  if (start < 0) throw new Error(`${rule} is not declared in ${cddlPath}`);
+  const arms: string[] = [];
+  let current: string[] = [];
+  for (const line of cddl.slice(start).split('\n')) {
+    if (line === '} / {') {
+      arms.push(current.join('\n'));
+      current = [line];
+      continue;
+    }
+    if (line === '}') {
+      arms.push(current.join('\n'));
+      return arms;
+    }
+    current.push(line);
+  }
+  throw new Error(`${rule} in ${cddlPath} never closes`);
+}
+
+/** A value a test cannot go on without: the name rides along, because a bare `!` hides which lookup
+ * failed. */
+function required<T>(value: T | undefined, detail: string): T {
+  if (value === undefined) throw new Error(detail);
+  return value;
 }
 
 /**
@@ -395,5 +453,103 @@ describe('the receipt JSON Schema', () => {
     delete misspelled.$defs.hex16.pattern;
     expect(() => compile(misspelled)).toThrow(/unknown keyword/);
     expect(() => compile(JSON.parse(readFileSync(schemaPath, 'utf8')) as object)).not.toThrow();
+  });
+});
+
+/**
+ * The parser's member lists, read off the module that enforces them rather than written out again
+ * here: every export named `..._MEMBERS` is a list the closure walk checks. A list added to
+ * `receipt.ts` therefore arrives in this set on its own, and one that answers for no map below fails
+ * rather than going unread.
+ */
+function parserMemberLists(): Map<string, readonly string[]> {
+  const lists = new Map<string, readonly string[]>();
+  for (const [name, value] of Object.entries(receiptParser)) {
+    if (!name.endsWith('_MEMBERS')) continue;
+    if (!Array.isArray(value) || value.some((member) => typeof member !== 'string')) {
+      throw new Error(`${name} is exported from src/receipt.ts but is not a list of member names`);
+    }
+    lists.set(name, value as readonly string[]);
+  }
+  if (lists.size === 0) throw new Error('src/receipt.ts exports no member list to bind to the CDDL');
+  return lists;
+}
+
+/** One map the CDDL defines, the list that stands behind it, and what the rule adds to that list. */
+interface ListBinding {
+  readonly map: string;
+  readonly list: string;
+  readonly adds?: readonly string[];
+}
+
+/**
+ * Which list stands behind which map. There is one `adds` in this format: v2 is v1's members plus
+ * `mk`, so both payload blocks bind to the one shared list and the version pair stays a row rather
+ * than becoming a second copy of every assertion below. `MARKING_MEMBERS` stands behind the map `mk`'s
+ * value is, which is why it appears once and not inside the payload's list.
+ */
+const LIST_FOR_MAP: readonly ListBinding[] = [
+  { map: 'Ashaveri-Receipt-Payload-v1', list: 'SHARED_MEMBERS' },
+  { map: 'Ashaveri-Receipt-Payload-v2', list: 'SHARED_MEMBERS', adds: ['mk'] },
+  { map: 'Marking', list: 'MARKING_MEMBERS' },
+  { map: 'Measurement', list: 'MEASUREMENT_MEMBERS' },
+  { map: 'EvidenceRef', list: 'EVIDENCE_REF_MEMBERS' },
+  { map: 'TokenMetering', list: 'TOKEN_METERING_MEMBERS' },
+];
+
+describe("the parser's member lists", () => {
+  it('answer for every map the CDDL defines, and for no map it does not define', () => {
+    const cddl = readFileSync(cddlPath, 'utf8');
+    const lists = parserMemberLists();
+
+    // The format's side of the pairing, read out of the file: the maps that name their members by
+    // label, which is the kind of map the closure walk speaks of. `Ashaveri-Protected-Header` is a
+    // map and is not one of these, because its keys are the COSE registry's integers and a document
+    // whose key is not a label is refused for not being one rather than matched against a list.
+    const maps = new Map<string, string[]>();
+    for (const rule of cddlMapRuleNames(cddl)) {
+      const arms = cddlRuleArms(cddl, rule).map((arm) => labeledMembers(arm));
+      const first = required(arms[0], `${rule} declares no block`);
+      if (first.length === 0) continue;
+      // A rule written as a choice between maps is one list's job only while the arms name the same
+      // members. `Measurement` differs in the width `m` carries, which is a value rule and not a
+      // member rule; a name that arrived in one arm alone would be a second map standing unbound.
+      for (const [index, arm] of arms.entries()) {
+        expect(arm, `${rule} arm ${index + 1} of ${arms.length} names members its first arm does not`).toEqual(first);
+      }
+      maps.set(rule, first);
+    }
+
+    // Both directions of the pairing, which is the point of deriving the format's side instead of
+    // typing it. A map with no list behind it is a parser that refuses a member the format defines,
+    // and a list bound to a rule nothing defines is a check that can rot where nobody looks; neither
+    // is visible in the other's failure, and a sixth map added next month lands in `maps` by itself.
+    const boundMaps = LIST_FOR_MAP.map((binding) => binding.map);
+    expect(new Set(boundMaps).size, 'one map is bound to a parser list twice').toBe(boundMaps.length);
+    expect([...maps.keys()].sort(), 'maps the CDDL defines with no parser list bound to them').toEqual([...boundMaps].sort());
+    const boundLists = [...new Set(LIST_FOR_MAP.map((binding) => binding.list))];
+    expect([...lists.keys()].sort(), 'parser lists bound to no map the CDDL defines').toEqual([...boundLists].sort());
+
+    for (const binding of LIST_FOR_MAP) {
+      const list = required(lists.get(binding.list), `${binding.list} is not an export of src/receipt.ts`);
+      const defined = cddlMembers(cddl, binding.map);
+      const enforced = [...list, ...(binding.adds ?? [])];
+      // A name the format defines and the list drops is refused as an undefined member by the parser
+      // that reads it; a name the list carries and the format does not define buys a document
+      // acceptance no version of the format grants. Either one alone passes a subset check pointed at
+      // random, so the two diffs are named separately.
+      const refused = defined.filter((member) => !enforced.includes(member));
+      expect(refused, `${binding.list} refuses ${binding.map}'s member(s): ${refused.join(', ')}`).toEqual([]);
+      const invented = enforced.filter((member) => !defined.includes(member));
+      expect(invented, `${binding.list} names member(s) ${binding.map} does not define: ${invented.join(', ')}`).toEqual([]);
+      // Order bears on nothing here, but `SHARED_MEMBERS` and the twin both say they list members in
+      // the order the CDDL writes them. Once the two sides agree on which names, that claim gets its
+      // own line, so a reordering that leaves the set intact says so instead of going unmentioned.
+      expect(enforced, `${binding.list} is in another order than ${binding.map}: ${enforced.join(', ')} against ${defined.join(', ')}`).toEqual(defined);
+    }
+
+    // What this cannot see, said plainly rather than implied: a list exported under a name that does
+    // not end in `_MEMBERS`, or one the closure walk never reads, is a fact about `receipt.ts` and
+    // not about a map the format gained.
   });
 });
