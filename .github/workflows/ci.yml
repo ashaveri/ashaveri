@@ -76,6 +76,9 @@ jobs:
       - run: pnpm build
       - run: pnpm -C packages/fixtures generate
       - run: pnpm -C packages/fixtures generate:pop
+      - run: pnpm -C packages/fixtures generate:req
+      - run: pnpm -C packages/fixtures generate:res
+      - run: pnpm -C packages/fixtures generate:chain
       - run: git diff --exit-code packages/fixtures/data
 
   secret-scan:

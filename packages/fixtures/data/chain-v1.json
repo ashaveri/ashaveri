@@ -1,0 +1,385 @@
+{
+  "version": 1,
+  "description": "The receipt store record format, published as file images a gateway store wrote and the state a reader derives from them. Each scenario names the writes it performed and states what the file held afterwards byte for byte, alongside the head, the served set and the retention state a reader reports for it. Every image here came out of the store rather than out of a description of it, and a scenario is one directory holding one file named receipts.log.",
+  "layout": {
+    "file": "receipts.log",
+    "record": "len:u32 || kind:u8 || prev:32 || iat:u64 || idLen:u16 || id || payload || digest:32",
+    "lengthCovers": "kind through digest, so len counts everything after the length prefix itself",
+    "digestInput": "kind through payload, that is every byte between the length prefix and the digest",
+    "digest": "sha256 of that input",
+    "integers": "unsigned, big-endian",
+    "kinds": {
+      "receipt": 0,
+      "trim": 1
+    },
+    "receiptPayload": "the receipt bytes, stored unaltered and opaque to the chain. These vectors carry a 64 byte stand-in rather than a signed receipt, because nothing in a record digest depends on what the payload holds.",
+    "trimPayload": "seam:32 || byAge:u32 || byCount:u32 || maxAgeSeconds:u32 || maxCount:u32",
+    "notes": [
+      "A receipt record names the digest of the record before it in the chain, and the first record of an empty file names thirty-two zero bytes.",
+      "A trim record names the digest of the bytes in front of it, which is the previous trim or the thirty-two zero bytes at the start of a file, and it appears ahead of every receipt and nowhere else.",
+      "The seam a trim carries is the digest the surviving receipts chain from, which the first survivor also names in its own header.",
+      "A bound of zero in a trim states that no such bound was configured, which a reader has to tell apart from a bound of one.",
+      "A partial record at the tail is an append that never finished: a reader takes it back off the file and opens the rest, and nothing can sit behind it because it was never written.",
+      "Deleting a record from the middle of a chain, or editing one, is refused rather than worked around, and the refusal names the byte offset it stopped at.",
+      "Each record states the offset its frame starts at, counted in bytes from the first byte of the file image, beside the frame, so a difference localizes to a record without adding up the lengths of everything ahead of it."
+    ]
+  },
+  "scenarios": [
+    {
+      "name": "first-record",
+      "note": "One record appended to a file that did not exist. The predecessor slot holds thirty-two zero bytes, because nothing precedes the head of an empty chain, and the anchor a reader starts recomputing from is that same run of zeros.",
+      "clockSeconds": 1772000000,
+      "puts": [
+        {
+          "id": "546980faad868a0a80976c6cde44d5fa03a7052129b3740f",
+          "iat": 1772000000,
+          "payloadBase64Url": "-M5pNRLT1LbML-WRk7-r0-t6jVsbVCBNgjyEvu5iPs_uFgdxdziC7fGu6EBBBC6NE7HC6u2gV3dkHucFuKgflw"
+        }
+      ],
+      "fileBase64Url": "AAAAuwAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAABpnpMAADA1NDY5ODBmYWFkODY4YTBhODA5NzZjNmNkZTQ0ZDVmYTAzYTcwNTIxMjliMzc0MGb4zmk1EtPUtswv5ZGTv6vT63qNWxtUIE2CPIS-7mI-z-4WB3F3OILt8a7oQEEELo0TscLq7aBXd2Qe5wW4qB-X4Fr5p-SMLo4PrnXw8vydHLXBQ2eKO_jkOiNn5KHLOMY",
+      "fileByteLength": 191,
+      "records": [
+        {
+          "offset": 0,
+          "kind": 0,
+          "length": 187,
+          "frameByteLength": 191,
+          "prevHex": "0000000000000000000000000000000000000000000000000000000000000000",
+          "iat": 1772000000,
+          "id": "546980faad868a0a80976c6cde44d5fa03a7052129b3740f",
+          "payloadBase64Url": "-M5pNRLT1LbML-WRk7-r0-t6jVsbVCBNgjyEvu5iPs_uFgdxdziC7fGu6EBBBC6NE7HC6u2gV3dkHucFuKgflw",
+          "digestHex": "e05af9a7e48c2e8e0fae75f0f2fc9d1cb5c143678a3bf8e43a2367e4a1cb38c6",
+          "frameBase64Url": "AAAAuwAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAABpnpMAADA1NDY5ODBmYWFkODY4YTBhODA5NzZjNmNkZTQ0ZDVmYTAzYTcwNTIxMjliMzc0MGb4zmk1EtPUtswv5ZGTv6vT63qNWxtUIE2CPIS-7mI-z-4WB3F3OILt8a7oQEEELo0TscLq7aBXd2Qe5wW4qB-X4Fr5p-SMLo4PrnXw8vydHLXBQ2eKO_jkOiNn5KHLOMY"
+        }
+      ],
+      "headHex": "e05af9a7e48c2e8e0fae75f0f2fc9d1cb5c143678a3bf8e43a2367e4a1cb38c6",
+      "window": {
+        "from": 1772000000,
+        "to": 1772000000,
+        "count": 1
+      },
+      "served": {
+        "546980faad868a0a80976c6cde44d5fa03a7052129b3740f": "-M5pNRLT1LbML-WRk7-r0-t6jVsbVCBNgjyEvu5iPs_uFgdxdziC7fGu6EBBBC6NE7HC6u2gV3dkHucFuKgflw"
+      },
+      "chainState": {
+        "anchorHex": "0000000000000000000000000000000000000000000000000000000000000000",
+        "retired": {
+          "byAge": 0,
+          "byCount": 0,
+          "trims": []
+        }
+      }
+    },
+    {
+      "name": "two-records",
+      "note": "The second record names the first record digest as its predecessor, and the file is the two frames concatenated with nothing between them.",
+      "clockSeconds": 1772000000,
+      "puts": [
+        {
+          "id": "7ac7a987d58fd4694bc11cb2f4bc1d999ee57e2ae5740bc3",
+          "iat": 1772000000,
+          "payloadBase64Url": "36EyItZXiROvANRBSBykixwNLjtXwo4r2yV7dLE_nXrhe3EFqLzJ6HRxnSgbgit_b-YeTcKNiHu6Dy8GoX1lDg"
+        },
+        {
+          "id": "8184629758745cc345c73f83f7f50053bd05b2c122bb4c55",
+          "iat": 1772000001,
+          "payloadBase64Url": "SBP0b-nvbUjfI1NKEkWN9sGdoHvBuP7K_2V3IeJeqtz2Yq0KN5AtxwJF0DQvzUjxFBdP3FTlsle72Q33Gv6mGQ"
+        }
+      ],
+      "fileBase64Url": "AAAAuwAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAABpnpMAADA3YWM3YTk4N2Q1OGZkNDY5NGJjMTFjYjJmNGJjMWQ5OTllZTU3ZTJhZTU3NDBiYzPfoTIi1leJE68A1EFIHKSLHA0uO1fCjivbJXt0sT-deuF7cQWovMnodHGdKBuCK39v5h5Nwo2Ie7oPLwahfWUOpHsXr4D0NVoEghJU_6ov7eG8QNg734K3klVzp0sEbG0AAAC7AKR7F6-A9DVaBIISVP-qL-3hvEDYO9-Ct5JVc6dLBGxtAAAAAGmekwEAMDgxODQ2Mjk3NTg3NDVjYzM0NWM3M2Y4M2Y3ZjUwMDUzYmQwNWIyYzEyMmJiNGM1NUgT9G_p721I3yNTShJFjfbBnaB7wbj-yv9ldyHiXqrc9mKtCjeQLccCRdA0L81I8RQXT9xU5bJXu9kN9xr-phkIfhWqj7yVsWUFY8OmJuGYMhE2s5Uy1wo1rsFpNxxEsw",
+      "fileByteLength": 382,
+      "records": [
+        {
+          "offset": 0,
+          "kind": 0,
+          "length": 187,
+          "frameByteLength": 191,
+          "prevHex": "0000000000000000000000000000000000000000000000000000000000000000",
+          "iat": 1772000000,
+          "id": "7ac7a987d58fd4694bc11cb2f4bc1d999ee57e2ae5740bc3",
+          "payloadBase64Url": "36EyItZXiROvANRBSBykixwNLjtXwo4r2yV7dLE_nXrhe3EFqLzJ6HRxnSgbgit_b-YeTcKNiHu6Dy8GoX1lDg",
+          "digestHex": "a47b17af80f4355a04821254ffaa2fede1bc40d83bdf82b7925573a74b046c6d",
+          "frameBase64Url": "AAAAuwAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAABpnpMAADA3YWM3YTk4N2Q1OGZkNDY5NGJjMTFjYjJmNGJjMWQ5OTllZTU3ZTJhZTU3NDBiYzPfoTIi1leJE68A1EFIHKSLHA0uO1fCjivbJXt0sT-deuF7cQWovMnodHGdKBuCK39v5h5Nwo2Ie7oPLwahfWUOpHsXr4D0NVoEghJU_6ov7eG8QNg734K3klVzp0sEbG0"
+        },
+        {
+          "offset": 191,
+          "kind": 0,
+          "length": 187,
+          "frameByteLength": 191,
+          "prevHex": "a47b17af80f4355a04821254ffaa2fede1bc40d83bdf82b7925573a74b046c6d",
+          "iat": 1772000001,
+          "id": "8184629758745cc345c73f83f7f50053bd05b2c122bb4c55",
+          "payloadBase64Url": "SBP0b-nvbUjfI1NKEkWN9sGdoHvBuP7K_2V3IeJeqtz2Yq0KN5AtxwJF0DQvzUjxFBdP3FTlsle72Q33Gv6mGQ",
+          "digestHex": "087e15aa8fbc95b1650563c3a626e198321136b39532d70a35aec169371c44b3",
+          "frameBase64Url": "AAAAuwCkexevgPQ1WgSCElT_qi_t4bxA2DvfgreSVXOnSwRsbQAAAABpnpMBADA4MTg0NjI5NzU4NzQ1Y2MzNDVjNzNmODNmN2Y1MDA1M2JkMDViMmMxMjJiYjRjNTVIE_Rv6e9tSN8jU0oSRY32wZ2ge8G4_sr_ZXch4l6q3PZirQo3kC3HAkXQNC_NSPEUF0_cVOWyV7vZDfca_qYZCH4Vqo-8lbFlBWPDpibhmDIRNrOVMtcKNa7BaTccRLM"
+        }
+      ],
+      "headHex": "087e15aa8fbc95b1650563c3a626e198321136b39532d70a35aec169371c44b3",
+      "window": {
+        "from": 1772000000,
+        "to": 1772000001,
+        "count": 2
+      },
+      "served": {
+        "7ac7a987d58fd4694bc11cb2f4bc1d999ee57e2ae5740bc3": "36EyItZXiROvANRBSBykixwNLjtXwo4r2yV7dLE_nXrhe3EFqLzJ6HRxnSgbgit_b-YeTcKNiHu6Dy8GoX1lDg",
+        "8184629758745cc345c73f83f7f50053bd05b2c122bb4c55": "SBP0b-nvbUjfI1NKEkWN9sGdoHvBuP7K_2V3IeJeqtz2Yq0KN5AtxwJF0DQvzUjxFBdP3FTlsle72Q33Gv6mGQ"
+      },
+      "chainState": {
+        "anchorHex": "0000000000000000000000000000000000000000000000000000000000000000",
+        "retired": {
+          "byAge": 0,
+          "byCount": 0,
+          "trims": []
+        }
+      }
+    },
+    {
+      "name": "trim-after-count-cap",
+      "note": "Three receipts written under a count cap of one, which retires a prefix twice and then reclaims the space. The file is rewritten as one trim record followed by the single surviving receipt. The retirement is what the trim states, so the receipt that stays still points at a record that is no longer in the file, and the seam inside the trim names the digest the survivors chain from. A trim follows the bytes of the file rather than the receipt chain, so its own predecessor is thirty-two zero bytes.",
+      "retention": {
+        "maxCount": 1
+      },
+      "clockSeconds": 1772000000,
+      "puts": [
+        {
+          "id": "39d2e9dd9e6740ac552bc7cad206b62719cde190b0b0e406",
+          "iat": 1772000000,
+          "payloadBase64Url": "xVxy7PK_8xGNzkP8rTKlkyTD2xo78dEc1lzp5AyCGEVb0U5lL0pLZVHcqiNX7gyhMqe1ILpptaoM8WSIf3ZgjA"
+        },
+        {
+          "id": "50c6d0a1746cbf5ebb71303ca23bede7fde091e3fda9250d",
+          "iat": 1772000001,
+          "payloadBase64Url": "N11hv3i1lOdjBC8P9PeAeWZKChyTQbnrv23_Eyw5P4IEt1Ya5sWrWB4rPUuLjSyL3KZ0oMZgROUBl4nMopROWQ"
+        },
+        {
+          "id": "2175017abc42bd39f6b9e696e59ed279bfdab530fe4ed62a",
+          "iat": 1772000002,
+          "payloadBase64Url": "AerUsu9xKUVDhA8bvFkrHRtKNuIzY3CK9LsgHO5N3FASuRVIpzzSNNfcqGFq1j3GY2AQMawuq3_oY_8gWfhhvA"
+        }
+      ],
+      "fileBase64Url": "AAAAewEAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAABpnpMAAADZ3wvS67pzyzgUVLDRAGtiTX881WzWRD82M3_N9zAOIAAAAAAAAAACAAAAAAAAAAH90LDvxomy7kJH4k1lfm_ozxiXzCXcCg1Hh60LqBFrvgAAALsA2d8L0uu6c8s4FFSw0QBrYk1_PNVs1kQ_NjN_zfcwDiAAAAAAaZ6TAgAwMjE3NTAxN2FiYzQyYmQzOWY2YjllNjk2ZTU5ZWQyNzliZmRhYjUzMGZlNGVkNjJhAerUsu9xKUVDhA8bvFkrHRtKNuIzY3CK9LsgHO5N3FASuRVIpzzSNNfcqGFq1j3GY2AQMawuq3_oY_8gWfhhvG7d-lxwfcqaU26YOlXZOFJbsDnaQX7pCTeMRe-tvUGo",
+      "fileByteLength": 318,
+      "records": [
+        {
+          "offset": 0,
+          "kind": 1,
+          "length": 123,
+          "frameByteLength": 127,
+          "prevHex": "0000000000000000000000000000000000000000000000000000000000000000",
+          "iat": 1772000000,
+          "id": "",
+          "payloadBase64Url": "2d8L0uu6c8s4FFSw0QBrYk1_PNVs1kQ_NjN_zfcwDiAAAAAAAAAAAgAAAAAAAAAB",
+          "digestHex": "fdd0b0efc689b2ee4247e24d657e6fe8cf1897cc25dc0a0d4787ad0ba8116bbe",
+          "frameBase64Url": "AAAAewEAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAABpnpMAAADZ3wvS67pzyzgUVLDRAGtiTX881WzWRD82M3_N9zAOIAAAAAAAAAACAAAAAAAAAAH90LDvxomy7kJH4k1lfm_ozxiXzCXcCg1Hh60LqBFrvg",
+          "trim": {
+            "seamHex": "d9df0bd2ebba73cb381454b0d1006b624d7f3cd56cd6443f36337fcdf7300e20",
+            "byAge": 0,
+            "byCount": 2,
+            "maxAgeSeconds": 0,
+            "maxCount": 1
+          }
+        },
+        {
+          "offset": 127,
+          "kind": 0,
+          "length": 187,
+          "frameByteLength": 191,
+          "prevHex": "d9df0bd2ebba73cb381454b0d1006b624d7f3cd56cd6443f36337fcdf7300e20",
+          "iat": 1772000002,
+          "id": "2175017abc42bd39f6b9e696e59ed279bfdab530fe4ed62a",
+          "payloadBase64Url": "AerUsu9xKUVDhA8bvFkrHRtKNuIzY3CK9LsgHO5N3FASuRVIpzzSNNfcqGFq1j3GY2AQMawuq3_oY_8gWfhhvA",
+          "digestHex": "6eddfa5c707dca9a536e983a55d938525bb039da417ee909378c45efadbd41a8",
+          "frameBase64Url": "AAAAuwDZ3wvS67pzyzgUVLDRAGtiTX881WzWRD82M3_N9zAOIAAAAABpnpMCADAyMTc1MDE3YWJjNDJiZDM5ZjZiOWU2OTZlNTllZDI3OWJmZGFiNTMwZmU0ZWQ2MmEB6tSy73EpRUOEDxu8WSsdG0o24jNjcIr0uyAc7k3cUBK5FUinPNI019yoYWrWPcZjYBAxrC6rf-hj_yBZ-GG8bt36XHB9yppTbpg6Vdk4UluwOdpBfukJN4xF7629Qag"
+        }
+      ],
+      "headHex": "6eddfa5c707dca9a536e983a55d938525bb039da417ee909378c45efadbd41a8",
+      "window": {
+        "from": 1772000002,
+        "to": 1772000002,
+        "count": 1
+      },
+      "served": {
+        "2175017abc42bd39f6b9e696e59ed279bfdab530fe4ed62a": "AerUsu9xKUVDhA8bvFkrHRtKNuIzY3CK9LsgHO5N3FASuRVIpzzSNNfcqGFq1j3GY2AQMawuq3_oY_8gWfhhvA"
+      },
+      "chainState": {
+        "anchorHex": "d9df0bd2ebba73cb381454b0d1006b624d7f3cd56cd6443f36337fcdf7300e20",
+        "retired": {
+          "byAge": 0,
+          "byCount": 2,
+          "trims": [
+            {
+              "at": 1772000000,
+              "byAge": 0,
+              "byCount": 2,
+              "under": {
+                "maxCount": 1
+              }
+            }
+          ]
+        }
+      }
+    },
+    {
+      "name": "all-retired-by-age",
+      "note": "One receipt stamped outside the age bound and nothing else. It leaves the served set and the file is rewritten as a lone trim record, so a reader holds a retirement with no receipts behind it: head, anchor and seam all name the digest of the record nothing serves.",
+      "retention": {
+        "maxAgeSeconds": 100
+      },
+      "clockSeconds": 1772000000,
+      "puts": [
+        {
+          "id": "3c769d7aedc692a308142aeea152ae849aebbd6ece29ff47",
+          "iat": 1771999000,
+          "payloadBase64Url": "aVmnZEJNnxKso1aWzBoGLtmouI-GpAECjYd1EK7tFJbCFu5NESHtpde6J3V5vkOPFnAf0m5KyfKXKOh3xeaSwg"
+        }
+      ],
+      "fileBase64Url": "AAAAewEAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAABpnpMAAAB-QywZFuB1r9jHXwCE56oZxlrTGv8B-RdfaLMs8qPfbwAAAAEAAAAAAAAAZAAAAAAMyAuWjca2FXuUxoj6ncnfo5fK3FyWiOGfiyNomMif2w",
+      "fileByteLength": 127,
+      "records": [
+        {
+          "offset": 0,
+          "kind": 1,
+          "length": 123,
+          "frameByteLength": 127,
+          "prevHex": "0000000000000000000000000000000000000000000000000000000000000000",
+          "iat": 1772000000,
+          "id": "",
+          "payloadBase64Url": "fkMsGRbgda_Yx18AhOeqGcZa0xr_AfkXX2izLPKj328AAAABAAAAAAAAAGQAAAAA",
+          "digestHex": "0cc80b968dc6b6157b94c688fa9dc9dfa397cadc5c9688e19f8b236898c89fdb",
+          "frameBase64Url": "AAAAewEAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAABpnpMAAAB-QywZFuB1r9jHXwCE56oZxlrTGv8B-RdfaLMs8qPfbwAAAAEAAAAAAAAAZAAAAAAMyAuWjca2FXuUxoj6ncnfo5fK3FyWiOGfiyNomMif2w",
+          "trim": {
+            "seamHex": "7e432c1916e075afd8c75f0084e7aa19c65ad31aff01f9175f68b32cf2a3df6f",
+            "byAge": 1,
+            "byCount": 0,
+            "maxAgeSeconds": 100,
+            "maxCount": 0
+          }
+        }
+      ],
+      "headHex": "7e432c1916e075afd8c75f0084e7aa19c65ad31aff01f9175f68b32cf2a3df6f",
+      "window": {
+        "from": 0,
+        "to": 0,
+        "count": 0
+      },
+      "served": {},
+      "chainState": {
+        "anchorHex": "7e432c1916e075afd8c75f0084e7aa19c65ad31aff01f9175f68b32cf2a3df6f",
+        "retired": {
+          "byAge": 1,
+          "byCount": 0,
+          "trims": [
+            {
+              "at": 1772000000,
+              "byAge": 1,
+              "byCount": 0,
+              "under": {
+                "maxAgeSeconds": 100
+              }
+            }
+          ]
+        }
+      }
+    }
+  ],
+  "tails": [
+    {
+      "name": "partial-tail-repair",
+      "note": "Two records with the last seven bytes of the second taken off, which is what an append interrupted by a crash leaves behind. A reader takes the incomplete tail back off the file, keeps serving the record that is whole, reports the head the surviving record states, and chains the next receipt onto that head as if nothing had been lost.",
+      "of": "two-records",
+      "cutBytes": 7,
+      "imageBase64Url": "AAAAuwAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAABpnpMAADA3YWM3YTk4N2Q1OGZkNDY5NGJjMTFjYjJmNGJjMWQ5OTllZTU3ZTJhZTU3NDBiYzPfoTIi1leJE68A1EFIHKSLHA0uO1fCjivbJXt0sT-deuF7cQWovMnodHGdKBuCK39v5h5Nwo2Ie7oPLwahfWUOpHsXr4D0NVoEghJU_6ov7eG8QNg734K3klVzp0sEbG0AAAC7AKR7F6-A9DVaBIISVP-qL-3hvEDYO9-Ct5JVc6dLBGxtAAAAAGmekwEAMDgxODQ2Mjk3NTg3NDVjYzM0NWM3M2Y4M2Y3ZjUwMDUzYmQwNWIyYzEyMmJiNGM1NUgT9G_p721I3yNTShJFjfbBnaB7wbj-yv9ldyHiXqrc9mKtCjeQLccCRdA0L81I8RQXT9xU5bJXu9kN9xr-phkIfhWqj7yVsWUFY8OmJuGYMhE2s5Uy1wo1",
+      "headHex": "a47b17af80f4355a04821254ffaa2fede1bc40d83bdf82b7925573a74b046c6d",
+      "repairedImageBase64Url": "AAAAuwAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAABpnpMAADA3YWM3YTk4N2Q1OGZkNDY5NGJjMTFjYjJmNGJjMWQ5OTllZTU3ZTJhZTU3NDBiYzPfoTIi1leJE68A1EFIHKSLHA0uO1fCjivbJXt0sT-deuF7cQWovMnodHGdKBuCK39v5h5Nwo2Ie7oPLwahfWUOpHsXr4D0NVoEghJU_6ov7eG8QNg734K3klVzp0sEbG0",
+      "served": {
+        "7ac7a987d58fd4694bc11cb2f4bc1d999ee57e2ae5740bc3": "36EyItZXiROvANRBSBykixwNLjtXwo4r2yV7dLE_nXrhe3EFqLzJ6HRxnSgbgit_b-YeTcKNiHu6Dy8GoX1lDg"
+      },
+      "unserved": [
+        "8184629758745cc345c73f83f7f50053bd05b2c122bb4c55"
+      ],
+      "next": {
+        "id": "5aa79bf2f0e4f2222be9c544904aa020b55ffcc48cb9cb0e",
+        "iat": 1772000009,
+        "payloadBase64Url": "ahT_hssxcg38NPdxiDCAg7JzO3RkdzB67zqCKaI-VdalqCJV1QzuV1Rz89AOMvOjbQAqO4Cfe95Q_NkJI2yQ7g"
+      },
+      "imageAfterNextBase64Url": "AAAAuwAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAABpnpMAADA3YWM3YTk4N2Q1OGZkNDY5NGJjMTFjYjJmNGJjMWQ5OTllZTU3ZTJhZTU3NDBiYzPfoTIi1leJE68A1EFIHKSLHA0uO1fCjivbJXt0sT-deuF7cQWovMnodHGdKBuCK39v5h5Nwo2Ie7oPLwahfWUOpHsXr4D0NVoEghJU_6ov7eG8QNg734K3klVzp0sEbG0AAAC7AKR7F6-A9DVaBIISVP-qL-3hvEDYO9-Ct5JVc6dLBGxtAAAAAGmekwkAMDVhYTc5YmYyZjBlNGYyMjIyYmU5YzU0NDkwNGFhMDIwYjU1ZmZjYzQ4Y2I5Y2IwZWoU_4bLMXIN_DT3cYgwgIOyczt0ZHcweu86gimiPlXWpagiVdUM7ldUc_PQDjLzo20AKjuAn3veUPzZCSNskO7RDtMl0xBmIXHhfQAYXIKnIf4pKtFt_hPbQFs-kEGdrA",
+      "recordsAfterNext": [
+        {
+          "offset": 0,
+          "kind": 0,
+          "length": 187,
+          "frameByteLength": 191,
+          "prevHex": "0000000000000000000000000000000000000000000000000000000000000000",
+          "iat": 1772000000,
+          "id": "7ac7a987d58fd4694bc11cb2f4bc1d999ee57e2ae5740bc3",
+          "payloadBase64Url": "36EyItZXiROvANRBSBykixwNLjtXwo4r2yV7dLE_nXrhe3EFqLzJ6HRxnSgbgit_b-YeTcKNiHu6Dy8GoX1lDg",
+          "digestHex": "a47b17af80f4355a04821254ffaa2fede1bc40d83bdf82b7925573a74b046c6d",
+          "frameBase64Url": "AAAAuwAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAABpnpMAADA3YWM3YTk4N2Q1OGZkNDY5NGJjMTFjYjJmNGJjMWQ5OTllZTU3ZTJhZTU3NDBiYzPfoTIi1leJE68A1EFIHKSLHA0uO1fCjivbJXt0sT-deuF7cQWovMnodHGdKBuCK39v5h5Nwo2Ie7oPLwahfWUOpHsXr4D0NVoEghJU_6ov7eG8QNg734K3klVzp0sEbG0"
+        },
+        {
+          "offset": 191,
+          "kind": 0,
+          "length": 187,
+          "frameByteLength": 191,
+          "prevHex": "a47b17af80f4355a04821254ffaa2fede1bc40d83bdf82b7925573a74b046c6d",
+          "iat": 1772000009,
+          "id": "5aa79bf2f0e4f2222be9c544904aa020b55ffcc48cb9cb0e",
+          "payloadBase64Url": "ahT_hssxcg38NPdxiDCAg7JzO3RkdzB67zqCKaI-VdalqCJV1QzuV1Rz89AOMvOjbQAqO4Cfe95Q_NkJI2yQ7g",
+          "digestHex": "d10ed325d310662171e17d00185c82a721fe292ad16dfe13db405b3e90419dac",
+          "frameBase64Url": "AAAAuwCkexevgPQ1WgSCElT_qi_t4bxA2DvfgreSVXOnSwRsbQAAAABpnpMJADA1YWE3OWJmMmYwZTRmMjIyMmJlOWM1NDQ5MDRhYTAyMGI1NWZmY2M0OGNiOWNiMGVqFP-GyzFyDfw093GIMICDsnM7dGR3MHrvOoIpoj5V1qWoIlXVDO5XVHPz0A4y86NtACo7gJ973lD82QkjbJDu0Q7TJdMQZiFx4X0AGFyCpyH-KSrRbf4T20BbPpBBnaw"
+        }
+      ]
+    }
+  ],
+  "refusals": [
+    {
+      "name": "tampered-record-byte",
+      "note": "One bit flipped inside a record payload. The record still states its own length and names the right predecessor; only its digest over its own bytes stops matching, and that is what a reader checks.",
+      "tamper": {
+        "of": "two-records",
+        "offset": 289,
+        "xoredWith": 1
+      },
+      "imageBase64Url": "AAAAuwAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAABpnpMAADA3YWM3YTk4N2Q1OGZkNDY5NGJjMTFjYjJmNGJjMWQ5OTllZTU3ZTJhZTU3NDBiYzPfoTIi1leJE68A1EFIHKSLHA0uO1fCjivbJXt0sT-deuF7cQWovMnodHGdKBuCK39v5h5Nwo2Ie7oPLwahfWUOpHsXr4D0NVoEghJU_6ov7eG8QNg734K3klVzp0sEbG0AAAC7AKR7F6-A9DVaBIISVP-qL-3hvEDYO9-Ct5JVc6dLBGxtAAAAAGmekwEAMDgxODQ2Mjk3NTg3NDVjYzM0NWM3M2Y4M2Y3ZjUwMDUzYmQwNWIyYzEyMmJiNGM1NUgT9G7p721I3yNTShJFjfbBnaB7wbj-yv9ldyHiXqrc9mKtCjeQLccCRdA0L81I8RQXT9xU5bJXu9kN9xr-phkIfhWqj7yVsWUFY8OmJuGYMhE2s5Uy1wo1rsFpNxxEsw",
+      "imageByteLength": 382,
+      "code": "STORE_CHAIN_BROKEN",
+      "message": "STORE_CHAIN_BROKEN: receipt store chain is broken at byte 191: a record's digest does not match its own bytes"
+    },
+    {
+      "name": "deleted-first-record",
+      "note": "The first of two records lifted out of the file. What is left is whole by its own digest and states its own length, and it is still refused: its predecessor slot names a record the reader was never shown.",
+      "tamper": {
+        "of": "two-records",
+        "droppedBytesFromFront": 191
+      },
+      "imageBase64Url": "AAAAuwCkexevgPQ1WgSCElT_qi_t4bxA2DvfgreSVXOnSwRsbQAAAABpnpMBADA4MTg0NjI5NzU4NzQ1Y2MzNDVjNzNmODNmN2Y1MDA1M2JkMDViMmMxMjJiYjRjNTVIE_Rv6e9tSN8jU0oSRY32wZ2ge8G4_sr_ZXch4l6q3PZirQo3kC3HAkXQNC_NSPEUF0_cVOWyV7vZDfca_qYZCH4Vqo-8lbFlBWPDpibhmDIRNrOVMtcKNa7BaTccRLM",
+      "imageByteLength": 191,
+      "code": "STORE_CHAIN_BROKEN",
+      "message": "STORE_CHAIN_BROKEN: receipt store chain is broken at byte 0: a record names a predecessor that is not the one before it"
+    },
+    {
+      "name": "trim-after-a-receipt",
+      "note": "A receipt record followed by the trim record from the compaction scenario, which is a retirement written behind the receipts it could describe. A trim states where the surviving receipts start, so one anywhere else describes a hole in the middle of a chain and is refused on that alone.",
+      "tamper": {
+        "of": "first-record",
+        "appendedTrimFrom": "trim-after-count-cap"
+      },
+      "imageBase64Url": "AAAAuwAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAABpnpMAADA1NDY5ODBmYWFkODY4YTBhODA5NzZjNmNkZTQ0ZDVmYTAzYTcwNTIxMjliMzc0MGb4zmk1EtPUtswv5ZGTv6vT63qNWxtUIE2CPIS-7mI-z-4WB3F3OILt8a7oQEEELo0TscLq7aBXd2Qe5wW4qB-X4Fr5p-SMLo4PrnXw8vydHLXBQ2eKO_jkOiNn5KHLOMYAAAB7AQAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAGmekwAAANnfC9LrunPLOBRUsNEAa2JNfzzVbNZEPzYzf833MA4gAAAAAAAAAAIAAAAAAAAAAf3QsO_GibLuQkfiTWV-b-jPGJfMJdwKDUeHrQuoEWu-",
+      "imageByteLength": 318,
+      "code": "STORE_CHAIN_BROKEN",
+      "message": "STORE_CHAIN_BROKEN: receipt store chain is broken at byte 191: a trim record follows a receipt"
+    },
+    {
+      "name": "frame-length-too-short",
+      "note": "A record whose length prefix claims fewer bytes than the layout needs for its own header. Nothing inside a frame can be trusted once its size lies, so the reader stops at the size and never reaches the digest.",
+      "tamper": {
+        "of": "first-record",
+        "relengthedTo": 40
+      },
+      "imageBase64Url": "AAAAKAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAABpnpMAADA1NDY5ODBmYWFkODY4YTBhODA5NzZjNmNkZTQ0ZDVmYTAzYTcwNTIxMjliMzc0MGb4zmk1EtPUtswv5ZGTv6vT63qNWxtUIE2CPIS-7mI-z-4WB3F3OILt8a7oQEEELo0TscLq7aBXd2Qe5wW4qB-X4Fr5p-SMLo4PrnXw8vydHLXBQ2eKO_jkOiNn5KHLOMY",
+      "imageByteLength": 191,
+      "code": "STORE_CHAIN_BROKEN",
+      "message": "STORE_CHAIN_BROKEN: receipt store chain is broken at byte 0: a record claims a frame 40 bytes long, which is too short to hold its own header"
+    }
+  ]
+}

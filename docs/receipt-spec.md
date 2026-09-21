@@ -84,6 +84,11 @@ Both hashes are computed over raw bytes on the wire, before any decoding:
 This is why the gateway signs the bytes it forwarded, and the client hashes the bytes it
 received: any difference, including a transport-level re-encoding, breaks verification.
 
+Both rules are published as vectors a reimplementation can check itself against:
+`packages/fixtures/data/req-v1.json` for `req`, and `packages/fixtures/data/res-v1.json` for
+`res`, including a streamed response whose framing is inside the hash. How to read those
+files, and what they do not settle, is in [vectors.md](vectors.md).
+
 ### 3.2 Environment kinds
 
 `meas.tee` names what is vouching for the measurement, and `meas.m` is that thing's native

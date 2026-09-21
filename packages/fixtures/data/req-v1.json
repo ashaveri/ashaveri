@@ -1,0 +1,62 @@
+{
+  "version": 1,
+  "description": "The request digest a receipt carries in `req`, published as (exact request bytes, expected digest) pairs. Every byte of `req` is sha256 over the request body as transmitted, before any parsing and independent of it: a body that decodes to the same object but differs by one byte has a different `req`. The input is the whole body, the empty body included, and it is hashed as octets, never as text in whatever encoding the reader happens to hold.",
+  "rule": {
+    "receiptField": "req",
+    "algorithm": "sha256",
+    "input": "the request body bytes exactly as transmitted",
+    "encoding": "lowercase hex, 64 characters",
+    "computedBefore": "json-parse"
+  },
+  "vectors": [
+    {
+      "name": "buffered-completion",
+      "note": "The exact bytes data/pop-v1.json signs for its completion-post vector. The two files state the same digest of the same bytes, so each one checks the other.",
+      "bodyBase64Url": "eyJtb2RlbCI6Im1ldGEtbGxhbWEvTGxhbWEtMy4xLThCLUluc3RydWN0IiwibWVzc2FnZXMiOlt7InJvbGUiOiJ1c2VyIiwiY29udGVudCI6ImhlbGxvIn1dfQ",
+      "bodyByteLength": 91,
+      "reqHex": "98e1ee609c31e633262268087e341cc85c22a10867f7f77cf1c9a1e910dc4907"
+    },
+    {
+      "name": "streaming-request",
+      "note": "A stream request is a body like any other: `stream` is a member of it, and the digest covers it as written.",
+      "bodyBase64Url": "eyJtb2RlbCI6Im1ldGEtbGxhbWEvTGxhbWEtMy4xLThCLUluc3RydWN0IiwibWVzc2FnZXMiOlt7InJvbGUiOiJ1c2VyIiwiY29udGVudCI6ImhlbGxvIn1dLCJzdHJlYW0iOnRydWV9",
+      "bodyByteLength": 105,
+      "reqHex": "73a298f64b79de4b98c754f61c6c32d454fd0fec56da56ccd23a01b6d6bd6c98"
+    },
+    {
+      "name": "empty-body",
+      "note": "sha256 of nothing. A bodyless route signs this value, and a receipt over a request with no body claims it, so a port that never hashes an empty input gets both wrong at once.",
+      "bodyBase64Url": "",
+      "bodyByteLength": 0,
+      "reqHex": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    {
+      "name": "non-ascii-content",
+      "note": "Accented, CJK and symbol characters in one content string. The digest is of the UTF-8 bytes, so a port that hashes the character count, the code points, or a locale-encoded copy of this text will not agree with the published value.",
+      "bodyBase64Url": "eyJtb2RlbCI6Im1ldGEtbGxhbWEvTGxhbWEtMy4xLThCLUluc3RydWN0IiwibWVzc2FnZXMiOlt7InJvbGUiOiJ1c2VyIiwiY29udGVudCI6ImjDqWxsbyDkvaDlpb0g4piVIn1dfQ",
+      "bodyByteLength": 103,
+      "reqHex": "a11781c6f1f4c428db18a3ba785ab877c5e8d351033dbd581acea4fbe9654e3d"
+    },
+    {
+      "name": "control-characters",
+      "note": "A newline and a tab written as JSON escapes, which are two ASCII backslash sequences on the wire and not the characters they stand for.",
+      "bodyBase64Url": "eyJtb2RlbCI6Im1vY2stbW9kZWwtMSIsIm1lc3NhZ2VzIjpbeyJyb2xlIjoidXNlciIsImNvbnRlbnQiOiJhXG5iXHRjIn1dfQ",
+      "bodyByteLength": 73,
+      "reqHex": "d9af9229f947e9947b1ef49ca3f770279a7e97a5ba643f370d3c185735cfc54d"
+    },
+    {
+      "name": "same-object-reformatted",
+      "note": "Parses to the same object as buffered-completion and differs from it by bytes alone. Two bodies that a JSON reader cannot tell apart still produce two different req values.",
+      "bodyBase64Url": "eyAibW9kZWwiIDogIm1ldGEtbGxhbWEvTGxhbWEtMy4xLThCLUluc3RydWN0IiwgIm1lc3NhZ2VzIiA6IFsgeyAicm9sZSIgOiAidXNlciIsICJjb250ZW50IiA6ICJoZWxsbyIgfSBdIH0",
+      "bodyByteLength": 107,
+      "reqHex": "ee1f259187926fca12c4c80d7c05bf967be1af4547e729c652900f83e79cecfe"
+    },
+    {
+      "name": "gateway-completion-request",
+      "note": "The request every data/res-v1.json vector is served to. It appears here so the response suite can be read without a request digest copied from somewhere else.",
+      "bodyBase64Url": "eyJtb2RlbCI6Im1vY2stbW9kZWwtMSIsIm1lc3NhZ2VzIjpbeyJyb2xlIjoidXNlciIsImNvbnRlbnQiOiJoZWxsbyJ9XX0",
+      "bodyByteLength": 71,
+      "reqHex": "d69522df261d7f46209698c399a4dfa4088bb1f6b367168e0eebfe189717a126"
+    }
+  ]
+}

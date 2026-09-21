@@ -67,8 +67,11 @@ packages throw, with what raises it and what a caller should do, is tabulated in
 [docs/error-codes.md](docs/error-codes.md). Who may call at all is
 [docs/access-control.md](docs/access-control.md): the admission checks every route runs,
 the scope each one needs, and what the per-request access log holds, how long it keeps it,
-and how a line is erased.
-Fixtures are regenerated deterministically with `pnpm --filter @ashaveri/fixtures generate`.
+and how a line is erased. The published conformance vectors — what a reimplementation in
+any language is measured against, and how to read each suite — are in
+[docs/vectors.md](docs/vectors.md). Fixtures and vectors are regenerated deterministically
+with `pnpm --filter @ashaveri/fixtures generate`, and the `generate:` variants named in
+that document.
 
 ## Verifying inference receipts
 
