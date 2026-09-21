@@ -470,6 +470,11 @@ personal data at the level of a credential id and cannot outlive the window that
 `--request <ref>` records the deployer's own reference for the instruction the run answers, so a later
 reader can tell which request a given erasure discharged.
 
+The scrub is a separate program from the gateway that owns the directory, and it is a separate program
+in a way that matters to what its output means: it takes no lock, it asks the running gateway for
+nothing, and it does not stop that gateway appending while it runs. Section 8.3 states what that costs
+and what an erasure does not reach.
+
 Erasure is not expiry. Pruning deletes a whole day's records when that day's retention has run out,
 and needs no subject, no instruction and no marker. Scrubbing answers an instruction, keeps every
 other line, and files a marker. The two meet at the same file name: a scrubbed part whose records are
@@ -561,6 +566,32 @@ erasable.
 That limit is the cost of unguessability: an id a stranger cannot walk is an id whose tag is still legible
 to anyone who has the id. The tag is what makes the fetch route refuse one tenant's receipt to another
 without storing ownership state that could drift, and the same value is what survives an erasure.
+
+Two further limits belong to the tool rather than to the log's shape, and they are stated here because a
+marker is easy to read as a stronger document than it is.
+
+The first is concurrency. `ashaveri accesslog scrub` is a separate program from the gateway, it holds no
+lock, and it does not pause or coordinate with the process appending to the directory. What it does
+instead is read a part, compare that part with the bytes at the name in the last instant before it
+publishes its rewritten copy over them, and retry a part that moved up to three times. The window that
+survives that is the one between the last comparison and the publish, which nothing in the platform's
+file interface can be made conditional: an append that lands in it is removed by the publish, is in no
+count and under no digest, and is disclosed by no marker. That is why the tool's own guidance is to run
+it against a deployment that is not serving, and why a scrub of a live log is a statement about the
+records this run saw rather than about every record that existed while it ran.
+
+The second is depth. A scrub removes names, not bytes. A rewritten part is published by renaming a copy
+over the original and a part emptied of the subject's records is deleted outright, which drops the
+directory entry and frees the space; nothing in this command overwrites the freed blocks or touches the
+volume underneath the file system. An image taken before the run still holds the lines, and recovery of
+freed blocks on an unencrypted volume can hold them too. Nothing in this document claims otherwise, and
+no marker digest is evidence of byte destruction: the digests a marker carries are an account of what
+this run read and what it published, which is a claim about a file and not about a volume. Where a
+deployer needs the bytes to be unreachable rather than merely unreferenced, that is arranged below this
+software, at the volume, by encrypting what the log sits on or sanitising the media when it leaves. The
+erasure duty itself belongs to whoever holds it: under Article 17(1) of the GDPR it is the controller's,
+and a deployer acting as processor discharges it on the controller's documented instruction. This tool is
+what a deployer has for the log, and it is not offered as settling that duty for anyone.
 
 ## 9. Appendix: data map
 
