@@ -189,10 +189,12 @@ Scope arithmetic is one-directional: `any` is always satisfied, `complete` needs
 refused the receipts for it: a completing credential is always also a reading one, which is the only
 combination with a coherent use.
 
-Scope is a product and security decision, not an Article 15 requirement. Article 15(5) of the GDPR
-covers a restriction of processing in response to an erasure request, which is not a routing table.
-What the Article 15(5)-adjacent obligations actually reach are the credential, possession and replay
-checks: they are what makes a log record mean something about a real holder.
+Scope is a product and security decision, not an Article 15 requirement of the GDPR. Article 18 of
+the GDPR gives a data subject the right to obtain a restriction of processing, one of its cases being
+a subject who opposes an erasure and asks that the use of their data be restricted instead, which is
+not a routing table. What the GDPR's Article 5(1)(f) and Article 32(1) obligations actually reach are
+the credential, possession and replay checks: they are what makes a log record mean something about a
+real holder.
 
 ## 3. Proof of possession on the wire
 
@@ -462,11 +464,12 @@ bits read back from that part, since a publish replaces the part whole and the m
 setting that carries across, and leaves a marker named `scrub-<day>-<seq>.jsonl`. The filter is the
 `cred` field, so a line this gateway refused without ever acknowledging the name it was given is
 erased with the rest: a collapsed refusal still records which credential the request named, and that
-record is about the subject even when the response said nothing about it. The marker is the
-proof that an erasure ran, which matters for Article 15(5)'s notification duty: the deployer who
-erases has to be able to say the erasure happened, and the log's own lines cannot do that once they
-are gone. The retention sweep collects markers on their own day's schedule, because a marker is
-personal data at the level of a credential id and cannot outlive the window that erased its subject.
+record is about the subject even when the response said nothing about it. The marker is the proof
+that an erasure ran, which matters for the notification duty in Article 19(1) of the GDPR: the
+deployer who erases has to be able to say the erasure happened, and the log's own lines cannot do
+that once they are gone. The retention sweep collects markers on their own day's schedule, because a
+marker is personal data at the level of a credential id and cannot outlive the window that erased
+its subject.
 `--request <ref>` records the deployer's own reference for the instruction the run answers, so a later
 reader can tell which request a given erasure discharged.
 
@@ -517,15 +520,15 @@ part size, so a busy deployment grows in parts and the volume the log sits on is
 Four duties run against that window. None of them is satisfied here, and none of them is answered by
 a shorter number.
 
-- **A subject's access request.** Article 15(3) requires a copy of "the personal data undergoing
-  processing", so a deployment asked for the log lines about a credential can only produce the ones
-  still on the volume. Nothing in the access log's design addresses this, and a longer window is a
-  configuration decision, not a code change.
-- **Notification after erasure.** Article 19 of the GDPR requires telling each recipient to whom
-  personal data has been disclosed about a rectification or erasure, and Article 15(5) requires telling
-  those recipients about a restriction. Both assume the deployer still knows who received what, which
-  retention against a fixed window can erase, and the scrub marker is the artifact that lets an
-  operator prove a removal happened.
+- **A subject's access request.** Article 15(3) of the GDPR requires a copy of "the personal data
+  undergoing processing", so a deployment asked for the log lines about a credential can only produce
+  the ones still on the volume. Nothing in the access log's design addresses this, and a longer window
+  is a configuration decision, not a code change.
+- **Notification after erasure.** Article 19(1) of the GDPR requires the controller to communicate a
+  rectification or an erasure to each recipient the personal data has been disclosed to, and the same
+  paragraph names a restriction of processing carried out under Article 18 beside them. That duty
+  assumes the deployer still knows who received what, which retention against a fixed window can
+  erase, and the scrub marker is the artifact that lets an operator prove a removal happened.
 - **Security logging.** Article 32(2) and (4) plus the NIS2 provisions on logging and access control
   (the relevant NIS2 points are its Article 21(2)(c) and (d) and Article 23(2)) point toward keeping
   security logs. The one period they do fix is a floor rather than a window: the EU AI Act's
