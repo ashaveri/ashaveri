@@ -7,7 +7,11 @@
     // The generators are run from source by `node --experimental-strip-types`, which resolves
     // specifiers as written and so requires `./seed.ts`; the checked path has to accept the one
     // spelling the running path allows. `noEmit` above is what makes the extension legal at all.
-    "allowImportingTsExtensions": true
+    "allowImportingTsExtensions": true,
+    // The same loader refuses `enum`, a runtime `namespace` and a constructor parameter property
+    // outright, and this is the config that decides whether a generator reaches that loader: without
+    // the option a script can typecheck clean here and fail the run that regenerates the vectors.
+    "erasableSyntaxOnly": true
   },
   "include": ["scripts"]
 }
