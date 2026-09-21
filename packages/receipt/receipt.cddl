@@ -4,7 +4,7 @@ Ashaveri-Receipt = #6.18(COSE_Sign1-COSE)
 ; deterministic CBOR (Core Deterministic Encoding, section 4.2.1)
 COSE_Sign1-COSE = [
     protected: bstr .cbor Ashaveri-Protected-Header,
-    unprotected: {},
+    unprotected: { * any => any }, ; the map that carries no claim; see the note below the payload
     payload: bstr .cbor Ashaveri-Receipt-Payload,
     signature: bstr .size 64
 ]
@@ -51,9 +51,27 @@ Ashaveri-Receipt-Payload-v2 = {
     mk: Marking,              ; required: v2 attests that marking was considered
 }
 
-; Closedness stops at the payload map. `Marking`, `Measurement`, `EvidenceRef` and `TokenMetering`
-; below carry no `...` either, so this file reads as closed at that level too, and the parser and
-; the JSON twin do not enforce it there.
+; That rule is the format's, not one map's. `Marking`, `Measurement`, `EvidenceRef` and
+; `TokenMetering` below carry no `...` either, and the absence means there what it means here: a
+; member one of these maps does not define makes the document invalid rather than a document read
+; with the unexpected member dropped. The parser and the JSON twin refuse it at that level exactly as
+; they refuse one at the payload level, so the payload map and every map nested inside it close, at
+; both versions. `Ashaveri-Protected-Header` closes with them, and its reason is stronger than the
+; payload's: its bytes are the ones hashed into the `Sig_structure`, so a label that block does not
+; name is an authenticated parameter, and a reader that took the three labels above out of it and
+; returned those handed on a document other than the one the issuer signed. The parser refuses the
+; unknown label by number, at that level, before it reads any of the three. Numbers close it, not names
+; this file recognises, so the rule takes in the parameters RFC 9052 registers as well: label 2, `crit`,
+; by which a sender asks that a recipient understand something about the message, is refused in the
+; signed header as any other label the block does not name. Nothing in this format answers such an ask,
+; and not because the number is unknown to it: the header refuses it, and the map outside the signature
+; is free to hold one and carries no claim of the document either way.
+;
+; One map this file leaves a signer free to fill, and that is a decision rather than a gap: the
+; `unprotected` map of `COSE_Sign1-COSE` sits outside the signature, so nothing written in it can
+; travel as a claim about the response, and a rule enforcing its emptiness would buy strictness with
+; no security content behind it. What the format declares of it is therefore only that it carries no
+; claim, which is what `{ * any => any }` there says and `{}` did not.
 
 ; Absence is declared here rather than inferred from a missing member: `sch: "none"` carries the
 ; digest of the empty region, so `mk` is never optional and a reader never has to decide what an

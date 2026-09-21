@@ -18,6 +18,16 @@ import {
   toHex,
 } from '../src/index.js';
 import type { Marking, ReceiptPayload, ReceiptPayloadV1, ReceiptPayloadV2, SigningKey } from '../src/index.js';
+import * as receiptParser from '../src/receipt.js';
+import {
+  ALG_EDDSA,
+  COSE_HEADER_ALG,
+  COSE_HEADER_CONTENT_TYPE,
+  COSE_HEADER_KID,
+  RECEIPT_CONTENT_TYPE,
+  buildProtectedHeader,
+} from '../src/cose.js';
+import { ed25519 } from '@noble/curves/ed25519';
 import { Tag } from 'cbor2';
 import { sha256, sha384 } from '@noble/hashes/sha2.js';
 
@@ -245,6 +255,281 @@ describe('COSE_Sign1 receipt codec', () => {
     expect(key.kid).toEqual(sha256(key.publicKey));
     const key2 = generateSigningKey();
     expect(equalBytes(key.kid, key2.kid)).toBe(false);
+  });
+});
+
+/**
+ * The three labels `receipt.cddl` declares, spelled out here rather than borrowed from
+ * `buildProtectedHeader`, because the cases below add to them and take from them. The equality
+ * assertion that opens the first case is what proves this map and that function write one document,
+ * so the hand-built control cannot quietly be a lookalike of the format.
+ */
+function declaredProtectedHeader(kid: Uint8Array): Map<unknown, unknown> {
+  return new Map<unknown, unknown>([
+    [COSE_HEADER_ALG, ALG_EDDSA],
+    [COSE_HEADER_CONTENT_TYPE, RECEIPT_CONTENT_TYPE],
+    [COSE_HEADER_KID, kid],
+  ]);
+}
+
+/**
+ * A `COSE_Sign1` whose signature covers the header maps this call names, rather than the two
+ * `signCoseSign1` builds for itself. The point is that whatever sits in the protected bstr is
+ * authenticated: a refusal over such bytes is a verifier declining the document it was handed, and an
+ * acceptance is a signature that genuinely holds over them. The unprotected map is not in the
+ * `Sig_structure` at all, so an entry handed for it travels with the document without being signed.
+ */
+function signWithHeaders(
+  payloadBytes: Uint8Array,
+  key: SigningKey,
+  protectedHeader: Map<unknown, unknown>,
+  unprotectedHeader: Map<unknown, unknown> = new Map(),
+): Uint8Array {
+  const protectedBytes = encodeCanonical(protectedHeader);
+  const signature = ed25519.sign(
+    encodeCanonical(['Signature1', protectedBytes, new Uint8Array(0), payloadBytes]),
+    key.privateKey,
+  );
+  return encodeCanonical(new Tag(COSE_SIGN1_TAG, [protectedBytes, unprotectedHeader, payloadBytes, signature]));
+}
+
+/** The refusal the closed signed header answers with, in full, so a reworded one lands here. */
+const UNDECLARED_LABEL_REFUSAL =
+  'protected header does not hold exactly the parameters the format declares: it carries a label the format does not define:';
+
+describe('the protected header closes and the unprotected one does not', () => {
+  it('refuses an undeclared label inside the signed header and takes the same label outside it', () => {
+    const key = generateSigningKey();
+    const payloadBytes = encodePayload(samplePayload());
+
+    // The control first, because it is the half that decides whether the refusal below means
+    // anything: these are bytes this file writes rather than bytes `issueReceipt` writes, so the
+    // header has to be the format's own and the signature has to hold over it. Otherwise the case
+    // under this line would be refusing a broken document while calling it an undeclared label.
+    expect(equalBytes(encodeCanonical(declaredProtectedHeader(key.kid)), buildProtectedHeader(key.kid))).toBe(true);
+    const declared = signWithHeaders(payloadBytes, key, declaredProtectedHeader(key.kid));
+    const verified = verifyReceipt(declared, { publicKey: key.publicKey, now: FIXED_NOW });
+    expect(verified.payload.mdl).toBe('meta-llama/Llama-3.1-8B-Instruct');
+    expect(equalBytes(verified.cose.payloadBytes, payloadBytes)).toBe(true);
+    // And the control is a signature check rather than a reader that always answers yes: one byte of
+    // the signature moved, the same document comes back refused for its signature and not for its
+    // header, which is what makes the acceptance above evidence about the label below.
+    const moved = new Uint8Array(declared);
+    moved[moved.length - 1]! ^= 0x01;
+    expectFailure(() => verifyReceipt(moved, { publicKey: key.publicKey, now: FIXED_NOW }), 'INVALID_SIGNATURE');
+
+    // One more label and the same rule for making the bytes. Label 5 is not one `receipt.cddl` names,
+    // and it is inside the `Sig_structure`, so a reader that took the three it knows and returned
+    // those handed on a smaller document than the one the issuer signed. It is refused by number.
+    const fifth = new Map<unknown, unknown>([...declaredProtectedHeader(key.kid), [5, 'x']]);
+    const refused = signWithHeaders(payloadBytes, key, fifth);
+    const failure = expectFailure(
+      () => verifyReceipt(refused, { publicKey: key.publicKey, now: FIXED_NOW }),
+      'BAD_PROTECTED_HEADER',
+    );
+    expect(failure.message).toBe(`${UNDECLARED_LABEL_REFUSAL} 5`);
+    // Which way the document is opened changes nothing. The header is read before a key is looked up
+    // and before a signature is checked, so an unread receipt answers as a verified one does.
+    expectFailure(() => decodeReceipt(refused), 'BAD_PROTECTED_HEADER');
+
+    // The same refusal for a label carrying the other sign RFC 9052 section 3.1 admits, which is the
+    // shape a closure by number has to survive and a range check would not: -1 is as legal a header key
+    // as 5 is, and this format declares neither. It travels here because the set this refusal is built
+    // from is derived from `receipt.cddl` in `schema.test.ts`, and a reader of that file that saw only
+    // unsigned digits would keep the two lists equal over a label like this one.
+    const negative = new Map<unknown, unknown>([...declaredProtectedHeader(key.kid), [-1, 0]]);
+    const negativeFailure = expectFailure(
+      () => verifyReceipt(signWithHeaders(payloadBytes, key, negative), { publicKey: key.publicKey, now: FIXED_NOW }),
+      'BAD_PROTECTED_HEADER',
+    );
+    expect(negativeFailure.message).toBe(`${UNDECLARED_LABEL_REFUSAL} -1`);
+
+    // The mirror, and the reason the two halves are one case: the same label and the same value in
+    // the map the signature does not cover. The format declares that one open by decision, so this
+    // document verifies and the entry arrives intact. It is the case that says the refusal above
+    // stopped at the signed part rather than reaching the envelope.
+    const unsignedFifth = signWithHeaders(
+      payloadBytes,
+      key,
+      declaredProtectedHeader(key.kid),
+      new Map<unknown, unknown>([[5, 'x']]),
+    );
+    const passed = verifyReceipt(unsignedFifth, { publicKey: key.publicKey, now: FIXED_NOW });
+    expect(passed.cose.unprotected.get(5)).toBe('x');
+  });
+
+  it('refuses a declared parameter that is absent, which is the other half of the same sentence', () => {
+    const key = generateSigningKey();
+    const payloadBytes = encodePayload(samplePayload());
+    // Every label this map still carries is one the format defines, so the closure check above passes
+    // and the refusal below is the required-parameter rule. Those two refusals answer under one code,
+    // and this is the case that says closing the map did not replace asking for what it must hold. One
+    // declared parameter is not in that pair, and the case after this one is what keeps the sentence
+    // about one code from being read as a sentence about every header fault.
+    const noKid = new Map<unknown, unknown>([...declaredProtectedHeader(key.kid)]);
+    noKid.delete(COSE_HEADER_KID);
+    const failure = expectFailure(
+      () => verifyReceipt(signWithHeaders(payloadBytes, key, noKid), { publicKey: key.publicKey, now: FIXED_NOW }),
+      'BAD_PROTECTED_HEADER',
+    );
+    expect(failure.message).toContain('kid must be a 32-byte bstr');
+  });
+
+  it('answers a missing alg under its own code, not under the header code', () => {
+    const key = generateSigningKey();
+    const payloadBytes = encodePayload(samplePayload());
+    // The same edit to the map that the case above makes to `kid`, one label shorter: every label left
+    // is declared, so the closure rule passes, and the parameter that is gone is `alg`. That answers
+    // `UNSUPPORTED_ALG`, which is what `docs/error-codes.md`'s row for the code says it covers, and not
+    // `BAD_PROTECTED_HEADER`, because a header with no `alg` is not claiming to be a different map, it
+    // is saying nothing about which suite produced the signature. The two codes stay separate rows, and
+    // both are terminal, so this case pins a distinction a caller reads off the code rather than one it
+    // acts on differently.
+    const noAlg = new Map<unknown, unknown>([...declaredProtectedHeader(key.kid)]);
+    noAlg.delete(COSE_HEADER_ALG);
+    const failure = expectFailure(
+      () => verifyReceipt(signWithHeaders(payloadBytes, key, noAlg), { publicKey: key.publicKey, now: FIXED_NOW }),
+      'UNSUPPORTED_ALG',
+    );
+    expect(failure.message).toContain('alg must be an integer label, got undefined');
+    // And the other shape of the same parameter, a suite this format does not sign with, answers under
+    // that code too: the split is between the map and the algorithm, not between an absent `alg` and a
+    // wrong one.
+    const wrongAlg = new Map<unknown, unknown>(declaredProtectedHeader(key.kid));
+    wrongAlg.set(COSE_HEADER_ALG, -7);
+    expectFailure(
+      () => verifyReceipt(signWithHeaders(payloadBytes, key, wrongAlg), { publicKey: key.publicKey, now: FIXED_NOW }),
+      'UNSUPPORTED_ALG',
+    );
+  });
+
+  it('reads no claim out of the unprotected map, over two documents that differ only there', () => {
+    const key = generateSigningKey();
+    const payloadBytes = encodePayload(samplePayload());
+    const signed = declaredProtectedHeader(key.kid);
+    // Two documents, one signature, and everything the parser reads held identical between them except
+    // the map outside the signature. The second fills that map with a rival for every read the parser
+    // makes: an `alg` naming a suite this format does not sign with, a `kid` of the right width and the
+    // wrong key, a `typ` that is not this format, and two payload members spelled out as text keys. What
+    // this measures is therefore not whether an empty map parses, which would be true of a parser that
+    // ignored the envelope entirely, but whether anything at all travels from that map into the verdict
+    // on a document that verifies.
+    const rival = new Map<unknown, unknown>([
+      [COSE_HEADER_ALG, -7],
+      [COSE_HEADER_KID, new Uint8Array(32).fill(9)],
+      [COSE_HEADER_CONTENT_TYPE, 'application/cbor'],
+      ['mdl', 'a-model-the-sender-chose'],
+      ['iat', 1],
+    ]);
+    const openBytes = signWithHeaders(payloadBytes, key, signed, new Map());
+    const rivalBytes = signWithHeaders(payloadBytes, key, signed, rival);
+    const empty = verifyReceipt(openBytes, { publicKey: key.publicKey, now: FIXED_NOW });
+    const filled = verifyReceipt(rivalBytes, { publicKey: key.publicKey, now: FIXED_NOW });
+    // The premise first, and about the bytes: two documents, not one document read twice, and the only
+    // difference between them is the content of that one map. The signature is the same bytes in both,
+    // because the `Sig_structure` covers the protected bytes, the external AAD and the payload and
+    // nothing else, so anything that reached a verdict from the map on the left would have arrived
+    // through the envelope rather than through what was signed.
+    expect(equalBytes(rivalBytes, openBytes)).toBe(false);
+    expect(equalBytes(filled.cose.signature, empty.cose.signature)).toBe(true);
+    expect(equalBytes(filled.cose.protectedBytes, empty.cose.protectedBytes)).toBe(true);
+    expect(equalBytes(filled.cose.payloadBytes, empty.cose.payloadBytes)).toBe(true);
+    expect(filled.cose.unprotected.size).toBe(5);
+    expect(empty.cose.unprotected.size).toBe(0);
+    // And the rival arrived intact rather than being emptied on the way in: the map is handed to the
+    // caller as the sender wrote it, which is what makes the assertions that follow about the reads the
+    // parser makes and not about a map that stopped existing before any read happened.
+    expect(filled.cose.unprotected.get(COSE_HEADER_ALG)).toBe(-7);
+    expect(filled.cose.unprotected.get('mdl')).toBe('a-model-the-sender-chose');
+    // The two halves the ruling rests on: the payload the parser parses, and the header it projects for
+    // its caller, are one document across both bytes. Named as the signed values too, because equality
+    // between the two on its own would still hold if a reader ever preferred the unprotected map, and it
+    // is that preference this case keeps out of the package.
+    expect(filled.payload).toEqual(empty.payload);
+    expect(filled.header).toEqual(empty.header);
+    expect(filled.payload.mdl).toBe('meta-llama/Llama-3.1-8B-Instruct');
+    expect(filled.header.alg).toBe(ALG_EDDSA);
+    expect(equalBytes(filled.header.kid, key.kid)).toBe(true);
+    // The same answer from a reader that never reaches a signature check at all, which is the other way
+    // a claim could be handed to a caller: an unread receipt is read on its face, and the map above is
+    // not covered by the signature that would otherwise have to be made over it.
+    const unread = decodeReceipt(rivalBytes);
+    expect(unread.payload).toEqual(empty.payload);
+    expect(unread.header).toEqual(empty.header);
+  });
+
+  it('names a label it cannot read without letting it write the message', () => {
+    const key = generateSigningKey();
+    const payloadBytes = encodePayload(samplePayload());
+    // A COSE header label is an integer, so a text one is undeclared twice over, and this is the
+    // refusal whose quoted name comes out of bytes whoever sent the receipt wrote. It lives under the
+    // promise `ReceiptError` makes about every detail: the sentence is fixed, only the quote is
+    // bounded, and no control character survives, so a label cannot end the log line it is written
+    // into. Taken at four thousand characters, the width the payload-level case takes it at too.
+    const hostile = `typ\u001b[2J${'q'.repeat(4_000)}`;
+    const textLabel = expectFailure(
+      () =>
+        decodeReceipt(
+          signWithHeaders(payloadBytes, key, new Map<unknown, unknown>([...declaredProtectedHeader(key.kid), [hostile, 'x']])),
+        ),
+      'BAD_PROTECTED_HEADER',
+    );
+    expect(textLabel.message).toContain('a label the format does not define:');
+    expect(textLabel.message).not.toMatch(/[\p{Cc}\p{Cf}\u{2028}\u{2029}]/u);
+    expect(textLabel.message).toContain('\\u001b');
+    expect(textLabel.message.length).toBeLessThan(400);
+    expect(textLabel.message).toContain('...');
+
+    // And a key that is neither, described by what it is rather than by what an object's default
+    // `toString` turns it into.
+    const bstrLabel = expectFailure(
+      () =>
+        decodeReceipt(
+          signWithHeaders(
+            payloadBytes,
+            key,
+            new Map<unknown, unknown>([...declaredProtectedHeader(key.kid), [new Uint8Array([1, 2, 3]), 'x']]),
+          ),
+        ),
+      'BAD_PROTECTED_HEADER',
+    );
+    expect(bstrLabel.message).toBe(`${UNDECLARED_LABEL_REFUSAL} a bstr label of length 3`);
+
+    // And the two keys that are integers, just not integers a label can be. This is the case where the
+    // message used to claim the opposite of the truth: a tag 2 bignum, and a CBOR integer the encoder
+    // wrote in major type 0 but too wide for the decoder to hand back as a `number`, both arrive as
+    // `bigint`, which is an integer outside the range a COSE label occupies. Calling either "not an
+    // integer" points whoever reads the log at a type bug rather than at the label space, which is the
+    // one place the document is wrong. The second is here because it is not a bignum on the wire at
+    // all, and a message that named it one would be the same defect wearing a different word.
+    const bignumLabel = expectFailure(
+      () =>
+        decodeReceipt(
+          signWithHeaders(
+            payloadBytes,
+            key,
+            new Map<unknown, unknown>([...declaredProtectedHeader(key.kid), [2n ** 64n, 'x']]),
+          ),
+        ),
+      'BAD_PROTECTED_HEADER',
+    );
+    expect(bignumLabel.message).toBe(
+      `${UNDECLARED_LABEL_REFUSAL} an integer outside the range a COSE label occupies`,
+    );
+    const wideIntLabel = expectFailure(
+      () =>
+        decodeReceipt(
+          signWithHeaders(
+            payloadBytes,
+            key,
+            new Map<unknown, unknown>([...declaredProtectedHeader(key.kid), [2n ** 53n + 7n, 'x']]),
+          ),
+        ),
+      'BAD_PROTECTED_HEADER',
+    );
+    expect(wideIntLabel.message).toBe(
+      `${UNDECLARED_LABEL_REFUSAL} an integer outside the range a COSE label occupies`,
+    );
   });
 });
 
@@ -527,6 +812,101 @@ describe('receipt payload v2 and the versions a call accepts', () => {
     expect(marked(decodeReceipt(bytes).payload).mk.sch).toBe('provenance-v1');
     expectErrorCode(() => decodeReceipt(bytes, { acceptedVersions: [1] }), 'UNSUPPORTED_VERSION');
     expect(marked(decodeReceipt(bytes, { acceptedVersions: [1, 2] }).payload).mk.sch).toBe('provenance-v1');
+  });
+});
+
+/**
+ * The members of a payload, with `edit` applied inside the map the format puts at `owner`. The maps
+ * below the payload are what the closedness rule reaches, and every case here has to be a document
+ * that is whole except for what the edit wrote. `membersOf` builds fresh nested maps on every call, so
+ * an edit cannot leak from one case into the next.
+ */
+function editedNested(
+  payload: ReceiptPayload,
+  owner: string,
+  edit: (nested: Map<unknown, unknown>) => void,
+): Map<string, unknown> {
+  const members = membersOf(payload);
+  const nested = members.get(owner);
+  if (!(nested instanceof Map)) throw new Error(`the corpus carries no ${owner} map to edit`);
+  edit(nested);
+  return members;
+}
+
+/** A document of the payload version the closure walk names, which is the whole corpus here. */
+function payloadForVersion(version: string): ReceiptPayload {
+  if (version === '1') return samplePayload();
+  if (version === '2') return markedPayload();
+  throw new Error(`this corpus has no document for payload version ${version}`);
+}
+
+/**
+ * One case per map per version, read off the structure the walk enforces rather than spelled out
+ * here. The schema test derives the twin's matrices from this same structure, so a map the format
+ * gains arrives in each of them on the day it lands and a version with no document here fails the
+ * run rather than covering one case fewer.
+ */
+function nestedCases(): Array<[ReceiptPayload, string]> {
+  return Object.entries(receiptParser.DEFINED_MAPS).flatMap(
+    ([version, defined]) =>
+      Object.keys(defined.nested ?? []).map((key): [ReceiptPayload, string] => [payloadForVersion(version), key]),
+  );
+}
+
+describe('the payload map and every map nested inside it are closed', () => {
+  it('refuses an undefined member inside meas, att, tok and mk, and names the one it refused', () => {
+    const key = generateSigningKey();
+    // Both halves of every case below: the unedited document verifies, so a refusal is the added
+    // member's answer and not one this corpus was already failing for.
+    for (const version of Object.keys(receiptParser.DEFINED_MAPS)) {
+      const unedited = issueReceipt(payloadForVersion(version), key);
+      expect(() => verifyReceipt(unedited, { publicKey: key.publicKey, now: FIXED_NOW })).not.toThrow();
+    }
+
+    for (const [payload, owner] of nestedCases()) {
+      const bytes = signMembers(editedNested(payload, owner, (nested) => nested.set('surprise', 'x')), key);
+      const failure = expectFailure(() => verifyReceipt(bytes, { publicKey: key.publicKey, now: FIXED_NOW }));
+      expect(
+        failure.message,
+        `a v${payload.v} payload with an undefined member inside ${owner}`,
+      ).toContain(`${owner} carries a member the format does not define: 'surprise'`);
+      // The same answer with no signature check to reach it through: closedness is a fact about the
+      // payload rather than about who signed it, so an unread document is refused as a verified one is.
+      expectFailure(() => decodeReceipt(bytes), 'BAD_PAYLOAD');
+    }
+
+    // A key that is not a text label is not a member at either level, and it is named the way the
+    // payload level names one, because nothing about it became a text label by sitting deeper.
+    const foreignKey = signMembers(
+      editedNested(samplePayload(), 'tok', (nested) => nested.set(new Uint8Array([7]), 'x')),
+      key,
+    );
+    const refusal = expectFailure(() => verifyReceipt(foreignKey, { publicKey: key.publicKey, now: FIXED_NOW }));
+    expect(refusal.message).toContain('tok carries a member the format does not define: a bstr key of length 1');
+  });
+
+  it('leaves the refusals that came before it answer first', () => {
+    const key = generateSigningKey();
+    // A `p` that is a string is a member the format does define holding a value it does not, so the
+    // walk has nothing to refuse and the reader's own sentence is what a caller hears. The code is
+    // `BAD_PAYLOAD` either way, which is exactly why the detail is the assertion: a walk that checked
+    // values as well as names would answer this document with a membership refusal, and only the
+    // message would say that the check had swallowed the one this format has always made here.
+    const stringPrompt = editedNested(markedPayload(), 'tok', (nested) => nested.set('p', 'twelve'));
+    const misTyped = expectFailure(() => verifyReceipt(signMembers(stringPrompt, key), { publicKey: key.publicKey, now: FIXED_NOW }));
+    expect(misTyped.message).toContain('tok.p must be a non-negative integer');
+
+    // A member the format makes a map and the bytes did not deliver one is still the reader's answer,
+    // because the walk has no map to enter and cannot claim a membership failure it cannot see.
+    const measIsText = membersOf(samplePayload());
+    measIsText.set('meas', 'snp');
+    const meas = expectFailure(() => verifyReceipt(signMembers(measIsText, key), { publicKey: key.publicKey, now: FIXED_NOW }));
+    expect(meas.message).toContain('meas must be a map');
+
+    const mkIsText = membersOf(markedPayload());
+    mkIsText.set('mk', 'none');
+    const mark = expectFailure(() => verifyReceipt(signMembers(mkIsText, key), { publicKey: key.publicKey, now: FIXED_NOW }));
+    expect(mark.message).toContain('mk must be a map');
   });
 });
 

@@ -22,7 +22,14 @@ const ERROR_MESSAGE: Record<ReceiptErrorCode, string> = {
   MALFORMED_CBOR: 'receipt bytes are not valid canonical CBOR',
   NOT_COSE_SIGN1: 'top-level value is not a COSE_Sign1 (tag 18) structure',
   UNSUPPORTED_ALG: 'protected header alg is not EdDSA (-8)',
-  BAD_PROTECTED_HEADER: 'protected header is missing required parameters',
+  // What this code answers, in the order `cose.ts` reaches it: the protected bstr holds no map, the map
+  // carries a label the format does not declare, or one of the declared parameters `kid` and `typ` is
+  // absent or ill-shaped. It is not one code for every fault a header can carry. `alg` keeps its own,
+  // `UNSUPPORTED_ALG`, for both of its shapes, an absent parameter and a suite this format does not
+  // sign with, because a header missing `alg` is not saying the map is the wrong map, it is saying
+  // nothing about which suite produced the signature. Both codes are terminal refusals, so the split
+  // names what failed rather than changing what a caller does next.
+  BAD_PROTECTED_HEADER: 'protected header does not hold exactly the parameters the format declares',
   KID_MISMATCH: 'resolved key does not match the receipt kid',
   UNKNOWN_KEY: 'no key found for the receipt kid',
   INVALID_SIGNATURE: 'Ed25519 signature verification failed',
