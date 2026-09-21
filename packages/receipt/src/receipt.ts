@@ -138,8 +138,14 @@ export type ReceiptPayload = ReceiptPayloadV1 | ReceiptPayloadV2;
  * The members the two payload versions have in common, in the order `receipt.cddl` lists them.
  * `mk` is absent from this list because it belongs to one version, which is the whole of what makes
  * it a v2 member rather than an optional one.
+ *
+ * This list and the four below are exported so a reader outside the package can hold each one
+ * against the map `receipt.cddl` declares it for: they are the whole of what the closure walk
+ * refuses, so once a map's members are written in two places the two can come apart, and only one
+ * direction of the disagreement is loud. `index.ts` names none of them, so the package's public
+ * surface is what it was.
  */
-const SHARED_MEMBERS = ['v', 'iss', 'ins', 'iat', 'nce', 'req', 'res', 'mdl', 'wts', 'meas', 'att', 'epk', 'tok'] as const;
+export const SHARED_MEMBERS = ['v', 'iss', 'ins', 'iat', 'nce', 'req', 'res', 'mdl', 'wts', 'meas', 'att', 'epk', 'tok'] as const;
 
 /**
  * A map the CDDL defines: which members it names, and which of them the format makes into another
@@ -151,10 +157,10 @@ interface DefinedMap {
   readonly nested?: Readonly<Record<string, DefinedMap>>;
 }
 
-const MEASUREMENT_MEMBERS = ['tee', 'm'] as const;
-const EVIDENCE_REF_MEMBERS = ['d', 'ts', 'url'] as const;
-const TOKEN_METERING_MEMBERS = ['p', 'c'] as const;
-const MARKING_MEMBERS = ['sch', 'd'] as const;
+export const MEASUREMENT_MEMBERS = ['tee', 'm'] as const;
+export const EVIDENCE_REF_MEMBERS = ['d', 'ts', 'url'] as const;
+export const TOKEN_METERING_MEMBERS = ['p', 'c'] as const;
+export const MARKING_MEMBERS = ['sch', 'd'] as const;
 
 /**
  * Which members a payload of each version defines, and the maps nested inside it. A map is closed:
