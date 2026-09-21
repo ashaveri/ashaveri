@@ -13,12 +13,12 @@ jobs:
       contents: read
     steps:
       - uses: actions/checkout@v4
-      # No version on this step: the action reads `packageManager` from the root manifest when its
-      # `version` input is empty, and it fails if the two ever disagree. One declaration governs.
+      # No version on this step: with the `version` input empty the action reads `packageManager`
+      # from the root manifest and installs the pnpm that field names.
       - uses: pnpm/action-setup@v4
       - uses: actions/setup-node@v4
-        # Every job reads the version from `.nvmrc` rather than naming one, so a bump is a change to
-        # a single file and a job cannot be left running the release the pin replaced.
+        # Every job that installs a Node reads the version from `.nvmrc` rather than naming one, so
+        # a bump reaches each of them in one edit and none is left running the release it replaced.
         with:
           node-version-file: .nvmrc
           cache: pnpm
