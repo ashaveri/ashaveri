@@ -28,7 +28,7 @@ whose contents can change underneath the hash that pins it.
 
 ```bash
 git rev-parse --short HEAD                       # 1a2b3c4, used as the image tag
-docker build -f enclave/Dockerfile -t ghcr.io/<account>/signerd:<tag> .
+docker build --platform linux/amd64 -f enclave/Dockerfile -t ghcr.io/<account>/signerd:<tag> .
 docker push ghcr.io/<account>/signerd:<tag>
 docker buildx imagetools inspect ghcr.io/<account>/signerd:<tag>   # read the sha256 digest
 ```
@@ -38,7 +38,10 @@ Then replace the `image:` line in `docker-compose.yaml` with the digest form,
 because a mutable tag makes the measured compose text point at something that can change
 underneath it.
 
-The image is x86-64 only, like the llama.cpp server image: `--platform linux/amd64`.
+The image is x86-64 only, like the llama.cpp server image, which is why the build command above passes
+`--platform linux/amd64`. The Node base image is published for more than one architecture, so without the
+flag the built image carries the architecture of whichever host ran the build, and one made on an arm64
+laptop boots nowhere in this deployment.
 
 Both stages name the same `node:24.21.0-bookworm-slim`, which is the release the workspace pins, and
 that is a limitation rather than a guarantee: the tag is written by hand into the two `FROM` lines, it
