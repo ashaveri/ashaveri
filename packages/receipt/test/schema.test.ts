@@ -739,6 +739,17 @@ describe("the parser's member lists", () => {
     // the payload level's own member list is read through its export rather than against the walk,
     // because the v2 entry is built from the shared list plus one name and is a copy on purpose. The
     // signed header's list is the one the case below reads, because no rule here reaches it.
+    //
+    // Neither reaches which label holds which parameter, and that is the third thing this cannot see.
+    // `COSE_HEADER_ALG` and `COSE_HEADER_CONTENT_TYPE` are `1` and `3`; exchanging the two numbers
+    // leaves both sides of the header tie at [1, 3, 4], and leaves every case in this package green,
+    // because a signed header is written from those constants and read back through them, and the
+    // hand-built control in `receipt.test.ts` builds its map from the same two names. What reads the
+    // assignment instead of the set is a document that was written elsewhere: the four stored vectors
+    // under `packages/fixtures/data/receipts` each carry `-8` at label 1 and `"ashaveri/receipt"` at
+    // label 3, and `cose.ts` requires a number where it reads `alg`, so a module that moved the two
+    // constants answers `UNSUPPORTED_ALG` against bytes no issuer moved. That is a check on the
+    // vectors, and no comparison of two sets in this file can stand in for it.
   });
 
   it('binds the labels a protected header may carry to the block that declares them', () => {
