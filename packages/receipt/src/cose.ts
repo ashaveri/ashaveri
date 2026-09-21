@@ -47,9 +47,45 @@ export function signingKeyFromSeed(seed: Uint8Array): SigningKey {
   return { privateKey: seed, publicKey, kid: keyId(publicKey) };
 }
 
+/**
+ * The labels `receipt.cddl` declares for a protected header. The set the parser refuses everything
+ * else with, exported so a test can hold it against the block that file names rather than against
+ * this module's own reading of it: which three labels exist is the format's answer, and only a reader
+ * of both can see that this list is that answer.
+ */
+export const DECLARED_PROTECTED_LABELS: readonly number[] = [
+  COSE_HEADER_ALG,
+  COSE_HEADER_CONTENT_TYPE,
+  COSE_HEADER_KID,
+];
+
+/**
+ * How a label the reader was not told about names itself back. COSE header labels are integers, so
+ * one that is not is described by what it is rather than rendered through a value's default
+ * `toString`. `ReceiptError` bounds the detail and keeps it to one line whoever raised it, which is
+ * what lets this site quote a name out of bytes the caller chose.
+ */
+function labelName(label: unknown): string {
+  if (typeof label === 'number') return String(label);
+  if (typeof label === 'string') return `'${label}'`;
+  if (label instanceof Uint8Array) return `a bstr label of length ${label.length}`;
+  return 'a label that is not an integer';
+}
+
 function parseProtectedHeader(bytes: Uint8Array): ProtectedHeader {
   const raw = decodedMap(decodeCanonical(bytes, 'BAD_PROTECTED_HEADER'));
   if (raw === null) throw new ReceiptError('BAD_PROTECTED_HEADER', 'not a map');
+  // Closed, as the payload maps are, and for the same reason plus one true only here: these bytes are
+  // inside the signature, because the `Sig_structure` hashes the protected bstr itself. A label the
+  // format does not declare is therefore an authenticated parameter, and a reader that walked past it
+  // would hand a verifier a document other than the one the issuer signed. Refused by name, before
+  // any declared label is read, so the refusal a caller hears does not depend on what else the map
+  // happened to hold.
+  for (const label of raw.keys()) {
+    if (!(DECLARED_PROTECTED_LABELS as readonly unknown[]).includes(label)) {
+      throw new ReceiptError('BAD_PROTECTED_HEADER', `it carries a label the format does not define: ${labelName(label)}`);
+    }
+  }
   const alg = raw.get(COSE_HEADER_ALG);
   if (typeof alg !== 'number') throw new ReceiptError('UNSUPPORTED_ALG', `alg must be an integer label, got ${typeof alg}`);
   if (alg !== ALG_EDDSA) throw new ReceiptError('UNSUPPORTED_ALG', `alg=${alg}`);

@@ -22,7 +22,10 @@ const ERROR_MESSAGE: Record<ReceiptErrorCode, string> = {
   MALFORMED_CBOR: 'receipt bytes are not valid canonical CBOR',
   NOT_COSE_SIGN1: 'top-level value is not a COSE_Sign1 (tag 18) structure',
   UNSUPPORTED_ALG: 'protected header alg is not EdDSA (-8)',
-  BAD_PROTECTED_HEADER: 'protected header is missing required parameters',
+  // One code for both directions of a header map that is not the one the format defines: a declared
+  // parameter missing or ill-shaped, and an undeclared label present. The old text named only the
+  // first, which left the refusal that closes the signed map reading as a complaint about a gap.
+  BAD_PROTECTED_HEADER: 'protected header does not hold exactly the parameters the format declares',
   KID_MISMATCH: 'resolved key does not match the receipt kid',
   UNKNOWN_KEY: 'no key found for the receipt kid',
   INVALID_SIGNATURE: 'Ed25519 signature verification failed',

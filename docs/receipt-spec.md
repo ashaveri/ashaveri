@@ -30,7 +30,7 @@ A receipt is a COSE_Sign1 object (RFC 9052 section 4.2) encoded with determinist
 ```text
 COSE_Sign1([
     protected:   bstr  ; CBOR-encoded Ashaveri-Protected-Header
-    unprotected: {}
+    unprotected: { * any => any }
     payload:     bstr  ; CBOR-encoded Ashaveri-Receipt-Payload
     signature:   bstr  ; 64 bytes, Ed25519 over the Sig_structure
 ])
@@ -44,10 +44,18 @@ The protected header contains exactly three parameters:
 | 3 | typ | "ashaveri/receipt" |
 | 4 | kid | 32-byte key id, sha256 of the Ed25519 public key |
 
+The list is exhaustive, not illustrative. Those bytes are hashed into the `Sig_structure`, so a label
+the table does not name is a parameter the issuer authenticated, and a verifier that read the three
+it knows and returned those would hand its caller a document other than the one that was signed. A
+receipt whose protected header carries any other label is refused, and the refusal names the label.
+
 The signature is computed over the RFC 9052 Sig_structure (section 4.4)
 `["Signature1", protected, external_aad, payload]` with an empty external AAD.
 
-The unprotected header is empty. Receipts are always exactly one signature; multiparty or
+The unprotected header is not part of the signature, and the format therefore declares nothing about
+its contents: it is the map that carries no claim, and a verifier reads no verdict out of what it
+holds. Its emptiness is not enforced, because enforcing it would add a refusal with nothing behind it.
+Receipts are always exactly one signature; multiparty or
 countersignature variants (RFC 9338), if ever needed, would be a new format version.
 
 ## 3. Payload

@@ -13,6 +13,7 @@ import {
   type ReceiptPayloadV2,
 } from '../src/index.js';
 import * as receiptParser from '../src/receipt.js';
+import * as coseCodec from '../src/cose.js';
 
 const schemaPath = fileURLToPath(new URL('../schemas/receipt-v1.schema.json', import.meta.url));
 const cddlPath = fileURLToPath(new URL('../receipt.cddl', import.meta.url));
@@ -106,6 +107,22 @@ function cddlMembers(cddl: string, rule: string): string[] {
   const members = labeledMembers(cddlRule(cddl, rule));
   if (members.length === 0) throw new Error(`the ${rule} block declares no members`);
   return members;
+}
+
+/**
+ * The integer labels one CDDL block declares its members by, which is how `Ashaveri-Protected-Header`
+ * spells them and why `labeledMembers` reads none of them: COSE names header parameters from its own
+ * registry rather than after the format carrying them. A block that names no integer is a header that
+ * declared nothing, so it stops the run instead of reading as an empty one.
+ */
+function cddlIntegerLabels(block: string): number[] {
+  const labels: number[] = [];
+  for (const line of block.split('\n').slice(1)) {
+    const found = /^\s*(\d+)\s*:/u.exec(line.split(';')[0]!);
+    if (found) labels.push(Number(found[1]));
+  }
+  if (labels.length === 0) throw new Error('the block declares no member by integer label');
+  return labels;
 }
 
 /**
@@ -383,7 +400,7 @@ describe('the receipt JSON Schema', () => {
     }
   });
 
-  it('closes every map the format defines, in the twin, the CDDL and the spec alike', () => {
+  it('closes every map the signature covers, in the twin, the CDDL and the spec alike', () => {
     // The rule is one rule, written down four times: the parser, this schema, the normative CDDL
     // and the specification. A reader porting the format reads the last two, so a document that
     // stopped saying it would leave the port to guess, which is how an open map comes back.
@@ -434,19 +451,32 @@ describe('the receipt JSON Schema', () => {
       expect(nestedDefinition(key).additionalProperties, `${key} names its members as the whole of it`).toBe(false);
     }
 
-    // The note that used to record the divergence now records the rule reaching there, and the
-    // sentence that said it stopped has to stay gone: a comment restored would put this file back
-    // into reading as a format with two levels of strictness.
     saidOnce('the CDDL closure note', prose, "That rule is the format's, not one map's");
     saidOnce('the CDDL closure note', prose, 'below carry no `...` either');
     saidOnce('the CDDL closure note', prose, 'The parser and the JSON twin refuse it at that level');
-    // The conclusion, scoped to what the parser and the twin actually refuse, and the sentence that
-    // keeps the two header maps out of it. A reader of the format takes both from this comment, and
-    // either one drifting back into a claim about every map the file defines is a claim the parser
-    // contradicts on its first read of a header.
+    // The note that used to record the divergence now records the rule reaching the signed half of
+    // it, and each header is named for what the format says of it now. A reader of the format takes
+    // this boundary from the comment and not from the source: `Ashaveri-Protected-Header` closes under
+    // the same rule as the payload, for the stronger reason that its bytes are what the signature
+    // hashes, and the unprotected map is the single one a signer fills at will because no claim can
+    // travel through it. Either sentence sliding back into a claim about every map the file defines,
+    // or back into exempting the protected header, is one the parser contradicts on its first read.
     saidOnce('the CDDL closure note', prose, 'so the payload map and every map nested inside it close, at both versions');
-    saidOnce('the CDDL closure note', prose, 'The two header maps this file also defines, `Ashaveri-Protected-Header` above and the `unprotected` map of `COSE_Sign1-COSE`, sit outside that rule');
-    saidOnce('the CDDL closure note', prose, 'must not assume of either header that an unnamed member makes a document invalid');
+    saidOnce('the CDDL closure note', prose, '`Ashaveri-Protected-Header` closes with them');
+    saidOnce('the CDDL closure note', prose, 'The parser refuses the unknown label by number');
+    saidOnce('the CDDL closure note', prose, 'One map this file leaves a signer free to fill, and that is a decision rather than a gap');
+    saidOnce('the CDDL closure note', prose, 'What the format declares of it is therefore only that it carries no claim');
+    // The two sentences the previous round needed and this one refutes, pinned as absent. Restoring
+    // either would put the file back into describing a rule the parser no longer runs and an emptiness
+    // nothing enforces, which is the defect this branch keeps finding in documents.
+    expect(prose).not.toContain('sit outside that rule');
+    expect(prose).not.toContain('takes any map at all where the format writes');
+    // The header's closure is the absence of `...` in its block, as the payload's is, and the
+    // unprotected widening is the type on its line rather than a paragraph about it: `{}` declared an
+    // empty map no code required, so the format now names the map a verifier accepts.
+    expect(cddlRule(cddl, 'Ashaveri-Protected-Header').includes('...'), 'the protected header closes').toBe(false);
+    expect(cddl).toContain('unprotected: { * any => any }');
+    expect(cddl).not.toMatch(/unprotected: \{\}/u);
     for (const rule of new Set(rulePerKey.values())) {
       expect(prose.includes(`\`${rule}\``), `the CDDL names ${rule}`).toBe(true);
     }
@@ -564,13 +594,15 @@ describe("the parser's member lists", () => {
     const lists = parserMemberLists();
 
     // The format's side of the pairing, read out of the file: the maps that name their members by
-    // label, which is the kind of map the closure walk speaks of. This file's two header maps are
-    // outside the pairing because they are outside the walk, which enters a payload and the maps below
-    // it and never a header. `Ashaveri-Protected-Header` names its members by the COSE registry's
-    // integers, so the reader below skips it and the assertion after this loop says that the one
-    // skipped name is that header rather than a map whose members were spelled some other way.
-    // `unprotected` is not a rule this reader can find at all, only a `{}` written inside
-    // `COSE_Sign1-COSE`, and the parser takes any map where the format names one.
+    // label, which is the kind of map the closure walk in `receipt.ts` speaks of. This file's two
+    // header maps are outside that pairing because they are outside that walk, which enters a payload
+    // and the maps below it and never a header. Neither header is therefore unenforced: the signed one
+    // closes against the integer labels `receipt.cddl` names, in `cose.ts`, and the case after this
+    // one binds those labels to the block. `Ashaveri-Protected-Header` spells its members as the COSE
+    // registry's integers, so the reader below skips it and the assertion after this loop says that the
+    // one skipped name is that header rather than a map whose members were spelled some other way.
+    // `unprotected` is not a rule this reader can find at all, only `{ * any => any }` written inside
+    // `COSE_Sign1-COSE`, which is the format saying out loud that it declares nothing about it.
     const maps = new Map<string, string[]>();
     const unlabeled: string[] = [];
     for (const rule of cddlMapRuleNames(cddl)) {
@@ -672,6 +704,26 @@ describe("the parser's member lists", () => {
     // What this cannot see, said plainly rather than implied: a list exported under a name that does
     // not end in `_MEMBERS` is a fact about `receipt.ts` and not about a map the format gained, and
     // the payload level's own member list is read through its export rather than against the walk,
-    // because the v2 entry is built from the shared list plus one name and is a copy on purpose.
+    // because the v2 entry is built from the shared list plus one name and is a copy on purpose. The
+    // signed header's list is the one the case below reads, because no rule here reaches it.
+  });
+
+  it('binds the labels a protected header may carry to the block that declares them', () => {
+    // The pairing above reaches every map whose members are text labels, and the signed header is the
+    // one map whose are not, so nothing there could see which labels it closes against. It closes
+    // under the same rule as the payload now, so the set the parser refuses everything else with is
+    // compared with the block rather than with a second copy in this file. Both directions bear: a
+    // label the format declares and the parser refuses rejects receipts an issuer legitimately signs,
+    // and a label the parser takes that the format does not declare is the hole this round closes.
+    const cddl = readFileSync(cddlPath, 'utf8');
+    const declared = cddlIntegerLabels(cddlRule(cddl, 'Ashaveri-Protected-Header'));
+    const accepted = [...coseCodec.DECLARED_PROTECTED_LABELS];
+    expect(
+      accepted.slice().sort((a, b) => a - b),
+      `src/cose.ts accepts labels ${accepted.join(', ')} and the CDDL declares ${declared.join(', ')}`,
+    ).toEqual(declared.slice().sort((a, b) => a - b));
+    // And the block itself still names the three the COSE registry fixes, so an equality between two
+    // sides that both lost a label cannot pass for agreement.
+    expect(declared.slice().sort((a, b) => a - b)).toEqual([1, 3, 4]);
   });
 });

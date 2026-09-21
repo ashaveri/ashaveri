@@ -19,6 +19,15 @@ import {
 } from '../src/index.js';
 import type { Marking, ReceiptPayload, ReceiptPayloadV1, ReceiptPayloadV2, SigningKey } from '../src/index.js';
 import * as receiptParser from '../src/receipt.js';
+import {
+  ALG_EDDSA,
+  COSE_HEADER_ALG,
+  COSE_HEADER_CONTENT_TYPE,
+  COSE_HEADER_KID,
+  RECEIPT_CONTENT_TYPE,
+  buildProtectedHeader,
+} from '../src/cose.js';
+import { ed25519 } from '@noble/curves/ed25519';
 import { Tag } from 'cbor2';
 import { sha256, sha384 } from '@noble/hashes/sha2.js';
 
@@ -246,6 +255,148 @@ describe('COSE_Sign1 receipt codec', () => {
     expect(key.kid).toEqual(sha256(key.publicKey));
     const key2 = generateSigningKey();
     expect(equalBytes(key.kid, key2.kid)).toBe(false);
+  });
+});
+
+/**
+ * The three labels `receipt.cddl` declares, spelled out here rather than borrowed from
+ * `buildProtectedHeader`, because the cases below add to them and take from them. The equality
+ * assertion that opens the first case is what proves this map and that function write one document,
+ * so the hand-built control cannot quietly be a lookalike of the format.
+ */
+function declaredProtectedHeader(kid: Uint8Array): Map<unknown, unknown> {
+  return new Map<unknown, unknown>([
+    [COSE_HEADER_ALG, ALG_EDDSA],
+    [COSE_HEADER_CONTENT_TYPE, RECEIPT_CONTENT_TYPE],
+    [COSE_HEADER_KID, kid],
+  ]);
+}
+
+/**
+ * A `COSE_Sign1` whose signature covers the header maps this call names, rather than the two
+ * `signCoseSign1` builds for itself. The point is that whatever sits in the protected bstr is
+ * authenticated: a refusal over such bytes is a verifier declining the document it was handed, and an
+ * acceptance is a signature that genuinely holds over them. The unprotected map is not in the
+ * `Sig_structure` at all, so an entry handed for it travels with the document without being signed.
+ */
+function signWithHeaders(
+  payloadBytes: Uint8Array,
+  key: SigningKey,
+  protectedHeader: Map<unknown, unknown>,
+  unprotectedHeader: Map<unknown, unknown> = new Map(),
+): Uint8Array {
+  const protectedBytes = encodeCanonical(protectedHeader);
+  const signature = ed25519.sign(
+    encodeCanonical(['Signature1', protectedBytes, new Uint8Array(0), payloadBytes]),
+    key.privateKey,
+  );
+  return encodeCanonical(new Tag(COSE_SIGN1_TAG, [protectedBytes, unprotectedHeader, payloadBytes, signature]));
+}
+
+/** The refusal the closed signed header answers with, in full, so a reworded one lands here. */
+const UNDECLARED_LABEL_REFUSAL =
+  'protected header does not hold exactly the parameters the format declares: it carries a label the format does not define:';
+
+describe('the protected header closes and the unprotected one does not', () => {
+  it('refuses an undeclared label inside the signed header and takes the same label outside it', () => {
+    const key = generateSigningKey();
+    const payloadBytes = encodePayload(samplePayload());
+
+    // The control first, because it is the half that decides whether the refusal below means
+    // anything: these are bytes this file writes rather than bytes `issueReceipt` writes, so the
+    // header has to be the format's own and the signature has to hold over it. Otherwise the case
+    // under this line would be refusing a broken document while calling it an undeclared label.
+    expect(equalBytes(encodeCanonical(declaredProtectedHeader(key.kid)), buildProtectedHeader(key.kid))).toBe(true);
+    const declared = signWithHeaders(payloadBytes, key, declaredProtectedHeader(key.kid));
+    const verified = verifyReceipt(declared, { publicKey: key.publicKey, now: FIXED_NOW });
+    expect(verified.payload.mdl).toBe('meta-llama/Llama-3.1-8B-Instruct');
+    expect(equalBytes(verified.cose.payloadBytes, payloadBytes)).toBe(true);
+    // And the control is a signature check rather than a reader that always answers yes: one byte of
+    // the signature moved, the same document comes back refused for its signature and not for its
+    // header, which is what makes the acceptance above evidence about the label below.
+    const moved = new Uint8Array(declared);
+    moved[moved.length - 1]! ^= 0x01;
+    expectFailure(() => verifyReceipt(moved, { publicKey: key.publicKey, now: FIXED_NOW }), 'INVALID_SIGNATURE');
+
+    // One more label and the same rule for making the bytes. Label 5 is not one `receipt.cddl` names,
+    // and it is inside the `Sig_structure`, so a reader that took the three it knows and returned
+    // those handed on a smaller document than the one the issuer signed. It is refused by number.
+    const fifth = new Map<unknown, unknown>([...declaredProtectedHeader(key.kid), [5, 'x']]);
+    const refused = signWithHeaders(payloadBytes, key, fifth);
+    const failure = expectFailure(
+      () => verifyReceipt(refused, { publicKey: key.publicKey, now: FIXED_NOW }),
+      'BAD_PROTECTED_HEADER',
+    );
+    expect(failure.message).toBe(`${UNDECLARED_LABEL_REFUSAL} 5`);
+    // Which way the document is opened changes nothing. The header is read before a key is looked up
+    // and before a signature is checked, so an unread receipt answers as a verified one does.
+    expectFailure(() => decodeReceipt(refused), 'BAD_PROTECTED_HEADER');
+
+    // The mirror, and the reason the two halves are one case: the same label and the same value in
+    // the map the signature does not cover. The format declares that one open by decision, so this
+    // document verifies and the entry arrives intact. It is the case that says the refusal above
+    // stopped at the signed part rather than reaching the envelope.
+    const unsignedFifth = signWithHeaders(
+      payloadBytes,
+      key,
+      declaredProtectedHeader(key.kid),
+      new Map<unknown, unknown>([[5, 'x']]),
+    );
+    const passed = verifyReceipt(unsignedFifth, { publicKey: key.publicKey, now: FIXED_NOW });
+    expect(passed.cose.unprotected.get(5)).toBe('x');
+  });
+
+  it('refuses a declared parameter that is absent, which is the other half of the same sentence', () => {
+    const key = generateSigningKey();
+    const payloadBytes = encodePayload(samplePayload());
+    // Every label this map still carries is one the format defines, so the closure check above passes
+    // and the refusal below is the required-parameter rule. Both halves answer under one code, and
+    // this is the case that says closing the map did not replace asking for what it must hold.
+    const noKid = new Map<unknown, unknown>([...declaredProtectedHeader(key.kid)]);
+    noKid.delete(COSE_HEADER_KID);
+    const failure = expectFailure(
+      () => verifyReceipt(signWithHeaders(payloadBytes, key, noKid), { publicKey: key.publicKey, now: FIXED_NOW }),
+      'BAD_PROTECTED_HEADER',
+    );
+    expect(failure.message).toContain('kid must be a 32-byte bstr');
+  });
+
+  it('names a label it cannot read without letting it write the message', () => {
+    const key = generateSigningKey();
+    const payloadBytes = encodePayload(samplePayload());
+    // A COSE header label is an integer, so a text one is undeclared twice over, and this is the
+    // refusal whose quoted name comes out of bytes whoever sent the receipt wrote. It lives under the
+    // promise `ReceiptError` makes about every detail: the sentence is fixed, only the quote is
+    // bounded, and no control character survives, so a label cannot end the log line it is written
+    // into. Taken at four thousand characters, the width the payload-level case takes it at too.
+    const hostile = `typ\u001b[2J${'q'.repeat(4_000)}`;
+    const textLabel = expectFailure(
+      () =>
+        decodeReceipt(
+          signWithHeaders(payloadBytes, key, new Map<unknown, unknown>([...declaredProtectedHeader(key.kid), [hostile, 'x']])),
+        ),
+      'BAD_PROTECTED_HEADER',
+    );
+    expect(textLabel.message).toContain('a label the format does not define:');
+    expect(textLabel.message).not.toMatch(/[\p{Cc}\p{Cf}\u{2028}\u{2029}]/u);
+    expect(textLabel.message).toContain('\\u001b');
+    expect(textLabel.message.length).toBeLessThan(400);
+    expect(textLabel.message).toContain('...');
+
+    // And a key that is neither, described by what it is rather than by what an object's default
+    // `toString` turns it into.
+    const bstrLabel = expectFailure(
+      () =>
+        decodeReceipt(
+          signWithHeaders(
+            payloadBytes,
+            key,
+            new Map<unknown, unknown>([...declaredProtectedHeader(key.kid), [new Uint8Array([1, 2, 3]), 'x']]),
+          ),
+        ),
+      'BAD_PROTECTED_HEADER',
+    );
+    expect(bstrLabel.message).toBe(`${UNDECLARED_LABEL_REFUSAL} a bstr label of length 3`);
   });
 });
 
@@ -569,7 +720,7 @@ function nestedCases(): Array<[ReceiptPayload, string]> {
   );
 }
 
-describe('every map the format defines is closed', () => {
+describe('the payload map and every map nested inside it are closed', () => {
   it('refuses an undefined member inside meas, att, tok and mk, and names the one it refused', () => {
     const key = generateSigningKey();
     // Both halves of every case below: the unedited document verifies, so a refusal is the added
