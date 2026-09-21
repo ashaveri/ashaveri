@@ -416,6 +416,150 @@ Which payload versions a call reads is none of these three choices to make. Sect
 no mode above passes it, so an integrator verifying through the SDK gets the default set, which
 today admits both versions, and has no flag to refuse a `v: 2` receipt with.
 
+### 5.2 Record framing and chain recomputation
+
+Everything above verifies one receipt at a time. A reader holding a pack — many receipts gathered
+from one deployment over a span of time — has a second job: recompute, with no network and none of
+our code, the digest chain that binds those receipts to each other. This section states the byte
+framing that recomputation rests on. The bytes are published as file images in
+`packages/fixtures/data/chain-v1.json`, and `gateway/src/store.ts` writes them; where a sentence here
+and those two disagree, the vector file and the store are the authority, not this prose.
+
+**The frame.** The store appends one record per receipt to a single file it names `receipts.log`
+(`RECEIPT_STORE_FILE` in `gateway/src/store.ts`), concatenating the frames with nothing between them.
+A frame reads, field by field:
+
+```text
+len:u32 || kind:u8 || prev:32 || iat:u64 || idLen:u16 || id || payload || digest:32
+```
+
+`id` and `payload` have no fixed width, so the byte ranges below are those of one concrete record — the
+first record of the `first-record` scenario, whose `id` is 48 bytes and whose `payload` is 64 — counting
+from the frame's own first byte. A reader who changes the id or the payload length moves only the last
+three ranges, and moves them by the amount stated under the table:
+
+| Field | Byte offset in one frame | Width |
+|---|---|---|
+| `len` | 0-3 | 4 |
+| `kind` | 4-4 | 1 |
+| `prev` | 5-36 | 32 |
+| `iat` | 37-44 | 8 |
+| `idLen` | 45-46 | 2 |
+| `id` | 47-94 | 48 |
+| `payload` | 95-158 | 64 |
+| `digest` | 159-190 | 32 |
+
+The offsets of the fixed fields are not free to move: each is the running sum of the widths of every
+field ahead of it, so `kind` sits at byte 4, `prev` at 5, `iat` at 37 and `idLen` at 45 the moment the
+widths are what they are. `id` starts at byte 47, one past `idLen`, and runs for `idLen` bytes;
+`idLen` holds the byte length of `id`, not a character count. `payload` starts where `id` ends and runs
+to the byte before the digest, and `digest` is always the frame's final 32 bytes. `len` counts from
+`kind` through `digest` inclusive, which is the whole frame minus the 4 bytes of `len` itself, so a
+reader locates the end of a record by adding `len` to the offset `len` starts at rather than by reading
+the payload. Every integer in a frame — `len`, `kind`, `iat`, `idLen`, and the trim counters below — is
+unsigned and stored big-endian.
+
+**Why the digest covers less than the frame.** `digest` is `sha256` over every byte between the length
+prefix and the digest: `kind` through `payload`, bytes 4 through 158 of the record above, 155 bytes, or
+`len` minus its own 32. It cannot cover the digest that is its own output, and it does not cover the
+`len` prefix, because that prefix is a count of the bytes that follow it and would have to change
+whenever they did. `len` and the digest input are therefore deliberately different spans: `len` runs
+from `kind` to the last byte of `digest`, the digest is taken over `kind` to the last byte of `payload`,
+and the 36-byte gap between the frame and the hashed input is the 4 length bytes plus the 32 digest
+bytes. A reader who hashed the whole frame, length prefix and digest included, would recompute a value
+no record carries and refuse a file the store wrote correctly.
+
+**Kinds.** `kind` takes one of two values, and they decide how the rest of the frame reads:
+
+| Record kind | Byte value |
+|---|---|
+| `receipt` | 0 |
+| `trim` | 1 |
+
+A receipt's `payload` is the signed receipt bytes, stored whole and opaque to the chain; nothing in a
+record digest depends on what they hold. A trim is the record the store writes at the very front of the
+file when retention reclaims a retired prefix. It carries no receipt, so its `id` is empty, and its
+payload is a second fixed layout:
+
+```text
+seam:32 || byAge:u32 || byCount:u32 || maxAgeSeconds:u32 || maxCount:u32
+```
+
+within the trim payload, counting from that payload's first byte:
+
+| Field | Byte offset in the trim payload | Width |
+|---|---|---|
+| `seam` | 0-31 | 32 |
+| `byAge` | 32-35 | 4 |
+| `byCount` | 36-39 | 4 |
+| `maxAgeSeconds` | 40-43 | 4 |
+| `maxCount` | 44-47 | 4 |
+
+A bound of zero in a trim states that no such bound was configured, which a reader has to tell apart
+from a bound of one. A trim is not a link in the receipt chain: it precedes every receipt in the file
+and nowhere else, and a reader folding one into a recomputation as if it were a receipt has misread the
+frame, not found a broken chain.
+
+**Walking from an anchor to a head.** Recomputation runs forward, from an anchor to a head, and the
+per-record digest is what makes each step checkable:
+
+- The anchor is the digest the oldest receipt the reader was given was chained from, and that receipt
+  names it in its own `prev`. In a file nothing has retired, the anchor is thirty-two zero bytes,
+  because the head of an empty chain has no predecessor; after a retirement, the anchor is the `seam`
+  the trim record carries (`anchor` in `gateway/src/store.ts`).
+- Each later receipt names, in `prev`, the digest of the receipt before it. The reader recomputes a
+  receipt's digest over the input above and checks that the next receipt's `prev` equals it.
+- The walk ends at the head, the digest of the last receipt in the chain.
+
+Both endpoints come from the deployment, not from the bytes in the reader's hands, and the reader takes
+them from the signed pack manifest, which carries both the anchor and the head. That signature is what
+gives the walk its meaning. A chain that recomputes cleanly from the anchor it was given to the head it
+was given shows that the receipts inside the pack were not reordered, edited, or lifted from the middle —
+but it says that only against a head the reader has no cause to doubt, and the reader's only cause to
+doubt or to believe that head is the manifest that states it. Publishing the head is what makes deletion
+detectable, in the store's own words (`head()` in `gateway/src/store.ts`); the chain on its own says
+nothing about a run of receipts the reader was never handed.
+
+A reader follows the `prev` links to order the walk, not the offsets in the file, because retention
+retires prefixes and a compaction rewrites the front of the file without changing any surviving
+record's digest. Which receipts a pack holds is a separate question from which the chain links: the
+store serves every receipt whose `iat` is at or after a `from` stamp and strictly before a `to` stamp,
+so a pack's interval is half-open and its end is excluded — a receipt issued at exactly the end stamp
+belongs to the next pack, not this one (`range` and `inRange` in `gateway/src/store.ts`).
+
+**The window's bound, and whether its end is included.** The store's default retention keeps a receipt
+for at least `MINIMUM_RETENTION_SECONDS`, which is 184 days — six months rounded up to whole days so
+the window is never shorter than the floor it answers to (`gateway/src/store.ts`). The store states that
+floor against a legal minimum and says plainly that the code cannot itself check whether a given receipt
+falls under that law, so nothing here should be read past what it says. The bound is inclusive at its
+older edge: a receipt is retained while its `iat` is at or after `now - maxAgeSeconds`, so one stamped
+exactly at the cutoff is still kept. A count cap and the half-open pack interval above are different
+bounds answered elsewhere, and neither moves this floor.
+
+**What a partial tail means.** A record whose bytes run past the end of the file — fewer than `len`
+after the length prefix — is not a broken chain but an append that never finished: the writer was
+interrupted before the record's last byte arrived, and that record can never verify because its bytes
+were never all there. A reader takes it back off the file and opens the rest. Nothing can sit behind it,
+because nothing was ever written there. The head the reader reports afterward is the digest of the last
+complete record, and the next receipt chains onto that head as though the cut had cost only the
+unfinished record (the walk's stop in `gateway/src/store.ts`, and the `partial-tail-repair` tail in
+`chain-v1.json`). A short read behind a length that does not lie about its own size is the different
+case: that is a refusal, not a short file.
+
+**The refusals a reader reproduces.** A chain that cannot be read raises one code, `STORE_CHAIN_BROKEN`,
+and names the byte offset it stopped at (`StoreErrorCode` in `gateway/src/store.ts`). Four images in
+`chain-v1.json` show four distinct ways that happens, and a reader is expected to reproduce all four:
+
+- `tampered-record-byte` — one bit flipped inside a receipt's payload. The frame still states its own
+  length and names the right predecessor; only its digest over its own bytes stops matching, and that
+  is what a reader checks.
+- `deleted-first-record` — the first of two records lifted out. What remains is whole by its own digest
+  and is still refused, because its predecessor slot names a record the reader was never shown.
+- `trim-after-a-receipt` — a trim written behind a receipt, describing a hole in the middle of a chain as
+  if it were intended, refused on that alone.
+- `frame-length-too-short` — a `len` claiming fewer bytes than the header needs, so the reader stops at
+  the size and never reaches the digest.
+
 ## 6. Versioning
 
 Two payload versions are defined. `v: 1` is section 3's thirteen fields, and `v: 2` is those same
