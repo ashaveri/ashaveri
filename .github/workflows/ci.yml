@@ -13,12 +13,14 @@ jobs:
       contents: read
     steps:
       - uses: actions/checkout@v4
+      # No version on this step: with the `version` input empty the action reads `packageManager`
+      # from the root manifest and installs the pnpm that field names.
       - uses: pnpm/action-setup@v4
-        with:
-          version: 12.3.4
       - uses: actions/setup-node@v4
+        # Every job that installs a Node reads the version from `.nvmrc` rather than naming one, so
+        # a bump reaches each of them in one edit and none is left running the release it replaced.
         with:
-          node-version: 24
+          node-version-file: .nvmrc
           cache: pnpm
       - run: pnpm install --frozen-lockfile
       - run: pnpm build
@@ -42,11 +44,9 @@ jobs:
         with:
           persist-credentials: false
       - uses: pnpm/action-setup@v4
-        with:
-          version: 12.3.4
       - uses: actions/setup-node@v4
         with:
-          node-version: 24
+          node-version-file: .nvmrc
           cache: pnpm
       - run: pnpm install --frozen-lockfile
       # These are the two suites that read file modes and rename behaviour back off disk, which is what
@@ -66,14 +66,16 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - uses: pnpm/action-setup@v4
-        with:
-          version: 12.3.4
       - uses: actions/setup-node@v4
         with:
-          node-version: 24
+          node-version-file: .nvmrc
           cache: pnpm
       - run: pnpm install --frozen-lockfile
       - run: pnpm build
+      # This job is the one that catches a vector whose bytes moved, so it has to refuse a generator
+      # that does not typecheck before it runs one: a script that compiles wrong can still emit
+      # plausible-looking output, and the diff below would then be read as the only verdict.
+      - run: pnpm -C packages/fixtures typecheck
       - run: pnpm -C packages/fixtures generate
       - run: pnpm -C packages/fixtures generate:pop
       - run: pnpm -C packages/fixtures generate:req
@@ -92,6 +94,13 @@ jobs:
         with:
           fetch-depth: 0
           persist-credentials: false
+
+      # Two steps below read a report with `node -e`, and a job with no version step leaves the
+      # runner image to decide which release reaches those verdicts. This job installs no
+      # dependencies, so the step asks for an interpreter and nothing else.
+      - uses: actions/setup-node@v4
+        with:
+          node-version-file: .nvmrc
 
       - name: Download gitleaks 8.30.1
         run: |
@@ -178,11 +187,9 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - uses: pnpm/action-setup@v4
-        with:
-          version: 12.3.4
       - uses: actions/setup-node@v4
         with:
-          node-version: 24
+          node-version-file: .nvmrc
 
       - name: Write the CycloneDX document
         run: |
@@ -195,7 +202,16 @@ jobs:
           set -euo pipefail
           node -e '
             const fs = require("node:fs");
-            const bom = JSON.parse(fs.readFileSync(process.argv[1], "utf8"));
+            const file = process.argv[1];
+            // The step above redirects into this path, so a producer that wrote nothing leaves a file
+            // here, and `JSON.parse` reports an empty or truncated document without naming it.
+            let bom;
+            try {
+              bom = JSON.parse(fs.readFileSync(file, "utf8"));
+            } catch (error) {
+              console.error(`${file}: ${error.message}`);
+              process.exit(1);
+            }
             const components = bom.components || [];
             const problems = [];
             if (bom.bomFormat !== "CycloneDX") problems.push(`bomFormat is ${bom.bomFormat}`);
@@ -206,7 +222,7 @@ jobs:
               problems.push("a component has no bom-ref, version or purl");
             }
             if (problems.length > 0) {
-              console.error(problems.join("\n"));
+              console.error(`"${file}" is not the document this job expects:\n${problems.join("\n")}`);
               process.exit(1);
             }
             const named = components.filter((c) => c.scope !== "excluded").length;

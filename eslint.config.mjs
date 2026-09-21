@@ -25,9 +25,12 @@ const hygieneRules = {
 export default tseslint.config(
   { ignores: ['**/dist/**'] },
   {
-    // Shipped code gets the rules that need the type checker. The per-package tsconfig
-    // files include only `src`, which is why tests sit in the next block: asking the
-    // project service for a project that excludes them fails before any rule runs.
+    // Shipped code gets the rules that need the type checker. `projectService` resolves a
+    // file to the `tsconfig.json` beside its package, and that is the one config each
+    // package builds from, whose include is only `src`. The `tsconfig.test.json` and
+    // `tsconfig.scripts.json` files that do cover `test/` and `scripts/` are typecheck and
+    // generation configs, not the one the parser is pointed at, so asking for a project over
+    // a test fails to parse before any rule runs. That is why they sit in the next block.
     files: ['**/src/**/*.ts'],
     extends: [tseslint.configs.strictTypeChecked],
     languageOptions: {

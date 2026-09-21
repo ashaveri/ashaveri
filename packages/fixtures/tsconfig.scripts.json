@@ -1,0 +1,17 @@
+{
+  "extends": "./tsconfig.json",
+  "compilerOptions": {
+    "noEmit": true,
+    "rootDir": ".",
+    "types": ["node"],
+    // The generators are run from source by `node --experimental-strip-types`, which resolves
+    // specifiers as written and so requires `./seed.ts`; the checked path has to accept the one
+    // spelling the running path allows. `noEmit` above is what makes the extension legal at all.
+    "allowImportingTsExtensions": true,
+    // The same loader refuses `enum`, a runtime `namespace` and a constructor parameter property
+    // outright, and the job that regenerates the vectors typechecks this config before it runs one:
+    // without the option a script can pass every other check here and fail that run.
+    "erasableSyntaxOnly": true
+  },
+  "include": ["scripts"]
+}

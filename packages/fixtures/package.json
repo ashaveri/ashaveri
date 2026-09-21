@@ -20,7 +20,7 @@
     "build": "tsc -p tsconfig.json",
     "test": "vitest run",
     "lint": "eslint .",
-    "typecheck": "tsc -p tsconfig.json --noEmit && tsc -p tsconfig.test.json",
+    "typecheck": "tsc -p tsconfig.json --noEmit && tsc -p tsconfig.test.json && tsc -p tsconfig.scripts.json",
     "generate": "node --experimental-strip-types scripts/generate.ts",
     "generate:pop": "node --experimental-strip-types scripts/pop-vectors.ts",
     "generate:req": "node --experimental-strip-types scripts/req-vectors.ts",

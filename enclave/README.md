@@ -11,7 +11,7 @@ accepts; they get resolved the first time this runs.
 | File | Role |
 | --- | --- |
 | `docker-compose.yaml` | The compose text the platform measures. It defines `inference` (llama.cpp, loopback only) and `gateway` (signerd, the only published port). |
-| `Dockerfile` | Compiles `@ashaveri/signerd` from source in a build stage, then copies the production install into a slim `node:24-bookworm-slim` runtime stage. |
+| `Dockerfile` | Compiles `@ashaveri/signerd` from source in a `node:24.21.0-bookworm-slim` build stage, then copies the production install into a runtime stage on the same tag. |
 | `docker-entrypoint.sh` | Checks the mounted model files against the manifest when both weights environment variables are set, then execs `signerd`. |
 | `weights.mjs` | Emits and checks the model manifest whose sha256 every receipt carries as `wts`. |
 
@@ -28,7 +28,7 @@ whose contents can change underneath the hash that pins it.
 
 ```bash
 git rev-parse --short HEAD                       # 1a2b3c4, used as the image tag
-docker build -f enclave/Dockerfile -t ghcr.io/<account>/signerd:<tag> .
+docker build --platform linux/amd64 -f enclave/Dockerfile -t ghcr.io/<account>/signerd:<tag> .
 docker push ghcr.io/<account>/signerd:<tag>
 docker buildx imagetools inspect ghcr.io/<account>/signerd:<tag>   # read the sha256 digest
 ```
@@ -38,7 +38,17 @@ Then replace the `image:` line in `docker-compose.yaml` with the digest form,
 because a mutable tag makes the measured compose text point at something that can change
 underneath it.
 
-The image is x86-64 only, like the llama.cpp server image: `--platform linux/amd64`.
+The image is x86-64 only, like the llama.cpp server image, which is why the build command above passes
+`--platform linux/amd64`. The Node base image is published for more than one architecture, so without the
+flag the built image carries the architecture of whichever host ran the build, and one made on an arm64
+laptop boots nowhere in this deployment.
+
+Both stages name the same `node:24.21.0-bookworm-slim`, which is the release the workspace pins. The tag is
+written by hand into the two `FROM` lines, it has to move with the pinned Node, and no job here builds this
+file, so `packages/fixtures/test/pinned-node.test.ts` reads those lines and fails when one of them, or the
+`engines.node` floor in the root manifest, stops naming the release `.nvmrc` does. That test reads the text
+and never builds the image, so it cannot say the tag resolves to anything a registry serves; a bump is
+still an edit to those two lines in the same change as `.nvmrc`.
 
 ## 2. Stage the model and its manifest
 

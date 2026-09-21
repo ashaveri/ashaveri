@@ -2,8 +2,9 @@
 
 ## Setup
 
-Node 24 and pnpm 12.3.4. Both are declared rather than assumed: `engines.node` is `>=24` and
-`packageManager` is `pnpm@12.3.4` in the root `package.json`.
+Node 24.21.0 and pnpm 12.3.4. Both are declared rather than assumed: `.nvmrc` names `24.21.0` and
+every CI job that installs a Node reads that file, while the root `package.json` declares
+`engines.node` as `>=24.21.0 <25` and `packageManager` as `pnpm@12.3.4`.
 
 ```bash
 pnpm install
@@ -19,7 +20,8 @@ same dependency for the same reason: the type-aware rules read types through the
 build emits.
 
 `pnpm -w typecheck` is a separate pass, and it covers more than the lint rules do: it typechecks each
-package's tests as well as its sources, while the type-aware lint rules read only the `src` projects.
+package's tests as well as its sources, and the fixture package's generator scripts along with them,
+while the type-aware lint rules read only the `src` projects.
 The CI workflow runs install, build, lint, test and typecheck in that order. Two suites — the
 gateway's and the CLI's — assert on file modes and rename behaviour they read back off disk, and a
 mode is only observable against the process umask, so the test step sets `umask 0022` rather than
@@ -45,9 +47,11 @@ two unions sharing one string is a deliberate decision rather than a collision t
 **Regenerated fixtures, never hand-edited ones.**
 
 ```bash
-pnpm --filter @ashaveri/fixtures generate      # data/receipts/*.cbor, the .json twins of the vectors
-                                               # that decode, data/keys/, data/manifest.json
-pnpm --filter @ashaveri/fixtures generate:pop  # data/pop-v1.json
+pnpm --filter @ashaveri/fixtures generate        # data/manifest.json, data/keys/, data/receipts/
+pnpm --filter @ashaveri/fixtures generate:pop    # data/pop-v1.json
+pnpm --filter @ashaveri/fixtures generate:req    # data/req-v1.json
+pnpm --filter @ashaveri/fixtures generate:res    # data/res-v1.json
+pnpm --filter @ashaveri/fixtures generate:chain  # data/chain-v1.json
 ```
 
 The generators derive their key material and most of their digests from a labelled SHA-256 seed
@@ -55,8 +59,8 @@ The generators derive their key material and most of their digests from a labell
 from the generator itself. Nothing is drawn at random, so the output is reproducible and a
 hand-edited vector is visible the moment anyone re-runs a generator.
 If your change was not meant to move a vector, regenerating produces an empty diff — that is the check
-the vectors job runs, `git diff --exit-code packages/fixtures/data` after both generators. A non-empty
-diff you did not intend means your change moved a signed byte.
+the vectors job runs, `git diff --exit-code packages/fixtures/data` after all five generators. A
+non-empty diff you did not intend means your change moved a signed byte.
 
 **A format change carries the format's own documents.** `packages/receipt/receipt.cddl` is normative
 for the wire format and `packages/receipt/schemas/receipt-v1.schema.json` describes the JSON
