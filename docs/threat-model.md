@@ -277,8 +277,20 @@ What is still true, in both modes:
   on is not the payload map's alone: `meas`, `att`, `tok` and `mk` are closed the same way, and an
   undefined member of any of them is `BAD_PAYLOAD` rather than a member a reader takes no account of,
   and the signed `Ashaveri-Protected-Header` closes against the three labels `receipt.cddl` names and
-  answers any other with `BAD_PROTECTED_HEADER` before it reads one of them, so no field of a receipt
-  that verifies is carrying something the verifier dropped on its way to agreeing.
+  answers any other with `BAD_PROTECTED_HEADER` before it reads one of them. Closing by number is not
+  the whole of that rule, because a label is bytes before it is a map key: an entry written as the
+  half-float `1.0` shares the slot of the integer `1` in the map a reader is handed, and core
+  deterministic ordering always writes the one-byte integer first and the three-byte float last, so the
+  float's value is the one that stands and the header's `alg` or `kid` is whatever the last entry
+  carried. A verifier that read the same bytes by their integer labels can be handed a different
+  parameter set, both readings are self-consistent, and no reader settles the difference by choosing
+  one, so the two documents that declare every member they carry are decoded where no floating-point
+  number may appear, a key included. That is the last point at which the two are still two: after the
+  decode there is one map entry and nothing left to check. It reaches the payload's numbers as well, so
+  `v`, `iat`, `att.ts` and the two token counts are read as the integers the format names there and a
+  `128.0` written as a float is a malformed payload rather than 128 taken on trust. So no field of a
+  receipt that verifies is carrying something the verifier dropped on its way to agreeing, and none is
+  carrying something it merged away.
 - **A mark is detectable only by someone who has the bytes, and nothing here reaches further.** The
   marking the design describes is a member of the response envelope or a frame of the stream, never a
   property of the words, so a consumer of the text alone, pasted out of a chat window or retyped, has

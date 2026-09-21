@@ -55,6 +55,20 @@ answers such an ask, and not because the number is unknown to it: a sender may s
 into the unprotected map, which the format leaves open on purpose, and that map carries no claim about
 the response, as the paragraph below says of it.
 
+The list is exhaustive about names, and it is exhaustive about types. The three labels are integers and
+the value at each is the kind the table gives it, so the header is decoded where no floating-point
+number may appear, in a key as much as in a value. A label written as the half-float `1.0` arrives in
+the same slot of the map a reader is handed as the integer `1`, and the value it carries is the one
+that stands for both, because core deterministic ordering writes the one-byte integer first and the
+three-byte float last and the later key is the one a reader of the finished map sees. Refusing that
+document is the header's closure rule applied where it still means something rather than a type check
+run late: once the bytes have become a map there is nothing left to distinguish, and two verifiers can
+read one signed header and name different parameters in it. The same reaches `alg`, whose value is the
+integer `-8`; a `-8` written as a float is refused with the header, while an `alg` holding a suite this
+format does not sign with keeps its own answer. The map outside the signature is not read this way: the
+format writes `{ * any => any }` for it, and a number in a place the format declines to describe is
+not an integer wearing another coat.
+
 The signature is computed over the RFC 9052 Sig_structure (section 4.4)
 `["Signature1", protected, external_aad, payload]` with an empty external AAD.
 
@@ -83,7 +97,15 @@ countersignature variants (RFC 9338), if ever needed, would be a new format vers
 | `tok` | map | `{ p, c }`: prompt and completion token counts for the call, as the serving stack reported them. A receipt proves who claimed a count, not that the count is right. |
 | `mk` | map | `{ sch, d }`: the marking attestation, and the only member `v: 2` adds to the thirteen above, where `v: 1` carries no `mk` at all because the closed map named in the row above refuses a v1 document that does. It is required in v2, so an absent `mk` is a malformed payload (`BAD_PAYLOAD`) rather than a reading of "unmarked": unmarked is a declared value of `sch`, never an omitted member. `d` is sha256 of the marked region exactly as the response bytes carry it, not of the whole response. The shape is `Marking` in [`receipt.cddl`](../packages/receipt/receipt.cddl), and the label set `sch` draws on is a registry question this document does not settle. |
 
-All integers are non-negative. Maps use bytewise canonical key ordering per RFC 8949 CDE.
+All integers are non-negative. Every one of them is a CBOR integer as well: the payload is decoded
+where no floating-point number may appear, at any depth, so a `tok.p` written as the float `128.0` and
+an `iat` written as `-0.0`, a value CBOR can only write as a float, are malformed payloads
+(`BAD_PAYLOAD`) rather than 128 and 0 read loosely. That is the same width as the table above and no
+wider: it names every member of the payload and of the maps inside it, and none of those positions is
+written as a float. A bignum is refused too, and twice over: the canonical encoding this format
+requires rejects the bignum spelling of any value a plain integer can hold, and one it cannot is
+outside the range `iat`, `att.ts` and the two counts are read in, so it arrives as a value no position
+here takes. Maps use bytewise canonical key ordering per RFC 8949 CDE.
 
 ### 3.1 Hash definitions
 
@@ -442,7 +464,11 @@ receipt on purpose, and it is not the setting a caller gets for free. A version 
 accepted set and a version no format has ever used get one answer, `UNSUPPORTED_VERSION`, because
 which of the two it was is a fact about the reader rather than about the bytes, and two codes would
 let a caller probe where a release's knowledge ends. A `v` that is not an integer at all is a
-malformed payload and gets `BAD_PAYLOAD`, the same answer as any other mis-typed member.
+malformed payload and gets `BAD_PAYLOAD`, the same answer as any other mis-typed member, and "not an
+integer" is meant of the CBOR major type: the float `1.0` is not an integer written in a second way,
+it is another type, and it reaches a reader as the number 1. That is why the refusal is made while the
+payload is decoded rather than where its version is read, and why `1.0` gets `BAD_PAYLOAD` while `3`,
+an integer no format has used, gets `UNSUPPORTED_VERSION`.
 
 The compatibility contract itself is unchanged, and it is the reason a version is the right place
 for an addition: software released before payload version 2 existed refuses a `v` that is not 1
