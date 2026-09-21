@@ -4,13 +4,15 @@ import { fileURLToPath } from 'node:url';
 import { describe, expect, it } from 'vitest';
 
 /**
- * The vectors job runs every `generate*` key of this package's manifest, and `tsconfig.scripts.json`
- * is the config that reads the files those keys name. Nothing connected the two: a key pointed at a
- * path outside `scripts/`, or at a script written as `.mjs`, would run in CI exactly as the others do
- * and be typechecked by no config at all, which is the state the third config exists to end.
+ * The vectors job runs this package's `generate*` keys, one step each, and `tsconfig.scripts.json` is
+ * the config that reads the files those keys name. Nothing connected the two: a key aimed at a path
+ * outside `scripts/`, or at a script written as `.mjs`, would run there exactly as the others run and
+ * be typechecked by no config, which is the state the third config exists to end.
  *
- * The directory comes out of that config rather than being repeated here, because repeating it is how
- * this test would start passing on its own copy of an answer the config changed.
+ * All the keys are read, not only the ones a step exists for, because a key with no step is still a
+ * command someone can run and the typecheck answer does not change with the runner. The directory
+ * comes out of that config rather than being repeated here: repeating it is how this file would start
+ * passing on its own copy of an answer the config moved.
  */
 
 const PKG = fileURLToPath(new URL('../', import.meta.url));
@@ -21,7 +23,7 @@ interface GenerateScript {
   readonly command: string;
 }
 
-/** The manifest's own `generate*` entries, which is the set the vectors job runs. */
+/** The manifest's own `generate*` entries. */
 function generateScripts(): GenerateScript[] {
   const manifest = JSON.parse(readFileSync(join(PKG, 'package.json'), 'utf8')) as {
     scripts?: Record<string, string>;
@@ -39,7 +41,7 @@ function generateScripts(): GenerateScript[] {
 function includedDirs(configPath: string): string[] {
   const listed = /"include"\s*:\s*\[([^\]]*)\]/u.exec(readFileSync(configPath, 'utf8'))?.[1];
   if (listed === undefined) {
-    throw new Error(`${basename(configPath)} states no include array, so nothing here is typechecked`);
+    throw new Error(`${basename(configPath)} states no include array, so there is nothing to read here`);
   }
   const dirs = [...listed.matchAll(/"([^"]*)"/gu)]
     .map((found) => (found[1] ?? '').split('*')[0]?.replace(/[\\/]+$/u, '') ?? '')
@@ -53,8 +55,8 @@ function includedDirs(configPath: string): string[] {
 }
 
 /**
- * The operands of a run command: the program name and anything beginning with a dash are what `node`
- * needs, and whatever survives is the file it is told to load.
+ * What a run command leaves once `node` and every token beginning with a dash are taken out: the file
+ * it is told to load. A command leaving nothing, or leaving two things, is the case below reporting it.
  */
 function operands(command: string): string[] {
   return command
@@ -64,7 +66,10 @@ function operands(command: string): string[] {
     .map((token) => token.replace(/^["']|["']$/gu, ''));
 }
 
-/** Whether `target` sits under `dir`, on either spelling of a separator. */
+/**
+ * Whether `target` lies under `dir`. Both sides are absolute by the time they reach here, so a `..`
+ * written into a command moves the file out of the directory rather than looking like it stayed.
+ */
 function inside(dir: string, target: string): boolean {
   const rel = relative(dir, target);
   return rel.length > 0 && !rel.startsWith('..') && !isAbsolute(rel);
@@ -89,10 +94,10 @@ describe('the scripts a generate key runs', () => {
       const [operand] = operands(command);
       if (operand === undefined) continue;
       const target = resolve(PKG, operand);
-      expect(extname(target), `${key} runs ${operand}, which no config typechecks`).toBe('.ts');
+      expect(extname(target), `${key} runs ${operand}, which is not a .ts file`).toBe('.ts');
       expect(
         dirs.some((dir) => inside(dir, target)),
-        `${key} runs ${operand}, outside the typechecked directories (${dirs.map((d) => basename(d)).join(', ')})`,
+        `${key} runs ${operand}, outside the directories ${basename(SCRIPTS_CONFIG)} includes`,
       ).toBe(true);
       expect(existsSync(target) && statSync(target).isFile(), `${key} runs ${operand}, which is not there`).toBe(
         true,

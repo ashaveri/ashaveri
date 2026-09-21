@@ -9,8 +9,8 @@
     // spelling the running path allows. `noEmit` above is what makes the extension legal at all.
     "allowImportingTsExtensions": true,
     // The same loader refuses `enum`, a runtime `namespace` and a constructor parameter property
-    // outright, and this is the config that decides whether a generator reaches that loader: without
-    // the option a script can typecheck clean here and fail the run that regenerates the vectors.
+    // outright, and the job that regenerates the vectors typechecks this config before it runs one:
+    // without the option a script can pass every other check here and fail that run.
     "erasableSyntaxOnly": true
   },
   "include": ["scripts"]
