@@ -539,7 +539,7 @@ describe("the parser's member lists", () => {
       // acceptance no version of the format grants. Either one alone passes a subset check pointed at
       // random, so the two diffs are named separately.
       const refused = defined.filter((member) => !enforced.includes(member));
-      expect(refused, `${binding.list} refuses ${binding.map}'s member(s): ${refused.join(', ')}`).toEqual([]);
+      expect(refused, `${binding.list} does not enforce ${binding.map}'s member(s): ${refused.join(', ')}`).toEqual([]);
       const invented = enforced.filter((member) => !defined.includes(member));
       expect(invented, `${binding.list} names member(s) ${binding.map} does not define: ${invented.join(', ')}`).toEqual([]);
       // Order bears on nothing here, but `SHARED_MEMBERS` and the twin both say they list members in
