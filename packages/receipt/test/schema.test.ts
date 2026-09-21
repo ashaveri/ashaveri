@@ -538,10 +538,10 @@ describe("the parser's member lists", () => {
       // that reads it; a name the list carries and the format does not define buys a document
       // acceptance no version of the format grants. Either one alone passes a subset check pointed at
       // random, so the two diffs are named separately.
-      const refused = defined.filter((member) => !enforced.includes(member));
-      expect(refused, `${binding.list} does not enforce ${binding.map}'s member(s): ${refused.join(', ')}`).toEqual([]);
-      const invented = enforced.filter((member) => !defined.includes(member));
-      expect(invented, `${binding.list} names member(s) ${binding.map} does not define: ${invented.join(', ')}`).toEqual([]);
+      const missing = defined.filter((member) => !enforced.includes(member));
+      expect(missing, `${binding.list} does not enforce ${binding.map}'s member(s): ${missing.join(', ')}`).toEqual([]);
+      const extra = enforced.filter((member) => !defined.includes(member));
+      expect(extra, `${binding.list} names member(s) ${binding.map} does not define: ${extra.join(', ')}`).toEqual([]);
       // Order bears on nothing here, but `SHARED_MEMBERS` and the twin both say they list members in
       // the order the CDDL writes them. Once the two sides agree on which names, that claim gets its
       // own line, so a reordering that leaves the set intact says so instead of going unmentioned.
