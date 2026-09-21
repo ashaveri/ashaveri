@@ -73,6 +73,9 @@ any language is measured against, and how to read each suite — are in
 with `pnpm --filter @ashaveri/fixtures generate`, and the `generate:` variants named in
 that document.
 
+Reporting a vulnerability and submitting a change have their own pages:
+[SECURITY.md](SECURITY.md) and [CONTRIBUTING.md](CONTRIBUTING.md).
+
 ## Verifying inference receipts
 
 Start the mock gateway, then call it through the SDK:
