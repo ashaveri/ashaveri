@@ -11,7 +11,7 @@ accepts; they get resolved the first time this runs.
 | File | Role |
 | --- | --- |
 | `docker-compose.yaml` | The compose text the platform measures. It defines `inference` (llama.cpp, loopback only) and `gateway` (signerd, the only published port). |
-| `Dockerfile` | Compiles `@ashaveri/signerd` from source in a build stage, then copies the production install into a slim `node:24-bookworm-slim` runtime stage. |
+| `Dockerfile` | Compiles `@ashaveri/signerd` from source in a build stage, then copies the production install into a slim `node:24.21.0-bookworm-slim` runtime stage. |
 | `docker-entrypoint.sh` | Checks the mounted model files against the manifest when both weights environment variables are set, then execs `signerd`. |
 | `weights.mjs` | Emits and checks the model manifest whose sha256 every receipt carries as `wts`. |
 
