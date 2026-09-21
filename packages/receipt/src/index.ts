@@ -43,6 +43,11 @@ export {
 } from './receipt.js';
 export type {
   ReceiptPayload,
+  ReceiptPayloadV1,
+  ReceiptPayloadV2,
+  ReceiptVersion,
+  Marking,
+  MarkingScheme,
   Measurement,
   EvidenceRef,
   TokenMetering,

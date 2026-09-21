@@ -1,8 +1,8 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$id": "https://ashaveri.com/schemas/receipt-v1.json",
+  "$id": "https://ashaveri.com/schemas/receipt.json",
   "title": "Ashaveri Inference Receipt (JSON twin of the CBOR/COSE wire format)",
-  "description": "Display-only projection of the signed COSE_Sign1 receipt. The CBOR bytes are canonical; this JSON form is never signed directly.",
+  "description": "Display-only projection of the signed COSE_Sign1 receipt. The CBOR bytes are canonical; this JSON form is never signed directly. The payload branch describes both versions the CDDL defines: receipt-v1's thirteen fields, and receipt-v2, which is those same fields plus the marking attestation. Each branch is closed, so a member its version does not name is a refusal here exactly as it is in the CDDL and in the parser. Closure is at that one level: `meas`, `att`, `tok` and `mk` carry no such keyword, so a member inside one of them is valid here and dropped by the parser rather than refused.",
   "type": "object",
   "required": ["protectedHeader", "payload"],
   "properties": {
@@ -16,10 +16,19 @@
       }
     },
     "payload": {
+      "description": "Exactly one branch per payload version. `v` is which one the document is, and the branches are exclusive on it.",
+      "oneOf": [
+        { "$ref": "#/$defs/payloadV1" },
+        { "$ref": "#/$defs/payloadV2" }
+      ]
+    },
+    "signature": { "type": "string", "pattern": "^[0-9a-f]{128}$", "description": "Ed25519 signature over the Sig_structure, hex" }
+  },
+  "$defs": {
+    "payloadFields": {
       "type": "object",
-      "required": ["v", "iss", "ins", "iat", "nce", "req", "res", "mdl", "wts", "meas", "att", "epk", "tok"],
+      "required": ["iss", "ins", "iat", "nce", "req", "res", "mdl", "wts", "meas", "att", "epk", "tok"],
       "properties": {
-        "v": { "const": 1 },
         "iss": { "type": "string", "description": "deployment id (dStack compose-hash prefix)" },
         "ins": { "type": "string", "description": "CVM instance id" },
         "iat": { "type": "integer", "description": "issuance time, unix seconds" },
@@ -69,9 +78,40 @@
         }
       }
     },
-    "signature": { "type": "string", "pattern": "^[0-9a-f]{128}$", "description": "Ed25519 signature over the Sig_structure, hex" }
-  },
-  "$defs": {
+    "payloadV1": {
+      "allOf": [{ "$ref": "#/$defs/payloadFields" }],
+      "type": "object",
+      "required": ["v"],
+      "properties": {
+        "v": { "const": 1 }
+      },
+      "unevaluatedProperties": false,
+      "description": "A v1 document and nothing else. The map is closed: `unevaluatedProperties` refuses any member payloadFields and `v` do not name, so a v1 payload cannot carry a marking attestation, and a reader never has to work out what became of a member it did not read."
+    },
+    "payloadV2": {
+      "allOf": [{ "$ref": "#/$defs/payloadFields" }],
+      "type": "object",
+      "required": ["v", "mk"],
+      "properties": {
+        "v": { "const": 2 },
+        "mk": {
+          "type": "object",
+          "required": ["sch", "d"],
+          "properties": {
+            "sch": {
+              "type": "string",
+              "description": "a label from the marking-scheme registry. Not an enum here because the CDDL admits any tstr: the registry this package reads is `none` and `provenance-v1`, and it refuses a label outside those two as UNSUPPORTED_SCHEME rather than this twin deciding the format."
+            },
+            "d": {
+              "$ref": "#/$defs/hex32",
+              "description": "sha256 of the marked region exactly as it appears in the response, not of the whole response. For `sch: \"none\"` the region is empty and this is the digest of no bytes."
+            }
+          }
+        }
+      },
+      "unevaluatedProperties": false,
+      "description": "A v2 document and nothing else. The map is closed the same way v1's is: fourteen members are the whole of it, so a member outside this list is a malformed payload rather than a member a reader agreed to forget."
+    },
     "hex16": { "type": "string", "pattern": "^[0-9a-f]{32}$" },
     "hex32": { "type": "string", "pattern": "^[0-9a-f]{64}$" },
     "hexDigest": { "type": "string", "pattern": "^([0-9a-f]{64}|[0-9a-f]{96})$" }

@@ -9,7 +9,10 @@ export type ReceiptErrorCode =
   | 'NONCE_MISMATCH'
   | 'STALE_EVIDENCE'
   | 'STALE_RECEIPT'
+  | 'UNSUPPORTED_VERSION'
   | 'BAD_PAYLOAD'
+  | 'UNSUPPORTED_SCHEME'
+  | 'MARK_MISMATCH'
   | 'BAD_SIGNING_KEY'
   | 'BAD_POP_HEADER'
   | 'BAD_POP_NONCE'
@@ -26,7 +29,13 @@ const ERROR_MESSAGE: Record<ReceiptErrorCode, string> = {
   NONCE_MISMATCH: 'receipt nonce does not match the expected client nonce',
   STALE_EVIDENCE: 'attestation evidence timestamp is outside the freshness window',
   STALE_RECEIPT: 'receipt issuance time is outside the freshness window',
-  BAD_PAYLOAD: 'payload does not match the receipt-v1 CDDL schema',
+  // One code for both refusals: a version this package cannot parse and one it can parse but the
+  // caller did not accept are the same answer to whoever sent the bytes, and which of the two it
+  // was is not a fact about those bytes.
+  UNSUPPORTED_VERSION: 'receipt payload declares a version this package cannot parse or is not configured to accept',
+  BAD_PAYLOAD: 'payload does not match the CDDL schema for its receipt version',
+  UNSUPPORTED_SCHEME: 'marking scheme is not in the registry this package can interpret',
+  MARK_MISMATCH: 'the marked region does not hash to the digest the receipt carries in mk.d',
   BAD_SIGNING_KEY: 'signing key is not a valid Ed25519 key',
   BAD_POP_HEADER: 'the PoP Authorization header is not parseable',
   BAD_POP_NONCE: 'the PoP nonce is not unpadded base64url of the right width',
