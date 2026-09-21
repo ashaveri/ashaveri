@@ -43,10 +43,12 @@ The image is x86-64 only, like the llama.cpp server image, which is why the buil
 flag the built image carries the architecture of whichever host ran the build, and one made on an arm64
 laptop boots nowhere in this deployment.
 
-Both stages name the same `node:24.21.0-bookworm-slim`, which is the release the workspace pins, and
-that is a limitation rather than a guarantee: the tag is written by hand into the two `FROM` lines, it
-has to move with the pinned Node, and no job here builds this file, so nothing fails when one of them
-is left behind. A bump of the pin means editing those two lines in the same change as `.nvmrc`.
+Both stages name the same `node:24.21.0-bookworm-slim`, which is the release the workspace pins. The tag is
+written by hand into the two `FROM` lines, it has to move with the pinned Node, and no job here builds this
+file, so `packages/fixtures/test/pinned-node.test.ts` reads those lines and fails when one of them, or the
+`engines.node` floor in the root manifest, stops naming the release `.nvmrc` does. That test reads the text
+and never builds the image, so it cannot say the tag resolves to anything a registry serves; a bump is
+still an edit to those two lines in the same change as `.nvmrc`.
 
 ## 2. Stage the model and its manifest
 
