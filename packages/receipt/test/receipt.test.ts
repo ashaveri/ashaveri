@@ -409,6 +409,42 @@ describe('the protected header closes and the unprotected one does not', () => {
       'BAD_PROTECTED_HEADER',
     );
     expect(bstrLabel.message).toBe(`${UNDECLARED_LABEL_REFUSAL} a bstr label of length 3`);
+
+    // And the two keys that are integers, just not integers a label can be. This is the case where the
+    // message used to claim the opposite of the truth: a tag 2 bignum, and a CBOR integer the encoder
+    // wrote in major type 0 but too wide for the decoder to hand back as a `number`, both arrive as
+    // `bigint`, which is an integer outside the range a COSE label occupies. Calling either "not an
+    // integer" points whoever reads the log at a type bug rather than at the label space, which is the
+    // one place the document is wrong. The second is here because it is not a bignum on the wire at
+    // all, and a message that named it one would be the same defect wearing a different word.
+    const bignumLabel = expectFailure(
+      () =>
+        decodeReceipt(
+          signWithHeaders(
+            payloadBytes,
+            key,
+            new Map<unknown, unknown>([...declaredProtectedHeader(key.kid), [2n ** 64n, 'x']]),
+          ),
+        ),
+      'BAD_PROTECTED_HEADER',
+    );
+    expect(bignumLabel.message).toBe(
+      `${UNDECLARED_LABEL_REFUSAL} an integer outside the range a COSE label occupies`,
+    );
+    const wideIntLabel = expectFailure(
+      () =>
+        decodeReceipt(
+          signWithHeaders(
+            payloadBytes,
+            key,
+            new Map<unknown, unknown>([...declaredProtectedHeader(key.kid), [2n ** 53n + 7n, 'x']]),
+          ),
+        ),
+      'BAD_PROTECTED_HEADER',
+    );
+    expect(wideIntLabel.message).toBe(
+      `${UNDECLARED_LABEL_REFUSAL} an integer outside the range a COSE label occupies`,
+    );
   });
 });
 

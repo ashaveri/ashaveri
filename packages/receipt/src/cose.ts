@@ -62,13 +62,18 @@ export const DECLARED_PROTECTED_LABELS: readonly number[] = [
 /**
  * How a label the reader was not told about names itself back. COSE header labels are integers, so
  * one that is not is described by what it is rather than rendered through a value's default
- * `toString`. `ReceiptError` bounds the detail and keeps it to one line whoever raised it, which is
- * what lets this site quote a name out of bytes the caller chose.
+ * `toString`, and one that is a number the decoder cannot hold as a `number` is called an integer too:
+ * a tag 2 or tag 3 key, and any CBOR integer wider than 2^53-1, all arrive as `bigint`, which is an
+ * integer outside the range a label occupies rather than something that is not an integer. Saying
+ * otherwise sends whoever reads the log looking for a type bug instead of at the label space.
+ * `ReceiptError` bounds the detail and keeps it to one line whoever raised it, which is what lets this
+ * site quote a name out of bytes the caller chose.
  */
 function labelName(label: unknown): string {
   if (typeof label === 'number') return String(label);
   if (typeof label === 'string') return `'${label}'`;
   if (label instanceof Uint8Array) return `a bstr label of length ${label.length}`;
+  if (typeof label === 'bigint') return 'an integer outside the range a COSE label occupies';
   return 'a label that is not an integer';
 }
 
