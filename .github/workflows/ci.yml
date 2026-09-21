@@ -13,9 +13,9 @@ jobs:
       contents: read
     steps:
       - uses: actions/checkout@v4
+      # No version on this step: the action reads `packageManager` from the root manifest when its
+      # `version` input is empty, and it fails if the two ever disagree. One declaration governs.
       - uses: pnpm/action-setup@v4
-        with:
-          version: 12.3.4
       - uses: actions/setup-node@v4
         # Every job reads the version from `.nvmrc` rather than naming one, so a bump is a change to
         # a single file and a job cannot be left running the release the pin replaced.
@@ -44,8 +44,6 @@ jobs:
         with:
           persist-credentials: false
       - uses: pnpm/action-setup@v4
-        with:
-          version: 12.3.4
       - uses: actions/setup-node@v4
         with:
           node-version-file: .nvmrc
@@ -68,14 +66,16 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - uses: pnpm/action-setup@v4
-        with:
-          version: 12.3.4
       - uses: actions/setup-node@v4
         with:
           node-version-file: .nvmrc
           cache: pnpm
       - run: pnpm install --frozen-lockfile
       - run: pnpm build
+      # This job is the one that catches a vector whose bytes moved, so it has to refuse a generator
+      # that does not typecheck before it runs one: a script that compiles wrong can still emit
+      # plausible-looking output, and the diff below would then be read as the only verdict.
+      - run: pnpm -C packages/fixtures typecheck
       - run: pnpm -C packages/fixtures generate
       - run: pnpm -C packages/fixtures generate:pop
       - run: pnpm -C packages/fixtures generate:req
@@ -180,8 +180,6 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - uses: pnpm/action-setup@v4
-        with:
-          version: 12.3.4
       - uses: actions/setup-node@v4
         with:
           node-version-file: .nvmrc
