@@ -11,7 +11,7 @@ accepts; they get resolved the first time this runs.
 | File | Role |
 | --- | --- |
 | `docker-compose.yaml` | The compose text the platform measures. It defines `inference` (llama.cpp, loopback only) and `gateway` (signerd, the only published port). |
-| `Dockerfile` | Compiles `@ashaveri/signerd` from source in a build stage, then copies the production install into a slim `node:24.21.0-bookworm-slim` runtime stage. |
+| `Dockerfile` | Compiles `@ashaveri/signerd` from source in a `node:24.21.0-bookworm-slim` build stage, then copies the production install into a runtime stage on the same tag. |
 | `docker-entrypoint.sh` | Checks the mounted model files against the manifest when both weights environment variables are set, then execs `signerd`. |
 | `weights.mjs` | Emits and checks the model manifest whose sha256 every receipt carries as `wts`. |
 
@@ -39,6 +39,11 @@ because a mutable tag makes the measured compose text point at something that ca
 underneath it.
 
 The image is x86-64 only, like the llama.cpp server image: `--platform linux/amd64`.
+
+Both stages name the same `node:24.21.0-bookworm-slim`, which is the release the workspace pins, and
+that is a limitation rather than a guarantee: the tag is written by hand into the two `FROM` lines, it
+has to move with the pinned Node, and no job here builds this file, so nothing fails when one of them
+is left behind. A bump of the pin means editing those two lines in the same change as `.nvmrc`.
 
 ## 2. Stage the model and its manifest
 
