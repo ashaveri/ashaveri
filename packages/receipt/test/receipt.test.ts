@@ -18,6 +18,7 @@ import {
   toHex,
 } from '../src/index.js';
 import type { Marking, ReceiptPayload, ReceiptPayloadV1, ReceiptPayloadV2, SigningKey } from '../src/index.js';
+import * as receiptParser from '../src/receipt.js';
 import { Tag } from 'cbor2';
 import { sha256, sha384 } from '@noble/hashes/sha2.js';
 
@@ -531,14 +532,14 @@ describe('receipt payload v2 and the versions a call accepts', () => {
 });
 
 /**
- * The members of a payload, with `edit` applied inside the map the format puts at `owner`. The four
- * maps below the payload are what the closedness rule reaches now, and every case here has to be a
- * document that is whole except for what the edit wrote. `membersOf` builds fresh nested maps on
- * every call, so an edit cannot leak from one case into the next.
+ * The members of a payload, with `edit` applied inside the map the format puts at `owner`. The maps
+ * below the payload are what the closedness rule reaches, and every case here has to be a document
+ * that is whole except for what the edit wrote. `membersOf` builds fresh nested maps on every call, so
+ * an edit cannot leak from one case into the next.
  */
 function editedNested(
   payload: ReceiptPayload,
-  owner: 'meas' | 'att' | 'tok' | 'mk',
+  owner: string,
   edit: (nested: Map<unknown, unknown>) => void,
 ): Map<string, unknown> {
   const members = membersOf(payload);
@@ -548,27 +549,37 @@ function editedNested(
   return members;
 }
 
+/** A document of the payload version the closure walk names, which is the whole corpus here. */
+function payloadForVersion(version: string): ReceiptPayload {
+  if (version === '1') return samplePayload();
+  if (version === '2') return markedPayload();
+  throw new Error(`this corpus has no document for payload version ${version}`);
+}
+
+/**
+ * One case per map per version, read off the structure the walk enforces rather than spelled out
+ * here. The schema test derives the twin's matrices from this same structure, so a map the format
+ * gains arrives in each of them on the day it lands and a version with no document here fails the
+ * run rather than covering one case fewer.
+ */
+function nestedCases(): Array<[ReceiptPayload, string]> {
+  return Object.entries(receiptParser.DEFINED_MAPS).flatMap(
+    ([version, defined]) =>
+      Object.keys(defined.nested ?? []).map((key): [ReceiptPayload, string] => [payloadForVersion(version), key]),
+  );
+}
+
 describe('every map the format defines is closed', () => {
   it('refuses an undefined member inside meas, att, tok and mk, and names the one it refused', () => {
     const key = generateSigningKey();
     // Both halves of every case below: the unedited document verifies, so a refusal is the added
     // member's answer and not one this corpus was already failing for.
-    const unedited = issueReceipt(samplePayload(), key);
-    const uneditedMarked = issueReceipt(markedPayload(), key);
-    expect(() => verifyReceipt(unedited, { publicKey: key.publicKey, now: FIXED_NOW })).not.toThrow();
-    expect(() => verifyReceipt(uneditedMarked, { publicKey: key.publicKey, now: FIXED_NOW })).not.toThrow();
+    for (const version of Object.keys(receiptParser.DEFINED_MAPS)) {
+      const unedited = issueReceipt(payloadForVersion(version), key);
+      expect(() => verifyReceipt(unedited, { publicKey: key.publicKey, now: FIXED_NOW })).not.toThrow();
+    }
 
-    // `mk` is the map only v2 names, and the other three sit under both versions.
-    const cases: Array<[ReceiptPayload, 'meas' | 'att' | 'tok' | 'mk']> = [
-      [samplePayload(), 'meas'],
-      [samplePayload(), 'att'],
-      [samplePayload(), 'tok'],
-      [markedPayload(), 'meas'],
-      [markedPayload(), 'att'],
-      [markedPayload(), 'tok'],
-      [markedPayload(), 'mk'],
-    ];
-    for (const [payload, owner] of cases) {
+    for (const [payload, owner] of nestedCases()) {
       const bytes = signMembers(editedNested(payload, owner, (nested) => nested.set('surprise', 'x')), key);
       const failure = expectFailure(() => verifyReceipt(bytes, { publicKey: key.publicKey, now: FIXED_NOW }));
       expect(
