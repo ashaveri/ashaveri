@@ -1,6 +1,8 @@
 import { describe, it, expect } from 'vitest';
-import { encodeCanonical, decodeCanonical } from '../src/cbor.js';
-import { Tag } from 'cbor2';
+import { encodeCanonical, decodeCanonical, decodeClosedDocument } from '../src/cbor.js';
+import { ReceiptError } from '../src/errors.js';
+import { Tag, encode, defaultEncodeOptions, encodedNumber } from 'cbor2';
+import { sortCoreDeterministic } from 'cbor2/sorts';
 
 // Vectors from RFC 8949 Appendix E / well-known canonical encodings.
 const RFC8949_VECTORS: Array<{ name: string; value: unknown; hex: string }> = [
@@ -64,5 +66,83 @@ describe('RFC 8949 core deterministic encoding', () => {
 
   it('rejects non-integer floats in deterministic mode implicitly (integers preferred)', () => {
     expect(Buffer.from(encodeCanonical(1.5)).toString('hex')).toBe('f93e00');
+  });
+});
+
+/**
+ * Bytes with every number written as the major type it was given: the codec's own canonical writer
+ * cannot produce these, because it turns any whole number into an integer, which is what the format
+ * requires of it. A float reaching a reader at all is therefore something another implementation
+ * wrote, and these are the bytes it would write.
+ */
+function encodeKeepingTypes(value: unknown): Uint8Array {
+  return new Uint8Array(encode(value, { ...defaultEncodeOptions, sortKeys: sortCoreDeterministic }));
+}
+
+function codeOf(read: () => unknown): string {
+  try {
+    read();
+  } catch (err) {
+    return err instanceof ReceiptError ? err.code : `foreign:${String(err)}`;
+  }
+  return 'accepted';
+}
+
+describe('the two documents the format declares member by member', () => {
+  // One rule, three shapes: a float as a value, a float nested one map down, and a float as a key.
+  // The third is the one no later check could reach, because a `Map` compares keys by identity and
+  // the float 1.0 is the same key as the integer 1 by the time anything looks.
+  const floats: Array<[string, unknown]> = [
+    ['half-precision', encodedNumber(2, 'f16')],
+    ['single-precision', encodedNumber(2, 'f32')],
+    ['double-precision', encodedNumber(2, 'f64')],
+    ['negative zero', encodedNumber(-0, 'f16')],
+  ];
+
+  for (const [name, floated] of floats) {
+    it(`refuses a ${name} number in a declared document, wherever it sits`, () => {
+      const atValue = new Map([['iat', floated]]);
+      const nested = new Map([['tok', new Map([['p', floated]])]]);
+      const asKey = new Map<unknown, unknown>([[1, -8], [floated, 'x']]);
+      for (const [shape, bytes] of [
+        ['a value', atValue],
+        ['one map down', nested],
+        ['a key beside the integer it imitates', asKey],
+      ] as const) {
+        expect(codeOf(() => decodeClosedDocument(encodeKeepingTypes(bytes), 'BAD_PAYLOAD')), `${name} as ${shape}`).toBe('BAD_PAYLOAD');
+      }
+    });
+  }
+
+  it('reads an integer, a text string and a byte string in the same positions', () => {
+    // The other half of every case above: a guard that also refused this document would be a
+    // regression dressed as a rule, and these are the kinds the CDDL actually writes.
+    const counts = new Map([['p', 128], ['c', 64]]);
+    const document = new Map<unknown, unknown>([
+      ['iat', 1_772_000_000],
+      ['mdl', 'mock-model-1'],
+      ['nce', new Uint8Array(16).fill(7)],
+      ['tok', counts],
+    ]);
+    const read = decodeClosedDocument(encodeKeepingTypes(document), 'BAD_PAYLOAD');
+    expect(read).toBeInstanceOf(Map);
+    const map = read as Map<string, unknown>;
+    expect(map.get('iat')).toBe(1_772_000_000);
+    expect(map.get('mdl')).toBe('mock-model-1');
+    expect((map.get('nce') as Uint8Array).length).toBe(16);
+    expect((map.get('tok') as Map<string, number>).get('p')).toBe(128);
+    // Encoded by the package's own writer as well, which is the path a real receipt takes.
+    expect(codeOf(() => decodeClosedDocument(encodeCanonical(document), 'BAD_PAYLOAD'))).toBe('accepted');
+  });
+
+  it('leaves the envelope it does not close free to carry one', () => {
+    // `{ * any => any }` in the CDDL is the map the format declines to describe, and it sits outside
+    // the signature. Refusing a float there would be a rule this format does not state, so the
+    // envelope reader takes the same bytes the declared-document reader refuses.
+    const open = new Map<unknown, unknown>([[encodedNumber(1, 'f16'), encodedNumber(2.5, 'f64')]]);
+    const bytes = encodeKeepingTypes(open);
+    expect(codeOf(() => decodeClosedDocument(bytes, 'BAD_PAYLOAD'))).toBe('BAD_PAYLOAD');
+    const read = decodeCanonical(bytes) as Map<unknown, unknown>;
+    expect(read.get(1)).toBe(2.5);
   });
 });
