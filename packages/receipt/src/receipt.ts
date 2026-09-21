@@ -142,13 +142,43 @@ export type ReceiptPayload = ReceiptPayloadV1 | ReceiptPayloadV2;
 const SHARED_MEMBERS = ['v', 'iss', 'ins', 'iat', 'nce', 'req', 'res', 'mdl', 'wts', 'meas', 'att', 'epk', 'tok'] as const;
 
 /**
- * Which members a payload of each version defines. A payload map is closed: carrying a member the
- * version does not define makes the document malformed rather than a document read with the extra
- * member dropped.
+ * A map the CDDL defines: which members it names, and which of them the format makes into another
+ * such map. `Measurement` is one entry rather than two because its two arms differ only in the width
+ * `m` carries, so which arm a document takes adds no member name the other lacks.
  */
-const DEFINED_MEMBERS: Readonly<Record<ReceiptVersion, readonly string[]>> = {
-  1: SHARED_MEMBERS,
-  2: [...SHARED_MEMBERS, 'mk'],
+interface DefinedMap {
+  readonly members: readonly string[];
+  readonly nested?: Readonly<Record<string, DefinedMap>>;
+}
+
+const MEASUREMENT_MEMBERS = ['tee', 'm'] as const;
+const EVIDENCE_REF_MEMBERS = ['d', 'ts', 'url'] as const;
+const TOKEN_METERING_MEMBERS = ['p', 'c'] as const;
+const MARKING_MEMBERS = ['sch', 'd'] as const;
+
+/**
+ * Which members a payload of each version defines, and the maps nested inside it. A map is closed:
+ * carrying a member it does not define makes the document malformed rather than a document read with
+ * the extra member dropped, and that is as true one level down as it is at the payload.
+ */
+const DEFINED_MAPS: Readonly<Record<ReceiptVersion, DefinedMap>> = {
+  1: {
+    members: SHARED_MEMBERS,
+    nested: {
+      meas: { members: MEASUREMENT_MEMBERS },
+      att: { members: EVIDENCE_REF_MEMBERS },
+      tok: { members: TOKEN_METERING_MEMBERS },
+    },
+  },
+  2: {
+    members: [...SHARED_MEMBERS, 'mk'],
+    nested: {
+      meas: { members: MEASUREMENT_MEMBERS },
+      att: { members: EVIDENCE_REF_MEMBERS },
+      tok: { members: TOKEN_METERING_MEMBERS },
+      mk: { members: MARKING_MEMBERS },
+    },
+  },
 };
 
 export interface VerifyOptions {
@@ -220,18 +250,29 @@ function memberName(key: unknown): string {
 }
 
 /**
- * The closedness rule, applied to both arms from the one member list the version selects. It runs
- * before any field's value is checked, so an unexpected member is the answer a caller hears whatever
- * else the document is missing, and one rule retires the whole class rather than the one name that
- * happened to be noticed: a `v: 1` payload carrying `mk` read with the member dropped would hand a
- * reader a verified receipt that says nothing about a mark, which is the silence the version exists
- * to refuse, and any other unexpected name buys the same silence about whatever it stood for.
+ * The closedness rule, applied once to a map and to every map the format puts inside it, each read
+ * off the one member list that map declares. It runs before any field's value is checked, so an
+ * unexpected member is the answer a caller hears whatever else the document is missing, and one rule
+ * retires the whole class rather than the one name that happened to be noticed: a `v: 1` payload
+ * carrying `mk` read with the member dropped would hand a reader a verified receipt that says
+ * nothing about a mark, which is the silence the version exists to refuse, and any other unexpected
+ * name buys the same silence about whatever it stood for. That is why the walk does not stop at the
+ * payload. A member inside `meas` is a claim about the measurement no verifier was told to look at,
+ * and a reader that rebuilds the map from the names it knows drops it in the same silence one level
+ * down. A value that is not a map is left for the reader's own check, which says which member it
+ * found not a map rather than letting this one claim a membership failure it cannot see.
  */
-function assertMembersAreDefined(raw: Map<unknown, unknown>, version: ReceiptVersion): void {
-  const defined = DEFINED_MEMBERS[version];
-  for (const key of raw.keys()) {
-    if (typeof key !== 'string' || !defined.includes(key)) {
-      throw badPayload(`payload carries a member version ${version} does not define: ${memberName(key)}`);
+function assertMembersAreDefined(raw: Map<unknown, unknown>, defined: DefinedMap, where: string, definer: string): void {
+  for (const [key, value] of raw) {
+    if (typeof key !== 'string' || !defined.members.includes(key)) {
+      throw badPayload(`${where} carries a member ${definer} does not define: ${memberName(key)}`);
+    }
+    const nested = defined.nested?.[key];
+    if (nested !== undefined) {
+      const inner = decodedMap(value);
+      if (inner !== null) {
+        assertMembersAreDefined(inner, nested, key, 'the format');
+      }
     }
   }
 }
@@ -307,7 +348,7 @@ function parsePayload(bytes: Uint8Array, accepted: readonly ReceiptVersion[]): R
   const raw = decodedMap(decodeCanonical(bytes, 'BAD_PAYLOAD'));
   if (raw === null) throw badPayload('payload is not a map');
   const version = claimedVersion(raw.get('v'), accepted);
-  assertMembersAreDefined(raw, version);
+  assertMembersAreDefined(raw, DEFINED_MAPS[version], 'payload', `version ${version}`);
   const fields = readReceiptFields(raw);
   if (version === 2) return { v: 2, ...fields, mk: readMarking(raw) };
   return { v: 1, ...fields };

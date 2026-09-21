@@ -530,6 +530,91 @@ describe('receipt payload v2 and the versions a call accepts', () => {
   });
 });
 
+/**
+ * The members of a payload, with `edit` applied inside the map the format puts at `owner`. The four
+ * maps below the payload are what the closedness rule reaches now, and every case here has to be a
+ * document that is whole except for what the edit wrote. `membersOf` builds fresh nested maps on
+ * every call, so an edit cannot leak from one case into the next.
+ */
+function editedNested(
+  payload: ReceiptPayload,
+  owner: 'meas' | 'att' | 'tok' | 'mk',
+  edit: (nested: Map<unknown, unknown>) => void,
+): Map<string, unknown> {
+  const members = membersOf(payload);
+  const nested = members.get(owner);
+  if (!(nested instanceof Map)) throw new Error(`the corpus carries no ${owner} map to edit`);
+  edit(nested);
+  return members;
+}
+
+describe('every map the format defines is closed', () => {
+  it('refuses an undefined member inside meas, att, tok and mk, and names the one it refused', () => {
+    const key = generateSigningKey();
+    // Both halves of every case below: the unedited document verifies, so a refusal is the added
+    // member's answer and not one this corpus was already failing for.
+    const unedited = issueReceipt(samplePayload(), key);
+    const uneditedMarked = issueReceipt(markedPayload(), key);
+    expect(() => verifyReceipt(unedited, { publicKey: key.publicKey, now: FIXED_NOW })).not.toThrow();
+    expect(() => verifyReceipt(uneditedMarked, { publicKey: key.publicKey, now: FIXED_NOW })).not.toThrow();
+
+    // `mk` is the map only v2 names, and the other three sit under both versions.
+    const cases: Array<[ReceiptPayload, 'meas' | 'att' | 'tok' | 'mk']> = [
+      [samplePayload(), 'meas'],
+      [samplePayload(), 'att'],
+      [samplePayload(), 'tok'],
+      [markedPayload(), 'meas'],
+      [markedPayload(), 'att'],
+      [markedPayload(), 'tok'],
+      [markedPayload(), 'mk'],
+    ];
+    for (const [payload, owner] of cases) {
+      const bytes = signMembers(editedNested(payload, owner, (nested) => nested.set('surprise', 'x')), key);
+      const failure = expectFailure(() => verifyReceipt(bytes, { publicKey: key.publicKey, now: FIXED_NOW }));
+      expect(
+        failure.message,
+        `a v${payload.v} payload with an undefined member inside ${owner}`,
+      ).toContain(`${owner} carries a member the format does not define: 'surprise'`);
+      // The same answer with no signature check to reach it through: closedness is a fact about the
+      // payload rather than about who signed it, so an unread document is refused as a verified one is.
+      expectFailure(() => decodeReceipt(bytes), 'BAD_PAYLOAD');
+    }
+
+    // A key that is not a text label is not a member at either level, and it is named the way the
+    // payload level names one, because nothing about it became a text label by sitting deeper.
+    const foreignKey = signMembers(
+      editedNested(samplePayload(), 'tok', (nested) => nested.set(new Uint8Array([7]), 'x')),
+      key,
+    );
+    const refusal = expectFailure(() => verifyReceipt(foreignKey, { publicKey: key.publicKey, now: FIXED_NOW }));
+    expect(refusal.message).toContain('tok carries a member the format does not define: a bstr key of length 1');
+  });
+
+  it('leaves the refusals that came before it answer first', () => {
+    const key = generateSigningKey();
+    // A `p` that is a string is a member the format does define holding a value it does not, so the
+    // walk has nothing to refuse and the reader's own sentence is what a caller hears. The code is
+    // `BAD_PAYLOAD` either way, which is exactly why the detail is the assertion: a walk that checked
+    // values as well as names would answer this document with a membership refusal, and only the
+    // message would say that the check had swallowed the one this format has always made here.
+    const stringPrompt = editedNested(markedPayload(), 'tok', (nested) => nested.set('p', 'twelve'));
+    const misTyped = expectFailure(() => verifyReceipt(signMembers(stringPrompt, key), { publicKey: key.publicKey, now: FIXED_NOW }));
+    expect(misTyped.message).toContain('tok.p must be a non-negative integer');
+
+    // A member the format makes a map and the bytes did not deliver one is still the reader's answer,
+    // because the walk has no map to enter and cannot claim a membership failure it cannot see.
+    const measIsText = membersOf(samplePayload());
+    measIsText.set('meas', 'snp');
+    const meas = expectFailure(() => verifyReceipt(signMembers(measIsText, key), { publicKey: key.publicKey, now: FIXED_NOW }));
+    expect(meas.message).toContain('meas must be a map');
+
+    const mkIsText = membersOf(markedPayload());
+    mkIsText.set('mk', 'none');
+    const mark = expectFailure(() => verifyReceipt(signMembers(mkIsText, key), { publicKey: key.publicKey, now: FIXED_NOW }));
+    expect(mark.message).toContain('mk must be a map');
+  });
+});
+
 function expectErrorCode(fn: () => unknown, code: string) {
   try {
     fn();
