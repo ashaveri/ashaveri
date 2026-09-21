@@ -51,9 +51,11 @@ Ashaveri-Receipt-Payload-v2 = {
     mk: Marking,              ; required: v2 attests that marking was considered
 }
 
-; Closedness stops at the payload map. `Marking`, `Measurement`, `EvidenceRef` and `TokenMetering`
-; below carry no `...` either, so this file reads as closed at that level too, and the parser and
-; the JSON twin do not enforce it there.
+; That rule is the format's, not one map's. `Marking`, `Measurement`, `EvidenceRef` and
+; `TokenMetering` below carry no `...` either, and the absence means there what it means here: a
+; member one of these maps does not define makes the document invalid rather than a document read
+; with the unexpected member dropped. The parser and the JSON twin refuse it at that level exactly as
+; they refuse one at the payload level, so every map this file defines closes.
 
 ; Absence is declared here rather than inferred from a missing member: `sch: "none"` carries the
 ; digest of the empty region, so `mk` is never optional and a reader never has to decide what an

@@ -408,13 +408,16 @@ Two payload versions are defined. `v: 1` is section 3's thirteen fields, and `v:
 thirteen plus a required `mk`. A payload map is closed at either version, so a member the version a
 document names does not define is a malformed payload (`BAD_PAYLOAD`) rather than a member the reader
 agrees to leave out: that is what makes "`v: 1` carries no `mk`" a fact of the format rather than an
-expectation about it. The rule stops at the payload map: the four maps nested inside it, `meas`,
-`att`, `tok` and `mk`, carry no `...` in the normative CDDL either, so that file reads as closed at
-that level too, while `@ashaveri/receipt` reads what it names there and drops the rest rather than
-refusing the document. The mark is why the number moved rather than the field
-arriving as an optional member of v1: a reader of a v1 payload looks at thirteen fields, finds
-nothing about a mark, and verifies a receipt over an unmarked response exactly as readily as over a
-marked one. The deployment manifest is a different document and still has the one version, `v: 1`.
+expectation about it. The rule is not the payload map's alone: the four maps nested inside it,
+`meas`, `att`, `tok` and `mk`, carry no `...` in the normative CDDL either, and `@ashaveri/receipt`
+refuses an undefined member of any of them with `BAD_PAYLOAD` rather than reading what it names there
+and dropping the rest. A reader that rebuilt a nested value from only the members it knows would
+leave its holder no way to tell a receipt that attested one thing from one that attested that thing
+and something more, which is the same silence `mk` was given a version to refuse. The mark is why the
+number moved rather than the field arriving as an optional member of v1: a reader of a v1 payload
+looks at thirteen fields, finds nothing about a mark, and verifies a receipt over an unmarked response
+exactly as readily as over a marked one. The deployment manifest is a different document and still has
+the one version, `v: 1`.
 
 Which versions a call reads is a setting rather than a fact about the format. `acceptedVersions`
 names them on both `verifyReceipt` and `decodeReceipt`, and its default is every version the

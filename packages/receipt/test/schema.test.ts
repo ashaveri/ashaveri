@@ -18,20 +18,40 @@ const cddlPath = fileURLToPath(new URL('../receipt.cddl', import.meta.url));
 const specPath = fileURLToPath(new URL('../../../docs/receipt-spec.md', import.meta.url));
 const schema = JSON.parse(readFileSync(schemaPath, 'utf8')) as object;
 
+/** An object schema of the kind this file nests under `properties`. */
+interface ObjectSchema {
+  additionalProperties?: unknown;
+  properties?: Record<string, unknown>;
+}
+
 /**
- * The parts of this schema the agreement test below reads: one branch per payload version, and the
- * three descriptions that say which level each of them closes.
+ * The parts of this schema the agreement test below reads: one branch per payload version, the
+ * descriptions that say which members each of them names, and the four definitions nested below the
+ * payload map.
  */
 interface SchemaShape {
   description: string;
   $defs: {
-    payloadFields: { properties: Record<string, unknown> };
+    payloadFields: { properties: Record<string, ObjectSchema> };
     payloadV1: { properties: Record<string, unknown>; description: string };
-    payloadV2: { properties: Record<string, unknown>; description: string };
+    payloadV2: { properties: Record<string, ObjectSchema>; description: string };
   };
 }
 
 const shape = schema as SchemaShape;
+
+/** The nested members a document can carry, which is `mk` on v2 and the other three on either. */
+const NESTED_KEYS = ['meas', 'att', 'tok', 'mk'] as const;
+type NestedKey = (typeof NESTED_KEYS)[number];
+
+/**
+ * The definition one nested member points at, wherever this file happens to hold it. `mk` is a v2
+ * member, so its definition sits on that branch; the other three are shared and sit under
+ * `payloadFields`, which both branches reach through their `allOf`.
+ */
+function nestedDefinition(key: NestedKey): ObjectSchema {
+  return key === 'mk' ? shape.$defs.payloadV2.properties.mk! : shape.$defs.payloadFields.properties[key]!;
+}
 
 /**
  * The text of one CDDL rule, from its opening brace to the first line that closes it. A rule the
@@ -47,19 +67,19 @@ function cddlRule(cddl: string, rule: string): string {
 }
 
 /**
- * The members one payload block declares, in the order it declares them: comments stripped, then
- * every `name:` read off the commas that separate the members. The order is not decoration — v2's
- * block puts `mk` after the thirteen, and the twin and the parser both claim that list as theirs.
+ * The members one CDDL block declares, in the order it declares them: comments stripped, then every
+ * `name:` read off the commas that separate the members. The order is not decoration: v2's block
+ * puts `mk` after the thirteen, and the twin and the parser both claim that list as theirs.
  */
-function cddlMembers(cddl: string, version: 1 | 2): string[] {
+function cddlMembers(cddl: string, rule: string): string[] {
   const members: string[] = [];
-  for (const line of cddlRule(cddl, `Ashaveri-Receipt-Payload-v${version}`).split('\n').slice(1)) {
+  for (const line of cddlRule(cddl, rule).split('\n').slice(1)) {
     for (const piece of line.split(';')[0]!.split(',')) {
       const found = /^\s*([a-z][a-z0-9_]*)\s*:/u.exec(piece);
       if (found) members.push(found[1]!);
     }
   }
-  if (members.length === 0) throw new Error(`the payload v${version} block declares no members`);
+  if (members.length === 0) throw new Error(`the ${rule} block declares no members`);
   return members;
 }
 
@@ -173,6 +193,23 @@ function rewritten(payload: ReceiptPayload, edit: (members: Record<string, unkno
   return document;
 }
 
+/**
+ * The same rewrite one level down, because the maps nested inside the payload are the ones this
+ * schema now closes there too. The document handed to `validate` is one the projection itself
+ * produced, with the edit applied inside one of its maps and nowhere else.
+ */
+function rewrittenNested(
+  payload: ReceiptPayload,
+  owner: NestedKey,
+  edit: (members: Record<string, unknown>) => void,
+): unknown {
+  const document = JSON.parse(JSON.stringify(twin(payload))) as {
+    payload: Record<string, Record<string, unknown>>;
+  };
+  edit(document.payload[owner]!);
+  return document;
+}
+
 function outcome(value: unknown): string | null {
   return validate(value) ? null : JSON.stringify(validate.errors);
 }
@@ -210,12 +247,38 @@ describe('the receipt JSON Schema', () => {
     expect(outcome(rewritten(v2({ sch: 'none', d: DIGEST }), (members) => { members.not_a_member = 'x'; }))).not.toBeNull();
   });
 
-  it('closes the payload map in the twin, the CDDL and the spec alike', () => {
+  it('refuses an undefined member inside each nested map, where the keyword is the only thing that does', () => {
+    // Every case is a pair. The unedited document validates and the edited one does not, and the only
+    // difference is a member no map names, so a refusal here cannot have arrived for any other
+    // reason. Delete a nested `additionalProperties` and the second half of each pair goes red; the
+    // first half keeps green, which is the point: the case tests the keyword, not the document.
+    const cases: Array<[ReceiptPayload, NestedKey]> = [
+      [v2({ sch: 'none', d: DIGEST }), 'meas'],
+      [v2({ sch: 'none', d: DIGEST }), 'att'],
+      [v2({ sch: 'none', d: DIGEST }), 'tok'],
+      [v2({ sch: 'none', d: DIGEST }), 'mk'],
+      // `meas`, `att` and `tok` are declared once and shared by both branches through their `allOf`,
+      // so the same definition is asked for on the branch that never sees `mk`.
+      [v1('software', DIGEST), 'tok'],
+    ];
+    for (const [payload, key] of cases) {
+      expect(outcome(twin(payload)), `${key} on a document that names only what the format does`).toBeNull();
+      expect(
+        outcome(rewrittenNested(payload, key, (members) => { members.surprise = 'x'; })),
+        `${key} carrying a member the format does not name`,
+      ).not.toBeNull();
+    }
+  });
+
+  it('closes every map the format defines, in the twin, the CDDL and the spec alike', () => {
     // The rule is one rule, written down four times: the parser, this schema, the normative CDDL
     // and the specification. A reader porting the format reads the last two, so a document that
     // stopped saying it would leave the port to guess, which is how an open map comes back.
     const cddl = readFileSync(cddlPath, 'utf8');
-    const membersPerVersion: Record<1 | 2, string[]> = { 1: cddlMembers(cddl, 1), 2: cddlMembers(cddl, 2) };
+    const membersPerVersion: Record<1 | 2, string[]> = {
+      1: cddlMembers(cddl, 'Ashaveri-Receipt-Payload-v1'),
+      2: cddlMembers(cddl, 'Ashaveri-Receipt-Payload-v2'),
+    };
     expect(membersPerVersion[1].length).toBe(13);
     expect(membersPerVersion[2]).toEqual([...membersPerVersion[1], 'mk']);
     const twinMembers = (branch: 'payloadV1' | 'payloadV2'): string[] => [
@@ -234,18 +297,42 @@ describe('the receipt JSON Schema', () => {
     expect(cddlRule(cddl, 'Ashaveri-Receipt-Payload-v1').includes('...')).toBe(false);
     expect(cddlRule(cddl, 'Ashaveri-Receipt-Payload-v2').includes('...')).toBe(false);
 
-    // Where that rule stops is a boundary no type expression shows. The four nested blocks omit the
-    // marker too, so the file reads as closed at that level, and the parser and the twin are the ones
-    // that do not enforce it there. The note has to name that divergence rather than the leniency: a
-    // port that believes these blocks are open by the format builds a verifier laxer than the
-    // normative text, which is the one mistake this file exists to prevent.
-    saidOnce('the CDDL boundary note', prose, 'Closedness stops at the payload map');
-    saidOnce('the CDDL boundary note', prose, 'below carry no `...` either');
-    saidOnce('the CDDL boundary note', prose, 'the parser and the JSON twin do not enforce it there');
+    // One level down the same two things have to hold, and neither is shown by a type expression.
+    // Each block carries no `...`, which is the format saying it closes, and the twin declares the
+    // same member names the block does: a twin that named a member the block does not would validate
+    // a document the format refuses, and one that dropped a name would refuse a document the format
+    // admits. Either drift is invisible to a case built out of the twin's own members, which is why
+    // the list below is read out of the CDDL rather than written a second time here.
+    const blockPerKey: Record<NestedKey, string> = {
+      meas: 'Measurement',
+      att: 'EvidenceRef',
+      tok: 'TokenMetering',
+      mk: 'Marking',
+    };
+    for (const key of NESTED_KEYS) {
+      expect(cddlRule(cddl, blockPerKey[key]).includes('...'), `${blockPerKey[key]} closes`).toBe(false);
+      expect(
+        Object.keys(nestedDefinition(key).properties ?? {}),
+        `the twin's ${key} members`,
+      ).toEqual(cddlMembers(cddl, blockPerKey[key]));
+      // That the closing keyword sits there is the assertion; that it binds is the case earlier in
+      // this file, which hands `validate` the same document with one unnamed member added. A keyword
+      // this schema did not define would have failed to compile at all, which is the other guard.
+      expect(nestedDefinition(key).additionalProperties, `${key} names its members as the whole of it`).toBe(false);
+    }
+
+    // The note that used to record the divergence now records the rule reaching there, and the
+    // sentence that said it stopped has to stay gone: a comment restored would put this file back
+    // into reading as a format with two levels of strictness.
+    saidOnce('the CDDL closure note', prose, "That rule is the format's, not one map's");
+    saidOnce('the CDDL closure note', prose, 'below carry no `...` either');
+    saidOnce('the CDDL closure note', prose, 'The parser and the JSON twin refuse it at that level');
+    saidOnce('the CDDL closure note', prose, 'every map this file defines closes');
     for (const block of ['Marking', 'Measurement', 'EvidenceRef', 'TokenMetering']) {
       expect(prose.includes(`\`${block}\``), `the CDDL names ${block}`).toBe(true);
     }
     expect(prose).not.toMatch(/\bare open\b/u);
+    expect(prose).not.toContain('stops at the payload map');
 
     // And the specification states the refusal once in the field table and once in section 6, which
     // is the pair a reader of the prose gets. Zero occurrences means the sentence was edited away;
@@ -257,29 +344,31 @@ describe('the receipt JSON Schema', () => {
     const section = sectionBody(spec, '## 6. Versioning');
     expect(section.split('does not define')).toHaveLength(2);
 
-    // Section 6 carries the same boundary in the same direction, named by the four keys a reader of
-    // the field table has, and pointing at the file that decides it instead of at itself.
+    // Section 6 says the same thing the CDDL note does, named by the four keys a reader of the field
+    // table has, and pointing at the file that decides it instead of at itself.
     const specProse = flat(section);
-    saidOnce('section 6', specProse, 'The rule stops at the payload map');
+    saidOnce('section 6', specProse, "The rule is not the payload map's alone");
     saidOnce('section 6', specProse, 'the four maps nested inside it, `meas`, `att`, `tok` and `mk`');
     saidOnce('section 6', specProse, 'carry no `...` in the normative CDDL either');
-    saidOnce('section 6', specProse, 'reads what it names there and drops the rest rather than refusing the document');
+    saidOnce('section 6', specProse, 'refuses an undefined member of any of them');
     expect(specProse).not.toMatch(/\bare open\b/u);
+    expect(specProse).not.toContain('stops at the payload map');
 
-    // The twin says the same thing, and its three closedness descriptions have to agree on the level.
-    // The root is the only one that speaks below the payload map, and it names all four nested keys
-    // and says the keyword is absent there; each branch description closes its own map and names
-    // nothing inside it, so neither can be read as constraining a level this schema does not.
+    // The twin says the same thing. The root description is the one place that speaks below the
+    // payload map, and it names all four nested keys and says which keyword closes each level; the
+    // two branch descriptions close their own map and name nothing inside it, so a reader never takes
+    // a claim about one level from a sentence about another.
     saidOnce('the twin', shape.description, 'Each branch is closed');
-    saidOnce('the twin', shape.description, 'Closure is at that one level');
-    saidOnce('the twin', shape.description, 'carry no such keyword');
-    for (const key of ['meas', 'att', 'tok', 'mk']) {
+    saidOnce('the twin', shape.description, 'Closure is not one level');
+    saidOnce('the twin', shape.description, 'the four nested inside it');
+    saidOnce('the twin', shape.description, 'the nested definitions through `additionalProperties`');
+    for (const key of NESTED_KEYS) {
       expect(shape.description.includes(`\`${key}\``), `the twin names ${key}`).toBe(true);
     }
     for (const branch of ['payloadV1', 'payloadV2'] as const) {
       const doc = shape.$defs[branch].description;
       saidOnce(`the twin's ${branch} description`, doc, 'The map is closed');
-      for (const key of ['meas', 'att', 'tok', 'mk']) {
+      for (const key of NESTED_KEYS) {
         expect(doc.includes(`\`${key}\``), `the twin's ${branch} description stops at its own map`).toBe(false);
       }
     }
