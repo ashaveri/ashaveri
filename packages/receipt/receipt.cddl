@@ -58,9 +58,9 @@ Ashaveri-Receipt-Payload-v2 = {
 ; they refuse one at the payload level, so the payload map and every map nested inside it close, at
 ; both versions. The two header maps this file also defines, `Ashaveri-Protected-Header` above and the
 ; `unprotected` map of `COSE_Sign1-COSE`, sit outside that rule, and a reader must not assume of
-; either header that an unnamed member makes a document invalid: the parser reads the three labels it
-; names from a protected header and returns those, and takes any map at all where the format writes
-; the unprotected one.
+; either header that an unnamed member makes a document invalid: the parser reads the three labels
+; this file names out of a protected header and returns those, and takes any map at all where the
+; format writes the unprotected one.
 
 ; Absence is declared here rather than inferred from a missing member: `sch: "none"` carries the
 ; digest of the empty region, so `mk` is never optional and a reader never has to decide what an
