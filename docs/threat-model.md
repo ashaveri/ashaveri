@@ -276,8 +276,9 @@ What is still true, in both modes:
   as readily as over a marked one, which is silence read as a claim. The closedness that refusal rests
   on is not the payload map's alone: `meas`, `att`, `tok` and `mk` are closed the same way, and an
   undefined member of any of them is `BAD_PAYLOAD` rather than a member a reader takes no account of,
-  so no field of a receipt that verifies is carrying something the verifier dropped on its way to
-  agreeing.
+  and the signed `Ashaveri-Protected-Header` closes against the three labels `receipt.cddl` names and
+  answers any other with `BAD_PROTECTED_HEADER` before it reads one of them, so no field of a receipt
+  that verifies is carrying something the verifier dropped on its way to agreeing.
 - **A mark is detectable only by someone who has the bytes, and nothing here reaches further.** The
   marking the design describes is a member of the response envelope or a frame of the stream, never a
   property of the words, so a consumer of the text alone, pasted out of a chat window or retyped, has

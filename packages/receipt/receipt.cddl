@@ -60,7 +60,12 @@ Ashaveri-Receipt-Payload-v2 = {
 ; payload's: its bytes are the ones hashed into the `Sig_structure`, so a label that block does not
 ; name is an authenticated parameter, and a reader that took the three labels above out of it and
 ; returned those handed on a document other than the one the issuer signed. The parser refuses the
-; unknown label by number, at that level, before it reads any of the three.
+; unknown label by number, at that level, before it reads any of the three. Numbers close it, not names
+; this file recognises, so the rule takes in the parameters RFC 9052 registers as well: label 2, `crit`,
+; by which a sender asks that a recipient understand something about the message, is refused in the
+; signed header as any other label the block does not name. Nothing in this format answers such an ask,
+; and not because the number is unknown to it: the header refuses it, and the map outside the signature
+; is free to hold one and carries no claim of the document either way.
 ;
 ; One map this file leaves a signer free to fill, and that is a decision rather than a gap: the
 ; `unprotected` map of `COSE_Sign1-COSE` sits outside the signature, so nothing written in it can

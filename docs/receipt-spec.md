@@ -47,7 +47,13 @@ The protected header contains exactly three parameters:
 The list is exhaustive, not illustrative. Those bytes are hashed into the `Sig_structure`, so a label
 the table does not name is a parameter the issuer authenticated, and a verifier that read the three
 it knows and returned those would hand its caller a document other than the one that was signed. A
-receipt whose protected header carries any other label is refused, and the refusal names the label.
+receipt whose protected header carries any other label is refused, and the refusal names the label. The
+rule closes by number rather than by names this document recognises, so it reaches the parameters RFC
+9052 registers as well: `crit`, label 2, a sender's way of asking that a recipient understand something
+about the message, is refused in the signed header like any label the table does not name. Nothing here
+answers such an ask, and not because the number is unknown to it: a sender may still write a label 2
+into the unprotected map, which the format leaves open on purpose, and that map carries no claim about
+the response, as the paragraph below says of it.
 
 The signature is computed over the RFC 9052 Sig_structure (section 4.4)
 `["Signature1", protected, external_aad, payload]` with an empty external AAD.
@@ -419,7 +425,9 @@ agrees to leave out: that is what makes "`v: 1` carries no `mk`" a fact of the f
 expectation about it. The rule is not the payload map's alone: the four maps nested inside it,
 `meas`, `att`, `tok` and `mk`, carry no `...` in the normative CDDL either, and `@ashaveri/receipt`
 refuses an undefined member of any of them with `BAD_PAYLOAD` rather than reading what it names there
-and dropping the rest. A reader that rebuilt a nested value from only the members it knows would
+and dropping the rest; the signed `Ashaveri-Protected-Header` closes with them, and a label its three
+do not name is refused there with `BAD_PROTECTED_HEADER`, before any of the three is read. A reader
+that rebuilt a nested value from only the members it knows would
 leave its holder no way to tell a receipt that attested one thing from one that attested that thing
 and something more, which is the same silence `mk` was given a version to refuse. The mark is why the
 number moved rather than the field arriving as an optional member of v1: a reader of a v1 payload
