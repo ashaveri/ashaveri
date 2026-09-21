@@ -95,6 +95,13 @@ jobs:
           fetch-depth: 0
           persist-credentials: false
 
+      # Two steps below read a report with `node -e`, and a job with no version step leaves the
+      # runner image to decide which release reaches those verdicts. This job installs no
+      # dependencies, so the step asks for an interpreter and nothing else.
+      - uses: actions/setup-node@v4
+        with:
+          node-version-file: .nvmrc
+
       - name: Download gitleaks 8.30.1
         run: |
           set -euo pipefail
