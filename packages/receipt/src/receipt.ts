@@ -166,8 +166,14 @@ export const MARKING_MEMBERS = ['sch', 'd'] as const;
  * Which members a payload of each version defines, and the maps nested inside it. A map is closed:
  * carrying a member it does not define makes the document malformed rather than a document read with
  * the extra member dropped, and that is as true one level down as it is at the payload.
+ *
+ * This is the structure the walk reads, so the five lists above answer for the format only if it is
+ * read off them: a map whose entry is a copy of a list goes stale the day that list is edited, and a
+ * version whose `nested` is missing a name stops refusing members there while every list still
+ * matches the CDDL. Exported alongside the lists, for that reason and for no other, and named by
+ * `index.ts` as little as they are, so the package's public surface is what it was.
  */
-const DEFINED_MAPS: Readonly<Record<ReceiptVersion, DefinedMap>> = {
+export const DEFINED_MAPS: Readonly<Record<ReceiptVersion, DefinedMap>> = {
   1: {
     members: SHARED_MEMBERS,
     nested: {
