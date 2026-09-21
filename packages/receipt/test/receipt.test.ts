@@ -403,6 +403,61 @@ describe('the protected header closes and the unprotected one does not', () => {
     );
   });
 
+  it('reads no claim out of the unprotected map, over two documents that differ only there', () => {
+    const key = generateSigningKey();
+    const payloadBytes = encodePayload(samplePayload());
+    const signed = declaredProtectedHeader(key.kid);
+    // Two documents, one signature, and everything the parser reads held identical between them except
+    // the map outside the signature. The second fills that map with a rival for every read the parser
+    // makes: an `alg` naming a suite this format does not sign with, a `kid` of the right width and the
+    // wrong key, a `typ` that is not this format, and two payload members spelled out as text keys. What
+    // this measures is therefore not whether an empty map parses, which would be true of a parser that
+    // ignored the envelope entirely, but whether anything at all travels from that map into the verdict
+    // on a document that verifies.
+    const rival = new Map<unknown, unknown>([
+      [COSE_HEADER_ALG, -7],
+      [COSE_HEADER_KID, new Uint8Array(32).fill(9)],
+      [COSE_HEADER_CONTENT_TYPE, 'application/cbor'],
+      ['mdl', 'a-model-the-sender-chose'],
+      ['iat', 1],
+    ]);
+    const openBytes = signWithHeaders(payloadBytes, key, signed, new Map());
+    const rivalBytes = signWithHeaders(payloadBytes, key, signed, rival);
+    const empty = verifyReceipt(openBytes, { publicKey: key.publicKey, now: FIXED_NOW });
+    const filled = verifyReceipt(rivalBytes, { publicKey: key.publicKey, now: FIXED_NOW });
+    // The premise first, and about the bytes: two documents, not one document read twice, and the only
+    // difference between them is the content of that one map. The signature is the same bytes in both,
+    // because the `Sig_structure` covers the protected bytes, the external AAD and the payload and
+    // nothing else, so anything that reached a verdict from the map on the left would have arrived
+    // through the envelope rather than through what was signed.
+    expect(equalBytes(rivalBytes, openBytes)).toBe(false);
+    expect(equalBytes(filled.cose.signature, empty.cose.signature)).toBe(true);
+    expect(equalBytes(filled.cose.protectedBytes, empty.cose.protectedBytes)).toBe(true);
+    expect(equalBytes(filled.cose.payloadBytes, empty.cose.payloadBytes)).toBe(true);
+    expect(filled.cose.unprotected.size).toBe(5);
+    expect(empty.cose.unprotected.size).toBe(0);
+    // And the rival arrived intact rather than being emptied on the way in: the map is handed to the
+    // caller as the sender wrote it, which is what makes the assertions that follow about the reads the
+    // parser makes and not about a map that stopped existing before any read happened.
+    expect(filled.cose.unprotected.get(COSE_HEADER_ALG)).toBe(-7);
+    expect(filled.cose.unprotected.get('mdl')).toBe('a-model-the-sender-chose');
+    // The two halves the ruling rests on: the payload the parser parses, and the header it projects for
+    // its caller, are one document across both bytes. Named as the signed values too, because equality
+    // between the two on its own would still hold if a reader ever preferred the unprotected map, and it
+    // is that preference this case keeps out of the package.
+    expect(filled.payload).toEqual(empty.payload);
+    expect(filled.header).toEqual(empty.header);
+    expect(filled.payload.mdl).toBe('meta-llama/Llama-3.1-8B-Instruct');
+    expect(filled.header.alg).toBe(ALG_EDDSA);
+    expect(equalBytes(filled.header.kid, key.kid)).toBe(true);
+    // The same answer from a reader that never reaches a signature check at all, which is the other way
+    // a claim could be handed to a caller: an unread receipt is read on its face, and the map above is
+    // not covered by the signature that would otherwise have to be made over it.
+    const unread = decodeReceipt(rivalBytes);
+    expect(unread.payload).toEqual(empty.payload);
+    expect(unread.header).toEqual(empty.header);
+  });
+
   it('names a label it cannot read without letting it write the message', () => {
     const key = generateSigningKey();
     const payloadBytes = encodePayload(samplePayload());
