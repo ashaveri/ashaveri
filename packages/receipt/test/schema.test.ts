@@ -34,6 +34,7 @@ interface ObjectSchema {
  */
 interface SchemaShape {
   description: string;
+  properties: { protectedHeader: ObjectSchema };
   $defs: {
     payloadFields: { properties: Record<string, ObjectSchema> };
     payloadV1: { properties: Record<string, ObjectSchema>; description: string };
@@ -532,6 +533,17 @@ describe('the receipt JSON Schema', () => {
     saidOnce('the twin', shape.description, 'Closure is not one level');
     saidOnce('the twin', shape.description, 'the four nested inside it');
     saidOnce('the twin', shape.description, 'the nested definitions through `additionalProperties`');
+    // The signed header's projection says of itself that no keyword closes it, and that is the one claim
+    // in that paragraph a keyword could not carry: what closes that map is the parser refusing a label by
+    // number, which happens upstream of anything this file describes. The two assertions below hold the
+    // sentence and the artifact against each other, so the prose cannot drift into naming a keyword that
+    // is not there, and an `additionalProperties` added to the definition has to arrive with the sentence
+    // rewritten rather than quietly contradicting it.
+    expect(
+      shape.properties.protectedHeader.additionalProperties,
+      'the projection of the signed header carries an `additionalProperties`, which its description says it does not',
+    ).toBeUndefined();
+    saidOnce('the twin', shape.description, 'this definition carries no closure keyword');
     for (const key of NESTED_KEYS) {
       expect(shape.description.includes(`\`${key}\``), `the twin names ${key}`).toBe(true);
     }
