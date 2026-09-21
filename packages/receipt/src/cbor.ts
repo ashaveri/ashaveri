@@ -1,8 +1,26 @@
 import { encode, decode, cdeEncodeOptions, cdeDecodeOptions, type DecodeOptions } from 'cbor2';
 import { ReceiptError, type ReceiptErrorCode } from './errors.js';
 
+/**
+ * The package's one canonical writer, and the one place the bytes of a number are chosen.
+ *
+ * `simplifyNegativeZero` is the whole of the difference from the plain CDE option set, and it is here
+ * because the format states the same rule from the other side: the two documents `receipt.cddl`
+ * declares member by member are decoded where no floating-point number may appear, so a value written
+ * as one is a document this reader refuses. Without the option, CBOR's number writer takes its
+ * negative-zero branch before its integer one and spells `-0` as the half-precision `f9 80 00`, while
+ * `0` goes out as the integer `00`. The two are the same value to every check this package makes after
+ * the decode — `Number.isSafeInteger(-0)` holds and `-0 < 0` does not — so a payload built with an
+ * `iat`, an `epk` or a `tok.p` of negative zero would be signed by this writer and refused by this
+ * reader. A receipt's integers are canonical and non-negative, and negative zero has one canonical
+ * integer spelling, which is the one `0` gets; that is what this option decides, at the point the bytes
+ * are picked, for every depth the writer reaches and in a map key as much as in a value.
+ *
+ * Nothing else moves. A number that is not a whole one still goes out as a float, because no integer
+ * spells it, and every whole number went out as an integer already.
+ */
 export function encodeCanonical(value: unknown): Uint8Array {
-  return new Uint8Array(encode(value, cdeEncodeOptions));
+  return new Uint8Array(encode(value, { ...cdeEncodeOptions, simplifyNegativeZero: true }));
 }
 
 // A read failure names the part being read, because the caller knows whether the document, its
@@ -39,9 +57,11 @@ export function decodeCanonical(bytes: Uint8Array, malformed: ReceiptErrorCode =
  *
  * Refusing floats is as wide as these two documents and no wider. Both close: every label the
  * protected header carries is one of three integers, and every member of the payload and of the maps
- * nested inside it is named in the CDDL, where the number positions are written `int`. Nothing any of
- * them declares can be a float, so a document containing one is malformed rather than one a reader
- * should coerce. The map the format does leave free, the unprotected one, is read through
+ * nested inside it is named in the CDDL, where the number positions are written `int` or, for the one
+ * that fixes the format version, as the integer literals `1` and `2`. Nothing any of them declares can
+ * be a float, so a document containing one is malformed rather than one a reader should coerce, and
+ * the writer above never produces one: an integer this package signed is an integer its reader takes.
+ * The map the format does leave free, the unprotected one, is read through
  * `decodeCanonical` above and keeps admitting anything: it sits outside the signature and carries no
  * claim, so a float inside it is nobody's integer wearing a different coat.
  */
