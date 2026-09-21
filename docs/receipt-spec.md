@@ -99,13 +99,18 @@ countersignature variants (RFC 9338), if ever needed, would be a new format vers
 
 All integers are non-negative. Every one of them is a CBOR integer as well: the payload is decoded
 where no floating-point number may appear, at any depth, so a `tok.p` written as the float `128.0` and
-an `iat` written as `-0.0`, a value CBOR can only write as a float, are malformed payloads
-(`BAD_PAYLOAD`) rather than 128 and 0 read loosely. That is the same width as the table above and no
-wider: it names every member of the payload and of the maps inside it, and none of those positions is
-written as a float. A bignum is refused too, and twice over: the canonical encoding this format
-requires rejects the bignum spelling of any value a plain integer can hold, and one it cannot is
-outside the range `iat`, `att.ts` and the two counts are read in, so it arrives as a value no position
-here takes. Maps use bytewise canonical key ordering per RFC 8949 CDE.
+an `iat` written as the half-precision negative zero `f9 80 00` are malformed payloads (`BAD_PAYLOAD`)
+rather than 128 and 0 read loosely. The positions are `v`, `iat`, `att.ts`, `epk`, `tok.p` and `tok.c`:
+five the normative CDDL writes `int`, and the version it writes as the integer literals `1` and `2`,
+which a `1.0` does not become. The writer that issues a receipt keeps the same rule from its own side,
+and `encodeCanonical` in this repository is where it does so: negative zero has one canonical integer
+spelling, the one `0` gets, so a float standing at one of these positions is a document another
+implementation wrote and never one this package signed and could not read back. The width of the rule
+is the table above and no more: it names every member of the payload and of the maps inside it, and
+none of those positions is written as a float. A bignum is refused too, and twice over: the canonical
+encoding this format requires rejects the bignum spelling of any value a plain integer can hold, and
+one it cannot is outside the range the six positions above are read in, so it arrives as a value no
+position here takes. Maps use bytewise canonical key ordering per RFC 8949 CDE.
 
 ### 3.1 Hash definitions
 

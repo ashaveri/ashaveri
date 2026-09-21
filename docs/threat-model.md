@@ -286,9 +286,13 @@ What is still true, in both modes:
   parameter set, both readings are self-consistent, and no reader settles the difference by choosing
   one, so the two documents that declare every member they carry are decoded where no floating-point
   number may appear, a key included. That is the last point at which the two are still two: after the
-  decode there is one map entry and nothing left to check. It reaches the payload's numbers as well, so
-  `v`, `iat`, `att.ts` and the two token counts are read as the integers the format names there and a
-  `128.0` written as a float is a malformed payload rather than 128 taken on trust. So no field of a
+  decode there is one map entry and nothing left to check. It reaches the payload's numbers as well,
+  and the format says which ones. The positions are `v`, `iat`, `att.ts`, `epk`, `tok.p` and `tok.c`,
+  each read as the integer `receipt.cddl` types it, so a `128.0` written as a float is a malformed
+  payload rather than 128 taken on trust. The writer that issues a receipt holds the same line from its
+  own side and spells negative zero as the integer zero, so a float standing at one of these positions
+  is a document another implementation wrote, not one this package signed and could not read back. So
+  no field of a
   receipt that verifies is carrying something the verifier dropped on its way to agreeing, and none is
   carrying something it merged away.
 - **A mark is detectable only by someone who has the bytes, and nothing here reaches further.** The
