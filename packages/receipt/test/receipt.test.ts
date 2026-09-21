@@ -362,8 +362,10 @@ describe('the protected header closes and the unprotected one does not', () => {
     const key = generateSigningKey();
     const payloadBytes = encodePayload(samplePayload());
     // Every label this map still carries is one the format defines, so the closure check above passes
-    // and the refusal below is the required-parameter rule. Both halves answer under one code, and
-    // this is the case that says closing the map did not replace asking for what it must hold.
+    // and the refusal below is the required-parameter rule. Those two refusals answer under one code,
+    // and this is the case that says closing the map did not replace asking for what it must hold. One
+    // declared parameter is not in that pair, and the case after this one is what keeps the sentence
+    // about one code from being read as a sentence about every header fault.
     const noKid = new Map<unknown, unknown>([...declaredProtectedHeader(key.kid)]);
     noKid.delete(COSE_HEADER_KID);
     const failure = expectFailure(
@@ -371,6 +373,34 @@ describe('the protected header closes and the unprotected one does not', () => {
       'BAD_PROTECTED_HEADER',
     );
     expect(failure.message).toContain('kid must be a 32-byte bstr');
+  });
+
+  it('answers a missing alg under its own code, not under the header code', () => {
+    const key = generateSigningKey();
+    const payloadBytes = encodePayload(samplePayload());
+    // The same edit to the map that the case above makes to `kid`, one label shorter: every label left
+    // is declared, so the closure rule passes, and the parameter that is gone is `alg`. That answers
+    // `UNSUPPORTED_ALG`, which is what `docs/error-codes.md`'s row for the code says it covers, and not
+    // `BAD_PROTECTED_HEADER`, because a header with no `alg` is not claiming to be a different map, it
+    // is saying nothing about which suite produced the signature. The two codes stay separate rows, and
+    // both are terminal, so this case pins a distinction a caller reads off the code rather than one it
+    // acts on differently.
+    const noAlg = new Map<unknown, unknown>([...declaredProtectedHeader(key.kid)]);
+    noAlg.delete(COSE_HEADER_ALG);
+    const failure = expectFailure(
+      () => verifyReceipt(signWithHeaders(payloadBytes, key, noAlg), { publicKey: key.publicKey, now: FIXED_NOW }),
+      'UNSUPPORTED_ALG',
+    );
+    expect(failure.message).toContain('alg must be an integer label, got undefined');
+    // And the other shape of the same parameter, a suite this format does not sign with, answers under
+    // that code too: the split is between the map and the algorithm, not between an absent `alg` and a
+    // wrong one.
+    const wrongAlg = new Map<unknown, unknown>(declaredProtectedHeader(key.kid));
+    wrongAlg.set(COSE_HEADER_ALG, -7);
+    expectFailure(
+      () => verifyReceipt(signWithHeaders(payloadBytes, key, wrongAlg), { publicKey: key.publicKey, now: FIXED_NOW }),
+      'UNSUPPORTED_ALG',
+    );
   });
 
   it('names a label it cannot read without letting it write the message', () => {
