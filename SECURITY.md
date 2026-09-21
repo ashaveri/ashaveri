@@ -4,8 +4,10 @@ How to reach this project about a vulnerability, what to expect back, and which 
 
 ## Reporting a vulnerability
 
-Write to `info@ashaveri.com`. It is the only intake channel this repository publishes: no second
-address, no form and no private tracker is published here.
+Two channels reach this project. Write to `info@ashaveri.com`, or use the private vulnerability
+reporting form shown on this repository's Security page. Both are private to the reporter and neither
+is a public issue: what you send stays unseen outside the maintainers unless an advisory is published
+from it. No second address and no public tracker is published here.
 
 Send the smallest reproducible case. What that means here: the input, the command you ran, what
 happened, and what you expected, in a form that does not depend on anything of ours running. Name
@@ -14,9 +16,9 @@ the commit you built from (`git rev-parse HEAD`), and say which mode the observa
 result about the other: a mock gateway signs with an ephemeral in-process key and reports
 `tee: "software"`, which claims no hardware protection at all.
 
-We publish no key for that address and email is not encrypted end to end, so do not send a
-credential, a signing key, or anybody's request data. Describe where the secret is and how to reach
-it instead.
+Neither channel is encrypted end to end: we publish no key for that address, and the reporting form
+is encrypted to GitHub in transit rather than to a key only we hold, so do not send a credential,
+a signing key, or anybody's request data. Describe where the secret is and how to reach it instead.
 
 There is no bug bounty here. No reward is paid for a report.
 
