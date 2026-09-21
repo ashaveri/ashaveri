@@ -23,35 +23,50 @@ const schema = JSON.parse(readFileSync(schemaPath, 'utf8')) as object;
 interface ObjectSchema {
   additionalProperties?: unknown;
   properties?: Record<string, unknown>;
+  type?: unknown;
 }
 
 /**
  * The parts of this schema the agreement test below reads: one branch per payload version, the
- * descriptions that say which members each of them names, and the four definitions nested below the
+ * descriptions that say which members each of them names, and the definitions nested below the
  * payload map.
  */
 interface SchemaShape {
   description: string;
   $defs: {
     payloadFields: { properties: Record<string, ObjectSchema> };
-    payloadV1: { properties: Record<string, unknown>; description: string };
+    payloadV1: { properties: Record<string, ObjectSchema>; description: string };
     payloadV2: { properties: Record<string, ObjectSchema>; description: string };
   };
 }
 
 const shape = schema as SchemaShape;
 
-/** The nested members a document can carry, which is `mk` on v2 and the other three on either. */
-const NESTED_KEYS = ['meas', 'att', 'tok', 'mk'] as const;
-type NestedKey = (typeof NESTED_KEYS)[number];
+/** The maps the closure walk enforces, read off the module that walks them rather than restated. */
+const definedMaps = receiptParser.DEFINED_MAPS;
 
 /**
- * The definition one nested member points at, wherever this file happens to hold it. `mk` is a v2
- * member, so its definition sits on that branch; the other three are shared and sit under
- * `payloadFields`, which both branches reach through their `allOf`.
+ * The nested members a document can carry, which is `mk` on v2 and the other three on either. This is
+ * the roster every matrix below sweeps, so it is read out of the structure the parser walks rather
+ * than typed here: a roster of this file's own would go on asking the twin about a map the walk had
+ * stopped entering, and the lists the parser exports would still match the CDDL rule by rule.
  */
-function nestedDefinition(key: NestedKey): ObjectSchema {
-  return key === 'mk' ? shape.$defs.payloadV2.properties.mk! : shape.$defs.payloadFields.properties[key]!;
+const NESTED_KEYS: string[] = [...new Set(
+  Object.values(definedMaps).flatMap((defined) => Object.keys(defined.nested ?? {})),
+)];
+
+/**
+ * The definition one nested member points at, wherever this file happens to hold it. A member only
+ * one branch names, such as `mk`, has its definition on that branch; the members both branches share
+ * sit under `payloadFields`, which each of them reaches through their `allOf`. Searched rather than
+ * switched on by name, so a map the format gains is looked for in the same two places without an
+ * edit here.
+ */
+function nestedDefinition(key: string): ObjectSchema {
+  return required(
+    shape.$defs.payloadV2.properties[key] ?? shape.$defs.payloadFields.properties[key],
+    `the twin declares no definition for the nested member ${key}`,
+  );
 }
 
 /**
@@ -91,6 +106,33 @@ function cddlMembers(cddl: string, rule: string): string[] {
   const members = labeledMembers(cddlRule(cddl, rule));
   if (members.length === 0) throw new Error(`the ${rule} block declares no members`);
   return members;
+}
+
+/**
+ * Which rule a nested member's value is, read off the payload blocks that name it: `meas` is a
+ * `Measurement`. Derived rather than written out beside the member, because adding a member to a
+ * payload block is the only way a new map reaches this format, and a table of rule names kept by hand
+ * here would let that map arrive in the CDDL and in the parser while the twin-side assertions went
+ * on sweeping the maps before it. Two payload blocks naming one member two different rules is the
+ * format describing one member as two maps, so it stops the run rather than settling for one.
+ */
+function nestedRuleNames(cddl: string): Map<string, string> {
+  const rules = new Map<string, string>();
+  for (const binding of LIST_FOR_MAP.filter((row) => row.map.startsWith('Ashaveri-Receipt-Payload-v'))) {
+    for (const line of cddlRule(cddl, binding.map).split('\n').slice(1)) {
+      for (const piece of line.split(';')[0]!.split(',')) {
+        const found = /^\s*([a-z][a-z0-9_]*)\s*:\s*([A-Z][A-Za-z0-9_-]*)\s*$/u.exec(piece);
+        if (!found) continue;
+        const known = rules.get(found[1]!);
+        if (known !== undefined && known !== found[2]) {
+          throw new Error(`${found[1]} is a ${known} in one payload block and a ${found[2]} in the other`);
+        }
+        rules.set(found[1]!, found[2]!);
+      }
+    }
+  }
+  if (rules.size === 0) throw new Error(`no payload member is bound to a rule in ${cddlPath}`);
+  return rules;
 }
 
 /**
@@ -236,6 +278,18 @@ function v2(mk: Marking): ReceiptPayloadV2 {
   return { ...v1('software', new Uint8Array(32).fill(4)), v: 2, mk };
 }
 
+/**
+ * The twin's side of one payload version the parser reads: the branch that describes it and the
+ * document this file builds for it. Both are looked up off the version the walk names rather than
+ * beside a roster typed out here, so a version the walk gains has to be answered for in this file
+ * before a matrix below can quietly test one document fewer.
+ */
+function twinForVersion(version: string): { branch: 'payloadV1' | 'payloadV2'; document: ReceiptPayload } {
+  if (version === '1') return { branch: 'payloadV1', document: v1('software', DIGEST) };
+  if (version === '2') return { branch: 'payloadV2', document: v2({ sch: 'none', d: DIGEST }) };
+  throw new Error(`this file has no branch or document for payload version ${version}`);
+}
+
 function twin(payload: ReceiptPayload): unknown {
   return receiptToJson(payload, new Uint8Array(64).fill(3), new Uint8Array(32).fill(4));
 }
@@ -258,13 +312,13 @@ function rewritten(payload: ReceiptPayload, edit: (members: Record<string, unkno
  */
 function rewrittenNested(
   payload: ReceiptPayload,
-  owner: NestedKey,
+  owner: string,
   edit: (members: Record<string, unknown>) => void,
 ): unknown {
   const document = JSON.parse(JSON.stringify(twin(payload))) as {
     payload: Record<string, Record<string, unknown>>;
   };
-  edit(document.payload[owner]!);
+  edit(required(document.payload[owner], `the projection carries no ${owner} map to edit`));
   return document;
 }
 
@@ -310,15 +364,16 @@ describe('the receipt JSON Schema', () => {
     // difference is a member no map names, so a refusal here cannot have arrived for any other
     // reason. Delete a nested `additionalProperties` and the second half of each pair goes red; the
     // first half keeps green, which is the point: the case tests the keyword, not the document.
-    const cases: Array<[ReceiptPayload, NestedKey]> = [
-      [v2({ sch: 'none', d: DIGEST }), 'meas'],
-      [v2({ sch: 'none', d: DIGEST }), 'att'],
-      [v2({ sch: 'none', d: DIGEST }), 'tok'],
-      [v2({ sch: 'none', d: DIGEST }), 'mk'],
-      // `meas`, `att` and `tok` are declared once and shared by both branches through their `allOf`,
-      // so the same definition is asked for on the branch that never sees `mk`.
-      [v1('software', DIGEST), 'tok'],
-    ];
+    //
+    // One case per map per version, read off the structure the walk enforces: `meas`, `att` and `tok`
+    // are declared once and shared by both branches through their `allOf`, so each is asked for on the
+    // branch that never sees `mk` as well as the one that does.
+    const cases: Array<[ReceiptPayload, string]> = Object.entries(definedMaps).flatMap(
+      ([version, defined]) =>
+        Object.keys(defined.nested ?? {}).map(
+          (key): [ReceiptPayload, string] => [twinForVersion(version).document, key],
+        ),
+    );
     for (const [payload, key] of cases) {
       expect(outcome(twin(payload)), `${key} on a document that names only what the format does`).toBeNull();
       expect(
@@ -360,19 +415,19 @@ describe('the receipt JSON Schema', () => {
     // same member names the block does: a twin that named a member the block does not would validate
     // a document the format refuses, and one that dropped a name would refuse a document the format
     // admits. Either drift is invisible to a case built out of the twin's own members, which is why
-    // the list below is read out of the CDDL rather than written a second time here.
-    const blockPerKey: Record<NestedKey, string> = {
-      meas: 'Measurement',
-      att: 'EvidenceRef',
-      tok: 'TokenMetering',
-      mk: 'Marking',
-    };
+    // the maps here are the ones the walk enters and each one's rule name is read off the payload
+    // block that names the member, neither of them written a second time in this file.
+    const rulePerKey = nestedRuleNames(cddl);
     for (const key of NESTED_KEYS) {
-      expect(cddlRule(cddl, blockPerKey[key]).includes('...'), `${blockPerKey[key]} closes`).toBe(false);
+      const rule = required(
+        rulePerKey.get(key),
+        `the walk enters a map at ${key} that no payload block names a rule for`,
+      );
+      expect(cddlRule(cddl, rule).includes('...'), `${rule} closes`).toBe(false);
       expect(
         Object.keys(nestedDefinition(key).properties ?? {}),
         `the twin's ${key} members`,
-      ).toEqual(cddlMembers(cddl, blockPerKey[key]));
+      ).toEqual(cddlMembers(cddl, rule));
       // That the closing keyword sits there is the assertion; that it binds is the case earlier in
       // this file, which hands `validate` the same document with one unnamed member added. A keyword
       // this schema did not define would have failed to compile at all, which is the other guard.
@@ -385,9 +440,15 @@ describe('the receipt JSON Schema', () => {
     saidOnce('the CDDL closure note', prose, "That rule is the format's, not one map's");
     saidOnce('the CDDL closure note', prose, 'below carry no `...` either');
     saidOnce('the CDDL closure note', prose, 'The parser and the JSON twin refuse it at that level');
-    saidOnce('the CDDL closure note', prose, 'every map this file defines closes');
-    for (const block of ['Marking', 'Measurement', 'EvidenceRef', 'TokenMetering']) {
-      expect(prose.includes(`\`${block}\``), `the CDDL names ${block}`).toBe(true);
+    // The conclusion, scoped to what the parser and the twin actually refuse, and the sentence that
+    // keeps the two header maps out of it. A reader of the format takes both from this comment, and
+    // either one drifting back into a claim about every map the file defines is a claim the parser
+    // contradicts on its first read of a header.
+    saidOnce('the CDDL closure note', prose, 'so the payload map and every map nested inside it close, at both versions');
+    saidOnce('the CDDL closure note', prose, 'The two header maps this file also defines, `Ashaveri-Protected-Header` above and the `unprotected` map of `COSE_Sign1-COSE`, sit outside that rule');
+    saidOnce('the CDDL closure note', prose, 'must not assume of either header that an unnamed member makes a document invalid');
+    for (const rule of new Set(rulePerKey.values())) {
+      expect(prose.includes(`\`${rule}\``), `the CDDL names ${rule}`).toBe(true);
     }
     expect(prose).not.toMatch(/\bare open\b/u);
     expect(prose).not.toContain('stops at the payload map');
@@ -503,32 +564,83 @@ describe("the parser's member lists", () => {
     const lists = parserMemberLists();
 
     // The format's side of the pairing, read out of the file: the maps that name their members by
-    // label, which is the kind of map the closure walk speaks of. `Ashaveri-Protected-Header` is a
-    // map and is not one of these, because its keys are the COSE registry's integers and a document
-    // whose key is not a label is refused for not being one rather than matched against a list.
+    // label, which is the kind of map the closure walk speaks of. This file's two header maps are
+    // outside the pairing because they are outside the walk, which enters a payload and the maps below
+    // it and never a header. `Ashaveri-Protected-Header` names its members by the COSE registry's
+    // integers, so the reader below skips it and the assertion after this loop says that the one
+    // skipped name is that header rather than a map whose members were spelled some other way.
+    // `unprotected` is not a rule this reader can find at all, only a `{}` written inside
+    // `COSE_Sign1-COSE`, and the parser takes any map where the format names one.
     const maps = new Map<string, string[]>();
+    const unlabeled: string[] = [];
     for (const rule of cddlMapRuleNames(cddl)) {
       const arms = cddlRuleArms(cddl, rule).map((arm) => labeledMembers(arm));
       const first = required(arms[0], `${rule} declares no block`);
-      if (first.length === 0) continue;
+      if (first.length === 0) {
+        unlabeled.push(rule);
+        continue;
+      }
       // A rule written as a choice between maps is one list's job only while the arms name the same
       // members. `Measurement` differs in the width `m` carries, which is a value rule and not a
-      // member rule; a name that arrived in one arm alone would be a second map standing unbound.
+      // member rule; a name carried by one arm alone would be a second map standing unbound, which
+      // ever way the difference fell.
       for (const [index, arm] of arms.entries()) {
-        expect(arm, `${rule} arm ${index + 1} of ${arms.length} names members its first arm does not`).toEqual(first);
+        const added = arm.filter((member) => !first.includes(member));
+        const dropped = first.filter((member) => !arm.includes(member));
+        expect(
+          arm,
+          `${rule} arm ${index + 1} of ${arms.length} names a different set of members than its first arm, carrying ${added.join(', ') || 'nothing'} the first arm does not and lacking ${dropped.join(', ') || 'nothing'} it does`,
+        ).toEqual(first);
       }
       maps.set(rule, first);
     }
 
+    // The exemption, stated rather than inferred. Skipping a rule with no labelled members is what
+    // takes the protected header out of the derived side above, and a rule whose members are spelled
+    // any way but `[a-z][a-z0-9_]*` is legal CDDL that arrives at the same skip. Naming the skipped
+    // set answers which of the two happened, and a second name landing here is a map to read rather
+    // than a map to miss.
+    expect(unlabeled, 'CDDL map rules whose members this reader does not read as labels').toEqual([
+      'Ashaveri-Protected-Header',
+    ]);
+
     // Both directions of the pairing, which is the point of deriving the format's side instead of
     // typing it. A map with no list behind it is a parser that refuses a member the format defines,
     // and a list bound to a rule nothing defines is a check that can rot where nobody looks; neither
-    // is visible in the other's failure, and a sixth map added next month lands in `maps` by itself.
+    // is visible in the other's failure. A map the format gains reaches `maps` on its own only as far
+    // as this reader reaches, which is to say when it spells its members as the six here do, and a
+    // rule spelled otherwise is caught by the exemption above instead.
     const boundMaps = LIST_FOR_MAP.map((binding) => binding.map);
     expect(new Set(boundMaps).size, 'one map is bound to a parser list twice').toBe(boundMaps.length);
     expect([...maps.keys()].sort(), 'maps the CDDL defines with no parser list bound to them').toEqual([...boundMaps].sort());
     const boundLists = [...new Set(LIST_FOR_MAP.map((binding) => binding.list))];
     expect([...lists.keys()].sort(), 'parser lists bound to no map the CDDL defines').toEqual([...boundLists].sort());
+
+    // The structure the walk reads, which no export can vouch for. Two faults sit here and neither
+    // shows above. An entry spelled out inline beside the list it copies is as correct as that list
+    // until the day the list is edited, so what follows is identity and not equality. A version that
+    // lost its `nested` altogether still binds every exported list to its rule, so the maps each
+    // version enters are compared with the payload members this schema makes into maps, which is the
+    // one roster every matrix in this file and in receipt.test.ts reads.
+    const rulePerKey = nestedRuleNames(cddl);
+    const readers = new Map<string, Array<{ version: string; key: string; members: readonly string[] }>>();
+    for (const [version, defined] of Object.entries(definedMaps)) {
+      const nested = required(defined.nested, `the closure walk enters no map below a version ${version} payload`);
+      const twinMaps = [
+        ...Object.entries(shape.$defs.payloadFields.properties),
+        ...Object.entries(shape.$defs[twinForVersion(version).branch].properties),
+      ]
+        .filter(([, definition]) => definition.type === 'object')
+        .map(([key]) => key);
+      expect(
+        [...Object.keys(nested)].sort(),
+        `the maps version ${version} enters are not the payload members the twin declares as maps`,
+      ).toEqual([...twinMaps].sort());
+      for (const [key, map] of Object.entries(nested)) {
+        const rule = required(rulePerKey.get(key), `no payload block names a rule for the map version ${version} enters at ${key}`);
+        readers.set(rule, [...(readers.get(rule) ?? []), { version, key, members: map.members }]);
+      }
+    }
 
     for (const binding of LIST_FOR_MAP) {
       const list = required(lists.get(binding.list), `${binding.list} is not an export of src/receipt.ts`);
@@ -546,10 +658,20 @@ describe("the parser's member lists", () => {
       // the order the CDDL writes them. Once the two sides agree on which names, that claim gets its
       // own line, so a reordering that leaves the set intact says so instead of going unmentioned.
       expect(enforced, `${binding.list} is in another order than ${binding.map}: ${enforced.join(', ')} against ${defined.join(', ')}`).toEqual(defined);
+      // And the walk reads this very array wherever that rule sits below a payload, which is the
+      // half of the fact the export cannot carry: the list and the CDDL agreeing is no help once the
+      // parser is comparing a document against a copy of the thing it agreed to.
+      for (const reader of readers.get(binding.map) ?? []) {
+        expect(
+          reader.members,
+          `version ${reader.version} reads ${reader.key} against a list that is not the exported ${binding.list} itself`,
+        ).toBe(list);
+      }
     }
 
     // What this cannot see, said plainly rather than implied: a list exported under a name that does
-    // not end in `_MEMBERS`, or one the closure walk never reads, is a fact about `receipt.ts` and
-    // not about a map the format gained.
+    // not end in `_MEMBERS` is a fact about `receipt.ts` and not about a map the format gained, and
+    // the payload level's own member list is read through its export rather than against the walk,
+    // because the v2 entry is built from the shared list plus one name and is a copy on purpose.
   });
 });
