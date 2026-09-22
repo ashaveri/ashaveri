@@ -1,7 +1,10 @@
 import { describe, expect, it } from 'vitest';
+import { readFileSync } from 'node:fs';
+import { fileURLToPath } from 'node:url';
 import { sha256 } from '@noble/hashes/sha2.js';
 import {
   MARKING_MEMBER_NAME,
+  MARKING_SCHEMES,
   PROVENANCE_V1_MEMBER_SCHEME,
   ReceiptError,
   emptyRegion,
@@ -18,6 +21,22 @@ import {
  */
 
 const AT = 1_772_000_000;
+
+/** The specification whose section 3.3 publishes the two rows this file implements. */
+const SPEC_PATH = fileURLToPath(new URL('../../../docs/receipt-spec.md', import.meta.url));
+
+/**
+ * One section of the specification, from its heading to the next heading at either level: the body a
+ * reader of that section actually gets, and nothing a neighbouring section says.
+ */
+function sectionBody(heading: string): string {
+  const lines = readFileSync(SPEC_PATH, 'utf8').split('\n');
+  const start = lines.indexOf(heading);
+  if (start < 0) throw new Error(`${heading} is not a heading in ${SPEC_PATH}`);
+  const rest = lines.slice(start + 1);
+  const end = rest.findIndex((line) => line.startsWith('## ') || line.startsWith('### '));
+  return (end < 0 ? rest : rest.slice(0, end)).join('\n');
+}
 
 function bytes(text: string): Uint8Array {
   return new TextEncoder().encode(text);
@@ -299,6 +318,38 @@ describe('the member a writer builds', () => {
   });
 });
 
+describe('the published registry row', () => {
+  /**
+   * Section 3.3 is the half of this rule that a stranger reads, so it is tested rather than admired:
+   * the labels it lists are the labels this package accepts, and a row that went stale in either
+   * direction is a document telling a detector to look for something no receipt writes, or staying
+   * quiet about one that does.
+   */
+  it('is a numbered section 3.3, which is what the code cites', () => {
+    expect(sectionBody('### 3.3 Marking schemes')).toContain('`mk.sch`');
+  });
+
+  it('lists exactly the schemes this package parses, in the order it declares them', () => {
+    const listed = sectionBody('### 3.3 Marking schemes')
+      .split('\n')
+      .map((line) => /^\| `"([a-z0-9-]+)"` \|/u.exec(line)?.[1])
+      .filter((label): label is string => label !== undefined);
+    expect(listed).toEqual([...MARKING_SCHEMES]);
+  });
+
+  it('carries the member text a writer builds and the namespaced label inside it', () => {
+    const body = sectionBody('### 3.3 Marking schemes').replace(/\s+/gu, ' ');
+    expect(body).toContain(`"sch": "${PROVENANCE_V1_MEMBER_SCHEME}"`);
+    expect(body).toContain('"gen": "ai"');
+    expect(body).toContain('`extractMarkedRegion`');
+  });
+
+  it('names the refusal an unknown label answers, so a reader is not left to invent one', () => {
+    expect(sectionBody('### 3.3 Marking schemes').replace(/\s+/gu, ' ')).toContain('`UNSUPPORTED_SCHEME`');
+  });
+});
+
+/** Where `expectThrows`-style refusals are collected. */
 function expectThrows(action: () => unknown): ReceiptError {
   try {
     action();
