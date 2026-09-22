@@ -1,0 +1,91 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://ashaveri.com/schemas/pack.json",
+  "title": "Ashaveri Evidence Pack (JSON twin of the CBOR/COSE container)",
+  "description": "Display-only projection of the signed COSE_Sign1 pack container. The CBOR bytes are canonical; this JSON form is never signed directly. Byte strings appear as lowercase hex, which is how the receipt's own projection writes them, and a length that is a number of bytes in the CBOR is not the same measure as a JSON string length, so only `minLength` on an id carries a bound the framing states and nothing else here pretends to. Closure is not the manifest's alone: the manifest map and every map it opens, `span`, `chain`, `duty` and each entry of `items`, name their members in the same object, which is where `additionalProperties` applies, so a member the format does not define is refused at that level rather than read and dropped on the way to a verifier. `protectedHeader` carries the three labels the CDDL declares and no more, and this definition carries no closure keyword: that map is read by number, its bytes are what the signature hashes, and a document carrying a fourth label is refused before any projection of it is built. The envelope above it is projected more loosely than the format writes it, and that is a decision rather than a gap: this document requires `protectedHeader` and `payload`, names `signature` without demanding it, and leaves its own root unclosed, so a pack shown before it is signed still shows, while `pack.cddl` requires all four elements of the `COSE_Sign1` and sixty-four bytes in the fourth of them. Requiring the missing one here would refuse a display and not an artifact, which is the same reason the receipt's projection is written the same way. The CBOR tag that wraps the four elements on the wire, tag 18, is stated in `pack.cddl` and cannot be stated here at all, because a JSON object has no tag to carry: a reader who needs the bytes needs the format, and that is where the number is. `art` is not an enum here because the retention-duty registry is a reader's question rather than this file's, which is also why the CDDL writes it `tstr`: a label the reader cannot interpret is refused by the reader that knows the registry, and a format that listed the labels it happens to know would decide a legal question it cannot check. No member states whether the duty was met, and that is the format's decision rather than an omission: a reader holding `at`, `held` and `required` answers it in one comparison, and a conclusion the deployment signed about itself is worth less as evidence than the three integers are. The rules that hold between two members are not spelled out here because no keyword reaches them: that every item's stamp lies inside the span, that the end of the span is no later than the instant assembly began, that the revision the period came from precedes it, that the seconds held are at least the age of the oldest receipt in this pack, that no two items answer to one `id`, that every item of the array is reached from the anchor, and that no instant lies before the epoch and no duration below zero, are all stated in `pack.cddl`, which is where a reader holding this projection has to go to learn them. Nothing in this repository assembles or reads a pack today, so this definition and `pack.cddl` are the layout a verifier can be written against now.",
+  "type": "object",
+  "required": ["protectedHeader", "payload"],
+  "properties": {
+    "protectedHeader": {
+      "type": "object",
+      "required": ["alg", "kid", "typ"],
+      "properties": {
+        "alg": { "const": "EdDSA", "description": "COSE algorithm -8, Ed25519" },
+        "kid": { "type": "string", "pattern": "^[0-9a-f]{64}$", "description": "sha256 of the Ed25519 public key, hex" },
+        "typ": { "const": "ashaveri/pack", "description": "the content type that tells a pack apart from a receipt, which the same key signs" }
+      }
+    },
+    "payload": {
+      "$ref": "#/$defs/manifest",
+      "description": "The signed manifest, and the only part of a pack a verifier has to believe before it starts walking. Exactly one version is defined, so `v` is a constant rather than a discriminant, and a document naming another version is not this one."
+    },
+    "signature": { "type": "string", "pattern": "^[0-9a-f]{128}$", "description": "Ed25519 signature over the Sig_structure, hex" }
+  },
+  "$defs": {
+    "manifest": {
+      "type": "object",
+      "required": ["v", "at", "span", "chain", "duty", "items"],
+      "properties": {
+        "v": { "const": 1, "description": "format version" },
+        "at": { "type": "integer", "description": "unix seconds, the instant assembly began, stamped before the reads so a slow store cannot date a pack later than the window it describes" },
+        "span": { "$ref": "#/$defs/span", "description": "the period the pack answers for, half-open: `from` included, `to` excluded" },
+        "chain": { "$ref": "#/$defs/chain", "description": "the two endpoints a reader walks between, neither of them derivable from the items" },
+        "duty": { "$ref": "#/$defs/duty", "description": "the retention duty the pack answers, and the revision of the mapping the required period was read from" },
+        "items": {
+          "type": "array",
+          "minItems": 1,
+          "items": { "$ref": "#/$defs/item" },
+          "description": "The receipts, at least one. Order in this array carries nothing: a reader follows each item's `prev` to find its predecessor, because retiring a prefix rewrites the front of a chain without touching a surviving record's digest, and the item whose `prev` is the anchor is first while the one whose own digest is the head is last. A pack of nothing would have no first item, so its walk would be vacuous, which is why `minItems` is one and not a courtesy."
+        }
+      },
+      "additionalProperties": false,
+      "description": "A pack manifest and nothing else. The map is closed: a member outside this list is a malformed pack rather than a member a reader agreed to forget, and the same holds of every map below it."
+    },
+    "span": {
+      "type": "object",
+      "required": ["from", "to"],
+      "properties": {
+        "from": { "type": "integer", "description": "unix seconds, included" },
+        "to": { "type": "integer", "description": "unix seconds, excluded: a receipt issued at exactly this stamp belongs to the next pack" }
+      },
+      "additionalProperties": false,
+      "description": "The half-open interval the store served, which is the bound the store's own range query uses. The walk shows that nothing between the first item and the last is missing; this is what shows a reader whether the run they are reading is the period they asked for."
+    },
+    "chain": {
+      "type": "object",
+      "required": ["anchor", "head"],
+      "properties": {
+        "anchor": { "$ref": "#/$defs/hex32", "description": "the digest the first item was chained from: thirty-two zero bytes before any retirement, otherwise the seam a trim record carried" },
+        "head": { "$ref": "#/$defs/hex32", "description": "the digest of the last item in the chain" }
+      },
+      "additionalProperties": false,
+      "description": "Both endpoints inside the signature, which is what gives the walk its meaning. An anchor a reader invented would let a deployment start the walk wherever it liked and a head read off the last item handed over would let it stop there, so a run of receipts the reader was never shown would go unseen. Publishing the head is what makes deletion detectable."
+    },
+    "duty": {
+      "type": "object",
+      "required": ["art", "rev", "required", "held"],
+      "properties": {
+        "art": { "type": "string", "description": "a label from the retention-duty registry, which this estate reads as \"19(1)\", \"19(2)\" and \"26(6)\". Not an enum here because the CDDL admits any tstr: the reader that knows the registry refuses a label outside it, and 19(2) and 26(6) route a financial institution's logs into applicable Union financial-services law, which this format does not interpret." },
+        "rev": { "type": "integer", "description": "unix seconds, the revision of the mapping `required` was read from. The member that makes the other three readable later: a claim made in 2027 is read against the revision it was made from, not against whatever the mapping says the day the artifact is opened." },
+        "required": { "type": "integer", "description": "seconds that revision of the mapping required, which is the deployment's to state and this format supplies no default for" },
+        "held": { "type": "integer", "description": "seconds the store has held the oldest receipt it still retains, measured at `at`. Not derivable from the items, which is the only reason it is stated: a pack covers one span and the duty runs against everything retained." }
+      },
+      "additionalProperties": false,
+      "description": "The duty, the period, the revision the period came from, and the time actually held. Whether the duty was met is absent on purpose: a reader comparing `held` with `required` answers it, and an artifact that states the conclusion beside the evidence invites a reader to stop checking the numbers."
+    },
+    "item": {
+      "type": "object",
+      "required": ["id", "iat", "prev", "receipt"],
+      "properties": {
+        "id": { "type": "string", "minLength": 1, "description": "the store's own id for the receipt, as the record names it. The framing bounds it at 65535 bytes and an empty id belongs to a trim record, which is never an item; `minLength` is the half of that a JSON length can state, and the CBOR is where the byte bound is read." },
+        "iat": { "type": "integer", "description": "unix seconds, the stamp the record was chained at. It has to equal the `iat` the receipt itself attests: the store chains a receipt under the stamp it was handed, so a reader who checked the walk and not this equality would accept a receipt moved into a window it was never issued in." },
+        "prev": { "$ref": "#/$defs/hex32", "description": "the digest of the record before this one, or the anchor for the first item" },
+        "receipt": { "$ref": "#/$defs/hexBytes", "description": "the signed receipt bytes, whole and unaltered, exactly as the record's payload holds them. Each entry verifies on its own as `receipt-v1.schema.json` describes it, and this container adds nothing to what a receipt attests." }
+      },
+      "additionalProperties": false,
+      "description": "One receipt with the three values its record was hashed with, which is all it takes to rebuild that record's frame: the kind byte is 0 for every item, the id length and the record length count bytes that follow them, and the digest the next item names is sha256 over the kind, the predecessor digest, `iat` as eight big-endian bytes, the id length as two big-endian bytes, the id and the receipt bytes."
+    },
+    "hex32": { "type": "string", "pattern": "^[0-9a-f]{64}$" },
+    "hexBytes": { "type": "string", "pattern": "^([0-9a-f]{2})+$" }
+  }
+}
