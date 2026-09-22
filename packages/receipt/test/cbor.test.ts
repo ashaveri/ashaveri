@@ -1,6 +1,8 @@
 import { describe, it, expect } from 'vitest';
-import { encodeCanonical, decodeCanonical } from '../src/cbor.js';
-import { Tag } from 'cbor2';
+import { encodeCanonical, decodeCanonical, decodeClosedDocument } from '../src/cbor.js';
+import { ReceiptError } from '../src/errors.js';
+import { Tag, encode, defaultEncodeOptions, encodedNumber } from 'cbor2';
+import { sortCoreDeterministic } from 'cbor2/sorts';
 
 // Vectors from RFC 8949 Appendix E / well-known canonical encodings.
 const RFC8949_VECTORS: Array<{ name: string; value: unknown; hex: string }> = [
@@ -64,5 +66,133 @@ describe('RFC 8949 core deterministic encoding', () => {
 
   it('rejects non-integer floats in deterministic mode implicitly (integers preferred)', () => {
     expect(Buffer.from(encodeCanonical(1.5)).toString('hex')).toBe('f93e00');
+  });
+});
+
+/** What the package's writer makes of a whole number that JavaScript holds as negative zero. */
+function canonicalHex(value: unknown): string {
+  return Buffer.from(encodeCanonical(value)).toString('hex');
+}
+
+describe('the canonical writer spells negative zero as the integer zero', () => {
+  // The describe block below refuses every floating-point number inside the two documents the format
+  // declares member by member, so while the writer emitted a float for this one value the package was
+  // signing documents it would not read back. `Object.is(value, -0)` is the only test that tells that
+  // value apart from the zero it prints as: `Number.isSafeInteger(-0)` holds and `-0 < 0` does not, so
+  // no integrality or range check downstream could ever have caught it. The bytes are chosen in one
+  // place, for every value at every depth, which is where the rule sits: see `encodeCanonical`.
+  it('at every depth it reaches, in a value and in a key alike', () => {
+    expect(canonicalHex(-0)).toBe('00');
+    expect(canonicalHex(new Map([['iat', -0]]))).toBe('a16369617400');
+    expect(canonicalHex(new Map([['tok', new Map([['p', -0]])]]))).toBe('a163746f6ba1617000');
+    expect(canonicalHex([-0, 0])).toBe('820000');
+    // The key position needs the key to be a composite: a `Map` takes a `-0` key and stores it as the
+    // same key `0` would be, so a primitive negative zero never reaches the writer's key branch at all
+    // and an assertion written that way would stand even with the rule removed. An array key does
+    // reach it, and the map encodes keys through that same writer.
+    expect(canonicalHex(new Map([[[-0, 1], 'v']]))).toBe('a18200016176');
+    // And the rule is only about a value that has an integer spelling. A number that does not still
+    // goes out as the float it is, because coercing it here would be the writer deciding a fact the
+    // format never gave it: `1.5` above and `0.5` here both keep their major type.
+    expect(canonicalHex(new Map([['iat', 0.5]]))).toBe('a163696174f93800');
+  });
+
+  it('writes the same bytes the same document writes with a plain zero', () => {
+    // The pairing stated as one fact: negative zero has one canonical integer spelling and it is the
+    // one `0` gets, so the two documents cannot be told apart by anything that reads them.
+    expect(canonicalHex(new Map([['iat', -0]]))).toBe(canonicalHex(new Map([['iat', 0]])));
+    expect(canonicalHex(new Map([[[-0, 1], 'v']]))).toBe(canonicalHex(new Map([[[0, 1], 'v']])));
+    expect(canonicalHex(new Map([['tok', new Map([['p', -0]])]]))).toBe(canonicalHex(new Map([['tok', new Map([['p', 0]])]])));
+  });
+
+  it('leaves the reader of a declared document something it can read', () => {
+    // The half that the writer alone does not prove: these bytes go through the same option the two
+    // declared documents are read under, and come back as the integer zero rather than as a refusal.
+    // The value is `0` and not `-0`, which is what a client comparing an `iat` against a window sees.
+    const read = decodeClosedDocument(encodeCanonical(-0), 'BAD_PAYLOAD');
+    expect(read).toBe(0);
+    expect(Object.is(read, -0)).toBe(false);
+    // And a document that carries the float anyway — because a stranger wrote it — is still refused.
+    // The writer's rule is not the reader's rule loosened: these are the bytes `f9 80 00`, and the
+    // reader of a declared document takes none of them.
+    expect(codeOf(() => decodeClosedDocument(encodeKeepingTypes(encodedNumber(-0, 'f16')), 'BAD_PAYLOAD'))).toBe('BAD_PAYLOAD');
+  });
+});
+
+/**
+ * Bytes with every number written as the major type it was given: the codec's own canonical writer
+ * cannot produce these, because it writes every whole number as an integer, negative zero included,
+ * which is what the format requires of it. A float reaching a reader at all is therefore something
+ * another implementation wrote, and these are the bytes it would write.
+ */
+function encodeKeepingTypes(value: unknown): Uint8Array {
+  return new Uint8Array(encode(value, { ...defaultEncodeOptions, sortKeys: sortCoreDeterministic }));
+}
+
+function codeOf(read: () => unknown): string {
+  try {
+    read();
+  } catch (err) {
+    return err instanceof ReceiptError ? err.code : `foreign:${String(err)}`;
+  }
+  return 'accepted';
+}
+
+describe('the two documents the format declares member by member', () => {
+  // One rule, three shapes: a float as a value, a float nested one map down, and a float as a key.
+  // The third is the one no later check could reach, because a `Map` compares keys by identity and
+  // the float 1.0 is the same key as the integer 1 by the time anything looks.
+  const floats: Array<[string, unknown]> = [
+    ['half-precision', encodedNumber(2, 'f16')],
+    ['single-precision', encodedNumber(2, 'f32')],
+    ['double-precision', encodedNumber(2, 'f64')],
+    ['negative zero', encodedNumber(-0, 'f16')],
+  ];
+
+  for (const [name, floated] of floats) {
+    it(`refuses a ${name} number in a declared document, wherever it sits`, () => {
+      const atValue = new Map([['iat', floated]]);
+      const nested = new Map([['tok', new Map([['p', floated]])]]);
+      const asKey = new Map<unknown, unknown>([[1, -8], [floated, 'x']]);
+      for (const [shape, bytes] of [
+        ['a value', atValue],
+        ['one map down', nested],
+        ['a key beside the integer it imitates', asKey],
+      ] as const) {
+        expect(codeOf(() => decodeClosedDocument(encodeKeepingTypes(bytes), 'BAD_PAYLOAD')), `${name} as ${shape}`).toBe('BAD_PAYLOAD');
+      }
+    });
+  }
+
+  it('reads an integer, a text string and a byte string in the same positions', () => {
+    // The other half of every case above: a guard that also refused this document would be a
+    // regression dressed as a rule, and these are the kinds the CDDL actually writes.
+    const counts = new Map([['p', 128], ['c', 64]]);
+    const document = new Map<unknown, unknown>([
+      ['iat', 1_772_000_000],
+      ['mdl', 'mock-model-1'],
+      ['nce', new Uint8Array(16).fill(7)],
+      ['tok', counts],
+    ]);
+    const read = decodeClosedDocument(encodeKeepingTypes(document), 'BAD_PAYLOAD');
+    expect(read).toBeInstanceOf(Map);
+    const map = read as Map<string, unknown>;
+    expect(map.get('iat')).toBe(1_772_000_000);
+    expect(map.get('mdl')).toBe('mock-model-1');
+    expect((map.get('nce') as Uint8Array).length).toBe(16);
+    expect((map.get('tok') as Map<string, number>).get('p')).toBe(128);
+    // Encoded by the package's own writer as well, which is the path a real receipt takes.
+    expect(codeOf(() => decodeClosedDocument(encodeCanonical(document), 'BAD_PAYLOAD'))).toBe('accepted');
+  });
+
+  it('leaves the envelope it does not close free to carry one', () => {
+    // `{ * any => any }` in the CDDL is the map the format declines to describe, and it sits outside
+    // the signature. Refusing a float there would be a rule this format does not state, so the
+    // envelope reader takes the same bytes the declared-document reader refuses.
+    const open = new Map<unknown, unknown>([[encodedNumber(1, 'f16'), encodedNumber(2.5, 'f64')]]);
+    const bytes = encodeKeepingTypes(open);
+    expect(codeOf(() => decodeClosedDocument(bytes, 'BAD_PAYLOAD'))).toBe('BAD_PAYLOAD');
+    const read = decodeCanonical(bytes) as Map<unknown, unknown>;
+    expect(read.get(1)).toBe(2.5);
   });
 });

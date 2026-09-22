@@ -1,7 +1,7 @@
 import { ed25519 } from '@noble/curves/ed25519';
 import { sha256 } from '@noble/hashes/sha2.js';
 import { Tag } from 'cbor2';
-import { encodeCanonical, decodeCanonical, decodedMap } from './cbor.js';
+import { encodeCanonical, decodeCanonical, decodeClosedDocument, decodedMap } from './cbor.js';
 import { ReceiptError } from './errors.js';
 
 export const COSE_SIGN1_TAG = 18;
@@ -78,7 +78,12 @@ function labelName(label: unknown): string {
 }
 
 function parseProtectedHeader(bytes: Uint8Array): ProtectedHeader {
-  const raw = decodedMap(decodeCanonical(bytes, 'BAD_PROTECTED_HEADER'));
+  // Read under the closed-document rule, which is what closes this map's labels as well as its
+  // values: a label written as the float `1.0` decodes to the same map key as the integer label `1`
+  // and takes its slot, so a check placed after the decode would be reading one merged entry and
+  // could not tell which of the two labels the bytes carried. Refused here, at the decode, the way
+  // the format's own type rule refuses it.
+  const raw = decodedMap(decodeClosedDocument(bytes, 'BAD_PROTECTED_HEADER'));
   if (raw === null) throw new ReceiptError('BAD_PROTECTED_HEADER', 'not a map');
   // Closed, as the payload maps are, and for the same reason plus one true only here: these bytes are
   // inside the signature, because the `Sig_structure` hashes the protected bstr itself. A label the
