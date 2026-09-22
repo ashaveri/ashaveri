@@ -461,9 +461,20 @@ A verifying client proceeds as follows:
 6. **Check the request hash.** `req` must equal sha256 of the exact bytes the client sent.
 7. **Check the response hash.** `res` must equal sha256 of the exact bytes the client
    received.
-8. **Check policy pins.** Issuer, instance, and measurement must each be pinned by the
+8. **Check the marked region.** A `v: 2` payload names one marking scheme and one digest of a region
+   inside the response, so a reader holding those bytes extracts the region by the rule the label
+   names — section 3.3, whose rows are executable in `extractMarkedRegion` in `@ashaveri/receipt` —
+   and requires `sha256(region)` to equal `mk.d`. Both ways the region fails to be the one attested
+   answer `MARK_MISMATCH`: a `provenance-v1` response carrying the shape twice has no marked region,
+   because a reader would have to choose which one the receipt meant, and so does one carrying it not
+   at all. Under `sch: none` the region is the empty input, whose digest `mk.d` carries, and a
+   response that does carry a marked region is refused over that receipt too. The other two failures
+   keep their own codes: a mark deleted from bytes a reader stored moves `res` and stops at step 7,
+   and `INVALID_SIGNATURE` stays the answer about a receipt that is not authentic. A reader handed no
+   response bytes performs no marking check, and a `v: 1` payload makes no marking claim to check.
+9. **Check policy pins.** Issuer, instance, and measurement must each be pinned by the
    policy when the client pins that dimension.
-9. **Verify the evidence the receipt commits to.** Strict mode only. The client asks the
+10. **Verify the evidence the receipt commits to.** Strict mode only. The client asks the
    gateway for the attestation document whose report data equals
    `sha256(nce, req)`, a value it recomputes rather than reads off the wire, then requires
    that `sha256(document)` equals `att.d`, that the platform signature chains to a pinned
@@ -491,8 +502,8 @@ The SDK exposes three levels:
 | Mode | Behavior |
 |---|---|
 | `off` | No nonce of the client's own, no verification, receipts never fetched. It is not a claim about the wire: a proof-of-possession client still sends `x-ashaveri-nonce`, because the signing wrapper has to put a nonce under the signature and the gateway refuses a PoP request that carries none. |
-| `receipt` | Nonce injected, receipt fetched and verified (steps 1 through 7, step 5 only for a caller that hands the verifier a window). Key resolution uses the deployment manifest. An unreceipted response returns a `null` receipt instead of failing. |
-| `strict` | As `receipt`, plus a required policy (step 2 and 8 with pins, and step 5's two freshness windows, which run at the SDK's shipped defaults unless the policy names its own numbers), an unreceipted response is an error, and the evidence behind step 9 is fetched and verified. |
+| `receipt` | Nonce injected, receipt fetched and verified (steps 1 through 8, step 5 only for a caller that hands the verifier a window). Key resolution uses the deployment manifest. An unreceipted response returns a `null` receipt instead of failing. |
+| `strict` | As `receipt`, plus a required policy (step 2 and 9 with pins, and step 5's two freshness windows, which run at the SDK's shipped defaults unless the policy names its own numbers), an unreceipted response is an error, and the evidence behind step 10 is fetched and verified. |
 
 `receipt` mode proves the response came from the deployment that controls the manifest's
 keys. `strict` mode additionally freezes the deployment's identity: keys, issuer, instance,
