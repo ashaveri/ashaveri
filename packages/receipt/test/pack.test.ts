@@ -47,8 +47,10 @@ interface ObjectSchema {
 
 /** The parts of the twin this file reads: the root prose, the envelope, and every definition. */
 interface PackSchemaShape {
+  additionalProperties?: unknown;
   description: string;
   properties: { protectedHeader: ObjectSchema; payload: ObjectSchema; signature: ObjectSchema };
+  required?: string[];
   $defs: Record<string, ObjectSchema>;
 }
 
@@ -539,6 +541,43 @@ describe('the pack CDDL and its JSON twin', () => {
       'the twin writes a typ the CDDL does not declare',
     ).toBe(packTyp);
     expect(CDDL).not.toContain(receiptTyp);
+    // The tag is one of the things a JSON projection cannot carry, and the projection says where a reader
+    // learns it. The number is tied to the format rather than repeated here, so a tag moving in the
+    // CDDL reddens the projection's sentence about it instead of leaving it confidently wrong.
+    expect(
+      shape.description,
+      `the projection names no tag, or names one the format does not declare, which is ${packTag}`,
+    ).toContain(`tag ${packTag}`);
+  });
+
+  it('leaves the envelope as open as it says it is, and refuses what the format does not', () => {
+    // The looseness is a stated choice, so it is pinned from both ends: the projection requires two
+    // members of an envelope the format builds from four, and the sentence in its own description is
+    // what that gap answers to. Neither half is a discovery — remove the clause and the case that names
+    // it goes red, and close the root or require the signature and the clause stops being true.
+    const envelope = packDocument(CDDL);
+    expect(outcome(envelope), 'a pack envelope with everything the format requires is refused').toBeNull();
+    const unsigned = packDocument(CDDL);
+    delete unsigned.signature;
+    expect(outcome(unsigned), 'a projection that refuses an unsigned pack contradicts its own description').toBeNull();
+    expect(
+      required(shape.required, 'the projection names no required members at its root').slice().sort(),
+      'the projection requires more of an envelope than it says it does',
+    ).toEqual(['payload', 'protectedHeader']);
+    expect(
+      shape.additionalProperties,
+      'the projection closes a root its own description says it leaves open',
+    ).toBeUndefined();
+    // And the format, which is the other half of the sentence: four elements, sixty-four bytes of
+    // signature, a tag around the whole of it.
+    const start = CDDL.indexOf('COSE_Sign1-Pack-COSE = [');
+    if (start < 0) throw new Error(`the signed envelope is not declared in ${packCddlPath}`);
+    const block = CDDL.slice(start, CDDL.indexOf('\n]', start));
+    expect(
+      block.split('\n').filter((line) => /^\s+\w+:/u.test(line)).length,
+      'the signed envelope no longer carries four elements',
+    ).toBe(4);
+    expect(block).toContain('signature: bstr .size 64');
   });
 
   it('says each rule it states in one place', () => {
@@ -587,6 +626,7 @@ describe('the pack CDDL and its JSON twin', () => {
       twin,
       'The rules that hold between two members are not spelled out here because no keyword reaches them',
     );
+    saidOnce('the twin', twin, 'The envelope above it is projected more loosely than the format writes it, and that is a decision rather than a gap');
     saidOnce('the twin', twin, 'Display-only projection of the signed COSE_Sign1 pack container');
     saidOnce('the twin', twin, "Closure is not the manifest's alone");
     saidOnce('the twin', twin, 'this definition carries no closure keyword');
