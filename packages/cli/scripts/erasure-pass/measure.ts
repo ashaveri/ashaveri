@@ -583,6 +583,7 @@ async function runThrottle(
   const gaps = reply.value.gaps as Distribution | undefined;
   const answeredMs = (reply.value.answeredMs as number | undefined) ?? 0;
   const queueWaitMs = (reply.value.queueWaitMs as number | undefined) ?? 0;
+  const workerStartMs = typeof reply.value.workerStartMs === 'number' ? reply.value.workerStartMs : null;
   const units = second === null ? first : [...first, ...second];
   say(
     `  a second ${shape} erasure ${mode === 'reject' ? 'refused' : 'queued'} ${ms(offsetMs)} into the first: ` +
@@ -602,7 +603,7 @@ async function runThrottle(
     peakInFlight: driver.peakInFlight(),
     longestStep: 0,
     batchLines: 0,
-    threadStartMs: null,
+    threadStartMs: workerStartMs,
   };
 }
 
@@ -710,7 +711,10 @@ async function main(): Promise<void> {
         }
         await reportSteps(serving, units, credential, sizeMiB);
         if (sizeMiB === largest) {
-          for (const shape of ['today', 'chunked']) {
+          // Every shape this run measured gets the second request, including a worker: the question a
+          // throttle asks about a thread is whether that thread is busy when the second erasure arrives,
+          // and answering it for two of three shapes would leave the chosen one unasked.
+          for (const shape of options.shapes) {
             // A third of the run measured for this shape: early enough that the first erasure is
             // certainly still going, late enough that it is past its own opening reads.
             const offsetMs = Math.max(5, Math.round((partCost.get(shape) ?? 100) / 3));

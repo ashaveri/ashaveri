@@ -272,6 +272,20 @@ async function throttle(request: Request): Promise<Record<string, unknown>> {
     throw new Error('erasure-pass: a refusal measurement needs parts on both sides');
   }
   if (request.mode === undefined) throw new Error('erasure-pass: a refusal measurement needs a mode');
+  // Started here rather than by the caller so that a second request landing on a worker thread meets one
+  // already running: the question a worker asks about a queued erasure is whether the thread is busy, and
+  // a thread started between the two runs would answer a different question.
+  const workerStartMs = request.shape === 'worker' ? await startWorker() : null;
+  try {
+    return await racedThrough(request, workerStartMs);
+  } finally {
+    await stopWorker();
+  }
+}
+
+async function racedThrough(request: Request, workerStartMs: number | null): Promise<Record<string, unknown>> {
+  const firstDirs = request.firstDirs ?? [];
+  const secondDirs = request.secondDirs ?? [];
   const gaps = watchLoopGaps();
   const first = runPass(request, firstDirs);
   inFlight = first;
@@ -305,6 +319,7 @@ async function throttle(request: Request): Promise<Record<string, unknown>> {
     accepted,
     answeredMs,
     queueWaitMs,
+    workerStartMs,
     gaps: gaps.stop(),
     first: await first,
     second,
