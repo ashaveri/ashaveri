@@ -544,11 +544,12 @@ describe('the pack CDDL and its JSON twin', () => {
   it('says each rule it states in one place', () => {
     const prose = cddlProse(CDDL);
     // The format's own claims, each said once: that the layout is ahead of any generator, that a
-    // member has to earn its place against the items, that the walk rather than the array orders them,
-    // and that a period the deployer states has no default behind it.
+    // member has to earn its place against the receipts inside the container, that the walk rather than
+    // the array orders them, and that a period the deployer states has no default behind it.
     saidOnce('the CDDL', prose, 'Nothing in this repository assembles a pack today');
     saidOnce('the CDDL', prose, 'the container is public whether or not the tool that fills it is');
-    saidOnce('the CDDL', prose, 'Each member passed one test: a reader of the walk needs it, and cannot get it out of the items');
+    saidOnce('the CDDL', prose, 'Each member passed one test: a reader of the pack needs it, and no receipt inside the container carries it');
+    saidOnce('the CDDL', prose, '`v` is the one member no walk consumes');
     saidOnce('the CDDL', prose, 'Order in the array bears nothing');
     saidOnce('the CDDL', prose, 'A pack of nothing has no first node');
     saidOnce('the CDDL', prose, 'Closure is one rule across this file and not a rule about one map');

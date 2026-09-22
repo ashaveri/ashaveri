@@ -38,11 +38,17 @@ Ashaveri-Pack-Protected-Header = {
 }
 
 ; The signed manifest, and the only thing here a verifier of a pack has to believe before it starts
-; walking. Each member passed one test: a reader of the walk needs it, and cannot get it out of the
-; items. That test is why `span`, `chain` and `duty` are here and why the store's window counts, its
-; policy and its retirement history are not — those describe the deployment's retention state, which
-; a retention artifact states and this container carries nothing of. A second copy of a number the
-; deployment already publishes elsewhere is the thing that drifts.
+; walking. Each member passed one test: a reader of the pack needs it, and no receipt inside the
+; container carries it. That test is why `span`, `chain` and `duty` are here and why the store's window
+; counts, its policy and its retirement history are not — those describe the deployment's retention
+; state, which a retention artifact states and this container carries nothing of. A second copy of a
+; number the deployment already publishes elsewhere is the thing that drifts.
+;
+; Two of the six pass in a way the sentence does not fit, and it is worth saying which so that a reader
+; looking for one shape finds what is actually there. `items` is the body the other five make statements
+; about, so the test says little of it. `v` is the one member no walk consumes: a version states which
+; rules the bytes are read under, so a reader needs it before it can read a member of anything, and
+; needing it ahead of the walk is as strong a claim on the manifest as needing it during one.
 ;
 ; `v: 1` is one version, and a version here says what the fields attest rather than which software
 ; wrote them, as it does in `receipt.cddl`. A second version arrives the day a reader would draw a
