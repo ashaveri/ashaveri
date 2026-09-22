@@ -1,9 +1,15 @@
 import {
+  MARKING_MEMBER_NAME,
+  emptyRegion,
   generateSigningKey,
   hashRequest,
   issueReceipt,
+  provenanceV1Member,
   randomNonce,
+  type Marking,
+  type MarkingScheme,
   type ReceiptPayload,
+  type ReceiptPayloadV1,
   type SigningKey,
 } from '@ashaveri/receipt';
 import { sha256 } from '@noble/hashes/sha2.js';
@@ -36,6 +42,19 @@ export interface FakeGatewayOptions {
   readonly streamChunkBytes?: number;
   /** Omit the receipt id response header entirely. */
   readonly omitReceiptHeader?: boolean;
+  /**
+   * Issue a v2 receipt, and mark the response under that scheme when one is named. Absent keeps the
+   * double a v1 gateway, which is what the older suites here expect.
+   *
+   * This double writes the mark the way `gateway/src/marking.ts` does — the member spliced in ahead
+   * of the closing brace of its own object, one chunk carrying an empty `choices` beside the member in
+   * a stream — because both sides take the shape from `@ashaveri/receipt`'s published rule rather than
+   * from each other. The client's verdict is only evidence if the bytes it read are bytes a real
+   * gateway would have written.
+   */
+  readonly marking?: MarkingScheme;
+  /** Write the frame ahead of the sentinel rather than after the last content chunk. */
+  readonly markAfterSentinel?: boolean;
 }
 
 export interface RecordedRequest {
@@ -106,6 +125,45 @@ function sseBody(id: string, created: number, model: string, content: string): s
     `data: ${chunkJson(id, created, model, {}, 'stop')}\n\n` +
     'data: [DONE]\n\n'
   );
+}
+
+/**
+ * The response as a marking gateway would have written it, with the attestation over the region it
+ * added. `none` adds nothing and attests the empty region, which is a claim about the response rather
+ * than an absence of one.
+ */
+function applyMarking(
+  sch: MarkingScheme,
+  body: string,
+  model: string,
+  isStream: boolean,
+  afterSentinel: boolean,
+): { readonly body: string; readonly marking: Marking } {
+  if (sch === 'none') {
+    return { body, marking: { sch: 'none', d: sha256(emptyRegion()) } };
+  }
+  if (!isStream) {
+    const member = `"${MARKING_MEMBER_NAME}":${JSON.stringify(provenanceV1Member(FAKE_IAT))}`;
+    const brace = body.lastIndexOf('}');
+    const comma = body.slice(0, brace).trimEnd().endsWith('{') ? '' : ',';
+    return {
+      body: `${body.slice(0, brace)}${comma}${member}${body.slice(brace)}`,
+      marking: { sch, d: sha256(utf8(member)) },
+    };
+  }
+  const line = `data: ${JSON.stringify({
+    id: FAKE_RECEIPT_ID,
+    object: 'chat.completion.chunk',
+    created: FAKE_IAT,
+    model,
+    choices: [],
+    [MARKING_MEMBER_NAME]: provenanceV1Member(FAKE_IAT),
+  })}`;
+  const frame = `${line}\n\n`;
+  const sentinelAt = body.indexOf('data: [DONE]');
+  const marked =
+    afterSentinel || sentinelAt < 0 ? `${body}${frame}` : `${body.slice(0, sentinelAt)}${frame}${body.slice(sentinelAt)}`;
+  return { body: marked, marking: { sch, d: sha256(utf8(line)) } };
 }
 
 function chunkedStream(text: string, sliceBytes: number): ReadableStream<Uint8Array> {
@@ -239,14 +297,18 @@ export function createFakeGateway(options: FakeGatewayOptions = {}): FakeGateway
           });
       const nonceHeader = headers.get('x-ashaveri-nonce');
       const nonce = nonceHeader !== null ? fromBase64Url(nonceHeader) : randomNonce();
-      let payload: ReceiptPayload = {
-        v: 1,
+      const marked =
+        options.marking === undefined
+          ? undefined
+          : applyMarking(options.marking, responseBody, requestModel, isStream, options.markAfterSentinel === true);
+      const attestedBody = marked?.body ?? responseBody;
+      const fields: Omit<ReceiptPayloadV1, 'v'> = {
         iss: issuer,
         ins: instance,
         iat: FIXED_IAT,
         nce: nonce,
         req: hashRequest(utf8(body)),
-        res: hashRequest(utf8(responseBody)),
+        res: hashRequest(utf8(attestedBody)),
         mdl: requestModel,
         wts: hashRequest(utf8(`weights:${requestModel}`)),
         meas: { tee: 'software', m: hashRequest(utf8('fake-measurement')) },
@@ -254,9 +316,13 @@ export function createFakeGateway(options: FakeGatewayOptions = {}): FakeGateway
         epk: 0,
         tok: { p: FAKE_PROMPT_TOKENS, c: FAKE_COMPLETION_TOKENS },
       };
+      let payload: ReceiptPayload =
+        marked === undefined
+          ? { v: 1, ...fields }
+          : { v: 2, ...fields, mk: marked.marking };
       payload = options.mutatePayload?.(payload) ?? payload;
       receipts.set(FAKE_RECEIPT_ID, issueReceipt(payload, key));
-      const finalBody = options.mutateResponseBody?.(responseBody) ?? responseBody;
+      const finalBody = options.mutateResponseBody?.(attestedBody) ?? attestedBody;
       const responseHeaders: Record<string, string> = {
         'content-type': isStream ? 'text/event-stream' : 'application/json',
       };

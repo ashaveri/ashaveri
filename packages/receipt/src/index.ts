@@ -40,6 +40,8 @@ export {
   MEASUREMENT_BYTES,
   isTeeKind,
   claimsConfidentialDevice,
+  isMarkingScheme,
+  MARKING_SCHEMES,
 } from './receipt.js';
 export type {
   ReceiptPayload,
@@ -57,5 +59,14 @@ export type {
 } from './receipt.js';
 export { ReceiptError } from './errors.js';
 export type { ReceiptErrorCode } from './errors.js';
+export {
+  MARKING_MEMBER_NAME,
+  PROVENANCE_V1_MEMBER_SCHEME,
+  emptyRegion,
+  extractMarkedRegion,
+  markingInsertionPoint,
+  provenanceV1Member,
+} from './marking.js';
+export type { ProvenanceV1Member } from './marking.js';
 export { receiptToJson, receiptBytesToJson, toHex } from './json.js';
 export type { ReceiptJson } from './json.js';

@@ -75,11 +75,13 @@ async function checkedReceiptStep(
     throw new Error(`the fake gateway refused its own completion with ${String(response.status)}`);
   }
   const session = new GatewaySession(FAKE_BASE_URL, { fetchImpl: gateway.fetch, policy });
+  const responseBytes = new Uint8Array(await response.arrayBuffer());
   return session.verifyReceipted({
     receiptBytes: await session.receiptBytes(FAKE_RECEIPT_ID),
     nonce,
     requestHash: hashRequest(new TextEncoder().encode(body)),
-    responseHash: hashRequest(new Uint8Array(await response.arrayBuffer())),
+    responseHash: hashRequest(responseBytes),
+    responseBytes,
     now: NOW_MS,
   });
 }

@@ -80,6 +80,7 @@ jobs:
       - run: pnpm -C packages/fixtures generate:pop
       - run: pnpm -C packages/fixtures generate:req
       - run: pnpm -C packages/fixtures generate:res
+      - run: pnpm -C packages/fixtures generate:marking
       - run: pnpm -C packages/fixtures generate:chain
       - run: git diff --exit-code packages/fixtures/data
 

@@ -2,7 +2,9 @@
 
 Status: Draft, payload versions 1 and 2. The binary format is normatively defined by
 [`packages/receipt/receipt.cddl`](../packages/receipt/receipt.cddl) and the golden conformance
-vectors in `@ashaveri/fixtures`, which are v1 documents. This document specifies the format
+vectors in `@ashaveri/fixtures`. Which suites and fixtures are published, and which payload version
+each of the receipt fixtures carries, is stated once in the inventory in
+[vectors.md](vectors.md) rather than restated file by file here. This document specifies the format
 together with the HTTP protocol used to deliver receipts, and the algorithm clients follow to
 verify them. Section 6 says which payload versions a verifier reads.
 
@@ -95,7 +97,7 @@ countersignature variants (RFC 9338), if ever needed, would be a new format vers
 | `att` | map | `{ d, ts, url }`: digest of the attestation evidence document, its timestamp (Unix seconds) — the moment the evidence was collected, which is the instant a verifier's evidence window is measured from, and is earlier than `iat` on a deployment that quotes per request — and a URL where the evidence can be fetched and re-verified. |
 | `epk` | int | Signing-key epoch, for key rotation. A gateway publishes the value it was started with (`--epk` on signerd) and never changes it, so rotating a key means a new process with a higher epoch. |
 | `tok` | map | `{ p, c }`: prompt and completion token counts for the call, as the serving stack reported them. A receipt proves who claimed a count, not that the count is right. |
-| `mk` | map | `{ sch, d }`: the marking attestation, and the only member `v: 2` adds to the thirteen above, where `v: 1` carries no `mk` at all because the closed map named in the row above refuses a v1 document that does. It is required in v2, so an absent `mk` is a malformed payload (`BAD_PAYLOAD`) rather than a reading of "unmarked": unmarked is a declared value of `sch`, never an omitted member. `d` is sha256 of the marked region exactly as the response bytes carry it, not of the whole response. The shape is `Marking` in [`receipt.cddl`](../packages/receipt/receipt.cddl), and the label set `sch` draws on is a registry question this document does not settle. |
+| `mk` | map | `{ sch, d }`: the marking attestation, and the only member `v: 2` adds to the thirteen above, where `v: 1` carries no `mk` at all because the closed map named in the row above refuses a v1 document that does. It is required in v2, so an absent `mk` is a malformed payload (`BAD_PAYLOAD`) rather than a reading of "unmarked": unmarked is a declared value of `sch`, never an omitted member. `d` is sha256 of the marked region exactly as the response bytes carry it, not of the whole response. The shape is `Marking` in [`receipt.cddl`](../packages/receipt/receipt.cddl), and which labels `sch` draws on, with the bytes each one marks, is section 3.3. |
 
 All integers are non-negative. Every one of them is a CBOR integer as well: the payload is decoded
 where no floating-point number may appear, at any depth, so a `tok.p` written as the float `128.0` and
@@ -153,6 +155,66 @@ is valid: a 48-byte digest claiming `"software"` and a 32-byte digest claiming a
 malformed. Enforcing the width per kind is what keeps a deployment from making a hardware claim
 it cannot produce hardware evidence for. `"software"` exists so a deployment with no TEE can say
 so in the same field without borrowing a value it does not own.
+
+### 3.3 Marking schemes
+
+`mk.sch` is a label from this table and from nothing else. What a label marks is settled here, in a
+document a stranger may read, rather than inside the software that writes a mark: a detector
+belonging to a customer, an auditor or a competitor has to arrive at the same span of bytes that the
+receipt digested, and a writer that hashes one span while a reader hashes another agree with
+themselves and disagree with each other, with nothing to show for it but a digest that does not match
+over bytes nobody edited. `extractMarkedRegion` in `@ashaveri/receipt` is the executable form of these
+two rows, and it is the module the gateway writes from and the live client checks with, so the
+published rule and the running one are one rule.
+
+| `mk.sch` | What it declares | What a verifier looks for, and what `d` is the digest of |
+|---|---|---|
+| `"none"` | No region of this response carries a marking, which is a claim about the bytes rather than an absence of a field | No `provenance-v1` region in the response at all. The marked region is the empty input, and `d` is sha256 of zero bytes. A response that does carry a marked region is refused over a `"none"` receipt, so a backend that marks its own output bites a deployment that marks nothing. |
+| `"provenance-v1"` | The response carries one machine-readable marking, and that marking says the content it accompanies was generated | Exactly one region, and `d` is sha256 of exactly its bytes and of nothing beside them. In a buffered completion the region is one top-level member: its name, its colon and its value, spelled as the body carries them. In a stream the region is one `data:` field line, its terminator excluded, whose payload is a completion chunk carrying an empty `choices` beside that same member. |
+
+The marked region of a `provenance-v1` response is this member:
+
+```json
+"ashaveri": { "marking": { "sch": "ashaveri/provenance-v1", "gen": "ai", "at": 1772000000 } }
+```
+
+`gen` says the accompanying content was generated, `at` is the marking time in whole Unix seconds,
+and the whole number is load-bearing because the member's own text is what `d` hashes: a fraction, or
+the negative zero a floating-point spelling keeps, would be baked into the digest as a document no
+reader can reproduce from a timestamp.
+
+Four things follow from the table, and a detector needs them all:
+
+- **The frame is a chunk, not a bare frame.** The `choices` array has to be present and empty, which is
+  what makes the marking one more chunk to anything accumulating a completion off a stream. Measured,
+  not assumed: a frame that is neither a chunk nor the sentinel is delivered whole by that accumulator's
+  iterator and then breaks it, after content has already reached the caller
+  (`packages/sdk/test/unknown-response-members.test.ts`). A mark that costs the customer their
+  completion is not a mark.
+- **Exactly one region, so two is a refusal.** A response carrying the shape twice — which is what an
+  upstream that marks its own output writes — has no marked region, because a verifier would have to
+  choose which one the receipt meant. Zero and two are both answered `MARK_MISMATCH`, the code the
+  field exists to have, and neither is ever `INVALID_SIGNATURE`.
+- **A label is bound to one byte shape for as long as it exists.** A shape change takes a new label
+  rather than re-pointing an old one, because a detector that read the first spelling would read the
+  second one's bytes and find them satisfactory. An unknown label is `UNSUPPORTED_SCHEME`, raised by the
+  parser before a payload is read, which is the refusal that stops a verifier guessing at a rule it has
+  never been given. Adding a scheme is one row above and one entry in `MARKING_SCHEMES`
+  (`packages/receipt/src/receipt.ts`); it is not a payload version, and `v` does not move for it.
+- **Two spellings, one scheme.** The registry label is `provenance-v1`; the member carries
+  `ashaveri/provenance-v1`. They are one scheme written for two readers: the member is bytes of a
+  transcript that anyone may republish, where a name worth looking up needs an owner beside it, and
+  `mk.sch` is a field of a document that already names its issuer in `iss`. Locating a region is
+  structural and never reads that text; the text is what tells this marking apart from an unrelated
+  extension of somebody else's that happens to share the member name.
+
+What the registry does not do is certify a mark. A region bearing a known label is not thereby
+genuine: anyone can type the member, and a mark standing alone in a transcript is a string with no
+verifier. What makes one this deployment's is `d` inside a signed payload whose `res` covers the bytes
+around it, which is why the pair is checked together and why neither half is the evidence on its own.
+And what a verifier needs is the bytes: a reader holding the words alone, pasted out of a chat window
+or retyped, has no region to look for, which section 6 of [threat-model.md](threat-model.md) states as
+a limit rather than as a gap on a roadmap.
 
 ## 4. HTTP protocol
 
@@ -401,9 +463,20 @@ A verifying client proceeds as follows:
 6. **Check the request hash.** `req` must equal sha256 of the exact bytes the client sent.
 7. **Check the response hash.** `res` must equal sha256 of the exact bytes the client
    received.
-8. **Check policy pins.** Issuer, instance, and measurement must each be pinned by the
+8. **Check the marked region.** A `v: 2` payload names one marking scheme and one digest of a region
+   inside the response, so a reader holding those bytes extracts the region by the rule the label
+   names — section 3.3, whose rows are executable in `extractMarkedRegion` in `@ashaveri/receipt` —
+   and requires `sha256(region)` to equal `mk.d`. A region that fails to be exactly one answers
+   `MARK_MISMATCH` either way: a `provenance-v1` response carrying the shape twice has no marked
+   region, because a reader would have to choose which one the receipt meant, and so has one carrying
+   it not at all. Under `sch: none` the region is the empty input, whose digest `mk.d` carries, and a
+   response that does carry a marked region is refused over that receipt too. The other two failures
+   keep their own codes: a mark deleted from bytes a reader stored moves `res` and stops at step 7,
+   and `INVALID_SIGNATURE` stays the answer about a receipt that is not authentic. A reader handed no
+   response bytes performs no marking check, and a `v: 1` payload makes no marking claim to check.
+9. **Check policy pins.** Issuer, instance, and measurement must each be pinned by the
    policy when the client pins that dimension.
-9. **Verify the evidence the receipt commits to.** Strict mode only. The client asks the
+10. **Verify the evidence the receipt commits to.** Strict mode only. The client asks the
    gateway for the attestation document whose report data equals
    `sha256(nce, req)`, a value it recomputes rather than reads off the wire, then requires
    that `sha256(document)` equals `att.d`, that the platform signature chains to a pinned
@@ -431,8 +504,8 @@ The SDK exposes three levels:
 | Mode | Behavior |
 |---|---|
 | `off` | No nonce of the client's own, no verification, receipts never fetched. It is not a claim about the wire: a proof-of-possession client still sends `x-ashaveri-nonce`, because the signing wrapper has to put a nonce under the signature and the gateway refuses a PoP request that carries none. |
-| `receipt` | Nonce injected, receipt fetched and verified (steps 1 through 7, step 5 only for a caller that hands the verifier a window). Key resolution uses the deployment manifest. An unreceipted response returns a `null` receipt instead of failing. |
-| `strict` | As `receipt`, plus a required policy (step 2 and 8 with pins, and step 5's two freshness windows, which run at the SDK's shipped defaults unless the policy names its own numbers), an unreceipted response is an error, and the evidence behind step 9 is fetched and verified. |
+| `receipt` | Nonce injected, receipt fetched and verified (steps 1 through 8, step 5 only for a caller that hands the verifier a window). Key resolution uses the deployment manifest. An unreceipted response returns a `null` receipt instead of failing. |
+| `strict` | As `receipt`, plus a required policy (step 2 and 9 with pins, and step 5's two freshness windows, which run at the SDK's shipped defaults unless the policy names its own numbers), an unreceipted response is an error, and the evidence behind step 10 is fetched and verified. |
 
 `receipt` mode proves the response came from the deployment that controls the manifest's
 keys. `strict` mode additionally freezes the deployment's identity: keys, issuer, instance,

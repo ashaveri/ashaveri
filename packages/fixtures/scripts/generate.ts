@@ -6,6 +6,7 @@ import {
   decodeReceipt,
   encodePayload,
   signCoseSign1,
+  type ReceiptPayloadV2,
   type SigningKey,
   type ReceiptPayloadV1,
 } from '@ashaveri/receipt';
@@ -13,6 +14,7 @@ import { writeFileSync, mkdirSync } from 'node:fs';
 import { join, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { labeled } from './seed.ts';
+import { markedBuffered } from './marking-shapes.ts';
 
 const DATA = join(dirname(fileURLToPath(import.meta.url)), '..', 'data');
 
@@ -29,9 +31,10 @@ function fixtureKey(): SigningKey {
 const FIXED_IAT = 1_772_000_000;
 
 /**
- * Every vector this script writes is a v1 receipt, so the helper names that version rather than the
- * union. `v` is pinned in the literal below and an override cannot move a published fixture into a
- * format its bytes never claimed.
+ * The v1 field set every published receipt fixture starts from, so the helper names that version
+ * rather than the union. `v` is pinned in the literal below and an override cannot move a published
+ * fixture into a format its bytes never claimed: the one v2 fixture states `v: 2` at its own call
+ * site, beside the `mk` that makes it a v2, and never reaches for it through here.
  */
 function fixturePayload(overrides: Partial<ReceiptPayloadV1> = {}): ReceiptPayloadV1 {
   return {
@@ -73,9 +76,31 @@ function main() {
   const tampered = new Uint8Array(validBytes);
   tampered[tampered.length - 1]! ^= 0x01;
 
+  /**
+   * A marked v2 receipt over the same bytes `marking-v1.json` publishes for the buffered shape, so the
+   * two suites check each other: `res` is sha256 of the whole response and `mk.d` is sha256 of the one
+   * member inside it, and a port that gets either span wrong disagrees with one file or the other.
+   * Nothing here invents a third spelling of the mark — the response and its region come from the same
+   * builder the vector generator uses.
+   */
+  const markedResponse = markedBuffered();
+  const markedPayload: ReceiptPayloadV2 = {
+    ...fixturePayload({ res: sha256(new TextEncoder().encode(markedResponse.response)) }),
+    v: 2,
+    mk: { sch: 'provenance-v1', d: sha256(new TextEncoder().encode(markedResponse.region)) },
+  };
+  const markedBytes = issueReceipt(markedPayload, key);
+
   const vectors: Array<{ name: string; bytes: Uint8Array; expected: string; twin: boolean; note?: string }> = [
     { name: 'receipt-valid-v1', bytes: validBytes, expected: 'verify-ok', twin: true },
     { name: 'receipt-software-v1', bytes: softwareBytes, expected: 'verify-ok', twin: true },
+    {
+      name: 'receipt-marked-v2',
+      bytes: markedBytes,
+      expected: 'verify-ok',
+      twin: true,
+      note: 'A v2 receipt carrying `mk`: its `res` is sha256 of the marked buffered response and its `mk.d` is sha256 of the one marking member inside those same bytes, both the bytes marking-v1.json publishes for the buffered shape.',
+    },
     {
       name: 'receipt-meas-mismatch-v1',
       bytes: mismatchBytes,

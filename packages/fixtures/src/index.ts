@@ -264,3 +264,44 @@ export interface ChainVectorFile {
 export function loadChainVectors(): ChainVectorFile {
   return JSON.parse(readFileSync(join(DATA, 'chain-v1.json'), 'utf8')) as ChainVectorFile;
 }
+
+/** One marking case: the bytes a reader holds, the span its receipt attests, and the verdict. */
+export interface MarkingVector {
+  name: string;
+  note: string;
+  shape: 'buffered' | 'streamed';
+  sch: string;
+  responseBase64Url: string;
+  responseByteLength: number;
+  /** The span whose digest the receipt carries in `mk.d`. The empty string is the region of `none`. */
+  attestedRegionBase64Url: string;
+  attestedRegionByteLength: number;
+  /** What the published rule locates, or null where it locates no single region. */
+  foundRegionBase64Url: string | null;
+  foundRegionByteLength: number | null;
+  dHex: string;
+  expected: string;
+}
+
+export interface MarkingVectorFile {
+  version: number;
+  description: string;
+  rule: {
+    registry: string;
+    executable: string;
+    schemes: string[];
+    digestField: string;
+    algorithm: string;
+    input: string;
+    candidates: string;
+    member: { name: string; sch: string; gen: string; at: number; note: string };
+    encodings: string;
+    note: string;
+  };
+  vectors: MarkingVector[];
+}
+
+/** The marked region a receipt digests in `mk.d`, for both response shapes, and its refusals. */
+export function loadMarkingVectors(): MarkingVectorFile {
+  return JSON.parse(readFileSync(join(DATA, 'marking-v1.json'), 'utf8')) as MarkingVectorFile;
+}

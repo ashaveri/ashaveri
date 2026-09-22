@@ -85,13 +85,17 @@ export function wrapOpenAI<T extends object>(client: T, options: WrapOptions = {
     const session = sessionFor(baseUrl);
     const [toClient, toHasher] = response.body.tee();
     const verification: Promise<VerifiedReceipt> = (async () => {
-      const responseHash = await hashStream(toHasher);
+      // `responseBytes` is the whole body this branch of the tee read, which this call already held
+      // in order to digest it. Keeping it costs no buffering and no latency; dropping it is what
+      // would leave the marking claim unchecked on the path that runs the official client.
+      const { responseBytes, responseHash } = await digestStream(toHasher);
       const receiptBytes = await session.receiptBytes(receiptId);
       const { receipt } = await session.verifyCompletion({
         receiptBytes,
         nonce,
         requestHash,
         responseHash,
+        responseBytes,
         verifyEvidence: mode === 'strict',
         now: options.now?.(),
       });
@@ -151,7 +155,14 @@ function chatCompletionsBase(url: string): string | undefined {
   return url.slice(0, url.length - CHAT_COMPLETIONS_MARKER.length);
 }
 
-async function hashStream(stream: ReadableStream<Uint8Array>): Promise<Uint8Array> {
+/**
+ * Everything a verifier needs from a response body: the bytes themselves and their digest. The bytes
+ * are the marked region's only witness, so a wrapper that hashed and discarded them could confirm a
+ * signature over a response whose mark it never looked at.
+ */
+async function digestStream(
+  stream: ReadableStream<Uint8Array>,
+): Promise<{ readonly responseBytes: Uint8Array; readonly responseHash: Uint8Array }> {
   const reader = stream.getReader();
   const parts: Uint8Array[] = [];
   for (;;) {
@@ -168,5 +179,5 @@ async function hashStream(stream: ReadableStream<Uint8Array>): Promise<Uint8Arra
     out.set(part, offset);
     offset += part.length;
   }
-  return hashRequest(out);
+  return { responseBytes: out, responseHash: hashRequest(out) };
 }

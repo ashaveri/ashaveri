@@ -1,7 +1,14 @@
 #!/usr/bin/env node
 import { readFileSync, statSync } from 'node:fs';
 import { parseArgs } from 'node:util';
-import { MEASUREMENT_BYTES, POP_TIMESTAMP_TOLERANCE_SECONDS, type TeeKind } from '@ashaveri/receipt';
+import {
+  MARKING_SCHEMES,
+  MEASUREMENT_BYTES,
+  POP_TIMESTAMP_TOLERANCE_SECONDS,
+  isMarkingScheme,
+  type MarkingScheme,
+  type TeeKind,
+} from '@ashaveri/receipt';
 import { buildGateway } from './server.js';
 import {
   AccessError,
@@ -65,6 +72,20 @@ Options:
   --tee <environment>              Refuse to start unless the evidence agrees.
                                    One of snp, snp+gpucc, tdx, tdx+gpucc; the
                                    composite kinds also require a device report.
+  --marking <scheme>               What every completion this process serves is
+                                   marked with, from the scheme registry published
+                                   in docs/receipt-spec.md. One of none (the
+                                   default), provenance-v1. none adds no byte to
+                                   a customer's response and signs a receipt saying
+                                   so; provenance-v1 writes a machine-readable
+                                   marking member into the response and signs its
+                                   digest. Which of the two to run is this
+                                   deployment's decision, and so is whatever duty a
+                                   marking is meant to answer to: this gateway
+                                   marks content and attests what it marked, and
+                                   proves nothing to a reader holding only text. A
+                                   response whose shape cannot carry the mark is
+                                   refused rather than served unmarked.
   --receipts-dir <path>            Keep issued receipts in this directory across
                                    restarts, hashed into a chain so a removal
                                    shows. The directory must already exist, so a
@@ -130,6 +151,7 @@ interface CliOptions {
   readonly issuer?: string;
   readonly instance?: string;
   readonly tee?: string;
+  readonly marking?: string;
   readonly 'receipts-dir'?: string;
   readonly 'credentials-path'?: string;
   readonly 'access-log-path'?: string;
@@ -225,6 +247,7 @@ try {
       issuer: { type: 'string' },
       instance: { type: 'string' },
       tee: { type: 'string' },
+      marking: { type: 'string', default: 'none' },
       'receipts-dir': { type: 'string' },
       'credentials-path': { type: 'string' },
       'access-log-path': { type: 'string' },
@@ -305,6 +328,14 @@ if (accessLogPath !== undefined && !isDirectory(accessLogPath)) {
   fail('--access-log-path must name an existing directory, so a volume you forgot to mount is a refusal and not a log on the root filesystem');
 }
 const allowBearer = values['allow-bearer'] === true;
+// The registry this process can mark with is the receipt package's accepted set, read off it rather
+// than copied here: a label added there has to be startable without a second edit an operator could
+// forget, and a flag that took any other text would name a marking no verifier can look for.
+const givenMarking = values.marking as string;
+if (!isMarkingScheme(givenMarking)) {
+  fail(`--marking must be one of ${MARKING_SCHEMES.join(', ')}, got '${givenMarking}'`);
+}
+const marking: MarkingScheme = givenMarking;
 const toleranceSeconds = wholeNumber(
   values['pop-tolerance'],
   'pop-tolerance',
@@ -404,7 +435,7 @@ try {
 const backend: CompletionBackend =
   values.upstream === undefined ? mockBackend() : upstreamBackend({ baseUrl: values.upstream });
 
-const app = buildGateway({ deployment, backend, store, access, accessLog });
+const app = buildGateway({ deployment, backend, store, access, accessLog, marking });
 await app.listen({ port, host });
 // One decision about the run's mode, read by both lines that describe it below, so neither can claim
 // a mode the process is not in.
@@ -415,6 +446,14 @@ const kept =
   receiptsDir === undefined
     ? 'receipts kept in this process only, and gone on restart'
     : `receipts kept in ${receiptsDir} for ${Math.round(MINIMUM_RETENTION_SECONDS / 86_400)} days, up to ${String(MAX_SERVED_RECEIPTS)} at a time`;
+// The marking a deployment runs is reported as this process installed it, in both settings, because
+// the one that changes what a customer sees is the one worth reading at a start-up log: a response
+// whose shape cannot carry the mark is refused here rather than served unmarked, and that is a thing
+// an operator should know before traffic arrives.
+const markingLabel =
+  marking === 'none'
+    ? 'marking: none, so no byte of a customer response is added here and every receipt says so'
+    : `marking: ${marking}, so every completion carries its marking member, a response that cannot carry one is refused, and any duty a marking answers to stays this deployment's own`;
 // `--port 0` leaves the choice to the operating system, and this report is the only place a reader
 // learns where the process actually is, so the number comes off the listener rather than off the flag.
 const listening = app.server.address();
@@ -446,6 +485,7 @@ const lines: string[] = [
   `signerd (${label}) listening on http://${host}:${boundPort}`,
   `  issuer ${deployment.issuer} instance ${deployment.instance}`,
   `  ${kept}`,
+  `  ${markingLabel}`,
   allowBearer
     ? '  auth: bearer credentials also accepted, which is a refusal of the strongest posture here: a stolen bearer credential is undetectable, and a log record cannot tell its holder from a thief'
     : `  auth: proof of possession, timestamps trusted within ${String(toleranceSeconds)} seconds; bearer credentials refused`,

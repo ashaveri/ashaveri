@@ -1,4 +1,12 @@
-import { equalBytes, verifyReceipt, type VerifiedReceipt } from '@ashaveri/receipt';
+import {
+  equalBytes,
+  extractMarkedRegion,
+  hashRequest,
+  ReceiptError,
+  verifyReceipt,
+  type ReceiptPayloadV2,
+  type VerifiedReceipt,
+} from '@ashaveri/receipt';
 import { toHex } from './b64.js';
 import { SdkError } from './errors.js';
 import type { AshaveriPolicy } from './policy.js';
@@ -9,6 +17,17 @@ export interface VerifyCompletionParams {
   readonly nonce: Uint8Array;
   readonly requestHash: Uint8Array;
   readonly responseHash: Uint8Array;
+  /**
+   * The response bytes themselves, not only their digest. Required rather than optional so that a
+   * live verification cannot be run in a shape that quietly skips the marking check: a v2 receipt
+   * attests a region inside these bytes, and the only way to honour that claim is to read it off the
+   * bytes the caller received.
+   *
+   * The caller has to hand the same bytes it hashed into `responseHash`. That is checked rather than
+   * assumed for a receipt that carries a marking claim, because a region lifted out of bytes the
+   * receipt does not attest would be a verdict on the wrong document.
+   */
+  readonly responseBytes: Uint8Array;
   readonly verifyKey: Uint8Array;
   readonly policy?: AshaveriPolicy;
   /** Wall clock in milliseconds since the epoch; defaults to Date.now. */
@@ -19,6 +38,11 @@ export interface VerifyCompletionParams {
  * Verifies a receipt against everything the client observed on the wire:
  * the signing key, the nonce it sent, and the exact request/response body
  * bytes it sent and received. Throws SdkError or ReceiptError on failure.
+ *
+ * The response bytes are checked twice, and the second check is the marking claim: a v2 receipt
+ * carries `mk.d`, the digest of one region inside the response, and it is verified here rather than
+ * left to someone who kept the bytes and thought to look. The signature and the payload checks come
+ * first, so this only ever runs over a document that is authentic.
  *
  * With a policy, this is where the two freshness windows close: the policy's own numbers if it
  * names them, the defaults in `policy.ts` if it does not. With no policy, no window runs.
@@ -62,6 +86,9 @@ export function verifyCompletionReceipt(params: VerifyCompletionParams): Verifie
       `receipt response hash ${toHex(payload.res)} does not match the response that was received (${toHex(params.responseHash)})`,
     );
   }
+  if (payload.v === 2) {
+    verifyMarkedRegion(payload, params.responseBytes);
+  }
   if (policy?.issuers !== undefined && !policy.issuers.includes(payload.iss)) {
     throw new SdkError('ISSUER_NOT_ALLOWED', `receipt issuer '${payload.iss}' is not pinned by the policy`);
   }
@@ -76,4 +103,41 @@ export function verifyCompletionReceipt(params: VerifyCompletionParams): Verifie
     );
   }
   return verified;
+}
+
+/**
+ * The marking claim of a v2 receipt, read off the bytes this call was handed.
+ *
+ * Three checks in this order, and the order carries the meaning. The response digest is recomputed
+ * over the bytes first, so a region taken from a document the receipt does not attest cannot become a
+ * verdict: the `responseHash` check above proves the caller's digest matches the receipt, and this
+ * proves the bytes it was handed are the bytes that digest was taken over. Two failures of that check
+ * look alike to a caller and are not the same event, so the message names which side moved. The
+ * region is then extracted by the rule its own label names, held by `@ashaveri/receipt` rather than
+ * duplicated here, which is what makes the client's verdict and a third party's detector verdict
+ * about the same bytes. Finally the region's digest is compared.
+ *
+ * A v1 receipt never reaches this function, because it carries no `mk` and so makes no claim to
+ * check. That asymmetry is the format's, not a relaxation added here.
+ *
+ * The codes are the format package's. `MARK_MISMATCH` is what a reader needs in order to tell "the
+ * marking does not match" apart from "the receipt is not authentic", which stays
+ * `INVALID_SIGNATURE`'s meaning alone; the refusal of a label no verifier can interpret is
+ * `UNSUPPORTED_SCHEME`, already raised by the parser before a payload reaches this point. Nothing
+ * here adds to `SdkError`'s vocabulary beyond the response-digest refusal it already had.
+ */
+function verifyMarkedRegion(payload: ReceiptPayloadV2, responseBytes: Uint8Array): void {
+  if (!equalBytes(hashRequest(responseBytes), payload.res)) {
+    throw new SdkError(
+      'RESPONSE_HASH_MISMATCH',
+      `the response bytes handed for the marking check do not hash to the digest the receipt attests (${toHex(payload.res)})`,
+    );
+  }
+  const region = extractMarkedRegion(payload.mk.sch, responseBytes);
+  if (!equalBytes(hashRequest(region), payload.mk.d)) {
+    throw new ReceiptError(
+      'MARK_MISMATCH',
+      `the ${payload.mk.sch} region of these bytes hashes to ${toHex(hashRequest(region))}, not to the ${toHex(payload.mk.d)} the receipt carries`,
+    );
+  }
 }

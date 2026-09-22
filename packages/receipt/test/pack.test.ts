@@ -22,7 +22,7 @@ import { cddlRule, cddlRuleArms, labeledMembers, memberDeclarations, readCddl, r
  * as missing from that one. `packRule` and `packArms` below are the thin wrappers that fix the name in
  * the message. `integerLabels`, `flat`, `saidOnce` and `cddlProse` are defined here rather than
  * imported because `schema.test.ts` keeps them to itself, a test file exports nothing, and moving prose
- * helpers into a file this lane does not own is a change to that file rather than to this one.
+ * helpers out of a file another suite owns is a change to that file rather than to this one.
  */
 const packCddlPath = fileURLToPath(new URL('../pack.cddl', import.meta.url));
 const packSchemaPath = fileURLToPath(new URL('../schemas/pack-v1.schema.json', import.meta.url));

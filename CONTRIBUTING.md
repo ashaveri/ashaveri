@@ -48,11 +48,12 @@ two unions sharing one string is a deliberate decision rather than a collision t
 **Regenerated fixtures, never hand-edited ones.**
 
 ```bash
-pnpm --filter @ashaveri/fixtures generate        # data/manifest.json, data/keys/, data/receipts/
-pnpm --filter @ashaveri/fixtures generate:pop    # data/pop-v1.json
-pnpm --filter @ashaveri/fixtures generate:req    # data/req-v1.json
-pnpm --filter @ashaveri/fixtures generate:res    # data/res-v1.json
-pnpm --filter @ashaveri/fixtures generate:chain  # data/chain-v1.json
+pnpm --filter @ashaveri/fixtures generate         # data/manifest.json, data/keys/, data/receipts/
+pnpm --filter @ashaveri/fixtures generate:pop     # data/pop-v1.json
+pnpm --filter @ashaveri/fixtures generate:req     # data/req-v1.json
+pnpm --filter @ashaveri/fixtures generate:res     # data/res-v1.json
+pnpm --filter @ashaveri/fixtures generate:marking # data/marking-v1.json
+pnpm --filter @ashaveri/fixtures generate:chain   # data/chain-v1.json
 ```
 
 The generators derive their key material and most of their digests from a labelled SHA-256 seed
@@ -60,7 +61,7 @@ The generators derive their key material and most of their digests from a labell
 from the generator itself. Nothing is drawn at random, so the output is reproducible and a
 hand-edited vector is visible the moment anyone re-runs a generator.
 If your change was not meant to move a vector, regenerating produces an empty diff — that is the check
-the vectors job runs, `git diff --exit-code packages/fixtures/data` after all five generators. A
+the vectors job runs, `git diff --exit-code packages/fixtures/data` after all six generators. A
 non-empty diff you did not intend means your change moved a signed byte.
 
 **A measured number, re-run rather than hand-written.** One command regenerates the latency figures for
