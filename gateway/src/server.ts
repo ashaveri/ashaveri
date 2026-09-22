@@ -4,6 +4,8 @@ import {
   hashRequest,
   issueReceipt,
   randomNonce,
+  type Marking,
+  type MarkingScheme,
   type ReceiptPayload,
   type SigningKey,
   type TeeKind,
@@ -14,6 +16,7 @@ import { fromBase64Url, toBase64Url } from './b64.js';
 import { mockBackend, type BackendResponse, type CompletionBackend, type CompletionUsage } from './backend.js';
 import { mockDeployment, type AttestationBundle, type Deployment } from './deployment.js';
 import { fromHex, sha256, toHex } from './digest.js';
+import { MarkedStreamTail, markBufferedBody, markingFrame, unmarked } from './marking.js';
 import { parseChatCompletionRequest, RequestError } from './mock.js';
 import { openMemoryReceiptStore, type ReceiptStore } from './store.js';
 
@@ -23,6 +26,9 @@ const FIRST_EVENT_TIMEOUT_MS = 120_000;
 const MAX_BUFFERED_BODY = 32 * 1024 * 1024;
 /** Evidence is addressed by the digest it binds to, which is what its URL says. */
 const REPORT_DATA_HEX = /^[0-9a-fA-F]{64}$/;
+
+/** The scheme this gateway marks with when its operator asked for none, which is the shipped state. */
+const DEFAULT_MARKING: MarkingScheme = 'none';
 
 export interface GatewayOptions {
   readonly issuer?: string;
@@ -41,6 +47,18 @@ export interface GatewayOptions {
    */
   readonly access: CredentialStore;
   readonly accessLog: AccessLog;
+  /**
+   * Which marking scheme this gateway writes into a completion, from the registry published in
+   * section 3.3 of `docs/receipt-spec.md`. `none`, the shipped default, adds no bytes to a customer's
+   * response and signs a receipt that says so; `provenance-v1` writes the marking member into both
+   * response shapes and signs its digest. Which of the two a deployment runs is the operator's
+   * decision, and so is any duty a marking is meant to discharge.
+   *
+   * There is no spelling of this option that leaves the marking field out of a receipt. A v2 payload
+   * always carries one, because an absent `mk` would read to a verifier as "unmarked" and as "this
+   * build predates marking" at once, which is the silence the version exists to refuse.
+   */
+  readonly marking?: MarkingScheme;
 }
 
 export interface ManifestJson {
@@ -129,6 +147,9 @@ export function buildGateway(options: GatewayOptions): GatewayInstance {
     options.deployment ?? mockDeployment({ issuer: options.issuer, instance: options.instance, key: options.key });
   const backend = options.backend ?? mockBackend();
   const receipts = options.store ?? openMemoryReceiptStore();
+  // Read once, where every other operator switch on this process is read: a completion is marked the
+  // same way whichever route served it, and the value is reported on the start-up banner.
+  const markingScheme = options.marking ?? DEFAULT_MARKING;
   // One HKDF over the deployment's own signing seed, for the whole process. The id a receipt is
   // fetched by is minted here rather than taken from the upstream, and nothing is written down to
   // make the fetch work: the id carries the tag of the credential that minted it.
@@ -293,10 +314,15 @@ export function buildGateway(options: GatewayOptions): GatewayInstance {
     weights: Uint8Array;
     evidence: AttestationBundle;
     usage: CompletionUsage;
+    marking: Marking;
   }): Promise<void> {
     const iat = Math.floor(Date.now() / 1000);
+    // A v2 payload, always, whatever the marking says. `mk` is a required member of it, so the
+    // answer to "was this response marked?" is a value in a signed document rather than the absence
+    // of one, which is the reading a v1 receipt cannot carry and section 6 of the specification says
+    // is why the version moved.
     const payload: ReceiptPayload = {
-      v: 1,
+      v: 2,
       iss: deployment.issuer,
       ins: deployment.instance,
       iat,
@@ -309,6 +335,7 @@ export function buildGateway(options: GatewayOptions): GatewayInstance {
       att: { d: sha256(args.evidence.document), ts: args.evidence.timestamp, url: args.evidence.url },
       epk: deployment.epk,
       tok: { p: args.usage.promptTokens, c: args.usage.completionTokens },
+      mk: args.marking,
     };
     // How long this stays fetchable is the store's decision, so the gateway hands over the
     // timestamp the decision is made from rather than making it here.
@@ -466,18 +493,35 @@ export function buildGateway(options: GatewayOptions): GatewayInstance {
         return;
       }
       const receiptId = receiptIds.mint(receiptTag);
+      // One body, one hash, one write: the marking member is inside the bytes before they are
+      // digested, so there is no route by which a receipt is issued over a response that was never
+      // marked, and none by which a client is sent bytes other than the ones it is vouched for.
+      const marked =
+        markingScheme === 'none'
+          ? null
+          : markBufferedBody(body, Math.floor(Date.now() / 1000));
+      if (marked !== null && !marked.marked) {
+        // The flag asked for a mark and this response's shape cannot carry one, which is a fact a
+        // caller has to be told. Serving the body unmarked and signing `sch: none` would be true of
+        // the bytes and false to the deployment's own configuration, and the reader who could act on
+        // the difference is this one.
+        upstreamError(reply, marked.why);
+        return;
+      }
+      const sent = marked === null ? body : Buffer.from(marked.body);
       await issue({
         id: receiptId,
         nonce,
         requestBody: raw,
-        responseHash: sha256(new Uint8Array(body.buffer, body.byteOffset, body.byteLength)),
+        responseHash: sha256(sent),
         modelId: declared.id,
         weights: declared.wts,
         evidence: await evidencePromise,
         usage,
+        marking: marked === null ? unmarked() : marked.marking,
       });
       reply.header('x-ashaveri-receipt-id', receiptId);
-      reply.send(body);
+      reply.send(sent);
       return;
     }
 
@@ -505,6 +549,9 @@ export function buildGateway(options: GatewayOptions): GatewayInstance {
     }
     const id = receiptIds.mint(receiptTag);
     const hasher = createHash('sha256');
+    // Only a gateway that marks holds back any part of a stream, and only its last frames: see
+    // `MarkedStreamTail`.
+    const tail = markingScheme === 'none' ? null : new MarkedStreamTail();
 
     // SSE is written to the raw response: Fastify's stream plumbing does not
     // reliably deliver a generator-backed body, and a completion whose bytes
@@ -523,7 +570,7 @@ export function buildGateway(options: GatewayOptions): GatewayInstance {
       client.aborted = true;
     });
 
-    const write = async (chunk: Buffer): Promise<void> => {
+    const write = async (chunk: Uint8Array): Promise<void> => {
       hasher.update(chunk);
       if (res.write(chunk)) {
         return;
@@ -539,16 +586,28 @@ export function buildGateway(options: GatewayOptions): GatewayInstance {
       });
     };
 
+    // A write of upstream bytes goes through the tail when this gateway marks, because the last frame
+    // of a stream is the one place its mark has to sit ahead of, and through `write` either way, so
+    // the hash and the socket see one sequence of bytes.
+    const forward = async (chunk: Uint8Array): Promise<void> => {
+      if (tail === null) {
+        await write(chunk);
+        return;
+      }
+      const ready = tail.writable(chunk);
+      if (ready.length > 0) await write(ready);
+    };
+
     try {
       for (const chunk of early) {
-        await write(chunk);
+        await forward(chunk);
       }
       while (!client.aborted) {
         const next = await iterator.next();
         if (next.done === true) {
           break;
         }
-        await write(Buffer.from(next.value));
+        await forward(next.value);
       }
       if (client.aborted) {
         void iterator.return?.();
@@ -558,6 +617,18 @@ export function buildGateway(options: GatewayOptions): GatewayInstance {
       if (usage.model.length > 0 && usage.model !== declared.id) {
         res.destroy(new Error(`inference upstream served '${usage.model}' instead of '${declared.id}'`));
         return;
+      }
+      // The mark is the gateway's own bytes, added after the upstream's last byte and before the
+      // digest is finalised, through the same closure that put every other frame on the socket. A
+      // frame written from here on is inside `res`; one written in the `finally` below would not be,
+      // which is why the closing byte is not where a mark belongs.
+      let marking = unmarked();
+      if (tail !== null) {
+        const mark = markingFrame(declared.id, Math.floor(Date.now() / 1000));
+        for (const piece of tail.finishing(mark.frame)) {
+          await write(piece);
+        }
+        marking = mark.marking;
       }
       // Signed before the closing byte, so a client that reads to the end and
       // immediately fetches its receipt cannot lose the race.
@@ -570,6 +641,7 @@ export function buildGateway(options: GatewayOptions): GatewayInstance {
         weights: declared.wts,
         evidence: await evidencePromise,
         usage,
+        marking,
       });
     } catch (error) {
       res.destroy(error instanceof Error ? error : new Error(errorMessage(error)));
