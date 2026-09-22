@@ -89,12 +89,18 @@ function isReceiptVersion(value: unknown): value is ReceiptVersion {
  * `none` declares that no region of the response is marked, and `provenance-v1` names the extractor
  * rule for the `ashaveri` member a marked response carries. Which of the two a receipt attests is a
  * value of the field either way, so unmarked and undecided are different bytes.
+ *
+ * Exported, and named by `index.ts`, because this is the set an operator's flag is read against: the
+ * gateway takes its choice from here rather than keeping a second copy that a new label would have to
+ * be remembered by. What each label extracts is `marking.ts`, and the published row for each is
+ * section 3.3 of `docs/receipt-spec.md`.
  */
-const MARKING_SCHEMES = ['none', 'provenance-v1'] as const;
+export const MARKING_SCHEMES = ['none', 'provenance-v1'] as const;
 
 export type MarkingScheme = (typeof MARKING_SCHEMES)[number];
 
-function isMarkingScheme(value: string): value is MarkingScheme {
+/** Whether a string is one of the labels above: how an operator's flag is read. */
+export function isMarkingScheme(value: string): value is MarkingScheme {
   return (MARKING_SCHEMES as readonly string[]).includes(value);
 }
 
