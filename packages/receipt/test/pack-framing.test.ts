@@ -221,9 +221,10 @@ function claimFor(
 /**
  * The rules a reader applies to a span that the links between its items cannot see, in the order they
  * bite: no figure below zero, the window had closed before the reads began and the mapping the period
- * came from predates them, every stamp lies inside the window, each item is chained under the stamp its
- * own receipt attests, and the retention figure is at least the age of the oldest receipt the container
- * carries. Each refusal names its own rule, for the reason the format states the rules separately.
+ * came from predates them, no two items answer to one name, every stamp lies inside the window, each
+ * item is chained under the stamp its own receipt attests, and the retention figure is at least the age
+ * of the oldest receipt the container carries. Each refusal names its own rule, for the reason the
+ * format states the rules separately.
  */
 function readSpan(items: readonly Item[], claim: Claim): Item[] {
   const figures: Record<string, number> = {
@@ -244,6 +245,13 @@ function readSpan(items: readonly Item[], claim: Claim): Item[] {
   }
   if (claim.rev > claim.at) {
     throw new Error(`the mapping revision ${claim.rev} postdates the reads at ${claim.at}`);
+  }
+  const names = new Set<string>();
+  for (const item of items) {
+    if (names.has(item.id)) {
+      throw new Error(`two items answer to the id ${item.id}, which is a name and not a link`);
+    }
+    names.add(item.id);
   }
   const ordered = walk(items, claim.anchor, claim.head);
   for (const item of ordered) {
@@ -436,6 +444,23 @@ describe('the span a reader answers for', () => {
     // the one case below shows a whole document whose duty simply is not met.
     expect(() => readSpan(items, claimFor(items, anchor, head, { held: 2 }))).toThrow(/seconds held/);
     expect(() => readSpan(items, claimFor(items, anchor, head, { held: 3 }))).not.toThrow();
+  });
+
+  it('refuses two items answering to one id, which is a name and not a link', () => {
+    const collided = chained([
+      { id: 'receipt-0', stamp: BASE, nonce: 1 },
+      { id: 'receipt-1', stamp: BASE + 1, nonce: 2 },
+      { id: 'receipt-0', stamp: BASE + 2, nonce: 3 },
+    ]);
+    // Chained honestly, so every digest is the one the next record names and the last of them is the
+    // head the manifest would sign: nothing about a link says two items share a name, because the name
+    // sits inside the hash and both spellings of it hash perfectly. What the walk does say is "not the
+    // head", since it keys what it has visited by that name and skips the second item it meets — a
+    // refusal about the chain for a fault in the roster, which is the misreading the rule prevents.
+    expect(() => walk(collided.items, collided.anchor, collided.head)).toThrow(/is not the head/);
+    expect(() =>
+      readSpan(collided.items, claimFor(collided.items, collided.anchor, collided.head)),
+    ).toThrow(/two items answer to the id receipt-0/);
   });
 
   it('accepts a whole pack whose duty is not met and leaves the verdict to arithmetic', () => {

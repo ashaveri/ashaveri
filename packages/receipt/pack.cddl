@@ -162,6 +162,13 @@ PackDuty = {
 ; anybody's `prev`. That is also why no index travels with an item: an ordinal would state a second
 ; time an order the bytes already fix, and would be free to disagree with it.
 ;
+; No two items in a pack carry the same `id`. The store serves one receipt per id, its index being a map
+; from that name to a record, so a pack drawn from a range query cannot hold two and the rule is written
+; for a reader rather than for a query. It is stated because a reader reports a failure by naming an
+; item, and two items answering to one name make that report mean whichever of the two the reader
+; happened to meet first: the links order the items and the name identifies them, and neither of those
+; is a matter of arrival.
+;
 ; `[+ …]` requires at least one item. A pack of nothing has no first node, so its walk is vacuous: the
 ; reader could check that the head equals the anchor and nothing else, and the artifact would read as
 ; evidence while proving only that somebody signed two digests. That a span held no receipts at all is

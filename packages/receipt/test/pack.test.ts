@@ -562,6 +562,7 @@ describe('the pack CDDL and its JSON twin', () => {
     saidOnce('the CDDL', prose, 'Both bounds bind the items');
     saidOnce('the CDDL', prose, '`held` is a count of seconds measured at `at`');
     saidOnce('the CDDL', prose, '`rev` is never after `at`');
+    saidOnce('the CDDL', prose, 'No two items in a pack carry the same `id`');
     saidOnce('the CDDL', prose, 'every instant this file names is a unix time no earlier than the epoch');
     // Two phrasings a later edit must not bring back: a pack whose items were ordered by their
     // position in the array, and a manifest that restated what the store's own window reports.
