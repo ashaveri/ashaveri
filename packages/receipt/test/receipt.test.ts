@@ -24,12 +24,15 @@ import {
   COSE_HEADER_ALG,
   COSE_HEADER_CONTENT_TYPE,
   COSE_HEADER_KID,
+  DECLARED_PROTECTED_LABELS,
   RECEIPT_CONTENT_TYPE,
   buildProtectedHeader,
 } from '../src/cose.js';
 import { ed25519 } from '@noble/curves/ed25519';
-import { Tag } from 'cbor2';
+import { Tag, encode, defaultEncodeOptions, encodedNumber } from 'cbor2';
+import { sortCoreDeterministic } from 'cbor2/sorts';
 import { sha256, sha384 } from '@noble/hashes/sha2.js';
+import { cddlIntegerPositions, readCddl } from './cddl.js';
 
 const FIXED_NOW = 1_772_000_000;
 
@@ -910,7 +913,409 @@ describe('the payload map and every map nested inside it are closed', () => {
   });
 });
 
+/**
+ * The bytes of a document in which every number keeps the major type it was written with. The
+ * package's own canonical writer cannot produce these: `encodeCanonical` ignores a boxed number's
+ * original encoding on purpose, and writes any whole number as an integer, negative zero included, so
+ * that the document it issues is one this package reads. A case that wants to hand the reader a float
+ * where the CDDL names an integer has to step outside that writer and use the plain one, which honours
+ * the width the value carries.
+ */
+function encodeWithMajorTypes(value: unknown): Uint8Array {
+  return new Uint8Array(encode(value, { ...defaultEncodeOptions, sortKeys: sortCoreDeterministic }));
+}
+
+/**
+ * The three widths CBOR writes a floating-point number in, each carrying the same whole number as
+ * the integer it stands beside. Half-precision is available for every value the cases below use,
+ * which is why they are small: the pair is one value in two major types, and a unix timestamp would
+ * have to be rounded before it could be written as a float at all.
+ */
+function floatWidthsHolding(value: number): Array<[string, unknown]> {
+  return [
+    ['half-precision', encodedNumber(value, 'f16')],
+    ['single-precision', encodedNumber(value, 'f32')],
+    ['double-precision', encodedNumber(value, 'f64')],
+  ];
+}
+
+/**
+ * The two bignum spellings of one value: a tag 2 around the bytes of a whole number plain enough for a
+ * CBOR integer, and a tag 2 around one no `number` holds exactly. Section 3 of the specification states
+ * the refusal of both at the payload's positions, so the cases below put them there — the header label
+ * an earlier case reaches is a different document, and a claim about the payload is not proved beside
+ * it.
+ *
+ * The two fail at two points, for two reasons. The value an integer could hold is refused at the
+ * decode, because the encoding this format requires spells it as one; the detail a caller hears is the
+ * decoder's own sentence about a bigint that need not be one. The value no `number` holds survives
+ * that, because there is no shorter spelling of it, and is refused where the field is read: it arrives
+ * as a `bigint`, and no position the format types as an integer takes a value of that shape.
+ */
+function bignumWidthsHolding(value: number): Array<[string, unknown]> {
+  return [
+    ['a bignum of a value an integer holds', encodedNumber(value, 'bigint')],
+    ['a bignum outside the range a number holds', encodedNumber(BigInt(value) + (1n << 80n), 'bigint')],
+  ];
+}
+
+/**
+ * The sentence `receipt.ts` answers with at one position when the value there is not a number it can
+ * read. Quoted because the two bignum halves above are refused at two different points, and which of
+ * the two answered a document is the fact the case is asserting.
+ */
+function fieldSentence(where: string): string {
+  return where === 'v' ? 'v must be an integer receipt version' : `${where} must be a non-negative integer`;
+}
+
+/**
+ * A signed receipt whose protected header and unprotected map are the ones handed in, with every
+ * number in them kept as written. The signature is made over those bytes, so a refusal below is a
+ * reader declining a document that carries its issuer's own signature, not one it repaired first.
+ */
+function signKeepingMajorTypes(
+  payloadBytes: Uint8Array,
+  key: SigningKey,
+  protectedHeader: Map<unknown, unknown>,
+  unprotectedHeader: Map<unknown, unknown> = new Map(),
+): Uint8Array {
+  const protectedBytes = encodeWithMajorTypes(protectedHeader);
+  const signature = ed25519.sign(
+    encodeCanonical(['Signature1', protectedBytes, new Uint8Array(0), payloadBytes]),
+    key.privateKey,
+  );
+  return encodeWithMajorTypes(
+    new Tag(COSE_SIGN1_TAG, [protectedBytes, unprotectedHeader, payloadBytes, signature]),
+  );
+}
+
+/**
+ * The corpus payload with one integer position rewritten. A name with no dot in it is a member of the
+ * payload itself and is set on the map; a dotted one goes through `editedNested`, which is the same
+ * route the closure cases take and leaves every other member exactly as `membersOf` wrote it. The
+ * branches are read off the shape of the name rather than off a list of positions, so the row a
+ * position contributes below is the row that rewrites it.
+ */
+function payloadWith(where: string, value: unknown): Map<string, unknown> {
+  if (!where.includes('.')) {
+    const members = membersOf(samplePayload());
+    members.set(where, value);
+    return members;
+  }
+  const [owner, name] = where.split('.') as [string, string];
+  return editedNested(samplePayload(), owner, (nested) => nested.set(name, value));
+}
+
+/** What a parsed payload carries at one of those positions, read the same way the cases name them. */
+function valueAt(payload: ReceiptPayload, where: string): unknown {
+  let cursor: unknown = payload;
+  for (const part of where.split('.')) cursor = (cursor as Record<string, unknown>)[part];
+  return cursor;
+}
+
+/**
+ * Every position the format types as an integer, with the value each case puts there: the five
+ * `receipt.cddl` writes `int` — `iat`, `epk` and one below each of the maps nested inside the payload —
+ * and `v`, which the same file types as the integer literals `1` and `2` rather than as `int`. The
+ * whole roster belongs to the sweep, including the literals: a `1.0` at the version is exactly the
+ * thing the rule refuses, refused before a reader ever decides which version the document claims.
+ *
+ * The names are read off `receipt.cddl` rather than written out here, which is also how the two
+ * documents that list them are held, because a roster typed out in a test is one the format leaves
+ * behind: the day a payload block gains an integer member, a hand-written list keeps the sweep at the
+ * positions it happens to name and the run stays green. Only the value is chosen here, and every
+ * position takes `2` but the version, whose accepted values are a set rather than a range. `2` is
+ * whole, non-negative like the format asks, and small enough for the half-precision width, and a
+ * position that arrives needing a different answer fails its own control half rather than going
+ * unswept.
+ */
+const INTEGER_MEMBERS: Array<{ readonly where: string; readonly value: number }> = cddlIntegerPositions(
+  readCddl(),
+).map((where) => ({ where, value: where === 'v' ? 1 : 2 }));
+
+describe('a position the CDDL writes `int` reads one CBOR major type', () => {
+  it('refuses a whole-number float at each of them and takes the same value as an integer', () => {
+    const key = generateSigningKey();
+    for (const member of INTEGER_MEMBERS) {
+      // Both halves go through the same writer, so the only thing apart is the major type at the one
+      // position. `issueReceipt` could not produce either half: its encoder writes any whole number as
+      // an integer — negative zero included, which is what the case that issues a receipt with a
+      // negative zero below pins — and that is why this refusal sits in the decode rather than beside
+      // these reads, where a float and the integer it imitates have already become one value.
+      const asInteger = payloadWith(member.where, member.value);
+      const integerBytes = signKeepingMajorTypes(
+        encodeWithMajorTypes(asInteger),
+        key,
+        declaredProtectedHeader(key.kid),
+      );
+      const accepted = decodeReceipt(integerBytes);
+      expect(valueAt(accepted.payload, member.where), `the integer at ${member.where}`).toBe(member.value);
+
+      for (const [width, floated] of floatWidthsHolding(member.value)) {
+        const bytes = signKeepingMajorTypes(
+          encodeWithMajorTypes(payloadWith(member.where, floated)),
+          key,
+          declaredProtectedHeader(key.kid),
+        );
+        expect(equalBytes(bytes, integerBytes), `${member.where} written as a ${width} float`).toBe(false);
+        // `BAD_PAYLOAD` is named here rather than left to the default, because the same document read
+        // through the header instead of the payload answers `BAD_PROTECTED_HEADER`, and a case that
+        // only heard "refused" cannot tell the two apart. The detail is the codec's own sentence for
+        // the number it would not take, quoted and bounded the way every detail is. Two words of it are
+        // matched, because they name the condition; the surrounding text belongs to the decoder and
+        // freezing it would make a dependency upgrade this file's problem.
+        const failure = expectFailure(() => decodeReceipt(bytes), 'BAD_PAYLOAD');
+        expect(failure.message, `${member.where} written as a ${width}`).toContain('floating point');
+        // The same answer through the door that checks the signature, which is the one a client walks
+        // through. The header is well-formed and the signature is this key's, so a refusal that came
+        // back as `INVALID_SIGNATURE` would be a reader complaining about the wrong part of the bytes.
+        expectFailure(() => verifyReceipt(bytes, { publicKey: key.publicKey, now: FIXED_NOW }), 'BAD_PAYLOAD');
+      }
+    }
+  });
+
+  it('refuses a bignum at each of them, at the decode and at the field read', () => {
+    const key = generateSigningKey();
+    for (const member of INTEGER_MEMBERS) {
+      const integerBytes = signKeepingMajorTypes(
+        encodeWithMajorTypes(payloadWith(member.where, member.value)),
+        key,
+        declaredProtectedHeader(key.kid),
+      );
+      expect(valueAt(decodeReceipt(integerBytes).payload, member.where), `the integer at ${member.where}`).toBe(member.value);
+
+      for (const [name, bignum] of bignumWidthsHolding(member.value)) {
+        const bytes = signKeepingMajorTypes(
+          encodeWithMajorTypes(payloadWith(member.where, bignum)),
+          key,
+          declaredProtectedHeader(key.kid),
+        );
+        expect(equalBytes(bytes, integerBytes), `${member.where} written as ${name}`).toBe(false);
+        const failure = expectFailure(() => decodeReceipt(bytes), 'BAD_PAYLOAD');
+        // The two halves are refused at two points, and the detail says which: the narrow one by the
+        // decode, in the decoder's words about a bigint that need not be one, the wide one by the read
+        // of the field itself. Neither is the float rule, and neither is the other.
+        const detail = name.startsWith('a bignum of') ? 'bigint' : fieldSentence(member.where);
+        expect(failure.message, `${member.where} written as ${name}`).toContain(detail);
+        expectFailure(() => verifyReceipt(bytes, { publicKey: key.publicKey, now: FIXED_NOW }), 'BAD_PAYLOAD');
+      }
+    }
+  });
+
+  it('refuses a header label written as a float, which is the merge no map can see afterwards', () => {
+    const key = generateSigningKey();
+    const other = generateSigningKey();
+    const payloadBytes = encodePayload(samplePayload());
+    // The control is a signature check and not a reader that always says yes.
+    const declared = signWithHeaders(payloadBytes, key, declaredProtectedHeader(key.kid));
+    expect(verifyReceipt(declared, { publicKey: key.publicKey, now: FIXED_NOW }).header.alg).toBe(ALG_EDDSA);
+
+    // A declared label written a second time as a float is a fourth label to anything comparing the
+    // key bytes and the same slot as the integer to a JavaScript `Map`, and core deterministic order
+    // always puts the three-byte float last, so the float's value is the one that survives. The two
+    // readings are each internally consistent and disagree about which parameters were signed, which
+    // is a divergence no reader can settle by picking one: the document is refused before the map is
+    // built, so the choice is never made.
+    for (const label of DECLARED_PROTECTED_LABELS) {
+      const merged = new Map<unknown, unknown>([...declaredProtectedHeader(key.kid), [encodedNumber(label, 'f16'), 'x']]);
+      const bytes = signKeepingMajorTypes(payloadBytes, key, merged);
+      const failure = expectFailure(
+        () => verifyReceipt(bytes, { publicKey: key.publicKey, now: FIXED_NOW }),
+        'BAD_PROTECTED_HEADER',
+      );
+      expect(failure.message, `label ${label} carried a second time as a float`).toContain('floating point');
+      expectFailure(() => decodeReceipt(bytes), 'BAD_PROTECTED_HEADER');
+    }
+
+    // The shape that used to read as a well-formed header outright: the float label and no integer
+    // one beside it. The map held one key, that key was a number, and the number was one the format
+    // names, so a reader looking at the map could not tell it from the declared header above.
+    const floatAlg = new Map<unknown, unknown>([
+      [encodedNumber(COSE_HEADER_ALG, 'f16'), ALG_EDDSA],
+      [COSE_HEADER_CONTENT_TYPE, RECEIPT_CONTENT_TYPE],
+      [COSE_HEADER_KID, key.kid],
+    ]);
+    const floatKid = new Map<unknown, unknown>([
+      [COSE_HEADER_ALG, ALG_EDDSA],
+      [COSE_HEADER_CONTENT_TYPE, RECEIPT_CONTENT_TYPE],
+      [encodedNumber(COSE_HEADER_KID, 'f32'), other.kid],
+    ]);
+    for (const [name, header] of [['alg written under a float label', floatAlg], ['kid written under a float label', floatKid]] as const) {
+      const bytes = signKeepingMajorTypes(payloadBytes, key, header);
+      expectFailure(() => decodeReceipt(bytes), 'BAD_PROTECTED_HEADER');
+      expect(
+        expectFailure(() => verifyReceipt(bytes, { publicKey: key.publicKey, now: FIXED_NOW }), 'BAD_PROTECTED_HEADER').message,
+        name,
+      ).toContain('floating point');
+    }
+
+    // And the one label whose value is an integer, carrying that value as a float. The reader used to
+    // compare -8.0 against -8, find them equal, and report EdDSA.
+    const floatedAlg = new Map<unknown, unknown>([
+      [COSE_HEADER_ALG, encodedNumber(ALG_EDDSA, 'f16')],
+      [COSE_HEADER_CONTENT_TYPE, RECEIPT_CONTENT_TYPE],
+      [COSE_HEADER_KID, key.kid],
+    ]);
+    const algBytes = signKeepingMajorTypes(payloadBytes, key, floatedAlg);
+    expectFailure(() => decodeReceipt(algBytes), 'BAD_PROTECTED_HEADER');
+    expect(
+      expectFailure(() => verifyReceipt(algBytes, { publicKey: key.publicKey, now: FIXED_NOW }), 'BAD_PROTECTED_HEADER').message,
+    ).toContain('floating point');
+
+    // Which is not the same condition as an `alg` slot holding a suite this format does not sign
+    // with, or an undeclared label, and those keep the answers they had. Three refusals, none of
+    // them absorbing another: the code table says a header naming another suite is a suite question
+    // and a header carrying a fifth label is a membership question, and both still say so.
+    const otherSuite = new Map(declaredProtectedHeader(key.kid));
+    otherSuite.set(COSE_HEADER_ALG, '-8');
+    expectFailure(() => decodeReceipt(signWithHeaders(payloadBytes, key, otherSuite)), 'UNSUPPORTED_ALG');
+    const undeclared = new Map<unknown, unknown>([...declaredProtectedHeader(key.kid), [5, 'x']]);
+    expect(
+      expectFailure(() => decodeReceipt(signWithHeaders(payloadBytes, key, undeclared)), 'BAD_PROTECTED_HEADER').message,
+    ).toContain('a label the format does not define: 5');
+  });
+
+  it('keeps the integer rule apart from the membership rule at the same levels', () => {
+    const key = generateSigningKey();
+    // Two refusals at one level, named differently: the walk's answer is about a name the version
+    // does not define, this one is about a value at a name it does. A document carrying both defects
+    // is refused for the one the decode reaches first, which is why the pair below holds the two
+    // sentences apart in both directions rather than once.
+    const extraMember = membersOf(samplePayload());
+    extraMember.set('surprise', 'x');
+    const membership = expectFailure(() => decodeReceipt(signMembers(extraMember, key)), 'BAD_PAYLOAD');
+    expect(membership.message).toContain("payload carries a member version 1 does not define: 'surprise'");
+    expect(membership.message).not.toContain('floating point');
+
+    const bothDefects = membersOf(samplePayload());
+    bothDefects.set('surprise', 'x');
+    bothDefects.set('iat', encodedNumber(FIXED_NOW, 'f64'));
+    const decodeFirst = expectFailure(
+      () =>
+        decodeReceipt(
+          signKeepingMajorTypes(encodeWithMajorTypes(bothDefects), key, declaredProtectedHeader(key.kid)),
+        ),
+      'BAD_PAYLOAD',
+    );
+    expect(decodeFirst.message).toContain('floating point');
+    expect(decodeFirst.message).not.toContain('does not define');
+
+    // One level down, three conditions and three sentences: `tok` holding a float is refused for the
+    // float, `tok` holding an undefined member for the member, and a `tok` that is not a map at all
+    // stays the reader's own answer about a map. None of the three is the other's.
+    const floatedPrompt = editedNested(samplePayload(), 'tok', (nested) => nested.set('p', encodedNumber(128, 'f16')));
+    const nestedFloat = expectFailure(
+      () => decodeReceipt(signKeepingMajorTypes(encodeWithMajorTypes(floatedPrompt), key, declaredProtectedHeader(key.kid))),
+      'BAD_PAYLOAD',
+    );
+    expect(nestedFloat.message).toContain('floating point');
+    const nestedMember = editedNested(samplePayload(), 'tok', (nested) => nested.set('surprise', 'x'));
+    expect(expectFailure(() => decodeReceipt(signMembers(nestedMember, key)), 'BAD_PAYLOAD').message).toContain(
+      "tok carries a member the format does not define: 'surprise'",
+    );
+    const notAMap = membersOf(samplePayload());
+    notAMap.set('tok', 128);
+    expect(expectFailure(() => decodeReceipt(signMembers(notAMap, key)), 'BAD_PAYLOAD').message).toContain('tok must be a map');
+  });
+
+  it('leaves the map the format leaves open free to hold a float', () => {
+    const key = generateSigningKey();
+    // The rule reaches the two documents that declare every member they carry, and no further. The
+    // unprotected map is `{ * any => any }` in the CDDL and sits outside the signature, so a float in
+    // it is not an integer wearing another coat: it is a value in a place the format declares nothing
+    // about, and a verifier reads no verdict out of what it holds.
+    const open = new Map<unknown, unknown>([[encodedNumber(1, 'f16'), encodedNumber(2.5, 'f64')]]);
+    const bytes = signKeepingMajorTypes(
+      encodePayload(samplePayload()),
+      key,
+      declaredProtectedHeader(key.kid),
+      open,
+    );
+    const verified = verifyReceipt(bytes, { publicKey: key.publicKey, now: FIXED_NOW });
+    expect(verified.cose.unprotected.size).toBe(1);
+    expect(verified.cose.unprotected.get(1)).toBe(2.5);
+    expect(verified.payload.iat).toBe(FIXED_NOW);
+
+    // The same number, the same reader, one level in: inside the payload, where every member is
+    // declared, it is refused. What closes these positions is the document's own declaredness.
+    const inPayload = membersOf(samplePayload());
+    inPayload.set('iat', encodedNumber(2.5, 'f64'));
+    expectFailure(
+      () => decodeReceipt(signKeepingMajorTypes(encodeWithMajorTypes(inPayload), key, declaredProtectedHeader(key.kid))),
+      'BAD_PAYLOAD',
+    );
+  });
+});
+
+/**
+ * The same rule read from the side that writes bytes. The block above refuses a floating-point number
+ * at each position the format types as an integer, and this package is the one that refuses it, so a
+ * document this package issues has to be a document this package reads.
+ *
+ * One value broke that, and it is the whole number JavaScript spells two ways: `Object.is(value, -0)`
+ * tells negative zero apart from the `0` it prints as, while `Number.isSafeInteger(-0)` holds and
+ * `-0 < 0` does not. Neither `issueReceipt` nor any guard on the way in stopped it arriving — its only
+ * guard is the width of a measurement against its own kind, and four of these fields are typed
+ * `number` and compared for integrality and sign, which a negative zero passes. So the fix had to sit
+ * where the bytes are chosen, which is `encodeCanonical`, and not beside any one of these reads.
+ */
+describe('what this package issues, this package reads back', () => {
+  it('carries a negative zero at an integer position as the integer zero it is', () => {
+    const key = generateSigningKey();
+    const base = samplePayload();
+    // Four positions at once, because the writer's rule is one branch taken at every depth: two are
+    // members of the payload and two sit inside the maps nested below it, where the same value had the
+    // same effect.
+    const negativeZero: ReceiptPayloadV1 = {
+      ...base,
+      iat: -0,
+      epk: -0,
+      att: { ...base.att, ts: -0 },
+      tok: { p: -0, c: -0 },
+    };
+    const plainZero: ReceiptPayloadV1 = {
+      ...base,
+      iat: 0,
+      epk: 0,
+      att: { ...base.att, ts: 0 },
+      tok: { p: 0, c: 0 },
+    };
+    expect(equalBytes(encodePayload(negativeZero), encodePayload(plainZero))).toBe(true);
+
+    // The bytes are issued and signed, so this is the door a client walks through rather than a reader
+    // handed a document it has no reason to trust. A refusal at either half below is the defect: a
+    // receipt this package minted that its own verifier would not take.
+    const bytes = issueReceipt(negativeZero, key);
+    const verified = verifyReceipt(bytes, { publicKey: key.publicKey, now: FIXED_NOW });
+    for (const where of ['iat', 'epk', 'att.ts', 'tok.p', 'tok.c']) {
+      // `Object.is(value, 0)` rather than an equality, because `value === 0` is also true of the
+      // negative zero the payload was built with, and it is the sign the format refuses to carry.
+      expect(Object.is(valueAt(verified.payload, where), 0), `${where} after verification`).toBe(true);
+      expect(Object.is(valueAt(decodeReceipt(bytes).payload, where), 0), `${where} after decoding`).toBe(true);
+    }
+  });
+
+  it('still refuses the receipt it minted whose number has no integer spelling', () => {
+    const key = generateSigningKey();
+    // The other half of the pairing, and the reason the case above is not a loosened reader: a value
+    // with no integer spelling at all is still written as the float it is, and the reader of a
+    // declared document still refuses it. `issueReceipt` guards nothing here, so the float reaches the
+    // bytes, which is what the first assertion pins.
+    const fractional = encodePayload(samplePayload({ iat: 2.5 }));
+    expect(toHex(fractional)).toContain('f94100');
+    const bytes = issueReceipt(samplePayload({ iat: 2.5 }), key);
+    const failure = expectFailure(() => decodeReceipt(bytes), 'BAD_PAYLOAD');
+    expect(failure.message).toContain('floating point');
+    expectFailure(() => verifyReceipt(bytes, { publicKey: key.publicKey, now: FIXED_NOW }), 'BAD_PAYLOAD');
+
+    // And the whole number the float was standing for, issued the same way, reads. Without this half
+    // the refusal above would only show that a minted document with a `2.5` in it is refused.
+    expect(decodeReceipt(issueReceipt(samplePayload({ iat: 2 }), key)).payload.iat).toBe(2);
+  });
+});
+
 function expectErrorCode(fn: () => unknown, code: string) {
+
   try {
     fn();
   } catch (e) {

@@ -3,6 +3,17 @@ import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { Ajv2020, type ValidateFunction } from 'ajv/dist/2020.js';
 import {
+  cddlIntegerPositions,
+  cddlRule,
+  cddlRuleArms,
+  cddlPath,
+  labeledMembers,
+  LIST_FOR_MAP,
+  nestedRuleNames,
+  readCddl,
+  required,
+} from './cddl.js';
+import {
   MEASUREMENT_BYTES,
   receiptToJson,
   toHex,
@@ -16,8 +27,9 @@ import * as receiptParser from '../src/receipt.js';
 import * as coseCodec from '../src/cose.js';
 
 const schemaPath = fileURLToPath(new URL('../schemas/receipt-v1.schema.json', import.meta.url));
-const cddlPath = fileURLToPath(new URL('../receipt.cddl', import.meta.url));
 const specPath = fileURLToPath(new URL('../../../docs/receipt-spec.md', import.meta.url));
+const threatModelPath = fileURLToPath(new URL('../../../docs/threat-model.md', import.meta.url));
+const errorCodesPath = fileURLToPath(new URL('../../../docs/error-codes.md', import.meta.url));
 const schema = JSON.parse(readFileSync(schemaPath, 'utf8')) as object;
 
 /** An object schema of the kind this file nests under `properties`. */
@@ -72,38 +84,11 @@ function nestedDefinition(key: string): ObjectSchema {
 }
 
 /**
- * The text of one CDDL rule, from its opening brace to the first line that closes it. A rule the
- * reader could not find has to fail the run rather than hand back an empty string, because an empty
- * block reads as a format that stopped declaring any members.
+ * The members one CDDL block declares, in the order it declares them. A block that names nothing by
+ * label comes back empty rather than throwing, because the reader of every map in the file has to be
+ * able to tell `Ashaveri-Protected-Header`, whose keys are the COSE registry's integers, apart from a
+ * map that has lost its members.
  */
-function cddlRule(cddl: string, rule: string): string {
-  const start = cddl.indexOf(`${rule} = {`);
-  if (start < 0) throw new Error(`${rule} is not declared in ${cddlPath}`);
-  const end = cddl.indexOf('\n}', start);
-  if (end < 0) throw new Error(`${rule} in ${cddlPath} never closes`);
-  return cddl.slice(start, end);
-}
-
-/**
- * The members one CDDL block declares, in the order it declares them: comments stripped, then every
- * `name:` read off the commas that separate the members. The order is not decoration: v2's block
- * puts `mk` after the thirteen, and the twin and the parser both claim that list as theirs.
- *
- * A block that names nothing by label comes back empty rather than throwing, because the reader of
- * every map in the file has to be able to tell `Ashaveri-Protected-Header`, whose keys are the COSE
- * registry's integers, apart from a map that has lost its members.
- */
-function labeledMembers(block: string): string[] {
-  const members: string[] = [];
-  for (const line of block.split('\n').slice(1)) {
-    for (const piece of line.split(';')[0]!.split(',')) {
-      const found = /^\s*([a-z][a-z0-9_]*)\s*:/u.exec(piece);
-      if (found) members.push(found[1]!);
-    }
-  }
-  return members;
-}
-
 function cddlMembers(cddl: string, rule: string): string[] {
   const members = labeledMembers(cddlRule(cddl, rule));
   if (members.length === 0) throw new Error(`the ${rule} block declares no members`);
@@ -146,33 +131,6 @@ function cddlIntegerLabels(block: string): number[] {
 }
 
 /**
- * Which rule a nested member's value is, read off the payload blocks that name it: `meas` is a
- * `Measurement`. Derived rather than written out beside the member, because adding a member to a
- * payload block is the only way a new map reaches this format, and a table of rule names kept by hand
- * here would let that map arrive in the CDDL and in the parser while the twin-side assertions went
- * on sweeping the maps before it. Two payload blocks naming one member two different rules is the
- * format describing one member as two maps, so it stops the run rather than settling for one.
- */
-function nestedRuleNames(cddl: string): Map<string, string> {
-  const rules = new Map<string, string>();
-  for (const binding of LIST_FOR_MAP.filter((row) => row.map.startsWith('Ashaveri-Receipt-Payload-v'))) {
-    for (const line of cddlRule(cddl, binding.map).split('\n').slice(1)) {
-      for (const piece of line.split(';')[0]!.split(',')) {
-        const found = /^\s*([a-z][a-z0-9_]*)\s*:\s*([A-Z][A-Za-z0-9_-]*)\s*$/u.exec(piece);
-        if (!found) continue;
-        const known = rules.get(found[1]!);
-        if (known !== undefined && known !== found[2]) {
-          throw new Error(`${found[1]} is a ${known} in one payload block and a ${found[2]} in the other`);
-        }
-        rules.set(found[1]!, found[2]!);
-      }
-    }
-  }
-  if (rules.size === 0) throw new Error(`no payload member is bound to a rule in ${cddlPath}`);
-  return rules;
-}
-
-/**
  * The names of every rule the file opens as a map: `Name = {` at the start of a line. Read off the
  * text so that a map added to the format later is in this set the day it lands, rather than a name
  * somebody has to remember to write down a second time.
@@ -185,39 +143,6 @@ function cddlMapRuleNames(cddl: string): string[] {
   }
   if (names.length === 0) throw new Error(`no map rule is declared in ${cddlPath}`);
   return names;
-}
-
-/**
- * The blocks of a rule written as a map, or a choice between maps. `Measurement` is two blocks that
- * name the same members at different widths, and the second one is invisible to `cddlRule`, which
- * stops at the first closing brace: a member arriving in one arm alone would be a map no list stands
- * behind. A block that never closes throws rather than reading as an empty one.
- */
-function cddlRuleArms(cddl: string, rule: string): string[] {
-  const start = cddl.indexOf(`${rule} = {`);
-  if (start < 0) throw new Error(`${rule} is not declared in ${cddlPath}`);
-  const arms: string[] = [];
-  let current: string[] = [];
-  for (const line of cddl.slice(start).split('\n')) {
-    if (line === '} / {') {
-      arms.push(current.join('\n'));
-      current = [line];
-      continue;
-    }
-    if (line === '}') {
-      arms.push(current.join('\n'));
-      return arms;
-    }
-    current.push(line);
-  }
-  throw new Error(`${rule} in ${cddlPath} never closes`);
-}
-
-/** A value a test cannot go on without: the name rides along, because a bare `!` hides which lookup
- * failed. */
-function required<T>(value: T | undefined, detail: string): T {
-  if (value === undefined) throw new Error(detail);
-  return value;
 }
 
 /**
@@ -262,6 +187,47 @@ function sectionBody(markdown: string, heading: string): string {
   const end = rest.findIndex((line) => line.startsWith('## '));
   return (end < 0 ? rest : rest.slice(0, end)).join('\n');
 }
+
+/**
+ * The `## ` or `### ` heading a document's enumeration of its integer positions sits under, or `none`
+ * for the prose of a file like the threat model, whose bullets are not under a numbered heading. The
+ * bound is what makes the tie below a tie: read the whole document and a list that appears twice in
+ * two sections looks like one list of twelve.
+ */
+function enumerationHeading(markdown: string, marker: string): string {
+  const lines = markdown.split('\n');
+  const found = lines.findIndex((line) => line.includes(marker));
+  if (found < 0) throw new Error(`"${marker}" is not a sentence in this document`);
+  for (let index = found; index >= 0; index -= 1) {
+    const line = lines[index] ?? '';
+    if (line.startsWith('## ') || line.startsWith('### ')) return line;
+  }
+  return 'none';
+}
+
+/**
+ * The payload positions one document enumerates, read off the backticked names that follow `marker` in
+ * it. A run ends at the first name the document did not write in backticks, so the sentence after the
+ * list is free to say what it likes about the positions without being mistaken for more of them.
+ *
+ * The marker has to be said once, which is the same condition the tie below holds the rule itself to:
+ * a document that enumerated the positions in two places would be read at one of them and pass.
+ */
+function enumerationPositions(markdown: string, marker: string): string[] {
+  saidOnce(`the enumeration "${marker}"`, flat(markdown), marker);
+  const after = flat(markdown).split(marker)[1] ?? '';
+  const run = /^\s*((?:`[^`]+`\s*(?:,|and)?\s*)+)/u.exec(after);
+  if (run === null) throw new Error(`"${marker}" is followed by no list of backticked positions`);
+  return [...run[1]!.matchAll(/`([^`]+)`/gu)].map((name) => name[1]!);
+}
+
+/**
+ * Every position the format types as an integer, read out of `receipt.cddl`: the five it writes `int`
+ * and the version it writes as the integer literals. This is the roster the sweep in `receipt.test.ts`
+ * takes and the one the two documents that enumerate these positions are tied to below, which is the
+ * point of deriving it: a list written down in three places is edited in two of them.
+ */
+const INTEGER_POSITIONS = cddlIntegerPositions(readCddl());
 
 /**
  * Compiles a receipt schema with Ajv's strict mode on, so a keyword this schema does not
@@ -424,7 +390,7 @@ describe('the receipt JSON Schema', () => {
     // The rule is one rule, written down four times: the parser, this schema, the normative CDDL
     // and the specification. A reader porting the format reads the last two, so a document that
     // stopped saying it would leave the port to guess, which is how an open map comes back.
-    const cddl = readFileSync(cddlPath, 'utf8');
+    const cddl = readCddl();
     const membersPerVersion: Record<1 | 2, string[]> = {
       1: cddlMembers(cddl, 'Ashaveri-Receipt-Payload-v1'),
       2: cddlMembers(cddl, 'Ashaveri-Receipt-Payload-v2'),
@@ -556,6 +522,85 @@ describe('the receipt JSON Schema', () => {
     }
   });
 
+  it('says the integer rule once in every document that carries it, and ties their lists to the CDDL', () => {
+    // Five documents state this rule: the normative definition, the specification's two halves of it,
+    // the threat model's closedness sentence, the code table's two rows, and the published projection.
+    // A reader porting the format reads those and not the source, so each statement is pinned to one
+    // place in one document — a phrase said twice is a document that started saying the same thing in
+    // two voices, and a phrase that goes quiet is a document that stopped stating the rule.
+    const cddl = readCddl();
+    const spec = readFileSync(specPath, 'utf8');
+    const threat = readFileSync(threatModelPath, 'utf8');
+    const codes = readFileSync(errorCodesPath, 'utf8');
+    const twin = shape.description;
+
+    const prose = cddlProse(cddl);
+    saidOnce('the CDDL', prose, 'is a CBOR integer, major type 0 or 1, and no other major type carries one');
+    saidOnce('the CDDL', prose, 'are decoded where no floating-point number may appear, in a value and in a key alike');
+    // Section 2 states the rule for the signed header and section 3 for the payload, which are the two
+    // documents it closes, and section 6 says what a `v` that is a float answers with. Each is one
+    // sentence in one section; none of them is repeated inside the document or in another of them.
+    saidOnce('specification section 2', flat(spec), 'so the header is decoded where no floating-point number may appear, in a key as much as in a value');
+    saidOnce('specification section 3', flat(spec), 'Every one of them is a CBOR integer as well');
+    saidOnce('specification section 3', flat(spec), 'negative zero has one canonical integer spelling');
+    saidOnce('specification section 6', flat(spec), 'and "not an integer" is meant of the CBOR major type');
+    saidOnce('the threat model', flat(threat), 'are decoded where no floating-point number may appear, a key included');
+    saidOnce('the threat model', flat(threat), 'and spells negative zero as the integer zero');
+    saidOnce('the code table', flat(codes), 'A floating-point number anywhere in the payload or the maps inside it answers this code too');
+    saidOnce('the code table', flat(codes), 'Not decoding is the floating-point case');
+    saidOnce('the twin', twin, 'the parser decodes that map where no floating-point number can appear');
+
+    // Two phrasings this round retired, held out by name. "the two token counts" is how both documents
+    // used to stand in for `tok.p` and `tok.c` while `epk` went unlisted, which is exactly the
+    // incompleteness the tie above exists to catch: a document that went back to counting instead of
+    // naming would drop a position and still read as a list. "a value CBOR can only write as a float"
+    // was the specification's parenthetical about negative zero, and it is false of this package's
+    // writer, which has an integer spelling for that value and takes it.
+    expect(flat(threat), 'the threat model counts instead of naming').not.toContain('the two token counts');
+    expect(flat(spec), 'the specification counts instead of naming').not.toContain('the two token counts');
+    expect(flat(spec), 'the specification calls negative zero a float-only value').not.toContain(
+      'a value CBOR can only write as a float',
+    );
+
+    // The two documents that enumerate the integer positions are tied to the format, in both
+    // directions and in order: a name a document adds is a position the parser would have to refuse as
+    // a float and the CDDL does not type as an integer, and a name it drops is a position the sweep in
+    // `receipt.test.ts` would go on missing while every list still looked plausible. The heading each
+    // enumeration sits under is checked too, because "once" over a whole document would let a second
+    // list in a second section pass as the first one.
+    const enumerations: Array<[string, string, string]> = [
+      ['the specification', spec, '## 3. Payload'],
+      ['the threat model', threat, '## 6. Current limitations, stated plainly'],
+    ];
+    for (const [name, text, place] of enumerations) {
+      const positions = enumerationPositions(text, 'The positions are');
+      expect(positions, `${name} enumerates the integer positions`).toEqual(INTEGER_POSITIONS);
+      expect(enumerationHeading(text, 'The positions are'), `${name} enumerates them in one place`).toBe(place);
+    }
+    // The roster's shape, pinned as a fact about the file rather than as a claim in a comment: six
+    // positions, three of them members of a payload block — `v`, which the block types as the integer
+    // literals `1` and `2`, and `iat` and `epk`, which it types `int` — and three below a map the
+    // payload binds to a rule of its own. A format that gained a position either way arrives here
+    // first, and the two documents above go red until they say it too.
+    expect(INTEGER_POSITIONS).toHaveLength(6);
+    expect(
+      INTEGER_POSITIONS.filter((position) => !position.includes('.')),
+      'the positions the payload blocks name themselves',
+    ).toEqual(['v', 'iat', 'epk']);
+    expect(
+      INTEGER_POSITIONS.filter((position) => position.includes('.')),
+      'the positions below a map nested in the payload',
+    ).toEqual(['att.ts', 'tok.p', 'tok.c']);
+
+    // And the format's own file says which they are, once, in its blocks: the prose of `receipt.cddl`
+    // carries no second copy of the list to fall out of step with the declarations it describes.
+    for (const position of INTEGER_POSITIONS) {
+      expect(prose, `the CDDL's prose enumerates ${position} beside the block that declares it`).not.toContain(
+        `\`${position}\``,
+      );
+    }
+  });
+
   it('describes the mark as a label and a 32-byte digest', () => {
     const missingLabel = (members: Record<string, unknown>): void => {
       members.mk = { d: toHex(DIGEST) };
@@ -599,31 +644,9 @@ function parserMemberLists(): Map<string, readonly string[]> {
   return lists;
 }
 
-/** One map the CDDL defines, the list that stands behind it, and what the rule adds to that list. */
-interface ListBinding {
-  readonly map: string;
-  readonly list: string;
-  readonly adds?: readonly string[];
-}
-
-/**
- * Which list stands behind which map. There is one `adds` in this format: v2 is v1's members plus
- * `mk`, so both payload blocks bind to the one shared list and the version pair stays a row rather
- * than becoming a second copy of every assertion below. `MARKING_MEMBERS` stands behind the map `mk`'s
- * value is, which is why it appears once and not inside the payload's list.
- */
-const LIST_FOR_MAP: readonly ListBinding[] = [
-  { map: 'Ashaveri-Receipt-Payload-v1', list: 'SHARED_MEMBERS' },
-  { map: 'Ashaveri-Receipt-Payload-v2', list: 'SHARED_MEMBERS', adds: ['mk'] },
-  { map: 'Marking', list: 'MARKING_MEMBERS' },
-  { map: 'Measurement', list: 'MEASUREMENT_MEMBERS' },
-  { map: 'EvidenceRef', list: 'EVIDENCE_REF_MEMBERS' },
-  { map: 'TokenMetering', list: 'TOKEN_METERING_MEMBERS' },
-];
-
 describe("the parser's member lists", () => {
   it('answer for every map the CDDL defines, and for no map it does not define', () => {
-    const cddl = readFileSync(cddlPath, 'utf8');
+    const cddl = readCddl();
     const lists = parserMemberLists();
 
     // The format's side of the pairing, read out of the file: the maps that name their members by
@@ -764,7 +787,7 @@ describe("the parser's member lists", () => {
     // is that the reader of the block can lose a declaration without noticing, so it reads a signed label
     // as signed, and a line it cannot parse stops the run: an equality between a set derived by a partial
     // reader and a set the parser wrote is agreement about nothing.
-    const cddl = readFileSync(cddlPath, 'utf8');
+    const cddl = readCddl();
     const declared = cddlIntegerLabels(cddlRule(cddl, 'Ashaveri-Protected-Header'));
     const accepted = [...coseCodec.DECLARED_PROTECTED_LABELS];
     expect(
