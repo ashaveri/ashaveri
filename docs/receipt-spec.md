@@ -2,7 +2,9 @@
 
 Status: Draft, payload versions 1 and 2. The binary format is normatively defined by
 [`packages/receipt/receipt.cddl`](../packages/receipt/receipt.cddl) and the golden conformance
-vectors in `@ashaveri/fixtures`, which are v1 documents. This document specifies the format
+vectors in `@ashaveri/fixtures`. Which suites and fixtures are published, and which payload version
+each of the receipt fixtures carries, is stated once in the inventory in
+[vectors.md](vectors.md) rather than restated file by file here. This document specifies the format
 together with the HTTP protocol used to deliver receipts, and the algorithm clients follow to
 verify them. Section 6 says which payload versions a verifier reads.
 
@@ -464,10 +466,10 @@ A verifying client proceeds as follows:
 8. **Check the marked region.** A `v: 2` payload names one marking scheme and one digest of a region
    inside the response, so a reader holding those bytes extracts the region by the rule the label
    names — section 3.3, whose rows are executable in `extractMarkedRegion` in `@ashaveri/receipt` —
-   and requires `sha256(region)` to equal `mk.d`. Both ways the region fails to be the one attested
-   answer `MARK_MISMATCH`: a `provenance-v1` response carrying the shape twice has no marked region,
-   because a reader would have to choose which one the receipt meant, and so does one carrying it not
-   at all. Under `sch: none` the region is the empty input, whose digest `mk.d` carries, and a
+   and requires `sha256(region)` to equal `mk.d`. A region that fails to be exactly one answers
+   `MARK_MISMATCH` either way: a `provenance-v1` response carrying the shape twice has no marked
+   region, because a reader would have to choose which one the receipt meant, and so has one carrying
+   it not at all. Under `sch: none` the region is the empty input, whose digest `mk.d` carries, and a
    response that does carry a marked region is refused over that receipt too. The other two failures
    keep their own codes: a mark deleted from bytes a reader stored moves `res` and stops at step 7,
    and `INVALID_SIGNATURE` stays the answer about a receipt that is not authentic. A reader handed no

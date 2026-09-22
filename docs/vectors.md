@@ -154,10 +154,12 @@ These vectors check bytes. They say nothing about trust:
   the measurements they name are checked against vendor anchors no file in this directory holds, and
   a byte-exact reimplementation of every suite in `data/` is compatible with a deployment that should
   not be trusted at all.
-- A passing port is not a certified port. It is a reimplementation that agrees with this one about
-  format version 1 on the cases chosen here, which are examples of where implementations have been
-  known to differ rather than an exhaustive sweep of the format's state space. Conformance to bytes
-  and soundness of judgement are different claims, and only the first is testable this way.
+- A passing port is not a certified port. It is a reimplementation that agrees with this one on the
+  cases chosen here, which for payload version 1 are the field set, the digests and the framing, and
+  for version 2 are the marking member and nothing else. Those cases are examples of where
+  implementations have been known to differ rather than an exhaustive sweep of the format's state
+  space. Conformance to bytes and soundness of judgement are different claims, and only the first is
+  testable this way.
 - The store chain vectors pin a file format and the retention behaviour those vectors exercise: a
   count cap, an age bound, a compaction, a repair. They do not commit anyone to a retention period,
   and what a deployment promises to keep is stated where retention is stated, not here.
