@@ -207,6 +207,19 @@ function hexOf(bytes: number): string {
   return 'ab'.repeat(bytes);
 }
 
+/**
+ * One declared byte width against the hex pattern the twin writes for the same position. The comparison
+ * is of the numbers, so a width moving in either document reddens the tie by naming both figures: a
+ * digest growing from thirty-two bytes to forty-eight is caught here as a tie that no longer holds, and
+ * not only downstream where a built document fails a pattern for reasons of its own.
+ */
+function widthTie(bytes: number, pattern: unknown, position: string): void {
+  expect(
+    pattern,
+    `${position} is ${String(bytes)} bytes in the format, so the twin's pattern is ${String(bytes * 2)} hex digits`,
+  ).toBe(`^[0-9a-f]{${String(bytes * 2)}}$`);
+}
+
 /** The integer a sweep of positions reads back as itself, and no position is asked to be zero. */
 const AN_INT = 1_772_000_000;
 
@@ -398,8 +411,9 @@ describe('the pack CDDL and its JSON twin', () => {
       // so a reader never has to work out what an omitted field meant. A twin that let one be absent
       // would be a projection of a document the format refuses.
       expect(def.required, `${rule} in the twin does not require every member it names`).toEqual(projected);
-      // And the kinds and widths agree with what the CDDL writes beside each member, rather than with
-      // a table of them kept in this file.
+      // And the kinds and widths agree with what the CDDL writes beside each member, rather than with a
+      // table of them kept in this file: a fixed byte width is read as a number off the type expression
+      // and matched against the digits in the twin's pattern, so the tie holds the width and not a name.
       for (const member of memberDeclarations(packRule(CDDL, rule))) {
         const definition = required(def.properties?.[member.name], `${rule}.${member.name} is declared and not projected`);
         if (INTEGER_TYPE.test(member.type)) {
@@ -409,8 +423,18 @@ describe('the pack CDDL and its JSON twin', () => {
             expect(definition.type, `${rule}.${member.name} is not an integer in the twin`).toBe('integer');
           }
         }
-        if (/^bstr \.size 32$/u.test(member.type)) {
-          expect(definition.$ref, `${rule}.${member.name} does not carry a 32-byte digest in the twin`).toBe('#/$defs/hex32');
+        const declaredWidth = /^bstr \.size (\d+)$/u.exec(member.type);
+        if (declaredWidth) {
+          // The width the format declares is compared to the digits in the pattern the twin reaches, so
+          // neither side can move without the tie naming both figures. The definition's own name is in
+          // the message rather than in the assertion: `hex32` is the twin's business, the count of hex
+          // digits is the format's.
+          const bytes = Number(declaredWidth[1]);
+          const target =
+            typeof definition.$ref === 'string'
+              ? referenced(definition, `${rule}.${member.name}`)
+              : { name: `${rule}.${member.name}`, def: definition };
+          widthTie(bytes, required(target.def.pattern, `${target.name} carries no pattern to tie to the format`), `${rule}.${member.name} through ${target.name}`);
         }
         if (/^\[\+\s+[A-Z]/u.test(member.type)) {
           expect(definition.type, `${rule}.${member.name} is not an array in the twin`).toBe('array');
@@ -548,6 +572,20 @@ describe('the pack CDDL and its JSON twin', () => {
       shape.description,
       `the projection names no tag, or names one the format does not declare, which is ${packTag}`,
     ).toContain(`tag ${packTag}`);
+    // The two envelope positions the twin writes as hex and the format writes as byte counts are tied
+    // by the same numbers the map sweep uses. The envelope is an array and its header is numbered, so
+    // the widths come off the text rather than off a member list, and the signature's own regex is the
+    // one this case already reads for the two documents sharing a curve.
+    widthTie(Number(packSignature), required(shape.properties.signature.pattern, 'the twin projects no signature'), 'the pack signature');
+    const kidWidth = required(
+      /4:\s*bstr \.size (\d+)/u.exec(packRule(CDDL, 'Ashaveri-Pack-Protected-Header'))?.[1],
+      'the signed header declares no kid width',
+    );
+    widthTie(
+      Number(kidWidth),
+      required(shape.properties.protectedHeader.properties?.kid?.pattern, 'the twin projects no kid'),
+      'the kid',
+    );
   });
 
   it('leaves the envelope as open as it says it is, and refuses what the format does not', () => {
