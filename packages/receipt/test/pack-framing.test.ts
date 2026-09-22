@@ -221,10 +221,10 @@ function claimFor(
 /**
  * The rules a reader applies to a span that the links between its items cannot see, in the order they
  * bite: no figure below zero, the window had closed before the reads began and the mapping the period
- * came from predates them, no two items answer to one name, every stamp lies inside the window, each
- * item is chained under the stamp its own receipt attests, and the retention figure is at least the age
- * of the oldest receipt the container carries. Each refusal names its own rule, for the reason the
- * format states the rules separately.
+ * came from predates them, no two items answer to one name, every item handed over is one the walk
+ * reached, every stamp lies inside the window, each item is chained under the stamp its own receipt
+ * attests, and the retention figure is at least the age of the oldest receipt the container carries.
+ * Each refusal names its own rule, for the reason the format states the rules separately.
  */
 function readSpan(items: readonly Item[], claim: Claim): Item[] {
   const figures: Record<string, number> = {
@@ -254,6 +254,10 @@ function readSpan(items: readonly Item[], claim: Claim): Item[] {
     names.add(item.id);
   }
   const ordered = walk(items, claim.anchor, claim.head);
+  if (ordered.length !== items.length) {
+    const names = items.filter((item) => !ordered.includes(item)).map((item) => item.id);
+    throw new Error(`${String(names.length)} item(s) were never reached from the anchor: ${names.join(', ')}`);
+  }
   for (const item of ordered) {
     if (item.stamp < claim.from || item.stamp >= claim.to) {
       throw new Error(`${item.id} is stamped ${item.stamp}, outside the span ${claim.from} to ${claim.to}`);
@@ -444,6 +448,33 @@ describe('the span a reader answers for', () => {
     // the one case below shows a whole document whose duty simply is not met.
     expect(() => readSpan(items, claimFor(items, anchor, head, { held: 2 }))).toThrow(/seconds held/);
     expect(() => readSpan(items, claimFor(items, anchor, head, { held: 3 }))).not.toThrow();
+  });
+
+  it('refuses an item the walk never reaches, which is the half of the rule the head cannot see', () => {
+    const { items, anchor, head } = issued();
+    // A receipt parked beside the span, named by nobody's `prev` and naming no predecessor of this
+    // chain: the walk ends at the head it was given and never had to visit the parked item, so the
+    // links pass and the pack is still wrong. This is the case `pack.cddl` says a conforming reader
+    // enforces, and the reader here is that enforcement.
+    const parked: Item = {
+      id: 'parked',
+      stamp: BASE + 1,
+      predecessor: sha256(encoder.encode('a predecessor nobody in this pack names')),
+      payload: issueReceipt(samplePayload(BASE + 1, 9), KEY),
+    };
+    const handed = [...items, parked];
+    expect(walk(handed, anchor, head).length).toBe(items.length);
+    expect(() => readSpan(handed, claimFor(handed, anchor, head))).toThrow(/never reached from the anchor: parked/);
+    // A second candidate for the first item, chained from the very anchor the manifest signs and handed
+    // over beside the run, is the same breach: the walk takes whichever of the two it meets first, the
+    // other ends up unreached, and "exactly one ends the walk" is a claim about the array rather than
+    // about any link in it.
+    const rival: Item = { ...parked, id: 'rival', predecessor: anchor };
+    const forked = [...items, rival];
+    expect(walk(forked, anchor, head).length).toBe(items.length);
+    expect(() => readSpan(forked, claimFor(forked, anchor, head))).toThrow(
+      /never reached from the anchor: rival/,
+    );
   });
 
   it('refuses two items answering to one id, which is a name and not a link', () => {

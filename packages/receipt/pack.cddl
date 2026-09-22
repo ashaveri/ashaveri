@@ -156,11 +156,19 @@ PackDuty = {
 ;
 ; Order in the array bears nothing: the reader follows the `prev` links, because retiring a prefix and
 ; compacting a file rewrites the front of a chain without touching a surviving record's digest. The
-; item whose `prev` is the anchor is first and the item whose own digest is the head is last. Every
-; item has to be reached from the anchor and exactly one has to end the walk, which is what makes a
-; dropped receipt break a link and a receipt borrowed from elsewhere either unreached or unnamed by
-; anybody's `prev`. That is also why no index travels with an item: an ordinal would state a second
-; time an order the bytes already fix, and would be free to disagree with it.
+; item whose `prev` is the anchor is first and the item whose own digest is the head is last. A dropped
+; receipt breaks a link, and a receipt borrowed from elsewhere is either unreached or named by nobody's
+; `prev`, so the chain sees both of those. It does not see the third case, and the format says that
+; plainly rather than implying the opposite: an item parked beside a span it is not part of reaches the
+; head exactly as the honest ones do, because the walk stops where the head is and never counts what it
+; did not need to visit. So every item reached from the anchor, and exactly one ending the walk, is a
+; rule a conforming reader enforces and this container cannot: the reader's check has two halves, the
+; walk from the anchor to the head and the count of what that walk reached against the array it was
+; handed, and the second is the only one with eyes for a parked receipt. A verifier that implements the
+; first alone has implemented half a rule and will pass a pack the format refuses.
+;
+; No index travels with an item either: an ordinal would state a second time an order the bytes already
+; fix, and would be free to disagree with it.
 ;
 ; No two items in a pack carry the same `id`. The store serves one receipt per id, its index being a map
 ; from that name to a record, so a pack drawn from a range query cannot hold two and the rule is written
