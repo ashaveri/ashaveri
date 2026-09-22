@@ -159,8 +159,8 @@ serving side:
 
 What is still true, in both modes:
 
-- **Intel and AMD collateral is never fetched.** With a pinned Intel root,
-  `@ashaveri/attest-core` verifies a TDX quote through Intel DCAP: the quote under its
+- **No vendor platform-health data is fetched by anything in this code today.** With a pinned Intel
+  root, `@ashaveri/attest-core` verifies a TDX quote through Intel DCAP: the quote under its
   attestation key, that key inside the QE report, and the report under a PCK chain reaching the
   pinned root. Intel's SGX root CA and the AMD Milan ARK are bundled with the package, so SDK
   `strict` mode verifies against them unless `policy.trustAnchors` says otherwise. Without a root
@@ -169,7 +169,11 @@ What is still true, in both modes:
   In neither mode does the verifier consult Intel TCB Info, the QE Identity or the PCK CRL, and on
   AMD it uses the ASK and VCEK files you supply rather than querying KDS. A platform that is
   genuinely signed but since deprecated or revoked by the vendor therefore still verifies. Checking
-  freshness needs network access and is deliberately outside the offline verification path.
+  freshness needs network access and is deliberately outside the offline verification path. The
+  residual risk in T12 is the whole of this limitation, and it is not scheduled away: a service
+  publishing this data for deployments that want it was decided on 21 September 2026, described in the
+  README's platform-health section, and nothing of it is in this code or is a precondition of any
+  verdict a third party can reach. This document describes the offline path as it is built.
 - **The client's clock is a stranger's, and its two windows are chosen numbers.** In strict mode the
   client refuses a receipt whose `iat` is more than 300 seconds from its own clock, and evidence
   whose `att.ts` is more than 900 seconds from it. Those bound how much skew between two
@@ -277,8 +281,24 @@ What is still true, in both modes:
   on is not the payload map's alone: `meas`, `att`, `tok` and `mk` are closed the same way, and an
   undefined member of any of them is `BAD_PAYLOAD` rather than a member a reader takes no account of,
   and the signed `Ashaveri-Protected-Header` closes against the three labels `receipt.cddl` names and
-  answers any other with `BAD_PROTECTED_HEADER` before it reads one of them, so no field of a receipt
-  that verifies is carrying something the verifier dropped on its way to agreeing.
+  answers any other with `BAD_PROTECTED_HEADER` before it reads one of them. Closing by number is not
+  the whole of that rule, because a label is bytes before it is a map key: an entry written as the
+  half-float `1.0` shares the slot of the integer `1` in the map a reader is handed, and core
+  deterministic ordering always writes the one-byte integer first and the three-byte float last, so the
+  float's value is the one that stands and the header's `alg` or `kid` is whatever the last entry
+  carried. A verifier that read the same bytes by their integer labels can be handed a different
+  parameter set, both readings are self-consistent, and no reader settles the difference by choosing
+  one, so the two documents that declare every member they carry are decoded where no floating-point
+  number may appear, a key included. That is the last point at which the two are still two: after the
+  decode there is one map entry and nothing left to check. It reaches the payload's numbers as well,
+  and the format says which ones. The positions are `v`, `iat`, `att.ts`, `epk`, `tok.p` and `tok.c`,
+  each read as the integer `receipt.cddl` types it, so a `128.0` written as a float is a malformed
+  payload rather than 128 taken on trust. The writer that issues a receipt holds the same line from its
+  own side and spells negative zero as the integer zero, so a float standing at one of these positions
+  is a document another implementation wrote, not one this package signed and could not read back. So
+  no field of a
+  receipt that verifies is carrying something the verifier dropped on its way to agreeing, and none is
+  carrying something it merged away.
 - **A mark is detectable only by someone who has the bytes, and nothing here reaches further.** The
   marking the design describes is a member of the response envelope or a frame of the stream, never a
   property of the words, so a consumer of the text alone, pasted out of a chat window or retyped, has

@@ -73,6 +73,26 @@ Ashaveri-Receipt-Payload-v2 = {
 ; no security content behind it. What the format declares of it is therefore only that it carries no
 ; claim, which is what `{ * any => any }` there says and `{}` did not.
 
+; Every number this file writes `int` is a CBOR integer, major type 0 or 1, and no other major type
+; carries one. A floating-point number whose value happens to be a whole number is not an integer
+; written awkwardly: it is a different type, and the reader that takes the two apart while it is
+; reading is the only one that ever can, because a decoder that hands both over as one JavaScript
+; number leaves a check placed afterwards nothing to distinguish. So the payload and the protected
+; header, the two blocks above whose every member is named here, are decoded where no floating-point
+; number may appear, in a value and in a key alike. That is as wide as those two blocks and no
+; wider: nothing either of them declares can be a float, so no document that follows this file is
+; refused by the rule. The map left free above keeps its freedom, and a number in it is not an
+; integer in disguise, because nothing there is declared to be one.
+;
+; A key is why the rule cannot sit beside the reads instead of inside the decode. `Ashaveri-Protected-Header`
+; names its members by the integers RFC 9052 registers, and a key written as the half-float 1.0 decodes
+; to the same map slot as the integer 1, so a reader looking at the finished map sees one entry where
+; the signed bytes carry two, and which value it sees depends on the order they were written in. Core
+; deterministic ordering puts the one-byte integer first and the three-byte float last, so the float's
+; value is the one that survives every time. That is not a header carrying a label this block does not
+; name, and it is not a suite this format does not sign with: it is a header whose parameters are not
+; the ones the signature covers, which is what the rule above refuses, at the point the bytes are read.
+
 ; Absence is declared here rather than inferred from a missing member: `sch: "none"` carries the
 ; digest of the empty region, so `mk` is never optional and a reader never has to decide what an
 ; omitted field meant.

@@ -1,0 +1,231 @@
+; ---------------------------------------------------------------------------
+; The evidence pack: what one deployment hands over when it answers for a span of time rather than
+; for one response. A receipt attests a response; a pack attests that the responses inside a window
+; are all of them, and it carries the two chain endpoints that let a reader with no network and none
+; of our code establish that for themselves.
+;
+; Nothing in this repository assembles a pack today. This file does not pretend to be a description
+; of a thing that runs: it is the layout a generator has to be written against, and the layout a
+; verifier can be written against now. That order is deliberate. A third party's verdict is read out
+; of this container, so the container is public whether or not the tool that fills it is.
+;
+; Section 5.2 of `docs/receipt-spec.md` states the walk this container is built for and publishes the
+; frames as byte images in `packages/fixtures/data/chain-v1.json`. Where a sentence here and those
+; two disagree about a frame, they are the authority and this file is wrong.
+; ---------------------------------------------------------------------------
+
+Ashaveri-Pack = #6.18(COSE_Sign1-Pack-COSE)
+
+; The envelope is the receipt's, unchanged but for the content type: COSE_Sign1 per RFC 9052 section
+; 4.2, encoded per RFC 8949 with Core Deterministic Encoding, so a stranger who rebuilds a pack from
+; this file and the receipts inside it gets the same bytes back out and signs, or refuses, the
+; document the issuer made.
+COSE_Sign1-Pack-COSE = [
+    protected: bstr .cbor Ashaveri-Pack-Protected-Header,
+    unprotected: { * any => any }, ; the map that carries no claim; see the note below the manifest
+    payload: bstr .cbor Ashaveri-Pack-Manifest,
+    signature: bstr .size 64
+]
+
+; The same three labels the receipt signs with, and a typ that differs because the two documents come
+; from one key: a reader who took a pack for a receipt would verify a signature over a manifest and
+; report it as an attestation about a single response, which is the one mistake a content type exists
+; to prevent and it is not recoverable afterwards, because both documents pass.
+Ashaveri-Pack-Protected-Header = {
+    1: -8,                    ; alg: EdDSA (Ed25519)
+    4: bstr .size 32,         ; kid: sha256(public_key)
+    3: "ashaveri/pack",       ; typ
+}
+
+; The signed manifest, and the only thing here a verifier of a pack has to believe before it starts
+; walking. Each member passed one test: a reader of the pack needs it, and no receipt inside the
+; container carries it. That test is why `span`, `chain` and `duty` are here and why the store's window
+; counts, its policy and its retirement history are not — those describe the deployment's retention
+; state, which a retention artifact states and this container carries nothing of. A second copy of a
+; number the deployment already publishes elsewhere is the thing that drifts.
+;
+; Two of the six pass in a way the sentence does not fit, and it is worth saying which so that a reader
+; looking for one shape finds what is actually there. `items` is the body the other five make statements
+; about, so the test says little of it. `v` is the one member no walk consumes: a version states which
+; rules the bytes are read under, so a reader needs it before it can read a member of anything, and
+; needing it ahead of the walk is as strong a claim on the manifest as needing it during one.
+;
+; `v: 1` is one version, and a version here says what the fields attest rather than which software
+; wrote them, as it does in `receipt.cddl`. A second version arrives the day a reader would draw a
+; different conclusion from the same bytes: an added member a verifier may ignore is that day, and an
+; added member a verifier must not miss is that day too, because silence must not read as compliance.
+; Nothing about the duty mapping, the framing or the envelope is expected to change without one.
+Ashaveri-Pack-Manifest = {
+    v: 1,                     ; format version
+    at: int,                  ; unix seconds, the instant assembly began
+    span: PackSpan,
+    chain: PackChain,
+    duty: PackDuty,
+    items: [+ PackItem],      ; at least one; the reason is below
+}
+
+; Stamped before the reads rather than after them, because a slow store must not be able to date a
+; pack later than the window it describes: `held` is measured against this instant and the span is
+; served as of it, so a stamp taken afterwards would move the answer without moving the evidence. It is
+; also the bound that makes the reads mean anything, and the rule is `at` never before `to`: a window
+; whose end has not arrived is still receiving, and a deployment that began its reads inside the span it
+; is answering for would sign a completeness nobody was in a position to have at that instant.
+;
+; The span is half-open — `from` included, `to` excluded — because that is the bound the store serves
+; by: a receipt issued at exactly the end stamp belongs to the next pack, not this one, and a format
+; that left that out would let two packs both claim it or neither. A reader needs both bounds and not
+; only the walk. The walk shows that nothing between the first item and the last is missing; the span
+; is what shows the reader whether the run the walk covers is the period they asked for.
+;
+; Both bounds bind the items, which is a rule and not a tendency: every item's `iat` lies at or after
+; `from` and strictly before `to`. The set that rule states is the set the store's own range query
+; serves for the same two stamps, so a pack carrying a receipt stamped outside its span is two signed
+; members contradicting each other, and a reader refuses it as a malformed document rather than reading
+; it as a deployment that failed to hold what it answered for. That distinction is what this container
+; exists to keep decidable: without it every inconvenient window arrives as a formatting error and
+; every formatting error as a verdict about the deployment, which is the pair of mistakes a third party
+; reads these bytes in order not to make.
+PackSpan = {
+    from: int,                ; unix seconds, included
+    to: int,                  ; unix seconds, excluded
+}
+
+; The two endpoints section 5.2 names, both inside the signature. Neither is derivable from the items,
+; which is the whole reason for carrying them: an anchor a reader invented would let a deployment start
+; the walk wherever it liked, and a head read off the last item handed over would let it stop there,
+; and a run of receipts the reader was never shown is exactly what a chain on its own cannot see.
+; Publishing the head is what makes deletion detectable, and publishing it inside a signature is what
+; makes it the deployment's own statement rather than the reader's guess.
+;
+; Before any retirement the anchor is thirty-two zero bytes, because the head of an empty chain has no
+; predecessor; after one it is the `seam` the trim record carries. Both arrive here as the same value,
+; and a reader does not have to know which happened in order to start walking.
+PackChain = {
+    anchor: bstr .size 32,    ; digest the first item was chained from
+    head: bstr .size 32,      ; digest of the last item in the chain
+}
+
+; The duty this pack answers, and the revision of the mapping it was answered from.
+;
+; `rev` is the member that makes the other three readable later. The period a duty requires comes out
+; of a mapping that changes, and a claim made in 2027 has to be read against the revision it was made
+; from rather than against whatever the mapping says on the day somebody opens the artifact. Without
+; `rev` a pack dates its own conclusion by its own opening, which is how a format silently rewrites
+; the record it was written to hold.
+;
+; `required` is the deployment's to state and this format supplies no default for it. 19(1) has a floor
+; the deployment measures against; 19(2) and 26(6) route a financial institution's logs into the
+; applicable Union financial-services law, where the period is longer and is not ours to name. An
+; artifact written against a routed article carries the period that law states, and a reader who cannot
+; see where the number came from has `rev` to ask it of. `art` is a label from the retention-duty
+; registry, which this estate reads as "19(1)", "19(2)" and "26(6)". It is a tstr and not an enum for
+; the reason `mk.sch` is in `receipt.cddl`: the reader that knows the registry refuses a label outside
+; it, and this file does not decide a question it cannot check.
+;
+; `held` is not derivable from the items either, which is the only reason it is stated here rather
+; than left to a reader: a pack covers one span, the duty runs against everything the store still
+; holds, and the oldest receipt in this container need not be the oldest one retained.
+;
+; What it does have to agree with is the container carrying it. `held` is a count of seconds measured at
+; `at`, so it is at least the age of the oldest receipt in this pack — `at` less the earliest `iat`
+; among the items, since a receipt handed over here is one the store still holds — and a smaller figure
+; contradicts the pack the way the span bound above does, and is refused the same way. A `held` short of
+; `required` is nothing of that kind: the document is whole, the arithmetic comes out the way it comes
+; out, and the duty is not met. `rev` is never after `at`, because a mapping revision that lands after
+; the reads began is not the revision the period was read from.
+;
+; `met` is absent on purpose. A reader holding `at`, `held` and `required` computes it in one
+; comparison, and what a deployment signs about its own compliance is a conclusion where what it signs
+; about the window is evidence. An artifact that states the conclusion as well invites a reader to
+; stop checking the numbers.
+PackDuty = {
+    art: tstr,                ; a label from the retention-duty registry, e.g. "19(1)"
+    rev: int,                 ; unix seconds, the revision `required` was read from
+    required: int,            ; seconds that revision required
+    held: int,                ; seconds the store has held the oldest receipt it retains, at `at`
+}
+
+; One receipt, with the three values its record was hashed with and nothing else. These four are the
+; whole of what it takes to rebuild the frame: `kind` is 0 for every item, because a trim record
+; carries no receipt and is never an item; `idLen` and `len` are counts of the bytes that follow them;
+; and the digest the next item names — or the head, for the last one — is sha256 over
+; 0x00 || prev || iat as eight big-endian bytes || the byte length of id as two big-endian bytes
+; || id || receipt. Every integer in that input is unsigned and big-endian, which is the framing
+; section 5.2 publishes, and the `id` bound below is that framing's own: `idLen` is two bytes, and an
+; empty id belongs to a trim.
+;
+; The item's `iat` is the stamp the record was chained with, and it has to equal the `iat` the receipt
+; itself attests. They are two statements and the store does not make them one: it chains a receipt
+; under the stamp it was handed. A reader who checked the walk and not the equality would accept a
+; receipt moved into a window it was never issued in, so the equality is part of the walk and no
+; member here stands in for it.
+;
+; Order in the array bears nothing: the reader follows the `prev` links, because retiring a prefix and
+; compacting a file rewrites the front of a chain without touching a surviving record's digest. The
+; item whose `prev` is the anchor is first and the item whose own digest is the head is last. A dropped
+; receipt breaks a link, and a receipt borrowed from elsewhere is either unreached or named by nobody's
+; `prev`, so the chain sees both of those. It does not see the third case, and the format says that
+; plainly rather than implying the opposite: an item parked beside a span it is not part of reaches the
+; head exactly as the honest ones do, because the walk stops where the head is and never counts what it
+; did not need to visit. So every item reached from the anchor, and exactly one ending the walk, is a
+; rule a conforming reader enforces and this container cannot: the reader's check has two halves, the
+; walk from the anchor to the head and the count of what that walk reached against the array it was
+; handed, and the second is the only one with eyes for a parked receipt. A verifier that implements the
+; first alone has implemented half a rule and will pass a pack the format refuses.
+;
+; No index travels with an item either: an ordinal would state a second time an order the bytes already
+; fix, and would be free to disagree with it.
+;
+; No two items in a pack carry the same `id`. The store serves one receipt per id, its index being a map
+; from that name to a record, so a pack drawn from a range query cannot hold two and the rule is written
+; for a reader rather than for a query. It is stated because a reader reports a failure by naming an
+; item, and two items answering to one name make that report mean whichever of the two the reader
+; happened to meet first: the links order the items and the name identifies them, and neither of those
+; is a matter of arrival.
+;
+; `[+ …]` requires at least one item. A pack of nothing has no first node, so its walk is vacuous: the
+; reader could check that the head equals the anchor and nothing else, and the artifact would read as
+; evidence while proving only that somebody signed two digests. That a span held no receipts at all is
+; a statement about the window, and it belongs to the artifact that states windows rather than to the
+; container that carries receipts.
+PackItem = {
+    id: tstr .size (1..65535), ; the store's own id for the receipt, as the record names it
+    iat: int,                 ; unix seconds, the stamp the record was chained at
+    prev: bstr .size 32,      ; digest of the record before it, or the anchor for the first item
+    receipt: bstr .cbor Ashaveri-Receipt, ; the signed receipt bytes, whole and unaltered
+}
+
+; ---------------------------------------------------------------------------
+; Closure is one rule across this file and not a rule about one map, which is how `receipt.cddl`
+; states it and why this file may. No block above carries a `...`, and the absence means there what it
+; means there: a member the version named by `v` does not define makes the document invalid rather
+; than a document read with the unexpected member dropped. That reaches the manifest, the span, the
+; chain, the duty, the item and the signed header alike. The header closes under the stronger of the
+; two reasons — its bytes are hashed into the `Sig_structure`, so a label that block does not name is
+; an authenticated parameter, and a reader that took its three labels out of a header carrying a fourth
+; would hand on a document other than the one the issuer signed — and its members are the COSE
+; registry's integers, which is why they are numbered rather than named.
+;
+; One map a signer fills at will, and that is a decision rather than a gap: the `unprotected` map of
+; `COSE_Sign1-Pack-COSE` sits outside the signature, so nothing written in it can travel as a claim
+; about the span, and enforcing that it is empty would buy strictness with no security content behind
+; it. What the format declares of it is only that it carries no claim.
+;
+; Every number above written `int` is a CBOR integer, major type 0 or 1, and no other major type
+; carries one. A floating-point number whose value happens to be a whole number is not an integer
+; written awkwardly: it is a different type, and the only reader that can ever tell them apart is one
+; reading the bytes, because a decoder that hands both over as one JavaScript number leaves a check
+; placed afterwards nothing to distinguish. So a reader decodes every map this file names member by
+; member — the manifest, each map the manifest opens, and the protected header — where no
+; floating-point number may appear, in a value and in a key alike. Nothing any of them declares can be
+; a float, so that rule refuses no document that follows this file. It matters here more than it might
+; elsewhere, because the quantities a manifest states are durations and instants, and a duration is the
+; kind of quantity somebody reaches for a fraction of, which is precisely the reading this rule is
+; there to make impossible rather than merely unlikely.
+;
+; Sign is that rule's other half, and it belongs to a reader in the same way: every instant this file
+; names is a unix time no earlier than the epoch and every duration a whole number of seconds no
+; smaller than zero, so a negative `held` or an end stamp below the epoch is a malformed document rather
+; than an unusual way of writing a quantity. CDDL writes both `int` because it owns no clock, and the
+; floor belongs to the meaning rather than to the type.
+; ---------------------------------------------------------------------------

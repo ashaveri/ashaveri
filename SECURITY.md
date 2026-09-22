@@ -6,8 +6,9 @@ How to reach this project about a vulnerability, what to expect back, and which 
 
 Two channels reach this project. Write to `info@ashaveri.com`, or use the private vulnerability
 reporting form shown on this repository's Security page. Both are private to the reporter and neither
-is a public issue: what you send stays unseen outside the maintainers unless an advisory is published
-from it. No second address and no public tracker is published here.
+is a public issue: what you send is seen by the one person who reads this project's intake, and stays
+unseen by anyone else unless an advisory is published from it. No second address and no public
+tracker is published here.
 
 Send the smallest reproducible case. What that means here: the input, the command you ran, what
 happened, and what you expected, in a form that does not depend on anything of ours running. Name
@@ -24,10 +25,12 @@ There is no bug bounty here. No reward is paid for a report.
 
 ## What you get back
 
-We acknowledge within two business days. That is an acknowledgement target, not a fix timeline, and it
-is not a service level: nothing in this document commits us to a date for a fix, and no remedy follows
-from missing one. After the acknowledgement you hear from us when there is something to say — a
-reproduction, a question about yours, or a fix.
+The published address is read every day, and a report filed through the form reaches the same reader.
+That is the whole of the promise here, and it is deliberately small: there is no response-time target,
+no acknowledgement window, no service level and no escalation path in this document, and nothing in it
+commits anybody to a date for a reply or for a fix. One person reads this intake, so whoever reads your
+report is whoever answers it, with no queue and no hand-off between people. What comes back is
+whatever there is to say: a reproduction, a question about yours, or a fix.
 
 ## What not to do
 
@@ -55,7 +58,8 @@ reproduction, a question about yours, or a fix.
 
 `@ashaveri/signerd` is the workspace's private package and is not built to be installed from a
 registry; it is run from source, and its `--mock` mode is a development fixture rather than a
-deployment.
+deployment. That sentence is about where the package stands today, not about keeping its code back:
+`CONTRIBUTING.md` states the rule that keeps the gateway in public view.
 
 ## What is not here
 
@@ -66,7 +70,9 @@ deployment.
   intake. There is no account, tenant or console of ours to attack, no support desk, and no uptime
   figure anywhere in this project. Nothing of ours sits in a caller's verification loop either: the
   checks are local, against the vendor roots bundled in `@ashaveri/attest-core` and the pins a client
-  supplies.
+  supplies. That covers the present and the decided future alike: the platform-health feed described
+  in `README.md` was decided on 21 September 2026 and nothing of it runs, so as of this writing there
+  is still no endpoint of ours for a report to be about.
 - **No certifications and no audits.** This repository has completed neither, so it holds no seal to
   lose and no attestation of its own processes. Where a document here names an article of the EU AI
   Act or of the GDPR, it names it as the reason a number or a field is what it is. That is a design
@@ -84,8 +90,10 @@ project owns or can fix, and a finding against them belongs to the vendor's own 
 `docs/threat-model.md` section 6 lists what this design does not do, and it is current rather than
 aspirational. A sample, so you know what you are walking into:
 
-- Intel and AMD collateral is never fetched, so a genuinely signed but since-revoked platform still
-  verifies. Checking freshness needs network access and is deliberately outside the offline path.
+- Nothing in this code fetches vendor platform-health data, so a genuinely signed but since-revoked
+  platform still verifies. Checking freshness needs network access and is deliberately outside the
+  offline path. A convenience feed of that data was decided on 21 September 2026 and is described in
+  `README.md`; nothing of it runs today, and it changes nothing about what you are reporting.
 - A composite `snp+gpucc` or `tdx+gpucc` label does not prove the attesting GPU is the card attached
   to the attesting VM. That needs TDISP/TEE-IO and no deployment here has it.
 - The deployment manifest is unsigned. Strict-mode pinning is what gives it weight today.

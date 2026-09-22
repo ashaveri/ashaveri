@@ -25,8 +25,12 @@ ashaveri is the verifiable AI inference layer: OpenAI-compatible inference where
 comes back with a signed receipt. A receipt is a COSE_Sign1 document binding the request hash, the
 response hash, the model, the weights manifest, and the measurement of the confidential hardware
 that answered, and `@ashaveri/sdk` verifies it before your code sees the answer. No verification
-service of ours sits in the loop: the checks are cryptographic, and the hardware trust roots, AMD's,
-Intel's and NVIDIA's published keys, ship inside `@ashaveri/attest-core`.
+service of ours sits in the loop, and the checks are cryptographic rather than something we answer
+for you: they run in the copy of this code you build, and the hardware trust roots, AMD's, Intel's and
+NVIDIA's published keys, ship inside `@ashaveri/attest-core`. The only thing this project has decided
+to run a service for is vendor platform-health data, offered as a convenience and as a second source
+rather than as a precondition; that decision, what it covers and what it leaves to you are in
+[Platform health data](#platform-health-data).
 
 ## Status
 
@@ -180,6 +184,50 @@ another VM is rejected rather than merely reported. Take pinned values from a so
 trust independently of the deployment under test: a measurement the deployment publishes
 about itself is a claim to check against your pin, not a pin.
 
+## Platform health data
+
+**What the verifier does today.** It checks signatures and certificate chains offline, against the
+roots bundled in `@ashaveri/attest-core` or the roots you pass it, and it consults no vendor
+freshness endpoint — nobody's, ours included. The consequence is written down rather than smoothed
+over: with a pinned Intel root, a TDX quote is verified under its attestation key, that key inside
+the QE report, and the report under a PCK chain reaching the root, while Intel's TCB Info, the QE
+Identity and the TCB CRL go unread; on AMD, the ASK and VCEK are the files you supply and KDS is not
+queried; a confidential-computing GPU's chain is verified under the device root you pin, and
+NVIDIA's revocation data and reference driver and VBIOS measurements go unread as well. So a platform
+that its vendor has since deprecated or revoked still verifies here, which is what
+[docs/threat-model.md](docs/threat-model.md) row T12 and section 6 say in the same terms. That is a
+property of an offline check and it is deliberate. The evidence document reaches a client from the
+deployment's own evidence URL, in `strict` mode, and that fetch is to the deployment rather than to
+us.
+
+**What was decided on 21 September 2026.** This project decided to run a service publishing exactly
+the unread data above — TCB and QE identity status, certificate revocation, and the reference
+measurements a device verdict needs — fetched from Intel's, AMD's and NVIDIA's own endpoints and
+republished, offered as a convenience and as a second source. Nothing of it exists yet: no endpoint
+runs, no package in this repository reads one, and the paragraph above is the whole of present
+behaviour. Three things were settled with it. A deployer who declines the service gives up nothing,
+because a feed is a second source and not a precondition, and no verdict a third party can reach
+depends on our service existing; the fetching code and the defaults it fetches under are published
+here in source, because fetching data that can change a verdict is itself something a verdict reads;
+and an unreachable or unanswered feed has to be reported as freshness unknown and refused rather than
+pass a check it did not perform. That refusal is not in this code today either, and the refusals that
+do exist, tabulated in [docs/error-codes.md](docs/error-codes.md), include none that consults a
+vendor's revocation or TCB state.
+
+**What stays the deployer's if the service is declined.** The freshness judgement, entirely, exactly
+as it is today. Either source the vendor data directly — Intel's provisioning certification
+endpoints, AMD's KDS, NVIDIA's revocation and reference measurements — and hand it to the verifier
+through its own options, or accept the documented residual risk in
+[docs/threat-model.md](docs/threat-model.md) and say so plainly in your own deployment's
+documentation. A pinned root answers who signed something. It answers nothing about whether the
+platform behind that signature is still trusted by its vendor, and this repository's documents are
+written so that a deployer finds that out by reading them rather than by being attacked.
+
 ## License
 
 Code is licensed under [Apache-2.0](LICENSE). The golden conformance vectors in `@ashaveri/fixtures` are dedicated to the public domain under [CC0-1.0](packages/fixtures/LICENSE), so downstream reimplementations can embed them without attribution obligations.
+
+What this repository keeps public, and the one rule that decides it, is
+[CONTRIBUTING.md § What stays open, and what does not](CONTRIBUTING.md#what-stays-open-and-what-does-not).
+The same page states this project's patent and design position under the heading
+[Patents and designs](CONTRIBUTING.md#patents-and-designs); in short, it claims none.

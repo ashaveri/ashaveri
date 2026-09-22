@@ -189,10 +189,12 @@ Scope arithmetic is one-directional: `any` is always satisfied, `complete` needs
 refused the receipts for it: a completing credential is always also a reading one, which is the only
 combination with a coherent use.
 
-Scope is a product and security decision, not an Article 15 requirement. Article 15(5) of the GDPR
-covers a restriction of processing in response to an erasure request, which is not a routing table.
-What the Article 15(5)-adjacent obligations actually reach are the credential, possession and replay
-checks: they are what makes a log record mean something about a real holder.
+Scope is a product and security decision, not an Article 15 requirement of the GDPR. Article 18 of
+the GDPR gives a data subject the right to obtain a restriction of processing, one of its cases being
+a subject who opposes an erasure and asks that the use of their data be restricted instead, which is
+not a routing table. What the GDPR's Article 5(1)(f) and Article 32(1) obligations actually reach are
+the credential, possession and replay checks: they are what makes a log record mean something about a
+real holder.
 
 ## 3. Proof of possession on the wire
 
@@ -462,13 +464,19 @@ bits read back from that part, since a publish replaces the part whole and the m
 setting that carries across, and leaves a marker named `scrub-<day>-<seq>.jsonl`. The filter is the
 `cred` field, so a line this gateway refused without ever acknowledging the name it was given is
 erased with the rest: a collapsed refusal still records which credential the request named, and that
-record is about the subject even when the response said nothing about it. The marker is the
-proof that an erasure ran, which matters for Article 15(5)'s notification duty: the deployer who
-erases has to be able to say the erasure happened, and the log's own lines cannot do that once they
-are gone. The retention sweep collects markers on their own day's schedule, because a marker is
-personal data at the level of a credential id and cannot outlive the window that erased its subject.
+record is about the subject even when the response said nothing about it. The marker is the proof
+that an erasure ran, which matters for the notification duty in Article 19(1) of the GDPR: the
+deployer who erases has to be able to say the erasure happened, and the log's own lines cannot do
+that once they are gone. The retention sweep collects markers on their own day's schedule, because a
+marker is personal data at the level of a credential id and cannot outlive the window that erased
+its subject.
 `--request <ref>` records the deployer's own reference for the instruction the run answers, so a later
 reader can tell which request a given erasure discharged.
+
+The scrub is a separate program from the gateway that owns the directory, and it is a separate program
+in a way that matters to what its output means: it takes no lock, it asks the running gateway for
+nothing, and it does not stop that gateway appending while it runs. Section 8.3 states what that costs
+and what an erasure does not reach.
 
 Erasure is not expiry. Pruning deletes a whole day's records when that day's retention has run out,
 and needs no subject, no instruction and no marker. Scrubbing answers an instruction, keeps every
@@ -512,15 +520,15 @@ part size, so a busy deployment grows in parts and the volume the log sits on is
 Four duties run against that window. None of them is satisfied here, and none of them is answered by
 a shorter number.
 
-- **A subject's access request.** Article 15(3) requires a copy of "the personal data undergoing
-  processing", so a deployment asked for the log lines about a credential can only produce the ones
-  still on the volume. Nothing in the access log's design addresses this, and a longer window is a
-  configuration decision, not a code change.
-- **Notification after erasure.** Article 19 of the GDPR requires telling each recipient to whom
-  personal data has been disclosed about a rectification or erasure, and Article 15(5) requires telling
-  those recipients about a restriction. Both assume the deployer still knows who received what, which
-  retention against a fixed window can erase, and the scrub marker is the artifact that lets an
-  operator prove a removal happened.
+- **A subject's access request.** Article 15(3) of the GDPR requires a copy of "the personal data
+  undergoing processing", so a deployment asked for the log lines about a credential can only produce
+  the ones still on the volume. Nothing in the access log's design addresses this, and a longer window
+  is a configuration decision, not a code change.
+- **Notification after erasure.** Article 19(1) of the GDPR requires the controller to communicate a
+  rectification or an erasure to each recipient the personal data has been disclosed to, and the same
+  paragraph names a restriction of processing carried out under Article 18 beside them. That duty
+  assumes the deployer still knows who received what, which retention against a fixed window can
+  erase, and the scrub marker is the artifact that lets an operator prove a removal happened.
 - **Security logging.** Article 32(2) and (4) plus the NIS2 provisions on logging and access control
   (the relevant NIS2 points are its Article 21(2)(c) and (d) and Article 23(2)) point toward keeping
   security logs. The one period they do fix is a floor rather than a window: the EU AI Act's
@@ -561,6 +569,32 @@ erasable.
 That limit is the cost of unguessability: an id a stranger cannot walk is an id whose tag is still legible
 to anyone who has the id. The tag is what makes the fetch route refuse one tenant's receipt to another
 without storing ownership state that could drift, and the same value is what survives an erasure.
+
+Two further limits belong to the tool rather than to the log's shape, and they are stated here because a
+marker is easy to read as a stronger document than it is.
+
+The first is concurrency. `ashaveri accesslog scrub` is a separate program from the gateway, it holds no
+lock, and it does not pause or coordinate with the process appending to the directory. What it does
+instead is read a part, compare that part with the bytes at the name in the last instant before it
+publishes its rewritten copy over them, and retry a part that moved up to three times. The window that
+survives that is the one between the last comparison and the publish, which nothing in the platform's
+file interface can be made conditional: an append that lands in it is removed by the publish, is in no
+count and under no digest, and is disclosed by no marker. That is why the tool's own guidance is to run
+it against a deployment that is not serving, and why a scrub of a live log is a statement about the
+records this run saw rather than about every record that existed while it ran.
+
+The second is depth. A scrub removes names, not bytes. A rewritten part is published by renaming a copy
+over the original and a part emptied of the subject's records is deleted outright, which drops the
+directory entry and frees the space; nothing in this command overwrites the freed blocks or touches the
+volume underneath the file system. An image taken before the run still holds the lines, and recovery of
+freed blocks on an unencrypted volume can hold them too. Nothing in this document claims otherwise, and
+no marker digest is evidence of byte destruction: the digests a marker carries are an account of what
+this run read and what it published, which is a claim about a file and not about a volume. Where a
+deployer needs the bytes to be unreachable rather than merely unreferenced, that is arranged below this
+software, at the volume, by encrypting what the log sits on or sanitising the media when it leaves. The
+erasure duty itself belongs to whoever holds it: under Article 17(1) of the GDPR it is the controller's,
+and a deployer acting as processor discharges it on the controller's documented instruction. This tool is
+what a deployer has for the log, and it is not offered as settling that duty for anyone.
 
 ## 9. Appendix: data map
 

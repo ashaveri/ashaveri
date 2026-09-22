@@ -98,6 +98,51 @@ uses `type(scope): subject`, with the scope naming the package or the document t
 asked for. Keep the subject to one clause and in the imperative; put the reasoning in the body, where
 it survives a collapsed diff view.
 
+## What stays open, and what does not
+
+This repository is the open half of the project. Where the line falls is decided by one rule rather
+than by a list, and the rule is worth stating because it is the rule a contribution is measured
+against. **A thing belongs outside this repository only if publishing it could not change what a third
+party's verifier concludes about a receipt.** Not whether it is valuable, and not whether a rival
+could copy it: the test is whether someone holding a receipt, a copy of this code and nothing else
+from us would reach a different verdict if they could read the thing. If they would, it is here in
+source. If they would not, it is decided on its own merits.
+
+On the public side, and staying there:
+
+- the receipt format, normatively in `packages/receipt/receipt.cddl` with its JSON projection in
+  `packages/receipt/schemas/receipt-v1.schema.json`, because every implementation is measured against
+  both;
+- the verification path, which is `@ashaveri/attest-core`, `@ashaveri/sdk` and `@ashaveri/cli`;
+- the gateway that signs receipts, `@ashaveri/signerd`. Anything that signs, seals or changes what a
+  verdict means is open in source and in its published form permanently, and the gateway is one of
+  those things, so taking its source out of public view later would be a reclassification with a date
+  and a reason rather than a quiet removal. Its source is here today; a decision of 21 September 2026
+  is that its published package belongs on this side too, and as of that date nothing in this project
+  is on a registry at all and the workspace manifest still marks that package `private`, which is what
+  `SECURITY.md` records when it says the gateway is run from source;
+- the conformance vectors in `@ashaveri/fixtures`, dedicated to the public domain so that a
+  reimplementation in any language carries no attribution obligation;
+- the documents that say what a verdict does and does not prove, in `docs/`.
+
+The rule keeps nothing back that a verdict reads, and it names its two survivors. A maintained
+duty-mapping dataset, and the tooling that produces a pack from it, sit outside this repository: the
+first is work someone has to keep correct, and its worth is the maintenance rather than the secrecy.
+A decision of 21 September 2026 is that a deployment receives it as a dated snapshot carrying its own
+revision date, so that a claim made in 2027 is read against the version it was made from. The layout
+such a pack carries is a separate matter, because a deployment reads it and so a verdict can turn on
+it: the rule puts that layout on this side, and the same date settled the order — the layout is
+published here before the tooling that writes it moves on. As of 21 September 2026 no pack layout is
+published in this repository, for the plain reason that nothing in this repository writes one.
+
+What a contributor should expect to follow. A change that touches what a verdict means has to be made
+here, because a closed half cannot hold it without breaking the rule above. A component no verdict
+reads — routing choices, cache tuning, deployment plumbing — is classified case by case, and a
+proposal to keep one back is argued on its own facts rather than on this page. And everything named
+above stays where it is: this is a boundary drawn to be checkable, so a reader who finds a mechanism a
+verifier depends on missing from these sources has found a defect worth reporting, in the sense that
+`SECURITY.md` means it and not in the sense that a paid feature is missing.
+
 ## Licensing
 
 The code in this workspace is offered under the Apache License 2.0 (`LICENSE`). The one package-level
@@ -116,6 +161,26 @@ the licence text ever read differently, the licence text governs.
 
 Contributing does not create an employment, contractor or agency relationship between you and this
 project.
+
+### Patents and designs
+
+The two sections above are the whole of this project's intellectual-property position, and holding no
+patent position is part of it rather than a gap in it. **No patent or design position is claimed on
+what this repository publishes.** That was decided explicitly on 21 September 2026 instead of being
+left to drift: this project files no patent application on the receipt format, the verification path
+or the output marking, registers no design over any of them, and claims nothing by silence. Openness
+is the stated position, and it is a credible one here for a reason worth naming: receipts of this
+shape were published by others before this repository existed, so the field is already open and a
+position taken on it would be a position over disclosure that is no longer anyone's to keep.
+
+What follows from that is a statement about what this project asserts, not about anybody else's
+rights. This project will not assert a patent or design right against anyone who implements a
+verification path — a client that checks a receipt, a reimplementation of the published format, a
+detector reading the published marking schemes, or a deployment serving this protocol — and that
+includes a competitor. It does not license and cannot speak for a patent some third party may hold
+over the same ground, and nothing in this file warrants that implementing the specification infringes
+nothing. A contributor's position is untouched by this section: what a contributor grants is exactly
+the grant the licence above carries, and no assignment, waiver or additional grant is asked for.
 
 ## Vulnerabilities are not bugs
 
