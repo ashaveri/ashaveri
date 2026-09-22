@@ -1,0 +1,153 @@
+{
+  "version": 1,
+  "description": "The marked region a receipt digests in `mk.d`, for both response shapes, and the refusals the published rule owes a response that carries too few, too many, or not the attested one.",
+  "rule": {
+    "registry": "docs/receipt-spec.md section 3.3",
+    "executable": "extractMarkedRegion in @ashaveri/receipt",
+    "schemes": [
+      "none",
+      "provenance-v1"
+    ],
+    "digestField": "mk.d",
+    "algorithm": "sha256",
+    "input": "the marked region exactly as the response bytes carry it, and nothing beside it",
+    "candidates": "exactly one region matching the label shape, or the response is refused",
+    "member": {
+      "name": "\"ashaveri\"",
+      "sch": "ashaveri/provenance-v1",
+      "gen": "ai",
+      "at": 1772000000,
+      "note": "The member is serialized JSON text inside the response, and it is that text, byte for byte, that is hashed."
+    },
+    "encodings": "byte strings unpadded base64url, digests lowercase hex",
+    "note": "A region is a span of bytes inside the response and is published beside it rather than reconstructed: an implementation that re-serializes the member has hashed different bytes. The empty region of `none` is zero bytes, so its digest is sha256 over an empty input."
+  },
+  "vectors": [
+    {
+      "name": "buffered-member",
+      "note": "The top-level marking member of a JSON completion: its name, its colon and its value, with the multi-byte content of the completion ahead of it and untouched.",
+      "shape": "buffered",
+      "sch": "provenance-v1",
+      "responseBase64Url": "eyJpZCI6ImNoYXRjbXBsLW1hcmtpbmctMSIsIm9iamVjdCI6ImNoYXQuY29tcGxldGlvbiIsImNyZWF0ZWQiOjE3NzIwMDAwMDAsIm1vZGVsIjoibW9jay1tb2RlbC0xIiwiY2hvaWNlcyI6W3siaW5kZXgiOjAsIm1lc3NhZ2UiOnsicm9sZSI6ImFzc2lzdGFudCIsImNvbnRlbnQiOiJNb2NrIHJlcGx5OiBjYWbDqSDimJUgc2VydmVkLiJ9LCJmaW5pc2hfcmVhc29uIjoic3RvcCJ9XSwidXNhZ2UiOnsicHJvbXB0X3Rva2VucyI6OSwiY29tcGxldGlvbl90b2tlbnMiOjYsInRvdGFsX3Rva2VucyI6MTV9LCJhc2hhdmVyaSI6eyJtYXJraW5nIjp7InNjaCI6ImFzaGF2ZXJpL3Byb3ZlbmFuY2UtdjEiLCJnZW4iOiJhaSIsImF0IjoxNzcyMDAwMDAwfX19",
+      "responseByteLength": 369,
+      "attestedRegionBase64Url": "ImFzaGF2ZXJpIjp7Im1hcmtpbmciOnsic2NoIjoiYXNoYXZlcmkvcHJvdmVuYW5jZS12MSIsImdlbiI6ImFpIiwiYXQiOjE3NzIwMDAwMDB9fQ",
+      "attestedRegionByteLength": 82,
+      "foundRegionBase64Url": "ImFzaGF2ZXJpIjp7Im1hcmtpbmciOnsic2NoIjoiYXNoYXZlcmkvcHJvdmVuYW5jZS12MSIsImdlbiI6ImFpIiwiYXQiOjE3NzIwMDAwMDB9fQ",
+      "foundRegionByteLength": 82,
+      "dHex": "35702fda276f3d0a81742cd54079eeb7031aebf06205993cfed1051e2de282de",
+      "expected": "verify-ok"
+    },
+    {
+      "name": "streamed-frame",
+      "note": "One `data:` field line of a stream, its terminator excluded, whose payload is a chunk carrying an empty `choices` beside the member. The frame sits ahead of `data: [DONE]`, so it is inside the bytes the response digest covers.",
+      "shape": "streamed",
+      "sch": "provenance-v1",
+      "responseBase64Url": "ZGF0YTogeyJpZCI6ImNoYXRjbXBsLW1hcmtpbmctMSIsIm9iamVjdCI6ImNoYXQuY29tcGxldGlvbi5jaHVuayIsImNyZWF0ZWQiOjE3NzIwMDAwMDAsIm1vZGVsIjoibW9jay1tb2RlbC0xIiwiY2hvaWNlcyI6W3siaW5kZXgiOjAsImRlbHRhIjp7InJvbGUiOiJhc3Npc3RhbnQiLCJjb250ZW50IjoiTW9jayByZXBseToifSwiZmluaXNoX3JlYXNvbiI6bnVsbH1dfQoKZGF0YTogeyJpZCI6ImNoYXRjbXBsLW1hcmtpbmctMSIsIm9iamVjdCI6ImNoYXQuY29tcGxldGlvbi5jaHVuayIsImNyZWF0ZWQiOjE3NzIwMDAwMDAsIm1vZGVsIjoibW9jay1tb2RlbC0xIiwiY2hvaWNlcyI6W3siaW5kZXgiOjAsImRlbHRhIjp7ImNvbnRlbnQiOiIgY2Fmw6kg4piVIn0sImZpbmlzaF9yZWFzb24iOm51bGx9XX0KCmRhdGE6IHsiaWQiOiJjaGF0Y21wbC1tYXJraW5nLTEiLCJvYmplY3QiOiJjaGF0LmNvbXBsZXRpb24uY2h1bmsiLCJjcmVhdGVkIjoxNzcyMDAwMDAwLCJtb2RlbCI6Im1vY2stbW9kZWwtMSIsImNob2ljZXMiOlt7ImluZGV4IjowLCJkZWx0YSI6eyJjb250ZW50IjoiIHNlcnZlZC4ifSwiZmluaXNoX3JlYXNvbiI6bnVsbH1dfQoKZGF0YTogeyJpZCI6ImNoYXRjbXBsLW1hcmtpbmctMSIsIm9iamVjdCI6ImNoYXQuY29tcGxldGlvbi5jaHVuayIsImNyZWF0ZWQiOjE3NzIwMDAwMDAsIm1vZGVsIjoibW9jay1tb2RlbC0xIiwiY2hvaWNlcyI6W3siaW5kZXgiOjAsImRlbHRhIjp7fSwiZmluaXNoX3JlYXNvbiI6InN0b3AifV19CgpkYXRhOiB7ImlkIjoiY2hhdGNtcGwtbWFya2luZy0xIiwib2JqZWN0IjoiY2hhdC5jb21wbGV0aW9uLmNodW5rIiwiY3JlYXRlZCI6MTc3MjAwMDAwMCwibW9kZWwiOiJtb2NrLW1vZGVsLTEiLCJjaG9pY2VzIjpbXSwiYXNoYXZlcmkiOnsibWFya2luZyI6eyJzY2giOiJhc2hhdmVyaS9wcm92ZW5hbmNlLXYxIiwiZ2VuIjoiYWkiLCJhdCI6MTc3MjAwMDAwMH19fQoKZGF0YTogW0RPTkVdCgo",
+      "responseByteLength": 980,
+      "attestedRegionBase64Url": "ZGF0YTogeyJpZCI6ImNoYXRjbXBsLW1hcmtpbmctMSIsIm9iamVjdCI6ImNoYXQuY29tcGxldGlvbi5jaHVuayIsImNyZWF0ZWQiOjE3NzIwMDAwMDAsIm1vZGVsIjoibW9jay1tb2RlbC0xIiwiY2hvaWNlcyI6W10sImFzaGF2ZXJpIjp7Im1hcmtpbmciOnsic2NoIjoiYXNoYXZlcmkvcHJvdmVuYW5jZS12MSIsImdlbiI6ImFpIiwiYXQiOjE3NzIwMDAwMDB9fX0",
+      "attestedRegionByteLength": 206,
+      "foundRegionBase64Url": "ZGF0YTogeyJpZCI6ImNoYXRjbXBsLW1hcmtpbmctMSIsIm9iamVjdCI6ImNoYXQuY29tcGxldGlvbi5jaHVuayIsImNyZWF0ZWQiOjE3NzIwMDAwMDAsIm1vZGVsIjoibW9jay1tb2RlbC0xIiwiY2hvaWNlcyI6W10sImFzaGF2ZXJpIjp7Im1hcmtpbmciOnsic2NoIjoiYXNoYXZlcmkvcHJvdmVuYW5jZS12MSIsImdlbiI6ImFpIiwiYXQiOjE3NzIwMDAwMDB9fX0",
+      "foundRegionByteLength": 206,
+      "dHex": "5bab82851c424a2bcf379ac329507a1681bb46de44af02e1970e689703b5f1ce",
+      "expected": "verify-ok"
+    },
+    {
+      "name": "absence-declared",
+      "note": "A `none` receipt over a response carrying no marking. The region is the empty input and `d` is sha256 over zero bytes, which is why the absence is a value the field holds rather than a member left out.",
+      "shape": "buffered",
+      "sch": "none",
+      "responseBase64Url": "eyJpZCI6ImNoYXRjbXBsLW1hcmtpbmctMSIsIm9iamVjdCI6ImNoYXQuY29tcGxldGlvbiIsImNyZWF0ZWQiOjE3NzIwMDAwMDAsIm1vZGVsIjoibW9jay1tb2RlbC0xIiwiY2hvaWNlcyI6W3siaW5kZXgiOjAsIm1lc3NhZ2UiOnsicm9sZSI6ImFzc2lzdGFudCIsImNvbnRlbnQiOiJNb2NrIHJlcGx5OiBjYWbDqSDimJUgc2VydmVkLiJ9LCJmaW5pc2hfcmVhc29uIjoic3RvcCJ9XSwidXNhZ2UiOnsicHJvbXB0X3Rva2VucyI6OSwiY29tcGxldGlvbl90b2tlbnMiOjYsInRvdGFsX3Rva2VucyI6MTV9fQ",
+      "responseByteLength": 286,
+      "attestedRegionBase64Url": "",
+      "attestedRegionByteLength": 0,
+      "foundRegionBase64Url": "",
+      "foundRegionByteLength": 0,
+      "dHex": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "expected": "verify-ok"
+    },
+    {
+      "name": "absence-declared-over-marked",
+      "note": "The same `none` attestation over a response that does carry a marked region, which is what a backend that marks its own output leaves a deployment that marks nothing. The label declares that no region of these bytes is marked and the bytes disagree with it.",
+      "shape": "buffered",
+      "sch": "none",
+      "responseBase64Url": "eyJpZCI6ImNoYXRjbXBsLW1hcmtpbmctMSIsIm9iamVjdCI6ImNoYXQuY29tcGxldGlvbiIsImNyZWF0ZWQiOjE3NzIwMDAwMDAsIm1vZGVsIjoibW9jay1tb2RlbC0xIiwiY2hvaWNlcyI6W3siaW5kZXgiOjAsIm1lc3NhZ2UiOnsicm9sZSI6ImFzc2lzdGFudCIsImNvbnRlbnQiOiJNb2NrIHJlcGx5OiBjYWbDqSDimJUgc2VydmVkLiJ9LCJmaW5pc2hfcmVhc29uIjoic3RvcCJ9XSwidXNhZ2UiOnsicHJvbXB0X3Rva2VucyI6OSwiY29tcGxldGlvbl90b2tlbnMiOjYsInRvdGFsX3Rva2VucyI6MTV9LCJhc2hhdmVyaSI6eyJtYXJraW5nIjp7InNjaCI6ImFzaGF2ZXJpL3Byb3ZlbmFuY2UtdjEiLCJnZW4iOiJhaSIsImF0IjoxNzcyMDAwMDAwfX19",
+      "responseByteLength": 369,
+      "attestedRegionBase64Url": "",
+      "attestedRegionByteLength": 0,
+      "foundRegionBase64Url": null,
+      "foundRegionByteLength": null,
+      "dHex": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "expected": "MARK_MISMATCH"
+    },
+    {
+      "name": "region-stripped",
+      "note": "The member deleted from a response that was served with it, `d` left as the digest of the span that went away. A reader holding these bytes finds no region at all, and zero candidates is a refusal rather than an empty span to hash.",
+      "shape": "buffered",
+      "sch": "provenance-v1",
+      "responseBase64Url": "eyJpZCI6ImNoYXRjbXBsLW1hcmtpbmctMSIsIm9iamVjdCI6ImNoYXQuY29tcGxldGlvbiIsImNyZWF0ZWQiOjE3NzIwMDAwMDAsIm1vZGVsIjoibW9jay1tb2RlbC0xIiwiY2hvaWNlcyI6W3siaW5kZXgiOjAsIm1lc3NhZ2UiOnsicm9sZSI6ImFzc2lzdGFudCIsImNvbnRlbnQiOiJNb2NrIHJlcGx5OiBjYWbDqSDimJUgc2VydmVkLiJ9LCJmaW5pc2hfcmVhc29uIjoic3RvcCJ9XSwidXNhZ2UiOnsicHJvbXB0X3Rva2VucyI6OSwiY29tcGxldGlvbl90b2tlbnMiOjYsInRvdGFsX3Rva2VucyI6MTV9fQ",
+      "responseByteLength": 286,
+      "attestedRegionBase64Url": "ImFzaGF2ZXJpIjp7Im1hcmtpbmciOnsic2NoIjoiYXNoYXZlcmkvcHJvdmVuYW5jZS12MSIsImdlbiI6ImFpIiwiYXQiOjE3NzIwMDAwMDB9fQ",
+      "attestedRegionByteLength": 82,
+      "foundRegionBase64Url": null,
+      "foundRegionByteLength": null,
+      "dHex": "35702fda276f3d0a81742cd54079eeb7031aebf06205993cfed1051e2de282de",
+      "expected": "MARK_MISMATCH"
+    },
+    {
+      "name": "region-substituted",
+      "note": "A well-formed marking member carrying a marking time an hour off from the one the receipt digested: exactly one region, found as the rule says to find it, hashing to something else. This is the case the region digest exists for, and it is the one the response digest cannot see.",
+      "shape": "buffered",
+      "sch": "provenance-v1",
+      "responseBase64Url": "eyJpZCI6ImNoYXRjbXBsLW1hcmtpbmctMSIsIm9iamVjdCI6ImNoYXQuY29tcGxldGlvbiIsImNyZWF0ZWQiOjE3NzIwMDAwMDAsIm1vZGVsIjoibW9jay1tb2RlbC0xIiwiY2hvaWNlcyI6W3siaW5kZXgiOjAsIm1lc3NhZ2UiOnsicm9sZSI6ImFzc2lzdGFudCIsImNvbnRlbnQiOiJNb2NrIHJlcGx5OiBjYWbDqSDimJUgc2VydmVkLiJ9LCJmaW5pc2hfcmVhc29uIjoic3RvcCJ9XSwidXNhZ2UiOnsicHJvbXB0X3Rva2VucyI6OSwiY29tcGxldGlvbl90b2tlbnMiOjYsInRvdGFsX3Rva2VucyI6MTV9LCJhc2hhdmVyaSI6eyJtYXJraW5nIjp7InNjaCI6ImFzaGF2ZXJpL3Byb3ZlbmFuY2UtdjEiLCJnZW4iOiJhaSIsImF0IjoxNzcyMDAzNjAwfX19",
+      "responseByteLength": 369,
+      "attestedRegionBase64Url": "ImFzaGF2ZXJpIjp7Im1hcmtpbmciOnsic2NoIjoiYXNoYXZlcmkvcHJvdmVuYW5jZS12MSIsImdlbiI6ImFpIiwiYXQiOjE3NzIwMDAwMDB9fQ",
+      "attestedRegionByteLength": 82,
+      "foundRegionBase64Url": "ImFzaGF2ZXJpIjp7Im1hcmtpbmciOnsic2NoIjoiYXNoYXZlcmkvcHJvdmVuYW5jZS12MSIsImdlbiI6ImFpIiwiYXQiOjE3NzIwMDM2MDB9fQ",
+      "foundRegionByteLength": 82,
+      "dHex": "35702fda276f3d0a81742cd54079eeb7031aebf06205993cfed1051e2de282de",
+      "expected": "MARK_MISMATCH"
+    },
+    {
+      "name": "region-duplicated",
+      "note": "Two marking members at the top level of one body, which is the shape of a response somebody appended a mark to. The rule names exactly one candidate and refuses rather than taking the first or the last, so no port is entitled to choose.",
+      "shape": "buffered",
+      "sch": "provenance-v1",
+      "responseBase64Url": "eyJpZCI6ImNoYXRjbXBsLW1hcmtpbmctMSIsIm9iamVjdCI6ImNoYXQuY29tcGxldGlvbiIsImNyZWF0ZWQiOjE3NzIwMDAwMDAsIm1vZGVsIjoibW9jay1tb2RlbC0xIiwiY2hvaWNlcyI6W3siaW5kZXgiOjAsIm1lc3NhZ2UiOnsicm9sZSI6ImFzc2lzdGFudCIsImNvbnRlbnQiOiJNb2NrIHJlcGx5OiBjYWbDqSDimJUgc2VydmVkLiJ9LCJmaW5pc2hfcmVhc29uIjoic3RvcCJ9XSwidXNhZ2UiOnsicHJvbXB0X3Rva2VucyI6OSwiY29tcGxldGlvbl90b2tlbnMiOjYsInRvdGFsX3Rva2VucyI6MTV9LCJhc2hhdmVyaSI6eyJtYXJraW5nIjp7InNjaCI6ImFzaGF2ZXJpL3Byb3ZlbmFuY2UtdjEiLCJnZW4iOiJhaSIsImF0IjoxNzcyMDAwMDAwfX0sImFzaGF2ZXJpIjp7Im1hcmtpbmciOnsic2NoIjoiYXNoYXZlcmkvcHJvdmVuYW5jZS12MSIsImdlbiI6ImFpIiwiYXQiOjE3NzIwMDM2MDB9fX0",
+      "responseByteLength": 452,
+      "attestedRegionBase64Url": "ImFzaGF2ZXJpIjp7Im1hcmtpbmciOnsic2NoIjoiYXNoYXZlcmkvcHJvdmVuYW5jZS12MSIsImdlbiI6ImFpIiwiYXQiOjE3NzIwMDAwMDB9fQ",
+      "attestedRegionByteLength": 82,
+      "foundRegionBase64Url": null,
+      "foundRegionByteLength": null,
+      "dHex": "35702fda276f3d0a81742cd54079eeb7031aebf06205993cfed1051e2de282de",
+      "expected": "MARK_MISMATCH"
+    },
+    {
+      "name": "streamed-region-stripped",
+      "note": "The streaming shape with its marking frame removed and the frame's digest still attested: the four content chunks and the sentinel are untouched, and what is missing is one line of a stream a reader has to walk.",
+      "shape": "streamed",
+      "sch": "provenance-v1",
+      "responseBase64Url": "ZGF0YTogeyJpZCI6ImNoYXRjbXBsLW1hcmtpbmctMSIsIm9iamVjdCI6ImNoYXQuY29tcGxldGlvbi5jaHVuayIsImNyZWF0ZWQiOjE3NzIwMDAwMDAsIm1vZGVsIjoibW9jay1tb2RlbC0xIiwiY2hvaWNlcyI6W3siaW5kZXgiOjAsImRlbHRhIjp7InJvbGUiOiJhc3Npc3RhbnQiLCJjb250ZW50IjoiTW9jayByZXBseToifSwiZmluaXNoX3JlYXNvbiI6bnVsbH1dfQoKZGF0YTogeyJpZCI6ImNoYXRjbXBsLW1hcmtpbmctMSIsIm9iamVjdCI6ImNoYXQuY29tcGxldGlvbi5jaHVuayIsImNyZWF0ZWQiOjE3NzIwMDAwMDAsIm1vZGVsIjoibW9jay1tb2RlbC0xIiwiY2hvaWNlcyI6W3siaW5kZXgiOjAsImRlbHRhIjp7ImNvbnRlbnQiOiIgY2Fmw6kg4piVIn0sImZpbmlzaF9yZWFzb24iOm51bGx9XX0KCmRhdGE6IHsiaWQiOiJjaGF0Y21wbC1tYXJraW5nLTEiLCJvYmplY3QiOiJjaGF0LmNvbXBsZXRpb24uY2h1bmsiLCJjcmVhdGVkIjoxNzcyMDAwMDAwLCJtb2RlbCI6Im1vY2stbW9kZWwtMSIsImNob2ljZXMiOlt7ImluZGV4IjowLCJkZWx0YSI6eyJjb250ZW50IjoiIHNlcnZlZC4ifSwiZmluaXNoX3JlYXNvbiI6bnVsbH1dfQoKZGF0YTogeyJpZCI6ImNoYXRjbXBsLW1hcmtpbmctMSIsIm9iamVjdCI6ImNoYXQuY29tcGxldGlvbi5jaHVuayIsImNyZWF0ZWQiOjE3NzIwMDAwMDAsIm1vZGVsIjoibW9jay1tb2RlbC0xIiwiY2hvaWNlcyI6W3siaW5kZXgiOjAsImRlbHRhIjp7fSwiZmluaXNoX3JlYXNvbiI6InN0b3AifV19CgpkYXRhOiBbRE9ORV0KCg",
+      "responseByteLength": 772,
+      "attestedRegionBase64Url": "ZGF0YTogeyJpZCI6ImNoYXRjbXBsLW1hcmtpbmctMSIsIm9iamVjdCI6ImNoYXQuY29tcGxldGlvbi5jaHVuayIsImNyZWF0ZWQiOjE3NzIwMDAwMDAsIm1vZGVsIjoibW9jay1tb2RlbC0xIiwiY2hvaWNlcyI6W10sImFzaGF2ZXJpIjp7Im1hcmtpbmciOnsic2NoIjoiYXNoYXZlcmkvcHJvdmVuYW5jZS12MSIsImdlbiI6ImFpIiwiYXQiOjE3NzIwMDAwMDB9fX0",
+      "attestedRegionByteLength": 206,
+      "foundRegionBase64Url": null,
+      "foundRegionByteLength": null,
+      "dHex": "5bab82851c424a2bcf379ac329507a1681bb46de44af02e1970e689703b5f1ce",
+      "expected": "MARK_MISMATCH"
+    },
+    {
+      "name": "streamed-region-duplicated",
+      "note": "Two frames whose payload is an empty-`choices` chunk with the member beside it, which is a stream a backend that marks itself and a gateway that marks both produce.",
+      "shape": "streamed",
+      "sch": "provenance-v1",
+      "responseBase64Url": "ZGF0YTogeyJpZCI6ImNoYXRjbXBsLW1hcmtpbmctMSIsIm9iamVjdCI6ImNoYXQuY29tcGxldGlvbi5jaHVuayIsImNyZWF0ZWQiOjE3NzIwMDAwMDAsIm1vZGVsIjoibW9jay1tb2RlbC0xIiwiY2hvaWNlcyI6W3siaW5kZXgiOjAsImRlbHRhIjp7InJvbGUiOiJhc3Npc3RhbnQiLCJjb250ZW50IjoiTW9jayByZXBseToifSwiZmluaXNoX3JlYXNvbiI6bnVsbH1dfQoKZGF0YTogeyJpZCI6ImNoYXRjbXBsLW1hcmtpbmctMSIsIm9iamVjdCI6ImNoYXQuY29tcGxldGlvbi5jaHVuayIsImNyZWF0ZWQiOjE3NzIwMDAwMDAsIm1vZGVsIjoibW9jay1tb2RlbC0xIiwiY2hvaWNlcyI6W3siaW5kZXgiOjAsImRlbHRhIjp7ImNvbnRlbnQiOiIgY2Fmw6kg4piVIn0sImZpbmlzaF9yZWFzb24iOm51bGx9XX0KCmRhdGE6IHsiaWQiOiJjaGF0Y21wbC1tYXJraW5nLTEiLCJvYmplY3QiOiJjaGF0LmNvbXBsZXRpb24uY2h1bmsiLCJjcmVhdGVkIjoxNzcyMDAwMDAwLCJtb2RlbCI6Im1vY2stbW9kZWwtMSIsImNob2ljZXMiOlt7ImluZGV4IjowLCJkZWx0YSI6eyJjb250ZW50IjoiIHNlcnZlZC4ifSwiZmluaXNoX3JlYXNvbiI6bnVsbH1dfQoKZGF0YTogeyJpZCI6ImNoYXRjbXBsLW1hcmtpbmctMSIsIm9iamVjdCI6ImNoYXQuY29tcGxldGlvbi5jaHVuayIsImNyZWF0ZWQiOjE3NzIwMDAwMDAsIm1vZGVsIjoibW9jay1tb2RlbC0xIiwiY2hvaWNlcyI6W3siaW5kZXgiOjAsImRlbHRhIjp7fSwiZmluaXNoX3JlYXNvbiI6InN0b3AifV19CgpkYXRhOiB7ImlkIjoiY2hhdGNtcGwtbWFya2luZy0xIiwib2JqZWN0IjoiY2hhdC5jb21wbGV0aW9uLmNodW5rIiwiY3JlYXRlZCI6MTc3MjAwMDAwMCwibW9kZWwiOiJtb2NrLW1vZGVsLTEiLCJjaG9pY2VzIjpbXSwiYXNoYXZlcmkiOnsibWFya2luZyI6eyJzY2giOiJhc2hhdmVyaS9wcm92ZW5hbmNlLXYxIiwiZ2VuIjoiYWkiLCJhdCI6MTc3MjAwMDAwMH19fQoKZGF0YTogeyJpZCI6ImNoYXRjbXBsLW1hcmtpbmctMSIsIm9iamVjdCI6ImNoYXQuY29tcGxldGlvbi5jaHVuayIsImNyZWF0ZWQiOjE3NzIwMDAwMDAsIm1vZGVsIjoibW9jay1tb2RlbC0xIiwiY2hvaWNlcyI6W10sImFzaGF2ZXJpIjp7Im1hcmtpbmciOnsic2NoIjoiYXNoYXZlcmkvcHJvdmVuYW5jZS12MSIsImdlbiI6ImFpIiwiYXQiOjE3NzIwMDM2MDB9fX0KCmRhdGE6IFtET05FXQoK",
+      "responseByteLength": 1188,
+      "attestedRegionBase64Url": "ZGF0YTogeyJpZCI6ImNoYXRjbXBsLW1hcmtpbmctMSIsIm9iamVjdCI6ImNoYXQuY29tcGxldGlvbi5jaHVuayIsImNyZWF0ZWQiOjE3NzIwMDAwMDAsIm1vZGVsIjoibW9jay1tb2RlbC0xIiwiY2hvaWNlcyI6W10sImFzaGF2ZXJpIjp7Im1hcmtpbmciOnsic2NoIjoiYXNoYXZlcmkvcHJvdmVuYW5jZS12MSIsImdlbiI6ImFpIiwiYXQiOjE3NzIwMDAwMDB9fX0",
+      "attestedRegionByteLength": 206,
+      "foundRegionBase64Url": null,
+      "foundRegionByteLength": null,
+      "dHex": "5bab82851c424a2bcf379ac329507a1681bb46de44af02e1970e689703b5f1ce",
+      "expected": "MARK_MISMATCH"
+    }
+  ]
+}

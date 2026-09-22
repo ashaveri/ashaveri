@@ -16,6 +16,13 @@
       "expected": "verify-ok"
     },
     {
+      "name": "receipt-marked-v2",
+      "path": "receipts/receipt-marked-v2.cbor",
+      "digestSha256": "da3e3f7614059a500b0234201bec71f349d5dc83b92e3d003d5ba40e1f9a6e07",
+      "expected": "verify-ok",
+      "note": "A v2 receipt carrying `mk`: its `res` is sha256 of the marked buffered response and its `mk.d` is sha256 of the one marking member inside those same bytes, both the bytes marking-v1.json publishes for the buffered shape."
+    },
+    {
       "name": "receipt-meas-mismatch-v1",
       "path": "receipts/receipt-meas-mismatch-v1.cbor",
       "digestSha256": "328d9f71b105e0307b80876d33f2f3483aecdce4d7f22ebde96f18351bd8c6c1",

@@ -1,8 +1,11 @@
 # Conformance vectors
 
-Status: current for format version 1. The files named here are the contract a reimplementation is
-measured against, and this document says what each one states, how to consume it, and what a
-disagreement means. The formats themselves are specified in
+Status: current for format versions 1 and 2. Version 1 is what four of the receipt fixtures carry and
+what every other suite here measures; version 2 arrives with the marking member, and the marked-region
+suite and the one v2 receipt fixture are what these files hold of it — `mk` is the only v2 field a
+published vector exercises. The files named here are the contract a reimplementation is measured
+against, and this document says what each one states, how to consume it, and what a disagreement
+means. The formats themselves are specified in
 [receipt-spec.md](receipt-spec.md), [access-control.md](access-control.md) and the CDDL; a vector
 never overrides a specification, and where the two appear to disagree that is a defect to report.
 
@@ -20,13 +23,15 @@ each shape.
 | Proof of possession | `packages/fixtures/data/pop-v1.json` | The signing string, the `Authorization` header built over it, and the signature that header carries | `version: 1` |
 | Request digest | `packages/fixtures/data/req-v1.json` | The `req` a receipt claims, over exact request bytes | `version: 1` |
 | Response digest | `packages/fixtures/data/res-v1.json` | The `res` a receipt claims, over exact response bytes including framing | `version: 1` |
+| Marked region | `packages/fixtures/data/marking-v1.json` | The span inside a response that `mk.d` digests, in both shapes, and what a reader owes a response carrying too few, too many, or not the attested one | `version: 1` |
 | Receipt store chain | `packages/fixtures/data/chain-v1.json` | The record frames a gateway writes to `receipts.log`, the state a reader derives from them, and what it refuses | `version: 1` |
 
-`pop-v1.json`, `req-v1.json`, `res-v1.json` and `chain-v1.json` each carry a `description` stating
-their rule in prose, and the digest and chain suites carry a `rule` or `layout` block naming the
-fields, the widths and the byte order, so a reader never has to guess what an array of hex is
-standing for. The manifest carries no `description`, because it lists the receipt fixtures rather
-than stating a rule of its own; what they are for is written in
+`pop-v1.json`, `req-v1.json`, `res-v1.json`, `marking-v1.json` and `chain-v1.json` each carry a
+`description` stating their rule in prose, and the digest, marked-region and chain suites carry a
+`rule` or `layout` block naming the fields, and the widths and the byte order where a suite pins a
+byte layout, so a reader never has to guess what an array of hex is standing for. The manifest
+carries no `description`, because it lists the receipt fixtures rather than stating a rule of its
+own; what they are for is written in
 [receipt-spec.md](receipt-spec.md).
 
 ## How to consume a suite
@@ -42,10 +47,14 @@ specific to that case.
 - **Receipt fixtures.** Read `manifest.json`, and for each entry take the `.cbor` bytes, check their
   sha256 against `digestSha256`, decode them, and give the decoder the published key from
   `data/keys/receipt-key-v1.json` at the timestamp the entry's own payload carries. The `expected`
-  field states the verdict: `verify-ok`, or the error code a refusal has to answer with. Two entries
-  are deliberately not valid — one signature is broken, one payload carries a measurement of a width
-  its `tee` kind cannot hold — and a decoder that accepts either has not implemented the rule the
-  other three test.
+  field states the verdict: `verify-ok`, or the error code a refusal has to answer with. Four entries
+  are v1 documents and the fifth is a v2 carrying a marking member. Its `res` and `mk.d` are digests
+  of the same bytes the marked-region suite publishes as `buffered-member`, so one response is read
+  out of two files and a generator that drifted on either side disagrees here. Decoding that entry
+  does not check its mark — no `.cbor` file carries the response — which is what the marked-region
+  suite is for. Two entries are deliberately not valid — one signature is broken, one payload carries
+  a measurement of a width its `tee` kind cannot hold — and a decoder that accepts either has not
+  implemented the rule the other three test.
 - **Proof of possession.** Rebuild the signing string from the published fields, verify the signature
   in `authorization` against `key.publicKeyHex`, and check the header parses to the same three
   components. The private half is published too, so a port can produce the signatures itself rather
@@ -64,6 +73,16 @@ specific to that case.
   than asserted: the same payload text with and without its framing, two byte strings and two
   digests, and a pair of entries whose bytes are identical but whose write boundaries fall inside a
   multi-byte character, which carry one digest because the digest is of the stream.
+- **Marked region.** For each vector, take `responseBase64Url` as the bytes a client holds, run your
+  own reading of the rule for the label in `sch`, and compare what you locate against
+  `foundRegionBase64Url` — which is `null` exactly where the published rule finds no single region, and
+  is not the same thing as the empty region a `none` receipt names. Then hash what you found and compare
+  to `dHex`. Two spans are published on purpose: `attestedRegionBase64Url` is the one whose digest the
+  receipt carries, and `foundRegionBase64Url` is the one a reader locates in the bytes. They are equal
+  for the cases that pass and differ, in one direction or the other, for every case that refuses. The
+  suite is where the `exactly one` half of the rule is checkable: a port that resolves a response
+  carrying the shape twice by taking the first match, or the last, or the longest, fails here and cannot
+  fail anywhere else, because no other artifact in this repository states which it should have done.
 - **Store chain.** Each scenario states the writes it performed and the file they produced. Either
   reproduce it with your writer and compare the image byte for byte, or read the published image with
   your reader and compare what you derive — the head, the served set, the retention window and the
@@ -83,6 +102,7 @@ pnpm --filter @ashaveri/fixtures generate
 pnpm --filter @ashaveri/fixtures generate:pop
 pnpm --filter @ashaveri/fixtures generate:req
 pnpm --filter @ashaveri/fixtures generate:res
+pnpm --filter @ashaveri/fixtures generate:marking
 pnpm --filter @ashaveri/fixtures generate:chain
 ```
 
@@ -105,6 +125,11 @@ of the difference usually says where:
   through `digest` and nothing else, every integer is unsigned big-endian, and the digest is taken
   over everything between the length prefix and itself. Most layout disagreements are one of those
   three.
+- **A marked region is located but does not hash, or is not located at all.** The region is a span of
+  the response's bytes and nothing else: a stream's line is published without its terminator, a
+  buffered member is published with its quotes and its colon, and a body whose content is multi-byte
+  sits ahead of it counting in bytes. A port that re-serializes a member from a parsed object has
+  hashed different bytes and will fail the buffered cases while passing everything else.
 - **A refusal is accepted.** Your reader checks a record's digest and not the chain, or checks the
   chain and not the record's own bytes, or treats a retirement as position-independent. This is the
   class of mismatch that matters most: a reader that accepts these images cannot tell an operator

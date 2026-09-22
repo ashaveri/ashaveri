@@ -34,7 +34,7 @@ describe('golden fixtures', () => {
   it('valid fixture is byte-stable (digest matches manifest)', () => {
     const manifest = loadManifest();
     expect(manifest.version).toBe(1);
-    expect(manifest.fixtures).toHaveLength(4);
+    expect(manifest.fixtures).toHaveLength(5);
     for (const entry of manifest.fixtures) {
       const fixture = loadReceiptFixture(entry.name);
       expect(Buffer.from(fixture.digest).toString('hex')).toBe(entry.digestSha256);
