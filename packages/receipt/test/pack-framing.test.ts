@@ -26,9 +26,10 @@ import {
  * without a job here is a member no reader was told what to do with.
  *
  * The framing itself is the store's, published in section 5.2 of the specification and as byte images
- * in `packages/fixtures/data/chain-v1.json`, and it is tested against those images where they live.
- * What lives here is the converse question, which is the one a format has to answer: whether a reader
- * holding nothing but what `PackItem` carries can rebuild a frame at all.
+ * in `packages/fixtures/data/chain-v1.json`. Neither is read here: those images are checked byte for
+ * byte where they live, in `packages/fixtures/test/chain-vectors.test.ts`, and what lives here is the
+ * converse question, which is the one a format has to answer — whether a reader holding nothing but what
+ * `PackItem` carries can rebuild a frame at all.
  *
  * The second half of what lives here is the reader those frames are rebuilt for. A span bounds the
  * stamps inside it, the window has to have closed before the reads that filled it, and the retention
@@ -72,6 +73,26 @@ function itemPositions(cddl: string): { id: string; stamp: string; predecessor: 
 
 const POSITIONS = itemPositions(readFileSync(packCddlPath, 'utf8'));
 
+/**
+ * The widths the framing gives the two positions whose bytes a reader counts, read off the format's own
+ * declarations rather than from this file's constants: `prev` is a fixed-size digest and the ceiling on
+ * `id` is the largest count the length field ahead of it can hold. The paragraph beside `PackItem`
+ * restates the framing's widths in prose for a verifier that reads only this file; these two are the
+ * ones the members themselves carry, so they are tied here rather than trusted.
+ */
+function declaredWidths(cddl: string): { prevBytes: number; idMaxBytes: number } {
+  const members = new Map(memberDeclarations(cddlRule(cddl, 'PackItem')).map((m) => [m.name, m.type]));
+  const predecessor = required(members.get(POSITIONS.predecessor), `the format declares no ${POSITIONS.predecessor}`);
+  const identifier = required(members.get(POSITIONS.id), `the format declares no ${POSITIONS.id}`);
+  const digest = /^bstr \.size (\d+)$/u.exec(predecessor);
+  if (!digest) throw new Error(`${POSITIONS.predecessor} is "${predecessor}", which states no fixed width`);
+  const bound = /^tstr \.size \(1\.\.(\d+)\)$/u.exec(identifier);
+  if (!bound) throw new Error(`${POSITIONS.id} is "${identifier}", which states no byte ceiling`);
+  return { prevBytes: Number(digest[1]), idMaxBytes: Number(bound[1]) };
+}
+
+const WIDTHS = declaredWidths(readFileSync(packCddlPath, 'utf8'));
+
 /** One receipt, and the three values a record was hashed with, as a reader receives them. */
 interface Item {
   readonly id: string;
@@ -80,23 +101,37 @@ interface Item {
   readonly payload: Uint8Array;
 }
 
+/** The framing's own widths, as section 5.2 publishes them and as the rebuilt frames below use them. */
+const LENGTH_BYTES = 4;
+const KIND_BYTES = 1;
+const PREV_BYTES = WIDTHS.prevBytes;
+const IAT_BYTES = 8;
+const ID_LENGTH_BYTES = 2;
+const DIGEST_BYTES = 32;
+
 const ZERO32 = new Uint8Array(32);
 const encoder = new TextEncoder();
 
 /** `Record = len:u32 || kind:u8 || prev:32 || iat:u64 || idLen:u16 || id || payload || digest:32`. */
 function digestInput(item: Item): Uint8Array {
+  if (item.predecessor.length !== PREV_BYTES) {
+    throw new Error(`a predecessor of ${item.predecessor.length} bytes, where the format declares ${PREV_BYTES}`);
+  }
   const id = encoder.encode(item.id);
-  const bytes = new Uint8Array(1 + 32 + 8 + 2 + id.length + item.payload.length);
+  if (id.length > 2 ** (8 * ID_LENGTH_BYTES) - 1) {
+    throw new Error(`an id of ${id.length} bytes, past what ${ID_LENGTH_BYTES} length bytes can count`);
+  }
+  const bytes = new Uint8Array(KIND_BYTES + PREV_BYTES + IAT_BYTES + ID_LENGTH_BYTES + id.length + item.payload.length);
   const view = new DataView(bytes.buffer);
   let at = 0;
   bytes[at] = 0; // kind: a receipt record, the only kind a pack item ever is
-  at += 1;
+  at += KIND_BYTES;
   bytes.set(item.predecessor, at);
-  at += 32;
+  at += PREV_BYTES;
   view.setBigUint64(at, BigInt(item.stamp));
-  at += 8;
+  at += IAT_BYTES;
   view.setUint16(at, id.length);
-  at += 2;
+  at += ID_LENGTH_BYTES;
   bytes.set(id, at);
   at += id.length;
   bytes.set(item.payload, at);
@@ -374,19 +409,27 @@ describe('a pack item carries what the walk needs', () => {
     const { items } = issued();
     const first = items[0]!;
     const input = digestInput(first);
+    // The two widths the format's own members carry are read out of the members rather than written
+    // here: a `prev` the format declares at another size, or an `id` ceiling the two length bytes
+    // cannot count, stops this case by name. The prose beside `PackItem` restates the framing's field
+    // order for a verifier that reads only that file, and the field order is section 5.2's, byte-checked
+    // against the published images in `packages/fixtures/test/chain-vectors.test.ts`.
+    expect(PREV_BYTES).toBe(32);
+    expect(WIDTHS.idMaxBytes).toBe(2 ** (8 * ID_LENGTH_BYTES) - 1);
     // `len` covers kind through digest, and the digest is taken over kind through payload, so the two
     // spans differ by the 32 bytes of the digest and the frame differs from the hashed input by those
     // 32 plus the 4 bytes of `len`. A reader who hashed the whole frame, length prefix and digest
     // included, would recompute a value no record carries and refuse a file written correctly.
-    const hashedLength = 1 + 32 + 8 + 2 + encoder.encode(first.id).length + first.payload.length;
+    const hashedLength =
+      KIND_BYTES + PREV_BYTES + IAT_BYTES + ID_LENGTH_BYTES + encoder.encode(first.id).length + first.payload.length;
     expect(input.length).toBe(hashedLength);
     expect(first.payload.length).toBeGreaterThan(60);
-    const len = hashedLength + 32;
-    const frame = 4 + len;
-    expect(frame).toBe(hashedLength + 36);
+    const len = hashedLength + DIGEST_BYTES;
+    const frame = LENGTH_BYTES + len;
+    expect(frame).toBe(hashedLength + DIGEST_BYTES + LENGTH_BYTES);
     // The prefix and the digest are the only bytes outside the hashed input, and the frame's final 32
     // bytes are the digest of everything between them.
-    expect(frame - 32 - input.length).toBe(4);
+    expect(frame - DIGEST_BYTES - input.length).toBe(LENGTH_BYTES);
     expect(input[0]).toBe(0);
     expect(toHex(sha256(input))).toBe(toHex(recordDigest(first)));
   });

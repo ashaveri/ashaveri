@@ -570,9 +570,16 @@ describe('the pack CDDL and its JSON twin', () => {
     // position in the array, and a manifest that restated what the store's own window reports.
     expect(prose).not.toContain('in the order they appear in the array');
     expect(prose).not.toMatch(/\bis open\b/u);
-    // The framing belongs to section 5.2 and the published images, so this file points at them and
-    // does not carry a competing copy of the offsets.
+    // The framing belongs to section 5.2 and to the published images, and the assertion here is only
+    // that the format cites both by name. The format does restate the framing beside `PackItem` — the
+    // field order for a verifier reading one file, and two widths the members themselves carry — so the
+    // claim is not that the copy is absent. It is that the copy is tied: `pack-framing.test.ts` reads
+    // the declared `prev` width and `id` ceiling out of the blocks below and rebuilds frames with them,
+    // and the images those rebuilds answer to are byte-checked in
+    // `packages/fixtures/test/chain-vectors.test.ts`, which is where a disagreement about an offset is
+    // caught rather than here.
     expect(prose).toContain('section 5.2');
+    expect(prose).toContain('packages/fixtures/data/chain-v1.json');
 
     const twin = shape.description;
     saidOnce(
