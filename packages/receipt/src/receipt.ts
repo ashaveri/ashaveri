@@ -1,5 +1,5 @@
 import { sha256 } from '@noble/hashes/sha2.js';
-import { encodeCanonical, decodeCanonical, decodedMap } from './cbor.js';
+import { encodeCanonical, decodeClosedDocument, decodedMap } from './cbor.js';
 import type {
   CoseSign1,
   ProtectedHeader,
@@ -357,7 +357,11 @@ function readMarking(raw: Map<unknown, unknown>): Marking {
 }
 
 function parsePayload(bytes: Uint8Array, accepted: readonly ReceiptVersion[]): ReceiptPayload {
-  const raw = decodedMap(decodeCanonical(bytes, 'BAD_PAYLOAD'));
+  // The payload is the second of the two documents the format declares in full, so it is read under
+  // the same rule as the signed header: a number that arrives here as a float is a value of a major
+  // type no member of this map is written as, and the decode is the last point at which the
+  // difference between that and the integer it imitates is still visible.
+  const raw = decodedMap(decodeClosedDocument(bytes, 'BAD_PAYLOAD'));
   if (raw === null) throw badPayload('payload is not a map');
   const version = claimedVersion(raw.get('v'), accepted);
   assertMembersAreDefined(raw, DEFINED_MAPS[version], 'payload', `version ${version}`);
