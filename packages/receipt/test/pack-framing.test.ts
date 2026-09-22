@@ -29,6 +29,13 @@ import {
  * in `packages/fixtures/data/chain-v1.json`, and it is tested against those images where they live.
  * What lives here is the converse question, which is the one a format has to answer: whether a reader
  * holding nothing but what `PackItem` carries can rebuild a frame at all.
+ *
+ * The second half of what lives here is the reader those frames are rebuilt for. A span bounds the
+ * stamps inside it, the window has to have closed before the reads that filled it, and the retention
+ * figure the manifest signs has to be at least the age of the oldest receipt the manifest carries: no
+ * link sees any of that, so `readSpan` below applies the rules the way a reader applies them and names
+ * the rule it applied, because a reader that reported all of them as one broken chain would be the
+ * confusion the container exists to keep decidable.
  */
 const packCddlPath = fileURLToPath(new URL('../pack.cddl', import.meta.url));
 
@@ -123,17 +130,40 @@ function samplePayload(iat: number, nonce: number): ReceiptPayload {
 const KEY = signingKeyFromSeed(new Uint8Array(32).fill(7));
 const BASE = 1_772_000_000;
 
-/** Three receipts from the package's own codec, chained the way the store chains them. */
-function issued(): { items: Item[]; anchor: Uint8Array; head: Uint8Array; bytes: Uint8Array[] } {
-  const bytes = [0, 1, 2].map((n) => issueReceipt(samplePayload(BASE + n, n + 1), KEY));
+/** What goes into a chained span: the id the record names, the stamp it was chained at, and a nonce. */
+interface Entry {
+  readonly id: string;
+  readonly stamp: number;
+  readonly nonce: number;
+}
+
+/** The three receipts every case below starts from, one second apart as the store chains them. */
+const SPAN: readonly Entry[] = [
+  { id: 'receipt-0', stamp: BASE, nonce: 1 },
+  { id: 'receipt-1', stamp: BASE + 1, nonce: 2 },
+  { id: 'receipt-2', stamp: BASE + 2, nonce: 3 },
+];
+
+/** Three receipts from the package's own codec, chained in the order given from an empty anchor. */
+function chained(entries: Iterable<Entry>): { items: Item[]; anchor: Uint8Array; head: Uint8Array } {
   const items: Item[] = [];
   let head: Uint8Array = ZERO32;
-  for (const [index, receipt] of bytes.entries()) {
-    const item: Item = { id: `receipt-${index}`, stamp: BASE + index, predecessor: head, payload: receipt };
+  for (const entry of entries) {
+    const item: Item = {
+      id: entry.id,
+      stamp: entry.stamp,
+      predecessor: head,
+      payload: issueReceipt(samplePayload(entry.stamp, entry.nonce), KEY),
+    };
     items.push(item);
     head = recordDigest(item);
   }
-  return { items, anchor: ZERO32, head, bytes };
+  return { items, anchor: ZERO32, head };
+}
+
+/** The three-receipt span every case below starts from, issued and chained in order. */
+function issued(): { items: Item[]; anchor: Uint8Array; head: Uint8Array } {
+  return chained(SPAN);
 }
 
 /**
@@ -157,6 +187,87 @@ function walk(items: readonly Item[], anchor: Uint8Array, head: Uint8Array): Ite
     throw new Error(`the walk reached ${ordered.length} item(s) and stopped at a digest that is not the head`);
   }
   return ordered;
+}
+
+/** The manifest's statements about a span of items, beyond the two endpoints a walk runs between. */
+interface Claim {
+  readonly anchor: Uint8Array;
+  readonly head: Uint8Array;
+  readonly from: number;
+  readonly to: number;
+  readonly at: number;
+  readonly held: number;
+  readonly required: number;
+  readonly rev: number;
+}
+
+/**
+ * The span, the assembly instant and the retention figure these items would have earned, with any of
+ * them overridden by the case that wants one moved. Every fact starts out consistent with the items, so
+ * a refusal below can only have arrived for the one relation the case broke.
+ */
+function claimFor(
+  items: readonly Item[],
+  anchor: Uint8Array,
+  head: Uint8Array,
+  over: Partial<Claim> = {},
+): Claim {
+  const stamps = items.map((item) => item.stamp);
+  const oldest = Math.min(...stamps);
+  const to = Math.max(...stamps) + 1;
+  return { anchor, head, from: oldest - 60, to, at: to, held: to - oldest, required: 3_600, rev: to - 30, ...over };
+}
+
+/**
+ * The rules a reader applies to a span that the links between its items cannot see, in the order they
+ * bite: no figure below zero, the window had closed before the reads began and the mapping the period
+ * came from predates them, every stamp lies inside the window, each item is chained under the stamp its
+ * own receipt attests, and the retention figure is at least the age of the oldest receipt the container
+ * carries. Each refusal names its own rule, for the reason the format states the rules separately.
+ */
+function readSpan(items: readonly Item[], claim: Claim): Item[] {
+  const figures: Record<string, number> = {
+    from: claim.from,
+    to: claim.to,
+    at: claim.at,
+    held: claim.held,
+    required: claim.required,
+    rev: claim.rev,
+  };
+  const belowZero = Object.entries(figures).filter(([, value]) => value < 0);
+  if (belowZero.length > 0) {
+    const named = belowZero.map(([name, value]) => `${name} ${String(value)}`).join(', ');
+    throw new Error(`the pack states a quantity below zero: ${named}`);
+  }
+  if (claim.at < claim.to) {
+    throw new Error(`assembly began at ${claim.at}, before the span closed at ${claim.to}`);
+  }
+  if (claim.rev > claim.at) {
+    throw new Error(`the mapping revision ${claim.rev} postdates the reads at ${claim.at}`);
+  }
+  const ordered = walk(items, claim.anchor, claim.head);
+  for (const item of ordered) {
+    if (item.stamp < claim.from || item.stamp >= claim.to) {
+      throw new Error(`${item.id} is stamped ${item.stamp}, outside the span ${claim.from} to ${claim.to}`);
+    }
+    const attested = decodeReceipt(item.payload).payload.iat;
+    if (attested !== item.stamp) {
+      throw new Error(`${item.id} is chained under ${item.stamp} and its receipt attests ${attested}`);
+    }
+  }
+  const oldest = Math.min(...ordered.map((item) => item.stamp));
+  const floor = claim.at - oldest;
+  if (claim.held < floor) {
+    throw new Error(
+      `the pack states ${claim.held} seconds held at ${claim.at} and carries a receipt stamped ${oldest}, ${floor} seconds old`,
+    );
+  }
+  return ordered;
+}
+
+/** The one comparison the container refuses to make, left where the format leaves it. */
+function meetsDuty(claim: Claim): boolean {
+  return claim.held >= claim.required;
 }
 
 function sameBytes(a: Uint8Array, b: Uint8Array): boolean {
@@ -231,6 +342,20 @@ describe('a pack item carries what the walk needs', () => {
     const attested = repaired.map((item) => decodeReceipt(item.payload).payload.iat);
     expect(attested).toEqual([BASE, BASE + 1, BASE + 2]);
     expect(attested.map((each, index) => each === repaired[index]!.stamp)).toEqual([true, false, true]);
+    // A reader holding the whole manifest refuses this span by name. The claim is built around the
+    // moved stamp, so the window closed after every item inside it and the retention figure covers the
+    // oldest: the equality is the only rule left for it to break, and the only one it breaks.
+    expect(() => readSpan(repaired, claimFor(repaired, anchor, recordDigest(third)))).toThrow(/its receipt attests/);
+    // And the control that says so: the same three stamps, each receipt issued under the one its record
+    // was chained at, is a span the same reader accepts.
+    const restampedForReal = chained([
+      SPAN[0]!,
+      { id: 'receipt-1', stamp: BASE + 3_601, nonce: 2 },
+      SPAN[2]!,
+    ]);
+    expect(() =>
+      readSpan(restampedForReal.items, claimFor(restampedForReal.items, restampedForReal.anchor, restampedForReal.head)),
+    ).not.toThrow();
   });
 
   it('reproduces a frame the widths of the framing fix', () => {
@@ -252,5 +377,77 @@ describe('a pack item carries what the walk needs', () => {
     expect(frame - 32 - input.length).toBe(4);
     expect(input[0]).toBe(0);
     expect(toHex(sha256(input))).toBe(toHex(recordDigest(first)));
+  });
+});
+
+describe('the span a reader answers for', () => {
+  it('refuses a stamp outside the span, at either end, that the links let walk cleanly', () => {
+    // A stamp is inside the hashed input and a span is not, so these two mutants walk from anchor to
+    // head with nothing broken: the only thing wrong with them is that the receipt sits in a window the
+    // manifest says it does not sit in. `to` is excluded, so a receipt stamped exactly at it is the
+    // next pack's and this one has no business carrying it.
+    const late = chained([...SPAN.slice(0, 2), { id: 'receipt-2', stamp: BASE + 3, nonce: 3 }]);
+    expect(walk(late.items, late.anchor, late.head).length).toBe(3);
+    expect(() =>
+      readSpan(late.items, claimFor(late.items, late.anchor, late.head, { to: BASE + 3, at: BASE + 3 })),
+    ).toThrow(/outside the span/);
+    const early = chained([{ id: 'receipt-0', stamp: BASE - 61, nonce: 1 }, ...SPAN.slice(1)]);
+    expect(walk(early.items, early.anchor, early.head).length).toBe(3);
+    expect(() =>
+      readSpan(early.items, claimFor(early.items, early.anchor, early.head, { from: BASE - 60 })),
+    ).toThrow(/outside the span/);
+  });
+
+  it('refuses a span that had not closed when the reads began', () => {
+    const { items, anchor, head } = issued();
+    // One second early and nothing else moves: every stamp still lies inside the window and the held
+    // figure still covers the oldest receipt, so the pack's only fault is that it answered for a period
+    // that was still receiving while it was being assembled.
+    expect(() => readSpan(items, claimFor(items, anchor, head, { at: BASE + 1 }))).toThrow(/before the span closed/);
+    expect(() => readSpan(items, claimFor(items, anchor, head, { at: BASE + 2 }))).toThrow(/before the span closed/);
+    // The edge itself is allowed: reads beginning at the very instant the window closes are reads of a
+    // closed window, which is what `at` stamped before them states.
+    expect(() => readSpan(items, claimFor(items, anchor, head, { at: BASE + 3 }))).not.toThrow();
+  });
+
+  it('refuses a quantity below zero, which is a kind of number the format does not have', () => {
+    const { items, anchor, head } = issued();
+    // CDDL types all of these `int`, so nothing in the layout refuses them and the floor is a rule about
+    // what the numbers mean: an end stamp before the epoch, a retention figure below zero.
+    expect(() => readSpan(items, claimFor(items, anchor, head, { to: -1 }))).toThrow(/below zero/);
+    expect(() => readSpan(items, claimFor(items, anchor, head, { held: -1 }))).toThrow(/below zero/);
+    expect(() => readSpan(items, claimFor(items, anchor, head, { required: -1 }))).toThrow(/below zero/);
+  });
+
+  it('refuses a mapping revision that lands after the reads began', () => {
+    const { items, anchor, head } = issued();
+    // `rev` is what makes `required` readable in a later year, and a revision dated after the instant
+    // the pack started looking is not the revision its own period came from.
+    expect(() => readSpan(items, claimFor(items, anchor, head, { rev: BASE + 4 }))).toThrow(
+      /postdates the reads/,
+    );
+    expect(() => readSpan(items, claimFor(items, anchor, head, { rev: BASE + 3 }))).not.toThrow();
+  });
+
+  it('refuses a held figure younger than the oldest receipt the pack carries', () => {
+    const { items, anchor, head } = issued();
+    // The oldest item is three seconds old at the assembly instant, so a pack claiming two seconds of
+    // retention contradicts itself: a shorter figure than that is refused as a malformed document, and
+    // the one case below shows a whole document whose duty simply is not met.
+    expect(() => readSpan(items, claimFor(items, anchor, head, { held: 2 }))).toThrow(/seconds held/);
+    expect(() => readSpan(items, claimFor(items, anchor, head, { held: 3 }))).not.toThrow();
+  });
+
+  it('accepts a whole pack whose duty is not met and leaves the verdict to arithmetic', () => {
+    const { items, anchor, head } = issued();
+    const met = claimFor(items, anchor, head, { required: 1 });
+    const short = claimFor(items, anchor, head, { required: 3_600 });
+    // One second of held evidence against a period of an hour: the reader of the container refuses
+    // nothing, because the document says what it means and means it consistently, and the answer the
+    // reader came for comes out of the comparison `pack.cddl` declines to make for anybody.
+    expect(() => readSpan(items, met)).not.toThrow();
+    expect(() => readSpan(items, short)).not.toThrow();
+    expect(meetsDuty(met)).toBe(true);
+    expect(meetsDuty(short)).toBe(false);
   });
 });

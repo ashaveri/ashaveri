@@ -60,13 +60,25 @@ Ashaveri-Pack-Manifest = {
 
 ; Stamped before the reads rather than after them, because a slow store must not be able to date a
 ; pack later than the window it describes: `held` is measured against this instant and the span is
-; served as of it, so a stamp taken afterwards would move the answer without moving the evidence.
+; served as of it, so a stamp taken afterwards would move the answer without moving the evidence. It is
+; also the bound that makes the reads mean anything, and the rule is `at` never before `to`: a window
+; whose end has not arrived is still receiving, and a deployment that began its reads inside the span it
+; is answering for would sign a completeness nobody was in a position to have at that instant.
 ;
 ; The span is half-open — `from` included, `to` excluded — because that is the bound the store serves
 ; by: a receipt issued at exactly the end stamp belongs to the next pack, not this one, and a format
 ; that left that out would let two packs both claim it or neither. A reader needs both bounds and not
 ; only the walk. The walk shows that nothing between the first item and the last is missing; the span
 ; is what shows the reader whether the run the walk covers is the period they asked for.
+;
+; Both bounds bind the items, which is a rule and not a tendency: every item's `iat` lies at or after
+; `from` and strictly before `to`. The set that rule states is the set the store's own range query
+; serves for the same two stamps, so a pack carrying a receipt stamped outside its span is two signed
+; members contradicting each other, and a reader refuses it as a malformed document rather than reading
+; it as a deployment that failed to hold what it answered for. That distinction is what this container
+; exists to keep decidable: without it every inconvenient window arrives as a formatting error and
+; every formatting error as a verdict about the deployment, which is the pair of mistakes a third party
+; reads these bytes in order not to make.
 PackSpan = {
     from: int,                ; unix seconds, included
     to: int,                  ; unix seconds, excluded
@@ -107,6 +119,14 @@ PackChain = {
 ; `held` is not derivable from the items either, which is the only reason it is stated here rather
 ; than left to a reader: a pack covers one span, the duty runs against everything the store still
 ; holds, and the oldest receipt in this container need not be the oldest one retained.
+;
+; What it does have to agree with is the container carrying it. `held` is a count of seconds measured at
+; `at`, so it is at least the age of the oldest receipt in this pack — `at` less the earliest `iat`
+; among the items, since a receipt handed over here is one the store still holds — and a smaller figure
+; contradicts the pack the way the span bound above does, and is refused the same way. A `held` short of
+; `required` is nothing of that kind: the document is whole, the arithmetic comes out the way it comes
+; out, and the duty is not met. `rev` is never after `at`, because a mapping revision that lands after
+; the reads began is not the revision the period was read from.
 ;
 ; `met` is absent on purpose. A reader holding `at`, `held` and `required` computes it in one
 ; comparison, and what a deployment signs about its own compliance is a conclusion where what it signs
@@ -181,4 +201,10 @@ PackItem = {
 ; elsewhere, because the quantities a manifest states are durations and instants, and a duration is the
 ; kind of quantity somebody reaches for a fraction of, which is precisely the reading this rule is
 ; there to make impossible rather than merely unlikely.
+;
+; Sign is that rule's other half, and it belongs to a reader in the same way: every instant this file
+; names is a unix time no earlier than the epoch and every duration a whole number of seconds no
+; smaller than zero, so a negative `held` or an end stamp below the epoch is a malformed document rather
+; than an unusual way of writing a quantity. CDDL writes both `int` because it owns no clock, and the
+; floor belongs to the meaning rather than to the type.
 ; ---------------------------------------------------------------------------

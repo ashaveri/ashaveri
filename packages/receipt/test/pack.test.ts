@@ -555,6 +555,14 @@ describe('the pack CDDL and its JSON twin', () => {
     saidOnce('the CDDL', prose, 'One map a signer fills at will, and that is a decision rather than a gap');
     saidOnce('the CDDL', prose, 'this format supplies no default for it');
     saidOnce('the CDDL', prose, 'they are the authority and this file is wrong');
+    // The relations between two members, said once in the format and named once in the projection as
+    // belonging to the format. A rule the projection also states in its own words is a second voice for
+    // a rule no JSON Schema keyword can check, and two voices is how the two files stop agreeing.
+    saidOnce('the CDDL', prose, 'the rule is `at` never before `to`');
+    saidOnce('the CDDL', prose, 'Both bounds bind the items');
+    saidOnce('the CDDL', prose, '`held` is a count of seconds measured at `at`');
+    saidOnce('the CDDL', prose, '`rev` is never after `at`');
+    saidOnce('the CDDL', prose, 'every instant this file names is a unix time no earlier than the epoch');
     // Two phrasings a later edit must not bring back: a pack whose items were ordered by their
     // position in the array, and a manifest that restated what the store's own window reports.
     expect(prose).not.toContain('in the order they appear in the array');
@@ -564,6 +572,11 @@ describe('the pack CDDL and its JSON twin', () => {
     expect(prose).toContain('section 5.2');
 
     const twin = shape.description;
+    saidOnce(
+      'the twin',
+      twin,
+      'The rules that hold between two members are not spelled out here because no keyword reaches them',
+    );
     saidOnce('the twin', twin, 'Display-only projection of the signed COSE_Sign1 pack container');
     saidOnce('the twin', twin, "Closure is not the manifest's alone");
     saidOnce('the twin', twin, 'this definition carries no closure keyword');
