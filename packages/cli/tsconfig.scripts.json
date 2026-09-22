@@ -1,0 +1,17 @@
+{
+  "extends": "./tsconfig.json",
+  "compilerOptions": {
+    "noEmit": true,
+    "rootDir": ".",
+    "types": ["node"],
+    // The measurement is run from source by `node`, which resolves specifiers as written and so has to
+    // be pointed at `./metrics.ts`; the checked path has to accept the one spelling the running path
+    // allows, and `noEmit` above is what makes the extension legal at all.
+    "allowImportingTsExtensions": true,
+    // Nothing here is compiled into a package, so the loader rules the generators hold themselves to
+    // apply: a `enum`, a runtime `namespace` or a constructor parameter property would run under no
+    // configuration that exists.
+    "erasableSyntaxOnly": true
+  },
+  "include": ["scripts"]
+}

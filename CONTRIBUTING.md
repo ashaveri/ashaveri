@@ -20,8 +20,9 @@ same dependency for the same reason: the type-aware rules read types through the
 build emits.
 
 `pnpm -w typecheck` is a separate pass, and it covers more than the lint rules do: it typechecks each
-package's tests as well as its sources, and the fixture package's generator scripts along with them,
-while the type-aware lint rules read only the `src` projects.
+package's tests as well as its sources, and the scripts folders that hold the fixture generators and
+the erasure-pass measurement along with them, while the type-aware lint rules read only the `src`
+projects.
 The CI workflow runs install, build, lint, test and typecheck in that order. Two suites — the
 gateway's and the CLI's — assert on file modes and rename behaviour they read back off disk, and a
 mode is only observable against the process umask, so the test step sets `umask 0022` rather than
@@ -61,6 +62,21 @@ hand-edited vector is visible the moment anyone re-runs a generator.
 If your change was not meant to move a vector, regenerating produces an empty diff — that is the check
 the vectors job runs, `git diff --exit-code packages/fixtures/data` after all five generators. A
 non-empty diff you did not intend means your change moved a signed byte.
+
+**A measured number, re-run rather than hand-written.** One command regenerates the latency figures for
+an erasure pass running beside live traffic. Any such number quoted in this repository is to be read as
+a copy of what this command printed, and re-run rather than edited in place:
+
+```bash
+pnpm measure:erasure-pass    # packages/cli/scripts/erasure-pass, builds first
+```
+
+It writes its parts, its scrub markers and its access log into a directory the system temporary path
+gives it, and removes them at the end of the run, so it touches nothing under version control and a
+vector job can never see its output. Nothing here writes into `packages/fixtures/data`. The run lasts
+minutes, asks the machine what request rate it can serve with room to print a tail, and states the
+sample count beside every percentile; the same bytes at the same rate over its own repeats give the
+spread each number carries. Read those numbers as a statement about the host that printed them.
 
 **A format change carries the format's own documents.** `packages/receipt/receipt.cddl` is normative
 for the wire format and `packages/receipt/schemas/receipt-v1.schema.json` describes the JSON

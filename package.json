@@ -10,7 +10,8 @@
     "build": "pnpm -r --filter \"@ashaveri/*\" build",
     "test": "pnpm -r --filter \"@ashaveri/*\" test",
     "lint": "pnpm -r --filter \"@ashaveri/*\" lint",
-    "typecheck": "pnpm -r --filter \"@ashaveri/*\" typecheck"
+    "typecheck": "pnpm -r --filter \"@ashaveri/*\" typecheck",
+    "measure:erasure-pass": "pnpm build && pnpm -C packages/cli measure:erasure-pass"
   },
   "devDependencies": {
     "eslint": "^10.10.0",
