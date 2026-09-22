@@ -457,7 +457,12 @@ describe('the order admit runs the five checks in', () => {
     expect(mismatches, mismatches.slice(0, 3).join('\n')).toHaveLength(0);
   });
 
-  it('leaves the bucket exactly where a refusal found it, over random combinations', () => {
+  // Measured at 2.27s for three consecutive runs on a Windows host, which leaves a sampled property of
+  // a hundred draws, each one running the admission twice, inside the five-second default by a factor of
+  // two rather than by an order of magnitude. The shared runner took longer than the default and said so,
+  // so this case carries the window its neighbours in this file already carry. It is a budget, not a
+  // performance claim: nothing here asserts the case must stay under it.
+  it('leaves the bucket exactly where a refusal found it, over random combinations', { timeout: 60_000 }, () => {
     const replayedBeforeScope: PopCase = {
       identity: 'known',
       stamp: 'fresh',
