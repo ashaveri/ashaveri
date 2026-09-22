@@ -69,6 +69,10 @@ function verdict(policy: AshaveriPolicy, atSeconds: number): string {
       nonce: NONCE,
       requestHash: REQUEST_HASH,
       responseHash: RESPONSE_HASH,
+      // The receipt below is a v1 document, so it carries no `mk` and no region of these bytes is
+      // read. The parameter is still required, which is the point of it: a caller cannot reach a
+      // v2 marking check without having handed over the bytes that check reads.
+      responseBytes: new Uint8Array(0),
       verifyKey,
       policy,
       now: atSeconds * 1000,

@@ -25,6 +25,12 @@ export interface VerifyReceiptedParams {
   readonly nonce: Uint8Array;
   readonly requestHash: Uint8Array;
   readonly responseHash: Uint8Array;
+  /**
+   * The response bytes themselves, which a v2 receipt's marking claim is read off. Required, because
+   * an optional member is a route by which a live verification skips the mark without saying so: see
+   * `VerifyCompletionParams.responseBytes`.
+   */
+  readonly responseBytes: Uint8Array;
   readonly now?: number;
 }
 
@@ -130,6 +136,7 @@ export class GatewaySession {
       nonce: params.nonce,
       requestHash: params.requestHash,
       responseHash: params.responseHash,
+      responseBytes: params.responseBytes,
       verifyKey,
       policy: this.options.policy,
       now: params.now,

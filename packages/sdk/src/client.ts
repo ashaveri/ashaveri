@@ -211,6 +211,7 @@ export class AshaveriClient {
     nonce: Uint8Array,
     requestHash: Uint8Array,
     responseHash: Uint8Array,
+    responseBytes: Uint8Array,
   ): Promise<VerifiedCompletion> {
     const receiptBytes = await this.session.receiptBytes(receiptId);
     return this.session.verifyCompletion({
@@ -218,6 +219,7 @@ export class AshaveriClient {
       nonce,
       requestHash,
       responseHash,
+      responseBytes,
       verifyEvidence: this.mode === 'strict',
       now: this.now?.(),
     });
@@ -249,6 +251,7 @@ export class AshaveriClient {
       nonce,
       hashRequest(utf8(body)),
       hashRequest(bytes),
+      bytes,
     );
     return { completion, receipt, attestation };
   }
@@ -274,8 +277,12 @@ export class AshaveriClient {
     });
 
     const strictMode = this.mode === 'strict';
-    const verifyEvidence = (id: string, challenge: Uint8Array, responseHash: Uint8Array) =>
-      this.verify(id, challenge, requestHash, responseHash);
+    // The bytes go to the verifier alongside the digest of those same bytes, so the marking claim is
+    // checked against what arrived rather than against a number computed from it. Nothing new is
+    // retained to make that true: `parts` already holds every chunk, because the digest cannot be
+    // taken until the stream ends, and this joins them once instead of twice.
+    const verifyEvidence = (id: string, challenge: Uint8Array, responseBytes: Uint8Array) =>
+      this.verify(id, challenge, requestHash, hashRequest(responseBytes), responseBytes);
     const iterator = async function* (): AsyncGenerator<ChatCompletionChunk> {
       const reader = stream.getReader();
       try {
@@ -313,7 +320,7 @@ export class AshaveriClient {
           settleVerification({ receipt: null, attestation: null });
           return;
         }
-        const outcome = await verifyEvidence(receiptId, nonce, hashRequest(concatBytes(parts))).catch((err: unknown) => {
+        const outcome = await verifyEvidence(receiptId, nonce, concatBytes(parts)).catch((err: unknown) => {
           failVerification(err);
           throw err;
         });
