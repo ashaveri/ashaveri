@@ -174,11 +174,11 @@ PackItem = {
 ; carries one. A floating-point number whose value happens to be a whole number is not an integer
 ; written awkwardly: it is a different type, and the only reader that can ever tell them apart is one
 ; reading the bytes, because a decoder that hands both over as one JavaScript number leaves a check
-; placed afterwards nothing to distinguish. So a reader decodes the manifest and the protected header,
-; the two maps whose every member is named in this file, where no floating-point number may appear, in
-; a value and in a key alike. Nothing either map declares can be a float, so that rule refuses no
-; document that follows this file. It matters here more than it might elsewhere: `rev`, `required`,
-; `held` and the two span bounds are durations and instants, and a duration is the kind of quantity
-; somebody reaches for a fraction of, which is precisely the reading this rule is there to make
-; impossible rather than merely unlikely.
+; placed afterwards nothing to distinguish. So a reader decodes every map this file names member by
+; member — the manifest, each map the manifest opens, and the protected header — where no
+; floating-point number may appear, in a value and in a key alike. Nothing any of them declares can be
+; a float, so that rule refuses no document that follows this file. It matters here more than it might
+; elsewhere, because the quantities a manifest states are durations and instants, and a duration is the
+; kind of quantity somebody reaches for a fraction of, which is precisely the reading this rule is
+; there to make impossible rather than merely unlikely.
 ; ---------------------------------------------------------------------------
