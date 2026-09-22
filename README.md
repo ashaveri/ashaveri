@@ -1,7 +1,7 @@
 <div align="center">
 
 <a href="https://github.com/ashaveri/ashaveri">
-  <img src="assets/ashaveri-banner.png" width="1200" alt="ashaveri. Private by hardware. Proven by default." />
+  <img src="assets/ashaveri-banner.png" width="1200" alt="ashaveri. Change the model. Keep the evidence." />
 </a>
 
 <a href="https://github.com/ashaveri/ashaveri/actions/workflows/ci.yml"><img src="https://img.shields.io/github/actions/workflow/status/ashaveri/ashaveri/ci.yml?branch=main&label=CI&labelColor=0A1517&color=0FA5A0" alt="CI on main" /></a>
@@ -21,7 +21,7 @@
 
 # ashaveri
 
-ashaveri is the verifiable AI inference layer: OpenAI-compatible inference where every completion
+ashaveri is the evidence layer under an AI workflow: OpenAI-compatible inference where every completion
 comes back with a signed receipt. A receipt is a COSE_Sign1 document binding the request hash, the
 response hash, the model, the weights manifest, and the measurement of the confidential hardware
 that answered, and `@ashaveri/sdk` verifies it before your code sees the answer. No verification
