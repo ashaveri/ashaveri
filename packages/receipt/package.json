@@ -15,6 +15,7 @@
   "files": [
     "dist",
     "receipt.cddl",
+    "pack.cddl",
     "schemas"
   ],
   "scripts": {
