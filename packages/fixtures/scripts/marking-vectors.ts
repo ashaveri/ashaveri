@@ -1,13 +1,17 @@
 import { writeFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { sha256 } from '@noble/hashes/sha2.js';
 import {
   MARKING_SCHEMES,
+  decodeReceipt,
   extractMarkedRegion,
   hashRequest,
+  issueReceipt,
   toBase64Url,
   toHex,
   type MarkingScheme,
+  type ReceiptPayloadV2,
 } from '@ashaveri/receipt';
 import {
   MARKING_AT,
@@ -20,10 +24,44 @@ import {
   unmarkedResponse,
   unmarkedStream,
 } from './marking-shapes.ts';
+import { fixtureKey, fixturePayload } from './receipt-envelope.ts';
 
 const DATA = join(dirname(fileURLToPath(import.meta.url)), '..', 'data');
 
 const encoded = (text: string): Uint8Array => new TextEncoder().encode(text);
+
+/**
+ * The signed document this case is a claim in.
+ *
+ * Every row of this suite states a verdict, and until now the only reader that could answer it was one
+ * holding the rule: the response digest was never checked against a receipt, because no published
+ * receipt attested these bytes with a mark that disagreed with them. Signing one over exactly the
+ * response and the attested span of each case closes that. `res` is the digest of the whole response the
+ * case publishes, so the response check passes and the only thing left standing between a verdict and a
+ * refusal is the mark, which is the check `MARK_MISMATCH` exists to name.
+ *
+ * The payload is issued through the same envelope the receipt fixtures are issued under, so the key the
+ * published `data/keys/` file names is the key these bytes are signed with, and the `buffered-member`
+ * document is byte for byte the committed marked fixture.
+ */
+function clientReceipt(one: MarkingCase): { receiptBase64Url: string; receiptSha256Hex: string } {
+  const payload: ReceiptPayloadV2 = {
+    ...fixturePayload({ res: hashRequest(encoded(one.response)) }),
+    v: 2,
+    mk: { sch: one.sch, d: hashRequest(encoded(one.attested)) },
+  };
+  const bytes = issueReceipt(payload, fixtureKey());
+  const decoded = decodeReceipt(bytes);
+  // Read the document back with the parser rather than trusting what was handed to it: a row that
+  // stated a mark its own bytes did not carry would refuse for a reason this file does not name.
+  if (decoded.payload.v !== 2) {
+    throw new Error(`${one.name}: the issued receipt did not decode as a v2 document`);
+  }
+  if (toHex(decoded.payload.res) !== toHex(payload.res) || toHex(decoded.payload.mk.d) !== toHex(payload.mk.d)) {
+    throw new Error(`${one.name}: the issued receipt does not carry the digests this case states`);
+  }
+  return { receiptBase64Url: toBase64Url(bytes), receiptSha256Hex: toHex(sha256(bytes)) };
+}
 
 /**
  * One case, stated as the pair a verifier actually holds.
@@ -185,6 +223,7 @@ function main() {
     foundRegionByteLength: one.found === null ? null : encoded(one.found).length,
     dHex: toHex(hashRequest(encoded(one.attested))),
     expected: one.expected,
+    client: clientReceipt(one),
   }));
 
   writeFileSync(
@@ -193,7 +232,7 @@ function main() {
       {
         version: 1,
         description:
-          'The marked region a receipt digests in `mk.d`, for both response shapes, and the refusals the published rule owes a response that carries too few, too many, or not the attested one.',
+          'The marked region a receipt digests in `mk.d`, for both response shapes, and the refusals the published rule owes a response that carries too few, too many, or not the attested one. Each case also carries the signed v2 document attesting exactly the response and the span the row states, so `expected` is a verdict a client has to answer and not only a reading of the rule.',
         rule: {
           registry: 'docs/receipt-spec.md section 3.3',
           executable: 'extractMarkedRegion in @ashaveri/receipt',

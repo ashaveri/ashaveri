@@ -1,6 +1,6 @@
 {
   "version": 1,
-  "description": "The request digest a receipt carries in `req`, published as (exact request bytes, expected digest) pairs. Every byte of `req` is sha256 over the request body as transmitted, before any parsing and independent of it: a body that decodes to the same object but differs by one byte has a different `req`. The input is the whole body, the empty body included, and it is hashed as octets, never as text in whatever encoding the reader happens to hold.",
+  "description": "The request digest a receipt carries in `req`, published as (exact request bytes, expected digest) pairs. Every byte of `req` is sha256 over the request body as transmitted, before any parsing and independent of it: a body that decodes to the same object but differs by one byte has a different `req`. The input is the whole body, the empty body included, and it is hashed as octets, never as text in whatever encoding the reader happens to hold. `refusals` are the near misses: a body a client holds beside a signed receipt attesting the digest of another vector of this file, with the code the client owes for that pair.",
   "rule": {
     "receiptField": "req",
     "algorithm": "sha256",
@@ -57,6 +57,32 @@
       "bodyBase64Url": "eyJtb2RlbCI6Im1vY2stbW9kZWwtMSIsIm1lc3NhZ2VzIjpbeyJyb2xlIjoidXNlciIsImNvbnRlbnQiOiJoZWxsbyJ9XX0",
       "bodyByteLength": 71,
       "reqHex": "d69522df261d7f46209698c399a4dfa4088bb1f6b367168e0eebfe189717a126"
+    }
+  ],
+  "refusals": [
+    {
+      "name": "req-of-the-reformatted-bytes",
+      "note": "The body a client sent is the reformatted one, and the receipt attests the digest of the compact spelling. The two parse to the same object, which is exactly why the pair is refused: a port that hashed the body after parsing it and writing it out again produced a `req` for bytes no one transmitted.",
+      "heldVector": "same-object-reformatted",
+      "claimedVector": "buffered-completion",
+      "bodyBase64Url": "eyAibW9kZWwiIDogIm1ldGEtbGxhbWEvTGxhbWEtMy4xLThCLUluc3RydWN0IiwgIm1lc3NhZ2VzIiA6IFsgeyAicm9sZSIgOiAidXNlciIsICJjb250ZW50IiA6ICJoZWxsbyIgfSBdIH0",
+      "bodyByteLength": 107,
+      "claimedReqHex": "98e1ee609c31e633262268087e341cc85c22a10867f7f77cf1c9a1e910dc4907",
+      "code": "REQUEST_HASH_MISMATCH",
+      "receiptBase64Url": "0oRYOKMBJwNwYXNoYXZlcmkvcmVjZWlwdARYIDUBOm4AC41dylHEvVwdufKGAoNgbHau7uqO5ytyteFeoFkBmq1hdgFjYXR0o2FkWCBMjNzx8P8HIrACrcnYMjzTFLUPV6AcPeMCsbOhtmSp22J0cxppnpLEY3VybHgtaHR0cHM6Ly9pbmZlcmVuY2UuYXNoYXZlcmkuY29tL3YxL2F0dGVzdGF0aW9uY2VwawFjaWF0GmmekwBjaW5zbGN2bS1pLTA0N2YyYWNpc3NsZHBsLTlmMmE0MWMzY21kbHggbWV0YS1sbGFtYS9MbGFtYS0zLjEtOEItSW5zdHJ1Y3RjbmNlUFtmhz09zJ_Jb9mhQ0G8Gy5jcmVxWCCY4e5gnDHmMyYiaAh-NBzIXCKhCGf393zxyaHpENxJB2NyZXNYIEcOEgWHWH1jyq-ERFghNM52X0cac5PZCkei7gaxM4hiY3Rva6JhYxhAYXAYgGN3dHNYICaJVwrs9QVChLBtYCJVT7l5QsrQp3TV28kwiy0Ed9m1ZG1lYXOiYW1YML12YTZ-p8D6AnKVtJWjfYxEXpWInAnWt7627UBScZ4w8W8FB4J-LQBJSbVS8eVR8mN0ZWVpc25wK2dwdWNjWEC0Sde6Zs4IQ2dStZVJ3TMZJmqB2LCWP4oQII7wb1DxGviKuPAphl54x5QyeCskfvCkKivxPyOMjDF_lmJAmjUF",
+      "receiptSha256Hex": "274175e5d199bd114663097202689e92303b40de65ce95233f493985c845c004"
+    },
+    {
+      "name": "req-of-the-buffered-spelling",
+      "note": "A streamed request presented against a receipt digesting the same body without its `stream` member. The bodies differ by one JSON member and nothing else, so this is the near miss a client that normalised its own request before hashing would ship itself into.",
+      "heldVector": "streaming-request",
+      "claimedVector": "buffered-completion",
+      "bodyBase64Url": "eyJtb2RlbCI6Im1ldGEtbGxhbWEvTGxhbWEtMy4xLThCLUluc3RydWN0IiwibWVzc2FnZXMiOlt7InJvbGUiOiJ1c2VyIiwiY29udGVudCI6ImhlbGxvIn1dLCJzdHJlYW0iOnRydWV9",
+      "bodyByteLength": 105,
+      "claimedReqHex": "98e1ee609c31e633262268087e341cc85c22a10867f7f77cf1c9a1e910dc4907",
+      "code": "REQUEST_HASH_MISMATCH",
+      "receiptBase64Url": "0oRYOKMBJwNwYXNoYXZlcmkvcmVjZWlwdARYIDUBOm4AC41dylHEvVwdufKGAoNgbHau7uqO5ytyteFeoFkBmq1hdgFjYXR0o2FkWCBMjNzx8P8HIrACrcnYMjzTFLUPV6AcPeMCsbOhtmSp22J0cxppnpLEY3VybHgtaHR0cHM6Ly9pbmZlcmVuY2UuYXNoYXZlcmkuY29tL3YxL2F0dGVzdGF0aW9uY2VwawFjaWF0GmmekwBjaW5zbGN2bS1pLTA0N2YyYWNpc3NsZHBsLTlmMmE0MWMzY21kbHggbWV0YS1sbGFtYS9MbGFtYS0zLjEtOEItSW5zdHJ1Y3RjbmNlUFtmhz09zJ_Jb9mhQ0G8Gy5jcmVxWCCY4e5gnDHmMyYiaAh-NBzIXCKhCGf393zxyaHpENxJB2NyZXNYIEcOEgWHWH1jyq-ERFghNM52X0cac5PZCkei7gaxM4hiY3Rva6JhYxhAYXAYgGN3dHNYICaJVwrs9QVChLBtYCJVT7l5QsrQp3TV28kwiy0Ed9m1ZG1lYXOiYW1YML12YTZ-p8D6AnKVtJWjfYxEXpWInAnWt7627UBScZ4w8W8FB4J-LQBJSbVS8eVR8mN0ZWVpc25wK2dwdWNjWEC0Sde6Zs4IQ2dStZVJ3TMZJmqB2LCWP4oQII7wb1DxGviKuPAphl54x5QyeCskfvCkKivxPyOMjDF_lmJAmjUF",
+      "receiptSha256Hex": "274175e5d199bd114663097202689e92303b40de65ce95233f493985c845c004"
     }
   ]
 }
