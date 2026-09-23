@@ -12,6 +12,7 @@
   ],
   "scripts": {
     "build": "tsc -p tsconfig.json",
+    "bundle": "node scripts/bundle.mjs",
     "test": "vitest run",
     "lint": "eslint .",
     "typecheck": "tsc -p tsconfig.json --noEmit && tsc -p tsconfig.test.json && tsc -p tsconfig.scripts.json",
@@ -26,6 +27,7 @@
   "devDependencies": {
     "@ashaveri/signerd": "workspace:*",
     "@types/node": "^22.20.1",
+    "esbuild": "0.28.2",
     "typescript": "^5.9.3",
     "vitest": "^4.1.11"
   }
