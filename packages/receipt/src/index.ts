@@ -61,6 +61,29 @@ export type {
 export { ReceiptError } from './errors.js';
 export type { ReceiptErrorCode } from './errors.js';
 export {
+  EXPORT_CONTENT_TYPE,
+  encodeExportManifest,
+  encodeExportProtectedHeader,
+  exportRecordDigest,
+  exportSigStructure,
+  sealExport,
+  signExport,
+  decodeExport,
+  verifyExport,
+} from './export.js';
+export type {
+  DecodedExport,
+  ExportAnchoredCollection,
+  ExportChainedItem,
+  ExportCollection,
+  ExportItem,
+  ExportManifest,
+  ExportOriginal,
+  ExportRead,
+  ExportVerifyOptions,
+  VerifiedExport,
+} from './export.js';
+export {
   MARKING_MEMBER_NAME,
   PROVENANCE_V1_MEMBER_SCHEME,
   emptyRegion,

@@ -305,3 +305,73 @@ export interface MarkingVectorFile {
 export function loadMarkingVectors(): MarkingVectorFile {
   return JSON.parse(readFileSync(join(DATA, 'marking-v1.json'), 'utf8')) as MarkingVectorFile;
 }
+
+/** What a reader is handed beside an export document: companion files, endpoints, and the key it uses. */
+export interface ExportReadArguments {
+  companions?: Array<{ name: string; bytesBase64Url: string }>;
+  expectedAnchorHex?: string;
+  expectedHeadHex?: string;
+  keySeed?: number;
+}
+
+/** One export document, the arguments for reading it, and the verdict a conforming reader owes it. */
+export interface ExportVector {
+  name: string;
+  note: string;
+  /** The whole COSE_Sign1, sealed, unpadded base64url. */
+  documentBase64Url: string;
+  documentByteLength: number;
+  read: ExportReadArguments;
+  /** `verify-ok`, or the code the refusal answers with. */
+  verdict: string;
+  /** The item a refusal names, where the code reports by naming one. */
+  item?: string;
+  /** Which arm of the collection a passing read reports. */
+  outcome?: 'anchored' | 'plain' | 'void';
+  /** The order a passing walk reaches, which is the links and not the array. */
+  walk?: string[];
+  /** The one position a fault case moved. */
+  edited?: string;
+}
+
+export interface ExportCrossReadingCase {
+  name: string;
+  note: string;
+  /** The export manifest projected as its own twin describes it, for the pack side of the pair. */
+  manifest?: Record<string, unknown>;
+  /** A pack v1 document, sealed, for the export side of the pair. */
+  documentBase64Url?: string;
+  expected: string;
+}
+
+export interface ExportVectorFile {
+  version: number;
+  description: string;
+  layout: {
+    format: string;
+    twin: string;
+    document: string;
+    reader: string;
+    contentType: string;
+    headerLabels: { alg: number; typ: number; kid: number };
+    framing: string;
+    recordDigest: string;
+    itemDigest: string;
+    manifestFields: string[];
+    collectionArms: string[];
+    originalArms: string[];
+    encodings: string;
+    anchor: string;
+    assembled: string;
+    verdictFields: string[];
+    codes: string[];
+    key: { publicKeyHex: string; seed: string; note: string };
+  };
+  vectors: ExportVector[];
+  crossReading: { note: string; cases: ExportCrossReadingCase[] };
+}
+
+/** The technical export envelope: whole documents, the reads they are given, and their verdicts. */
+export function loadExportVectors(): ExportVectorFile {
+  return JSON.parse(readFileSync(join(DATA, 'export-v1.json'), 'utf8')) as ExportVectorFile;
+}

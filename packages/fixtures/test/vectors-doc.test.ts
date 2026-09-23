@@ -93,6 +93,60 @@ function publishedSuites(): string[] {
     .sort();
 }
 
+/**
+ * The verdict and code of every row one suite states a verdict on, read out of the file rather than
+ * from the prose. Each shape is written out because the seven suites do not agree on where a verdict
+ * lives: four keep the refusing cases in an array beside the accepted ones and name a code on each row,
+ * and three give every case one word that is either the accepted verdict or the code of the refusal. A
+ * suite whose file gains a shape no one recognised has to be named here, which is what stops this
+ * reading an empty list as a suite with no refusals.
+ */
+function verdictsOf(basename: string): { verdict: string; code: string | null }[] {
+  const found = resolve(`packages/fixtures/data/${basename}`) ?? resolve(`data/${basename}`);
+  if (found === null) throw new Error(`${basename} is named by the inventory and is not there to read`);
+  const parsed = JSON.parse(readFileSync(found, 'utf8')) as Record<string, unknown>;
+  const rows = (key: string): Record<string, unknown>[] =>
+    Array.isArray(parsed[key]) ? (parsed[key] as Record<string, unknown>[]) : [];
+  const field = (row: Record<string, unknown>, key: string): string => {
+    const value = row[key];
+    if (typeof value !== 'string') throw new Error(`${basename} has a row with no ${key} this reader can use`);
+    return value;
+  };
+  switch (basename) {
+    case 'manifest.json':
+      return rows('fixtures').map((row) => ({ verdict: field(row, 'expected'), code: null }));
+    case 'marking-v1.json':
+      return rows('vectors').map((row) => ({ verdict: field(row, 'expected'), code: null }));
+    case 'export-v1.json':
+      return rows('vectors').map((row) => ({ verdict: field(row, 'verdict'), code: null }));
+    case 'pop-v1.json':
+    case 'req-v1.json':
+    case 'res-v1.json':
+    case 'chain-v1.json':
+      return rows('refusals').map((row) => ({ verdict: 'refused', code: field(row, 'code') }));
+    default:
+      throw new Error(`${basename} states verdicts in a shape this reader does not know`);
+  }
+}
+
+/** Every code `docs/error-codes.md` gives a row, read off its union sections. */
+function documentedCodes(): Set<string> {
+  const markdown = readFileSync(fileURLToPath(new URL('../../../docs/error-codes.md', import.meta.url)), 'utf8');
+  const codes = new Set<string>();
+  let inTable = false;
+  for (const line of markdown.split('\n')) {
+    if (line.startsWith('## ')) {
+      inTable = /^## `[A-Za-z]+ErrorCode`$/u.test(line);
+      continue;
+    }
+    if (!inTable || !line.startsWith('| `')) continue;
+    const code = /^\|\s*`([^`]+)`/u.exec(line)?.[1];
+    if (code !== undefined) codes.add(code);
+  }
+  if (codes.size < 20) throw new Error(`${codes.size} codes read from docs/error-codes.md, which lists more`);
+  return codes;
+}
+
 const rows = suiteRows();
 
 describe('docs/vectors.md suite inventory', () => {
@@ -173,6 +227,29 @@ describe('docs/vectors.md suite inventory', () => {
           typeof parsed.description === 'string' && parsed.description.length > 0,
           `${row.suite} states a version value, so ${basename(path)} has to carry the description the document promises`,
         ).toBe(true);
+      }
+    }
+  });
+
+  it('publishes a refusal with a listed code in every suite it tabulates', () => {
+    // The sentence this guards is the section above the rows: each suite carries at least one case whose
+    // verdict is a refusal, and every code those cases name is one the error-code document lists. Both
+    // halves are read off the files, because a suite that lost its negative rows would keep a table that
+    // still looked right, and a row that named a code no union declares would be a word nobody answers.
+    const codes = documentedCodes();
+    for (const row of rows) {
+      const files = row.files.filter((each) => each.endsWith('.json')).map((each) => basename(each));
+      expect(files.length, `${row.suite} names no file to read verdicts out of`).toBeGreaterThan(0);
+      const verdicts = files.flatMap((each) => verdictsOf(each));
+      expect(verdicts.length, `${row.suite} states no verdicts at all`).toBeGreaterThan(0);
+      const refused = verdicts.filter((each) => each.verdict !== 'verify-ok');
+      expect(refused.length, `${row.suite} publishes no case whose verdict is a refusal`).toBeGreaterThan(0);
+      for (const each of refused) {
+        const code = each.code ?? each.verdict;
+        expect(code, `${row.suite} has a refusal naming nothing`).toMatch(/^[A-Z][A-Z0-9_]*$/u);
+        expect(codes.has(code), `${row.suite} refuses with ${code}, which error-codes.md does not list`).toBe(
+          true,
+        );
       }
     }
   });

@@ -1,6 +1,6 @@
 {
   "version": 1,
-  "description": "The marked region a receipt digests in `mk.d`, for both response shapes, and the refusals the published rule owes a response that carries too few, too many, or not the attested one.",
+  "description": "The marked region a receipt digests in `mk.d`, for both response shapes, and the refusals the published rule owes a response that carries too few, too many, or not the attested one. Each case also carries the signed v2 document attesting exactly the response and the span the row states, so `expected` is a verdict a client has to answer and not only a reading of the rule.",
   "rule": {
     "registry": "docs/receipt-spec.md section 3.3",
     "executable": "extractMarkedRegion in @ashaveri/receipt",
@@ -35,7 +35,11 @@
       "foundRegionBase64Url": "ImFzaGF2ZXJpIjp7Im1hcmtpbmciOnsic2NoIjoiYXNoYXZlcmkvcHJvdmVuYW5jZS12MSIsImdlbiI6ImFpIiwiYXQiOjE3NzIwMDAwMDB9fQ",
       "foundRegionByteLength": 82,
       "dHex": "35702fda276f3d0a81742cd54079eeb7031aebf06205993cfed1051e2de282de",
-      "expected": "verify-ok"
+      "expected": "verify-ok",
+      "client": {
+        "receiptBase64Url": "0oRYOKMBJwNwYXNoYXZlcmkvcmVjZWlwdARYIDUBOm4AC41dylHEvVwdufKGAoNgbHau7uqO5ytyteFeoFkB1K5hdgJibWuiYWRYIDVwL9onbz0KgXQs1UB57rcDGuvwYgWZPP7RBR4t4oLeY3NjaG1wcm92ZW5hbmNlLXYxY2F0dKNhZFggTIzc8fD_ByKwAq3J2DI80xS1D1egHD3jArGzobZkqdtidHMaaZ6SxGN1cmx4LWh0dHBzOi8vaW5mZXJlbmNlLmFzaGF2ZXJpLmNvbS92MS9hdHRlc3RhdGlvbmNlcGsBY2lhdBppnpMAY2luc2xjdm0taS0wNDdmMmFjaXNzbGRwbC05ZjJhNDFjM2NtZGx4IG1ldGEtbGxhbWEvTGxhbWEtMy4xLThCLUluc3RydWN0Y25jZVBbZoc9PcyfyW_ZoUNBvBsuY3JlcVggrot1mWj1dKHEI0ReAPTnPuKqDU_LiJ151q7Yd_xtmnljcmVzWCBTpGCbjYlnLLIPFnmUPVVvGV878P5XQ5E1KWYZUv8P72N0b2uiYWMYQGFwGIBjd3RzWCAmiVcK7PUFQoSwbWAiVU-5eULK0Kd01dvJMIstBHfZtWRtZWFzomFtWDC9dmE2fqfA-gJylbSVo32MRF6ViJwJ1re-tu1AUnGeMPFvBQeCfi0ASUm1UvHlUfJjdGVlaXNucCtncHVjY1hAt2hpW1UgRhhIz2jMbE66eDSvLPYT156QRtIt9bMif5utZ7Cf0FXVpSGlX-fBhNaIa-7nXw_t2iAH5QmtZwE6Dg",
+        "receiptSha256Hex": "da3e3f7614059a500b0234201bec71f349d5dc83b92e3d003d5ba40e1f9a6e07"
+      }
     },
     {
       "name": "streamed-frame",
@@ -49,7 +53,11 @@
       "foundRegionBase64Url": "ZGF0YTogeyJpZCI6ImNoYXRjbXBsLW1hcmtpbmctMSIsIm9iamVjdCI6ImNoYXQuY29tcGxldGlvbi5jaHVuayIsImNyZWF0ZWQiOjE3NzIwMDAwMDAsIm1vZGVsIjoibW9jay1tb2RlbC0xIiwiY2hvaWNlcyI6W10sImFzaGF2ZXJpIjp7Im1hcmtpbmciOnsic2NoIjoiYXNoYXZlcmkvcHJvdmVuYW5jZS12MSIsImdlbiI6ImFpIiwiYXQiOjE3NzIwMDAwMDB9fX0",
       "foundRegionByteLength": 206,
       "dHex": "5bab82851c424a2bcf379ac329507a1681bb46de44af02e1970e689703b5f1ce",
-      "expected": "verify-ok"
+      "expected": "verify-ok",
+      "client": {
+        "receiptBase64Url": "0oRYOKMBJwNwYXNoYXZlcmkvcmVjZWlwdARYIDUBOm4AC41dylHEvVwdufKGAoNgbHau7uqO5ytyteFeoFkB1K5hdgJibWuiYWRYIFurgoUcQkorzzeawylQehaBu0beRK8C4ZcOaJcDtfHOY3NjaG1wcm92ZW5hbmNlLXYxY2F0dKNhZFggTIzc8fD_ByKwAq3J2DI80xS1D1egHD3jArGzobZkqdtidHMaaZ6SxGN1cmx4LWh0dHBzOi8vaW5mZXJlbmNlLmFzaGF2ZXJpLmNvbS92MS9hdHRlc3RhdGlvbmNlcGsBY2lhdBppnpMAY2luc2xjdm0taS0wNDdmMmFjaXNzbGRwbC05ZjJhNDFjM2NtZGx4IG1ldGEtbGxhbWEvTGxhbWEtMy4xLThCLUluc3RydWN0Y25jZVBbZoc9PcyfyW_ZoUNBvBsuY3JlcVggrot1mWj1dKHEI0ReAPTnPuKqDU_LiJ151q7Yd_xtmnljcmVzWCA7oAKTe6iFm2r6LeI4i-Nq4TIU6t5X_uOFpz47O6pF0WN0b2uiYWMYQGFwGIBjd3RzWCAmiVcK7PUFQoSwbWAiVU-5eULK0Kd01dvJMIstBHfZtWRtZWFzomFtWDC9dmE2fqfA-gJylbSVo32MRF6ViJwJ1re-tu1AUnGeMPFvBQeCfi0ASUm1UvHlUfJjdGVlaXNucCtncHVjY1hA85a4XhOm7MkZ201dhGtJSVg8D6vrrp4iqdX06Es1h0pRExe4LejOv2IR93xOpFEQ9E4KmPJwFfzBtidEFxyeAA",
+        "receiptSha256Hex": "eb008ed0368b5a58b8d2a9a0f15f0d23c1480674e8037043ac74de92f1fe494a"
+      }
     },
     {
       "name": "absence-declared",
@@ -63,7 +71,11 @@
       "foundRegionBase64Url": "",
       "foundRegionByteLength": 0,
       "dHex": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
-      "expected": "verify-ok"
+      "expected": "verify-ok",
+      "client": {
+        "receiptBase64Url": "0oRYOKMBJwNwYXNoYXZlcmkvcmVjZWlwdARYIDUBOm4AC41dylHEvVwdufKGAoNgbHau7uqO5ytyteFeoFkBy65hdgJibWuiYWRYIOOwxEKY_BwUmvv0yJlvuSQnrkHkZJuTTKSVmRt4UrhVY3NjaGRub25lY2F0dKNhZFggTIzc8fD_ByKwAq3J2DI80xS1D1egHD3jArGzobZkqdtidHMaaZ6SxGN1cmx4LWh0dHBzOi8vaW5mZXJlbmNlLmFzaGF2ZXJpLmNvbS92MS9hdHRlc3RhdGlvbmNlcGsBY2lhdBppnpMAY2luc2xjdm0taS0wNDdmMmFjaXNzbGRwbC05ZjJhNDFjM2NtZGx4IG1ldGEtbGxhbWEvTGxhbWEtMy4xLThCLUluc3RydWN0Y25jZVBbZoc9PcyfyW_ZoUNBvBsuY3JlcVggrot1mWj1dKHEI0ReAPTnPuKqDU_LiJ151q7Yd_xtmnljcmVzWCDyUngRMnFEfsaiQvHXLbR7EBAo0mc7KUjrKzKWg7lw5mN0b2uiYWMYQGFwGIBjd3RzWCAmiVcK7PUFQoSwbWAiVU-5eULK0Kd01dvJMIstBHfZtWRtZWFzomFtWDC9dmE2fqfA-gJylbSVo32MRF6ViJwJ1re-tu1AUnGeMPFvBQeCfi0ASUm1UvHlUfJjdGVlaXNucCtncHVjY1hAZ_h4pIH3C5XdAd47M7JUh1U8JCdzuLmS1CSDA1nT-U2jPKUWpy7jKM3Od_RiTbxpC8wmyRIP6AKySLQJFpmICA",
+        "receiptSha256Hex": "7b66f1993cb66afa4ae51277a4a395669c7147c3355df04e3dc6c070b33eb766"
+      }
     },
     {
       "name": "absence-declared-over-marked",
@@ -77,7 +89,11 @@
       "foundRegionBase64Url": null,
       "foundRegionByteLength": null,
       "dHex": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
-      "expected": "MARK_MISMATCH"
+      "expected": "MARK_MISMATCH",
+      "client": {
+        "receiptBase64Url": "0oRYOKMBJwNwYXNoYXZlcmkvcmVjZWlwdARYIDUBOm4AC41dylHEvVwdufKGAoNgbHau7uqO5ytyteFeoFkBy65hdgJibWuiYWRYIOOwxEKY_BwUmvv0yJlvuSQnrkHkZJuTTKSVmRt4UrhVY3NjaGRub25lY2F0dKNhZFggTIzc8fD_ByKwAq3J2DI80xS1D1egHD3jArGzobZkqdtidHMaaZ6SxGN1cmx4LWh0dHBzOi8vaW5mZXJlbmNlLmFzaGF2ZXJpLmNvbS92MS9hdHRlc3RhdGlvbmNlcGsBY2lhdBppnpMAY2luc2xjdm0taS0wNDdmMmFjaXNzbGRwbC05ZjJhNDFjM2NtZGx4IG1ldGEtbGxhbWEvTGxhbWEtMy4xLThCLUluc3RydWN0Y25jZVBbZoc9PcyfyW_ZoUNBvBsuY3JlcVggrot1mWj1dKHEI0ReAPTnPuKqDU_LiJ151q7Yd_xtmnljcmVzWCBTpGCbjYlnLLIPFnmUPVVvGV878P5XQ5E1KWYZUv8P72N0b2uiYWMYQGFwGIBjd3RzWCAmiVcK7PUFQoSwbWAiVU-5eULK0Kd01dvJMIstBHfZtWRtZWFzomFtWDC9dmE2fqfA-gJylbSVo32MRF6ViJwJ1re-tu1AUnGeMPFvBQeCfi0ASUm1UvHlUfJjdGVlaXNucCtncHVjY1hAl-i163itCJ5MTY-G1Sxcd4nnbeqKsLst4EQYLI4373aK0fxMRDF9nfEk6AXG1Aui7RHThj968RIEVigicU97Cg",
+        "receiptSha256Hex": "e9ca6f5cc240984427f8d410cc7d714d73117534467caed805439e87c73dde3e"
+      }
     },
     {
       "name": "region-stripped",
@@ -91,7 +107,11 @@
       "foundRegionBase64Url": null,
       "foundRegionByteLength": null,
       "dHex": "35702fda276f3d0a81742cd54079eeb7031aebf06205993cfed1051e2de282de",
-      "expected": "MARK_MISMATCH"
+      "expected": "MARK_MISMATCH",
+      "client": {
+        "receiptBase64Url": "0oRYOKMBJwNwYXNoYXZlcmkvcmVjZWlwdARYIDUBOm4AC41dylHEvVwdufKGAoNgbHau7uqO5ytyteFeoFkB1K5hdgJibWuiYWRYIDVwL9onbz0KgXQs1UB57rcDGuvwYgWZPP7RBR4t4oLeY3NjaG1wcm92ZW5hbmNlLXYxY2F0dKNhZFggTIzc8fD_ByKwAq3J2DI80xS1D1egHD3jArGzobZkqdtidHMaaZ6SxGN1cmx4LWh0dHBzOi8vaW5mZXJlbmNlLmFzaGF2ZXJpLmNvbS92MS9hdHRlc3RhdGlvbmNlcGsBY2lhdBppnpMAY2luc2xjdm0taS0wNDdmMmFjaXNzbGRwbC05ZjJhNDFjM2NtZGx4IG1ldGEtbGxhbWEvTGxhbWEtMy4xLThCLUluc3RydWN0Y25jZVBbZoc9PcyfyW_ZoUNBvBsuY3JlcVggrot1mWj1dKHEI0ReAPTnPuKqDU_LiJ151q7Yd_xtmnljcmVzWCDyUngRMnFEfsaiQvHXLbR7EBAo0mc7KUjrKzKWg7lw5mN0b2uiYWMYQGFwGIBjd3RzWCAmiVcK7PUFQoSwbWAiVU-5eULK0Kd01dvJMIstBHfZtWRtZWFzomFtWDC9dmE2fqfA-gJylbSVo32MRF6ViJwJ1re-tu1AUnGeMPFvBQeCfi0ASUm1UvHlUfJjdGVlaXNucCtncHVjY1hA_WtLXQpYOJ7mSovrdm7Y3klzzsKsg5adxobS-CDaQOPjfttCv3efyTBaTA1gO3jW_R4l3sFiU1ucCVyOxm_wBQ",
+        "receiptSha256Hex": "3e2221e368429bae721269f01309c1630de970a39b991888327ed25bab38c19d"
+      }
     },
     {
       "name": "region-substituted",
@@ -105,7 +125,11 @@
       "foundRegionBase64Url": "ImFzaGF2ZXJpIjp7Im1hcmtpbmciOnsic2NoIjoiYXNoYXZlcmkvcHJvdmVuYW5jZS12MSIsImdlbiI6ImFpIiwiYXQiOjE3NzIwMDM2MDB9fQ",
       "foundRegionByteLength": 82,
       "dHex": "35702fda276f3d0a81742cd54079eeb7031aebf06205993cfed1051e2de282de",
-      "expected": "MARK_MISMATCH"
+      "expected": "MARK_MISMATCH",
+      "client": {
+        "receiptBase64Url": "0oRYOKMBJwNwYXNoYXZlcmkvcmVjZWlwdARYIDUBOm4AC41dylHEvVwdufKGAoNgbHau7uqO5ytyteFeoFkB1K5hdgJibWuiYWRYIDVwL9onbz0KgXQs1UB57rcDGuvwYgWZPP7RBR4t4oLeY3NjaG1wcm92ZW5hbmNlLXYxY2F0dKNhZFggTIzc8fD_ByKwAq3J2DI80xS1D1egHD3jArGzobZkqdtidHMaaZ6SxGN1cmx4LWh0dHBzOi8vaW5mZXJlbmNlLmFzaGF2ZXJpLmNvbS92MS9hdHRlc3RhdGlvbmNlcGsBY2lhdBppnpMAY2luc2xjdm0taS0wNDdmMmFjaXNzbGRwbC05ZjJhNDFjM2NtZGx4IG1ldGEtbGxhbWEvTGxhbWEtMy4xLThCLUluc3RydWN0Y25jZVBbZoc9PcyfyW_ZoUNBvBsuY3JlcVggrot1mWj1dKHEI0ReAPTnPuKqDU_LiJ151q7Yd_xtmnljcmVzWCAnzAQCaSjIF5-cE1M8Jxbu4Q7gy2Q0fY7iGZ6QKDooi2N0b2uiYWMYQGFwGIBjd3RzWCAmiVcK7PUFQoSwbWAiVU-5eULK0Kd01dvJMIstBHfZtWRtZWFzomFtWDC9dmE2fqfA-gJylbSVo32MRF6ViJwJ1re-tu1AUnGeMPFvBQeCfi0ASUm1UvHlUfJjdGVlaXNucCtncHVjY1hA8jYW2QcsJ7-byykmIQZm0txmcsytSuWdBSVH3bjy8Mq_NMoun_ZpR9a7r1Z57ZQcXXQ_zpygxkAJZBewS4tDBg",
+        "receiptSha256Hex": "03d428b79627a5a3de1e9e6d0d656f6189d0d5825f21f940a65bf9d1d2dd5591"
+      }
     },
     {
       "name": "region-duplicated",
@@ -119,7 +143,11 @@
       "foundRegionBase64Url": null,
       "foundRegionByteLength": null,
       "dHex": "35702fda276f3d0a81742cd54079eeb7031aebf06205993cfed1051e2de282de",
-      "expected": "MARK_MISMATCH"
+      "expected": "MARK_MISMATCH",
+      "client": {
+        "receiptBase64Url": "0oRYOKMBJwNwYXNoYXZlcmkvcmVjZWlwdARYIDUBOm4AC41dylHEvVwdufKGAoNgbHau7uqO5ytyteFeoFkB1K5hdgJibWuiYWRYIDVwL9onbz0KgXQs1UB57rcDGuvwYgWZPP7RBR4t4oLeY3NjaG1wcm92ZW5hbmNlLXYxY2F0dKNhZFggTIzc8fD_ByKwAq3J2DI80xS1D1egHD3jArGzobZkqdtidHMaaZ6SxGN1cmx4LWh0dHBzOi8vaW5mZXJlbmNlLmFzaGF2ZXJpLmNvbS92MS9hdHRlc3RhdGlvbmNlcGsBY2lhdBppnpMAY2luc2xjdm0taS0wNDdmMmFjaXNzbGRwbC05ZjJhNDFjM2NtZGx4IG1ldGEtbGxhbWEvTGxhbWEtMy4xLThCLUluc3RydWN0Y25jZVBbZoc9PcyfyW_ZoUNBvBsuY3JlcVggrot1mWj1dKHEI0ReAPTnPuKqDU_LiJ151q7Yd_xtmnljcmVzWCB5Ii3yV5VE2_MuWIWqOS4bAEABYqySzGtUFhpSxFgbF2N0b2uiYWMYQGFwGIBjd3RzWCAmiVcK7PUFQoSwbWAiVU-5eULK0Kd01dvJMIstBHfZtWRtZWFzomFtWDC9dmE2fqfA-gJylbSVo32MRF6ViJwJ1re-tu1AUnGeMPFvBQeCfi0ASUm1UvHlUfJjdGVlaXNucCtncHVjY1hAq_PY5R4gb_If8IUEDXO5e29BqZrE7Sq9aMvWOV_6pJ5Ez0kiZTzNWdZt1gHnbpuSr8gGkwHh1n2djSLb0nypDg",
+        "receiptSha256Hex": "b3bac917bf4daa997ebc5049ce68386714bf90b43a90db942f5fba2d487872f8"
+      }
     },
     {
       "name": "streamed-region-stripped",
@@ -133,7 +161,11 @@
       "foundRegionBase64Url": null,
       "foundRegionByteLength": null,
       "dHex": "5bab82851c424a2bcf379ac329507a1681bb46de44af02e1970e689703b5f1ce",
-      "expected": "MARK_MISMATCH"
+      "expected": "MARK_MISMATCH",
+      "client": {
+        "receiptBase64Url": "0oRYOKMBJwNwYXNoYXZlcmkvcmVjZWlwdARYIDUBOm4AC41dylHEvVwdufKGAoNgbHau7uqO5ytyteFeoFkB1K5hdgJibWuiYWRYIFurgoUcQkorzzeawylQehaBu0beRK8C4ZcOaJcDtfHOY3NjaG1wcm92ZW5hbmNlLXYxY2F0dKNhZFggTIzc8fD_ByKwAq3J2DI80xS1D1egHD3jArGzobZkqdtidHMaaZ6SxGN1cmx4LWh0dHBzOi8vaW5mZXJlbmNlLmFzaGF2ZXJpLmNvbS92MS9hdHRlc3RhdGlvbmNlcGsBY2lhdBppnpMAY2luc2xjdm0taS0wNDdmMmFjaXNzbGRwbC05ZjJhNDFjM2NtZGx4IG1ldGEtbGxhbWEvTGxhbWEtMy4xLThCLUluc3RydWN0Y25jZVBbZoc9PcyfyW_ZoUNBvBsuY3JlcVggrot1mWj1dKHEI0ReAPTnPuKqDU_LiJ151q7Yd_xtmnljcmVzWCC6fHmMVq3l3S8Yg2t71R9uPUplc0Nt9Qpju4QLeC1VZmN0b2uiYWMYQGFwGIBjd3RzWCAmiVcK7PUFQoSwbWAiVU-5eULK0Kd01dvJMIstBHfZtWRtZWFzomFtWDC9dmE2fqfA-gJylbSVo32MRF6ViJwJ1re-tu1AUnGeMPFvBQeCfi0ASUm1UvHlUfJjdGVlaXNucCtncHVjY1hAAkp9HUiHmCuX7w8-EB22PE4aIbQuITOi18TTxHCPDNjUu-8Lb1tMF1M1-69X1LquxyPlMfo9jME6eDhOqsMoCw",
+        "receiptSha256Hex": "bde3d4a9705460a44accb619aa540005e59c26b4d4d4f4f5a36119b0f2b5530b"
+      }
     },
     {
       "name": "streamed-region-duplicated",
@@ -147,7 +179,11 @@
       "foundRegionBase64Url": null,
       "foundRegionByteLength": null,
       "dHex": "5bab82851c424a2bcf379ac329507a1681bb46de44af02e1970e689703b5f1ce",
-      "expected": "MARK_MISMATCH"
+      "expected": "MARK_MISMATCH",
+      "client": {
+        "receiptBase64Url": "0oRYOKMBJwNwYXNoYXZlcmkvcmVjZWlwdARYIDUBOm4AC41dylHEvVwdufKGAoNgbHau7uqO5ytyteFeoFkB1K5hdgJibWuiYWRYIFurgoUcQkorzzeawylQehaBu0beRK8C4ZcOaJcDtfHOY3NjaG1wcm92ZW5hbmNlLXYxY2F0dKNhZFggTIzc8fD_ByKwAq3J2DI80xS1D1egHD3jArGzobZkqdtidHMaaZ6SxGN1cmx4LWh0dHBzOi8vaW5mZXJlbmNlLmFzaGF2ZXJpLmNvbS92MS9hdHRlc3RhdGlvbmNlcGsBY2lhdBppnpMAY2luc2xjdm0taS0wNDdmMmFjaXNzbGRwbC05ZjJhNDFjM2NtZGx4IG1ldGEtbGxhbWEvTGxhbWEtMy4xLThCLUluc3RydWN0Y25jZVBbZoc9PcyfyW_ZoUNBvBsuY3JlcVggrot1mWj1dKHEI0ReAPTnPuKqDU_LiJ151q7Yd_xtmnljcmVzWCDLevBR9-4ug8-lpJE2WPDoXipbFrdh6RNFQFwK204HdWN0b2uiYWMYQGFwGIBjd3RzWCAmiVcK7PUFQoSwbWAiVU-5eULK0Kd01dvJMIstBHfZtWRtZWFzomFtWDC9dmE2fqfA-gJylbSVo32MRF6ViJwJ1re-tu1AUnGeMPFvBQeCfi0ASUm1UvHlUfJjdGVlaXNucCtncHVjY1hAlpxsPQFgEysHOmo4IRlmTc3khWFfe8yYnzZ65R2MOD8KShtryMvMHrMcNBQKoDADERiCjG3oanetosUAB5IiAQ",
+        "receiptSha256Hex": "0b68b07fa80bac01e9ee093a97f0a09fa954ff2c68c12a20504e0c8fb911da20"
+      }
     }
   ]
 }
