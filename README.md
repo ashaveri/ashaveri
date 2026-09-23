@@ -75,7 +75,10 @@ and how a line is erased. The published conformance vectors — what a reimpleme
 any language is measured against, and how to read each suite — are in
 [docs/vectors.md](docs/vectors.md). Fixtures and vectors are regenerated deterministically
 with `pnpm --filter @ashaveri/fixtures generate`, and the `generate:` variants named in
-that document.
+that document. What the evidence behind a receipt looked like as it arrived, and the record that would
+hold those original bytes beside the context that made them verifiable, is
+[docs/capture-v1.md](docs/capture-v1.md): the layout member by member, what each one lets a reader
+conclude, and what none of them can.
 
 Reporting a vulnerability and submitting a change have their own pages:
 [SECURITY.md](SECURITY.md) and [CONTRIBUTING.md](CONTRIBUTING.md).
