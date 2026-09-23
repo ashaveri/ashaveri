@@ -86,6 +86,7 @@ export {
   decodeReceipt,
   generateSigningKey,
   hashRequest,
+  isSealedDeploymentManifest,
   randomNonce,
   receiptBytesToJson,
   receiptToJson,

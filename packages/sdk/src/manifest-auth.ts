@@ -16,8 +16,10 @@ import type { AshaveriPolicy } from './policy.js';
  *
  * Three states, and a client has to be able to tell all three apart rather than collapse the last two:
  * a sealed manifest that verifies under a key this client designated for the purpose, a sealed manifest
- * that does not, and a document that carries no seal at all. The second is fatal in every posture,
- * because a body that changed after it was signed is not evidence about anything. The first three rows
+ * that does not, and a document that carries no seal at all. The second is fatal wherever a designated key
+ * makes the check possible, because a body that changed after it was signed is not evidence about anything;
+ * a client that designated no key has no check to run, and the honest answer it can give about those same
+ * bytes is that it cannot vouch for them. The first four rows
  * of the table below are the whole of the policy question, and the rule they encode is the one this
  * package has always applied to a manifest: it is the party being verified talking, so it may fail a
  * check and it may not open one.
@@ -25,7 +27,7 @@ import type { AshaveriPolicy } from './policy.js';
  * | served | policy designates manifest keys | outcome |
  * |---|---|---|
  * | sealed, verifies | yes | authenticated, and the manifest's values are the deployment's own statement |
- * | sealed, does not verify | any | fatal: `MANIFEST_SIGNATURE_INVALID` |
+ * | sealed, does not verify under that key | yes | fatal: `MANIFEST_SIGNATURE_INVALID` |
  * | sealed, kid undesignated | yes | fatal: `MANIFEST_NOT_AUTHENTICATED` |
  * | sealed, kid undesignated | no | parsed, reported unauthenticated, and the advisory names the kid |
  * | plain JSON | yes | fatal: `MANIFEST_NOT_AUTHENTICATED`, since a caller who designated a signer was handed none |
@@ -121,7 +123,17 @@ export function readDeploymentManifest(
   const seal = decodeSealedDeploymentManifest(bytes);
   const kid = toHex(seal.header.kid);
   const pinned = pins?.[kid];
-  if (pins === null || pinned === undefined) {
+  if (pinned === undefined) {
+    if (pins !== null) {
+      // A caller that designated signing identities for this document and was handed a seal made by none
+      // of them has been shown a deployment that is not the one it pinned, which is the same refusal an
+      // unsigned document earns. It is not an advisory, and it is not the signature failing: nothing here
+      // claims this key is wrong, only that this client never accepted responsibility for it.
+      throw new SdkError(
+        'MANIFEST_NOT_AUTHENTICATED',
+        `the deployment manifest arrived sealed under key ${kid}, which this policy does not designate for signing manifests, so the seal says nothing about who wrote the document`,
+      );
+    }
     const manifest = parseDocument(new TextDecoder().decode(seal.payloadBytes));
     return {
       manifest,
@@ -131,9 +143,7 @@ export function readDeploymentManifest(
         kid,
         demanded: false,
         advisory:
-          pins === null
-            ? `the deployment manifest arrived sealed under key ${kid}, which this policy designates nothing for because it names no manifest signing key, so the seal proves the bytes are whole and nothing about who wrote them`
-            : `the deployment manifest arrived sealed under key ${kid}, which this policy does not designate for signing manifests, so the seal proves the bytes are whole and nothing about who wrote them`,
+          `the deployment manifest arrived sealed under key ${kid}, which this policy designates nothing for because it names no manifest signing key, so nothing checked the seal and this client can say neither that the bytes are whole nor who wrote them`,
       },
     };
   }

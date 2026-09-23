@@ -126,8 +126,9 @@ describe('the freshness defaults a strict policy carries', () => {
 
   it('sets neither window from the manifest it is handed', () => {
     const policy = manifestPolicy(gatewayStamping({ receipt: RECENT, evidence: RECENT }));
-    // The manifest is unsigned and served by the party being checked, so it cannot be where a
-    // window is loosened: both numbers below this line come from the code, not from the wire.
+    // The manifest is the party being checked talking, whether or not this client can attribute its
+    // seal, so it is not where a window may be loosened: both numbers below this line come from the
+    // code, not from the wire.
     expect(policy.maxReceiptAgeSeconds).toBeUndefined();
     expect(policy.maxEvidenceAgeSeconds).toBeUndefined();
   });

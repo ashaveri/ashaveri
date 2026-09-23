@@ -173,7 +173,7 @@ function adjudicateCurrentEpochOnly(
     basis: 'current-epoch',
     epoch: manifest.epk,
     kid: claim.kid,
-    validFrom: 0,
+    validFrom: null,
     validTo: null,
     superseded: false,
     detail: `epoch ${claim.epoch} is the only epoch this manifest declares, and the key is one of the keys it lists`,
