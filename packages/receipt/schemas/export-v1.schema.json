@@ -1,0 +1,157 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://ashaveri.com/schemas/export-v1.json",
+  "title": "Ashaveri Technical Export (JSON twin of the CBOR/COSE container)",
+  "description": "Display-only projection of the signed COSE_Sign1 export container. The CBOR bytes are canonical and are what a reader verifies; this JSON form is never signed directly. Byte strings appear as lowercase hex, which is how the receipt's own projection writes them, and a length that is a number of bytes in the CBOR is not the same measure as a JSON string length, so only `minLength` carries a bound the format states and nothing here pretends to a ceiling: one character is at least one byte, which is the half of `1..256` a JSON string can assert, and the byte ceiling belongs to `export.cddl`. Closure is not the manifest's alone: the manifest map, `assessment`, `claim`, all three arms of `collection`, both item rules and both original arms name their members in the same object, which is where `additionalProperties` applies, so a member the format does not define is refused at that level rather than read and dropped on the way to a verifier. A member that one arm of a choice carries is a member of that arm and of no other, and a projection that read an `anchored` collection with the `plain` arm's keywords would be dropping two signed endpoints out of a document. `protectedHeader` carries the three labels the CDDL declares and no more, and this definition carries no closure keyword: that map is read by number, its bytes are what the signature hashes, and a document carrying a fourth label is refused before any projection of it is built. The envelope above it is projected more loosely than the format writes it, and that is a decision rather than a gap: this document requires `protectedHeader` and `payload`, names `signature` without demanding it, and leaves its own root unclosed, so an export shown before it is signed still shows, while `export.cddl` requires all four elements of the `COSE_Sign1` and sixty-four bytes in the fourth of them. Requiring the missing one here would refuse a display and not an artifact, which is the same reason the receipt's and the pack's projections are written the same way. The CBOR tag that wraps the four elements on the wire, tag 18, is stated in `export.cddl` and cannot be stated here at all, because a JSON object has no tag to carry: a reader who needs the bytes needs the format, and that is where the number is. Every member of the manifest is required by the arm it sits in, so no position is optional, none carries a default, and a reader never has to work out what an omitted field meant; the one member of this projection that may be absent is the envelope's `signature`, named above. The rules that hold between two members are not spelled out here because no keyword reaches them: that `claim.made` is never after `at`, that an item array of a non-void arm holds at least one item and a void arm holds none, that no two items in one collection answer to one `id`, that every item of an anchored collection is reached from the anchor and exactly one ends the walk at the head, that each item's `d` is sha256 of the original bytes it carries or names, and that no instant lies before the epoch, are all stated in `export.cddl`, which is where a reader holding this projection has to go to learn them. No legal vocabulary is defined in it: no article, no duty, no category, no qualification and no period appears as a member, a label or an enumeration anywhere in this file, and the one statement about assessment is the constant `none` in the assessment block. `docs/export-v1.md` states the same layout as a field table, and `packages/fixtures/test/export-doc.test.ts` holds the two against each other in both directions.",
+  "type": "object",
+  "required": ["protectedHeader", "payload"],
+  "properties": {
+    "protectedHeader": {
+      "type": "object",
+      "required": ["alg", "kid", "typ"],
+      "properties": {
+        "alg": { "const": "EdDSA", "description": "COSE algorithm -8, Ed25519" },
+        "kid": { "type": "string", "pattern": "^[0-9a-f]{64}$", "description": "sha256 of the Ed25519 public key, hex" },
+        "typ": { "const": "ashaveri/export", "description": "the content type that tells an export apart from the receipt and the pack, all three of which one deployment key signs" }
+      }
+    },
+    "payload": {
+      "$ref": "#/$defs/manifest",
+      "description": "The signed manifest. Exactly one version is defined, so `v` is a constant rather than a discriminant, and a document naming another version is not this one."
+    },
+    "signature": { "type": "string", "pattern": "^[0-9a-f]{128}$", "description": "Ed25519 signature over the Sig_structure, hex" }
+  },
+  "$defs": {
+    "manifest": {
+      "type": "object",
+      "required": ["v", "at", "assessment", "collection", "claim"],
+      "properties": {
+        "v": { "const": 1, "description": "format version" },
+        "at": { "type": "integer", "description": "unix seconds, the instant the export was assembled. The only clock in this document: it bounds `claim.made` and states nothing about a window." },
+        "assessment": { "$ref": "#/$defs/assessment", "description": "whether any legal assessment was made of the material, stated rather than left to be inferred from silence" },
+        "collection": { "$ref": "#/$defs/collection", "description": "the material, in one of three shapes: a chained run, an unstructured set of originals, or an explicit statement that nothing is carried" },
+        "claim": { "$ref": "#/$defs/claim", "description": "the writer's own assertion about where the material came from or who held it, which a reader verifies by nothing beyond the signature over it" }
+      },
+      "additionalProperties": false,
+      "description": "An export manifest and nothing else. The map is closed: a member outside this list is a malformed export rather than a member a reader agreed to forget, and the same holds of every map below it and of every arm of every choice."
+    },
+    "assessment": {
+      "type": "object",
+      "required": ["k", "states"],
+      "properties": {
+        "k": { "const": "none", "description": "the only assessment statement version 1 defines. A document carrying any other label here has assessed something this format has no reading of, and a reader refuses it rather than guessing which label it resembled." },
+        "states": { "type": "string", "minLength": 1, "description": "the writer's own sentence stating that no legal assessment was made. A reader checks that the position is filled and that the label is the one this version defines, and reads nothing out of the sentence's content." }
+      },
+      "additionalProperties": false,
+      "description": "The assessment, and the member that makes this container a second contract rather than a second version of the pack. Required, one label, and no legal vocabulary: no article, no duty, no category, no qualification and no period appear anywhere in this file, because this estate does not interpret the questions those words would answer and a format that enumerated answers would be an answer."
+    },
+    "collection": {
+      "type": "object",
+      "oneOf": [
+        { "$ref": "#/$defs/anchored" },
+        { "$ref": "#/$defs/plain" },
+        { "$ref": "#/$defs/voidCollection" }
+      ],
+      "description": "The collection in one of three closed shapes, each named by its own `k`. Three arms because the claims are three: a chained run, a set with nothing claimed about its ordering, and an emptiness the writer states. An item array is never empty in either non-void arm, so a writer cannot reach the statement that nothing is carried by leaving the array out of a shape that needs it."
+    },
+    "anchored": {
+      "type": "object",
+      "required": ["k", "anchor", "head", "items"],
+      "properties": {
+        "k": { "const": "anchored", "description": "a chained run is claimed over these items" },
+        "anchor": { "$ref": "#/$defs/hex32", "description": "the digest the first item was chained from: thirty-two zero bytes before any retirement, otherwise the seam a trim record carried" },
+        "head": { "$ref": "#/$defs/hex32", "description": "the digest of the last item in the run. Neither endpoint is derivable from the items, which is why both travel inside the signature: an anchor a reader invented would let a deployment start the walk wherever it liked, and a head read off the last item handed over would let it stop there." },
+        "items": { "type": "array", "minItems": 1, "items": { "$ref": "#/$defs/chainedItem" }, "description": "The records, at least one, in no particular order: a reader follows each item's `p` to find its predecessor, because retiring a prefix rewrites the front of a chain without touching any surviving record's digest." }
+      },
+      "additionalProperties": false,
+      "description": "A chained run of receipts. The framing the digests are recomputed under is section 5.2 of `docs/receipt-spec.md` and nothing here adds to it."
+    },
+    "plain": {
+      "type": "object",
+      "required": ["k", "items"],
+      "properties": {
+        "k": { "const": "plain", "description": "originals, with no ordering, run or completeness claimed about them" },
+        "items": { "type": "array", "minItems": 1, "items": { "$ref": "#/$defs/item" }, "description": "The originals, at least one. No endpoints are carried here because none is claimed, and that absence is a shape rather than an omission: the arm that would have held two digests is the one a reader looks for." }
+      },
+      "additionalProperties": false,
+      "description": "A set of originals a writer gathered for a request, where the material's history is in the claim block and nothing about its ordering or its completeness is in this one."
+    },
+    "voidCollection": {
+      "type": "object",
+      "required": ["k", "states"],
+      "properties": {
+        "k": { "const": "void", "description": "nothing is carried, and this arm is how that is said" },
+        "states": { "type": "string", "minLength": 1, "description": "the writer's own sentence stating the outcome, which cannot be empty. A reader reports this arm as the emptiness it is and never as a set of material it verified." }
+      },
+      "additionalProperties": false,
+      "description": "The explicit empty outcome. Pack v1 refuses an empty collection because an empty store is not an empty pack; an export of nothing is an honest answer to a real request, so emptiness is a shape here rather than a silence, and the shape states itself."
+    },
+    "item": {
+      "type": "object",
+      "required": ["id", "iat", "d", "orig"],
+      "properties": {
+        "id": { "type": "string", "minLength": 1, "description": "the writer's name for the item, and no two items in one collection carry the same one. The framing bounds it at 65535 bytes and `minLength` is the half of that a JSON length can state." },
+        "iat": { "type": "integer", "description": "unix seconds, the stamp the writer records for the original. This container states no span, so no window bounds it here." },
+        "d": { "$ref": "#/$defs/hex32", "description": "sha256 of the exact original bytes, whole, whether they travel inline or beside this document: the member that makes one altered byte a refusal rather than an unnoticed change." },
+        "orig": { "$ref": "#/$defs/original", "description": "the original itself, either inside this document or named as a companion file travelling beside it" }
+      },
+      "additionalProperties": false,
+      "description": "One item of a collection that claims no chain."
+    },
+    "chainedItem": {
+      "type": "object",
+      "required": ["id", "iat", "d", "p", "orig"],
+      "properties": {
+        "id": { "type": "string", "minLength": 1, "description": "the writer's name for the item, unique in the collection, and a term of the hashed input" },
+        "iat": { "type": "integer", "description": "unix seconds, the stamp the record was chained at, and a term of the hashed input: a receipt restamped into a run it was never chained in breaks a link rather than slipping through." },
+        "d": { "$ref": "#/$defs/hex32", "description": "sha256 of the exact original bytes, as in an unchained item, and independent of the record digest below: one of the two says these are the bytes, the other says they sit in this run." },
+        "p": { "$ref": "#/$defs/hex32", "description": "the digest of the record before this one, or the collection's anchor for the first item. Published rather than derived because the walk follows links and not positions." },
+        "orig": { "$ref": "#/$defs/original", "description": "the signed receipt bytes, whole and unaltered. The walk hashes them as a record's payload and does not open them, so a reader that wants each receipt's own signature verified runs the receipt verifier over these bytes." }
+      },
+      "additionalProperties": false,
+      "description": "One item of a chained run: the four positions the unchained item declares plus the predecessor its own digest was chained from, which is all it takes to rebuild the frame section 5.2 publishes."
+    },
+    "original": {
+      "type": "object",
+      "oneOf": [
+        { "$ref": "#/$defs/inline" },
+        { "$ref": "#/$defs/companion" }
+      ],
+      "description": "The original, in one of two shapes, named by its own `k`. A handover that carried only inline bytes could not leave a gigabyte behind, and one that carried only references could be checked against nothing, so the two are alternatives and the item says which it is."
+    },
+    "inline": {
+      "type": "object",
+      "required": ["k", "bytes"],
+      "properties": {
+        "k": { "const": "inline", "description": "the bytes are inside this document" },
+        "bytes": { "$ref": "#/$defs/hexBytes", "description": "the exact original bytes, whole, which are what the item's digest is taken over" }
+      },
+      "additionalProperties": false,
+      "description": "An original carried in the export itself, the strongest form a reader can verify without a second file."
+    },
+    "companion": {
+      "type": "object",
+      "required": ["k", "name"],
+      "properties": {
+        "k": { "const": "companion", "description": "the bytes travel beside this document" },
+        "name": { "type": "string", "minLength": 1, "description": "the file name the bytes travel under, and a name rather than a location: no scheme, no path that climbs out of the directory the export arrived in, and no resolution rule, because this format fetches nothing. The reader hashes whatever it was handed under this name against the item's `d`, and refuses an item whose companion it was not given by name." }
+      },
+      "additionalProperties": false,
+      "description": "An original referenced by name, bound to this document by the digest beside it and by nothing else."
+    },
+    "claim": {
+      "type": "object",
+      "required": ["made", "by", "kind", "states"],
+      "properties": {
+        "made": { "type": "integer", "description": "unix seconds, when the assertion was made, and never after `at`: a claim stamped after the assembly of the document carrying it is another document's claim." },
+        "by": { "type": "string", "minLength": 1, "description": "who asserts it, named by the assertor rather than resolved to an identity a reader could look up" },
+        "kind": { "type": "string", "enum": ["provenance", "custody"], "description": "which of the two assertions this is: `provenance` about where the material came from, `custody` about who has held it since. A label outside the two is refused rather than read as whichever one it resembled, and neither is a legal category." },
+        "states": { "type": "string", "minLength": 1, "description": "the assertion, in the writer's own words. Nothing in a reader checks its content, and the block's whole honesty is that it is inside the signature and outside every recomputation." }
+      },
+      "additionalProperties": false,
+      "description": "The writer's own statement about the material's history, and the one block in this container a reader cannot recompute. Provenance and custody are facts about a process rather than about bytes, and the alternative to stating them is leaving a reader to infer them from the absence of a statement."
+    },
+    "hex32": { "type": "string", "pattern": "^[0-9a-f]{64}$" },
+    "hexBytes": { "type": "string", "pattern": "^([0-9a-f]{2})+$" }
+  }
+}

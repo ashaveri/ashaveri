@@ -25,10 +25,11 @@ each shape.
 | Response digest | `packages/fixtures/data/res-v1.json` | The `res` a receipt claims, over exact response bytes including framing | `version: 1` |
 | Marked region | `packages/fixtures/data/marking-v1.json` | The span inside a response that `mk.d` digests, in both shapes, and what a reader owes a response carrying too few, too many, or not the attested one | `version: 1` |
 | Receipt store chain | `packages/fixtures/data/chain-v1.json` | The record frames a gateway writes to `receipts.log`, the state a reader derives from them, and what it refuses | `version: 1` |
+| Technical export | `packages/fixtures/data/export-v1.json` | Whole export documents, the arguments a reader is handed beside each one, and the verdict a conforming reader owes it | `version: 1` |
 
-`pop-v1.json`, `req-v1.json`, `res-v1.json`, `marking-v1.json` and `chain-v1.json` each carry a
-`description` stating their rule in prose, and the digest, marked-region and chain suites carry a
-`rule` or `layout` block naming the fields, and the widths and the byte order where a suite pins a
+`pop-v1.json`, `req-v1.json`, `res-v1.json`, `marking-v1.json`, `chain-v1.json` and `export-v1.json` each
+carry a `description` stating their rule in prose, and the digest, marked-region, chain and export suites
+carry a `rule` or `layout` block naming the fields, and the widths and the byte order where a suite pins a
 byte layout, so a reader never has to guess what an array of hex is standing for. The manifest
 carries no `description`, because it lists the receipt fixtures rather than stating a rule of its
 own; what they are for is written in
@@ -113,10 +114,18 @@ specific to that case.
   length. Each carries the refusal the reader gave, and your reader has to refuse them too. Its
   sentence may differ; the fact that it stops may not. `tails` states an append that never finished,
   which is the one case a reader repairs rather than refuses.
+- **Technical export.** Decode the base64url document, hand your reader the arguments the case's `read`
+  block states, which are the companion bytes it was given, the endpoints it already holds, and the key it
+  used, and compare the answer with `verdict`: `verify-ok`, or the code the refusal has to answer with. Where
+  the case states `item`, `outcome` or `walk`, the refusal has to name that item and the pass has to report
+  that arm and that order. A case whose `read` block names no companion is read with none, which is what makes
+  the missing-file answer separate from a digest disagreement. `crossReading` is the pair that keeps the two
+  containers apart: an export manifest given to the pack layout, and a pack document given to the export
+  reader.
 
 ## Every suite refuses something
 
-Each of the six suites published here carries at least one case whose stated verdict is a refusal, and
+Each of the seven suites published here carries at least one case whose stated verdict is a refusal, and
 every code those cases name is one [error-codes.md](error-codes.md) lists. That is the half a second
 implementation cannot agree with by accident: an accepted case and a refused one, drawn from the same
 bytes, differ in exactly the rule under test, and a port wrong in the same direction as this one still
@@ -141,6 +150,7 @@ pnpm --filter @ashaveri/fixtures generate:req
 pnpm --filter @ashaveri/fixtures generate:res
 pnpm --filter @ashaveri/fixtures generate:marking
 pnpm --filter @ashaveri/fixtures generate:chain
+pnpm --filter @ashaveri/fixtures generate:export
 ```
 
 The generators live beside the loaders in `packages/fixtures`, and running all of them after a change
@@ -184,9 +194,9 @@ implementation is the deviation.
 These vectors check bytes. They say nothing about trust:
 
 - Nothing here establishes that a key belongs to anybody. The signing keys published in
-  `data/keys/receipt-key-v1.json` and in `pop-v1.json` are test-only, labelled as such in the files
-  themselves, and protect nothing. A port that verifies against them has exercised its verifier, not
-  appraised a deployment.
+  `data/keys/receipt-key-v1.json`, in `pop-v1.json` and in `export-v1.json` are test-only, labelled as such
+  in the files themselves, and protect nothing. A port that verifies against them has exercised its
+  verifier, not appraised a deployment.
 - Nothing here touches attestation. Evidence documents, platform roots, device certificate chains and
   the measurements they name are checked against vendor anchors no file in this directory holds, and
   a byte-exact reimplementation of every suite in `data/` is compatible with a deployment that should
