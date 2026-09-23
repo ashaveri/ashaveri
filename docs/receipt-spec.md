@@ -367,8 +367,9 @@ rendering of it. [`packages/receipt/manifest.cddl`](../packages/receipt/manifest
 statement of that container and
 [`packages/receipt/schemas/manifest-v1.schema.json`](../packages/receipt/schemas/manifest-v1.schema.json)
 its display twin, in the same pair the receipt and the pack form. The content type is not decoration: a
-deployment signs receipts, packs of receipts, and this document, all three as `COSE_Sign1` over four
-elements with an Ed25519 signature, and each of them verifies cleanly under a key a reader trusted. The
+deployment signs receipts, packs of receipts, exports of originals, and this document, all four as
+`COSE_Sign1` over four elements with an Ed25519 signature, and each of them verifies cleanly under a key a
+reader trusted. The
 field that says whether a reader is holding an attestation about one response or a deployment's statement
 about itself is `typ`, and each reader refuses the other's document before it consults a key.
 
