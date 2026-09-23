@@ -30,7 +30,7 @@
     },
     "chain": {
       "$ref": "#/$defs/chain",
-      "description": "The two endpoints a reader walks between, stated here as the store reports them. See the header for why this artifact repeats them rather than deferring to a pack."
+      "description": "The two endpoints a reader walks between, stated here as the store reports them. This artifact carries no signature, so a pair read here is the deployment's own report about its own store, and where the same store is also packed the authoritative pair is the one inside the pack's signature: two pairs that disagree are a finding about this document, not about the chain. See the header for why the block is repeated rather than deferred."
     },
     "duty": {
       "$ref": "#/$defs/duty",
