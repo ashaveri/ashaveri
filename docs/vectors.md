@@ -125,7 +125,7 @@ specific to that case.
 
 ## Every suite refuses something
 
-Each of the six suites published here carries at least one case whose stated verdict is a refusal, and
+Each of the seven suites published here carries at least one case whose stated verdict is a refusal, and
 every code those cases name is one [error-codes.md](error-codes.md) lists. That is the half a second
 implementation cannot agree with by accident: an accepted case and a refused one, drawn from the same
 bytes, differ in exactly the rule under test, and a port wrong in the same direction as this one still
