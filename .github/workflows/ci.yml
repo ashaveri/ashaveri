@@ -84,6 +84,72 @@ jobs:
       - run: pnpm -C packages/fixtures generate:chain
       - run: git diff --exit-code packages/fixtures/data
 
+  offline-verifier:
+    name: The single-file verifier runs with no installed dependencies
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version-file: .nvmrc
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      # The filter carries its dependencies, spelled as the Windows job spells it. Building this one
+      # package alone succeeds on a tree that still holds an earlier root build and fails on a clean
+      # one, because the command imports the receipt, the client and the attestation packages.
+      - run: pnpm -r --filter "@ashaveri/cli..." build
+      - run: pnpm -C packages/cli bundle
+      # A bundle that builds has proved nothing about running, so this step leaves the checkout
+      # entirely: the directory it works in holds the artifact, two committed receipt vectors, and the
+      # policy and manifest the run reads. It has no node_modules in it and no parent that does, and
+      # the runs below assert the exit codes rather than printing them.
+      - name: Run the bundled verifier outside the checkout
+        run: |
+          set -euo pipefail
+          work="$(mktemp -d)"
+          cp packages/cli/dist/ashaveri-bundle.mjs "$work/ashaveri.mjs"
+          cp packages/fixtures/data/receipts/receipt-valid-v1.cbor "$work/"
+          cp packages/fixtures/data/receipts/receipt-tampered-v1.cbor "$work/"
+          node --experimental-strip-types packages/cli/scripts/offline-proof.ts "$work" packages/fixtures/data
+          # Nothing outside the standard library may be resolved from outside the file, or the
+          # artifact would still need an installed tree to start. The scan is anchored to line starts
+          # on purpose: an unanchored search for `from '...'` also matches that text inside a string
+          # or a comment, and the bundle carries both, so the guard would refuse a good artifact. A
+          # specifier the file genuinely imports is a line that begins with `import` or `export`.
+          left="$(grep -oE "^[[:space:]]*(import|export)[^;]*from ['\"][^'\"]+['\"]" "$work/ashaveri.mjs" | grep -vE "['\"](node:|\.)" || true)"
+          if [ -n "$left" ]; then
+            printf '%s\n' "$left" >&2
+            echo 'the bundle imports a module it did not bundle' >&2
+            exit 1
+          fi
+          test ! -e "$work/node_modules"
+          cd "$work"
+          # shellcheck disable=SC1091
+          . ./args.env
+          node ashaveri.mjs verify-receipt receipt-valid-v1.cbor --policy policy.json \
+            --manifest manifest.json --nonce "$NONCE" --request-hash "$REQ" --response-hash "$RES" \
+            --now "$NOW" --json > verified.json
+          echo "the published vector exited $?"
+          grep -q '"ok": true' verified.json
+          status=0
+          node ashaveri.mjs verify-receipt receipt-tampered-v1.cbor --policy policy.json \
+            --manifest manifest.json --nonce "$NONCE" --request-hash "$REQ" --response-hash "$RES" \
+            --now "$NOW" --json > tampered.json || status=$?
+          echo "the tampered vector exited $status"
+          test "$status" -eq 1
+          grep -q '"code": "INVALID_SIGNATURE"' tampered.json
+          status=0
+          node ashaveri.mjs verify-receipt receipt-valid-v1.cbor > usage.txt 2>&1 || status=$?
+          echo "a run with no policy or manifest exited $status"
+          test "$status" -eq 2
+          node ashaveri.mjs --version
+
   secret-scan:
     name: Secret scan over the full commit history
     runs-on: ubuntu-latest

@@ -78,8 +78,13 @@ function refuseMixingPolicyWithPins(values: VerifyFlags): void {
   }
 }
 
-/** A policy the operator named, or the refusal that says why it could not be read. */
-async function readPolicyFile(path: string): Promise<LoadedPolicy> {
+/**
+ * A policy the operator named, or the refusal that says why it could not be read.
+ *
+ * Shared with `verify-receipt`: two commands reading one document have to refuse it the same way, and
+ * a policy digest cited in a report means one loader regardless of which command printed it.
+ */
+export async function readPolicyFile(path: string): Promise<LoadedPolicy> {
   try {
     return await loadPolicyFile(path);
   } catch (err) {

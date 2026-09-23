@@ -6,17 +6,21 @@ import { runKeygen } from './commands/keygen.js';
 import { runCredential } from './commands/credential.js';
 import { runAccessLog } from './commands/accesslog.js';
 import { runVerify } from './commands/verify.js';
+import { runVerifyReceipt } from './commands/verify-receipt.js';
 
-const COMMANDS = ['verify', 'keygen', 'credential', 'accesslog'] as const;
+const COMMANDS = ['verify', 'verify-receipt', 'keygen', 'credential', 'accesslog'] as const;
 
-const USAGE = `ashaveri - offline verification of dStack confidential-VM attestations, and the
-operator commands for the gateway's credential file and access log
+const USAGE = `ashaveri - offline verification of dStack confidential-VM attestations and of published
+receipts, and the operator commands for the gateway's credential file and access log
 
 Usage:
   ashaveri <command> [options]
 
 Arguments:
   ashaveri verify <attestation> [options]
+  ashaveri verify-receipt <receipt> --policy <file> --manifest <file> --nonce <hex>
+                         [--request-body <file> | --request-hash <hex>]
+                         [--response-body <file> | --response-hash <hex>] [options]
   ashaveri keygen [--id <id>] [--json]
   ashaveri credential add --credentials <file> [--id <id>] [--kind pop|bearer]
                           [--scopes read,complete] [--label <text>]
@@ -27,6 +31,23 @@ Arguments:
                           [--request <ref>] [--json]
 
   <attestation>      Path to a dStack VersionedAttestation file, or - for stdin.
+  <receipt>          Path to a COSE_Sign1 receipt file, or - for stdin.
+
+verify-receipt reaches a verdict about a receipt from the files in front of it: the receipt, the
+policy that names what is trusted, the deployment manifest that declares the signing key, and the
+request and response the receipt attests. It makes no request of any kind. The manifest is read from
+--manifest and never fetched, and the transport these checks run over refuses every route but that
+one file, so a receipt whose att.url names a host does not make this command reach that host. What it
+applies is what a client applies: the same verification rules, in the same order, from the same
+package, over a receipt taken out of a response header and put on a disk. What it does not do is read
+the evidence document behind att.d, which no file here stands in for; the receipt's own att.ts still
+has to sit inside the policy's evidence window, and the report says in terms that the document was not
+fetched. A v1 receipt attests the digest of a response, which --response-hash can carry. A v2 receipt
+attests one region inside those bytes, which needs --response-body, because the digest of a region
+nobody handed over is not a check. --now is the verification time, and it is how an archived receipt
+is read at all: the policy's windows close against it, so judging last year's receipt by today's
+clock is a refusal with a code rather than a verdict, which is the honest answer to a question about
+a replay.
 
 The private key that keygen or credential add prints exists only in that terminal. --label
 is the one field of the credential file that can name a person, and the gateway never writes
@@ -112,9 +133,31 @@ Verification options:
                      against the directory holding it, either separator, and a
                      family the document leaves out accepts the roots bundled with
                      this verifier. The receipt pins a document carries - issuers,
-                     instances, keys, age windows - are read by a client checking a
-                     receipt, and this command neither applies nor relaxes them.
+                     instances, keys, age windows - are applied by verify-receipt,
+                     which reads the same file through the same loader and prints the
+                     same digest; verify itself neither applies nor relaxes them,
+                     because what it judges is an attestation, not a receipt.
   --allow-debug      Accept SEV-SNP guest policies that permit debugging.
+
+Receipt verification options:
+  --manifest <file>  The deployment manifest that declares the receipt signing key, as a file. This
+                     command fetches no manifest, and a key the manifest does not declare is refused
+                     whatever the policy pins, because the two are meant to say the same thing.
+  --nonce <hex>      The challenge this receipt is checked against, as the client that made the
+                     request chose it. A receipt answers one challenge, so without this the verdict
+                     would be about a request nobody named.
+  --request-body <file>
+                     The request bytes as they were sent. The receipt's req is their SHA-256, so
+                     handing over the bytes lets this command recompute the digest it compares.
+  --request-hash <hex>
+                     That digest itself, 64 hex, where the bytes are gone and the digest was kept.
+  --response-body <file>
+                     The response bytes as they were received, framing included for a streamed
+                     answer. Required for a v2 receipt, whose marking claim is a digest of one region
+                     read out of exactly these bytes.
+  --response-hash <hex>
+                     The digest of those bytes, 64 hex, which carries a v1 receipt's check but not a
+                     v2 one's.
 
 Credential and log options:
   --credentials <file>
@@ -144,8 +187,8 @@ Credential and log options:
                      option's value, so pass such a key as --public-key=<value>.
 
 Options for every command:
-  --now <iso>        The clock the command stamps with, instead of the wall clock: the
-                     verification time for verify, the whole-second createdAt or revokedAt of
+  --now <iso>        The clock the command reads instead of the wall clock: the
+                     verification time for verify and verify-receipt, the whole-second createdAt or revokedAt of
                      a credential record for credential add and revoke, and the day a scrub
                      marker is named for in accesslog scrub.
   --json             Machine-readable output for every command: the verification result, a
@@ -158,7 +201,8 @@ Options for every command:
 
 Exit codes:
   0  the command did what it was asked: an attestation verified with every --expect-* pin
-     matched, a credential added or revoked, a listing printed, a scrub run
+     matched, a receipt verified with every pin its policy names matched, a credential added or
+     revoked, a listing printed, a scrub run
   1  verification or a pin failed, or a command met an error it was not written to expect
   2  usage or input error, including a credential file this program cannot parse. A scrub can exit 2
      having already erased records, because its refusal comes after the parts it rewrote, and every
@@ -167,7 +211,18 @@ Exit codes:
      None of them turns into an object under --json, which stays a refusal on stderr, so read
      a nonzero exit from there and not from stdout.`;
 
+/**
+ * The version the single-file bundle carries, and only the bundle. That artifact is copied to a
+ * machine with no checkout and nothing beside it, so its `--version` cannot be a read of a manifest
+ * that is not there: the bundling step substitutes the string from the package it was built under,
+ * and an unbundled build leaves this identifier undeclared, which `typeof` reads as absent.
+ */
+declare const BUNDLE_VERSION: string | undefined;
+
 function cliVersion(): string {
+  if (typeof BUNDLE_VERSION === 'string') {
+    return BUNDLE_VERSION;
+  }
   const pkg = JSON.parse(readFileSync(new URL('../package.json', import.meta.url), 'utf8')) as { version?: string };
   return pkg.version ?? 'unknown';
 }
@@ -203,6 +258,12 @@ async function main(argv: string[]): Promise<number> {
         'expect-measurement': { type: 'string' },
         'expect-compose-hash': { type: 'string' },
         policy: { type: 'string' },
+        manifest: { type: 'string' },
+        nonce: { type: 'string' },
+        'request-body': { type: 'string' },
+        'request-hash': { type: 'string' },
+        'response-body': { type: 'string' },
+        'response-hash': { type: 'string' },
         now: { type: 'string' },
         'allow-debug': { type: 'boolean' },
         json: { type: 'boolean' },
@@ -239,6 +300,8 @@ async function main(argv: string[]): Promise<number> {
   switch (command) {
     case 'verify':
       return runVerify(positionals.slice(1), values);
+    case 'verify-receipt':
+      return runVerifyReceipt(positionals.slice(1), values);
     case 'keygen':
       return runKeygen(values.id, values.json === true);
     case 'credential':
