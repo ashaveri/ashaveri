@@ -5,10 +5,13 @@ import {
   decodeReceipt,
   GatewaySession,
   hashRequest,
+  isSealedDeploymentManifest,
   ReceiptError,
   SdkError,
   toHex,
   type AshaveriPolicy,
+  type EpochVerdict,
+  type ManifestAuthentication,
   type VerifiedReceipt,
 } from '@ashaveri/sdk';
 import { escapeInvisible, UsageError, writeJson } from '../usage.js';
@@ -117,7 +120,14 @@ function offlineTransport(manifestBytes: Uint8Array, manifestPath: string): type
         `offline verification reads files only and reached for ${url}; the deployment manifest was read from '${manifestPath}' and nothing else is fetched`,
       );
     }
-    return new Response(manifestBytes, { status: 200, headers: { 'content-type': 'application/json' } });
+    // Named from the bytes rather than from the extension on the file they came from, because a sealed
+    // manifest and a plain one travel in files with the same name and the reader decides on the shape.
+    // The header is a courtesy here: nothing in the SDK branches on it, and the refusal below is what
+    // keeps this transport answering one route out of one file.
+    return new Response(manifestBytes, {
+      status: 200,
+      headers: { 'content-type': isSealedDeploymentManifest(manifestBytes) ? 'application/cose' : 'application/json' },
+    });
   };
 }
 
@@ -185,7 +195,7 @@ async function digestsOf(values: VerifyReceiptFlags): Promise<Digests> {
  *
  * A family the document does not name is not a failure and not a pass: nothing was pinned, so
  * nothing was checked against it. It is reported either way, because an auditor reading a verdict
- * needs to know which of the four questions this run actually asked.
+ * needs to know which of the five questions this run actually asked.
  */
 function pinFamilies(policy: AshaveriPolicy): {
   readonly pinned: readonly string[];
@@ -195,6 +205,7 @@ function pinFamilies(policy: AshaveriPolicy): {
     ['issuer', 'issuers', policy.issuers],
     ['instance', 'instances', policy.instances],
     ['receipt key', 'keys', policy.keys],
+    ['manifest key', 'manifestKeys', policy.manifestKeys],
     ['measurement', 'measurements', policy.measurements],
   ];
   const pinned: string[] = [];
@@ -220,6 +231,10 @@ interface Verdict {
   readonly manifestIns: string;
   readonly manifestEpoch: number;
   readonly manifestKeys: readonly string[];
+  /** What the manifest's own declaration said about the epoch this receipt claims, and why. */
+  readonly epoch: EpochVerdict;
+  /** Whether the document that carried those declarations was authenticated, and the reason it was not. */
+  readonly authentication: ManifestAuthentication;
   readonly policyDigest: string;
   readonly policyPath: string;
   readonly manifestPath: string;
@@ -230,6 +245,29 @@ interface Verdict {
   readonly evidenceWindow: number;
   readonly pinned: readonly string[];
   readonly notPinned: readonly string[];
+}
+
+/**
+ * The epoch line, as an adjudication rather than as two numbers standing beside each other.
+ *
+ * Printing a receipt's epoch and a manifest's epoch and leaving the reader to compare them was the
+ * honest thing to do while nothing in this product compared them, and it stopped being honest the day
+ * something did: two numbers that happen to be equal read as a verdict to a reader who did not have to
+ * work out what the question was. This is the SDK's answer, in the SDK's words.
+ */
+function epochLine(verdict: EpochVerdict): string {
+  if (!verdict.ok) return `refused (${verdict.code}): ${verdict.detail}`;
+  const window =
+    verdict.validFrom === null
+      ? ''
+      : `, window ${verdict.validFrom} to ${String(verdict.validTo ?? 'no published end')}`;
+  return `adjudicated against the manifest's declaration (${verdict.basis}${window}): ${verdict.detail}`;
+}
+
+function sealLine(authentication: ManifestAuthentication): string {
+  return authentication.authenticated
+    ? `sealed, and verified under the manifest key designated for ${String(authentication.kid)}`
+    : (authentication.advisory ?? 'not authenticated, and no reason was recorded');
 }
 
 function humanVerdict(verdict: Verdict): string {
@@ -244,7 +282,7 @@ function humanVerdict(verdict: Verdict): string {
     `  nonce:            ${toHex(verdict.nonce)} (the value this run was told to expect)`,
     `  issued at:        ${payload.iat} (${isoOf(payload.iat)})`,
     `  verified at:      ${verdict.verificationSeconds} (${isoOf(verdict.verificationSeconds)})`,
-    `  key epoch:        receipt ${payload.epk}, manifest declares ${verdict.manifestEpoch}`,
+    `  key epoch:        ${payload.epk}, ${epochLine(verdict.epoch)}`,
     `  measurement:      ${toHex(payload.meas.m)} (${payload.meas.tee})`,
     `  request digest:   ${toHex(payload.req)}, ${verdict.digests.requestFrom}`,
     `  response digest:  ${toHex(payload.res)}, ${verdict.digests.responseFrom}`,
@@ -254,6 +292,7 @@ function humanVerdict(verdict: Verdict): string {
     `  evidence ref:     ${toHex(payload.att.d)} at ${payload.att.ts} (${isoOf(payload.att.ts)})`,
     `  policy:           ${verdict.policyDigest} from ${verdict.policyPath}`,
     `  manifest:         ${verdict.manifestPath} (issuer ${verdict.manifestIss}, instance ${verdict.manifestIns})`,
+    `  manifest seal:    ${sealLine(verdict.authentication)}`,
     `  windows:          receipt within ${verdict.receiptWindow} s, evidence timestamp within ${verdict.evidenceWindow} s, both of the verification time`,
     ...verdict.pinned.map((line) => `  pinned:           ${line}`),
     ...verdict.notPinned.map((line) => `  not pinned:       ${line}`),
@@ -278,7 +317,24 @@ function jsonVerdict(verdict: Verdict): Record<string, unknown> {
     issuedAtIso: isoOf(payload.iat),
     verifiedAt: verdict.verificationSeconds,
     verifiedAtIso: isoOf(verdict.verificationSeconds),
-    keyEpoch: { receipt: payload.epk, manifest: verdict.manifestEpoch },
+    keyEpoch: {
+      receipt: payload.epk,
+      manifest: verdict.manifestEpoch,
+      accepted: verdict.epoch.ok,
+      basis: verdict.epoch.ok ? verdict.epoch.basis : null,
+      validFrom: verdict.epoch.ok ? verdict.epoch.validFrom : null,
+      validTo: verdict.epoch.ok ? verdict.epoch.validTo : null,
+      superseded: verdict.epoch.ok ? verdict.epoch.superseded : null,
+      reason: verdict.epoch.detail,
+      ...(verdict.epoch.ok ? {} : { code: verdict.epoch.code }),
+    },
+    manifestSeal: {
+      sealed: verdict.authentication.sealed,
+      authenticated: verdict.authentication.authenticated,
+      kid: verdict.authentication.kid,
+      policyDesignatesManifestKey: verdict.authentication.demanded,
+      advisory: verdict.authentication.advisory,
+    },
     measurement: { tee: payload.meas.tee, m: toHex(payload.meas.m) },
     requestDigest: { sha256: toHex(payload.req), takenFrom: verdict.digests.requestFrom },
     responseDigest: { sha256: toHex(payload.res), takenFrom: verdict.digests.responseFrom },
@@ -377,6 +433,21 @@ export async function runVerifyReceipt(positionals: string[], values: VerifyRece
       now,
     });
     const manifest = await session.manifest();
+    const authentication = await session.manifestAuthentication();
+    const epoch = await session.adjudicateEpoch({
+      kid: toHex(verified.header.kid),
+      epoch: verified.payload.epk,
+      issuedAt: verified.payload.iat,
+    });
+    if (!epoch.ok) {
+      // Unreachable through a verification that held, since the two read one cached manifest through
+      // one function, and written anyway because a report that printed an adjudication it did not have
+      // is the failure this command exists to make impossible.
+      return refuse(
+        new SdkError(epoch.code, `the epoch adjudication and the verification that just passed disagree: ${epoch.detail}`),
+        values.json === true,
+      );
+    }
     const families = pinFamilies(loaded.policy);
     const verdict: Verdict = {
       verified,
@@ -384,6 +455,8 @@ export async function runVerifyReceipt(positionals: string[], values: VerifyRece
       manifestIns: manifest.ins,
       manifestEpoch: manifest.epk,
       manifestKeys: manifest.keys.map((key) => key.kid),
+      epoch,
+      authentication,
       policyDigest: loaded.digest,
       policyPath,
       manifestPath,
