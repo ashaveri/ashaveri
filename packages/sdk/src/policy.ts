@@ -85,6 +85,27 @@ export interface AshaveriPolicy {
   readonly instances?: readonly string[];
   /** Ed25519 public keys by kid (hex). */
   readonly keys?: Readonly<Record<string, string>>;
+  /**
+   * The public keys, by kid (hex), this client designates to authenticate the deployment manifest
+   * itself, held apart from `keys` on purpose.
+   *
+   * A manifest decides which keys sign receipts, so a key that is trusted for receipts cannot also be
+   * the proof that the document naming them is the deployment's own: one compromised signing key would
+   * rewrite the rotation history that was supposed to retire it. Separating the two maps is what makes
+   * a wrapper verified under a receipt key a refusal rather than a pass, and it is why this field names
+   * a role rather than a second spelling of the same set.
+   *
+   * Naming none of these is not a weaker posture, it is a different question: the client checks no
+   * manifest signature and reports the manifest as unauthenticated, which is what a deployment that was
+   * never handed a manifest key deserves. Naming at least one makes an unauthenticated manifest a
+   * refusal, because a caller who designated a signing identity for this document and was handed
+   * another one has been shown a deployment that is not the one it pinned.
+   *
+   * This field lives on the policy object and not in the policy file format, which refuses a document
+   * naming it as an unknown key: see the note by `PIN_FIELDS` in `policy-file.ts` for why the digest
+   * question is a decision to make in the open rather than a side effect of this field arriving.
+   */
+  readonly manifestKeys?: Readonly<Record<string, string>>;
   /** Allowed measurements (hex), keyed by environment kind. */
   readonly measurements?: Readonly<Record<string, readonly string[]>>;
   /**
@@ -113,10 +134,17 @@ export interface AshaveriPolicy {
 }
 
 /**
- * The pins a deployment publishes, read out of its manifest. The manifest is unsigned and
- * served over the same channel as the evidence, so these are trust-on-first-use values:
- * strict mode checks the receipt against them, and only a pin supplied out of band can
- * prove the manifest itself came from this deployment.
+ * The pins a deployment publishes, read out of its manifest. What these are worth depends on whether
+ * the manifest arrived sealed and authenticated, which is a fact about the transport rather than about
+ * this function: a manifest verified under a key this client designated out of band is the deployment's
+ * own statement, and one it could not verify is trust-on-first-use, because the document came from the
+ * party being verified. Strict mode checks the receipt against the pins either way, so an unverified
+ * manifest can fail a check and cannot open one.
+ *
+ * `manifestKeys` is deliberately absent from the result. The manifest names no key that signs itself,
+ * and a builder that filled that field from the document it was handed would manufacture the one
+ * circularity the field exists to close: the signer would be designated by the signed. Whatever reaches
+ * that map has to arrive from somewhere the deployment does not control.
  *
  * Neither window is set here, and that is the point. The manifest comes from the party being
  * verified, so it is not where a freshness rule may be loosened: what a manifest-derived policy

@@ -96,7 +96,9 @@ aspirational. A sample, so you know what you are walking into:
   `README.md`; nothing of it runs today, and it changes nothing about what you are reporting.
 - A composite `snp+gpucc` or `tdx+gpucc` label does not prove the attesting GPU is the card attached
   to the attesting VM. That needs TDISP/TEE-IO and no deployment here has it.
-- The deployment manifest is unsigned. Strict-mode pinning is what gives it weight today.
+- A deployment manifest is authenticated only where an operator handed that deployment a key for the
+  purpose and the client designated that key: `docs/receipt-spec.md` section 4.4 states both shapes and
+  what each is worth. Elsewhere its pins are trust-on-first-use, and strict mode is what gives them weight.
 - In `receipt` mode a receipt's key resolves through the manifest the deployment itself serves; only
   `strict` mode pins keys, issuers, instances and measurements.
 - The eight-byte tag at the front of a receipt id links receipts minted by one credential to each

@@ -60,6 +60,24 @@ const FIELDS = [
 /** The fields that pin a receipt to something. A policy has to name at least one of them. */
 const PIN_FIELDS = ['issuers', 'instances', 'keys', 'measurements'] as const;
 
+/**
+ * `AshaveriPolicy.manifestKeys`, the keys a client designates to authenticate its deployment manifest,
+ * is not a field of this document, and a file that names one is refused as an unknown key rather than
+ * read and dropped. That is a decision about an identity and not a piece of unfinished work.
+ *
+ * Every field of a policy is inside its digest, and the digest is how a capture record and an evidence
+ * pack cite the policy a verdict was reached under. Writing the new field out normalised, which is what
+ * this format does with every optional field, would move the digest of every policy already written,
+ * including those nobody will ever add the field to, and would quietly invalidate the citations made
+ * against them. Leaving it out of the canonical form while carrying it in the document would put a pin
+ * an operator wrote outside the identity of the file holding it, which is the failure this format exists
+ * to prevent.
+ *
+ * `policyFileFromPolicy` refuses the first of those two trades rather than making it, so a policy that
+ * designates a manifest signer stays a policy built in code until moving every digest is decided in the
+ * open.
+ */
+
 const HEX_64 = /^[0-9a-f]{64}$/;
 const BASE64URL_32_BYTES = /^[A-Za-z0-9_-]{43}$/;
 
@@ -718,6 +736,12 @@ export function policyFileFromPolicy(
   ];
   for (const [field, list] of lists) {
     if (list !== undefined) document[field] = [...list];
+  }
+  if (policy.manifestKeys !== undefined && Object.keys(policy.manifestKeys).length > 0) {
+    const count = Object.keys(policy.manifestKeys).length;
+    throw invalid(
+      `carries no field for the ${count} manifest signing key${count === 1 ? '' : 's'} this policy designates, and writing them out would move the digest of every policy file already cited: a policy that pins who signs its deployment manifest is built in code until adding the field is decided against those citations`,
+    );
   }
   if (policy.keys !== undefined) document['keys'] = { ...policy.keys };
   if (policy.measurements !== undefined) {

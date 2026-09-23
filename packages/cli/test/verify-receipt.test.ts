@@ -4,6 +4,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { afterAll, describe, expect, it } from 'vitest';
+import { generateSigningKey, sealDeploymentManifest, toHex } from '@ashaveri/receipt';
 
 /**
  * `ashaveri verify-receipt`, driven by the published receipt vectors.
@@ -65,6 +66,9 @@ const NOW = new Date(VALID.payload.iat * 1000).toISOString();
 
 /** A measurement of the right width for each environment kind, which is what a policy pin has to be. */
 const WRONG_SOFTWARE = '0'.repeat(64);
+
+/** A second key's public half, for a manifest that declares a rotation this receipt did not use. */
+const OTHER_KEY = Buffer.alloc(32, 7).toString('base64url');
 
 const tempDir = mkdtempSync(join(tmpdir(), 'ashaveri-verify-receipt-'));
 
@@ -206,7 +210,10 @@ describe('ashaveri verify-receipt', () => {
     expect(human.stdout).toContain(`  kid:              ${KID}`);
     expect(human.stdout).toContain(`  issuer:           ${ISSUER}`);
     expect(human.stdout).toContain(`  nonce:            ${NONCE} (the value this run was told to expect)`);
-    expect(human.stdout).toContain(`  key epoch:        receipt ${VALID.payload.epk}, manifest declares ${VALID.payload.epk}`);
+    expect(human.stdout).toContain(
+      `  key epoch:        ${VALID.payload.epk}, adjudicated against the manifest's declaration (current-epoch): epoch ${VALID.payload.epk} is the only epoch this manifest declares, and the key is one of the keys it lists`,
+    );
+    expect(human.stdout).toContain('  manifest seal:    the deployment manifest is unsigned');
     expect(human.stdout).toContain(`  pinned:           issuer: the policy's 'issuers' pin matched`);
     expect(human.stdout).toContain('  pinned:           receipt key:');
     expect(human.stdout).toContain('  pinned:           measurement:');
@@ -231,7 +238,23 @@ describe('ashaveri verify-receipt', () => {
     expect(out.issuer).toBe(ISSUER);
     expect(out.instance).toBe(INSTANCE);
     expect(out.nonce).toBe(NONCE);
-    expect(out.keyEpoch).toEqual({ receipt: VALID.payload.epk, manifest: VALID.payload.epk });
+    expect(out.keyEpoch).toEqual({
+      receipt: VALID.payload.epk,
+      manifest: VALID.payload.epk,
+      accepted: true,
+      basis: 'current-epoch',
+      validFrom: null,
+      validTo: null,
+      superseded: false,
+      reason: expect.stringContaining('the only epoch this manifest declares'),
+    });
+    expect(out.manifestSeal).toEqual({
+      sealed: false,
+      authenticated: false,
+      kid: null,
+      policyDesignatesManifestKey: false,
+      advisory: expect.stringContaining('no manifest signing key is pinned'),
+    });
     expect(out.measurement).toEqual({ tee: VALID.payload.meas.tee, m: VALID.payload.meas.m });
     expect(out.requestDigest).toEqual({ sha256: REQUEST_DIGEST, takenFrom: 'the --request-hash value as written' });
     expect(out.markedRegion).toBeNull();
@@ -240,8 +263,85 @@ describe('ashaveri verify-receipt', () => {
     expect(out.manifest).toEqual({ file: manifest, issuer: ISSUER, instance: INSTANCE, declaredKeys: [KID] });
     expect(out.windows).toEqual({ receiptSeconds: 300, evidenceSeconds: 900 });
     expect(out.pinned).toHaveLength(4);
-    expect(out.notPinned).toEqual([]);
+    // A policy file format carries no field for manifest signing keys, so this family is the one an
+    // offline run can never have checked, and the report says so rather than leaving it unmentioned.
+    expect(out.notPinned).toEqual([
+      "manifest key: the policy names no 'manifestKeys' pin, so nothing was compared",
+    ]);
     expect(out.notChecked).toEqual(['the evidence document behind att.d, which this command does not fetch']);
+  });
+
+  it('reports the seal a sealed manifest file carries and says what it proves', () => {
+    // The wrapper is read from the first byte of the file rather than from its name, and nothing in a
+    // policy file can designate a manifest signer, so the honest answer is that the bytes are whole and
+    // their author is unknown to this run.
+    const key = generateSigningKey();
+    const sealed = sealDeploymentManifest(new TextEncoder().encode(manifestDocument()), key);
+    const manifest = written('manifest.cbor', Buffer.from(sealed));
+    const result = runCli(argsFor({ manifest }));
+    expect(result.status).toBe(0);
+    const out = verdictOf(result);
+    expect(out.manifestSeal).toEqual({
+      sealed: true,
+      authenticated: false,
+      kid: toHex(key.kid),
+      policyDesignatesManifestKey: false,
+      advisory: expect.stringContaining('names no manifest signing key'),
+    });
+    expect(out.keyEpoch).toMatchObject({ accepted: true, basis: 'current-epoch' });
+    const human = runCli(argsFor({ manifest, json: false }));
+    expect(human.stdout).toContain(`  manifest seal:    the deployment manifest arrived sealed under key ${toHex(key.kid)}`);
+  });
+
+  it('refuses a signed receipt handed to it as a manifest', () => {
+    // Both documents are `COSE_Sign1`, both verify under a key a reader trusted, and only the protected
+    // content type says which claim is being read, so the confusion is a refusal rather than a verdict.
+    const result = runCli(argsFor({ manifest: receiptPath('receipt-valid-v1') }));
+    expect(result.status).toBe(1);
+    expect(verdictOf(result).code).toBe('BAD_PROTECTED_HEADER');
+  });
+
+  it('adjudicates the epoch against a declared window and reports the retention', () => {
+    const keys = [
+      { kid: KID, alg: 'Ed25519', publicKey: PUBLIC_KEY, epk: VALID.payload.epk, validFrom: VALID.payload.iat - 1000 },
+      { kid: 'e'.repeat(64), alg: 'Ed25519', publicKey: OTHER_KEY, epk: 4, validFrom: VALID.payload.iat + 1000 },
+    ];
+    const result = runCli(argsFor({ manifest: manifestFile({ epk: 4, keys }) }));
+    expect(result.status).toBe(0);
+    expect(verdictOf(result).keyEpoch).toEqual({
+      receipt: VALID.payload.epk,
+      manifest: 4,
+      accepted: true,
+      basis: 'windows',
+      validFrom: VALID.payload.iat - 1000,
+      validTo: VALID.payload.iat + 1000,
+      superseded: true,
+      reason: expect.stringContaining('was superseded by 4 and the deployment still retains its key'),
+    });
+    const human = runCli(argsFor({ manifest: manifestFile({ epk: 4, keys }), json: false }));
+    expect(human.stdout).toContain(
+      `  key epoch:        ${VALID.payload.epk}, adjudicated against the manifest's declaration (windows, window ${VALID.payload.iat - 1000} to ${String(VALID.payload.iat + 1000)})`,
+    );
+  });
+
+  it('refuses a receipt whose epoch the manifest never declared', () => {
+    const keys = [{ kid: KID, alg: 'Ed25519', publicKey: PUBLIC_KEY, epk: 9, validFrom: 1 }];
+    const result = runCli(argsFor({ manifest: manifestFile({ epk: 9, keys }) }));
+    expect(result.status).toBe(1);
+    const out = verdictOf(result);
+    expect(out.code).toBe('MANIFEST_EPOCH_UNDECLARED');
+    expect(out.message).toContain(`epoch ${VALID.payload.epk} is declared by no entry of this manifest`);
+  });
+
+  it('refuses a receipt stamped outside the window its epoch was given', () => {
+    const keys = [
+      { kid: KID, alg: 'Ed25519', publicKey: PUBLIC_KEY, epk: VALID.payload.epk, validFrom: VALID.payload.iat + 1 },
+    ];
+    const result = runCli(argsFor({ manifest: manifestFile({ keys }) }));
+    expect(result.status).toBe(1);
+    const out = verdictOf(result);
+    expect(out.code).toBe('MANIFEST_EPOCH_DISAGREES');
+    expect(out.message).toContain('outside the epoch');
   });
 
   it('names which pins a thin policy left unchecked instead of counting them as passes', () => {
@@ -253,6 +353,7 @@ describe('ashaveri verify-receipt', () => {
     expect(out.notPinned).toEqual([
       "issuer: the policy names no 'issuers' pin, so nothing was compared",
       "instance: the policy names no 'instances' pin, so nothing was compared",
+      "manifest key: the policy names no 'manifestKeys' pin, so nothing was compared",
       "measurement: the policy names no 'measurements' pin, so nothing was compared",
     ]);
   });
@@ -339,8 +440,7 @@ describe('ashaveri verify-receipt', () => {
   });
 
   it('refuses a manifest whose declared key is not the key the policy pinned', () => {
-    const pinnedElsewhere = Buffer.alloc(32, 7).toString('base64url');
-    const result = runCli(argsFor({ policy: policyFile({ keys: { [KID]: pinnedElsewhere } }) }));
+    const result = runCli(argsFor({ policy: policyFile({ keys: { [KID]: OTHER_KEY } }) }));
     expect(result.status).toBe(1);
     expect(verdictOf(result).code).toBe('MANIFEST_KEY_NOT_PINNED');
   });

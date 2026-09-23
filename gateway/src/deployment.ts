@@ -27,6 +27,21 @@ export interface Deployment {
   readonly issuer: string;
   readonly instance: string;
   readonly key: SigningKey;
+  /**
+   * The key that signs this deployment's manifest, when the operator has handed one over.
+   *
+   * It is not `key`, and the difference is the whole of what a signed manifest is worth: the manifest
+   * is the document that states which keys sign receipts, so a receipt key that also signed it would
+   * let one compromised signing key forge the record that was supposed to retire it. A client refuses
+   * a wrapper verified that way, which is why this field names a second identity rather than an option
+   * on the first.
+   *
+   * Absent is a state a real deployment can be in, and a served document then stays what it has always
+   * been: plain JSON, which an honest client reads and reports as unauthenticated rather than
+   * believing. Nothing here generates a key, embeds one, or decides which identity a deployment signs
+   * with: this field carries one that somebody else handed to the process.
+   */
+  readonly manifestKey?: SigningKey;
   readonly epk: number;
   readonly tee: TeeKind;
   readonly measurement: Uint8Array;
@@ -49,6 +64,8 @@ export interface MockDeploymentOptions {
   readonly issuer?: string;
   readonly instance?: string;
   readonly key?: SigningKey;
+  /** The key that seals the manifest this deployment serves. Absent leaves the document unsigned. */
+  readonly manifestKey?: SigningKey;
   readonly model?: string;
 }
 
@@ -64,6 +81,7 @@ export function mockDeployment(options: MockDeploymentOptions = {}): Deployment 
     issuer: options.issuer ?? 'ashaveri-mock',
     instance: options.instance ?? 'mock-instance-1',
     key: options.key ?? generateSigningKey(),
+    manifestKey: options.manifestKey,
     epk: 0,
     tee: 'software',
     measurement: sha256(new TextEncoder().encode('mock-measurement')),

@@ -1,0 +1,83 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://ashaveri.com/schemas/manifest-v1.json",
+  "title": "Ashaveri sealed deployment manifest (JSON twin of the CBOR/COSE container)",
+  "description": "Display-only projection of the signed COSE_Sign1 wrapper a deployment puts around its deployment manifest, the twin of `manifest.cddl` in the same way `pack-v1.schema.json` is the twin of `pack.cddl`. The CBOR bytes are canonical and are what a client verifies; this JSON form is never signed and never served. Byte strings appear as lowercase hex and the one field the document itself carries as base64url, a key's `publicKey`, keeps that spelling because that is how the manifest writes it. The payload of the wrapper is a JSON document rather than a CBOR map, which is the one place this container departs from the receipt and the pack and it is a decision: the manifest has always been JSON, clients parse what they read, and a signature over a re-encoded copy of a document is a verdict about the copy. The envelope above the payload is projected more loosely than the format writes it, as the pack's twin is: this document requires `protectedHeader` and `payload`, names `signature` without demanding it, and leaves its own root unclosed, so a manifest shown before it is sealed still shows, while `manifest.cddl` requires all four elements of the `COSE_Sign1` and sixty-four bytes in the fourth. The CBOR tag that wraps those four elements on the wire, tag 18, cannot be stated here at all, because a JSON object has no tag to carry; `isSealedDeploymentManifest` reads that one byte to decide which of the two shapes it was handed, and a reader who needs the number needs the format. The `typ` const below is the field that keeps a sealed manifest from being read as a receipt or as a pack, and it is the only thing that does: all three are COSE_Sign1 over four elements, signed by one deployment's keys, and both a receipt and a manifest verify cleanly under a key a reader trusted. Closure is NOT the rule for the document inside the payload, and that is a deliberate difference from the receipt and pack twins, whose signed maps close and refuse a member their version does not name. A deployment manifest's parser reads the members it knows and leaves the rest, which is what lets `keys[]` gain an epoch and a validity start without a new manifest version: a client that predates those two members goes on parsing the same document and enforces no epoch, exactly as every client did before they existed. So no `additionalProperties: false` appears below `payload`, and one rule that is not a member list is stated here because the parser enforces it: each entry of `keys` carries both `epk` and `validFrom` or carries neither, expressed below as `dependentRequired`, and a manifest that mixes the two shapes, or repeats an `epk` with two different `validFrom` values, is refused by `parseManifest` as a whole. What a window means, and what a client does when a receipt falls outside every one of them, is section 4.4 and section 5 of `docs/receipt-spec.md`.",
+  "type": "object",
+  "required": ["protectedHeader", "payload"],
+  "properties": {
+    "protectedHeader": {
+      "type": "object",
+      "required": ["alg", "kid", "typ"],
+      "properties": {
+        "alg": { "const": "EdDSA", "description": "COSE algorithm -8, Ed25519" },
+        "kid": { "type": "string", "pattern": "^[0-9a-f]{64}$", "description": "sha256 of the Ed25519 public key the wrapper verifies under, hex" },
+        "typ": { "const": "ashaveri/deployment-manifest", "description": "the content type that names this document, in the family `ashaveri/receipt` starts" }
+      },
+      "additionalProperties": false,
+      "description": "The three labels `manifest.cddl` declares and no more. This map is closed on purpose even though the document beside it is not: its bytes are what the `Sig_structure` hashes, so a fourth label would be a parameter inside the signature that no reader reports on."
+    },
+    "payload": {
+      "$ref": "#/$defs/manifest",
+      "description": "The deployment manifest, exactly as this deployment serves it at `GET /deployment-manifest`. A client that reads a sealed manifest parses these bytes with the same parser it uses on the unsigned document, so the wrapper adds an authentication and changes no reading."
+    },
+    "signature": { "type": "string", "pattern": "^[0-9a-f]{128}$", "description": "Ed25519 signature over the `Sig_structure`, hex" }
+  },
+  "$defs": {
+    "manifest": {
+      "type": "object",
+      "required": ["v", "iss", "ins", "epk", "keys", "models", "meas"],
+      "properties": {
+        "v": { "const": 1, "description": "manifest version. One version is defined, and it stays the one version while additions remain readable: a client that does not know a member leaves it out rather than misreading it, which is the opposite of the trade a receipt payload makes." },
+        "iss": { "type": "string", "minLength": 1, "description": "the issuer the receipts this deployment signs name" },
+        "ins": { "type": "string", "minLength": 1, "description": "the instance, narrower than the issuer and not a stable pin by itself" },
+        "epk": { "type": "integer", "minimum": 0, "description": "the signing-key epoch this process stamps new receipts under, which is the deployment's current epoch. The windows in `keys[]` are what a reader checks a past receipt against; this member says which epoch is being signed now." },
+        "keys": {
+          "type": "array",
+          "minItems": 1,
+          "items": { "$ref": "#/$defs/key" },
+          "description": "The Ed25519 keys this deployment publishes, each with the epoch it held and the instant that epoch's signatures became acceptable. A superseded epoch stays listed while the deployment retains the key that signed it, which is what lets a receipt from before a rotation verify; withdrawing an entry is what retires an epoch for real."
+        },
+        "models": {
+          "type": "array",
+          "items": { "$ref": "#/$defs/model" },
+          "description": "Model ids with the weights digest every receipt for that model has to carry."
+        },
+        "meas": { "$ref": "#/$defs/meas", "description": "the launch measurement the deployment claims, and the environment kind it was taken on" }
+      },
+      "description": "A deployment manifest and nothing else, except that the members listed here are not the whole of what a manifest may carry: the map is open, and a member this version does not name is left alone by the parser rather than refused by it."
+    },
+    "key": {
+      "type": "object",
+      "required": ["kid", "alg", "publicKey"],
+      "properties": {
+        "kid": { "type": "string", "pattern": "^[0-9a-f]{64}$", "description": "sha256 of the public key beside it, hex, which is the `kid` a receipt's protected header carries" },
+        "alg": { "const": "Ed25519", "description": "the only suite this format signs receipts with" },
+        "publicKey": { "type": "string", "pattern": "^[A-Za-z0-9_-]{43}$", "description": "base64url of the 32-byte Ed25519 public key, unpadded, spelled the way the manifest writes it" },
+        "epk": { "type": "integer", "minimum": 0, "description": "the signing-key epoch whose signatures this key produced. Absent on every manifest published before epochs were checked, in which case the keys listed are the keys of the deployment's current epoch and that is all a reader can know." },
+        "validFrom": { "type": "integer", "minimum": 0, "description": "unix seconds, the first instant at which a deployment accepts a signature from this epoch. The upper bound is not written down: it is the `validFrom` of the next epoch up, open-ended for the highest one published, so a retained key cannot be used to sign a receipt today and have it read as though it came from before the rotation." }
+      },
+      "dependentRequired": {
+        "epk": ["validFrom"],
+        "validFrom": ["epk"]
+      },
+      "description": "One key, and where it sits in the deployment's rotation history. An entry either carries both `epk` and `validFrom` or carries neither, which is the half the keywords above state and the whole of what a window needs to mean something: a start with no epoch, or an epoch with no start, is a manifest that has begun declaring windows and stopped halfway, and `parseManifest` refuses that rather than reading it as a window that never ends."
+    },
+    "model": {
+      "type": "object",
+      "required": ["id", "wts"],
+      "properties": {
+        "id": { "type": "string", "minLength": 1 },
+        "wts": { "type": "string", "pattern": "^[0-9a-f]{64}$", "description": "lowercase hex, the digest every receipt naming this model carries in `wts`" }
+      }
+    },
+    "meas": {
+      "type": "object",
+      "required": ["tee", "m"],
+      "properties": {
+        "tee": { "enum": ["software", "snp", "snp+gpucc", "tdx", "tdx+gpucc"], "description": "the environment kind, from the registry `@ashaveri/receipt` owns. Enumerated here because the set is published as `MEASUREMENT_BYTES`'s keys and a reader that met a sixth kind would refuse it; the format package's list is the authority and this one has to be kept even with it." },
+        "m": { "type": "string", "pattern": "^([0-9a-f]{64}|[0-9a-f]{96})$", "description": "lowercase hex. Which of the two widths belongs to which kind is the reader's rule, held in `MEASUREMENT_BYTES` and restated in section 4.4 of the specification: 48 bytes for a platform SHA-384 value and 32 for a software deployment that has no hardware measurement to report. Written as an alternation rather than as an `if`/`then` per kind because a table copied twice is a table that drifts, and the pair is refused by the parser either way." }
+      }
+    }
+  }
+}

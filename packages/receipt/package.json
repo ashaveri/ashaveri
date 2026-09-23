@@ -17,6 +17,7 @@
     "receipt.cddl",
     "pack.cddl",
     "export.cddl",
+    "manifest.cddl",
     "schemas"
   ],
   "scripts": {

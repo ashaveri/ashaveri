@@ -98,8 +98,11 @@ the mechanism described below is a mark plus the evidence of a mark, not a certi
   backend yields without reading it (T20).
 - **Network** between client and gateway. Fully untrusted (TLS is assumed for confidentiality
   and authentication of the transport, but receipts are designed to not depend on it).
-- **Manifest channel**. The deployment manifest is fetched from the gateway. In `strict`
-  mode its contents must match the client's pins to matter.
+- **Manifest channel**. The deployment manifest is fetched from the gateway, as itself or inside a
+  `COSE_Sign1` this deployment signed with a key it was handed for the purpose. A wrapper a client can
+  verify under a key it designated out of band makes the document the deployment's own statement; without
+  one the manifest is what it has always been, a claim from the party being verified, and in `strict`
+  mode its contents must match the client's pins to matter either way.
 - **Marking-scheme registry**. The boundary between whoever writes a mark and everyone who reads one,
   holding each scheme label against the one byte shape it names. A label is bound to that shape for
   as long as it exists and is never repurposed, and a label a reader does not know is a refusal
@@ -125,10 +128,10 @@ the mechanism described below is a mark plus the evidence of a mark, not a certi
 | T2 | Attacker substitutes a different valid response (cross-request) | `req` binds the exact request bytes, `nce` the per-request nonce | None; a receipt for another request cannot verify against this one |
 | T3 | Replay of an old but valid receipt for a fresh request | Client-generated nonce must be echoed, and strict mode measures `iat` against the client's clock by default (300 seconds) and `att.ts` against its own (900 seconds), either of which a policy can override or switch off | Below strict mode there is no policy and so no window: a replay still has to match the nonce this client chose for this request. In strict mode the clock is on unless the caller wrote infinity into one of the two fields, which is the archive case and says so |
 | T4 | Gateway signs a receipt, then serves different bytes | Same as T1: the served bytes fail the `res` check | None |
-| T5 | A different key signs receipts (gateway compromise or impersonation) | `kid` must resolve to a manifest-declared key; in strict mode, to a policy-pinned key that also matches the manifest | In `receipt` mode a gateway that controls its own manifest can introduce a new key; strict mode closes this |
+| T5 | A different key signs receipts (gateway compromise or impersonation) | `kid` must resolve to a manifest-declared key; in strict mode, to a policy-pinned key that also matches the manifest. Either way the key also has to be the one the manifest declares for the epoch the receipt claims, inside the window that epoch opens, so a key the deployment retired cannot sign fresh traffic and have it read as history | In `receipt` mode a gateway that controls its own manifest can introduce a new key; strict mode closes this. A deployment that publishes no per-key windows states one epoch and every key it lists, which is the weaker reading and the honest one for a document that says nothing about the past |
 | T6 | Gateway omits receipts selectively | Strict mode rejects unreceipted responses | `receipt` mode returns a null receipt by design; callers must check for it |
 | T7 | Gateway lies about model, weights, measurement, or tokens | These fields are signed, so lying is attributable to the signing gateway and detectable against a pinned policy | The gateway can still lie consistently. See section 6 |
-| T8 | Manifest tampering | Strict mode requires the manifest key to equal the pinned key (`MANIFEST_KEY_NOT_PINNED`), and pins issuer, instance, measurements | None in strict mode |
+| T8 | Manifest tampering | Where an operator handed the deployment a key for the purpose, the document is served inside a COSE_Sign1 whose payload is the bytes the deployment wrote, so an edit after signing is `MANIFEST_SIGNATURE_INVALID` for every client that designated that key and the client refuses rather than downgrading to the unsigned reading. The key a wrapper is verified under is designated in `AshaveriPolicy.manifestKeys`, apart from the receipt keys the manifest itself lists, so one compromised signing key cannot forge the rotation record meant to retire it. Strict mode additionally requires the manifest key to equal the pinned key (`MANIFEST_KEY_NOT_PINNED`), and pins issuer, instance, measurements | Sealed only where an operator handed the deployment a key for the purpose and the client designated one: a deployment with no manifest signing identity serves the plain document, and a client that designated no manifest key has nothing to check a seal against and reads the document as unauthenticated from the start. Either way an unauthenticated manifest is reported as such, and is able to fail a check but never to open one. A client that predates sealed manifests refuses a sealed route as `BAD_MANIFEST` rather than misreading it, so turning sealing on is an operator's compatibility decision |
 | T9 | Token metering inflation | `tok` is signed and attributable | The SDK does not recount tokens from the response text; it verifies who claimed the counts |
 | T10 | DoS: gateway refuses to serve receipts | Receipt and evidence fetches retry with a short window, then fail closed as `RECEIPT_NOT_FOUND` or `EVIDENCE_NOT_FOUND` rather than falling back to unverified acceptance | Availability is out of scope |
 | T11 | Side channels on prompt content via receipts | Receipts contain hashes and counts only, never content | Hashes reveal content length implicitly (already visible in the response) |
@@ -259,8 +262,16 @@ What is still true, in both modes:
   and compared for continuity across windows, and no client does that yet. There is no runtime key
   rotation either: `--epk` publishes the epoch of the key a process started with, so rotating
   means a new deployment with a new `--key-path` and a higher epoch.
-- **The manifest is unsigned.** Strict-mode pinning is what gives it weight today; the
-  intended end state is a manifest signed by a long-term deployment identity.
+- **A sealed manifest is available to a deployment, not owed by one.** `signerd --live` wraps the
+  manifest in a COSE_Sign1 only when an operator names a second guest key path with
+  `--manifest-key-path`, and a mock deployment never does: nothing here generates, embeds or derives a
+  signing identity, and the same key is refused for both duties. The client half is the other condition:
+  `manifestKeys` is a field of a policy built in code and not of the policy file format, so a policy read
+  from a file designates no manifest signer and hears its manifest reported as unauthenticated. A
+  deployment that wants its manifest attributed has to hand a key to that duty and tell its clients which
+  key it was. What no deployment here can do is present a long-term identity of its own: the wrapper
+  names whoever holds the key an operator pointed at, and the decision about which identity that should
+  be, and where its key lives, is outside this code.
 - **The weights digest chain has one open link.** The receipt binds `sha256(manifest)` and the
   manifest binds each model file, but the manifest itself is not carried in the receipt and is
   not in the compose measurement unless the operator mounts the weights as a dm-verity volume.
@@ -305,7 +316,11 @@ What is still true, in both modes:
   parameter set, both readings are self-consistent, and no reader settles the difference by choosing
   one, so the two documents that declare every member they carry are decoded where no floating-point
   number may appear, a key included. That is the last point at which the two are still two: after the
-  decode there is one map entry and nothing left to check. It reaches the payload's numbers as well,
+  decode there is one map entry and nothing left to check. The decoder that refuses is shared rather than
+  receipt-only, and the pair above is not the estate's last word on closed documents:
+  `decodeClosedDocument` is also how an export's header and manifest and a sealed deployment manifest's
+  header are read, so a float standing where a label belongs is a malformed document in any of them.
+  It reaches the payload's numbers as well,
   and the format says which ones. The positions are `v`, `iat`, `att.ts`, `epk`, `tok.p` and `tok.c`,
   each read as the integer `receipt.cddl` types it, so a `128.0` written as a float is a malformed
   payload rather than 128 taken on trust. The writer that issues a receipt holds the same line from its

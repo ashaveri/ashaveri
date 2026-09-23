@@ -9,7 +9,9 @@ import {
   type VerifiedEvidence,
 } from './evidence.js';
 import { SdkError, type SdkErrorCode } from './errors.js';
-import { parseManifest, type DeploymentManifest } from './manifest.js';
+import { adjudicateReceiptEpoch, type EpochVerdict, type ReceiptEpochClaim } from './epoch.js';
+import { readDeploymentManifest, type ManifestAuthentication, type ReadManifestResult } from './manifest-auth.js';
+import type { DeploymentManifest } from './manifest.js';
 import type { AshaveriPolicy } from './policy.js';
 import { verifyCompletionReceipt } from './verify.js';
 
@@ -57,7 +59,7 @@ export interface VerifiedCompletion {
  * that publish them just after the response body finishes.
  */
 export class GatewaySession {
-  private manifestPromise: Promise<DeploymentManifest> | undefined;
+  private manifestPromise: Promise<ReadManifestResult> | undefined;
 
   constructor(
     readonly baseUrl: string,
@@ -68,7 +70,31 @@ export class GatewaySession {
     return this.options.fetchImpl ?? globalThis.fetch;
   }
 
+  /**
+   * The deployment manifest, fetched once and cached.
+   *
+   * The bytes arrive in either of two shapes and both are read here: a sealed document is verified
+   * before its contents are handed over, and a document this client cannot authenticate is handed
+   * over anyway with its status stated, because the pins a manifest carries are ones a verifier checks
+   * receipts against rather than facts it has to accept. What never happens is a seal that fails to
+   * hold being read as a plain document: a body altered after it was signed is refused, not downgraded.
+   */
   manifest(): Promise<DeploymentManifest> {
+    return this.readManifest().then((read) => read.manifest);
+  }
+
+  /**
+   * What this session concluded about the manifest it fetched, which is the advisory a caller reports
+   * beside a verdict: whether a seal was served, whether it authenticated, and the sentence naming the
+   * reason when it did not. It never throws for an absent seal, because "the deployment publishes no
+   * signature and you designated no signing key" is a state of the world rather than a failure, and it
+   * is the state a real deployment can be in.
+   */
+  manifestAuthentication(): Promise<ManifestAuthentication> {
+    return this.readManifest().then((read) => read.authentication);
+  }
+
+  private readManifest(): Promise<ReadManifestResult> {
     this.manifestPromise ??= (async () => {
       let response: Response;
       try {
@@ -79,11 +105,7 @@ export class GatewaySession {
       if (!response.ok) {
         throw new SdkError('GATEWAY_ERROR', `deployment manifest request failed with status ${response.status}`);
       }
-      try {
-        return parseManifest(await response.json());
-      } catch (err) {
-        throw new SdkError('BAD_MANIFEST', (err as Error).message);
-      }
+      return readDeploymentManifest(new Uint8Array(await response.arrayBuffer()), this.options.policy);
     })();
     return this.manifestPromise;
   }
@@ -129,8 +151,12 @@ export class GatewaySession {
   }
 
   async verifyReceipted(params: VerifyReceiptedParams): Promise<VerifiedReceipt> {
-    const kid = decodeReceipt(params.receiptBytes).header.kid;
-    const verifyKey = await this.resolveKey(kid);
+    const decoded = decodeReceipt(params.receiptBytes);
+    const verifyKey = await this.resolveKey(decoded.header.kid, {
+      kid: toHex(decoded.header.kid),
+      epoch: decoded.payload.epk,
+      issuedAt: decoded.payload.iat,
+    });
     return verifyCompletionReceipt({
       receiptBytes: params.receiptBytes,
       nonce: params.nonce,
@@ -209,7 +235,31 @@ export class GatewaySession {
     throw new SdkError(notFound, `no ${what} available ${detail}`);
   }
 
-  private async resolveKey(kid: Uint8Array): Promise<Uint8Array> {
+  /**
+   * Adjudicate a receipt's claim about its own signing epoch against the deployment manifest.
+   *
+   * Public because the rule has exactly one copy and two callers: the line below that refuses a
+   * receipt on it, and the offline reporter that prints the verdict it reached. A second statement of
+   * what a superseded epoch means would be the same drift risk in two places that the client's answer
+   * and an auditor's answer were written to remove.
+   */
+  async adjudicateEpoch(claim: ReceiptEpochClaim): Promise<EpochVerdict> {
+    return adjudicateReceiptEpoch(await this.manifest(), claim);
+  }
+
+  private async resolveKey(kid: Uint8Array, claim: ReceiptEpochClaim): Promise<Uint8Array> {
+    const keyBytes = await this.resolveSigningKey(kid);
+    const verdict = await this.adjudicateEpoch(claim);
+    if (!verdict.ok) {
+      throw new SdkError(
+        verdict.code,
+        `receipt key ${claim.kid} claims epoch ${claim.epoch} signed at ${claim.issuedAt}, and the deployment manifest does not support that: ${verdict.detail}`,
+      );
+    }
+    return keyBytes;
+  }
+
+  private async resolveSigningKey(kid: Uint8Array): Promise<Uint8Array> {
     const kidHex = toHex(kid);
     const manifest = await this.manifest();
     const declared = manifest.keys.find((entry) => entry.kid === kidHex);

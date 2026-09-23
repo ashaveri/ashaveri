@@ -66,6 +66,18 @@ Options:
   --key-path <path>                Guest key path for the receipt key.
                                    Default: /ashaveri/receipt.
   --key-purpose <purpose>          Purpose string mixed into the derived key.
+  --manifest-key-path <path>       Guest key path for a second key, which signs the deployment
+                                   manifest. Without it the manifest is served as the plain JSON
+                                   document it has always been, which a client reads and reports as
+                                   unauthenticated rather than believing. With it the same document is
+                                   served inside a signature, and a client that designated this key
+                                   can tell the deployment's own claims about its keys from a copy
+                                   made by somebody standing between it and the client. It has to be a
+                                   different path from --key-path: one key cannot sign both the
+                                   receipts and the manifest that lists them. A client that predates
+                                   sealed manifests refuses the response instead of misreading it, so
+                                   this is a compatibility event and it is yours to decide.
+  --manifest-key-purpose <purpose> Purpose string mixed into the manifest key.
   --epk <n>                        Epoch of the signing key, published in the manifest.
   --issuer <id>                    Override the issuer derived from the event log.
   --instance <id>                  Override the instance id derived from the event log.
@@ -147,6 +159,8 @@ interface CliOptions {
   readonly 'guest-socket'?: string;
   readonly 'key-path'?: string;
   readonly 'key-purpose'?: string;
+  readonly 'manifest-key-path'?: string;
+  readonly 'manifest-key-purpose'?: string;
   readonly epk?: string;
   readonly issuer?: string;
   readonly instance?: string;
@@ -243,6 +257,8 @@ try {
       'guest-socket': { type: 'string' },
       'key-path': { type: 'string' },
       'key-purpose': { type: 'string' },
+      'manifest-key-path': { type: 'string' },
+      'manifest-key-purpose': { type: 'string' },
       epk: { type: 'string' },
       issuer: { type: 'string' },
       instance: { type: 'string' },
@@ -418,6 +434,8 @@ async function liveDeployment(values: CliOptions): Promise<Deployment> {
     evidenceBaseUrl: `${publicUrl.origin}${publicUrl.pathname.replace(/\/+$/, '')}/v1`,
     keyPath: values['key-path'],
     keyPurpose: values['key-purpose'],
+    manifestKeyPath: values['manifest-key-path'],
+    manifestKeyPurpose: values['manifest-key-purpose'],
     epk,
     issuer: values.issuer,
     instance: values.instance,
@@ -481,9 +499,18 @@ const rateLabel =
   `rate limits: ${String(peerRate.perMinute)} requests a minute and ${String(peerRate.burst)} at once per connection address, ` +
   `taken ahead of every credential check, ${peerRateGiven ? 'from --peer-rate' : 'the default'}; ` +
   `a credential with no rate in its record holds ${String(DEFAULT_RATE.perMinute)} a minute and ${String(DEFAULT_RATE.burst)} at once`;
+// The manifest's posture is reported as this process actually serves it, because the two states mean
+// different things to whoever is standing at the other end of the deployment: a sealed document is one
+// a client can attribute to this deployment, and a plain one is a claim a client has to treat as
+// unverified. Printing the kid is no disclosure, since the same value is inside the wrapper's header.
+const manifestLabel =
+  deployment.manifestKey === undefined
+    ? 'manifest: served as plain JSON, unsigned, so a client can only report it as unauthenticated, or refuse it outright if it designated a key to sign this document'
+    : `manifest: served sealed, COSE_Sign1 over the same JSON under key ${toHex(deployment.manifestKey.kid).slice(0, 16)}..., which a client authenticates only against a key it designates for the purpose`;
 const lines: string[] = [
   `signerd (${label}) listening on http://${host}:${boundPort}`,
   `  issuer ${deployment.issuer} instance ${deployment.instance}`,
+  `  ${manifestLabel}`,
   `  ${kept}`,
   `  ${markingLabel}`,
   allowBearer

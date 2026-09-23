@@ -55,7 +55,8 @@ export function decodeCanonical(bytes: Uint8Array, malformed: ReceiptErrorCode =
  * A `typeof` check, a closed set of labels and a closure walk all see one merged map and cannot
  * recover which bytes built it.
  *
- * Refusing floats is as wide as these two documents and no wider. Both close: every label the
+ * Refusing floats is as wide as these two documents of `receipt.cddl` and no wider inside that
+ * file. Both close: every label the
  * protected header carries is one of three integers, and every member of the payload and of the maps
  * nested inside it is named in the CDDL, where the number positions are written `int` or, for the one
  * that fixes the format version, as the integer literals `1` and `2`. Nothing any of them declares can
@@ -64,6 +65,10 @@ export function decodeCanonical(bytes: Uint8Array, malformed: ReceiptErrorCode =
  * The map the format does leave free, the unprotected one, is read through
  * `decodeCanonical` above and keeps admitting anything: it sits outside the signature and carries no
  * claim, so a float inside it is nobody's integer wearing a different coat.
+ *
+ * Two other closed documents this package publishes come through here for the same reason: an export's
+ * protected header and manifest, and a sealed deployment manifest's header. Each declares every member
+ * it carries, so each is read where no float may stand in for the integer a label has to be.
  */
 export function decodeClosedDocument(bytes: Uint8Array, malformed: ReceiptErrorCode): unknown {
   return decodeWith(bytes, { ...cdeDecodeOptions, preferMap: true, rejectFloats: true }, malformed);

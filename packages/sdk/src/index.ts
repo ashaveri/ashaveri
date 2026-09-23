@@ -29,7 +29,11 @@ export type { EvidenceTrustAnchors, VerifiedEvidence, VerifyEvidenceParams } fro
 export { verifyCompletionReceipt } from './verify.js';
 export type { VerifyCompletionParams } from './verify.js';
 export { parseManifest } from './manifest.js';
-export type { DeploymentManifest, ManifestKey, ManifestModel, TeeKind } from './manifest.js';
+export type { DeploymentManifest, DeclaredEpoch, ManifestKey, ManifestModel, TeeKind } from './manifest.js';
+export { adjudicateReceiptEpoch } from './epoch.js';
+export type { EpochAccepted, EpochRefused, EpochVerdict, ReceiptEpochClaim } from './epoch.js';
+export { readDeploymentManifest } from './manifest-auth.js';
+export type { ManifestAuthentication, ReadManifestResult } from './manifest-auth.js';
 export {
   DEFAULT_MAX_EVIDENCE_AGE_SECONDS,
   DEFAULT_MAX_RECEIPT_AGE_SECONDS,
@@ -82,6 +86,7 @@ export {
   decodeReceipt,
   generateSigningKey,
   hashRequest,
+  isSealedDeploymentManifest,
   randomNonce,
   receiptBytesToJson,
   receiptToJson,

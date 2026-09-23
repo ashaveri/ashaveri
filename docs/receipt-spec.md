@@ -95,7 +95,7 @@ countersignature variants (RFC 9338), if ever needed, would be a new format vers
 | `wts` | bstr (32) | sha256 digest of the deployment's weights manifest. |
 | `meas` | map | `{ tee, m }`: the environment kind, one of `"software"`, `"snp"`, `"snp+gpucc"`, `"tdx"`, `"tdx+gpucc"`, plus the measurement for that kind. A TEE reports its platform-native 48-byte SHA-384 value (SEV-SNP launch digest or TDX MRTD); `"software"` makes no hardware claim and carries a 32-byte SHA-256 digest of what the deployment runs. The width is fixed by the kind, so a digest that does not match its own kind is malformed. |
 | `att` | map | `{ d, ts, url }`: digest of the attestation evidence document, its timestamp (Unix seconds) — the moment the evidence was collected, which is the instant a verifier's evidence window is measured from, and is earlier than `iat` on a deployment that quotes per request — and a URL where the evidence can be fetched and re-verified. |
-| `epk` | int | Signing-key epoch, for key rotation. A gateway publishes the value it was started with (`--epk` on signerd) and never changes it, so rotating a key means a new process with a higher epoch. |
+| `epk` | int | Signing-key epoch, for key rotation. A gateway publishes the value it was started with (`--epk` on signerd) and never changes it, so rotating a key means a new process with a higher epoch. What a reader checks a receipt's epoch against is the window its deployment manifest declares for that epoch (section 4.4), and section 5's step 2 is the rule that says so. |
 | `tok` | map | `{ p, c }`: prompt and completion token counts for the call, as the serving stack reported them. A receipt proves who claimed a count, not that the count is right. |
 | `mk` | map | `{ sch, d }`: the marking attestation, and the only member `v: 2` adds to the thirteen above, where `v: 1` carries no `mk` at all because the closed map named in the row above refuses a v1 document that does. It is required in v2, so an absent `mk` is a malformed payload (`BAD_PAYLOAD`) rather than a reading of "unmarked": unmarked is a declared value of `sch`, never an omitted member. `d` is sha256 of the marked region exactly as the response bytes carry it, not of the whole response. The shape is `Marking` in [`receipt.cddl`](../packages/receipt/receipt.cddl), and which labels `sch` draws on, with the bytes each one marks, is section 3.3. |
 
@@ -305,8 +305,12 @@ deployment.
 ### 4.4 Deployment manifest
 
 ```text
-GET /deployment-manifest
+GET /deployment-manifest    -> 200 application/cose, a COSE_Sign1 around the document below
+                           -> 200 application/json, the document below, on a deployment that
+                              was handed no key to seal it with
 ```
+
+The document is the same in both shapes, and the shape says what a client may conclude about it:
 
 ```json
 {
@@ -315,7 +319,14 @@ GET /deployment-manifest
   "ins": "mock-instance-1",
   "epk": 0,
   "keys": [
-    { "kid": "<64 hex chars>", "alg": "Ed25519", "publicKey": "<base64url, 32 bytes>" }
+    { "kid": "<64 hex chars>", "alg": "Ed25519", "publicKey": "<base64url, 32 bytes>" },
+    {
+      "kid": "<64 hex chars>",
+      "alg": "Ed25519",
+      "publicKey": "<base64url, 32 bytes>",
+      "epk": 1,
+      "validFrom": 1772000000
+    }
   ],
   "models": [
     { "id": "mock-model-1", "wts": "<64 hex chars>" }
@@ -324,22 +335,72 @@ GET /deployment-manifest
 }
 ```
 
-`keys` lists the Ed25519 public keys the deployment currently signs with, keyed by the same
-kid the receipts carry. A verifier reads such a key as untrusted input and checks signatures
-against it under the strict (RFC 8032) rule, so a key of small order and a signature whose
-encoding is not canonical are refused instead of accepting every message. `models` lists model
-ids with the weights digest each receipt for that model must carry. `meas` is the launch
-measurement the deployment claims, and its width follows from its kind: 96 hex characters for
-an SEV-SNP launch digest or a TDX MRTD, 64 for a `"software"` deployment that has no hardware
-measurement to report. The example above is a mock deployment, so it reports `"software"`.
+`keys` lists the Ed25519 public keys the deployment signs receipts with, each under the same kid its
+receipts carry. A verifier reads such a key as untrusted input and checks signatures against it under
+the strict (RFC 8032) rule, so a key of small order and a signature whose encoding is not canonical are
+refused instead of accepting every message. `models` lists model ids with the weights digest each receipt
+for that model must carry. `meas` is the launch measurement the deployment claims, and its width follows
+from its kind: 96 hex characters for an SEV-SNP launch digest or a TDX MRTD, 64 for a `"software"`
+deployment that has no hardware measurement to report. The example above is a mock deployment, so it
+reports `"software"`.
 
-The manifest carries no signature. It is a claim about the deployment, delivered over
-whatever transport the endpoint happens to use, so it cannot vouch for itself. A client
-gives it weight by treating its values as pins to be met rather than facts to be believed:
-fetch the evidence the receipts point at, verify it offline, and require the measurement and
-keys to match what was expected. A policy that pins issuers, keys, instances and
-measurements turns an unverified manifest into at most a failed check, which is the only
-reading of it that is safe.
+The two optional members of a `keys[]` entry are the deployment's rotation history. An entry names the
+epoch its key signed under (`epk`) and the first instant at which the deployment accepts a signature from
+that epoch (`validFrom`, unix seconds); the last instant is never written down, because two members that
+must agree with each other are two chances to publish a gap and an overlap. It is the `validFrom` of the
+epoch above, and no published end for the highest epoch. Windows are half-open in the same direction the
+pack's span is: a receipt stamped at exactly a successor's start belongs to the successor. An entry
+carries both members or neither, all entries of one manifest agree which shape they have, one epoch
+cannot be declared with two different starts, and epochs ascend in the order their starts do; a manifest
+that breaks any of those is refused rather than read. With neither member the deployment states no
+history at all, which is what every manifest published before this section's rule was written carries, and
+which is reported to a client as no declared windows rather than as an endless one.
+
+`epk` at the top level is the epoch this process stamps new receipts under; the windows in `keys[]` are
+what a reader checks a past receipt against. Section 5's step 2 is what adjudicates the two.
+
+A sealed response is a COSE_Sign1 (RFC 9052 section 4.2), tagged 18 and encoded with deterministic CBOR,
+whose protected header carries the three labels section 2 names and whose `typ` is
+`"ashaveri/deployment-manifest"`. Its payload is the JSON document above as UTF-8, signed byte for byte:
+no re-encode, no key order chosen on the way, so what a client verifies is what it read rather than a
+rendering of it. [`packages/receipt/manifest.cddl`](../packages/receipt/manifest.cddl) is the normative
+statement of that container and
+[`packages/receipt/schemas/manifest-v1.schema.json`](../packages/receipt/schemas/manifest-v1.schema.json)
+its display twin, in the same pair the receipt and the pack form. The content type is not decoration: a
+deployment signs receipts, packs of receipts, exports of originals, and this document, all four as
+`COSE_Sign1` over four elements with an Ed25519 signature, and each of them verifies cleanly under a key a
+reader trusted. The
+field that says whether a reader is holding an attestation about one response or a deployment's statement
+about itself is `typ`, and each reader refuses the other's document before it consults a key.
+
+What a client may conclude follows the document it was handed, and nothing follows from the transport:
+
+| Served | Key this client designated for signing manifests | Conclusion |
+|---|---|---|
+| sealed, verifies under the key its header names | yes | The document is the deployment's own statement. Its issuers, keys, epochs and measurements are attributed, not assumed. |
+| sealed, does not verify under that key | yes | Fatal, `MANIFEST_SIGNATURE_INVALID`. A body that moved after it was signed is evidence about nothing. |
+| sealed under a key none of the designated ones answers to | yes | Fatal, `MANIFEST_NOT_AUTHENTICATED`. The caller named who may sign this document and was handed a seal made by somebody else. |
+| sealed, no key designated | none | Read, and reported as unauthenticated: this client holds no key to check a seal against, so it can say nothing about the bytes being whole and nothing about who wrote them. |
+| unsigned | yes | Fatal, `MANIFEST_NOT_AUTHENTICATED`. A caller that designated a signer was handed a document with no signature to check. |
+| unsigned | none | Read, and reported as trust-on-first-use, which is the state a deployment that was never handed a manifest key is in. |
+
+A check runs only where a key designates one, which is why the middle three rows split the way they do.
+A client that designates nothing cannot tell a whole seal from an edited one, and it is not asked to
+believe either: it reads the document, records that the document rests on nothing, and lets the pins inside
+it fail checks as they always have.
+
+The key a wrapper is verified under is designated in `AshaveriPolicy.manifestKeys` and never in its
+`keys` map, and that separation is the substance of the first row. The manifest is the document that
+states which keys sign receipts, so a manifest verified under a receipt signing key would let one
+compromised signing key rewrite the rotation record meant to retire it. A wrapper that verifies under a
+key the policy pins only for receipts is reported as unauthenticated, which is why an unsigned manifest
+and an unattributed one are the same refusal: neither is a document this client can attribute.
+
+The last two rows are why an unsigned manifest stays served rather than withheld. Strict-mode pinning is
+what gives such a document weight: its values are pins to be met rather than facts to be believed, so an
+unverified manifest can fail a check and cannot open one. A deployment that has not been handed a
+signing identity is therefore still verifiable by a client that pinned its keys out of band, and a client
+that pinned nothing says so out loud instead of quietly believing what it read.
 
 ### 4.5 Attestation evidence
 
@@ -436,13 +497,25 @@ to a holder of the id, and what erasing the access log can and cannot undo aroun
 
 ## 5. Verification algorithm
 
-A verifying client proceeds as follows:
+The deployment manifest of section 4.4 is read first, in whichever of its two shapes this deployment
+serves it, and what a client may conclude from it is that section's table rather than anything below. The
+steps are one receipt.
 
 1. **Decode.** Parse the COSE_Sign1 tag, the 4-element array, and both protected header and
    payload. Reject anything malformed.
-2. **Resolve the key.** Take `kid` from the protected header. With a policy, the key must be
-   pinned in the policy AND declared by the deployment manifest. Without a policy, the key
-   must be declared by the manifest. Otherwise reject (unknown or swapped key).
+2. **Resolve the key, and the epoch it claims.** Take `kid` from the protected header. With a policy,
+   the key must be pinned in the policy AND declared by the deployment manifest. Without a policy, the
+   key must be declared by the manifest. Then hold that key to the receipt's own account of when it
+   signed: `epk` and `iat` are inside the signature, so between them they say which key and which moment
+   produced this receipt, and the manifest says which keys the deployment held in which epochs. A receipt
+   naming a declared epoch verifies against the key that epoch's entry names and only with an `iat`
+   inside the window that entry opens, so a superseded epoch still verifies against a key the deployment
+   retained and a retained key signing fresh traffic does not. A manifest that declares no window states
+   one epoch, its own `epk`, and attributes it to every key it lists. Three refusals stay apart, because
+   three things went wrong: `MANIFEST_KEY_NOT_PINNED` when this client designated no such key or a
+   different one, `MANIFEST_EPOCH_UNDECLARED` when this deployment claims no such epoch anywhere, and
+   `MANIFEST_EPOCH_DISAGREES` when it claims the epoch and this receipt is neither that epoch's key nor
+   stamped inside its window. Otherwise reject (unknown or swapped key).
 3. **Verify the signature.** Ed25519 over the Sig_structure. Reject on failure.
 4. **Check the nonce.** The payload `nce` must equal the nonce the client sent for this
    request. Reject otherwise (replay or cross-request substitution).
@@ -510,6 +583,14 @@ The SDK exposes three levels:
 `receipt` mode proves the response came from the deployment that controls the manifest's
 keys. `strict` mode additionally freezes the deployment's identity: keys, issuer, instance,
 and measurements cannot change without the client updating its policy.
+
+Neither sentence is a claim that the manifest was the deployment's own, and that is what the seal of
+section 4.4 answers. `AshaveriPolicy.manifestKeys` designates the keys whose wrappers this client will
+believe, and it is a field of a policy built in code: the policy file format carries no such field, and a
+document naming one is refused as an unknown key rather than read and dropped, because writing it out
+would move the digest of every policy file already written and already cited by the verdicts that were
+reached under it. A policy read from a file therefore designates no manifest key, reports the manifest it
+was handed as unauthenticated, and checks every receipt against it exactly as before.
 
 Which payload versions a call reads is none of these three choices to make. Section 6's
 `acceptedVersions` is an option on `@ashaveri/receipt`'s own `verifyReceipt` and `decodeReceipt`, and
@@ -806,8 +887,31 @@ leave its holder no way to tell a receipt that attested one thing from one that 
 and something more, which is the same silence `mk` was given a version to refuse. The mark is why the
 number moved rather than the field arriving as an optional member of v1: a reader of a v1 payload
 looks at thirteen fields, finds nothing about a mark, and verifies a receipt over an unmarked response
-exactly as readily as over a marked one. The deployment manifest is a different document and still has
-the one version, `v: 1`.
+exactly as readily as over a marked one. The deployment manifest is a different document, and it still
+carries the one version, `v: 1`, for a reason that is not the receipt's.
+
+A manifest's parser reads the members it names and leaves the rest, at the top level and inside each entry
+of `keys[]`, which is the opposite trade to the closed payload map above and is made for the opposite
+need: a manifest is a deployment's current statement about itself, and the only way it can grow while
+clients update at their own pace is for a reader to be permitted to leave what it does not know alone.
+That is why the epoch and validity start of section 4.4 arrived as two optional members of a `keys[]`
+entry rather than as `v: 2`. Every manifest published today carries neither and stays valid; a member is
+refused by nothing that accepts it now. And a version move would have cost exactly what a version move
+costs here: `parseManifest` refuses a `v` it does not implement, a client fetches the manifest inside
+every receipt verification rather than only when it wants the deployment's identity, so a deployment that
+published `v: 2` would have left every un-updated client of its own able to verify no receipt at all,
+including the receipts no epoch rule touches.
+
+What an un-updated client does with the richer document is the other half of that judgement, and it is
+refusal in the direction that matters and silence in the direction that does not. It parses a windowed
+manifest, leaves `epk` and `validFrom` inside `keys[]` where they are, resolves a receipt key by kid as it
+always did, and enforces no epoch, which is precisely what it enforced before the members existed. It
+cannot be talked into accepting a key the deployment withdrew, because a withdrawn entry is a key it no
+longer finds. And it never reads a sealed document as anything but a refusal: CBOR bytes do not parse as
+JSON, so a client from before the wrapper answers `BAD_MANIFEST` at that route rather than trusting a
+document it could not read. Serving a sealed manifest is therefore a compatibility event an operator
+decides, which is why a deployment that was handed no manifest signing key keeps serving the plain
+document instead of being upgraded into it.
 
 Which versions a call reads is a setting rather than a fact about the format. `acceptedVersions`
 names them on both `verifyReceipt` and `decodeReceipt`, and its default is every version the

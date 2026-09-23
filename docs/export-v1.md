@@ -18,13 +18,17 @@ whether any legal assessment was made of it and a claim about where it came from
 hands to a customer who is going to pass evidence to somebody else, or to an auditor who is carrying
 originals out of a deployment, and it is deliberately not an answer for a period of time.
 
-The estate has three signed documents and one key signs all three:
+The estate has four signed documents. One key signs the three that speak about evidence: a request, a
+window of them, and a handover of originals. The fourth is a deployment's statement about itself, and a
+client designates a key for that duty separately, because a key trusted to attest responses is not a key
+trusted to name the deployment's own parameters:
 
 | Document | Content type at COSE label 3 | What it establishes |
 |---|---|---|
 | Receipt | `ashaveri/receipt` | That the holder of the key vouches for one request and one response, bound by digests |
 | Pack | `ashaveri/pack` | That the receipts inside one window are all of them, with the two chain endpoints a reader walks between |
 | Export | `ashaveri/export` | That the holder of the key assembled these originals at one instant, and states this about assessment and this about provenance |
+| Deployment manifest | `ashaveri/deployment-manifest` | That the deployment published these issuers, keys, epochs and measurements as its own statement, signed byte for byte |
 
 A pack cannot do an export's job, and that is why this is a second contract rather than a pack version two.
 Its duty block is mandatory, so it has no way to say "no legal assessment was made" as a fact about itself:

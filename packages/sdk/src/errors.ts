@@ -2,6 +2,21 @@ export type SdkErrorCode =
   | 'NO_POLICY'
   | 'BAD_MANIFEST'
   | 'MANIFEST_KEY_NOT_PINNED'
+  // A deployment manifest that arrives sealed, and the two ways a seal fails to say what a caller
+  // needs it to say. The first is the absence of an authentication, the second the presence of one that
+  // does not hold: a body altered after the deployment signed it, or a key that is not the one named in
+  // the header. Neither is `BAD_MANIFEST`, which is a document that does not parse, and neither is
+  // `MANIFEST_KEY_NOT_PINNED`, which is about the keys a manifest lists for signing receipts rather
+  // than the key that signed the manifest itself.
+  | 'MANIFEST_NOT_AUTHENTICATED'
+  | 'MANIFEST_SIGNATURE_INVALID'
+  // A receipt's own claim about which key epoch signed it, checked against what the deployment
+  // publishes about its rotation. Two refusals where one would blur who disagreed: a manifest that
+  // never named this epoch, and a manifest that named it and says this is not its key or not its
+  // window. A third question, whether this client designated the key at all, stays
+  // `MANIFEST_KEY_NOT_PINNED`'s alone.
+  | 'MANIFEST_EPOCH_UNDECLARED'
+  | 'MANIFEST_EPOCH_DISAGREES'
   | 'RECEIPT_NOT_FOUND'
   | 'REQUEST_HASH_MISMATCH'
   | 'RESPONSE_HASH_MISMATCH'

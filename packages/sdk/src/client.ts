@@ -2,6 +2,7 @@ import { hashRequest, randomNonce, type VerifiedReceipt } from '@ashaveri/receip
 import { authorizedFetch, type AshaveriCredential } from './auth.js';
 import { toBase64Url } from './b64.js';
 import { GatewaySession, type VerifiedCompletion } from './gateway.js';
+import type { ManifestAuthentication } from './manifest-auth.js';
 import { SdkError } from './errors.js';
 import type { VerifiedEvidence } from './evidence.js';
 import type { AshaveriPolicy } from './policy.js';
@@ -223,6 +224,20 @@ export class AshaveriClient {
       verifyEvidence: this.mode === 'strict',
       now: this.now?.(),
     });
+  }
+
+  /**
+   * What this client's gateway session concluded about the deployment manifest: whether a seal was
+   * served, whether it authenticated, and the sentence naming the reason when it did not.
+   *
+   * Reachable on purpose. A completion result says which receipt verified and, in strict mode, which
+   * evidence held, and none of that is a claim that the manifest supplying the declared keys was
+   * itself the deployment's. A caller that never asks gets the same numbers it always got, which is
+   * what a policy that designates no manifest key deserves; a caller that wants to know what its verdict
+   * rests on has one question to ask.
+   */
+  manifestAuthentication(): Promise<ManifestAuthentication> {
+    return this.session.manifestAuthentication();
   }
 
   async create(params: ChatCompletionParams): Promise<CompletionResult> {

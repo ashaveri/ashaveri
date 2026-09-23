@@ -590,6 +590,27 @@ describe('the bound one connection address is held to', () => {
 });
 
 /**
+ * Which of the two shapes of the deployment manifest this process serves is a fact an operator has to be
+ * able to read off the banner: a sealed document and a plain one mean different things to whoever stands
+ * at the other end of the deployment, and the difference comes from one flag handed to one process.
+ */
+describe('the banner names the manifest posture', () => {
+  it('says a deployment with no manifest key serves the plain document', () => {
+    const banner = runStopped('--mock', '--port', '0');
+    const printed = banner.join('\n');
+    const line = banner.find((each) => each.startsWith('  manifest: '));
+    expect(line, `no manifest line; stdout held ${JSON.stringify(printed)}`).toContain('served as plain JSON');
+    expect(line, printed).toContain('unauthenticated');
+  });
+
+  it('documents the second key as an option and the duty it discharges', () => {
+    const help = run('--help');
+    expect(help.stdout).toContain('--manifest-key-path <path>');
+    expect(help.stdout).toContain('--manifest-key-purpose <purpose>');
+  });
+});
+
+/**
  * What the access flags do to a request, as opposed to what they do to a line of text. Each case boots
  * the built CLI for real, because the flag is read at start-up and the decision is made in the
  * process that holds the store: nothing in this file up to here has shown a request outcome move.

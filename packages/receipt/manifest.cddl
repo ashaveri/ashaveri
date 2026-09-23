@@ -1,0 +1,79 @@
+; ---------------------------------------------------------------------------
+; The signed deployment manifest: the document a deployment publishes about itself, wrapped in a
+; COSE_Sign1 so that a reader can tell the deployment's own claims from a copy made by somebody
+; standing between it and the client.
+;
+; Section 4.4 of `docs/receipt-spec.md` states what the document means and section 5 what a client
+; does with each of the three states this container can arrive in. This file states one thing the
+; specification cannot: the bytes a signature covers. Where a sentence in either document disagrees
+; with the reader in `src/manifest-seal.ts`, that reader is what a client actually runs, and the
+; prose is wrong.
+;
+; The envelope is the receipt's and the pack's, and it differs from them in one field, the protected
+; content type. A deployment signs receipts, and a pack of them, and a manifest, and all three are
+; COSE_Sign1 over four elements with an Ed25519 signature and a `kid` that is sha256 of the public
+; key. What keeps the three apart is the `typ`, and the reason a content type is worth a whole label
+; is that both a receipt and a manifest verify cleanly under a key the reader trusted: the only thing
+; that tells a reader whether it is holding an attestation about one response or a deployment's
+; statement about itself is this field.
+; ---------------------------------------------------------------------------
+
+Ashaveri-Deployment-Manifest = #6.18(COSE_Sign1-Manifest-COSE)
+
+; COSE_Sign1 per RFC 9052 section 4.2, encoded per RFC 8949 with Core Deterministic Encoding, so a
+; stranger who rebuilds a sealed manifest from this file and the document inside it gets the same
+; bytes back and either verifies or refuses the artifact the issuer made.
+;
+; The payload is not CBOR, and the absence of `.cbor` on it is the statement of that. It is the JSON
+; document this deployment has always served at `GET /deployment-manifest`, written as UTF-8 and
+; signed byte for byte: no re-encode, no key order chosen here, no whitespace decision. A client
+; verifies what it read rather than what it could reconstruct from a parsed copy, and a deployment
+; that reformats its own document has to reseal it, which is an operator-visible fact rather than a
+; promise about a serializer.
+COSE_Sign1-Manifest-COSE = [
+    protected: bstr .cbor Ashaveri-Manifest-Protected-Header,
+    unprotected: { * any => any }, ; the map that carries no claim; see the note below
+    payload: bstr,                 ; the deployment manifest JSON document, as served
+    signature: bstr .size 64
+]
+
+; The same three labels the receipt and the pack sign with, because they are the COSE registry's
+; integers and not this format's, and a typ that differs because the documents come out of one
+; deployment. The map closes: its bytes are hashed into the `Sig_structure`, so a label this block
+; does not name is an authenticated parameter, and a reader that took the three it knows out of a
+; header carrying a fourth would hand on a different document from the one the deployment signed.
+Ashaveri-Manifest-Protected-Header = {
+    1: -8,                              ; alg: EdDSA (Ed25519)
+    4: bstr .size 32,                   ; kid: sha256(public_key)
+    3: "ashaveri/deployment-manifest"   ; typ
+}
+
+; ---------------------------------------------------------------------------
+; The `unprotected` map is the one map here a writer fills at will, and that is a decision rather
+; than a gap: it sits outside the signature, so nothing written in it travels as a claim about the
+; deployment, and enforcing that it is empty would buy strictness with no security content behind it.
+; `sealDeploymentManifest` writes an empty map, which is what a conforming writer produces today.
+;
+; What the document inside the payload is made of is stated twice over, and neither copy is this
+; file's: `schemas/manifest-v1.schema.json` is its JSON twin, and section 4.4 of the specification is
+; its prose. One rule belongs here all the same, because it is the rule that lets the document change
+; without this container changing, and it is the opposite of the one that holds of a receipt payload.
+;
+; The manifest's parser is open. A member `v: 1` does not name is read as nothing and dropped, at the
+; top level and inside each entry of `keys`, which is deliberate and is what makes the key epoch
+; windows an addition rather than a new version: a deployment can publish which key held which epoch
+; and from when, and a client that predates those two members goes on parsing the same document it
+; parsed before and enforces no epoch, exactly as it enforced none until they arrived. A receipt
+; payload closes, and the two documents part ways for one reason. A payload is evidence about one
+; response and a silent extra member in it would be a claim a reader never checked, while a manifest
+; is a deployment's own current statement about itself and the only way it can grow without every
+; client updating in step is for a reader to be permitted to leave what it does not know alone.
+;
+; The epoch members, named here so the container and the document it carries can be read together:
+; each entry of `keys` either carries both `epk` and `validFrom` or carries neither, all entries agree
+; which of the two shapes they have, an `epk` appearing on two entries names the same `validFrom`
+; twice, and epochs ascend in the order their starts do. `validFrom` is unix seconds, the first instant
+; a deployment accepts signatures from that epoch, and the last is the start of the next epoch up,
+; open-ended for the highest one published. The window is half-open in the same direction the pack's
+; span is: a receipt stamped at exactly a successor's start belongs to the successor.
+; ---------------------------------------------------------------------------
