@@ -660,6 +660,136 @@ and names the byte offset it stopped at (`StoreErrorCode` in `gateway/src/store.
 - `frame-length-too-short` — a `len` claiming fewer bytes than the header needs, so the reader stops at
   the size and never reaches the digest.
 
+### 5.3 Retention manifest layout
+
+Section 5.2 states the bytes a store writes, and the pack it describes carries the two endpoints a reader
+walks between. A third artifact answers a question neither of them can: how long a deployment has
+actually held what it still retains, and what it let go of on the way. This section states that
+document's layout field by field. The normative statement of it is
+[`packages/receipt/schemas/retention-v1.schema.json`](../packages/receipt/schemas/retention-v1.schema.json),
+and `packages/fixtures/test/retention-doc.test.ts` reads the table below out of this document and holds
+every member name, type and required-ness against that file in both directions. Where a sentence here and
+that schema disagree, the schema is the authority and this prose is wrong.
+
+The identity that schema answers to carries its version, `https://ashaveri.com/schemas/retention-v1.json`,
+and the receipt and pack twins beside it now do the same. An identity that names no version has to mean two
+documents the moment a second one is defined, and the receipt family already is two documents: section 6
+defines `v: 1` as section 3's thirteen fields and `v: 2` as those same thirteen plus a required `mk`. `packages/fixtures/test/schema-identity.test.ts` holds every
+published schema to that rule, in both directories, so the convention is a checked property of the tree
+rather than a habit this sentence asks a reader to trust.
+
+The generator that fills these fields is not part of this repository, and nothing here writes or reads the
+document today. It is published anyway because the check a reader owes is public even when the program that
+produced the bytes is not, and because a shape that lives only in a writer cannot be recomputed by
+somebody handed the output. One consequence is worth stating before any field: this manifest carries no
+signature. A receipt and a pack are both `COSE_Sign1` over the bytes they attest, and a retention manifest
+is a JSON file a deployment writes about its own store, so every value in it is the deployment's say-so
+until a reader recomputes it against something signed. The writer serializes the document with two-space
+indentation, a trailing newline, and its members in the order the table lists them, so the same store state
+produces the same bytes twice; a JSON Schema states no member order, which is the only reason the order
+below is this section's to carry.
+
+| Member | Type | Required | What it states |
+|---|---|---|---|
+| `v` | `1` | yes | Format version, one constant rather than a discriminant. A reader refuses a version it does not know. |
+| `at` | `integer` | yes | Unix seconds, the instant generation began, stamped before the store is read so a slow store cannot date the window later than it was. |
+| `policy` | `object` | yes | The bounds the deployment asked the store to enforce, as intention. |
+| `policy.maxAgeSeconds` | `integer` | no | A receipt is served while its stamp is at or after `at` less this. Absent means no age bound; zero is a bound that keeps almost nothing. |
+| `policy.maxCount` | `integer` | no | How many receipts are served. Absent means no count bound. |
+| `retained` | `object` | yes | What the store holds right now, copied from the store itself. |
+| `retained.from` | `integer` | yes | Unix seconds, inclusive: the oldest stamp still held, and zero with a count of zero for an empty store. |
+| `retained.to` | `integer` | yes | Unix seconds, inclusive: the newest stamp still held. Both edges are inclusive, which is not the half-open interval a pack answers for. |
+| `retained.count` | `integer` | yes | How many receipts sit between them. The member that decides whether `from` means anything. |
+| `retired` | `object` | yes | What left, in total and event by event. |
+| `retired.byAge` | `integer` | yes | Receipts retired for falling past the age bound, including any dropped since the last compaction wrote. |
+| `retired.byCount` | `integer` | yes | Receipts retired because the count bound evicted them, on the same basis. |
+| `retired.trims` | `array` | yes | One entry per compaction, oldest first. Empty means nothing has been compacted, which is not the same as nothing having been retired. |
+| `retired.trims[*].at` | `integer` | yes | Unix seconds, the stamp that compaction wrote. |
+| `retired.trims[*].byAge` | `integer` | yes | How many it removed for age. |
+| `retired.trims[*].byCount` | `integer` | yes | How many it removed for count. |
+| `retired.trims[*].under` | `object` | yes | The bounds in force then, read off that trim record's own payload rather than out of memory. |
+| `retired.trims[*].under.maxAgeSeconds` | `integer` | no | The age bound at that moment, absent if none was configured. |
+| `retired.trims[*].under.maxCount` | `integer` | no | The count bound at that moment, absent if none was configured. |
+| `chain` | `object` | yes | The two endpoints a reader walks between, stated here as the store reports them. |
+| `chain.anchor` | `string` | yes | Sixty-four lowercase hex characters: the digest the oldest retained receipt was chained from. |
+| `chain.head` | `string` | yes | Sixty-four lowercase hex characters: the digest of the last receipt in the chain. |
+| `duty` | `object` | yes | The article the manifest is written against, the period taken from it, the time held, and the comparison. |
+| `duty.article` | `string` | yes | Which obligation: `19(1)`, `19(2)` or `26(6)`. |
+| `duty.requiredSeconds` | `integer` | yes | Seconds the deployment takes that article to require, never below one. |
+| `duty.heldSeconds` | `integer` | yes | Seconds the store has held the oldest receipt it retains, measured at `at`, and zero for a store holding nothing. |
+| `duty.met` | `boolean` | yes | Whether `heldSeconds` is at least `requiredSeconds`, computed by the writer. |
+
+Every block is closed, in the same sense and for the same reason section 6 states for a payload: a member
+`v: 1` does not define makes the document malformed rather than a document read with that member dropped,
+and it reaches the two policy blocks, the window, the retirement history, each trim event, the chain and
+the duty alike.
+
+**Two bounds, written two ways.** `policy` and `retired.trims[*].under` share one shape, and its two
+members are optional there because absence is the statement "no such bound was configured". That is the
+opposite of the same two bounds inside a trim record's payload, whose byte layout section 5.2 publishes,
+where an unconfigured bound is written as zero. A reader moving between the two media has to convert that
+one thing and nothing else, and a `maxAgeSeconds` of zero in this JSON is a cap of zero rather than a
+missing configuration.
+
+**What the window can and cannot say.** `retained` is the survivor set, so it says nothing about why
+anything is missing from it, which is what `retired` is for. The two totals there can exceed the sum of the
+events beside them, because a store counts a retirement as it drops records and writes a trim only when it
+reclaims the space, so an empty `trims` array beside a nonzero total is a whole statement about a
+deployment that has shed receipts without yet compacting its file. An empty store reports the zero window,
+`from` and `to` and `count` all zero, and `heldSeconds` is zero for it rather than the distance from the
+epoch, because a deployment that has never issued a receipt has not kept one for six months, it has kept
+nothing.
+
+**The two endpoints, and why they are repeated here.** A pack carries an anchor and a head inside its
+signature, and this manifest names the same two values again from the same store. It does not defer to a
+pack, because there is nothing to defer to: the published pack manifest names six members, `v`, `at`,
+`span`, `chain`, `duty` and `items`, and none of them is this document or a digest of it, so a reader
+holding a pack has no endpoint to inherit. Repeating them is also what the artifact's own bytes do, and a
+layout that referred a reader elsewhere to find them would be publishing a shape nothing produces. Where
+both artifacts describe one store at one instant the pairs have to agree, and a pair here that disagrees
+with a signed pack is evidence about the manifest rather than about the chain, because one is inside a
+signature and the other is not. A later version of either format may drop the block here in favour of a
+pack that names the file it authenticates; until one does, this artifact states the endpoints itself.
+
+**The duty, and the three labels.** `duty.article` names which obligation the manifest answers: `19(1)`
+requires a provider to keep the logs a high-risk system generates, `19(2)` and `26(6)` maintain those logs
+as part of the documentation a financial institution keeps under applicable Union financial-services law
+instead, where the period is longer and is not this estate's to name. The three labels are the closed set
+the shipped writer admits, which is why they are enumerated in the schema;
+`packages/receipt/schemas/pack-v1.schema.json` deliberately leaves its own duty label a plain string
+because the registry is a reader's question rather than that format's, so the two artifacts take opposite
+stances on that one question and neither is a mistake.
+
+**Why no period is enforced here.** `duty.requiredSeconds` is bounded by nothing but being a positive
+integer, and that is a decision rather than an omission. Article 19(1) asks for a period appropriate to the
+intended purpose of the system, of at least six months, and it yields to applicable Union or national law,
+in particular in Union law on the protection of personal data, which can move what a deployment owes in
+either direction. A layout that refused a manifest whose period sat below six months would overrule a
+lawful reading with a number this estate owns, which is the same error as printing a duty the customer is
+not under, pointed the other way. For a routed article the number is the deployment's own to supply and
+nothing here can check it. What this repository does hold itself out as publishing is a default of its own:
+`MINIMUM_RETENTION_SECONDS` in `gateway/src/store.ts` is 15897600 seconds, 184 days, six months rounded up
+to whole days so a window configured with it is never shorter than the floor it answers to. That is a
+configuration a deployment may raise or replace, not a bound a manifest can be malformed by, and a test
+compares the number written in this section against the constant that decides it rather than leaving this
+sentence to vouch for itself.
+
+**What a valid manifest does not establish.** `duty.met` is the comparison of two integers printed beside
+them, and a reader with the file can recompute it in one step, which is the only reason it may be stated.
+It is not a finding that a duty was discharged. Whether a per-request receipt is a log the named article
+requires turns on the system and the actor, and no member here settles either; where the article is routed,
+the period is a claim about a body of law this repository does not interpret. The pack format leaves its
+equivalent conclusion out for exactly that reason, so the two artifacts differ on whether to state it, and
+a reader should take `met` as arithmetic and the four integers behind it as the evidence.
+
+**The rules between members that no keyword reaches.** These are stated here because the layout cannot hold
+them: `heldSeconds` is `at` less `retained.from`, or zero when `count` is zero; `met` is
+`heldSeconds >= requiredSeconds`; every trim event's `at` is no later than the manifest's `at`; and
+`retained.from` is at or after the older edge implied by whatever `maxAgeSeconds` was in force, which a
+reader can only check event by event because the bounds move. A document that satisfies the schema and
+contradicts one of these is a malformed manifest read as a whole, not a deployment that failed to hold what
+it promised, and keeping those two answers apart is the reason the layout is public.
+
 ## 6. Versioning
 
 Two payload versions are defined. `v: 1` is section 3's thirteen fields, and `v: 2` is those same
