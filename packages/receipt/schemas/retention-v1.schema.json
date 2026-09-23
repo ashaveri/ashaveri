@@ -1,0 +1,185 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://ashaveri.com/schemas/retention.json",
+  "title": "Ashaveri Retention Manifest (v1)",
+  "description": "The layout of a retention manifest: the one artifact that states what a deployment kept, what it retired, and how long it has actually held what remains. Unlike the receipt and the pack, this document is not signed. It is a JSON file a deployment writes about its own store, and a reader verifies it by recomputation against the chain the pack publishes rather than by a signature over it, which is why every member below has exactly one source and none of them is a second opinion about something the store already knows. Nothing in this repository writes or reads this document today, so this file is the layout a reader checks an artifact against, not a description of a thing that runs here. The map is closed, as the receipt and pack twins close their signed maps: a member `v: 1` does not define is a malformed manifest, not a member a reader agreed to forget, and the same holds of every block below it. On the two chain endpoints: `chain` repeats the anchor and the head here, in this artifact's own words, rather than deferring to the pack that may carry the same store's state. That is what the shipped writer does, it is what the bytes say, and it is the honest reading for a document that travels alone, because the published pack manifest (`packages/receipt/pack.cddl`) names six members and none of them is this manifest or a digest of it, so a reader holding a pack has nothing to inherit these two values from. Where both artifacts describe one store at one instant the two pairs have to agree, and that agreement is a reader's check rather than a keyword: a pack's endpoints are inside a signature and this manifest's are not, so a pair here that disagrees with a pack's is evidence about the manifest, not about the chain. A later version may drop this block in favour of a pack that names the file it authenticates; until one does, dropping it would publish a layout that refers a reader to a container that says nothing about them. On the duty: `duty.met` is the arithmetic the writer performed on the two integers beside it, `heldSeconds >= requiredSeconds`, and it is not a conclusion about a legal duty. The pack format leaves its equivalent out on purpose and this artifact states it, which is a difference between the two documents rather than an oversight in one of them. Where the duty is routed to applicable Union financial-services law, the period is the deployment's to state and this estate supplies no default for it, so `requiredSeconds` is a claim about the deployment's reading of that law and nothing here can check it; the floor bound on Article 19(1) is the one period this repository does check, and it is stated below because it is a number this estate owns.",
+  "type": "object",
+  "required": ["v", "at", "policy", "retained", "retired", "chain", "duty"],
+  "additionalProperties": false,
+  "properties": {
+    "v": {
+      "const": 1,
+      "description": "Format version. Exactly one version is defined, so this is a constant rather than a discriminant and a document naming another version is not this one. A reader refuses a version it does not know."
+    },
+    "at": {
+      "type": "integer",
+      "minimum": 0,
+      "description": "Unix seconds, the instant generation began. Stamped before the store is read rather than after it, so a slow store cannot make the manifest claim a later time than the window it describes; `duty.heldSeconds` is measured against this instant and nothing else."
+    },
+    "policy": {
+      "$ref": "#/$defs/policyState",
+      "description": "The retention configuration the deployment was opened with, as an intention rather than a fact: the bounds it asked the store to enforce. Absent means no such bound configured, which is not the same document as a bound of zero. The store's own clock is deliberately not here, because one clock governs the retirement and a manifest stamped from a second one would report a window the configuration that produced it cannot reproduce."
+    },
+    "retained": {
+      "$ref": "#/$defs/window",
+      "description": "What the store holds right now, reported by the store itself and copied verbatim: the earliest and latest stamps surviving and how many records they cover. This is the survivor set, so it says nothing about why anything is missing from it, which is what `retired` is for."
+    },
+    "retired": {
+      "$ref": "#/$defs/retired",
+      "description": "What left, in total and event by event, and under which bound it left. The only place the deployment says which bound removed what."
+    },
+    "chain": {
+      "$ref": "#/$defs/chain",
+      "description": "The two endpoints a reader walks between, stated here as the store reports them. See the header for why this artifact repeats them rather than deferring to a pack."
+    },
+    "duty": {
+      "$ref": "#/$defs/duty",
+      "description": "The article the manifest is written against, the period it takes that article to require, the time actually held, and the comparison of the last two."
+    }
+  },
+  "$defs": {
+    "policyState": {
+      "type": "object",
+      "required": [],
+      "properties": {
+        "maxAgeSeconds": {
+          "type": "integer",
+          "minimum": 0,
+          "description": "A receipt is served while its issuance stamp is at or after `at` less this many seconds. Absent means no age bound configured; zero is a bound that keeps effectively nothing, and a reader has to tell the two apart."
+        },
+        "maxCount": {
+          "type": "integer",
+          "minimum": 0,
+          "description": "How many receipts are served. Absent means no count bound configured. This bound closes a long window sooner than the age bound does, which is why both travel with every trim."
+        }
+      },
+      "additionalProperties": false,
+      "description": "A retention policy as the artifact states it: an absent bound means no cap rather than zero. The same pair of members appears at the top level, where it is what the deployment configured, and inside each trim, where it is what was in force at that compaction."
+    },
+    "window": {
+      "type": "object",
+      "required": ["from", "to", "count"],
+      "properties": {
+        "from": {
+          "type": "integer",
+          "minimum": 0,
+          "description": "Unix seconds, inclusive: the oldest issuance stamp still held. Zero with a `count` of zero is an empty store reporting the zero window, and `at` less that zero is not a measurement of how long anything has been held."
+        },
+        "to": {
+          "type": "integer",
+          "minimum": 0,
+          "description": "Unix seconds, inclusive: the newest issuance stamp still held. Both edges of a window the store served, which is not the half-open interval a pack answers for."
+        },
+        "count": {
+          "type": "integer",
+          "minimum": 0,
+          "description": "How many receipts are held between the two stamps. The member that decides whether `from` means anything, and the one a reader compares against the totals in `retired`."
+        }
+      },
+      "additionalProperties": false,
+      "description": "The surviving set, bounded by the stamps actually on the volume rather than by the bounds configured."
+    },
+    "retired": {
+      "type": "object",
+      "required": ["byAge", "byCount", "trims"],
+      "properties": {
+        "byAge": {
+          "type": "integer",
+          "minimum": 0,
+          "description": "Receipts retired because they fell past the age bound, including those dropped before any compaction wrote them down."
+        },
+        "byCount": {
+          "type": "integer",
+          "minimum": 0,
+          "description": "Receipts retired because the count bound evicted them, on the same basis."
+        },
+        "trims": {
+          "type": "array",
+          "items": { "$ref": "#/$defs/trimEvent" },
+          "description": "One entry per compaction, in the order the store wrote them, oldest first. An empty array means nothing has been compacted yet, which is a statement about the file rather than about the totals beside it: retirement happens as the store drops records, and a trim is only written when space is reclaimed."
+        }
+      },
+      "additionalProperties": false,
+      "description": "The retirement history: two totals by cause and the events behind them. A `window()` report cannot supply any of it, because the survivors carry no record of why their neighbours are gone."
+    },
+    "trimEvent": {
+      "type": "object",
+      "required": ["at", "byAge", "byCount", "under"],
+      "properties": {
+        "at": {
+          "type": "integer",
+          "minimum": 0,
+          "description": "Unix seconds, the stamp the compaction wrote."
+        },
+        "byAge": {
+          "type": "integer",
+          "minimum": 0,
+          "description": "How many receipts that one compaction removed for age."
+        },
+        "byCount": {
+          "type": "integer",
+          "minimum": 0,
+          "description": "How many it removed for count."
+        },
+        "under": {
+          "$ref": "#/$defs/policyState",
+          "description": "The bounds in force at that compaction, read off the trim record's own payload rather than out of memory, so an event survives a later reconfiguration of the store. This is why a long-ago trim can be read without knowing what the deployment was configured to do at the time."
+        }
+      },
+      "additionalProperties": false,
+      "description": "One compaction, with the policy that caused it. Each entry corresponds to one trim record at the front of the store's file, whose payload layout and byte offsets section 5.2 publishes; that record stores an unconfigured bound as zero, while this artifact stores it by leaving the member out, so a reader moving between the two media has to convert that one thing and nothing else."
+    },
+    "chain": {
+      "type": "object",
+      "required": ["anchor", "head"],
+      "properties": {
+        "anchor": {
+          "type": "string",
+          "pattern": "^[0-9a-f]{64}$",
+          "description": "The digest the oldest retained receipt was chained from: thirty-two zero bytes before any retirement, otherwise the seam a trim record carried. Lowercase hex, which is how this estate writes bytes it means a reader to compare."
+        },
+        "head": {
+          "type": "string",
+          "pattern": "^[0-9a-f]{64}$",
+          "description": "The digest of the last receipt in the chain. Stating it is what makes deletion detectable, because a run of receipts the reader was never handed leaves the walk short of this value."
+        }
+      },
+      "additionalProperties": false,
+      "description": "Both endpoints, as the store reports them at `at`. Neither is derivable from this artifact, which carries no receipts."
+    },
+    "duty": {
+      "type": "object",
+      "required": ["article", "requiredSeconds", "heldSeconds", "met"],
+      "properties": {
+        "article": {
+          "type": "string",
+          "enum": ["19(1)", "19(2)", "26(6)"],
+          "description": "Which obligation the manifest is written against. The three labels are the closed set the shipped writer's own type admits, which is why they are an enum here; the pack container deliberately leaves its equivalent a plain string because the duty registry is a reader's question rather than that format's, so the two artifacts take opposite stances on one question and a reader should know it. 19(2) and 26(6) route a financial institution's logs into applicable Union financial-services law, where the applicable period is longer and is not this estate's to name."
+        },
+        "requiredSeconds": {
+          "type": "integer",
+          "minimum": 1,
+          "description": "Seconds the deployment takes that article to require. For 19(1) the statute supplies a floor and the value may not sit below it, which is the conditional bound stated below and the only period checked here; for a routed article the number is the deployment's own to supply and a reader who cannot see where it came from has the article label to ask it of."
+        },
+        "heldSeconds": {
+          "type": "integer",
+          "minimum": 0,
+          "description": "Seconds the store has held the oldest receipt it retains, measured at `at`: `at` less `retained.from`, and zero for an empty store rather than a subtraction from the epoch, because a deployment that has never issued a receipt has not held anything for six months, it has held nothing."
+        },
+        "met": {
+          "type": "boolean",
+          "description": "Whether `heldSeconds` is at least `requiredSeconds`, computed by the writer. This is arithmetic over the two integers above it and a reader with a copy of the file can recompute it in one comparison, which is the only reason it may be stated at all: nothing here concludes that a duty was discharged, because whether a per-request receipt is a log the named article requires turns on the system and the actor, and neither is settled by this document."
+        }
+      },
+      "additionalProperties": false,
+      "if": {
+        "properties": { "article": { "const": "19(1)" } },
+        "required": ["article"]
+      },
+      "then": {
+        "properties": { "requiredSeconds": { "type": "integer", "minimum": 15897600 } }
+      },
+      "description": "The duty, the period taken from it, the time actually held, and the comparison of the last two. The map is closed and the conditional bound is executable, so a manifest that answers Article 19(1) with a period shorter than the six-month floor is malformed rather than a claim a reader has to catch by hand: 15897600 seconds is 184 days, the floor `gateway/src/store.ts` publishes as `MINIMUM_RETENTION_SECONDS` rounded up to whole days past the shortest six months, and the two spellings are checked against each other by a test rather than by this sentence."
+    }
+  }
+}
