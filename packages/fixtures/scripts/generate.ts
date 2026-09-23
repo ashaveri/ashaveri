@@ -1,5 +1,4 @@
-import { ed25519 } from '@noble/curves/ed25519';
-import { sha256, sha384 } from '@noble/hashes/sha2.js';
+import { sha256 } from '@noble/hashes/sha2.js';
 import {
   issueReceipt,
   receiptToJson,
@@ -7,56 +6,18 @@ import {
   encodePayload,
   signCoseSign1,
   type ReceiptPayloadV2,
-  type SigningKey,
-  type ReceiptPayloadV1,
 } from '@ashaveri/receipt';
 import { writeFileSync, mkdirSync } from 'node:fs';
 import { join, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { labeled } from './seed.ts';
 import { markedBuffered } from './marking-shapes.ts';
+import { fixtureKey, fixturePayload } from './receipt-envelope.ts';
 
 const DATA = join(dirname(fileURLToPath(import.meta.url)), '..', 'data');
 
 function toHex(bytes: Uint8Array): string {
   return Array.from(bytes, (b) => b.toString(16).padStart(2, '0')).join('');
-}
-
-function fixtureKey(): SigningKey {
-  const privateKey = labeled('ashaveri-fixtures/receipt-key/v1');
-  const publicKey = ed25519.getPublicKey(privateKey);
-  return { privateKey, publicKey, kid: sha256(publicKey) };
-}
-
-const FIXED_IAT = 1_772_000_000;
-
-/**
- * The v1 field set every published receipt fixture starts from, so the helper names that version
- * rather than the union. `v` is pinned in the literal below and an override cannot move a published
- * fixture into a format its bytes never claimed: the one v2 fixture states `v: 2` at its own call
- * site, beside the `mk` that makes it a v2, and never reaches for it through here.
- */
-function fixturePayload(overrides: Partial<ReceiptPayloadV1> = {}): ReceiptPayloadV1 {
-  return {
-    v: 1,
-    iss: 'dpl-9f2a41c3',
-    ins: 'cvm-i-047f2a',
-    iat: FIXED_IAT,
-    nce: labeled('ashaveri-fixtures/nonce/v1', 16),
-    req: labeled('ashaveri-fixtures/request/v1'),
-    res: labeled('ashaveri-fixtures/response/v1'),
-    mdl: 'meta-llama/Llama-3.1-8B-Instruct',
-    wts: labeled('ashaveri-fixtures/manifest/v1'),
-    meas: { tee: 'snp+gpucc', m: sha384(new TextEncoder().encode('ashaveri-fixtures/measurement/v1')) },
-    att: {
-      d: labeled('ashaveri-fixtures/evidence/v1'),
-      ts: FIXED_IAT - 60,
-      url: 'https://inference.ashaveri.com/v1/attestation',
-    },
-    epk: 1,
-    tok: { p: 128, c: 64 },
-    ...overrides,
-  };
 }
 
 function main() {
