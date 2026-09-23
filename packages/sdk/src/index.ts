@@ -58,6 +58,22 @@ export type {
   PolicyFileTrustAnchors,
   PolicyTrustAnchor,
 } from './policy-file.js';
+export { assessCapture, CAPTURE_FORMAT_VERSION, captureRecordKey, parseCaptureRecord } from './capture.js';
+export type {
+  AssessCaptureParams,
+  CaptureAbsent,
+  CaptureAppliedLimits,
+  CaptureDeclaredAbsence,
+  CaptureHeld,
+  CapturePresence,
+  CaptureRecord,
+  CaptureRootReference,
+  CaptureSink,
+  CaptureSlot,
+  CaptureSourceKind,
+  CaptureVerdict,
+  CaptureWriteOutcome,
+} from './capture.js';
 export { SdkError, sdkError } from './errors.js';
 export type { SdkErrorCode } from './errors.js';
 export { fromBase64Url, toBase64Url, toHex } from './b64.js';

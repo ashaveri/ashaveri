@@ -1,7 +1,7 @@
 # Error codes
 
 Every error code this workspace raises, what condition raises it, and what a caller should do
-about it. There are 103 declarations across seven unions, resolving to 101 distinct strings;
+about it. There are 105 declarations across seven unions, resolving to 103 distinct strings;
 `UNSUPPORTED_PLATFORM` and `UNSUPPORTED_VERSION` are the two strings two unions share, and the last
 section says why those pairs are deliberate while every other overlap is not.
 
@@ -67,6 +67,8 @@ The seven unions:
 | `MEASUREMENT_NOT_ALLOWED` | `SdkErrorCode` | The measurement is not pinned for that `tee` | Refuse, or add the digest after re-building the image and re-measuring | terminal |
 | `GATEWAY_ERROR` | `SdkErrorCode` | A request to the gateway failed, returned a non-2xx status, or returned a body that is not a chat completion. `wrapOpenAI` raises it one step earlier too, when the client object it was handed has no `fetch` to wrap, so no request was attempted | Retry at a higher level if the operation allows it; a non-JSON body can also mean an intermediary answered | retryable |
 | `NOT_RECEIPTED` | `SdkErrorCode` | The gateway answered without a receipt header | Refuse; an unreceipted response is not a completion this format can prove | terminal |
+| `NOT_CAPTURE_RECORD` | `SdkErrorCode` | A capture record whose members are not the ones the published layout defines, in shape or in value | Refuse; a record that cannot be read is not evidence, and the raise site names the member it stopped at | terminal |
+| `CAPTURE_SIGNATURE_NOT_CARRIED` | `SdkErrorCode` | A record claiming a signature from its source while its signature slot declares none held | Refuse; the claim and the bytes disagree, so nothing downstream can say what was signed | terminal |
 | `EVIDENCE_NOT_FOUND` | `SdkErrorCode` | The evidence or device route still 404s after the retry window | Treat as a refusal for this response. A deployment that never answers the device route cannot back a composite claim | terminal |
 | `EVIDENCE_NOT_HARDWARE` | `SdkErrorCode` | Strict mode was asked of a receipt declaring `tee: 'software'` | Do not retry: it claims no hardware, so no evidence endpoint could ever satisfy it | terminal |
 | `EVIDENCE_NO_TRUST_ANCHORS` | `SdkErrorCode` | No pinned root is configured for that platform, or none for the device leg | Configure anchors. Without one the signature cannot be checked offline, which is the whole point of strict mode | terminal |

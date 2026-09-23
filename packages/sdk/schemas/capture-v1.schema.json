@@ -1,0 +1,235 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://ashaveri.com/schemas/capture-v1.json",
+  "title": "Ashaveri Evidence Capture (v1)",
+  "description": "One piece of evidence's exact original bytes, held as they arrived, beside the context that made them verifiable at the instant they were taken in: the source they came from, our own acquisition time, the manifests the source served, the policy, verifier and format versions the check ran under, the signed collateral and validity context the bytes were appraised in, the trust references relied on, and the binding limits the verdict was reached under. A receipt points at its evidence with a digest, a timestamp and a URL, and a digest of a document nobody retained proves a hash existed rather than that the evidence survived; this document is what has to be handed over so that claim can be checked by somebody who does not trust the party that made it. Nothing writes one yet: this is the layout a collector has to be written against and the reading `readCaptureRecord` and `assessCapture` in `packages/sdk/src/capture.ts` refuse. The shape is strict in both directions on purpose, as the policy document beside it is. Every block closes: a member the version names makes the document invalid rather than a document read with the unexpected member dropped, because a collector that wrote a field no reader knows was answering a question this record cannot ask. Absence is carried as a state, never as an omission: every context member says whether it is held, whether the source never produced it, or whether the collector failed to take it in, and those three are different outcomes that a reader must not merge. There is deliberately no verdict field anywhere in this document, and none is defined for a future version to add: custody of bytes and their digest is what the writer asserts, and whether the signature over them holds is a check a reader repeats with its own pinned roots. A record that stated its own verification would let that assertion be read as the check.",
+  "type": "object",
+  "required": ["v", "original", "acquired", "manifests", "check", "context", "trust"],
+  "additionalProperties": false,
+  "properties": {
+    "v": {
+      "const": 1,
+      "description": "Capture format version. A reader refuses a version it does not implement rather than reading the record as its own."
+    },
+    "original": {
+      "type": "object",
+      "required": ["sourceKind", "sourceId", "bytes", "sha256", "byteCount", "signedBySource", "signatureEmbedded"],
+      "additionalProperties": false,
+      "description": "The bytes themselves, and what is claimed about them. Held as they arrived: no step between a source and this member may re-encode them, because a signature checked over a re-encoded document is checked over a document the source never produced.",
+      "properties": {
+        "sourceKind": {
+          "enum": ["platform-evidence", "device-evidence", "deployment-manifest", "receipt"],
+          "description": "Which of this estate's sources produced the bytes. A closed set: a new source arrives as a new capture version, because a reader that fell through an unknown kind to its default handling would assess a document it holds no rules for."
+        },
+        "sourceId": {
+          "type": "string",
+          "minLength": 1,
+          "description": "The source's own name for itself as it served the bytes, an instance id or an endpoint. What the bytes are claimed to come from, not proof they did."
+        },
+        "bytes": {
+          "type": "string",
+          "pattern": "^[A-Za-z0-9_-]*$",
+          "description": "Unpadded base64url of the exact bytes as they arrived, in the one spelling that decodes back to them: the tail bits of a short last group are free, and a record written by a second encoder can carry the same bytes in a spelling no reader reproduces."
+        },
+        "sha256": {
+          "$ref": "#/$defs/digest",
+          "description": "SHA-256 of exactly those bytes, and nothing else. A reader recomputes it and refuses the record when the two disagree, which is what makes a structurally equivalent re-serialization a refusal rather than an equal."
+        },
+        "byteCount": {
+          "type": "integer",
+          "minimum": 0,
+          "description": "How many bytes `bytes` decodes to. Stated so that a reader can name the disagreement when a record says one length and carries another."
+        },
+        "signedBySource": {
+          "type": "boolean",
+          "description": "Our assertion that the source signed these bytes. Stated either way rather than left out, because an omitted claim and a denied one are different records. Nothing here says the signature holds."
+        },
+        "signatureEmbedded": {
+          "type": "boolean",
+          "description": "True when the signature travels inside `bytes`, as a COSE_Sign1 carries its own, and false when the source served it apart. Read together with signedBySource this decides whether a signature slot has to be held, so a record cannot claim a signature and carry none."
+        },
+        "signature": {
+          "$ref": "#/$defs/slot",
+          "description": "The detached signature, and the presence state of it. Only a record that claims a signature it does not carry inside its bytes has one, and only one whose slot says held is a record that carries it."
+        }
+      }
+    },
+    "acquired": {
+      "type": "object",
+      "required": ["at", "sourceStatedAt"],
+      "additionalProperties": false,
+      "description": "When the bytes came into our hands, on our clock, kept apart from when the source says they were made. Both are stated because the two disagreeing is information, and one number could not hold it.",
+      "properties": {
+        "at": {
+          "type": "integer",
+          "minimum": 0,
+          "description": "Unix seconds on the collector's clock at the instant the bytes were taken in. This is the stamp our own claim of custody is dated by, and it is not the source's."
+        },
+        "sourceStatedAt": {
+          "type": ["integer", "null"],
+          "minimum": 0,
+          "description": "Unix seconds, the timestamp the source claimed for these bytes, or null when the source claimed none. A claim, and the one a reader is not asked to believe: it is here so that a document dated after it was collected is visible rather than smoothed over."
+        }
+      }
+    },
+    "manifests": {
+      "type": "object",
+      "required": ["deployment"],
+      "additionalProperties": false,
+      "description": "The original manifests the source served at that instant, as they arrived. One role because this estate serves one deployment manifest; a second role is a new version rather than an extra member, since a reader that ignored one would be silent about what it did not look at.",
+      "properties": {
+        "deployment": {
+          "$ref": "#/$defs/slot",
+          "description": "The document at `/deployment-manifest` as served. The manifest is what pins are read from, so a capture without it says so in one of the two honest ways."
+        }
+      }
+    },
+    "check": {
+      "type": "object",
+      "required": ["policyVersion", "policyDigest", "receiptFormatVersion", "verifierVersion", "appraisedAt"],
+      "additionalProperties": false,
+      "description": "The rules the check ran under, as versions and as a digest. This block is what lets a verdict drawn in 2027 be read against the rules it was reached under rather than against whatever is current on the day somebody opens the record.",
+      "properties": {
+        "policyVersion": {
+          "const": 1,
+          "description": "Which verification policy document version the check read. The reader implements one and refuses a record that names another."
+        },
+        "policyDigest": {
+          "type": ["string", "null"],
+          "pattern": "^[0-9a-f]{64}$",
+          "description": "SHA-256 of the policy document the check actually loaded, in its canonical re-encoding, or null when the check ran with no policy file at all. A reader may conclude which pins were in force and no more."
+        },
+        "receiptFormatVersion": {
+          "enum": [1, 2],
+          "description": "Which receipt format version the check read. The version decides which members exist, so a verdict about a v1 document is not a verdict about a v2 one and a record has to say which it answered for."
+        },
+        "verifierVersion": {
+          "type": "string",
+          "minLength": 1,
+          "description": "Which verifier build ran the check. An attribution of a procedure, not a claim that the procedure was right: a reader re-runs it rather than trusting this string."
+        },
+        "appraisedAt": {
+          "type": "integer",
+          "minimum": 0,
+          "description": "Unix seconds on the collector's clock when the appraisal of this context ran. A reader refuses to place a record whose appraisal precedes its acquisition, and reports it unassessed."
+        }
+      }
+    },
+    "context": {
+      "type": "object",
+      "required": ["collateral", "validity"],
+      "additionalProperties": false,
+      "description": "What the bytes were appraised against. Both members are required and both carry a presence state, because a reader's verdict is only as good as what it can see was left out, and silence is not a state.",
+      "properties": {
+        "collateral": {
+          "$ref": "#/$defs/slot",
+          "description": "The signed collateral: the vendor certificate chain the platform report was chained to, as the source served it. A record holding none, or saying the source never produced one, reads as qualified or unassessed, and never as a pass."
+        },
+        "validity": {
+          "$ref": "#/$defs/slot",
+          "description": "The validity context the collateral was appraised in: the window and the appraisal a verifier recorded at that instant. Validity is a function of the day an appraisal ran, so a verdict without it is a verdict about nothing in particular."
+        }
+      }
+    },
+    "trust": {
+      "type": "object",
+      "required": ["roots", "limits"],
+      "additionalProperties": false,
+      "description": "Who the check was willing to believe, and how far it was willing to lean on a clock. Both are read against the caller's own pins by the reader rather than accepted, which is the whole point of a stranger being able to run this record.",
+      "properties": {
+        "roots": {
+          "type": "array",
+          "description": "The trust references the verdict relied on, one entry per vendor family consulted. An empty list says the check consulted none, which for any document claiming a signature is a record of an unverified signature.",
+          "items": {
+            "type": "object",
+            "required": ["family", "digest"],
+            "additionalProperties": false,
+            "properties": {
+              "family": {
+                "enum": ["amdArks", "intelSgxRoots", "nvidiaRoots"],
+                "description": "Which vendor family, named exactly as a pinning policy names it."
+              },
+              "digest": {
+                "type": ["string", "null"],
+                "pattern": "^[0-9a-f]{64}$",
+                "description": "SHA-256 of the root bytes the check used, or null when it used a root bundled by its own library and did not name it. A reader compares it against the caller's pinned roots and never against a default of its own."
+              }
+            }
+          }
+        },
+        "limits": {
+          "type": "object",
+          "required": ["maxReceiptAgeSeconds", "maxEvidenceAgeSeconds"],
+          "additionalProperties": false,
+          "description": "The binding limits the verdict was reached under, with the policy document's two readings: a number, or null for the window nobody set. The reader runs its own windows and reports a disagreement rather than inheriting this one.",
+          "properties": {
+            "maxReceiptAgeSeconds": {
+              "type": ["integer", "null"],
+              "minimum": 1,
+              "description": "How far a receipt's issuance stamp was allowed to sit from the checking clock."
+            },
+            "maxEvidenceAgeSeconds": {
+              "type": ["integer", "null"],
+              "minimum": 1,
+              "description": "How far the evidence timestamp was allowed to sit from the checking clock."
+            }
+          }
+        }
+      }
+    }
+  },
+  "$defs": {
+    "digest": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{64}$",
+      "description": "A SHA-256 digest, lowercase hex, 64 characters."
+    },
+    "held": {
+      "type": "object",
+      "required": ["presence", "bytes", "sha256", "byteCount"],
+      "additionalProperties": false,
+      "description": "A context member this record holds, as the bytes that arrived and the digest of exactly those bytes.",
+      "properties": {
+        "presence": {
+          "const": "held",
+          "description": "We have it."
+        },
+        "bytes": {
+          "type": "string",
+          "pattern": "^[A-Za-z0-9_-]*$",
+          "description": "Unpadded base64url of the bytes as they arrived, in the one spelling that decodes back to them."
+        },
+        "sha256": {
+          "$ref": "#/$defs/digest",
+          "description": "SHA-256 of those bytes. Recomputed by a reader, never read off this member."
+        },
+        "byteCount": {
+          "type": "integer",
+          "minimum": 0,
+          "description": "How many bytes `bytes` decodes to."
+        }
+      }
+    },
+    "absent": {
+      "type": "object",
+      "required": ["presence", "reason"],
+      "additionalProperties": false,
+      "description": "A context member this record does not hold, and which of the two reasons applies. A reason is required: an absence nobody explained is indistinguishable from a hole, and the record exists to keep those apart.",
+      "properties": {
+        "presence": {
+          "enum": ["absent-at-source", "not-taken-in"],
+          "description": "`absent-at-source` is a statement about the world: this source never produced it. `not-taken-in` is a statement about the collector: it may have existed and nobody put it in the record. They read differently and a reader reports them apart, the first as a qualified verdict and the second as unassessed."
+        },
+        "reason": {
+          "type": "string",
+          "minLength": 1,
+          "description": "One line in the collector's own words about what it saw."
+        }
+      }
+    },
+    "slot": {
+      "oneOf": [{ "$ref": "#/$defs/held" }, { "$ref": "#/$defs/absent" }],
+      "description": "One piece of context and its presence state. The three states are exhaustive and closed, so every absence in a capture record is one somebody wrote down."
+    }
+  }
+}

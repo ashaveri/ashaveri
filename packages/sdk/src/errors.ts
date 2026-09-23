@@ -10,6 +10,13 @@ export type SdkErrorCode =
   | 'MEASUREMENT_NOT_ALLOWED'
   | 'GATEWAY_ERROR'
   | 'NOT_RECEIPTED'
+  // A capture record. Both answer the question of what a reader was told to read and did not
+  // get, and both sit beside NOT_RECEIPTED for that reason. Neither is it, because a capture
+  // record is not a receipt, and the second is a contradiction between a claim and the bytes
+  // beside it rather than a shape problem a re-encode could fix. A comment inside a declared
+  // union carries no semicolon, because the document contract reads a union to its first one.
+  | 'NOT_CAPTURE_RECORD'
+  | 'CAPTURE_SIGNATURE_NOT_CARRIED'
   // Strict mode only: the hardware evidence behind a receipt. Listed in the order
   // the checks run, so the code identifies the stage that rejected the document.
   | 'EVIDENCE_NOT_FOUND'
