@@ -15,6 +15,7 @@ export {
   equalBytes,
 } from './cose.js';
 export type { SigningKey, ProtectedHeader, CoseSign1 } from './cose.js';
+export { DEPLOYMENT_MANIFEST_CONTENT_TYPE, isSealedDeploymentManifest, sealDeploymentManifest, decodeSealedDeploymentManifest, verifySealedDeploymentManifest, type ManifestSeal } from './manifest-seal.js';
 export { toBase64Url, fromBase64Url } from './b64.js';
 export {
   POP_SCHEME,

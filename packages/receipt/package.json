@@ -16,6 +16,7 @@
     "dist",
     "receipt.cddl",
     "pack.cddl",
+    "manifest.cddl",
     "schemas"
   ],
   "scripts": {
