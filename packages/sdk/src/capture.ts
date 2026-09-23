@@ -226,7 +226,7 @@ function describe(value: unknown): string {
 
 function requireObject(value: unknown, where: string): Record<string, unknown> {
   if (typeof value !== 'object' || value === null || Array.isArray(value)) {
-    return refused('NOT_RECEIPTED', `${where} is ${describe(value)}, which is not a member block of a capture record`);
+    return refused('NOT_CAPTURE_RECORD', `${where} is ${describe(value)}, which is not a member block of a capture record`);
   }
   return value as Record<string, unknown>;
 }
@@ -242,7 +242,7 @@ function requireKnownMembers(raw: Record<string, unknown>, allowed: readonly str
   for (const member of Object.keys(raw)) {
     if (!allowed.includes(member)) {
       refused(
-        'NOT_RECEIPTED',
+        'NOT_CAPTURE_RECORD',
         `${where} carries '${member}', which capture version ${CAPTURE_FORMAT_VERSION} does not define`,
       );
     }
@@ -252,7 +252,7 @@ function requireKnownMembers(raw: Record<string, unknown>, allowed: readonly str
 function requireText(raw: Record<string, unknown>, key: string, where: string): string {
   const value = raw[key];
   if (typeof value !== 'string' || value.length === 0) {
-    refused('NOT_RECEIPTED', `${where}.${key} is ${describe(value)}, and a record has to name it`);
+    refused('NOT_CAPTURE_RECORD', `${where}.${key} is ${describe(value)}, and a record has to name it`);
   }
   return value;
 }
@@ -260,7 +260,7 @@ function requireText(raw: Record<string, unknown>, key: string, where: string): 
 function requireWhole(raw: Record<string, unknown>, key: string, where: string, what: string): number {
   const value = raw[key];
   if (typeof value !== 'number' || !Number.isSafeInteger(value) || value < 0) {
-    refused('NOT_RECEIPTED', `${where}.${key} is ${describe(value)}, and ${what} is a non-negative whole number`);
+    refused('NOT_CAPTURE_RECORD', `${where}.${key} is ${describe(value)}, and ${what} is a non-negative whole number`);
   }
   return value;
 }
@@ -273,7 +273,7 @@ function requireOrNullWhole(raw: Record<string, unknown>, key: string, where: st
 function requireBoolean(raw: Record<string, unknown>, key: string, where: string): boolean {
   const value = raw[key];
   if (typeof value !== 'boolean') {
-    refused('NOT_RECEIPTED', `${where}.${key} is ${describe(value)}: this record states it either way rather than leaving it out`);
+    refused('NOT_CAPTURE_RECORD', `${where}.${key} is ${describe(value)}: this record states it either way rather than leaving it out`);
   }
   return value;
 }
@@ -315,23 +315,23 @@ function readSlot(value: unknown, where: string): CaptureSlot {
   const raw = requireObject(value, where);
   for (const member of Object.keys(raw)) {
     if (!SLOT_MEMBERS.includes(member)) {
-      refused('NOT_RECEIPTED', `${where} carries '${member}', which no presence state of this record defines`);
+      refused('NOT_CAPTURE_RECORD', `${where} carries '${member}', which no presence state of this record defines`);
     }
   }
   const presence = raw['presence'];
   if (presence !== 'held' && presence !== 'absent-at-source' && presence !== 'not-taken-in') {
-    refused('NOT_RECEIPTED', `${where} states presence ${describe(presence)}, which is none of the three states context has`);
+    refused('NOT_CAPTURE_RECORD', `${where} states presence ${describe(presence)}, which is none of the three states context has`);
   }
   if (presence !== 'held') {
     const reason = raw['reason'];
     if (typeof reason !== 'string' || reason.length === 0) {
-      refused('NOT_RECEIPTED', `${where} is ${presence} and gives no reason, so the absence is silent`);
+      refused('NOT_CAPTURE_RECORD', `${where} is ${presence} and gives no reason, so the absence is silent`);
     }
     return { presence, reason };
   }
   const bytes = raw['bytes'];
   if (typeof bytes !== 'string') {
-    refused('NOT_RECEIPTED', `${where} declares itself held and carries no bytes to hold`);
+    refused('NOT_CAPTURE_RECORD', `${where} declares itself held and carries no bytes to hold`);
   }
   return {
     presence: 'held',
@@ -365,10 +365,10 @@ function decodeStated(stated: StatedBytes, where: string): Uint8Array {
   try {
     bytes = fromBase64Url(stated.bytes);
   } catch (err) {
-    return refused('NOT_RECEIPTED', `${where} holds ${err instanceof Error ? err.message : String(err)} where bytes belong`);
+    return refused('NOT_CAPTURE_RECORD', `${where} holds ${err instanceof Error ? err.message : String(err)} where bytes belong`);
   }
   if (toBase64Url(bytes) !== stated.bytes) {
-    refused('NOT_RECEIPTED', `${where} is spelled in a base64url form this reader does not write, so somebody wrote it with another encoder`);
+    refused('NOT_CAPTURE_RECORD', `${where} is spelled in a base64url form this reader does not write, so somebody wrote it with another encoder`);
   }
   if (bytes.length !== stated.byteCount) {
     refused('EVIDENCE_DIGEST_MISMATCH', `${where} states ${stated.byteCount} bytes and carries ${bytes.length}`);
@@ -404,23 +404,23 @@ export function parseCaptureRecord(value: unknown): CaptureRecord {
   );
   const sourceKind = requireText(original, 'sourceKind', 'original');
   if (!SOURCE_KINDS.includes(sourceKind)) {
-    refused('NOT_RECEIPTED', `original.sourceKind '${sourceKind}' is none of the sources this record can describe`);
+    refused('NOT_CAPTURE_RECORD', `original.sourceKind '${sourceKind}' is none of the sources this record can describe`);
   }
   const signedBySource = requireBoolean(original, 'signedBySource', 'original');
   const signatureEmbedded = requireBoolean(original, 'signatureEmbedded', 'original');
   const signature = original['signature'] === undefined ? undefined : readSlot(original['signature'], 'original.signature');
   if (signedBySource && !signatureEmbedded && signature === undefined) {
     refused(
-      'NOT_RECEIPTED',
+      'NOT_CAPTURE_RECORD',
       'original claims a signature the source served apart from the bytes and carries no signature at all',
     );
   }
   if (signedBySource && !signatureEmbedded && signature !== undefined && signature.presence !== 'held') {
-    refused('NOT_RECEIPTED', `original claims a signature it does not carry: its signature slot says ${signature.presence}`);
+    refused('CAPTURE_SIGNATURE_NOT_CARRIED', `original claims a signature it does not carry: its signature slot says ${signature.presence}`);
   }
   if (!signedBySource && signature !== undefined) {
     refused(
-      'NOT_RECEIPTED',
+      'NOT_CAPTURE_RECORD',
       'original carries a signature while stating the source signed nothing, so the record contradicts itself about its own contents',
     );
   }
@@ -432,7 +432,7 @@ export function parseCaptureRecord(value: unknown): CaptureRecord {
   requireKnownMembers(manifests, ['deployment'], 'manifests');
   if (manifests['deployment'] === undefined) {
     refused(
-      'NOT_RECEIPTED',
+      'NOT_CAPTURE_RECORD',
       'manifests.deployment is absent, and a manifest the source never served still has to be said so rather than left out',
     );
   }
@@ -449,7 +449,7 @@ export function parseCaptureRecord(value: unknown): CaptureRecord {
   requireKnownMembers(context, ['collateral', 'validity'], 'context');
   if (context['collateral'] === undefined || context['validity'] === undefined) {
     refused(
-      'NOT_RECEIPTED',
+      'NOT_CAPTURE_RECORD',
       `context is missing ${context['collateral'] === undefined ? 'collateral' : 'validity'}, and a context member nobody declared is not an absent one`,
     );
   }
@@ -500,7 +500,7 @@ export function parseCaptureRecord(value: unknown): CaptureRecord {
 
 function readRoots(value: unknown): CaptureRootReference[] {
   if (!Array.isArray(value)) {
-    return refused('NOT_RECEIPTED', `trust.roots is ${describe(value)}, and the references relied on are a list`);
+    return refused('NOT_CAPTURE_RECORD', `trust.roots is ${describe(value)}, and the references relied on are a list`);
   }
   return value.map((entry, index) => {
     const block = requireObject(entry, `trust.roots entry ${index}`);
@@ -508,7 +508,7 @@ function readRoots(value: unknown): CaptureRootReference[] {
     const family = requireText(block, 'family', `trust.roots entry ${index}`);
     if (!(ANCHOR_FAMILIES as readonly string[]).includes(family)) {
       refused(
-        'NOT_RECEIPTED',
+        'NOT_CAPTURE_RECORD',
         `trust.roots entry ${index} names the family '${family}', which is none of ${ANCHOR_FAMILIES.join(', ')}`,
       );
     }
@@ -542,7 +542,7 @@ const CAPTURE_KEY_DOMAIN = 'ashaveri/capture-v1 ';
 function canonicalJson(value: unknown): string {
   if (value === null || typeof value === 'string' || typeof value === 'boolean' || typeof value === 'number') {
     if (typeof value === 'number' && !Number.isFinite(value)) {
-      return refused('NOT_RECEIPTED', 'a capture record holds a number no JSON document can state');
+      return refused('NOT_CAPTURE_RECORD', 'a capture record holds a number no JSON document can state');
     }
     return JSON.stringify(value);
   }
@@ -555,7 +555,7 @@ function canonicalJson(value: unknown): string {
       .sort(([a], [b]) => (a < b ? -1 : 1));
     return `{${entries.map(([key, entry]) => `${JSON.stringify(key)}:${canonicalJson(entry)}`).join(',')}}`;
   }
-  return refused('NOT_RECEIPTED', `a capture record holds a ${typeof value}, which no store can key on`);
+  return refused('NOT_CAPTURE_RECORD', `a capture record holds a ${typeof value}, which no store can key on`);
 }
 
 /**

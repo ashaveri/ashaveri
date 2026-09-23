@@ -180,7 +180,7 @@ describe('a capture record holds the bytes a source produced', () => {
     // one honest record of one piece of evidence written two ways, and a store would key them apart.
     expect(equalBytes(fromBase64Url(canonical), fromBase64Url(reSpelled))).toBe(true);
     const record = swapBytes(recordFor(oneByte), oneByte, reSpelled);
-    expect(codeOf(() => parseCaptureRecord(record))).toBe('NOT_RECEIPTED');
+    expect(codeOf(() => parseCaptureRecord(record))).toBe('NOT_CAPTURE_RECORD');
   });
 
   it('refuses a byte count that does not match the bytes beside it', () => {
@@ -266,37 +266,37 @@ describe('absence is stated, never invented', () => {
         validity: held(TEXT('the appraisal record')),
       },
     });
-    expect(codeOf(() => parseCaptureRecord(record))).toBe('NOT_RECEIPTED');
+    expect(codeOf(() => parseCaptureRecord(record))).toBe('NOT_CAPTURE_RECORD');
   });
 
   it('refuses a context member that is silently missing rather than declared absent', () => {
     const record = recordFor(receiptV1);
     const context = { ...(record['context'] as Record<string, unknown>) };
     delete context['validity'];
-    expect(codeOf(() => parseCaptureRecord({ ...record, context }))).toBe('NOT_RECEIPTED');
+    expect(codeOf(() => parseCaptureRecord({ ...record, context }))).toBe('NOT_CAPTURE_RECORD');
   });
 
   it('refuses a held slot that carries no bytes', () => {
     const record = recordFor(receiptV1, {
       context: { collateral: { presence: 'held', sha256: '0'.repeat(64), byteCount: 0 }, validity: held(TEXT('x')) },
     });
-    expect(codeOf(() => parseCaptureRecord(record))).toBe('NOT_RECEIPTED');
+    expect(codeOf(() => parseCaptureRecord(record))).toBe('NOT_CAPTURE_RECORD');
   });
 
   it('refuses a slot member no presence state defines', () => {
     const record = recordFor(receiptV1, {
       manifests: { deployment: { ...held(manifestBytes), fetchedFrom: 'https://gateway.test/manifest' } },
     });
-    expect(codeOf(() => parseCaptureRecord(record))).toBe('NOT_RECEIPTED');
+    expect(codeOf(() => parseCaptureRecord(record))).toBe('NOT_CAPTURE_RECORD');
   });
 });
 
 describe('what a capture record never claims', () => {
   it('refuses a record that states its own verification', () => {
     const record = { ...recordFor(receiptV1), verified: true };
-    expect(codeOf(() => parseCaptureRecord(record))).toBe('NOT_RECEIPTED');
+    expect(codeOf(() => parseCaptureRecord(record))).toBe('NOT_CAPTURE_RECORD');
     const withVerdict = { ...recordFor(receiptV1), verdict: { status: 'pass' } };
-    expect(codeOf(() => parseCaptureRecord(withVerdict))).toBe('NOT_RECEIPTED');
+    expect(codeOf(() => parseCaptureRecord(withVerdict))).toBe('NOT_CAPTURE_RECORD');
   });
 
   it('refuses a record claiming a detached signature it does not carry', () => {
@@ -315,10 +315,10 @@ describe('what a capture record never claims', () => {
     });
     expect(
       codeOf(() => parseCaptureRecord(detached({ presence: 'not-taken-in', reason: 'the device route answered nothing' }))),
-    ).toBe('NOT_RECEIPTED');
+    ).toBe('CAPTURE_SIGNATURE_NOT_CARRIED');
     expect(
       codeOf(() => parseCaptureRecord(detached({ presence: 'absent-at-source', reason: 'the device served no signature' }))),
-    ).toBe('NOT_RECEIPTED');
+    ).toBe('CAPTURE_SIGNATURE_NOT_CARRIED');
     expect(codeOf(() => parseCaptureRecord(detached(held(new Uint8Array(64).fill(9)))))).toBeUndefined();
   });
 
@@ -336,7 +336,7 @@ describe('what a capture record never claims', () => {
           },
         }),
       ),
-    ).toBe('NOT_RECEIPTED');
+    ).toBe('NOT_CAPTURE_RECORD');
   });
 });
 
@@ -372,9 +372,9 @@ describe('a version the reader does not implement is refused, not read as its ow
 
   it('refuses a member capture v1 does not define', () => {
     const record = { ...recordFor(receiptV1), retentionDuty: '19(1)' };
-    expect(codeOf(() => parseCaptureRecord(record))).toBe('NOT_RECEIPTED');
+    expect(codeOf(() => parseCaptureRecord(record))).toBe('NOT_CAPTURE_RECORD');
     const inOriginal = { ...recordFor(receiptV1), original: { ...recordFor(receiptV1).original as object, met: true } };
-    expect(codeOf(() => parseCaptureRecord(inOriginal))).toBe('NOT_RECEIPTED');
+    expect(codeOf(() => parseCaptureRecord(inOriginal))).toBe('NOT_CAPTURE_RECORD');
   });
 
   it('refuses a source kind it has no reading for', () => {
@@ -382,7 +382,7 @@ describe('a version the reader does not implement is refused, not read as its ow
     const original = record.original as Record<string, unknown>;
     expect(
       codeOf(() => parseCaptureRecord({ ...record, original: { ...original, sourceKind: 'http-response' } })),
-    ).toBe('NOT_RECEIPTED');
+    ).toBe('NOT_CAPTURE_RECORD');
   });
 });
 

@@ -220,7 +220,7 @@ describe('missing context is never upgraded into a pass', () => {
     const whole = record(receiptV1);
     const context = { ...(whole['context'] as Record<string, unknown>) };
     delete context['collateral'];
-    expect(codes(() => assessCapture({ record: { ...whole, context }, policy: PINNED, ...AT_NOW }))).toBe('NOT_RECEIPTED');
+    expect(codes(() => assessCapture({ record: { ...whole, context }, policy: PINNED, ...AT_NOW }))).toBe('NOT_CAPTURE_RECORD');
   });
 
   it('refuses a record whose stated digest does not describe its own bytes', () => {

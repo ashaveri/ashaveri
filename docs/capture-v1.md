@@ -76,19 +76,21 @@ Each row says what the member states, what a reader may conclude from it, and wh
 
 - bytes that do not hash to the digest the record states, and a length that does not match the bytes
   beside it: `EVIDENCE_DIGEST_MISMATCH`
-- a record that claims a detached signature and does not carry one, a member no version defines, a
-  context member nobody declared, and bytes spelled in a base64url form no reader reproduces:
-  `NOT_RECEIPTED`
+- a member no version defines, a context member nobody declared, and bytes spelled in a base64url
+  form no reader reproduces: `NOT_CAPTURE_RECORD`
+- a record that claims a detached signature and does not carry one: `CAPTURE_SIGNATURE_NOT_CARRIED`
 - a version the reader does not implement, in the record, in the policy or in the receipt format:
   `UNSUPPORTED_VERSION`, a `ReceiptError`, raised before any field is read
 - a signature that does not hold over the stored bytes: `INVALID_SIGNATURE` or `KID_MISMATCH`
 - a root the record relied on that is none of the caller's: `EVIDENCE_VERIFICATION_FAILED`
 - a receipt or evidence stamp outside the caller's own window: `STALE_RECEIPT`, `STALE_EVIDENCE`
 
-No code was added to `SdkErrorCode` for this record, and the reuse is not free: `NOT_RECEIPTED` carries
-four different faults above, which is one word for "this record does not carry what it speaks of" where a
-caller may want three. `EVIDENCE_DIGEST_MISMATCH` covers a length that disagrees as well as a digest that
-does. See `docs/error-codes.md` for what each existing code means at its own site.
+Two codes were added to `SdkErrorCode` for this record rather than borrowing `NOT_RECEIPTED`, which is
+the client's word for a gateway that answered without a receipt header and says nothing about a file a
+reader was handed. The remaining breadth is still worth naming: `NOT_CAPTURE_RECORD` covers a member that
+is absent, a member that is unnamed, a value of the wrong shape and a spelling no reader reproduces, which
+is one word for "this record does not carry what it speaks of" where a caller may want three.
+`EVIDENCE_DIGEST_MISMATCH` covers a length that disagrees as well as a digest that does. See `docs/error-codes.md` for what each existing code means at its own site.
 
 And what it never does: return a pass. A verdict is `repeated`, `qualified` or `unassessed`. `unassessed`
 is a refusal to conclude, and it is what a caller with no pinned key gets, what a collector that did not
