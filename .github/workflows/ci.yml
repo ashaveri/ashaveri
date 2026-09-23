@@ -100,7 +100,10 @@ jobs:
           node-version-file: .nvmrc
           cache: pnpm
       - run: pnpm install --frozen-lockfile
-      - run: pnpm -C packages/cli build
+      # The filter carries its dependencies, spelled as the Windows job spells it. Building this one
+      # package alone succeeds on a tree that still holds an earlier root build and fails on a clean
+      # one, because the command imports the receipt, the client and the attestation packages.
+      - run: pnpm -r --filter "@ashaveri/cli..." build
       - run: pnpm -C packages/cli bundle
       # A bundle that builds has proved nothing about running, so this step leaves the checkout
       # entirely: the directory it works in holds the artifact, two committed receipt vectors, and the
