@@ -671,6 +671,13 @@ and `packages/fixtures/test/retention-doc.test.ts` reads the table below out of 
 every member name, type and required-ness against that file in both directions. Where a sentence here and
 that schema disagree, the schema is the authority and this prose is wrong.
 
+The identity that schema answers to carries its version, `https://ashaveri.com/schemas/retention-v1.json`,
+and the receipt and pack twins beside it now do the same. An identity that names no version has to mean two
+documents the moment a second one is defined, and the receipt family already is two documents: section 6
+defines `v: 1` as section 3's thirteen fields and `v: 2` as those same thirteen plus a required `mk`. `packages/fixtures/test/schema-identity.test.ts` holds every
+published schema to that rule, in both directories, so the convention is a checked property of the tree
+rather than a habit this sentence asks a reader to trust.
+
 The generator that fills these fields is not part of this repository, and nothing here writes or reads the
 document today. It is published anyway because the check a reader owes is public even when the program that
 produced the bytes is not, and because a shape that lives only in a writer cannot be recomputed by

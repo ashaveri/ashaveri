@@ -108,7 +108,9 @@ const validate = compile(schema);
 
 describe('retention-v1.schema.json published layout', () => {
   it('names the seven top level members and nothing else', () => {
-    expect(schema.$id, 'the layout carries an identity').toBe('https://ashaveri.com/schemas/retention.json');
+    expect(schema.$id, 'the layout carries an identity that names its version').toBe(
+      'https://ashaveri.com/schemas/retention-v1.json',
+    );
     expect(schema.type, 'the artifact is a JSON object').toBe('object');
     expect(schema.additionalProperties, 'the top level map is closed').toBe(false);
     expect(requiredOf('root'), 'the required members are the seven the writer always emits').toEqual([
