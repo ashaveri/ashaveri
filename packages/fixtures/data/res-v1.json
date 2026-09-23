@@ -1,6 +1,6 @@
 {
   "version": 1,
-  "description": "The response digest a receipt carries in `res`, published as (exact response bytes, expected digest) pairs for both shapes of a completion. `res` is sha256 over the response body exactly as transmitted. For a streamed completion that includes the framing itself: every `data:` prefix, every blank-line frame separator, and the terminating `data: [DONE]` line are hashed as the bytes the client received. Concatenating the payloads and hashing the result is wrong, and hashing each write on its own is wrong in a different way.",
+  "description": "The response digest a receipt carries in `res`, published as (exact response bytes, expected digest) pairs for both shapes of a completion. `res` is sha256 over the response body exactly as transmitted. For a streamed completion that includes the framing itself: every `data:` prefix, every blank-line frame separator, and the terminating `data: [DONE]` line are hashed as the bytes the client received. Concatenating the payloads and hashing the result is wrong, and hashing each write on its own is wrong in a different way. `refusals` are the near misses: the bytes a client holds beside a signed receipt attesting another vector of this file, with the code the client owes for that pair.",
   "rule": {
     "receiptField": "res",
     "algorithm": "sha256",
@@ -85,6 +85,42 @@
       "responseBase64Url": "eyJpZCI6ImNoYXRjbXBsLXZlY3Rvci0xIiwib2JqZWN0IjoiY2hhdC5jb21wbGV0aW9uLmNodW5rIiwiY3JlYXRlZCI6MTc3MjAwMDAwMCwibW9kZWwiOiJtb2NrLW1vZGVsLTEiLCJjaG9pY2VzIjpbeyJpbmRleCI6MCwiZGVsdGEiOnsicm9sZSI6ImFzc2lzdGFudCIsImNvbnRlbnQiOiJNb2NrIHJlcGx5OiJ9LCJmaW5pc2hfcmVhc29uIjpudWxsfV19eyJpZCI6ImNoYXRjbXBsLXZlY3Rvci0xIiwib2JqZWN0IjoiY2hhdC5jb21wbGV0aW9uLmNodW5rIiwiY3JlYXRlZCI6MTc3MjAwMDAwMCwibW9kZWwiOiJtb2NrLW1vZGVsLTEiLCJjaG9pY2VzIjpbeyJpbmRleCI6MCwiZGVsdGEiOnsiY29udGVudCI6IiBjYWbDqSDimJUifSwiZmluaXNoX3JlYXNvbiI6bnVsbH1dfXsiaWQiOiJjaGF0Y21wbC12ZWN0b3ItMSIsIm9iamVjdCI6ImNoYXQuY29tcGxldGlvbi5jaHVuayIsImNyZWF0ZWQiOjE3NzIwMDAwMDAsIm1vZGVsIjoibW9jay1tb2RlbC0xIiwiY2hvaWNlcyI6W3siaW5kZXgiOjAsImRlbHRhIjp7ImNvbnRlbnQiOiIgc2VydmVkLiJ9LCJmaW5pc2hfcmVhc29uIjpudWxsfV19eyJpZCI6ImNoYXRjbXBsLXZlY3Rvci0xIiwib2JqZWN0IjoiY2hhdC5jb21wbGV0aW9uLmNodW5rIiwiY3JlYXRlZCI6MTc3MjAwMDAwMCwibW9kZWwiOiJtb2NrLW1vZGVsLTEiLCJjaG9pY2VzIjpbeyJpbmRleCI6MCwiZGVsdGEiOnt9LCJmaW5pc2hfcmVhc29uIjoic3RvcCJ9XX1bRE9ORV0",
       "responseByteLength": 728,
       "resHex": "2d68fb7a07a72cf43d425b676173070bb667b2fc38f1ee96bfbc4bc2a39dce45"
+    }
+  ],
+  "refusals": [
+    {
+      "name": "res-of-the-unframed-payloads",
+      "note": "The framed stream as it arrived, presented against a receipt attesting the digest of the same events stripped of their framing. Every payload of one is a substring of the other, which is what makes this the mistake an event parser makes rather than a mistake about bytes.",
+      "heldVector": "streamed-frames",
+      "claimedVector": "streamed-payloads-without-framing",
+      "responseBase64Url": "ZGF0YTogeyJpZCI6ImNoYXRjbXBsLXZlY3Rvci0xIiwib2JqZWN0IjoiY2hhdC5jb21wbGV0aW9uLmNodW5rIiwiY3JlYXRlZCI6MTc3MjAwMDAwMCwibW9kZWwiOiJtb2NrLW1vZGVsLTEiLCJjaG9pY2VzIjpbeyJpbmRleCI6MCwiZGVsdGEiOnsicm9sZSI6ImFzc2lzdGFudCIsImNvbnRlbnQiOiJNb2NrIHJlcGx5OiJ9LCJmaW5pc2hfcmVhc29uIjpudWxsfV19CgpkYXRhOiB7ImlkIjoiY2hhdGNtcGwtdmVjdG9yLTEiLCJvYmplY3QiOiJjaGF0LmNvbXBsZXRpb24uY2h1bmsiLCJjcmVhdGVkIjoxNzcyMDAwMDAwLCJtb2RlbCI6Im1vY2stbW9kZWwtMSIsImNob2ljZXMiOlt7ImluZGV4IjowLCJkZWx0YSI6eyJjb250ZW50IjoiIGNhZsOpIOKYlSJ9LCJmaW5pc2hfcmVhc29uIjpudWxsfV19CgpkYXRhOiB7ImlkIjoiY2hhdGNtcGwtdmVjdG9yLTEiLCJvYmplY3QiOiJjaGF0LmNvbXBsZXRpb24uY2h1bmsiLCJjcmVhdGVkIjoxNzcyMDAwMDAwLCJtb2RlbCI6Im1vY2stbW9kZWwtMSIsImNob2ljZXMiOlt7ImluZGV4IjowLCJkZWx0YSI6eyJjb250ZW50IjoiIHNlcnZlZC4ifSwiZmluaXNoX3JlYXNvbiI6bnVsbH1dfQoKZGF0YTogeyJpZCI6ImNoYXRjbXBsLXZlY3Rvci0xIiwib2JqZWN0IjoiY2hhdC5jb21wbGV0aW9uLmNodW5rIiwiY3JlYXRlZCI6MTc3MjAwMDAwMCwibW9kZWwiOiJtb2NrLW1vZGVsLTEiLCJjaG9pY2VzIjpbeyJpbmRleCI6MCwiZGVsdGEiOnt9LCJmaW5pc2hfcmVhc29uIjoic3RvcCJ9XX0KCmRhdGE6IFtET05FXQoK",
+      "responseByteLength": 768,
+      "chunksBase64Url": [
+        "ZGF0YTogeyJpZCI6ImNoYXRjbXBsLXZlY3Rvci0xIiwib2JqZWN0IjoiY2hhdC5jb21wbGV0aW9uLmNodW5rIiwiY3JlYXRlZCI6MTc3MjAwMDAwMCwibW9kZWwiOiJtb2NrLW1vZGVsLTEiLCJjaG9pY2VzIjpbeyJpbmRleCI6MCwiZGVsdGEiOnsicm9sZSI6ImFzc2lzdGFudCIsImNvbnRlbnQiOiJNb2NrIHJlcGx5OiJ9LCJmaW5pc2hfcmVhc29uIjpudWxsfV19Cgo",
+        "ZGF0YTogeyJpZCI6ImNoYXRjbXBsLXZlY3Rvci0xIiwib2JqZWN0IjoiY2hhdC5jb21wbGV0aW9uLmNodW5rIiwiY3JlYXRlZCI6MTc3MjAwMDAwMCwibW9kZWwiOiJtb2NrLW1vZGVsLTEiLCJjaG9pY2VzIjpbeyJpbmRleCI6MCwiZGVsdGEiOnsiY29udGVudCI6IiBjYWbDqSDimJUifSwiZmluaXNoX3JlYXNvbiI6bnVsbH1dfQoK",
+        "ZGF0YTogeyJpZCI6ImNoYXRjbXBsLXZlY3Rvci0xIiwib2JqZWN0IjoiY2hhdC5jb21wbGV0aW9uLmNodW5rIiwiY3JlYXRlZCI6MTc3MjAwMDAwMCwibW9kZWwiOiJtb2NrLW1vZGVsLTEiLCJjaG9pY2VzIjpbeyJpbmRleCI6MCwiZGVsdGEiOnsiY29udGVudCI6IiBzZXJ2ZWQuIn0sImZpbmlzaF9yZWFzb24iOm51bGx9XX0KCg",
+        "ZGF0YTogeyJpZCI6ImNoYXRjbXBsLXZlY3Rvci0xIiwib2JqZWN0IjoiY2hhdC5jb21wbGV0aW9uLmNodW5rIiwiY3JlYXRlZCI6MTc3MjAwMDAwMCwibW9kZWwiOiJtb2NrLW1vZGVsLTEiLCJjaG9pY2VzIjpbeyJpbmRleCI6MCwiZGVsdGEiOnt9LCJmaW5pc2hfcmVhc29uIjoic3RvcCJ9XX0KCg",
+        "ZGF0YTogW0RPTkVdCgo"
+      ],
+      "claimedResHex": "2d68fb7a07a72cf43d425b676173070bb667b2fc38f1ee96bfbc4bc2a39dce45",
+      "code": "RESPONSE_HASH_MISMATCH",
+      "receiptBase64Url": "0oRYOKMBJwNwYXNoYXZlcmkvcmVjZWlwdARYIDUBOm4AC41dylHEvVwdufKGAoNgbHau7uqO5ytyteFeoFkBmq1hdgFjYXR0o2FkWCBMjNzx8P8HIrACrcnYMjzTFLUPV6AcPeMCsbOhtmSp22J0cxppnpLEY3VybHgtaHR0cHM6Ly9pbmZlcmVuY2UuYXNoYXZlcmkuY29tL3YxL2F0dGVzdGF0aW9uY2VwawFjaWF0GmmekwBjaW5zbGN2bS1pLTA0N2YyYWNpc3NsZHBsLTlmMmE0MWMzY21kbHggbWV0YS1sbGFtYS9MbGFtYS0zLjEtOEItSW5zdHJ1Y3RjbmNlUFtmhz09zJ_Jb9mhQ0G8Gy5jcmVxWCCui3WZaPV0ocQjRF4A9Oc-4qoNT8uInXnWrth3_G2aeWNyZXNYIC1o-3oHpyz0PUJbZ2FzBwu2Z7L8OPHulr-8S8Kjnc5FY3Rva6JhYxhAYXAYgGN3dHNYICaJVwrs9QVChLBtYCJVT7l5QsrQp3TV28kwiy0Ed9m1ZG1lYXOiYW1YML12YTZ-p8D6AnKVtJWjfYxEXpWInAnWt7627UBScZ4w8W8FB4J-LQBJSbVS8eVR8mN0ZWVpc25wK2dwdWNjWECCB-LVHwBaIZOrtO-5pQU8N3wU0V3Doubpr0AqzkQpyxz0JJdLgyr8BlSDfu6ry26JQfhg88YxjvMWb6N7_gYI",
+      "receiptSha256Hex": "74f6760a9a7f5057d00b90bc0bc8a15caf049c8983a2ca78595f34d55879061b"
+    },
+    {
+      "name": "res-of-the-body-before-its-last-byte",
+      "note": "A body ending in one newline, presented against a receipt attesting the digest of the same body without it. One byte at the tail is the whole difference, and no reading of the JSON closes it.",
+      "heldVector": "buffered-completion-trailing-newline",
+      "claimedVector": "buffered-completion",
+      "responseBase64Url": "eyJpZCI6ImNoYXRjbXBsLXZlY3Rvci0xIiwib2JqZWN0IjoiY2hhdC5jb21wbGV0aW9uIiwiY3JlYXRlZCI6MTc3MjAwMDAwMCwibW9kZWwiOiJtb2NrLW1vZGVsLTEiLCJjaG9pY2VzIjpbeyJpbmRleCI6MCwibWVzc2FnZSI6eyJyb2xlIjoiYXNzaXN0YW50IiwiY29udGVudCI6Ik1vY2sgcmVwbHk6IGNhZsOpIOKYlSBzZXJ2ZWQuIn0sImZpbmlzaF9yZWFzb24iOiJzdG9wIn1dLCJ1c2FnZSI6eyJwcm9tcHRfdG9rZW5zIjo5LCJjb21wbGV0aW9uX3Rva2VucyI6NiwidG90YWxfdG9rZW5zIjoxNX19Cg",
+      "responseByteLength": 286,
+      "chunksBase64Url": [
+        "eyJpZCI6ImNoYXRjbXBsLXZlY3Rvci0xIiwib2JqZWN0IjoiY2hhdC5jb21wbGV0aW9uIiwiY3JlYXRlZCI6MTc3MjAwMDAwMCwibW9kZWwiOiJtb2NrLW1vZGVsLTEiLCJjaG9pY2VzIjpbeyJpbmRleCI6MCwibWVzc2FnZSI6eyJyb2xlIjoiYXNzaXN0YW50IiwiY29udGVudCI6Ik1vY2sgcmVwbHk6IGNhZsOpIOKYlSBzZXJ2ZWQuIn0sImZpbmlzaF9yZWFzb24iOiJzdG9wIn1dLCJ1c2FnZSI6eyJwcm9tcHRfdG9rZW5zIjo5LCJjb21wbGV0aW9uX3Rva2VucyI6NiwidG90YWxfdG9rZW5zIjoxNX19Cg"
+      ],
+      "claimedResHex": "5e3741449b58189191014f58fa210ad764bd7d5f31e93052c2757677b5d4eb9e",
+      "code": "RESPONSE_HASH_MISMATCH",
+      "receiptBase64Url": "0oRYOKMBJwNwYXNoYXZlcmkvcmVjZWlwdARYIDUBOm4AC41dylHEvVwdufKGAoNgbHau7uqO5ytyteFeoFkBmq1hdgFjYXR0o2FkWCBMjNzx8P8HIrACrcnYMjzTFLUPV6AcPeMCsbOhtmSp22J0cxppnpLEY3VybHgtaHR0cHM6Ly9pbmZlcmVuY2UuYXNoYXZlcmkuY29tL3YxL2F0dGVzdGF0aW9uY2VwawFjaWF0GmmekwBjaW5zbGN2bS1pLTA0N2YyYWNpc3NsZHBsLTlmMmE0MWMzY21kbHggbWV0YS1sbGFtYS9MbGFtYS0zLjEtOEItSW5zdHJ1Y3RjbmNlUFtmhz09zJ_Jb9mhQ0G8Gy5jcmVxWCCui3WZaPV0ocQjRF4A9Oc-4qoNT8uInXnWrth3_G2aeWNyZXNYIF43QUSbWBiRkQFPWPohCtdkvX1fMekwUsJ1dne11OueY3Rva6JhYxhAYXAYgGN3dHNYICaJVwrs9QVChLBtYCJVT7l5QsrQp3TV28kwiy0Ed9m1ZG1lYXOiYW1YML12YTZ-p8D6AnKVtJWjfYxEXpWInAnWt7627UBScZ4w8W8FB4J-LQBJSbVS8eVR8mN0ZWVpc25wK2dwdWNjWED2oqZQHRqLQJkMhrfQUGbtNXy1v0xmje235lxKeyeOfdyjC4CJsa2A8speKsQxWqLlc58s8tWNqFO6lV5gvf4M",
+      "receiptSha256Hex": "27aa852467e61aabd56dfca35cdf7088487f6e474ec45bbd482985a2cd84db84"
     }
   ]
 }

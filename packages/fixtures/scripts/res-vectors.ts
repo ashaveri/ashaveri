@@ -1,7 +1,16 @@
 import { writeFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { hashRequest, toBase64Url, toHex } from '@ashaveri/receipt';
+import { sha256 } from '@noble/hashes/sha2.js';
+import {
+  decodeReceipt,
+  hashRequest,
+  issueReceipt,
+  toBase64Url,
+  toHex,
+  type ReceiptPayloadV1,
+} from '@ashaveri/receipt';
+import { fixtureKey, fixturePayload } from './receipt-envelope.ts';
 
 const DATA = join(dirname(fileURLToPath(import.meta.url)), '..', 'data');
 
@@ -146,13 +155,90 @@ const vectors = CASES.map((each) => {
   };
 });
 
+/**
+ * One response a client holds beside the `res` a receipt attests for it, the two apart by exactly the
+ * mistake the row names.
+ *
+ * These are the two ways a completion digest goes wrong that the accepted vectors above can only
+ * describe: a stream hashed without its framing, and a body hashed after a byte went missing. Each row
+ * names the vector whose bytes are handed over and the vector whose digest is signed, so the near miss
+ * is two published byte strings against each other rather than a digest nothing in this repository
+ * produces. The refusal is `RESPONSE_HASH_MISMATCH`.
+ */
+interface RefusalCase {
+  readonly name: string;
+  readonly note: string;
+  /** The published vector whose bytes the client holds. */
+  readonly held: string;
+  /** The published vector whose digest the receipt attests instead. */
+  readonly claimed: string;
+  readonly code: 'RESPONSE_HASH_MISMATCH';
+}
+
+const REFUSALS: readonly RefusalCase[] = [
+  {
+    name: 'res-of-the-unframed-payloads',
+    note: 'The framed stream as it arrived, presented against a receipt attesting the digest of the same events stripped of their framing. Every payload of one is a substring of the other, which is what makes this the mistake an event parser makes rather than a mistake about bytes.',
+    held: 'streamed-frames',
+    claimed: 'streamed-payloads-without-framing',
+    code: 'RESPONSE_HASH_MISMATCH',
+  },
+  {
+    name: 'res-of-the-body-before-its-last-byte',
+    note: 'A body ending in one newline, presented against a receipt attesting the digest of the same body without it. One byte at the tail is the whole difference, and no reading of the JSON closes it.',
+    held: 'buffered-completion-trailing-newline',
+    claimed: 'buffered-completion',
+    code: 'RESPONSE_HASH_MISMATCH',
+  },
+];
+
+function refusalReceipt(claimed: string): { receiptBase64Url: string; receiptSha256Hex: string } {
+  const source = vectors.find((each) => each.name === claimed);
+  if (source === undefined) throw new Error(`res-v1.json states no vector named ${claimed}`);
+  const payload: ReceiptPayloadV1 = {
+    ...fixturePayload({ res: new Uint8Array(Buffer.from(source.resHex, 'hex')) }),
+    v: 1,
+  };
+  const bytes = issueReceipt(payload, fixtureKey());
+  const decoded = decodeReceipt(bytes);
+  if (toHex(decoded.payload.res) !== source.resHex) {
+    throw new Error(`the receipt issued for ${claimed} does not carry the digest this row attests`);
+  }
+  return { receiptBase64Url: toBase64Url(bytes), receiptSha256Hex: toHex(sha256(bytes)) };
+}
+
+const refusals = REFUSALS.map((each) => {
+  const held = vectors.find((vector) => vector.name === each.held);
+  const claimed = vectors.find((vector) => vector.name === each.claimed);
+  if (held === undefined || claimed === undefined) {
+    throw new Error(`${each.name} names a vector this file does not publish`);
+  }
+  // Two spellings of the same response are the whole point of the row; identical bytes would state a
+  // refusal no reader can reach.
+  if (held.responseBase64Url === claimed.responseBase64Url || held.resHex === claimed.resHex) {
+    throw new Error(`${each.name}: ${each.held} and ${each.claimed} are not the near miss this row claims`);
+  }
+  return {
+    name: each.name,
+    note: each.note,
+    heldVector: each.held,
+    claimedVector: each.claimed,
+    responseBase64Url: held.responseBase64Url,
+    responseByteLength: held.responseByteLength,
+    chunksBase64Url: held.chunksBase64Url,
+    claimedResHex: claimed.resHex,
+    code: each.code,
+    ...refusalReceipt(each.claimed),
+  };
+});
+
 writeFileSync(
   join(DATA, 'res-v1.json'),
   `${JSON.stringify(
     {
       version: 1,
       description:
-        'The response digest a receipt carries in `res`, published as (exact response bytes, expected digest) pairs for both shapes of a completion. `res` is sha256 over the response body exactly as transmitted. For a streamed completion that includes the framing itself: every `data:` prefix, every blank-line frame separator, and the terminating `data: [DONE]` line are hashed as the bytes the client received. Concatenating the payloads and hashing the result is wrong, and hashing each write on its own is wrong in a different way.',
+        'The response digest a receipt carries in `res`, published as (exact response bytes, expected digest) pairs for both shapes of a completion. `res` is sha256 over the response body exactly as transmitted. For a streamed completion that includes the framing itself: every `data:` prefix, every blank-line frame separator, and the terminating `data: [DONE]` line are hashed as the bytes the client received. Concatenating the payloads and hashing the result is wrong, and hashing each write on its own is wrong in a different way. `refusals` are the near misses: the bytes a client holds beside a signed receipt attesting another vector of this file, with the code the client owes for that pair.',
       rule: {
         receiptField: 'res',
         algorithm: 'sha256',
@@ -168,10 +254,13 @@ writeFileSync(
         note: 'How a completion is framed on its way to a client. A receipt is not bound to this spelling: `res` commits to whatever bytes were transmitted, and these vectors were transmitted this way.',
       },
       vectors,
+      refusals,
     },
     null,
     2,
   )}\n`,
 );
 
-console.log(`${join(DATA, 'res-v1.json')}: ${String(vectors.length)} vectors`);
+console.log(
+  `${join(DATA, 'res-v1.json')}: ${String(vectors.length)} vectors, ${String(refusals.length)} refusals`,
+);
