@@ -113,39 +113,13 @@ jobs:
           cp packages/cli/dist/ashaveri-bundle.mjs "$work/ashaveri.mjs"
           cp packages/fixtures/data/receipts/receipt-valid-v1.cbor "$work/"
           cp packages/fixtures/data/receipts/receipt-tampered-v1.cbor "$work/"
-          node - "$work" packages/fixtures/data <<'NODE'
-          import { readFileSync, writeFileSync } from 'node:fs';
-          import { join } from 'node:path';
-          const work = process.argv[2];
-          const data = process.argv[3];
-          const key = JSON.parse(readFileSync(join(data, 'keys/receipt-key-v1.json'), 'utf8'));
-          const payload = JSON.parse(readFileSync(join(data, 'receipts/receipt-valid-v1.json'), 'utf8')).payload;
-          const publicKey = Buffer.from(key.publicKey, 'hex').toString('base64url');
-          writeFileSync(join(work, 'manifest.json'), JSON.stringify({
-            v: 1,
-            iss: payload.iss,
-            ins: payload.ins,
-            epk: payload.epk,
-            keys: [{ kid: key.kid, alg: 'Ed25519', publicKey }],
-            models: [{ id: payload.mdl, wts: payload.wts }],
-            meas: { tee: payload.meas.tee, m: payload.meas.m },
-          }));
-          writeFileSync(join(work, 'policy.json'), JSON.stringify({
-            v: 1,
-            issuers: [payload.iss],
-            instances: [payload.ins],
-            keys: { [key.kid]: publicKey },
-            measurements: { [payload.meas.tee]: [payload.meas.m] },
-            maxReceiptAgeSeconds: 300,
-            maxEvidenceAgeSeconds: 900,
-          }));
-          // The verification time the vector's own `iat` names, because the policy's windows close
-          // against the clock the run is given and this job is not re-issuing the receipt.
-          writeFileSync(join(work, 'args.env'), `NONCE=${payload.nce}\nREQ=${payload.req}\nRES=${payload.res}\nNOW=${new Date(payload.iat * 1000).toISOString()}\n`);
-          NODE
+          node --experimental-strip-types packages/cli/scripts/offline-proof.ts "$work" packages/fixtures/data
           # Nothing outside the standard library may be resolved from outside the file, or the
-          # artifact would still need an installed tree to start.
-          left="$(grep -oE "from ['\"][^'\"]+['\"]" "$work/ashaveri.mjs" | grep -vE "from ['\"](node:|\.)" || true)"
+          # artifact would still need an installed tree to start. The scan is anchored to line starts
+          # on purpose: an unanchored search for `from '...'` also matches that text inside a string
+          # or a comment, and the bundle carries both, so the guard would refuse a good artifact. A
+          # specifier the file genuinely imports is a line that begins with `import` or `export`.
+          left="$(grep -oE "^[[:space:]]*(import|export)[^;]*from ['\"][^'\"]+['\"]" "$work/ashaveri.mjs" | grep -vE "['\"](node:|\.)" || true)"
           if [ -n "$left" ]; then
             printf '%s\n' "$left" >&2
             echo 'the bundle imports a module it did not bundle' >&2
