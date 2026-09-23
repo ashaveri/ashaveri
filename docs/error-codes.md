@@ -1,7 +1,7 @@
 # Error codes
 
 Every error code this workspace raises, what condition raises it, and what a caller should do
-about it. There are 105 declarations across seven unions, resolving to 103 distinct strings;
+about it. There are 109 declarations across seven unions, resolving to 107 distinct strings;
 `UNSUPPORTED_PLATFORM` and `UNSUPPORTED_VERSION` are the two strings two unions share, and the last
 section says why those pairs are deliberate while every other overlap is not.
 
@@ -58,7 +58,11 @@ The seven unions:
 |---|---|---|---|---|
 | `NO_POLICY` | `SdkErrorCode` | `verify: 'strict'` was configured with no policy to pin keys and measurements | Supply a policy. Strict mode with nothing pinned verifies nothing | terminal |
 | `BAD_MANIFEST` | `SdkErrorCode` | The deployment manifest does not parse, or does not declare the `kid` a receipt was signed with | Treat the deployment as unverifiable; the manifest and the signing key disagree | terminal |
-| `MANIFEST_KEY_NOT_PINNED` | `SdkErrorCode` | A declared key is not in the policy's pinned set, or disagrees with the pinned key of the same id | Repin deliberately. A rotation is a deployment change, not a transient | terminal |
+| `MANIFEST_KEY_NOT_PINNED` | `SdkErrorCode` | A declared key is not in the policy's pinned set, or disagrees with the pinned key of the same id. The same disagreement one map down: a manifest signing key pinned under an id that hashes from another key | Repin deliberately. A rotation is a deployment change, not a transient | terminal |
+| `MANIFEST_NOT_AUTHENTICATED` | `SdkErrorCode` | A client that designated a manifest signing key was handed a document that key cannot vouch for: an unsigned manifest served to a policy that names a signer, or a sealed one whose `kid` is none of the keys it names. A policy designating nothing gets an advisory instead, because nothing was asked for | Either supply the key that signs this deployment's manifests or say out loud that its manifest is trust-on-first-use. The message names which of the two shapes was served | terminal |
+| `MANIFEST_SIGNATURE_INVALID` | `SdkErrorCode` | A sealed deployment manifest was verified under the key its own protected header names and the signature did not hold, so the bytes on the wire are not the bytes that were signed | Refuse; a body altered after it was sealed proves nothing about the deployment that signed it. This is the code to be woken for: the key agreed with the header, so either the document moved in transit or the deployment is serving something it never sealed | terminal |
+| `MANIFEST_EPOCH_UNDECLARED` | `SdkErrorCode` | A receipt's `epk` names a signing-key epoch that nothing in the deployment manifest claims, whether that manifest publishes a window per key or states only the epoch its process signs under | Refuse; the deployment has made no claim this signature could match, so the key that made it is unattributed. A deployment that rotates a key comes back as a new process at a higher epoch, and the manifest that declares the past epochs is the one that admits receipts from them | terminal |
+| `MANIFEST_EPOCH_DISAGREES` | `SdkErrorCode` | The epoch is declared and this receipt does not fit it: the key that signed is not the key the manifest lists for that epoch, or the receipt's own `iat` falls outside the window the epoch opens. A retained key signing fresh traffic lands here rather than under a pin code | Refuse; the deployment's account of its rotation and this signature disagree. Which of the two halves failed is in the message, and neither is fixed by repinning | terminal |
 | `RECEIPT_NOT_FOUND` | `SdkErrorCode` | The receipt route still 404s after the SDK's retry window | Ask again with a new request; the gateway may not have written it, or may not receipt at all | terminal |
 | `REQUEST_HASH_MISMATCH` | `SdkErrorCode` | `req` does not equal the hash of the bytes actually sent | Refuse; the receipt is not for this request | terminal |
 | `RESPONSE_HASH_MISMATCH` | `SdkErrorCode` | `res` does not equal the hash of the bytes actually received | Refuse; the answer served is not the answer receipted | terminal |

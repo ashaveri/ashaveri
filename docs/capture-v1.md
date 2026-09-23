@@ -60,7 +60,7 @@ Each row says what the member states, what a reader may conclude from it, and wh
 | `original.signatureEmbedded`, `signature` | where the signature is, and its presence state | that a record claiming a detached signature carries one | that the signature is anyone's |
 | `acquired.at` | our clock when the bytes were taken in | how the collector dates its own custody | that the bytes were made then, which is what `sourceStatedAt` claims |
 | `acquired.sourceStatedAt` | the timestamp the source claimed, or none | that the two stamps agree, or that the record says how they do not | that either is right |
-| `manifests.deployment` | the manifest the source served, as served | which pins were in force at that instant, from a document rather than a summary | that the manifest was this deployment's, which is trust-on-first-use as it is everywhere else |
+| `manifests.deployment` | the manifest the source served, as served | which pins were in force at that instant, from a document rather than a summary | that the manifest was this deployment's: the record authenticates nothing, and a sealed manifest is only attributed by a reader that holds the key that signed it |
 | `check.policyVersion`, `policyDigest` | which policy rules, and the digest of the document used | which pins the check read, given the document | that the check was right to read them |
 | `check.receiptFormatVersion` | which receipt version the check read | that a reader reads the bytes at the version named and refuses one it does not | that the version was current, which it need not be |
 | `check.verifierVersion` | which verifier build ran | which procedure produced the context | that the procedure was correct |
