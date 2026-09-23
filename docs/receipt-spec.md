@@ -744,18 +744,28 @@ with a signed pack is evidence about the manifest rather than about the chain, b
 signature and the other is not. A later version of either format may drop the block here in favour of a
 pack that names the file it authenticates; until one does, this artifact states the endpoints itself.
 
-**The duty, the period, and the one bound the layout enforces.** `duty.article` names which obligation the
-manifest answers: `19(1)` requires a provider to keep the logs a high-risk system generates, `19(2)` and
-`26(6)` maintain those logs as part of the documentation a financial institution keeps under applicable
-Union financial-services law instead, where the period is longer and is not this estate's to name. The
-three labels are the closed set the shipped writer admits, which is why they are enumerated in the schema;
+**The duty, and the three labels.** `duty.article` names which obligation the manifest answers: `19(1)`
+requires a provider to keep the logs a high-risk system generates, `19(2)` and `26(6)` maintain those logs
+as part of the documentation a financial institution keeps under applicable Union financial-services law
+instead, where the period is longer and is not this estate's to name. The three labels are the closed set
+the shipped writer admits, which is why they are enumerated in the schema;
 `packages/receipt/schemas/pack-v1.schema.json` deliberately leaves its own duty label a plain string
 because the registry is a reader's question rather than that format's, so the two artifacts take opposite
-stances on that one question and neither is a mistake. `duty.requiredSeconds` is bounded by the layout
-itself at `15897600` seconds, 184 days, whenever the article is `19(1)`, because that is the floor this
-repository publishes as `MINIMUM_RETENTION_SECONDS` in `gateway/src/store.ts` and a test compares the two
-spellings rather than this sentence vouching for them. For a routed article the number is the deployment's
-own to supply and nothing here can check it.
+stances on that one question and neither is a mistake.
+
+**Why no period is enforced here.** `duty.requiredSeconds` is bounded by nothing but being a positive
+integer, and that is a decision rather than an omission. Article 19(1) asks for a period appropriate to the
+intended purpose of the system, of at least six months, and it yields to applicable Union or national law,
+in particular in Union law on the protection of personal data, which can move what a deployment owes in
+either direction. A layout that refused a manifest whose period sat below six months would overrule a
+lawful reading with a number this estate owns, which is the same error as printing a duty the customer is
+not under, pointed the other way. For a routed article the number is the deployment's own to supply and
+nothing here can check it. What this repository does hold itself out as publishing is a default of its own:
+`MINIMUM_RETENTION_SECONDS` in `gateway/src/store.ts` is 15897600 seconds, 184 days, six months rounded up
+to whole days so a window configured with it is never shorter than the floor it answers to. That is a
+configuration a deployment may raise or replace, not a bound a manifest can be malformed by, and a test
+compares the number written in this section against the constant that decides it rather than leaving this
+sentence to vouch for itself.
 
 **What a valid manifest does not establish.** `duty.met` is the comparison of two integers printed beside
 them, and a reader with the file can recompute it in one step, which is the only reason it may be stated.

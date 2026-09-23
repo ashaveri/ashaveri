@@ -14,10 +14,11 @@ import { readSourceFile, sectionBody, tableRows } from './doc-contract.js';
  * can notice a widening: a test that restated the member list would have to be edited alongside the schema
  * and would pass either way.
  *
- * The floor Article 19(1) sits on is checked against the constant that publishes it, in
- * `gateway/src/store.ts`, because the section and the schema each name it as a number of seconds and the
- * store is where the number is decided. Two of the three spellings agreeing by accident is the failure this
- * catches.
+ * The default age bound this estate publishes is checked against the constant that sets it, in
+ * `gateway/src/store.ts`, because the section names the number in seconds and the store is where it lives.
+ * A prose figure agreeing with its own source code by accident is the failure this catches. The schema is
+ * asserted to hold no such number, so this check cannot quietly become a second way of enforcing a legal
+ * floor the layout has decided not to enforce.
  */
 
 const DOC = '../../../docs/receipt-spec.md';
@@ -33,6 +34,7 @@ interface JsonSchema {
   $ref?: unknown;
   const?: unknown;
   enum?: readonly unknown[];
+  if?: JsonSchema;
   items?: JsonSchema;
   minimum?: unknown;
   properties?: Record<string, JsonSchema>;
@@ -137,8 +139,8 @@ function tableRowsParsed(): Row[] {
   }));
 }
 
-/** The seconds `gateway/src/store.ts` publishes as the Article 19(1) floor. */
-function publishedFloor(): number {
+/** The seconds `gateway/src/store.ts` publishes as its default age bound. */
+function publishedDefault(): number {
   const found = /export const MINIMUM_RETENTION_SECONDS\s*=\s*([\d\s*]+);/u.exec(readSourceFile(STORE));
   if (!found) throw new Error('MINIMUM_RETENTION_SECONDS is not a product of whole numbers in gateway/src/store.ts');
   return (found[1] ?? '').split('*').reduce((total, part) => {
@@ -146,10 +148,6 @@ function publishedFloor(): number {
     if (!Number.isInteger(factor) || factor <= 0) throw new Error(`${part} is not a whole factor`);
     return total * factor;
   }, 1);
-}
-
-function schemaFloor(): unknown {
-  return (schema.$defs?.duty?.then?.properties?.requiredSeconds ?? {}).minimum;
 }
 
 const declaredMembers = declared('', deref(schema), []);
@@ -214,10 +212,13 @@ describe('docs/receipt-spec.md retention manifest layout (5.3)', () => {
     }
   });
 
-  it('holds the Article 19(1) floor against the store constant it comes from', () => {
-    const floor = publishedFloor();
-    expect(floor, 'the store publishes a floor as a product of whole days').toBeGreaterThan(0);
-    expect(schemaFloor(), 'the layout enforces that many seconds').toBe(floor);
-    expect(prose(), 'and the section states the same number in prose').toContain(String(floor));
+  it('holds the store default named in the section against the constant that sets it', () => {
+    const seconds = publishedDefault();
+    expect(seconds, 'the store publishes its default as a product of whole factors').toBeGreaterThan(0);
+    expect(prose(), 'and the section states that many seconds').toContain(String(seconds));
+    const duty = deref(schema.$defs?.duty);
+    expect(duty.if, 'while the layout conditions on no article').toBeUndefined();
+    expect(duty.then, 'so the number lives in the store and the prose, not in a bound').toBeUndefined();
+    expect(duty.properties?.requiredSeconds?.minimum, 'and a stated period is still a period').toBe(1);
   });
 });

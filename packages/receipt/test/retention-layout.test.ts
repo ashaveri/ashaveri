@@ -14,10 +14,12 @@ import { Ajv2020, type ValidateFunction } from 'ajv/dist/2020.js';
  *
  * Two claims are executable rather than merely structural, and they are the two that matter to a
  * reader. The document compiles as a schema, so the published layout is a statement a verifier can
- * run rather than prose with braces in it. And the one rule the format can hold without knowing the
- * deployment's law, the floor that Article 19(1) sits on, is checked against documents rather than
- * asserted as a number: a manifest that answers 19(1) with a shorter period has to be refused by the
- * layout itself, since a reader who met it elsewhere would have nothing to refuse it with.
+ * run rather than prose with braces in it. And the line the layout draws between a shape and a legal
+ * reading is enforced in the permissive direction: a stated period has to be a period, while no
+ * article's value is bounded, because Article 19(1) yields to other Union or national law and a
+ * refusal here would overrule a reading this estate does not own. The conditional floor that once sat
+ * on the duty block is therefore asserted absent, which is a claim a test can hold rather than a
+ * sentence a reader has to trust.
  */
 
 const schemaPath = fileURLToPath(new URL('../schemas/retention-v1.schema.json', import.meta.url));
@@ -198,19 +200,23 @@ describe('retention-v1.schema.json published layout', () => {
     );
   });
 
-  it('refuses a period below the Article 19(1) floor and not the routed articles', () => {
-    const floor = 15_897_600;
-    expect(prop('duty', 'requiredSeconds').minimum, 'a period is a period').toBe(1);
-    expect(def('duty').then?.properties?.requiredSeconds?.minimum, 'the 19(1) floor is in the layout').toBe(floor);
-    expect(validate(manifest()), 'a manifest at the floor is valid').toBe(true);
+  it('bounds no article period and still refuses a value that is not a period', () => {
+    const sixMonths = 15_897_600;
+    expect(prop('duty', 'requiredSeconds').minimum, 'a stated period is a period').toBe(1);
+    expect(def('duty').if, 'no conditional sits on the duty block').toBeUndefined();
+    expect(def('duty').then, 'so no article carries an enforced floor').toBeUndefined();
     expect(
-      validate(manifest({ duty: { article: '19(1)', requiredSeconds: floor - 1, heldSeconds: 0, met: false } })),
-      'a manifest under it is not',
-    ).toBe(false);
-    expect(
-      validate(manifest({ duty: { article: '19(2)', requiredSeconds: floor - 1, heldSeconds: 0, met: false } })),
-      'the routed articles are not bounded by that floor',
+      validate(manifest({ duty: { article: '19(1)', requiredSeconds: sixMonths - 86_400, heldSeconds: 0, met: false } })),
+      'a 19(1) period under six months is a deployment reading, not a malformed document',
     ).toBe(true);
+    expect(
+      validate(manifest({ duty: { article: '26(6)', requiredSeconds: sixMonths - 86_400, heldSeconds: 0, met: false } })),
+      'and the routed articles were never bounded either',
+    ).toBe(true);
+    expect(
+      validate(manifest({ duty: { article: '19(1)', requiredSeconds: 0, heldSeconds: 0, met: false } })),
+      'zero seconds is not a period under any article',
+    ).toBe(false);
   });
 
   it('refuses what the layout does not define, at every level it closes', () => {
