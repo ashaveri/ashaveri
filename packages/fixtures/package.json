@@ -26,7 +26,8 @@
     "generate:req": "node --experimental-strip-types scripts/req-vectors.ts",
     "generate:res": "node --experimental-strip-types scripts/res-vectors.ts",
     "generate:marking": "node --experimental-strip-types scripts/marking-vectors.ts",
-    "generate:chain": "node --experimental-strip-types scripts/chain-vectors.ts"
+    "generate:chain": "node --experimental-strip-types scripts/chain-vectors.ts",
+    "generate:export": "node --experimental-strip-types scripts/export-vectors.ts"
   },
   "dependencies": {
     "@ashaveri/receipt": "workspace:*",

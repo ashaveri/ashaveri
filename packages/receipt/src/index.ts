@@ -72,6 +72,7 @@ export {
 } from './export.js';
 export type {
   DecodedExport,
+  ExportAnchoredCollection,
   ExportChainedItem,
   ExportCollection,
   ExportItem,

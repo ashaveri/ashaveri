@@ -1,0 +1,454 @@
+{
+  "version": 1,
+  "description": "Technical export documents, the arguments a reader is handed beside them, and the verdict each one owes: three well-formed shapes, and one refusal for every fault the format names.",
+  "layout": {
+    "format": "packages/receipt/export.cddl",
+    "twin": "packages/receipt/schemas/export-v1.schema.json",
+    "document": "docs/export-v1.md",
+    "reader": "verifyExport and decodeExport in @ashaveri/receipt",
+    "contentType": "ashaveri/export",
+    "headerLabels": {
+      "alg": 1,
+      "typ": 3,
+      "kid": 4
+    },
+    "framing": "docs/receipt-spec.md section 5.2",
+    "recordDigest": "sha256 over 0x00 || p || iat as eight big-endian bytes || the byte length of id as two big-endian bytes || id || the original bytes",
+    "itemDigest": "sha256 of the exact original bytes, held in the item field d",
+    "manifestFields": [
+      "v",
+      "at",
+      "assessment",
+      "collection",
+      "claim"
+    ],
+    "collectionArms": [
+      "anchored",
+      "plain",
+      "void"
+    ],
+    "originalArms": [
+      "inline",
+      "companion"
+    ],
+    "encodings": "documents and byte strings unpadded base64url, digests and fixed widths lowercase hex",
+    "anchor": "thirty-two zero bytes, which is the head of an empty chain",
+    "key": {
+      "publicKeyHex": "31debe55d37c722768b137131caa6087080b2e0b60b94bd785d14575cfa498bc",
+      "seed": "thirty-two bytes of 23",
+      "note": "test-only, published so a port can produce these signatures itself, and protecting nothing"
+    },
+    "assembled": "every document here is built from encodeExportManifest, exportSigStructure and sealExport. A fault case edits one position of the manifest map and re-seals under the same key, so the only thing wrong with the bytes is the edit; the signature failures either flip a byte of a payload under the signature made for it or read a document under another key.",
+    "verdictFields": [
+      "verdict",
+      "item",
+      "outcome",
+      "walk",
+      "edited"
+    ],
+    "codes": [
+      "EXPORT_BAD_HEADER",
+      "EXPORT_BAD_MANIFEST",
+      "EXPORT_CHAIN_BROKEN",
+      "EXPORT_DIGEST_MISMATCH",
+      "EXPORT_DUPLICATE_ID",
+      "EXPORT_ENDPOINT_MISMATCH",
+      "EXPORT_ITEM_UNREACHED",
+      "EXPORT_KID_MISMATCH",
+      "EXPORT_MALFORMED_CBOR",
+      "EXPORT_ORIGINAL_UNAVAILABLE",
+      "EXPORT_UNSUPPORTED_LABEL",
+      "EXPORT_UNSUPPORTED_VERSION",
+      "INVALID_SIGNATURE",
+      "NOT_COSE_SIGN1",
+      "verify-ok"
+    ]
+  },
+  "vectors": [
+    {
+      "name": "well-formed-void",
+      "note": "An export that carries nothing and says so. The collection is the void arm and states its outcome, so a reader reports the emptiness and is given no items to count and no walk to have completed.",
+      "documentBase64Url": "0oRYN6MBJwNvYXNoYXZlcmkvZXhwb3J0BFgg43q81579CNuUUYqQOVL_6fivfotGhLY1kWMc746IccigWQEOpWF2AWJhdBppnpMAZWNsYWltpGJieXRBbWlyLCByZWNvcmRzIG9mZmljZWRraW5kanByb3ZlbmFuY2VkbWFkZRppnpKIZnN0YXRlc3gsY29waWVkIGJ5IGhhbmQgZnJvbSBvbmUgc3RvcmUgb24gb25lIG1hY2hpbmVqYXNzZXNzbWVudKJha2Rub25lZnN0YXRlc3gtbm8gbGVnYWwgYXNzZXNzbWVudCB3YXMgbWFkZSBvZiB0aGlzIG1hdGVyaWFsamNvbGxlY3Rpb26iYWtkdm9pZGZzdGF0ZXN4L3RoZSBzdG9yZSBoZWxkIG5vdGhpbmcgZm9yIHRoZSBwZXJpb2QgYXNrZWQgZm9yWEBI1omvV1HFimu3byu6lY-SJHKhMXM-CtpmWc6fHDesem1bXCdz0oJ2mmuE-dVcJtArxJOiuHGdogW3PE57AtMJ",
+      "documentByteLength": 399,
+      "read": {},
+      "verdict": "verify-ok",
+      "outcome": "void"
+    },
+    {
+      "name": "well-formed-plain",
+      "note": "One original inside the document, no chain claimed about it and no endpoints stated, which is the shape a contract a customer asked for travels in.",
+      "documentBase64Url": "0oRYN6MBJwNvYXNoYXZlcmkvZXhwb3J0BFgg43q81579CNuUUYqQOVL_6fivfotGhLY1kWMc746IccigWQFMpWF2AWJhdBppnpMAZWNsYWltpGJieXRBbWlyLCByZWNvcmRzIG9mZmljZWRraW5kanByb3ZlbmFuY2VkbWFkZRppnpKIZnN0YXRlc3gsY29waWVkIGJ5IGhhbmQgZnJvbSBvbmUgc3RvcmUgb24gb25lIG1hY2hpbmVqYXNzZXNzbWVudKJha2Rub25lZnN0YXRlc3gtbm8gbGVnYWwgYXNzZXNzbWVudCB3YXMgbWFkZSBvZiB0aGlzIG1hdGVyaWFsamNvbGxlY3Rpb26iYWtlcGxhaW5laXRlbXOBpGFkWCC7LCrIlthpEvVkQqhHCmqaDoVYJ5fRM2J91Mq6LPGVkmJpZGhjb250cmFjdGNpYXQaaZ6SxGRvcmlnomFrZmlubGluZWVieXRlc1gddGhlIGNvbnRyYWN0LCBhcyBpdCB3YXMgZmlsZWRYQCZia_smdAFrozP7AXQavOg1RJa9T1RcjdRsqAxMWXXgc6DwMxLlflvR2Psmxs-BC6xklsUVxWXscs7lv4uSuwg",
+      "documentByteLength": 461,
+      "read": {},
+      "verdict": "verify-ok",
+      "outcome": "plain"
+    },
+    {
+      "name": "well-formed-anchored",
+      "note": "Three receipts chained from an anchor of thirty-two zero bytes to a signed head, read by a reader that pins both endpoints. The walk follows the links, so the order of the array is none of its business.",
+      "documentBase64Url": "0oRYN6MBJwNvYXNoYXZlcmkvZXhwb3J0BFgg43q81579CNuUUYqQOVL_6fivfotGhLY1kWMc746IccigWQKmpWF2AWJhdBppnpMAZWNsYWltpGJieXRBbWlyLCByZWNvcmRzIG9mZmljZWRraW5kanByb3ZlbmFuY2VkbWFkZRppnpKIZnN0YXRlc3gsY29waWVkIGJ5IGhhbmQgZnJvbSBvbmUgc3RvcmUgb24gb25lIG1hY2hpbmVqYXNzZXNzbWVudKJha2Rub25lZnN0YXRlc3gtbm8gbGVnYWwgYXNzZXNzbWVudCB3YXMgbWFkZSBvZiB0aGlzIG1hdGVyaWFsamNvbGxlY3Rpb26kYWtoYW5jaG9yZWRkaGVhZFggd7BmGQTu9TB1FrWn08IX2r9VZhieLjDj3RDu69EdabxlaXRlbXODpWFkWCDqnyWeEPKfMqUcBmnhzHaLE9dL5Fiwyi0_4kvPrHEDSGFwWCAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAGJpZGNyLTBjaWF0GmmekwBkb3JpZ6Jha2ZpbmxpbmVlYnl0ZXNNZmlyc3QgcmVjZWlwdKVhZFggaxHrunjNVSaPY8bxv1z3dvJULTi6cbjCJ98SuhD60FRhcFgg44aH-N6U2iHF8ywkXDzbGWiIVchUYGc59owrAxf2E15iaWRjci0xY2lhdBppnpMBZG9yaWeiYWtmaW5saW5lZWJ5dGVzTnNlY29uZCByZWNlaXB0pWFkWCCoXZrCMgjBDVl2qejdSJjLCflFUuAr2h7yKeFbI8sA5GFwWCAv-_sPFEzaZWvnZZI355PIby_QNNJBglk8LXGIgt1d12JpZGNyLTJjaWF0GmmekwJkb3JpZ6Jha2ZpbmxpbmVlYnl0ZXNNdGhpcmQgcmVjZWlwdGZhbmNob3JYIAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAWEBRgTOWso7gMJ2cj27vweojn4nChJQvVgyOjGCODUjAXBv_khCa8LFiBSUU3k43eosaQYyIy5XHs2-4HhUfJ_kO",
+      "documentByteLength": 807,
+      "read": {
+        "expectedAnchorHex": "0000000000000000000000000000000000000000000000000000000000000000",
+        "expectedHeadHex": "77b0661904eef5307516b5a7d3c217dabf5566189e2e30e3dd10eeebd11d69bc"
+      },
+      "verdict": "verify-ok",
+      "outcome": "anchored",
+      "walk": [
+        "r-0",
+        "r-1",
+        "r-2"
+      ]
+    },
+    {
+      "name": "companion-handed-and-checked",
+      "note": "One original travelling beside the document under a name, and the file handed to the reader: the item digest is checked against those bytes and the export passes.",
+      "documentBase64Url": "0oRYN6MBJwNvYXNoYXZlcmkvZXhwb3J0BFgg43q81579CNuUUYqQOVL_6fivfotGhLY1kWMc746IccigWQE8pWF2AWJhdBppnpMAZWNsYWltpGJieXRBbWlyLCByZWNvcmRzIG9mZmljZWRraW5kanByb3ZlbmFuY2VkbWFkZRppnpKIZnN0YXRlc3gsY29waWVkIGJ5IGhhbmQgZnJvbSBvbmUgc3RvcmUgb24gb25lIG1hY2hpbmVqYXNzZXNzbWVudKJha2Rub25lZnN0YXRlc3gtbm8gbGVnYWwgYXNzZXNzbWVudCB3YXMgbWFkZSBvZiB0aGlzIG1hdGVyaWFsamNvbGxlY3Rpb26iYWtlcGxhaW5laXRlbXOBpGFkWCC7LCrIlthpEvVkQqhHCmqaDoVYJ5fRM2J91Mq6LPGVkmJpZGhjb250cmFjdGNpYXQaaZ6SxGRvcmlnomFraWNvbXBhbmlvbmRuYW1lbGNvbnRyYWN0LnBkZlhAj5vpkJqM_ZI6sA9xSJ-bHK7cBLSJfYTnB0wa1qNGOhuSl6sfuLPk_Nt-4B8LsEme9g4uUF4pMOS-LlPDYbDnAA",
+      "documentByteLength": 445,
+      "read": {
+        "companions": [
+          {
+            "name": "contract.pdf",
+            "bytesBase64Url": "dGhlIGNvbnRyYWN0LCBhcyBpdCB3YXMgZmlsZWQ"
+          }
+        ]
+      },
+      "verdict": "verify-ok",
+      "outcome": "plain"
+    },
+    {
+      "name": "companion-not-handed",
+      "note": "The same document read without the file beside it. The item is whole and the document is not at fault: the reader says which name it was not given rather than reporting a set of material it never looked at.",
+      "documentBase64Url": "0oRYN6MBJwNvYXNoYXZlcmkvZXhwb3J0BFgg43q81579CNuUUYqQOVL_6fivfotGhLY1kWMc746IccigWQE8pWF2AWJhdBppnpMAZWNsYWltpGJieXRBbWlyLCByZWNvcmRzIG9mZmljZWRraW5kanByb3ZlbmFuY2VkbWFkZRppnpKIZnN0YXRlc3gsY29waWVkIGJ5IGhhbmQgZnJvbSBvbmUgc3RvcmUgb24gb25lIG1hY2hpbmVqYXNzZXNzbWVudKJha2Rub25lZnN0YXRlc3gtbm8gbGVnYWwgYXNzZXNzbWVudCB3YXMgbWFkZSBvZiB0aGlzIG1hdGVyaWFsamNvbGxlY3Rpb26iYWtlcGxhaW5laXRlbXOBpGFkWCC7LCrIlthpEvVkQqhHCmqaDoVYJ5fRM2J91Mq6LPGVkmJpZGhjb250cmFjdGNpYXQaaZ6SxGRvcmlnomFraWNvbXBhbmlvbmRuYW1lbGNvbnRyYWN0LnBkZlhAj5vpkJqM_ZI6sA9xSJ-bHK7cBLSJfYTnB0wa1qNGOhuSl6sfuLPk_Nt-4B8LsEme9g4uUF4pMOS-LlPDYbDnAA",
+      "documentByteLength": 445,
+      "read": {},
+      "verdict": "EXPORT_ORIGINAL_UNAVAILABLE",
+      "item": "contract"
+    },
+    {
+      "name": "companion-substituted",
+      "note": "A companion file handed under the right name whose bytes are not the ones the item digests, which is the swap a handover carried through a folder of loose files meets.",
+      "documentBase64Url": "0oRYN6MBJwNvYXNoYXZlcmkvZXhwb3J0BFgg43q81579CNuUUYqQOVL_6fivfotGhLY1kWMc746IccigWQE8pWF2AWJhdBppnpMAZWNsYWltpGJieXRBbWlyLCByZWNvcmRzIG9mZmljZWRraW5kanByb3ZlbmFuY2VkbWFkZRppnpKIZnN0YXRlc3gsY29waWVkIGJ5IGhhbmQgZnJvbSBvbmUgc3RvcmUgb24gb25lIG1hY2hpbmVqYXNzZXNzbWVudKJha2Rub25lZnN0YXRlc3gtbm8gbGVnYWwgYXNzZXNzbWVudCB3YXMgbWFkZSBvZiB0aGlzIG1hdGVyaWFsamNvbGxlY3Rpb26iYWtlcGxhaW5laXRlbXOBpGFkWCC7LCrIlthpEvVkQqhHCmqaDoVYJ5fRM2J91Mq6LPGVkmJpZGhjb250cmFjdGNpYXQaaZ6SxGRvcmlnomFraWNvbXBhbmlvbmRuYW1lbGNvbnRyYWN0LnBkZlhAj5vpkJqM_ZI6sA9xSJ-bHK7cBLSJfYTnB0wa1qNGOhuSl6sfuLPk_Nt-4B8LsEme9g4uUF4pMOS-LlPDYbDnAA",
+      "documentByteLength": 445,
+      "read": {
+        "companions": [
+          {
+            "name": "contract.pdf",
+            "bytesBase64Url": "YSBkaWZmZXJlbnQgY29udHJhY3QgZW50aXJlbHk"
+          }
+        ]
+      },
+      "verdict": "EXPORT_DIGEST_MISMATCH",
+      "item": "contract"
+    },
+    {
+      "name": "original-bytes-edited",
+      "note": "The bytes of one item edited after assembly, with the digest beside them left as it was and the manifest re-sealed so the signature is good. This is the handover that was changed between the deployment and the reading, and it is the item digest that notices.",
+      "documentBase64Url": "0oRYN6MBJwNvYXNoYXZlcmkvZXhwb3J0BFgg43q81579CNuUUYqQOVL_6fivfotGhLY1kWMc746IccigWQFUpWF2AWJhdBppnpMAZWNsYWltpGJieXRBbWlyLCByZWNvcmRzIG9mZmljZWRraW5kanByb3ZlbmFuY2VkbWFkZRppnpKIZnN0YXRlc3gsY29waWVkIGJ5IGhhbmQgZnJvbSBvbmUgc3RvcmUgb24gb25lIG1hY2hpbmVqYXNzZXNzbWVudKJha2Rub25lZnN0YXRlc3gtbm8gbGVnYWwgYXNzZXNzbWVudCB3YXMgbWFkZSBvZiB0aGlzIG1hdGVyaWFsamNvbGxlY3Rpb26iYWtlcGxhaW5laXRlbXOBpGFkWCC7LCrIlthpEvVkQqhHCmqaDoVYJ5fRM2J91Mq6LPGVkmJpZGhjb250cmFjdGNpYXQaaZ6SxGRvcmlnomFrZmlubGluZWVieXRlc1gldGhlIGNvbnRyYWN0LCB3aXRoIG9uZSBjbGF1c2UgcmVtb3ZlZFhAuHlcyYnR_iedJ0-seC3XjkYjahBsPR5HlnpJbOW8hFQ7Sz8gtZEiCHaPjhE5GYD5s-JeB12nRAcxw-TCeOXABQ",
+      "documentByteLength": 469,
+      "read": {},
+      "verdict": "EXPORT_DIGEST_MISMATCH",
+      "item": "contract",
+      "edited": "the bytes of the inline original of item contract"
+    },
+    {
+      "name": "payload-byte-changed",
+      "note": "One byte of a signed manifest flipped after the fact with the old signature left in place. The structure still reads and the signature is what refuses it, which is the order a reader has to keep.",
+      "documentBase64Url": "0oRYN6MBJwNvYXNoYXZlcmkvZXhwb3J0BFgg43q81579CNuUUYqQOVL_6fivfotGhLY1kWMc746IccigWQKmpWF2AWJgdBppnpMAZWNsYWltpGJieXRBbWlyLCByZWNvcmRzIG9mZmljZWRraW5kanByb3ZlbmFuY2VkbWFkZRppnpKIZnN0YXRlc3gsY29waWVkIGJ5IGhhbmQgZnJvbSBvbmUgc3RvcmUgb24gb25lIG1hY2hpbmVqYXNzZXNzbWVudKJha2Rub25lZnN0YXRlc3gtbm8gbGVnYWwgYXNzZXNzbWVudCB3YXMgbWFkZSBvZiB0aGlzIG1hdGVyaWFsamNvbGxlY3Rpb26kYWtoYW5jaG9yZWRkaGVhZFggd7BmGQTu9TB1FrWn08IX2r9VZhieLjDj3RDu69EdabxlaXRlbXODpWFkWCDqnyWeEPKfMqUcBmnhzHaLE9dL5Fiwyi0_4kvPrHEDSGFwWCAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAGJpZGNyLTBjaWF0GmmekwBkb3JpZ6Jha2ZpbmxpbmVlYnl0ZXNNZmlyc3QgcmVjZWlwdKVhZFggaxHrunjNVSaPY8bxv1z3dvJULTi6cbjCJ98SuhD60FRhcFgg44aH-N6U2iHF8ywkXDzbGWiIVchUYGc59owrAxf2E15iaWRjci0xY2lhdBppnpMBZG9yaWeiYWtmaW5saW5lZWJ5dGVzTnNlY29uZCByZWNlaXB0pWFkWCCoXZrCMgjBDVl2qejdSJjLCflFUuAr2h7yKeFbI8sA5GFwWCAv-_sPFEzaZWvnZZI355PIby_QNNJBglk8LXGIgt1d12JpZGNyLTJjaWF0GmmekwJkb3JpZ6Jha2ZpbmxpbmVlYnl0ZXNNdGhpcmQgcmVjZWlwdGZhbmNob3JYIAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAWEBRgTOWso7gMJ2cj27vweojn4nChJQvVgyOjGCODUjAXBv_khCa8LFiBSUU3k43eosaQYyIy5XHs2-4HhUfJ_kO",
+      "documentByteLength": 807,
+      "read": {},
+      "verdict": "INVALID_SIGNATURE",
+      "edited": "the sixth byte of the payload, under the signature that was made for it"
+    },
+    {
+      "name": "empty-collection-unstated",
+      "note": "The anchored arm with an empty array, which is the shape this format does not allow: emptiness belongs to the void arm, where it is stated. A walk over no items would close vacuously and read as evidence.",
+      "documentBase64Url": "0oRYN6MBJwNvYXNoYXZlcmkvZXhwb3J0BFgg43q81579CNuUUYqQOVL_6fivfotGhLY1kWMc746IccigWQExpWF2AWJhdBppnpMAZWNsYWltpGJieXRBbWlyLCByZWNvcmRzIG9mZmljZWRraW5kanByb3ZlbmFuY2VkbWFkZRppnpKIZnN0YXRlc3gsY29waWVkIGJ5IGhhbmQgZnJvbSBvbmUgc3RvcmUgb24gb25lIG1hY2hpbmVqYXNzZXNzbWVudKJha2Rub25lZnN0YXRlc3gtbm8gbGVnYWwgYXNzZXNzbWVudCB3YXMgbWFkZSBvZiB0aGlzIG1hdGVyaWFsamNvbGxlY3Rpb26kYWtoYW5jaG9yZWRkaGVhZFggd7BmGQTu9TB1FrWn08IX2r9VZhieLjDj3RDu69EdabxlaXRlbXOAZmFuY2hvclggAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAABYQFsKTd2ZWOMqIZFFyTDzaKdHOyr1gwFSYsNn4io2mwwTgG_hBVd2lgLA02ksmFohds5ZvUKF64kys1OjgR66CAw",
+      "documentByteLength": 434,
+      "read": {},
+      "verdict": "EXPORT_BAD_MANIFEST",
+      "edited": "collection.items to the empty array"
+    },
+    {
+      "name": "unknown-manifest-member",
+      "note": "A member the closed manifest does not define. It is refused rather than dropped, because a member a reader ignores is a claim inside the signature that nobody looked at.",
+      "documentBase64Url": "0oRYN6MBJwNvYXNoYXZlcmkvZXhwb3J0BFgg43q81579CNuUUYqQOVL_6fivfotGhLY1kWMc746IccigWQLCpmF2AWJhdBppnpMAZWNsYWltpGJieXRBbWlyLCByZWNvcmRzIG9mZmljZWRraW5kanByb3ZlbmFuY2VkbWFkZRppnpKIZnN0YXRlc3gsY29waWVkIGJ5IGhhbmQgZnJvbSBvbmUgc3RvcmUgb24gb25lIG1hY2hpbmVpcmV0ZW50aW9ucW5pbmUgaHVuZHJlZCBkYXlzamFzc2Vzc21lbnSiYWtkbm9uZWZzdGF0ZXN4LW5vIGxlZ2FsIGFzc2Vzc21lbnQgd2FzIG1hZGUgb2YgdGhpcyBtYXRlcmlhbGpjb2xsZWN0aW9upGFraGFuY2hvcmVkZGhlYWRYIHewZhkE7vUwdRa1p9PCF9q_VWYYni4w490Q7uvRHWm8ZWl0ZW1zg6VhZFgg6p8lnhDynzKlHAZp4cx2ixPXS-RYsMotP-JLz6xxA0hhcFggAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAABiaWRjci0wY2lhdBppnpMAZG9yaWeiYWtmaW5saW5lZWJ5dGVzTWZpcnN0IHJlY2VpcHSlYWRYIGsR67p4zVUmj2PG8b9c93byVC04unG4wiffEroQ-tBUYXBYIOOGh_jelNohxfMsJFw82xloiFXIVGBnOfaMKwMX9hNeYmlkY3ItMWNpYXQaaZ6TAWRvcmlnomFrZmlubGluZWVieXRlc05zZWNvbmQgcmVjZWlwdKVhZFggqF2awjIIwQ1Zdqno3UiYywn5RVLgK9oe8inhWyPLAORhcFggL_v7DxRM2mVr52WSN-eTyG8v0DTSQYJZPC1xiILdXddiaWRjci0yY2lhdBppnpMCZG9yaWeiYWtmaW5saW5lZWJ5dGVzTXRoaXJkIHJlY2VpcHRmYW5jaG9yWCAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAFhApdoBsHY01R2BspemBE_7v1fOIsCmah9ZfzLhrWgpmPHzT2_2ZUVugAD5dNutpx9mt7YPB0og8w0ZmzZ0fuODDw",
+      "documentByteLength": 835,
+      "read": {},
+      "verdict": "EXPORT_BAD_MANIFEST",
+      "edited": "a member named 'retention' added to the manifest"
+    },
+    {
+      "name": "unknown-item-member",
+      "note": "The same rule one map down: an item carrying a member the item rule does not name, which is where a second claim about an original would arrive.",
+      "documentBase64Url": "0oRYN6MBJwNvYXNoYXZlcmkvZXhwb3J0BFgg43q81579CNuUUYqQOVL_6fivfotGhLY1kWMc746IccigWQLHpWF2AWJhdBppnpMAZWNsYWltpGJieXRBbWlyLCByZWNvcmRzIG9mZmljZWRraW5kanByb3ZlbmFuY2VkbWFkZRppnpKIZnN0YXRlc3gsY29waWVkIGJ5IGhhbmQgZnJvbSBvbmUgc3RvcmUgb24gb25lIG1hY2hpbmVqYXNzZXNzbWVudKJha2Rub25lZnN0YXRlc3gtbm8gbGVnYWwgYXNzZXNzbWVudCB3YXMgbWFkZSBvZiB0aGlzIG1hdGVyaWFsamNvbGxlY3Rpb26kYWtoYW5jaG9yZWRkaGVhZFggd7BmGQTu9TB1FrWn08IX2r9VZhieLjDj3RDu69EdabxlaXRlbXODpmFkWCDqnyWeEPKfMqUcBmnhzHaLE9dL5Fiwyi0_4kvPrHEDSGFwWCAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAGJpZGNyLTBjaWF0GmmekwBkb3JpZ6Jha2ZpbmxpbmVlYnl0ZXNNZmlyc3QgcmVjZWlwdGVsYWJlbHgZcmVxdWVzdGVkIGJ5IHRoZSBjdXN0b21lcqVhZFggaxHrunjNVSaPY8bxv1z3dvJULTi6cbjCJ98SuhD60FRhcFgg44aH-N6U2iHF8ywkXDzbGWiIVchUYGc59owrAxf2E15iaWRjci0xY2lhdBppnpMBZG9yaWeiYWtmaW5saW5lZWJ5dGVzTnNlY29uZCByZWNlaXB0pWFkWCCoXZrCMgjBDVl2qejdSJjLCflFUuAr2h7yKeFbI8sA5GFwWCAv-_sPFEzaZWvnZZI355PIby_QNNJBglk8LXGIgt1d12JpZGNyLTJjaWF0GmmekwJkb3JpZ6Jha2ZpbmxpbmVlYnl0ZXNNdGhpcmQgcmVjZWlwdGZhbmNob3JYIAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAWED7c5tLVIc4epS8FGc7AJYbu9VDxbgekP0l7qT9tqn_-vi9eIhpeX1xY1pHmX94SiJxKUQGCbAIT0-lMIBp5KwB",
+      "documentByteLength": 840,
+      "read": {},
+      "verdict": "EXPORT_BAD_MANIFEST",
+      "edited": "a member named 'label' added to the first item"
+    },
+    {
+      "name": "unknown-assessment-member",
+      "note": "And beside the assessment block, whose two members are the whole of what this version states about assessment.",
+      "documentBase64Url": "0oRYN6MBJwNvYXNoYXZlcmkvZXhwb3J0BFgg43q81579CNuUUYqQOVL_6fivfotGhLY1kWMc746IccigWQK-pWF2AWJhdBppnpMAZWNsYWltpGJieXRBbWlyLCByZWNvcmRzIG9mZmljZWRraW5kanByb3ZlbmFuY2VkbWFkZRppnpKIZnN0YXRlc3gsY29waWVkIGJ5IGhhbmQgZnJvbSBvbmUgc3RvcmUgb24gb25lIG1hY2hpbmVqYXNzZXNzbWVudKNha2Rub25lZWJhc2lzcWFkdmljZSBvZiBjb3Vuc2VsZnN0YXRlc3gtbm8gbGVnYWwgYXNzZXNzbWVudCB3YXMgbWFkZSBvZiB0aGlzIG1hdGVyaWFsamNvbGxlY3Rpb26kYWtoYW5jaG9yZWRkaGVhZFggd7BmGQTu9TB1FrWn08IX2r9VZhieLjDj3RDu69EdabxlaXRlbXODpWFkWCDqnyWeEPKfMqUcBmnhzHaLE9dL5Fiwyi0_4kvPrHEDSGFwWCAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAGJpZGNyLTBjaWF0GmmekwBkb3JpZ6Jha2ZpbmxpbmVlYnl0ZXNNZmlyc3QgcmVjZWlwdKVhZFggaxHrunjNVSaPY8bxv1z3dvJULTi6cbjCJ98SuhD60FRhcFgg44aH-N6U2iHF8ywkXDzbGWiIVchUYGc59owrAxf2E15iaWRjci0xY2lhdBppnpMBZG9yaWeiYWtmaW5saW5lZWJ5dGVzTnNlY29uZCByZWNlaXB0pWFkWCCoXZrCMgjBDVl2qejdSJjLCflFUuAr2h7yKeFbI8sA5GFwWCAv-_sPFEzaZWvnZZI355PIby_QNNJBglk8LXGIgt1d12JpZGNyLTJjaWF0GmmekwJkb3JpZ6Jha2ZpbmxpbmVlYnl0ZXNNdGhpcmQgcmVjZWlwdGZhbmNob3JYIAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAWEBfRUzcy1kkR_bS2trqxa6l0thmlnpEapqfHsGgh-Kj1LQYZG6F-HbgS1SPW_JzAYFnfcsBchepzQWdwYRBI4gG",
+      "documentByteLength": 831,
+      "read": {},
+      "verdict": "EXPORT_BAD_MANIFEST",
+      "edited": "a member named 'basis' added to the assessment"
+    },
+    {
+      "name": "wrong-content-type",
+      "note": "An export manifest inside a receipt envelope. One key signs both containers, and a reader that took this for an export would report a handover as an attestation about one response.",
+      "documentBase64Url": "0oRYOKMBJwNwYXNoYXZlcmkvcmVjZWlwdARYION6vNee_QjblFGKkDlS_-n4r36LRoS2NZFjHO-OiHHIoFkCpqVhdgFiYXQaaZ6TAGVjbGFpbaRiYnl0QW1pciwgcmVjb3JkcyBvZmZpY2Vka2luZGpwcm92ZW5hbmNlZG1hZGUaaZ6SiGZzdGF0ZXN4LGNvcGllZCBieSBoYW5kIGZyb20gb25lIHN0b3JlIG9uIG9uZSBtYWNoaW5lamFzc2Vzc21lbnSiYWtkbm9uZWZzdGF0ZXN4LW5vIGxlZ2FsIGFzc2Vzc21lbnQgd2FzIG1hZGUgb2YgdGhpcyBtYXRlcmlhbGpjb2xsZWN0aW9upGFraGFuY2hvcmVkZGhlYWRYIHewZhkE7vUwdRa1p9PCF9q_VWYYni4w490Q7uvRHWm8ZWl0ZW1zg6VhZFgg6p8lnhDynzKlHAZp4cx2ixPXS-RYsMotP-JLz6xxA0hhcFggAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAABiaWRjci0wY2lhdBppnpMAZG9yaWeiYWtmaW5saW5lZWJ5dGVzTWZpcnN0IHJlY2VpcHSlYWRYIGsR67p4zVUmj2PG8b9c93byVC04unG4wiffEroQ-tBUYXBYIOOGh_jelNohxfMsJFw82xloiFXIVGBnOfaMKwMX9hNeYmlkY3ItMWNpYXQaaZ6TAWRvcmlnomFrZmlubGluZWVieXRlc05zZWNvbmQgcmVjZWlwdKVhZFggqF2awjIIwQ1Zdqno3UiYywn5RVLgK9oe8inhWyPLAORhcFggL_v7DxRM2mVr52WSN-eTyG8v0DTSQYJZPC1xiILdXddiaWRjci0yY2lhdBppnpMCZG9yaWeiYWtmaW5saW5lZWJ5dGVzTXRoaXJkIHJlY2VpcHRmYW5jaG9yWCAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAFhAbqpGWRwslvFY6w6bTpr8Xt-wq-U4uEK1zVP6cCDY9eyb5i1D3jye3sq2IMd7Gl9hucRWYYuWau_PBmC54zNyCw",
+      "documentByteLength": 808,
+      "read": {},
+      "verdict": "EXPORT_BAD_HEADER"
+    },
+    {
+      "name": "pack-read-as-export",
+      "note": "A pack v1 document, signed by the same key and handed to this reader. Its typ is the pack and its manifest names six members this format does not, so it is refused at the header before one member is read.",
+      "documentBase64Url": "0oRYNaMBJwNtYXNoYXZlcmkvcGFjawRYION6vNee_QjblFGKkDlS_-n4r36LRoS2NZFjHO-OiHHIoFkBmqZhdgFiYXQaaZ6TAGRkdXR5pGNhcnRlMTkoMSljcmV2GmmekuJkaGVsZBoA8pQAaHJlcXVpcmVkGgDylABkc3BhbqJidG8aaZ6TAGRmcm9tGmmekKhlY2hhaW6iZGhlYWRYIPiJlMvC68N_zxqNY9v5VlAqtvJLRJM6IPGu5bGYgK0lZmFuY2hvclggAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAABlaXRlbXOBpGJpZGlyZWNlaXB0LTBjaWF0GmmekdRkcHJldlggAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAABncmVjZWlwdFif0oRYOKMBJwNwYXNoYXZlcmkvcmVjZWlwdARYION6vNee_QjblFGKkDlS_-n4r36LRoS2NZFjHO-OiHHIoFgeomF2AWNpc3N1YXNoYXZlcmktcGFjay1maXh0dXJlWECulIQtM_mD3i_Tsyu4Idee9y5ij4ctsP3KIGuxBB-lKqS0ZgHcrLSVJrq7qCwtbxZnr7qPE8oHVmCSxNXz9PkJWECUZstXL52scqYJTWR1WkDuiMJ0ecPGSOxNX3FaMI5-P8zBEyldSnfEtkKxThX62o45objEj3Es_H-LV_9n5FcJ",
+      "documentByteLength": 537,
+      "read": {},
+      "verdict": "EXPORT_BAD_HEADER"
+    },
+    {
+      "name": "manifest-version-unknown",
+      "note": "A manifest declaring a version no format has used. The answer is about the reach of the reader and not about the bytes being broken.",
+      "documentBase64Url": "0oRYN6MBJwNvYXNoYXZlcmkvZXhwb3J0BFgg43q81579CNuUUYqQOVL_6fivfotGhLY1kWMc746IccigWQKmpWF2AmJhdBppnpMAZWNsYWltpGJieXRBbWlyLCByZWNvcmRzIG9mZmljZWRraW5kanByb3ZlbmFuY2VkbWFkZRppnpKIZnN0YXRlc3gsY29waWVkIGJ5IGhhbmQgZnJvbSBvbmUgc3RvcmUgb24gb25lIG1hY2hpbmVqYXNzZXNzbWVudKJha2Rub25lZnN0YXRlc3gtbm8gbGVnYWwgYXNzZXNzbWVudCB3YXMgbWFkZSBvZiB0aGlzIG1hdGVyaWFsamNvbGxlY3Rpb26kYWtoYW5jaG9yZWRkaGVhZFggd7BmGQTu9TB1FrWn08IX2r9VZhieLjDj3RDu69EdabxlaXRlbXODpWFkWCDqnyWeEPKfMqUcBmnhzHaLE9dL5Fiwyi0_4kvPrHEDSGFwWCAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAGJpZGNyLTBjaWF0GmmekwBkb3JpZ6Jha2ZpbmxpbmVlYnl0ZXNNZmlyc3QgcmVjZWlwdKVhZFggaxHrunjNVSaPY8bxv1z3dvJULTi6cbjCJ98SuhD60FRhcFgg44aH-N6U2iHF8ywkXDzbGWiIVchUYGc59owrAxf2E15iaWRjci0xY2lhdBppnpMBZG9yaWeiYWtmaW5saW5lZWJ5dGVzTnNlY29uZCByZWNlaXB0pWFkWCCoXZrCMgjBDVl2qejdSJjLCflFUuAr2h7yKeFbI8sA5GFwWCAv-_sPFEzaZWvnZZI355PIby_QNNJBglk8LXGIgt1d12JpZGNyLTJjaWF0GmmekwJkb3JpZ6Jha2ZpbmxpbmVlYnl0ZXNNdGhpcmQgcmVjZWlwdGZhbmNob3JYIAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAWEDubEsg56m7N_AxGtfUgyFdgq1romwzrXRdtSQ-R6KpO_PLk6QNpUv58KXa3mj5H6hda7SEsx_XeCYA5tx-mlgD",
+      "documentByteLength": 807,
+      "read": {},
+      "verdict": "EXPORT_UNSUPPORTED_VERSION",
+      "edited": "v to 2"
+    },
+    {
+      "name": "assessment-label-of-another-version",
+      "note": "An assessment block carrying a label this version defines no reading for. Guessing which statement the writer meant would be this container answering the question it states it did not answer.",
+      "documentBase64Url": "0oRYN6MBJwNvYXNoYXZlcmkvZXhwb3J0BFgg43q81579CNuUUYqQOVL_6fivfotGhLY1kWMc746IccigWQKqpWF2AWJhdBppnpMAZWNsYWltpGJieXRBbWlyLCByZWNvcmRzIG9mZmljZWRraW5kanByb3ZlbmFuY2VkbWFkZRppnpKIZnN0YXRlc3gsY29waWVkIGJ5IGhhbmQgZnJvbSBvbmUgc3RvcmUgb24gb25lIG1hY2hpbmVqYXNzZXNzbWVudKJha2hhc3Nlc3NlZGZzdGF0ZXN4LW5vIGxlZ2FsIGFzc2Vzc21lbnQgd2FzIG1hZGUgb2YgdGhpcyBtYXRlcmlhbGpjb2xsZWN0aW9upGFraGFuY2hvcmVkZGhlYWRYIHewZhkE7vUwdRa1p9PCF9q_VWYYni4w490Q7uvRHWm8ZWl0ZW1zg6VhZFgg6p8lnhDynzKlHAZp4cx2ixPXS-RYsMotP-JLz6xxA0hhcFggAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAABiaWRjci0wY2lhdBppnpMAZG9yaWeiYWtmaW5saW5lZWJ5dGVzTWZpcnN0IHJlY2VpcHSlYWRYIGsR67p4zVUmj2PG8b9c93byVC04unG4wiffEroQ-tBUYXBYIOOGh_jelNohxfMsJFw82xloiFXIVGBnOfaMKwMX9hNeYmlkY3ItMWNpYXQaaZ6TAWRvcmlnomFrZmlubGluZWVieXRlc05zZWNvbmQgcmVjZWlwdKVhZFggqF2awjIIwQ1Zdqno3UiYywn5RVLgK9oe8inhWyPLAORhcFggL_v7DxRM2mVr52WSN-eTyG8v0DTSQYJZPC1xiILdXddiaWRjci0yY2lhdBppnpMCZG9yaWeiYWtmaW5saW5lZWJ5dGVzTXRoaXJkIHJlY2VpcHRmYW5jaG9yWCAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAFhA1ufdK__jvWfowxe9VUoJfqM1DaVQyHLUl7F25--VKscaveQ-C2ekJgnqdlp2TAW9JumsFVIGK9btThcd8VVWCQ",
+      "documentByteLength": 811,
+      "read": {},
+      "verdict": "EXPORT_UNSUPPORTED_LABEL",
+      "edited": "assessment.k to 'assessed'"
+    },
+    {
+      "name": "collection-arm-unknown",
+      "note": "A collection whose label names a shape this version does not define, beside the three it does.",
+      "documentBase64Url": "0oRYN6MBJwNvYXNoYXZlcmkvZXhwb3J0BFgg43q81579CNuUUYqQOVL_6fivfotGhLY1kWMc746IccigWQKkpWF2AWJhdBppnpMAZWNsYWltpGJieXRBbWlyLCByZWNvcmRzIG9mZmljZWRraW5kanByb3ZlbmFuY2VkbWFkZRppnpKIZnN0YXRlc3gsY29waWVkIGJ5IGhhbmQgZnJvbSBvbmUgc3RvcmUgb24gb25lIG1hY2hpbmVqYXNzZXNzbWVudKJha2Rub25lZnN0YXRlc3gtbm8gbGVnYWwgYXNzZXNzbWVudCB3YXMgbWFkZSBvZiB0aGlzIG1hdGVyaWFsamNvbGxlY3Rpb26kYWtmc2VhbGVkZGhlYWRYIHewZhkE7vUwdRa1p9PCF9q_VWYYni4w490Q7uvRHWm8ZWl0ZW1zg6VhZFgg6p8lnhDynzKlHAZp4cx2ixPXS-RYsMotP-JLz6xxA0hhcFggAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAABiaWRjci0wY2lhdBppnpMAZG9yaWeiYWtmaW5saW5lZWJ5dGVzTWZpcnN0IHJlY2VpcHSlYWRYIGsR67p4zVUmj2PG8b9c93byVC04unG4wiffEroQ-tBUYXBYIOOGh_jelNohxfMsJFw82xloiFXIVGBnOfaMKwMX9hNeYmlkY3ItMWNpYXQaaZ6TAWRvcmlnomFrZmlubGluZWVieXRlc05zZWNvbmQgcmVjZWlwdKVhZFggqF2awjIIwQ1Zdqno3UiYywn5RVLgK9oe8inhWyPLAORhcFggL_v7DxRM2mVr52WSN-eTyG8v0DTSQYJZPC1xiILdXddiaWRjci0yY2lhdBppnpMCZG9yaWeiYWtmaW5saW5lZWJ5dGVzTXRoaXJkIHJlY2VpcHRmYW5jaG9yWCAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAFhAcDsG7pVA3N_xi1YIRVNdh1roEJa3zZIE8JMCLsunqpcuTrWKQqRGrzMD_cCF37f8L65zHQQ--zxRyVNb7GIABw",
+      "documentByteLength": 805,
+      "read": {},
+      "verdict": "EXPORT_UNSUPPORTED_LABEL",
+      "edited": "collection.k to 'sealed'"
+    },
+    {
+      "name": "claim-kind-unknown",
+      "note": "A claim whose kind is neither provenance nor custody, which are the two labels this version can mean.",
+      "documentBase64Url": "0oRYN6MBJwNvYXNoYXZlcmkvZXhwb3J0BFgg43q81579CNuUUYqQOVL_6fivfotGhLY1kWMc746IccigWQKlpWF2AWJhdBppnpMAZWNsYWltpGJieXRBbWlyLCByZWNvcmRzIG9mZmljZWRraW5kaW5vdGFyaXNlZGRtYWRlGmmekohmc3RhdGVzeCxjb3BpZWQgYnkgaGFuZCBmcm9tIG9uZSBzdG9yZSBvbiBvbmUgbWFjaGluZWphc3Nlc3NtZW50omFrZG5vbmVmc3RhdGVzeC1ubyBsZWdhbCBhc3Nlc3NtZW50IHdhcyBtYWRlIG9mIHRoaXMgbWF0ZXJpYWxqY29sbGVjdGlvbqRha2hhbmNob3JlZGRoZWFkWCB3sGYZBO71MHUWtafTwhfav1VmGJ4uMOPdEO7r0R1pvGVpdGVtc4OlYWRYIOqfJZ4Q8p8ypRwGaeHMdosT10vkWLDKLT_iS8-scQNIYXBYIAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAYmlkY3ItMGNpYXQaaZ6TAGRvcmlnomFrZmlubGluZWVieXRlc01maXJzdCByZWNlaXB0pWFkWCBrEeu6eM1VJo9jxvG_XPd28lQtOLpxuMIn3xK6EPrQVGFwWCDjhof43pTaIcXzLCRcPNsZaIhVyFRgZzn2jCsDF_YTXmJpZGNyLTFjaWF0GmmekwFkb3JpZ6Jha2ZpbmxpbmVlYnl0ZXNOc2Vjb25kIHJlY2VpcHSlYWRYIKhdmsIyCMENWXap6N1ImMsJ-UVS4CvaHvIp4VsjywDkYXBYIC_7-w8UTNpla-dlkjfnk8hvL9A00kGCWTwtcYiC3V3XYmlkY3ItMmNpYXQaaZ6TAmRvcmlnomFrZmlubGluZWVieXRlc010aGlyZCByZWNlaXB0ZmFuY2hvclggAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAABYQCK3cZY-_njY3v6z30mDnoAu3rqLBtqstZYpmlsfoNztsHgOEOn2rxr5joaXSQYGGB6FNFoMjhC-a3a44Kpzaw0",
+      "documentByteLength": 806,
+      "read": {},
+      "verdict": "EXPORT_UNSUPPORTED_LABEL",
+      "edited": "claim.kind to 'notarised'"
+    },
+    {
+      "name": "claim-after-assembly",
+      "note": "A claim stamped after the assembly instant of the document carrying it: two signed members contradicting each other, which is a malformed export and not a deployment that misremembered.",
+      "documentBase64Url": "0oRYN6MBJwNvYXNoYXZlcmkvZXhwb3J0BFgg43q81579CNuUUYqQOVL_6fivfotGhLY1kWMc746IccigWQKmpWF2AWJhdBppnpMAZWNsYWltpGJieXRBbWlyLCByZWNvcmRzIG9mZmljZWRraW5kanByb3ZlbmFuY2VkbWFkZRppnpMBZnN0YXRlc3gsY29waWVkIGJ5IGhhbmQgZnJvbSBvbmUgc3RvcmUgb24gb25lIG1hY2hpbmVqYXNzZXNzbWVudKJha2Rub25lZnN0YXRlc3gtbm8gbGVnYWwgYXNzZXNzbWVudCB3YXMgbWFkZSBvZiB0aGlzIG1hdGVyaWFsamNvbGxlY3Rpb26kYWtoYW5jaG9yZWRkaGVhZFggd7BmGQTu9TB1FrWn08IX2r9VZhieLjDj3RDu69EdabxlaXRlbXODpWFkWCDqnyWeEPKfMqUcBmnhzHaLE9dL5Fiwyi0_4kvPrHEDSGFwWCAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAGJpZGNyLTBjaWF0GmmekwBkb3JpZ6Jha2ZpbmxpbmVlYnl0ZXNNZmlyc3QgcmVjZWlwdKVhZFggaxHrunjNVSaPY8bxv1z3dvJULTi6cbjCJ98SuhD60FRhcFgg44aH-N6U2iHF8ywkXDzbGWiIVchUYGc59owrAxf2E15iaWRjci0xY2lhdBppnpMBZG9yaWeiYWtmaW5saW5lZWJ5dGVzTnNlY29uZCByZWNlaXB0pWFkWCCoXZrCMgjBDVl2qejdSJjLCflFUuAr2h7yKeFbI8sA5GFwWCAv-_sPFEzaZWvnZZI355PIby_QNNJBglk8LXGIgt1d12JpZGNyLTJjaWF0GmmekwJkb3JpZ6Jha2ZpbmxpbmVlYnl0ZXNNdGhpcmQgcmVjZWlwdGZhbmNob3JYIAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAWEBQC7qWe0U6BfKZwK8ikKnKKOsaFSWkFLYwRpVAIKO9l9PFWpnDFnqbKCRAIyPMImn4IePEhqPLyZonGc2YpyEI",
+      "documentByteLength": 807,
+      "read": {},
+      "verdict": "EXPORT_BAD_MANIFEST",
+      "edited": "claim.made to one second after at"
+    },
+    {
+      "name": "companion-name-is-a-path",
+      "note": "A companion whose name climbs out of the directory the export arrived in. This reader opens nothing, so the refusal is the format rule about the member rather than a guard of its own.",
+      "documentBase64Url": "0oRYN6MBJwNvYXNoYXZlcmkvZXhwb3J0BFgg43q81579CNuUUYqQOVL_6fivfotGhLY1kWMc746IccigWQE6pWF2AWJhdBppnpMAZWNsYWltpGJieXRBbWlyLCByZWNvcmRzIG9mZmljZWRraW5kanByb3ZlbmFuY2VkbWFkZRppnpKIZnN0YXRlc3gsY29waWVkIGJ5IGhhbmQgZnJvbSBvbmUgc3RvcmUgb24gb25lIG1hY2hpbmVqYXNzZXNzbWVudKJha2Rub25lZnN0YXRlc3gtbm8gbGVnYWwgYXNzZXNzbWVudCB3YXMgbWFkZSBvZiB0aGlzIG1hdGVyaWFsamNvbGxlY3Rpb26iYWtlcGxhaW5laXRlbXOBpGFkWCBiyh2SxKP8RKX6MNHdxZO-GplFyiHAghr1PU8rYEB152JpZGhjb250cmFjdGNpYXQaaZ6SxGRvcmlnomFraWNvbXBhbmlvbmRuYW1lai4uL291dHNpZGVYQIomFmJ4ay146QGYp4CQfPuFzgu4RJ_UtRTkzPZ62ffht4ncwYqlpxgiMElp18cZ8rOFLlzvSwjFxMRG9ZFfgwk",
+      "documentByteLength": 443,
+      "read": {},
+      "verdict": "EXPORT_BAD_MANIFEST"
+    },
+    {
+      "name": "duplicate-item-id",
+      "note": "Two items answering to one name, chained honestly over the records as given so that every link is right: the name sits inside the hash and both spellings of it hash perfectly, so nothing about a link reports the collision, and a refusal that names an item would mean whichever of the two the reader met first.",
+      "documentBase64Url": "0oRYN6MBJwNvYXNoYXZlcmkvZXhwb3J0BFgg43q81579CNuUUYqQOVL_6fivfotGhLY1kWMc746IccigWQKmpWF2AWJhdBppnpMAZWNsYWltpGJieXRBbWlyLCByZWNvcmRzIG9mZmljZWRraW5kanByb3ZlbmFuY2VkbWFkZRppnpKIZnN0YXRlc3gsY29waWVkIGJ5IGhhbmQgZnJvbSBvbmUgc3RvcmUgb24gb25lIG1hY2hpbmVqYXNzZXNzbWVudKJha2Rub25lZnN0YXRlc3gtbm8gbGVnYWwgYXNzZXNzbWVudCB3YXMgbWFkZSBvZiB0aGlzIG1hdGVyaWFsamNvbGxlY3Rpb26kYWtoYW5jaG9yZWRkaGVhZFggug0otuwF0sX3eZ-gLuDcNJnjWghrz3Xa4m0zGLaI1uNlaXRlbXODpWFkWCDqnyWeEPKfMqUcBmnhzHaLE9dL5Fiwyi0_4kvPrHEDSGFwWCAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAGJpZGNyLTBjaWF0GmmekwBkb3JpZ6Jha2ZpbmxpbmVlYnl0ZXNNZmlyc3QgcmVjZWlwdKVhZFggaxHrunjNVSaPY8bxv1z3dvJULTi6cbjCJ98SuhD60FRhcFgg44aH-N6U2iHF8ywkXDzbGWiIVchUYGc59owrAxf2E15iaWRjci0wY2lhdBppnpMBZG9yaWeiYWtmaW5saW5lZWJ5dGVzTnNlY29uZCByZWNlaXB0pWFkWCCoXZrCMgjBDVl2qejdSJjLCflFUuAr2h7yKeFbI8sA5GFwWCDTsQebiIEfqR23Nzf05A4Lps_4tMqbHrCqd6yG65sY3WJpZGNyLTJjaWF0GmmekwJkb3JpZ6Jha2ZpbmxpbmVlYnl0ZXNNdGhpcmQgcmVjZWlwdGZhbmNob3JYIAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAWEDvnwPyVPUh3_RSxCGJ_6jd7Ihh1vyub_SVPEqakHfOZbTnLoBHsqD0vSbpDvY5Eyrv-jd2KspaYVfl_sd53NAF",
+      "documentByteLength": 807,
+      "read": {},
+      "verdict": "EXPORT_DUPLICATE_ID",
+      "item": "r-0"
+    },
+    {
+      "name": "walk-short-of-head",
+      "note": "The middle record of a run lifted out and nothing else touched, so the successor still names the predecessor it had and the head is the one the whole run hashed to. What remains is whole by its own digest and the walk stops at a hole, which is the deletion an endpoint exists to make visible.",
+      "documentBase64Url": "0oRYN6MBJwNvYXNoYXZlcmkvZXhwb3J0BFgg43q81579CNuUUYqQOVL_6fivfotGhLY1kWMc746IccigWQIppWF2AWJhdBppnpMAZWNsYWltpGJieXRBbWlyLCByZWNvcmRzIG9mZmljZWRraW5kanByb3ZlbmFuY2VkbWFkZRppnpKIZnN0YXRlc3gsY29waWVkIGJ5IGhhbmQgZnJvbSBvbmUgc3RvcmUgb24gb25lIG1hY2hpbmVqYXNzZXNzbWVudKJha2Rub25lZnN0YXRlc3gtbm8gbGVnYWwgYXNzZXNzbWVudCB3YXMgbWFkZSBvZiB0aGlzIG1hdGVyaWFsamNvbGxlY3Rpb26kYWtoYW5jaG9yZWRkaGVhZFggd7BmGQTu9TB1FrWn08IX2r9VZhieLjDj3RDu69EdabxlaXRlbXOCpWFkWCDqnyWeEPKfMqUcBmnhzHaLE9dL5Fiwyi0_4kvPrHEDSGFwWCAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAGJpZGNyLTBjaWF0GmmekwBkb3JpZ6Jha2ZpbmxpbmVlYnl0ZXNNZmlyc3QgcmVjZWlwdKVhZFggqF2awjIIwQ1Zdqno3UiYywn5RVLgK9oe8inhWyPLAORhcFggL_v7DxRM2mVr52WSN-eTyG8v0DTSQYJZPC1xiILdXddiaWRjci0yY2lhdBppnpMCZG9yaWeiYWtmaW5saW5lZWJ5dGVzTXRoaXJkIHJlY2VpcHRmYW5jaG9yWCAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAFhARDx0wInul8qbYx42aFvRUroeq9PyucGd6WTrR32a2m3IpuazJCbvqF9wBynxGceo-u_G3UBWO-nY6ze3Jvq2CQ",
+      "documentByteLength": 682,
+      "read": {},
+      "verdict": "EXPORT_CHAIN_BROKEN"
+    },
+    {
+      "name": "walk-forked-at-the-anchor",
+      "note": "Two items claiming the anchor as their predecessor, the rest of the run untouched. The walk would take whichever it met first and report the other as missing, so the fork is refused rather than resolved by arrival order.",
+      "documentBase64Url": "0oRYN6MBJwNvYXNoYXZlcmkvZXhwb3J0BFgg43q81579CNuUUYqQOVL_6fivfotGhLY1kWMc746IccigWQMppWF2AWJhdBppnpMAZWNsYWltpGJieXRBbWlyLCByZWNvcmRzIG9mZmljZWRraW5kanByb3ZlbmFuY2VkbWFkZRppnpKIZnN0YXRlc3gsY29waWVkIGJ5IGhhbmQgZnJvbSBvbmUgc3RvcmUgb24gb25lIG1hY2hpbmVqYXNzZXNzbWVudKJha2Rub25lZnN0YXRlc3gtbm8gbGVnYWwgYXNzZXNzbWVudCB3YXMgbWFkZSBvZiB0aGlzIG1hdGVyaWFsamNvbGxlY3Rpb26kYWtoYW5jaG9yZWRkaGVhZFggd7BmGQTu9TB1FrWn08IX2r9VZhieLjDj3RDu69EdabxlaXRlbXOEpWFkWCDIBV2QcMNgJ1qzCYf7kdQojLZdoi9QUXXyU0pniN4t2WFwWCAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAGJpZGNyLXhjaWF0GmmekwBkb3JpZ6Jha2ZpbmxpbmVlYnl0ZXNUYSByaXZhbCBmaXJzdCByZWNvcmSlYWRYIOqfJZ4Q8p8ypRwGaeHMdosT10vkWLDKLT_iS8-scQNIYXBYIAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAYmlkY3ItMGNpYXQaaZ6TAGRvcmlnomFrZmlubGluZWVieXRlc01maXJzdCByZWNlaXB0pWFkWCBrEeu6eM1VJo9jxvG_XPd28lQtOLpxuMIn3xK6EPrQVGFwWCDjhof43pTaIcXzLCRcPNsZaIhVyFRgZzn2jCsDF_YTXmJpZGNyLTFjaWF0GmmekwFkb3JpZ6Jha2ZpbmxpbmVlYnl0ZXNOc2Vjb25kIHJlY2VpcHSlYWRYIKhdmsIyCMENWXap6N1ImMsJ-UVS4CvaHvIp4VsjywDkYXBYIC_7-w8UTNpla-dlkjfnk8hvL9A00kGCWTwtcYiC3V3XYmlkY3ItMmNpYXQaaZ6TAmRvcmlnomFrZmlubGluZWVieXRlc010aGlyZCByZWNlaXB0ZmFuY2hvclggAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAABYQGR0GoOyIV-AI2KGjyhFS3US49e9OqAc5s7F4u5uu1VRV-r-N32KLz92FHMY3gOz-Bp_r2FgKaEUeXUHk0e4AAY",
+      "documentByteLength": 938,
+      "read": {},
+      "verdict": "EXPORT_CHAIN_BROKEN"
+    },
+    {
+      "name": "rechained-to-a-shorter-head",
+      "note": "The same omission with the hole closed by re-chaining and the head the writer would have signed for that shorter run. The links are perfect, so what reaches the deletion is the endpoint the reader brought rather than the one the document chose.",
+      "documentBase64Url": "0oRYN6MBJwNvYXNoYXZlcmkvZXhwb3J0BFgg43q81579CNuUUYqQOVL_6fivfotGhLY1kWMc746IccigWQIppWF2AWJhdBppnpMAZWNsYWltpGJieXRBbWlyLCByZWNvcmRzIG9mZmljZWRraW5kanByb3ZlbmFuY2VkbWFkZRppnpKIZnN0YXRlc3gsY29waWVkIGJ5IGhhbmQgZnJvbSBvbmUgc3RvcmUgb24gb25lIG1hY2hpbmVqYXNzZXNzbWVudKJha2Rub25lZnN0YXRlc3gtbm8gbGVnYWwgYXNzZXNzbWVudCB3YXMgbWFkZSBvZiB0aGlzIG1hdGVyaWFsamNvbGxlY3Rpb26kYWtoYW5jaG9yZWRkaGVhZFgg9pdaD2G-eEfbdK0YjVRiiLd-25DH96R-IkShBbtIaoBlaXRlbXOCpWFkWCDqnyWeEPKfMqUcBmnhzHaLE9dL5Fiwyi0_4kvPrHEDSGFwWCAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAGJpZGNyLTBjaWF0GmmekwBkb3JpZ6Jha2ZpbmxpbmVlYnl0ZXNNZmlyc3QgcmVjZWlwdKVhZFggqF2awjIIwQ1Zdqno3UiYywn5RVLgK9oe8inhWyPLAORhcFgg44aH-N6U2iHF8ywkXDzbGWiIVchUYGc59owrAxf2E15iaWRjci0yY2lhdBppnpMCZG9yaWeiYWtmaW5saW5lZWJ5dGVzTXRoaXJkIHJlY2VpcHRmYW5jaG9yWCAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAFhA3jabzhZv_xOvk3weFXMUJOkxb9sXhZL4jeXY3XMI7eL7lBLWN2BFYoqWjoJmjZxkC9Gw5u5ZwmfQ9SoFPAIlDA",
+      "documentByteLength": 682,
+      "read": {
+        "expectedHeadHex": "77b0661904eef5307516b5a7d3c217dabf5566189e2e30e3dd10eeebd11d69bc"
+      },
+      "verdict": "EXPORT_ENDPOINT_MISMATCH"
+    },
+    {
+      "name": "hole-closed-without-a-pin",
+      "note": "That same shorter run read by a reader that brought no endpoint: every check the container supports passes, and the deletion is invisible. This is the bound section 5.2 states from the other side, and it is published so no port mistakes a closing walk for a complete store.",
+      "documentBase64Url": "0oRYN6MBJwNvYXNoYXZlcmkvZXhwb3J0BFgg43q81579CNuUUYqQOVL_6fivfotGhLY1kWMc746IccigWQIppWF2AWJhdBppnpMAZWNsYWltpGJieXRBbWlyLCByZWNvcmRzIG9mZmljZWRraW5kanByb3ZlbmFuY2VkbWFkZRppnpKIZnN0YXRlc3gsY29waWVkIGJ5IGhhbmQgZnJvbSBvbmUgc3RvcmUgb24gb25lIG1hY2hpbmVqYXNzZXNzbWVudKJha2Rub25lZnN0YXRlc3gtbm8gbGVnYWwgYXNzZXNzbWVudCB3YXMgbWFkZSBvZiB0aGlzIG1hdGVyaWFsamNvbGxlY3Rpb26kYWtoYW5jaG9yZWRkaGVhZFgg9pdaD2G-eEfbdK0YjVRiiLd-25DH96R-IkShBbtIaoBlaXRlbXOCpWFkWCDqnyWeEPKfMqUcBmnhzHaLE9dL5Fiwyi0_4kvPrHEDSGFwWCAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAGJpZGNyLTBjaWF0GmmekwBkb3JpZ6Jha2ZpbmxpbmVlYnl0ZXNNZmlyc3QgcmVjZWlwdKVhZFggqF2awjIIwQ1Zdqno3UiYywn5RVLgK9oe8inhWyPLAORhcFgg44aH-N6U2iHF8ywkXDzbGWiIVchUYGc59owrAxf2E15iaWRjci0yY2lhdBppnpMCZG9yaWeiYWtmaW5saW5lZWJ5dGVzTXRoaXJkIHJlY2VpcHRmYW5jaG9yWCAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAFhA3jabzhZv_xOvk3weFXMUJOkxb9sXhZL4jeXY3XMI7eL7lBLWN2BFYoqWjoJmjZxkC9Gw5u5ZwmfQ9SoFPAIlDA",
+      "documentByteLength": 682,
+      "read": {},
+      "verdict": "verify-ok",
+      "outcome": "anchored",
+      "walk": [
+        "r-0",
+        "r-2"
+      ]
+    },
+    {
+      "name": "item-parked-beside-the-run",
+      "note": "A record handed over beside a run it is not part of, naming a predecessor nobody here carries. The walk reaches the signed head and never had to visit it, so the count of what the walk reached against the array is the half of the rule with eyes for it.",
+      "documentBase64Url": "0oRYN6MBJwNvYXNoYXZlcmkvZXhwb3J0BFgg43q81579CNuUUYqQOVL_6fivfotGhLY1kWMc746IccigWQM0pWF2AWJhdBppnpMAZWNsYWltpGJieXRBbWlyLCByZWNvcmRzIG9mZmljZWRraW5kanByb3ZlbmFuY2VkbWFkZRppnpKIZnN0YXRlc3gsY29waWVkIGJ5IGhhbmQgZnJvbSBvbmUgc3RvcmUgb24gb25lIG1hY2hpbmVqYXNzZXNzbWVudKJha2Rub25lZnN0YXRlc3gtbm8gbGVnYWwgYXNzZXNzbWVudCB3YXMgbWFkZSBvZiB0aGlzIG1hdGVyaWFsamNvbGxlY3Rpb26kYWtoYW5jaG9yZWRkaGVhZFggd7BmGQTu9TB1FrWn08IX2r9VZhieLjDj3RDu69EdabxlaXRlbXOEpWFkWCDqnyWeEPKfMqUcBmnhzHaLE9dL5Fiwyi0_4kvPrHEDSGFwWCAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAGJpZGNyLTBjaWF0GmmekwBkb3JpZ6Jha2ZpbmxpbmVlYnl0ZXNNZmlyc3QgcmVjZWlwdKVhZFggaxHrunjNVSaPY8bxv1z3dvJULTi6cbjCJ98SuhD60FRhcFgg44aH-N6U2iHF8ywkXDzbGWiIVchUYGc59owrAxf2E15iaWRjci0xY2lhdBppnpMBZG9yaWeiYWtmaW5saW5lZWJ5dGVzTnNlY29uZCByZWNlaXB0pWFkWCCoXZrCMgjBDVl2qejdSJjLCflFUuAr2h7yKeFbI8sA5GFwWCAv-_sPFEzaZWvnZZI355PIby_QNNJBglk8LXGIgt1d12JpZGNyLTJjaWF0GmmekwJkb3JpZ6Jha2ZpbmxpbmVlYnl0ZXNNdGhpcmQgcmVjZWlwdKVhZFggzNTh9YjBhCPgO-hwTUrIkPYeEQiAyzx19haEC5LbvkRhcFggbXLasIge_1485n-1O6FkhgzYQtxWO3KtHR1GE5QkubRiaWRmcGFya2VkY2lhdBppnpMJZG9yaWeiYWtmaW5saW5lZWJ5dGVzWBthIHJlY29yZCBmcm9tIGFub3RoZXIgY2hhaW5mYW5jaG9yWCAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAFhAepSLEkV7CYBXp8SsQ17g8gp5-LHmRXI9GyxrXO4JqBsV7tvstcqpL_jIrJ9GTl3OyqgFj6xbka36_OogN6QkDg",
+      "documentByteLength": 949,
+      "read": {},
+      "verdict": "EXPORT_ITEM_UNREACHED",
+      "item": "parked"
+    },
+    {
+      "name": "record-stamp-moved-after-chaining",
+      "note": "One item of a signed run restamped after its record was hashed, so the digest the next item names no longer comes out. The original still hashes to its own digest, which is why a reader that checked digests alone would pass it.",
+      "documentBase64Url": "0oRYN6MBJwNvYXNoYXZlcmkvZXhwb3J0BFgg43q81579CNuUUYqQOVL_6fivfotGhLY1kWMc746IccigWQKmpWF2AWJhdBppnpMAZWNsYWltpGJieXRBbWlyLCByZWNvcmRzIG9mZmljZWRraW5kanByb3ZlbmFuY2VkbWFkZRppnpKIZnN0YXRlc3gsY29waWVkIGJ5IGhhbmQgZnJvbSBvbmUgc3RvcmUgb24gb25lIG1hY2hpbmVqYXNzZXNzbWVudKJha2Rub25lZnN0YXRlc3gtbm8gbGVnYWwgYXNzZXNzbWVudCB3YXMgbWFkZSBvZiB0aGlzIG1hdGVyaWFsamNvbGxlY3Rpb26kYWtoYW5jaG9yZWRkaGVhZFggd7BmGQTu9TB1FrWn08IX2r9VZhieLjDj3RDu69EdabxlaXRlbXODpWFkWCDqnyWeEPKfMqUcBmnhzHaLE9dL5Fiwyi0_4kvPrHEDSGFwWCAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAGJpZGNyLTBjaWF0GmmekwBkb3JpZ6Jha2ZpbmxpbmVlYnl0ZXNNZmlyc3QgcmVjZWlwdKVhZFggaxHrunjNVSaPY8bxv1z3dvJULTi6cbjCJ98SuhD60FRhcFgg44aH-N6U2iHF8ywkXDzbGWiIVchUYGc59owrAxf2E15iaWRjci0xY2lhdBppnpMCZG9yaWeiYWtmaW5saW5lZWJ5dGVzTnNlY29uZCByZWNlaXB0pWFkWCCoXZrCMgjBDVl2qejdSJjLCflFUuAr2h7yKeFbI8sA5GFwWCAv-_sPFEzaZWvnZZI355PIby_QNNJBglk8LXGIgt1d12JpZGNyLTJjaWF0GmmekwJkb3JpZ6Jha2ZpbmxpbmVlYnl0ZXNNdGhpcmQgcmVjZWlwdGZhbmNob3JYIAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAWEAAC-adEdnDDjyfP-BG-ukClaF2OQt4Sgg6JVnmfVzgJQfrqMmLSvd0osMnfoL5-acbZXu3LtoMNnvfRbOP9fIG",
+      "documentByteLength": 807,
+      "read": {},
+      "verdict": "EXPORT_CHAIN_BROKEN"
+    },
+    {
+      "name": "endpoint-head-disagrees",
+      "note": "A whole, self-consistent run read by a reader coming holding a different head. Nothing about the document is wrong and the two are not the same run, which is the only finding a signed endpoint on its own can support.",
+      "documentBase64Url": "0oRYN6MBJwNvYXNoYXZlcmkvZXhwb3J0BFgg43q81579CNuUUYqQOVL_6fivfotGhLY1kWMc746IccigWQKmpWF2AWJhdBppnpMAZWNsYWltpGJieXRBbWlyLCByZWNvcmRzIG9mZmljZWRraW5kanByb3ZlbmFuY2VkbWFkZRppnpKIZnN0YXRlc3gsY29waWVkIGJ5IGhhbmQgZnJvbSBvbmUgc3RvcmUgb24gb25lIG1hY2hpbmVqYXNzZXNzbWVudKJha2Rub25lZnN0YXRlc3gtbm8gbGVnYWwgYXNzZXNzbWVudCB3YXMgbWFkZSBvZiB0aGlzIG1hdGVyaWFsamNvbGxlY3Rpb26kYWtoYW5jaG9yZWRkaGVhZFggd7BmGQTu9TB1FrWn08IX2r9VZhieLjDj3RDu69EdabxlaXRlbXODpWFkWCDqnyWeEPKfMqUcBmnhzHaLE9dL5Fiwyi0_4kvPrHEDSGFwWCAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAGJpZGNyLTBjaWF0GmmekwBkb3JpZ6Jha2ZpbmxpbmVlYnl0ZXNNZmlyc3QgcmVjZWlwdKVhZFggaxHrunjNVSaPY8bxv1z3dvJULTi6cbjCJ98SuhD60FRhcFgg44aH-N6U2iHF8ywkXDzbGWiIVchUYGc59owrAxf2E15iaWRjci0xY2lhdBppnpMBZG9yaWeiYWtmaW5saW5lZWJ5dGVzTnNlY29uZCByZWNlaXB0pWFkWCCoXZrCMgjBDVl2qejdSJjLCflFUuAr2h7yKeFbI8sA5GFwWCAv-_sPFEzaZWvnZZI355PIby_QNNJBglk8LXGIgt1d12JpZGNyLTJjaWF0GmmekwJkb3JpZ6Jha2ZpbmxpbmVlYnl0ZXNNdGhpcmQgcmVjZWlwdGZhbmNob3JYIAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAWEBRgTOWso7gMJ2cj27vweojn4nChJQvVgyOjGCODUjAXBv_khCa8LFiBSUU3k43eosaQYyIy5XHs2-4HhUfJ_kO",
+      "documentByteLength": 807,
+      "read": {
+        "expectedHeadHex": "f452d060e9623938024e4d8a32c47e4d0cbbb422dbdaaa1e1a1ef93a99d231a6"
+      },
+      "verdict": "EXPORT_ENDPOINT_MISMATCH"
+    },
+    {
+      "name": "endpoint-pinned-on-a-collection-that-claims-none",
+      "note": "The same reader and the same pin, against a plain collection. A pin is never left unused: a collection stating no endpoints cannot be the run the reader was told to expect.",
+      "documentBase64Url": "0oRYN6MBJwNvYXNoYXZlcmkvZXhwb3J0BFgg43q81579CNuUUYqQOVL_6fivfotGhLY1kWMc746IccigWQFMpWF2AWJhdBppnpMAZWNsYWltpGJieXRBbWlyLCByZWNvcmRzIG9mZmljZWRraW5kanByb3ZlbmFuY2VkbWFkZRppnpKIZnN0YXRlc3gsY29waWVkIGJ5IGhhbmQgZnJvbSBvbmUgc3RvcmUgb24gb25lIG1hY2hpbmVqYXNzZXNzbWVudKJha2Rub25lZnN0YXRlc3gtbm8gbGVnYWwgYXNzZXNzbWVudCB3YXMgbWFkZSBvZiB0aGlzIG1hdGVyaWFsamNvbGxlY3Rpb26iYWtlcGxhaW5laXRlbXOBpGFkWCC7LCrIlthpEvVkQqhHCmqaDoVYJ5fRM2J91Mq6LPGVkmJpZGhjb250cmFjdGNpYXQaaZ6SxGRvcmlnomFrZmlubGluZWVieXRlc1gddGhlIGNvbnRyYWN0LCBhcyBpdCB3YXMgZmlsZWRYQCZia_smdAFrozP7AXQavOg1RJa9T1RcjdRsqAxMWXXgc6DwMxLlflvR2Psmxs-BC6xklsUVxWXscs7lv4uSuwg",
+      "documentByteLength": 461,
+      "read": {
+        "expectedHeadHex": "77b0661904eef5307516b5a7d3c217dabf5566189e2e30e3dd10eeebd11d69bc"
+      },
+      "verdict": "EXPORT_ENDPOINT_MISMATCH"
+    },
+    {
+      "name": "wrong-key-offered",
+      "note": "The document read against another key: the header kid and the key in the reader hand disagree, which is an answer about configuration and not about tampering.",
+      "documentBase64Url": "0oRYN6MBJwNvYXNoYXZlcmkvZXhwb3J0BFgg43q81579CNuUUYqQOVL_6fivfotGhLY1kWMc746IccigWQKmpWF2AWJhdBppnpMAZWNsYWltpGJieXRBbWlyLCByZWNvcmRzIG9mZmljZWRraW5kanByb3ZlbmFuY2VkbWFkZRppnpKIZnN0YXRlc3gsY29waWVkIGJ5IGhhbmQgZnJvbSBvbmUgc3RvcmUgb24gb25lIG1hY2hpbmVqYXNzZXNzbWVudKJha2Rub25lZnN0YXRlc3gtbm8gbGVnYWwgYXNzZXNzbWVudCB3YXMgbWFkZSBvZiB0aGlzIG1hdGVyaWFsamNvbGxlY3Rpb26kYWtoYW5jaG9yZWRkaGVhZFggd7BmGQTu9TB1FrWn08IX2r9VZhieLjDj3RDu69EdabxlaXRlbXODpWFkWCDqnyWeEPKfMqUcBmnhzHaLE9dL5Fiwyi0_4kvPrHEDSGFwWCAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAGJpZGNyLTBjaWF0GmmekwBkb3JpZ6Jha2ZpbmxpbmVlYnl0ZXNNZmlyc3QgcmVjZWlwdKVhZFggaxHrunjNVSaPY8bxv1z3dvJULTi6cbjCJ98SuhD60FRhcFgg44aH-N6U2iHF8ywkXDzbGWiIVchUYGc59owrAxf2E15iaWRjci0xY2lhdBppnpMBZG9yaWeiYWtmaW5saW5lZWJ5dGVzTnNlY29uZCByZWNlaXB0pWFkWCCoXZrCMgjBDVl2qejdSJjLCflFUuAr2h7yKeFbI8sA5GFwWCAv-_sPFEzaZWvnZZI355PIby_QNNJBglk8LXGIgt1d12JpZGNyLTJjaWF0GmmekwJkb3JpZ6Jha2ZpbmxpbmVlYnl0ZXNNdGhpcmQgcmVjZWlwdGZhbmNob3JYIAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAWEBRgTOWso7gMJ2cj27vweojn4nChJQvVgyOjGCODUjAXBv_khCa8LFiBSUU3k43eosaQYyIy5XHs2-4HhUfJ_kO",
+      "documentByteLength": 807,
+      "read": {
+        "keySeed": 29
+      },
+      "verdict": "EXPORT_KID_MISMATCH"
+    },
+    {
+      "name": "untagged-envelope",
+      "note": "The four elements of a COSE_Sign1 with the tag around them missing, which is the one structural fact a reader cannot recover by being tolerant.",
+      "documentBase64Url": "hFg3owEnA29hc2hhdmVyaS9leHBvcnQEWCDjerzXnv0I25RRipA5Uv_p-K9-i0aEtjWRYxzvjohxyKBZAqalYXYBYmF0GmmekwBlY2xhaW2kYmJ5dEFtaXIsIHJlY29yZHMgb2ZmaWNlZGtpbmRqcHJvdmVuYW5jZWRtYWRlGmmekohmc3RhdGVzeCxjb3BpZWQgYnkgaGFuZCBmcm9tIG9uZSBzdG9yZSBvbiBvbmUgbWFjaGluZWphc3Nlc3NtZW50omFrZG5vbmVmc3RhdGVzeC1ubyBsZWdhbCBhc3Nlc3NtZW50IHdhcyBtYWRlIG9mIHRoaXMgbWF0ZXJpYWxqY29sbGVjdGlvbqRha2hhbmNob3JlZGRoZWFkWCB3sGYZBO71MHUWtafTwhfav1VmGJ4uMOPdEO7r0R1pvGVpdGVtc4OlYWRYIOqfJZ4Q8p8ypRwGaeHMdosT10vkWLDKLT_iS8-scQNIYXBYIAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAYmlkY3ItMGNpYXQaaZ6TAGRvcmlnomFrZmlubGluZWVieXRlc01maXJzdCByZWNlaXB0pWFkWCBrEeu6eM1VJo9jxvG_XPd28lQtOLpxuMIn3xK6EPrQVGFwWCDjhof43pTaIcXzLCRcPNsZaIhVyFRgZzn2jCsDF_YTXmJpZGNyLTFjaWF0GmmekwFkb3JpZ6Jha2ZpbmxpbmVlYnl0ZXNOc2Vjb25kIHJlY2VpcHSlYWRYIKhdmsIyCMENWXap6N1ImMsJ-UVS4CvaHvIp4VsjywDkYXBYIC_7-w8UTNpla-dlkjfnk8hvL9A00kGCWTwtcYiC3V3XYmlkY3ItMmNpYXQaaZ6TAmRvcmlnomFrZmlubGluZWVieXRlc010aGlyZCByZWNlaXB0ZmFuY2hvclggAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAABYQFGBM5ayjuAwnZyPbu_B6iOficKElC9WDI6MYI4NSMBcG_-SEJrwsWIFJRTeTjd6ixpBjIjLlcezb7geFR8n-Q4",
+      "documentByteLength": 806,
+      "read": {},
+      "verdict": "NOT_COSE_SIGN1"
+    },
+    {
+      "name": "truncated-document",
+      "note": "The first forty bytes of a whole document, so the envelope itself does not decode and nothing about a manifest is ever reached.",
+      "documentBase64Url": "0oRYN6MBJwNvYXNoYXZlcmkvZXhwb3J0BFgg43q81579CNuUUYqQOQ",
+      "documentByteLength": 40,
+      "read": {},
+      "verdict": "EXPORT_MALFORMED_CBOR"
+    }
+  ],
+  "crossReading": {
+    "note": "Two containers, two contracts, and a reader of one refusing the other is the property that keeps them separate. Each direction is published with the document that arrives and the answer it gets, and neither answer depends on which key signed it.",
+    "cases": [
+      {
+        "name": "export-as-pack",
+        "note": "A whole export manifest, projected to JSON as its own twin describes it, given to the pack projection: the pack map is closed at six members and names none of the three an export states, so a pack reader of any shape refuses it before it looks at an item.",
+        "manifest": {
+          "protectedHeader": {
+            "alg": "EdDSA",
+            "kid": "e37abcd79efd08db94518a903952ffe9f8af7e8b4684b63591631cef8e8871c8",
+            "typ": "ashaveri/export"
+          },
+          "payload": {
+            "v": 1,
+            "at": 1772000000,
+            "assessment": {
+              "k": "none",
+              "states": "no legal assessment was made of this material"
+            },
+            "collection": {
+              "k": "anchored",
+              "anchor": "0000000000000000000000000000000000000000000000000000000000000000",
+              "head": "77b0661904eef5307516b5a7d3c217dabf5566189e2e30e3dd10eeebd11d69bc",
+              "items": [
+                {
+                  "id": "r-0",
+                  "iat": 1772000000,
+                  "d": "ea9f259e10f29f32a51c0669e1cc768b13d74be458b0ca2d3fe24bcfac710348",
+                  "p": "0000000000000000000000000000000000000000000000000000000000000000",
+                  "orig": {
+                    "k": "inline",
+                    "bytes": "66697273742072656365697074"
+                  }
+                },
+                {
+                  "id": "r-1",
+                  "iat": 1772000001,
+                  "d": "6b11ebba78cd55268f63c6f1bf5cf776f2542d38ba71b8c227df12ba10fad054",
+                  "p": "e38687f8de94da21c5f32c245c3cdb19688855c854606739f68c2b0317f6135e",
+                  "orig": {
+                    "k": "inline",
+                    "bytes": "7365636f6e642072656365697074"
+                  }
+                },
+                {
+                  "id": "r-2",
+                  "iat": 1772000002,
+                  "d": "a85d9ac23208c10d5976a9e8dd4898cb09f94552e02bda1ef229e15b23cb00e4",
+                  "p": "2ffbfb0f144cda656be7659237e793c86f2fd034d24182593c2d718882dd5dd7",
+                  "orig": {
+                    "k": "inline",
+                    "bytes": "74686972642072656365697074"
+                  }
+                }
+              ]
+            },
+            "claim": {
+              "made": 1771999880,
+              "by": "Amir, records office",
+              "kind": "provenance",
+              "states": "copied by hand from one store on one machine"
+            }
+          }
+        },
+        "expected": "refused"
+      },
+      {
+        "name": "pack-as-export",
+        "note": "A pack v1 document signed by the same key, given to the export reader: the content type answers it before a member of the manifest is read.",
+        "documentBase64Url": "0oRYNaMBJwNtYXNoYXZlcmkvcGFjawRYION6vNee_QjblFGKkDlS_-n4r36LRoS2NZFjHO-OiHHIoFkBmqZhdgFiYXQaaZ6TAGRkdXR5pGNhcnRlMTkoMSljcmV2GmmekuJkaGVsZBoA8pQAaHJlcXVpcmVkGgDylABkc3BhbqJidG8aaZ6TAGRmcm9tGmmekKhlY2hhaW6iZGhlYWRYIPiJlMvC68N_zxqNY9v5VlAqtvJLRJM6IPGu5bGYgK0lZmFuY2hvclggAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAABlaXRlbXOBpGJpZGlyZWNlaXB0LTBjaWF0GmmekdRkcHJldlggAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAABncmVjZWlwdFif0oRYOKMBJwNwYXNoYXZlcmkvcmVjZWlwdARYION6vNee_QjblFGKkDlS_-n4r36LRoS2NZFjHO-OiHHIoFgeomF2AWNpc3N1YXNoYXZlcmktcGFjay1maXh0dXJlWECulIQtM_mD3i_Tsyu4Idee9y5ij4ctsP3KIGuxBB-lKqS0ZgHcrLSVJrq7qCwtbxZnr7qPE8oHVmCSxNXz9PkJWECUZstXL52scqYJTWR1WkDuiMJ0ecPGSOxNX3FaMI5-P8zBEyldSnfEtkKxThX62o45objEj3Es_H-LV_9n5FcJ",
+        "expected": "EXPORT_BAD_HEADER"
+      }
+    ]
+  }
+}
