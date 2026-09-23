@@ -4,6 +4,7 @@ import {
   hashRequest,
   issueReceipt,
   randomNonce,
+  sealDeploymentManifest,
   type Marking,
   type MarkingScheme,
   type ReceiptPayload,
@@ -342,7 +343,27 @@ export function buildGateway(options: GatewayOptions): GatewayInstance {
     await receipts.put(args.id, issueReceipt(payload, deployment.key), iat);
   }
 
-  app.get('/v1/deployment-manifest', async () => manifest);
+  // The document, in whichever of the two shapes this deployment is able to produce.
+  //
+  // Sealing is not a mode a process can guess its way into: it happens when an operator handed this
+  // deployment a key for the purpose, and the bytes served are then a COSE_Sign1 around exactly the
+  // JSON written below, so what a client verifies is what it reads rather than a rendering of it. With
+  // no such key the route serves the plain document it always did, which is not a failure and is not
+  // secret: an unsigned manifest is the state a real deployment can be in, and a client that cannot
+  // authenticate one says so out loud instead of quietly believing it.
+  //
+  // Turning this on is a compatibility event and the operator's decision: a client that predates sealed
+  // manifests reads the CBOR as a manifest that will not parse and refuses the deployment rather than
+  // misreading it, which is the same contract a receipt version the reader does not know already holds.
+  const manifestBytes = new TextEncoder().encode(JSON.stringify(manifest));
+  const sealedManifest =
+    deployment.manifestKey === undefined ? null : sealDeploymentManifest(manifestBytes, deployment.manifestKey);
+
+  app.get('/v1/deployment-manifest', async (_request, reply) => {
+    if (sealedManifest === null) return manifest;
+    reply.header('content-type', 'application/cose');
+    reply.send(Buffer.from(sealedManifest));
+  });
 
   app.get('/v1/attestation', async (request, reply) => {
     const query = request.query as { report_data?: string };

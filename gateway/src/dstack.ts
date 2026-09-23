@@ -62,6 +62,13 @@ export interface DstackDeploymentOptions {
   /** Guest key path. Rotating the key means changing this and bumping epk. */
   readonly keyPath?: string;
   readonly keyPurpose?: string;
+  /**
+   * A second guest key path, for signing this deployment's manifest. Absent leaves the manifest served
+   * as plain JSON, which is a state a real deployment can be in rather than a defect: nothing here
+   * derives a key nobody asked for, and the identity that signs a manifest is the operator's to choose.
+   */
+  readonly manifestKeyPath?: string;
+  readonly manifestKeyPurpose?: string;
   readonly epk?: number;
   /** Overrides for the identity discovered from the event log. */
   readonly issuer?: string;
@@ -197,6 +204,26 @@ export async function dstackDeployment(options: DstackDeploymentOptions): Promis
   const { key: seed } = await client.getKey(keyPath, options.keyPurpose ?? '', 'ed25519');
   const key = signingKeyFromSeed(seed);
 
+  // Two derivations at two paths, because the duties are two. The manifest is the document that states
+  // which keys sign receipts, so a key that signs both would let one compromised signing key forge the
+  // rotation record that was supposed to retire it, and a client reads a wrapper verified that way as a
+  // manifest it cannot authenticate. Asking the guest for a second path is how an operator gets that
+  // separation without this process holding or writing a secret: the same derivation, a different name.
+  const manifestKey =
+    options.manifestKeyPath === undefined
+      ? undefined
+      : signingKeyFromSeed(
+          (await client.getKey(options.manifestKeyPath, options.manifestKeyPurpose ?? '', 'ed25519')).key,
+        );
+  if (manifestKey !== undefined && toHex(manifestKey.kid) === toHex(key.kid)) {
+    // Not a coded refusal, because nothing can branch on it: a process that came back with one key for
+    // two duties has been configured to serve a document no honest client will authenticate, and the one
+    // useful answer is a line on stderr and a start-up that did not happen.
+    throw new Error(
+      `the guest derived the same key for ${keyPath} and ${String(options.manifestKeyPath)}, and one key cannot sign both the receipts and the manifest that lists them`,
+    );
+  }
+
   // Bounded so a long-running instance does not grow without limit; evidence is
   // re-fetchable only while it is retained, which is what the receipt's att.url promises.
   const cache = new Map<string, AttestationBundle>();
@@ -304,6 +331,7 @@ export async function dstackDeployment(options: DstackDeploymentOptions): Promis
     issuer,
     instance,
     key,
+    manifestKey,
     epk: options.epk ?? 0,
     tee,
     measurement: platform.measurement,

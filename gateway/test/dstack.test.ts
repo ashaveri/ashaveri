@@ -141,6 +141,12 @@ class FakeGuest implements GuestApi {
   readonly keyPaths: string[] = [];
   readonly gpuChallenges: Uint8Array[] = [];
   seed: Uint8Array = SEED;
+  /**
+   * Material for one path and not for the process, which is the only way a test can show that a
+   * deployment asked the guest for two keys and got two: the default above answers every path with the
+   * same seed, as a guest that was handed one path would.
+   */
+  readonly seeds = new Map<string, Uint8Array>();
   /** Answers a device challenge, or stays null for a guest with no accelerators. */
   gpu: ((nonce: Uint8Array) => GpuEvidenceBundle) | null = null;
 
@@ -148,7 +154,7 @@ class FakeGuest implements GuestApi {
 
   async getKey(path: string, purpose: string, algorithm: 'ed25519'): Promise<GuestKey> {
     this.keyPaths.push(`${path}|${purpose}|${algorithm}`);
-    return { key: this.seed, signatureChain: [] };
+    return { key: this.seeds.get(path) ?? this.seed, signatureChain: [] };
   }
 
   async attest(reportData: Uint8Array): Promise<Uint8Array> {
@@ -266,6 +272,57 @@ describe('dstackDeployment key material', () => {
         }),
       'BAD_SIGNING_KEY',
     );
+  });
+});
+
+/**
+ * The second key a deployment can be handed, and the three states its manifest route is then in. The
+ * gateway never derives, generates or stores a manifest key from here: it asks the guest for one at a
+ * path an operator named, and serves the plain document when no path was named.
+ */
+describe('dstackDeployment manifest signing key', () => {
+  const SEAL_SEED = sha256(new TextEncoder().encode('ashaveri-test-manifest-signing-key'));
+  const URL_BASE = 'https://inference.ashaveri.test/v1';
+
+  it('asks for none, and holds none, when the operator named no path', async () => {
+    const guest = snpGuest();
+    const deployment = await dstackDeployment({ client: guest, models: MODELS, evidenceBaseUrl: URL_BASE });
+    expect(deployment.manifestKey).toBeUndefined();
+    expect(guest.keyPaths).toEqual(['/ashaveri/receipt||ed25519']);
+  });
+
+  it('derives a second key at the path it was given, under its own purpose', async () => {
+    const guest = snpGuest();
+    guest.seeds.set('/ashaveri/manifest', SEAL_SEED);
+    const deployment = await dstackDeployment({
+      client: guest,
+      models: MODELS,
+      evidenceBaseUrl: URL_BASE,
+      manifestKeyPath: '/ashaveri/manifest',
+      manifestKeyPurpose: 'rotation-v1',
+    });
+    expect(guest.keyPaths).toEqual(['/ashaveri/receipt||ed25519', '/ashaveri/manifest|rotation-v1|ed25519']);
+    const seal = deployment.manifestKey;
+    expect(seal).toBeDefined();
+    expect(toHex(seal!.kid)).toBe(toHex(keyId(seal!.publicKey)));
+    // Two duties, two identities: the manifest lists the receipt keys, so one key for both would let a
+    // compromised signing key rewrite the record meant to retire it.
+    expect(toHex(seal!.kid)).not.toBe(toHex(deployment.key.kid));
+  });
+
+  it('refuses to start when one key was asked to discharge both duties', async () => {
+    // The same guest answering both paths with the same material is a configuration, not a network fault,
+    // and a gateway that came up serving a manifest no honest client will authenticate is the worse
+    // answer. Nothing here is a coded refusal, because nothing can branch on it.
+    const guest = snpGuest();
+    await expect(
+      dstackDeployment({
+        client: guest,
+        models: MODELS,
+        evidenceBaseUrl: URL_BASE,
+        manifestKeyPath: '/ashaveri/manifest',
+      }),
+    ).rejects.toThrow(/one key cannot sign both the receipts and the manifest that lists them/);
   });
 });
 
