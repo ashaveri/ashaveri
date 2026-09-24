@@ -995,6 +995,7 @@ describe('the pack reader and the format it reads', () => {
     // repository to the code that prose names: the file it names is there, and the claims it makes about what
     // the reader answers are claims a refusal or an absence in the source can be asked about.
     const spec = readFileSync(specPath, 'utf8');
+    const readerSource = readFileSync(readerSourcePath, 'utf8');
     const start = spec.indexOf('### 5.2 Record framing and chain recomputation');
     const end = spec.indexOf('### 5.3', start);
     expect(start, 'section 5.2 is not in the specification').toBeGreaterThanOrEqual(0);
@@ -1005,6 +1006,29 @@ describe('the pack reader and the format it reads', () => {
     for (const named of ['packages/receipt/src/pack.ts', 'packages/receipt/pack.cddl', PACK_CONTENT_TYPE]) {
       expect(body, `the section does not name ${named}`).toContain(named);
     }
+    // The resolution rule, held to the code it describes rather than to this file's memory of it. The section
+    // says each item verifies under the key its own header names, that a resolver is asked once per kid, and
+    // that a pinned key still answers the whole container; the reader that does those three is read back here,
+    // so either side moving alone makes the prose and the code disagree, which is the failure this case exists
+    // to catch.
+    expect(body, 'the section does not say which key an item verifies under').toContain(
+      "verifies each item's receipt as a receipt, under the key that item's own header names",
+    );
+    expect(body, 'the section does not say what a resolver is asked for').toContain(
+      'a resolver is asked once for each kid the documents name',
+    );
+    expect(readerSource, 'the reader no longer forwards one designation to each item').toMatch(/verifyReceipt\(item\.receipt, options\)/u);
+    expect(readerSource, 'the reader resolves the envelope key after checking its signature').toMatch(
+      /const publicKey = envelopeKey\(envelope\.header\.kid, options\);[\s\S]*?!ed25519\.verify/u,
+    );
+    // What the section must still refuse to claim. A key handed to this reader is not authenticated by it, the
+    // keys a rotation-spanning pack needs are the ones section 5's step 2 already names for a receipt, and the
+    // one-key sentence this pass retired must not come back as prose.
+    expect(body, 'the section overstates what resolution buys').toContain('It authenticates no key.');
+    expect(body, 'the section does not say what a caller has to supply').toContain(
+      'pinned in the policy AND declared by the deployment manifest',
+    );
+    expect(body, 'the section still describes one key answering every document').not.toMatch(/under the key the manifest's own header designates/u);
     // The two findings the paragraph says are kept apart, and the window comparison it leaves to the reader: a
     // run can close cleanly over fewer receipts than the window it states, and only the pair of the two fields
     // says so. A caller printing the count alone would be reporting a window it was never shown complete.
@@ -1020,7 +1044,7 @@ describe('the pack reader and the format it reads', () => {
     // become false quietly from this package.
     const surface = readFileSync(fileURLToPath(new URL('../src/index.ts', import.meta.url)), 'utf8');
     expect(surface).toMatch(/from '\.\/pack\.js'/u);
-    for (const [name, source] of [['pack.ts', readFileSync(readerSourcePath, 'utf8')], ['index.ts', surface]] as const) {
+    for (const [name, source] of [['pack.ts', readerSource], ['index.ts', surface]] as const) {
       expect(source, `${name} exports a writer for a format that states it has none`).not.toMatch(
         /^export (?:async )?function (?:sign|seal|encode|build)\w*/mu,
       );

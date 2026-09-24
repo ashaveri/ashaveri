@@ -711,8 +711,17 @@ container `packages/receipt/pack.cddl` describes. It refuses a document whose pr
 `ashaveri/pack` before any key is consulted, decodes every map the manifest declares member by member where no
 floating-point number may appear, in a value and in a key alike, bounds every item's stamp by the half-open
 span, walks the `prev` links from the signed anchor to the signed head and counts what that walk reached against
-the array it was handed, and verifies each item's receipt as a receipt, under the key the manifest's own header
-designates and with its chained stamp equal to the `iat` the receipt attests. Two of its answers are kept apart
+the array it was handed, and verifies each item's receipt as a receipt, under the key that item's own header
+names and with its chained stamp equal to the `iat` the receipt attests. The keys arrive from the caller in
+either of the two shapes the receipt verifier already takes: a single pinned key answers the envelope and every
+receipt inside the container, and a resolver is asked once for each kid the documents name, so the envelope can
+verify under the epoch that signs it while a receipt from before a rotation verifies under the epoch that signed
+it. What that changes is one thing, and it is worth saying which: a pack whose span crosses a key rotation is
+verifiable by a caller that hands over the keys the deployment's manifest retains in `keys[]`, which for each kid
+means what section 5's step 2 already requires of a receipt's key, pinned in the policy AND declared by the
+deployment manifest. It authenticates no key. The reader verifies under whatever it was given for a kid and says
+nothing about whether that key is the deployment's own, and a caller that retained only the current epoch is
+told which item it could not reach rather than having a key guessed for it. Two of its answers are kept apart
 because they establish different things: the run the walk reached, and the window the manifest says it was
 assembled to answer for. Whether that run is the period a reader asked for is decided by comparing the span with
 what they wanted, which is the reader's step and not this one, and the same is true of a deletion, which shows
