@@ -659,31 +659,48 @@ describe('the window a store is configured to hold', () => {
    * address fills a store at this rate and a deployment behind one reverse proxy, which is the shape that
    * document names, serves all of its traffic through it. Past one address the store fills faster, which
    * only ever raises the count a window takes.
+   *
+   * This number is used at the arithmetic, not at the disk. The file store fsyncs every append it makes,
+   * which is the durability the receipts depend on and is not the thing these cases are about, so a
+   * fixture that wrote a second of measured traffic through the store spent its budget on syncs: at a
+   * hundred appends two of the cases below exceeded the runner's default window while the same rules pass
+   * on ten. The rate rule is therefore asserted whole, at this number, in the case that derives a count
+   * from a period and a spacing with no file in sight.
    */
   const MEASURED_RECEIPTS_PER_SECOND = 100;
-  /** One instant, because a burst at the measured volume does not cross a second boundary. */
+  /** Receipts in a fixture that ends up at its bound: ten, the size every other case here writes. */
+  const FIXTURE_RECEIPTS = 10;
+  /** The bound those fixtures sit at, so the pairing this unit refuses is the one being exercised. */
+  const FIXTURE_BOUND = FIXTURE_RECEIPTS / 2;
+  /** One instant, because a burst inside a second does not cross a second boundary. */
   const STAMP = 1_780_000_000;
+  /**
+   * The stop for a case that opens a real file: ten durable appends and up to three opens cost well under
+   * a tenth of this locally, and the runner is slower per sync by a wide margin, so this is the room to
+   * reach the stop rather than a ceiling raised to hide a slow case.
+   */
+  const FILE_CASE_TIMEOUT = 15_000;
 
-  /** `count` receipts, all stamped inside one second, which is the measured volume. */
+  /** `count` receipts, all stamped at one instant. */
   async function burst(store: ReceiptStore, count: number): Promise<void> {
     for (let i = 0; i < count; i++) {
       await store.put(`rcpt_${String(i).padStart(3, '0')}`, RECEIPT, STAMP);
     }
   }
 
-  it('refuses to open a bound that cannot hold the five-year period beside it', async () => {
+  it('refuses to open a bound that cannot hold the five-year period beside it', { timeout: FILE_CASE_TIMEOUT }, async () => {
     // The pairing this unit exists to stop: a period configured in years and a storage bound
     // configured in receipts, with the traffic to show that the second cannot cover the first. It is
     // the reopening that knows, because the rate is the file's own.
     const dir = await emptyDir();
     const retention: ReceiptRetention = {
       maxAgeSeconds: FIVE_YEARS_SECONDS,
-      maxCount: MEASURED_RECEIPTS_PER_SECOND / 2,
+      maxCount: FIXTURE_BOUND,
       now: () => STAMP + 10,
     };
     const written = await openFileReceiptStore({ dir, retention });
-    await burst(written, MEASURED_RECEIPTS_PER_SECOND);
-    expect(await written.window()).toEqual({ from: STAMP, to: STAMP, count: 50 });
+    await burst(written, FIXTURE_RECEIPTS);
+    expect(await written.window()).toEqual({ from: STAMP, to: STAMP, count: FIXTURE_BOUND });
 
     const file = join(dir, RECEIPT_STORE_FILE);
     const bytes = await readFile(file);
@@ -693,14 +710,18 @@ describe('the window a store is configured to hold', () => {
     // A refused opening has to leave the file as it found it: this is the one moment an operator learns
     // the pairing was wrong, and the receipts are the evidence for it.
     expect(await readFile(file)).toEqual(bytes);
-    expect(frames(bytes)).toHaveLength(100);
+    expect(frames(bytes)).toHaveLength(FIXTURE_RECEIPTS);
   });
 
-  it('names the period, the bound and the count the period takes in the refusal', async () => {
+  it('names the period, the bound and the count the period takes in the refusal', { timeout: FILE_CASE_TIMEOUT }, async () => {
     const dir = await emptyDir();
-    const retention: ReceiptRetention = { maxAgeSeconds: FIVE_YEARS_SECONDS, maxCount: 50, now: () => STAMP + 10 };
+    const retention: ReceiptRetention = {
+      maxAgeSeconds: FIVE_YEARS_SECONDS,
+      maxCount: FIXTURE_BOUND,
+      now: () => STAMP + 10,
+    };
     const written = await openFileReceiptStore({ dir, retention });
-    await burst(written, 100);
+    await burst(written, FIXTURE_RECEIPTS);
 
     const message = await openFileReceiptStore({ dir, retention }).then(
       () => 'opened, no refusal',
@@ -709,16 +730,16 @@ describe('the window a store is configured to hold', () => {
     // The two quantities that disagree, and the derived number that decides between them, in one
     // sentence: an operator raising the bound has to be able to see what they are raising it to. The
     // count is written out rather than recomputed here, and it is the derivation the refusal states:
-    // fifty receipts stamped in one second are read as the fastest traffic a file can report, so the
-    // window has to hold one receipt for each of the forty-nine gaps between them per second, which is
-    // 49 * 157,680,000 = 7,726,320,000 receipts, plus the one stamped at its older edge.
+    // five retained receipts stamped at one instant are read as the fastest traffic a file can report,
+    // so the window has to hold one receipt for each of the four gaps between them per second, which is
+    // 4 * 157,680,000 = 630,720,000 receipts, plus the one stamped at its older edge.
     expect(message).toContain(`${String(FIVE_YEARS_SECONDS)} seconds`);
-    expect(message).toContain('bound of 50 receipts');
-    expect(message).toContain('7726320001 receipts');
+    expect(message).toContain('bound of 5 receipts');
+    expect(message).toContain('630720001 receipts');
     expect(message).toContain('RETENTION_WINDOW_UNHOLDABLE');
   });
 
-  it('opens the same five-year period on a bound the burst cannot reach', async () => {
+  it('opens the same five-year period on a bound the burst cannot reach', { timeout: FILE_CASE_TIMEOUT }, async () => {
     // The refusal is about a pairing, not about a long period: configured the other half, the same
     // traffic and the same five years start.
     const dir = await emptyDir();
@@ -726,12 +747,12 @@ describe('the window a store is configured to hold', () => {
       dir,
       retention: { maxAgeSeconds: FIVE_YEARS_SECONDS, maxCount: 1_000_000_000_000, now: () => STAMP + 10 },
     });
-    await burst(written, 100);
+    await burst(written, FIXTURE_RECEIPTS);
     const reopened = await openFileReceiptStore({
       dir,
       retention: { maxAgeSeconds: FIVE_YEARS_SECONDS, maxCount: 1_000_000_000_000, now: () => STAMP + 10 },
     });
-    expect(await reopened.window()).toEqual({ from: STAMP, to: STAMP, count: 100 });
+    expect(await reopened.window()).toEqual({ from: STAMP, to: STAMP, count: FIXTURE_RECEIPTS });
   });
 
   it('holds a window its bound does cover, on either side of the line', async () => {
@@ -795,6 +816,19 @@ describe('the window a store is configured to hold', () => {
     // span of time to hold.
     expect(receiptsNeededForWindow(10, at(1, 1_000, 1_000))).toBeNull();
     expect(receiptsNeededForWindow(0, at(10, 1_000, 1_009))).toBeNull();
+    // The measured volume, at the arithmetic rather than on disk. A hundred receipts sharing one instant
+    // is one second of traffic at the rate `docs/access-control.md` states for an address, and a
+    // five-year window at that rate takes 99 * 157,680,000 = 15,610,320,000 receipts plus the one at
+    // its older edge, which is 1.56 million times the bound of ten thousand this CLI opens.
+    expect(receiptsNeededForWindow(FIVE_YEARS_SECONDS, at(MEASURED_RECEIPTS_PER_SECOND, STAMP, STAMP))).toBe(
+      15_610_320_001,
+    );
+    // The same hundred receipts with their older and newer edges ninety-nine seconds apart ask for a
+    // ninety-ninth of that: the derivation reads the file's own spacing, which is why a quiet store and a
+    // busy one get different answers and why neither answer is a constant anybody configured.
+    expect(receiptsNeededForWindow(FIVE_YEARS_SECONDS, at(MEASURED_RECEIPTS_PER_SECOND, STAMP, STAMP + 99))).toBe(
+      157_680_001,
+    );
   });
 });
 
