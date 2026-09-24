@@ -298,7 +298,10 @@ retry briefly on 404. How long a receipt stays fetchable is the gateway's choice
 protocol does not carry that answer, so treat an id as a handle rather than a proof. A signerd
 started with `--receipts-dir` appends each receipt to a hash-chained file on that volume and
 keeps it for 184 days, or until 10,000 later receipts push it out as a bound on the volume,
-whichever comes first; one started without it keeps receipts in process memory and serves none
+whichever comes first. A store that has reached that bound, and whose retained receipts' own stamps
+show the bound cannot cover the window configured beside it, refuses to open rather than serve the
+shorter window it can hold, and names the two numbers that disagree. One started without the flag
+keeps receipts in process memory and serves none
 of them after a restart. Fetch the bytes and keep them if the proof has to outlive the
 deployment.
 

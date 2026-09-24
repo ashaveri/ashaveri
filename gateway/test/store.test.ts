@@ -763,6 +763,24 @@ describe('the window a store is configured to hold', () => {
     expect(await reopened.window()).toEqual({ from: STAMP, to: STAMP, count: 3 });
   });
 
+  it('asks nothing of a store bounded on one side only', async () => {
+    // A configuration with no age bound asks the store to hold no span of time, and one with no count
+    // bound asks it to hold every receipt it has. Neither has a pairing to contradict, so neither is
+    // asked, and both are opened here at the same traffic the cases above refuse at: ten receipts at the
+    // bound, all of them inside one second.
+    const atBound = async (retention: ReceiptRetention): Promise<string> => {
+      const dir = await emptyDir();
+      const store = await openFileReceiptStore({ dir, retention });
+      await burst(store, 10);
+      return openFileReceiptStore({ dir, retention }).then(
+        () => 'opened',
+        (error: unknown) => String((error as { code?: string }).code),
+      );
+    };
+    expect(await atBound({ maxCount: 10, now: () => STAMP })).toBe('opened');
+    expect(await atBound({ maxAgeSeconds: FIVE_YEARS_SECONDS, now: () => STAMP })).toBe('opened');
+  });
+
   it('derives the count a window takes from the period and the traffic, and declines to guess', () => {
     const at = (count: number, from: number, to: number): RetainedWindow => ({ from, to, count });
     // The receipt at the older edge is the `+ 1`: ten receipts one second apart span nine seconds, so

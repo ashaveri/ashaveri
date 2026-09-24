@@ -474,7 +474,7 @@ const label =
 const kept =
   receiptsDir === undefined
     ? 'receipts kept in this process only, and gone on restart'
-    : `receipts kept in ${receiptsDir} for ${Math.round(MINIMUM_RETENTION_SECONDS / 86_400)} days, up to ${String(MAX_SERVED_RECEIPTS)} at a time`;
+    : `receipts kept in ${receiptsDir} as configured: a window of ${Math.round(MINIMUM_RETENTION_SECONDS / 86_400)} days and a bound of ${String(MAX_SERVED_RECEIPTS)} receipts, which the store compares against the traffic on its own file and refuses to open when the bound cannot hold the window`;
 // The marking a deployment runs is reported as this process installed it, in both settings, because
 // the one that changes what a customer sees is the one worth reading at a start-up log: a response
 // whose shape cannot carry the mark is refused here rather than served unmarked, and that is a thing
