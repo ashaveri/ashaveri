@@ -84,6 +84,25 @@ export type {
   VerifiedExport,
 } from './export.js';
 export {
+  PACK_CONTENT_TYPE,
+  packRecordDigest,
+  packSigStructure,
+  decodePack,
+  verifyPack,
+} from './pack.js';
+export type {
+  DecodedPack,
+  PackChain,
+  PackDuty,
+  PackItem,
+  PackManifest,
+  PackOutcome,
+  PackSpan,
+  PackVerifyOptions,
+  VerifiedPack,
+  VerifiedPackItem,
+} from './pack.js';
+export {
   MARKING_MEMBER_NAME,
   PROVENANCE_V1_MEMBER_SCHEME,
   emptyRegion,
