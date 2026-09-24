@@ -2,6 +2,8 @@ import { describe, it, expect } from 'vitest';
 import { encodeCanonical, decodeCanonical, decodeClosedDocument } from '../src/cbor.js';
 import { ReceiptError } from '../src/errors.js';
 import { Tag, encode, defaultEncodeOptions, encodedNumber } from 'cbor2';
+import { generateSigningKey } from '../src/cose.js';
+import { isSealedDeploymentManifest, sealDeploymentManifest, decodeSealedDeploymentManifest, verifySealedDeploymentManifest } from '../src/manifest-seal.js';
 import { sortCoreDeterministic } from 'cbor2/sorts';
 
 // Vectors from RFC 8949 Appendix E / well-known canonical encodings.
@@ -194,5 +196,72 @@ describe('the two documents the format declares member by member', () => {
     expect(codeOf(() => decodeClosedDocument(bytes, 'BAD_PAYLOAD'))).toBe('BAD_PAYLOAD');
     const read = decodeCanonical(bytes) as Map<unknown, unknown>;
     expect(read.get(1)).toBe(2.5);
+  });
+});
+
+describe('encodeCanonical, on the byte strings a caller can actually hand it', () => {
+  const hexOf = (bytes: Uint8Array): string =>
+    Array.from(bytes, (byte) => byte.toString(16).padStart(2, '0')).join('');
+  const PLAIN = new Uint8Array([1, 2, 3]);
+  const PLAIN_HEX = hexOf(encodeCanonical(PLAIN));
+
+  it('writes a Buffer as the byte string it holds, wherever it sits', () => {
+    // `Buffer` passes for `Uint8Array` to the type checker and to every `readFile` in the estate, and
+    // the writer used to take its generic object path on it: a two-entry map holding `type` and a
+    // `data` array of numbers. Same signature, different document, and the reader of the document the
+    // signature covers is the thing that would refuse it.
+    const cases: Array<[string, unknown, unknown]> = [
+      ['on its own', PLAIN, Buffer.from(PLAIN)],
+      ['inside an array', [PLAIN], [Buffer.from(PLAIN)]],
+      ['inside a map value', new Map([['k', PLAIN]]), new Map([['k', Buffer.from(PLAIN)]])],
+      ['inside a map key', new Map([[PLAIN, 1]]), new Map([[Buffer.from(PLAIN), 1]])],
+      ['inside an object', { d: PLAIN }, { d: Buffer.from(PLAIN) }],
+      ['inside a tagged envelope', new Tag(18, [PLAIN]), new Tag(18, [Buffer.from(PLAIN)])],
+      ['nested two levels down', new Map([['t', [PLAIN]]]), new Map([['t', [Buffer.from(PLAIN)]]])],
+    ];
+    for (const [where, plain, buffered] of cases) {
+      expect(hexOf(encodeCanonical(buffered)), `a Buffer ${where} went out as something else`).toBe(
+        hexOf(encodeCanonical(plain)),
+      );
+    }
+    expect(PLAIN_HEX).toBe('43010203');
+  });
+
+  it('shows a Buffer a view of, and not the pool behind it', () => {
+    const pool = Buffer.from([9, 9, 1, 2, 3, 9]);
+    const view = pool.subarray(2, 5);
+    expect(view.constructor.name, 'the case is only real if a view is still a Buffer').toBe('Buffer');
+    expect(hexOf(encodeCanonical(view))).toBe('43010203');
+  });
+
+  it('leaves a structure that already holds plain bytes exactly as it was written', () => {
+    // The writer is on the path of every signature made, so the fix may cost a copy of anything that
+    // needs none. A deep clone of one document must encode to the same bytes as the original.
+    const document = new Map<unknown, unknown>([
+      ['iat', 1_772_000_000],
+      ['nce', new Uint8Array(16).fill(7)],
+      ['tok', new Map([['p', 128], ['c', 64]])],
+      ['items', [new Uint8Array([0]), new Uint8Array([254])]],
+    ]);
+    const clone: Map<unknown, unknown> = new Map(
+      Array.from(document, ([key, value]) => [
+        key,
+        Array.isArray(value) ? value.map((element) => element) : value instanceof Map ? new Map(value) : value,
+      ]),
+    );
+    expect(hexOf(encodeCanonical(clone))).toBe(hexOf(encodeCanonical(document)));
+    expect(hexOf(encodeCanonical(PLAIN))).toBe(PLAIN_HEX);
+  });
+
+  it('seals a manifest read off a disk and lets its own reader verify it', () => {
+    // The reported failure was this path exactly: bytes from a file, sealed, and the envelope refused
+    // as not a COSE_Sign1 because the payload inside it had become an array of numbers.
+    const key = generateSigningKey();
+    const text = JSON.stringify({ v: 1, iss: 'dpl-9f2a41c3' });
+    const sealed = sealDeploymentManifest(Buffer.from(text, 'utf8'), key);
+    expect(isSealedDeploymentManifest(sealed)).toBe(true);
+    const read = decodeSealedDeploymentManifest(sealed);
+    expect(new TextDecoder().decode(read.payloadBytes)).toBe(text);
+    expect(() => verifySealedDeploymentManifest(sealed, key.publicKey)).not.toThrow();
   });
 });
