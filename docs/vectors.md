@@ -211,9 +211,9 @@ implementation is the deviation.
 These vectors check bytes. They say nothing about trust:
 
 - Nothing here establishes that a key belongs to anybody. The signing keys published in
-  `data/keys/receipt-key-v1.json`, in `pop-v1.json` and in `export-v1.json` are test-only, labelled as such
-  in the files themselves, and protect nothing. A port that verifies against them has exercised its
-  verifier, not appraised a deployment.
+  `data/keys/receipt-key-v1.json`, in `pop-v1.json`, in `export-v1.json` and in `manifest-v1.json`
+  are test-only, labelled as such in the files themselves, and protect nothing. A port that verifies
+  against them has exercised its verifier, not appraised a deployment.
 - Nothing here touches attestation. Evidence documents, platform roots, device certificate chains and
   the measurements they name are checked against vendor anchors no file in this directory holds, and
   a byte-exact reimplementation of every suite in `data/` is compatible with a deployment that should
