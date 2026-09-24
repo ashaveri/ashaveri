@@ -34,7 +34,13 @@ describe('the package entry point', () => {
     expect(MINIMUM_RETENTION_SECONDS).toBe(184 * 24 * 60 * 60);
   });
 
-  it('carries the one code a store refuses with', () => {
+  it('carries both codes a store refuses with', () => {
+    // Two because there are two things a store can object to: the file it was handed, and the value a
+    // caller is asking it to write now. A refusal that reached a caller under the first name when the
+    // second was meant would send an operator to the volume with nothing wrong on it.
     expect(new StoreError('STORE_CHAIN_BROKEN', 'record 3 does not chain').code).toBe('STORE_CHAIN_BROKEN');
+    expect(new StoreError('RECORD_STAMP_OUT_OF_RANGE', 'a stamp of 1.5 is not a whole second').code).toBe(
+      'RECORD_STAMP_OUT_OF_RANGE',
+    );
   });
 });

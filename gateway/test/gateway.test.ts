@@ -4,7 +4,7 @@ import { mkdtemp, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import type { GatewayOptions } from '../src/server.js';
-import { openFileReceiptStore, openMemoryReceiptStore } from '../src/store.js';
+import { openFileReceiptStore, openMemoryReceiptStore, type ReceiptStore } from '../src/store.js';
 import { toBase64Url } from '../src/b64.js';
 import { decodeReceipt, hashRequest, signingKeyFromSeed, toHex } from '@ashaveri/receipt';
 import {
@@ -441,6 +441,98 @@ describe('durable receipts', () => {
     } finally {
       await rm(dir, { recursive: true, force: true });
     }
+  });
+});
+
+describe('the issuance clock', () => {
+  /** An instant no platform clock is near, so a stamp that matches it was not read off one. */
+  const ISSUED_AT_SECONDS = 1_500_000_000;
+
+  const secondBody = '{"model":"mock-model-1","messages":[{"role":"user","content":"again"}]}';
+
+  /** The receipt a served completion's id points at, decoded off the route the client fetches it from. */
+  async function payloadOf(h: Harness, id: string): Promise<{ iat: number }> {
+    const res = await send(h, 'GET', `/v1/receipts/${id}`, null);
+    expect(res.statusCode).toBe(200);
+    return decodeReceipt(new Uint8Array(res.rawPayload)).payload;
+  }
+
+  /** What the store filed a receipt under, read through its own half-open range. */
+  async function filed(store: ReceiptStore): Promise<{ id: string; iat: number }[]> {
+    const seen: { id: string; iat: number }[] = [];
+    for await (const item of store.range(0, 4_000_000_000)) {
+      seen.push({ id: item.id, iat: item.iat });
+    }
+    return seen;
+  }
+
+  it('takes the stamp of a signed receipt and of the store record from one injected source', async () => {
+    // Two readings of two clocks is the defect: the stamp inside the signature and the stamp the
+    // chain is sorted and keyed by have to be the same instant, because a reader recomputes one
+    // record digest per receipt in the order the store filed them.
+    const store = openMemoryReceiptStore();
+    let issuedAt = ISSUED_AT_SECONDS;
+    const h = await harness({
+      credentials: [credential()],
+      gateway: { key: DEPLOYMENT_KEY, store, now: () => issuedAt * 1000 + 999 },
+    });
+    try {
+      const first = await send(h, 'POST', '/v1/chat/completions', REQUEST_BODY);
+      const firstId = first.headers['x-ashaveri-receipt-id'] as string;
+      issuedAt = ISSUED_AT_SECONDS + 60;
+      const second = await send(h, 'POST', '/v1/chat/completions', secondBody);
+      const secondId = second.headers['x-ashaveri-receipt-id'] as string;
+
+      // The sub-second remainder is floored away rather than rounded up: a stamp is a whole second,
+      // and a clock that reads late must not be able to date a receipt after the instant it was made.
+      expect((await payloadOf(h, firstId)).iat).toBe(ISSUED_AT_SECONDS);
+      expect((await payloadOf(h, secondId)).iat).toBe(ISSUED_AT_SECONDS + 60);
+      expect(await filed(store)).toEqual([
+        { id: firstId, iat: ISSUED_AT_SECONDS },
+        { id: secondId, iat: ISSUED_AT_SECONDS + 60 },
+      ]);
+      expect(await store.window()).toEqual({
+        from: ISSUED_AT_SECONDS,
+        to: ISSUED_AT_SECONDS + 60,
+        count: 2,
+      });
+    } finally {
+      await h.app.close();
+    }
+  });
+
+  it('holds the stamp where the injected clock holds it, across a restart of the process', async () => {
+    // The durable half of the same promise: the stamp a file engine re-reads after a restart is the
+    // one the signed bytes carry, and not whatever the second process's platform clock says. This is
+    // also the case that a `Date.now()` inside `issue` fails twice over, since the fixture's instant
+    // is years before either process runs.
+    const dir = await mkdtemp(join(tmpdir(), 'ashaveri-clock-'));
+    try {
+      const clock = (): number => ISSUED_AT_SECONDS * 1000;
+      const first = await harness({
+        credentials: [credential()],
+        gateway: { key: DEPLOYMENT_KEY, store: await openFileReceiptStore({ dir }), now: clock },
+      });
+      const id = (await send(first, 'POST', '/v1/chat/completions', REQUEST_BODY)).headers['x-ashaveri-receipt-id'] as string;
+      await first.app.close();
+
+      const reopened = await openFileReceiptStore({ dir });
+      expect(await filed(reopened), 'the filed stamp survives the restart').toEqual([
+        { id, iat: ISSUED_AT_SECONDS },
+      ]);
+      const bytes = await reopened.get(id);
+      expect(decodeReceipt(new Uint8Array(bytes!)).payload.iat).toBe(ISSUED_AT_SECONDS);
+    } finally {
+      await rm(dir, { recursive: true, force: true });
+    }
+  });
+
+  it('stamps off the platform clock for a gateway handed no source', async () => {
+    // Nothing is configured, so nothing moved: the default stays what it was before the seam existed.
+    const near = Math.floor(Date.now() / 1000);
+    const res = await send(session, 'POST', '/v1/chat/completions', REQUEST_BODY);
+    const payload = await payloadOf(session, res.headers['x-ashaveri-receipt-id'] as string);
+    expect(Math.abs(payload.iat - near)).toBeLessThan(60);
   });
 });
 

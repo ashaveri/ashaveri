@@ -596,3 +596,47 @@ describe('chain state', () => {
     expect((await store.window()).count + state.retired.byAge + state.retired.byCount).toBe(14);
   });
 });
+
+describe('a stamp the record cannot state', () => {
+  /** Four instants the 8-byte field has no spelling for, and the largest one it has a spelling for. */
+  const REFUSED = [1.5, -1, Number.MAX_SAFE_INTEGER + 1, Number.NaN];
+
+  it('is refused by the file engine before a byte reaches the file', async () => {
+    const dir = await emptyDir();
+    const store = await openFileReceiptStore({ dir });
+    for (const iat of REFUSED) {
+      await expect(store.put('rcpt_bad', RECEIPT, iat)).rejects.toMatchObject({
+        code: 'RECORD_STAMP_OUT_OF_RANGE',
+      });
+    }
+    // Refusing has to cost nothing. An append that stopped after its first bytes is the one shape the
+    // walk repairs rather than reports, so a record written and then objected to would read back as an
+    // interrupted append and take its own tail off the file.
+    expect((await stat(join(dir, RECEIPT_STORE_FILE))).size).toBe(0);
+    expect(await store.window()).toEqual({ from: 0, to: 0, count: 0 });
+    expect(Array.from(await store.head())).toEqual(Array.from(ZERO_HEAD));
+
+    await store.put('rcpt_max', RECEIPT, Number.MAX_SAFE_INTEGER);
+    expect(await store.window()).toEqual({ from: Number.MAX_SAFE_INTEGER, to: Number.MAX_SAFE_INTEGER, count: 1 });
+    // Reopening is the check that the refusals left a file rather than a promise: the walk has to read
+    // the one record back and call the chain whole.
+    const reopened = await openFileReceiptStore({ dir });
+    expect(Array.from((await reopened.get('rcpt_max'))!)).toEqual(Array.from(RECEIPT));
+  });
+
+  it('is refused by the memory engine without moving the chain', async () => {
+    const store = openMemoryReceiptStore();
+    await store.put('rcpt_first', RECEIPT, 1_780_000_000);
+    const head = await store.head();
+    for (const iat of REFUSED) {
+      await expect(store.put('rcpt_bad', RECEIPT, iat)).rejects.toMatchObject({
+        code: 'RECORD_STAMP_OUT_OF_RANGE',
+      });
+    }
+    // The receipt before them still chains, and the refused id was never filed under it: a head that
+    // moved on a record nobody holds the id for would be a hole the chain exists to make visible.
+    expect(Array.from(await store.head())).toEqual(Array.from(head));
+    expect(await store.get('rcpt_bad')).toBeNull();
+    expect((await store.window()).count).toBe(1);
+  });
+});

@@ -60,6 +60,22 @@ export interface GatewayOptions {
    * build predates marking" at once, which is the silence the version exists to refuse.
    */
   readonly marking?: MarkingScheme;
+  /**
+   * This process's one time source, in milliseconds since the Unix epoch, the unit `Date.now` reads
+   * in. Every whole-second stamp this gateway writes into a document it then signs is taken from here,
+   * so the moment a receipt is issued is decided by the one seam a deployment can point at a source of
+   * its own, rather than by a call to the platform clock buried in the handler that makes the
+   * document. Absent means the platform clock, which is what a deployment that configures nothing
+   * reads today, and nothing about the value it gives changes.
+   *
+   * Handing over a source is not the same as making a stamp unmovable. A process can only read the
+   * clock it was given, so on a deployment where whoever owns the host also chose the clock, this
+   * option moves the move rather than preventing it: what it buys is that the choice is written down
+   * once at construction, that a deployment able to read an attestable or ratcheted time can wire it
+   * here, and that the stamp of a record is a thing a test can fix without waiting. Section 3 of
+   * `docs/receipt-spec.md` states what an `iat` therefore proves and what it cannot.
+   */
+  readonly now?: () => number;
 }
 
 export interface ManifestJson {
@@ -147,10 +163,20 @@ export function buildGateway(options: GatewayOptions): GatewayInstance {
   const deployment =
     options.deployment ?? mockDeployment({ issuer: options.issuer, instance: options.instance, key: options.key });
   const backend = options.backend ?? mockBackend();
-  const receipts = options.store ?? openMemoryReceiptStore();
   // Read once, where every other operator switch on this process is read: a completion is marked the
   // same way whichever route served it, and the value is reported on the start-up banner.
   const markingScheme = options.marking ?? DEFAULT_MARKING;
+  // The record stamp of this process: whole Unix seconds off one time source. `issue` below stamps the
+  // signed payload and the store's chain key from the same reading, so the instant a receipt claims and
+  // the instant the filing cabinet says it arrived cannot be moved apart by taking them at two moments,
+  // and neither is decided by a call the deployment cannot reach.
+  const clock = options.now ?? (() => Date.now());
+  const stamp = (): number => Math.floor(clock() / 1000);
+  // A store handed over by a deployment brings its own retention clock, because the retention it was
+  // configured with is that deployment's decision. The in-process default has no bounds at all, so the
+  // only thing its clock can be asked is which instant a retirement is written under, and that reads
+  // the same source as the receipts it would be timing.
+  const receipts = options.store ?? openMemoryReceiptStore({ retention: { now: stamp } });
   // One HKDF over the deployment's own signing seed, for the whole process. The id a receipt is
   // fetched by is minted here rather than taken from the upstream, and nothing is written down to
   // make the fetch work: the id carries the tag of the credential that minted it.
@@ -317,7 +343,7 @@ export function buildGateway(options: GatewayOptions): GatewayInstance {
     usage: CompletionUsage;
     marking: Marking;
   }): Promise<void> {
-    const iat = Math.floor(Date.now() / 1000);
+    const iat = stamp();
     // A v2 payload, always, whatever the marking says. `mk` is a required member of it, so the
     // answer to "was this response marked?" is a value in a signed document rather than the absence
     // of one, which is the reading a v1 receipt cannot carry and section 6 of the specification says
@@ -520,7 +546,7 @@ export function buildGateway(options: GatewayOptions): GatewayInstance {
       const marked =
         markingScheme === 'none'
           ? null
-          : markBufferedBody(body, Math.floor(Date.now() / 1000));
+          : markBufferedBody(body, stamp());
       if (marked !== null && !marked.marked) {
         // The flag asked for a mark and this response's shape cannot carry one, which is a fact a
         // caller has to be told. Serving the body unmarked and signing `sch: none` would be true of
@@ -645,7 +671,7 @@ export function buildGateway(options: GatewayOptions): GatewayInstance {
       // which is why the closing byte is not where a mark belongs.
       let marking = unmarked();
       if (tail !== null) {
-        const mark = markingFrame(declared.id, Math.floor(Date.now() / 1000));
+        const mark = markingFrame(declared.id, stamp());
         for (const piece of tail.finishing(mark.frame)) {
           await write(piece);
         }

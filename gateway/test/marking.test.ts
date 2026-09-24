@@ -3,6 +3,7 @@ import { spawnSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 import {
   MARKING_MEMBER_NAME,
+  PROVENANCE_V1_MEMBER_SCHEME,
   decodeReceipt,
   emptyRegion,
   extractMarkedRegion,
@@ -29,6 +30,13 @@ const NONCE = Uint8Array.from({ length: 16 }, (_, i) => i + 1);
 const REQUEST_BODY = '{"model":"mock-model-1","messages":[{"role":"user","content":"hello"}]}';
 const STREAM_REQUEST_BODY = '{"model":"mock-model-1","messages":[{"role":"user","content":"hi"}],"stream":true}';
 const MODEL = 'mock-model-1';
+
+/**
+ * An instant no platform clock is near, and not the one the fixture's upstream frames carry
+ * (`CLOCK_SECONDS` is what they were built with), so a mark holding it was written by this gateway off
+ * the time source it was handed rather than off the machine it happens to be running on.
+ */
+const MARKED_AT_SECONDS = 1_500_000_002;
 const CLI = fileURLToPath(new URL('../dist/cli.js', import.meta.url));
 
 function utf8(value: string): Uint8Array {
@@ -115,7 +123,9 @@ const credential: Generated = generated('marking', ['complete', 'read']);
 
 let session: Harness | undefined;
 
-async function open(gateway: { backend?: CompletionBackend; marking?: MarkingScheme } = {}): Promise<Harness> {
+async function open(
+  gateway: { backend?: CompletionBackend; marking?: MarkingScheme; now?: () => number } = {},
+): Promise<Harness> {
   await close();
   session = await harness({ credentials: [credential], gateway });
   return session;
@@ -234,6 +244,27 @@ describe('a marked buffered completion', () => {
     expect(toHex(hashRequest(body))).toBe(toHex(payload.res));
   });
 
+  it('writes the mark time off the source the gateway was handed, and signs those bytes', async () => {
+    // The mark's instant is inside the region `mk.d` digests, so it is a stamped fact about the
+    // response and not a log line: a host clock read at the write site would move a signed document
+    // without anyone touching its bytes. One reading of one source has to serve both halves.
+    const h = await open({
+      backend: bodyBackend(UPSTREAM_BUFFERED, 'application/json'),
+      marking: 'provenance-v1',
+      now: () => MARKED_AT_SECONDS * 1000,
+    });
+    const res = await send(h, '/v1/chat/completions', REQUEST_BODY);
+    expect(res.statusCode).toBe(200);
+    const body = new Uint8Array(res.rawPayload);
+    const region = extractMarkedRegion('provenance-v1', body);
+    expect(text(region)).toBe(
+      `"${MARKING_MEMBER_NAME}":{"marking":{"sch":"${PROVENANCE_V1_MEMBER_SCHEME}","gen":"ai","at":${MARKED_AT_SECONDS}}}`,
+    );
+    const payload = await receiptFor(h, res.headers['x-ashaveri-receipt-id'] as string);
+    expect(toHex(sha256(region))).toBe(toHex(payload.mk.d));
+    expect(payload.iat).toBe(MARKED_AT_SECONDS);
+  });
+
   it('refuses an upstream body that cannot hold the member, and says which shape it met', async () => {
     for (const [body, why] of [
       ['not json at all', 'not JSON'],
@@ -313,6 +344,26 @@ describe('a marked streamed completion', () => {
 
     expect(toHex(sha256(extractMarkedRegion('provenance-v1', body)))).toBe(toHex(payload.mk.d));
     expect(toHex(hashRequest(body))).toBe(toHex(payload.res));
+  });
+
+  it('writes the streamed frame time off the same source as the receipt it chains into', async () => {
+    // A stream is stamped twice: the frame this gateway writes carries an instant, and the receipt
+    // signed after the last byte carries one. Two readings of two clocks would let a marked frame
+    // date a completion before the receipt that attests it, which a reader holding both can see.
+    const h = await open({ backend: streamBackend(), marking: 'provenance-v1', now: () => MARKED_AT_SECONDS * 1000 });
+    const res = await send(h, '/v1/chat/completions', STREAM_REQUEST_BODY);
+    const stream = text(new Uint8Array(res.rawPayload));
+    const parsed = JSON.parse(
+      (stream.split('\n\n').filter((each) => each.length > 0).at(-2) ?? '').slice('data: '.length),
+    ) as Record<string, unknown>;
+    // `created` is this gateway's own frame field and the upstream's frames carry `CLOCK_SECONDS`, so
+    // the value below can only have come from the source this process was handed.
+    expect(parsed['created']).toBe(MARKED_AT_SECONDS);
+    expect(text(extractMarkedRegion('provenance-v1', new Uint8Array(res.rawPayload)))).toContain(
+      `"at":${MARKED_AT_SECONDS}`,
+    );
+    const payload = await receiptFor(h, res.headers['x-ashaveri-receipt-id'] as string);
+    expect(payload.iat).toBe(MARKED_AT_SECONDS);
   });
 
   it('holds the mark ahead of the sentinel when the stream arrives in pieces', async () => {

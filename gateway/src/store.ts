@@ -130,11 +130,18 @@ export interface StoredReceipt {
 }
 
 /**
- * One code because there is one way this store can refuse to open: the file it was handed no
- * longer chains to itself. A short read, an unreadable volume and a corrupt file are different
- * answers to different questions, and only this one has no safe response.
+ * Two refusals, answering two different questions about two different things.
+ *
+ * `STORE_CHAIN_BROKEN` is about the file on the volume: what is there no longer chains to itself, and
+ * there is no safe way to serve from it. A short read, an unreadable volume and a corrupt file are
+ * different answers to different questions, and only this one has no safe response.
+ * `RECORD_STAMP_OUT_OF_RANGE` is about a value being written now: the stamp a caller is filing a
+ * receipt under is not a whole number of Unix seconds this record layout can hold. It is reachable
+ * because the stamp is handed to the store rather than read off a clock the store owns, and it belongs
+ * to this union because the layout's 8-byte field is what sets the bound. An operator told their chain
+ * is broken when the caller's time source is unreadable would go looking at the volume.
  */
-export type StoreErrorCode = 'STORE_CHAIN_BROKEN';
+export type StoreErrorCode = 'STORE_CHAIN_BROKEN' | 'RECORD_STAMP_OUT_OF_RANGE';
 
 export class StoreError extends Error {
   readonly code: StoreErrorCode;
@@ -189,6 +196,27 @@ export interface ReceiptStore {
 }
 
 /**
+ * A record's stamp is written by a caller that chose the instant, so the store has to say what it can
+ * hold rather than discover the answer in a Buffer range error after the receipt was signed and, on a
+ * stream, after the bytes reached the client.
+ *
+ * The bound is the largest integer a JavaScript number carries exactly, not the 8-byte field's own
+ * maximum. A stamp past it would fit the field and still be a different instant than the one the
+ * caller named, because the number arriving here has already been rounded, and a chain that records a
+ * rounded stamp cannot be recomputed from what a reader holds. Fractions and negatives are refused for
+ * the same reason in the other direction: the layout has no spelling for either, and a stamp the record
+ * cannot state is not a stamp.
+ */
+function assertStamp(iat: number): void {
+  if (!Number.isInteger(iat) || iat < 0 || iat > Number.MAX_SAFE_INTEGER) {
+    throw new StoreError(
+      'RECORD_STAMP_OUT_OF_RANGE',
+      `a receipt stamp of ${String(iat)} is not a whole number of Unix seconds between 0 and ${String(Number.MAX_SAFE_INTEGER)}, so no record this store writes can state it`,
+    );
+  }
+}
+
+/**
  * `Record = len:u32 || kind:u8 || prev:32 || iat:u64 || idLen:u16 || id || payload || digest:32`,
  * with `digest = sha256(everything between len and digest)`. `len` covers kind through digest.
  */
@@ -197,6 +225,7 @@ function encode(kind: number, prev: Uint8Array, iat: number, id: string, payload
   if (idBytes.length > MAX_ID_BYTES) {
     throw new Error(`receipt id of ${idBytes.length} bytes exceeds the ${MAX_ID_BYTES} byte record limit`);
   }
+  assertStamp(iat);
   const stamp = Buffer.alloc(IAT_BYTES);
   stamp.writeBigUInt64BE(BigInt(iat));
   const idLength = Buffer.alloc(ID_LEN_BYTES);
