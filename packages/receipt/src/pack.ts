@@ -635,9 +635,10 @@ function envelopeKey(kid: Uint8Array, options: PackVerifyOptions): Uint8Array {
 }
 
 /**
- * Verify a pack: the key designation and the envelope's own key first, then the envelope and its content
- * type, then the signature over the `Sig_structure` this format frames, then the structure of the manifest,
- * then every original, then the walk.
+ * Verify a pack: the caller's designation is settled before a byte is read, since a call naming no key is a
+ * fault in the call rather than in the document; then the envelope and its content type; then the envelope's
+ * own key against the kid that header designates; then the signature over the `Sig_structure` this format
+ * frames; then the structure of the manifest, then every original, then the walk.
  *
  * The order is what keeps a report honest. A call that designates no key is refused before a byte is read,
  * because that fault is in the call and not in the document, and answering a question about the bytes would
