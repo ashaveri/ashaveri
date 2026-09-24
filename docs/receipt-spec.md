@@ -706,6 +706,19 @@ doubt or to believe that head is the manifest that states it. Publishing the hea
 detectable, in the store's own words (`head()` in `gateway/src/store.ts`); the chain on its own says
 nothing about a run of receipts the reader was never handed.
 
+**What this repository reads of a pack.** `packages/receipt/src/pack.ts` runs this recomputation over the
+container `packages/receipt/pack.cddl` describes. It refuses a document whose protected header does not carry
+`ashaveri/pack` before any key is consulted, decodes every map the manifest declares member by member where no
+floating-point number may appear, in a value and in a key alike, bounds every item's stamp by the half-open
+span, walks the `prev` links from the signed anchor to the signed head and counts what that walk reached against
+the array it was handed, and verifies each item's receipt as a receipt, under the key the manifest's own header
+designates and with its chained stamp equal to the `iat` the receipt attests. Two of its answers are kept apart
+because they establish different things: the run the walk reached, and the window the manifest says it was
+assembled to answer for. Whether that run is the period a reader asked for is decided by comparing the span with
+what they wanted, which is the reader's step and not this one, and the same is true of a deletion, which shows
+itself only against a head held from before the handover. Nothing in this repository assembles a pack, so these
+bytes arrive from somewhere else and this reader reports on them as handed over.
+
 A reader follows the `prev` links to order the walk, not the offsets in the file, because retention
 retires prefixes and a compaction rewrites the front of the file without changing any surviving
 record's digest. Which receipts a pack holds is a separate question from which the chain links: the

@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { readFileSync } from 'node:fs';
+import { existsSync, readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { ed25519 } from '@noble/curves/ed25519';
 import { sha256 } from '@noble/hashes/sha2.js';
@@ -62,6 +62,8 @@ import {
  */
 const packCddlPath = fileURLToPath(new URL('../pack.cddl', import.meta.url));
 const vectorsPath = fileURLToPath(new URL('../../fixtures/data/chain-v1.json', import.meta.url));
+const specPath = fileURLToPath(new URL('../../../docs/receipt-spec.md', import.meta.url));
+const readerSourcePath = fileURLToPath(new URL('../src/pack.ts', import.meta.url));
 const CDDL = readFileSync(packCddlPath, 'utf8');
 
 /** The rule one map of this format is, and the roster `pack.ts` claims for it. */
@@ -943,5 +945,46 @@ describe('the pack reader and the format it reads', () => {
     // mean whichever of the two a reader met first.
     expect(codeOf(() => decodePack(signPack(collided)))).toBe('PACK_DUPLICATE_ID');
     expect(codeOf(() => verifyPack(signPack(collided), KEY.publicKey))).toBe('PACK_DUPLICATE_ID');
+  });
+
+  it('is named by the section of the specification it implements, and says no more than it does', () => {
+    // Section 5.2 states the framing and the walk, and this is the case that ties its prose about this
+    // repository to the code that prose names: the file it names is there, and the claims it makes about what
+    // the reader answers are claims a refusal or an absence in the source can be asked about.
+    const spec = readFileSync(specPath, 'utf8');
+    const start = spec.indexOf('### 5.2 Record framing and chain recomputation');
+    const end = spec.indexOf('### 5.3', start);
+    expect(start, 'section 5.2 is not in the specification').toBeGreaterThanOrEqual(0);
+    const body = spec.slice(start, end < 0 ? spec.length : end).replace(/\s+/gu, ' ');
+    const paragraph = 'What this repository reads of a pack.';
+    expect(body.split(paragraph).length - 1, 'the section names this reader, once').toBe(1);
+    expect(existsSync(readerSourcePath), 'the section names a file that is not there').toBe(true);
+    for (const named of ['packages/receipt/src/pack.ts', 'packages/receipt/pack.cddl', PACK_CONTENT_TYPE]) {
+      expect(body, `the section does not name ${named}`).toContain(named);
+    }
+    // The two findings the paragraph says are kept apart, and the window comparison it leaves to the reader: a
+    // run can close cleanly over fewer receipts than the window it states, and only the pair of the two fields
+    // says so. A caller printing the count alone would be reporting a window it was never shown complete.
+    const honest = manifestValue();
+    const shorter = chained([ENTRIES[0]!, ENTRIES[2]!]);
+    const shortened = manifestValue({ chain: { anchor: shorter.anchor, head: shorter.head }, items: shorter.items });
+    const walked = verifyPack(signPack(shortened), KEY.publicKey);
+    expect(walked.outcome.walked.map((one) => one.item.id)).toEqual(['receipt-0', 'receipt-2']);
+    expect(walked.outcome.span).toEqual(honest.span);
+    expect(walked.outcome.walked.length).not.toBe(honest.items.length);
+    // What the paragraph states as still absent: nothing assembles a pack. The reader publishes the bytes a
+    // signature covers and the framing a digest is taken over, and exports no writer, so the sentence cannot
+    // become false quietly from this package.
+    const surface = readFileSync(fileURLToPath(new URL('../src/index.ts', import.meta.url)), 'utf8');
+    expect(surface).toMatch(/from '\.\/pack\.js'/u);
+    for (const [name, source] of [['pack.ts', readFileSync(readerSourcePath, 'utf8')], ['index.ts', surface]] as const) {
+      expect(source, `${name} exports a writer for a format that states it has none`).not.toMatch(
+        /^export (?:async )?function (?:sign|seal|encode|build)\w*/mu,
+      );
+    }
+    expect(
+      spec,
+      'the specification still claims this repository reads no pack, which the paragraph above refutes',
+    ).not.toMatch(/nothing (?:here|in this repository) reads a pack/iu);
   });
 });
