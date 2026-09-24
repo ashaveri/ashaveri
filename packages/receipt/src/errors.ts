@@ -38,7 +38,8 @@ export type ReceiptErrorCode =
   | 'PACK_RECEIPT_STAMP_MISMATCH'
   | 'PACK_CHAIN_BROKEN'
   | 'PACK_ITEM_UNREACHED'
-  | 'PACK_KID_MISMATCH';
+  | 'PACK_KID_MISMATCH'
+  | 'PACK_UNKNOWN_KEY';
 
 const ERROR_MESSAGE: Record<ReceiptErrorCode, string> = {
   MALFORMED_CBOR: 'receipt bytes are not valid canonical CBOR',
@@ -159,11 +160,13 @@ const ERROR_MESSAGE: Record<ReceiptErrorCode, string> = {
   // check could tell `1` from `1.0` the signed bytes have become one map entry.
   PACK_BAD_MANIFEST: 'pack manifest does not match the layout its declared version defines',
   PACK_DUPLICATE_ID: 'two pack items answer to the same id',
-  // Not a fault of the chain and not a fault of the receipt alone: an item's original is the document the
-  // pack attests, and it either parses and verifies under the key the pack's header names or the pack is
-  // carrying something other than the receipts it claims. The detail carries the item's id and the refusal
-  // that receipt answered with, so the code says which pack failed and the quoted code says why.
-  PACK_RECEIPT_INVALID: 'a receipt inside the pack does not parse or does not verify under the key the pack names',
+  // Not a fault of the chain and not a fault of the receipt alone: an item's original is the document the pack
+  // attests, and it either parses and verifies under the key the reader holds for it, which is the one the
+  // item's own header names, or the pack is carrying something other than the receipts it claims. The detail
+  // carries the item's id and the refusal that receipt answered with, so the code says which pack failed and
+  // the quoted code says why. A kid the reader was given no key for is the exception and answers
+  // `PACK_UNKNOWN_KEY`, because that is a caller with too few keys rather than a pack with a false original.
+  PACK_RECEIPT_INVALID: 'a receipt inside the pack does not parse or does not verify under the key the reader holds for it',
   // The equality `pack.cddl` states as part of the walk rather than as a courtesy: an item's `iat` is the
   // stamp the record was chained with, and it has to equal the `iat` the receipt inside it attests, because
   // the store chains a receipt under the stamp it was handed and those are two statements. A reader that
@@ -180,11 +183,20 @@ const ERROR_MESSAGE: Record<ReceiptErrorCode, string> = {
   // is the half of the rule the endpoints cannot see, and it is why a conforming reader counts what it walked
   // against the array it was handed.
   PACK_ITEM_UNREACHED: 'a pack item lies outside the run from the anchor to the head',
-  // The reader is handed one key, so this is not a lookup failure: the pack names the kid its issuer signed
-  // with and the key in the reader's hand hashes to something else, which is a wrong key rather than an
-  // edited document. The two answers send an operator to different places, and a signature failure that could
-  // have been either is the weaker report.
+  // The key the reader reached for, by whichever of the two designations the caller used, hashes to something
+  // other than the kid the pack's header names. This is not a lookup failure: the lookup answered, and what it
+  // answered with disagrees with the document, which is a wrong key rather than an edited document. The two
+  // answers send an operator to different places, and a signature failure that could have been either is the
+  // weaker report.
   PACK_KID_MISMATCH: 'the key handed to the reader does not match the kid the pack names',
+  // The reader was given no key for a kid this pack names: the call carried neither a key nor a resolver, the
+  // resolver had nothing for the envelope's kid, or it had nothing for the kid one of the receipts names,
+  // which is what a span crossing a key rotation looks like to a caller that retained one epoch. Nothing about
+  // the document is refused here, which is why this is not `PACK_RECEIPT_INVALID`: the pack may be whole and the
+  // caller's key set simply too small, and the action that closes it, hand over the key the manifest retains and
+  // read again, is one a caller has to be able to branch on rather than read out of a message. The detail says
+  // which of the three positions the missing key belongs to.
+  PACK_UNKNOWN_KEY: 'no key found for the kid a pack names',
 };
 
 /**

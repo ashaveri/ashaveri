@@ -98,6 +98,7 @@ export type {
   PackManifest,
   PackOutcome,
   PackSpan,
+  PackVerifyOptions,
   VerifiedPack,
   VerifiedPackItem,
 } from './pack.js';

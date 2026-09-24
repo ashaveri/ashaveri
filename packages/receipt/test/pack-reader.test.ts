@@ -19,6 +19,7 @@ import {
   packRecordDigest,
   packSigStructure,
   verifyPack,
+  type PackVerifyOptions,
 } from '../src/pack.js';
 import { EXPORT_CONTENT_TYPE } from '../src/export.js';
 import { sealDeploymentManifest } from '../src/manifest-seal.js';
@@ -280,10 +281,12 @@ function framedDigest(item: FrameInput): Uint8Array {
 /**
  * Receipts from the package's own writer, chained in the order given from `anchor`. `attest` is the payload
  * each record carries, so a case can chain marked receipts, which changes their bytes and so every digest
- * after them.
+ * after them. An entry may name the key that signed it, which is how a chain crosses a rotation: the records
+ * of the retired epoch and those of the key that replaced it sit in one run, and each is signed by the key its
+ * own header ends up naming.
  */
 function chained(
-  entries: Iterable<{ id: string; iat: number; nonce: number }>,
+  entries: Iterable<{ id: string; iat: number; nonce: number; key?: SigningKey }>,
   anchor = new Uint8Array(DIGEST_BYTES),
   key: SigningKey = KEY,
   attest: (iat: number, nonce: number) => ReceiptPayload = receiptPayload,
@@ -291,7 +294,12 @@ function chained(
   const items: PackItem[] = [];
   let prev: Uint8Array = anchor;
   for (const entry of entries) {
-    const item: PackItem = { id: entry.id, iat: entry.iat, prev, receipt: issueReceipt(attest(entry.iat, entry.nonce), key) };
+    const item: PackItem = {
+      id: entry.id,
+      iat: entry.iat,
+      prev,
+      receipt: issueReceipt(attest(entry.iat, entry.nonce), entry.key ?? key),
+    };
     items.push(item);
     prev = framedDigest(item);
   }
@@ -366,6 +374,41 @@ function seal(
 /** A pack the issuer signed, from the manifest shape this file builds. */
 function signPack(manifest: PackManifest, key: SigningKey = KEY): Uint8Array {
   return seal(encodeCanonical(manifestMap(manifest)), key);
+}
+
+/**
+ * A span that crosses a key rotation, assembled rather than described: the first `older` receipts are signed by
+ * the key a deployment retired inside the window and the rest by the key that replaced it, and the chain is
+ * rebuilt over both, so each item's header ends up naming the key that signed it. The envelope is signed by the
+ * current key, which is the shape of the honest pack the reader takes one key could not verify.
+ */
+function rotatedManifest(older: number): PackManifest {
+  const run = chained(ENTRIES.map((one, index) => ({ ...one, key: index < older ? OTHER : KEY })));
+  return manifestValue({ chain: { anchor: run.anchor, head: run.head }, items: run.items });
+}
+
+/**
+ * A caller's retained key set, answered by the kid a header names, recording every kid it was asked for so a
+ * case can see which side of the container reached it and in what order.
+ */
+function keySet(keys: readonly SigningKey[]): { resolveKey: (kid: Uint8Array) => Uint8Array | undefined; asked: string[] } {
+  const byKid = new Map(keys.map((one) => [toHex(one.kid), one.publicKey]));
+  const asked: string[] = [];
+  return {
+    asked,
+    resolveKey: (kid) => {
+      const name = toHex(kid);
+      asked.push(name);
+      return byKid.get(name);
+    },
+  };
+}
+
+/** A resolver that reports its own consultation, which is how an ordering is proved rather than asserted. */
+function neverAsked(): (kid: Uint8Array) => Uint8Array | undefined {
+  return () => {
+    throw new Error('a resolver was consulted for a document this reader should never have opened');
+  };
 }
 
 /**
@@ -512,7 +555,7 @@ describe('the pack reader and the format it reads', () => {
           holder.map.set(holder.member, floated);
         }, encodeKeepingTypes);
         expect(answered(() => decodePack(bytes)), `${position} written as a ${width} float was accepted`).toBe('PACK_BAD_MANIFEST');
-        expect(answered(() => verifyPack(bytes, KEY.publicKey)), `${position} as a ${width} float answered differently once verified`).toBe('PACK_BAD_MANIFEST');
+        expect(answered(() => verifyPack(bytes, { publicKey: KEY.publicKey })), `${position} as a ${width} float answered differently once verified`).toBe('PACK_BAD_MANIFEST');
       }
       // The same rule on the path this package's own writer takes, which is the one a value no integer spells
       // uses: a half of the class the canonical encoder can produce, and refused by the same decode.
@@ -547,7 +590,7 @@ describe('the pack reader and the format it reads', () => {
     expect(headerThrown.message).toContain('floating point');
     // The control: the same values as integers, in the same positions, which is what a real pack carries.
     expect(() => decodePack(good)).not.toThrow();
-    expect(() => verifyPack(good, KEY.publicKey)).not.toThrow();
+    expect(() => verifyPack(good, { publicKey: KEY.publicKey })).not.toThrow();
   });
 
   it('refuses a member no map of this version defines, at every level including the signed header', () => {
@@ -565,13 +608,13 @@ describe('the pack reader and the format it reads', () => {
       expect(thrown, `an undefined member of ${name} was accepted`).toBeInstanceOf(ReceiptError);
       expect(thrown.message, name).toContain(phrase.replace(/\\\[/gu, '[').replace(/\\\]/gu, ']'));
       expect(thrown.code, `${name} answered another code`).toBe('PACK_BAD_MANIFEST');
-      expect(answered(() => verifyPack(bytes, KEY.publicKey)), `${name} answered differently once verified`).toBe('PACK_BAD_MANIFEST');
+      expect(answered(() => verifyPack(bytes, { publicKey: KEY.publicKey })), `${name} answered differently once verified`).toBe('PACK_BAD_MANIFEST');
     }
     // The header closes under the stronger of the two reasons: its bytes are hashed into the `Sig_structure`,
     // so a fourth label is an authenticated parameter and a reader that took the three it knows would hand on
     // a document other than the one the issuer signed.
     const fourthLabel = seal(encodeCanonical(manifestMap(manifestValue())), KEY, packHeader(KEY.kid).set(5, 'what'));
-    const thrown = thrownBy(() => verifyPack(fourthLabel, KEY.publicKey)) as ReceiptError;
+    const thrown = thrownBy(() => verifyPack(fourthLabel, { publicKey: KEY.publicKey })) as ReceiptError;
     expect(thrown.code).toBe('PACK_BAD_HEADER');
     expect(thrown.message).toMatch(/does not define: the numeric key 5/u);
   });
@@ -586,7 +629,7 @@ describe('the pack reader and the format it reads', () => {
       ['a deployment manifest', 'ashaveri/deployment-manifest'],
     ] as const) {
       const bytes = seal(payload, KEY, packHeader(KEY.kid, contentType));
-      const thrown = thrownBy(() => verifyPack(bytes, OTHER.publicKey)) as ReceiptError;
+      const thrown = thrownBy(() => verifyPack(bytes, { publicKey: OTHER.publicKey })) as ReceiptError;
       expect(thrown, `${name} was read as a pack`).toBeInstanceOf(ReceiptError);
       expect(thrown.code, `${name} answered another code`).toBe('PACK_BAD_HEADER');
       expect(thrown.message, `${name} did not name its content type`).toContain(`typ=${contentType}`);
@@ -596,10 +639,10 @@ describe('the pack reader and the format it reads', () => {
     expect(codeOf(() => decodePack(seal(encodeCanonical('a receipt payload'), KEY, packHeader(KEY.kid, 'ashaveri/receipt'))))).toBe('PACK_BAD_HEADER');
     // A sealed deployment manifest is the fourth container, reached through its own writer rather than
     // hand-built here, so the sentence about it is about the bytes a reader would actually meet.
-    expect((thrownBy(() => verifyPack(sealDeploymentManifest(bytesOf('{"v":1}'), KEY), KEY.publicKey)) as ReceiptError).message).toMatch(/typ=ashaveri\/deployment-manifest/u);
+    expect((thrownBy(() => verifyPack(sealDeploymentManifest(bytesOf('{"v":1}'), KEY), { publicKey: KEY.publicKey })) as ReceiptError).message).toMatch(/typ=ashaveri\/deployment-manifest/u);
     // The key designation is answered after the type, and the two are different findings: this document is a
     // pack, and the key in the reader's hand is not the one it names.
-    expect(codeOf(() => verifyPack(signPack(manifestValue()), OTHER.publicKey))).toBe('PACK_KID_MISMATCH');
+    expect(codeOf(() => verifyPack(signPack(manifestValue()), { publicKey: OTHER.publicKey }))).toBe('PACK_KID_MISMATCH');
   });
 
   it('refuses an envelope that is not one, whatever it holds', () => {
@@ -613,13 +656,13 @@ describe('the pack reader and the format it reads', () => {
     expect(codeOf(() => decodePack(encodeCanonical(new Tag(18, [new Uint8Array(4), new Map(), payload, signature]))))).toBe('PACK_BAD_HEADER');
     expect(codeOf(() => decodePack(payload as Uint8Array))).toBe('NOT_COSE_SIGN1');
     const algSwapped = packHeader(KEY.kid, PACK_CONTENT_TYPE).set(COSE_HEADER_ALG, -7);
-    expect((thrownBy(() => verifyPack(seal(payload as Uint8Array, KEY, algSwapped), KEY.publicKey)) as ReceiptError).message).toMatch(/alg=-7/u);
+    expect((thrownBy(() => verifyPack(seal(payload as Uint8Array, KEY, algSwapped), { publicKey: KEY.publicKey })) as ReceiptError).message).toMatch(/alg=-7/u);
     // The control, which is the same payload under a header this reader accepts.
-    expect(() => verifyPack(seal(payload as Uint8Array, KEY), KEY.publicKey)).not.toThrow();
+    expect(() => verifyPack(seal(payload as Uint8Array, KEY), { publicKey: KEY.publicKey })).not.toThrow();
   });
 
   it('reads a whole pack and hands back the run and the window as two findings', () => {
-    const verifiedPack = verifyPack(signPack(manifestValue()), KEY.publicKey);
+    const verifiedPack = verifyPack(signPack(manifestValue()), { publicKey: KEY.publicKey });
     expect(verifiedPack.header.contentType).toBe(PACK_CONTENT_TYPE);
     expect(verifiedPack.manifest.at).toBe(SPAN_TO);
     expect(verifiedPack.manifest.items.map((one) => one.id)).toEqual(['receipt-0', 'receipt-1', 'receipt-2']);
@@ -646,18 +689,18 @@ describe('the pack reader and the format it reads', () => {
   it('walks the links and not the array, from either shape of anchor', () => {
     const run = chained(ENTRIES);
     const shuffled = manifestValue({ items: [run.items[2]!, run.items[0]!, run.items[1]!] });
-    expect(verifyPack(signPack(shuffled), KEY.publicKey).outcome.walked.map((one) => one.item.id)).toEqual(['receipt-0', 'receipt-1', 'receipt-2']);
+    expect(verifyPack(signPack(shuffled), { publicKey: KEY.publicKey }).outcome.walked.map((one) => one.item.id)).toEqual(['receipt-0', 'receipt-1', 'receipt-2']);
     // A retirement put a seam in front of the run instead of thirty-two zero bytes: the reader starts where the
     // manifest says to and does not have to know which of the two happened.
     const seam = sha256(bytesOf('the seam a trim record carried'));
     const afterRetirement = chained(ENTRIES, seam);
     const retired = manifestValue({ chain: { anchor: afterRetirement.anchor, head: afterRetirement.head }, items: afterRetirement.items });
-    expect(() => verifyPack(signPack(retired), KEY.publicKey)).not.toThrow();
+    expect(() => verifyPack(signPack(retired), { publicKey: KEY.publicKey })).not.toThrow();
     // A run of one item is a whole walk: the item whose `prev` is the anchor is first and the item whose own
     // digest is the head is last, and here they are the same item.
     const single = chained([ENTRIES[0]!]);
     const oneItem = manifestValue({ chain: { anchor: single.anchor, head: single.head }, items: single.items });
-    expect(verifyPack(signPack(oneItem), KEY.publicKey).outcome.walked.map((one) => one.item.id)).toEqual(['receipt-0']);
+    expect(verifyPack(signPack(oneItem), { publicKey: KEY.publicKey }).outcome.walked.map((one) => one.item.id)).toEqual(['receipt-0']);
   });
 
   it('refuses a gap, a forged close, a fork and an item the walk never reaches', () => {
@@ -665,32 +708,32 @@ describe('the pack reader and the format it reads', () => {
     const honest = manifestValue();
     // A record lifted out of the middle: what remains is whole by its own digest, and the walk stops short.
     const gap = manifestValue({ items: [run.items[0]!, run.items[2]!] });
-    const broken = thrownBy(() => verifyPack(signPack(gap), KEY.publicKey)) as ReceiptError;
+    const broken = thrownBy(() => verifyPack(signPack(gap), { publicKey: KEY.publicKey })) as ReceiptError;
     expect(broken.code).toBe('PACK_CHAIN_BROKEN');
     expect(broken.message).toMatch(/stopped at a digest that is not the head/u);
     // The same omission with the hole closed by re-chaining, which is the forgery the signed head exists to
     // defeat: the links are perfect and the run is still short of the endpoint the writer signed.
     const rechained = chained([ENTRIES[0]!, ENTRIES[2]!]);
-    expect(codeOf(() => verifyPack(signPack(manifestValue({ items: rechained.items })), KEY.publicKey))).toBe('PACK_CHAIN_BROKEN');
+    expect(codeOf(() => verifyPack(signPack(manifestValue({ items: rechained.items })), { publicKey: KEY.publicKey }))).toBe('PACK_CHAIN_BROKEN');
     // What the signed endpoints cannot reach is the same omission with the head moved to match it, because the
     // reader is not handed a copy of an earlier head to compare against. The run then walks clean, and the
     // report says exactly what it can: a chain that closed, over the window the manifest names.
     const rewritten = manifestValue({ chain: { anchor: rechained.anchor, head: rechained.head }, items: rechained.items });
-    const shortened = verifyPack(signPack(rewritten), KEY.publicKey);
+    const shortened = verifyPack(signPack(rewritten), { publicKey: KEY.publicKey });
     expect(shortened.outcome.walked.map((one) => one.item.id)).toEqual(['receipt-0', 'receipt-2']);
     expect(shortened.outcome.span).toEqual({ from: SPAN_FROM, to: SPAN_TO });
     // Two items claiming one predecessor: the walk would take whichever it met first, so a fork is refused
     // rather than resolved by arrival order.
     const rival: PackItem = { id: 'rival', iat: BASE + 1, prev: run.anchor, receipt: issueReceipt(receiptPayload(BASE + 1, 7), KEY) };
-    expect(codeOf(() => verifyPack(signPack(manifestValue({ items: [rival, ...run.items] })), KEY.publicKey))).toBe('PACK_CHAIN_BROKEN');
+    expect(codeOf(() => verifyPack(signPack(manifestValue({ items: [rival, ...run.items] })), { publicKey: KEY.publicKey }))).toBe('PACK_CHAIN_BROKEN');
     // A receipt parked beside a span it is not part of reaches the head exactly as the honest ones do, because
     // the walk stops where the head is: the count of what it reached is the half with eyes for it.
     const parked: PackItem = { id: 'parked', iat: BASE + 1, prev: sha256(bytesOf('another chain entirely')), receipt: issueReceipt(receiptPayload(BASE + 1, 8), KEY) };
-    const unreached = thrownBy(() => verifyPack(signPack(manifestValue({ items: [...run.items, parked] })), KEY.publicKey)) as ReceiptError;
+    const unreached = thrownBy(() => verifyPack(signPack(manifestValue({ items: [...run.items, parked] })), { publicKey: KEY.publicKey })) as ReceiptError;
     expect(unreached.code).toBe('PACK_ITEM_UNREACHED');
     expect(unreached.message).toMatch(/parked/u);
     // The control that says those four cases were the edits and nothing else.
-    expect(() => verifyPack(signPack(honest), KEY.publicKey)).not.toThrow();
+    expect(() => verifyPack(signPack(honest), { publicKey: KEY.publicKey })).not.toThrow();
   });
 
   it('refuses a quantity the format has no kind for, and the contradictions between two signed members', () => {
@@ -727,7 +770,7 @@ describe('the pack reader and the format it reads', () => {
       expect(thrown, `${name} was accepted`).toBeInstanceOf(ReceiptError);
       expect(thrown.message, name).toMatch(pattern);
       expect(thrown.code, `${name} answered another code`).toBe(code);
-      expect(answered(() => verifyPack(bytes, KEY.publicKey)), `${name} answered differently once verified`).toBe(code);
+      expect(answered(() => verifyPack(bytes, { publicKey: KEY.publicKey })), `${name} answered differently once verified`).toBe(code);
     }
     // Two of these are the answers of the reader with no key in hand, which is the point of the split: a
     // document that contradicts itself does so whoever signed it.
@@ -761,14 +804,14 @@ describe('the pack reader and the format it reads', () => {
     // comes out the way it comes out, and nothing here answers whether the duty was met.
     const short = manifestValue({ duty: { art: '19(1)', rev: SPAN_TO - 30, required: 31_536_000, held: 60 } });
     const met = manifestValue({ duty: { art: '19(1)', rev: SPAN_TO - 30, required: 1, held: SPAN_TO - BASE } });
-    const shortRead = verifyPack(signPack(short), KEY.publicKey);
-    const metRead = verifyPack(signPack(met), KEY.publicKey);
+    const shortRead = verifyPack(signPack(short), { publicKey: KEY.publicKey });
+    const metRead = verifyPack(signPack(met), { publicKey: KEY.publicKey });
     expect(shortRead.manifest.duty.held < shortRead.manifest.duty.required).toBe(true);
     expect(metRead.manifest.duty.held >= metRead.manifest.duty.required).toBe(true);
     // The same shape either way, which is how a caller is stopped from reporting the difference as the
     // reader's finding: the comparison that decides it belongs to whoever holds the mapping `rev` names.
     expect(Object.keys(shortRead.outcome).sort()).toEqual(Object.keys(metRead.outcome).sort());
-    expect(answered(() => verifyPack(signPack(short), KEY.publicKey))).toBe('accepted');
+    expect(answered(() => verifyPack(signPack(short), { publicKey: KEY.publicKey }))).toBe('accepted');
     // The reader holds no registry of duty labels and invents none: the format declares the position a `tstr`
     // for the reason `receipt.cddl` gives its own scheme label, so it is read and nothing else.
     for (const art of ['19(1)', '19(2)', '26(6)', '']) {
@@ -782,15 +825,15 @@ describe('the pack reader and the format it reads', () => {
     const run = chained(ENTRIES);
     // The bytes are the signed receipt, whole and unaltered, and they parse and verify under the key the
     // manifest's own header designates, which is the one the pack was just verified under.
-    expect(() => verifyPack(signPack(manifestValue()), KEY.publicKey)).not.toThrow();
+    expect(() => verifyPack(signPack(manifestValue()), { publicKey: KEY.publicKey })).not.toThrow();
     const junk = manifestValue({ items: [{ id: 'receipt-0', iat: BASE, prev: run.items[0]!.prev, receipt: bytesOf('not a receipt at all') }, run.items[1]!, run.items[2]!] });
-    const invalid = thrownBy(() => verifyPack(signPack(junk), KEY.publicKey)) as ReceiptError;
+    const invalid = thrownBy(() => verifyPack(signPack(junk), { publicKey: KEY.publicKey })) as ReceiptError;
     expect(invalid.code).toBe('PACK_RECEIPT_INVALID');
     expect(invalid.message).toMatch(/receipt-0/u);
     // A receipt from another deployment, well signed by a key this pack does not name: the item's own bytes
     // verify against nothing the reader was handed, and the refusal says which item and with what answer.
     const foreign = manifestValue({ items: [run.items[0]!, { ...run.items[1]!, receipt: issueReceipt(receiptPayload(BASE + 1, 2), OTHER) }, run.items[2]!] });
-    const foreignThrown = thrownBy(() => verifyPack(signPack(foreign), KEY.publicKey)) as ReceiptError;
+    const foreignThrown = thrownBy(() => verifyPack(signPack(foreign), { publicKey: KEY.publicKey })) as ReceiptError;
     expect(foreignThrown.code).toBe('PACK_RECEIPT_INVALID');
     expect(foreignThrown.message).toMatch(/receipt-1 answers KID_MISMATCH/u);
     // One bit of one receipt: the chain would refuse that item too, and the originals are read first, so the
@@ -798,7 +841,7 @@ describe('the pack reader and the format it reads', () => {
     const flipped = manifestValue({
       items: run.items.map((one, index) => (index === 1 ? { ...one, receipt: new Uint8Array(one.receipt.map((each) => each ^ 0x01)) } : one)),
     });
-    expect(answered(() => verifyPack(signPack(flipped), KEY.publicKey))).toBe('PACK_RECEIPT_INVALID');
+    expect(answered(() => verifyPack(signPack(flipped), { publicKey: KEY.publicKey }))).toBe('PACK_RECEIPT_INVALID');
     // A marked v2 receipt is still a receipt, and this reader is not where a version policy is decided. The
     // run is re-chained over those bytes, because a receipt is inside the hash the next one names.
     const markedRun = chained(ENTRIES, new Uint8Array(DIGEST_BYTES), KEY, (iat, nonce) => ({
@@ -807,8 +850,8 @@ describe('the pack reader and the format it reads', () => {
       mk: { sch: 'none', d: sha256(new Uint8Array(0)) },
     }));
     const markedPack = manifestValue({ chain: { anchor: markedRun.anchor, head: markedRun.head }, items: markedRun.items });
-    expect(answered(() => verifyPack(signPack(markedPack), KEY.publicKey))).toBe('accepted');
-    expect(verifyPack(signPack(markedPack), KEY.publicKey).outcome.walked[0]!.receipt.payload.v).toBe(2);
+    expect(answered(() => verifyPack(signPack(markedPack), { publicKey: KEY.publicKey }))).toBe('accepted');
+    expect(verifyPack(signPack(markedPack), { publicKey: KEY.publicKey }).outcome.walked[0]!.receipt.payload.v).toBe(2);
     // Structural faults need no key, and an item whose original is junk is not a structural fault: a caller
     // with no key hears the manifest's own answers and nothing about the bytes inside the items.
     expect(answered(() => decodePack(signPack(junk)))).toBe('accepted');
@@ -828,16 +871,16 @@ describe('the pack reader and the format it reads', () => {
       duty: { art: '19(1)', rev: end - 30, required: 3_600, held: end - BASE },
       items: run.items,
     });
-    expect(answered(() => verifyPack(signPack(restamped), KEY.publicKey))).toBe('accepted');
+    expect(answered(() => verifyPack(signPack(restamped), { publicKey: KEY.publicKey }))).toBe('accepted');
     // The same three receipts with the middle item's stamp written as a value its own receipt does not carry,
     // and its successor's link recomputed over the moved stamp so that the run still closes at the head.
     const liar: PackItem[] = [run.items[0]!, { ...run.items[1]!, iat: run.items[1]!.iat + 1 }, { ...run.items[2]!, prev: framedDigest({ ...run.items[1]!, iat: run.items[1]!.iat + 1 }) }];
-    const broken = thrownBy(() => verifyPack(signPack({ ...restamped, items: liar }), KEY.publicKey)) as ReceiptError;
+    const broken = thrownBy(() => verifyPack(signPack({ ...restamped, items: liar }), { publicKey: KEY.publicKey })) as ReceiptError;
     expect(broken.code).toBe('PACK_RECEIPT_STAMP_MISMATCH');
     expect(broken.message).toMatch(/receipt-1 is chained under/u);
     // And the equality is not the walk: with the stamps honest again the same three receipts close cleanly,
     // so the refusal above arrived at the one relation that case moved.
-    expect(answered(() => verifyPack(signPack(restamped), KEY.publicKey))).toBe('accepted');
+    expect(answered(() => verifyPack(signPack(restamped), { publicKey: KEY.publicKey }))).toBe('accepted');
   });
 
   it('leaves the map that carries no claim alone, in both directions', () => {
@@ -852,13 +895,13 @@ describe('the pack reader and the format it reads', () => {
     const withJunk = seal(payload, KEY, packHeader(KEY.kid), junk, encodeKeepingTypes);
     // The format declares this the one map a signer fills at will, and enforcing an emptiness would buy
     // strictness with no security content behind it. Refusing these bytes would be a rule it does not state.
-    expect(() => verifyPack(withJunk, KEY.publicKey)).not.toThrow();
+    expect(() => verifyPack(withJunk, { publicKey: KEY.publicKey })).not.toThrow();
     expect(decodePack(withJunk).envelope.unprotected.size).toBe(4);
     expect(decodePack(empty).envelope.unprotected.size).toBe(0);
     // And nothing is read out of it: these two documents differ in nothing but the map outside the signature,
     // so every finding the reader reports is identical, including the window it answers for.
-    const a = verifyPack(empty, KEY.publicKey);
-    const b = verifyPack(withJunk, KEY.publicKey);
+    const a = verifyPack(empty, { publicKey: KEY.publicKey });
+    const b = verifyPack(withJunk, { publicKey: KEY.publicKey });
     expect(b.manifest).toEqual(a.manifest);
     expect(b.outcome).toEqual(a.outcome);
     expect(b.header).toEqual(a.header);
@@ -927,8 +970,8 @@ describe('the pack reader and the format it reads', () => {
     flipped[at] = (flipped[at] ?? 0) ^ 0x01;
     // The signature is checked before the manifest is read, so a mutated byte is a refusal about the bytes and
     // never a structural answer the document did not earn.
-    expect(codeOf(() => verifyPack(flipped, KEY.publicKey))).toBe('INVALID_SIGNATURE');
-    expect(codeOf(() => verifyPack(bytes, OTHER.publicKey))).toBe('PACK_KID_MISMATCH');
+    expect(codeOf(() => verifyPack(flipped, { publicKey: KEY.publicKey }))).toBe('INVALID_SIGNATURE');
+    expect(codeOf(() => verifyPack(bytes, { publicKey: OTHER.publicKey }))).toBe('PACK_KID_MISMATCH');
     // The framing the signature covers is the whole contract of a COSE document, and it is the receipt's own
     // framing around this container's payload: a reimplementer comparing two readers starts from these bytes.
     const [prot, , payload] = elementsOf(bytes);
@@ -944,7 +987,7 @@ describe('the pack reader and the format it reads', () => {
     // links order a pack and the name identifies it, and a refusal that reports an item by name would otherwise
     // mean whichever of the two a reader met first.
     expect(codeOf(() => decodePack(signPack(collided)))).toBe('PACK_DUPLICATE_ID');
-    expect(codeOf(() => verifyPack(signPack(collided), KEY.publicKey))).toBe('PACK_DUPLICATE_ID');
+    expect(codeOf(() => verifyPack(signPack(collided), { publicKey: KEY.publicKey }))).toBe('PACK_DUPLICATE_ID');
   });
 
   it('is named by the section of the specification it implements, and says no more than it does', () => {
@@ -968,7 +1011,7 @@ describe('the pack reader and the format it reads', () => {
     const honest = manifestValue();
     const shorter = chained([ENTRIES[0]!, ENTRIES[2]!]);
     const shortened = manifestValue({ chain: { anchor: shorter.anchor, head: shorter.head }, items: shorter.items });
-    const walked = verifyPack(signPack(shortened), KEY.publicKey);
+    const walked = verifyPack(signPack(shortened), { publicKey: KEY.publicKey });
     expect(walked.outcome.walked.map((one) => one.item.id)).toEqual(['receipt-0', 'receipt-2']);
     expect(walked.outcome.span).toEqual(honest.span);
     expect(walked.outcome.walked.length).not.toBe(honest.items.length);
@@ -986,5 +1029,178 @@ describe('the pack reader and the format it reads', () => {
       spec,
       'the specification still claims this repository reads no pack, which the paragraph above refutes',
     ).not.toMatch(/nothing (?:here|in this repository) reads a pack/iu);
+  });
+});
+
+/**
+ * The key designation `verifyPack` offers, which is the seam `verifyReceipt` has always offered and the reason a
+ * pack whose span crosses a rotation is readable at all: a deployment rotates its signing key, the manifest's
+ * `keys[]` retains the superseded epoch, and a caller that already adjudicates epochs for one receipt can hand
+ * this reader the same set.
+ *
+ * Every case runs through the reader's public entry point, and the two-epoch pack is assembled here out of the
+ * package's own receipt writer and this file's own framing rather than mocked, because what is under test is
+ * which key each document was checked against. A resolver records the kids it was asked for, and the resolver
+ * that reports its own consultation is how the orderings are proved: an answer that arrived after a key had
+ * been reached would fail as that exception rather than as a code.
+ */
+describe('the pack verifier resolves keys the way the receipt verifier does', () => {
+  const good = signPack(manifestValue());
+  const both = (): PackVerifyOptions => ({ resolveKey: keySet([KEY, OTHER]).resolveKey });
+
+  it('refuses a verification it was given no key for, and says that it was the call', () => {
+    // The fault is in the call, so it is answered before a byte is read: a caller that handed over neither is
+    // not being told anything about the document it was holding, and answering a document question instead
+    // would send an operator to the pack rather than to their own configuration.
+    const unconfigured = thrownBy(() => verifyPack(good, {})) as ReceiptError;
+    expect(unconfigured.code).toBe('PACK_UNKNOWN_KEY');
+    expect(unconfigured.message).toMatch(/no publicKey or resolveKey provided/u);
+    expect(codeOf(() => verifyPack(new Uint8Array([0xff]), {}))).toBe('PACK_UNKNOWN_KEY');
+    expect(codeOf(() => verifyPack(good, { publicKey: undefined, resolveKey: undefined }))).toBe('PACK_UNKNOWN_KEY');
+    // Either one of the two designates, and a call that hands over both is answered by the pinned key, which is
+    // the designation that says which single key the caller means.
+    expect(answered(() => verifyPack(good, { publicKey: KEY.publicKey }))).toBe('accepted');
+    expect(answered(() => verifyPack(good, { resolveKey: keySet([KEY]).resolveKey }))).toBe('accepted');
+    expect(answered(() => verifyPack(good, { publicKey: KEY.publicKey, resolveKey: neverAsked() }))).toBe('accepted');
+  });
+
+  it('resolves the envelope key before it checks the signature that key is asked to carry', () => {
+    // A pinned key keeps the answer it has always given, in the same words and with both kids quoted, which is
+    // the report that sends an operator to the configuration rather than to the bytes.
+    const pinned = thrownBy(() => verifyPack(good, { publicKey: OTHER.publicKey })) as ReceiptError;
+    expect(pinned.code).toBe('PACK_KID_MISMATCH');
+    expect(pinned.message).toMatch(/^the key handed to the reader does not match the kid the pack names: header kid=[0-9a-f]{64} key kid=[0-9a-f]{64}$/u);
+    // A resolver is asked for the kid the header carries, which is the document's own choice, and the envelope
+    // verifies under whatever that answers with.
+    const set = keySet([KEY, OTHER]);
+    expect(answered(() => verifyPack(good, { resolveKey: set.resolveKey }))).toBe('accepted');
+    expect(set.asked[0], 'the resolver was not asked for the kid the header names').toBe(toHex(KEY.kid));
+    // A kid it holds nothing for is refused rather than guessed at with some other key the caller owns, and the
+    // refusal quotes the kid that went unanswered, which is the one fact the caller needs in order to retain it.
+    const missing = thrownBy(() => verifyPack(good, { resolveKey: keySet([]).resolveKey })) as ReceiptError;
+    expect(missing.code).toBe('PACK_UNKNOWN_KEY');
+    expect(missing.message).toContain(`header kid=${toHex(KEY.kid)}`);
+    // A key that names another kid is the same disagreement a pinned key is, and answers with its code rather
+    // than letting the signature check report a wrong key as an edited document.
+    expect(codeOf(() => verifyPack(good, { resolveKey: () => OTHER.publicKey }))).toBe('PACK_KID_MISMATCH');
+    // And resolution precedes the signature itself: these bytes carry one flipped bit of the envelope's
+    // signature, so a reader with no key for the kid they name says that, and only a reader holding the key
+    // reaches an answer about the mutation.
+    const tampered = new Uint8Array(good);
+    tampered[tampered.length - 70] = (tampered[tampered.length - 70] ?? 0) ^ 0x01;
+    expect(codeOf(() => verifyPack(tampered, { resolveKey: () => undefined }))).toBe('PACK_UNKNOWN_KEY');
+    expect(codeOf(() => verifyPack(tampered, { publicKey: KEY.publicKey }))).toBe('INVALID_SIGNATURE');
+  });
+
+  it('refuses a document that is not a pack before any resolver is consulted', () => {
+    // The ordering is the whole reason four signed containers carry four content types, and a resolver that
+    // throws is the only proof of it that cannot be read the wrong way: had the reader reached a caller's key
+    // set for any document below, the case would fail with that exception instead of with a code.
+    const payload = encodeCanonical(manifestMap(manifestValue()));
+    for (const [name, contentType] of [
+      ['a receipt', 'ashaveri/receipt'],
+      ['an export', EXPORT_CONTENT_TYPE],
+      ['a deployment manifest', 'ashaveri/deployment-manifest'],
+    ] as const) {
+      const thrown = thrownBy(() => verifyPack(seal(payload, KEY, packHeader(KEY.kid, contentType)), { resolveKey: neverAsked() })) as ReceiptError;
+      expect(thrown, `${name} was read as a pack`).toBeInstanceOf(ReceiptError);
+      expect(thrown.code, `${name} answered another code`).toBe('PACK_BAD_HEADER');
+      expect(thrown.message, `${name} did not name its content type`).toContain(`typ=${contentType}`);
+    }
+    // The same three through the bytes a reader would actually meet: a real receipt from this package's own
+    // writer and a real sealed deployment manifest, each carrying its own type.
+    expect(codeOf(() => verifyPack(issueReceipt(receiptPayload(BASE, 1), KEY), { resolveKey: neverAsked() }))).toBe('PACK_BAD_HEADER');
+    expect(codeOf(() => verifyPack(sealDeploymentManifest(bytesOf('{"v":1}'), KEY), { resolveKey: neverAsked() }))).toBe('PACK_BAD_HEADER');
+    // Nothing else is consulted either: a header the format does not accept is refused without a key, so a
+    // resolver is never the thing that decides what a caller hears about a document it should not have opened.
+    const untyped = packHeader(KEY.kid);
+    untyped.delete(COSE_HEADER_CONTENT_TYPE);
+    expect(codeOf(() => verifyPack(seal(payload, KEY, untyped), { resolveKey: neverAsked() }))).toBe('PACK_BAD_HEADER');
+  });
+
+  it('verifies a pack whose span crosses a key rotation against the keys the caller retained', () => {
+    const bytes = signPack(rotatedManifest(2), KEY);
+    const retained = keySet([KEY, OTHER]);
+    const read = verifyPack(bytes, { resolveKey: retained.resolveKey });
+    // The same run, in the order the links put it, with the envelope verified under the key that is current.
+    expect(read.outcome.walked.map((one) => one.item.id)).toEqual(['receipt-0', 'receipt-1', 'receipt-2']);
+    expect(toHex(read.header.kid)).toBe(toHex(KEY.kid));
+    // Each item was checked against the key its own header names, and two of the three are not the key the
+    // envelope answered to. That is the rotation, and it is the pack this reader could not verify at all.
+    expect(read.outcome.walked.map((one) => toHex(one.receipt.header.kid))).toEqual([toHex(OTHER.kid), toHex(OTHER.kid), toHex(KEY.kid)]);
+    for (const one of read.outcome.walked) {
+      expect(one.receipt.payload.iat).toBe(one.item.iat);
+    }
+    // Asked once for the envelope and once for each item, in the order the originals were read, and never for a
+    // kid this document does not name.
+    expect(retained.asked).toEqual([toHex(KEY.kid), toHex(OTHER.kid), toHex(OTHER.kid), toHex(KEY.kid)]);
+    // A rotation of one receipt rather than two is the same case with the line moved, and a pack that never
+    // rotated reads under either designation, which is the single-key path keeping its present answer.
+    expect(answered(() => verifyPack(signPack(rotatedManifest(1), KEY), both()))).toBe('accepted');
+    expect(answered(() => verifyPack(good, { publicKey: KEY.publicKey }))).toBe('accepted');
+    // One pinned key on the rotation-spanning bytes is the answer this reader gave before it resolved anything,
+    // and it names the item it could not verify rather than the pack: the old behaviour, preserved.
+    const single = thrownBy(() => verifyPack(bytes, { publicKey: KEY.publicKey })) as ReceiptError;
+    expect(single.code).toBe('PACK_RECEIPT_INVALID');
+    expect(single.message).toMatch(/receipt-0 answers KID_MISMATCH/u);
+    // Reading the same pack from the other side of the rotation does not work either, and does not pretend to:
+    // the envelope names the current key, and that disagreement is answered at the envelope, where the reader
+    // is refused before any of the receipts it could have read is reported on.
+    const retiredOnly = thrownBy(() => verifyPack(bytes, { resolveKey: keySet([OTHER]).resolveKey })) as ReceiptError;
+    expect(retiredOnly.code).toBe('PACK_UNKNOWN_KEY');
+    expect(retiredOnly.message).toContain(`header kid=${toHex(KEY.kid)}`);
+    expect(codeOf(() => verifyPack(bytes, { publicKey: OTHER.publicKey }))).toBe('PACK_KID_MISMATCH');
+  });
+
+  it('keeps an item key the caller does not hold apart from a refusal about an original', () => {
+    const bytes = signPack(rotatedManifest(2), KEY);
+    // The retained set reaches the current epoch and not the retired one. The envelope verifies and the walk
+    // would close, and what stopped the reader is a kid nobody answered, which is a caller holding too few keys
+    // and not a pack carrying something other than the receipts it claims.
+    const partial = thrownBy(() => verifyPack(bytes, { resolveKey: keySet([KEY]).resolveKey })) as ReceiptError;
+    expect(partial.code).toBe('PACK_UNKNOWN_KEY');
+    expect(partial.code).not.toBe('PACK_RECEIPT_INVALID');
+    expect(partial.message).toMatch(/receipt-0 names a kid the reader was given no key for/u);
+    // The three faults a caller meets on an item, kept apart because the actions are three: go and retain the
+    // key the manifest names, refuse this pack, and refuse this pack for one named reason.
+    const misled = new Map<string, Uint8Array>([
+      [toHex(KEY.kid), KEY.publicKey],
+      [toHex(OTHER.kid), signingKeyFromSeed(new Uint8Array(32).fill(21)).publicKey],
+    ]);
+    const wrongKey = thrownBy(() => verifyPack(bytes, { resolveKey: (kid) => misled.get(toHex(kid)) })) as ReceiptError;
+    expect(wrongKey.code).toBe('PACK_RECEIPT_INVALID');
+    expect(wrongKey.message).toMatch(/receipt-0 answers KID_MISMATCH/u);
+    const run = chained(ENTRIES);
+    const junk = manifestValue({
+      items: [{ id: 'receipt-0', iat: BASE, prev: run.items[0]!.prev, receipt: bytesOf('not a receipt at all') }, ...run.items.slice(1)],
+    });
+    const edited = thrownBy(() => verifyPack(signPack(junk, KEY), { resolveKey: keySet([KEY]).resolveKey })) as ReceiptError;
+    expect(edited.code).toBe('PACK_RECEIPT_INVALID');
+    expect(edited.message).toMatch(/receipt-0 answers/u);
+  });
+
+  it('leaves the stamp equality and both halves of the chain check where they were', () => {
+    const rotated = rotatedManifest(2);
+    // An item chained under a stamp its own receipt does not attest, with its successor's link recomputed so
+    // the run still closes at the signed head, is refused by the equality rather than by the walk, under a
+    // resolver exactly as under one pinned key.
+    const lied: PackItem[] = rotated.items.map((one, index) => {
+      if (index === 1) return { ...one, iat: one.iat + 1 };
+      if (index === 2) return { ...one, prev: framedDigest({ ...rotated.items[1]!, iat: rotated.items[1]!.iat + 1 }) };
+      return one;
+    });
+    const stamp = thrownBy(() => verifyPack(signPack({ ...rotated, items: lied }, KEY), both())) as ReceiptError;
+    expect(stamp.code).toBe('PACK_RECEIPT_STAMP_MISMATCH');
+    expect(stamp.message).toMatch(/receipt-1 is chained under/u);
+    // The first half of the walk: a record lifted out of the middle stops the run short of the head.
+    const gap = thrownBy(() => verifyPack(signPack({ ...rotated, items: [rotated.items[0]!, rotated.items[2]!] }, KEY), both())) as ReceiptError;
+    expect(gap.code).toBe('PACK_CHAIN_BROKEN');
+    // The second half, which is the one with eyes for a receipt parked beside a span it is not part of.
+    const parked: PackItem = { id: 'parked', iat: BASE + 1, prev: sha256(bytesOf('another chain entirely')), receipt: issueReceipt(receiptPayload(BASE + 1, 9), OTHER) };
+    const unreached = thrownBy(() => verifyPack(signPack({ ...rotated, items: [...rotated.items, parked] }, KEY), both())) as ReceiptError;
+    expect(unreached.code).toBe('PACK_ITEM_UNREACHED');
+    expect(unreached.message).toMatch(/parked/u);
+    // The control, which is the same three items whole and the same key set.
+    expect(answered(() => verifyPack(signPack(rotated, KEY), both()))).toBe('accepted');
   });
 });

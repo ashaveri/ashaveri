@@ -24,8 +24,17 @@ import { verifyReceipt, type VerifiedReceipt } from './receipt.js';
  * questions about it, separately: whether the bytes are a well-formed pack, whether the key it was handed
  * signed them, and whether the receipts inside walk from the anchor the manifest names to the head it names.
  * It is a checker and not a verdict engine. It answers nothing about a legal duty, nothing about whether the
- * deployment still holds anything else, and nothing about freshness, and it resolves nothing: a verification
- * key arrives as an argument and no code path here reaches a network, a filesystem or a key directory.
+ * deployment still holds anything else, and nothing about freshness, and it resolves nothing by itself: every
+ * key arrives as an argument, either the one key the caller holds or a function of the caller's own that
+ * answers a kid with the key the caller retains for it, and no code path here reaches a network, a filesystem
+ * or a key directory.
+ *
+ * That second argument exists because a deployment rotates its signing key and the manifest's `keys[]` keeps
+ * the superseded epochs readable, so the receipts of one span can be signed by two epochs. A pack of that
+ * span is verifiable by a caller that hands this reader the same set of keys it would hand the receipt
+ * verifier, which is one key per kid rather than one key per document. What the caller retains and where it
+ * got each key are the caller's facts, and none of them is a claim this reader checks: the reader verifies
+ * under the key it is given for a kid and authenticates no key of its own.
  *
  * The two findings a reader takes away are kept apart on purpose, because merging them is the defect this
  * container exists to make impossible. A reproduced walk shows that nothing between the first item and the
@@ -146,6 +155,27 @@ export interface DecodedPack {
 
 export interface VerifiedPack extends DecodedPack {
   readonly outcome: PackOutcome;
+}
+
+/**
+ * How a caller hands this reader the keys a pack names.
+ *
+ * The two fields are the two shapes a caller's key material arrives in, and they are the same two the
+ * receipt verifier offers, answered the same way: a `publicKey` is the one key and designates the envelope
+ * and every receipt in the container, and a `resolveKey` is asked for each kid the document names, which is
+ * how a caller holding the epochs a deployment retained reads a pack whose span crosses a rotation. Which
+ * keys a caller keeps, and where it got them, are its own facts, and none of them is authenticated here;
+ * the reader verifies under the key it is handed for a kid and nothing else.
+ *
+ * A `publicKey` wins when both are given, because it is the designation that says which single key the
+ * caller means, and a caller that hands over both has not said which of the two it wants the envelope
+ * checked against. Giving neither is refused before a byte is read: the fault is in the call, and answering
+ * a document question about bytes nobody has been given the key to check would send an operator to the
+ * pack rather than to the configuration.
+ */
+export interface PackVerifyOptions {
+  readonly publicKey?: Uint8Array;
+  readonly resolveKey?: (kid: Uint8Array) => Uint8Array | undefined;
 }
 
 const encoder = new TextEncoder();
@@ -499,9 +529,11 @@ export function decodePack(bytes: Uint8Array): DecodedPack {
 }
 
 /**
- * Every original, checked as an original. The bytes an item carries have to parse and verify under the key the
- * manifest's own header designates, which is the same key the pack was just verified under, and the stamp the
- * record was chained with has to equal the `iat` the receipt inside it attests.
+ * Every original, checked as an original. The bytes an item carries have to parse and to verify, and the
+ * designation the caller handed the envelope is forwarded to the receipt verifier whole rather than resolved
+ * once here and reused, so an item naming the key its own header names is checked against that key, and the
+ * precedence between the two designations is stated once, in `envelopeKey`. The stamp the record was chained
+ * with has to equal the `iat` the receipt inside it attests.
  *
  * Those two statements are the store's own and this reader does not merge them into one. It chains a receipt
  * under the stamp it was handed, so a reader who checked the walk and not the equality would accept a receipt
@@ -509,13 +541,22 @@ export function decodePack(bytes: Uint8Array): DecodedPack {
  * courtesy beside it. A refusal out of a receipt keeps that receipt's own code, because the fault is a property
  * of that document and the sentence naming it says receipt; the item it belongs to rides along in the detail,
  * which is what makes the report about this pack rather than about a receipt in isolation.
+ *
+ * The one inner refusal that is not kept as a receipt's answer is `UNKNOWN_KEY`. That is nothing the pack
+ * contradicts itself about: the document may be whole and the caller's key set simply may not reach the epoch
+ * an item was signed under, which is a different action from the one every other code here sends an operator
+ * to, and a caller that has to widen its own key set should not have to read it out of a message rather than
+ * branch on a code.
  */
-function checkOriginals(items: readonly PackItem[], publicKey: Uint8Array): VerifiedPackItem[] {
+function checkOriginals(items: readonly PackItem[], options: PackVerifyOptions): VerifiedPackItem[] {
   return items.map((item) => {
     let receipt: VerifiedReceipt;
     try {
-      receipt = verifyReceipt(item.receipt, { publicKey });
+      receipt = verifyReceipt(item.receipt, options);
     } catch (err) {
+      if (err instanceof ReceiptError && err.code === 'UNKNOWN_KEY') {
+        throw new ReceiptError('PACK_UNKNOWN_KEY', `${item.id} names a kid the reader was given no key for`);
+      }
       if (err instanceof ReceiptError) {
         throw new ReceiptError('PACK_RECEIPT_INVALID', `${item.id} answers ${err.code}: ${err.message}`);
       }
@@ -570,14 +611,49 @@ function walk(records: readonly VerifiedPackItem[], anchor: Uint8Array, head: Ui
 }
 
 /**
- * Verify a pack: the envelope and its content type, then the key designation and the signature over the
- * `Sig_structure` this format frames, then the structure of the manifest, then every original, then the walk.
+ * The key a pack verifies its envelope under, from whichever of the two designations the caller used.
  *
- * The order is what keeps a report honest. A document that is not a pack is refused before its bytes are
- * compared with any key, because a pack's manifest and a receipt's payload are two documents that both pass
- * their own checks. Structure comes before the originals because a manifest that contradicts itself does so
- * whoever signed it, and the originals before the walk because a run that closes across receipts nobody can
- * verify is a chain finding those bytes did not earn.
+ * A `publicKey` answers the header's kid and the signature with one key, and a header naming another kid is
+ * the configuration's disagreement rather than the document's, which is why it is refused as
+ * `PACK_KID_MISMATCH` and not left to the signature check. A `resolveKey` is asked for the kid the header
+ * carries and nothing else: a kid it holds no key for is refused as `PACK_UNKNOWN_KEY` rather than guessed at
+ * with some other key the caller owns, and a key it hands back that names another kid is refused the same way
+ * a pinned key is, because that is the same disagreement reached through the other door. Which kid the
+ * envelope's own header designates is settled here, before the signature over the bytes framing it is checked,
+ * so a pack nobody has a key for never reaches a verdict about its contents.
+ */
+function envelopeKey(kid: Uint8Array, options: PackVerifyOptions): Uint8Array {
+  const designated = options.publicKey !== undefined ? options.publicKey : options.resolveKey?.(kid);
+  if (designated === undefined) {
+    throw new ReceiptError('PACK_UNKNOWN_KEY', `header kid=${toHex(kid)}`);
+  }
+  const expected = keyId(designated);
+  if (!equalBytes(kid, expected)) {
+    throw new ReceiptError('PACK_KID_MISMATCH', `header kid=${toHex(kid)} key kid=${toHex(expected)}`);
+  }
+  return designated;
+}
+
+/**
+ * Verify a pack: the key designation and the envelope's own key first, then the envelope and its content
+ * type, then the signature over the `Sig_structure` this format frames, then the structure of the manifest,
+ * then every original, then the walk.
+ *
+ * The order is what keeps a report honest. A call that designates no key is refused before a byte is read,
+ * because that fault is in the call and not in the document, and answering a question about the bytes would
+ * send an operator to the pack rather than to their own configuration. The content type is answered before
+ * any resolver is consulted: a document that is not a pack must not reach a caller's key set, which is the
+ * one mistake four content types exist to prevent and is not recoverable afterwards, because a pack's
+ * manifest and a receipt's payload are two documents that both pass their own checks. Structure comes before
+ * the originals because a manifest that contradicts itself does so whoever signed it, and the originals
+ * before the walk because a run that closes across receipts nobody can verify is a chain finding those bytes
+ * did not earn.
+ *
+ * Each item's receipt is verified under the key that item's own header names, which is what the caller's
+ * `resolveKey` answers, so a pack whose span crosses a key rotation verifies against the epochs the caller
+ * retained rather than against the one key that happens to be current. A caller that hands over a single
+ * `publicKey` gets the answer that designation has always given: the envelope and every original are checked
+ * against that one key, and the first item signed under another is refused and named.
  *
  * What this answers and what it does not are two different things, and the returned shape says so. A
  * reproduced walk shows that nothing between the first item and the last is missing; it does not show that the
@@ -587,11 +663,12 @@ function walk(records: readonly VerifiedPackItem[], anchor: Uint8Array, head: Ui
  * window you wanted is the other half of the verdict; `manifest.duty` is the deployment's statement of the
  * period it answers to, and the comparison the format leaves out is left out here too.
  */
-export function verifyPack(bytes: Uint8Array, publicKey: Uint8Array): VerifiedPack {
-  const envelope = readEnvelope(bytes);
-  if (!equalBytes(envelope.header.kid, keyId(publicKey))) {
-    throw new ReceiptError('PACK_KID_MISMATCH', `header kid=${toHex(envelope.header.kid)} key kid=${toHex(keyId(publicKey))}`);
+export function verifyPack(bytes: Uint8Array, options: PackVerifyOptions): VerifiedPack {
+  if (options.publicKey === undefined && options.resolveKey === undefined) {
+    throw new ReceiptError('PACK_UNKNOWN_KEY', 'no publicKey or resolveKey provided');
   }
+  const envelope = readEnvelope(bytes);
+  const publicKey = envelopeKey(envelope.header.kid, options);
   if (
     !ed25519.verify(
       envelope.signature,
@@ -603,7 +680,7 @@ export function verifyPack(bytes: Uint8Array, publicKey: Uint8Array): VerifiedPa
     throw new ReceiptError('INVALID_SIGNATURE');
   }
   const manifest = parseManifest(envelope.payloadBytes);
-  const walked = walk(checkOriginals(manifest.items, publicKey), manifest.chain.anchor, manifest.chain.head);
+  const walked = walk(checkOriginals(manifest.items, options), manifest.chain.anchor, manifest.chain.head);
   return {
     manifest,
     header: envelope.header,
