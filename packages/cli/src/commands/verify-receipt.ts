@@ -1,13 +1,16 @@
 import { readFile } from 'node:fs/promises';
+import { keyId } from '@ashaveri/receipt';
 import {
   DEFAULT_MAX_EVIDENCE_AGE_SECONDS,
   DEFAULT_MAX_RECEIPT_AGE_SECONDS,
   decodeReceipt,
+  fromBase64Url,
   GatewaySession,
   hashRequest,
   isSealedDeploymentManifest,
   ReceiptError,
   SdkError,
+  toBase64Url,
   toHex,
   type AshaveriPolicy,
   type EpochVerdict,
@@ -39,6 +42,16 @@ import { readPolicyFile } from './verify.js';
  * The receipt's `att.ts` still has to sit inside the policy's evidence window, which is what the
  * printed window names, and the document behind it is fetched by a client that is talking to a
  * deployment, not by this one.
+ *
+ * The one trust decision a policy file cannot carry, this command takes from the command line.
+ * `AshaveriPolicy.manifestKeys` designates the keys whose seal authenticates a deployment manifest,
+ * and the policy file format refuses a document naming that field, because every field of a policy is
+ * inside its digest and an optional member added there moves the digest of every policy that digest is
+ * already cited by. So `--manifest-key` merges a designation into the loaded policy for one run, which
+ * is the only way to reach those rules without changing a format. A run that authenticated a manifest
+ * on such a key did it with something the digest it prints does not describe, and the report says so
+ * rather than leaving it to be inferred: the pin lines name where a designation came from, and both
+ * renderings carry the designated keys beside the policy digest.
  */
 
 /**
@@ -53,6 +66,8 @@ const DIGEST_BYTES = 32;
 export interface VerifyReceiptFlags {
   policy?: string;
   manifest?: string;
+  /** Every `--manifest-key` given, unvalidated at this point; see `designatedManifestKeys`. */
+  'manifest-key'?: string[];
   nonce?: string;
   'request-body'?: string;
   'request-hash'?: string;
@@ -60,6 +75,90 @@ export interface VerifyReceiptFlags {
   'response-hash'?: string;
   now?: string;
   json?: boolean;
+}
+
+/** One manifest signing key this run was handed, and where it came from. */
+interface ManifestKeyDesignation {
+  /** The key's own id: sha256 of its bytes, hex, which is how a seal's `kid` is matched to it. */
+  readonly kid: string;
+  /** Those bytes in their canonical base64url spelling, which is the form the policy map stores. */
+  readonly publicKey: string;
+  /** The flag that named this key, printed beside it so a reader sees who designated it. */
+  readonly source: string;
+}
+
+/** The flag's own name, so a refusal and the report spell it identically. */
+const MANIFEST_KEY_FLAG = '--manifest-key';
+
+/** The one spelling `AshaveriPolicy.manifestKeys` accepts, mirrored from the policy file's `base64Url32`. */
+const BASE64URL_32_BYTES = /^[A-Za-z0-9_-]{43}$/u;
+
+/**
+ * One `--manifest-key` argument, read exactly the way the policy file would have read the field this
+ * stands in for.
+ *
+ * Two channels for one designation have to agree on what a key is or an operator copying a value
+ * between them gets two answers, so the three checks are the policy file loader's own: 43 characters
+ * of the base64url alphabet, decodable, and equal to the canonical encoding of its own bytes. The
+ * last is the one that matters most here, because a designation accepted in a non-canonical spelling
+ * would be a key whose id is right and whose text is the one no other reader writes.
+ *
+ * The id is computed from the key rather than typed beside it, which is what makes the disagreement
+ * between a pin and the key filed under it unenterable from a command line.
+ */
+function manifestKeyDesignation(value: string): ManifestKeyDesignation {
+  if (!BASE64URL_32_BYTES.test(value)) {
+    throw new UsageError(
+      `${MANIFEST_KEY_FLAG} must be the base64url of 32 bytes, which is 43 characters and no padding, not ${JSON.stringify(value)}`,
+    );
+  }
+  let bytes: Uint8Array;
+  try {
+    bytes = fromBase64Url(value);
+  } catch (err) {
+    throw new UsageError(`${MANIFEST_KEY_FLAG} is not base64url: ${err instanceof Error ? err.message : String(err)}`);
+  }
+  const canonical = toBase64Url(bytes);
+  if (canonical !== value) {
+    throw new UsageError(
+      `${MANIFEST_KEY_FLAG} is not the canonical base64url spelling of its own bytes, which are ${canonical}`,
+    );
+  }
+  return { kid: toHex(keyId(bytes)), publicKey: canonical, source: MANIFEST_KEY_FLAG };
+}
+
+/**
+ * The keys this run designates to have signed the manifest.
+ *
+ * Duplicated by id rather than by text: the id is the key's own digest, so two spellings of one key
+ * are one designation, and counting it twice would report a check this run did not run twice.
+ */
+function designatedManifestKeys(values: VerifyReceiptFlags): readonly ManifestKeyDesignation[] {
+  const byKid = new Map<string, ManifestKeyDesignation>();
+  for (const value of values['manifest-key'] ?? []) {
+    const designation = manifestKeyDesignation(value);
+    byKid.set(designation.kid, designation);
+  }
+  return [...byKid.values()];
+}
+
+/**
+ * The policy the session enforces: the document the operator cited, plus what this command line
+ * designated.
+ *
+ * The merge is the asymmetry the report has to disclose. A policy file cannot name a manifest signing
+ * key at all, so every key reaching this map came in beside the digest rather than inside it, and a
+ * verdict that cites the digest is citing something that covers none of these keys.
+ */
+function sessionPolicy(policy: AshaveriPolicy, designated: readonly ManifestKeyDesignation[]): AshaveriPolicy {
+  if (designated.length === 0) return policy;
+  return {
+    ...policy,
+    manifestKeys: {
+      ...policy.manifestKeys,
+      ...Object.fromEntries(designated.map((each) => [each.kid, each.publicKey])),
+    },
+  };
 }
 
 /** Bytes as typed or piped: `-` is stdin, anything else is one path, and nothing is fetched. */
@@ -196,25 +295,53 @@ async function digestsOf(values: VerifyReceiptFlags): Promise<Digests> {
  * A family the document does not name is not a failure and not a pass: nothing was pinned, so
  * nothing was checked against it. It is reported either way, because an auditor reading a verdict
  * needs to know which of the five questions this run actually asked.
+ *
+ * Each row carries its own two sentences instead of being built from one template, because the
+ * manifest signing keys are the one family a designation can reach without passing through the policy
+ * document. A line crediting the policy with a key somebody typed on a command line would cite a
+ * digest that covers neither, which is the kind of sentence this report exists not to write.
  */
-function pinFamilies(policy: AshaveriPolicy): {
+function pinFamilies(
+  policy: AshaveriPolicy,
+  designated: readonly ManifestKeyDesignation[],
+): {
   readonly pinned: readonly string[];
   readonly notPinned: readonly string[];
 } {
-  const named: ReadonlyArray<readonly [label: string, field: string, value: unknown]> = [
-    ['issuer', 'issuers', policy.issuers],
-    ['instance', 'instances', policy.instances],
-    ['receipt key', 'keys', policy.keys],
-    ['manifest key', 'manifestKeys', policy.manifestKeys],
-    ['measurement', 'measurements', policy.measurements],
+  const families: ReadonlyArray<readonly [asked: unknown, held: string, notAsked: string]> = [
+    [
+      policy.issuers,
+      "issuer: the policy's 'issuers' pin matched",
+      "issuer: the policy names no 'issuers' pin, so nothing was compared",
+    ],
+    [
+      policy.instances,
+      "instance: the policy's 'instances' pin matched",
+      "instance: the policy names no 'instances' pin, so nothing was compared",
+    ],
+    [
+      policy.keys,
+      "receipt key: the policy's 'keys' pin matched",
+      "receipt key: the policy names no 'keys' pin, so nothing was compared",
+    ],
+    [
+      designated.length === 0 ? undefined : designated,
+      `manifest key: the manifest seal verified under a key designated by ${MANIFEST_KEY_FLAG} on this command line, which no part of the cited policy digest covers`,
+      "manifest key: the policy file names no 'manifestKeys' pin and no --manifest-key was given, so no seal was checked",
+    ],
+    [
+      policy.measurements,
+      "measurement: the policy's 'measurements' pin matched",
+      "measurement: the policy names no 'measurements' pin, so nothing was compared",
+    ],
   ];
   const pinned: string[] = [];
   const notPinned: string[] = [];
-  for (const [label, field, value] of named) {
-    if (value === undefined) {
-      notPinned.push(`${label}: the policy names no '${field}' pin, so nothing was compared`);
+  for (const [asked, held, notAsked] of families) {
+    if (asked === undefined) {
+      notPinned.push(notAsked);
     } else {
-      pinned.push(`${label}: the policy's '${field}' pin matched`);
+      pinned.push(held);
     }
   }
   return { pinned, notPinned };
@@ -235,6 +362,8 @@ interface Verdict {
   readonly epoch: EpochVerdict;
   /** Whether the document that carried those declarations was authenticated, and the reason it was not. */
   readonly authentication: ManifestAuthentication;
+  /** The manifest signing keys this run was handed, with the flag that named each of them. */
+  readonly keyDesignation: readonly ManifestKeyDesignation[];
   readonly policyDigest: string;
   readonly policyPath: string;
   readonly manifestPath: string;
@@ -264,10 +393,30 @@ function epochLine(verdict: EpochVerdict): string {
   return `adjudicated against the manifest's declaration (${verdict.basis}${window}): ${verdict.detail}`;
 }
 
-function sealLine(authentication: ManifestAuthentication): string {
-  return authentication.authenticated
-    ? `sealed, and verified under the manifest key designated for ${String(authentication.kid)}`
-    : (authentication.advisory ?? 'not authenticated, and no reason was recorded');
+function sealLine(authentication: ManifestAuthentication, designated: readonly ManifestKeyDesignation[]): string {
+  if (!authentication.authenticated) {
+    return authentication.advisory ?? 'not authenticated, and no reason was recorded';
+  }
+  const kid = String(authentication.kid);
+  // The key that held the seal is named with the channel it arrived through, because "designated by the
+  // policy" and "typed on this command line" are two different amounts of evidence about one document.
+  return designated.some((each) => each.kid === authentication.kid)
+    ? `sealed, and verified under the manifest key for ${kid}, designated by ${MANIFEST_KEY_FLAG} on this command line`
+    : `sealed, and verified under the manifest key designated for ${kid}`;
+}
+
+/**
+ * The human lines naming what this run trusted beyond its own citation: one per designated key, and
+ * one saying plainly that the printed digest covers none of them. Empty when nothing was designated.
+ */
+function designationLines(designated: readonly ManifestKeyDesignation[]): readonly string[] {
+  if (designated.length === 0) return [];
+  return [
+    ...designated.map(
+      (each) => `  designated key:   ${each.kid} = ${each.publicKey} (designated by ${each.source} on this command line)`,
+    ),
+    '  key source:       the policy digest above designates no manifest signing key, so the seal below was checked against what this command line handed over',
+  ];
 }
 
 function humanVerdict(verdict: Verdict): string {
@@ -291,8 +440,9 @@ function humanVerdict(verdict: Verdict): string {
       : []),
     `  evidence ref:     ${toHex(payload.att.d)} at ${payload.att.ts} (${isoOf(payload.att.ts)})`,
     `  policy:           ${verdict.policyDigest} from ${verdict.policyPath}`,
+    ...designationLines(verdict.keyDesignation),
     `  manifest:         ${verdict.manifestPath} (issuer ${verdict.manifestIss}, instance ${verdict.manifestIns})`,
-    `  manifest seal:    ${sealLine(verdict.authentication)}`,
+    `  manifest seal:    ${sealLine(verdict.authentication, verdict.keyDesignation)}`,
     `  windows:          receipt within ${verdict.receiptWindow} s, evidence timestamp within ${verdict.evidenceWindow} s, both of the verification time`,
     ...verdict.pinned.map((line) => `  pinned:           ${line}`),
     ...verdict.notPinned.map((line) => `  not pinned:       ${line}`),
@@ -341,6 +491,15 @@ function jsonVerdict(verdict: Verdict): Record<string, unknown> {
     markedRegion: payload.v === 2 ? { scheme: payload.mk.sch, sha256: toHex(payload.mk.d) } : null,
     evidence: { digest: toHex(payload.att.d), timestamp: payload.att.ts, documentChecked: false },
     policy: { digest: verdict.policyDigest, file: verdict.policyPath },
+    // Where every manifest signing key this run checked a seal against came from, printed beside the
+    // digest that covers none of them. A policy file has no field for such a key, so a non-empty list
+    // here is a statement about this run's inputs, not a warning about the deployment.
+    manifestKeyDesignation: verdict.keyDesignation.map((each) => ({
+      kid: each.kid,
+      publicKey: each.publicKey,
+      source: each.source,
+    })),
+    manifestKeyDesignationOutsidePolicyDigest: verdict.keyDesignation.length > 0,
     manifest: {
       file: verdict.manifestPath,
       issuer: verdict.manifestIss,
@@ -389,6 +548,9 @@ export async function runVerifyReceipt(positionals: string[], values: VerifyRece
     '--nonce',
     null,
   );
+  // Refused here rather than at the check itself: an argument that is not a key is a typing mistake,
+  // and it is one before this run has read a byte of anybody's material.
+  const designations = designatedManifestKeys(values);
   const loaded = await readPolicyFile(policyPath);
   const receiptBytes = await readBytes(receiptPath, 'receipt');
   const manifestBytes = await readBytes(manifestPath, '--manifest');
@@ -421,7 +583,10 @@ export async function runVerifyReceipt(positionals: string[], values: VerifyRece
 
   const session = new GatewaySession(OFFLINE_BASE_URL, {
     fetchImpl: offlineTransport(manifestBytes, manifestPath),
-    policy: loaded.policy,
+    // The keys this command line designated join the loaded policy here, which is the only place they
+    // are ever joined: every check below, the receipt's pins and the manifest's seal alike, reads the
+    // one policy the session holds, so no rule sees a designation the others do not.
+    policy: sessionPolicy(loaded.policy, designations),
   });
   try {
     const verified = await session.verifyReceipted({
@@ -448,7 +613,7 @@ export async function runVerifyReceipt(positionals: string[], values: VerifyRece
         values.json === true,
       );
     }
-    const families = pinFamilies(loaded.policy);
+    const families = pinFamilies(loaded.policy, designations);
     const verdict: Verdict = {
       verified,
       manifestIss: manifest.iss,
@@ -457,6 +622,7 @@ export async function runVerifyReceipt(positionals: string[], values: VerifyRece
       manifestKeys: manifest.keys.map((key) => key.kid),
       epoch,
       authentication,
+      keyDesignation: designations,
       policyDigest: loaded.digest,
       policyPath,
       manifestPath,

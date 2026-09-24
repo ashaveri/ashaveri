@@ -399,8 +399,8 @@ and an unattributed one are the same refusal: neither is a document this client 
 The last two rows are why an unsigned manifest stays served rather than withheld. Strict-mode pinning is
 what gives such a document weight: its values are pins to be met rather than facts to be believed, so an
 unverified manifest can fail a check and cannot open one. A deployment that has not been handed a
-signing identity is therefore still verifiable by a client that pinned its keys out of band, and a client
-that pinned nothing says so out loud instead of quietly believing what it read.
+signing identity is therefore still verifiable by a client that pinned its receipt keys out of band, and a
+client that pinned nothing says so out loud instead of quietly believing what it read.
 
 ### 4.5 Attestation evidence
 
@@ -589,8 +589,13 @@ section 4.4 answers. `AshaveriPolicy.manifestKeys` designates the keys whose wra
 believe, and it is a field of a policy built in code: the policy file format carries no such field, and a
 document naming one is refused as an unknown key rather than read and dropped, because writing it out
 would move the digest of every policy file already written and already cited by the verdicts that were
-reached under it. A policy read from a file therefore designates no manifest key, reports the manifest it
-was handed as unauthenticated, and checks every receipt against it exactly as before.
+reached under it. So "out of band" has one concrete answer here for a manifest signing key, stated once:
+`ashaveri verify-receipt --manifest-key <base64url>`, repeatable, designates the keys whose seal
+authenticates the manifest file that run reads. It merges them into the policy the run enforces, writes
+nothing anywhere, and its report carries each designated key beside the policy digest with a statement
+that the digest covers none of them. A policy read from a file still designates no manifest key of its
+own, so a run handed none reports the manifest it was given as unauthenticated and checks every receipt
+against it exactly as before.
 
 Which payload versions a call reads is none of these three choices to make. Section 6's
 `acceptedVersions` is an option on `@ashaveri/receipt`'s own `verifyReceipt` and `decodeReceipt`, and
