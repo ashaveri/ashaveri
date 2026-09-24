@@ -3,7 +3,15 @@ import { createHash } from 'node:crypto';
 import { appendFile, mkdtemp, readFile, rm, stat, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { openFileReceiptStore, openMemoryReceiptStore, RECEIPT_STORE_FILE, type ReceiptRetention } from '../src/store.js';
+import {
+  openFileReceiptStore,
+  openMemoryReceiptStore,
+  receiptsNeededForWindow,
+  RECEIPT_STORE_FILE,
+  type ReceiptRetention,
+  type ReceiptStore,
+  type RetainedWindow,
+} from '../src/store.js';
 
 const RECEIPT = Uint8Array.from(Array.from({ length: 64 }, (_, i) => (i * 7) % 256));
 const OTHER_RECEIPT = Uint8Array.from(Array.from({ length: 48 }, (_, i) => (i * 11) % 256));
@@ -596,3 +604,197 @@ describe('chain state', () => {
     expect((await store.window()).count + state.retired.byAge + state.retired.byCount).toBe(14);
   });
 });
+
+describe('a stamp the record cannot state', () => {
+  /** Four instants the 8-byte field has no spelling for, and the largest one it has a spelling for. */
+  const REFUSED = [1.5, -1, Number.MAX_SAFE_INTEGER + 1, Number.NaN];
+
+  it('is refused by the file engine before a byte reaches the file', async () => {
+    const dir = await emptyDir();
+    const store = await openFileReceiptStore({ dir });
+    for (const iat of REFUSED) {
+      await expect(store.put('rcpt_bad', RECEIPT, iat)).rejects.toMatchObject({
+        code: 'RECORD_STAMP_OUT_OF_RANGE',
+      });
+    }
+    // Refusing has to cost nothing. An append that stopped after its first bytes is the one shape the
+    // walk repairs rather than reports, so a record written and then objected to would read back as an
+    // interrupted append and take its own tail off the file.
+    expect((await stat(join(dir, RECEIPT_STORE_FILE))).size).toBe(0);
+    expect(await store.window()).toEqual({ from: 0, to: 0, count: 0 });
+    expect(Array.from(await store.head())).toEqual(Array.from(ZERO_HEAD));
+
+    await store.put('rcpt_max', RECEIPT, Number.MAX_SAFE_INTEGER);
+    expect(await store.window()).toEqual({ from: Number.MAX_SAFE_INTEGER, to: Number.MAX_SAFE_INTEGER, count: 1 });
+    // Reopening is the check that the refusals left a file rather than a promise: the walk has to read
+    // the one record back and call the chain whole.
+    const reopened = await openFileReceiptStore({ dir });
+    expect(Array.from((await reopened.get('rcpt_max'))!)).toEqual(Array.from(RECEIPT));
+  });
+
+  it('is refused by the memory engine without moving the chain', async () => {
+    const store = openMemoryReceiptStore();
+    await store.put('rcpt_first', RECEIPT, 1_780_000_000);
+    const head = await store.head();
+    for (const iat of REFUSED) {
+      await expect(store.put('rcpt_bad', RECEIPT, iat)).rejects.toMatchObject({
+        code: 'RECORD_STAMP_OUT_OF_RANGE',
+      });
+    }
+    // The receipt before them still chains, and the refused id was never filed under it: a head that
+    // moved on a record nobody holds the id for would be a hole the chain exists to make visible.
+    expect(Array.from(await store.head())).toEqual(Array.from(head));
+    expect(await store.get('rcpt_bad')).toBeNull();
+    expect((await store.window()).count).toBe(1);
+  });
+});
+
+describe('the window a store is configured to hold', () => {
+  /** Five years of whole 365-day years, the multi-year period a count bound is asked to cover. */
+  const FIVE_YEARS_SECONDS = 5 * 365 * 24 * 60 * 60;
+  /**
+   * The volume this estate states for one gateway address: 6,000 requests a minute, which
+   * `DEFAULT_PEER_RATE` in `gateway/src/access.ts` and section 1 of `docs/access-control.md` both read
+   * as a hundred requests a second sustained. A receipt is issued per admitted request, so a single busy
+   * address fills a store at this rate and a deployment behind one reverse proxy, which is the shape that
+   * document names, serves all of its traffic through it. Past one address the store fills faster, which
+   * only ever raises the count a window takes.
+   */
+  const MEASURED_RECEIPTS_PER_SECOND = 100;
+  /** One instant, because a burst at the measured volume does not cross a second boundary. */
+  const STAMP = 1_780_000_000;
+
+  /** `count` receipts, all stamped inside one second, which is the measured volume. */
+  async function burst(store: ReceiptStore, count: number): Promise<void> {
+    for (let i = 0; i < count; i++) {
+      await store.put(`rcpt_${String(i).padStart(3, '0')}`, RECEIPT, STAMP);
+    }
+  }
+
+  it('refuses to open a bound that cannot hold the five-year period beside it', async () => {
+    // The pairing this unit exists to stop: a period configured in years and a storage bound
+    // configured in receipts, with the traffic to show that the second cannot cover the first. It is
+    // the reopening that knows, because the rate is the file's own.
+    const dir = await emptyDir();
+    const retention: ReceiptRetention = {
+      maxAgeSeconds: FIVE_YEARS_SECONDS,
+      maxCount: MEASURED_RECEIPTS_PER_SECOND / 2,
+      now: () => STAMP + 10,
+    };
+    const written = await openFileReceiptStore({ dir, retention });
+    await burst(written, MEASURED_RECEIPTS_PER_SECOND);
+    expect(await written.window()).toEqual({ from: STAMP, to: STAMP, count: 50 });
+
+    const file = join(dir, RECEIPT_STORE_FILE);
+    const bytes = await readFile(file);
+    await expect(openFileReceiptStore({ dir, retention })).rejects.toMatchObject({
+      code: 'RETENTION_WINDOW_UNHOLDABLE',
+    });
+    // A refused opening has to leave the file as it found it: this is the one moment an operator learns
+    // the pairing was wrong, and the receipts are the evidence for it.
+    expect(await readFile(file)).toEqual(bytes);
+    expect(frames(bytes)).toHaveLength(100);
+  });
+
+  it('names the period, the bound and the count the period takes in the refusal', async () => {
+    const dir = await emptyDir();
+    const retention: ReceiptRetention = { maxAgeSeconds: FIVE_YEARS_SECONDS, maxCount: 50, now: () => STAMP + 10 };
+    const written = await openFileReceiptStore({ dir, retention });
+    await burst(written, 100);
+
+    const message = await openFileReceiptStore({ dir, retention }).then(
+      () => 'opened, no refusal',
+      (error: unknown) => (error as Error).message,
+    );
+    // The two quantities that disagree, and the derived number that decides between them, in one
+    // sentence: an operator raising the bound has to be able to see what they are raising it to. The
+    // count is written out rather than recomputed here, and it is the derivation the refusal states:
+    // fifty receipts stamped in one second are read as the fastest traffic a file can report, so the
+    // window has to hold one receipt for each of the forty-nine gaps between them per second, which is
+    // 49 * 157,680,000 = 7,726,320,000 receipts, plus the one stamped at its older edge.
+    expect(message).toContain(`${String(FIVE_YEARS_SECONDS)} seconds`);
+    expect(message).toContain('bound of 50 receipts');
+    expect(message).toContain('7726320001 receipts');
+    expect(message).toContain('RETENTION_WINDOW_UNHOLDABLE');
+  });
+
+  it('opens the same five-year period on a bound the burst cannot reach', async () => {
+    // The refusal is about a pairing, not about a long period: configured the other half, the same
+    // traffic and the same five years start.
+    const dir = await emptyDir();
+    const written = await openFileReceiptStore({
+      dir,
+      retention: { maxAgeSeconds: FIVE_YEARS_SECONDS, maxCount: 1_000_000_000_000, now: () => STAMP + 10 },
+    });
+    await burst(written, 100);
+    const reopened = await openFileReceiptStore({
+      dir,
+      retention: { maxAgeSeconds: FIVE_YEARS_SECONDS, maxCount: 1_000_000_000_000, now: () => STAMP + 10 },
+    });
+    expect(await reopened.window()).toEqual({ from: STAMP, to: STAMP, count: 100 });
+  });
+
+  it('holds a window its bound does cover, on either side of the line', async () => {
+    // Fifty receipts sharing one stamp is a store at its bound either way. What separates the two
+    // cases is the period asked for: one second is inside what those stamps cover, two seconds is not.
+    const held = async (maxAgeSeconds: number): Promise<string> => {
+      const dir = await emptyDir();
+      const retention: ReceiptRetention = { maxAgeSeconds, maxCount: 10, now: () => STAMP };
+      const store = await openFileReceiptStore({ dir, retention });
+      await burst(store, 10);
+      return openFileReceiptStore({ dir, retention }).then(
+        () => 'opened',
+        (error: unknown) => String((error as { code?: string }).code),
+      );
+    };
+    expect(await held(1)).toBe('opened');
+    expect(await held(2)).toBe('RETENTION_WINDOW_UNHOLDABLE');
+  });
+
+  it('leaves a store below its bound alone, however narrow its stamps are', async () => {
+    // Three receipts in one second say nothing about a five-year window: nothing is being shed, and
+    // the traffic that would decide the question has not arrived. Refusing here would refuse a quiet
+    // deployment for being quiet.
+    const dir = await emptyDir();
+    const retention: ReceiptRetention = { maxAgeSeconds: FIVE_YEARS_SECONDS, maxCount: 10, now: () => STAMP };
+    const store = await openFileReceiptStore({ dir, retention });
+    await burst(store, 3);
+    const reopened = await openFileReceiptStore({ dir, retention });
+    expect(await reopened.window()).toEqual({ from: STAMP, to: STAMP, count: 3 });
+  });
+
+  it('asks nothing of a store bounded on one side only', async () => {
+    // A configuration with no age bound asks the store to hold no span of time, and one with no count
+    // bound asks it to hold every receipt it has. Neither has a pairing to contradict, so neither is
+    // asked, and both are opened here at the same traffic the cases above refuse at: ten receipts at the
+    // bound, all of them inside one second.
+    const atBound = async (retention: ReceiptRetention): Promise<string> => {
+      const dir = await emptyDir();
+      const store = await openFileReceiptStore({ dir, retention });
+      await burst(store, 10);
+      return openFileReceiptStore({ dir, retention }).then(
+        () => 'opened',
+        (error: unknown) => String((error as { code?: string }).code),
+      );
+    };
+    expect(await atBound({ maxCount: 10, now: () => STAMP })).toBe('opened');
+    expect(await atBound({ maxAgeSeconds: FIVE_YEARS_SECONDS, now: () => STAMP })).toBe('opened');
+  });
+
+  it('derives the count a window takes from the period and the traffic, and declines to guess', () => {
+    const at = (count: number, from: number, to: number): RetainedWindow => ({ from, to, count });
+    // The receipt at the older edge is the `+ 1`: ten receipts one second apart span nine seconds, so
+    // a ten second window at that rate needs the eleventh that lands on the far edge of it.
+    expect(receiptsNeededForWindow(10, at(10, 1_000, 1_009))).toBe(11);
+    // The same traffic asked to hold one second needs only the two receipts on either side of it.
+    expect(receiptsNeededForWindow(1, at(10, 1_000, 1_009))).toBe(2);
+    // Stamps covering no time at all are read as one second, the fastest traffic a file can report, so
+    // the number derived is the smallest a refusal could rest on rather than an infinity.
+    expect(receiptsNeededForWindow(2, at(10, 1_000, 1_000))).toBe(19);
+    // Null both times: one record measures no rate, and a window bounded only by count asks for no
+    // span of time to hold.
+    expect(receiptsNeededForWindow(10, at(1, 1_000, 1_000))).toBeNull();
+    expect(receiptsNeededForWindow(0, at(10, 1_000, 1_009))).toBeNull();
+  });
+});
+

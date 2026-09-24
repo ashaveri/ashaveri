@@ -37,11 +37,16 @@ export type { BufferedMarking } from './marking.js';
 // The store is exported because the evidence-pack generator is a separate program that reads a live
 // store through this contract. Declaring these types a second time where it lives could drift from
 // the engine without a compile error, and a chain head produced against a stale copy of the shape
-// is a number a regulator would read without knowing it had never been checked.
+// is a number a regulator would read without knowing it had never been checked. The count a window
+// takes to hold joins them because the refusal that names it is derived rather than written down, and
+// whoever sets a count bound has to read it off the same arithmetic the store refuses by. A second copy
+// of that arithmetic would drift from the one that decides, and the message an operator acts on would
+// then name a count no store needed.
 export {
   MINIMUM_RETENTION_SECONDS,
   openFileReceiptStore,
   openMemoryReceiptStore,
+  receiptsNeededForWindow,
   RECEIPT_STORE_FILE,
   StoreError,
 } from './store.js';
@@ -50,6 +55,7 @@ export type {
   FileReceiptStoreOptions,
   ReceiptRetention,
   ReceiptStore,
+  RetainedWindow,
   StoreErrorCode,
   StoredReceipt,
   TrimEvent,

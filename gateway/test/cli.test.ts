@@ -1,5 +1,6 @@
+import { createHash } from 'node:crypto';
 import { spawn, spawnSync } from 'node:child_process';
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -12,6 +13,7 @@ import {
   type PopFields,
 } from '@ashaveri/receipt';
 import { newBearerCredential, newPopCredential, serializeCredentialFile } from '../src/access.js';
+import { MINIMUM_RETENTION_SECONDS, RECEIPT_STORE_FILE } from '../src/store.js';
 
 const CLI = fileURLToPath(new URL('../dist/cli.js', import.meta.url));
 const tempDir = mkdtempSync(join(tmpdir(), 'ashaveri-signerd-'));
@@ -94,6 +96,63 @@ function liveArgs(...args: string[]): string[] {
     ACCESS_DIR,
     ...args,
   ];
+}
+
+/** The bound on served receipts that `gateway/src/cli.ts` opens a volume store with. */
+const SHIPPED_RECEIPT_BOUND = 10_000;
+
+/**
+ * One receipt record built from the layout the store documents, the way `gateway/test/store.test.ts`
+ * builds them: a test that asked the store to write its own fixture would be checking a claim against
+ * the source of the claim, and a change to the layout would move both at once.
+ *
+ * `Record = len:u32 || kind:u8 || prev:32 || iat:u64 || idLen:u16 || id || payload || digest:32`, with
+ * the digest taken over kind through payload.
+ */
+function receiptFrame(prev: Uint8Array, iat: number, id: string, payload: Buffer): Buffer {
+  const idBytes = Buffer.from(id, 'utf8');
+  const body = Buffer.alloc(1 + 32 + 8 + 2 + idBytes.length + payload.length);
+  body.writeUInt8(0, 0);
+  Buffer.from(prev).copy(body, 1);
+  body.writeBigUInt64BE(BigInt(iat), 33);
+  body.writeUInt16BE(idBytes.length, 41);
+  idBytes.copy(body, 43);
+  payload.copy(body, 43 + idBytes.length);
+  const digest = Buffer.from(createHash('sha256').update(body).digest());
+  const prefix = Buffer.alloc(4);
+  prefix.writeUInt32BE(body.length + digest.length);
+  return Buffer.concat([prefix, body, digest]);
+}
+
+/**
+ * A `receipts.log` carrying `count` receipts spread back over the last `seconds` at the hundred
+ * requests a second `docs/access-control.md` states for one address, written in one go.
+ *
+ * The stamps are taken off the current clock rather than fixed, because the CLI opens a volume with
+ * the platform clock and its own 184 day age bound: a fixture stamped in the past would be aged out
+ * before the pairing was ever asked about, and the case would be about the clock instead of the bound.
+ *
+ * Written directly rather than through `openFileReceiptStore` because that store fsyncs every append,
+ * and a volume has to reach the bound the CLI sets in the CLI's own terms for the start-up question to
+ * be asked at all.
+ */
+function writeHeldStore(dir: string, count: number, seconds: number): Buffer {
+  const newest = Math.floor(Date.now() / 1000);
+  const perSecond = Math.max(1, Math.ceil(count / seconds));
+  const frames: Buffer[] = [];
+  let prev: Uint8Array = new Uint8Array(32);
+  let written = 0;
+  while (written < count) {
+    for (let at = 0; at < perSecond && written < count; at++, written++) {
+      const age = Math.floor(written / perSecond);
+      const frame = receiptFrame(prev, newest - age, `rcpt_${String(written)}`, Buffer.alloc(8, 7));
+      prev = frame.subarray(frame.length - 32);
+      frames.push(frame);
+    }
+  }
+  const bytes = Buffer.concat(frames);
+  writeFileSync(join(dir, RECEIPT_STORE_FILE), bytes);
+  return bytes;
 }
 
 /**
@@ -766,5 +825,63 @@ describe('a gateway that serves answers the way its banner says', () => {
       }
     },
     20_000,
+  );
+});
+
+/**
+ * The two bounds a receipt store is opened with, the age and the count that keeps a volume from
+ * filling, are configured beside each other in `gateway/src/cli.ts` and the shipped pair says nothing
+ * about whether either can hold the other. These are the cases for that question at the only moment it
+ * can still be refused cheaply: a start, before a receipt is served and before a caller holds an id.
+ *
+ * Both go through the built binary rather than a call into the store, because the refusal is worth
+ * nothing if it is only what `openFileReceiptStore` returns to a caller that ignores it. The operator
+ * has to see which two numbers disagree, in the process's own exit and on its stderr.
+ */
+describe('a volume whose receipts have to outlive the start', () => {
+  it('refuses the start on a volume at its bound and below its window', () => {
+    const dir = join(tempDir, 'window-unheld');
+    mkdirSync(dir);
+    // Ten thousand receipts, the bound this CLI sets, over the hundred seconds the measured volume
+    // takes to write them, against a window configured in the same file as 184 days.
+    const bytes = writeHeldStore(dir, SHIPPED_RECEIPT_BOUND, 100);
+
+    const result = run('--mock', '--port', '0', '--receipts-dir', dir);
+    expect(result.status, result.stderr).toBe(1);
+    const refused = `${result.stdout}\n${result.stderr}`;
+    expect(refused).toContain('signerd: RETENTION_WINDOW_UNHOLDABLE:');
+    // Both quantities that disagree, named in the sentence an operator reads, and the count that the
+    // store's own traffic says the window takes. The first two come from this CLI's configuration and
+    // the third from the file, so no one of them is the other's restatement.
+    expect(refused).toContain(`bound of ${String(SHIPPED_RECEIPT_BOUND)} receipts`);
+    expect(refused).toContain(`${String(MINIMUM_RETENTION_SECONDS)} seconds`);
+    expect(refused).toContain('receipts at the rate this store has been carrying');
+    expect(refused, 'a process that refused to boot printed a banner').not.toContain('listening on');
+
+    // The receipts are the evidence the refusal is read from, and this is the one moment an operator
+    // learns the pairing was wrong: a start-up that rewrote or shed them would destroy the only
+    // measurement of what the bound cannot hold.
+    expect(readFileSync(join(dir, RECEIPT_STORE_FILE))).toEqual(bytes);
+  });
+
+  it(
+    'starts the same pairing on a volume that has not reached its bound', () => {
+      const dir = join(tempDir, 'window-held');
+      mkdirSync(dir);
+      // The same window and the same bound, and traffic nowhere near the bound. Nothing is being shed
+      // here, so nothing is asked: a store that has issued less than it can serve is a quiet
+      // deployment, and refusing it would refuse it for being quiet.
+      writeHeldStore(dir, 200, 100);
+
+      const banner = runStopped('--mock', '--port', '0', '--receipts-dir', dir);
+      const printed = banner.join('\n');
+      const line = banner.find((each) => each.startsWith('  receipts kept in '));
+      expect(line, `no receipts line; stdout held ${JSON.stringify(printed)}`).toContain(dir);
+      // The start-up report states the pair as configuration, not as a period kept: a store that opens
+      // has compared its two bounds against its own traffic and nothing more.
+      expect(line, printed).toContain('as configured');
+      expect(line, printed).toContain('a bound of 10000 receipts');
+    },
+    12_000,
   );
 });

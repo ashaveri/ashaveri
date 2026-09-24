@@ -1,7 +1,7 @@
 # Error codes
 
 Every error code this workspace raises, what condition raises it, and what a caller should do
-about it. There are 132 declarations across seven unions, resolving to 130 distinct strings;
+about it. There are 134 declarations across seven unions, resolving to 132 distinct strings;
 `UNSUPPORTED_PLATFORM` and `UNSUPPORTED_VERSION` are the two strings two unions share, and the last
 section says why those pairs are deliberate while every other overlap is not.
 
@@ -182,17 +182,19 @@ would produce receipts whose labels are wider than their proofs.
 
 ## `StoreErrorCode`
 
-Raised while opening a receipt store, before the gateway serves a request. The store chains every
-record to the one before it, so this code is the file saying it was changed after it was written.
-The byte offset in the message names which of the three disagreements it found: a record whose
-digest does not match its own bytes, a record naming a predecessor other than the one before it, or
-a retirement record that does not sit at the very front. A record left half-written by an
+Raised while opening a receipt store, before the gateway serves a request, and while it files one. The
+store chains every record to the one before it, so `STORE_CHAIN_BROKEN` is the file saying it was changed
+after it was written. The byte offset in the message names which of the three disagreements it found: a
+record whose digest does not match its own bytes, a record naming a predecessor other than the one before
+it, or a retirement record that does not sit at the very front. A record left half-written by an
 interrupted append is not one of them: that tail is repaired at open rather than reported, because
 no receipt was ever handed out for bytes that never finished.
 
 | Code | Union | Raised when | What the caller does | Verdict |
 |---|---|---|---|---|
 | `STORE_CHAIN_BROKEN` | `StoreErrorCode` | The store file fails to chain at open, at the byte offset the message gives | Stop, and do not serve from that file. Restore from a copy whose head a customer already holds, or investigate the offset: a deleted middle record and a hand-edited one look the same from here, and both mean retained receipts can no longer be shown to be complete | terminal |
+| `RECORD_STAMP_OUT_OF_RANGE` | `StoreErrorCode` | The instant a caller is filing a receipt under is not a whole number of Unix seconds between zero and the largest value this store can state exactly, so no record it writes could carry it. Reachable because the stamp is handed to the store rather than read off a clock the store owns | Fix the time source the caller was given, and re-issue. Nothing was written and no receipt was lost: the stamp a reader would recompute the chain from is the one that is missing | terminal |
+| `RETENTION_WINDOW_UNHOLDABLE` | `StoreErrorCode` | The age bound and the count bound a store was opened with cannot both be honoured at the traffic the file has already carried. Raised at the opening, after the file is read and its aged receipts set aside, and only where the retained set sits at its count bound and the stamps in it span less time than the configured window, which is the signature of the bound cutting the window short rather than of a deployment that has simply issued little. A store bounded on one side only is never asked, and one that has filed fewer than two receipts has measured no rate to refuse by | Raise the count bound to the number the message states, or shorten the window configured beside it, and start again. The message names both quantities and the count that reconciles them. Nothing was served and the file was left as it was found, because it is the evidence the refusal is read from. Which period is owed, and to whom, is settled outside this store, and a pairing that opens has said what it serves rather than that a duty was discharged | terminal |
 
 ## `AccessErrorCode`
 
