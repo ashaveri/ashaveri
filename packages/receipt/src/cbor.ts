@@ -1,5 +1,58 @@
-import { encode, decode, cdeEncodeOptions, cdeDecodeOptions, type DecodeOptions } from 'cbor2';
+import { encode, decode, cdeEncodeOptions, cdeDecodeOptions, Tag, type DecodeOptions } from 'cbor2';
 import { ReceiptError, type ReceiptErrorCode } from './errors.js';
+
+/**
+ * Byte strings the writer can actually see.
+ *
+ * A Node `Buffer` is a `Uint8Array`, and TypeScript accepts it anywhere a `Uint8Array` is declared, but
+ * `cbor2` recognises its byte-string input by constructor rather than by prototype chain. Handed a
+ * `Buffer` it takes its generic object path and writes a two-entry map holding `type` and a `data` array
+ * of numbers, so the bytes that come out describe an array rather than the `bstr` the format declares.
+ * The document is not subtly wrong, it is refuseable, and it is refuseable *after* it was signed, which
+ * is why this belongs at the one place the bytes are chosen rather than in every caller: an operator
+ * gets the originals of a handover and the bytes of a manifest by reading a file, and reading a file in
+ * Node hands back a `Buffer`.
+ *
+ * A view is copied through its own window, so a `Buffer` carved out of a larger pool contributes the
+ * bytes it shows and not the pool. Containers come back unchanged unless something inside them changed,
+ * which keeps a document that already holds plain byte arrays travelling to the encoder as the same
+ * objects it arrived as.
+ */
+function plainByteInputs(value: unknown): unknown {
+  if (value instanceof Uint8Array) {
+    return Object.getPrototypeOf(value) === Uint8Array.prototype ? value : Uint8Array.from(value);
+  }
+  if (Array.isArray(value)) {
+    const walked = value.map((element) => plainByteInputs(element));
+    return walked.every((element, index) => element === value[index]) ? value : walked;
+  }
+  if (value instanceof Map) {
+    let changed = false;
+    const walked = new Map<unknown, unknown>();
+    for (const [key, entry] of value) {
+      const nextKey = plainByteInputs(key);
+      const nextEntry = plainByteInputs(entry);
+      if (nextKey !== key || nextEntry !== entry) changed = true;
+      walked.set(nextKey, nextEntry);
+    }
+    return changed ? walked : value;
+  }
+  if (value instanceof Tag) {
+    const contents = plainByteInputs(value.contents);
+    return contents === value.contents ? value : new Tag(value.tag, contents);
+  }
+  if (value !== null && typeof value === 'object' && Object.getPrototypeOf(value) === Object.prototype) {
+    let changed = false;
+    const walked: Record<string, unknown> = {};
+    for (const [key, entry] of Object.entries(value)) {
+      const next = plainByteInputs(entry);
+      if (next !== entry) changed = true;
+      walked[key] = next;
+    }
+    return changed ? walked : value;
+  }
+  return value;
+}
 
 /**
  * The package's one canonical writer, and the one place the bytes of a number are chosen.
@@ -20,7 +73,7 @@ import { ReceiptError, type ReceiptErrorCode } from './errors.js';
  * spells it, and every whole number went out as an integer already.
  */
 export function encodeCanonical(value: unknown): Uint8Array {
-  return new Uint8Array(encode(value, { ...cdeEncodeOptions, simplifyNegativeZero: true }));
+  return new Uint8Array(encode(plainByteInputs(value), { ...cdeEncodeOptions, simplifyNegativeZero: true }));
 }
 
 // A read failure names the part being read, because the caller knows whether the document, its
