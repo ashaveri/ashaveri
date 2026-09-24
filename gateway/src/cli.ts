@@ -102,7 +102,12 @@ Options:
                                    restarts, hashed into a chain so a removal
                                    shows. The directory must already exist, so a
                                    volume you forgot to mount is a refusal rather
-                                   than a store on the root filesystem.
+                                   than a store on the root filesystem. The period
+                                   a store is configured to serve and the count it
+                                   is bound to are checked against each other when
+                                   it opens: a bound that cannot hold its own
+                                   period at the traffic already on that volume
+                                   stops the start, naming both numbers.
                                    Default: keep receipts in this process only.
   --credentials-path <file>        The credential records every request has to present one from.
                                    Required in live mode; a mock run with no file makes one up and
@@ -310,9 +315,12 @@ function isDirectory(path: string): boolean {
 }
 
 /**
- * Receipts are ~0.5 KB each, so this holds the store to a few megabytes. It is a volume bound
- * rather than a retention promise: the window is the promise, and a store that has to cut one
- * short reports the window it actually kept.
+ * Receipts are ~0.5 KB each, so this holds the store to a few megabytes of the volume it was mounted
+ * on. It is a bound on storage and nothing else. Whether it can hold the window configured beside it is
+ * not asserted here: the store derives the count its own period takes from the traffic already on that
+ * volume and refuses the pairing at start-up rather than opening and serving a shorter window than it
+ * was asked for. The number itself belongs to deployment configuration, and no value of it says that a
+ * period was kept for anyone.
  */
 const MAX_SERVED_RECEIPTS = 10_000;
 const retention: ReceiptRetention = { maxAgeSeconds: MINIMUM_RETENTION_SECONDS, maxCount: MAX_SERVED_RECEIPTS };
@@ -328,8 +336,11 @@ try {
       ? openMemoryReceiptStore({ retention })
       : await openFileReceiptStore({ dir: receiptsDir, retention });
 } catch (error) {
-  // A store that will not open, such as one whose chain no longer closes, is a fact about the
-  // volume rather than about how signerd was invoked.
+  // A store that will not open is a fact about the deployment rather than about how signerd was
+  // invoked: either the file on the volume no longer chains to itself, or the window this configuration
+  // asks for is wider than the count bound it was given can hold at the traffic that file has already
+  // carried. Neither is answered by the same flags on a second run, so both are reported as an exit 1
+  // with the store's own code in front of the sentence.
   process.stderr.write(`signerd: ${error instanceof Error ? error.message : String(error)}\n`);
   process.exit(1);
 }

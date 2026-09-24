@@ -88,7 +88,12 @@ interface StoreState {
 export interface ReceiptRetention {
   /** A receipt is served while its `iat` is at or after `now - maxAgeSeconds`. */
   readonly maxAgeSeconds?: number;
-  /** How many receipts are served, so a busy deployment does not exhaust its volume. */
+  /**
+   * How many receipts are served, so a busy deployment does not exhaust its volume. A count bound is a
+   * bound on storage and nothing else: `openFileReceiptStore` reads it against the window
+   * `maxAgeSeconds` asks for and refuses the pairing when the first cannot hold the second, which is
+   * the only claim about this number this store is able to make.
+   */
   readonly maxCount?: number;
   /** Injectable because a six month window is otherwise only testable by waiting. */
   readonly now?: () => number;
@@ -109,10 +114,17 @@ export interface ReceiptRetention {
  * Articles 19(2) and 26(6) maintain those logs as part of the documentation kept under the relevant
  * financial-services law instead, where the applicable period is longer and is not ours to name.
  *
- * A deployer inside that law raises this together with `MAX_SERVED_RECEIPTS` in the CLI, because the
- * count bound closes a multi-year window at about six months no matter how long the age bound is
- * set to. Rounded up to whole days past the shortest six months, so the window is never shorter
- * than the floor it answers to.
+ * A deployer inside that law raises this together with the count bound, because a count bound is a
+ * bound on storage and nothing more: `gateway/src/cli.ts` ships one of 10,000 receipts, which is a
+ * hundred seconds of the hundred requests a second that `docs/access-control.md` states for one address,
+ * and under a week at one receipt a minute, so it closes a multi-year window however long the age bound
+ * is set to. The two are not free to contradict each other in silence, so `openFileReceiptStore`
+ * compares the window a configuration asks for with the window the receipts it holds actually cover, and
+ * refuses to open when the count bound cannot hold the age bound. Rounded up to whole days past the
+ * shortest six months, so the configured window is never shorter than the floor it answers to. What that
+ * floor is owed to, and whether a receipt is one of the logs the article speaks of, is settled
+ * elsewhere and not by this number: a store that opens has said what it serves, which is a different
+ * question from a duty discharged.
  */
 export const MINIMUM_RETENTION_SECONDS = 184 * 24 * 60 * 60;
 
@@ -130,7 +142,7 @@ export interface StoredReceipt {
 }
 
 /**
- * Two refusals, answering two different questions about two different things.
+ * Three refusals, answering three different questions about three different things.
  *
  * `STORE_CHAIN_BROKEN` is about the file on the volume: what is there no longer chains to itself, and
  * there is no safe way to serve from it. A short read, an unreadable volume and a corrupt file are
@@ -140,8 +152,15 @@ export interface StoredReceipt {
  * because the stamp is handed to the store rather than read off a clock the store owns, and it belongs
  * to this union because the layout's 8-byte field is what sets the bound. An operator told their chain
  * is broken when the caller's time source is unreadable would go looking at the volume.
+ * `RETENTION_WINDOW_UNHOLDABLE` is about a configuration: the count bound and the age bound this store
+ * was opened with cannot both be honored at the traffic the file has already carried. It says which two
+ * quantities disagree, and it is refused at the opening rather than left for whoever reads the shortfall
+ * out of the retained window afterwards.
  */
-export type StoreErrorCode = 'STORE_CHAIN_BROKEN' | 'RECORD_STAMP_OUT_OF_RANGE';
+export type StoreErrorCode =
+  | 'STORE_CHAIN_BROKEN'
+  | 'RECORD_STAMP_OUT_OF_RANGE'
+  | 'RETENTION_WINDOW_UNHOLDABLE';
 
 export class StoreError extends Error {
   readonly code: StoreErrorCode;
@@ -178,12 +197,19 @@ export interface ChainState {
   };
 }
 
+/** What a store's retained set says about the window it is holding, bounds inclusive. */
+export interface RetainedWindow {
+  readonly from: number;
+  readonly to: number;
+  readonly count: number;
+}
+
 export interface ReceiptStore {
   put(id: string, receipt: Uint8Array, iat: number): Promise<void>;
   get(id: string): Promise<Uint8Array | null>;
 
   /** Inclusive bounds and a count, so a retention manifest can state them. */
-  window(): Promise<{ from: number; to: number; count: number }>;
+  window(): Promise<RetainedWindow>;
 
   /** Every receipt stamped in a half-open interval, in the order they were chained, for packs. */
   range(from: number, to: number): AsyncIterable<StoredReceipt>;
@@ -577,7 +603,7 @@ async function compact(
  * The retained set as a retention manifest states it: inclusive bounds and a count. Zero bounds
  * mean nothing is retained, and the count is what says so.
  */
-function windowOf(retained: Iterable<{ iat: number }>): { from: number; to: number; count: number } {
+function windowOf(retained: Iterable<{ iat: number }>): RetainedWindow {
   let from = Number.POSITIVE_INFINITY;
   let to = Number.NEGATIVE_INFINITY;
   let count = 0;
@@ -587,6 +613,68 @@ function windowOf(retained: Iterable<{ iat: number }>): { from: number; to: numb
     count += 1;
   }
   return count === 0 ? { from: 0, to: 0, count: 0 } : { from, to, count };
+}
+
+/**
+ * How many receipts it takes to hold a window of `maxAgeSeconds` at the rate a store's own retained
+ * receipts measure, or null when those receipts measure nothing.
+ *
+ * The rate is read off the records a store holds because that is the only issuance rate this package
+ * has. Nothing here is told how many completions a deployment serves, and a number written into this
+ * file would be one whoever edited it last chose, which is how a bound on storage comes to be read as a
+ * promise about time. Two stamps and the receipts between them are a measurement: the count over the
+ * span they cover is the rate, and a window holds that many receipts for every second it is asked to
+ * hold, plus the one stamped at its older edge.
+ *
+ * A span of no seconds at all is read as one second rather than as a rate of infinity. Receipts sharing
+ * one stamp is the fastest traffic a file can report, so the count derived from it is the smallest one
+ * a refusal could rest on: a store holding its whole bound at a single instant needs at least this
+ * many, and possibly far more.
+ *
+ * Null is not a pass. It says there is nothing to measure, either because fewer than two receipts have
+ * ever been filed or because no age bound was configured, and a store that has measured nothing of its
+ * own traffic cannot be refused for holding less than it was asked to.
+ */
+export function receiptsNeededForWindow(maxAgeSeconds: number, held: RetainedWindow): number | null {
+  if (maxAgeSeconds <= 0 || held.count < 2) {
+    return null;
+  }
+  return Math.ceil(((held.count - 1) * maxAgeSeconds) / Math.max(held.to - held.from, 1)) + 1;
+}
+
+/**
+ * Refuses an opening where the count bound cannot hold the window the same configuration asks for.
+ *
+ * Three conditions keep this from refusing a deployment that is simply quiet. A policy bounded only by
+ * count, or only by age, has no pairing to contradict and is never checked here. A retained set below
+ * its count bound is serving everything its age bound asked for, however few receipts that turned out
+ * to be: nothing is being shed, and the traffic that would decide the question has not arrived. And a
+ * store at its bound whose stamps do span the configured window holds what it asked for at the rate it
+ * has been carrying, so it starts.
+ *
+ * That leaves the case this is for: a store at its count bound whose retained stamps span less time than
+ * the window it was configured with, which means the bound is what cut the window short and the next
+ * receipt will cut it shorter. The count that pairing needs is derived above from the configured period
+ * and the traffic this file has actually carried, so the refusal names two quantities that disagree
+ * rather than repeating a number an operator could raise until the message went away.
+ *
+ * A store that starts has not kept anything for anyone. This compares a period with a count, and whether
+ * a period is owed, to whom, and for how long, is not a question this file holds the facts to answer.
+ */
+function assertWindowHeldable(retention: ReceiptRetention | undefined, held: RetainedWindow): void {
+  const maxAgeSeconds = retention?.maxAgeSeconds;
+  const maxCount = retention?.maxCount;
+  if (maxAgeSeconds === undefined || maxCount === undefined || held.count !== maxCount) {
+    return;
+  }
+  const needed = receiptsNeededForWindow(maxAgeSeconds, held);
+  if (needed === null || needed <= maxCount) {
+    return;
+  }
+  throw new StoreError(
+    'RETENTION_WINDOW_UNHOLDABLE',
+    `this store is at its bound of ${String(maxCount)} receipts and they span ${String(held.to - held.from)} seconds, while the configured window is ${String(maxAgeSeconds)} seconds, which takes ${String(needed)} receipts at the rate this store has been carrying`,
+  );
 }
 
 /**
@@ -643,6 +731,11 @@ export async function openFileReceiptStore(options: FileReceiptStoreOptions): Pr
   const state = await scan(path);
   // A deployment that was down over a weekend has aged receipts on disk it must not serve.
   prune(state, retention, now());
+  // What a file can serve is known once it has been read and pruned, and this is the last moment a
+  // refusal is cheap: no receipt has been served from it and no caller is holding an id. The in-process
+  // engine has no equivalent call because it is empty when it is constructed, and a store that has never
+  // issued a receipt has measured nothing of its own traffic.
+  assertWindowHeldable(retention, windowOf(state.records.values()));
 
   /**
    * One operation touches the file at a time, which is the whole of the concurrency control.
@@ -723,7 +816,7 @@ export async function openFileReceiptStore(options: FileReceiptStoreOptions): Pr
       };
     },
 
-    async window(): Promise<{ from: number; to: number; count: number }> {
+    async window(): Promise<RetainedWindow> {
       return windowOf(state.records.values());
     },
 
