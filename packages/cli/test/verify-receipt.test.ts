@@ -4,7 +4,13 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { afterAll, describe, expect, it } from 'vitest';
-import { generateSigningKey, sealDeploymentManifest, toHex } from '@ashaveri/receipt';
+import {
+  decodeSealedDeploymentManifest,
+  generateSigningKey,
+  sealDeploymentManifest,
+  toHex,
+  type SigningKey,
+} from '@ashaveri/receipt';
 
 /**
  * `ashaveri verify-receipt`, driven by the published receipt vectors.
@@ -18,6 +24,7 @@ import { generateSigningKey, sealDeploymentManifest, toHex } from '@ashaveri/rec
 
 const CLI = fileURLToPath(new URL('../dist/cli.js', import.meta.url));
 const DATA = fileURLToPath(new URL('../../fixtures/data/', import.meta.url));
+const SPEC = fileURLToPath(new URL('../../../docs/receipt-spec.md', import.meta.url));
 
 /** A published receipt's JSON twin: the payload as the fixtures spell it, which is hex throughout. */
 interface ReceiptJson {
@@ -141,10 +148,75 @@ function manifestFile(overrides: Record<string, unknown> = {}): string {
   return written('manifest.json', manifestDocument(overrides));
 }
 
+/**
+ * The key a sealed copy of this deployment's document is sealed under, and a second key that seals
+ * nothing here. Built once because every case below has to name the same public half on the command
+ * line as the file does in its header.
+ */
+const SEALING_KEY = generateSigningKey();
+const SEALING_KID = toHex(SEALING_KEY.kid);
+const STRANGER_KEY = generateSigningKey();
+const STRANGER_KID = toHex(STRANGER_KEY.kid);
+
+/** The designation string `--manifest-key` takes for a key: its public half, canonical base64url. */
+function designationOf(key: SigningKey): string {
+  return Buffer.from(key.publicKey).toString('base64url');
+}
+
+const DESIGNATED_SEALING_KEY = designationOf(SEALING_KEY);
+const DESIGNATED_STRANGER_KEY = designationOf(STRANGER_KEY);
+
+/** A manifest file in the shape a deployment that was handed a signing identity serves it. */
+function sealedManifestFile(text: string, key: SigningKey): string {
+  return written('manifest.cbor', Buffer.from(sealDeploymentManifest(new TextEncoder().encode(text), key)));
+}
+
+const BASE64URL_ALPHABET = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-_';
+
+/**
+ * A spelling of a canonical key that decodes to its bytes without being what any encoder writes.
+ *
+ * The last character of a 43-character encoding carries two bits an encoder never sets, so the other
+ * three alphabet positions in its group of four decode to the same 32 bytes. That is the case the
+ * policy file's `base64Url32` refuses, and this flag has to refuse it the same way or copying a key
+ * between the two channels gives two answers.
+ */
+function nonCanonicalSpelling(value: string): string {
+  const last = BASE64URL_ALPHABET.indexOf(value.charAt(value.length - 1));
+  const neighbour = last % 4 === 3 ? last - 1 : last + 1;
+  return `${value.slice(0, -1)}${BASE64URL_ALPHABET[neighbour]}`;
+}
+
+/**
+ * A sealed manifest whose document was replaced, in place, by one exactly as long.
+ *
+ * The payload travels as a byte string, so a same-length swap leaves an envelope that still decodes
+ * and leaves the signature as the only thing that can notice the bytes are not the ones that were
+ * signed. That is the state of a manifest that moved after a deployment sealed it.
+ */
+function sealedAroundSwappedDocument(signed: string, swapped: string, key: SigningKey): Buffer {
+  const original = new TextEncoder().encode(signed);
+  const replacement = Buffer.from(swapped, 'utf8');
+  if (original.length !== replacement.length) {
+    throw new Error('a swapped payload has to be exactly as long, or the envelope would not decode');
+  }
+  // The document goes in as a plain `Uint8Array` rather than the `Buffer` the search below needs: the
+  // canonical CBOR writer in the format package takes a `Buffer` apart as the object it is instead of
+  // encoding its bytes, and the envelope that comes out is nothing a reader calls a sealed manifest.
+  const sealed = Buffer.from(sealDeploymentManifest(original, key));
+  const at = sealed.indexOf(Buffer.from(original));
+  if (at < 0) {
+    throw new Error('the sealed envelope carries no copy of the document it was built from');
+  }
+  replacement.copy(sealed, at);
+  return sealed;
+}
+
 interface RunOptions {
   readonly receipt?: string;
   readonly policy?: string;
   readonly manifest?: string;
+  readonly manifestKeys?: readonly string[];
   readonly nonce?: string;
   readonly requestBody?: string;
   readonly requestDigest?: string;
@@ -164,9 +236,10 @@ interface RunOptions {
 function argsFor(options: RunOptions): string[] {
   const args = ['verify-receipt', options.receipt ?? receiptPath('receipt-valid-v1')];
   const requestDigest = options.requestBody === undefined ? (options.requestDigest ?? REQUEST_DIGEST) : undefined;
-  const flags: [string, string | undefined][] = [
+  const flags: [string, string | readonly string[] | undefined][] = [
     ['--policy', options.policy ?? policyFile()],
     ['--manifest', options.manifest ?? manifestFile()],
+    ['--manifest-key', options.manifestKeys],
     ['--nonce', options.nonce ?? NONCE],
     ['--request-body', options.requestBody],
     ['--request-hash', requestDigest],
@@ -175,8 +248,11 @@ function argsFor(options: RunOptions): string[] {
     ['--now', options.now ?? NOW],
   ];
   for (const [flag, value] of flags) {
-    if (value !== undefined) {
-      args.push(flag, value);
+    if (value === undefined) continue;
+    for (const one of typeof value === 'string' ? [value] : value) {
+      // Spelled as one token because a base64url value may begin with a dash, and a bare dash begins
+      // an option to `parseArgs`, not the value of the one before it.
+      args.push(`${flag}=${one}`);
     }
   }
   if (options.json ?? true) {
@@ -187,6 +263,23 @@ function argsFor(options: RunOptions): string[] {
 
 function verdictOf(result: CliResult): Record<string, unknown> {
   return JSON.parse(result.stdout) as Record<string, unknown>;
+}
+
+/**
+ * The body of one heading in a markdown document, up to the next heading of its own level or a
+ * shallower one. Bounding the read is the point: a claim pinned to a section must not be satisfiable
+ * by the same words standing somewhere else in the file.
+ */
+function sectionBody(markdown: string, heading: string): string {
+  const lines = markdown.split('\n');
+  const start = lines.indexOf(heading);
+  if (start < 0) {
+    throw new Error(`${heading} is not a heading in the specification`);
+  }
+  const depth = heading.search(/[^#]/u);
+  const rest = lines.slice(start + 1);
+  const end = rest.findIndex((line) => /^#{1,6} /u.test(line) && line.search(/[^#]/u) <= depth);
+  return (end < 0 ? rest : rest.slice(0, end)).join('\n');
 }
 
 /** The response bytes a published marking vector publishes, as the file the caller would keep. */
@@ -263,11 +356,13 @@ describe('ashaveri verify-receipt', () => {
     expect(out.manifest).toEqual({ file: manifest, issuer: ISSUER, instance: INSTANCE, declaredKeys: [KID] });
     expect(out.windows).toEqual({ receiptSeconds: 300, evidenceSeconds: 900 });
     expect(out.pinned).toHaveLength(4);
-    // A policy file format carries no field for manifest signing keys, so this family is the one an
-    // offline run can never have checked, and the report says so rather than leaving it unmentioned.
+    // A policy file format carries no field for manifest signing keys and this run named none on the
+    // command line, so this family is the one question neither channel asked.
     expect(out.notPinned).toEqual([
-      "manifest key: the policy names no 'manifestKeys' pin, so nothing was compared",
+      "manifest key: the policy file names no 'manifestKeys' pin and no --manifest-key was given, so no seal was checked",
     ]);
+    expect(out.manifestKeyDesignation).toEqual([]);
+    expect(out.manifestKeyDesignationOutsidePolicyDigest).toBe(false);
     expect(out.notChecked).toEqual(['the evidence document behind att.d, which this command does not fetch']);
   });
 
@@ -291,6 +386,202 @@ describe('ashaveri verify-receipt', () => {
     expect(out.keyEpoch).toMatchObject({ accepted: true, basis: 'current-epoch' });
     const human = runCli(argsFor({ manifest, json: false }));
     expect(human.stdout).toContain(`  manifest seal:    the deployment manifest arrived sealed under key ${toHex(key.kid)}`);
+  });
+
+  /**
+   * The rows of the manifest-authentication table that only a designated key can reach, in both
+   * directions. The two advisory rows are the cases above, which a designation leaves exactly as they
+   * were; the four refusals below are what naming a signer costs, and the pass among them is what the
+   * flag exists to make possible.
+   */
+  describe('--manifest-key', () => {
+    it('authenticates a sealed manifest under a designated key and names where that key came from', () => {
+      const policy = policyFile();
+      const manifest = sealedManifestFile(manifestDocument(), SEALING_KEY);
+      const result = runCli(argsFor({ policy, manifest, manifestKeys: [DESIGNATED_SEALING_KEY] }));
+      expect(result.stderr).toBe('');
+      expect(result.status).toBe(0);
+      const out = verdictOf(result);
+      expect(out.manifestSeal).toEqual({
+        sealed: true,
+        authenticated: true,
+        kid: SEALING_KID,
+        policyDesignatesManifestKey: true,
+        advisory: null,
+      });
+      expect(out.manifestKeyDesignation).toEqual([
+        { kid: SEALING_KID, publicKey: DESIGNATED_SEALING_KEY, source: '--manifest-key' },
+      ]);
+      expect(out.manifestKeyDesignationOutsidePolicyDigest).toBe(true);
+      expect(out.pinned).toContain(
+        'manifest key: the manifest seal verified under a key designated by --manifest-key on this command line, which no part of the cited policy digest covers',
+      );
+      expect(out.notPinned).toEqual([]);
+
+      // The designation joins the policy the session enforces and not the document whose digest the run
+      // cites: the same file hashes the same whether or not a key was typed beside it, which is the
+      // asymmetry every line above is there to make visible.
+      const unDesignated = runCli(argsFor({ policy, manifest: manifestFile() }));
+      expect(unDesignated.status).toBe(0);
+      expect(verdictOf(unDesignated).policy).toEqual(out.policy);
+
+      const human = runCli(argsFor({ policy, manifest, manifestKeys: [DESIGNATED_SEALING_KEY], json: false }));
+      expect(human.stderr).toBe('');
+      expect(human.status).toBe(0);
+      expect(human.stdout).toContain(
+        `  designated key:   ${SEALING_KID} = ${DESIGNATED_SEALING_KEY} (designated by --manifest-key on this command line)`,
+      );
+      expect(human.stdout).toContain(
+        '  key source:       the policy digest above designates no manifest signing key, so the seal below was checked against what this command line handed over',
+      );
+      expect(human.stdout).toContain(
+        `  manifest seal:    sealed, and verified under the manifest key for ${SEALING_KID}, designated by --manifest-key on this command line`,
+      );
+      expect(human.stdout).toContain('  pinned:           manifest key:');
+    });
+
+    it('refuses a sealed manifest whose seal was made by a key nobody designated', () => {
+      const manifest = sealedManifestFile(manifestDocument(), SEALING_KEY);
+      const result = runCli(argsFor({ manifest, manifestKeys: [DESIGNATED_STRANGER_KEY] }));
+      expect(result.status).toBe(1);
+      const out = verdictOf(result);
+      expect(out.code).toBe('MANIFEST_NOT_AUTHENTICATED');
+      expect(out.message).toContain(`sealed under key ${SEALING_KID}, which this policy does not designate`);
+    });
+
+    it('refuses a sealed manifest whose bytes moved after it was signed, and only after a key made the check possible', () => {
+      // The swapped document differs from the sealed one in one weights digest, which decides nothing on
+      // this path: the seal is verified before the document is parsed, so the refusal can only be about
+      // the bytes having moved. Sealing the same swapped document under the same key is the control that
+      // says so, and it passes.
+      const moved = manifestDocument({
+        models: [{ id: VALID.payload.mdl, wts: 'f'.repeat(64) }],
+      });
+      expect(moved.length).toBe(manifestDocument().length);
+      const swapped = sealedAroundSwappedDocument(manifestDocument(), moved, SEALING_KEY);
+      const seal = decodeSealedDeploymentManifest(swapped);
+      expect(toHex(seal.header.kid)).toBe(SEALING_KID);
+      expect(new TextDecoder().decode(seal.payloadBytes)).toBe(moved);
+
+      const result = runCli(argsFor({ manifest: written('swapped.cbor', swapped), manifestKeys: [DESIGNATED_SEALING_KEY] }));
+      expect(result.status).toBe(1);
+      const out = verdictOf(result);
+      expect(out.code).toBe('MANIFEST_SIGNATURE_INVALID');
+      expect(out.message).toContain('does not verify under the key pinned for it');
+
+      const sealedMoved = sealedManifestFile(moved, SEALING_KEY);
+      const control = runCli(argsFor({ manifest: sealedMoved, manifestKeys: [DESIGNATED_SEALING_KEY] }));
+      expect(control.status).toBe(0);
+      expect(verdictOf(control).manifestSeal).toMatchObject({ authenticated: true, kid: SEALING_KID });
+    });
+
+    it('refuses an unsigned manifest once a key has been designated, which is the verdict the flag changes', () => {
+      const manifest = manifestFile();
+      const result = runCli(argsFor({ manifest, manifestKeys: [DESIGNATED_SEALING_KEY] }));
+      expect(result.status).toBe(1);
+      const out = verdictOf(result);
+      expect(out.code).toBe('MANIFEST_NOT_AUTHENTICATED');
+      expect(out.message).toContain('served an unsigned manifest while this policy designates 1 key');
+    });
+
+    it('leaves an unsigned manifest an advisory when no key was designated, which is the default the flag does not touch', () => {
+      const manifest = manifestFile();
+      const result = runCli(argsFor({ manifest }));
+      expect(result.status).toBe(0);
+      const out = verdictOf(result);
+      expect(out.manifestSeal).toMatchObject({
+        sealed: false,
+        authenticated: false,
+        kid: null,
+        policyDesignatesManifestKey: false,
+        advisory: expect.stringContaining('the deployment manifest is unsigned'),
+      });
+      expect(out.manifestKeyDesignation).toEqual([]);
+      expect(out.manifestKeyDesignationOutsidePolicyDigest).toBe(false);
+      expect(out.notPinned).toEqual([
+        "manifest key: the policy file names no 'manifestKeys' pin and no --manifest-key was given, so no seal was checked",
+      ]);
+      const human = runCli(argsFor({ manifest, json: false }));
+      expect(human.status).toBe(0);
+      expect(human.stdout).toContain('  manifest seal:    the deployment manifest is unsigned');
+      expect(human.stdout).not.toContain('  designated key:');
+      expect(human.stdout).not.toContain('  key source:');
+    });
+
+    it('refuses a key that is not the canonical base64url spelling of its own bytes, and names the one that is', () => {
+      const spelled = nonCanonicalSpelling(DESIGNATED_SEALING_KEY);
+      expect(spelled).not.toBe(DESIGNATED_SEALING_KEY);
+      const result = runCli(argsFor({ manifestKeys: [spelled], json: false }));
+      expect(result.status).toBe(2);
+      expect(result.stderr).toContain(
+        `--manifest-key is not the canonical base64url spelling of its own bytes, which are ${DESIGNATED_SEALING_KEY}`,
+      );
+    });
+
+    it('refuses an argument that is not a manifest signing key by the flag that carried it', () => {
+      const short = runCli(argsFor({ manifestKeys: [DESIGNATED_SEALING_KEY.slice(0, 42)], json: false }));
+      expect(short.status).toBe(2);
+      expect(short.stderr).toContain(
+        '--manifest-key must be the base64url of 32 bytes, which is 43 characters and no padding',
+      );
+
+      const notAKey = runCli(argsFor({ manifestKeys: ['not-a-key'], json: false }));
+      expect(notAKey.status).toBe(2);
+      expect(notAKey.stderr).toContain('--manifest-key must be the base64url of 32 bytes');
+      expect(notAKey.stderr).toContain("Try 'ashaveri --help'");
+    });
+
+    it('checks every designated key, whichever place in the list the matching one sits', () => {
+      const manifest = sealedManifestFile(manifestDocument(), SEALING_KEY);
+      for (const keys of [[DESIGNATED_STRANGER_KEY, DESIGNATED_SEALING_KEY], [DESIGNATED_SEALING_KEY, DESIGNATED_STRANGER_KEY]]) {
+        const result = runCli(argsFor({ manifest, manifestKeys: keys }));
+        expect(result.status).toBe(0);
+        const out = verdictOf(result);
+        expect(out.manifestSeal).toMatchObject({ authenticated: true, kid: SEALING_KID });
+        expect(out.manifestKeyDesignation).toEqual(
+          keys.map((one) => ({
+            kid: one === DESIGNATED_SEALING_KEY ? SEALING_KID : STRANGER_KID,
+            publicKey: one,
+            source: '--manifest-key',
+          })),
+        );
+      }
+    });
+
+    it('counts one designated key once, however many times it was typed', () => {
+      const manifest = sealedManifestFile(manifestDocument(), SEALING_KEY);
+      const result = runCli(argsFor({ manifest, manifestKeys: [DESIGNATED_SEALING_KEY, DESIGNATED_SEALING_KEY] }));
+      expect(result.status).toBe(0);
+      expect(verdictOf(result).manifestKeyDesignation).toEqual([
+        { kid: SEALING_KID, publicKey: DESIGNATED_SEALING_KEY, source: '--manifest-key' },
+      ]);
+    });
+
+    it('names the flag in the help text and in its own line of the usage', () => {
+      const help = runCli(['--help']);
+      expect(help.stdout).toContain('[--manifest-key <b64url>]...');
+      expect(help.stdout).toContain('--manifest-key <b64url>');
+      expect(help.stdout).toContain('MANIFEST_NOT_AUTHENTICATED');
+    });
+
+    it('states the designation channel once in the specification, spelling the flag as this command does', () => {
+      // The specification is where a reader learns that a manifest signing key has to arrive from
+      // somewhere the deployment does not control, and this command is where one arrives. Two voices
+      // for one rule is how a document starts disagreeing with itself, so the channel is named in one
+      // place, under the section that decides what a policy file cannot carry, and the flag it names is
+      // the flag this program parses.
+      const spec = readFileSync(SPEC, 'utf8');
+      const mentions = spec.split('--manifest-key').length - 1;
+      expect(mentions).toBe(1);
+      const section = sectionBody(spec, '### 5.1 Verification modes');
+      expect(section).toContain('ashaveri verify-receipt --manifest-key <base64url>');
+      expect(section).toContain('repeatable');
+      expect(section).toContain('the digest covers none of them');
+      expect(section).toContain('the policy file format carries no such field');
+      const help = runCli(['--help']);
+      expect(help.stdout).toContain('--manifest-key');
+      expect(help.stdout).toContain('Repeatable, one key per flag');
+    });
   });
 
   it('refuses a signed receipt handed to it as a manifest', () => {
@@ -353,7 +644,7 @@ describe('ashaveri verify-receipt', () => {
     expect(out.notPinned).toEqual([
       "issuer: the policy names no 'issuers' pin, so nothing was compared",
       "instance: the policy names no 'instances' pin, so nothing was compared",
-      "manifest key: the policy names no 'manifestKeys' pin, so nothing was compared",
+      "manifest key: the policy file names no 'manifestKeys' pin and no --manifest-key was given, so no seal was checked",
       "measurement: the policy names no 'measurements' pin, so nothing was compared",
     ]);
   });

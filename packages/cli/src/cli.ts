@@ -19,6 +19,7 @@ Usage:
 Arguments:
   ashaveri verify <attestation> [options]
   ashaveri verify-receipt <receipt> --policy <file> --manifest <file> --nonce <hex>
+                         [--manifest-key <b64url>]...
                          [--request-body <file> | --request-hash <hex>]
                          [--response-body <file> | --response-hash <hex>] [options]
   ashaveri keygen [--id <id>] [--json]
@@ -37,9 +38,12 @@ verify-receipt reaches a verdict about a receipt from the files in front of it: 
 policy that names what is trusted, the deployment manifest that declares the signing key, and the
 request and response the receipt attests. It makes no request of any kind. The manifest is read from
 --manifest and never fetched, and the transport these checks run over refuses every route but that
-one file, so a receipt whose att.url names a host does not make this command reach that host. What it
-applies is what a client applies: the same verification rules, in the same order, from the same
-package, over a receipt taken out of a response header and put on a disk. What it does not do is read
+one file, so a receipt whose att.url names a host does not make this command reach that host. A key
+that signs the manifest is the one trust a policy file cannot carry, so --manifest-key names it for
+one run instead, and the report says in both of its shapes which keys it checked a seal against and
+that the cited policy digest covers none of them. What it applies is what a client applies: the same
+verification rules, in the same order, from the same package, over a receipt taken out of a response
+header and put on a disk. What it does not do is read
 the evidence document behind att.d, which no file here stands in for; the receipt's own att.ts still
 has to sit inside the policy's evidence window, and the report says in terms that the document was not
 fetched. A v1 receipt attests the digest of a response, which --response-hash can carry. A v2 receipt
@@ -143,6 +147,22 @@ Receipt verification options:
   --manifest <file>  The deployment manifest that declares the receipt signing key, as a file. This
                      command fetches no manifest, and a key the manifest does not declare is refused
                      whatever the policy pins, because the two are meant to say the same thing.
+  --manifest-key <b64url>
+                     A key this deployment's manifest was signed with, as the base64url of its 32
+                     public bytes. Repeatable, one key per flag: this run checks the seal on the
+                     manifest against the keys it was handed here, and authenticates the document when
+                     one of them holds. Designating a key cuts both ways, and that is a change of
+                     verdict rather than of wording: a manifest carrying no signature at all, or one
+                     made by a key nobody named, is then refused with MANIFEST_NOT_AUTHENTICATED
+                     instead of being read and reported as resting on nothing, because a run that named
+                     a signer and was handed no signature is looking at something other than the
+                     deployment it pinned. Each key's id is computed from the key, so a designation
+                     cannot type an id that its own key contradicts. A policy file has no field for a
+                     manifest signing key and refuses a document naming one, so what arrives here joins
+                     the policy for this run only and sits outside the digest that run cites, and the
+                     report names every key it trusted and where it came from. Base64url includes a
+                     dash in its alphabet, and an argument that starts with one is not read as this
+                     option's value, so pass such a key as --manifest-key=<value>.
   --nonce <hex>      The challenge this receipt is checked against, as the client that made the
                      request chose it. A receipt answers one challenge, so without this the verdict
                      would be about a request nobody named.
@@ -259,6 +279,7 @@ async function main(argv: string[]): Promise<number> {
         'expect-compose-hash': { type: 'string' },
         policy: { type: 'string' },
         manifest: { type: 'string' },
+        'manifest-key': { type: 'string', multiple: true },
         nonce: { type: 'string' },
         'request-body': { type: 'string' },
         'request-hash': { type: 'string' },
