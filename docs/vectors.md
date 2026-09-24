@@ -26,11 +26,13 @@ each shape.
 | Marked region | `packages/fixtures/data/marking-v1.json` | The span inside a response that `mk.d` digests, in both shapes, and what a reader owes a response carrying too few, too many, or not the attested one | `version: 1` |
 | Receipt store chain | `packages/fixtures/data/chain-v1.json` | The record frames a gateway writes to `receipts.log`, the state a reader derives from them, and what it refuses | `version: 1` |
 | Technical export | `packages/fixtures/data/export-v1.json` | Whole export documents, the arguments a reader is handed beside each one, and the verdict a conforming reader owes it | `version: 1` |
+| Sealed deployment manifest | `packages/fixtures/data/manifest-v1.json` | One deployment manifest in both shapes it is served in, the signing keys a reader designates beside it, and the verdict the client path owes each | `version: 1` |
 
-`pop-v1.json`, `req-v1.json`, `res-v1.json`, `marking-v1.json`, `chain-v1.json` and `export-v1.json` each
-carry a `description` stating their rule in prose, and the digest, marked-region, chain and export suites
-carry a `rule` or `layout` block naming the fields, and the widths and the byte order where a suite pins a
-byte layout, so a reader never has to guess what an array of hex is standing for. The manifest
+`pop-v1.json`, `req-v1.json`, `res-v1.json`, `marking-v1.json`, `chain-v1.json`, `export-v1.json` and
+`manifest-v1.json` each carry a `description` stating their rule in prose, and the digest, marked-region,
+chain, export and sealed-manifest suites carry a `rule` or `layout` block naming the fields, and the widths
+and the byte order where a suite pins a byte layout, so a reader never has to guess what an array of hex is
+standing for. The manifest
 carries no `description`, because it lists the receipt fixtures rather than stating a rule of its
 own; what they are for is written in
 [receipt-spec.md](receipt-spec.md).
@@ -122,10 +124,23 @@ specific to that case.
   the missing-file answer separate from a digest disagreement. `crossReading` is the pair that keeps the two
   containers apart: an export manifest given to the pack layout, and a pack document given to the export
   reader.
+- **Sealed deployment manifest.** Decode `documentBase64Url` and hand it to your reader with the keys the row's
+  `read.designates` lists, which are the manifest signing keys a client holds: an id and the public half pinned
+  under it, and a row naming none is the state where the reader designates nothing. Compare the answer with
+  `verdict`. Where a row states `authentication`, those fields have to be what the reader reports and
+  `advisory` says whether it hands over a reason as well; `parsed` states the whole document as the reader's own
+  parser leaves it, and `dropped` names members that must appear nowhere in it. `seal` is the same bytes given to
+  the envelope reader alone, verified under the key their own header names, and it is published beside
+  `verdict` because the two layers refuse for different reasons: a row whose `seal` is `verify-ok` and whose
+  `verdict` is a refusal shows a document a reader would not attribute rather than one that moved. `claims` are
+  receipt epoch claims, stated as the shipped rule takes them and adjudicated against that row's parsed
+  document. The `reveal` block of the first row carries the protected header, the payload bytes, the signature
+  and the `Sig_structure` rebuilt from them, so a port can compare its framing without this repository's
+  writer.
 
 ## Every suite refuses something
 
-Each of the seven suites published here carries at least one case whose stated verdict is a refusal, and
+Each of the eight suites published here carries at least one case whose stated verdict is a refusal, and
 every code those cases name is one [error-codes.md](error-codes.md) lists. That is the half a second
 implementation cannot agree with by accident: an accepted case and a refused one, drawn from the same
 bytes, differ in exactly the rule under test, and a port wrong in the same direction as this one still
@@ -134,7 +149,8 @@ one stated is a wrong vector, and the row's note says which fact it turns on.
 
 The refusals are near misses rather than garbage on purpose. A digest is off by one byte, a signature by
 two characters, a nonce by a single byte width, a marked span by one field of one member, a store record
-by one bit inside its own bytes or by its length prefix lying about its size. Each is one small edit to
+by one bit inside its own bytes or by its length prefix lying about its size, a protected header by the one
+label it added or the one integer it spelled as a float. Each is one small edit to
 bytes this repository already publishes, so reproducing it is reading a row and not guessing at what the
 author meant. The client path over them is in `packages/cli/test/vector-conformance.test.ts`, which
 drives each suite through the shipped verification code rather than through a copy of the rule it is
@@ -151,6 +167,7 @@ pnpm --filter @ashaveri/fixtures generate:res
 pnpm --filter @ashaveri/fixtures generate:marking
 pnpm --filter @ashaveri/fixtures generate:chain
 pnpm --filter @ashaveri/fixtures generate:export
+pnpm --filter @ashaveri/fixtures generate:manifest
 ```
 
 The generators live beside the loaders in `packages/fixtures`, and running all of them after a change
