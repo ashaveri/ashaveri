@@ -5,20 +5,30 @@ import { fileURLToPath } from 'node:url';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import {
   POP_SCHEME,
+  decodeCoseSign1,
+  decodeSealedDeploymentManifest,
+  encodeCanonical,
   extractMarkedRegion,
+  isSealedDeploymentManifest,
   parsePopAuthorization,
   popSigningString,
   ReceiptError,
   signPopAuthorization,
   verifyPopSignature,
+  verifySealedDeploymentManifest,
   type MarkingScheme,
 } from '@ashaveri/receipt';
 import {
   decodeReceipt,
   hashRequest,
+  readDeploymentManifest,
+  adjudicateReceiptEpoch,
   SdkError,
   verifyCompletionReceipt,
+  type AshaveriPolicy,
+  type ReadManifestResult,
 } from '@ashaveri/sdk';
+import { sha256 } from '@noble/hashes/sha2.js';
 import { openFileReceiptStore, RECEIPT_STORE_FILE, StoreError } from '@ashaveri/signerd';
 
 /**
@@ -27,8 +37,9 @@ import { openFileReceiptStore, RECEIPT_STORE_FILE, StoreError } from '@ashaveri/
  * `data/` states a verdict for its cases, and until now the suites other than the receipt fixtures
  * were read back by tests that checked a file against its own rule. This walks every suite and asks the
  * implementation that is shipped what it answers for each row: `verifyCompletionReceipt` for anything a
- * receipt decides, the proof-of-possession signer and parser for the wire-format rows, and the store
- * reader for the chain images. Where a row states a refusal, the code it names is the code that has to
+ * receipt decides, the proof-of-possession signer and parser for the wire-format rows, the store reader
+ * for the chain images, and `readDeploymentManifest` beside its `adjudicateReceiptEpoch` for the sealed
+ * deployment manifest. Where a row states a refusal, the code it names is the code that has to
  * come back; where a row states acceptance, the same call has to accept it. A suite that only ever
  * passed would satisfy the first half and say nothing, so the near misses published here are what make
  * the second half mean something, and each of those rows is a small edit to bytes this repository
@@ -116,6 +127,67 @@ interface ChainRefusal {
   readonly message: string;
 }
 
+/** The three states a client reports about the bytes it was handed, plus whether it asked for one. */
+interface SealedManifestAuthentication {
+  readonly sealed: boolean;
+  readonly authenticated: boolean;
+  readonly kid: string | null;
+  readonly demanded: boolean;
+  readonly advisory: boolean;
+}
+
+/** One receipt's claim about its key and moment, and the answer a document's rotation history gives. */
+interface EpochClaimRow {
+  readonly claim: { kid: string; epoch: number; issuedAt: number };
+  readonly ok: boolean;
+  readonly code?: string;
+  readonly basis?: 'windows' | 'current-epoch';
+  readonly superseded?: boolean;
+  readonly validFrom?: number | null;
+  readonly validTo?: number | null;
+}
+
+/**
+ * One case of the sealed-manifest suite: the bytes handed to a reader, the manifest signing keys it
+ * designates, what the client answers, and what the envelope reader answers underneath that.
+ */
+interface ManifestVectorCase {
+  readonly name: string;
+  readonly note: string;
+  readonly documentBase64Url: string;
+  readonly documentByteLength: number;
+  readonly read: { designates: { kid: string; publicKeyBase64Url: string }[] };
+  readonly verdict: string;
+  readonly seal: string;
+  readonly authentication?: SealedManifestAuthentication;
+  readonly parsed?: Record<string, unknown>;
+  readonly dropped?: string[];
+  readonly edited?: string;
+  readonly reveal?: {
+    contextString: string;
+    externalAadBase64Url: string;
+    protectedHeaderBase64Url: string;
+    payloadBase64Url: string;
+    payloadByteLength: number;
+    payloadSha256Hex: string;
+    signatureHex: string;
+    sigStructureHex: string;
+    headerLabels: { label: number; name: string; value: string | number }[];
+  };
+  readonly claims?: EpochClaimRow[];
+}
+
+interface ManifestVectorFile {
+  readonly version: number;
+  readonly description: string;
+  readonly layout: {
+    readonly codes: readonly string[];
+    readonly keyMaterial: { id: string; seed: string; kidHex: string; publicKeyHex: string; publicKeyBase64Url: string; role: string }[];
+  };
+  readonly vectors: ManifestVectorCase[];
+  readonly crossReading: { readonly cases: { name: string; documentBase64Url: string; expected: string }[] };
+}
+
 function json<T>(path: string): T {
   return JSON.parse(readFileSync(join(DATA, path), 'utf8')) as T;
 }
@@ -141,6 +213,7 @@ const proofOfPossession = json<{
   refusals: PopRefusal[];
 }>('pop-v1.json');
 const chain = json<{ refusals: ChainRefusal[] }>('chain-v1.json');
+const sealedManifests = json<ManifestVectorFile>('manifest-v1.json');
 
 /** The receipt signing key the fixtures are issued under, as the published key file states it. */
 const PUBLIC_KEY = new Uint8Array(Buffer.from(json<{ publicKey: string }>('keys/receipt-key-v1.json').publicKey, 'hex'));
@@ -473,6 +546,196 @@ describe('the receipt store chain refusals through the store reader', () => {
       );
       expect(opened, `${refusal.name} opened without refusing`).toBeInstanceOf(StoreError);
       expect((opened as StoreError).code, refusal.name).toBe(refusal.code);
+    }
+  });
+});
+
+/**
+ * The policy a manifest row states: the keys it designates for signing manifests, by id and public half,
+ * and nothing beside them. A row naming none yields an empty map, which is the state the client answers
+ * with an advisory rather than a refusal.
+ */
+function policyDesignating(entries: readonly { kid: string; publicKeyBase64Url: string }[]): AshaveriPolicy {
+  return { manifestKeys: Object.fromEntries(entries.map((one) => [one.kid, one.publicKeyBase64Url])) };
+}
+
+/** What the shipped client path answered: the verdict, and the reading whenever it returned one. */
+function readAsClient(one: ManifestVectorCase): { verdict: string; read: ReadManifestResult | null } {
+  try {
+    return {
+      verdict: 'verify-ok',
+      read: readDeploymentManifest(bytes(one.documentBase64Url), policyDesignating(one.read.designates)),
+    };
+  } catch (err) {
+    if (err instanceof SdkError || err instanceof ReceiptError) return { verdict: err.code as string, read: null };
+    throw err;
+  }
+}
+
+/** The public half of a key this suite publishes, by the id its own seal names. */
+const PUBLISHED_KEYS = new Map(sealedManifests.layout.keyMaterial.map((one) => [one.kidHex, one.publicKeyBase64Url]));
+
+/**
+ * What the format package's envelope reader answered for the same bytes, under the key the protected
+ * header names. The suite publishes this beside the client verdict because the two layers refuse for
+ * different reasons, and a row whose seal holds while the client refuses is a designation problem rather
+ * than a document that moved.
+ */
+function readAsEnvelope(one: ManifestVectorCase): string {
+  const documentBytes = bytes(one.documentBase64Url);
+  if (!isSealedDeploymentManifest(documentBytes)) return 'not-sealed';
+  try {
+    const seal = decodeSealedDeploymentManifest(documentBytes);
+    const publicKey = PUBLISHED_KEYS.get(hex(seal.header.kid));
+    if (publicKey === undefined) return 'kid-outside-the-material-this-suite-publishes';
+    verifySealedDeploymentManifest(documentBytes, bytes(publicKey));
+    return 'verify-ok';
+  } catch (err) {
+    if (err instanceof ReceiptError) return err.code;
+    throw err;
+  }
+}
+
+const manifestVectors = sealedManifests.vectors;
+
+describe('the sealed deployment manifest vectors through the client path', () => {
+  it('states a verdict for every case and gives every case that verdict', () => {
+    expect(manifestVectors.length).toBeGreaterThanOrEqual(30);
+    const observed = manifestVectors.map((one) => {
+      expect(one.verdict, `${one.name} states no verdict`).toMatch(/^[A-Za-z0-9_-]+$/u);
+      expect(bytes(one.documentBase64Url)).toHaveLength(one.documentByteLength);
+      return `${one.name}: ${readAsClient(one).verdict}`;
+    });
+    expect(observed).toEqual(manifestVectors.map((one) => `${one.name}: ${one.verdict}`));
+  });
+
+  it('separates what the envelope refuses from what the client refuses', () => {
+    // Two columns of the same file, both run: the format reader over the bytes, the client over the
+    // result. A row where the seal holds and the client refuses is about who this reader designated, and
+    // a port that reported those two under one code would send an operator to the wrong half of the
+    // deployment. `envelope-without-its-tag` is the pair in the other direction.
+    const observed = manifestVectors.map((one) => `${one.name}: ${readAsEnvelope(one)}`);
+    expect(observed).toEqual(manifestVectors.map((one) => `${one.name}: ${one.seal}`));
+    const sealedButRefused = manifestVectors.filter((one) => one.seal === 'verify-ok' && one.verdict !== 'verify-ok');
+    expect(sealedButRefused.length).toBeGreaterThanOrEqual(2);
+  });
+
+  it('reports the three states of a whole document exactly as each row states them', () => {
+    const accepted = manifestVectors.filter((one) => one.verdict === 'verify-ok');
+    expect(accepted.length).toBeGreaterThanOrEqual(6);
+    // The three states this container can arrive in, named rather than counted: authenticated under a
+    // designated key, sealed under no designation, and served with no seal at all.
+    const shapes = [...new Set(accepted.map((one) => `${String(one.authentication?.sealed)}/${String(one.authentication?.authenticated)}`))].sort();
+    expect(shapes).toEqual(['false/false', 'true/false', 'true/true']);
+    for (const one of accepted) {
+      const read = readAsClient(one).read;
+      expect(read, `${one.name} returned no reading`).not.toBeNull();
+      if (read === null) continue;
+      const stated = one.authentication;
+      expect(stated, `${one.name} is accepted with no stated authentication`).toBeDefined();
+      if (stated === undefined) continue;
+      expect({
+        sealed: read.authentication.sealed,
+        authenticated: read.authentication.authenticated,
+        kid: read.authentication.kid,
+        demanded: read.authentication.demanded,
+        advisory: read.authentication.advisory !== null,
+      }).toEqual(stated);
+      if (one.parsed !== undefined) expect(JSON.parse(JSON.stringify(read.manifest)), one.name).toEqual(one.parsed);
+      // A member this version does not name is left alone, which means it is in neither the parsed
+      // document nor any entry of it, whatever position in the text it arrived at.
+      for (const member of one.dropped ?? []) {
+        expect(JSON.stringify(read.manifest), `${one.name} kept the ${member} member`).not.toContain(`"${member}"`);
+      }
+      if (stated.advisory && stated.kid !== null) {
+        // The reason is part of the result rather than a line the caller goes looking for, and the thing
+        // it names is the id nothing vouched for.
+        expect(read.authentication.advisory, one.name).toContain(stated.kid);
+      }
+    }
+  });
+
+  it('adjudicates every published epoch claim against the document that carries it', () => {
+    const carrying = manifestVectors.filter((one) => one.claims !== undefined);
+    expect(carrying.length).toBeGreaterThanOrEqual(2);
+    for (const one of carrying) {
+      const read = readAsClient(one).read;
+      expect(read, `${one.name} states claims on a document that is not read`).not.toBeNull();
+      if (read === null) continue;
+      for (const row of one.claims ?? []) {
+        const verdict = adjudicateReceiptEpoch(read.manifest, row.claim);
+        expect(
+          {
+            claim: row.claim,
+            ok: verdict.ok,
+            code: verdict.ok ? undefined : verdict.code,
+            basis: verdict.ok ? verdict.basis : undefined,
+            superseded: verdict.ok ? verdict.superseded : undefined,
+            validFrom: verdict.ok ? verdict.validFrom : undefined,
+            validTo: verdict.ok ? verdict.validTo : undefined,
+          },
+          `${one.name} claim at ${String(row.claim.issuedAt)}`,
+        ).toEqual(row);
+      }
+    }
+  });
+
+  it('publishes a Sig_structure that rebuilds from the elements it names', () => {
+    const revealed = manifestVectors.filter((one) => one.reveal !== undefined);
+    expect(revealed).toHaveLength(1);
+    const one = revealed[0];
+    const reveal = one?.reveal;
+    if (one === undefined || reveal === undefined) return;
+    const documentBytes = bytes(one.documentBase64Url);
+    const seal = decodeSealedDeploymentManifest(documentBytes);
+    const payloadBytes = bytes(reveal.payloadBase64Url);
+    // The published elements are the ones inside the envelope, and the payload is the document byte for
+    // byte rather than a rendering of it, which is the whole of what the signature covers.
+    expect(hex(bytes(reveal.protectedHeaderBase64Url))).toBe(hex(seal.protectedBytes));
+    expect(hex(payloadBytes)).toBe(hex(seal.payloadBytes));
+    expect(hex(seal.signature)).toBe(reveal.signatureHex);
+    expect(payloadBytes).toHaveLength(reveal.payloadByteLength);
+    expect(hex(sha256(payloadBytes))).toBe(reveal.payloadSha256Hex);
+    expect(encodeCanonical([reveal.contextString, bytes(reveal.protectedHeaderBase64Url), bytes(reveal.externalAadBase64Url), payloadBytes])).toEqual(
+      new Uint8Array(Buffer.from(reveal.sigStructureHex, 'hex')),
+    );
+    expect(reveal.headerLabels.map((label) => label.label)).toEqual([1, 3, 4]);
+    // And the bytes those elements describe verify, so the structure a stranger rebuilds is the one this
+    // repository signed rather than a framing that happens to print the same way.
+    const designated = one.read.designates[0];
+    expect(designated, `${one.name} reveals nothing designated`).toBeDefined();
+    expect(() => verifySealedDeploymentManifest(documentBytes, bytes(designated?.publicKeyBase64Url ?? ''))).not.toThrow();
+  });
+
+  it('refuses a sealed manifest at the receipt reader it is handed to', () => {
+    // The other half of the pair that keeps the containers apart. A manifest and a receipt are one
+    // envelope signed by one deployment's keys, and the reader of each answers at its header.
+    expect(sealedManifests.crossReading.cases.length).toBeGreaterThanOrEqual(1);
+    for (const one of sealedManifests.crossReading.cases) {
+      let answer = 'verify-ok';
+      try {
+        decodeCoseSign1(bytes(one.documentBase64Url));
+      } catch (err) {
+        if (!(err instanceof ReceiptError)) throw err;
+        answer = err.code;
+      }
+      expect(answer, one.name).toBe(one.expected);
+    }
+  });
+
+  it('reaches every code the client registry declares for this document', () => {
+    // A fault code with no published case is a word nothing is measured against, and this suite is where
+    // the manifest half of the client registry is measured. Read off the declared union rather than from a
+    // list repeated here, which is the only way an addition cannot pass unnoticed.
+    const source = readFileSync(fileURLToPath(new URL('../../sdk/src/errors.ts', import.meta.url)), 'utf8');
+    const declared = [...source.matchAll(/'(BAD_MANIFEST|MANIFEST_[A-Z0-9_]+)'/gu)].map((found) => found[1]!);
+    expect(new Set(declared).size).toBeGreaterThanOrEqual(6);
+    const reached = new Set([
+      ...manifestVectors.map((one) => one.verdict),
+      ...manifestVectors.flatMap((one) => (one.claims ?? []).map((row) => row.code ?? 'verify-ok')),
+    ]);
+    for (const code of new Set(declared)) {
+      expect(reached.has(code), `${code} is declared and no published row reaches it`).toBe(true);
     }
   });
 });

@@ -1,0 +1,1049 @@
+{
+  "version": 1,
+  "description": "Deployment manifests in both shapes a deployment serves, the manifest signing keys a reader designates beside each one, and the verdict the client path owes it: three states of a whole document, and one refusal for every fault the envelope and the document name.",
+  "layout": {
+    "format": "packages/receipt/manifest.cddl",
+    "twin": "packages/receipt/schemas/manifest-v1.schema.json",
+    "prose": "docs/receipt-spec.md section 4.4",
+    "contentType": "ashaveri/deployment-manifest",
+    "reader": "readDeploymentManifest in @ashaveri/sdk, which calls decodeSealedDeploymentManifest and verifySealedDeploymentManifest from @ashaveri/receipt and parseManifest from @ashaveri/sdk",
+    "envelopeReader": "decodeSealedDeploymentManifest and verifySealedDeploymentManifest in @ashaveri/receipt, which is the half this generator ran over these bytes when it wrote them",
+    "headerLabels": {
+      "alg": 1,
+      "typ": 3,
+      "kid": 4
+    },
+    "headerCloses": "the protected header carries exactly the three labels above and no fourth, because its bytes are hashed into the signature; the document inside the payload is read openly, and a member version 1 does not name is left alone",
+    "sigStructure": "RFC 9052 section 4.4: the array [\"Signature1\", the protected bstr as written, the external AAD, the payload bstr], canonically encoded. The external AAD is empty for this container and nothing inside the envelope carries which one was used.",
+    "payload": "the deployment manifest JSON document as UTF-8, signed byte for byte: no re-encode, no key order chosen on the way, so what a client verifies is what it read. The one case that separates a document from its rendering is a key id written in capitals.",
+    "integers": "no floating-point number stands where the CBOR declares an integer, in a label or in a value, and the rule lives in the envelope rather than the payload: a JSON number that is a whole one is that whole number by the time a document is read.",
+    "decidesSealedOrPlain": "the first byte, 0xd2 for a `COSE_Sign1` and no JSON text beginning with it, rather than a content type a sender chose. `isSealedDeploymentManifest` is the shipped reading. It has a consequence past the branch: bytes that meant to be an envelope and lost their tag are read as the plain document and refused as a manifest, so `NOT_COSE_SIGN1` is reached only behind a first byte that claims the tag.",
+    "encodings": "documents and byte strings unpadded base64url, digests, kids and signatures lowercase hex, instants unix seconds",
+    "verdictFields": [
+      "verdict",
+      "seal",
+      "authentication",
+      "parsed",
+      "dropped",
+      "claims",
+      "edited",
+      "reveal"
+    ],
+    "verdictMeaning": "`verdict` is what the client path answers: `verify-ok`, or the code it throws. `seal` is what the envelope reader answers for the same bytes run under the key the protected header names: `verify-ok`, `not-sealed`, or the code. A row whose `seal` is `verify-ok` and whose `verdict` is a refusal is refusing about designation, not about tampering.",
+    "authenticationFields": [
+      "sealed",
+      "authenticated",
+      "kid",
+      "demanded",
+      "advisory"
+    ],
+    "claimsField": "`claims` are receipts' epoch claims, each stated as the kid, the epoch and the stamp a receipt carries, adjudicated by `adjudicateReceiptEpoch` against the manifest this row's document parses to. Each is spelled as the shipped rule takes it, `epoch` and `issuedAt` for the `epk` and `iat` a receipt carries. They are the document half of a receipt verdict and they decide nothing about a key.",
+    "codes": [
+      "BAD_MANIFEST",
+      "BAD_PROTECTED_HEADER",
+      "MALFORMED_CBOR",
+      "MANIFEST_KEY_NOT_PINNED",
+      "MANIFEST_NOT_AUTHENTICATED",
+      "MANIFEST_SIGNATURE_INVALID",
+      "NOT_COSE_SIGN1",
+      "UNSUPPORTED_ALG",
+      "verify-ok"
+    ],
+    "assembled": "every honest seal is `sealDeploymentManifest` and no hand-built bytes. Where a row needs a protected header that writer will not write, an undeclared label, a label or value of another type, a kid of another width, an `alg` other than EdDSA, a content type other than this one, a non-empty unprotected map, a truncated signature or a non-empty external AAD, the header is encoded from its parts, signed over the published `Sig_structure`, and assembled by the published tag-18 writer; the generator stops unless that path reproduces `sealDeploymentManifest` byte for byte on the canonical header, so each fault below is the one position its `edited` field names and nothing else. The writer is also asked to seal under a key whose kid is not sha256 of its public half and refuses with `BAD_SIGNING_KEY`, which is why this suite carries no such row.",
+    "documentFaults": "the rows whose `seal` is `verify-ok` and whose `verdict` is `BAD_MANIFEST` are documents the writer sealed exactly as given: the signature holds and the document inside it does not parse. That is the state of a deployment that published a manifest no client can read, and it is a different answer from tampering.",
+    "keyMaterial": [
+      {
+        "id": "8ee9681e",
+        "seed": "sha256 of 'ashaveri-fixtures/manifest-v1/signer-a'",
+        "kidHex": "8ee9681ee98d5bcf79e1b0b5914c92b625aa7395e9b76ffcfb99624a4af1b764",
+        "publicKeyHex": "a176703c5dd6d780a23d9927d9e6cc4c73bb6890e0e2739d3b6ca5f1c0feb0d1",
+        "publicKeyBase64Url": "oXZwPF3W14CiPZkn2ebMTHO7aJDg4nOdO2yl8cD-sNE",
+        "role": "signs the manifests a reader designates"
+      },
+      {
+        "id": "bc0006c5",
+        "seed": "sha256 of 'ashaveri-fixtures/manifest-v1/signer-b'",
+        "kidHex": "bc0006c56a6e4d169a0fe3c0c4e1f856add241b1c91e5a0a9447a2d8b6aaeede",
+        "publicKeyHex": "50d78e7b7513e9b2130a072edc886711702b3bc24130f374f2f81843f5e9d038",
+        "publicKeyBase64Url": "UNeOe3UT6bITCgcu3IhnEXArO8JBMPN08vgYQ_Xp0Dg",
+        "role": "signs the manifest nobody designated and the seal that names a key it is not"
+      },
+      {
+        "id": "35013a6e",
+        "seed": "sha256 of 'ashaveri-fixtures/receipt-key/v1', the committed fixture receipt key",
+        "kidHex": "35013a6e000b8d5dca51c4bd5c1db9f2860283606c76aeeeea8ee72b72b5e15e",
+        "publicKeyHex": "13ab8ed1e777ff39be231df694bbbc8f967d5b779eb7cab558762cb54f960b05",
+        "publicKeyBase64Url": "E6uO0ed3_zm-Ix32lLu8j5Z9W3eet8q1WHYstU-WCwU",
+        "role": "the key the documents list in keys[], and the one that signed the receipt handed to the manifest reader"
+      },
+      {
+        "id": "b922e878",
+        "seed": "sha256 of 'ashaveri-fixtures/manifest-v1/receipt-key-b'",
+        "kidHex": "b922e87846566b24b1f5c8933f54c64c6621c74a5c15d81e87b2d2592175afb2",
+        "publicKeyHex": "738af0047bb040eb63ffb96e12c74473c18a91b92a81b2b88a7be62913b4be34",
+        "publicKeyBase64Url": "c4rwBHuwQOtj_7luEsdEc8GKkbkqgbK4invmKRO0vjQ",
+        "role": "a second receipt key, named by a rotation history or by no document at all"
+      }
+    ],
+    "keyNote": "test-only, published so a port can produce these signatures itself rather than only checking them, and protecting nothing. The manifest signing keys are derived apart from the receipt signing key on purpose: a deployment signs receipts with one key and manifests with another, and a wrapper that verified under a receipt signing key would let one compromised signing key rewrite the rotation record meant to retire it."
+  },
+  "vectors": [
+    {
+      "name": "sealed-under-designated-key",
+      "note": "A whole manifest, sealed by the key a reader designates for the purpose, and the `Sig_structure` it was signed over, element by element. This is the state a client may act on: the document is the deployment's own statement, and `authenticated` is true because this client brought the key that says so.",
+      "documentBase64Url": "0oRYRaMBJwN4HGFzaGF2ZXJpL2RlcGxveW1lbnQtbWFuaWZlc3QEWCCO6Wge6Y1bz3nhsLWRTJK2Japzlem3b_z7mWJKSvG3ZKBZAaZ7InYiOjEsImlzcyI6ImFzaGF2ZXJpLW1vY2siLCJpbnMiOiJtb2NrLWluc3RhbmNlLTEiLCJlcGsiOjEsImtleXMiOlt7ImtpZCI6IjM1MDEzYTZlMDAwYjhkNWRjYTUxYzRiZDVjMWRiOWYyODYwMjgzNjA2Yzc2YWVlZWVhOGVlNzJiNzJiNWUxNWUiLCJhbGciOiJFZDI1NTE5IiwicHVibGljS2V5IjoiRTZ1TzBlZDNfem0tSXgzMmxMdThqNVo5VzNlZXQ4cTFXSFlzdFUtV0N3VSJ9XSwibW9kZWxzIjpbeyJpZCI6Im1vY2stbW9kZWwtMSIsInd0cyI6ImIyM2UxZWM3ZTk1NTRjYzFiMjQ0OWZmOGYyZjVhMzAwMDE5N2RmZTIzMGZjNjRiM2UwNmU2NGRkZWJmNjA4NzkifV0sIm1lYXMiOnsidGVlIjoic29mdHdhcmUiLCJtIjoiMmE3ZTA2NThlNzM4OWJhMWEzYmZhYTU1ODdkMDYwZmVmMzczMjE1ZmVhY2QxYzk1NTRlOWU5MTljZjVlZjNjYiJ9fVhAM_l4ko1tkhKo45VI_D6myc2CANTqgc1vl43RiR1tKusVHpWG6wrtLtsAWCeSkKX2UYXSaoVDbQAdB3c4JPPlBQ",
+      "documentByteLength": 565,
+      "read": {
+        "designates": [
+          {
+            "kid": "8ee9681ee98d5bcf79e1b0b5914c92b625aa7395e9b76ffcfb99624a4af1b764",
+            "publicKeyBase64Url": "oXZwPF3W14CiPZkn2ebMTHO7aJDg4nOdO2yl8cD-sNE"
+          }
+        ]
+      },
+      "verdict": "verify-ok",
+      "seal": "verify-ok",
+      "authentication": {
+        "sealed": true,
+        "authenticated": true,
+        "kid": "8ee9681ee98d5bcf79e1b0b5914c92b625aa7395e9b76ffcfb99624a4af1b764",
+        "demanded": true,
+        "advisory": false
+      },
+      "parsed": {
+        "v": 1,
+        "iss": "ashaveri-mock",
+        "ins": "mock-instance-1",
+        "epk": 1,
+        "keys": [
+          {
+            "kid": "35013a6e000b8d5dca51c4bd5c1db9f2860283606c76aeeeea8ee72b72b5e15e",
+            "alg": "Ed25519",
+            "publicKey": "E6uO0ed3_zm-Ix32lLu8j5Z9W3eet8q1WHYstU-WCwU"
+          }
+        ],
+        "epochs": null,
+        "models": [
+          {
+            "id": "mock-model-1",
+            "wts": "b23e1ec7e9554cc1b2449ff8f2f5a3000197dfe230fc64b3e06e64ddebf60879"
+          }
+        ],
+        "meas": {
+          "tee": "software",
+          "m": "2a7e0658e7389ba1a3bfaa5587d060fef373215feacd1c9554e9e919cf5ef3cb"
+        }
+      },
+      "claims": [
+        {
+          "claim": {
+            "kid": "35013a6e000b8d5dca51c4bd5c1db9f2860283606c76aeeeea8ee72b72b5e15e",
+            "epoch": 1,
+            "issuedAt": 1772000000
+          },
+          "ok": true,
+          "basis": "current-epoch",
+          "superseded": false,
+          "validFrom": null,
+          "validTo": null
+        },
+        {
+          "claim": {
+            "kid": "b922e87846566b24b1f5c8933f54c64c6621c74a5c15d81e87b2d2592175afb2",
+            "epoch": 1,
+            "issuedAt": 1772000000
+          },
+          "ok": false,
+          "code": "MANIFEST_EPOCH_DISAGREES"
+        },
+        {
+          "claim": {
+            "kid": "35013a6e000b8d5dca51c4bd5c1db9f2860283606c76aeeeea8ee72b72b5e15e",
+            "epoch": 2,
+            "issuedAt": 1772000000
+          },
+          "ok": false,
+          "code": "MANIFEST_EPOCH_UNDECLARED"
+        }
+      ],
+      "reveal": {
+        "contextString": "Signature1",
+        "externalAadBase64Url": "",
+        "protectedHeaderBase64Url": "owEnA3gcYXNoYXZlcmkvZGVwbG95bWVudC1tYW5pZmVzdARYII7paB7pjVvPeeGwtZFMkrYlqnOV6bdv_PuZYkpK8bdk",
+        "payloadBase64Url": "eyJ2IjoxLCJpc3MiOiJhc2hhdmVyaS1tb2NrIiwiaW5zIjoibW9jay1pbnN0YW5jZS0xIiwiZXBrIjoxLCJrZXlzIjpbeyJraWQiOiIzNTAxM2E2ZTAwMGI4ZDVkY2E1MWM0YmQ1YzFkYjlmMjg2MDI4MzYwNmM3NmFlZWVlYThlZTcyYjcyYjVlMTVlIiwiYWxnIjoiRWQyNTUxOSIsInB1YmxpY0tleSI6IkU2dU8wZWQzX3ptLUl4MzJsTHU4ajVaOVczZWV0OHExV0hZc3RVLVdDd1UifV0sIm1vZGVscyI6W3siaWQiOiJtb2NrLW1vZGVsLTEiLCJ3dHMiOiJiMjNlMWVjN2U5NTU0Y2MxYjI0NDlmZjhmMmY1YTMwMDAxOTdkZmUyMzBmYzY0YjNlMDZlNjRkZGViZjYwODc5In1dLCJtZWFzIjp7InRlZSI6InNvZnR3YXJlIiwibSI6IjJhN2UwNjU4ZTczODliYTFhM2JmYWE1NTg3ZDA2MGZlZjM3MzIxNWZlYWNkMWM5NTU0ZTllOTE5Y2Y1ZWYzY2IifX0",
+        "payloadByteLength": 422,
+        "payloadSha256Hex": "32a1cdeb16dca763224395b8cfed6942d260da714084a77415100abd0a386b9c",
+        "signatureHex": "33f978928d6d9212a8e39548fc3ea6c9cd8200d4ea81cd6f978dd1891d6d2aeb151e9586eb0aed2edb0058279290a5f65185d26a85436d001d07773824f3e505",
+        "sigStructureHex": "846a5369676e6174757265315845a3012703781c61736861766572692f6465706c6f796d656e742d6d616e69666573740458208ee9681ee98d5bcf79e1b0b5914c92b625aa7395e9b76ffcfb99624a4af1b764405901a67b2276223a312c22697373223a2261736861766572692d6d6f636b222c22696e73223a226d6f636b2d696e7374616e63652d31222c2265706b223a312c226b657973223a5b7b226b6964223a2233353031336136653030306238643564636135316334626435633164623966323836303238333630366337366165656565613865653732623732623565313565222c22616c67223a2245643235353139222c227075626c69634b6579223a224536754f306564335f7a6d2d497833326c4c75386a355a3957336565743871315748597374552d57437755227d5d2c226d6f64656c73223a5b7b226964223a226d6f636b2d6d6f64656c2d31222c22777473223a2262323365316563376539353534636331623234343966663866326635613330303031393764666532333066633634623365303665363464646562663630383739227d5d2c226d656173223a7b22746565223a22736f667477617265222c226d223a2232613765303635386537333839626131613362666161353538376430363066656633373332313566656163643163393535346539653931396366356566336362227d7d",
+        "headerLabels": [
+          {
+            "label": 1,
+            "name": "alg",
+            "value": -8
+          },
+          {
+            "label": 3,
+            "name": "typ",
+            "value": "ashaveri/deployment-manifest"
+          },
+          {
+            "label": 4,
+            "name": "kid",
+            "value": "8ee9681ee98d5bcf79e1b0b5914c92b625aa7395e9b76ffcfb99624a4af1b764"
+          }
+        ]
+      }
+    },
+    {
+      "name": "sealed-with-no-key-designated",
+      "note": "The same bytes read by a client that designated no manifest signing key. This is not a failure and not a pass: nothing checked the seal, so the document is read, reported unauthenticated, and the advisory names the kid nothing vouched for. A suite that carried only the refusing states of this container would let a port collapse the advisory into either of the others.",
+      "documentBase64Url": "0oRYRaMBJwN4HGFzaGF2ZXJpL2RlcGxveW1lbnQtbWFuaWZlc3QEWCCO6Wge6Y1bz3nhsLWRTJK2Japzlem3b_z7mWJKSvG3ZKBZAaZ7InYiOjEsImlzcyI6ImFzaGF2ZXJpLW1vY2siLCJpbnMiOiJtb2NrLWluc3RhbmNlLTEiLCJlcGsiOjEsImtleXMiOlt7ImtpZCI6IjM1MDEzYTZlMDAwYjhkNWRjYTUxYzRiZDVjMWRiOWYyODYwMjgzNjA2Yzc2YWVlZWVhOGVlNzJiNzJiNWUxNWUiLCJhbGciOiJFZDI1NTE5IiwicHVibGljS2V5IjoiRTZ1TzBlZDNfem0tSXgzMmxMdThqNVo5VzNlZXQ4cTFXSFlzdFUtV0N3VSJ9XSwibW9kZWxzIjpbeyJpZCI6Im1vY2stbW9kZWwtMSIsInd0cyI6ImIyM2UxZWM3ZTk1NTRjYzFiMjQ0OWZmOGYyZjVhMzAwMDE5N2RmZTIzMGZjNjRiM2UwNmU2NGRkZWJmNjA4NzkifV0sIm1lYXMiOnsidGVlIjoic29mdHdhcmUiLCJtIjoiMmE3ZTA2NThlNzM4OWJhMWEzYmZhYTU1ODdkMDYwZmVmMzczMjE1ZmVhY2QxYzk1NTRlOWU5MTljZjVlZjNjYiJ9fVhAM_l4ko1tkhKo45VI_D6myc2CANTqgc1vl43RiR1tKusVHpWG6wrtLtsAWCeSkKX2UYXSaoVDbQAdB3c4JPPlBQ",
+      "documentByteLength": 565,
+      "read": {
+        "designates": []
+      },
+      "verdict": "verify-ok",
+      "seal": "verify-ok",
+      "authentication": {
+        "sealed": true,
+        "authenticated": false,
+        "kid": "8ee9681ee98d5bcf79e1b0b5914c92b625aa7395e9b76ffcfb99624a4af1b764",
+        "demanded": false,
+        "advisory": true
+      },
+      "parsed": {
+        "v": 1,
+        "iss": "ashaveri-mock",
+        "ins": "mock-instance-1",
+        "epk": 1,
+        "keys": [
+          {
+            "kid": "35013a6e000b8d5dca51c4bd5c1db9f2860283606c76aeeeea8ee72b72b5e15e",
+            "alg": "Ed25519",
+            "publicKey": "E6uO0ed3_zm-Ix32lLu8j5Z9W3eet8q1WHYstU-WCwU"
+          }
+        ],
+        "epochs": null,
+        "models": [
+          {
+            "id": "mock-model-1",
+            "wts": "b23e1ec7e9554cc1b2449ff8f2f5a3000197dfe230fc64b3e06e64ddebf60879"
+          }
+        ],
+        "meas": {
+          "tee": "software",
+          "m": "2a7e0658e7389ba1a3bfaa5587d060fef373215feacd1c9554e9e919cf5ef3cb"
+        }
+      }
+    },
+    {
+      "name": "unsigned-with-no-key-designated",
+      "note": "The plain JSON document, which is what a deployment serves when it was handed no manifest signing key, read by a client that designated none either. The seal byte is what separates this from the row above and the reader decides off it rather than off a content type a sender chose.",
+      "documentBase64Url": "eyJ2IjoxLCJpc3MiOiJhc2hhdmVyaS1tb2NrIiwiaW5zIjoibW9jay1pbnN0YW5jZS0xIiwiZXBrIjoxLCJrZXlzIjpbeyJraWQiOiIzNTAxM2E2ZTAwMGI4ZDVkY2E1MWM0YmQ1YzFkYjlmMjg2MDI4MzYwNmM3NmFlZWVlYThlZTcyYjcyYjVlMTVlIiwiYWxnIjoiRWQyNTUxOSIsInB1YmxpY0tleSI6IkU2dU8wZWQzX3ptLUl4MzJsTHU4ajVaOVczZWV0OHExV0hZc3RVLVdDd1UifV0sIm1vZGVscyI6W3siaWQiOiJtb2NrLW1vZGVsLTEiLCJ3dHMiOiJiMjNlMWVjN2U5NTU0Y2MxYjI0NDlmZjhmMmY1YTMwMDAxOTdkZmUyMzBmYzY0YjNlMDZlNjRkZGViZjYwODc5In1dLCJtZWFzIjp7InRlZSI6InNvZnR3YXJlIiwibSI6IjJhN2UwNjU4ZTczODliYTFhM2JmYWE1NTg3ZDA2MGZlZjM3MzIxNWZlYWNkMWM5NTU0ZTllOTE5Y2Y1ZWYzY2IifX0",
+      "documentByteLength": 422,
+      "read": {
+        "designates": []
+      },
+      "verdict": "verify-ok",
+      "seal": "not-sealed",
+      "authentication": {
+        "sealed": false,
+        "authenticated": false,
+        "kid": null,
+        "demanded": false,
+        "advisory": true
+      },
+      "parsed": {
+        "v": 1,
+        "iss": "ashaveri-mock",
+        "ins": "mock-instance-1",
+        "epk": 1,
+        "keys": [
+          {
+            "kid": "35013a6e000b8d5dca51c4bd5c1db9f2860283606c76aeeeea8ee72b72b5e15e",
+            "alg": "Ed25519",
+            "publicKey": "E6uO0ed3_zm-Ix32lLu8j5Z9W3eet8q1WHYstU-WCwU"
+          }
+        ],
+        "epochs": null,
+        "models": [
+          {
+            "id": "mock-model-1",
+            "wts": "b23e1ec7e9554cc1b2449ff8f2f5a3000197dfe230fc64b3e06e64ddebf60879"
+          }
+        ],
+        "meas": {
+          "tee": "software",
+          "m": "2a7e0658e7389ba1a3bfaa5587d060fef373215feacd1c9554e9e919cf5ef3cb"
+        }
+      }
+    },
+    {
+      "name": "unsigned-while-a-key-is-designated",
+      "note": "That same plain document served to a client that did name who may sign it. Nothing about the bytes is broken and nothing attributes them, which is the same refusal as a seal nobody designated and a different one from a signature that failed.",
+      "documentBase64Url": "eyJ2IjoxLCJpc3MiOiJhc2hhdmVyaS1tb2NrIiwiaW5zIjoibW9jay1pbnN0YW5jZS0xIiwiZXBrIjoxLCJrZXlzIjpbeyJraWQiOiIzNTAxM2E2ZTAwMGI4ZDVkY2E1MWM0YmQ1YzFkYjlmMjg2MDI4MzYwNmM3NmFlZWVlYThlZTcyYjcyYjVlMTVlIiwiYWxnIjoiRWQyNTUxOSIsInB1YmxpY0tleSI6IkU2dU8wZWQzX3ptLUl4MzJsTHU4ajVaOVczZWV0OHExV0hZc3RVLVdDd1UifV0sIm1vZGVscyI6W3siaWQiOiJtb2NrLW1vZGVsLTEiLCJ3dHMiOiJiMjNlMWVjN2U5NTU0Y2MxYjI0NDlmZjhmMmY1YTMwMDAxOTdkZmUyMzBmYzY0YjNlMDZlNjRkZGViZjYwODc5In1dLCJtZWFzIjp7InRlZSI6InNvZnR3YXJlIiwibSI6IjJhN2UwNjU4ZTczODliYTFhM2JmYWE1NTg3ZDA2MGZlZjM3MzIxNWZlYWNkMWM5NTU0ZTllOTE5Y2Y1ZWYzY2IifX0",
+      "documentByteLength": 422,
+      "read": {
+        "designates": [
+          {
+            "kid": "8ee9681ee98d5bcf79e1b0b5914c92b625aa7395e9b76ffcfb99624a4af1b764",
+            "publicKeyBase64Url": "oXZwPF3W14CiPZkn2ebMTHO7aJDg4nOdO2yl8cD-sNE"
+          }
+        ]
+      },
+      "verdict": "MANIFEST_NOT_AUTHENTICATED",
+      "seal": "not-sealed"
+    },
+    {
+      "name": "sealed-by-an-undesignated-key",
+      "note": "A manifest sealed by another deployment's key, read by a client that designated one key. The envelope answers `verify-ok` here and that is the point: the seal is whole, this signature was made by the key its own header names, and the refusal is about who this client accepted responsibility for rather than about the bytes.",
+      "documentBase64Url": "0oRYRaMBJwN4HGFzaGF2ZXJpL2RlcGxveW1lbnQtbWFuaWZlc3QEWCC8AAbFam5NFpoP48DE4fhWrdJBsckeWgqUR6LYtqru3qBZAaZ7InYiOjEsImlzcyI6ImFzaGF2ZXJpLW1vY2siLCJpbnMiOiJtb2NrLWluc3RhbmNlLTEiLCJlcGsiOjEsImtleXMiOlt7ImtpZCI6IjM1MDEzYTZlMDAwYjhkNWRjYTUxYzRiZDVjMWRiOWYyODYwMjgzNjA2Yzc2YWVlZWVhOGVlNzJiNzJiNWUxNWUiLCJhbGciOiJFZDI1NTE5IiwicHVibGljS2V5IjoiRTZ1TzBlZDNfem0tSXgzMmxMdThqNVo5VzNlZXQ4cTFXSFlzdFUtV0N3VSJ9XSwibW9kZWxzIjpbeyJpZCI6Im1vY2stbW9kZWwtMSIsInd0cyI6ImIyM2UxZWM3ZTk1NTRjYzFiMjQ0OWZmOGYyZjVhMzAwMDE5N2RmZTIzMGZjNjRiM2UwNmU2NGRkZWJmNjA4NzkifV0sIm1lYXMiOnsidGVlIjoic29mdHdhcmUiLCJtIjoiMmE3ZTA2NThlNzM4OWJhMWEzYmZhYTU1ODdkMDYwZmVmMzczMjE1ZmVhY2QxYzk1NTRlOWU5MTljZjVlZjNjYiJ9fVhAOpGN5VLZfZfTgX6a13TRivlUNmhIQdMDIdKLewaplwjU1hX0NXtGEe3KVaVua3BiNiNa0alUceKPQvq_b52dCA",
+      "documentByteLength": 565,
+      "read": {
+        "designates": [
+          {
+            "kid": "8ee9681ee98d5bcf79e1b0b5914c92b625aa7395e9b76ffcfb99624a4af1b764",
+            "publicKeyBase64Url": "oXZwPF3W14CiPZkn2ebMTHO7aJDg4nOdO2yl8cD-sNE"
+          }
+        ]
+      },
+      "verdict": "MANIFEST_NOT_AUTHENTICATED",
+      "seal": "verify-ok"
+    },
+    {
+      "name": "header-naming-one-key-signed-by-another",
+      "note": "A protected header carrying the designated kid and a signature the designated key did not make, which is the one shape that separates a wrong key from an edited document. The kid check passes and the signature is what refuses, so the client reports tampering rather than a configuration it has to fix.",
+      "documentBase64Url": "0oRYRaMBJwN4HGFzaGF2ZXJpL2RlcGxveW1lbnQtbWFuaWZlc3QEWCCO6Wge6Y1bz3nhsLWRTJK2Japzlem3b_z7mWJKSvG3ZKBZAaZ7InYiOjEsImlzcyI6ImFzaGF2ZXJpLW1vY2siLCJpbnMiOiJtb2NrLWluc3RhbmNlLTEiLCJlcGsiOjEsImtleXMiOlt7ImtpZCI6IjM1MDEzYTZlMDAwYjhkNWRjYTUxYzRiZDVjMWRiOWYyODYwMjgzNjA2Yzc2YWVlZWVhOGVlNzJiNzJiNWUxNWUiLCJhbGciOiJFZDI1NTE5IiwicHVibGljS2V5IjoiRTZ1TzBlZDNfem0tSXgzMmxMdThqNVo5VzNlZXQ4cTFXSFlzdFUtV0N3VSJ9XSwibW9kZWxzIjpbeyJpZCI6Im1vY2stbW9kZWwtMSIsInd0cyI6ImIyM2UxZWM3ZTk1NTRjYzFiMjQ0OWZmOGYyZjVhMzAwMDE5N2RmZTIzMGZjNjRiM2UwNmU2NGRkZWJmNjA4NzkifV0sIm1lYXMiOnsidGVlIjoic29mdHdhcmUiLCJtIjoiMmE3ZTA2NThlNzM4OWJhMWEzYmZhYTU1ODdkMDYwZmVmMzczMjE1ZmVhY2QxYzk1NTRlOWU5MTljZjVlZjNjYiJ9fVhAt5-bpgayFI1Y8RySMQ0ktuBOp6n1s1-PBVKHH1kCQhTE8yjkzHcXBrJqETgKN740c98pKamt9Ay8Izv2kNBwBA",
+      "documentByteLength": 565,
+      "read": {
+        "designates": [
+          {
+            "kid": "8ee9681ee98d5bcf79e1b0b5914c92b625aa7395e9b76ffcfb99624a4af1b764",
+            "publicKeyBase64Url": "oXZwPF3W14CiPZkn2ebMTHO7aJDg4nOdO2yl8cD-sNE"
+          }
+        ]
+      },
+      "verdict": "MANIFEST_SIGNATURE_INVALID",
+      "seal": "INVALID_SIGNATURE",
+      "edited": "the private half that made the signature, with the header and payload left as signed"
+    },
+    {
+      "name": "payload-byte-changed-after-sealing",
+      "note": "One byte of a signed document flipped afterwards with the old signature left in place. The structure still reads, the kid still agrees, and the signature is what refuses it, which is the order a reader has to keep.",
+      "documentBase64Url": "0oRYRaMBJwN4HGFzaGF2ZXJpL2RlcGxveW1lbnQtbWFuaWZlc3QEWCCO6Wge6Y1bz3nhsLWRTJK2Japzlem3b_z7mWJKSvG3ZKBZAaZ7InYiOjEsImlzcyI6ImFzaGF2ZXJpLW1vY2siLCJpbnMiOiJtb2NrLGluc3RhbmNlLTEiLCJlcGsiOjEsImtleXMiOlt7ImtpZCI6IjM1MDEzYTZlMDAwYjhkNWRjYTUxYzRiZDVjMWRiOWYyODYwMjgzNjA2Yzc2YWVlZWVhOGVlNzJiNzJiNWUxNWUiLCJhbGciOiJFZDI1NTE5IiwicHVibGljS2V5IjoiRTZ1TzBlZDNfem0tSXgzMmxMdThqNVo5VzNlZXQ4cTFXSFlzdFUtV0N3VSJ9XSwibW9kZWxzIjpbeyJpZCI6Im1vY2stbW9kZWwtMSIsInd0cyI6ImIyM2UxZWM3ZTk1NTRjYzFiMjQ0OWZmOGYyZjVhMzAwMDE5N2RmZTIzMGZjNjRiM2UwNmU2NGRkZWJmNjA4NzkifV0sIm1lYXMiOnsidGVlIjoic29mdHdhcmUiLCJtIjoiMmE3ZTA2NThlNzM4OWJhMWEzYmZhYTU1ODdkMDYwZmVmMzczMjE1ZmVhY2QxYzk1NTRlOWU5MTljZjVlZjNjYiJ9fVhAM_l4ko1tkhKo45VI_D6myc2CANTqgc1vl43RiR1tKusVHpWG6wrtLtsAWCeSkKX2UYXSaoVDbQAdB3c4JPPlBQ",
+      "documentByteLength": 565,
+      "read": {
+        "designates": [
+          {
+            "kid": "8ee9681ee98d5bcf79e1b0b5914c92b625aa7395e9b76ffcfb99624a4af1b764",
+            "publicKeyBase64Url": "oXZwPF3W14CiPZkn2ebMTHO7aJDg4nOdO2yl8cD-sNE"
+          }
+        ]
+      },
+      "verdict": "MANIFEST_SIGNATURE_INVALID",
+      "seal": "INVALID_SIGNATURE",
+      "edited": "the forty-first byte of the payload, under the signature made for it"
+    },
+    {
+      "name": "signed-over-a-non-empty-external-aad",
+      "note": "The whole document and the whole header, signed over an external authenticated data string instead of the empty one this container uses. Nothing inside the envelope says which AAD was fed to the signer, so a reader that verified over a guess would report a good seal as a broken one and the other way round: this container has one answer and it is the empty string.",
+      "documentBase64Url": "0oRYRaMBJwN4HGFzaGF2ZXJpL2RlcGxveW1lbnQtbWFuaWZlc3QEWCCO6Wge6Y1bz3nhsLWRTJK2Japzlem3b_z7mWJKSvG3ZKBZAaZ7InYiOjEsImlzcyI6ImFzaGF2ZXJpLW1vY2siLCJpbnMiOiJtb2NrLWluc3RhbmNlLTEiLCJlcGsiOjEsImtleXMiOlt7ImtpZCI6IjM1MDEzYTZlMDAwYjhkNWRjYTUxYzRiZDVjMWRiOWYyODYwMjgzNjA2Yzc2YWVlZWVhOGVlNzJiNzJiNWUxNWUiLCJhbGciOiJFZDI1NTE5IiwicHVibGljS2V5IjoiRTZ1TzBlZDNfem0tSXgzMmxMdThqNVo5VzNlZXQ4cTFXSFlzdFUtV0N3VSJ9XSwibW9kZWxzIjpbeyJpZCI6Im1vY2stbW9kZWwtMSIsInd0cyI6ImIyM2UxZWM3ZTk1NTRjYzFiMjQ0OWZmOGYyZjVhMzAwMDE5N2RmZTIzMGZjNjRiM2UwNmU2NGRkZWJmNjA4NzkifV0sIm1lYXMiOnsidGVlIjoic29mdHdhcmUiLCJtIjoiMmE3ZTA2NThlNzM4OWJhMWEzYmZhYTU1ODdkMDYwZmVmMzczMjE1ZmVhY2QxYzk1NTRlOWU5MTljZjVlZjNjYiJ9fVhALT2nuPTkVGefECqkISpz3brE83mPALR8pC1VcaIfUOe_-sTdu34XMBVoKSIAPhMf2ZN2d6B_EVSJaOv8vOfPAw",
+      "documentByteLength": 565,
+      "read": {
+        "designates": [
+          {
+            "kid": "8ee9681ee98d5bcf79e1b0b5914c92b625aa7395e9b76ffcfb99624a4af1b764",
+            "publicKeyBase64Url": "oXZwPF3W14CiPZkn2ebMTHO7aJDg4nOdO2yl8cD-sNE"
+          }
+        ]
+      },
+      "verdict": "MANIFEST_SIGNATURE_INVALID",
+      "seal": "INVALID_SIGNATURE",
+      "edited": "the external AAD fed to the signer, from empty to a label"
+    },
+    {
+      "name": "pin-disagrees-with-its-own-digest",
+      "note": "The policy designates a key id whose pinned public key hashes to something else. The document is not at fault and is not even reached: a pin and the id beside it cannot both be believed, and the refusal says which of the two the operator has to look at.",
+      "documentBase64Url": "0oRYRaMBJwN4HGFzaGF2ZXJpL2RlcGxveW1lbnQtbWFuaWZlc3QEWCCO6Wge6Y1bz3nhsLWRTJK2Japzlem3b_z7mWJKSvG3ZKBZAaZ7InYiOjEsImlzcyI6ImFzaGF2ZXJpLW1vY2siLCJpbnMiOiJtb2NrLWluc3RhbmNlLTEiLCJlcGsiOjEsImtleXMiOlt7ImtpZCI6IjM1MDEzYTZlMDAwYjhkNWRjYTUxYzRiZDVjMWRiOWYyODYwMjgzNjA2Yzc2YWVlZWVhOGVlNzJiNzJiNWUxNWUiLCJhbGciOiJFZDI1NTE5IiwicHVibGljS2V5IjoiRTZ1TzBlZDNfem0tSXgzMmxMdThqNVo5VzNlZXQ4cTFXSFlzdFUtV0N3VSJ9XSwibW9kZWxzIjpbeyJpZCI6Im1vY2stbW9kZWwtMSIsInd0cyI6ImIyM2UxZWM3ZTk1NTRjYzFiMjQ0OWZmOGYyZjVhMzAwMDE5N2RmZTIzMGZjNjRiM2UwNmU2NGRkZWJmNjA4NzkifV0sIm1lYXMiOnsidGVlIjoic29mdHdhcmUiLCJtIjoiMmE3ZTA2NThlNzM4OWJhMWEzYmZhYTU1ODdkMDYwZmVmMzczMjE1ZmVhY2QxYzk1NTRlOWU5MTljZjVlZjNjYiJ9fVhAM_l4ko1tkhKo45VI_D6myc2CANTqgc1vl43RiR1tKusVHpWG6wrtLtsAWCeSkKX2UYXSaoVDbQAdB3c4JPPlBQ",
+      "documentByteLength": 565,
+      "read": {
+        "designates": [
+          {
+            "kid": "8ee9681ee98d5bcf79e1b0b5914c92b625aa7395e9b76ffcfb99624a4af1b764",
+            "publicKeyBase64Url": "UNeOe3UT6bITCgcu3IhnEXArO8JBMPN08vgYQ_Xp0Dg"
+          }
+        ]
+      },
+      "verdict": "MANIFEST_KEY_NOT_PINNED",
+      "seal": "verify-ok"
+    },
+    {
+      "name": "protected-content-type-of-a-receipt",
+      "note": "A receipt this repository actually publishes, the fixture payload signed by the committed fixture key, handed to the manifest reader. Both containers are `COSE_Sign1` over four elements and either verifies cleanly under the key it names, and the key this one is signed with is one the manifest beside it lists for signing receipts, so nothing about the signature or the key separates them. The content type is the only thing that tells a reader whether it is holding an attestation about one response or a deployment's statement about itself, and it is refused at the header before any key is consulted.",
+      "documentBase64Url": "0oRYOKMBJwNwYXNoYXZlcmkvcmVjZWlwdARYIDUBOm4AC41dylHEvVwdufKGAoNgbHau7uqO5ytyteFeoFkBmq1hdgFjYXR0o2FkWCBMjNzx8P8HIrACrcnYMjzTFLUPV6AcPeMCsbOhtmSp22J0cxppnpLEY3VybHgtaHR0cHM6Ly9pbmZlcmVuY2UuYXNoYXZlcmkuY29tL3YxL2F0dGVzdGF0aW9uY2VwawFjaWF0GmmekwBjaW5zbGN2bS1pLTA0N2YyYWNpc3NsZHBsLTlmMmE0MWMzY21kbHggbWV0YS1sbGFtYS9MbGFtYS0zLjEtOEItSW5zdHJ1Y3RjbmNlUFtmhz09zJ_Jb9mhQ0G8Gy5jcmVxWCCui3WZaPV0ocQjRF4A9Oc-4qoNT8uInXnWrth3_G2aeWNyZXNYIEcOEgWHWH1jyq-ERFghNM52X0cac5PZCkei7gaxM4hiY3Rva6JhYxhAYXAYgGN3dHNYICaJVwrs9QVChLBtYCJVT7l5QsrQp3TV28kwiy0Ed9m1ZG1lYXOiYW1YML12YTZ-p8D6AnKVtJWjfYxEXpWInAnWt7627UBScZ4w8W8FB4J-LQBJSbVS8eVR8mN0ZWVpc25wK2dwdWNjWEB0xqkLpEja2AUn-0APE9H5esNmXtVjoHxylHEkQrKQvw5QcyPl1llnopbtdiJZsjkj-TuXOF8hk_0H_6GPkw8O",
+      "documentByteLength": 540,
+      "read": {
+        "designates": [
+          {
+            "kid": "8ee9681ee98d5bcf79e1b0b5914c92b625aa7395e9b76ffcfb99624a4af1b764",
+            "publicKeyBase64Url": "oXZwPF3W14CiPZkn2ebMTHO7aJDg4nOdO2yl8cD-sNE"
+          }
+        ]
+      },
+      "verdict": "BAD_PROTECTED_HEADER",
+      "seal": "BAD_PROTECTED_HEADER"
+    },
+    {
+      "name": "protected-content-type-of-a-pack",
+      "note": "A manifest document under the pack content type, signed by the key the header names so the seal is good. The refusal is the content type alone and nothing else about these bytes.",
+      "documentBase64Url": "0oRYNaMBJwNtYXNoYXZlcmkvcGFjawRYII7paB7pjVvPeeGwtZFMkrYlqnOV6bdv_PuZYkpK8bdkoFkBpnsidiI6MSwiaXNzIjoiYXNoYXZlcmktbW9jayIsImlucyI6Im1vY2staW5zdGFuY2UtMSIsImVwayI6MSwia2V5cyI6W3sia2lkIjoiMzUwMTNhNmUwMDBiOGQ1ZGNhNTFjNGJkNWMxZGI5ZjI4NjAyODM2MDZjNzZhZWVlZWE4ZWU3MmI3MmI1ZTE1ZSIsImFsZyI6IkVkMjU1MTkiLCJwdWJsaWNLZXkiOiJFNnVPMGVkM196bS1JeDMybEx1OGo1WjlXM2VldDhxMVdIWXN0VS1XQ3dVIn1dLCJtb2RlbHMiOlt7ImlkIjoibW9jay1tb2RlbC0xIiwid3RzIjoiYjIzZTFlYzdlOTU1NGNjMWIyNDQ5ZmY4ZjJmNWEzMDAwMTk3ZGZlMjMwZmM2NGIzZTA2ZTY0ZGRlYmY2MDg3OSJ9XSwibWVhcyI6eyJ0ZWUiOiJzb2Z0d2FyZSIsIm0iOiIyYTdlMDY1OGU3Mzg5YmExYTNiZmFhNTU4N2QwNjBmZWYzNzMyMTVmZWFjZDFjOTU1NGU5ZTkxOWNmNWVmM2NiIn19WEDGMG6svol4NU7_7fSIpiQsy5EYeZ9FUZp3etpPZN1S9UmIQYiMsyS1X-AONELx52o8Pu2XHTp22K8CucKTSZAD",
+      "documentByteLength": 549,
+      "read": {
+        "designates": [
+          {
+            "kid": "8ee9681ee98d5bcf79e1b0b5914c92b625aa7395e9b76ffcfb99624a4af1b764",
+            "publicKeyBase64Url": "oXZwPF3W14CiPZkn2ebMTHO7aJDg4nOdO2yl8cD-sNE"
+          }
+        ]
+      },
+      "verdict": "BAD_PROTECTED_HEADER",
+      "seal": "BAD_PROTECTED_HEADER"
+    },
+    {
+      "name": "protected-content-type-of-an-export",
+      "note": "The same pair in the other direction, the export content type, which is the third container one deployment key signs. A reader of any of them that answered with the document it was hoping for would be reporting the wrong claim under a signature that held.",
+      "documentBase64Url": "0oRYN6MBJwNvYXNoYXZlcmkvZXhwb3J0BFggjuloHumNW8954bC1kUyStiWqc5Xpt2_8-5liSkrxt2SgWQGmeyJ2IjoxLCJpc3MiOiJhc2hhdmVyaS1tb2NrIiwiaW5zIjoibW9jay1pbnN0YW5jZS0xIiwiZXBrIjoxLCJrZXlzIjpbeyJraWQiOiIzNTAxM2E2ZTAwMGI4ZDVkY2E1MWM0YmQ1YzFkYjlmMjg2MDI4MzYwNmM3NmFlZWVlYThlZTcyYjcyYjVlMTVlIiwiYWxnIjoiRWQyNTUxOSIsInB1YmxpY0tleSI6IkU2dU8wZWQzX3ptLUl4MzJsTHU4ajVaOVczZWV0OHExV0hZc3RVLVdDd1UifV0sIm1vZGVscyI6W3siaWQiOiJtb2NrLW1vZGVsLTEiLCJ3dHMiOiJiMjNlMWVjN2U5NTU0Y2MxYjI0NDlmZjhmMmY1YTMwMDAxOTdkZmUyMzBmYzY0YjNlMDZlNjRkZGViZjYwODc5In1dLCJtZWFzIjp7InRlZSI6InNvZnR3YXJlIiwibSI6IjJhN2UwNjU4ZTczODliYTFhM2JmYWE1NTg3ZDA2MGZlZjM3MzIxNWZlYWNkMWM5NTU0ZTllOTE5Y2Y1ZWYzY2IifX1YQEWLCxxSGM7OBwvZIEq5xkaMRMb-MDCM8q5HFn2YYjhvNpM-jW1HJ8eMKH4iI4bMUFW5oUDOnfCEZMdKi4vaZwE",
+      "documentByteLength": 551,
+      "read": {
+        "designates": [
+          {
+            "kid": "8ee9681ee98d5bcf79e1b0b5914c92b625aa7395e9b76ffcfb99624a4af1b764",
+            "publicKeyBase64Url": "oXZwPF3W14CiPZkn2ebMTHO7aJDg4nOdO2yl8cD-sNE"
+          }
+        ]
+      },
+      "verdict": "BAD_PROTECTED_HEADER",
+      "seal": "BAD_PROTECTED_HEADER"
+    },
+    {
+      "name": "protected-header-carries-a-fourth-label",
+      "note": "A protected header carrying a label this format does not declare, beside the three it does, and signed over as always. The header closes where the document inside it does not, and for a reason that only holds here: these bytes are hashed into the `Sig_structure`, so an extra label is an authenticated parameter and a reader that took the three it knows and returned those would hand on a different document from the one the deployment signed.",
+      "documentBase64Url": "0oRYSKQBJwN4HGFzaGF2ZXJpL2RlcGxveW1lbnQtbWFuaWZlc3QEWCCO6Wge6Y1bz3nhsLWRTJK2Japzlem3b_z7mWJKSvG3ZAVheKBZAaZ7InYiOjEsImlzcyI6ImFzaGF2ZXJpLW1vY2siLCJpbnMiOiJtb2NrLWluc3RhbmNlLTEiLCJlcGsiOjEsImtleXMiOlt7ImtpZCI6IjM1MDEzYTZlMDAwYjhkNWRjYTUxYzRiZDVjMWRiOWYyODYwMjgzNjA2Yzc2YWVlZWVhOGVlNzJiNzJiNWUxNWUiLCJhbGciOiJFZDI1NTE5IiwicHVibGljS2V5IjoiRTZ1TzBlZDNfem0tSXgzMmxMdThqNVo5VzNlZXQ4cTFXSFlzdFUtV0N3VSJ9XSwibW9kZWxzIjpbeyJpZCI6Im1vY2stbW9kZWwtMSIsInd0cyI6ImIyM2UxZWM3ZTk1NTRjYzFiMjQ0OWZmOGYyZjVhMzAwMDE5N2RmZTIzMGZjNjRiM2UwNmU2NGRkZWJmNjA4NzkifV0sIm1lYXMiOnsidGVlIjoic29mdHdhcmUiLCJtIjoiMmE3ZTA2NThlNzM4OWJhMWEzYmZhYTU1ODdkMDYwZmVmMzczMjE1ZmVhY2QxYzk1NTRlOWU5MTljZjVlZjNjYiJ9fVhAyd3ctXyl66NljTLqg5TUdBBVuYbbkJ0_q_6YyErZFNmbQKiWdZJixpEfJSt3ETvyBOKhl5GEbF8VQ_wV2sRjDw",
+      "documentByteLength": 568,
+      "read": {
+        "designates": [
+          {
+            "kid": "8ee9681ee98d5bcf79e1b0b5914c92b625aa7395e9b76ffcfb99624a4af1b764",
+            "publicKeyBase64Url": "oXZwPF3W14CiPZkn2ebMTHO7aJDg4nOdO2yl8cD-sNE"
+          }
+        ]
+      },
+      "verdict": "BAD_PROTECTED_HEADER",
+      "seal": "BAD_PROTECTED_HEADER",
+      "edited": "a fourth protected label, 5, carrying a tstr"
+    },
+    {
+      "name": "protected-kid-of-another-width",
+      "note": "A `kid` of thirty-one bytes, which is a declared label holding the wrong shape rather than an undeclared one. The width is what makes the field an id at all: it is sha256 of a public key, and a reader that took a shorter one would be resolving a key from bytes nothing hashes to.",
+      "documentBase64Url": "0oRYRKMBJwN4HGFzaGF2ZXJpL2RlcGxveW1lbnQtbWFuaWZlc3QEWB-O6Wge6Y1bz3nhsLWRTJK2Japzlem3b_z7mWJKSvG3oFkBpnsidiI6MSwiaXNzIjoiYXNoYXZlcmktbW9jayIsImlucyI6Im1vY2staW5zdGFuY2UtMSIsImVwayI6MSwia2V5cyI6W3sia2lkIjoiMzUwMTNhNmUwMDBiOGQ1ZGNhNTFjNGJkNWMxZGI5ZjI4NjAyODM2MDZjNzZhZWVlZWE4ZWU3MmI3MmI1ZTE1ZSIsImFsZyI6IkVkMjU1MTkiLCJwdWJsaWNLZXkiOiJFNnVPMGVkM196bS1JeDMybEx1OGo1WjlXM2VldDhxMVdIWXN0VS1XQ3dVIn1dLCJtb2RlbHMiOlt7ImlkIjoibW9jay1tb2RlbC0xIiwid3RzIjoiYjIzZTFlYzdlOTU1NGNjMWIyNDQ5ZmY4ZjJmNWEzMDAwMTk3ZGZlMjMwZmM2NGIzZTA2ZTY0ZGRlYmY2MDg3OSJ9XSwibWVhcyI6eyJ0ZWUiOiJzb2Z0d2FyZSIsIm0iOiIyYTdlMDY1OGU3Mzg5YmExYTNiZmFhNTU4N2QwNjBmZWYzNzMyMTVmZWFjZDFjOTU1NGU5ZTkxOWNmNWVmM2NiIn19WEBUkrMenKua5shXihgwgf4HLB4j_prJQHvDUWW3SuWOgSWJPxlxfddknxnjBLi60TIoxthHX8hIDFuZBG-NSiMC",
+      "documentByteLength": 564,
+      "read": {
+        "designates": [
+          {
+            "kid": "8ee9681ee98d5bcf79e1b0b5914c92b625aa7395e9b76ffcfb99624a4af1b764",
+            "publicKeyBase64Url": "oXZwPF3W14CiPZkn2ebMTHO7aJDg4nOdO2yl8cD-sNE"
+          }
+        ]
+      },
+      "verdict": "BAD_PROTECTED_HEADER",
+      "seal": "BAD_PROTECTED_HEADER",
+      "edited": "the protected kid, one byte short of the digest it is meant to be"
+    },
+    {
+      "name": "protected-alg-naming-another-suite",
+      "note": "An `alg` of -7 where this container signs with EdDSA. The header refusal and this one are separate codes on purpose: one says the map is not the map this format declares and the other says the map is right and names a suite nothing here produces.",
+      "documentBase64Url": "0oRYRaMBJgN4HGFzaGF2ZXJpL2RlcGxveW1lbnQtbWFuaWZlc3QEWCCO6Wge6Y1bz3nhsLWRTJK2Japzlem3b_z7mWJKSvG3ZKBZAaZ7InYiOjEsImlzcyI6ImFzaGF2ZXJpLW1vY2siLCJpbnMiOiJtb2NrLWluc3RhbmNlLTEiLCJlcGsiOjEsImtleXMiOlt7ImtpZCI6IjM1MDEzYTZlMDAwYjhkNWRjYTUxYzRiZDVjMWRiOWYyODYwMjgzNjA2Yzc2YWVlZWVhOGVlNzJiNzJiNWUxNWUiLCJhbGciOiJFZDI1NTE5IiwicHVibGljS2V5IjoiRTZ1TzBlZDNfem0tSXgzMmxMdThqNVo5VzNlZXQ4cTFXSFlzdFUtV0N3VSJ9XSwibW9kZWxzIjpbeyJpZCI6Im1vY2stbW9kZWwtMSIsInd0cyI6ImIyM2UxZWM3ZTk1NTRjYzFiMjQ0OWZmOGYyZjVhMzAwMDE5N2RmZTIzMGZjNjRiM2UwNmU2NGRkZWJmNjA4NzkifV0sIm1lYXMiOnsidGVlIjoic29mdHdhcmUiLCJtIjoiMmE3ZTA2NThlNzM4OWJhMWEzYmZhYTU1ODdkMDYwZmVmMzczMjE1ZmVhY2QxYzk1NTRlOWU5MTljZjVlZjNjYiJ9fVhA8gI0gZmcoNqBcnMaQ56TmGSR2GumaXHayebTqVb802NC_r2jvXHsPHjTxtwr9HuS8cPdNa7dhkO6dscVtkooDQ",
+      "documentByteLength": 565,
+      "read": {
+        "designates": [
+          {
+            "kid": "8ee9681ee98d5bcf79e1b0b5914c92b625aa7395e9b76ffcfb99624a4af1b764",
+            "publicKeyBase64Url": "oXZwPF3W14CiPZkn2ebMTHO7aJDg4nOdO2yl8cD-sNE"
+          }
+        ]
+      },
+      "verdict": "UNSUPPORTED_ALG",
+      "seal": "UNSUPPORTED_ALG",
+      "edited": "alg, from -8 to -7"
+    },
+    {
+      "name": "protected-integer-spelled-as-a-float",
+      "note": "The `alg` written as the half-precision float -8.0, which decodes to the very number the integer -8 decodes to, so a reader that checked values after the decode would accept these bytes and report a good EdDSA header. `manifest.cddl` declares integers at every position of this map, which is what makes a float a malformed document rather than a spelling, and the rule has to be part of the decode because nothing placed after one can recover which bytes wrote the value.",
+      "documentBase64Url": "0oRYR6MB-cQAA3gcYXNoYXZlcmkvZGVwbG95bWVudC1tYW5pZmVzdARYII7paB7pjVvPeeGwtZFMkrYlqnOV6bdv_PuZYkpK8bdkoFkBpnsidiI6MSwiaXNzIjoiYXNoYXZlcmktbW9jayIsImlucyI6Im1vY2staW5zdGFuY2UtMSIsImVwayI6MSwia2V5cyI6W3sia2lkIjoiMzUwMTNhNmUwMDBiOGQ1ZGNhNTFjNGJkNWMxZGI5ZjI4NjAyODM2MDZjNzZhZWVlZWE4ZWU3MmI3MmI1ZTE1ZSIsImFsZyI6IkVkMjU1MTkiLCJwdWJsaWNLZXkiOiJFNnVPMGVkM196bS1JeDMybEx1OGo1WjlXM2VldDhxMVdIWXN0VS1XQ3dVIn1dLCJtb2RlbHMiOlt7ImlkIjoibW9jay1tb2RlbC0xIiwid3RzIjoiYjIzZTFlYzdlOTU1NGNjMWIyNDQ5ZmY4ZjJmNWEzMDAwMTk3ZGZlMjMwZmM2NGIzZTA2ZTY0ZGRlYmY2MDg3OSJ9XSwibWVhcyI6eyJ0ZWUiOiJzb2Z0d2FyZSIsIm0iOiIyYTdlMDY1OGU3Mzg5YmExYTNiZmFhNTU4N2QwNjBmZWYzNzMyMTVmZWFjZDFjOTU1NGU5ZTkxOWNmNWVmM2NiIn19WECf_5PC5ITXtDFC20LuwmEZdOXZ7F1mQy9DL55_A3qlTXAeXTcMXaJEuL23ipnkzPxeVF5xbFp7f7AnA5BFuV4I",
+      "documentByteLength": 567,
+      "read": {
+        "designates": [
+          {
+            "kid": "8ee9681ee98d5bcf79e1b0b5914c92b625aa7395e9b76ffcfb99624a4af1b764",
+            "publicKeyBase64Url": "oXZwPF3W14CiPZkn2ebMTHO7aJDg4nOdO2yl8cD-sNE"
+          }
+        ]
+      },
+      "verdict": "BAD_PROTECTED_HEADER",
+      "seal": "BAD_PROTECTED_HEADER",
+      "edited": "alg, written as the half-precision float -8.0 rather than the integer -8"
+    },
+    {
+      "name": "protected-label-spelled-as-a-float",
+      "note": "The same rule one position over: the label 1 written a second time as the float 1.0. A `Map` compares keys by value rather than by the bytes that wrote them, so the two spellings land in one slot and the map the reader is handed carries one entry where the signed bytes carry two. That is why this is refused at the decode and not reported as an `alg` problem, and why the value a naive reader would end up holding is whichever of the two encoding order put last.",
+      "documentBase64Url": "0oRYSaQBJ_k8ACcDeBxhc2hhdmVyaS9kZXBsb3ltZW50LW1hbmlmZXN0BFggjuloHumNW8954bC1kUyStiWqc5Xpt2_8-5liSkrxt2SgWQGmeyJ2IjoxLCJpc3MiOiJhc2hhdmVyaS1tb2NrIiwiaW5zIjoibW9jay1pbnN0YW5jZS0xIiwiZXBrIjoxLCJrZXlzIjpbeyJraWQiOiIzNTAxM2E2ZTAwMGI4ZDVkY2E1MWM0YmQ1YzFkYjlmMjg2MDI4MzYwNmM3NmFlZWVlYThlZTcyYjcyYjVlMTVlIiwiYWxnIjoiRWQyNTUxOSIsInB1YmxpY0tleSI6IkU2dU8wZWQzX3ptLUl4MzJsTHU4ajVaOVczZWV0OHExV0hZc3RVLVdDd1UifV0sIm1vZGVscyI6W3siaWQiOiJtb2NrLW1vZGVsLTEiLCJ3dHMiOiJiMjNlMWVjN2U5NTU0Y2MxYjI0NDlmZjhmMmY1YTMwMDAxOTdkZmUyMzBmYzY0YjNlMDZlNjRkZGViZjYwODc5In1dLCJtZWFzIjp7InRlZSI6InNvZnR3YXJlIiwibSI6IjJhN2UwNjU4ZTczODliYTFhM2JmYWE1NTg3ZDA2MGZlZjM3MzIxNWZlYWNkMWM5NTU0ZTllOTE5Y2Y1ZWYzY2IifX1YQA6fv8XTJuty9pxzV2QwdRrtY1f4dcsXHRnFHQ71hfzdOcAEJyBUEiHd1c_Dz1FSxEhzk1EAilg-oY8sYs69jAg",
+      "documentByteLength": 569,
+      "read": {
+        "designates": [
+          {
+            "kid": "8ee9681ee98d5bcf79e1b0b5914c92b625aa7395e9b76ffcfb99624a4af1b764",
+            "publicKeyBase64Url": "oXZwPF3W14CiPZkn2ebMTHO7aJDg4nOdO2yl8cD-sNE"
+          }
+        ]
+      },
+      "verdict": "BAD_PROTECTED_HEADER",
+      "seal": "BAD_PROTECTED_HEADER",
+      "edited": "a second label 1, written as the half-precision float 1.0"
+    },
+    {
+      "name": "unprotected-map-carries-a-parameter",
+      "note": "The whole document with the unprotected map filled instead of left empty. That map is the one place in this container a writer fills at will: it sits outside the signature, so nothing written in it travels as a claim about the deployment, and enforcing that it is empty would buy strictness with no security content behind it. The verdict is the honest one and does not move.",
+      "documentBase64Url": "0oRYRaMBJwN4HGFzaGF2ZXJpL2RlcGxveW1lbnQtbWFuaWZlc3QEWCCO6Wge6Y1bz3nhsLWRTJK2Japzlem3b_z7mWJKSvG3ZKFheHghYSBwYXJhbWV0ZXIgb3V0c2lkZSB0aGUgc2lnbmF0dXJlWQGmeyJ2IjoxLCJpc3MiOiJhc2hhdmVyaS1tb2NrIiwiaW5zIjoibW9jay1pbnN0YW5jZS0xIiwiZXBrIjoxLCJrZXlzIjpbeyJraWQiOiIzNTAxM2E2ZTAwMGI4ZDVkY2E1MWM0YmQ1YzFkYjlmMjg2MDI4MzYwNmM3NmFlZWVlYThlZTcyYjcyYjVlMTVlIiwiYWxnIjoiRWQyNTUxOSIsInB1YmxpY0tleSI6IkU2dU8wZWQzX3ptLUl4MzJsTHU4ajVaOVczZWV0OHExV0hZc3RVLVdDd1UifV0sIm1vZGVscyI6W3siaWQiOiJtb2NrLW1vZGVsLTEiLCJ3dHMiOiJiMjNlMWVjN2U5NTU0Y2MxYjI0NDlmZjhmMmY1YTMwMDAxOTdkZmUyMzBmYzY0YjNlMDZlNjRkZGViZjYwODc5In1dLCJtZWFzIjp7InRlZSI6InNvZnR3YXJlIiwibSI6IjJhN2UwNjU4ZTczODliYTFhM2JmYWE1NTg3ZDA2MGZlZjM3MzIxNWZlYWNkMWM5NTU0ZTllOTE5Y2Y1ZWYzY2IifX1YQDP5eJKNbZISqOOVSPw-psnNggDU6oHNb5eN0YkdbSrrFR6VhusK7S7bAFgnkpCl9lGF0mqFQ20AHQd3OCTz5QU",
+      "documentByteLength": 602,
+      "read": {
+        "designates": [
+          {
+            "kid": "8ee9681ee98d5bcf79e1b0b5914c92b625aa7395e9b76ffcfb99624a4af1b764",
+            "publicKeyBase64Url": "oXZwPF3W14CiPZkn2ebMTHO7aJDg4nOdO2yl8cD-sNE"
+          }
+        ]
+      },
+      "verdict": "verify-ok",
+      "seal": "verify-ok",
+      "authentication": {
+        "sealed": true,
+        "authenticated": true,
+        "kid": "8ee9681ee98d5bcf79e1b0b5914c92b625aa7395e9b76ffcfb99624a4af1b764",
+        "demanded": true,
+        "advisory": false
+      },
+      "parsed": {
+        "v": 1,
+        "iss": "ashaveri-mock",
+        "ins": "mock-instance-1",
+        "epk": 1,
+        "keys": [
+          {
+            "kid": "35013a6e000b8d5dca51c4bd5c1db9f2860283606c76aeeeea8ee72b72b5e15e",
+            "alg": "Ed25519",
+            "publicKey": "E6uO0ed3_zm-Ix32lLu8j5Z9W3eet8q1WHYstU-WCwU"
+          }
+        ],
+        "epochs": null,
+        "models": [
+          {
+            "id": "mock-model-1",
+            "wts": "b23e1ec7e9554cc1b2449ff8f2f5a3000197dfe230fc64b3e06e64ddebf60879"
+          }
+        ],
+        "meas": {
+          "tee": "software",
+          "m": "2a7e0658e7389ba1a3bfaa5587d060fef373215feacd1c9554e9e919cf5ef3cb"
+        }
+      }
+    },
+    {
+      "name": "envelope-without-its-tag",
+      "note": "The four elements of a `COSE_Sign1` with the tag around them missing, which is the consequence of deciding which of the two shapes arrived off one byte. Those bytes no longer begin with the tag, so the reader takes them for the plain document, cannot parse them as JSON, and answers about the manifest rather than about the envelope: `NOT_COSE_SIGN1` is unreachable from a client that never looked at the structure, and a port that reported it here has built its reading of the branch off something other than the first byte.",
+      "documentBase64Url": "hFhFowEnA3gcYXNoYXZlcmkvZGVwbG95bWVudC1tYW5pZmVzdARYII7paB7pjVvPeeGwtZFMkrYlqnOV6bdv_PuZYkpK8bdkoFkBpnsidiI6MSwiaXNzIjoiYXNoYXZlcmktbW9jayIsImlucyI6Im1vY2staW5zdGFuY2UtMSIsImVwayI6MSwia2V5cyI6W3sia2lkIjoiMzUwMTNhNmUwMDBiOGQ1ZGNhNTFjNGJkNWMxZGI5ZjI4NjAyODM2MDZjNzZhZWVlZWE4ZWU3MmI3MmI1ZTE1ZSIsImFsZyI6IkVkMjU1MTkiLCJwdWJsaWNLZXkiOiJFNnVPMGVkM196bS1JeDMybEx1OGo1WjlXM2VldDhxMVdIWXN0VS1XQ3dVIn1dLCJtb2RlbHMiOlt7ImlkIjoibW9jay1tb2RlbC0xIiwid3RzIjoiYjIzZTFlYzdlOTU1NGNjMWIyNDQ5ZmY4ZjJmNWEzMDAwMTk3ZGZlMjMwZmM2NGIzZTA2ZTY0ZGRlYmY2MDg3OSJ9XSwibWVhcyI6eyJ0ZWUiOiJzb2Z0d2FyZSIsIm0iOiIyYTdlMDY1OGU3Mzg5YmExYTNiZmFhNTU4N2QwNjBmZWYzNzMyMTVmZWFjZDFjOTU1NGU5ZTkxOWNmNWVmM2NiIn19WEAz-XiSjW2SEqjjlUj8PqbJzYIA1OqBzW-XjdGJHW0q6xUelYbrCu0u2wBYJ5KQpfZRhdJqhUNtAB0Hdzgk8-UF",
+      "documentByteLength": 564,
+      "read": {
+        "designates": [
+          {
+            "kid": "8ee9681ee98d5bcf79e1b0b5914c92b625aa7395e9b76ffcfb99624a4af1b764",
+            "publicKeyBase64Url": "oXZwPF3W14CiPZkn2ebMTHO7aJDg4nOdO2yl8cD-sNE"
+          }
+        ]
+      },
+      "verdict": "BAD_MANIFEST",
+      "seal": "not-sealed"
+    },
+    {
+      "name": "envelope-whose-signature-is-not-64-bytes",
+      "note": "The same envelope with one byte taken off the end of the signature, which is a shape refusal rather than a cryptography failure. A reader that reached the verification step with a truncated signature would be reporting a wrong answer about the wrong bytes.",
+      "documentBase64Url": "0oRYRaMBJwN4HGFzaGF2ZXJpL2RlcGxveW1lbnQtbWFuaWZlc3QEWCCO6Wge6Y1bz3nhsLWRTJK2Japzlem3b_z7mWJKSvG3ZKBZAaZ7InYiOjEsImlzcyI6ImFzaGF2ZXJpLW1vY2siLCJpbnMiOiJtb2NrLWluc3RhbmNlLTEiLCJlcGsiOjEsImtleXMiOlt7ImtpZCI6IjM1MDEzYTZlMDAwYjhkNWRjYTUxYzRiZDVjMWRiOWYyODYwMjgzNjA2Yzc2YWVlZWVhOGVlNzJiNzJiNWUxNWUiLCJhbGciOiJFZDI1NTE5IiwicHVibGljS2V5IjoiRTZ1TzBlZDNfem0tSXgzMmxMdThqNVo5VzNlZXQ4cTFXSFlzdFUtV0N3VSJ9XSwibW9kZWxzIjpbeyJpZCI6Im1vY2stbW9kZWwtMSIsInd0cyI6ImIyM2UxZWM3ZTk1NTRjYzFiMjQ0OWZmOGYyZjVhMzAwMDE5N2RmZTIzMGZjNjRiM2UwNmU2NGRkZWJmNjA4NzkifV0sIm1lYXMiOnsidGVlIjoic29mdHdhcmUiLCJtIjoiMmE3ZTA2NThlNzM4OWJhMWEzYmZhYTU1ODdkMDYwZmVmMzczMjE1ZmVhY2QxYzk1NTRlOWU5MTljZjVlZjNjYiJ9fVg_M_l4ko1tkhKo45VI_D6myc2CANTqgc1vl43RiR1tKusVHpWG6wrtLtsAWCeSkKX2UYXSaoVDbQAdB3c4JPPl",
+      "documentByteLength": 564,
+      "read": {
+        "designates": [
+          {
+            "kid": "8ee9681ee98d5bcf79e1b0b5914c92b625aa7395e9b76ffcfb99624a4af1b764",
+            "publicKeyBase64Url": "oXZwPF3W14CiPZkn2ebMTHO7aJDg4nOdO2yl8cD-sNE"
+          }
+        ]
+      },
+      "verdict": "NOT_COSE_SIGN1",
+      "seal": "NOT_COSE_SIGN1",
+      "edited": "the last byte of the signature"
+    },
+    {
+      "name": "envelope-truncated-mid-document",
+      "note": "The first twenty-four bytes of a whole sealed manifest, so nothing decodes and no header, key or document is ever reached.",
+      "documentBase64Url": "0oRYRaMBJwN4HGFzaGF2ZXJpL2RlcGxv",
+      "documentByteLength": 24,
+      "read": {
+        "designates": [
+          {
+            "kid": "8ee9681ee98d5bcf79e1b0b5914c92b625aa7395e9b76ffcfb99624a4af1b764",
+            "publicKeyBase64Url": "oXZwPF3W14CiPZkn2ebMTHO7aJDg4nOdO2yl8cD-sNE"
+          }
+        ]
+      },
+      "verdict": "MALFORMED_CBOR",
+      "seal": "MALFORMED_CBOR"
+    },
+    {
+      "name": "rotation-history-retaining-a-superseded-key",
+      "note": "The same document with the two optional members of `keys[]` filled in: two keys, two epochs, the lower one superseded and still retained. No upper bound is written down anywhere, because two members that must agree are two chances to publish a gap and an overlap, so the end of a window is the start of the epoch above it and the highest epoch has no published end. The claims below are what that history answers, half-open at the successor's start.",
+      "documentBase64Url": "0oRYRaMBJwN4HGFzaGF2ZXJpL2RlcGxveW1lbnQtbWFuaWZlc3QEWCCO6Wge6Y1bz3nhsLWRTJK2Japzlem3b_z7mWJKSvG3ZKBZAnl7InYiOjEsImlzcyI6ImFzaGF2ZXJpLW1vY2siLCJpbnMiOiJtb2NrLWluc3RhbmNlLTEiLCJlcGsiOjIsImtleXMiOlt7ImtpZCI6IjM1MDEzYTZlMDAwYjhkNWRjYTUxYzRiZDVjMWRiOWYyODYwMjgzNjA2Yzc2YWVlZWVhOGVlNzJiNzJiNWUxNWUiLCJhbGciOiJFZDI1NTE5IiwicHVibGljS2V5IjoiRTZ1TzBlZDNfem0tSXgzMmxMdThqNVo5VzNlZXQ4cTFXSFlzdFUtV0N3VSIsImVwayI6MSwidmFsaWRGcm9tIjoxNzAwMDAwMDAwfSx7ImtpZCI6ImI5MjJlODc4NDY1NjZiMjRiMWY1Yzg5MzNmNTRjNjRjNjYyMWM3NGE1YzE1ZDgxZTg3YjJkMjU5MjE3NWFmYjIiLCJhbGciOiJFZDI1NTE5IiwicHVibGljS2V5IjoiYzRyd0JIdXdRT3RqXzdsdUVzZEVjOEdLa2JrcWdiSzRpbnZtS1JPMHZqUSIsImVwayI6MiwidmFsaWRGcm9tIjoxNzcyMDAwMDAwfV0sIm1vZGVscyI6W3siaWQiOiJtb2NrLW1vZGVsLTEiLCJ3dHMiOiJiMjNlMWVjN2U5NTU0Y2MxYjI0NDlmZjhmMmY1YTMwMDAxOTdkZmUyMzBmYzY0YjNlMDZlNjRkZGViZjYwODc5In1dLCJtZWFzIjp7InRlZSI6InNvZnR3YXJlIiwibSI6IjJhN2UwNjU4ZTczODliYTFhM2JmYWE1NTg3ZDA2MGZlZjM3MzIxNWZlYWNkMWM5NTU0ZTllOTE5Y2Y1ZWYzY2IifX1YQHyE_BbzvRjRcGarCLo299DSlCL_rQWCz_-fcx2vGBvGr4F7gkl1TQItZgj2F2nKSm0q0WchK_vsY0KZnP-2gQE",
+      "documentByteLength": 776,
+      "read": {
+        "designates": [
+          {
+            "kid": "8ee9681ee98d5bcf79e1b0b5914c92b625aa7395e9b76ffcfb99624a4af1b764",
+            "publicKeyBase64Url": "oXZwPF3W14CiPZkn2ebMTHO7aJDg4nOdO2yl8cD-sNE"
+          }
+        ]
+      },
+      "verdict": "verify-ok",
+      "seal": "verify-ok",
+      "authentication": {
+        "sealed": true,
+        "authenticated": true,
+        "kid": "8ee9681ee98d5bcf79e1b0b5914c92b625aa7395e9b76ffcfb99624a4af1b764",
+        "demanded": true,
+        "advisory": false
+      },
+      "parsed": {
+        "v": 1,
+        "iss": "ashaveri-mock",
+        "ins": "mock-instance-1",
+        "epk": 2,
+        "keys": [
+          {
+            "kid": "35013a6e000b8d5dca51c4bd5c1db9f2860283606c76aeeeea8ee72b72b5e15e",
+            "alg": "Ed25519",
+            "publicKey": "E6uO0ed3_zm-Ix32lLu8j5Z9W3eet8q1WHYstU-WCwU",
+            "epk": 1,
+            "validFrom": 1700000000
+          },
+          {
+            "kid": "b922e87846566b24b1f5c8933f54c64c6621c74a5c15d81e87b2d2592175afb2",
+            "alg": "Ed25519",
+            "publicKey": "c4rwBHuwQOtj_7luEsdEc8GKkbkqgbK4invmKRO0vjQ",
+            "epk": 2,
+            "validFrom": 1772000000
+          }
+        ],
+        "epochs": [
+          {
+            "epoch": 1,
+            "validFrom": 1700000000,
+            "validTo": 1772000000,
+            "kids": [
+              "35013a6e000b8d5dca51c4bd5c1db9f2860283606c76aeeeea8ee72b72b5e15e"
+            ]
+          },
+          {
+            "epoch": 2,
+            "validFrom": 1772000000,
+            "validTo": null,
+            "kids": [
+              "b922e87846566b24b1f5c8933f54c64c6621c74a5c15d81e87b2d2592175afb2"
+            ]
+          }
+        ],
+        "models": [
+          {
+            "id": "mock-model-1",
+            "wts": "b23e1ec7e9554cc1b2449ff8f2f5a3000197dfe230fc64b3e06e64ddebf60879"
+          }
+        ],
+        "meas": {
+          "tee": "software",
+          "m": "2a7e0658e7389ba1a3bfaa5587d060fef373215feacd1c9554e9e919cf5ef3cb"
+        }
+      },
+      "claims": [
+        {
+          "claim": {
+            "kid": "35013a6e000b8d5dca51c4bd5c1db9f2860283606c76aeeeea8ee72b72b5e15e",
+            "epoch": 1,
+            "issuedAt": 1771999999
+          },
+          "ok": true,
+          "basis": "windows",
+          "superseded": true,
+          "validFrom": 1700000000,
+          "validTo": 1772000000
+        },
+        {
+          "claim": {
+            "kid": "35013a6e000b8d5dca51c4bd5c1db9f2860283606c76aeeeea8ee72b72b5e15e",
+            "epoch": 1,
+            "issuedAt": 1772000000
+          },
+          "ok": false,
+          "code": "MANIFEST_EPOCH_DISAGREES"
+        },
+        {
+          "claim": {
+            "kid": "b922e87846566b24b1f5c8933f54c64c6621c74a5c15d81e87b2d2592175afb2",
+            "epoch": 1,
+            "issuedAt": 1771999999
+          },
+          "ok": false,
+          "code": "MANIFEST_EPOCH_DISAGREES"
+        },
+        {
+          "claim": {
+            "kid": "35013a6e000b8d5dca51c4bd5c1db9f2860283606c76aeeeea8ee72b72b5e15e",
+            "epoch": 3,
+            "issuedAt": 1772000000
+          },
+          "ok": false,
+          "code": "MANIFEST_EPOCH_UNDECLARED"
+        }
+      ]
+    },
+    {
+      "name": "document-member-unknown-to-version-one",
+      "note": "A manifest carrying two members version 1 names nowhere, one at the top level and one inside a key entry. The parser is open here and that is a decision rather than a gap: a manifest is a deployment's own current statement about itself, and the only way it can grow without every client updating in step is for a reader to be permitted to leave what it does not know alone. Both members are read as nothing and dropped, and the document is accepted under the seal. The same row read against a reader that refuses unknown members fails here, which is the half a closed format cannot test.",
+      "documentBase64Url": "0oRYRaMBJwN4HGFzaGF2ZXJpL2RlcGxveW1lbnQtbWFuaWZlc3QEWCCO6Wge6Y1bz3nhsLWRTJK2Japzlem3b_z7mWJKSvG3ZKBZAf57InYiOjEsImlzcyI6ImFzaGF2ZXJpLW1vY2siLCJpbnMiOiJtb2NrLWluc3RhbmNlLTEiLCJlcGsiOjEsImtleXMiOlt7ImtpZCI6IjM1MDEzYTZlMDAwYjhkNWRjYTUxYzRiZDVjMWRiOWYyODYwMjgzNjA2Yzc2YWVlZWVhOGVlNzJiNzJiNWUxNWUiLCJhbGciOiJFZDI1NTE5IiwicHVibGljS2V5IjoiRTZ1TzBlZDNfem0tSXgzMmxMdThqNVo5VzNlZXQ4cTFXSFlzdFUtV0N3VSIsIm5vdGUiOiJiZXNpZGUgYSBrZXkgZW50cnkifV0sIm1vZGVscyI6W3siaWQiOiJtb2NrLW1vZGVsLTEiLCJ3dHMiOiJiMjNlMWVjN2U5NTU0Y2MxYjI0NDlmZjhmMmY1YTMwMDAxOTdkZmUyMzBmYzY0YjNlMDZlNjRkZGViZjYwODc5In1dLCJtZWFzIjp7InRlZSI6InNvZnR3YXJlIiwibSI6IjJhN2UwNjU4ZTczODliYTFhM2JmYWE1NTg3ZDA2MGZlZjM3MzIxNWZlYWNkMWM5NTU0ZTllOTE5Y2Y1ZWYzY2IifSwiZnV0dXJlIjoiYSBtZW1iZXIgbm8gdmVyc2lvbiBuYW1lcyIsInRvdWNoZWRBdCI6MTc3MjAwMDAwMH1YQJBrOCK3WS5tOZt309ot3LmM1czEcZkSb57ALPEBL2j-P522brfw4yQyS0ehQmY97KjjLgdkkj-cK-GBPmws1wQ",
+      "documentByteLength": 653,
+      "read": {
+        "designates": [
+          {
+            "kid": "8ee9681ee98d5bcf79e1b0b5914c92b625aa7395e9b76ffcfb99624a4af1b764",
+            "publicKeyBase64Url": "oXZwPF3W14CiPZkn2ebMTHO7aJDg4nOdO2yl8cD-sNE"
+          }
+        ]
+      },
+      "verdict": "verify-ok",
+      "seal": "verify-ok",
+      "authentication": {
+        "sealed": true,
+        "authenticated": true,
+        "kid": "8ee9681ee98d5bcf79e1b0b5914c92b625aa7395e9b76ffcfb99624a4af1b764",
+        "demanded": true,
+        "advisory": false
+      },
+      "parsed": {
+        "v": 1,
+        "iss": "ashaveri-mock",
+        "ins": "mock-instance-1",
+        "epk": 1,
+        "keys": [
+          {
+            "kid": "35013a6e000b8d5dca51c4bd5c1db9f2860283606c76aeeeea8ee72b72b5e15e",
+            "alg": "Ed25519",
+            "publicKey": "E6uO0ed3_zm-Ix32lLu8j5Z9W3eet8q1WHYstU-WCwU"
+          }
+        ],
+        "epochs": null,
+        "models": [
+          {
+            "id": "mock-model-1",
+            "wts": "b23e1ec7e9554cc1b2449ff8f2f5a3000197dfe230fc64b3e06e64ddebf60879"
+          }
+        ],
+        "meas": {
+          "tee": "software",
+          "m": "2a7e0658e7389ba1a3bfaa5587d060fef373215feacd1c9554e9e919cf5ef3cb"
+        }
+      },
+      "dropped": [
+        "future",
+        "touchedAt",
+        "note"
+      ]
+    },
+    {
+      "name": "manifest-version-two",
+      "note": "A document declaring a manifest version nothing has published. Openness is about members a version does not name and not about a version a reader has no reading for: `v` is the one member that has to match, because a document from a later version can rename what the open reader is leaving alone.",
+      "documentBase64Url": "0oRYRaMBJwN4HGFzaGF2ZXJpL2RlcGxveW1lbnQtbWFuaWZlc3QEWCCO6Wge6Y1bz3nhsLWRTJK2Japzlem3b_z7mWJKSvG3ZKBZAaZ7InYiOjIsImlzcyI6ImFzaGF2ZXJpLW1vY2siLCJpbnMiOiJtb2NrLWluc3RhbmNlLTEiLCJlcGsiOjEsImtleXMiOlt7ImtpZCI6IjM1MDEzYTZlMDAwYjhkNWRjYTUxYzRiZDVjMWRiOWYyODYwMjgzNjA2Yzc2YWVlZWVhOGVlNzJiNzJiNWUxNWUiLCJhbGciOiJFZDI1NTE5IiwicHVibGljS2V5IjoiRTZ1TzBlZDNfem0tSXgzMmxMdThqNVo5VzNlZXQ4cTFXSFlzdFUtV0N3VSJ9XSwibW9kZWxzIjpbeyJpZCI6Im1vY2stbW9kZWwtMSIsInd0cyI6ImIyM2UxZWM3ZTk1NTRjYzFiMjQ0OWZmOGYyZjVhMzAwMDE5N2RmZTIzMGZjNjRiM2UwNmU2NGRkZWJmNjA4NzkifV0sIm1lYXMiOnsidGVlIjoic29mdHdhcmUiLCJtIjoiMmE3ZTA2NThlNzM4OWJhMWEzYmZhYTU1ODdkMDYwZmVmMzczMjE1ZmVhY2QxYzk1NTRlOWU5MTljZjVlZjNjYiJ9fVhAeKfDmpe-w-TCJCYDShar_9b2EnIXqa_nmVhV6VANPx2UuLmOTevoqaxqb6UfCUi9hgvYPD9TmkQ74CGxCMY8BA",
+      "documentByteLength": 565,
+      "read": {
+        "designates": [
+          {
+            "kid": "8ee9681ee98d5bcf79e1b0b5914c92b625aa7395e9b76ffcfb99624a4af1b764",
+            "publicKeyBase64Url": "oXZwPF3W14CiPZkn2ebMTHO7aJDg4nOdO2yl8cD-sNE"
+          }
+        ]
+      },
+      "verdict": "BAD_MANIFEST",
+      "seal": "verify-ok",
+      "edited": "v, from 1 to 2"
+    },
+    {
+      "name": "epoch-declared-without-a-window-start",
+      "note": "A key entry naming the epoch it signed under and no instant at which that epoch became acceptable. One member of the pair states nothing a reader can use: the window is open-ended in one direction and unbounded in the other, so this is a manifest that began declaring a rotation history and stopped halfway, and the reading that would accept it is the one that never retires a key.",
+      "documentBase64Url": "0oRYRaMBJwN4HGFzaGF2ZXJpL2RlcGxveW1lbnQtbWFuaWZlc3QEWCCO6Wge6Y1bz3nhsLWRTJK2Japzlem3b_z7mWJKSvG3ZKBZAa57InYiOjEsImlzcyI6ImFzaGF2ZXJpLW1vY2siLCJpbnMiOiJtb2NrLWluc3RhbmNlLTEiLCJlcGsiOjEsImtleXMiOlt7ImtpZCI6IjM1MDEzYTZlMDAwYjhkNWRjYTUxYzRiZDVjMWRiOWYyODYwMjgzNjA2Yzc2YWVlZWVhOGVlNzJiNzJiNWUxNWUiLCJhbGciOiJFZDI1NTE5IiwicHVibGljS2V5IjoiRTZ1TzBlZDNfem0tSXgzMmxMdThqNVo5VzNlZXQ4cTFXSFlzdFUtV0N3VSIsImVwayI6MX1dLCJtb2RlbHMiOlt7ImlkIjoibW9jay1tb2RlbC0xIiwid3RzIjoiYjIzZTFlYzdlOTU1NGNjMWIyNDQ5ZmY4ZjJmNWEzMDAwMTk3ZGZlMjMwZmM2NGIzZTA2ZTY0ZGRlYmY2MDg3OSJ9XSwibWVhcyI6eyJ0ZWUiOiJzb2Z0d2FyZSIsIm0iOiIyYTdlMDY1OGU3Mzg5YmExYTNiZmFhNTU4N2QwNjBmZWYzNzMyMTVmZWFjZDFjOTU1NGU5ZTkxOWNmNWVmM2NiIn19WEAKJzTaeWjCCF43XH5rPQ7-er0lChmzFjCIg07iMgdKrkCYyoYdNWDmVJsyfnfNR-YtIVAnZwNHWhPUIokbFQMJ",
+      "documentByteLength": 573,
+      "read": {
+        "designates": [
+          {
+            "kid": "8ee9681ee98d5bcf79e1b0b5914c92b625aa7395e9b76ffcfb99624a4af1b764",
+            "publicKeyBase64Url": "oXZwPF3W14CiPZkn2ebMTHO7aJDg4nOdO2yl8cD-sNE"
+          }
+        ]
+      },
+      "verdict": "BAD_MANIFEST",
+      "seal": "verify-ok",
+      "edited": "the keys[0] entry, `validFrom` left out of the declared pair"
+    },
+    {
+      "name": "rotation-history-half-declared",
+      "note": "Two key entries where one names an epoch and a start and the other names neither. The array has one shape or the other, and a reader that let the mixed case through would be reporting the second key as belonging to no epoch at all, which is the state a manifest published before this rule had and is not the state of this document.",
+      "documentBase64Url": "0oRYRaMBJwN4HGFzaGF2ZXJpL2RlcGxveW1lbnQtbWFuaWZlc3QEWCCO6Wge6Y1bz3nhsLWRTJK2Japzlem3b_z7mWJKSvG3ZKBZAlp7InYiOjEsImlzcyI6ImFzaGF2ZXJpLW1vY2siLCJpbnMiOiJtb2NrLWluc3RhbmNlLTEiLCJlcGsiOjEsImtleXMiOlt7ImtpZCI6IjM1MDEzYTZlMDAwYjhkNWRjYTUxYzRiZDVjMWRiOWYyODYwMjgzNjA2Yzc2YWVlZWVhOGVlNzJiNzJiNWUxNWUiLCJhbGciOiJFZDI1NTE5IiwicHVibGljS2V5IjoiRTZ1TzBlZDNfem0tSXgzMmxMdThqNVo5VzNlZXQ4cTFXSFlzdFUtV0N3VSIsImVwayI6MSwidmFsaWRGcm9tIjoxNzAwMDAwMDAwfSx7ImtpZCI6ImI5MjJlODc4NDY1NjZiMjRiMWY1Yzg5MzNmNTRjNjRjNjYyMWM3NGE1YzE1ZDgxZTg3YjJkMjU5MjE3NWFmYjIiLCJhbGciOiJFZDI1NTE5IiwicHVibGljS2V5IjoiYzRyd0JIdXdRT3RqXzdsdUVzZEVjOEdLa2JrcWdiSzRpbnZtS1JPMHZqUSJ9XSwibW9kZWxzIjpbeyJpZCI6Im1vY2stbW9kZWwtMSIsInd0cyI6ImIyM2UxZWM3ZTk1NTRjYzFiMjQ0OWZmOGYyZjVhMzAwMDE5N2RmZTIzMGZjNjRiM2UwNmU2NGRkZWJmNjA4NzkifV0sIm1lYXMiOnsidGVlIjoic29mdHdhcmUiLCJtIjoiMmE3ZTA2NThlNzM4OWJhMWEzYmZhYTU1ODdkMDYwZmVmMzczMjE1ZmVhY2QxYzk1NTRlOWU5MTljZjVlZjNjYiJ9fVhAZKCwRtfmj-b7UKqK9dNFs7vbiwSH4DtlYTng5gmsQPAOTLd9wnsGPF91jo2WbKaPIR6RKQv3H3ZYs88R5xouAw",
+      "documentByteLength": 745,
+      "read": {
+        "designates": [
+          {
+            "kid": "8ee9681ee98d5bcf79e1b0b5914c92b625aa7395e9b76ffcfb99624a4af1b764",
+            "publicKeyBase64Url": "oXZwPF3W14CiPZkn2ebMTHO7aJDg4nOdO2yl8cD-sNE"
+          }
+        ]
+      },
+      "verdict": "BAD_MANIFEST",
+      "seal": "verify-ok",
+      "edited": "a second keys[] entry naming neither epoch nor start"
+    },
+    {
+      "name": "one-epoch-two-window-starts",
+      "note": "The same epoch declared by two entries with two different starts. A reader holding two bounds for one epoch has to pick one and nothing in the document says which, so the disagreement is refused rather than resolved by the order the array happens to be in.",
+      "documentBase64Url": "0oRYRaMBJwN4HGFzaGF2ZXJpL2RlcGxveW1lbnQtbWFuaWZlc3QEWCCO6Wge6Y1bz3nhsLWRTJK2Japzlem3b_z7mWJKSvG3ZKBZAnl7InYiOjEsImlzcyI6ImFzaGF2ZXJpLW1vY2siLCJpbnMiOiJtb2NrLWluc3RhbmNlLTEiLCJlcGsiOjEsImtleXMiOlt7ImtpZCI6IjM1MDEzYTZlMDAwYjhkNWRjYTUxYzRiZDVjMWRiOWYyODYwMjgzNjA2Yzc2YWVlZWVhOGVlNzJiNzJiNWUxNWUiLCJhbGciOiJFZDI1NTE5IiwicHVibGljS2V5IjoiRTZ1TzBlZDNfem0tSXgzMmxMdThqNVo5VzNlZXQ4cTFXSFlzdFUtV0N3VSIsImVwayI6MSwidmFsaWRGcm9tIjoxNzAwMDAwMDAwfSx7ImtpZCI6ImI5MjJlODc4NDY1NjZiMjRiMWY1Yzg5MzNmNTRjNjRjNjYyMWM3NGE1YzE1ZDgxZTg3YjJkMjU5MjE3NWFmYjIiLCJhbGciOiJFZDI1NTE5IiwicHVibGljS2V5IjoiYzRyd0JIdXdRT3RqXzdsdUVzZEVjOEdLa2JrcWdiSzRpbnZtS1JPMHZqUSIsImVwayI6MSwidmFsaWRGcm9tIjoxNzcyMDAwMDAwfV0sIm1vZGVscyI6W3siaWQiOiJtb2NrLW1vZGVsLTEiLCJ3dHMiOiJiMjNlMWVjN2U5NTU0Y2MxYjI0NDlmZjhmMmY1YTMwMDAxOTdkZmUyMzBmYzY0YjNlMDZlNjRkZGViZjYwODc5In1dLCJtZWFzIjp7InRlZSI6InNvZnR3YXJlIiwibSI6IjJhN2UwNjU4ZTczODliYTFhM2JmYWE1NTg3ZDA2MGZlZjM3MzIxNWZlYWNkMWM5NTU0ZTllOTE5Y2Y1ZWYzY2IifX1YQMy9mNYUYGGFGezGZvY-P6AH62fb3QLRWcUl0u7kCaz704CrlJ8uYJeuv9ALYl72zv7kEjHh-mLQf0xZZiEoeAs",
+      "documentByteLength": 776,
+      "read": {
+        "designates": [
+          {
+            "kid": "8ee9681ee98d5bcf79e1b0b5914c92b625aa7395e9b76ffcfb99624a4af1b764",
+            "publicKeyBase64Url": "oXZwPF3W14CiPZkn2ebMTHO7aJDg4nOdO2yl8cD-sNE"
+          }
+        ]
+      },
+      "verdict": "BAD_MANIFEST",
+      "seal": "verify-ok",
+      "edited": "epoch 1 declared twice, at 1700000000 and at the document's own instant"
+    },
+    {
+      "name": "window-starts-not-ascending-with-epochs",
+      "note": "Epoch 4 published as starting before epoch 3. Without this rule the bound of a retained key comes out of the entry beside it and two windows contain the present moment, so which key a receipt verifies under depends on which of the two a reader reaches first. Refusing the pair is what keeps a window end a fact of the document rather than an artefact of a loop.",
+      "documentBase64Url": "0oRYRaMBJwN4HGFzaGF2ZXJpL2RlcGxveW1lbnQtbWFuaWZlc3QEWCCO6Wge6Y1bz3nhsLWRTJK2Japzlem3b_z7mWJKSvG3ZKBZAnl7InYiOjEsImlzcyI6ImFzaGF2ZXJpLW1vY2siLCJpbnMiOiJtb2NrLWluc3RhbmNlLTEiLCJlcGsiOjQsImtleXMiOlt7ImtpZCI6IjM1MDEzYTZlMDAwYjhkNWRjYTUxYzRiZDVjMWRiOWYyODYwMjgzNjA2Yzc2YWVlZWVhOGVlNzJiNzJiNWUxNWUiLCJhbGciOiJFZDI1NTE5IiwicHVibGljS2V5IjoiRTZ1TzBlZDNfem0tSXgzMmxMdThqNVo5VzNlZXQ4cTFXSFlzdFUtV0N3VSIsImVwayI6NCwidmFsaWRGcm9tIjoxNzAwMDAwMDAwfSx7ImtpZCI6ImI5MjJlODc4NDY1NjZiMjRiMWY1Yzg5MzNmNTRjNjRjNjYyMWM3NGE1YzE1ZDgxZTg3YjJkMjU5MjE3NWFmYjIiLCJhbGciOiJFZDI1NTE5IiwicHVibGljS2V5IjoiYzRyd0JIdXdRT3RqXzdsdUVzZEVjOEdLa2JrcWdiSzRpbnZtS1JPMHZqUSIsImVwayI6MywidmFsaWRGcm9tIjoxNzcyMDAwMDAwfV0sIm1vZGVscyI6W3siaWQiOiJtb2NrLW1vZGVsLTEiLCJ3dHMiOiJiMjNlMWVjN2U5NTU0Y2MxYjI0NDlmZjhmMmY1YTMwMDAxOTdkZmUyMzBmYzY0YjNlMDZlNjRkZGViZjYwODc5In1dLCJtZWFzIjp7InRlZSI6InNvZnR3YXJlIiwibSI6IjJhN2UwNjU4ZTczODliYTFhM2JmYWE1NTg3ZDA2MGZlZjM3MzIxNWZlYWNkMWM5NTU0ZTllOTE5Y2Y1ZWYzY2IifX1YQLZLw7joUKXcVW9rPacbgl5TgZe4NHlyZcGVh_TdjrF1prtinTvw13vaa-tHATHkMNLWsaOtME2hD0rS96ZJ4gA",
+      "documentByteLength": 776,
+      "read": {
+        "designates": [
+          {
+            "kid": "8ee9681ee98d5bcf79e1b0b5914c92b625aa7395e9b76ffcfb99624a4af1b764",
+            "publicKeyBase64Url": "oXZwPF3W14CiPZkn2ebMTHO7aJDg4nOdO2yl8cD-sNE"
+          }
+        ]
+      },
+      "verdict": "BAD_MANIFEST",
+      "seal": "verify-ok",
+      "edited": "the epoch numbers, so the higher one starts earlier"
+    },
+    {
+      "name": "epoch-count-fractional",
+      "note": "A top-level `epk` of 1.5. An epoch is a count of rotations and the manifest's own number rule is that a fractional value stands for nothing, so this is refused where the window start beside it is not.",
+      "documentBase64Url": "0oRYRaMBJwN4HGFzaGF2ZXJpL2RlcGxveW1lbnQtbWFuaWZlc3QEWCCO6Wge6Y1bz3nhsLWRTJK2Japzlem3b_z7mWJKSvG3ZKBZAah7InYiOjEsImlzcyI6ImFzaGF2ZXJpLW1vY2siLCJpbnMiOiJtb2NrLWluc3RhbmNlLTEiLCJlcGsiOjEuNSwia2V5cyI6W3sia2lkIjoiMzUwMTNhNmUwMDBiOGQ1ZGNhNTFjNGJkNWMxZGI5ZjI4NjAyODM2MDZjNzZhZWVlZWE4ZWU3MmI3MmI1ZTE1ZSIsImFsZyI6IkVkMjU1MTkiLCJwdWJsaWNLZXkiOiJFNnVPMGVkM196bS1JeDMybEx1OGo1WjlXM2VldDhxMVdIWXN0VS1XQ3dVIn1dLCJtb2RlbHMiOlt7ImlkIjoibW9jay1tb2RlbC0xIiwid3RzIjoiYjIzZTFlYzdlOTU1NGNjMWIyNDQ5ZmY4ZjJmNWEzMDAwMTk3ZGZlMjMwZmM2NGIzZTA2ZTY0ZGRlYmY2MDg3OSJ9XSwibWVhcyI6eyJ0ZWUiOiJzb2Z0d2FyZSIsIm0iOiIyYTdlMDY1OGU3Mzg5YmExYTNiZmFhNTU4N2QwNjBmZWYzNzMyMTVmZWFjZDFjOTU1NGU5ZTkxOWNmNWVmM2NiIn19WEAkL2zdw-tPmTSpgRcbT9sbkdI8gICei7pW_wWYSOJFSKp9pmkp3H1iD9KFnc_eK2yYLDp2j68M7S5g2hINxT0D",
+      "documentByteLength": 567,
+      "read": {
+        "designates": [
+          {
+            "kid": "8ee9681ee98d5bcf79e1b0b5914c92b625aa7395e9b76ffcfb99624a4af1b764",
+            "publicKeyBase64Url": "oXZwPF3W14CiPZkn2ebMTHO7aJDg4nOdO2yl8cD-sNE"
+          }
+        ]
+      },
+      "verdict": "BAD_MANIFEST",
+      "seal": "verify-ok",
+      "edited": "epk, from 1 to 1.5"
+    },
+    {
+      "name": "window-start-spelled-with-a-decimal-point",
+      "note": "The same number written in JSON as `1700000000.0`, which is the case this container answers the opposite way to its CBOR header. A payload is JSON and a JSON number that is a whole one is that whole number by the time any reader looks at it, so this is the integer the format declares and the document is accepted. The rule about floats lives where the bytes carry a type, which is the envelope, and a port that went looking for it in the payload will refuse a deployment that is writing valid manifests.",
+      "documentBase64Url": "0oRYRaMBJwN4HGFzaGF2ZXJpL2RlcGxveW1lbnQtbWFuaWZlc3QEWCCO6Wge6Y1bz3nhsLWRTJK2Japzlem3b_z7mWJKSvG3ZKBZAcd7InYiOjEsImlzcyI6ImFzaGF2ZXJpLW1vY2siLCJpbnMiOiJtb2NrLWluc3RhbmNlLTEiLCJlcGsiOjEsImtleXMiOlt7ImtpZCI6IjM1MDEzYTZlMDAwYjhkNWRjYTUxYzRiZDVjMWRiOWYyODYwMjgzNjA2Yzc2YWVlZWVhOGVlNzJiNzJiNWUxNWUiLCJhbGciOiJFZDI1NTE5IiwicHVibGljS2V5IjoiRTZ1TzBlZDNfem0tSXgzMmxMdThqNVo5VzNlZXQ4cTFXSFlzdFUtV0N3VSIsImVwayI6MSwidmFsaWRGcm9tIjoxNzAwMDAwMDAwLjB9XSwibW9kZWxzIjpbeyJpZCI6Im1vY2stbW9kZWwtMSIsInd0cyI6ImIyM2UxZWM3ZTk1NTRjYzFiMjQ0OWZmOGYyZjVhMzAwMDE5N2RmZTIzMGZjNjRiM2UwNmU2NGRkZWJmNjA4NzkifV0sIm1lYXMiOnsidGVlIjoic29mdHdhcmUiLCJtIjoiMmE3ZTA2NThlNzM4OWJhMWEzYmZhYTU1ODdkMDYwZmVmMzczMjE1ZmVhY2QxYzk1NTRlOWU5MTljZjVlZjNjYiJ9fVhAVZIVo19ecb76QTpIaLzxNBdM3ozxrfDERZt_MlftGZ7K_nLIh6v-ih2gpIfDmIn_lQd6AKeqNpPkUjhmsYJvDQ",
+      "documentByteLength": 598,
+      "read": {
+        "designates": [
+          {
+            "kid": "8ee9681ee98d5bcf79e1b0b5914c92b625aa7395e9b76ffcfb99624a4af1b764",
+            "publicKeyBase64Url": "oXZwPF3W14CiPZkn2ebMTHO7aJDg4nOdO2yl8cD-sNE"
+          }
+        ]
+      },
+      "verdict": "verify-ok",
+      "seal": "verify-ok",
+      "authentication": {
+        "sealed": true,
+        "authenticated": true,
+        "kid": "8ee9681ee98d5bcf79e1b0b5914c92b625aa7395e9b76ffcfb99624a4af1b764",
+        "demanded": true,
+        "advisory": false
+      },
+      "parsed": {
+        "v": 1,
+        "iss": "ashaveri-mock",
+        "ins": "mock-instance-1",
+        "epk": 1,
+        "keys": [
+          {
+            "kid": "35013a6e000b8d5dca51c4bd5c1db9f2860283606c76aeeeea8ee72b72b5e15e",
+            "alg": "Ed25519",
+            "publicKey": "E6uO0ed3_zm-Ix32lLu8j5Z9W3eet8q1WHYstU-WCwU",
+            "epk": 1,
+            "validFrom": 1700000000
+          }
+        ],
+        "epochs": [
+          {
+            "epoch": 1,
+            "validFrom": 1700000000,
+            "validTo": null,
+            "kids": [
+              "35013a6e000b8d5dca51c4bd5c1db9f2860283606c76aeeeea8ee72b72b5e15e"
+            ]
+          }
+        ],
+        "models": [
+          {
+            "id": "mock-model-1",
+            "wts": "b23e1ec7e9554cc1b2449ff8f2f5a3000197dfe230fc64b3e06e64ddebf60879"
+          }
+        ],
+        "meas": {
+          "tee": "software",
+          "m": "2a7e0658e7389ba1a3bfaa5587d060fef373215feacd1c9554e9e919cf5ef3cb"
+        }
+      }
+    },
+    {
+      "name": "key-id-in-uppercase-hex",
+      "note": "A `keys[]` kid spelled with capital letters, which is the same sixty-four nibbles and not the same document. Every byte string this format fixes a width for is lowercase hex on the wire, and an id is looked up by comparison rather than by a case-folding parse, so a reader that accepted this spelling would resolve one key from two different texts.",
+      "documentBase64Url": "0oRYRaMBJwN4HGFzaGF2ZXJpL2RlcGxveW1lbnQtbWFuaWZlc3QEWCCO6Wge6Y1bz3nhsLWRTJK2Japzlem3b_z7mWJKSvG3ZKBZAaZ7InYiOjEsImlzcyI6ImFzaGF2ZXJpLW1vY2siLCJpbnMiOiJtb2NrLWluc3RhbmNlLTEiLCJlcGsiOjEsImtleXMiOlt7ImtpZCI6IjM1MDEzQTZFMDAwQjhENURDQTUxQzRCRDVDMURCOUYyODYwMjgzNjA2Qzc2QUVFRUVBOEVFNzJCNzJCNUUxNUUiLCJhbGciOiJFZDI1NTE5IiwicHVibGljS2V5IjoiRTZ1TzBlZDNfem0tSXgzMmxMdThqNVo5VzNlZXQ4cTFXSFlzdFUtV0N3VSJ9XSwibW9kZWxzIjpbeyJpZCI6Im1vY2stbW9kZWwtMSIsInd0cyI6ImIyM2UxZWM3ZTk1NTRjYzFiMjQ0OWZmOGYyZjVhMzAwMDE5N2RmZTIzMGZjNjRiM2UwNmU2NGRkZWJmNjA4NzkifV0sIm1lYXMiOnsidGVlIjoic29mdHdhcmUiLCJtIjoiMmE3ZTA2NThlNzM4OWJhMWEzYmZhYTU1ODdkMDYwZmVmMzczMjE1ZmVhY2QxYzk1NTRlOWU5MTljZjVlZjNjYiJ9fVhAdIxDX-CLJPblGJmWh8niCEWC1TNam3X-Fj_Hgl9wFBqlPK0NfJt6eE8XTTyz-7YKoOzUhD3dq4YKf-26pr8EAw",
+      "documentByteLength": 565,
+      "read": {
+        "designates": [
+          {
+            "kid": "8ee9681ee98d5bcf79e1b0b5914c92b625aa7395e9b76ffcfb99624a4af1b764",
+            "publicKeyBase64Url": "oXZwPF3W14CiPZkn2ebMTHO7aJDg4nOdO2yl8cD-sNE"
+          }
+        ]
+      },
+      "verdict": "BAD_MANIFEST",
+      "seal": "verify-ok",
+      "edited": "the case of the key id"
+    },
+    {
+      "name": "public-key-in-padded-base64url",
+      "note": "A key's `publicKey` carrying its `=` padding. The alphabet is right and the width is not: unpadded base64url of thirty-two bytes is forty-three characters and a reader that tolerated padding would accept a value the manifest never writes.",
+      "documentBase64Url": "0oRYRaMBJwN4HGFzaGF2ZXJpL2RlcGxveW1lbnQtbWFuaWZlc3QEWCCO6Wge6Y1bz3nhsLWRTJK2Japzlem3b_z7mWJKSvG3ZKBZAad7InYiOjEsImlzcyI6ImFzaGF2ZXJpLW1vY2siLCJpbnMiOiJtb2NrLWluc3RhbmNlLTEiLCJlcGsiOjEsImtleXMiOlt7ImtpZCI6IjM1MDEzYTZlMDAwYjhkNWRjYTUxYzRiZDVjMWRiOWYyODYwMjgzNjA2Yzc2YWVlZWVhOGVlNzJiNzJiNWUxNWUiLCJhbGciOiJFZDI1NTE5IiwicHVibGljS2V5IjoiRTZ1TzBlZDMvem0rSXgzMmxMdThqNVo5VzNlZXQ4cTFXSFlzdFUrV0N3VT0ifV0sIm1vZGVscyI6W3siaWQiOiJtb2NrLW1vZGVsLTEiLCJ3dHMiOiJiMjNlMWVjN2U5NTU0Y2MxYjI0NDlmZjhmMmY1YTMwMDAxOTdkZmUyMzBmYzY0YjNlMDZlNjRkZGViZjYwODc5In1dLCJtZWFzIjp7InRlZSI6InNvZnR3YXJlIiwibSI6IjJhN2UwNjU4ZTczODliYTFhM2JmYWE1NTg3ZDA2MGZlZjM3MzIxNWZlYWNkMWM5NTU0ZTllOTE5Y2Y1ZWYzY2IifX1YQO_BfsCqXPGhlIqAlnaZH9QNjkTHLy5yuE8CNSHRj22jGYyGnDhQlo66-TrPupDvWOWygtWWr6p3aaMIfP3GCwE",
+      "documentByteLength": 566,
+      "read": {
+        "designates": [
+          {
+            "kid": "8ee9681ee98d5bcf79e1b0b5914c92b625aa7395e9b76ffcfb99624a4af1b764",
+            "publicKeyBase64Url": "oXZwPF3W14CiPZkn2ebMTHO7aJDg4nOdO2yl8cD-sNE"
+          }
+        ]
+      },
+      "verdict": "BAD_MANIFEST",
+      "seal": "verify-ok",
+      "edited": "the key's public half, in padded standard base64"
+    },
+    {
+      "name": "measurement-in-uppercase-hex",
+      "note": "The launch measurement capitalized, which is the same digest and a different text. A pin a client holds is compared as written, so a deployment that published its measurement in capitals would fail a check its own document says it meets.",
+      "documentBase64Url": "0oRYRaMBJwN4HGFzaGF2ZXJpL2RlcGxveW1lbnQtbWFuaWZlc3QEWCCO6Wge6Y1bz3nhsLWRTJK2Japzlem3b_z7mWJKSvG3ZKBZAaZ7InYiOjEsImlzcyI6ImFzaGF2ZXJpLW1vY2siLCJpbnMiOiJtb2NrLWluc3RhbmNlLTEiLCJlcGsiOjEsImtleXMiOlt7ImtpZCI6IjM1MDEzYTZlMDAwYjhkNWRjYTUxYzRiZDVjMWRiOWYyODYwMjgzNjA2Yzc2YWVlZWVhOGVlNzJiNzJiNWUxNWUiLCJhbGciOiJFZDI1NTE5IiwicHVibGljS2V5IjoiRTZ1TzBlZDNfem0tSXgzMmxMdThqNVo5VzNlZXQ4cTFXSFlzdFUtV0N3VSJ9XSwibW9kZWxzIjpbeyJpZCI6Im1vY2stbW9kZWwtMSIsInd0cyI6ImIyM2UxZWM3ZTk1NTRjYzFiMjQ0OWZmOGYyZjVhMzAwMDE5N2RmZTIzMGZjNjRiM2UwNmU2NGRkZWJmNjA4NzkifV0sIm1lYXMiOnsidGVlIjoic29mdHdhcmUiLCJtIjoiMkE3RTA2NThFNzM4OUJBMUEzQkZBQTU1ODdEMDYwRkVGMzczMjE1RkVBQ0QxQzk1NTRFOUU5MTlDRjVFRjNDQiJ9fVhAks1Cja5DInZEJKPGuEh8yy1meekfSL_MVUe0UBYNUggE9JsgT8DUDiB4djZTgCyps1HKthX5NPSjLH3JOsMFBA",
+      "documentByteLength": 565,
+      "read": {
+        "designates": [
+          {
+            "kid": "8ee9681ee98d5bcf79e1b0b5914c92b625aa7395e9b76ffcfb99624a4af1b764",
+            "publicKeyBase64Url": "oXZwPF3W14CiPZkn2ebMTHO7aJDg4nOdO2yl8cD-sNE"
+          }
+        ]
+      },
+      "verdict": "BAD_MANIFEST",
+      "seal": "verify-ok",
+      "edited": "the case of the measurement hex"
+    },
+    {
+      "name": "measurement-width-not-its-environment-kind",
+      "note": "A measurement of the width a software deployment reports under an environment kind that reports a longer one. Width and kind are one fact rather than two that can disagree, and a reader that checked the length alone would accept a platform claim with the wrong evidence behind it.",
+      "documentBase64Url": "0oRYRaMBJwN4HGFzaGF2ZXJpL2RlcGxveW1lbnQtbWFuaWZlc3QEWCCO6Wge6Y1bz3nhsLWRTJK2Japzlem3b_z7mWJKSvG3ZKBZAaF7InYiOjEsImlzcyI6ImFzaGF2ZXJpLW1vY2siLCJpbnMiOiJtb2NrLWluc3RhbmNlLTEiLCJlcGsiOjEsImtleXMiOlt7ImtpZCI6IjM1MDEzYTZlMDAwYjhkNWRjYTUxYzRiZDVjMWRiOWYyODYwMjgzNjA2Yzc2YWVlZWVhOGVlNzJiNzJiNWUxNWUiLCJhbGciOiJFZDI1NTE5IiwicHVibGljS2V5IjoiRTZ1TzBlZDNfem0tSXgzMmxMdThqNVo5VzNlZXQ4cTFXSFlzdFUtV0N3VSJ9XSwibW9kZWxzIjpbeyJpZCI6Im1vY2stbW9kZWwtMSIsInd0cyI6ImIyM2UxZWM3ZTk1NTRjYzFiMjQ0OWZmOGYyZjVhMzAwMDE5N2RmZTIzMGZjNjRiM2UwNmU2NGRkZWJmNjA4NzkifV0sIm1lYXMiOnsidGVlIjoic25wIiwibSI6IjJhN2UwNjU4ZTczODliYTFhM2JmYWE1NTg3ZDA2MGZlZjM3MzIxNWZlYWNkMWM5NTU0ZTllOTE5Y2Y1ZWYzY2IifX1YQOYf8CP2xKJxAWNyBnQR5YSV6paA_6AlOSADfdMKzZjeOjyULudBP_Dvhh2hlH30vFkH9v2xJ0u5QoKwpS1LnAE",
+      "documentByteLength": 560,
+      "read": {
+        "designates": [
+          {
+            "kid": "8ee9681ee98d5bcf79e1b0b5914c92b625aa7395e9b76ffcfb99624a4af1b764",
+            "publicKeyBase64Url": "oXZwPF3W14CiPZkn2ebMTHO7aJDg4nOdO2yl8cD-sNE"
+          }
+        ]
+      },
+      "verdict": "BAD_MANIFEST",
+      "seal": "verify-ok",
+      "edited": "meas.tee, to a kind whose measurement is forty-eight bytes"
+    },
+    {
+      "name": "measurement-kind-nothing-names",
+      "note": "An environment kind this repository declares no width for. The kind decides how long the digest beside it has to be, so an unknown one cannot be read at all rather than read and left alone the way an unknown member is.",
+      "documentBase64Url": "0oRYRaMBJwN4HGFzaGF2ZXJpL2RlcGxveW1lbnQtbWFuaWZlc3QEWCCO6Wge6Y1bz3nhsLWRTJK2Japzlem3b_z7mWJKSvG3ZKBZAaF7InYiOjEsImlzcyI6ImFzaGF2ZXJpLW1vY2siLCJpbnMiOiJtb2NrLWluc3RhbmNlLTEiLCJlcGsiOjEsImtleXMiOlt7ImtpZCI6IjM1MDEzYTZlMDAwYjhkNWRjYTUxYzRiZDVjMWRiOWYyODYwMjgzNjA2Yzc2YWVlZWVhOGVlNzJiNzJiNWUxNWUiLCJhbGciOiJFZDI1NTE5IiwicHVibGljS2V5IjoiRTZ1TzBlZDNfem0tSXgzMmxMdThqNVo5VzNlZXQ4cTFXSFlzdFUtV0N3VSJ9XSwibW9kZWxzIjpbeyJpZCI6Im1vY2stbW9kZWwtMSIsInd0cyI6ImIyM2UxZWM3ZTk1NTRjYzFiMjQ0OWZmOGYyZjVhMzAwMDE5N2RmZTIzMGZjNjRiM2UwNmU2NGRkZWJmNjA4NzkifV0sIm1lYXMiOnsidGVlIjoic21lIiwibSI6IjJhN2UwNjU4ZTczODliYTFhM2JmYWE1NTg3ZDA2MGZlZjM3MzIxNWZlYWNkMWM5NTU0ZTllOTE5Y2Y1ZWYzY2IifX1YQAB0-j8f3pz6sTozAFHVMAoGqRpHdkduJvHLdDt8S2WBdrR2lPk-TtUCvXqlaKgg8tUFIMaA8ciG2itjpd3AIgM",
+      "documentByteLength": 560,
+      "read": {
+        "designates": [
+          {
+            "kid": "8ee9681ee98d5bcf79e1b0b5914c92b625aa7395e9b76ffcfb99624a4af1b764",
+            "publicKeyBase64Url": "oXZwPF3W14CiPZkn2ebMTHO7aJDg4nOdO2yl8cD-sNE"
+          }
+        ]
+      },
+      "verdict": "BAD_MANIFEST",
+      "seal": "verify-ok",
+      "edited": "meas.tee, to a kind the registry does not hold"
+    },
+    {
+      "name": "no-keys-listed",
+      "note": "An empty `keys` array. A manifest with no keys states nothing a verifier can check a receipt against and is a deployment that has stopped being verifiable rather than one that is between rotations.",
+      "documentBase64Url": "0oRYRaMBJwN4HGFzaGF2ZXJpL2RlcGxveW1lbnQtbWFuaWZlc3QEWCCO6Wge6Y1bz3nhsLWRTJK2Japzlem3b_z7mWJKSvG3ZKBZARJ7InYiOjEsImlzcyI6ImFzaGF2ZXJpLW1vY2siLCJpbnMiOiJtb2NrLWluc3RhbmNlLTEiLCJlcGsiOjEsImtleXMiOltdLCJtb2RlbHMiOlt7ImlkIjoibW9jay1tb2RlbC0xIiwid3RzIjoiYjIzZTFlYzdlOTU1NGNjMWIyNDQ5ZmY4ZjJmNWEzMDAwMTk3ZGZlMjMwZmM2NGIzZTA2ZTY0ZGRlYmY2MDg3OSJ9XSwibWVhcyI6eyJ0ZWUiOiJzb2Z0d2FyZSIsIm0iOiIyYTdlMDY1OGU3Mzg5YmExYTNiZmFhNTU4N2QwNjBmZWYzNzMyMTVmZWFjZDFjOTU1NGU5ZTkxOWNmNWVmM2NiIn19WED1qtfnFCtJ1a2gJa-h0_7Jb4gClSPKVVvTCPVOoT5a_GNbdbTdLnZAt705_H2i2W5FZuNfsAs2xQHSa-rLwEoN",
+      "documentByteLength": 417,
+      "read": {
+        "designates": [
+          {
+            "kid": "8ee9681ee98d5bcf79e1b0b5914c92b625aa7395e9b76ffcfb99624a4af1b764",
+            "publicKeyBase64Url": "oXZwPF3W14CiPZkn2ebMTHO7aJDg4nOdO2yl8cD-sNE"
+          }
+        ]
+      },
+      "verdict": "BAD_MANIFEST",
+      "seal": "verify-ok",
+      "edited": "the keys array, emptied"
+    }
+  ],
+  "crossReading": {
+    "note": "One deployment, four containers, all of them `COSE_Sign1` over four elements and each verifying cleanly under a key a reader trusted. Each reader refuses the others' document at its protected header, before a key is consulted, and the manifest side of that pair is in the rows named `protected-content-type-*`. This is the other side: the honest manifest above handed to the receipt reader, which is the confusion the content type exists to prevent.",
+    "cases": [
+      {
+        "name": "manifest-read-as-receipt",
+        "note": "The honest sealed manifest, decoded by the receipt container's reader. The header decodes, the label set is right, and the `typ` is not the receipt's, so the answer is the header refusal rather than a payload problem the bytes do not have.",
+        "documentBase64Url": "0oRYRaMBJwN4HGFzaGF2ZXJpL2RlcGxveW1lbnQtbWFuaWZlc3QEWCCO6Wge6Y1bz3nhsLWRTJK2Japzlem3b_z7mWJKSvG3ZKBZAaZ7InYiOjEsImlzcyI6ImFzaGF2ZXJpLW1vY2siLCJpbnMiOiJtb2NrLWluc3RhbmNlLTEiLCJlcGsiOjEsImtleXMiOlt7ImtpZCI6IjM1MDEzYTZlMDAwYjhkNWRjYTUxYzRiZDVjMWRiOWYyODYwMjgzNjA2Yzc2YWVlZWVhOGVlNzJiNzJiNWUxNWUiLCJhbGciOiJFZDI1NTE5IiwicHVibGljS2V5IjoiRTZ1TzBlZDNfem0tSXgzMmxMdThqNVo5VzNlZXQ4cTFXSFlzdFUtV0N3VSJ9XSwibW9kZWxzIjpbeyJpZCI6Im1vY2stbW9kZWwtMSIsInd0cyI6ImIyM2UxZWM3ZTk1NTRjYzFiMjQ0OWZmOGYyZjVhMzAwMDE5N2RmZTIzMGZjNjRiM2UwNmU2NGRkZWJmNjA4NzkifV0sIm1lYXMiOnsidGVlIjoic29mdHdhcmUiLCJtIjoiMmE3ZTA2NThlNzM4OWJhMWEzYmZhYTU1ODdkMDYwZmVmMzczMjE1ZmVhY2QxYzk1NTRlOWU5MTljZjVlZjNjYiJ9fVhAM_l4ko1tkhKo45VI_D6myc2CANTqgc1vl43RiR1tKusVHpWG6wrtLtsAWCeSkKX2UYXSaoVDbQAdB3c4JPPlBQ",
+        "expected": "BAD_PROTECTED_HEADER"
+      }
+    ]
+  }
+}

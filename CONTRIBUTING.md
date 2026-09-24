@@ -48,12 +48,14 @@ two unions sharing one string is a deliberate decision rather than a collision t
 **Regenerated fixtures, never hand-edited ones.**
 
 ```bash
-pnpm --filter @ashaveri/fixtures generate         # data/manifest.json, data/keys/, data/receipts/
-pnpm --filter @ashaveri/fixtures generate:pop     # data/pop-v1.json
-pnpm --filter @ashaveri/fixtures generate:req     # data/req-v1.json
-pnpm --filter @ashaveri/fixtures generate:res     # data/res-v1.json
-pnpm --filter @ashaveri/fixtures generate:marking # data/marking-v1.json
-pnpm --filter @ashaveri/fixtures generate:chain   # data/chain-v1.json
+pnpm --filter @ashaveri/fixtures generate          # data/manifest.json, data/keys/, data/receipts/
+pnpm --filter @ashaveri/fixtures generate:pop      # data/pop-v1.json
+pnpm --filter @ashaveri/fixtures generate:req      # data/req-v1.json
+pnpm --filter @ashaveri/fixtures generate:res      # data/res-v1.json
+pnpm --filter @ashaveri/fixtures generate:marking  # data/marking-v1.json
+pnpm --filter @ashaveri/fixtures generate:chain    # data/chain-v1.json
+pnpm --filter @ashaveri/fixtures generate:export   # data/export-v1.json
+pnpm --filter @ashaveri/fixtures generate:manifest # data/manifest-v1.json
 ```
 
 The generators derive their key material and most of their digests from a labelled SHA-256 seed
