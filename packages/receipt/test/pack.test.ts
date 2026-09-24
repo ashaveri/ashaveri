@@ -669,7 +669,7 @@ describe('the pack CDDL and its JSON twin', () => {
     saidOnce('the twin', twin, "Closure is not the manifest's alone");
     saidOnce('the twin', twin, 'this definition carries no closure keyword');
     saidOnce('the twin', twin, "because the retention-duty registry is a reader's question rather than this file's");
-    saidOnce('the twin', twin, 'Nothing in this repository assembles or reads a pack today');
+    saidOnce('the twin', twin, 'Nothing in this repository assembles a pack today, and `packages/receipt/src/pack.ts` reads one');
     for (const nested of manifestNestedRules(CDDL)) {
       expect(twin.includes(`\`${nested.member}\``), `the twin names no ${nested.member}`).toBe(true);
     }

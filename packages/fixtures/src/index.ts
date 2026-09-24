@@ -375,3 +375,97 @@ export interface ExportVectorFile {
 export function loadExportVectors(): ExportVectorFile {
   return JSON.parse(readFileSync(join(DATA, 'export-v1.json'), 'utf8')) as ExportVectorFile;
 }
+
+/** The keys a row designates for signing manifests: an id, and the public half pinned under it. */
+export interface DesignatedManifestKey {
+  kid: string;
+  publicKeyBase64Url: string;
+}
+
+/** What a client reports about the bytes it read, beside the code it answered with. */
+export interface SealedManifestAuthentication {
+  sealed: boolean;
+  authenticated: boolean;
+  kid: string | null;
+  demanded: boolean;
+  advisory: boolean;
+}
+
+/** One receipt's claim about its key and moment, in the spelling the shipped rule takes. */
+export interface ManifestEpochClaimRow {
+  claim: { kid: string; epoch: number; issuedAt: number };
+  ok: boolean;
+  code?: string;
+  basis?: 'windows' | 'current-epoch';
+  superseded?: boolean;
+  validFrom?: number | null;
+  validTo?: number | null;
+}
+
+/**
+ * One case: the bytes handed to a reader, the keys it designates, what the client answers, and what the
+ * envelope reader answers underneath that.
+ */
+export interface SealedManifestVector {
+  name: string;
+  note: string;
+  /** The document as served, sealed or plain, unpadded base64url. */
+  documentBase64Url: string;
+  documentByteLength: number;
+  read: { designates: DesignatedManifestKey[] };
+  /** `verify-ok`, or the code the client path answers with. */
+  verdict: string;
+  /** `verify-ok`, `not-sealed`, or the code the envelope reader answers with. */
+  seal: string;
+  authentication?: SealedManifestAuthentication;
+  /** The document as the client's parser leaves it, members in the order the parser builds them. */
+  parsed?: Record<string, unknown>;
+  /** Members a version does not name, which must appear nowhere in `parsed`. */
+  dropped?: string[];
+  /** The one position a fault case moved. */
+  edited?: string;
+  reveal?: {
+    contextString: string;
+    externalAadBase64Url: string;
+    protectedHeaderBase64Url: string;
+    payloadBase64Url: string;
+    payloadByteLength: number;
+    payloadSha256Hex: string;
+    signatureHex: string;
+    sigStructureHex: string;
+    headerLabels: { label: number; name: string; value: string | number }[];
+  };
+  claims?: ManifestEpochClaimRow[];
+}
+
+export interface SealedManifestVectorFile {
+  version: number;
+  description: string;
+  layout: {
+    format: string;
+    twin: string;
+    prose: string;
+    contentType: string;
+    reader: string;
+    envelopeReader: string;
+    codes: string[];
+    verdictFields: string[];
+    authenticationFields: string[];
+    keyMaterial: Array<{
+      id: string;
+      seed: string;
+      kidHex: string;
+      publicKeyHex: string;
+      publicKeyBase64Url: string;
+      role: string;
+    }>;
+    [key: string]: unknown;
+  };
+  vectors: SealedManifestVector[];
+  crossReading: { note: string; cases: Array<{ name: string; documentBase64Url: string; expected: string }> };
+}
+
+/** The sealed deployment manifest: both served shapes, the designations, and the verdicts owed them. */
+export function loadSealedManifestVectors(): SealedManifestVectorFile {
+  return JSON.parse(readFileSync(join(DATA, 'manifest-v1.json'), 'utf8')) as SealedManifestVectorFile;
+}
