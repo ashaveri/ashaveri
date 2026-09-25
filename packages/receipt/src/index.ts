@@ -109,6 +109,27 @@ export type {
   VerifiedPackItem,
 } from './pack.js';
 export {
+  REDACTION_CONTENT_TYPE,
+  decodeRedaction,
+  encodeRedactionManifest,
+  encodeRedactionProtectedHeader,
+  redactionPackDigest,
+  redactionSigStructure,
+  redactionSurvivorChain,
+  redactionSurvivorDigest,
+  sealRedaction,
+  signRedaction,
+  verifyRedaction,
+} from './redaction.js';
+export type {
+  DecodedRedaction,
+  RedactionManifest,
+  RedactionOutcome,
+  RedactionVerifyOptions,
+  SurvivorRecord,
+  VerifiedRedaction,
+} from './redaction.js';
+export {
   MARKING_MEMBER_NAME,
   PROVENANCE_V1_MEMBER_SCHEME,
   emptyRegion,

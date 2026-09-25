@@ -39,7 +39,20 @@ export type ReceiptErrorCode =
   | 'PACK_CHAIN_BROKEN'
   | 'PACK_ITEM_UNREACHED'
   | 'PACK_KID_MISMATCH'
-  | 'PACK_UNKNOWN_KEY';
+  | 'PACK_UNKNOWN_KEY'
+  | 'REDACTION_MALFORMED_CBOR'
+  | 'REDACTION_BAD_HEADER'
+  | 'REDACTION_UNSUPPORTED_VERSION'
+  | 'REDACTION_BAD_MANIFEST'
+  | 'REDACTION_DUPLICATE_ID'
+  | 'REDACTION_KID_MISMATCH'
+  | 'REDACTION_UNKNOWN_KEY'
+  | 'REDACTION_PACK_UNAVAILABLE'
+  | 'REDACTION_PACK_MISMATCH'
+  | 'REDACTION_PACK_DISAGREES'
+  | 'REDACTION_ITEM_ABSENT'
+  | 'REDACTION_SURVIVORS_EMPTY'
+  | 'REDACTION_SURVIVOR_CHAIN_MISMATCH';
 
 const ERROR_MESSAGE: Record<ReceiptErrorCode, string> = {
   MALFORMED_CBOR: 'receipt bytes are not valid canonical CBOR',
@@ -197,6 +210,80 @@ const ERROR_MESSAGE: Record<ReceiptErrorCode, string> = {
   // read again, is one a caller has to be able to branch on rather than read out of a message. The detail says
   // which of the three positions the missing key belongs to.
   PACK_UNKNOWN_KEY: 'no key found for the kid a pack names',
+  // The redaction family below, for the same reason the export's and the pack's exist. A log line carries
+  // only the code string, and the sentences fixed beside the receipt codes name a receipt, so reading a
+  // redaction's bytes under them would hand an operator a diagnosis of the wrong container. The three
+  // envelope refusals stay shared with the receipt's, because their sentences name the COSE structure and
+  // not a document: `NOT_COSE_SIGN1`, `UNSUPPORTED_ALG`, `INVALID_SIGNATURE`. This reader has no code for a
+  // label a version does not define, because, as with the pack, no map in this format chooses between arms,
+  // and a code with no raise site would be a second voice for a fault nothing answers. Refusals raised inside
+  // `verifyPack` keep the pack's own codes rather than being folded into a redaction's, because a pack's
+  // sentence says pack and that disagreement is about the pack.
+  REDACTION_MALFORMED_CBOR: 'redaction bytes are not valid canonical CBOR',
+  // The position that answers "is this a redaction at all", answered before any key is consulted. One code
+  // for the shapes a signed header fails in, as `PACK_BAD_HEADER` is for a pack: no map, a map that does not
+  // decode under the rule this format sets for it, a label outside the three it declares, a `kid` of another
+  // width, an absent parameter, and a `typ` naming another container, which is how a receipt, a pack or an
+  // export handed to this reader is refused before one member of its payload is read. `alg` keeps its own.
+  REDACTION_BAD_HEADER: 'redaction protected header does not hold exactly the parameters the format declares',
+  // One code for the two readings of a `v` this package cannot use, as the receipt's, the export's and the
+  // pack's are. A `v` that is not an integer at all is a malformed manifest, so it answers
+  // `REDACTION_BAD_MANIFEST`.
+  REDACTION_UNSUPPORTED_VERSION: 'redaction manifest declares a version this package cannot parse',
+  // Every structural refusal of this manifest: an absent member, a member this version does not define, a
+  // digest or a sentence or an id of the wrong type or width, a stamp before the epoch, a removal list with
+  // nothing in it, and the removal list not being an array of text. The empty list is this code rather than a
+  // verdict about an erasure, because a redaction that removes nothing is a document stating that a signed
+  // head still holds after a removal of zero records, which is true and useless, and a container in which a
+  // no-op and a forgery look alike. A floating-point number, in a value and in a key alike, answers here too
+  // and from the decode rather than from a field read, because by the time a check could tell `1` from `1.0`
+  // the signed bytes have become one map entry. What is not this code: any disagreement between this
+  // document and the pack it names, which is about the pair and not about either half.
+  REDACTION_BAD_MANIFEST: 'redaction manifest does not match the layout its declared version defines',
+  REDACTION_DUPLICATE_ID: 'two removed entries in one redaction answer to the same id',
+  // The key the reader reached for hashes to something other than the kid the redaction's header names. The
+  // designation answered, and what it answered with is another key's, which is a wrong key rather than an
+  // edited document, and the two send an operator to different places.
+  REDACTION_KID_MISMATCH: 'the key handed to the reader does not match the kid the redaction names',
+  // The call carried neither a key nor a resolver, or the resolver had nothing for the kid this document
+  // names. Nothing about the redaction is refused here, which is why this is not `REDACTION_BAD_MANIFEST`,
+  // and the action is the caller's own: hand over the key the deployment's manifest retains and read again.
+  // A pack's receipts signed under an epoch the caller kept no key for answer `PACK_UNKNOWN_KEY` instead,
+  // because that is the pack's question and its sentence says pack.
+  REDACTION_UNKNOWN_KEY: 'no key found for the kid a redaction names',
+  // Not a fault of the document and not a fault of the pack: a redaction is a statement about another
+  // document, and a reader handed only this one can say nothing about it at all. Refused by name rather than
+  // accepted on the writer's word, which is the availability rule stated the only way it can be stated: a
+  // reader that cannot reach a redaction still verifies the original pack, and a reader that holds a
+  // redaction and not its pack is told which of the two it was handed too little of.
+  REDACTION_PACK_UNAVAILABLE: 'the pack a redaction speaks about was not handed to the reader',
+  // The reader hashed the pack it was given and got a different digest from the one the redaction
+  // designates. Either document may be whole; what is refused is reading this statement against that pack,
+  // which is a finding about which pack the reader is holding rather than about either pair of bytes.
+  REDACTION_PACK_MISMATCH: 'the pack handed to the reader is not the pack the redaction designates',
+  // A redaction stamped before the instant the pack it removes from began to be assembled. Both stamps are
+  // inside signatures, one over each document, so the pair cannot both be true, and this is the disagreement
+  // between two signed documents rather than one document contradicting itself, which is the distinction
+  // `REDACTION_BAD_MANIFEST` is drawn on.
+  REDACTION_PACK_DISAGREES: 'the redaction and the pack it designates state instants that cannot both be true',
+  // A named id that no record of the designated pack carries. The pack names its items uniquely and the
+  // reader has the pack, so this is not a lookup miss: the removal is stated about a receipt the sealed run
+  // never contained, and the refusal says which id.
+  REDACTION_ITEM_ABSENT: 'a redaction names an id the pack it designates does not carry',
+  // The survivor sequence has no head, because there is no sequence. Pack v1 refuses a pack with no items for
+  // the same reason: a chain over nothing closes vacuously and would read as a chain claim while attesting
+  // nothing. The artifact that states a window held nothing is a different document, and a redaction that
+  // empties a pack belongs to it rather than here.
+  REDACTION_SURVIVORS_EMPTY: 'a redaction removes every record of the pack it designates, leaving no chain to state',
+  // The load-bearing refusal, and the one that answers three findings at once. The reader takes the pack's
+  // walked records, drops the named ones, re-links what remains from the pack's own anchor and hashes each
+  // with the pack's own record rule, and compares. A writer that removed more than it named states the digest
+  // of a longer survivor sequence than the reader can see. A writer that stated the pack's original head
+  // instead states a value the fold returns only when nothing was removed. A writer that relinked from some
+  // other seam, including the first survivor's own recorded predecessor, states a third value. The detail
+  // gives the survivor count, the digest the recomputation reached and the one the document carries, because
+  // the count is what tells an operator which of the three they are looking at.
+  REDACTION_SURVIVOR_CHAIN_MISMATCH: 'the surviving records do not hash to the reduced chain head the redaction carries',
 };
 
 /**
