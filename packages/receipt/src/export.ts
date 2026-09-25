@@ -8,8 +8,10 @@ import {
   COSE_HEADER_CONTENT_TYPE,
   COSE_HEADER_KID,
   COSE_SIGN1_TAG,
+  buildProtectedHeader,
   equalBytes,
   keyId,
+  sealCoseSign1,
   type CoseSign1,
   type ProtectedHeader,
   type SigningKey,
@@ -261,25 +263,27 @@ export function exportSigStructure(
   return encodeCanonical(['Signature1', protectedBytes, externalAad, payloadBytes]);
 }
 
-/** The signed header, carrying the content type the caller means it to carry. */
+/**
+ * The signed header, carrying the content type the caller means it to carry. Which three labels exist and
+ * how they encode is the receipt's answer; this format's own contribution is the name in label 3, so the
+ * builder is shared and only that name is passed.
+ */
 export function encodeExportProtectedHeader(kid: Uint8Array, contentType: string = EXPORT_CONTENT_TYPE): Uint8Array {
-  return encodeCanonical(
-    new Map<number, unknown>([
-      [COSE_HEADER_ALG, ALG_EDDSA],
-      [COSE_HEADER_CONTENT_TYPE, contentType],
-      [COSE_HEADER_KID, kid],
-    ]),
-  );
+  return buildProtectedHeader(kid, contentType);
 }
 
-/** The four elements of a `COSE_Sign1-Export-COSE`, tagged, as the format writes them. */
+/**
+ * The four elements of a `COSE_Sign1-Export-COSE`, tagged, as the format writes them. `export.cddl`
+ * declares the `unprotected` map as the one a signer fills at will and that carries no claim, so it stays
+ * an argument here rather than a fixed empty map, and the framing it goes into is the shared one.
+ */
 export function sealExport(
   protectedBytes: Uint8Array,
   payloadBytes: Uint8Array,
   signature: Uint8Array,
   unprotected: Map<unknown, unknown> = new Map(),
 ): Uint8Array {
-  return encodeCanonical(new Tag(COSE_SIGN1_TAG, [protectedBytes, unprotected, payloadBytes, signature]));
+  return sealCoseSign1(protectedBytes, payloadBytes, signature, unprotected);
 }
 
 export function encodeExportManifest(manifest: ExportManifest): Uint8Array {

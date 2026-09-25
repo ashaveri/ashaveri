@@ -117,14 +117,47 @@ function sigStructure(protectedBytes: Uint8Array, externalAad: Uint8Array, paylo
   return encodeCanonical(['Signature1', protectedBytes, externalAad, payloadBytes]);
 }
 
-export function buildProtectedHeader(kid: Uint8Array): Uint8Array {
+/**
+ * The signed header: `alg`, `typ` and `kid`, in the order the CDDL lists them, canonically encoded so
+ * key order is bytewise and no caller can move a byte of what gets signed.
+ *
+ * The content type is the one parameter the four documents this package writes do not share. They are
+ * all a `COSE_Sign1` over the same three labels, sealed by the same key family, and a receipt, a pack,
+ * an export and a deployment manifest all pass their own checks, so the field that tells them apart has
+ * to be answered before anything about the payload is. It arrives as an argument rather than being read
+ * from the payload for that reason, and it defaults to the receipt's own name because this module is the
+ * receipt format's, and every other format borrows the framing rather than the answer in label 3.
+ */
+export function buildProtectedHeader(kid: Uint8Array, contentType: string = RECEIPT_CONTENT_TYPE): Uint8Array {
   return encodeCanonical(
     new Map<number, unknown>([
       [COSE_HEADER_ALG, ALG_EDDSA],
-      [COSE_HEADER_CONTENT_TYPE, RECEIPT_CONTENT_TYPE],
+      [COSE_HEADER_CONTENT_TYPE, contentType],
       [COSE_HEADER_KID, kid],
     ]),
   );
+}
+
+/**
+ * The four elements of a `COSE_Sign1`, tagged 18, exactly as RFC 9052 section 4.4 orders them. This is
+ * the whole of what a writer of any of these documents does last, and the formats share it byte for
+ * byte, so it lives here once and each format's own sealer names it rather than restating it: a second
+ * copy is a second place where a signed document could be assembled differently from the one a reader
+ * expects.
+ *
+ * `unprotected` is an argument because each of the four formats declares that map `{ * any => any }` in its
+ * own CDDL, so a writer of any one of them may fill it. It sits outside the `Sig_structure`, so nothing
+ * written there travels as a claim about anything, and a reader that refused a document for the contents of
+ * that map would be refusing bytes no signature covers. A receipt and a manifest seal are assembled with the
+ * default here, because those two writers have nothing to say beside what they sign.
+ */
+export function sealCoseSign1(
+  protectedBytes: Uint8Array,
+  payloadBytes: Uint8Array,
+  signature: Uint8Array,
+  unprotected: Map<unknown, unknown> = new Map(),
+): Uint8Array {
+  return encodeCanonical(new Tag(COSE_SIGN1_TAG, [protectedBytes, unprotected, payloadBytes, signature]));
 }
 
 export function signCoseSign1(
@@ -135,7 +168,7 @@ export function signCoseSign1(
   const protectedBytes = buildProtectedHeader(key.kid);
   const toSign = sigStructure(protectedBytes, externalAad, payloadBytes);
   const signature = ed25519.sign(toSign, key.privateKey);
-  return encodeCanonical(new Tag(COSE_SIGN1_TAG, [protectedBytes, new Map(), payloadBytes, signature]));
+  return sealCoseSign1(protectedBytes, payloadBytes, signature);
 }
 
 export function decodeCoseSign1(bytes: Uint8Array): CoseSign1 & { header: ProtectedHeader } {

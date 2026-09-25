@@ -8,8 +8,10 @@ import {
   COSE_HEADER_CONTENT_TYPE,
   COSE_HEADER_KID,
   COSE_SIGN1_TAG,
+  buildProtectedHeader,
   equalBytes,
   keyId,
+  sealCoseSign1,
   type CoseSign1,
   type ProtectedHeader,
   type SigningKey,
@@ -323,22 +325,18 @@ function recordDigest(record: VerifiedPackItem): Uint8Array {
  * The signed header this format writes, carrying the content type that keeps a pack from being read as a
  * receipt, an export or a deployment manifest. The `contentType` argument is there for the one caller who needs
  * a header naming something else, which is a document assembled to be refused: no honest pack writes another
- * type, and the reader answers this position before it consults a key.
+ * type, and the reader answers this position before it consults a key. The three labels and their encoding are
+ * the receipt's, so this names the shared builder and supplies only the one field that differs.
  */
 export function encodePackProtectedHeader(kid: Uint8Array, contentType: string = PACK_CONTENT_TYPE): Uint8Array {
-  return encodeCanonical(
-    new Map<number, unknown>([
-      [COSE_HEADER_ALG, ALG_EDDSA],
-      [COSE_HEADER_CONTENT_TYPE, contentType],
-      [COSE_HEADER_KID, kid],
-    ]),
-  );
+  return buildProtectedHeader(kid, contentType);
 }
 
 /**
  * The four elements of a `COSE_Sign1-Pack-COSE`, tagged, as the format writes them. The `unprotected` map is
  * the one a signer fills at will and this reader reads nothing out of, so it is an argument rather than a fixed
- * empty map.
+ * empty map. The framing itself is the shared one, because a pack and a receipt differ in label 3 and nowhere
+ * in how a signed document is assembled.
  */
 export function sealPack(
   protectedBytes: Uint8Array,
@@ -346,7 +344,7 @@ export function sealPack(
   signature: Uint8Array,
   unprotected: Map<unknown, unknown> = new Map(),
 ): Uint8Array {
-  return encodeCanonical(new Tag(COSE_SIGN1_TAG, [protectedBytes, unprotected, payloadBytes, signature]));
+  return sealCoseSign1(protectedBytes, payloadBytes, signature, unprotected);
 }
 
 /**
