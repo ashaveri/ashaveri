@@ -99,7 +99,7 @@
         "kidHex": "88137c4c8df099902f256f78d5a5298ca265b17bff51453d292540fdbcbe4477",
         "publicKeyHex": "58b52fb536643da4cda38195e936ee67fb007374e97092904a6b15798d974314",
         "publicKeyBase64Url": "WLUvtTZkPaTNo4GV6TbuZ_sAc3TpcJKQSmsVeY2XQxQ",
-        "role": "another deployment's key, for the seal that names a kid it is not and the designation that reaches nothing"
+        "role": "another deployment's key, for the pack sealed under a key its caller does not designate and the signature not made by the key its header names"
       }
     ],
     "keyNote": "test-only, published so a port can produce these signatures itself rather than only checking them, and protecting nothing. The honest packs here are sealed by the same key the committed receipt fixtures are issued under, which is the key a deployment names in its manifest and the one a reader of a pack is handed for the receipts inside it."

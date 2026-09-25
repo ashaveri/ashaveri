@@ -79,13 +79,12 @@ const ZEROS = new Uint8Array(32);
  * still has to answer for the receipts it signed. So the honest packs here are sealed by `CURRENT`, the
  * committed fixture receipt key this repository already publishes in `data/keys/receipt-key-v1.json`, and
  * `RETIRED` is the epoch that was superseded inside the span. `OTHER` is another deployment's key, used for the
- * rows about a signature that was not made by the key its header names and a designation that reached nothing.
+ * row whose pack is sealed under a key its caller was not given and the row whose signature was not made by the
+ * key its own header names.
  */
 const CURRENT: SigningKey = fixtureKey();
 const RETIRED: SigningKey = signingKeyFromSeed(labeled('ashaveri-pack-v1/receipt-key-b'));
 const OTHER: SigningKey = signingKeyFromSeed(labeled('ashaveri-pack-v1/signer-b'));
-const ALL_KEYS: readonly SigningKey[] = [CURRENT, RETIRED, OTHER];
-const KEY_BY_KID = new Map(ALL_KEYS.map((one) => [toHex(one.kid), one]));
 
 const KEY_MATERIAL: readonly { key: SigningKey; seed: string; role: string }[] = [
   {
@@ -101,7 +100,7 @@ const KEY_MATERIAL: readonly { key: SigningKey; seed: string; role: string }[] =
   {
     key: OTHER,
     seed: "sha256 of 'ashaveri-pack-v1/signer-b'",
-    role: 'another deployment\'s key, for the seal that names a kid it is not and the designation that reaches nothing',
+    role: "another deployment's key, for the pack sealed under a key its caller does not designate and the signature not made by the key its header names",
   },
 ];
 
@@ -283,7 +282,6 @@ interface Designation {
 }
 
 const PINNED_CURRENT: Designation = { pinned: toBase64Url(CURRENT.publicKey) };
-const PINNED_OTHER: Designation = { pinned: toBase64Url(OTHER.publicKey) };
 const RETAINED_BOTH: Designation = { retained: [CURRENT, RETIRED].map((one) => ({ kid: toHex(one.kid), publicKeyBase64Url: toBase64Url(one.publicKey) })) };
 const RETAINED_CURRENT_ONLY: Designation = { retained: [{ kid: toHex(CURRENT.kid), publicKeyBase64Url: toBase64Url(CURRENT.publicKey) }] };
 
@@ -767,7 +765,6 @@ function algHeader(alg: number): Uint8Array {
 /** What `verifyPack` answers, which is the verdict a conforming reader owes the row. */
 function verdictOf(one: Case): string {
   let read: VerifiedPack | null = null;
-  let code = 'verify-ok';
   try {
     read = verifyPack(one.bytes, optionsFor(one.read));
   } catch (err) {
@@ -793,7 +790,7 @@ function verdictOf(one: Case): string {
   if (one.span !== undefined && JSON.stringify(read?.outcome.span) !== JSON.stringify(one.span)) {
     throw new Error(`${one.name}: the window reported is ${JSON.stringify(read?.outcome.span)}, not ${JSON.stringify(one.span)}`);
   }
-  return code;
+  return 'verify-ok';
 }
 
 /** What `decodePack` answers for the same bytes, with no key in hand. */
