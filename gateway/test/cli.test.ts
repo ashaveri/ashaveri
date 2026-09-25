@@ -98,7 +98,9 @@ function liveArgs(...args: string[]): string[] {
   ];
 }
 
-/** The bound on served receipts that `gateway/src/cli.ts` opens a volume store with. */
+/** The durability bound and the serving bound `gateway/src/cli.ts` opens a volume store with. Both are
+ * shipped at ten thousand receipts, which is a capacity decision and not a figure either count owes
+ * the other. */
 const SHIPPED_RECEIPT_BOUND = 10_000;
 
 /**
@@ -829,40 +831,91 @@ describe('a gateway that serves answers the way its banner says', () => {
 });
 
 /**
- * The two bounds a receipt store is opened with, the age and the count that keeps a volume from
- * filling, are configured beside each other in `gateway/src/cli.ts` and the shipped pair says nothing
- * about whether either can hold the other. These are the cases for that question at the only moment it
- * can still be refused cheaply: a start, before a receipt is served and before a caller holds an id.
+ * A receipt store is opened with a durability bound, the count of receipts a volume keeps, and a
+ * serving bound, the count one query holds at a time, beside a period. `gateway/src/cli.ts` configures
+ * all three, and the shipped pair says nothing about whether the count can hold the period. These are
+ * the cases for that question at the only moment it can still be refused cheaply: a start, before a
+ * receipt is served and before a caller holds an id.
  *
- * Both go through the built binary rather than a call into the store, because the refusal is worth
+ * They go through the built binary rather than a call into the store, because the refusal is worth
  * nothing if it is only what `openFileReceiptStore` returns to a caller that ignores it. The operator
- * has to see which two numbers disagree, in the process's own exit and on its stderr.
+ * has to see which number is short, and which of the two counts raising fixes nothing, in the
+ * process's own exit and on its stderr.
  */
 describe('a volume whose receipts have to outlive the start', () => {
-  it('refuses the start on a volume at its bound and below its window', () => {
-    const dir = join(tempDir, 'window-unheld');
-    mkdirSync(dir);
-    // Ten thousand receipts, the bound this CLI sets, over the hundred seconds the measured volume
-    // takes to write them, against a window configured in the same file as 184 days.
-    const bytes = writeHeldStore(dir, SHIPPED_RECEIPT_BOUND, 100);
+  /**
+   * The receipts a 184 day period takes at the traffic `writeHeldStore(dir, 10_000, 100)` writes: ten
+   * thousand receipts spread over ninety-nine seconds are a rate of one hundred and one receipts per
+   * second round about, so the period takes 9,999 * 15,897,600 / 99 = 1,605,657,600 receipts plus the
+   * one stamped at its older edge. The store derives this; the case states it so the number an operator
+   * is told to set is the number the code worked out.
+   */
+  const PERIOD_RECEIPTS = 1_605_657_601;
 
-    const result = run('--mock', '--port', '0', '--receipts-dir', dir);
-    expect(result.status, result.stderr).toBe(1);
-    const refused = `${result.stdout}\n${result.stderr}`;
-    expect(refused).toContain('signerd: RETENTION_WINDOW_UNHOLDABLE:');
-    // Both quantities that disagree, named in the sentence an operator reads, and the count that the
-    // store's own traffic says the window takes. The first two come from this CLI's configuration and
-    // the third from the file, so no one of them is the other's restatement.
-    expect(refused).toContain(`bound of ${String(SHIPPED_RECEIPT_BOUND)} receipts`);
-    expect(refused).toContain(`${String(MINIMUM_RETENTION_SECONDS)} seconds`);
-    expect(refused).toContain('receipts at the rate this store has been carrying');
-    expect(refused, 'a process that refused to boot printed a banner').not.toContain('listening on');
+  it(
+    'refuses the start on a volume at its bound and below its window', () => {
+      const dir = join(tempDir, 'window-unheld');
+      mkdirSync(dir);
+      // Ten thousand receipts, the durability bound this CLI ships, over the hundred seconds the
+      // measured volume takes to write them, against a period configured in the same file as 184 days.
+      const bytes = writeHeldStore(dir, SHIPPED_RECEIPT_BOUND, 100);
 
-    // The receipts are the evidence the refusal is read from, and this is the one moment an operator
-    // learns the pairing was wrong: a start-up that rewrote or shed them would destroy the only
-    // measurement of what the bound cannot hold.
-    expect(readFileSync(join(dir, RECEIPT_STORE_FILE))).toEqual(bytes);
-  });
+      const result = run('--mock', '--port', '0', '--receipts-dir', dir);
+      expect(result.status, result.stderr).toBe(1);
+      const refused = `${result.stdout}\n${result.stderr}`;
+      expect(refused).toContain('signerd: RETENTION_WINDOW_UNHOLDABLE:');
+      // Both quantities that disagree, named in the sentence an operator reads, and the count that the
+      // store's own traffic says the window takes. The first two come from this CLI's configuration and
+      // the third from the file, so no one of them is the other's restatement.
+      expect(refused).toContain(`durability bound of ${String(SHIPPED_RECEIPT_BOUND)} receipts`);
+      expect(refused).toContain(`${String(MINIMUM_RETENTION_SECONDS)} seconds`);
+      expect(refused).toContain('receipts at the rate this store has been carrying');
+      // How far short the bound is, so the number to set is read off the line rather than worked out,
+      // and the other count this CLI ships named as the one that is not the problem: a process started
+      // with both counts says which of them it is objecting to.
+      expect(refused).toContain(`short by ${String(PERIOD_RECEIPTS - SHIPPED_RECEIPT_BOUND)} receipts`);
+      expect(refused).toContain(`the serving bound of ${String(SHIPPED_RECEIPT_BOUND)} receipts is not`);
+      expect(refused, 'a process that refused to boot printed a banner').not.toContain('listening on');
+
+      // The receipts are the evidence the refusal is read from, and this is the one moment an operator
+      // learns the pairing was wrong: a start-up that rewrote or shed them would destroy the only
+      // measurement of what the bound cannot hold.
+      expect(readFileSync(join(dir, RECEIPT_STORE_FILE))).toEqual(bytes);
+    },
+    // The volume is written in one go and read back by a start that refuses it: measured here at
+    // 3.1s, which is past what the runner's five-second default leaves room for on a slower machine, so
+    // the case carries its own stop rather than the one that has bitten this estate before.
+    20_000,
+  );
+
+  it(
+    'starts the same volume once its durability bound can hold the period', () => {
+      const dir = join(tempDir, 'window-raised');
+      mkdirSync(dir);
+      writeHeldStore(dir, SHIPPED_RECEIPT_BOUND, 100);
+
+      const banner = runStopped(
+        '--mock',
+        '--port',
+        '0',
+        '--receipts-dir',
+        dir,
+        '--receipts-keep',
+        String(PERIOD_RECEIPTS),
+      );
+      const printed = banner.join('\n');
+      const line = banner.find((each) => each.startsWith('  receipts kept in '));
+      expect(line, `no receipts line; stdout held ${JSON.stringify(printed)}`).toContain(dir);
+      expect(line, printed).toContain(`a durability bound of ${String(PERIOD_RECEIPTS)} receipts`);
+      // The serving bound is reported as installed, which is the point: the volume now keeps a period
+      // that takes a sixth of a billion receipts and a query still holds ten thousand of them.
+      expect(line, printed).toContain(`a serving bound of ${String(SHIPPED_RECEIPT_BOUND)} receipts to a query`);
+    },
+    // The same ten thousand receipts on disk, read by a start that was told a durability bound big
+    // enough to hold 184 days of them with a serving bound nobody raised: measured here at 4.1s, four
+    // of which are the spawn waiting for its listening line.
+    20_000,
+  );
 
   it(
     'starts the same pairing on a volume that has not reached its bound', () => {
@@ -880,8 +933,16 @@ describe('a volume whose receipts have to outlive the start', () => {
       // The start-up report states the pair as configuration, not as a period kept: a store that opens
       // has compared its two bounds against its own traffic and nothing more.
       expect(line, printed).toContain('as configured');
-      expect(line, printed).toContain('a bound of 10000 receipts');
+      expect(line, printed).toContain('a durability bound of 10000 receipts');
     },
     12_000,
   );
+
+  it('refuses a bound that is not a count of receipts', () => {
+    for (const flag of ['--receipts-keep', '--receipts-per-query']) {
+      const result = run('--mock', '--port', '0', flag, '12.5');
+      expect(result.status, result.stderr).toBe(2);
+      expect(result.stderr).toContain(`--${flag.slice(2)} must be a positive whole number`);
+    }
+  });
 });

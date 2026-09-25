@@ -9,6 +9,7 @@ import {
   receiptsNeededForWindow,
   RECEIPT_STORE_FILE,
   type ReceiptRetention,
+  type ReceiptServing,
   type ReceiptStore,
   type RetainedWindow,
 } from '../src/store.js';
@@ -802,6 +803,77 @@ describe('the window a store is configured to hold', () => {
     expect(await atBound({ maxAgeSeconds: FIVE_YEARS_SECONDS, now: () => STAMP })).toBe('opened');
   });
 
+  it(
+    'keeps a long period and answers a short query on the same volume',
+    // Ten durable appends, two opens and ten reads, measured here at 32ms: the same volume as the
+    // cases above, so the same stop, which the comment on `FILE_CASE_TIMEOUT` measures.
+    { timeout: FILE_CASE_TIMEOUT },
+    async () => {
+      // The pairing the split was for. The durability bound holds the period, the serving bound holds
+      // the query, and neither asks the other for room: ten receipts one second apart are exactly what
+      // a store that keeps ten receipts and is asked to keep nine seconds of them has to hold, and a
+      // walk over all ten is resolved two at a time.
+      const dir = await emptyDir();
+      const spaced: ReceiptRetention = { maxAgeSeconds: 9, maxCount: FIXTURE_RECEIPTS, now: () => STAMP + 9 };
+      const serving: ReceiptServing = { maxServedReceipts: 2 };
+      const written = await openFileReceiptStore({ dir, retention: spaced, serving });
+      for (let i = 0; i < FIXTURE_RECEIPTS; i++) {
+        await written.put(`rcpt_${String(i).padStart(2, '0')}`, RECEIPT, STAMP + i);
+      }
+      expect(await written.window()).toEqual({
+        from: STAMP,
+        to: STAMP + FIXTURE_RECEIPTS - 1,
+        count: FIXTURE_RECEIPTS,
+      });
+
+      // Reopened rather than kept, because the question this answers is one a volume is asked at a
+      // start. Compare against the old single number, which was two here, and this store does not open.
+      const reopened = await openFileReceiptStore({ dir, retention: spaced, serving });
+      const walked: string[] = [];
+      for await (const item of reopened.range(0, 2_000_000_000)) {
+        walked.push(item.id);
+      }
+      // Every receipt the store kept, in the order they were chained, from a walk that was never held
+      // more than two of them at a time.
+      expect(walked).toEqual(
+        Array.from({ length: FIXTURE_RECEIPTS }, (_, i) => `rcpt_${String(i).padStart(2, '0')}`),
+      );
+    },
+  );
+
+  it(
+    'refuses on the durability bound and names the serving bound as not the short one',
+    { timeout: FILE_CASE_TIMEOUT },
+    async () => {
+      const dir = await emptyDir();
+      const retention: ReceiptRetention = {
+        maxAgeSeconds: FIVE_YEARS_SECONDS,
+        maxCount: FIXTURE_BOUND,
+        now: () => STAMP + 10,
+      };
+      // A serving bound ten times the durability bound, which is a lawful pairing and the one a single
+      // number could not state: what one query may hold says nothing about what the file keeps.
+      const serving: ReceiptServing = { maxServedReceipts: 100 };
+      const written = await openFileReceiptStore({ dir, retention, serving });
+      await burst(written, FIXTURE_RECEIPTS);
+
+      const message = await openFileReceiptStore({ dir, retention, serving }).then(
+        () => 'opened, no refusal',
+        (error: unknown) => (error as Error).message,
+      );
+      // One line, read by an operator with two counts in front of them: the bound that is short, the
+      // count the period takes, the shortfall, and which of the two numbers raising fixes nothing.
+      expect(message).toContain('RETENTION_WINDOW_UNHOLDABLE');
+      expect(message).toContain('durability bound of 5 receipts');
+      // Five retained receipts stamped at one instant are read as the fastest traffic a file can
+      // report, so the window takes 4 * 157,680,000 = 630,720,000 receipts plus the one stamped at its
+      // older edge, which is 630,719,996 more than the bound this store was opened with holds.
+      expect(message).toContain('630720001 receipts');
+      expect(message).toContain('short by 630719996 receipts');
+      expect(message).toContain('the serving bound of 100 receipts is not the number to raise');
+    },
+  );
+
   it('derives the count a window takes from the period and the traffic, and declines to guess', () => {
     const at = (count: number, from: number, to: number): RetainedWindow => ({ from, to, count });
     // The receipt at the older edge is the `+ 1`: ten receipts one second apart span nine seconds, so
@@ -831,4 +903,143 @@ describe('the window a store is configured to hold', () => {
     );
   });
 });
+
+/**
+ * The serving bound and the durability bound govern two different things, so these cases hold one still
+ * and move the other. The durability bound is what a store keeps and the only bound retirement reads;
+ * the serving bound is what one walk holds at a time and retires nothing, so a walk over a window
+ * holding more receipts than it returns every receipt the store kept, in the order they were chained,
+ * resolved in batches. That equivalence is the claim: a bound that changed which receipts a caller is
+ * told about would be a shorter window wearing a different name.
+ *
+ * The in-process engine carries most of them, because the claim is about a walk and not about a volume
+ * and an engine with nothing behind it answers the same question in milliseconds. The one case that is
+ * about a volume is the last: it runs a retirement and a compaction underneath a walk in flight, which
+ * is the moment a walk that resolved positions rather than ids would read a receipt from where it no
+ * longer sits.
+ */
+describe('the serving bound', () => {
+  const STAMP = 1_780_000_000;
+  const WALKED = 12;
+
+  /** `count` receipts, stamped a second apart and named for the order they are chained in. */
+  async function filled(store: ReceiptStore, count: number): Promise<string[]> {
+    const ids: string[] = [];
+    for (let i = 0; i < count; i++) {
+      const id = `rcpt_${String(i).padStart(2, '0')}`;
+      ids.push(id);
+      await store.put(id, RECEIPT, STAMP + i);
+    }
+    return ids;
+  }
+
+  /** Every receipt a walk over the whole store hands back, in the order it hands them back. */
+  async function walked(store: ReceiptStore): Promise<string[]> {
+    const seen: string[] = [];
+    for await (const item of store.range(0, 2_000_000_000)) {
+      seen.push(item.id);
+    }
+    return seen;
+  }
+
+  it('serves the whole retained window at every serving bound, in the chain order', async () => {
+    const expected = await filled(openMemoryReceiptStore(), WALKED);
+    // One is the smallest bound there can be and the widest is the whole retained set, so the row of
+    // them is the arithmetic of the batching with no file and no clock in the way.
+    for (const maxServedReceipts of [1, 2, 5, WALKED, WALKED * 10, undefined]) {
+      const store = openMemoryReceiptStore({ serving: maxServedReceipts === undefined ? {} : { maxServedReceipts } });
+      await filled(store, WALKED);
+      expect(await walked(store), `a serving bound of ${String(maxServedReceipts)} is a walk's own room`).toEqual(
+        expected,
+      );
+    }
+  });
+
+  it('retires nothing, however far below the retained set it sits', async () => {
+    const store = openMemoryReceiptStore({
+      retention: { maxCount: 100, now: () => STAMP + 10 },
+      serving: { maxServedReceipts: 1 },
+    });
+    await filled(store, 5);
+    // Five receipts kept, a query allowed one at a time, and a retirement report that says nothing left.
+    expect(await store.window()).toEqual({ from: STAMP, to: STAMP + 4, count: 5 });
+    expect(await store.chainState()).toMatchObject({ retired: { byAge: 0, byCount: 0 } });
+    expect(await walked(store)).toHaveLength(5);
+  });
+
+  it('leaves the durability bound the only bound that drops a prefix', async () => {
+    const store = openMemoryReceiptStore({
+      retention: { maxCount: 3, now: () => STAMP },
+      serving: { maxServedReceipts: 1 },
+    });
+    for (let i = 0; i < 5; i++) {
+      await store.put(`rcpt_${String(i)}`, RECEIPT, STAMP);
+    }
+    // The count bound took the front of the chain and the tail is intact, which is the shape a chain
+    // can prove: a serving bound of one receipt did not reach into the retained set at all.
+    expect(await walked(store)).toEqual(['rcpt_2', 'rcpt_3', 'rcpt_4']);
+    expect(await store.chainState()).toMatchObject({ retired: { byCount: 2, byAge: 0 } });
+  });
+
+  it('holds a walk to the receipts issued before it was asked for', async () => {
+    const store = openMemoryReceiptStore({ serving: { maxServedReceipts: 2 } });
+    const expected = await filled(store, 6);
+    const walk = store.range(0, 2_000_000_000)[Symbol.asyncIterator]();
+    const seen: string[] = [];
+    let step = await walk.next();
+    // Issued while the walk is paused with one batch behind it: these belong to the next window, which
+    // is what a store that is still signing completions owes a reader recomputing a chain head.
+    await store.put('rcpt_late_0', RECEIPT, STAMP);
+    await store.put('rcpt_late_1', RECEIPT, STAMP);
+    while (!step.done) {
+      seen.push(step.value.id);
+      step = await walk.next();
+    }
+    expect(seen).toEqual(expected);
+    expect(await store.window()).toEqual({ from: STAMP, to: STAMP + 5, count: 8 });
+    expect(await walked(store)).toEqual([...expected, 'rcpt_late_0', 'rcpt_late_1']);
+  });
+
+  it(
+    'reads a receipt from where it lies after a compaction moved it under the walk',
+    // Nine durable appends and one open, four of them landing while a walk is parked between two
+    // yields, measured here at 26ms. The stop is the one the cases in the describe above carry for the
+    // same volume of appends, which is ten durable writes and an open at 15s.
+    { timeout: 15_000 },
+    async () => {
+      const dir = await emptyDir();
+      let now = STAMP;
+      const store = await openFileReceiptStore({
+        dir,
+        retention: { maxAgeSeconds: 1_000, now: () => now },
+        serving: { maxServedReceipts: 1 },
+      });
+      // Four receipts that the next clock reading ages out, three that it keeps, and the ages chosen so
+      // the dead prefix outweighs the live tail: that is when a compaction runs, and it rewrites every
+      // survivor to a new offset while the walk below is parked between two yields.
+      for (let i = 0; i < 4; i++) {
+        await store.put(`aged_${String(i)}`, RECEIPT, STAMP);
+      }
+      for (let i = 0; i < 3; i++) {
+        await store.put(`kept_${String(i)}`, OTHER_RECEIPT, STAMP + 2_000);
+      }
+      const walk = store.range(0, 2_000_000_000)[Symbol.asyncIterator]();
+      const seen: string[] = [];
+      let step = await walk.next();
+      now = STAMP + 2_000;
+      await store.put('kept_later', RECEIPT, now);
+      while (!step.done) {
+        seen.push(step.value.id);
+        step = await walk.next();
+      }
+      // The first receipt the walk had already reached, then the three that survived the retirement,
+      // read from the offsets the compaction gave them. `aged_1` onward left the store while the walk
+      // was parked, which is what its window had already said it kept, and `kept_later` was issued
+      // after the walk was asked for.
+      expect(seen).toEqual(['aged_0', 'kept_0', 'kept_1', 'kept_2']);
+      expect(await walked(store)).toEqual(['kept_0', 'kept_1', 'kept_2', 'kept_later']);
+    },
+  );
+});
+
 
