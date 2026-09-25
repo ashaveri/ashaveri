@@ -1101,8 +1101,8 @@ describe('a rewrite landing underneath a walk', () => {
   async function fileOf(payload: Uint8Array, ids: readonly string[]): Promise<Buffer> {
     const dir = await emptyDir();
     const store = await openFileReceiptStore({ dir });
-    for (let i = 0; i < ids.length; i++) {
-      await store.put(ids[i], payload, STAMP + i);
+    for (const [i, id] of ids.entries()) {
+      await store.put(id, payload, STAMP + i);
     }
     return readFile(join(dir, RECEIPT_STORE_FILE));
   }
@@ -1133,8 +1133,8 @@ describe('a rewrite landing underneath a walk', () => {
     async () => {
       const dir = await emptyDir();
       const store = await openFileReceiptStore({ dir, serving: { maxServedReceipts: 1 } });
-      for (let i = 0; i < IDS.length; i++) {
-        await store.put(IDS[i], RECEIPT, STAMP + i);
+      for (const [i, id] of IDS.entries()) {
+        await store.put(id, RECEIPT, STAMP + i);
       }
       const foreign = await fileOf(FOREIGN, IDS);
 
@@ -1147,7 +1147,7 @@ describe('a rewrite landing underneath a walk', () => {
       // store opened on that file says as much. Answering from it under the old index would have handed
       // back a receipt for an id the store filed against the other file, with nothing to tell anyone.
       const reopened = await openFileReceiptStore({ dir });
-      expect(Array.from((await reopened.get(IDS[0]))!)).toEqual(Array.from(FOREIGN));
+      expect(Array.from((await reopened.get(IDS[0]!))!)).toEqual(Array.from(FOREIGN));
       const replaced = await served(reopened);
       expect(replaced.map((item) => item.id)).toEqual(IDS);
       for (const item of replaced) {
@@ -1222,8 +1222,8 @@ describe('a rewrite landing underneath a walk', () => {
     async () => {
       const dir = await emptyDir();
       const store = await openFileReceiptStore({ dir, serving: { maxServedReceipts: 1 } });
-      for (let i = 0; i < IDS.length; i++) {
-        await store.put(IDS[i], RECEIPT, STAMP + i);
+      for (const [i, id] of IDS.entries()) {
+        await store.put(id, RECEIPT, STAMP + i);
       }
       const foreign = await fileOf(FOREIGN, IDS);
 
