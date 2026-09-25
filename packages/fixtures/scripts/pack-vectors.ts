@@ -341,6 +341,20 @@ const SINGLE = chained([ENTRIES[0]!]);
 const MARKED = chained([{ id: 'receipt-0', iat: BASE, marked: true }, ENTRIES[1]!, ENTRIES[2]!]);
 const SEAM = chained(ENTRIES, digest(text('the seam a trim record carried')));
 
+/**
+ * The honest run with its middle item restamped to a value that item's own receipt does not carry. The successor's
+ * link and the head are recomputed over the moved stamp, which is what makes the run close at the stamp it now
+ * states: every structural check and the whole walk hold on these bytes, so the only thing left to refuse them is
+ * the equality between an item's stamp and the stamp its receipt attests.
+ */
+const LIED_SECOND: PackItem = { ...honestManifest.items[1]!, iat: honestManifest.items[1]!.iat + 1 };
+const LIED_THIRD: PackItem = { ...honestManifest.items[2]!, prev: packRecordDigest(LIED_SECOND) };
+const liedManifest = manifestFor({
+  items: [honestManifest.items[0]!, LIED_SECOND, LIED_THIRD],
+  anchor: honestManifest.chain.anchor,
+  head: packRecordDigest(LIED_THIRD),
+});
+
 const CASES: readonly Case[] = [
   {
     name: 'well-formed-three-items',
@@ -651,18 +665,8 @@ const CASES: readonly Case[] = [
   },
   {
     name: 'item-chained-under-a-stamp-it-does-not-attest',
-    note: 'The middle item restamped to a value its own receipt does not carry, with its successor\'s link recomputed over the moved stamp so that the run still closes at the signed head. The store chains under the stamp it was handed, so the item\'s `iat` and the receipt\'s are two statements and their equality is part of the walk: this is a receipt moved into a window it was never issued in, and the links say nothing about it.',
-    bytes: signPack(
-      {
-        ...honestManifest,
-        items: [
-          honestManifest.items[0]!,
-          { ...honestManifest.items[1]!, iat: honestManifest.items[1]!.iat + 1 },
-          { ...honestManifest.items[2]!, prev: packRecordDigest({ ...honestManifest.items[1]!, iat: honestManifest.items[1]!.iat + 1 }) },
-        ],
-      },
-      CURRENT,
-    ),
+    note: 'The middle item restamped to a value its own receipt does not carry, with its successor\'s link and the head recomputed over the moved stamp so that the run closes at the stamp it now states. The store chains under the stamp it was handed, so the item\'s `iat` and the receipt\'s are two statements and their equality is part of the walk: this is a receipt moved into a window it was never issued in, and nothing else in these bytes says so.',
+    bytes: signPack(liedManifest, CURRENT),
     read: PINNED_CURRENT,
     verdict: 'PACK_RECEIPT_STAMP_MISMATCH',
     structural: 'verify-ok',
