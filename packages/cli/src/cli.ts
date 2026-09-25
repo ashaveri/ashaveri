@@ -7,8 +7,9 @@ import { runCredential } from './commands/credential.js';
 import { runAccessLog } from './commands/accesslog.js';
 import { runVerify } from './commands/verify.js';
 import { runVerifyReceipt } from './commands/verify-receipt.js';
+import { runVerifyHandover } from './commands/verify-handover.js';
 
-const COMMANDS = ['verify', 'verify-receipt', 'keygen', 'credential', 'accesslog'] as const;
+const COMMANDS = ['verify', 'verify-receipt', 'verify-handover', 'keygen', 'credential', 'accesslog'] as const;
 
 const USAGE = `ashaveri - offline verification of dStack confidential-VM attestations and of published
 receipts, and the operator commands for the gateway's credential file and access log
@@ -22,6 +23,8 @@ Arguments:
                          [--manifest-key <b64url>]...
                          [--request-body <file> | --request-hash <hex>]
                          [--response-body <file> | --response-hash <hex>] [options]
+  ashaveri verify-handover <document> [--key <b64url>]... [--manifest-key <b64url>]...
+                         [--companion <file>]... [--json]
   ashaveri keygen [--id <id>] [--json]
   ashaveri credential add --credentials <file> [--id <id>] [--kind pop|bearer]
                           [--scopes read,complete] [--label <text>]
@@ -33,6 +36,26 @@ Arguments:
 
   <attestation>      Path to a dStack VersionedAttestation file, or - for stdin.
   <receipt>          Path to a COSE_Sign1 receipt file, or - for stdin.
+  <document>         Path to one signed document from a handover, or - for stdin: a receipt, a pack,
+                     an export or a deployment manifest, whichever the bytes say it is.
+
+verify-handover answers the question a pile of files leaves open: what is this, and what holds for it.
+Four signed shapes carry a published content type, in the COSE protected header, inside the signature,
+so the answer is one command that reads the header rather than a verb per shape that makes the caller
+declare the form before looking at it. The type found is printed before anything about validity, in
+both renderings, and the document is then read by the reader for that type: the receipt reader, the
+pack reader, the export reader, or the manifest rule a client applies to a served document. Nothing is
+fetched and no policy is read. Keys are what the command line designates, by role: --key names the keys
+whose signatures hold on a receipt, a pack or an export, matched on the kid each document names, and
+--manifest-key names the keys whose seal authenticates a deployment manifest, which is a separate
+designation because a manifest decides which keys sign evidence and cannot be proved by one of them.
+Each key's id is computed from the key, so a designation cannot type an id its own key contradicts, and
+a run prints which designations it was handed and whether the document in front of it consulted them.
+What this command leaves open is printed as open: it compares no nonce against a challenge, no digest
+against the bytes it claims, no pin against a policy and no stamp against a clock, and those are the
+questions ashaveri verify-receipt answers about one request. A directory is refused with the reason,
+because a bundle's rules over which files stand in a substituted root and which are omitted or extra are
+not what decides a document's type, and a pack reads as soon as its file is named.
 
 verify-receipt reaches a verdict about a receipt from the files in front of it: the receipt, the
 policy that names what is trusted, the deployment manifest that declares the signing key, and the
@@ -179,6 +202,23 @@ Receipt verification options:
                      The digest of those bytes, 64 hex, which carries a v1 receipt's check but not a
                      v2 one's.
 
+Handover options:
+  --key <b64url>      A public key this run accepts a signature from, as the base64url of its 32
+                     public bytes. Repeatable, one key per flag, and matched on the kid a document's
+                     own protected header names: a pack whose span crosses a key rotation carries
+                     receipts signed under the epochs that were current then, and a caller that kept
+                     those keys verifies the pack and every receipt inside it. A document naming a kid
+                     none of these designates is refused as a gap in this call, not as a fault in the
+                     document. A deployment manifest is not read by these keys: see --manifest-key.
+                     Base64url includes a dash in its alphabet, and an argument that starts with one
+                     is not read as this option's value, so pass such a key as --key=<value>.
+  --companion <file>  One original an export item's digest is recomputed over. Repeatable, and matched
+                     by the file's own name, which is the name the signed item carries: a file named
+                     contract.txt answers the item naming contract.txt. An item whose name was not
+                     handed is refused by that name rather than passed over, because an export that
+                     reported on material nobody looked at is the defect this container exists not to
+                     have. A file no item names is left unused and said so in the report.
+
 Credential and log options:
   --credentials <file>
                      The credential file a credential command reads and rewrites. The write
@@ -221,7 +261,8 @@ Options for every command:
 
 Exit codes:
   0  the command did what it was asked: an attestation verified with every --expect-* pin
-     matched, a receipt verified with every pin its policy names matched, a credential added or
+     matched, a receipt verified with every pin its policy names matched, a handover document
+     classified by its signed content type and read by the reader for that type, a credential added or
      revoked, a listing printed, a scrub run
   1  verification or a pin failed, or a command met an error it was not written to expect
   2  usage or input error, including a credential file this program cannot parse. A scrub can exit 2
@@ -280,6 +321,8 @@ async function main(argv: string[]): Promise<number> {
         policy: { type: 'string' },
         manifest: { type: 'string' },
         'manifest-key': { type: 'string', multiple: true },
+        key: { type: 'string', multiple: true },
+        companion: { type: 'string', multiple: true },
         nonce: { type: 'string' },
         'request-body': { type: 'string' },
         'request-hash': { type: 'string' },
@@ -323,6 +366,8 @@ async function main(argv: string[]): Promise<number> {
       return runVerify(positionals.slice(1), values);
     case 'verify-receipt':
       return runVerifyReceipt(positionals.slice(1), values);
+    case 'verify-handover':
+      return runVerifyHandover(positionals.slice(1), values);
     case 'keygen':
       return runKeygen(values.id, values.json === true);
     case 'credential':
