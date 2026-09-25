@@ -411,11 +411,11 @@ describe('ashaveri verify', () => {
   it('exits 2, naming the command list, for no command and for one that does not exist', () => {
     const none = runCli([]);
     expect(none.status).toBe(2);
-    expect(none.stderr).toContain('expected a command: verify, verify-receipt, verify-handover, keygen, credential, accesslog');
+    expect(none.stderr).toContain('expected a command: verify, verify-receipt, verify-handover, verify-pack, verify-export, keygen, credential, accesslog');
     const unknown = runCli(['frobnicate', 'anything']);
     expect(unknown.status).toBe(2);
     expect(unknown.stderr).toContain(
-      "unknown command 'frobnicate': expected one of verify, verify-receipt, verify-handover, keygen, credential, accesslog",
+      "unknown command 'frobnicate': expected one of verify, verify-receipt, verify-handover, verify-pack, verify-export, keygen, credential, accesslog",
     );
   });
 
@@ -434,6 +434,10 @@ describe('ashaveri verify', () => {
     expect(result.stdout).toContain('--expect-compose-hash');
     expect(result.stdout).toContain('--intel-root');
     expect(result.stdout).toContain("--public-key=<value>");
+    // The two pinned verbs are registered rather than merely parseable: this output is the command list a
+    // caller reads, so a verb that runs and is not named here is a verb nobody finds.
+    expect(result.stdout).toContain('ashaveri verify-pack <document>');
+    expect(result.stdout).toContain('ashaveri verify-export <document>');
   });
 
   it('prints the version with --version', () => {

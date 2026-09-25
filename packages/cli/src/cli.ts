@@ -8,8 +8,10 @@ import { runAccessLog } from './commands/accesslog.js';
 import { runVerify } from './commands/verify.js';
 import { runVerifyReceipt } from './commands/verify-receipt.js';
 import { runVerifyHandover } from './commands/verify-handover.js';
+import { runVerifyPack } from './commands/verify-pack.js';
+import { runVerifyExport } from './commands/verify-export.js';
 
-const COMMANDS = ['verify', 'verify-receipt', 'verify-handover', 'keygen', 'credential', 'accesslog'] as const;
+const COMMANDS = ['verify', 'verify-receipt', 'verify-handover', 'verify-pack', 'verify-export', 'keygen', 'credential', 'accesslog'] as const;
 
 const USAGE = `ashaveri - offline verification of dStack confidential-VM attestations and of published
 receipts, and the operator commands for the gateway's credential file and access log
@@ -25,6 +27,8 @@ Arguments:
                          [--response-body <file> | --response-hash <hex>] [options]
   ashaveri verify-handover <document> [--key <b64url>]... [--manifest-key <b64url>]...
                          [--companion <file>]... [--json]
+  ashaveri verify-pack <document> --key <b64url>... [--json]
+  ashaveri verify-export <document> --key <b64url>... [--companion <file>]... [--json]
   ashaveri keygen [--id <id>] [--json]
   ashaveri credential add --credentials <file> [--id <id>] [--kind pop|bearer]
                           [--scopes read,complete] [--label <text>]
@@ -37,11 +41,13 @@ Arguments:
   <attestation>      Path to a dStack VersionedAttestation file, or - for stdin.
   <receipt>          Path to a COSE_Sign1 receipt file, or - for stdin.
   <document>         Path to one signed document from a handover, or - for stdin: a receipt, a pack,
-                     an export or a deployment manifest, whichever the bytes say it is.
+                     an export or a deployment manifest, whichever the bytes say it is. For
+                     verify-pack and verify-export it is the file that says the one thing that verb
+                     reads, and any other document is refused before it is opened.
 
 verify-handover answers the question a pile of files leaves open: what is this, and what holds for it.
 Four signed shapes carry a published content type, in the COSE protected header, inside the signature,
-so the answer is one command that reads the header rather than a verb per shape that makes the caller
+so the answer for a pile is one command that reads the header rather than one that makes the caller
 declare the form before looking at it. The type found is printed before anything about validity, in
 both renderings, and the document is then read by the reader for that type: the receipt reader, the
 pack reader, the export reader, or the manifest rule a client applies to a served document. Nothing is
@@ -56,6 +62,18 @@ against the bytes it claims, no pin against a policy and no stamp against a cloc
 questions ashaveri verify-receipt answers about one request. A directory is refused with the reason,
 because a bundle's rules over which files stand in a substituted root and which are omitted or extra are
 not what decides a document's type, and a pack reads as soon as its file is named.
+
+verify-pack and verify-export are that command with the answer in label 3 fixed to one value, for a
+caller that already knows which file it holds. Ask the free verb about a pile and not knowing is the
+question; tell a script which shape it came for and the shape stops being a question, so a step written
+to check a pack that is handed an export should not come back reporting a verdict about the wrong
+material and exiting 0. A pinned verb refuses that before it opens the payload, with the refusal
+verify-handover already gives a content type it holds no reader for, BAD_PROTECTED_HEADER naming the typ
+the header carries, because which of the four shapes these bytes claim is one fact stated in one field
+and it wants one answer, not a code per verb. Neither verb adds an option, a refusal code or an exit
+code: --key designates the keys this run accepts a signature from, exactly as it does there, an export's
+originals still come in through --companion, and --manifest-key is accepted so one line can be run
+across a whole bundle and is printed as not consulted, since neither verb reads a manifest.
 
 verify-receipt reaches a verdict about a receipt from the files in front of it: the receipt, the
 policy that names what is trusted, the deployment manifest that declares the signing key, and the
@@ -202,7 +220,7 @@ Receipt verification options:
                      The digest of those bytes, 64 hex, which carries a v1 receipt's check but not a
                      v2 one's.
 
-Handover options:
+Handover options, the same for verify-handover, verify-pack and verify-export:
   --key <b64url>      A public key this run accepts a signature from, as the base64url of its 32
                      public bytes. Repeatable, one key per flag, and matched on the kid a document's
                      own protected header names: a pack whose span crosses a key rotation carries
@@ -210,6 +228,9 @@ Handover options:
                      those keys verifies the pack and every receipt inside it. A document naming a kid
                      none of these designates is refused as a gap in this call, not as a fault in the
                      document. A deployment manifest is not read by these keys: see --manifest-key.
+                     All three verbs read a signed document, so one of these is required by each of
+                     them, and a run over a bundle may hand --manifest-key to all three: it is printed
+                     as not consulted wherever the document in front of the run did not use it.
                      Base64url includes a dash in its alphabet, and an argument that starts with one
                      is not read as this option's value, so pass such a key as --key=<value>.
   --companion <file>  One original an export item's digest is recomputed over. Repeatable, and matched
@@ -262,7 +283,8 @@ Options for every command:
 Exit codes:
   0  the command did what it was asked: an attestation verified with every --expect-* pin
      matched, a receipt verified with every pin its policy names matched, a handover document
-     classified by its signed content type and read by the reader for that type, a credential added or
+     classified by its signed content type and read by the reader for that type, or a document
+     met by the verb pinned to that type and read the same way, a credential added or
      revoked, a listing printed, a scrub run
   1  verification or a pin failed, or a command met an error it was not written to expect
   2  usage or input error, including a credential file this program cannot parse. A scrub can exit 2
@@ -368,6 +390,10 @@ async function main(argv: string[]): Promise<number> {
       return runVerifyReceipt(positionals.slice(1), values);
     case 'verify-handover':
       return runVerifyHandover(positionals.slice(1), values);
+    case 'verify-pack':
+      return runVerifyPack(positionals.slice(1), values);
+    case 'verify-export':
+      return runVerifyExport(positionals.slice(1), values);
     case 'keygen':
       return runKeygen(values.id, values.json === true);
     case 'credential':

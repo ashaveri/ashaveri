@@ -6,8 +6,10 @@ import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { afterAll, describe, expect, it } from 'vitest';
 import {
+  DEPLOYMENT_MANIFEST_CONTENT_TYPE,
   EXPORT_CONTENT_TYPE,
   PACK_CONTENT_TYPE,
+  RECEIPT_CONTENT_TYPE,
   decodeCanonical,
   encodeCanonical,
   encodeExportProtectedHeader,
@@ -37,9 +39,18 @@ import {
  * own type, and a header changed without a new signature is answered by the signature rather than by a
  * verdict about the shape it now claims to be.
  *
+ * The two pinned verbs, `ashaveri verify-pack` and `ashaveri verify-export`, are tested here rather than
+ * in files of their own because they are this runner with the answer in label 3 fixed to one value, and
+ * the two claims worth making about that are both comparisons against this command's own answers: the
+ * reading of a document of the pinned type is one report and not a second one shaped like the first, and
+ * a document of another type meets the refusal this command already gives a type it holds no reader for.
+ * The documents are the same bytes either way, which is the only reason the comparison can be made.
+ *
  * No case here needs a longer timeout than the runner's default: the slowest measured case is the one
  * that checks a key's canonical spelling, at 946 ms over four CLI invocations, and each invocation
- * signs or verifies a handful of Ed25519 signatures rather than a loop of them.
+ * signs or verifies a handful of Ed25519 signatures rather than a loop of them. Three cases under the
+ * pinned verbs run the CLI more than four times and carry a stated window chosen from what each
+ * measures, with the figures beside them.
  */
 
 const CLI = fileURLToPath(new URL('../dist/cli.js', import.meta.url));
@@ -445,5 +456,148 @@ describe('ashaveri verify-handover', () => {
     });
     expect(pipe.status).toBe(0);
     expect(JSON.parse(pipe.stdout).contentType).toBe('ashaveri/receipt');
+  });
+});
+
+/**
+ * The two verbs that pin label 3 to one value, run over the documents above.
+ *
+ * Nothing here builds a document of its own: every byte is one the handover cases already read, so the
+ * two answers can be set against each other and a difference can only be the pin.
+ */
+describe('the pinned verbs verify-pack and verify-export', () => {
+  const PACK_KEY = signingKeyFromSeed(Buffer.from(RECEIPT_KEY.privateKey, 'hex'));
+  const packPath = written('pinned-pack.cbor', Buffer.from(packDocument(PACK_KEY, [RECEIPT_PATH, SOFTWARE_RECEIPT_PATH])));
+  const exportPath = written('pinned-export.cbor', exportVector('well-formed-plain').bytes);
+  const manifestBytes = sealDeploymentManifest(new TextEncoder().encode(manifestDocument()), SEALING_KEY);
+  const manifestPath = written('pinned-manifest.cbor', Buffer.from(manifestBytes));
+  const futurePath = written('pinned-future.cbor', Buffer.from(unknownTypeDocument('ashaveri/telemetry')));
+  const manifestDesignation = `--manifest-key=${Buffer.from(SEALING_KEY.publicKey).toString('base64url')}`;
+
+  /** One verb, the document it reads, and the designation that key is. */
+  const own: Array<readonly [string, string, string, string]> = [
+    ['verify-pack', packPath, `--key=${RECEIPT_PUBLIC_B64URL}`, PACK_CONTENT_TYPE],
+    ['verify-export', exportPath, `--key=${EXPORT_KEY_B64URL}`, EXPORT_CONTENT_TYPE],
+  ];
+
+  /**
+   * The window for the three cases below that run the CLI more than four times, chosen from what each of
+   * them measures on a machine with a warm store: 1,771 ms over six invocations for the report
+   * comparison, 1,032 ms and 1,061 ms over five each for the two cross-type refusals, of which about
+   * 260 ms per invocation is the cost of starting a `node` process rather than any crypto. The shared
+   * Windows runner pays more for a process start than that, which is what makes a case at about two
+   * seconds here a timeout risk there, and six times the slowest measurement leaves room without
+   * hiding a case that genuinely hangs.
+   */
+  const MANY_CLI_RUNS = { timeout: 20_000 };
+
+  it('gives its own type the same report the free verb gives, field for field', MANY_CLI_RUNS, () => {
+    for (const [verb, path, designation, contentType] of own) {
+      const pinned = runCli([verb, path, designation, '--json']);
+      expect(pinned.status, verb).toBe(0);
+      expect(pinned.stderr, verb).toBe('');
+      const free = runCli(['verify-handover', path, designation, '--json']);
+      expect(free.status, verb).toBe(0);
+      // One report and not a second one shaped like the first. A pinned verb that added a field, dropped
+      // one or worded one differently would be a second reader of the same bytes here.
+      expect(JSON.parse(pinned.stdout), verb).toEqual(JSON.parse(free.stdout));
+      expect(JSON.parse(pinned.stdout)).toMatchObject({ ok: true, contentType, reader: verb === 'verify-pack' ? 'verifyPack' : 'verifyExport' });
+      const human = runCli([verb, path, designation]);
+      expect(human.status, verb).toBe(0);
+      expect(human.stdout, verb).toContain(`content type:     ${contentType}`);
+    }
+  });
+
+  it('refuses every document that is not a pack, with the refusal the free verb gives', MANY_CLI_RUNS, () => {
+    for (const [path, designation, contentType] of [
+      [exportPath, `--key=${EXPORT_KEY_B64URL}`, EXPORT_CONTENT_TYPE],
+      [RECEIPT_PATH, `--key=${RECEIPT_PUBLIC_B64URL}`, RECEIPT_CONTENT_TYPE],
+      [manifestPath, manifestDesignation, DEPLOYMENT_MANIFEST_CONTENT_TYPE],
+      [futurePath, `--key=${RECEIPT_PUBLIC_B64URL}`, 'ashaveri/telemetry'],
+    ] as Array<readonly [string, string, string]>) {
+      const json = runCli(['verify-pack', path, designation, '--json']);
+      expect(json.status, contentType).toBe(1);
+      const refusal = verdictOf(json);
+      expect(refusal, contentType).toMatchObject({ ok: false, code: 'BAD_PROTECTED_HEADER' });
+      // The refusal this command already gives, wording and all: one code's sentence about a content type
+      // it holds no reader for, naming the type the header carries.
+      expect(String(refusal.message), contentType).toContain(`typ=${contentType}`);
+      // Nothing about the wrong document is reported, and no reader ran: the type is answered before a
+      // designation is reached, which is why the pack codes cannot be what a caller hears here.
+      expect(refusal.contentType, contentType).toBeUndefined();
+      expect(refusal.document, contentType).toBeUndefined();
+    }
+    const human = runCli(['verify-pack', exportPath, `--key=${EXPORT_KEY_B64URL}`]);
+    expect(human.status).toBe(1);
+    expect(human.stdout).toBe('');
+    expect(human.stderr).toContain('verification failed (BAD_PROTECTED_HEADER): ');
+    expect(human.stderr).toContain(`typ=${EXPORT_CONTENT_TYPE}`);
+  });
+
+  it('refuses every document that is not an export, with the refusal the free verb gives', MANY_CLI_RUNS, () => {
+    for (const [path, designation, contentType] of [
+      [packPath, `--key=${RECEIPT_PUBLIC_B64URL}`, PACK_CONTENT_TYPE],
+      [RECEIPT_PATH, `--key=${RECEIPT_PUBLIC_B64URL}`, RECEIPT_CONTENT_TYPE],
+      [manifestPath, manifestDesignation, DEPLOYMENT_MANIFEST_CONTENT_TYPE],
+      [futurePath, `--key=${RECEIPT_PUBLIC_B64URL}`, 'ashaveri/telemetry'],
+    ] as Array<readonly [string, string, string]>) {
+      const json = runCli(['verify-export', path, designation, '--json']);
+      expect(json.status, contentType).toBe(1);
+      const refusal = verdictOf(json);
+      expect(refusal, contentType).toMatchObject({ ok: false, code: 'BAD_PROTECTED_HEADER' });
+      expect(String(refusal.message), contentType).toContain(`typ=${contentType}`);
+      expect(refusal.contentType, contentType).toBeUndefined();
+    }
+    const human = runCli(['verify-export', packPath, `--key=${RECEIPT_PUBLIC_B64URL}`]);
+    expect(human.status).toBe(1);
+    expect(human.stderr).toContain('verification failed (BAD_PROTECTED_HEADER): ');
+    expect(human.stderr).toContain(`typ=${PACK_CONTENT_TYPE}`);
+  });
+
+  it('answers the type before it asks for a key, so an undesignated run still says what the file is not', () => {
+    // Two different refusals, in the order that keeps a report honest: a document of another shape is a
+    // fact about the document, and a run that named no key is a fact about the call.
+    const wrongType = runCli(['verify-pack', exportPath, '--json']);
+    expect(wrongType.status).toBe(1);
+    expect(String(verdictOf(wrongType).message)).toContain(`typ=${EXPORT_CONTENT_TYPE}`);
+    const rightType = runCli(['verify-pack', packPath]);
+    expect(rightType.status).toBe(2);
+    expect(rightType.stderr).toContain(`--key is required to verify ${PACK_CONTENT_TYPE}`);
+  });
+
+  it('names the verb it was run as when the arguments are not the ones that verb takes', () => {
+    for (const verb of ['verify-pack', 'verify-export']) {
+      const two = runCli([verb, 'a.cbor', 'b.cbor']);
+      expect(two.status, verb).toBe(2);
+      expect(two.stderr, verb).toContain(`expected exactly one argument: '${verb} <document>'`);
+      expect(runCli([verb]).status, verb).toBe(2);
+    }
+  });
+
+  it('takes an export item through its companion over the pin, and refuses the item without it', () => {
+    const document = exportVector('companion-handed-and-checked');
+    const path = written('pinned-export-companion.cbor', document.bytes);
+    const missing = runCli(['verify-export', path, `--key=${EXPORT_KEY_B64URL}`, '--json']);
+    expect(missing.status).toBe(1);
+    // Accepted as the right shape, then refused by the reader for what it was handed: the second refusal
+    // is the export's own code and carries the type, which only a run that got past the pin can report.
+    expect(verdictOf(missing)).toMatchObject({ ok: false, contentType: EXPORT_CONTENT_TYPE, code: 'EXPORT_ORIGINAL_UNAVAILABLE' });
+    const first = document.companions[0];
+    const companionPath = writtenUnderItsOwnName(first?.name ?? 'companion', first?.bytes ?? new Uint8Array());
+    const handed = runCli(['verify-export', path, `--key=${EXPORT_KEY_B64URL}`, `--companion=${companionPath}`, '--json']);
+    expect(handed.status).toBe(0);
+    expect(verdictOf(handed)).toMatchObject({ ok: true, contentType: EXPORT_CONTENT_TYPE });
+  });
+
+  it('accepts a designation it will not consult and says so, which is what a run across a bundle needs', () => {
+    // No option belongs to one verb alone: a caller looping a directory hands the same flags to every
+    // file, and an unused designation is disclosed rather than dropped.
+    const result = runCli(['verify-pack', packPath, `--key=${RECEIPT_PUBLIC_B64URL}`, manifestDesignation, '--json']);
+    expect(result.status).toBe(0);
+    // One entry per designated key, plus the line that says where the keys came from, which carries no
+    // key of its own and so arrives as a null member of the array rather than as a missing one.
+    const rows = verdictOf(result).keyDesignations as Array<Record<string, unknown> | null>;
+    const manifestRow = rows.filter((one): one is Record<string, unknown> => one !== null && one.source === '--manifest-key');
+    expect(manifestRow.map((one) => one.consulted)).toEqual([false]);
   });
 });

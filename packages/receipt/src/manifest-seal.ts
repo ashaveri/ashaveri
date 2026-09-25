@@ -7,8 +7,10 @@ import {
   COSE_HEADER_CONTENT_TYPE,
   COSE_HEADER_KID,
   COSE_SIGN1_TAG,
+  buildProtectedHeader,
   keyId,
   equalBytes,
+  sealCoseSign1,
   type ProtectedHeader,
   type SigningKey,
 } from './cose.js';
@@ -80,14 +82,14 @@ function sigStructure(protectedBytes: Uint8Array, externalAad: Uint8Array, paylo
   return encodeCanonical(['Signature1', protectedBytes, externalAad, payloadBytes]);
 }
 
+/**
+ * The protected header, which is the receipt's own three labels with this document's name in label 3.
+ * `manifest.cddl` says so in as many words, and the SDK's seal test holds the bytes against what
+ * `signCoseSign1` writes rather than against a list of labels, so the shared builder is the honest
+ * source: the one field this format owns is the content type.
+ */
 function protectedHeaderFor(kid: Uint8Array): Uint8Array {
-  return encodeCanonical(
-    new Map<number, unknown>([
-      [COSE_HEADER_ALG, ALG_EDDSA],
-      [COSE_HEADER_CONTENT_TYPE, DEPLOYMENT_MANIFEST_CONTENT_TYPE],
-      [COSE_HEADER_KID, kid],
-    ]),
-  );
+  return buildProtectedHeader(kid, DEPLOYMENT_MANIFEST_CONTENT_TYPE);
 }
 
 /**
@@ -113,7 +115,10 @@ export function sealDeploymentManifest(
   const protectedBytes = protectedHeaderFor(key.kid);
   const toSign = sigStructure(protectedBytes, externalAad, manifestBytes);
   const signature = ed25519.sign(toSign, key.privateKey);
-  return encodeCanonical(new Tag(COSE_SIGN1_TAG, [protectedBytes, new Map(), manifestBytes, signature]));
+  // The shared framing, with its empty `unprotected` map: `manifest.cddl` declares that map as one a
+  // writer may fill, and this writer has nothing to put in it, since a claim about a deployment belongs
+  // inside the signed payload and not beside it.
+  return sealCoseSign1(protectedBytes, manifestBytes, signature);
 }
 
 function parseHeader(bytes: Uint8Array): ProtectedHeader {

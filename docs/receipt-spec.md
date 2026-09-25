@@ -734,11 +734,17 @@ what they wanted, which is the reader's step and not this one, and the same is t
 itself only against a head held from before the handover. A third field, `outcome.ordering`, is the two orders a
 pack holds compared with each other: the walk follows the `prev` links, an item's `iat` is the stamp that record
 was chained under, and a store chains under whatever stamp it was handed, so a deployment that corrected its
-clock signs an honest pack whose stamps run backwards. That is reported and never refused, because a refusal
-here would reject lawful output on a ground no rule of this format states. The same module writes these bytes as
-well as reading them, and its `signPack` will not sign a manifest its own reader refuses; which receipts a span
-holds is decided outside this repository, so a pack still arrives from the deployment and this reader reports on
-it as handed over.
+clock signs an honest pack whose stamps run backwards. One entry is reported per step where a successor carries
+a stamp earlier than its own, in chain order, and each carries the kind `stamp-runs-backwards` beside the two
+ids and the two stamps of that step. That kind is the whole of this field's vocabulary: `PackOrderingFindingKind`
+is a closed union of exactly that one string, a second kind would be a second way the two orders can part rather
+than a new place to put a finding, and `packages/receipt/test/pack-encoder.test.ts` holds the union and the list
+against each other in both directions. The field is reported and never refused, because a refusal here would
+reject lawful output on a ground no rule of this format states. It is a finding on a verdict and not a code, so
+it asks for no row in [error-codes.md](error-codes.md), which tabulates what this workspace raises and raises
+nothing about the two orders of a pack. The same module writes these bytes as well as reading them, and its
+`signPack` will not sign a manifest its own reader refuses; which receipts a span holds is decided outside this
+repository, so a pack still arrives from the deployment and this reader reports on it as handed over.
 
 A reader follows the `prev` links to order the walk, not the offsets in the file, because retention
 retires prefixes and a compaction rewrites the front of the file without changing any surviving

@@ -72,6 +72,12 @@ import {
  * copies of the rules that decide what a receipt means, and only one of them is the one an auditor is
  * told about. So a receipt read here comes back signed by a key this run designated and whole in its own
  * shape, and the report says in terms which questions that leaves open and which command closes them.
+ *
+ * Two of the four shapes have a verb of their own beside this one: `ashaveri verify-pack` and
+ * `ashaveri verify-export`. They are this command with the answer in label 3 pinned to one value, so a
+ * caller that already knows which file it is holding is told, in the same refusal this command gives a
+ * type it does not read, when the file in front of it is not that. They add no exit code, no refusal code
+ * and no option, because there is nothing here that a pinned type needs and a free type does not.
  */
 
 /** The flags `verify-handover` reads, typed as the one parse in `cli.ts` produces them. */
@@ -84,6 +90,25 @@ export interface VerifyHandoverFlags {
   companion?: string[];
   json?: boolean;
 }
+
+/**
+ * What a verb of this family answers to, and which document it will read.
+ *
+ * `contentType: null` is the question rather than an absence of one: it says this verb asks the bytes
+ * which shape they are, which is what a pile of files leaves open. A verb that names one type reads only
+ * that type and refuses another, and the refusal it owes for that is this command's own refusal for a
+ * content type it does not hold a reader for, because the fact a caller needs is the same fact in both
+ * cases and a second code for it would be a second thing to learn about one document.
+ */
+export interface VerbPin {
+  /** The verb as typed, which is the name an argument refusal quotes back. */
+  readonly verb: string;
+  /** The protected content type this verb reads, or null to read whichever one the bytes claim. */
+  readonly contentType: string | null;
+}
+
+/** `ashaveri verify-handover`, the verb that answers the question a pile of files leaves open. */
+export const HANDOVER_VERB: VerbPin = { verb: 'verify-handover', contentType: null };
 
 /** Label 3 of the COSE header registry: the content type. The four formats all put their name there. */
 const CONTENT_TYPE_LABEL = 3;
@@ -147,8 +172,12 @@ function refuse(contentType: string | null, err: ReceiptError | SdkError, json: 
  * readers already use for the same four facts about an envelope, because a caller who meets a refusal
  * here and then in a reader should learn one thing twice rather than two things once, and because a
  * command that classified documents is not the place a new refusal code is born.
+ *
+ * `expected` is the verb's own pin, and it is answered in the same breath as a type no reader is held
+ * for, with the same refusal: a verb that reads packs and is handed an export has met a document it was
+ * not asked about, which is the one fact a content type states.
  */
-function classify(bytes: Uint8Array): { contentType: string; kid: Uint8Array } {
+function classify(bytes: Uint8Array, expected: string | null): { contentType: string; kid: Uint8Array } {
   let top: unknown;
   try {
     top = decodeCanonical(bytes);
@@ -196,9 +225,11 @@ function classify(bytes: Uint8Array): { contentType: string; kid: Uint8Array } {
   if (typeof contentType !== 'string') {
     throw new ReceiptError('BAD_PROTECTED_HEADER', `typ must be a tstr, got ${typeof contentType}`);
   }
-  if (!READERS.has(contentType)) {
+  if (!READERS.has(contentType) || (expected !== null && expected !== contentType)) {
     // The readers' own wording for the same fact: what a content type is for is answered by the set of
-    // types that exist, and an unknown one is named back rather than guessed at.
+    // types that exist, and an unknown one is named back rather than guessed at. A verb pinned to one of
+    // the types that do exist meets this same refusal here, because the fact it needs to state, that this
+    // document is not the shape that verb reads, is the fact label 3 carries and no other field can.
     throw new ReceiptError('BAD_PROTECTED_HEADER', `typ=${contentType}`);
   }
   return { contentType, kid };
@@ -618,10 +649,19 @@ function jsonReading(reading: Reading, inputs: Inputs): Record<string, unknown> 
   };
 }
 
-/** `ashaveri verify-handover <document> [options]`, including its exit codes. */
-export async function runVerifyHandover(positionals: string[], values: VerifyHandoverFlags): Promise<number> {
+/**
+ * One verb of this family, run to its exit code: the pinned verb's own name in the argument refusal, and
+ * the pinned content type in the classification that chooses a reader. Everything after that line, the
+ * keys, the companions, the readers, the two renderings and the three exit codes, is shared because a
+ * narrower question about the same bytes does not change what an answer about them is made of.
+ */
+export async function runVerifyHandover(
+  positionals: string[],
+  values: VerifyHandoverFlags,
+  pin: VerbPin = HANDOVER_VERB,
+): Promise<number> {
   if (positionals.length !== 1) {
-    throw new UsageError("expected exactly one argument: 'verify-handover <document>'");
+    throw new UsageError(`expected exactly one argument: '${pin.verb} <document>'`);
   }
   const path = positionals[0] as string;
   // Refused before a byte is read, the way an argument that is not a key is: a designation that is not a
@@ -635,7 +675,7 @@ export async function runVerifyHandover(positionals: string[], values: VerifyHan
 
   let contentType: string | null = null;
   try {
-    const found = classify(bytes);
+    const found = classify(bytes, pin.contentType);
     contentType = found.contentType;
     const reader = READERS.get(contentType);
     if (reader === undefined) {

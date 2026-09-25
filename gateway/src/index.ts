@@ -54,6 +54,7 @@ export type {
   ChainState,
   FileReceiptStoreOptions,
   ReceiptRetention,
+  ReceiptServing,
   ReceiptStore,
   RetainedWindow,
   StoreErrorCode,
