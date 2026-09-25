@@ -32,6 +32,7 @@ import {
   openFileReceiptStore,
   openMemoryReceiptStore,
   type ReceiptRetention,
+  type ReceiptServing,
   type ReceiptStore,
 } from './store.js';
 
@@ -102,13 +103,31 @@ Options:
                                    restarts, hashed into a chain so a removal
                                    shows. The directory must already exist, so a
                                    volume you forgot to mount is a refusal rather
-                                   than a store on the root filesystem. The period
-                                   a store is configured to serve and the count it
-                                   is bound to are checked against each other when
-                                   it opens: a bound that cannot hold its own
-                                   period at the traffic already on that volume
-                                   stops the start, naming both numbers.
-                                   Default: keep receipts in this process only.
+                                   than a store on the root filesystem. The
+                                   durability bound and the period beside it are
+                                   checked against each other when a store opens:
+                                   a bound that cannot hold its own period at the
+                                   traffic already on that volume stops the start,
+                                   naming both numbers and the count the period
+                                   takes. Default: keep receipts here in this
+                                   process only.
+  --receipts-keep <n>              How many receipts the volume keeps, which is
+                                   the durability bound. Past it the oldest
+                                   receipts leave the front of the chain, so a
+                                   period is kept only as far as this count
+                                   reaches, and the start-up check above is about
+                                   this number. Receipts are ~0.5 KB each.
+                                   Default: 10,000, which is a few megabytes and
+                                   a deployment's capacity decision; it is a
+                                   shipped default and not a period anyone owes.
+  --receipts-per-query <n>         How many receipts one range query holds at
+                                   once, which is the serving bound. It sizes a
+                                   walk's working set and retires nothing: a walk
+                                   over a window holding more receipts than this
+                                   is answered in batches and returns every
+                                   receipt the store kept. Raising it changes what
+                                   a query costs, not what the file keeps.
+                                   Default: 10,000.
   --credentials-path <file>        The credential records every request has to present one from.
                                    Required in live mode; a mock run with no file makes one up and
                                    prints it. The file holds public keys and hashes only, never a
@@ -172,6 +191,8 @@ interface CliOptions {
   readonly tee?: string;
   readonly marking?: string;
   readonly 'receipts-dir'?: string;
+  readonly 'receipts-keep'?: string;
+  readonly 'receipts-per-query'?: string;
   readonly 'credentials-path'?: string;
   readonly 'access-log-path'?: string;
   readonly 'access-log-days'?: string;
@@ -270,6 +291,8 @@ try {
       tee: { type: 'string' },
       marking: { type: 'string', default: 'none' },
       'receipts-dir': { type: 'string' },
+      'receipts-keep': { type: 'string' },
+      'receipts-per-query': { type: 'string' },
       'credentials-path': { type: 'string' },
       'access-log-path': { type: 'string' },
       'access-log-days': { type: 'string' },
@@ -315,15 +338,41 @@ function isDirectory(path: string): boolean {
 }
 
 /**
- * Receipts are ~0.5 KB each, so this holds the store to a few megabytes of the volume it was mounted
- * on. It is a bound on storage and nothing else. Whether it can hold the window configured beside it is
- * not asserted here: the store derives the count its own period takes from the traffic already on that
- * volume and refuses the pairing at start-up rather than opening and serving a shorter window than it
- * was asked for. The number itself belongs to deployment configuration, and no value of it says that a
- * period was kept for anyone.
+ * The two counts a receipt store is opened with, and why they are two numbers.
+ *
+ * The durability bound is how many receipts the volume keeps. Receipts are ~0.5 KB each, so 10,000 of
+ * them is a few megabytes, which is a statement about a volume and not about a process: a receipt past
+ * it leaves as the front of the chain, and the period beside it is held only as far as this count
+ * reaches. Whether it can hold that period is not asserted here: the store derives the count its own
+ * period takes from the traffic already on that volume and refuses the pairing at start-up rather than
+ * opening and serving a shorter window than it was asked for.
+ *
+ * The serving bound is how many receipts one query holds at a time. It is a separate number because it
+ * bounds a walk rather than a volume, and retires nothing: a walk over a window holding more receipts
+ * than this is answered in batches and returns all of them. A deployment that keeps half a year of
+ * traffic and answers a question about an hour of it therefore does not have to choose between the two,
+ * which is the choice one number forced.
+ *
+ * Both are shipped defaults and nothing more. No value of either is checked against a period anyone
+ * owes, and a store that opens has said what it keeps, which is a different claim from a duty
+ * discharged.
  */
-const MAX_SERVED_RECEIPTS = 10_000;
-const retention: ReceiptRetention = { maxAgeSeconds: MINIMUM_RETENTION_SECONDS, maxCount: MAX_SERVED_RECEIPTS };
+const SHIPPED_RETAINED_RECEIPTS = 10_000;
+const SHIPPED_SERVED_RECEIPTS = 10_000;
+const retainedReceipts = wholeNumber(
+  values['receipts-keep'],
+  'receipts-keep',
+  'receipts kept',
+  SHIPPED_RETAINED_RECEIPTS,
+);
+const servedReceipts = wholeNumber(
+  values['receipts-per-query'],
+  'receipts-per-query',
+  'receipts per query',
+  SHIPPED_SERVED_RECEIPTS,
+);
+const retention: ReceiptRetention = { maxAgeSeconds: MINIMUM_RETENTION_SECONDS, maxCount: retainedReceipts };
+const serving: ReceiptServing = { maxServedReceipts: servedReceipts };
 const receiptsDir = values['receipts-dir'];
 if (receiptsDir !== undefined && !isDirectory(receiptsDir)) {
   fail('--receipts-dir must name an existing directory, so a volume you forgot to mount is a refusal and not a store on the root filesystem');
@@ -333,14 +382,14 @@ let store: ReceiptStore;
 try {
   store =
     receiptsDir === undefined
-      ? openMemoryReceiptStore({ retention })
-      : await openFileReceiptStore({ dir: receiptsDir, retention });
+      ? openMemoryReceiptStore({ retention, serving })
+      : await openFileReceiptStore({ dir: receiptsDir, retention, serving });
 } catch (error) {
   // A store that will not open is a fact about the deployment rather than about how signerd was
-  // invoked: either the file on the volume no longer chains to itself, or the window this configuration
-  // asks for is wider than the count bound it was given can hold at the traffic that file has already
-  // carried. Neither is answered by the same flags on a second run, so both are reported as an exit 1
-  // with the store's own code in front of the sentence.
+  // invoked: either the file on the volume no longer chains to itself, or the period this configuration
+  // asks for is wider than the durability bound it was given can hold at the traffic that file has
+  // already carried. Neither is answered by the same flags on a second run, so both are reported as an
+  // exit 1 with the store's own code in front of the sentence.
   process.stderr.write(`signerd: ${error instanceof Error ? error.message : String(error)}\n`);
   process.exit(1);
 }
@@ -473,8 +522,8 @@ const label =
   mode === 'mock' ? 'mock' : `live ${deployment.tee} measurement ${toHex(deployment.measurement).slice(0, 16)}...`;
 const kept =
   receiptsDir === undefined
-    ? 'receipts kept in this process only, and gone on restart'
-    : `receipts kept in ${receiptsDir} as configured: a window of ${Math.round(MINIMUM_RETENTION_SECONDS / 86_400)} days and a bound of ${String(MAX_SERVED_RECEIPTS)} receipts, which the store compares against the traffic on its own file and refuses to open when the bound cannot hold the window`;
+    ? `receipts kept in this process only, as configured: a durability bound of ${String(retainedReceipts)} receipts, one query holding ${String(servedReceipts)} of them at a time, and gone on restart`
+    : `receipts kept in ${receiptsDir} as configured: a period of ${Math.round(MINIMUM_RETENTION_SECONDS / 86_400)} days and a durability bound of ${String(retainedReceipts)} receipts, which the store compares against the traffic on its own file and refuses to open when the bound cannot hold the period, and a serving bound of ${String(servedReceipts)} receipts to a query, which bounds what one walk holds and retires nothing`;
 // The marking a deployment runs is reported as this process installed it, in both settings, because
 // the one that changes what a customer sees is the one worth reading at a start-up log: a response
 // whose shape cannot carry the mark is refused here rather than served unmarked, and that is a thing

@@ -6,6 +6,7 @@ import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import {
   POP_SCHEME,
   decodeCoseSign1,
+  decodePack,
   decodeSealedDeploymentManifest,
   encodeCanonical,
   extractMarkedRegion,
@@ -14,6 +15,8 @@ import {
   popSigningString,
   ReceiptError,
   signPopAuthorization,
+  verifyExport,
+  verifyPack,
   verifyPopSignature,
   verifySealedDeploymentManifest,
   type MarkingScheme,
@@ -38,8 +41,8 @@ import { openFileReceiptStore, RECEIPT_STORE_FILE, StoreError } from '@ashaveri/
  * were read back by tests that checked a file against its own rule. This walks every suite and asks the
  * implementation that is shipped what it answers for each row: `verifyCompletionReceipt` for anything a
  * receipt decides, the proof-of-possession signer and parser for the wire-format rows, the store reader
- * for the chain images, and `readDeploymentManifest` beside its `adjudicateReceiptEpoch` for the sealed
- * deployment manifest. Where a row states a refusal, the code it names is the code that has to
+ * for the chain images, `readDeploymentManifest` beside its `adjudicateReceiptEpoch` for the sealed
+ * deployment manifest, and `verifyPack` with `decodePack` underneath it for the evidence pack. Where a row states a refusal, the code it names is the code that has to
  * come back; where a row states acceptance, the same call has to accept it. A suite that only ever
  * passed would satisfy the first half and say nothing, so the near misses published here are what make
  * the second half mean something, and each of those rows is a small edit to bytes this repository
@@ -188,6 +191,35 @@ interface ManifestVectorFile {
   readonly crossReading: { readonly cases: { name: string; documentBase64Url: string; expected: string }[] };
 }
 
+/** One case of the evidence pack suite: the bytes, the designation beside them, and the two answers. */
+interface PackVectorCase {
+  readonly name: string;
+  readonly note: string;
+  readonly documentBase64Url: string;
+  readonly documentByteLength: number;
+  readonly read: { pinned?: string; retained?: { kid: string; publicKeyBase64Url: string }[] };
+  readonly verdict: string;
+  readonly structural: string;
+  readonly walk?: string[];
+  readonly ordering?: { kind: string; from: string; to: string; fromIat: number; toIat: number }[];
+  readonly span?: { from: number; to: number };
+  readonly item?: string;
+  readonly edited?: string;
+}
+
+interface PackVectorFile {
+  readonly version: number;
+  readonly description: string;
+  readonly layout: {
+    readonly contentType: string;
+    readonly codes: readonly string[];
+    readonly keyMaterial: { kidHex: string; publicKeyHex: string; publicKeyBase64Url: string; role: string }[];
+    readonly records: { position: number; id: string; iat: number; prevHex: string; digestHex: string; receiptByteLength: number }[];
+  };
+  readonly vectors: PackVectorCase[];
+  readonly crossReading: { readonly cases: { name: string; documentBase64Url: string; expected: string }[] };
+}
+
 function json<T>(path: string): T {
   return JSON.parse(readFileSync(join(DATA, path), 'utf8')) as T;
 }
@@ -214,6 +246,7 @@ const proofOfPossession = json<{
 }>('pop-v1.json');
 const chain = json<{ refusals: ChainRefusal[] }>('chain-v1.json');
 const sealedManifests = json<ManifestVectorFile>('manifest-v1.json');
+const packVectors = json<PackVectorFile>('pack-v1.json');
 
 /** The receipt signing key the fixtures are issued under, as the published key file states it. */
 const PUBLIC_KEY = new Uint8Array(Buffer.from(json<{ publicKey: string }>('keys/receipt-key-v1.json').publicKey, 'hex'));
@@ -734,6 +767,117 @@ describe('the sealed deployment manifest vectors through the client path', () =>
       ...manifestVectors.map((one) => one.verdict),
       ...manifestVectors.flatMap((one) => (one.claims ?? []).map((row) => row.code ?? 'verify-ok')),
     ]);
+    for (const code of new Set(declared)) {
+      expect(reached.has(code), `${code} is declared and no published row reaches it`).toBe(true);
+    }
+  });
+});
+
+/**
+ * The designation a pack row states, as the reader's own two shapes and no third: one key pinned, or the set
+ * a resolver answers from, which is how a span crossing a key rotation is read.
+ */
+function packOptionsFor(read: PackVectorCase['read']): { publicKey?: Uint8Array; resolveKey?: (kid: Uint8Array) => Uint8Array | undefined } {
+  if (read.pinned !== undefined) return { publicKey: bytes(read.pinned) };
+  if (read.retained === undefined) return {};
+  const byKid = new Map(read.retained.map((one) => [one.kid, one.publicKeyBase64Url]));
+  return { resolveKey: (kid) => {
+    const found = byKid.get(hex(kid));
+    return found === undefined ? undefined : bytes(found);
+  } };
+}
+
+const PUBLISHED_PACK_KEYS = new Map(packVectors.layout.keyMaterial.map((one) => [one.kidHex, one.publicKeyBase64Url]));
+
+describe('the evidence pack vectors through the shipped reader', () => {
+  it('states a verdict for every case and gives every case that verdict', () => {
+    expect(packVectors.vectors.length).toBeGreaterThanOrEqual(20);
+    const observed = packVectors.vectors.map((one) => {
+      expect(one.verdict, `${one.name} states no verdict`).toMatch(/^[A-Za-z0-9_-]+$/u);
+      expect(bytes(one.documentBase64Url)).toHaveLength(one.documentByteLength);
+      return `${one.name}: ${verdictOf(() => verifyPack(bytes(one.documentBase64Url), packOptionsFor(one.read)))}`;
+    });
+    expect(observed).toEqual(packVectors.vectors.map((one) => `${one.name}: ${one.verdict}`));
+  });
+
+  it('separates what the bytes say before a key from what the signature decides after one', () => {
+    // The structural column is the same file read by `decodePack`, which needs no key. A row that is `verify-ok`
+    // here and a refusal in `verdict` is refusing about a designation or a signature, and a port that collapsed
+    // the two would send an operator to the pack rather than to the keys it retains.
+    const observed = packVectors.vectors.map((one) => `${one.name}: ${verdictOf(() => decodePack(bytes(one.documentBase64Url)))}`);
+    expect(observed).toEqual(packVectors.vectors.map((one) => `${one.name}: ${one.structural}`));
+    const wholeButUnattributed = packVectors.vectors.filter((one) => one.structural === 'verify-ok' && one.verdict !== 'verify-ok');
+    expect(wholeButUnattributed.length).toBeGreaterThanOrEqual(4);
+  });
+
+  it('reports the run, the window and the ordering findings exactly as each row states them', () => {
+    const accepted = packVectors.vectors.filter((one) => one.verdict === 'verify-ok');
+    expect(accepted.length).toBeGreaterThanOrEqual(6);
+    for (const one of accepted) {
+      const read = verifyPack(bytes(one.documentBase64Url), packOptionsFor(one.read));
+      expect(read.outcome.walked.map((each) => each.item.id), one.name).toEqual(one.walk);
+      expect(read.outcome.ordering, one.name).toEqual(one.ordering ?? []);
+      if (one.span !== undefined) expect(read.outcome.span, one.name).toEqual(one.span);
+      expect(read.header.contentType, one.name).toBe(packVectors.layout.contentType);
+      // The originals come back as the receipts the item carries, and each item's stamp is the one its own
+      // receipt attests, which is the equality the walk is not.
+      for (const each of read.outcome.walked) {
+        expect(each.receipt.payload.iat, `${one.name} ${each.item.id}`).toBe(each.item.iat);
+      }
+    }
+  });
+
+  it('accepts the pack whose stamps run against its links and reports the step', () => {
+    // The row exists so that a port cannot turn the finding into a refusal without this case failing: an honest
+    // deployment that corrected its clock signs this document, and the format states no rule a backwards stamp
+    // breaks.
+    const disagreeing = packVectors.vectors.filter((one) => (one.ordering?.length ?? 0) > 0);
+    expect(disagreeing.length, 'no published pack carries an ordering finding').toBeGreaterThanOrEqual(1);
+    for (const one of disagreeing) {
+      expect(one.verdict, `${one.name}: a disagreement was refused rather than reported`).toBe('verify-ok');
+      const read = verifyPack(bytes(one.documentBase64Url), packOptionsFor(one.read));
+      expect(read.outcome.ordering, one.name).toEqual(one.ordering);
+      for (const finding of read.outcome.ordering) {
+        expect(finding.kind, one.name).toBe('stamp-runs-backwards');
+        expect(finding.toIat, one.name).toBeLessThan(finding.fromIat);
+      }
+    }
+    // And a pack whose two orders agree states that as an empty finding rather than an absent field.
+    const agreeing = packVectors.vectors.find((one) => one.name === 'well-formed-three-items');
+    expect(agreeing?.ordering).toEqual([]);
+  });
+
+  it('publishes both halves of the chain rule as refusals, the walk and the count', () => {
+    // `pack.cddl` says a conforming reader enforces both and that implementing one is implementing half a rule.
+    // The two refusals are separate codes, so a port that only walked would accept the parked row and fail here.
+    for (const code of ['PACK_CHAIN_BROKEN', 'PACK_ITEM_UNREACHED']) {
+      const rows = packVectors.vectors.filter((one) => one.verdict === code);
+      expect(rows.length, `${code} has no published row`).toBeGreaterThanOrEqual(1);
+      for (const one of rows) {
+        expect(verdictOf(() => verifyPack(bytes(one.documentBase64Url), packOptionsFor(one.read))), one.name).toBe(code);
+      }
+    }
+  });
+
+  it('refuses a pack document at the export reader it is handed to', () => {
+    expect(packVectors.crossReading.cases.length).toBeGreaterThanOrEqual(1);
+    for (const one of packVectors.crossReading.cases) {
+      const documentBytes = bytes(one.documentBase64Url);
+      const kidHex = hex(decodePack(documentBytes).header.kid);
+      const publicKey = PUBLISHED_PACK_KEYS.get(kidHex);
+      expect(publicKey, `${one.name}: the document names a kid this suite does not publish`).toBeDefined();
+      if (publicKey === undefined) continue;
+      expect(verdictOf(() => verifyExport(documentBytes, bytes(publicKey))), one.name).toBe(one.expected);
+    }
+  });
+
+  it('reaches every code the format registry declares for this container', () => {
+    // A fault code with no published row is a word nothing is measured against. Read off the declared union
+    // rather than from a list repeated here, which is the only way an addition cannot pass unnoticed.
+    const source = readFileSync(fileURLToPath(new URL('../../receipt/src/errors.ts', import.meta.url)), 'utf8');
+    const declared = [...source.matchAll(/'(PACK_[A-Z0-9_]+)'/gu)].map((found) => found[1]!);
+    expect(new Set(declared).size).toBeGreaterThanOrEqual(11);
+    const reached = new Set([...packVectors.vectors.map((one) => one.verdict), ...packVectors.vectors.map((one) => one.structural)]);
     for (const code of new Set(declared)) {
       expect(reached.has(code), `${code} is declared and no published row reaches it`).toBe(true);
     }

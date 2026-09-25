@@ -252,11 +252,15 @@ What is still true, in both modes:
 - **Receipt retention is a deployment choice, not a protocol guarantee.** A signerd started with
   `--receipts-dir` appends each receipt to a hash-chained file on that volume and keeps it for 184
   days, or until 10,000 later receipts push it out as a bound on the volume, whichever comes
-  first. A store that reaches that bound reports the window it actually holds while it runs, and
-  refuses the next start rather than serve a window shorter than the one it was configured with:
-  `openFileReceiptStore` compares the count its retained receipts' own stamps say the configured window
-  takes against the count bound it was handed, and answers `RETENTION_WINDOW_UNHOLDABLE` naming both
-  when the second cannot hold the first. That comparison is between a period
+  first. Those two are two numbers because they bound two things, and both counts are flags:
+  `--receipts-keep` is how many receipts the volume keeps, which is the durability bound retirement
+  drops a prefix to satisfy, and `--receipts-per-query` is how many receipts one range query holds at
+  a time, which retires nothing and only sizes a walk. A store that reaches the first reports the window
+  it actually holds while it runs, and refuses the next start rather than serve a window shorter than
+  the one it was configured with: `openFileReceiptStore` compares the count its retained receipts' own
+  stamps say the configured window takes against the durability bound it was handed, and answers
+  `RETENTION_WINDOW_UNHOLDABLE` naming both, the shortfall, and the serving bound as the number raising
+  which would fix nothing, when the bound cannot hold the period. That comparison is between a period
   and a count, and neither side of it says a retention duty was met: what a period is owed for, and to
   whom, stays outside this store. Without the flag, receipts stay in this process's memory and are gone
   at restart, which is the default the mock gateway and the test suite run on, and a store with nothing
