@@ -19,6 +19,7 @@ import {
   verifyPack,
   type PackItem,
   type PackManifest,
+  type PackOrderingFindingKind,
   type ReceiptPayloadV1,
   type SigningKey,
 } from '../src/index.js';
@@ -346,6 +347,24 @@ describe('the pack writer', () => {
   });
 });
 
+/**
+ * Every kind of ordering finding a verified pack can carry, one row each.
+ *
+ * `Record<PackOrderingFindingKind, string>` is what makes this a pin rather than a note: a kind added to
+ * the union without a row here fails to compile, and a row whose kind has gone fails the same way, so the
+ * vocabulary cannot move on one side of the boundary only. The case under this block asks the question a
+ * type cannot, which is whether each declared name is one a document actually produces; a kind in a union
+ * that no reader ever emits is a claim about an output this format does not have.
+ *
+ * One row is the whole of the vocabulary, and a second would be a second way the two orders a pack holds
+ * can part. Either way it would stay a finding on a verdict rather than a refusal, because the store files
+ * a receipt under the stamp it was handed and a corrected clock therefore makes honest stamps that run
+ * backwards against the links.
+ */
+const ORDERING_FINDING_KINDS: Record<PackOrderingFindingKind, string> = {
+  'stamp-runs-backwards': 'a step whose successor carries a stamp earlier than its own',
+};
+
 describe('the ordering finding a verified pack carries', () => {
   it('reports a pack whose stamps run against the links and accepts it', () => {
     // The store appended `receipt-2` first and `receipt-0` last, because its clock moved between the two, and
@@ -373,6 +392,23 @@ describe('the ordering finding a verified pack carries', () => {
     const reversedArray = verifyPack(signPack({ ...manifest, items: [...manifest.items].reverse() }, KEY), { publicKey: KEY.publicKey });
     expect(reversedArray.outcome.walked.map((one) => one.item.id)).toEqual(read.outcome.walked.map((one) => one.item.id));
     expect(reversedArray.outcome.ordering).toEqual(read.outcome.ordering);
+  });
+
+  it('keeps the set of finding kinds closed, in both directions, against what the reader emits', () => {
+    const declared = Object.keys(ORDERING_FINDING_KINDS).sort();
+    // The declared vocabulary, and one name only. This list and the sentence in
+    // `docs/receipt-spec.md` are the same statement about the same field.
+    expect(declared).toEqual(['stamp-runs-backwards']);
+    // Emission, the other half: a document that disagrees emits every declared name and no other, and a
+    // document that agrees emits none, so neither an undeclared kind nor an unreachable one passes here.
+    const backwards = verifyPack(signPack(backwardsManifest(), KEY), { publicKey: KEY.publicKey }).outcome.ordering;
+    expect([...new Set(backwards.map((one) => one.kind))].sort()).toEqual(declared);
+    const agreeing = verifyPack(signPack(manifestOf(), KEY), { publicKey: KEY.publicKey }).outcome.ordering;
+    expect([...new Set(agreeing.map((one) => one.kind))]).toEqual([]);
+    // And the disagreement is still an answer rather than a refusal, which is what the row above is a
+    // finding about: these bytes carry a kind, verify, and are handed back whole.
+    expect(backwards.length).toBeGreaterThan(0);
+    expect(() => verifyPack(signPack(backwardsManifest(), KEY), { publicKey: KEY.publicKey })).not.toThrow();
   });
 
   it('reports no disagreement where the two orders agree, including one stamp shared by two records', () => {
