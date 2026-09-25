@@ -4,10 +4,11 @@
 ; are all of them, and it carries the two chain endpoints that let a reader with no network and none
 ; of our code establish that for themselves.
 ;
-; Nothing in this repository assembles a pack today. This file does not pretend to be a description
-; of a thing that runs: it is the layout a generator has to be written against, and the layout a
-; verifier can be written against now. That order is deliberate. A third party's verdict is read out
-; of this container, so the container is public whether or not the tool that fills it is.
+; `packages/receipt/src/pack.ts` writes these bytes as well as reading them, and its `signPack` will not sign a
+; manifest its own reader refuses. What decides which receipts a span holds is not here: the items, the two
+; endpoints and the duty block arrive from the deployment, which is the part that takes maintenance. That order
+; is deliberate. A third party's verdict is read out of this container, so the container is public whether or
+; not the tool that fills it is.
 ;
 ; Section 5.2 of `docs/receipt-spec.md` states the walk this container is built for and publishes the
 ; frames as byte images in `packages/fixtures/data/chain-v1.json`. Where a sentence here and those
@@ -175,6 +176,14 @@ PackDuty = {
 ;
 ; No index travels with an item either: an ordinal would state a second time an order the bytes already
 ; fix, and would be free to disagree with it.
+;
+; The two orders a pack carries are the links and the stamps, and only one of them is the format's. The walk
+; follows `prev`, which is the order the chain fixes; an item's `iat` is the stamp that record was chained
+; under, and a store chains under whatever stamp it was handed when it appended, so a deployment that corrected
+; its clock signs an honest pack whose stamps run backwards while every link in it is right. Nothing here
+; refuses that document: refusing lawful output is as wrong as accepting a forgery, and no rule this file states
+; is broken by a backwards stamp. A reader compares the two orders and reports a disagreement as a finding of
+; its own, naming the step, which is the only reading both statements support.
 ;
 ; No two items in a pack carry the same `id`. The store serves one receipt per id, its index being a map
 ; from that name to a record, so a pack drawn from a range query cannot hold two and the rule is written

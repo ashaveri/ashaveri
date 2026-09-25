@@ -623,7 +623,7 @@ describe('the pack CDDL and its JSON twin', () => {
     // The format's own claims, each said once: that the layout is ahead of any generator, that a
     // member has to earn its place against the receipts inside the container, that the walk rather than
     // the array orders them, and that a period the deployer states has no default behind it.
-    saidOnce('the CDDL', prose, 'Nothing in this repository assembles a pack today');
+    saidOnce('the CDDL', prose, 'writes these bytes as well as reading them');
     saidOnce('the CDDL', prose, 'the container is public whether or not the tool that fills it is');
     saidOnce('the CDDL', prose, 'Each member passed one test: a reader of the pack needs it, and no receipt inside the container carries it');
     saidOnce('the CDDL', prose, '`v` is the one member no walk consumes');
@@ -643,10 +643,20 @@ describe('the pack CDDL and its JSON twin', () => {
     saidOnce('the CDDL', prose, 'No two items in a pack carry the same `id`');
     saidOnce('the CDDL', prose, 'is a rule a conforming reader enforces and this container cannot');
     saidOnce('the CDDL', prose, 'every instant this file names is a unix time no earlier than the epoch');
+    // The two orders a pack carries, and the reading the format settles for them: the links order the run, the
+    // stamps are what each record was chained under, and a document where the two disagree is lawful output that
+    // a reader reports on rather than refuses. Said once, because a second statement of it in the same file is
+    // how a later edit turns the report into a rule and refuses an honest pack.
+    saidOnce('the CDDL', prose, 'Nothing here refuses that document');
+    saidOnce('the CDDL', prose, 'The two orders a pack carries are the links and the stamps');
     // Two phrasings a later edit must not bring back: a pack whose items were ordered by their
     // position in the array, and a manifest that restated what the store's own window reports.
     expect(prose).not.toContain('in the order they appear in the array');
     expect(prose).not.toMatch(/\bis open\b/u);
+    // And the sentence this file carried while nothing in the repository wrote a pack. The layout's own claim
+    // about its generator is now about the encoder in `src/pack.ts`, and the old sentence would be a format
+    // describing an absence that the same file's first block refutes.
+    expect(prose).not.toContain('Nothing in this repository assembles a pack');
     // The framing belongs to section 5.2 and to the published images, and the assertion here is only
     // that the format cites both by name. The format does restate the framing beside `PackItem` — the
     // field order for a verifier reading one file, and two widths the members themselves carry — so the
@@ -669,7 +679,7 @@ describe('the pack CDDL and its JSON twin', () => {
     saidOnce('the twin', twin, "Closure is not the manifest's alone");
     saidOnce('the twin', twin, 'this definition carries no closure keyword');
     saidOnce('the twin', twin, "because the retention-duty registry is a reader's question rather than this file's");
-    saidOnce('the twin', twin, 'Nothing in this repository assembles a pack today, and `packages/receipt/src/pack.ts` reads one');
+    saidOnce('the twin', twin, 'both writes these bytes and reads them back');
     for (const nested of manifestNestedRules(CDDL)) {
       expect(twin.includes(`\`${nested.member}\``), `the twin names no ${nested.member}`).toBe(true);
     }

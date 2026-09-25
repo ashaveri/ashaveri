@@ -728,8 +728,14 @@ told which item it could not reach rather than having a key guessed for it. Two 
 because they establish different things: the run the walk reached, and the window the manifest says it was
 assembled to answer for. Whether that run is the period a reader asked for is decided by comparing the span with
 what they wanted, which is the reader's step and not this one, and the same is true of a deletion, which shows
-itself only against a head held from before the handover. Nothing in this repository assembles a pack, so these
-bytes arrive from somewhere else and this reader reports on them as handed over.
+itself only against a head held from before the handover. A third field, `outcome.ordering`, is the two orders a
+pack holds compared with each other: the walk follows the `prev` links, an item's `iat` is the stamp that record
+was chained under, and a store chains under whatever stamp it was handed, so a deployment that corrected its
+clock signs an honest pack whose stamps run backwards. That is reported and never refused, because a refusal
+here would reject lawful output on a ground no rule of this format states. The same module writes these bytes as
+well as reading them, and its `signPack` will not sign a manifest its own reader refuses; which receipts a span
+holds is decided outside this repository, so a pack still arrives from the deployment and this reader reports on
+it as handed over.
 
 A reader follows the `prev` links to order the walk, not the offsets in the file, because retention
 retires prefixes and a compaction rewrites the front of the file without changing any surviving
