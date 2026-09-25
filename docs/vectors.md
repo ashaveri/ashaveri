@@ -27,12 +27,13 @@ each shape.
 | Receipt store chain | `packages/fixtures/data/chain-v1.json` | The record frames a gateway writes to `receipts.log`, the state a reader derives from them, and what it refuses | `version: 1` |
 | Technical export | `packages/fixtures/data/export-v1.json` | Whole export documents, the arguments a reader is handed beside each one, and the verdict a conforming reader owes it | `version: 1` |
 | Sealed deployment manifest | `packages/fixtures/data/manifest-v1.json` | One deployment manifest in both shapes it is served in, the signing keys a reader designates beside it, and the verdict the client path owes each | `version: 1` |
+| Evidence pack | `packages/fixtures/data/pack-v1.json` | Whole packs in the shapes a deployment hands them over in, the keys a reader designates beside each one, and the verdict the shipped pack reader owes: run and window reported apart, and an honest pack whose stamps run against its links accepted with a finding | `version: 1` |
 
-`pop-v1.json`, `req-v1.json`, `res-v1.json`, `marking-v1.json`, `chain-v1.json`, `export-v1.json` and
-`manifest-v1.json` each carry a `description` stating their rule in prose, and the digest, marked-region,
-chain, export and sealed-manifest suites carry a `rule` or `layout` block naming the fields, and the widths
-and the byte order where a suite pins a byte layout, so a reader never has to guess what an array of hex is
-standing for. The manifest
+`pop-v1.json`, `req-v1.json`, `res-v1.json`, `marking-v1.json`, `chain-v1.json`, `export-v1.json`,
+`manifest-v1.json` and `pack-v1.json` each carry a `description` stating their rule in prose, and the
+digest, marked-region, chain, export, sealed-manifest and pack suites carry a `rule` or `layout` block
+naming the fields, and the widths and the byte order where a suite pins a byte layout, so a reader never
+has to guess what an array of hex is standing for. The manifest
 carries no `description`, because it lists the receipt fixtures rather than stating a rule of its
 own; what they are for is written in
 [receipt-spec.md](receipt-spec.md).
@@ -137,10 +138,21 @@ specific to that case.
   document. The `reveal` block of the first row carries the protected header, the payload bytes, the signature
   and the `Sig_structure` rebuilt from them, so a port can compare its framing without this repository's
   writer.
+- **Evidence pack.** Decode `documentBase64Url` and hand it to your reader with the designation the row's `read`
+  block states: `pinned` is the one key a caller holds, which answers the envelope and every receipt inside the
+  container, `retained` is the set a resolver answers from, one key per kid, which is how the row whose span
+  crosses a key rotation is read, and a row stating neither is the call that designated nothing. Compare the
+  answer with `verdict`, and compare `structural` with what your reader says about the same bytes before it has
+  accepted a signature: a row that is `verify-ok` there and a refusal here is refusing about a key or a signature,
+  not about a manifest that contradicts itself. Where a row states `walk`, your reader has to reach that run, in
+  the order the `prev` links fix it and not the order the array carried it; where it states `ordering`, those are
+  the steps where the stamps disagree with the links, and a conforming reader reports them and accepts the pack.
+  `records` in the `layout` block gives the predecessor and the record digest of each item of the honest run, which
+  is the pack's own reading of the framing `chain-v1.json` publishes for a store file.
 
 ## Every suite refuses something
 
-Each of the eight suites published here carries at least one case whose stated verdict is a refusal, and
+Each of the nine suites published here carries at least one case whose stated verdict is a refusal, and
 every code those cases name is one [error-codes.md](error-codes.md) lists. That is the half a second
 implementation cannot agree with by accident: an accepted case and a refused one, drawn from the same
 bytes, differ in exactly the rule under test, and a port wrong in the same direction as this one still
@@ -168,6 +180,7 @@ pnpm --filter @ashaveri/fixtures generate:marking
 pnpm --filter @ashaveri/fixtures generate:chain
 pnpm --filter @ashaveri/fixtures generate:export
 pnpm --filter @ashaveri/fixtures generate:manifest
+pnpm --filter @ashaveri/fixtures generate:pack
 ```
 
 The generators live beside the loaders in `packages/fixtures`, and running all of them after a change
@@ -211,7 +224,8 @@ implementation is the deviation.
 These vectors check bytes. They say nothing about trust:
 
 - Nothing here establishes that a key belongs to anybody. The signing keys published in
-  `data/keys/receipt-key-v1.json`, in `pop-v1.json`, in `export-v1.json` and in `manifest-v1.json`
+  `data/keys/receipt-key-v1.json`, in `pop-v1.json`, in `export-v1.json`, in `manifest-v1.json` and in
+  `pack-v1.json`
   are test-only, labelled as such in the files themselves, and protect nothing. A port that verifies
   against them has exercised its verifier, not appraised a deployment.
 - Nothing here touches attestation. Evidence documents, platform roots, device certificate chains and
