@@ -5,6 +5,7 @@ import {
   receiptsNeededForWindow,
   RECEIPT_STORE_FILE,
   StoreError,
+  type ReceiptServing,
   type ReceiptStore,
 } from '../src/index.js';
 
@@ -66,5 +67,29 @@ describe('the package entry point', () => {
       await store.put(`r${String(i)}`, Uint8Array.from([i]), 1_000 + i);
     }
     expect(receiptsNeededForWindow(10, await store.window())).toBe(11);
+  });
+
+  it('names the bound that sizes a query and retires nothing', async () => {
+    // A program reading a store to assemble an evidence pack has to bound its own working set, and the
+    // number that bounds it must be the serving bound and never the retention one. So the type is
+    // exported, and this asserts what it means: a query window of five held against a serving bound of
+    // one answers all five, because the bound sizes the walk rather than the answer, and it retires
+    // nothing, because only the durability bound decides what a store keeps.
+    const serving: ReceiptServing = { maxServedReceipts: 1 };
+    const store: ReceiptStore = openMemoryReceiptStore({
+      retention: { maxAgeSeconds: 1_000, maxCount: 10, now: () => 1_004 },
+      serving,
+    });
+    for (let i = 0; i < 5; i++) {
+      await store.put(`r${String(i)}`, Uint8Array.from([i]), 1_000 + i);
+    }
+
+    const served: string[] = [];
+    for await (const one of store.range(1_000, 1_005)) {
+      served.push(one.id);
+    }
+    expect(served).toEqual(['r0', 'r1', 'r2', 'r3', 'r4']);
+    expect((await store.window()).count).toBe(5);
+    expect((await store.chainState()).retired).toEqual({ byAge: 0, byCount: 0, trims: [] });
   });
 });
