@@ -12,12 +12,13 @@ import {
   keyId,
   type CoseSign1,
   type ProtectedHeader,
+  type SigningKey,
 } from './cose.js';
 import { ReceiptError } from './errors.js';
 import { verifyReceipt, type VerifiedReceipt } from './receipt.js';
 
 /**
- * The reader of an evidence pack: what `packages/receipt/pack.cddl` states, run.
+ * A pack, read and written: what `packages/receipt/pack.cddl` states, run.
  *
  * A receipt attests one response. A pack attests that the responses inside one window are all of them, and
  * carries the two chain endpoints a reader walks between. This module reads that container and answers three
@@ -49,10 +50,14 @@ import { verifyReceipt, type VerifiedReceipt } from './receipt.js';
  * conclusion; the arithmetic belongs to whoever holds the duty mapping, and both integers are handed back
  * untouched.
  *
- * There is no writer here, which is the format's own order: nothing in this repository assembles a pack, and a
- * document meant to be refused cannot come out of a function that signs it first. The framing helpers below,
- * `packSigStructure` and `packRecordDigest`, are the bytes a signature and a digest are taken over, published
- * because a reimplementer who cannot see them cannot compare two readers' refusals.
+ * This module writes a pack as well as reading one. `encodePackManifest`, `encodePackProtectedHeader`,
+ * `sealPack` and `signPack` are the four pieces that make the bytes, and `signPack` will not produce a document
+ * this file's own reader rejects. What goes into a pack is not this file's question, which is why the manifest
+ * arrives as one argument, already chained: `packSigStructure` and `packRecordDigest` are the bytes a signature
+ * and a record digest are taken over, published both so a caller can compute the endpoints it hands over and
+ * because a reimplementer who cannot see them cannot compare two readers' refusals. A document meant to be
+ * refused, which is what a conformance vector is, is assembled from those four pieces rather than through
+ * `signPack`.
  */
 
 /** The content type that keeps a pack from being read as a receipt or as an export, at label 3. */
@@ -72,7 +77,7 @@ export const DECLARED_PACK_PROTECTED_LABELS: readonly number[] = [
 /**
  * The member list of every map this format closes, in the order the CDDL declares them. Exported for a test
  * to hold against the blocks rather than against this file's reading of them, and exported from `pack.ts`
- * alone: the package's public surface gains the reader, not a roster.
+ * alone: the package's public surface gains the reader and the writer, not a roster.
  */
 export const PACK_MANIFEST_MEMBERS = ['v', 'at', 'span', 'chain', 'duty', 'items'] as const;
 export const PACK_SPAN_MEMBERS = ['from', 'to'] as const;
@@ -136,15 +141,50 @@ export interface VerifiedPackItem {
 }
 
 /**
- * The two findings, in two fields. `walked` is the run the chain establishes, in the order the links put it
- * in and never the order it arrived; `span` is the manifest's own statement of the window it answers for, and
- * it is the same object the manifest carries rather than a second reading of it. A caller that prints one of
- * these two fields as though it were the other is reporting that a deployment was short of evidence because
- * its chain closed, which is the conflation this shape refuses to make easy.
+ * The one ordering finding this format states, named so that the name can be registered later without the
+ * shape below having to change. A second kind would be a second value of this union and a second arm of the
+ * comparison in `stampOrderFindings`, not a new field.
+ */
+export type PackOrderingFindingKind = 'stamp-runs-backwards';
+
+/**
+ * One step of the walk whose stamp runs against it. `from` is the item the walk reached first and `to` the
+ * item it reached from there, so the pair is in chain order rather than in the order the two names sort in or
+ * the order the array carried them.
+ */
+export interface PackOrderingFinding {
+  /** What was found, from the union above. */
+  readonly kind: PackOrderingFindingKind;
+  /** The id of the item the walk reached first. */
+  readonly from: string;
+  /** The id of the item the walk reached from it. */
+  readonly to: string;
+  /** The stamp the first of the two was chained under. */
+  readonly fromIat: number;
+  /** The stamp the second was chained under, which is the one that lies earlier. */
+  readonly toIat: number;
+}
+
+/**
+ * What the walk establishes, in three fields. `walked` is the run the chain establishes, in the order the links
+ * put it in and never the order it arrived; `span` is the manifest's own statement of the window it answers
+ * for, and it is the same object the manifest carries rather than a second reading of it. A caller that prints
+ * one of these two fields as though it were the other is reporting that a deployment was short of evidence
+ * because its chain closed, which is the conflation this shape refuses to make easy.
+ *
+ * `ordering` is the third field and a different kind of thing from the first two: it reports nothing the
+ * reader refused and nothing the reader established, only a place where the two orders a pack carries disagree
+ * with each other. The links are the order the chain fixes and an item's `iat` is the stamp the record was
+ * chained under, and a store chains under whatever stamp it was handed, so a deployment that corrected its own
+ * clock produces an honest pack whose stamps run backwards while every link in it is right. That document is
+ * lawful output and refusing it would be a defect, which is why this is a finding on a result and not a code.
+ * Each entry is one step of the walk whose successor carries a stamp earlier than its own, in chain order, and
+ * an empty array says the two orders agree.
  */
 export interface PackOutcome {
   readonly walked: readonly VerifiedPackItem[];
   readonly span: PackSpan;
+  readonly ordering: readonly PackOrderingFinding[];
 }
 
 export interface DecodedPack {
@@ -277,6 +317,102 @@ export function packRecordDigest(item: {
 
 function recordDigest(record: VerifiedPackItem): Uint8Array {
   return packRecordDigest(record.item);
+}
+
+/**
+ * The signed header this format writes, carrying the content type that keeps a pack from being read as a
+ * receipt, an export or a deployment manifest. The `contentType` argument is there for the one caller who needs
+ * a header naming something else, which is a document assembled to be refused: no honest pack writes another
+ * type, and the reader answers this position before it consults a key.
+ */
+export function encodePackProtectedHeader(kid: Uint8Array, contentType: string = PACK_CONTENT_TYPE): Uint8Array {
+  return encodeCanonical(
+    new Map<number, unknown>([
+      [COSE_HEADER_ALG, ALG_EDDSA],
+      [COSE_HEADER_CONTENT_TYPE, contentType],
+      [COSE_HEADER_KID, kid],
+    ]),
+  );
+}
+
+/**
+ * The four elements of a `COSE_Sign1-Pack-COSE`, tagged, as the format writes them. The `unprotected` map is
+ * the one a signer fills at will and this reader reads nothing out of, so it is an argument rather than a fixed
+ * empty map.
+ */
+export function sealPack(
+  protectedBytes: Uint8Array,
+  payloadBytes: Uint8Array,
+  signature: Uint8Array,
+  unprotected: Map<unknown, unknown> = new Map(),
+): Uint8Array {
+  return encodeCanonical(new Tag(COSE_SIGN1_TAG, [protectedBytes, unprotected, payloadBytes, signature]));
+}
+
+/**
+ * The manifest, as the CBOR maps `pack.cddl` declares them: one Map per map, so key order is bytewise under
+ * Core Deterministic Encoding and no field order in a caller's object can move a byte of what gets signed. The
+ * members come in the order the CDDL lists them, and every integer goes out through `encodeCanonical`, the
+ * package's one place where the bytes of a number are chosen. That is not cosmetics: a reader recomputes each
+ * record's digest from the bytes an item carries and compares the run against the two endpoints inside this
+ * same signature, so a writer that spelled a number another way would make a deployment refuse its own pack.
+ */
+export function encodePackManifest(manifest: PackManifest): Uint8Array {
+  const item = (one: PackItem): Map<string, unknown> =>
+    new Map<string, unknown>([
+      ['id', one.id],
+      ['iat', one.iat],
+      ['prev', one.prev],
+      ['receipt', one.receipt],
+    ]);
+  return encodeCanonical(
+    new Map<string, unknown>([
+      ['v', manifest.v],
+      ['at', manifest.at],
+      ['span', new Map<string, unknown>([['from', manifest.span.from], ['to', manifest.span.to]])],
+      ['chain', new Map<string, unknown>([['anchor', manifest.chain.anchor], ['head', manifest.chain.head]])],
+      [
+        'duty',
+        new Map<string, unknown>([
+          ['art', manifest.duty.art],
+          ['rev', manifest.duty.rev],
+          ['required', manifest.duty.required],
+          ['held', manifest.duty.held],
+        ]),
+      ],
+      ['items', manifest.items.map(item)],
+    ]),
+  );
+}
+
+/**
+ * Sign a pack.
+ *
+ * The manifest is encoded, run back through this module's own structural parser, and only then signed, because
+ * a writer that produced bytes its own reader refuses has made a document that cannot be handed over. That is
+ * the structural half of the reader and it needs no key, which is also what it covers: a stamp outside the
+ * span, a revision after the reads, a `held` younger than the oldest receipt the pack carries, a duplicated id
+ * and an empty items array all arrive here before a signature is made. The chain itself is not checked, because
+ * the endpoints and the links are the caller's inputs, and a caller that wants to hand a reader a document that
+ * is *meant* to be refused, which is what a conformance vector is, assembles it from the three pieces above
+ * rather than through this function.
+ *
+ * The key is checked as `manifest-seal.ts` checks its own: `kid` has to be sha256 of the public half travelling
+ * beside it. A pack whose header names a kid that resolves to no key is a document no reader can verify, so
+ * this refuses at the point the bytes are made rather than at the point somebody finds out.
+ */
+export function signPack(manifest: PackManifest, key: SigningKey): Uint8Array {
+  if (key.kid.length !== DIGEST_BYTES || key.privateKey.length !== DIGEST_BYTES || key.publicKey.length !== DIGEST_BYTES) {
+    throw new ReceiptError('BAD_SIGNING_KEY', `a pack signing key is a ${DIGEST_BYTES}-byte Ed25519 key and a ${DIGEST_BYTES}-byte kid`);
+  }
+  if (!equalBytes(keyId(key.publicKey), key.kid)) {
+    throw new ReceiptError('BAD_SIGNING_KEY', 'the kid of a pack signing key is sha256 of its public key');
+  }
+  const payloadBytes = encodePackManifest(manifest);
+  parseManifest(payloadBytes);
+  const protectedBytes = encodePackProtectedHeader(key.kid);
+  const signature = ed25519.sign(packSigStructure(protectedBytes, payloadBytes), key.privateKey);
+  return sealPack(protectedBytes, payloadBytes, signature);
 }
 
 function requireText(value: unknown, position: string, maxBytes: number): string {
@@ -611,6 +747,41 @@ function walk(records: readonly VerifiedPackItem[], anchor: Uint8Array, head: Ui
 }
 
 /**
+ * The two orders a pack carries, compared. The walk's order is the one the `prev` links fix and the stamps are
+ * the `iat` each record was chained under, so a step whose successor carries an earlier stamp is a place where
+ * those two statements disagree.
+ *
+ * Nothing here refuses, and that is the whole of the design. The store chains a receipt under whatever stamp it
+ * was handed, so a deployment that corrected its clock, or that took the correction across a span boundary,
+ * produces an honest pack whose stamps run backwards while every link is right; a second, nastier reading is
+ * that a reader which threw here would be refusing a document on a ground its own format does not state. Both
+ * the walk and the item-stamp equality already bind the bytes, so what a disagreement can mean is only that the
+ * two stamps came from two clocks, which is a fact for whoever holds the deployment and not a fault in the
+ * document. The stamps of two successive items being equal is not a finding either: a store serving two records
+ * inside one second chains them under one stamp, and the links still order them.
+ *
+ * The comparison is over successive steps, which is enough to see every disagreement of this kind: a run whose
+ * stamps are not in chain order has a step where they moved backwards.
+ */
+function stampOrderFindings(walked: readonly VerifiedPackItem[]): PackOrderingFinding[] {
+  const findings: PackOrderingFinding[] = [];
+  let previous: VerifiedPackItem | undefined;
+  for (const record of walked) {
+    if (previous !== undefined && record.item.iat < previous.item.iat) {
+      findings.push({
+        kind: 'stamp-runs-backwards',
+        from: previous.item.id,
+        to: record.item.id,
+        fromIat: previous.item.iat,
+        toIat: record.item.iat,
+      });
+    }
+    previous = record;
+  }
+  return findings;
+}
+
+/**
  * The key a pack verifies its envelope under, from whichever of the two designations the caller used.
  *
  * A `publicKey` answers the header's kid and the signature with one key, and a header naming another kid is
@@ -663,6 +834,13 @@ function envelopeKey(kid: Uint8Array, options: PackVerifyOptions): Uint8Array {
  * not handed one. `outcome.span` is the manifest's own statement of the window, and comparing it with the
  * window you wanted is the other half of the verdict; `manifest.duty` is the deployment's statement of the
  * period it answers to, and the comparison the format leaves out is left out here too.
+ *
+ * `outcome.ordering` is the third field and the one this function never refuses on. It names each step of the
+ * walk whose successor carries an earlier stamp, which is the two orders a pack holds disagreeing rather than a
+ * link missing: the store chains under whatever stamp it was handed, so a clock correction inside a span
+ * produces an honest pack whose stamps run backwards, and a reader that refused that would be refusing lawful
+ * output. The detail is a stable name per finding plus the two ids and the two stamps, because a caller reports
+ * a disagreement by quoting it and a name for it may be registered later without this shape having to change.
  */
 export function verifyPack(bytes: Uint8Array, options: PackVerifyOptions): VerifiedPack {
   if (options.publicKey === undefined && options.resolveKey === undefined) {
@@ -686,6 +864,6 @@ export function verifyPack(bytes: Uint8Array, options: PackVerifyOptions): Verif
     manifest,
     header: envelope.header,
     envelope,
-    outcome: { walked, span: manifest.span },
+    outcome: { walked, span: manifest.span, ordering: stampOrderFindings(walked) },
   };
 }

@@ -56,6 +56,7 @@ pnpm --filter @ashaveri/fixtures generate:marking  # data/marking-v1.json
 pnpm --filter @ashaveri/fixtures generate:chain    # data/chain-v1.json
 pnpm --filter @ashaveri/fixtures generate:export   # data/export-v1.json
 pnpm --filter @ashaveri/fixtures generate:manifest # data/manifest-v1.json
+pnpm --filter @ashaveri/fixtures generate:pack     # data/pack-v1.json
 ```
 
 The generators derive their key material and most of their digests from a labelled SHA-256 seed
@@ -135,8 +136,12 @@ A decision of 21 September 2026 is that a deployment receives it as a dated snap
 revision date, so that a claim made in 2027 is read against the version it was made from. The layout
 such a pack carries is a separate matter, because a deployment reads it and so a verdict can turn on
 it: the rule puts that layout on this side, and the same date settled the order — the layout is
-published here before the tooling that writes it moves on. As of 21 September 2026 no pack layout is
-published in this repository, for the plain reason that nothing in this repository writes one.
+published here before the tooling that writes it moves on. The layout has been published since, in
+`packages/receipt/pack.cddl` and its display twin, with the reader and the encoder in
+`packages/receipt/src/pack.ts` and the pack vectors in `packages/fixtures/data/pack-v1.json` beside them,
+so a third party can write a pack, read one, and check that the two agree. The two survivors this
+paragraph names are what still sits on the other side: the duty mapping, and the tooling that decides
+which receipts a span holds.
 
 What a contributor should expect to follow. A change that touches what a verdict means has to be made
 here, because a closed half cannot hold it without breaking the rule above. A component no verdict

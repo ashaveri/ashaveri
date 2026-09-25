@@ -55,11 +55,12 @@ import {
  * for every whole number and always takes it, so those bytes are produced by the plain one, which keeps the
  * major type a value was given.
  *
- * There is no writer to call. Nothing in this repository assembles a pack, so the bytes every case runs on are
- * built here, one Map per declared map, and signed over the framing `pack.ts` publishes. The chain is rebuilt
- * from section 5.2 of `docs/receipt-spec.md`, which this file spells out on its own and then holds against
- * `packRecordDigest` and against the record images in `packages/fixtures/data/chain-v1.json`, so that a digest
- * the reader reproduces is tied to two other statements of the framing rather than to itself.
+ * Every case's bytes are built here rather than through `signPack`, one Map per declared map, signed over the
+ * framing `pack.ts` publishes. That is a decision about this suite and not a claim about the package: a refusal
+ * checked against the same writer that made the bytes would be measuring one code twice. So the framing is
+ * spelled out on its own and held three ways, against `packRecordDigest`, against the writer in
+ * `pack-encoder.test.ts`, and against the record images in `packages/fixtures/data/chain-v1.json`, which is what
+ * keeps a digest the reader reproduces tied to two other statements rather than to itself.
  */
 const packCddlPath = fileURLToPath(new URL('../pack.cddl', import.meta.url));
 const vectorsPath = fileURLToPath(new URL('../../fixtures/data/chain-v1.json', import.meta.url));
@@ -670,7 +671,10 @@ describe('the pack reader and the format it reads', () => {
     // manifest's own claim about the period, and a caller that printed either alone would be saying more than
     // the bytes it holds can carry.
     expect(Object.keys(verifiedPack).sort()).toEqual(['envelope', 'header', 'manifest', 'outcome']);
-    expect(Object.keys(verifiedPack.outcome).sort()).toEqual(['span', 'walked']);
+    expect(Object.keys(verifiedPack.outcome).sort()).toEqual(['ordering', 'span', 'walked']);
+    // The ordering field of an honest pack is empty rather than absent, and it is the third field of a
+    // three-field shape, so a caller that reads one field as the other still cannot.
+    expect(verifiedPack.outcome.ordering).toEqual([]);
     expect(verifiedPack.outcome.span).toBe(verifiedPack.manifest.span);
     expect(verifiedPack.outcome.walked.map((one) => one.item.id)).toEqual(['receipt-0', 'receipt-1', 'receipt-2']);
     for (const one of verifiedPack.outcome.walked) {
@@ -1039,20 +1043,36 @@ describe('the pack reader and the format it reads', () => {
     expect(walked.outcome.walked.map((one) => one.item.id)).toEqual(['receipt-0', 'receipt-2']);
     expect(walked.outcome.span).toEqual(honest.span);
     expect(walked.outcome.walked.length).not.toBe(honest.items.length);
-    // What the paragraph states as still absent: nothing assembles a pack. The reader publishes the bytes a
-    // signature covers and the framing a digest is taken over, and exports no writer, so the sentence cannot
-    // become false quietly from this package.
+    // The writer is public and both halves leave the package. A name dropped from the entry point would leave a
+    // caller with a reader and no way to make the bytes, which is the asymmetry the writer closes, and the
+    // bytes it writes are held against this file's own framing in `pack-encoder.test.ts`.
     const surface = readFileSync(fileURLToPath(new URL('../src/index.ts', import.meta.url)), 'utf8');
     expect(surface).toMatch(/from '\.\/pack\.js'/u);
-    for (const [name, source] of [['pack.ts', readerSource], ['index.ts', surface]] as const) {
-      expect(source, `${name} exports a writer for a format that states it has none`).not.toMatch(
-        /^export (?:async )?function (?:sign|seal|encode|build)\w*/mu,
-      );
+    for (const name of [
+      'encodePackManifest',
+      'encodePackProtectedHeader',
+      'sealPack',
+      'signPack',
+      'decodePack',
+      'verifyPack',
+      'packRecordDigest',
+      'packSigStructure',
+    ]) {
+      expect(readerSource, `pack.ts no longer exports ${name}`).toMatch(new RegExp(`^export function ${name}\\(`, 'mu'));
+      expect(surface, `the package entry no longer hands out ${name}`).toContain(`\n  ${name},`);
     }
     expect(
       spec,
       'the specification still claims this repository reads no pack, which the paragraph above refutes',
     ).not.toMatch(/nothing (?:here|in this repository) reads a pack/iu);
+    expect(
+      spec,
+      'the specification still claims nothing in this repository writes a pack, which the writer refutes',
+    ).not.toMatch(/nothing in this repository assembles a pack/iu);
+    expect(
+      readerSource,
+      'the verified pack no longer carries the ordering finding beside the run and the window',
+    ).toMatch(/outcome: \{ walked, span: manifest\.span, ordering: stampOrderFindings\(walked\) \}/u);
   });
 });
 

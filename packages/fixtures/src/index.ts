@@ -469,3 +469,88 @@ export interface SealedManifestVectorFile {
 export function loadSealedManifestVectors(): SealedManifestVectorFile {
   return JSON.parse(readFileSync(join(DATA, 'manifest-v1.json'), 'utf8')) as SealedManifestVectorFile;
 }
+
+/** How a row hands the pack reader its keys: the one key pinned, or the set a resolver answers from. */
+export interface PackDesignation {
+  pinned?: string;
+  retained?: DesignatedManifestKey[];
+}
+
+/** One record of the honest run: the predecessor it names and the digest the framing gave back. */
+export interface PackRecordRow {
+  position: number;
+  id: string;
+  iat: number;
+  prevHex: string;
+  receiptByteLength: number;
+  digestHex: string;
+}
+
+/** One step of a walk whose stamps run against the links, as the reader reports it and never refuses it. */
+export interface PackOrderingRow {
+  kind: string;
+  from: string;
+  to: string;
+  fromIat: number;
+  toIat: number;
+}
+
+/**
+ * One case: the pack bytes handed to a reader, the designation it is given, what `verifyPack` answers, and what
+ * `decodePack` answers for the same bytes with no key in hand.
+ */
+export interface PackVector {
+  name: string;
+  note: string;
+  /** The sealed pack, unpadded base64url. */
+  documentBase64Url: string;
+  documentByteLength: number;
+  read: PackDesignation;
+  /** `verify-ok`, or the code `verifyPack` answers with. */
+  verdict: string;
+  /** `verify-ok`, or the code `decodePack` answers with before any key is consulted. */
+  structural: string;
+  /** The run the links reached, in that order. */
+  walk?: string[];
+  /** The steps where the stamps disagree with the links, empty where they agree. */
+  ordering?: PackOrderingRow[];
+  /** The window the manifest states, where the row is about the window. */
+  span?: { from: number; to: number };
+  /** The item a refusal names, where the code reports by naming one. */
+  item?: string;
+  /** The one position a fault case moved. */
+  edited?: string;
+}
+
+export interface PackVectorFile {
+  version: number;
+  description: string;
+  layout: {
+    format: string;
+    twin: string;
+    prose: string;
+    contentType: string;
+    writer: string;
+    reader: string;
+    headerLabels: { alg: number; typ: number; kid: number };
+    codes: string[];
+    verdictFields: string[];
+    records: PackRecordRow[];
+    keyMaterial: Array<{
+      id: string;
+      seed: string;
+      kidHex: string;
+      publicKeyHex: string;
+      publicKeyBase64Url: string;
+      role: string;
+    }>;
+    [key: string]: unknown;
+  };
+  vectors: PackVector[];
+  crossReading: { note: string; cases: Array<{ name: string; documentBase64Url: string; expected: string }> };
+}
+
+/** The evidence pack: the shapes a deployment hands it over in, the designations, and both reader answers. */
+export function loadPackVectors(): PackVectorFile {
+  return JSON.parse(readFileSync(join(DATA, 'pack-v1.json'), 'utf8')) as PackVectorFile;
+}
