@@ -66,7 +66,7 @@ const DIGEST_BYTES = 32;
 export interface VerifyReceiptFlags {
   policy?: string;
   manifest?: string;
-  /** Every `--manifest-key` given, unvalidated at this point; see `designatedManifestKeys`. */
+  /** Every `--manifest-key` given, unvalidated at this point; see `designatedKeys`. */
   'manifest-key'?: string[];
   nonce?: string;
   'request-body'?: string;
@@ -77,8 +77,8 @@ export interface VerifyReceiptFlags {
   json?: boolean;
 }
 
-/** One manifest signing key this run was handed, and where it came from. */
-interface ManifestKeyDesignation {
+/** One signing key this run was handed, and the role it was handed for. */
+export interface DesignatedKey {
   /** The key's own id: sha256 of its bytes, hex, which is how a seal's `kid` is matched to it. */
   readonly kid: string;
   /** Those bytes in their canonical base64url spelling, which is the form the policy map stores. */
@@ -88,14 +88,16 @@ interface ManifestKeyDesignation {
 }
 
 /** The flag's own name, so a refusal and the report spell it identically. */
-const MANIFEST_KEY_FLAG = '--manifest-key';
+export const MANIFEST_KEY_FLAG = '--manifest-key';
+
+/** The flag that designates the keys a signed evidence document is verified under, by kid. */
+export const KEY_FLAG = '--key';
 
 /** The one spelling `AshaveriPolicy.manifestKeys` accepts, mirrored from the policy file's `base64Url32`. */
 const BASE64URL_32_BYTES = /^[A-Za-z0-9_-]{43}$/u;
 
 /**
- * One `--manifest-key` argument, read exactly the way the policy file would have read the field this
- * stands in for.
+ * One designated key argument, read exactly the way the policy file would have read a key.
  *
  * Two channels for one designation have to agree on what a key is or an operator copying a value
  * between them gets two answers, so the three checks are the policy file loader's own: 43 characters
@@ -106,37 +108,33 @@ const BASE64URL_32_BYTES = /^[A-Za-z0-9_-]{43}$/u;
  * The id is computed from the key rather than typed beside it, which is what makes the disagreement
  * between a pin and the key filed under it unenterable from a command line.
  */
-function manifestKeyDesignation(value: string): ManifestKeyDesignation {
+export function designatedKey(value: string, flag: string): DesignatedKey {
   if (!BASE64URL_32_BYTES.test(value)) {
-    throw new UsageError(
-      `${MANIFEST_KEY_FLAG} must be the base64url of 32 bytes, which is 43 characters and no padding, not ${JSON.stringify(value)}`,
-    );
+    throw new UsageError(`${flag} must be the base64url of 32 bytes, which is 43 characters and no padding, not ${JSON.stringify(value)}`);
   }
   let bytes: Uint8Array;
   try {
     bytes = fromBase64Url(value);
   } catch (err) {
-    throw new UsageError(`${MANIFEST_KEY_FLAG} is not base64url: ${err instanceof Error ? err.message : String(err)}`);
+    throw new UsageError(`${flag} is not base64url: ${err instanceof Error ? err.message : String(err)}`);
   }
   const canonical = toBase64Url(bytes);
   if (canonical !== value) {
-    throw new UsageError(
-      `${MANIFEST_KEY_FLAG} is not the canonical base64url spelling of its own bytes, which are ${canonical}`,
-    );
+    throw new UsageError(`${flag} is not the canonical base64url spelling of its own bytes, which are ${canonical}`);
   }
-  return { kid: toHex(keyId(bytes)), publicKey: canonical, source: MANIFEST_KEY_FLAG };
+  return { kid: toHex(keyId(bytes)), publicKey: canonical, source: flag };
 }
 
 /**
- * The keys this run designates to have signed the manifest.
+ * The keys this run designates, one per distinct id.
  *
  * Duplicated by id rather than by text: the id is the key's own digest, so two spellings of one key
  * are one designation, and counting it twice would report a check this run did not run twice.
  */
-function designatedManifestKeys(values: VerifyReceiptFlags): readonly ManifestKeyDesignation[] {
-  const byKid = new Map<string, ManifestKeyDesignation>();
-  for (const value of values['manifest-key'] ?? []) {
-    const designation = manifestKeyDesignation(value);
+export function designatedKeys(values: readonly string[] | undefined, flag: string): readonly DesignatedKey[] {
+  const byKid = new Map<string, DesignatedKey>();
+  for (const value of values ?? []) {
+    const designation = designatedKey(value, flag);
     byKid.set(designation.kid, designation);
   }
   return [...byKid.values()];
@@ -150,7 +148,7 @@ function designatedManifestKeys(values: VerifyReceiptFlags): readonly ManifestKe
  * key at all, so every key reaching this map came in beside the digest rather than inside it, and a
  * verdict that cites the digest is citing something that covers none of these keys.
  */
-function sessionPolicy(policy: AshaveriPolicy, designated: readonly ManifestKeyDesignation[]): AshaveriPolicy {
+function sessionPolicy(policy: AshaveriPolicy, designated: readonly DesignatedKey[]): AshaveriPolicy {
   if (designated.length === 0) return policy;
   return {
     ...policy,
@@ -161,8 +159,13 @@ function sessionPolicy(policy: AshaveriPolicy, designated: readonly ManifestKeyD
   };
 }
 
-/** Bytes as typed or piped: `-` is stdin, anything else is one path, and nothing is fetched. */
-async function readBytes(path: string, label: string): Promise<Uint8Array> {
+/**
+ * Bytes as typed or piped: `-` is stdin, anything else is one path, and nothing is fetched.
+ *
+ * Shared with `verify-handover`, which reads one document the same way, because two commands that
+ * promise "files only, no URLs" have to keep that promise with one implementation.
+ */
+export async function readBytes(path: string, label: string): Promise<Uint8Array> {
   if (path === '-') {
     const chunks: Buffer[] = [];
     for await (const chunk of process.stdin) {
@@ -303,7 +306,7 @@ async function digestsOf(values: VerifyReceiptFlags): Promise<Digests> {
  */
 function pinFamilies(
   policy: AshaveriPolicy,
-  designated: readonly ManifestKeyDesignation[],
+  designated: readonly DesignatedKey[],
 ): {
   readonly pinned: readonly string[];
   readonly notPinned: readonly string[];
@@ -363,7 +366,7 @@ interface Verdict {
   /** Whether the document that carried those declarations was authenticated, and the reason it was not. */
   readonly authentication: ManifestAuthentication;
   /** The manifest signing keys this run was handed, with the flag that named each of them. */
-  readonly keyDesignation: readonly ManifestKeyDesignation[];
+  readonly keyDesignation: readonly DesignatedKey[];
   readonly policyDigest: string;
   readonly policyPath: string;
   readonly manifestPath: string;
@@ -393,7 +396,7 @@ function epochLine(verdict: EpochVerdict): string {
   return `adjudicated against the manifest's declaration (${verdict.basis}${window}): ${verdict.detail}`;
 }
 
-function sealLine(authentication: ManifestAuthentication, designated: readonly ManifestKeyDesignation[]): string {
+function sealLine(authentication: ManifestAuthentication, designated: readonly DesignatedKey[]): string {
   if (!authentication.authenticated) {
     return authentication.advisory ?? 'not authenticated, and no reason was recorded';
   }
@@ -409,7 +412,7 @@ function sealLine(authentication: ManifestAuthentication, designated: readonly M
  * The human lines naming what this run trusted beyond its own citation: one per designated key, and
  * one saying plainly that the printed digest covers none of them. Empty when nothing was designated.
  */
-function designationLines(designated: readonly ManifestKeyDesignation[]): readonly string[] {
+function designationLines(designated: readonly DesignatedKey[]): readonly string[] {
   if (designated.length === 0) return [];
   return [
     ...designated.map(
@@ -550,7 +553,7 @@ export async function runVerifyReceipt(positionals: string[], values: VerifyRece
   );
   // Refused here rather than at the check itself: an argument that is not a key is a typing mistake,
   // and it is one before this run has read a byte of anybody's material.
-  const designations = designatedManifestKeys(values);
+  const designations = designatedKeys(values['manifest-key'], MANIFEST_KEY_FLAG);
   const loaded = await readPolicyFile(policyPath);
   const receiptBytes = await readBytes(receiptPath, 'receipt');
   const manifestBytes = await readBytes(manifestPath, '--manifest');
