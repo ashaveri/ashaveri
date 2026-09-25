@@ -70,7 +70,7 @@ deployment. That sentence is about where the package stands today, not about kee
   intake. There is no account, tenant or console of ours to attack, no support desk, and no uptime
   figure anywhere in this project. Nothing of ours sits in a caller's verification loop either: the
   checks are local, against the vendor roots bundled in `@ashaveri/attest-core` and the pins a client
-  supplies. That covers the present and the decided future alike: the platform-health feed described
+  supplies. That covers the present and the decided future alike: the attestation-collateral feed described
   in `README.md` was decided on 21 September 2026 and nothing of it runs, so as of this writing there
   is still no endpoint of ours for a report to be about.
 - **No certifications and no audits.** This repository has completed neither, so it holds no seal to
@@ -90,9 +90,9 @@ project owns or can fix, and a finding against them belongs to the vendor's own 
 `docs/threat-model.md` section 6 lists what this design does not do, and it is current rather than
 aspirational. A sample, so you know what you are walking into:
 
-- Nothing in this code fetches vendor platform-health data, so a genuinely signed but since-revoked
+- Nothing in this code fetches vendor attestation collateral, so a genuinely signed but since-revoked
   platform still verifies. Checking freshness needs network access and is deliberately outside the
-  offline path. A convenience feed of that data was decided on 21 September 2026 and is described in
+  offline path. A convenience feed of that collateral was decided on 21 September 2026 and is described in
   `README.md`; nothing of it runs today, and it changes nothing about what you are reporting.
 - A composite `snp+gpucc` or `tdx+gpucc` label does not prove the attesting GPU is the card attached
   to the attesting VM. That needs TDISP/TEE-IO and no deployment here has it.
