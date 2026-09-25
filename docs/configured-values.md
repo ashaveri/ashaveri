@@ -18,12 +18,12 @@ The three classes:
 - **never in a commit or a log**, material that is a credential, named here by its shape and never
   by its value.
 
-A default spelled in capitals inside backticks names a constant the second table carries, or an
-environment variable the third does. A default spelled in backticks without capitals is a literal the
-code holds in a defaulting position. A default in plain prose has no single value in source to point
-at, because the code reaches it through a refusal or through another module. `gateway/test/configured-values.test.ts`
-reads these tables against the source and the container files, so a row that stops being true fails a
-run rather than aging quietly.
+A default spelled in capitals inside backticks names a constant or an environment variable one of the
+tables below carries. A default spelled in backticks without capitals is a literal the code holds in a
+defaulting position. A default in plain prose has no single value in source to point at, because the
+code reaches it through a refusal or through another module.
+`gateway/test/configured-values.test.ts` reads these tables against the source and the container
+files, so a row that stops being true fails a run rather than aging quietly.
 
 ## 1. Flags this gateway accepts
 
@@ -112,6 +112,6 @@ Class: never in a commit or a log. It is listed with the rest because the shippe
 its value is the only thing here that a reader must never write down: it is a signing key, so a
 record that names its holder proves nothing once the key is in a repository, a log line or an image.
 
-| Variable | What it governs | Shape | Class | Declared in |
+| Variable | What it governs | Shape | Class | Read from |
 |---|---|---|---|---|
 | `ASHAVERI_CREDENTIAL_SECRET` | The key a client signs each request with | 64 hex digits for a proof-of-possession credential, and never printed | never in a commit or a log | `packages/sdk/src/auth.ts` |
