@@ -554,3 +554,97 @@ export interface PackVectorFile {
 export function loadPackVectors(): PackVectorFile {
   return JSON.parse(readFileSync(join(DATA, 'pack-v1.json'), 'utf8')) as PackVectorFile;
 }
+
+/**
+ * One record of the pack a redaction speaks about, in the order its links fix it, with the digest the pack's
+ * own framing gives back and whether this redaction names it for removal.
+ */
+export interface RedactionRunRow {
+  position: number;
+  id: string;
+  iat: number;
+  prevHex: string;
+  digestHex: string;
+  namedForRemoval: boolean;
+}
+
+/**
+ * One survivor: the predecessor its record carries in the pack, the predecessor the reduced chain used
+ * instead, and the digest that came out. The two predecessor columns are equal for the first record of a run
+ * and differ for every later one, which is the relinking stated as data.
+ */
+export interface RedactionRecordRow {
+  position: number;
+  id: string;
+  iat: number;
+  prevInPackHex: string;
+  relinkedFromHex: string;
+  digestHex: string;
+  namedForRemoval: boolean;
+}
+
+/**
+ * One case: the redaction bytes, the pack handed beside them, the designation the caller makes, and what each
+ * of the reader's two entry points answers. A row with no `packOf` is the reader that was handed one document
+ * of the pair and is refused for that and nothing else.
+ */
+export interface RedactionVector {
+  name: string;
+  note: string;
+  /** The sealed redaction manifest, unpadded base64url. */
+  documentBase64Url: string;
+  documentByteLength: number;
+  /** The row of `pack-v1.json` the pack handed to the reader comes from, when one was handed. */
+  packOf?: string;
+  /** Stated when the handed pack is that row's bytes with one position moved, which is the only departure. */
+  packEdited?: string;
+  packBase64Url?: string;
+  packByteLength?: number;
+  read: PackDesignation;
+  /** `verify-ok`, or the code `verifyRedaction` answers with. */
+  verdict: string;
+  /** `verify-ok`, or the code `decodeRedaction` answers with before any key or pack is consulted. */
+  structural: string;
+  /** The records that remain, in the order the pack's links reach them. */
+  survivors?: string[];
+  /** The head of the chain over the survivors, and the pack's own signed head, never equal on one row. */
+  reducedHex?: string;
+  originalHeadHex?: string;
+  /** The id a refusal names, where the code reports by naming one. */
+  item?: string;
+  /** The one position a fault case moved. */
+  edited?: string;
+}
+
+export interface RedactionVectorFile {
+  version: number;
+  description: string;
+  layout: {
+    format: string;
+    twin: string;
+    prose: string;
+    contentType: string;
+    reader: string;
+    headerLabels: { alg: number; typ: number; kid: number };
+    codes: string[];
+    verdictFields: string[];
+    run: RedactionRunRow[];
+    records: RedactionRecordRow[];
+    keyMaterial: Array<{
+      id: string;
+      seed: string;
+      kidHex: string;
+      publicKeyHex: string;
+      publicKeyBase64Url: string;
+      role: string;
+    }>;
+    [key: string]: unknown;
+  };
+  vectors: RedactionVector[];
+  crossReading: { note: string; cases: Array<{ name: string; documentBase64Url: string; expected: string }> };
+}
+
+/** The redaction manifest: each pair of documents, both reader answers, and the chain over the survivors. */
+export function loadRedactionVectors(): RedactionVectorFile {
+  return JSON.parse(readFileSync(join(DATA, 'redaction-v1.json'), 'utf8')) as RedactionVectorFile;
+}

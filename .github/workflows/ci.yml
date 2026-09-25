@@ -85,6 +85,7 @@ jobs:
       - run: pnpm -C packages/fixtures generate:export
       - run: pnpm -C packages/fixtures generate:manifest
       - run: pnpm -C packages/fixtures generate:pack
+      - run: pnpm -C packages/fixtures generate:redaction
       - run: git diff --exit-code packages/fixtures/data
 
   offline-verifier:

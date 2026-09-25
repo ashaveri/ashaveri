@@ -107,9 +107,14 @@ const publishedKids = new Set(packSuite.layout.keyMaterial.map((one) => one.kidH
 
 const bytes = (base64url: string): Uint8Array => new Uint8Array(Buffer.from(base64url, 'base64url'));
 
-/** One published pack, with the manifest its own bytes decode back into. */
+/**
+ * One published pack, with the manifest its own bytes decode back into. `edited` states that the bytes handed
+ * to the reader are the named row's bytes with one position moved, which is the only departure from handing
+ * over a published document exactly as it stands.
+ */
 interface PackPair {
   readonly name: string;
+  readonly edited?: string;
   readonly bytes: Uint8Array;
   readonly manifest: PackManifest;
 }
@@ -180,7 +185,8 @@ function withPackReceiptByteFlipped(pack: PackPair, index: number, at: number): 
  * decode, which is what makes this pair a test of the designation rather than of a shape.
  */
 const MOVED: PackPair = {
-  name: 'well-formed-three-items with one byte of receipt-0 flipped after sealing',
+  name: 'well-formed-three-items',
+  edited: 'one byte of items[0].receipt flipped after the pack was sealed',
   bytes: withPackReceiptByteFlipped(HONEST, 0, 12),
   manifest: HONEST.manifest,
 };
@@ -900,7 +906,12 @@ function published(one: Case): Record<string, unknown> {
     documentByteLength: one.bytes.length,
     ...(one.pack === null
       ? {}
-      : { packOf: one.pack.name, packBase64Url: toBase64Url(one.pack.bytes), packByteLength: one.pack.bytes.length }),
+      : {
+          packOf: one.pack.name,
+          ...(one.pack.edited === undefined ? {} : { packEdited: one.pack.edited }),
+          packBase64Url: toBase64Url(one.pack.bytes),
+          packByteLength: one.pack.bytes.length,
+        }),
     read: one.read,
     verdict: one.verdict,
     structural: one.structural,
@@ -1009,12 +1020,19 @@ function main(): void {
     if (structure !== one.structural) {
       throw new Error(`${one.name}: the structural reader answers ${structure}, not the ${one.structural} this file states`);
     }
-    // A row that names a published pack row names those exact bytes: this suite redacts evidence this repository
-    // already publishes rather than a rebuild of it that happens to look the same.
+    // A row that names a published pack row names those exact bytes, unless it states the one position it
+    // moved: this suite redacts evidence this repository already publishes rather than a rebuild of it that
+    // happens to look the same.
     if (one.pack !== null) {
       const found = packRows.get(one.pack.name);
-      if (found !== undefined && toHex(one.pack.bytes) !== toHex(bytes(found.documentBase64Url))) {
-        throw new Error(`${one.name}: the pack it calls ${one.pack.name} is not the bytes pack-v1.json publishes`);
+      if (found === undefined) throw new Error(`${one.name}: ${one.pack.name} is no document pack-v1.json publishes`);
+      const publishedBytes = toHex(bytes(found.documentBase64Url));
+      if (one.pack.edited === undefined) {
+        if (toHex(one.pack.bytes) !== publishedBytes) {
+          throw new Error(`${one.name}: the pack it calls ${one.pack.name} is not the bytes pack-v1.json publishes`);
+        }
+      } else if (toHex(one.pack.bytes) === publishedBytes) {
+        throw new Error(`${one.name}: the pack states an edit and carries the published bytes unchanged`);
       }
     }
   }
@@ -1070,7 +1088,7 @@ function main(): void {
           readFields:
             "`read.pinned` is the one key the caller holds, which designates the redaction's envelope and every receipt inside the pack. `read.retained` is the set a resolver answers from, one key per kid, which is how a pair whose pack crosses a key rotation is read. A row with neither is the call that designated nothing and is refused before a byte is read. The pack itself is handed beside the designation, and a row that states no pack at all is the reader that was handed one document of the pair.",
           packFields:
-            "`packOf` names the row of `packages/fixtures/data/pack-v1.json` whose document this row hands the reader, `packBase64Url` carries those bytes and `packByteLength` their length. No pack here is rebuilt: every pack this suite redacts is evidence the pack suite already publishes, and a row whose pack is not one of that suite's documents says so in the field instead of naming a row.",
+            "`packOf` names the row of `packages/fixtures/data/pack-v1.json` whose document this row hands the reader, `packBase64Url` carries those bytes and `packByteLength` their length. No pack here is rebuilt: every pack this suite redacts is evidence the pack suite already publishes. Where a row moves one position of such a pack before handing it over it says so in `packEdited`, and its bytes then differ from that row's by the edit named and nothing else.",
           chainRule:
             "the pack's walk is run by verifyPack over the bytes the designation binds, so the survivor sequence is the pack's own run with the named records dropped and the original head is re-established on every reading of a redaction. A reader that reports the reduced head where the pack's head belongs, or the reverse, is merging two findings this suite publishes apart.",
           run: runTable(HONEST, ['receipt-1']),
