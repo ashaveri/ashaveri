@@ -85,8 +85,12 @@ export type {
 } from './export.js';
 export {
   PACK_CONTENT_TYPE,
+  encodePackManifest,
+  encodePackProtectedHeader,
   packRecordDigest,
   packSigStructure,
+  sealPack,
+  signPack,
   decodePack,
   verifyPack,
 } from './pack.js';
@@ -96,6 +100,8 @@ export type {
   PackDuty,
   PackItem,
   PackManifest,
+  PackOrderingFinding,
+  PackOrderingFindingKind,
   PackOutcome,
   PackSpan,
   PackVerifyOptions,
