@@ -16,6 +16,14 @@ import { sha256 } from './digest.js';
  * file, naming the digest the surviving chain starts from, which bound retired how many, and the
  * policy it retired under. A hole in the middle stays a broken link; a retired prefix stays a
  * statement that every later compaction leaves in place.
+ *
+ * Two numbers bound this store and they bound different things. The durability bound is how long the
+ * file keeps records, stated as a period and as a count, and it is the only bound retirement reads.
+ * The serving bound is how many records one range query holds at once, and it is the only bound a
+ * walk reads: nothing leaves the file because a query is small, and a query over a window wider than
+ * the serving bound is answered in batches and returns all of it. A deployment that keeps half a year
+ * of traffic and answers a question about an hour of it needs both, which is why neither is a setting
+ * of the other and why only the first is ever refused against a period.
  */
 
 /** The file a deployment backs up. Named because an operator needs to know which one it is. */
@@ -85,18 +93,58 @@ interface StoreState {
   dropped: { byAge: number; byCount: number };
 }
 
+/**
+ * The durability bound: how long this file keeps the records it holds.
+ *
+ * Both halves are bounds on what the file keeps, and retirement acts on either by dropping a prefix.
+ * Neither is a bound on what one query may ask for, which is `ReceiptServing`. The pair is a
+ * deployment's own decision, and no value of either is checked against a period anyone owes: what a
+ * period is owed for, to whom, and whether a receipt is one of the logs a duty counts, are questions
+ * this interface does not hold the facts to answer.
+ */
 export interface ReceiptRetention {
-  /** A receipt is served while its `iat` is at or after `now - maxAgeSeconds`. */
+  /**
+   * The period records are kept for: a receipt is retained, and so served, while its `iat` is at or
+   * after `now - maxAgeSeconds`. Absent means nothing ages out, and a short period is a deployment's
+   * own choice rather than a value this store argues with.
+   */
   readonly maxAgeSeconds?: number;
   /**
-   * How many receipts are served, so a busy deployment does not exhaust its volume. A count bound is a
-   * bound on storage and nothing else: `openFileReceiptStore` reads it against the window
-   * `maxAgeSeconds` asks for and refuses the pairing when the first cannot hold the second, which is
-   * the only claim about this number this store is able to make.
+   * The number of receipts the file keeps, which is the ceiling that stops a volume filling. It is a
+   * capacity number and not a memory one: past it the oldest-dated receipts leave as a prefix. Absent
+   * means nothing is shed by count.
+   *
+   * `openFileReceiptStore` reads this count against the period configured beside it and refuses the
+   * pairing when the count cannot hold the period at the traffic the file has already carried, which
+   * is the only claim about this number this store is able to make.
    */
   readonly maxCount?: number;
   /** Injectable because a six month window is otherwise only testable by waiting. */
   readonly now?: () => number;
+}
+
+/**
+ * The serving bound: how many records one range query may hold at once.
+ *
+ * It bounds the working set of a walk over the retained set and nothing else. Receipt bytes are read
+ * one at a time whichever way a walk is configured, so what this caps is how many records a query has
+ * resolved into an ordered list before it hands the first one over. Nothing retires because of it: a
+ * store keeping more receipts than this answers a query over all of them in batches of this size and
+ * returns every one of them, which is the reason it is a separate number from the durability bound
+ * rather than a second name for it.
+ *
+ * The value appears in no record, no pack and no document. A bound a third party had to read in order
+ * to check a verdict would place a deployment's memory setting inside the artifact that carries the
+ * store's claim about what left the file, so the trim record states the policy a prefix retired under,
+ * which is the durability bound, and says nothing about how a query is walked.
+ */
+export interface ReceiptServing {
+  /**
+   * The largest number of records one range walk holds at a time. Absent, or anything that is not a
+   * positive whole number, means the walk resolves the whole window it matches before it yields the
+   * first receipt, which is what a store that never bounded a query does.
+   */
+  readonly maxServedReceipts?: number;
 }
 
 /**
@@ -114,17 +162,19 @@ export interface ReceiptRetention {
  * Articles 19(2) and 26(6) maintain those logs as part of the documentation kept under the relevant
  * financial-services law instead, where the applicable period is longer and is not ours to name.
  *
- * A deployer inside that law raises this together with the count bound, because a count bound is a
- * bound on storage and nothing more: `gateway/src/cli.ts` ships one of 10,000 receipts, which is a
- * hundred seconds of the hundred requests a second that `docs/access-control.md` states for one address,
- * and under a week at one receipt a minute, so it closes a multi-year window however long the age bound
- * is set to. The two are not free to contradict each other in silence, so `openFileReceiptStore`
- * compares the window a configuration asks for with the window the receipts it holds actually cover, and
- * refuses to open when the count bound cannot hold the age bound. Rounded up to whole days past the
- * shortest six months, so the configured window is never shorter than the floor it answers to. What that
- * floor is owed to, and whether a receipt is one of the logs the article speaks of, is settled
- * elsewhere and not by this number: a store that opens has said what it serves, which is a different
- * question from a duty discharged.
+ * A deployer inside that law raises this period together with the durability count beside it, because
+ * a count is a bound on storage and nothing more: `gateway/src/cli.ts` ships one of 10,000 receipts,
+ * which is a hundred seconds of the hundred requests a second that `docs/access-control.md` states for
+ * one address, and under a week at one receipt a minute, so it closes a multi-year window however long
+ * this period is set to. The two are not free to contradict each other in silence, so
+ * `openFileReceiptStore` compares the window a configuration asks for with the window the receipts it
+ * holds actually cover, and refuses to open when the durability count cannot hold the period. That
+ * refusal is the reason the count is its own number rather than the serving bound under another name:
+ * what a query holds at once cannot shorten a window, so only what the file keeps is measured against
+ * one. Rounded up to whole days past the shortest six months, so the configured window is never shorter
+ * than the floor it answers to. What that floor is owed to, and whether a receipt is one of the logs
+ * the article speaks of, is settled elsewhere and not by this number: a store that opens has said what
+ * it serves, which is a different question from a duty discharged.
  */
 export const MINIMUM_RETENTION_SECONDS = 184 * 24 * 60 * 60;
 
@@ -132,6 +182,8 @@ export interface FileReceiptStoreOptions {
   readonly dir: string;
   /** Absent means nothing is evicted, which is the right default for a fixture store. */
   readonly retention?: ReceiptRetention;
+  /** Absent means a range query resolves the whole window it is asked for. */
+  readonly serving?: ReceiptServing;
 }
 
 /** One retained receipt as the store hands it out: what to check, and when it was issued. */
@@ -152,10 +204,10 @@ export interface StoredReceipt {
  * because the stamp is handed to the store rather than read off a clock the store owns, and it belongs
  * to this union because the layout's 8-byte field is what sets the bound. An operator told their chain
  * is broken when the caller's time source is unreadable would go looking at the volume.
- * `RETENTION_WINDOW_UNHOLDABLE` is about a configuration: the count bound and the age bound this store
- * was opened with cannot both be honored at the traffic the file has already carried. It says which two
- * quantities disagree, and it is refused at the opening rather than left for whoever reads the shortfall
- * out of the retained window afterwards.
+ * `RETENTION_WINDOW_UNHOLDABLE` is about a configuration: the durability bound and the period this store
+ * was opened with cannot both be honoured at the traffic the file has already carried. It says which
+ * bound is short and by how much, and it is refused at the opening rather than left for whoever reads
+ * the shortfall out of the retained window afterwards.
  */
 export type StoreErrorCode =
   | 'STORE_CHAIN_BROKEN'
@@ -211,7 +263,12 @@ export interface ReceiptStore {
   /** Inclusive bounds and a count, so a retention manifest can state them. */
   window(): Promise<RetainedWindow>;
 
-  /** Every receipt stamped in a half-open interval, in the order they were chained, for packs. */
+  /**
+   * Every receipt stamped in a half-open interval, in the order they were chained, for packs.
+   *
+   * The set is the store's retained set intersected with the interval, whatever the serving bound is:
+   * the bound sizes a walk's working set and does not choose which receipts a caller is told about.
+   */
   range(from: number, to: number): AsyncIterable<StoredReceipt>;
 
   /** Head of the hash chain. Publishing it is what makes deletion detectable. */
@@ -632,7 +689,7 @@ function windowOf(retained: Iterable<{ iat: number }>): RetainedWindow {
  * many, and possibly far more.
  *
  * Null is not a pass. It says there is nothing to measure, either because fewer than two receipts have
- * ever been filed or because no age bound was configured, and a store that has measured nothing of its
+ * ever been filed or because no period was configured, and a store that has measured nothing of its
  * own traffic cannot be refused for holding less than it was asked to.
  */
 export function receiptsNeededForWindow(maxAgeSeconds: number, held: RetainedWindow): number | null {
@@ -643,25 +700,38 @@ export function receiptsNeededForWindow(maxAgeSeconds: number, held: RetainedWin
 }
 
 /**
- * Refuses an opening where the count bound cannot hold the window the same configuration asks for.
+ * Refuses an opening where the durability bound cannot hold the period the same configuration asks for.
  *
  * Three conditions keep this from refusing a deployment that is simply quiet. A policy bounded only by
- * count, or only by age, has no pairing to contradict and is never checked here. A retained set below
- * its count bound is serving everything its age bound asked for, however few receipts that turned out
- * to be: nothing is being shed, and the traffic that would decide the question has not arrived. And a
- * store at its bound whose stamps do span the configured window holds what it asked for at the rate it
- * has been carrying, so it starts.
+ * count, or only by a period, has no pairing to contradict and is never checked here. A retained set
+ * below its durability bound is keeping everything its period asked for, however few receipts that
+ * turned out to be: nothing is being shed, and the traffic that would decide the question has not
+ * arrived. And a store at its durability bound whose stamps do span the configured period holds what it
+ * asked for at the rate it has been carrying, so it starts.
  *
- * That leaves the case this is for: a store at its count bound whose retained stamps span less time than
- * the window it was configured with, which means the bound is what cut the window short and the next
- * receipt will cut it shorter. The count that pairing needs is derived above from the configured period
- * and the traffic this file has actually carried, so the refusal names two quantities that disagree
- * rather than repeating a number an operator could raise until the message went away.
+ * That leaves the case this is for: a store at its durability bound whose retained stamps span less time
+ * than the period it was configured with, which means the bound is what cut the window short and the
+ * next receipt will cut it shorter. The count that pairing needs is derived above from the configured
+ * period and the traffic this file has actually carried, so the refusal names two quantities that
+ * disagree rather than repeating a number an operator could raise until the message went away, and it
+ * names the shortfall as well so the number to set is readable off the line rather than worked out.
+ *
+ * The comparison is with the durability bound alone, which is the case a deployment that configures
+ * both counts can now ask for and the one the split was for. A single number used to be both how much
+ * the file keeps and how much one query holds, so one sentence covered two quantities and an operator
+ * could raise either and read the same message. A serving bound cannot shorten a window, because it
+ * retires nothing and a walk over a wider window is simply answered in more batches, so it is refused
+ * here never: the message says which of the two is short, and when a serving bound is configured it
+ * says that that one is not the number to raise.
  *
  * A store that starts has not kept anything for anyone. This compares a period with a count, and whether
  * a period is owed, to whom, and for how long, is not a question this file holds the facts to answer.
  */
-function assertWindowHeldable(retention: ReceiptRetention | undefined, held: RetainedWindow): void {
+function assertWindowHeldable(
+  retention: ReceiptRetention | undefined,
+  serving: ReceiptServing | undefined,
+  held: RetainedWindow,
+): void {
   const maxAgeSeconds = retention?.maxAgeSeconds;
   const maxCount = retention?.maxCount;
   if (maxAgeSeconds === undefined || maxCount === undefined || held.count !== maxCount) {
@@ -671,30 +741,86 @@ function assertWindowHeldable(retention: ReceiptRetention | undefined, held: Ret
   if (needed === null || needed <= maxCount) {
     return;
   }
+  const maxServed = serving?.maxServedReceipts;
   throw new StoreError(
     'RETENTION_WINDOW_UNHOLDABLE',
-    `this store is at its bound of ${String(maxCount)} receipts and they span ${String(held.to - held.from)} seconds, while the configured window is ${String(maxAgeSeconds)} seconds, which takes ${String(needed)} receipts at the rate this store has been carrying`,
+    `this store is at its durability bound of ${String(maxCount)} receipts and they span ` +
+      `${String(held.to - held.from)} seconds, while the configured period is ${String(maxAgeSeconds)} seconds, ` +
+      `which takes ${String(needed)} receipts at the rate this store has been carrying: the durability bound is ` +
+      `short by ${String(needed - maxCount)} receipts` +
+      // Two counts on one screen is the moment an operator needs to know which one the sentence is
+      // about, because raising the serving bound changes what a query holds and nothing about what the
+      // file keeps.
+      (maxServed === undefined
+        ? ''
+        : `, and the serving bound of ${String(maxServed)} receipts is not the number to raise`),
   );
 }
 
 /**
- * What a half-open stamp window covers, in the order the records were chained.
+ * How many records a walk holds at a time: the serving bound when it is one that can be counted, and
+ * the whole matched window otherwise. Nothing here is told what a batch costs, so a bound that is not
+ * a positive whole number of records is read as no bound rather than as an instruction to hold
+ * nothing, which would be a way for a configuration to stop a query serving receipts at all.
+ */
+function batchLimit(maxServedReceipts: number | undefined): number {
+  return maxServedReceipts !== undefined && Number.isInteger(maxServedReceipts) && maxServedReceipts > 0
+    ? maxServedReceipts
+    : Number.POSITIVE_INFINITY;
+}
+
+/**
+ * The records a range walk serves, in the order they were chained, in batches no larger than the
+ * serving bound.
  *
  * The interval is the policy's, because a window is a statement about time. The order is the
  * chain's, because a reader recomputing a digest per receipt has to visit them the way the store
  * did, and two stamps taken out of order are still one record after the other.
  *
- * A snapshot rather than a live walk: pack generation reads for a long time, and a receipt issued
- * halfway through belongs to the next window.
+ * `snapshot` is the index as it stood when the walk was asked for and `through` is the position the
+ * next record would have taken at that moment. Those two fix membership the way a copied list of the
+ * matched records did, which is what a walk over a store that is still issuing receipts owes, because
+ * a receipt issued halfway through belongs to the next window: one written after the call sits at or
+ * past `through`, and one retired while the walk runs is answered by the live index and not by this
+ * snapshot. What they leave out is the copy, so the walk holds a batch of positions at a time instead
+ * of the whole retained window, and hands over the same receipts either way.
+ *
+ * Exported for the same reason `receiptsNeededForWindow` is: the rule a walk batches by has to be
+ * checkable at the numbers rather than inferred from a result set that is deliberately identical either
+ * way, and a second copy of it in a test would drift from the one that decides. It is not part of what
+ * the package entry point hands out, which is the store contract and nothing else.
  */
-function inRange<T extends { iat: number; seq: number }>(
-  entries: Iterable<readonly [string, T]>,
+export function* servedBatches<T extends { iat: number; seq: number }>(
+  snapshot: Iterable<readonly [string, T]>,
   from: number,
   to: number,
+  through: number,
+  maxServedReceipts: number | undefined,
+): Generator<readonly (readonly [string, T])[]> {
+  const limit = batchLimit(maxServedReceipts);
+  let batch: (readonly [string, T])[] = [];
+  for (const entry of snapshot) {
+    // Skipped rather than stopped at, because a batch is ordered before it is handed over: the index
+    // runs in chain order except where a caller re-filed an id it had already used, which keeps that
+    // record's old place in the index and gives it a new position in the chain.
+    if (entry[1].seq >= through) continue;
+    if (entry[1].iat < from || entry[1].iat >= to) continue;
+    batch.push(entry);
+    if (batch.length >= limit) {
+      yield chained(batch);
+      batch = [];
+    }
+  }
+  if (batch.length > 0) {
+    yield chained(batch);
+  }
+}
+
+/** A batch in the order the records were chained, which is the order a reader has to walk them in. */
+function chained<T extends { seq: number }>(
+  batch: (readonly [string, T])[],
 ): readonly (readonly [string, T])[] {
-  return [...entries]
-    .filter(([, where]) => where.iat >= from && where.iat < to)
-    .sort((a, b) => a[1].seq - b[1].seq);
+  return batch.sort((a, b) => a[1].seq - b[1].seq);
 }
 
 /**
@@ -727,6 +853,7 @@ async function readAt(path: string, where: Location, id: string): Promise<Uint8A
 export async function openFileReceiptStore(options: FileReceiptStoreOptions): Promise<ReceiptStore> {
   const path = join(options.dir, RECEIPT_STORE_FILE);
   const retention = options.retention;
+  const serving = options.serving;
   const now = retention?.now ?? ((): number => Math.floor(Date.now() / 1000));
   const state = await scan(path);
   // A deployment that was down over a weekend has aged receipts on disk it must not serve.
@@ -735,7 +862,7 @@ export async function openFileReceiptStore(options: FileReceiptStoreOptions): Pr
   // refusal is cheap: no receipt has been served from it and no caller is holding an id. The in-process
   // engine has no equivalent call because it is empty when it is constructed, and a store that has never
   // issued a receipt has measured nothing of its own traffic.
-  assertWindowHeldable(retention, windowOf(state.records.values()));
+  assertWindowHeldable(retention, serving, windowOf(state.records.values()));
 
   /**
    * One operation touches the file at a time, which is the whole of the concurrency control.
@@ -796,20 +923,27 @@ export async function openFileReceiptStore(options: FileReceiptStoreOptions): Pr
     },
 
     range(from: number, to: number): AsyncIterable<StoredReceipt> {
-      const wanted = inRange(state.records.entries(), from, to);
+      // Membership is fixed at the call by the index that exists now and the position the next record
+      // would take, which is the promise a walk over a store that is still issuing receipts owes. See
+      // `servedBatches` for what the two leave out, which is the copy of the matched list: a store
+      // keeping more receipts than one query may hold answers a walk over all of them regardless.
+      const snapshot = state.records;
+      const through = state.nextSeq;
       return {
         async *[Symbol.asyncIterator](): AsyncIterator<StoredReceipt> {
-          // Membership was fixed by the snapshot above; only the bytes are read late, one queued
-          // operation at a time. A walk that held the queue for its whole length would be a way
-          // to stop serving receipts by generating a pack about them.
-          for (const [id, where] of wanted) {
-            const receipt = await serialized(async () => {
-              const still = state.records.get(id);
-              return still === undefined ? null : await readAt(path, still, id);
-            });
-            // Retired by retention while this walk ran, which the window has already said it kept.
-            if (receipt !== null) {
-              yield { id, iat: where.iat, receipt };
+          for (const batch of servedBatches(snapshot, from, to, through, serving?.maxServedReceipts)) {
+            // Only the bytes are read late, one queued operation at a time. A walk that held the
+            // queue for its whole length would be a way to stop serving receipts by generating a pack
+            // about them.
+            for (const [id, where] of batch) {
+              const receipt = await serialized(async () => {
+                const still = state.records.get(id);
+                return still === undefined ? null : await readAt(path, still, id);
+              });
+              // Retired by retention while this walk ran, which the window has already said it kept.
+              if (receipt !== null) {
+                yield { id, iat: where.iat, receipt };
+              }
             }
           }
         },
@@ -843,8 +977,12 @@ export async function openFileReceiptStore(options: FileReceiptStoreOptions): Pr
  * `head()` means one thing across both, and a restart takes it back to the empty digest because
  * there is nowhere else for it to live.
  */
-export function openMemoryReceiptStore(options: { readonly retention?: ReceiptRetention } = {}): ReceiptStore {
+export function openMemoryReceiptStore(options: {
+  readonly retention?: ReceiptRetention;
+  readonly serving?: ReceiptServing;
+} = {}): ReceiptStore {
   const retention = options.retention;
+  const serving = options.serving;
   const now = retention?.now ?? ((): number => Math.floor(Date.now() / 1000));
   const entries = new Map<string, { iat: number; seq: number; prev: Uint8Array; receipt: Uint8Array }>();
   let chainHead: Uint8Array = new Uint8Array(PREV_BYTES);
@@ -870,11 +1008,16 @@ export function openMemoryReceiptStore(options: { readonly retention?: ReceiptRe
     },
 
     range(from, to) {
-      const wanted = inRange(entries.entries(), from, to);
+      // The same promise the file engine makes: the set is fixed when the walk is asked for, and the
+      // serving bound sizes what the walk holds rather than what it serves.
+      const snapshot = entries;
+      const through = chainSeq;
       return {
         async *[Symbol.asyncIterator](): AsyncIterator<StoredReceipt> {
-          for (const [id, where] of wanted) {
-            yield { id, iat: where.iat, receipt: where.receipt };
+          for (const batch of servedBatches(snapshot.entries(), from, to, through, serving?.maxServedReceipts)) {
+            for (const [id, where] of batch) {
+              yield { id, iat: where.iat, receipt: where.receipt };
+            }
           }
         },
       };
@@ -890,10 +1033,19 @@ export function openMemoryReceiptStore(options: { readonly retention?: ReceiptRe
 
     async chainState(): Promise<ChainState> {
       // The first item a reader would walk, in the order it would walk it: starting anywhere else
-      // means the digests recompute to a head this store never had.
-      const [oldest] = inRange(entries.entries(), Number.NEGATIVE_INFINITY, Number.POSITIVE_INFINITY);
+      // means the digests recompute to a head this store never had. The lowest chain position still
+      // retained is that item, and it is the position rather than the stamp that decides, because two
+      // stamps taken out of order are still one record after the other.
+      let oldestPrev: Uint8Array | undefined;
+      let oldestSeq = Number.POSITIVE_INFINITY;
+      for (const where of entries.values()) {
+        if (where.seq < oldestSeq) {
+          oldestSeq = where.seq;
+          oldestPrev = where.prev;
+        }
+      }
       return {
-        anchor: new Uint8Array(oldest === undefined ? chainHead : oldest[1].prev),
+        anchor: new Uint8Array(oldestPrev ?? chainHead),
         retired: { byAge: retiredByAge, byCount: retiredByCount, trims: [] },
       };
     },
