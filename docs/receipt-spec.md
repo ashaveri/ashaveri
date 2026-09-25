@@ -297,10 +297,13 @@ Gateways may register a receipt shortly after the response body completes; clien
 retry briefly on 404. How long a receipt stays fetchable is the gateway's choice and the
 protocol does not carry that answer, so treat an id as a handle rather than a proof. A signerd
 started with `--receipts-dir` appends each receipt to a hash-chained file on that volume and
-keeps it for 184 days, or until 10,000 later receipts push it out as a bound on the volume,
-whichever comes first. A store that has reached that bound, and whose retained receipts' own stamps
-show the bound cannot cover the window configured beside it, refuses to open rather than serve the
-shorter window it can hold, and names the two numbers that disagree. One started without the flag
+keeps it for 184 days, or until 10,000 later receipts push it out as the durability bound on that
+volume, whichever comes first. A store that has reached that bound, and whose retained receipts' own
+stamps show the bound cannot cover the period configured beside it, refuses to open rather than serve the
+shorter window it can hold, and names the two numbers that disagree and how far short the bound is. How
+many receipts one query holds at a time is a separate count, the serving bound, and it retires nothing:
+a walk over a window holding more receipts than it is answered in batches and returns all of them. One
+started without the flag
 keeps receipts in process memory and serves none
 of them after a restart. Fetch the bytes and keep them if the proof has to outlive the
 deployment.

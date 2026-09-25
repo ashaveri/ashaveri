@@ -784,8 +784,13 @@ function batchLimit(maxServedReceipts: number | undefined): number {
  * past `through`, and one retired while the walk runs is answered by the live index and not by this
  * snapshot. What they leave out is the copy, so the walk holds a batch of positions at a time instead
  * of the whole retained window, and hands over the same receipts either way.
+ *
+ * Exported for the same reason `receiptsNeededForWindow` is: the rule a walk batches by has to be
+ * checkable at the numbers rather than inferred from a result set that is deliberately identical either
+ * way, and a second copy of it in a test would drift from the one that decides. It is not part of what
+ * the package entry point hands out, which is the store contract and nothing else.
  */
-function* servedBatches<T extends { iat: number; seq: number }>(
+export function* servedBatches<T extends { iat: number; seq: number }>(
   snapshot: Iterable<readonly [string, T]>,
   from: number,
   to: number,

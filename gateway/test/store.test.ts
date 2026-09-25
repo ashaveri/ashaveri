@@ -8,6 +8,7 @@ import {
   openMemoryReceiptStore,
   receiptsNeededForWindow,
   RECEIPT_STORE_FILE,
+  servedBatches,
   type ReceiptRetention,
   type ReceiptServing,
   type ReceiptStore,
@@ -941,6 +942,38 @@ describe('the serving bound', () => {
     }
     return seen;
   }
+
+  it('batches a walk at the bound and not at the window it matches', () => {
+    // The walk's arithmetic, at the numbers and with no file behind it: a store keeping a quarter of a
+    // million receipts is what a durability bound is for, and a question about all of them is what the
+    // serving bound is for. Nothing is written here, so the case costs the same at any size, which is
+    // the point of asserting the batching at the arithmetic rather than by counting syncs.
+    const total = 250_000;
+    const index = new Map<string, { iat: number; seq: number }>();
+    for (let i = 0; i < total; i++) {
+      index.set(`rcpt_${String(i)}`, { iat: 1_000 + (i % 500), seq: i });
+    }
+    const batches = [...servedBatches(index.entries(), 0, 2_000, total, 512)];
+    // No batch is larger than the bound, and every position still arrives: the bound sizes a walk's
+    // working set and chooses nothing about what a caller is told.
+    expect(batches.length).toBe(Math.ceil(total / 512));
+    for (const batch of batches) {
+      expect(batch.length).toBeLessThanOrEqual(512);
+    }
+    const served = batches.flat().map(([id]) => id);
+    expect(served).toEqual(Array.from({ length: total }, (_, i) => `rcpt_${String(i)}`));
+    // With no bound configured the walk resolves the whole window it matches before it yields, which is
+    // the shape a store that never bounded a query asked for.
+    expect([...servedBatches(index.entries(), 0, 2_000, total, undefined)].map((batch) => batch.length)).toEqual(
+      [total],
+    );
+    // And the position the walk was asked for at cuts off everything written after it, however far into
+    // the batches the walk is.
+    const before = total - 100_000;
+    expect(
+      [...servedBatches(index.entries(), 0, 2_000, before, 512)].flat().map(([id]) => id),
+    ).toHaveLength(before);
+  });
 
   it('serves the whole retained window at every serving bound, in the chain order', async () => {
     const expected = await filled(openMemoryReceiptStore(), WALKED);
