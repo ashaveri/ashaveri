@@ -155,7 +155,7 @@ function classify(bytes: Uint8Array): { contentType: string; kid: Uint8Array } {
   } catch (err) {
     throw new ReceiptError(
       'MALFORMED_CBOR',
-      `these bytes are not canonical CBOR, so they carry no protected header to read: ${err instanceof Error ? err.message : String(err)}. A deployment manifest served as unsigned JSON is that file, and 'ashaveri verify-receipt --manifest <file>' is the command that reads it`,
+      `a deployment manifest served as unsigned JSON is such a file, and 'ashaveri verify-receipt --manifest <file>' is the command that reads it: these bytes carry no COSE protected header to classify, because ${err instanceof Error ? err.message : String(err)}`,
     );
   }
   if (typeof top !== 'object' || top === null || !('tag' in top) || !('contents' in top)) {
