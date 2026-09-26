@@ -946,3 +946,209 @@ describe('a volume whose receipts have to outlive the start', () => {
     }
   });
 });
+
+describe('the durability guard read while serving', () => {
+
+  const COMPLETION = '{"model":"mock-model-1","messages":[{"role":"user","content":"guard"}]}';
+  /**
+   * A signed GET. Every route this gateway serves is behind the pipeline, so the read that has to keep
+   * serving while intake refuses is a read a credential asked for, not an anonymous fetch.
+   */
+  async function readStatus(
+    port: number,
+    pop: { record: { id: string }; privateKey: Uint8Array },
+    target: string,
+  ): Promise<number> {
+    const nonce = randomNonce();
+    const fields: PopFields = {
+      ts: Math.floor(Date.now() / 1000),
+      nonce,
+      method: 'GET',
+      target,
+      bodyDigestHex: EMPTY_BODY_SHA256_HEX,
+    };
+    return await (
+      await fetch(`http://127.0.0.1:${String(port)}${target}`, {
+        headers: {
+          authorization: signPopAuthorization(fields, pop.record.id, pop.privateKey),
+          'x-ashaveri-nonce': toBase64Url(nonce),
+        },
+      })
+    ).status;
+  }
+
+  /** A signed completion against a booted process, with the two things a caller can branch on. */
+  async function complete(
+    port: number,
+    pop: { record: { id: string }; privateKey: Uint8Array },
+  ): Promise<{ status: number; code: string | undefined; receiptId: string | null; text: string }> {
+    const nonce = randomNonce();
+    const fields: PopFields = {
+      ts: Math.floor(Date.now() / 1000),
+      nonce,
+      method: 'POST',
+      target: '/v1/chat/completions',
+      bodyDigestHex: createHash('sha256').update(COMPLETION).digest('hex'),
+    };
+    const response = await fetch(`http://127.0.0.1:${String(port)}/v1/chat/completions`, {
+      method: 'POST',
+      headers: {
+        'content-type': 'application/json',
+        authorization: signPopAuthorization(fields, pop.record.id, pop.privateKey),
+        'x-ashaveri-nonce': toBase64Url(nonce),
+      },
+      body: COMPLETION,
+    });
+    const text = await response.text();
+    return {
+      status: response.status,
+      code: (JSON.parse(text) as { error?: { code?: string } }).error?.code,
+      receiptId: response.headers.get('x-ashaveri-receipt-id'),
+      text,
+    };
+  }
+
+  it('documents the threshold and the opt-in, each with what it is settled by', () => {
+    const result = run('--help');
+    expect(result.status).toBe(0);
+    expect(result.stdout).toContain('--receipts-guard-at <percent>');
+    expect(result.stdout).toContain('--receipts-grow-past-guard');
+    // Read with the folds closed: the usage text wraps an option's prose under its flag, and a sentence
+    // checked across that wrap would fail for its layout rather than for its content.
+    const help = result.stdout.replace(/\s+/gu, ' ');
+    // The default is a number an operator has to be able to see they are not changing, and the reason
+    // it is that number: 100 per cent of the bound is the state a store already refuses to open at.
+    expect(help).toContain('Default: 100, which is the bound itself and the state a store will not open at');
+    // The opt-in names its own cost in the same text, because a flag that read as a capacity switch
+    // would be a way to discover it inside a write instead.
+    expect(help).toContain('the window served is the shorter one that bound reaches');
+    expect(help).toContain('stops this volume opening at the next restart');
+  });
+
+  it('refuses a threshold that is not a whole percentage of the bound', () => {
+    for (const given of ['0', '101', '12.5', 'not-a-number']) {
+      const result = run('--mock', '--port', '0', '--receipts-guard-at', given);
+      expect(result.status, `${given}: ${result.stderr}`).toBe(2);
+      expect(result.stderr, given).toContain('--receipts-guard-at must be a whole percentage from 1 to 100');
+    }
+  });
+
+  it(
+    'prints the guard as this process installed it, in both settings',
+    () => {
+      const printed = runStopped('--mock', '--port', '0').join('\n');
+      const armed = runStopped('--mock', '--port', '0').find((line) => line.startsWith('  receipt intake guard:'));
+      expect(armed, `no guard line; stdout held ${printed}`).toContain('armed at 100% of the durability bound');
+      expect(armed, printed).toContain('RECEIPT_WINDOW_UNHOLDABLE');
+      expect(armed, printed).toContain('184 days');
+      expect(armed, printed).toContain('--receipts-grow-past-guard turns this off');
+
+      const half = runStopped('--mock', '--port', '0', '--receipts-guard-at', '50').find((line) =>
+        line.startsWith('  receipt intake guard:'),
+      );
+      expect(half, `a threshold the flag set is not on the banner; stdout held ${printed}`).toContain(
+        'armed at 50% of the durability bound',
+      );
+
+      const off = runStopped('--mock', '--port', '0', '--receipts-grow-past-guard').find((line) =>
+        line.startsWith('  receipt intake guard:'),
+      );
+      expect(off, `no guard line for the opt-in; stdout held ${printed}`).toContain('off, as configured with');
+      // One line, whichever way it goes: a run that printed both would be describing a posture it is not
+      // in, and the opt-in is the one that has to be legible on its own.
+      expect(off, printed).not.toContain('armed at');
+      expect(off, printed).toContain('the window served is the shorter one that bound reaches');
+    },
+    // Three boots, each stopped by the spawn timeout rather than by its own ending, so this case is
+    // three times a single boot: measured here at 16.1s for the three, which is past the runner's
+    // five-second default on one boot let alone three.
+    25_000,
+  );
+
+  /**
+   * A volume at 10,000 receipts spread over a hundred seconds, against a durability bound of 20,000.
+   * That pairing opens, because the retained set is short of its bound, so the only thing in this
+   * process that can refuse a request on it is the guard, and the only thing that can put a number in
+   * the guard is the flag. The two cases below differ by one flag and one answer.
+   */
+  function guardedVolume(name: string): {
+    readonly dir: string;
+    readonly args: string[];
+    readonly pop: { readonly record: { readonly id: string }; readonly privateKey: Uint8Array };
+  } {
+    const dir = join(tempDir, name);
+    mkdirSync(dir);
+    writeHeldStore(dir, SHIPPED_RECEIPT_BOUND, 100);
+    const pop = newPopCredential({ id: 'guard-pop', scopes: ['read', 'complete'] });
+    const path = credentialFile(serializeCredentialFile({ version: 1, credentials: [pop.record] }));
+    return {
+      dir,
+      pop,
+      args: [
+        '--receipts-dir',
+        dir,
+        '--credentials-path',
+        path,
+        '--receipts-keep',
+        String(SHIPPED_RECEIPT_BOUND * 2),
+        '--receipts-guard-at',
+        '50',
+      ],
+    };
+  }
+
+  it(
+    'refuses a completion the threshold the flag set has been reached by',
+    async () => {
+      // At half the bound the retained set has met the threshold and the 184 days beside it cannot be
+      // held at the rate the file's own stamps measure, so the completion is refused ahead of any
+      // inference while a read of the manifest, on the same credential in the same process, is served.
+      const volume = guardedVolume('guard-at-half-the-bound');
+      const served = await bootServing(volume.args);
+      try {
+        const refused = await complete(served.port, volume.pop);
+        expect(refused.status, refused.text).toBe(429);
+        expect(refused.code).toBe('RECEIPT_WINDOW_UNHOLDABLE');
+        expect(refused.receiptId, 'a refusal mints no id').toBeNull();
+        expect(refused.text).toContain('of the 20000 receipts its durability bound allows');
+        expect(refused.text).toContain('refusing from 10000 of them');
+        expect(refused.text).not.toContain('retry-after');
+        expect(
+          await readStatus(served.port, volume.pop, '/v1/deployment-manifest'),
+          'a read is served while intake refuses',
+        ).toBe(200);
+      } finally {
+        await served.kill();
+      }
+    },
+    // One boot over a volume of 10,000 chained records, which the opening reads back before a request
+    // can be refused against it: measured here at 0.6s for the write, the boot and the two requests,
+    // and the runner's default is a five-second ceiling on a slower machine.
+    15_000,
+  );
+
+  it(
+    'serves the same completion, on the same volume, once the opt-in is set',
+    async () => {
+      // The pair the case above cannot make on its own, because one process cannot be started both
+      // ways: the same argv with the opt-in appended issues the receipt the other run refused, and the
+      // store is the same volume. This is the whole of what the flag buys, so it is asserted as an
+      // answer and a receipt id and not as a line on a banner.
+      const volume = guardedVolume('opt-in-past-the-guard');
+      const served = await bootServing([...volume.args, '--receipts-grow-past-guard']);
+      try {
+        const answered = await complete(served.port, volume.pop);
+        expect(answered.status, answered.text).toBe(200);
+        expect(answered.receiptId, 'the opt-in issues, and says so in a receipt id').not.toBeNull();
+        expect(
+          await readStatus(served.port, volume.pop, '/v1/deployment-manifest'),
+          'and keeps serving everything the guarded run serves',
+        ).toBe(200);
+      } finally {
+        await served.kill();
+      }
+    },
+    // The same shape as the case above it, measured at 0.65s here.
+    15_000,
+  );
+});

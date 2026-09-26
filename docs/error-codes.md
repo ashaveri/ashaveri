@@ -1,7 +1,7 @@
 # Error codes
 
 Every error code this workspace raises, what condition raises it, and what a caller should do
-about it. There are 134 declarations across seven unions, resolving to 132 distinct strings;
+about it. There are 135 declarations across seven unions, resolving to 133 distinct strings;
 `UNSUPPORTED_PLATFORM` and `UNSUPPORTED_VERSION` are the two strings two unions share, and the last
 section says why those pairs are deliberate while every other overlap is not.
 
@@ -27,7 +27,7 @@ The seven unions:
 | `GuestErrorCode` | `@ashaveri/signerd` | The guest agent socket inside the confidential VM |
 | `DstackErrorCode` | `@ashaveri/signerd` | Gateway startup: the deployment's own evidence, identity and device claim |
 | `StoreErrorCode` | `@ashaveri/signerd` | The receipt store file on the deployment's volume |
-| `AccessErrorCode` | `@ashaveri/signerd` | Admission of one request: proof of possession, replay, scope, rate limit, and the credential file those checks read, which is refused at start-up and on reload rather than by a request |
+| `AccessErrorCode` | `@ashaveri/signerd` | Admission of one request: proof of possession, replay, scope, rate limit, the durability guard read on a completion ahead of any inference, and the credential file those checks read, which is refused at start-up and on reload rather than by a request |
 
 ## `ReceiptErrorCode`
 
@@ -198,17 +198,19 @@ no receipt was ever handed out for bytes that never finished.
 
 ## `AccessErrorCode`
 
-What `CredentialStore.admit` answers a request with, and what the store answers where its records
-enter it. The checks run in order: the header the caller wrote, the proof of possession, then what
-the file says about a credential that proved it, then the route's scope, then the rate bucket. The
-order is part of the meaning, because a request that fails two checks gets the earlier code, and it
-sorts by what an answer discloses rather than by what a check costs: the answers that depend on the
-credential file are given after a signature verifies, so a revoked credential produces a signature
-before it is told it is revoked, while a credential with no scope for the route never spends a
-token. `docs/access-control.md` section 1 states the rule the ordering comes from. Codes after the
-first three are 401, 403, 409 or 429 on the request that earned them; the credential-file codes are
-500s no request receives, because what is broken is the file the operator installed and no header a
-client sends can fix it.
+What `CredentialStore.admit` answers a request with, what the gateway answers a completion with
+when its own store cannot keep the receipt it would issue, and what the store answers where its
+records enter it. The checks run in order: the header the caller wrote, the proof of possession,
+then what the file says about a credential that proved it, then the route's scope, then the rate
+bucket, and behind all five the durability guard, which reads the retained set rather than anything
+the caller sent. The order is part of the meaning, because a request that fails two checks gets the
+earlier code, and it sorts by what an answer discloses rather than by what a check costs: the
+answers that depend on the credential file are given after a signature verifies, so a revoked
+credential produces a signature before it is told it is revoked, while a credential with no scope
+for the route never spends a token. `docs/access-control.md` section 1 states the rule the ordering
+comes from. Codes after the first three are 401, 403, 409 or 429 on the request that earned them;
+the credential-file codes are 500s no request receives, because what is broken is the file the
+operator installed and no header a client sends can fix it.
 
 | Code | Union | Raised when | What the caller does | Verdict |
 |---|---|---|---|---|
@@ -225,6 +227,7 @@ client sends can fix it.
 | `NONCE_SEEN` | `AccessErrorCode` | The same credential presented the same nonce inside the replay window. The key is the decoded nonce bytes, so re-spelling the header in another valid base64url form is the same nonce | Send a new request with a fresh nonce. Resending these bytes is exactly what just failed | terminal |
 | `SCOPE_DENIED` | `AccessErrorCode` | The route requires a scope the credential does not carry, or the target is not in the route table at all, which is a refusal rather than a route that needs nothing | Use a credential that holds the scope, or ask the operator to scope the route. This answer takes no token from the credential's own bucket, though the connection's bound was charged before it was decided | terminal |
 | `RATE_LIMITED` | `AccessErrorCode` | One of two buckets is empty. The credential's own: it is over the `perMinute` it is held to, past its `burst`. Or the connection address the request arrived on has spent the request bound taken ahead of every credential check, which is refused without the header being read and so on a name the file does not hold as on one it does. The message says which of the two fired, and `retryAfterSeconds` says when the next token appears, never less than one. The access log separates them by reason, and that separation adds no row to this table: the credential's bucket writes `RATE_LIMITED` to the deployer's `deny` field and the connection's bound writes `PEER_RATE_LIMITED`, which is what this gateway decided and never what a caller is told | Wait the stated seconds, then send a new request. Splitting one workload across credentials is a deployment decision, not a client fix, and it is no fix at all for the connection's bucket: waiting refills that one, and an operator raises it with `--peer-rate` | retryable |
+| `RECEIPT_WINDOW_UNHOLDABLE` | `AccessErrorCode` | The receipt store's retained set has reached the configured fraction of the durability bound, and the period configured beside that bound cannot be held at the rate the store's own retained stamps measure, so issuing this completion would retire a receipt the period still covers. Read behind all five admission checks and ahead of the upstream call, on a route that issues a receipt: it decides nothing about a credential, and reads nothing a caller sent. Three states the store's opening refusal also respects keep it silent, so a quiet deployment does not start refusing. A policy bounded on one side only is not a pairing and is never asked. A retained set below its threshold is shedding nothing, however little it has issued. A store at its bound whose stamps already span the configured period is holding what it asked for at the traffic it carries. And fewer than two retained receipts have measured no rate to refuse by. The threshold is `--receipts-guard-at`, it defaults to the bound itself, which is the state a store already refuses to open at, and `--receipts-grow-past-guard` is the named decision to keep issuing and meet the shortfall inside a write | Wait, and expect nothing to change on a deployment at its bound: this is not a bucket refilling, and the answer carries no `retry-after` because the only wait that clears it is this deployment's issuance falling below the rate its bound cannot hold, which no process can see coming. The message names the retained set, the bound, the period and the count that period takes, so the number to raise is readable off the line. A caller that needs the receipt has to take it from a deployment that can keep it, because this one is declining to issue rather than answering without one | retryable |
 
 ## Why these strings do not overlap
 
@@ -239,6 +242,15 @@ rather than one:
   bound to another report data, and by the gateway when its own guest agent returns such a
   document. The SDK keeps the name; the gateway's is `GUEST_EVIDENCE_UNBOUND`, matching the
   sibling `GPU_EVIDENCE_UNBOUND` for the same shape of failure on the other leg.
+
+Two strings on this page differ by their first word alone and are not a pair to rename, because they
+are one fact met at two moments: `RETENTION_WINDOW_UNHOLDABLE` is the store refusing to open on a
+pairing it cannot honour, and `RECEIPT_WINDOW_UNHOLDABLE` is the gateway refusing to issue a receipt
+against the same pairing while it is serving. They are different strings because they are different
+answers, one to whoever starts the process and one to a caller mid-request, and a caller that caught
+one name for both would be told to fix a configuration it cannot see. What the shared tail says is
+that both are derived from the same two configured numbers and the same measured rate, and the two
+messages name the same quantities for the same reason.
 
 `UNSUPPORTED_PLATFORM` is deliberately the same string in two unions: it is one condition, a
 platform kind neither layer can handle, seen from the verifier and from the deployment. Collapsing
