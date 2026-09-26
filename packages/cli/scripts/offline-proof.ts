@@ -243,8 +243,8 @@ interface ExportCase {
  * document refused without it, and the refusal of a pack.
  */
 function proveExport(workDir: string, testCase: ExportCase): void {
-  // The absolute name of the file inside the proof directory. The option is matched on the bare name an
-  // export item carries, and a bare name typed as the path is refused as the argument mistake it is.
+  // Where the file sits on this disk. The option matches on the name at the end of the argument, which is
+  // the name the signed item carries, so the directory in front of it is the caller's own arrangement.
   const companionPath = join(workDir, testCase.companion);
   const verdictRun = runBundle(workDir, [
     'verify-export',
