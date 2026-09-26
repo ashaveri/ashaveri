@@ -72,9 +72,10 @@ packages throw, with what raises it and what a caller should do, is tabulated in
 [docs/error-codes.md](docs/error-codes.md). Who may call at all is
 [docs/access-control.md](docs/access-control.md): the admission checks every route runs,
 the scope each one needs, and what the per-request access log holds, how long it keeps it,
-and how a line is erased. The published conformance vectors — what a reimplementation in
-any language is measured against, and how to read each suite — are in
-[docs/vectors.md](docs/vectors.md). Fixtures and vectors are regenerated deterministically
+and how a line is erased. The published conformance vectors are in
+[docs/vectors.md](docs/vectors.md). That document says what a
+reimplementation in any language is measured against, and how to read each suite.
+Fixtures and vectors are regenerated deterministically
 with `pnpm --filter @ashaveri/fixtures generate`, and the `generate:` variants named in
 that document. What the evidence behind a receipt looked like as it arrived, and the record that would
 hold those original bytes beside the context that made them verifiable, is
@@ -192,7 +193,7 @@ about itself is a claim to check against your pin, not a pin.
 
 **What the verifier does today.** It checks signatures and certificate chains offline, against the
 roots bundled in `@ashaveri/attest-core` or the roots you pass it, and it consults no vendor endpoint
-for attestation collateral — nobody's, ours included. The consequence is written down rather than
+for attestation collateral, and that includes our own. The consequence is written down rather than
 smoothed over: with a pinned Intel root, a TDX quote is verified under its attestation key, that key
 inside the QE report, and the report under a PCK chain reaching the root, while Intel's TCB Info, the
 QE Identity and the TCB CRL go unread; on AMD, the ASK and VCEK are the files you supply and KDS is not
@@ -205,8 +206,8 @@ deployment's own evidence URL, in `strict` mode, and that fetch is to the deploy
 us.
 
 **What was decided on 21 September 2026.** This project decided to run a service publishing exactly
-the collateral named above — the TCB info, the QE identity and the revocation status, and the reference
-measurements a device verdict needs — fetched from Intel's, AMD's and NVIDIA's own endpoints and
+the collateral named above: the TCB info, the QE identity and the revocation status, and the reference
+measurements a device verdict needs, all fetched from Intel's, AMD's and NVIDIA's own endpoints and
 republished, offered as a convenience and as a second source. Nothing of it exists yet: no endpoint
 runs, no package in this repository reads one, and the paragraph above is the whole of present
 behaviour. Three things were settled with it. A deployer who declines the service gives up nothing,
@@ -219,8 +220,8 @@ that do exist, tabulated in [docs/error-codes.md](docs/error-codes.md), include 
 vendor's revocation information or TCB info.
 
 **What stays the deployer's if the service is declined.** The freshness judgement, entirely, exactly
-as it is today. Either source the collateral directly — Intel's provisioning certification
-endpoints, AMD's KDS, NVIDIA's revocation and reference measurements — and hand it to the verifier
+as it is today. Either source the collateral directly, from Intel's provisioning certification
+endpoints, AMD's KDS and NVIDIA's revocation and reference measurements, and hand it to the verifier
 through its own options, or accept the documented residual risk in
 [docs/threat-model.md](docs/threat-model.md) and say so plainly in your own deployment's
 documentation. A pinned root answers who signed something. It answers nothing about whether the
