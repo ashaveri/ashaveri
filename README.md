@@ -189,6 +189,81 @@ another VM is rejected rather than merely reported. Take pinned values from a so
 trust independently of the deployment under test: a measurement the deployment publishes
 about itself is a claim to check against your pin, not a pin.
 
+## Verifying a handover with nothing installed
+
+`pnpm -C packages/cli bundle` writes `packages/cli/dist/ashaveri-bundle.mjs`: the CLI as one
+file, with its dependencies inside it and every import resolved to the standard library. Copy that
+one file to a machine that has no checkout, no `node_modules` and no network, and it runs. The
+prerequisites are the file, the documents, the inputs named below, and Node.
+
+**Node.** The artifact targets the release this repository is developed against, `24.21.0`, the
+version `.nvmrc` names and `engines.node` bounds to `>=24.21.0 <25`. It is plain JavaScript with no
+build step at the far end and no native module: nothing is fetched, compiled or installed while it
+runs. The acceptance recorded in this repository was run on `24.7.0`, below the declared floor, and
+every command below behaved as documented; treat the declared range as what is supported and a
+different `24.x` as something to try before relying on.
+
+**No network, and no route that would take one.** `verify-receipt` reads its deployment manifest from
+`--manifest` and refuses every other address, so a receipt pointing its `att.url` at a host does not
+make this tool reach that host; the refusal names the file the manifest came from. `verify`,
+`verify-handover`, `verify-pack` and `verify-export` open only the paths you type. Certificate
+revocation is not consulted, and no vendor endpoint is called: a verified platform signature says the
+chain reached the root you named, not that the platform is still current.
+
+**What each verb needs.**
+
+| Verb | Inputs, all files or the command line |
+| --- | --- |
+| `verify <attestation>` | The attestation, `--ask` and `--vcek` when the document carries no chain, and a root: `--ark`, `--intel-root` or `--gpu-root`. With no policy and no root flag it trusts nothing you did not name, and says so with `MISSING_TRUST_ROOT`. |
+| `verify-receipt <receipt>` | The receipt, `--policy`, `--manifest`, `--nonce`, one of `--request-body` or `--request-hash`, and one of `--response-body` or `--response-hash`. A v2 receipt needs the response bytes, not only their digest, because its claim is a region inside them. |
+| `verify-handover <document>` | One signed document and `--key` for a receipt, pack or export, or `--manifest-key` for a deployment manifest. It classifies the document by the content type inside its own signature and reads it with the reader for that type. |
+| `verify-pack <document>` | The pack and at least one `--key`: every key whose receipts a span crosses, since a pack over a rotation carries signatures from the epochs current then. |
+| `verify-export <document>` | The export, its `--key`, and one `--companion` per signed item: the original whose digest is recomputed, given by its own name or by a path to it. |
+
+A policy document and a deployment manifest are inputs, and this repository publishes no runnable
+pair of them. The committed receipt vectors carry the values a pair has to agree with:
+`packages/fixtures/data/receipts/receipt-valid-v1.json` holds the issuer, instance, model, weights,
+measurement, digests and issuance time, and `packages/fixtures/data/keys/receipt-key-v1.json` holds
+the public half in hex, which is the base64url the pins want. `packages/cli/scripts/offline-proof.ts`
+turns those two files into a `policy.json`, a `manifest.json` and the four values above, in a
+directory outside the checkout, and it is the readable form of what the pair has to say. A real
+handover brings its own: a deployment serves the manifest once, you keep the copy, and the policy is
+yours.
+
+**What a run refuses to assume, and prints instead.** Keys come only from the command line, and the
+report says which it was handed and whether the document in front of it consulted them. An evidence key
+does not authenticate a deployment manifest, so a manifest read without `--manifest-key` comes back
+`authenticated: false` beside the reason, at exit 0, which is the narrower question rather than a
+pass. `--manifest-key` designates a signer for one run and sits outside the policy digest the report
+cites, and the report says that too. A pack's two duty figures are printed as the deployment states
+them and judged by nothing here, because whether a duty was owed turns on the mapping revision the
+pack names and on the law behind it. Whether a pack is all the deployment still holds, and whether it
+agrees with the copy a reader held before, are stated as not checked. `--now` is the clock, and it is
+how an archived receipt is read at all: the windows close against it, so last year's receipt judged by
+today's clock is a refusal with a code, and a verdict reached at a stated instant is a historical
+appraisal of that instant rather than a current one.
+
+**What it does not do.** It reads one document per run: a directory is refused with the reason, and
+there is no bundle mode that decides which files stand in a handover, which are omitted or which are
+extra. The rules that come closest are per document and were all seen to fire: an export original
+missing, substituted at the right name, or named by a path that climbs out of its directory is refused
+as `EXPORT_ORIGINAL_UNAVAILABLE`, `EXPORT_DIGEST_MISMATCH` and `EXPORT_BAD_MANIFEST`, a pack whose
+span crosses an epoch nobody retained is refused as `PACK_UNKNOWN_KEY`, and a receipt outside its
+window as `STALE_RECEIPT`. It reads no redaction manifest: `ashaveri/redaction` is a published
+content type and `verifyRedaction` in `@ashaveri/receipt` reads one, but no command in this CLI does,
+so each of the four verbs refuses it by name. And it never reads the evidence document behind a
+receipt's `att.d`: the timestamp is windowed and the document itself is fetched by a client talking to
+a deployment.
+
+```bash
+node ashaveri.mjs verify-pack pack-well-formed-three-items.cbor \
+  --key=E6uO0ed3_zm-Ix32lLu8j5Z9W3eet8q1WHYstU-WCwU
+```
+
+That key is the receipt signing key of the published fixtures, TEST ONLY, printed by
+`packages/fixtures/data/keys/receipt-key-v1.json` in hex and given here in base64url; the document
+names the kid it was sealed under, and the run reports which designation it consulted.
+
 ## Attestation collateral
 
 **What the verifier does today.** It checks signatures and certificate chains offline, against the
