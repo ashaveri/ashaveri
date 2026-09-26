@@ -2,7 +2,7 @@ import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { describe, expect, it } from 'vitest';
-import { fromBase64Url, toHex } from '@ashaveri/receipt';
+import { exportRecordDigest, fromBase64Url, toHex } from '@ashaveri/receipt';
 import {
   openFileReceiptStore,
   RECEIPT_STORE_FILE,
@@ -379,5 +379,25 @@ describe('data/chain-v1.json', () => {
       expect(records[1]?.prevHex).toBe(tail.headHex);
       expect((await store.window()).count).toBe(2);
     });
+  });
+});
+
+describe('one framing, both formats', () => {
+  it('reproduces a published store digest through the export framing', () => {
+    // A reviewer recomputes an export's walk with `exportRecordDigest` and compares it against the chain
+    // the store published, so the two framings have to be the same arithmetic. Two readings of one layout
+    // agree only until somebody edits one of them, which is what this case is for: it fails the moment
+    // they part, and it passed on neither until both named the store's offsets.
+    for (const name of ['first-record', 'two-records', 'trim-after-count-cap', 'all-retired-by-age']) {
+      for (const record of receiptsOf(scenarioNamed(name))) {
+        const digest = exportRecordDigest({
+          id: record.id,
+          iat: record.iat,
+          p: Buffer.from(record.prevHex, 'hex'),
+          bytes: fromBase64Url(record.payloadBase64Url),
+        });
+        expect(toHex(digest), `${name} / ${record.id}`).toBe(record.digestHex);
+      }
+    }
   });
 });

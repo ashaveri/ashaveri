@@ -850,10 +850,10 @@ function framingInput(id: string, iat: number, prev: Uint8Array, payload: Uint8A
   const view = new DataView(out.buffer);
   out[0] = 0;
   out.set(prev, 1);
-  view.setBigUint64(9, BigInt(iat));
-  view.setUint16(17, name.length);
-  out.set(name, 19);
-  out.set(payload, 19 + name.length);
+  view.setBigUint64(33, BigInt(iat));
+  view.setUint16(41, name.length);
+  out.set(name, 43);
+  out.set(payload, 43 + name.length);
   return out;
 }
 
@@ -1252,7 +1252,7 @@ describe('the export reader', () => {
     }
     // Big-endian and unsigned, which the stamp's eight bytes show: a value one past 2^32 moves the fourth
     // byte from the left and nothing after it.
-    expect([...framingInput('a', 2 ** 32, new Uint8Array(32), new Uint8Array(0)).slice(9, 17)]).toEqual([0, 0, 0, 1, 0, 0, 0, 0]);
+    expect([...framingInput('a', 2 ** 32, new Uint8Array(32), new Uint8Array(0)).slice(33, 41)]).toEqual([0, 0, 0, 1, 0, 0, 0, 0]);
     expect(() => exportRecordDigest({ id: 'a', iat: 1, p: new Uint8Array(31), bytes: new Uint8Array(0) })).toThrow(/predecessor of 31 bytes/u);
     expect(() => exportRecordDigest({ id: '', iat: 1, p: new Uint8Array(32), bytes: new Uint8Array(0) })).toThrow(/an id of 0 bytes/u);
   });
