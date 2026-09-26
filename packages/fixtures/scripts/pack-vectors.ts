@@ -657,7 +657,7 @@ const CASES: readonly Case[] = [
   {
     name: 'item-receipt-is-not-a-receipt',
     note: 'An item whose `receipt` is a sentence rather than a signed document. The originals are read before the walk, so what a caller hears is that this pack carries something other than the receipts it claims, and the refusal names which item and with what answer.',
-    bytes: signPack({ ...honestManifest, items: [{ ...honestManifest.items[0]!, receipt: text('not a receipt at all') }, ...honestManifest.items.slice(1)] }, CURRENT),
+    bytes: despiteGuard({ ...honestManifest, items: [{ ...honestManifest.items[0]!, receipt: text('not a receipt at all') }, ...honestManifest.items.slice(1)] }),
     read: PINNED_CURRENT,
     verdict: 'PACK_RECEIPT_INVALID',
     structural: 'verify-ok',
@@ -676,7 +676,7 @@ const CASES: readonly Case[] = [
   {
     name: 'record-lifted-out-of-the-middle',
     note: 'The middle record taken out of a signed run and nothing else touched, so the successor still names the predecessor it had and the head is the one the whole run hashed to. What remains is whole by its own digest and the walk stops at the hole, which is the deletion publishing the head inside the signature exists to make visible.',
-    bytes: signPack({ ...honestManifest, items: [honestManifest.items[0]!, honestManifest.items[2]!] }, CURRENT),
+    bytes: despiteGuard({ ...honestManifest, items: [honestManifest.items[0]!, honestManifest.items[2]!] }),
     read: PINNED_CURRENT,
     verdict: 'PACK_CHAIN_BROKEN',
     structural: 'verify-ok',
@@ -685,7 +685,7 @@ const CASES: readonly Case[] = [
   {
     name: 'two-items-naming-one-predecessor',
     note: 'A second item claiming the anchor as its predecessor, the rest of the run untouched. The walk would take whichever it met first and report the other as unreached, so a fork is refused rather than resolved by the order the array happened to be in.',
-    bytes: signPack({ ...honestManifest, items: [{ id: 'rival', iat: BASE, prev: HONEST.anchor, receipt: receiptFor('rival', BASE) }, ...honestManifest.items] }, CURRENT),
+    bytes: despiteGuard({ ...honestManifest, items: [{ id: 'rival', iat: BASE, prev: HONEST.anchor, receipt: receiptFor('rival', BASE) }, ...honestManifest.items] }),
     read: PINNED_CURRENT,
     verdict: 'PACK_CHAIN_BROKEN',
     structural: 'verify-ok',
@@ -694,7 +694,7 @@ const CASES: readonly Case[] = [
   {
     name: 'item-parked-beside-the-run',
     note: 'A receipt handed over beside a run it is not part of, naming a predecessor nobody here carries. The walk reaches the signed head and never had to visit it, so the count of what the walk reached against the array is the half of the rule with eyes for it, and a verifier that implements only the walk passes this pack.',
-    bytes: signPack({ ...honestManifest, items: [...honestManifest.items, parkedItem('parked', BASE + 1)] }, CURRENT),
+    bytes: despiteGuard({ ...honestManifest, items: [...honestManifest.items, parkedItem('parked', BASE + 1)] }),
     read: PINNED_CURRENT,
     verdict: 'PACK_ITEM_UNREACHED',
     structural: 'verify-ok',

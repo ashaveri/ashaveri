@@ -805,6 +805,7 @@ function widthTie(bytes: number, pattern: unknown, position: string): void {
 
 const KEY = signingKeyFromSeed(new Uint8Array(32).fill(11));
 const CLOCK = AN_INT;
+const ZEROS32 = new Uint8Array(32);
 
 function bytesOf(text: string): Uint8Array {
   return new TextEncoder().encode(text);
@@ -895,6 +896,15 @@ function editSealed(bytes: Uint8Array, mutate: (root: Map<unknown, unknown>) => 
 function sealWithKey(payloadBytes: Uint8Array, key: SigningKey): Uint8Array {
   const header = encodeExportProtectedHeader(key.kid);
   return sealExport(header, payloadBytes, ed25519.sign(exportSigStructure(header, payloadBytes), key.privateKey));
+}
+
+/**
+ * A manifest sealed through the published pieces rather than through `signExport`, which will not sign a
+ * document its own reader refuses. The header, the framing and the key are that writer's own, so the only thing
+ * these bytes differ from a handover by is the position the case moved.
+ */
+function sealedPastWriter(value: ExportManifest): Uint8Array {
+  return sealWithKey(encodeExportManifest(value), KEY);
 }
 
 /** The four elements of a sealed envelope, read back for the cases that rebuild one around a piece. */
@@ -1145,23 +1155,24 @@ describe('the export reader', () => {
 
   it('refuses a gap, a fork, an unreachable head and an item the walk never reaches', () => {
     const good = anchoredCollection();
-    // A record lifted out of the middle: what remains is whole by its own digest, and the walk stops short.
+    // A record lifted out of the middle: what remains is whole by its own digest, and the walk stops short. The
+    // bytes come from the published pieces, because the writer now refuses to sign a run that does not close.
     const gap: ExportAnchoredCollection = { ...good, items: [good.items[0]!, good.items[2]!] };
-    const broken = thrownByVerify(signExport(manifest({ collection: gap }), KEY));
+    const broken = thrownByVerify(sealedPastWriter(manifest({ collection: gap })));
     expect(codeOf(broken)).toBe('EXPORT_CHAIN_BROKEN');
     expect((broken as Error).message).toMatch(/stopped at a digest that is not the head/u);
     // The same omission with the hole closed by re-chaining, which is the forgery the signed head exists to
     // defeat: the links are perfect and the run is still short of the endpoint the writer signed.
     const closed: ExportAnchoredCollection = { ...good, items: rechain([good.items[0]!, good.items[2]!]) };
-    expect(codeOf(thrownByVerify(signExport(manifest({ collection: closed }), KEY)))).toBe('EXPORT_CHAIN_BROKEN');
+    expect(codeOf(thrownByVerify(sealedPastWriter(manifest({ collection: closed }))))).toBe('EXPORT_CHAIN_BROKEN');
     // Two items claiming one predecessor: the walk would take whichever it met first, so a fork is refused
     // rather than resolved by arrival order.
     const rival: ExportAnchoredCollection = { ...good, items: [forked(good), ...good.items] };
-    expect(codeOf(thrownByVerify(signExport(manifest({ collection: rival }), KEY)))).toBe('EXPORT_CHAIN_BROKEN');
+    expect(codeOf(thrownByVerify(sealedPastWriter(manifest({ collection: rival }))))).toBe('EXPORT_CHAIN_BROKEN');
     // A record parked beside a run it is not part of reaches the head exactly as the honest ones do, so the
     // second half of the rule is the only one with eyes for it.
     const parked: ExportAnchoredCollection = { ...good, items: [...good.items, parkedItem(good)] };
-    const unreached = thrownByVerify(signExport(manifest({ collection: parked }), KEY));
+    const unreached = thrownByVerify(sealedPastWriter(manifest({ collection: parked })));
     expect(codeOf(unreached)).toBe('EXPORT_ITEM_UNREACHED');
     expect((unreached as Error).message).toMatch(/parked/u);
     // The controls: the same run with nothing parked and nothing lifted walks, and a single record chained
@@ -1278,8 +1289,8 @@ describe('the export reader', () => {
 });
 
 /** The same three records, re-chained from the anchor in the order given. */
-function rechain(items: readonly ExportChainedItem[]): ExportChainedItem[] {
-  let prev: Uint8Array = new Uint8Array(32);
+function rechain(items: readonly ExportChainedItem[], anchor: Uint8Array = new Uint8Array(32)): ExportChainedItem[] {
+  let prev: Uint8Array = anchor;
   return items.map((one) => {
     const bytes = one.orig.k === 'inline' ? one.orig.bytes : new Uint8Array(0);
     const next: ExportChainedItem = { ...one, p: prev };
@@ -1299,3 +1310,157 @@ function parkedItem(collection: ExportAnchoredCollection): ExportChainedItem {
   const bytes = bytesOf('a parked record');
   return { id: 'parked', iat: collection.items[0]!.iat, d: sha256(bytes), p: sha256(bytesOf('another chain entirely')), orig: { k: 'inline', bytes } };
 }
+
+/** The digest of the last record of a run, which is the head an anchored collection names. */
+function headOf(items: readonly ExportChainedItem[]): Uint8Array {
+  const one = items[items.length - 1]!;
+  if (one.orig.k !== 'inline') throw new Error('this file computes a head over the bytes an inline original carries');
+  return exportRecordDigest({ id: one.id, iat: one.iat, p: one.p, bytes: one.orig.bytes });
+}
+
+/** A run chained from the anchor a retired prefix left behind, with the head that run hashes to. */
+function anchoredFrom(anchor: Uint8Array, items: readonly ExportChainedItem[]): ExportAnchoredCollection {
+  const rechained = rechain(items, anchor);
+  return { k: 'anchored', anchor, head: headOf(rechained), items: rechained };
+}
+
+/** A run whose originals travel beside the document under the names a reader would be handed. */
+function companionAnchored(names: readonly string[]): ExportAnchoredCollection {
+  let prev: Uint8Array = new Uint8Array(32);
+  const items = names.map((name, index) => {
+    const text = COMPANIONS.get(name);
+    if (text === undefined) throw new Error(`no companion named ${name} is built by this file`);
+    const bytes = bytesOf(text);
+    const one: ExportChainedItem = { id: `c-${String(index)}`, iat: CLOCK + index, d: sha256(bytes), p: prev, orig: { k: 'companion', name } };
+    prev = exportRecordDigest({ id: one.id, iat: one.iat, p: one.p, bytes });
+    return one;
+  });
+  return { k: 'anchored', anchor: new Uint8Array(32), head: prev, items };
+}
+
+/** What `signExport` answers about a manifest: the code it refused with, or that it signed. */
+function sealedBy(value: ExportManifest): string {
+  try {
+    signExport(value, KEY);
+    return 'accepted';
+  } catch (err) {
+    return err instanceof ReceiptError ? err.code : `UNCODED:${String(err)}`;
+  }
+}
+
+function thrownBySign(value: ExportManifest): unknown {
+  try {
+    signExport(value, KEY);
+    return null;
+  } catch (err) {
+    return err;
+  }
+}
+
+/** The bytes of a sealed export as one digest, which is what a before-and-after comparison reads. */
+function digestOf(bytes: Uint8Array): string {
+  return toHex(sha256(bytes));
+}
+
+/**
+ * The walk the seal runs, on the writer's side of the signature.
+ *
+ * `docs/export-v1.md` states that a writer cannot produce bytes its own reader rejects, and for an anchored
+ * collection the reader's refusal is a walk over links and endpoints rather than a check of the layout. These
+ * cases are that half: a document whose run does not close is a document that contradicts nothing about its
+ * own members, so the structural parse hands it straight to the signature.
+ */
+describe('the export seal walks the run it signs', () => {
+  it('refuses an anchored run that stops short of the head it names', () => {
+    const good = anchoredCollection();
+    const gap: ExportAnchoredCollection = { ...good, items: [good.items[0]!, good.items[2]!] };
+    const refused = thrownBySign(manifest({ collection: gap }));
+    expect(refused, 'the seal signed a run that does not reach its own head').toBeInstanceOf(ReceiptError);
+    expect((refused as ReceiptError).code).toBe('EXPORT_CHAIN_BROKEN');
+    // The refusal says what the walk reached, which is the sentence the reader states.
+    expect((refused as Error).message).toMatch(/the walk reached 1 item\(s\) and stopped at a digest that is not the head/u);
+    // One rule rather than two written to agree: made anyway from the published pieces, the reader answers the
+    // same document with the same code and the same sentence.
+    const fromTheReader = thrownByVerify(sealedPastWriter(manifest({ collection: gap })));
+    expect(codeOf(fromTheReader)).toBe('EXPORT_CHAIN_BROKEN');
+    expect((fromTheReader as Error).message).toBe((refused as Error).message);
+    // The re-chained omission, where the links are perfect and only the signed endpoint is short, is refused
+    // here too rather than reaching a reader as a forgery it has to spot.
+    const closed: ExportAnchoredCollection = { ...good, items: rechain([good.items[0]!, good.items[2]!]) };
+    expect(sealedBy(manifest({ collection: closed }))).toBe('EXPORT_CHAIN_BROKEN');
+  });
+
+  it('seals a closing run as the exact bytes the published pieces assemble', () => {
+    // `signExport` and the four pieces are pinned to one document by the determinism case above, so the digest
+    // of the piecewise bytes is what the writer produced before any walk ran at the seal. Every run below
+    // matching it says the guard refused more documents without writing a different one.
+    const seam = sha256(bytesOf('the seam a trim record carried'));
+    const good = anchoredCollection();
+    const single = rechain([good.items[0]!]);
+    const accepted: Array<[string, ExportManifest]> = [
+      ['an anchored run of three from an empty anchor', manifest({ collection: good })],
+      ['an anchored run of one', manifest({ collection: { ...good, items: single, head: headOf(single) } })],
+      ['an anchored run from a retired seam', manifest({ collection: anchoredFrom(seam, good.items) })],
+      ['a plain collection of inline originals', manifest({ collection: plainCollection('inline') })],
+      ['a plain collection of companions', manifest({ collection: plainCollection('companion') })],
+      ['a void collection', manifest({ collection: { k: 'void', states: 'nothing was carried out of the store' } })],
+    ];
+    for (const [name, value] of accepted) {
+      expect(digestOf(signExport(value, KEY)), `${name} moved`).toBe(digestOf(sealedPastWriter(value)));
+    }
+  });
+
+  it('answers the three shapes a walk guard gets wrong, in both directions', () => {
+    const good = anchoredCollection();
+    // A single record is a whole run when the anchor it names is the anchor the collection names and its own
+    // digest is the head. One step, no pair, and the case a guard that loops over links forgets.
+    const single = rechain([good.items[0]!]);
+    expect(sealedBy(manifest({ collection: { ...good, items: single, head: headOf(single) } }))).toBe('accepted');
+    // The same single record naming a predecessor nobody handed it: nothing links from the anchor, so the walk
+    // reaches no item at all.
+    const orphaned: ExportAnchoredCollection = { ...good, items: [{ ...single[0]!, p: sha256(bytesOf('another chain')) }], head: headOf(single) };
+    const noStep = thrownBySign(manifest({ collection: orphaned }));
+    expect((noStep as ReceiptError).code).toBe('EXPORT_CHAIN_BROKEN');
+    expect((noStep as Error).message).toMatch(/the walk reached 0 item\(s\)/u);
+    // An empty items array is a fault of the manifest, which the parse answers first, and that order is the
+    // only thing keeping a walk over nothing from closing vacuously over two equal endpoints.
+    expect(sealedBy(manifest({ collection: { k: 'anchored', anchor: ZEROS32, head: ZEROS32, items: [] } }))).toBe('EXPORT_BAD_MANIFEST');
+    // The vacuous pair itself: a run chained from a seam, naming thirty-two zero bytes as both endpoints. The
+    // walk reaches nothing, what it reached is already the head, and only the count of the array sees the
+    // three records outside the run.
+    const seam = sha256(bytesOf('the seam a trim record carried'));
+    const fromSeam = anchoredFrom(seam, good.items);
+    const vacuous = thrownBySign(manifest({ collection: { ...fromSeam, anchor: ZEROS32, head: ZEROS32 } }));
+    expect((vacuous as ReceiptError).code).toBe('EXPORT_ITEM_UNREACHED');
+    expect((vacuous as Error).message).toMatch(/r-0, r-1, r-2/u);
+    // An anchor that is not the digest the first item names, on a run that is whole and states the wrong seam.
+    expect(sealedBy(manifest({ collection: fromSeam }))).toBe('accepted');
+    const misanchored = thrownBySign(manifest({ collection: { ...fromSeam, anchor: ZEROS32 } }));
+    expect((misanchored as ReceiptError).code).toBe('EXPORT_CHAIN_BROKEN');
+    expect((misanchored as Error).message).toMatch(/the walk reached 0 item\(s\)/u);
+    // Two items claiming one predecessor, and a record parked beside a run it is not part of.
+    expect(sealedBy(manifest({ collection: { ...good, items: [forked(good), ...good.items] } }))).toBe('EXPORT_CHAIN_BROKEN');
+    expect(sealedBy(manifest({ collection: { ...good, items: [...good.items, parkedItem(good)] } }))).toBe('EXPORT_ITEM_UNREACHED');
+  });
+
+  it('leaves a walk it cannot compute to the reader, and says so by being quiet', () => {
+    // A record's digest is taken over the original bytes, and a companion's do not travel inside the document,
+    // so the question "does this run close" has no answer at the seal for a collection naming one. This is the
+    // one place the guarantee stops, and it stops where the writer's own knowledge stops.
+    const names = ['contract.pdf', 'screenshot.png'];
+    const whole = companionAnchored(names);
+    expect(sealedBy(manifest({ collection: whole }))).toBe('accepted');
+    // The same arm with a broken link seals too, which is the limit stated the other way round: it is the arm
+    // that decides, not the state of the run.
+    const broken: ExportAnchoredCollection = { ...whole, items: [whole.items[0]!], head: whole.head };
+    expect(sealedBy(manifest({ collection: broken }))).toBe('accepted');
+    // A reader is handed the files, and the answer it reaches is its own: the first document walks, the second
+    // stops short of the head it names, and neither verdict is the writer's to have pre-empted.
+    const companions = new Map(names.map((name) => [name, bytesOf(COMPANIONS.get(name) ?? '')]));
+    expect(() => verifyExport(signExport(manifest({ collection: whole }), KEY), KEY.publicKey, { companions })).not.toThrow();
+    expect(codeOf(thrownByVerify(sealedPastWriter(manifest({ collection: broken })), KEY, { companions }))).toBe('EXPORT_CHAIN_BROKEN');
+    // Without the files the reader refuses the item by name rather than pass it, so nothing about these bytes
+    // is verifiable by a reader that was handed the document alone.
+    expect(codeOf(thrownByVerify(signExport(manifest({ collection: whole }), KEY), KEY))).toBe('EXPORT_ORIGINAL_UNAVAILABLE');
+  });
+});
