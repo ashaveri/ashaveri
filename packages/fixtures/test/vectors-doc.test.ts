@@ -8,7 +8,7 @@ import { DATA } from '../src/index.js';
  * The suite inventory in `docs/vectors.md` is the index a port starts from: it names the file of each
  * published suite and the version field that file carries. Both are copies of facts that live in
  * `data/`, and a copy is how a document comes to state something the artefacts stopped carrying. This
- * reads the table as data and checks it against them, which is the whole of what it does — the prose
+ * reads the table as data and checks it against them, which is the whole of what it does: the prose
  * around the rows is reviewed by the people who write it, not parsed here.
  */
 

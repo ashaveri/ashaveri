@@ -942,7 +942,7 @@ function floatWidthsHolding(value: number): Array<[string, unknown]> {
 /**
  * The two bignum spellings of one value: a tag 2 around the bytes of a whole number plain enough for a
  * CBOR integer, and a tag 2 around one no `number` holds exactly. Section 3 of the specification states
- * the refusal of both at the payload's positions, so the cases below put them there — the header label
+ * the refusal of both at the payload's positions, so the cases below put them there: the header label
  * an earlier case reaches is a different document, and a claim about the payload is not proved beside
  * it.
  *
@@ -1015,8 +1015,8 @@ function valueAt(payload: ReceiptPayload, where: string): unknown {
 
 /**
  * Every position the format types as an integer, with the value each case puts there: the five
- * `receipt.cddl` writes `int` — `iat`, `epk` and one below each of the maps nested inside the payload —
- * and `v`, which the same file types as the integer literals `1` and `2` rather than as `int`. The
+ * for which `receipt.cddl` writes `int`, namely `iat`, `epk` and one below each of the maps nested
+ * inside the payload, and `v`, which the same file types as the integer literals `1` and `2` rather than as `int`. The
  * whole roster belongs to the sweep, including the literals: a `1.0` at the version is exactly the
  * thing the rule refuses, refused before a reader ever decides which version the document claims.
  *
@@ -1039,8 +1039,8 @@ describe('a position the CDDL writes `int` reads one CBOR major type', () => {
     for (const member of INTEGER_MEMBERS) {
       // Both halves go through the same writer, so the only thing apart is the major type at the one
       // position. `issueReceipt` could not produce either half: its encoder writes any whole number as
-      // an integer — negative zero included, which is what the case that issues a receipt with a
-      // negative zero below pins — and that is why this refusal sits in the decode rather than beside
+      // an integer (negative zero included, which is what the case that issues a receipt with a
+      // negative zero below pins) and that is why this refusal sits in the decode rather than beside
       // these reads, where a float and the integer it imitates have already become one value.
       const asInteger = payloadWith(member.where, member.value);
       const integerBytes = signKeepingMajorTypes(
@@ -1254,7 +1254,7 @@ describe('a position the CDDL writes `int` reads one CBOR major type', () => {
  *
  * One value broke that, and it is the whole number JavaScript spells two ways: `Object.is(value, -0)`
  * tells negative zero apart from the `0` it prints as, while `Number.isSafeInteger(-0)` holds and
- * `-0 < 0` does not. Neither `issueReceipt` nor any guard on the way in stopped it arriving — its only
+ * `-0 < 0` does not. Neither `issueReceipt` nor any guard on the way in stopped it arriving: its only
  * guard is the width of a measurement against its own kind, and four of these fields are typed
  * `number` and compared for integrality and sign, which a negative zero passes. So the fix had to sit
  * where the bytes are chosen, which is `encodeCanonical`, and not beside any one of these reads.

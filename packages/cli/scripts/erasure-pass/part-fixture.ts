@@ -28,8 +28,8 @@ const SUBJECT_EVERY = 5;
  * them here.
  *
  * Both carry multi-byte characters, and that is the other thing they are for. Every field a gateway
- * writes is ASCII — credential ids are held to `[A-Za-z0-9_-]`, request ids and receipts are hex or
- * base64url — so the only multi-byte bytes a part can hold are foreign ones, and a pass that reads the
+ * writes is ASCII (credential ids are held to `[A-Za-z0-9_-]`, request ids and receipts are hex or
+ * base64url) so the only multi-byte bytes a part can hold are foreign ones, and a pass that reads the
  * file in blocks has to be able to be wrong about where a block ends. Splitting a multi-byte character
  * between two blocks is how a scrub silently rewrites `é` into `` and reports success while doing it,
  * so these two lines are where that is caught.

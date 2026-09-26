@@ -168,7 +168,7 @@ const INTEGER_TYPE = /^(?:int|-?\d+)$/u;
  * `att`, `tok` and `meas` expand into the rules they are, because a member of `EvidenceRef` is a
  * position of the payload document that carries it, and the rule that refuses a float at `att.ts` is
  * the same rule that refuses one at `iat`. `mk` expands too, and contributes nothing: `Marking` types
- * its two members as a label and a digest. Nothing is filtered out at the end — a name bound to a rule
+ * its two members as a label and a digest. Nothing is filtered out at the end: a name bound to a rule
  * is expanded even when the rule holds no integer, so a position gaining one in the CDDL arrives in
  * this list with no edit here.
  *

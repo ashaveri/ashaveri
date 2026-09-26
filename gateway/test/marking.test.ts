@@ -22,7 +22,7 @@ import { CLOCK_SECONDS, generated, harness, type Generated, type Harness } from 
  * The mark, seen from the side that writes it. Each cell below asks the same question of a response
  * this gateway built: are the bytes a client was handed the bytes `res` digests, and is the span
  * `mk.d` digests the span a reader of the published rule finds in them? The second half is the one
- * worth the test — a writer and a reader that each re-derived the region their own way would agree
+ * worth the test: a writer and a reader that each re-derived the region their own way would agree
  * with themselves and disagree with each other, and only a run through a real response catches that.
  */
 

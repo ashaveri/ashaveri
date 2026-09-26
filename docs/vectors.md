@@ -56,9 +56,9 @@ specific to that case.
   are v1 documents and the fifth is a v2 carrying a marking member. Its `res` and `mk.d` are digests
   of the same bytes the marked-region suite publishes as `buffered-member`, so one response is read
   out of two files and a generator that drifted on either side disagrees here. Decoding that entry
-  does not check its mark — no `.cbor` file carries the response — which is what the marked-region
-  suite is for. Two entries are deliberately not valid — one signature is broken, one payload carries
-  a measurement of a width its `tee` kind cannot hold — and a decoder that accepts either has not
+  does not check its mark (no `.cbor` file carries the response), which is what the marked-region
+  suite is for. Two entries are deliberately not valid: one signature is broken, one payload carries
+  a measurement of a width its `tee` kind cannot hold, and a decoder that accepts either has not
   implemented the rule the other three test.
 - **Proof of possession.** Rebuild the signing string from the published fields, verify the signature
   in `authorization` against `key.publicKeyHex`, and check the header parses to the same three
@@ -92,7 +92,7 @@ specific to that case.
   the one the receipt does attest, is accepted.
 - **Marked region.** For each vector, take `responseBase64Url` as the bytes a client holds, run your
   own reading of the rule for the label in `sch`, and compare what you locate against
-  `foundRegionBase64Url` — which is `null` exactly where the published rule finds no single region, and
+  `foundRegionBase64Url`, which is `null` exactly where the published rule finds no single region, and
   is not the same thing as the empty region a `none` receipt names. Then hash what you found and compare
   to `dHex`. Two spans are published on purpose: `attestedRegionBase64Url` is the one whose digest the
   receipt carries, and `foundRegionBase64Url` is the one a reader locates in the bytes. They are equal
@@ -109,10 +109,10 @@ specific to that case.
   `buffered-member` document is byte for byte the committed `receipt-marked-v2.cbor`.
 - **Store chain.** Each scenario states the writes it performed and the file they produced. Either
   reproduce it with your writer and compare the image byte for byte, or read the published image with
-  your reader and compare what you derive — the head, the served set, the retention window and the
-  chain state — against what the file states. The `records` table beside each image decomposes it
-  into fields with their offsets — each row states the byte its frame starts at and that frame's
-  whole length — so a difference localizes to a width, an endianness or a coverage rule rather than
+  your reader and compare what you derive (the head, the served set, the retention window and the
+  chain state) against what the file states. The `records` table beside each image decomposes it
+  into fields with their offsets. Each row states the byte its frame starts at and that frame's
+  whole length, so a difference localizes to a width, an endianness or a coverage rule rather than
   to a whole file. `refusals` are images no writer produced: one bit flipped in a payload, a record
   lifted out of the middle, a retirement written behind a receipt, and a frame lying about its
   length. Each carries the refusal the reader gave, and your reader has to refuse them too. Its

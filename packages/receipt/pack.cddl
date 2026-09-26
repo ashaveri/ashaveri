@@ -41,7 +41,7 @@ Ashaveri-Pack-Protected-Header = {
 ; The signed manifest, and the only thing here a verifier of a pack has to believe before it starts
 ; walking. Each member passed one test: a reader of the pack needs it, and no receipt inside the
 ; container carries it. That test is why `span`, `chain` and `duty` are here and why the store's window
-; counts, its policy and its retirement history are not — those describe the deployment's retention
+; counts, its policy and its retirement history are not; those describe the deployment's retention
 ; state, which a retention artifact states and this container carries nothing of. A second copy of a
 ; number the deployment already publishes elsewhere is the thing that drifts.
 ;
@@ -72,7 +72,7 @@ Ashaveri-Pack-Manifest = {
 ; whose end has not arrived is still receiving, and a deployment that began its reads inside the span it
 ; is answering for would sign a completeness nobody was in a position to have at that instant.
 ;
-; The span is half-open — `from` included, `to` excluded — because that is the bound the store serves
+; The span is half-open (`from` included, `to` excluded) because that is the bound the store serves
 ; by: a receipt issued at exactly the end stamp belongs to the next pack, not this one, and a format
 ; that left that out would let two packs both claim it or neither. A reader needs both bounds and not
 ; only the walk. The walk shows that nothing between the first item and the last is missing; the span
@@ -128,8 +128,8 @@ PackChain = {
 ; holds, and the oldest receipt in this container need not be the oldest one retained.
 ;
 ; What it does have to agree with is the container carrying it. `held` is a count of seconds measured at
-; `at`, so it is at least the age of the oldest receipt in this pack — `at` less the earliest `iat`
-; among the items, since a receipt handed over here is one the store still holds — and a smaller figure
+; `at`, so it is at least the age of the oldest receipt in this pack (`at` less the earliest `iat`
+; among the items, since a receipt handed over here is one the store still holds) and a smaller figure
 ; contradicts the pack the way the span bound above does, and is refused the same way. A `held` short of
 ; `required` is nothing of that kind: the document is whole, the arithmetic comes out the way it comes
 ; out, and the duty is not met. `rev` is never after `at`, because a mapping revision that lands after
@@ -149,7 +149,7 @@ PackDuty = {
 ; One receipt, with the three values its record was hashed with and nothing else. These four are the
 ; whole of what it takes to rebuild the frame: `kind` is 0 for every item, because a trim record
 ; carries no receipt and is never an item; `idLen` and `len` are counts of the bytes that follow them;
-; and the digest the next item names — or the head, for the last one — is sha256 over
+; and the digest the next item names (or the head, for the last one) is sha256 over
 ; 0x00 || prev || iat as eight big-endian bytes || the byte length of id as two big-endian bytes
 ; || id || receipt. Every integer in that input is unsigned and big-endian, which is the framing
 ; section 5.2 publishes, and the `id` bound below is that framing's own: `idLen` is two bytes, and an
@@ -210,9 +210,9 @@ PackItem = {
 ; means there: a member the version named by `v` does not define makes the document invalid rather
 ; than a document read with the unexpected member dropped. That reaches the manifest, the span, the
 ; chain, the duty, the item and the signed header alike. The header closes under the stronger of the
-; two reasons — its bytes are hashed into the `Sig_structure`, so a label that block does not name is
+; two reasons. Its bytes are hashed into the `Sig_structure`, so a label that block does not name is
 ; an authenticated parameter, and a reader that took its three labels out of a header carrying a fourth
-; would hand on a document other than the one the issuer signed — and its members are the COSE
+; would hand on a document other than the one the issuer signed. Its members are also the COSE
 ; registry's integers, which is why they are numbered rather than named.
 ;
 ; One map a signer fills at will, and that is a decision rather than a gap: the `unprotected` map of
@@ -225,7 +225,7 @@ PackItem = {
 ; written awkwardly: it is a different type, and the only reader that can ever tell them apart is one
 ; reading the bytes, because a decoder that hands both over as one JavaScript number leaves a check
 ; placed afterwards nothing to distinguish. So a reader decodes every map this file names member by
-; member — the manifest, each map the manifest opens, and the protected header — where no
+; member (the manifest, each map the manifest opens, and the protected header) where no
 ; floating-point number may appear, in a value and in a key alike. Nothing any of them declares can be
 ; a float, so that rule refuses no document that follows this file. It matters here more than it might
 ; elsewhere, because the quantities a manifest states are durations and instants, and a duration is the

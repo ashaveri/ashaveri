@@ -147,8 +147,8 @@ interface NestedRule {
 
 /**
  * Which rules the manifest opens, read off its own member declarations: a bare `PackChain` is one
- * value of that rule, and `[+ PackItem]` is an array of them. Anything else about a member — a choice
- * between two rules, a type expression this reader does not read — stops the run, because a member
+ * value of that rule, and `[+ PackItem]` is an array of them. Anything else about a member (a choice
+ * between two rules, a type expression this reader does not read) stops the run, because a member
  * quietly skipped would be a map the twin could drift away from with nothing asked of it.
  */
 function manifestNestedRules(cddl: string): NestedRule[] {
@@ -591,7 +591,7 @@ describe('the pack CDDL and its JSON twin', () => {
   it('leaves the envelope as open as it says it is, and refuses what the format does not', () => {
     // The looseness is a stated choice, so it is pinned from both ends: the projection requires two
     // members of an envelope the format builds from four, and the sentence in its own description is
-    // what that gap answers to. Neither half is a discovery — remove the clause and the case that names
+    // what that gap answers to. Neither half is a discovery: remove the clause and the case that names
     // it goes red, and close the root or require the signature and the clause stops being true.
     const envelope = packDocument(CDDL);
     expect(outcome(envelope), 'a pack envelope with everything the format requires is refused').toBeNull();
@@ -658,8 +658,8 @@ describe('the pack CDDL and its JSON twin', () => {
     // describing an absence that the same file's first block refutes.
     expect(prose).not.toContain('Nothing in this repository assembles a pack');
     // The framing belongs to section 5.2 and to the published images, and the assertion here is only
-    // that the format cites both by name. The format does restate the framing beside `PackItem` — the
-    // field order for a verifier reading one file, and two widths the members themselves carry — so the
+    // that the format cites both by name. The format does restate the framing beside `PackItem` (the
+    // field order for a verifier reading one file, and two widths the members themselves carry) so the
     // claim is not that the copy is absent. It is that the copy is tied: `pack-framing.test.ts` reads
     // the declared `prev` width and `id` ceiling out of the blocks below and rebuilds frames with them,
     // and the images those rebuilds answer to are byte-checked in

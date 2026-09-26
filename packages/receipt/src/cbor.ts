@@ -63,7 +63,7 @@ function plainByteInputs(value: unknown): unknown {
  * as one is a document this reader refuses. Without the option, CBOR's number writer takes its
  * negative-zero branch before its integer one and spells `-0` as the half-precision `f9 80 00`, while
  * `0` goes out as the integer `00`. The two are the same value to every check this package makes after
- * the decode — `Number.isSafeInteger(-0)` holds and `-0 < 0` does not — so a payload built with an
+ * the decode (`Number.isSafeInteger(-0)` holds and `-0 < 0` does not) so a payload built with an
  * `iat`, an `epk` or a `tok.p` of negative zero would be signed by this writer and refused by this
  * reader. A receipt's integers are canonical and non-negative, and negative zero has one canonical
  * integer spelling, which is the one `0` gets; that is what this option decides, at the point the bytes
@@ -94,8 +94,8 @@ export function decodeCanonical(bytes: Uint8Array, malformed: ReceiptErrorCode =
 }
 
 /**
- * The two documents `receipt.cddl` declares member by member — the protected header and the payload
- * — read under one rule the rest of the envelope is not: no floating-point number may appear in
+ * The two documents `receipt.cddl` declares member by member, the protected header and the
+ * payload, read under one rule the rest of the envelope is not: no floating-point number may appear in
  * either, at any depth, as a value or as a key.
  *
  * The rule has to be part of the decode, because nothing placed after one can be enforced. A CBOR

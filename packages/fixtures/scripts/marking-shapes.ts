@@ -7,7 +7,7 @@ import { MARKING_MEMBER_NAME, provenanceV1Member } from '@ashaveri/receipt';
  * Both shapes are the ones the published row in section 3.3 of `docs/receipt-spec.md` names: a member
  * of the top-level object in a buffered body, and one `data:` field line of a stream whose payload is
  * a chunk carrying an empty `choices`. In each the region is a substring of the response by
- * construction, which is the property the vectors are about — `mk.d` is a digest of bytes inside the
+ * construction, which is the property the vectors are about: `mk.d` is a digest of bytes inside the
  * response, not of a value re-rendered from it.
  *
  * The content ahead of a region is deliberately not ASCII. A region is a span of *bytes*, so a body

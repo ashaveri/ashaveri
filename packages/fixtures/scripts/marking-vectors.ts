@@ -66,7 +66,7 @@ function clientReceipt(one: MarkingCase): { receiptBase64Url: string; receiptSha
 /**
  * One case, stated as the pair a verifier actually holds.
  *
- * `attested` is the span whose digest a receipt would carry in `mk.d` — for `none` it is the empty
+ * `attested` is the span whose digest a receipt would carry in `mk.d`; for `none` it is the empty
  * input, so the declaration is a value rather than an omission. `found` is the span the published rule
  * locates in `response`, and it is `null` exactly where the rule finds no single region, which is a
  * refusal of its own and never an empty string to hash. Keeping the two apart is what lets a negative
