@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, it } from 'vitest';
 import { createHash } from 'node:crypto';
-import { appendFile, mkdtemp, readFile, rename, rm, stat, writeFile } from 'node:fs/promises';
+import { appendFile, mkdtemp, readFile, rename, rm, stat, utimes, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import {
@@ -1078,13 +1078,16 @@ describe('the serving bound', () => {
 /**
  * A served read answers from the file its own index was read from, and from no other. The shape this
  * path used to have bought that by opening the file again for every record. The shape it has now
- * answers from one handle that a walk holds, and establishes which file that handle is on before it
- * takes a byte, so what these cases have to show is that the establishing is real: a file the store did
- * not choose appears where its index says one is, and the walk says so instead of answering.
+ * answers from one handle that a walk holds, and establishes two things before it hands a byte over:
+ * which file the handle is on, and whether the bytes at the position the index names are the record
+ * the index read there. What these cases have to show is that both establishing steps are real.
  *
- * A restore is the case that does it. A compaction is the case the store does itself, and it is here
- * too, because that is the rewrite the per record open was named for and the walk still has to come
- * back with the right receipts from a file it opened before the move.
+ * A restore is the case that does it, and a restore arrives two ways: written beside the store and
+ * moved over it, which the volume's pair notices, and written straight through the store's own name,
+ * which leaves the pair exactly as it was and can only be noticed by reading the receipts. A
+ * compaction is the rewrite the store does itself, and it is here too, because that is the rewrite
+ * the per record open was named for and the walk still has to come back with the right receipts from
+ * a file it opened before the move.
  */
 describe('a rewrite landing underneath a walk', () => {
   const STAMP = 1_780_000_000;
@@ -1096,6 +1099,14 @@ describe('a rewrite landing underneath a walk', () => {
    * file a whole receipt rather than a short read.
    */
   const FOREIGN = Uint8Array.from(RECEIPT, (byte) => (byte + 1) % 256);
+
+  /**
+   * Either half of the guard refuses a file the index was not built from: the volume's pair when the
+   * replacement answers as a different file, the record's own digest when it answers as the same one.
+   * Which half answers for a file moved over the path is the allocator's business, so a case about
+   * that swap holds either refusal to be the right answer.
+   */
+  const REFUSED = /not the file its index was read from|does not hold the record that index was read from/u;
 
   /** The store file `ids` leave behind when every one of them carries `payload`. */
   async function fileOf(payload: Uint8Array, ids: readonly string[]): Promise<Buffer> {
@@ -1113,6 +1124,15 @@ describe('a rewrite landing underneath a walk', () => {
     const temp = `${file}.restored`;
     await writeFile(temp, bytes);
     await rename(temp, file);
+  }
+
+  /**
+   * The volume's own answer to which file the store file is, read off a `Stats` the way `serialOf`
+   * reads it, so a case can say what a guard built out of it would have noticed.
+   */
+  async function serial(path: string): Promise<string> {
+    const found = await stat(path);
+    return `${String(found.dev)}:${String(found.ino)}`;
   }
 
   /** Every receipt a walk hands over, id and bytes together, because the bytes are the claim here. */
@@ -1140,12 +1160,13 @@ describe('a rewrite landing underneath a walk', () => {
 
       const walk = store.range(0, 2_000_000_000)[Symbol.asyncIterator]();
       await rewrite(dir, foreign);
-      await expect(walk.next()).rejects.toThrow(/not the file its index was read from/u);
+      await expect(walk.next()).rejects.toThrow(REFUSED);
 
-      // The refusal is the identity of the file and not the shape of the record: read the same
-      // positions out of the file that replaced the store's own and each holds a whole receipt, which a
-      // store opened on that file says as much. Answering from it under the old index would have handed
-      // back a receipt for an id the store filed against the other file, with nothing to tell anyone.
+      // The refusal is about which file the index was built from, not about the shape of the record:
+      // read the same positions out of the file that replaced the store's own and each holds a whole
+      // receipt, which a store opened on that file says as much. Answering from it under the old
+      // index would have handed back a receipt for an id the store filed against the other file, with
+      // nothing to tell anyone.
       const reopened = await openFileReceiptStore({ dir });
       expect(Array.from((await reopened.get(IDS[0]!))!)).toEqual(Array.from(FOREIGN));
       const replaced = await served(reopened);
@@ -1153,6 +1174,115 @@ describe('a rewrite landing underneath a walk', () => {
       for (const item of replaced) {
         expect(Array.from(item.receipt)).toEqual(Array.from(FOREIGN));
       }
+    },
+  );
+
+  it(
+    'refuses a receipt whose file was rewritten in place over the indexed file',
+    // Three durable appends, one rewrite of the same number of bytes through the same name, one walk
+    // that reads nothing and one read that does: measured at 25ms here, on the same stop as the case
+    // above.
+    { timeout: 15_000 },
+    async () => {
+      const dir = await emptyDir();
+      const store = await openFileReceiptStore({ dir, serving: { maxServedReceipts: 1 } });
+      for (const [i, id] of IDS.entries()) {
+        await store.put(id, RECEIPT, STAMP + i);
+      }
+      const file = join(dir, RECEIPT_STORE_FILE);
+      const foreign = await fileOf(FOREIGN, IDS);
+      expect(foreign.length).toBe((await stat(file)).size);
+
+      // A rewrite that goes through the store's own name instead of beside it leaves the volume with
+      // nothing to change: same file, same pair, same length, and every receipt in it different. A
+      // guard built on the pair has no fact left to notice the swap by, and a replacement store
+      // self-verifies record by record, so the bytes have to be checked against the index.
+      const identity = await serial(file);
+      const walk = store.range(0, 2_000_000_000)[Symbol.asyncIterator]();
+      await writeFile(file, foreign);
+      expect(await serial(file)).toBe(identity);
+
+      await expect(walk.next()).rejects.toThrow(/does not hold the record that index was read from/u);
+      // The single record path is refused for the same reason, so no served path is left answering
+      // from whatever the path happens to name.
+      await expect(store.get(IDS[0]!)).rejects.toThrow(/does not hold the record that index was read from/u);
+
+      const reopened = await openFileReceiptStore({ dir });
+      const replaced = await served(reopened);
+      expect(replaced.map((item) => item.id)).toEqual(IDS);
+      for (const item of replaced) {
+        expect(Array.from(item.receipt)).toEqual(Array.from(FOREIGN));
+      }
+    },
+  );
+
+  it(
+    'refuses a receipt edited in place where the file is otherwise as the index left it',
+    // Three durable appends, one byte flipped inside the second receipt, one walk that serves the
+    // first and reads nothing after it: measured at 25ms here, on the same stop as the cases above.
+    { timeout: 15_000 },
+    async () => {
+      const dir = await emptyDir();
+      const store = await openFileReceiptStore({ dir, serving: { maxServedReceipts: 1 } });
+      for (const [i, id] of IDS.entries()) {
+        await store.put(id, RECEIPT, STAMP + i);
+      }
+      const file = join(dir, RECEIPT_STORE_FILE);
+      const asIndexed = await readFile(file);
+      const edited = Buffer.from(asIndexed);
+      const records = frames(asIndexed);
+      const second = records[1]!;
+      // The second receipt's first payload byte, at the offset its frame gives the payload.
+      const payloadAt = records[0]!.length + second.length - 32 - readFrame(second).payload.length;
+      edited[payloadAt] = (edited[payloadAt]! + 1) % 256;
+      expect(edited.filter((byte, at) => byte !== asIndexed[at]).length).toBe(1);
+
+      // One byte of one receipt, with that record's own digest left where it was and every other
+      // record untouched. The file keeps its length, the volume keeps its number for it, and the
+      // record the index would read the tail of the file from still hashes to what the index
+      // remembers, so nothing an opening look at the file could answer has moved.
+      const tailAt = records[0]!.length + second.length;
+      expect(edited.length).toBe(asIndexed.length);
+      expect(edited.subarray(tailAt).equals(asIndexed.subarray(tailAt))).toBe(true);
+      const identity = await serial(file);
+      await writeFile(file, edited);
+      expect(await serial(file)).toBe(identity);
+      expect((await stat(file)).size).toBe(asIndexed.length);
+
+      const walk = store.range(0, 2_000_000_000)[Symbol.asyncIterator]();
+      expect((await walk.next()).value.id).toBe(IDS[0]);
+      await expect(walk.next()).rejects.toThrow(/does not hold the record that index was read from/u);
+    },
+  );
+
+  it(
+    'serves every receipt of a walk whose file only had its timestamps moved',
+    // Three durable appends, one utimes and a walk of three records: measured at 24ms here, on the
+    // same stop as the two cases above.
+    { timeout: 15_000 },
+    async () => {
+      const dir = await emptyDir();
+      const store = await openFileReceiptStore({ dir, serving: { maxServedReceipts: 1 } });
+      for (const [i, id] of IDS.entries()) {
+        await store.put(id, RECEIPT, STAMP + i);
+      }
+      const file = join(dir, RECEIPT_STORE_FILE);
+
+      // A backup, an archiver or a restore that sets attributes and touches no byte, which is an
+      // ordinary thing to happen to a file this one is meant to live beside for years. Whatever the
+      // index keeps about its file, a timestamp a reader did not write is not part of it, because a
+      // guard that refused receipts until the process restarted would be worse than the swap it was
+      // written to catch.
+      const touched = new Date(1_000_000_000);
+      await utimes(file, touched, touched);
+
+      const out = await served(store);
+      expect(out.map((item) => item.id)).toEqual(IDS);
+      for (const item of out) {
+        expect(Array.from(item.receipt)).toEqual(Array.from(RECEIPT));
+      }
+      await store.put('rcpt_04', RECEIPT, STAMP + 3);
+      expect(Array.from((await store.get('rcpt_04'))!)).toEqual(Array.from(RECEIPT));
     },
   );
 
@@ -1238,7 +1368,7 @@ describe('a rewrite landing underneath a walk', () => {
       // this case says the handle went down rather than merely failing to notice it did not.
       await rewrite(dir, foreign);
       const second = store.range(0, 2_000_000_000)[Symbol.asyncIterator]();
-      await expect(second.next()).rejects.toThrow(/not the file its index was read from/u);
+      await expect(second.next()).rejects.toThrow(REFUSED);
     },
   );
 });
