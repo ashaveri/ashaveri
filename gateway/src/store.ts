@@ -838,7 +838,12 @@ async function readCheckpoint(file: FileHandle, path: string, identity: string, 
     return null;
   }
 
-  const entries: CheckpointEntry[] = [];
+  // The index is read straight into the state an opening resumes from, one block at a time: what an
+  // opening that trusts the index allocates is that state and the block it is checking, so reading a
+  // hundred thousand records out of the index costs no more than the records themselves.
+  const scan = emptyScan();
+  let first: CheckpointEntry | undefined;
+  let last: CheckpointEntry | undefined;
   let previous: Buffer = Buffer.from(sha256(bytes.subarray(0, headerEnd)));
   let at = headerEnd;
   /** The byte the index file can be cut back to when the block that follows it never finished. */
@@ -874,8 +879,8 @@ async function readCheckpoint(file: FileHandle, path: string, identity: string, 
       // Records are contiguous in the file and their chain positions are consecutive, because both are
       // the order the store appended them in. An index that describes anything else describes a file it
       // never read.
-      const last = block.length > 0 ? block.at(-1) : entries.at(-1);
-      if (last === undefined ? entry.seq !== 0 : entry.recordStart !== endOfEntry(last) || entry.seq !== last.seq + 1) {
+      const before = block.at(-1) ?? last;
+      if (before === undefined ? entry.seq !== 0 : entry.recordStart !== endOfEntry(before) || entry.seq !== before.seq + 1) {
         return null;
       }
       block.push(entry);
@@ -887,24 +892,24 @@ async function readCheckpoint(file: FileHandle, path: string, identity: string, 
     }
     const check = Buffer.from(bytes.subarray(at, at + DIGEST_BYTES));
     at += DIGEST_BYTES;
-    const first = block[0];
-    const lastOfBlock = block[block.length - 1];
+    const end = block.at(-1);
     if (
-      first === undefined ||
-      lastOfBlock === undefined ||
+      end === undefined ||
       !blockCheck(previous, bytes.subarray(bodyStart, at - DIGEST_BYTES)).equals(check) ||
-      claimed !== endOfEntry(lastOfBlock) ||
+      claimed !== endOfEntry(end) ||
       claimed > fileSize
     ) {
       return null;
     }
-    entries.push(...block);
+    for (const entry of block) {
+      scan.records.set(entry.id, locationOf(entry));
+    }
+    first ??= block[0];
+    last = end;
     previous = check;
     checkpointBytes = claimed;
     whole = at;
   }
-  const first = entries.at(0);
-  const last = entries.at(-1);
   // An index with nothing in it is not worth an opening's time: what it speaks for is a file with no
   // receipts in it, which is the cheapest walk there is.
   if (first === undefined || last === undefined) {
@@ -916,27 +921,27 @@ async function readCheckpoint(file: FileHandle, path: string, identity: string, 
     await truncate(path, whole).catch(() => undefined);
   }
 
-  // The run's own scan is the state to resume from: it carries the anchor, the retirement history and
-  // the byte the receipts start at, all of them read out of the store file just now.
-  const scan = emptyScan();
+  // What the index supplied is the receipts. The run in front of them, and the record the checkpoint
+  // ends on, come from the store file, because those are the two facts an index cannot vouch for.
   try {
     // The run is read from the file rather than taken from the index, so the seam an opening reports is
     // the one the trim records state and not the one the index was last told.
-    parseRecords(await readSpan(file, 0, first.recordStart), 0, scan, null);
-    if (scan.seq !== 0 || scan.records.size !== 0 || scan.trimRunEnd !== first.recordStart) {
+    const run = emptyScan();
+    parseRecords(await readSpan(file, 0, first.recordStart), 0, run, null);
+    if (run.seq !== 0 || run.records.size !== 0 || run.trimRunEnd !== first.recordStart) {
       return null;
     }
     // The record the checkpoint ends on, hashed as though it were about to be served. This is the tie
     // between the index and the bytes, and without it a store file rewritten through its own name
     // would answer out of an index that was written for what used to be there.
     await readReceipt(file, locationOf(last), last.id);
+    scan.trims.push(...run.trims);
+    scan.anchor = run.anchor;
+    scan.trimRunEnd = run.trimRunEnd;
   } catch {
     return null;
   }
 
-  for (const entry of entries) {
-    scan.records.set(entry.id, locationOf(entry));
-  }
   scan.expectedPrev = last.digest;
   scan.lastDigest = last.digest;
   scan.seq = last.seq + 1;
