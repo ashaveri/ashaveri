@@ -1217,6 +1217,45 @@ describe('a rewrite landing underneath a walk', () => {
   );
 
   it(
+    'refuses a receipt edited in place where the file is otherwise as the index left it',
+    // Three durable appends, one byte flipped inside the second receipt, one walk that serves the
+    // first and reads nothing after it: measured at 25ms here, on the same stop as the cases above.
+    { timeout: 15_000 },
+    async () => {
+      const dir = await emptyDir();
+      const store = await openFileReceiptStore({ dir, serving: { maxServedReceipts: 1 } });
+      for (const [i, id] of IDS.entries()) {
+        await store.put(id, RECEIPT, STAMP + i);
+      }
+      const file = join(dir, RECEIPT_STORE_FILE);
+      const asIndexed = await readFile(file);
+      const edited = Buffer.from(asIndexed);
+      const records = frames(asIndexed);
+      const second = records[1]!;
+      // The second receipt's first payload byte, at the offset its frame gives the payload.
+      const payloadAt = records[0]!.length + second.length - 32 - readFrame(second).payload.length;
+      edited[payloadAt] = (edited[payloadAt]! + 1) % 256;
+      expect(edited.filter((byte, at) => byte !== asIndexed[at]).length).toBe(1);
+
+      // One byte of one receipt, with that record's own digest left where it was and every other
+      // record untouched. The file keeps its length, the volume keeps its number for it, and the
+      // record the index would read the tail of the file from still hashes to what the index
+      // remembers, so nothing an opening look at the file could answer has moved.
+      const tailAt = records[0]!.length + second.length;
+      expect(edited.length).toBe(asIndexed.length);
+      expect(edited.subarray(tailAt).equals(asIndexed.subarray(tailAt))).toBe(true);
+      const identity = await serial(file);
+      await writeFile(file, edited);
+      expect(await serial(file)).toBe(identity);
+      expect((await stat(file)).size).toBe(asIndexed.length);
+
+      const walk = store.range(0, 2_000_000_000)[Symbol.asyncIterator]();
+      expect((await walk.next()).value.id).toBe(IDS[0]);
+      await expect(walk.next()).rejects.toThrow(/does not hold the record that index was read from/u);
+    },
+  );
+
+  it(
     'serves every receipt of a walk whose file only had its timestamps moved',
     // Three durable appends, one utimes and a walk of three records: measured at 24ms here, on the
     // same stop as the two cases above.
