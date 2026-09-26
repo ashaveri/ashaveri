@@ -29,7 +29,7 @@ import {
  * and the v2 receipt that attests it, and the client reads both and decides. Three things get pinned
  * together. The region the client checks is the one the published rule names, so the client's verdict
  * and a third party's detector verdict are about the same bytes. The failure a marking produces is
- * `MARK_MISMATCH`, and `INVALID_SIGNATURE` stays the code for a receipt that is not authentic — a
+ * `MARK_MISMATCH`, and `INVALID_SIGNATURE` stays the code for a receipt that is not authentic: a
  * reader told "the mark does not match" needs to know the document itself verified. And the bytes the
  * mark is read out of have to be the bytes the receipt attests, which is checked rather than assumed,
  * because a region lifted out of a document nobody signed is a verdict about the wrong response.

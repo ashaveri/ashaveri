@@ -114,7 +114,7 @@ describe('the canonical writer spells negative zero as the integer zero', () => 
     const read = decodeClosedDocument(encodeCanonical(-0), 'BAD_PAYLOAD');
     expect(read).toBe(0);
     expect(Object.is(read, -0)).toBe(false);
-    // And a document that carries the float anyway — because a stranger wrote it — is still refused.
+    // And a document that carries the float anyway, because a stranger wrote it, is still refused.
     // The writer's rule is not the reader's rule loosened: these are the bytes `f9 80 00`, and the
     // reader of a declared document takes none of them.
     expect(codeOf(() => decodeClosedDocument(encodeKeepingTypes(encodedNumber(-0, 'f16')), 'BAD_PAYLOAD'))).toBe('BAD_PAYLOAD');

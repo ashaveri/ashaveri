@@ -49,12 +49,12 @@ whatever there is to say: a reproduction, a question about yours, or a fix.
 
 | Surface | Code |
 |---|---|
-| `@ashaveri/receipt` | `packages/receipt` — the deterministic CBOR and COSE_Sign1 receipt codec |
-| `@ashaveri/attest-core` | `packages/attest-core` — offline verification of SEV-SNP, TDX and device evidence |
-| `@ashaveri/sdk` | `packages/sdk` — client verification, policy pins, proof-of-possession signing |
-| `@ashaveri/signerd` | `gateway` — the receipt-signing gateway |
-| `@ashaveri/cli` | `packages/cli` — the `ashaveri` binary: attestation verification and the operator commands |
-| the guest container | `enclave` — the image, entrypoint, compose text and weights tooling a live deployment measures |
+| `@ashaveri/receipt` | `packages/receipt`, the deterministic CBOR and COSE_Sign1 receipt codec |
+| `@ashaveri/attest-core` | `packages/attest-core`, offline verification of SEV-SNP, TDX and device evidence |
+| `@ashaveri/sdk` | `packages/sdk`, client verification, policy pins, proof-of-possession signing |
+| `@ashaveri/signerd` | `gateway`, the receipt-signing gateway |
+| `@ashaveri/cli` | `packages/cli`, the `ashaveri` binary: attestation verification and the operator commands |
+| the guest container | `enclave`, the image, entrypoint, compose text and weights tooling a live deployment measures |
 
 `@ashaveri/signerd` is the workspace's private package and is not built to be installed from a
 registry; it is run from source, and its `--mock` mode is a development fixture rather than a

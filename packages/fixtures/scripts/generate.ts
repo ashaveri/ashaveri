@@ -41,7 +41,7 @@ function main() {
    * A marked v2 receipt over the same bytes `marking-v1.json` publishes for the buffered shape, so the
    * two suites check each other: `res` is sha256 of the whole response and `mk.d` is sha256 of the one
    * member inside it, and a port that gets either span wrong disagrees with one file or the other.
-   * Nothing here invents a third spelling of the mark — the response and its region come from the same
+   * Nothing here invents a third spelling of the mark: the response and its region come from the same
    * builder the vector generator uses.
    */
   const markedResponse = markedBuffered();

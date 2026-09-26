@@ -13,8 +13,8 @@ pnpm -w test
 pnpm -w lint
 ```
 
-Run the build before the tests. Workspace packages resolve to built output — each package's `dist`,
-which is gitignored — so a test run against a stale `dist` reports on code that is not the code in
+Run the build before the tests. Workspace packages resolve to built output, each package's gitignored `dist`,
+so a test run against a stale `dist` reports on code that is not the code in
 front of you. It can pass a change it never compiled and fail a change it did. `pnpm -w lint` has the
 same dependency for the same reason: the type-aware rules read types through the declarations that
 build emits.
@@ -23,8 +23,8 @@ build emits.
 package's tests as well as its sources, and the scripts folders that hold the fixture generators and
 the erasure-pass measurement along with them, while the type-aware lint rules read only the `src`
 projects.
-The CI workflow runs install, build, lint, test and typecheck in that order. Two suites — the
-gateway's and the CLI's — assert on file modes and rename behaviour they read back off disk, and a
+The CI workflow runs install, build, lint, test and typecheck in that order. Two suites, the
+gateway's and the CLI's, assert on file modes and rename behaviour they read back off disk, and a
 mode is only observable against the process umask, so the test step sets `umask 0022` rather than
 inheriting whatever the host has. Run a filesystem-touching test under that umask before you report it
 as passing.
@@ -36,8 +36,8 @@ verification step or a wire byte needs a case that fails without it. Property ca
 cover the codec and the attestation parsers where a generator is cheaper than a table.
 
 **One row, and the counted sentence, for a new error code.** Declare the code in the union that owns
-the layer — the seven unions and which package owns what are tabulated at the top of
-`docs/error-codes.md` — then add exactly one row for it to that union's table there. The opening
+the layer. Which union owns which layer, across the seven, is tabulated at the top of
+`docs/error-codes.md`. Then add exactly one row for the code to that union's table there. The opening
 paragraph of that file counts the declarations, the unions and the distinct strings, and both
 numbers have to still match the source: `packages/fixtures/test/error-codes.test.ts` reads every code
 out of the declarations and every row out of the document, and fails the run when either direction
@@ -63,7 +63,7 @@ The generators derive their key material and most of their digests from a labell
 (`packages/fixtures/scripts/seed.ts`); the framing, the labels and the structure around those come
 from the generator itself. Nothing is drawn at random, so the output is reproducible and a
 hand-edited vector is visible the moment anyone re-runs a generator.
-If your change was not meant to move a vector, regenerating produces an empty diff — that is the check
+If your change was not meant to move a vector, regenerating produces an empty diff. That is the check
 the vectors job runs, `git diff --exit-code packages/fixtures/data` after all six generators. A
 non-empty diff you did not intend means your change moved a signed byte.
 
@@ -97,8 +97,8 @@ behaviours live in. A document that stops agreeing with the code can fail a run 
 ## Commit messages
 
 Conventional Commits v1.0.0: <https://www.conventionalcommits.org/en/v1.0.0/>. Most of this history
-uses `type(scope): subject`, with the scope naming the package or the document the change touches —
-`feat(sdk)`, `fix(gateway)`, `docs(access)`, `test(fixtures)` — and that is the form a new commit is
+uses `type(scope): subject`, with the scope naming the package or the document the change touches, as in
+`feat(sdk)`, `fix(gateway)`, `docs(access)` and `test(fixtures)`, and that is the form a new commit is
 asked for. Keep the subject to one clause and in the imperative; put the reasoning in the body, where
 it survives a collapsed diff view.
 
@@ -135,7 +135,7 @@ first is work someone has to keep correct, and its worth is the maintenance rath
 A decision of 21 September 2026 is that a deployment receives it as a dated snapshot carrying its own
 revision date, so that a claim made in 2027 is read against the version it was made from. The layout
 such a pack carries is a separate matter, because a deployment reads it and so a verdict can turn on
-it: the rule puts that layout on this side, and the same date settled the order — the layout is
+it: the rule puts that layout on this side, and the same date settled the order: the layout is
 published here before the tooling that writes it moves on. The layout has been published since, in
 `packages/receipt/pack.cddl` and its display twin, with the reader and the encoder in
 `packages/receipt/src/pack.ts` and the pack vectors in `packages/fixtures/data/pack-v1.json` beside them,
@@ -145,7 +145,7 @@ which receipts a span holds.
 
 What a contributor should expect to follow. A change that touches what a verdict means has to be made
 here, because a closed half cannot hold it without breaking the rule above. A component no verdict
-reads — routing choices, cache tuning, deployment plumbing — is classified case by case, and a
+reads, such as routing choices, cache tuning or deployment plumbing, is classified case by case, and a
 proposal to keep one back is argued on its own facts rather than on this page. And everything named
 above stays where it is: this is a boundary drawn to be checkable, so a reader who finds a mechanism a
 verifier depends on missing from these sources has found a defect worth reporting, in the sense that
@@ -183,8 +183,8 @@ position taken on it would be a position over disclosure that is no longer anyon
 
 What follows from that is a statement about what this project asserts, not about anybody else's
 rights. This project will not assert a patent or design right against anyone who implements a
-verification path — a client that checks a receipt, a reimplementation of the published format, a
-detector reading the published marking schemes, or a deployment serving this protocol — and that
+verification path (a client that checks a receipt, a reimplementation of the published format, a
+detector reading the published marking schemes, or a deployment serving this protocol), and that
 includes a competitor. It does not license and cannot speak for a patent some third party may hold
 over the same ground, and nothing in this file warrants that implementing the specification infringes
 nothing. A contributor's position is untouched by this section: what a contributor grants is exactly

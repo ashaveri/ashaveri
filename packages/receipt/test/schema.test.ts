@@ -176,7 +176,7 @@ function saidOnce(where: string, text: string, phrase: string): void {
 /**
  * The body of one `## ` section of a markdown document, from its heading to the next `## ` heading: a
  * `### ` subsection belongs to its section and stays inside the body, which is what the sentence
- * count below wants — a subsection repeating section 6's rule is the second voice the check is there
+ * count below wants: a subsection repeating section 6's rule is the second voice the check is there
  * to catch.
  */
 function sectionBody(markdown: string, heading: string): string {
@@ -526,7 +526,7 @@ describe('the receipt JSON Schema', () => {
     // Five documents state this rule: the normative definition, the specification's two halves of it,
     // the threat model's closedness sentence, the code table's two rows, and the published projection.
     // A reader porting the format reads those and not the source, so each statement is pinned to one
-    // place in one document — a phrase said twice is a document that started saying the same thing in
+    // place in one document: a phrase said twice is a document that started saying the same thing in
     // two voices, and a phrase that goes quiet is a document that stopped stating the rule.
     const cddl = readCddl();
     const spec = readFileSync(specPath, 'utf8');
@@ -578,8 +578,8 @@ describe('the receipt JSON Schema', () => {
       expect(enumerationHeading(text, 'The positions are'), `${name} enumerates them in one place`).toBe(place);
     }
     // The roster's shape, pinned as a fact about the file rather than as a claim in a comment: six
-    // positions, three of them members of a payload block — `v`, which the block types as the integer
-    // literals `1` and `2`, and `iat` and `epk`, which it types `int` — and three below a map the
+    // positions, three of them members of a payload block (`v`, which the block types as the integer
+    // literals `1` and `2`, and `iat` and `epk`, which it types `int`) and three below a map the
     // payload binds to a rule of its own. A format that gained a position either way arrives here
     // first, and the two documents above go red until they say it too.
     expect(INTEGER_POSITIONS).toHaveLength(6);

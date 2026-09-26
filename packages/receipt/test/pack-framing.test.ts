@@ -16,7 +16,7 @@ import {
  * `pack.cddl` states one claim that is not a member list: that the four values `PackItem` declares are
  * the whole of what it takes to rebuild the record the store hashed, and so to walk a span from the
  * anchor the manifest signs to the head it signs. That is a claim about bytes, so it is checked
- * against bytes — ones this file generates with the package's own codec, from a signing key with a
+ * against bytes: ones this file generates with the package's own codec, from a signing key with a
  * fixed seed, because a frame pasted in here would be a frame nobody could re-derive.
  *
  * The four positions are read out of the CDDL and given their jobs by the types the format writes:
@@ -28,7 +28,7 @@ import {
  * The framing itself is the store's, published in section 5.2 of the specification and as byte images
  * in `packages/fixtures/data/chain-v1.json`. Neither is read here: those images are checked byte for
  * byte where they live, in `packages/fixtures/test/chain-vectors.test.ts`, and what lives here is the
- * converse question, which is the one a format has to answer — whether a reader holding nothing but what
+ * converse question, which is the one a format has to answer: whether a reader holding nothing but what
  * `PackItem` carries can rebuild a frame at all.
  *
  * The second half of what lives here is the reader those frames are rebuilt for. A span bounds the
@@ -529,7 +529,7 @@ describe('the span a reader answers for', () => {
     // Chained honestly, so every digest is the one the next record names and the last of them is the
     // head the manifest would sign: nothing about a link says two items share a name, because the name
     // sits inside the hash and both spellings of it hash perfectly. What the walk does say is "not the
-    // head", since it keys what it has visited by that name and skips the second item it meets — a
+    // head", since it keys what it has visited by that name and skips the second item it meets: a
     // refusal about the chain for a fault in the roster, which is the misreading the rule prevents.
     expect(() => walk(collided.items, collided.anchor, collided.head)).toThrow(/is not the head/);
     expect(() =>

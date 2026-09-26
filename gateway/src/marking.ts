@@ -27,7 +27,7 @@ export const SSE_FRAME_END = '\n\n';
  * completion id for the reason `gateway/src/backend.ts` states: the streaming path puts a backend's
  * buffers straight into the hash and the socket without reading inside them, so the only identifier
  * this gateway holds for a response is one it minted. The frame is a chunk in every field a client
- * reads — `id`, `object`, `created`, `model`, `choices` — and its `choices` is empty because that is
+ * reads (`id`, `object`, `created`, `model`, `choices`) and its `choices` is empty because that is
  * the shape measured to survive an accumulator: a frame that is neither a chunk nor the sentinel is
  * delivered whole and then stops the accumulation, after content has already reached the caller.
  */
@@ -59,7 +59,7 @@ export type BufferedMarking =
  * A body that cannot hold the member is refused rather than served unmarked: the flag on this path
  * said this deployment marks, and a receipt reading `none` afterwards would be an accurate statement
  * about a response nobody asked for. Two shapes cannot carry it, and each is refused with the fact
- * that says which — bytes that are not exactly one JSON object, and a body where the member name is
+ * that says which: bytes that are not exactly one JSON object, and a body where the member name is
  * already taken, which is what an upstream that marks its own output writes.
  *
  * The member is spliced in rather than the body re-serialized, so the bytes ahead of it are the

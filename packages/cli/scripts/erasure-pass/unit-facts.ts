@@ -6,8 +6,8 @@ import { accesslogScrub, type ScrubMarker } from '../../dist/commands/accesslog.
 /**
  * The whole-file pass, and the facts a pass owes whoever is checking it.
  *
- * Shared by the two shapes that run the shipped scrub — the one inside the serving process and the one
- * on a worker thread — so that the only difference between their numbers is the thread they ran on. A
+ * Shared by the two shapes that run the shipped scrub, the one inside the serving process and the one
+ * on a worker thread, so that the only difference between their numbers is the thread they ran on. A
  * second copy of the reading of a receipt would put that difference in doubt.
  */
 

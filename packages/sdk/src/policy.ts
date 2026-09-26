@@ -53,8 +53,8 @@ export const DEFAULT_MAX_RECEIPT_AGE_SECONDS = 300;
  * come from the tight place. A live deployment mints it per request: the challenge is
  * `sha256(nonce, requestHash)` for the request being served, and `dstackDeployment` caches by that
  * challenge, so the evidence behind a receipt is always a cache miss and a fresh call to the guest
- * agent. The cache exists so a *re-read* of one challenge keeps returning the same bytes — `att.d`
- * binds `sha256(document)`, so `att.url` has to stay fetchable to mean anything — and not so an old
+ * agent. The cache exists so a *re-read* of one challenge keeps returning the same bytes (`att.d`
+ * binds `sha256(document)`, so `att.url` has to stay fetchable to mean anything) and not so an old
  * quote can answer a new request. Had it cut the other way, with standing evidence reused across
  * requests, `att.ts` would name a boot and no window in minutes could be both honest and usable:
  * this number would then have had to be an uptime, and the check would have stopped catching

@@ -22,7 +22,7 @@ export const MARKING_MEMBER_NAME = 'ashaveri';
  * readers: the member is bytes of a transcript anyone may republish, where a name that travels needs
  * an owner, and `mk.sch` is a field of a document that already names its issuer.
  *
- * The rule does not read this text to *locate* a region — locating is structural — it reads it to
+ * The rule does not read this text to *locate* a region, locating is structural, it reads it to
  * tell a marking apart from an unrelated member that happens to share the name, so a customer's own
  * `ashaveri` extension is not mistaken for something a receipt has an opinion about. Comparing a
  * fixed string is not looking a shape up from a label, which is the confusion `UNSUPPORTED_SCHEME`
@@ -214,7 +214,7 @@ interface ObjectSpan {
 
 /**
  * The span of the single JSON object these bytes are, or null when they are not one object and
- * nothing else — trailing bytes other than whitespace belong to a second document, which is a body
+ * nothing else: trailing bytes other than whitespace belong to a second document, which is a body
  * this rule has no reading of: a stream pasted behind an object, or a response written twice. Neither
  * is read as whichever part happened to come first.
  *
@@ -266,7 +266,7 @@ export function markingInsertionPoint(response: Uint8Array): { readonly at: numb
 
 /**
  * The spans of every top-level `ashaveri` member of a body that is one JSON object, or null when the
- * body is not such an object — which is how a stream and a buffered body are told apart without
+ * body is not such an object, which is how a stream and a buffered body are told apart without
  * asking for a content type: a stream's bytes never read as one object, and an object's bytes never
  * read as a run of `data:` lines.
  *
@@ -303,7 +303,7 @@ function memberSpans(bytes: Uint8Array): Span[] {
 /**
  * The candidate frames of a body written as server-sent events: each `data:` field line, its line
  * terminator excluded, whose payload is a completion chunk carrying no choices at all beside its
- * marking member. The empty `choices` is part of the shape rather than decoration — it is what makes
+ * marking member. The empty `choices` is part of the shape rather than decoration: it is what makes
  * the frame a well-formed chunk to a client that accumulates a completion off a stream, which is
  * measured in `packages/sdk/test/unknown-response-members.test.ts`, and it is what keeps a mark out
  * of a frame that the same client hands to an accumulator un-parsed and then breaks.
