@@ -1,7 +1,7 @@
 # Error codes
 
 Every error code this workspace raises, what condition raises it, and what a caller should do
-about it. There are 148 declarations across seven unions, resolving to 146 distinct strings;
+about it. There are 161 declarations across eight unions, resolving to 159 distinct strings;
 `UNSUPPORTED_PLATFORM` and `UNSUPPORTED_VERSION` are the two strings two unions share, and the last
 section says why those pairs are deliberate while every other overlap is not.
 
@@ -17,7 +17,7 @@ site knew, so the detail reads differently for a quote than for a certificate. B
 | **What the caller does** | The action that can change the outcome. "Refuse" means present the failure; the receipt is not proven and must not be treated as one. |
 | **Verdict** | `terminal`: the same bytes will fail the same way forever, so a retry only adds latency. `retryable`: a later attempt can differ without anything being fixed. Startup refusals are terminal for the process. |
 
-The seven unions:
+The eight unions:
 
 | Union | Package | Owns |
 |---|---|---|
@@ -28,6 +28,7 @@ The seven unions:
 | `DstackErrorCode` | `@ashaveri/signerd` | Gateway startup: the deployment's own evidence, identity and device claim |
 | `StoreErrorCode` | `@ashaveri/signerd` | The receipt store file on the deployment's volume |
 | `AccessErrorCode` | `@ashaveri/signerd` | Admission of one request: proof of possession, replay, scope, rate limit, the durability guard read on a completion ahead of any inference, and the credential file those checks read, which is refused at start-up and on reload rather than by a request |
+| `CollateralErrorCode` | `@ashaveri/collateral` | The vendor's own statement about a platform: the path it was asked over, the size and shape of the answer, the signature and the chain that presents it, the window it speaks for, and the identity and level it was read for |
 
 ## `ReceiptErrorCode`
 
@@ -242,6 +243,31 @@ operator installed and no header a client sends can fix it.
 | `RATE_LIMITED` | `AccessErrorCode` | One of two buckets is empty. The credential's own: it is over the `perMinute` it is held to, past its `burst`. Or the connection address the request arrived on has spent the request bound taken ahead of every credential check, which is refused without the header being read and so on a name the file does not hold as on one it does. The message says which of the two fired, and `retryAfterSeconds` says when the next token appears, never less than one. The access log separates them by reason, and that separation adds no row to this table: the credential's bucket writes `RATE_LIMITED` to the deployer's `deny` field and the connection's bound writes `PEER_RATE_LIMITED`, which is what this gateway decided and never what a caller is told | Wait the stated seconds, then send a new request. Splitting one workload across credentials is a deployment decision, not a client fix, and it is no fix at all for the connection's bucket: waiting refills that one, and an operator raises it with `--peer-rate` | retryable |
 | `RECEIPT_WINDOW_UNHOLDABLE` | `AccessErrorCode` | The receipt store's retained set has reached the configured fraction of the durability bound, and the period configured beside that bound cannot be held at the rate the store's own retained stamps measure, so issuing this completion would retire a receipt the period still covers. Read behind all five admission checks and ahead of the upstream call, on a route that issues a receipt: it decides nothing about a credential, and reads nothing a caller sent. Three states the store's opening refusal also respects keep it silent, so a quiet deployment does not start refusing. A policy bounded on one side only is not a pairing and is never asked. A retained set below its threshold is shedding nothing, however little it has issued. A store at its bound whose stamps already span the configured period is holding what it asked for at the traffic it carries. And fewer than two retained receipts have measured no rate to refuse by. The threshold is `--receipts-guard-at`, it defaults to the bound itself, which is the state a store already refuses to open at, and `--receipts-grow-past-guard` is the named decision to keep issuing and meet the shortfall inside a write | Wait, and expect nothing to change on a deployment at its bound: this is not a bucket refilling, and the answer carries no `retry-after` because the only wait that clears it is this deployment's issuance falling below the rate its bound cannot hold, which no process can see coming. The message names the retained set, the bound, the period and the count that period takes, so the number to raise is readable off the line. A caller that needs the receipt has to take it from a deployment that can keep it, because this one is declining to issue rather than answering without one | retryable |
 
+## `CollateralErrorCode`
+
+What `@ashaveri/collateral` answers when it asks a vendor what that vendor says about a platform, which is a
+different question from what a document says about the evidence a platform carries. Every one of these comes back
+as a returned state unless the query set `onAbsent: 'refuse'`, which turns an `unavailable` or `missing-context`
+answer into a thrown `CollateralError` carrying the same code. Most arrive through the refusal table an origin
+declaration states, so which code answers a given failure is settled by the document being read rather than by the
+call site that met it.
+
+| Code | Union | Raised when | What the caller does | Verdict |
+|---|---|---|---|---|
+| `COLLATERAL_INPUT_MISSING` | `CollateralErrorCode` | A verdict was asked for without something the query has to state: no appraisal instant, no level where the document writes its status level by level, no CPU type where the path is indexed by one or a CPU type that is not twelve hex characters, retained bytes that are empty or carry no instant of their own, or kept bytes that cannot be named as a record. The refusal lists the fields it found missing | Supply the named fields and ask again. The address and identity checks are settled before the origin is addressed while the level and the retained-record checks are not, so the list is what tells a caller how far the question got, and nothing is classified either way | terminal |
+| `COLLATERAL_ANCHOR_NOT_PINNED` | `CollateralErrorCode` | The appraisal was asked with no root in hand, or the bytes a caller pinned as a root do not parse as a certificate so they pin nothing, or the chain an answer presents runs out at a self-signed certificate whose name nothing was pinned for | Pass the root this caller will stand behind. The roots `@ashaveri/attest-core` bundles are a library default rather than a pin somebody made, and a chain that reaches no pin is not read as an answer about the platform | terminal |
+| `COLLATERAL_ORIGIN_UNSUPPORTED` | `CollateralErrorCode` | The origin named is neither of the two Intel documents this package reads. The other names the query type carries are accepted as questions so the refusal can say which one was asked | Ask an origin somebody has reviewed against a real answer, or refuse. Nothing here infers a document shape from a name it has not read | terminal |
+| `COLLATERAL_ORIGIN_UNREACHABLE` | `CollateralErrorCode` | The declared host answered nothing inside the declared wait, or the transport threw on the way there, an expired wait included | Ask again. Nothing about the platform changed and the origin may simply have been busy | retryable |
+| `COLLATERAL_ORIGIN_REFUSED` | `CollateralErrorCode` | The origin answered, and answered with a status rather than a document. The number it answered with is quoted in the detail | Ask again, and if it repeats check the path against what the vendor publishes. A refusal from the origin says nothing about the platform, and is never recorded as a verdict | retryable |
+| `COLLATERAL_BLOB_UNREADABLE` | `CollateralErrorCode` | The answer is not the envelope this path declares. An address that is not an address, or names a host other than the declared one. More bytes than the path allows, whether the response announced them or only sent them, and an empty body. Text that is not UTF-8, something other than the three dot-separated base64url parts of a signed token, a part that is not base64url, or a signature of a width this suite does not write. A header that is no object, names a suite other than the declared one, states an unencoded payload or a critical extension, or presents no certificates or a certificate that is not base64 text or does not parse. A payload that is no object, carries none of the members the declaration reads its window, its identity and its status from, signs no level list, or states a window that is not two instants or closes at or before the instant it opens | Refetch, and if it repeats say which shape arrived. An answer of another size, from another host, or in another envelope is not this path's document, and none of it is read as a statement about a platform | terminal |
+| `COLLATERAL_SIGNATURE_UNVERIFIED` | `CollateralErrorCode` | The document was read but not believed. The signature over it does not hold under the certificate that signed it, or the self-signed end of the chain wears a name the caller pinned but is not signed by the pinned copy carrying it. A certificate the walk climbed through is outside its own validity at the moment being appraised, is not marked an authority, was not signed by the one above it, names a suite or a key outside the one pair this path reads, or the walk stops short of anything pinned | Refuse. The bytes say something about a platform and nobody has established that the vendor said it. No level and no status is read out of an answer that failed to verify | terminal |
+| `COLLATERAL_IDENTITY_MISMATCH` | `CollateralErrorCode` | The signed document names a CPU type the query did not ask about, or the query named none while the document names one | Re-ask with the identity the document carries, or report the mismatch. A true statement about another chip is not an answer about this one, and the nearer spelling is not read as the same chip | terminal |
+| `COLLATERAL_TCB_LEVEL_UNLISTED` | `CollateralErrorCode` | The signed document lists no level matching the one the platform reported | Check which level the evidence states. A document that has never heard of a level says nothing about it, so the nearest listed one is not an answer | terminal |
+| `COLLATERAL_STATUS_UNSUPPORTED` | `CollateralErrorCode` | The document states a vendor status that is in neither the trusted list nor the revoked list the declaration carries. The refusal quotes the vendor's own word rather than sorting it into the nearer list | Refuse, and add the word to the declaration only once somebody has decided what it means for an appraisal. A status naming a mitigation is not a weaker form of trusted, and reading it as one is the confusion this code is the answer to | terminal |
+| `COLLATERAL_WINDOW_CLOSED` | `CollateralErrorCode` | The bytes were asked for this run and read cleanly, but the moment being appraised falls outside the window the vendor signed | Ask the origin for a document that reaches the moment, or appraise at a moment this one speaks for. Kept bytes answer for their own window and no later one | terminal |
+| `COLLATERAL_NOT_OBSERVED` | `CollateralErrorCode` | The bytes came from what the caller kept, so this run asked the origin nothing, whatever the window they signed says | Re-ask the origin to answer a question about now, or take the historical reach the claim beside the bytes already states. A kept answer is not a current one and is not reported as one | terminal |
+| `COLLATERAL_REVOKED_BY_VENDOR` | `CollateralErrorCode` | The signed document states, for the level asked about, a status the declaration lists as one the vendor no longer stands behind. This outranks a closed window, because nothing published later un-revokes a level, so it is the answer even when the document is itself too old to be a fresh one | Refuse the platform, or move it to a level the vendor still stands behind. The document is kept and quoted, and it is never a pass | terminal |
+
 ## Why these strings do not overlap
 
 A bare code string has to say which layer failed. Two pairs did not, and both sides were renamed
@@ -280,7 +306,7 @@ the message still names its layer even where the code does not.
 
 ## Keeping this file true
 
-`packages/fixtures/test/error-codes.test.ts` reads the seven unions out of source and checks them
+`packages/fixtures/test/error-codes.test.ts` reads the eight unions out of source and checks them
 against this file: every declared code has exactly one row, every code in a row is declared, the
 counts in the opening paragraph agree, and the only strings two unions share are the two this
 section explains. A new code with no row fails CI, which is the only
