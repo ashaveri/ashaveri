@@ -109,13 +109,16 @@ Options:
                                    a bound that cannot hold its own period at the
                                    traffic already on that volume stops the start,
                                    naming both numbers and the count the period
-                                   takes. Default: keep receipts here in this
-                                   process only.
+                                   takes. The same pairing is read while serving,
+                                   so a completion whose receipt could not be kept
+                                   is refused before it is computed; see
+                                   --receipts-guard-at. Default: keep receipts here
+                                   in this process only.
   --receipts-keep <n>              How many receipts the volume keeps, which is
                                    the durability bound. Past it the oldest
                                    receipts leave the front of the chain, so a
                                    period is kept only as far as this count
-                                   reaches, and the start-up check above is about
+                                   reaches, and both checks above are about
                                    this number. Receipts are ~0.5 KB each.
                                    Default: 10,000, which is a few megabytes and
                                    a deployment's capacity decision; it is a
@@ -126,8 +129,43 @@ Options:
                                    over a window holding more receipts than this
                                    is answered in batches and returns every
                                    receipt the store kept. Raising it changes what
-                                   a query costs, not what the file keeps.
-                                   Default: 10,000.
+                                   a query costs, not what the file keeps, and it
+                                   is never the number either check above is short
+                                   by. Default: 10,000.
+  --receipts-guard-at <percent>    When the durability guard is read while serving
+                                   rather than only at an opening. Once the store
+                                   holds this percentage of --receipts-keep
+                                   receipts, a completion is refused with
+                                   RECEIPT_WINDOW_UNHOLDABLE before any inference is
+                                   run if the period configured beside the bound
+                                   cannot be held at the rate that store's own
+                                   retained stamps measure, because issuing it would
+                                   retire a receipt the period still covers. Reads,
+                                   verification and handover keep serving from the
+                                   receipts already filed. Default: 100, which is the
+                                   bound itself and the state a store will not open
+                                   at, so a deployment that sets nothing behaves as
+                                   it did before this flag. Lower it to refuse while
+                                   there is still room; nothing is above 100, because
+                                   no store retains more than its bound. A whole
+                                   percentage from 1 to 100, and a value that is not
+                                   stops the start rather than falling back.
+  --receipts-grow-past-guard       Keep issuing past the guard instead of refusing.
+                                   Off, and it takes no argument. With it this
+                                   process never refuses on the check above: the
+                                   volume grows, the durability bound keeps retiring
+                                   the oldest prefix, and the window served is the
+                                   shorter one that bound reaches rather than the
+                                   period configured beside it. That is the
+                                   behaviour the guard exists to stop, and its cost
+                                   is discovered inside a write rather than in an
+                                   answer: the same pairing stops this volume opening
+                                   at the next restart, and the receipts retired
+                                   while it kept serving are gone by then. Set it
+                                   where refusing a completion costs more than a
+                                   shorter window does. It overrides
+                                   --receipts-guard-at, and the start-up report names
+                                   whichever of the two this process is running.
   --credentials-path <file>        The credential records every request has to present one from.
                                    Required in live mode; a mock run with no file makes one up and
                                    prints it. The file holds public keys and hashes only, never a
@@ -193,6 +231,8 @@ interface CliOptions {
   readonly 'receipts-dir'?: string;
   readonly 'receipts-keep'?: string;
   readonly 'receipts-per-query'?: string;
+  readonly 'receipts-guard-at'?: string;
+  readonly 'receipts-grow-past-guard'?: boolean;
   readonly 'credentials-path'?: string;
   readonly 'access-log-path'?: string;
   readonly 'access-log-days'?: string;
@@ -293,6 +333,8 @@ try {
       'receipts-dir': { type: 'string' },
       'receipts-keep': { type: 'string' },
       'receipts-per-query': { type: 'string' },
+      'receipts-guard-at': { type: 'string' },
+      'receipts-grow-past-guard': { type: 'boolean' },
       'credentials-path': { type: 'string' },
       'access-log-path': { type: 'string' },
       'access-log-days': { type: 'string' },
@@ -373,6 +415,33 @@ const servedReceipts = wholeNumber(
 );
 const retention: ReceiptRetention = { maxAgeSeconds: MINIMUM_RETENTION_SECONDS, maxCount: retainedReceipts };
 const serving: ReceiptServing = { maxServedReceipts: servedReceipts };
+/**
+ * The guard's default threshold, in per cent of the durability bound: 100, the bound itself. That is
+ * not a rounded number chosen for a banner, it is the one state the store already refuses to open at,
+ * because a retained set never exceeds the count that retires it. So the default shipped here leaves a
+ * deployment that configures nothing behaving exactly as it behaved before this flag existed, and the
+ * fraction the gateway is handed is 1.
+ */
+const GUARD_AT_BOUND_ITSELF_PERCENT = 100;
+
+/**
+ * `--receipts-guard-at <percent>`: the point of the durability bound from which the guard is read
+ * while serving rather than only at an opening. A whole percentage of at least one, and nothing above
+ * the bound itself, because no store retains more receipts than the count that retires them and a
+ * threshold past it would be a guard that cannot fire. Reading that as an off switch is refused here
+ * for the same reason `--peer-rate` has no value that removes its bound: turning this guard off is a
+ * named decision, `--receipts-grow-past-guard`, and it prints its own line at start-up.
+ */
+function guardPercent(raw: string | undefined): number {
+  if (raw === undefined) return GUARD_AT_BOUND_ITSELF_PERCENT;
+  const parsed = Number(raw);
+  if (!Number.isInteger(parsed) || parsed < 1 || parsed > GUARD_AT_BOUND_ITSELF_PERCENT) {
+    fail(`--receipts-guard-at must be a whole percentage from 1 to ${GUARD_AT_BOUND_ITSELF_PERCENT}, got '${raw}'`);
+  }
+  return parsed;
+}
+const guardAtPercent = guardPercent(values['receipts-guard-at']);
+const growPastGuard = values['receipts-grow-past-guard'] === true;
 const receiptsDir = values['receipts-dir'];
 if (receiptsDir !== undefined && !isDirectory(receiptsDir)) {
   fail('--receipts-dir must name an existing directory, so a volume you forgot to mount is a refusal and not a store on the root filesystem');
@@ -513,17 +582,42 @@ try {
 const backend: CompletionBackend =
   values.upstream === undefined ? mockBackend() : upstreamBackend({ baseUrl: values.upstream });
 
-const app = buildGateway({ deployment, backend, store, access, accessLog, marking });
+// The guard reads the very `retention` object the store above was opened with, rather than the two
+// numbers copied out of it: a refusal raised against a bound nothing retires by, or a period nothing
+// ages by, would be a second configuration an operator has to keep in step with the first.
+const app = buildGateway({
+  deployment,
+  backend,
+  store,
+  access,
+  accessLog,
+  marking,
+  receiptIntakeGuard: {
+    retention,
+    refusesAtFraction: guardAtPercent / GUARD_AT_BOUND_ITSELF_PERCENT,
+    growPastGuard,
+  },
+});
 await app.listen({ port, host });
 // One decision about the run's mode, read by both lines that describe it below, so neither can claim
 // a mode the process is not in.
 const mode = values.mock === true ? 'mock' : 'live';
 const label =
   mode === 'mock' ? 'mock' : `live ${deployment.tee} measurement ${toHex(deployment.measurement).slice(0, 16)}...`;
+/** The period this process opens its store with, in whole days, read off the seconds it is set in. */
+const periodDays = Math.round(MINIMUM_RETENTION_SECONDS / 86_400);
 const kept =
   receiptsDir === undefined
     ? `receipts kept in this process only, as configured: a durability bound of ${String(retainedReceipts)} receipts, one query holding ${String(servedReceipts)} of them at a time, and gone on restart`
-    : `receipts kept in ${receiptsDir} as configured: a period of ${Math.round(MINIMUM_RETENTION_SECONDS / 86_400)} days and a durability bound of ${String(retainedReceipts)} receipts, which the store compares against the traffic on its own file and refuses to open when the bound cannot hold the period, and a serving bound of ${String(servedReceipts)} receipts to a query, which bounds what one walk holds and retires nothing`;
+    : `receipts kept in ${receiptsDir} as configured: a period of ${String(periodDays)} days and a durability bound of ${String(retainedReceipts)} receipts, which the store compares against the traffic on its own file and refuses to open when the bound cannot hold the period, and a serving bound of ${String(servedReceipts)} receipts to a query, which bounds what one walk holds and retires nothing`;
+// The intake guard, printed as this process installed it, in both settings. A deployment that can
+// refuse a completion owes its operator that sentence before the traffic arrives rather than after
+// the first 429, and a deployment that took the opt-in owes the two halves of what it accepted: that
+// the window in force is the one the bound reaches, and that this volume stops opening at a restart.
+// Neither line claims a period was kept, which is a duty and not a configuration.
+const intakeGuardLabel = growPastGuard
+  ? `receipt intake guard: off, as configured with --receipts-grow-past-guard, so this process keeps issuing past the durability bound of ${String(retainedReceipts)} receipts: the window served is the shorter one that bound reaches, not the ${String(periodDays)} days configured beside it, and a store on a volume refuses to open at the next restart on that same pairing`
+  : `receipt intake guard: armed at ${String(guardAtPercent)}% of the durability bound, so a completion is refused RECEIPT_WINDOW_UNHOLDABLE before any inference is run once this store holds that much of its ${String(retainedReceipts)} receipts and the ${String(periodDays)} days beside the bound cannot be held at the rate its own retained stamps measure; reads, verification and handover keep serving. --receipts-guard-at sets the point and --receipts-grow-past-guard turns this off`;
 // The marking a deployment runs is reported as this process installed it, in both settings, because
 // the one that changes what a customer sees is the one worth reading at a start-up log: a response
 // whose shape cannot carry the mark is refused here rather than served unmarked, and that is a thing
@@ -572,6 +666,7 @@ const lines: string[] = [
   `  issuer ${deployment.issuer} instance ${deployment.instance}`,
   `  ${manifestLabel}`,
   `  ${kept}`,
+  `  ${intakeGuardLabel}`,
   `  ${markingLabel}`,
   allowBearer
     ? '  auth: bearer credentials also accepted, which is a refusal of the strongest posture here: a stolen bearer credential is undetectable, and a log record cannot tell its holder from a thief'
