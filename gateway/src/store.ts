@@ -1,4 +1,4 @@
-import { open, rename, truncate, type FileHandle } from 'node:fs/promises';
+import { appendFile, open, readFile, rename, truncate, type FileHandle } from 'node:fs/promises';
 import type { Stats } from 'node:fs';
 import { join } from 'node:path';
 import { sha256 } from './digest.js';
@@ -25,10 +25,25 @@ import { sha256 } from './digest.js';
  * the serving bound is answered in batches and returns all of it. A deployment that keeps half a year
  * of traffic and answers a question about an hour of it needs both, which is why neither is a setting
  * of the other and why only the first is ever refused against a period.
+ *
+ * An opening used to answer what it holds by reading every byte of `receipts.log` and hashing every
+ * record in it, so the cost of starting a process grew with the file and never stopped. A store now
+ * keeps a second file beside it, `receipts.log.index`, holding the positions and digests an opening
+ * used to re-derive, and a checkpoint saying how much of the store file it speaks for. The store file
+ * remains the only authority: the second file is written by the code that reads the first, is thrown
+ * away at the first disagreement with it, and can be declined outright. What a checkpoint changes is
+ * stated at `loadSidecar`, and it is the one thing an operator needs to know about these two files:
+ * the receipts are in one of them, and the other only says where to look.
  */
 
 /** The file a deployment backs up. Named because an operator needs to know which one it is. */
 export const RECEIPT_STORE_FILE = 'receipts.log';
+
+/**
+ * The index the same store keeps beside that file, and restores from it. Disposable: deleting it costs
+ * an opening the walk it used to do, and changing nothing else about the answers.
+ */
+export const RECEIPT_SIDECAR_FILE = 'receipts.log.index';
 
 const KIND_BYTES = 1;
 const PREV_BYTES = 32;
@@ -47,6 +62,62 @@ const MAX_ID_BYTES = 0xffff;
 const MAX_COUNTER = 0xffffffff;
 const KIND_RECEIPT = 0;
 const KIND_TRIM = 1;
+
+/**
+ * The sidecar's own layout: `magic:4 || version:u16 || identityLen:u16 || identity`, then blocks, each
+ * one `recordCount:u32 || checkpointBytes:u64` followed by that many entries and a closing check.
+ * An entry is `recordStart:u64 || seq:u64 || iat:u64 || payloadLen:u32 || idLen:u16 || id || digest:32`.
+ * Nothing is rewritten in place: a block is appended, and the whole file is replaced only when the
+ * store file it speaks for has been replaced, which is the only moment its header stops being true.
+ */
+const SIDECAR_MAGIC = 'ASRI';
+const SIDECAR_VERSION = 1;
+/** magic, version, and the width of the volume pair this sidecar names its store file by. */
+const SIDECAR_HEADER_BYTES = 4 + 2 + 2;
+/** Everything of an entry that is not the id it names or the digest it carries. */
+const SIDECAR_ENTRY_HEAD_BYTES = 8 + 8 + 8 + 4 + 2;
+/** How many entries a block counts, and the byte of the store file the block speaks for. */
+const SIDECAR_BLOCK_HEAD_BYTES = 4 + 8;
+/**
+ * Records per block. A block is the unit the index hashes once and appends once, so this number trades
+ * the cost of reading an index against the cost of keeping one: hashing each entry on its own costs an
+ * opening more than the walk it saves, and hashing a few hundred at a time does not. An append's entry
+ * waits for a block, and a record waiting for one is read from the store file by the next opening, so
+ * what this costs is a walk of up to this many records after a process was killed, and nothing at all
+ * to a receipt.
+ */
+export const SIDECAR_BLOCK_RECORDS = 256;
+
+/** One record's place in the store file, as the sidecar keeps it. */
+interface CheckpointEntry {
+  /** The byte the record's length prefix starts at. */
+  readonly recordStart: number;
+  /** Its position in the chain, which is the order a reader has to walk it in. */
+  readonly seq: number;
+  readonly iat: number;
+  readonly id: string;
+  readonly idLength: number;
+  /** The payload's width, which with the id width gives the frame's width. */
+  readonly length: number;
+  readonly digest: Buffer;
+}
+
+/** The sidecar speaks for the store file up to the byte one past this entry's frame. */
+function endOfEntry(entry: CheckpointEntry): number {
+  return entry.recordStart + FRAME_LEN_BYTES + HEADER_BYTES + entry.idLength + entry.length + DIGEST_BYTES;
+}
+
+/** Where one entry's record sits in the file, in the terms the served paths read. */
+function locationOf(entry: CheckpointEntry): Location {
+  return {
+    iat: entry.iat,
+    seq: entry.seq,
+    recordStart: entry.recordStart,
+    offset: entry.recordStart + FRAME_LEN_BYTES + HEADER_BYTES + entry.idLength,
+    length: entry.length,
+    digest: entry.digest,
+  };
+}
 
 /** A record's own counts, which have no room to be anything but a 32 bit saturating integer. */
 function counter(value: number): Buffer {
@@ -198,6 +269,14 @@ export interface FileReceiptStoreOptions {
   readonly retention?: ReceiptRetention;
   /** Absent means a range query resolves the whole window it is asked for. */
   readonly serving?: ReceiptServing;
+  /**
+   * Declines the sidecar index. The store then touches only `receipts.log`: every opening reads all of
+   * it and re-hashes every record in it, which is the cost the index exists to avoid and the only way
+   * to make the proof an opening rests on come from the bytes rather than from saved state. Absent, or
+   * true, means keep and use the index. It is an option rather than an environment variable because
+   * the process that has to answer for a chain claim is the one that opens the store.
+   */
+  readonly sidecarIndex?: boolean;
 }
 
 /** One retained receipt as the store hands it out: what to check, and when it was issued. */
@@ -409,43 +488,71 @@ function serialOf(stats: Stats): string {
   return `${String(stats.dev)}:${String(stats.ino)}`;
 }
 
-/** Opens the store file, creating it when absent, and closes it once the walk is done. */
-async function scan(path: string): Promise<StoreState> {
-  const file = await open(path, 'a+');
-  try {
-    return await walk(path, file);
-  } finally {
-    await file.close();
-  }
+/** What a scan has read so far, in the order the file holds it. */
+interface Scan {
+  readonly records: Map<string, Location>;
+  readonly trims: TrimEvent[];
+  /** What the next receipt has to name as its predecessor: the newest seam while the run lasts, then a digest. */
+  expectedPrev: Buffer;
+  /** The digest of the last record read, which is what the next trim record has to name. */
+  lastDigest: Buffer;
+  anchor: Buffer;
+  /** The position the next record takes, which is one past the last record read. */
+  seq: number;
+  trimRunEnd: number;
+  /** The byte past the last complete record this scan read. */
+  end: number;
 }
+
+function emptyScan(): Scan {
+  const none = Buffer.alloc(PREV_BYTES);
+  return {
+    records: new Map<string, Location>(),
+    trims: [],
+    expectedPrev: none,
+    lastDigest: none,
+    anchor: none,
+    seq: 0,
+    trimRunEnd: 0,
+    end: 0,
+  };
+}
+
+/** The index, the head and the retirement state a scan read out of the file, in the store's own terms. */
+function stateOf(scan: Scan, identity: string): StoreState {
+  return {
+    records: scan.records,
+    head: scan.expectedPrev,
+    size: scan.end,
+    identity,
+    nextSeq: scan.seq,
+    trimRunEnd: scan.trimRunEnd,
+    anchor: scan.anchor,
+    trims: scan.trims,
+    dropped: { byAge: 0, byCount: 0 },
+  };
+}
+
 /**
- * Reads every complete record and checks that they chain.
+ * Parses every complete record in `bytes`, which begins at position `base` in the store file, into
+ * `scan`, and collects one entry per receipt when an index is being written beside the file.
  *
- * A trailing partial record is repaired rather than failed: it is what an append interrupted by
- * a crash leaves behind, and it can never verify because its bytes never all arrived. Left in
- * place it would cost more than the one record it is, because the walk stops where it cannot
- * read and so hides every record appended after it. Dropping it costs a receipt nobody was
- * given the id for.
+ * A scan can start anywhere that begins a record, given the state the records in front of it left
+ * behind, which is what lets an opening resume from a checkpoint instead of reading from the first
+ * byte. `base` is only ever what an error says the position of a record was: a record is indexed by
+ * where the file holds it, not by where the buffer this scan was handed starts.
+ *
+ * From the first byte the chain has two rules and they are checked here, nowhere else: a receipt names
+ * the digest of the record the chain runs through, and a trim names the digest of the record
+ * physically in front of it. Both are checked against what the bytes say, so a hole in the middle of
+ * the chain and an edited digest are refusals rather than a shorter history.
  */
-async function walk(path: string, file: FileHandle): Promise<StoreState> {
-  // Taken before the bytes, from the same handle that reads them, so the index and this statement
-  // about which file it describes are answers about one and the same file.
-  const identity = serialOf(await file.stat());
-  const bytes = await file.readFile();
-  const records = new Map<string, Location>();
-  const trims: TrimEvent[] = [];
-  // What a record's predecessor slot has to hold. A receipt follows the chain, so it names the
-  // digest of the record before it; a trim follows the file, so it names the digest of whatever
-  // byte lies in front of it, which is the previous trim or nothing at all.
-  let lastDigest = Buffer.alloc(PREV_BYTES);
-  let expectedPrev = Buffer.alloc(PREV_BYTES);
-  let anchor = expectedPrev;
-  let offset = 0;
-  let seq = 0;
-  let trimRunEnd = 0;
-  while (offset + FRAME_LEN_BYTES <= bytes.length) {
-    const length = bytes.readUInt32BE(offset);
-    const body = offset + FRAME_LEN_BYTES;
+function parseRecords(bytes: Buffer, base: number, scan: Scan, entries: CheckpointEntry[] | null): void {
+  let at = 0;
+  while (at + FRAME_LEN_BYTES <= bytes.length) {
+    const position = base + at;
+    const length = bytes.readUInt32BE(at);
+    const body = at + FRAME_LEN_BYTES;
     const end = body + length;
     // Missing bytes are the one signature an interrupted append cannot fake, so this is the only
     // stop that is not a refusal: every record after it is unnamed, and a partial record nobody
@@ -456,77 +563,435 @@ async function walk(path: string, file: FileHandle): Promise<StoreState> {
     // From here the frame is whole, so anything that cannot be read out of it was written wrong
     // rather than cut short. Truncating here would delete the tail an editor meant to hide.
     if (length < MIN_BODY_BYTES) {
-      throw new StoreError('STORE_CHAIN_BROKEN', `receipt store chain is broken at byte ${offset}: a record claims a frame ${length} bytes long, which is too short to hold its own header`);
+      throw new StoreError('STORE_CHAIN_BROKEN', `receipt store chain is broken at byte ${position}: a record claims a frame ${length} bytes long, which is too short to hold its own header`);
     }
     const idLength = bytes.readUInt16BE(body + KIND_BYTES + PREV_BYTES + IAT_BYTES);
     const idStart = body + HEADER_BYTES;
     const payloadStart = idStart + idLength;
     const payloadEnd = end - DIGEST_BYTES;
     if (payloadStart > payloadEnd) {
-      throw new StoreError('STORE_CHAIN_BROKEN', `receipt store chain is broken at byte ${offset}: a record's ${idLength} byte id does not fit inside its own frame`);
+      throw new StoreError('STORE_CHAIN_BROKEN', `receipt store chain is broken at byte ${position}: a record's ${idLength} byte id does not fit inside its own frame`);
     }
     const kind = bytes.readUInt8(body);
     const prev = bytes.subarray(body + KIND_BYTES, body + KIND_BYTES + PREV_BYTES);
     const iat = Number(bytes.readBigUInt64BE(body + KIND_BYTES + PREV_BYTES));
     const digest = bytes.subarray(payloadEnd, end);
     if (!digest.equals(Buffer.from(sha256(bytes.subarray(body, payloadEnd))))) {
-      throw new StoreError('STORE_CHAIN_BROKEN', `receipt store chain is broken at byte ${offset}: a record's digest does not match its own bytes`);
+      throw new StoreError('STORE_CHAIN_BROKEN', `receipt store chain is broken at byte ${position}: a record's digest does not match its own bytes`);
     }
     if (kind === KIND_TRIM) {
       // A retirement is a fact about where the surviving receipts start, which is the front of the
       // file. Anywhere else it describes a hole in the middle as if it were intended.
-      if (seq !== 0) {
-        throw new StoreError('STORE_CHAIN_BROKEN', `receipt store chain is broken at byte ${offset}: a trim record follows a receipt`);
+      if (scan.seq !== 0) {
+        throw new StoreError('STORE_CHAIN_BROKEN', `receipt store chain is broken at byte ${position}: a trim record follows a receipt`);
       }
-      if (!prev.equals(lastDigest)) {
-        throw new StoreError('STORE_CHAIN_BROKEN', `receipt store chain is broken at byte ${offset}: a trim record names a predecessor that is not the record in front of it`);
+      if (!prev.equals(scan.lastDigest)) {
+        throw new StoreError('STORE_CHAIN_BROKEN', `receipt store chain is broken at byte ${position}: a trim record names a predecessor that is not the record in front of it`);
       }
       if (payloadEnd - payloadStart !== TRIM_PAYLOAD_BYTES) {
-        throw new StoreError('STORE_CHAIN_BROKEN', `receipt store chain is broken at byte ${offset}: a trim record carries ${payloadEnd - payloadStart} bytes where the layout states ${TRIM_PAYLOAD_BYTES}`);
+        throw new StoreError('STORE_CHAIN_BROKEN', `receipt store chain is broken at byte ${position}: a trim record carries ${payloadEnd - payloadStart} bytes where the layout states ${TRIM_PAYLOAD_BYTES}`);
       }
       const trim = decodeTrimRecord(prev, iat, bytes.subarray(payloadStart, payloadEnd));
-      trims.push(trimEvent(trim));
+      scan.trims.push(trimEvent(trim));
       // The survivors chain from the seam, not from the record that states it. Copied because a
       // view of the file read would hold the whole file open for as long as the store is.
       const seam = Buffer.from(trim.seam);
-      expectedPrev = seam;
-      anchor = seam;
-      lastDigest = digest;
-      trimRunEnd = end;
+      scan.expectedPrev = seam;
+      scan.anchor = seam;
+      scan.lastDigest = Buffer.from(digest);
+      scan.trimRunEnd = base + end;
     } else {
-      if (!prev.equals(expectedPrev)) {
-        throw new StoreError('STORE_CHAIN_BROKEN', `receipt store chain is broken at byte ${offset}: a record names a predecessor that is not the one before it`);
+      if (!prev.equals(scan.expectedPrev)) {
+        throw new StoreError('STORE_CHAIN_BROKEN', `receipt store chain is broken at byte ${position}: a record names a predecessor that is not the one before it`);
       }
-      expectedPrev = digest;
-      lastDigest = digest;
-      records.set(bytes.subarray(idStart, payloadStart).toString('utf8'), {
+      const entry: CheckpointEntry = {
+        recordStart: position,
+        seq: scan.seq,
         iat,
-        seq: seq++,
-        recordStart: offset,
-        offset: payloadStart,
+        id: bytes.subarray(idStart, payloadStart).toString('utf8'),
+        idLength,
         length: payloadEnd - payloadStart,
         // Copied out of the file read for the same reason the seam is: a view of it would keep the
         // whole file alive for as long as the store is.
         digest: Buffer.from(digest),
-      });
+      };
+      scan.expectedPrev = entry.digest;
+      scan.lastDigest = entry.digest;
+      scan.records.set(entry.id, locationOf(entry));
+      entries?.push(entry);
+      scan.seq += 1;
     }
-    offset = end;
+    at = end;
+    scan.end = base + end;
   }
-  if (offset < bytes.length) {
+}
+
+/**
+ * Reads every complete record of the store file and checks that they chain.
+ *
+ * A trailing partial record is repaired rather than failed: it is what an append interrupted by
+ * a crash leaves behind, and it can never verify because its bytes never all arrived. Left in
+ * place it would cost more than the one record it is, because the walk stops where it cannot
+ * read and so hides every record appended after it. Dropping it costs a receipt nobody was
+ * given the id for.
+ */
+async function walk(path: string, file: FileHandle, entries: CheckpointEntry[] | null): Promise<StoreState> {
+  // Taken before the bytes, from the same handle that reads them, so the index and this statement
+  // about which file it describes are answers about one and the same file.
+  const identity = serialOf(await file.stat());
+  const bytes = await file.readFile();
+  const scan = emptyScan();
+  parseRecords(bytes, 0, scan, entries);
+  if (scan.end < bytes.length) {
     // By path, not through the handle: an append-mode handle cannot set the end of a file.
-    await truncate(path, offset);
+    await truncate(path, scan.end);
   }
-  return {
-    records,
-    head: expectedPrev,
-    size: offset,
-    identity,
-    nextSeq: seq,
-    trimRunEnd,
-    anchor,
-    trims,
-    dropped: { byAge: 0, byCount: 0 },
-  };
+  return stateOf(scan, identity);
+}
+
+/** Reads a span of the store file, or as much of it as the file actually holds. */
+async function readSpan(file: FileHandle, from: number, length: number): Promise<Buffer> {
+  if (length <= 0) {
+    return Buffer.alloc(0);
+  }
+  const buffer = Buffer.alloc(length);
+  const { bytesRead } = await file.read(buffer, 0, length, from);
+  return bytesRead === length ? buffer : buffer.subarray(0, bytesRead);
+}
+
+/** The header every block chains from: which store file this index speaks for, and in what layout. */
+function sidecarHeader(identity: string): Buffer {
+  const name = Buffer.from(identity, 'utf8');
+  const out = Buffer.alloc(SIDECAR_HEADER_BYTES + name.length);
+  out.write(SIDECAR_MAGIC, 0, 'utf8');
+  out.writeUInt16BE(SIDECAR_VERSION, 4);
+  out.writeUInt16BE(name.length, 6);
+  name.copy(out, SIDECAR_HEADER_BYTES);
+  return out;
+}
+
+function entryBytes(entry: CheckpointEntry): Buffer {
+  const out = Buffer.alloc(SIDECAR_ENTRY_HEAD_BYTES + entry.idLength + DIGEST_BYTES);
+  out.writeBigUInt64BE(BigInt(entry.recordStart), 0);
+  out.writeBigUInt64BE(BigInt(entry.seq), 8);
+  out.writeBigUInt64BE(BigInt(entry.iat), 16);
+  out.writeUInt32BE(entry.length, 24);
+  out.writeUInt16BE(entry.idLength, 28);
+  out.write(entry.id, SIDECAR_ENTRY_HEAD_BYTES, 'utf8');
+  entry.digest.copy(out, SIDECAR_ENTRY_HEAD_BYTES + entry.idLength);
+  return out;
+}
+
+/** A block's own bytes, chained from the block before it: the only hashing the index does. */
+function blockCheck(previous: Buffer, body: Buffer): Buffer {
+  return Buffer.from(sha256(Buffer.concat([previous, body])));
+}
+
+/**
+ * One block: how many records it carries, the byte of the store file it speaks for, the entries, and
+ * the check that closes it. The checkpoint is stated rather than left to be inferred so that a sidecar
+ * whose checkpoint disagrees with the records it carries is a disagreement a reader can see without
+ * the store file in front of it.
+ */
+function encodeBlock(previous: Buffer, chunk: readonly CheckpointEntry[]): { bytes: Buffer; check: Buffer } {
+  const last = chunk.at(-1);
+  if (last === undefined) {
+    throw new Error('an index block is only ever written when it carries a record');
+  }
+  const head = Buffer.alloc(SIDECAR_BLOCK_HEAD_BYTES);
+  head.writeUInt32BE(chunk.length, 0);
+  head.writeBigUInt64BE(BigInt(endOfEntry(last)), 4);
+  const body = Buffer.concat([head, ...chunk.map(entryBytes)]);
+  const check = blockCheck(previous, body);
+  return { bytes: Buffer.concat([body, check]), check };
+}
+
+/** The index this store keeps beside its file, or nothing at all when the opening declined one. */
+interface SidecarState {
+  readonly path: string;
+  /**
+   * The check the last block on disk closed with, which the next block chains from. Null says the
+   * index is not being maintained any more, either because it was never written or because a write
+   * refused, and it stays null until an opening rebuilds it from the store file.
+   */
+  previous: Buffer | null;
+  /** Entries written since the last block, so a lost one costs an opening a walk of its own records. */
+  pending: CheckpointEntry[];
+}
+
+/** Writes the index whole: a header naming the store file, then a block per run of entries. */
+async function writeSidecar(sidecar: SidecarState, identity: string, entries: readonly CheckpointEntry[]): Promise<void> {
+  try {
+    const header = sidecarHeader(identity);
+    let previous: Buffer = Buffer.from(sha256(header));
+    const file = await open(sidecar.path, 'w');
+    try {
+      await file.write(header);
+      for (let at = 0; at < entries.length; at += SIDECAR_BLOCK_RECORDS) {
+        const block = encodeBlock(previous, entries.slice(at, at + SIDECAR_BLOCK_RECORDS));
+        await file.write(block.bytes);
+        previous = block.check;
+      }
+    } finally {
+      await file.close();
+    }
+    sidecar.previous = previous;
+    sidecar.pending = [];
+  } catch {
+    // A store whose index could not be written serves its file, which is all it ever promised. The
+    // next opening reads the whole file and tries again, so a full volume is a slow start and not a
+    // refusal, and nothing about the receipts depends on this having worked.
+    sidecar.previous = null;
+  }
+}
+
+/** Appends the entries written since the last block as one more block, chained from the one before. */
+async function flushSidecar(sidecar: SidecarState): Promise<void> {
+  const previous = sidecar.previous;
+  if (previous === null || sidecar.pending.length === 0) {
+    return;
+  }
+  const block = encodeBlock(previous, sidecar.pending);
+  sidecar.pending = [];
+  try {
+    // Deliberately not synced. The record this entry indexes is already durable, and an index that
+    // was never told is a store file with an opening that reads a few more records from it.
+    await appendFile(sidecar.path, block.bytes);
+    sidecar.previous = block.check;
+  } catch {
+    sidecar.previous = null;
+  }
+}
+
+/** Notes one appended record. Costs a put nothing until the entries fill a block. */
+async function noteEntry(sidecar: SidecarState | null, entry: CheckpointEntry): Promise<void> {
+  if (sidecar === null || sidecar.previous === null) {
+    return;
+  }
+  sidecar.pending.push(entry);
+  if (sidecar.pending.length >= SIDECAR_BLOCK_RECORDS) {
+    await flushSidecar(sidecar);
+  }
+}
+
+/** What a usable index says before a single record of the store file has been read. */
+interface Checkpoint {
+  /** The scan holding every record the index speaks for, parked at the byte the index ends at. */
+  readonly scan: Scan;
+  /** The byte of the store file the index speaks for: everything past this is read from the file. */
+  readonly checkpointBytes: number;
+  readonly previous: Buffer;
+}
+
+/**
+ * Reads the index beside the store file and returns what it may be believed for, or nothing.
+ *
+ * Any refusal is a fallback rather than an error out of the store: nothing comes back from here that
+ * makes an opening fail, because an index that cannot be read is a store that reads its file instead.
+ * That includes an error of this function's own, which is swallowed rather than reported.
+ */
+async function loadSidecar(file: FileHandle, path: string, identity: string, fileSize: number): Promise<Checkpoint | null> {
+  try {
+    return await readCheckpoint(file, path, identity, fileSize);
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Decides whether the index may be believed, which is the whole of what an opening that does not
+ * re-derive the file owes the file.
+ *
+ * What is checked, and what is not. Every byte of the index is hashed, block by block, so a changed
+ * position, stamp, id or digest anywhere in it is a disagreement and not an answer. The index names the
+ * store file by the volume's pair, and the byte it speaks for has to be inside the file that is there
+ * now. The leading run of trim records is read out of the store file and re-verified, so the anchor and
+ * the retirement history an opening reports are recomputed from bytes and never remembered. And the
+ * record the index ends on is read back out of the store file and hashed, because that one record is
+ * where an index written from these bytes is tied to these bytes: it also fixes the checkpoint at a real
+ * record boundary, so a resume can never truncate a file on the strength of a number it was handed.
+ *
+ * What is not checked is the claim the rest of the index carries, which is that the records it indexes
+ * before that boundary still hold the bytes they held when the index was written. That is the residual a
+ * checkpoint is: the proof for the prefix rests on saved state rather than on recomputation, so whoever
+ * can write the index can shorten the proof an opening makes. It is not a byte served unchecked, which
+ * is the other half of the same trade: a location out of the index is read through `readReceipt`, which
+ * hashes the bytes it is about to hand over against the digest the index holds and refuses if they
+ * disagree. What an index can change is what an opening refuses at the opening, never what it serves.
+ * `FileReceiptStoreOptions.sidecarIndex` declines the index outright, which is how an operator who needs
+ * the whole chain recomputed asks for it without touching the file that holds the receipts.
+ */
+async function readCheckpoint(file: FileHandle, path: string, identity: string, fileSize: number): Promise<Checkpoint | null> {
+  const bytes = await readFile(path).catch(() => null);
+  if (bytes === null) {
+    return null;
+  }
+  const identityLength = bytes.length >= SIDECAR_HEADER_BYTES ? bytes.readUInt16BE(6) : 0;
+  const headerEnd = SIDECAR_HEADER_BYTES + identityLength;
+  if (
+    identityLength === 0 ||
+    bytes.length < headerEnd + SIDECAR_BLOCK_HEAD_BYTES ||
+    bytes.subarray(0, 4).toString('utf8') !== SIDECAR_MAGIC ||
+    bytes.readUInt16BE(4) !== SIDECAR_VERSION ||
+    bytes.subarray(SIDECAR_HEADER_BYTES, headerEnd).toString('utf8') !== identity
+  ) {
+    return null;
+  }
+
+  // The index is read straight into the state an opening resumes from, one block at a time: what an
+  // opening that trusts the index allocates is that state and the block it is checking, so reading a
+  // hundred thousand records out of the index costs no more than the records themselves.
+  const scan = emptyScan();
+  let first: CheckpointEntry | undefined;
+  let last: CheckpointEntry | undefined;
+  let previous: Buffer = Buffer.from(sha256(bytes.subarray(0, headerEnd)));
+  let at = headerEnd;
+  /** The byte the index file can be cut back to when the block that follows it never finished. */
+  let whole = headerEnd;
+  let checkpointBytes = 0;
+  while (at + SIDECAR_BLOCK_HEAD_BYTES <= bytes.length) {
+    const bodyStart = at;
+    const count = bytes.readUInt32BE(at);
+    const claimed = Number(bytes.readBigUInt64BE(at + 4));
+    at += SIDECAR_BLOCK_HEAD_BYTES;
+    const block: CheckpointEntry[] = [];
+    let torn = false;
+    for (let i = 0; i < count; i++) {
+      if (at + SIDECAR_ENTRY_HEAD_BYTES + DIGEST_BYTES > bytes.length) {
+        torn = true;
+        break;
+      }
+      const idLength = bytes.readUInt16BE(at + 28);
+      if (at + SIDECAR_ENTRY_HEAD_BYTES + idLength + DIGEST_BYTES > bytes.length) {
+        torn = true;
+        break;
+      }
+      const entry: CheckpointEntry = {
+        recordStart: Number(bytes.readBigUInt64BE(at)),
+        seq: Number(bytes.readBigUInt64BE(at + 8)),
+        iat: Number(bytes.readBigUInt64BE(at + 16)),
+        length: bytes.readUInt32BE(at + 24),
+        idLength,
+        id: bytes.subarray(at + SIDECAR_ENTRY_HEAD_BYTES, at + SIDECAR_ENTRY_HEAD_BYTES + idLength).toString('utf8'),
+        digest: Buffer.from(bytes.subarray(at + SIDECAR_ENTRY_HEAD_BYTES + idLength, at + SIDECAR_ENTRY_HEAD_BYTES + idLength + DIGEST_BYTES)),
+      };
+      at += SIDECAR_ENTRY_HEAD_BYTES + idLength + DIGEST_BYTES;
+      // Records are contiguous in the file and their chain positions are consecutive, because both are
+      // the order the store appended them in. An index that describes anything else describes a file it
+      // never read.
+      const before = block.at(-1) ?? last;
+      if (before === undefined ? entry.seq !== 0 : entry.recordStart !== endOfEntry(before) || entry.seq !== before.seq + 1) {
+        return null;
+      }
+      block.push(entry);
+    }
+    if (torn || at + DIGEST_BYTES > bytes.length) {
+      // A block whose check never arrived says nothing: its records are past the checkpoint and are read
+      // out of the store file, which is the other thing an index is not trusted for.
+      break;
+    }
+    const check = Buffer.from(bytes.subarray(at, at + DIGEST_BYTES));
+    at += DIGEST_BYTES;
+    const end = block.at(-1);
+    if (
+      end === undefined ||
+      !blockCheck(previous, bytes.subarray(bodyStart, at - DIGEST_BYTES)).equals(check) ||
+      claimed !== endOfEntry(end) ||
+      claimed > fileSize
+    ) {
+      return null;
+    }
+    for (const entry of block) {
+      scan.records.set(entry.id, locationOf(entry));
+    }
+    first ??= block[0];
+    last = end;
+    previous = check;
+    checkpointBytes = claimed;
+    whole = at;
+  }
+  // An index with nothing in it is not worth an opening's time: what it speaks for is a file with no
+  // receipts in it, which is the cheapest walk there is.
+  if (first === undefined || last === undefined) {
+    return null;
+  }
+  if (whole < bytes.length) {
+    // The block that never finished sits behind the checkpoint. Cutting it off first is what lets the
+    // next appended block chain from the last whole one.
+    await truncate(path, whole).catch(() => undefined);
+  }
+
+  // What the index supplied is the receipts. The run in front of them, and the record the checkpoint
+  // ends on, come from the store file, because those are the two facts an index cannot vouch for.
+  try {
+    // The run is read from the file rather than taken from the index, so the seam an opening reports is
+    // the one the trim records state and not the one the index was last told.
+    const run = emptyScan();
+    parseRecords(await readSpan(file, 0, first.recordStart), 0, run, null);
+    if (run.seq !== 0 || run.records.size !== 0 || run.trimRunEnd !== first.recordStart) {
+      return null;
+    }
+    // The record the checkpoint ends on, hashed as though it were about to be served. This is the tie
+    // between the index and the bytes, and without it a store file rewritten through its own name
+    // would answer out of an index that was written for what used to be there.
+    await readReceipt(file, locationOf(last), last.id);
+    scan.trims.push(...run.trims);
+    scan.anchor = run.anchor;
+    scan.trimRunEnd = run.trimRunEnd;
+  } catch {
+    return null;
+  }
+
+  scan.expectedPrev = last.digest;
+  scan.lastDigest = last.digest;
+  scan.seq = last.seq + 1;
+  scan.end = checkpointBytes;
+  return { scan, checkpointBytes, previous };
+}
+
+/**
+ * Reads what the store file holds, from the index where the index speaks for it and from the file where
+ * it does not, and leaves the index speaking for the whole of the file either way.
+ */
+async function readStore(path: string, file: FileHandle, sidecar: SidecarState | null): Promise<StoreState> {
+  const stats = await file.stat();
+  const identity = serialOf(stats);
+  if (sidecar !== null) {
+    const loaded = await loadSidecar(file, sidecar.path, identity, stats.size);
+    if (loaded !== null) {
+      try {
+        const tail: CheckpointEntry[] = [];
+        const bytes = await readSpan(file, loaded.checkpointBytes, stats.size - loaded.checkpointBytes);
+        parseRecords(bytes, loaded.checkpointBytes, loaded.scan, tail);
+        if (loaded.scan.end < stats.size) {
+          await truncate(path, loaded.scan.end);
+        }
+        sidecar.previous = loaded.previous;
+        sidecar.pending = tail;
+        await flushSidecar(sidecar);
+        return stateOf(loaded.scan, identity);
+      } catch {
+        // Past the checkpoint the file answers for itself, and a tail that cannot be read is read again
+        // from the first byte rather than refused: the store file is the authority here.
+      }
+    }
+  }
+  const entries: CheckpointEntry[] = [];
+  const state = await walk(path, file, sidecar === null ? null : entries);
+  if (sidecar !== null) {
+    await writeSidecar(sidecar, identity, entries);
+  }
+  return state;
+}
+
+/** Opens the store file, creating it when absent, and closes it once the reading is done. */
+async function scan(path: string, sidecar: SidecarState | null): Promise<StoreState> {
+  const file = await open(path, 'a+');
+  try {
+    return await readStore(path, file, sidecar);
+  } finally {
+    await file.close();
+  }
 }
 
 /** The ids each bound of a retention policy retired, kept apart because the cause is the report. */
@@ -638,6 +1103,11 @@ async function readRange(file: FileHandle, length: number, position: number): Pr
  * rename: a volume refuses to move a file over one a handle still reads, and a volume that allowed
  * it would leave that handle answering from the bytes that used to be there while the index had
  * already moved to the new ones.
+ *
+ * The index beside the file is rewritten by the reading that follows the move, which is the right
+ * direction for it to be invalidated in: the new file is a different file by the volume's own answer,
+ * so an opening that came after this one finds an index that does not name it and re-derives the chain
+ * from the run of trim records this one just appended.
  */
 async function compact(
   path: string,
@@ -645,6 +1115,7 @@ async function compact(
   trimmedAt: number,
   retention: ReceiptRetention | undefined,
   releaseHeld: () => Promise<void>,
+  sidecar: SidecarState | null,
 ): Promise<void> {
   let first = state.size;
   for (const where of state.records.values()) {
@@ -700,7 +1171,7 @@ async function compact(
   // used to be there while the index below had already moved to the new offsets.
   await releaseHeld();
   await rename(temp, path);
-  const recovered = await scan(path);
+  const recovered = await scan(path, sidecar);
   state.records = recovered.records;
   state.head = recovered.head;
   state.size = recovered.size;
@@ -984,7 +1455,11 @@ export async function openFileReceiptStore(options: FileReceiptStoreOptions): Pr
   const retention = options.retention;
   const serving = options.serving;
   const now = retention?.now ?? ((): number => Math.floor(Date.now() / 1000));
-  const state = await scan(path);
+  // Nothing else is read from this object but its path, so declining the index is exactly a store with
+  // one file in its directory: no read, no write, no answer that the walk could not have given.
+  const sidecar: SidecarState | null =
+    options.sidecarIndex === false ? null : { path: join(options.dir, RECEIPT_SIDECAR_FILE), previous: null, pending: [] };
+  const state = await scan(path, sidecar);
   // A deployment that was down over a weekend has aged receipts on disk it must not serve.
   prune(state, retention, now());
   // What a file can serve is known once it has been read and pruned, and this is the last moment a
@@ -1042,23 +1517,29 @@ export async function openFileReceiptStore(options: FileReceiptStoreOptions): Pr
         }
         // Nothing was retained, so this record is the oldest one and its predecessor is the anchor
         // a reader starts from. Once a set exists it only ever grows at the back.
-        if (state.records.size === 0) {
-          state.anchor = state.head;
-        }
-        state.records.set(id, {
-          iat,
-          seq: state.nextSeq++,
+        const entry: CheckpointEntry = {
           recordStart: state.size,
-          offset: state.size + FRAME_LEN_BYTES + HEADER_BYTES + Buffer.byteLength(id, 'utf8'),
+          seq: state.nextSeq++,
+          iat,
+          id,
+          idLength: Buffer.byteLength(id, 'utf8'),
           length: receipt.length,
           // The writer records what it wrote, so a served read has something other than the volume's
           // number to compare the bytes it is about to hand over against.
           digest: record.digest,
-        });
+        };
+        if (state.records.size === 0) {
+          state.anchor = state.head;
+        }
+        state.records.set(id, locationOf(entry));
         state.head = record.digest;
         state.size += record.frame.length;
+        // Told to the index before retention is applied, because the index speaks for the records the
+        // file holds: a receipt that retirement drops out of the served set is still bytes in the file
+        // until a compaction says otherwise, and an opening that re-derives the file would index it.
+        await noteEntry(sidecar, entry);
         prune(state, retention, now());
-        await compact(path, state, now(), retention, putDownWalks);
+        await compact(path, state, now(), retention, putDownWalks, sidecar);
       });
     },
 
