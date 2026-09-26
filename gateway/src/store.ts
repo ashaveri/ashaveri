@@ -179,6 +179,84 @@ interface StoreState {
 }
 
 /**
+ * Where a store's instants come from: one named source, and the distance between two of its own
+ * readings that no verdict here may report as a difference.
+ *
+ * The name and the bound travel together because a reading without them is a number nobody can weigh.
+ * A deployment that wires a source of its own takes both with it, and a deployment that wires nothing
+ * gets `HOST_CLOCK_SOURCE`, which says plainly that the instant is this host's own claim and that
+ * nobody measured how far that claim can be.
+ */
+export interface TimeSource {
+  /** What this process reads, in the operator's own words: `host clock` is the shipped answer. */
+  readonly name: string;
+  /**
+   * Seconds a reading of this source can be away from the instant it names, as far as anyone has
+   * measured. Null means nobody measured it, which is a different sentence from zero: a bound of zero
+   * is a claim this source is right, and a null is a statement that nothing here knows.
+   */
+  readonly uncertaintySeconds: number | null;
+  /**
+   * The next reading, in whole Unix seconds, which is the unit every stamp this store writes, compares
+   * and retires by is written in. A source that reads in another unit is this function's to convert.
+   */
+  readonly now: () => number;
+}
+
+/**
+ * The source a deployment that configures nothing reads: this host's own clock, at the bound nobody
+ * measured. Every whole-second stamp in this package falls back to it, which is why it is a value
+ * rather than a comment: a reader that wants to know what an unstamped deployment rests on is reading
+ * the same three fields the process does, and `docs/configured-values.md` quotes this line whole.
+ */
+export const HOST_CLOCK_SOURCE: TimeSource = { name: 'host clock', uncertaintySeconds: null, now: () => Math.floor(Date.now() / 1000) };
+
+/** Two readings of one source, weighed against what that source can resolve between them. */
+export type ReadingsApart =
+  | {
+      readonly state: 'indistinguishable';
+      readonly apartSeconds: number;
+      readonly resolutionSeconds: number;
+      readonly uncertaintySeconds: number;
+      readonly source: string;
+    }
+  | {
+      readonly state: 'apart';
+      readonly apartSeconds: number;
+      readonly resolutionSeconds: number;
+      readonly uncertaintySeconds: number;
+      readonly source: string;
+    }
+  | { readonly state: 'unmeasured'; readonly apartSeconds: number; readonly source: string };
+
+/**
+ * How many times a source's bound has to fit into a distance between two of its own readings before
+ * this package calls that distance a difference. Each reading may be away from the instant it names by
+ * the whole bound and the two may lean opposite ways, so the factor is written once, here.
+ */
+const PAIRWISE_FACTOR = 2;
+
+/**
+ * How far apart two readings of one source are, in that source's own terms. One sentence for the
+ * arithmetic and for what an operator is quoted, because both go through the one factor above.
+ */
+export function readingsApart(source: TimeSource, first: number, second: number): ReadingsApart {
+  const apartSeconds = Math.abs(first - second);
+  const bound = source.uncertaintySeconds;
+  if (bound === null) {
+    return { state: 'unmeasured', apartSeconds, source: source.name };
+  }
+  const resolutionSeconds = PAIRWISE_FACTOR * bound;
+  return {
+    state: apartSeconds <= resolutionSeconds ? 'indistinguishable' : 'apart',
+    apartSeconds,
+    resolutionSeconds,
+    uncertaintySeconds: bound,
+    source: source.name,
+  };
+}
+
+/**
  * The durability bound: how long this file keeps the records it holds.
  *
  * Both halves are bounds on what the file keeps, and retirement acts on either by dropping a prefix.
@@ -204,8 +282,16 @@ export interface ReceiptRetention {
    * is the only claim about this number this store is able to make.
    */
   readonly maxCount?: number;
-  /** Injectable because a six month window is otherwise only testable by waiting. */
-  readonly now?: () => number;
+  /**
+   * The instant this store ages records against, and the source that instant comes from. Absent means
+   * `HOST_CLOCK_SOURCE`, which is this host's clock at a bound nobody measured.
+   *
+   * It is one named thing rather than a reading function because a six month window is a statement
+   * about time, and a statement about time that does not say where its numbers come from cannot be
+   * weighed by whoever reads it. It is injectable because a six month window is otherwise only
+   * testable by waiting.
+   */
+  readonly time?: TimeSource;
 }
 
 /**
@@ -284,6 +370,70 @@ export interface StoredReceipt {
   readonly id: string;
   readonly iat: number;
   readonly receipt: Uint8Array;
+  /** What the source that stamped this record supports about its place in the window asked for. */
+  readonly claim: WindowClaim;
+}
+
+/**
+ * The source a store reads, as the store states it: a name, and how far its readings can be from the
+ * instants they name. Null is not a small bound. It says nobody measured, and every report that carries
+ * it has to say so rather than let the absence read as accuracy.
+ */
+export interface StampDeclaration {
+  readonly name: string;
+  readonly uncertaintySeconds: number | null;
+}
+
+/**
+ * What one record's stamp supports about the half-open window it was read out of.
+ *
+ * Membership is the raw stamp's, and this changes nothing about it: a store serves the receipts its
+ * index matches, because a walk that dropped a record whose stamp sits near an edge would be deleting
+ * evidence on a guess about the clock. What this adds is the honesty of the claim beside the record, in
+ * the two cases a reader can act on differently.
+ *
+ * `inside-window` is the only state here that supports "this record's instant is inside the span asked
+ * for": the stamp is further from both edges than the source's own resolution, so no reading of that
+ * source could have put the record elsewhere. `at-edge` says the nearest edge is inside what the source
+ * can resolve, so the record may or may not belong to the span and nothing in the store can say which.
+ * `bound-unknown` says the source was never measured, which is neither of the two and is never reported
+ * as a satisfied claim.
+ */
+export type WindowClaim =
+  | { readonly state: 'inside-window'; readonly stamped: StampDeclaration }
+  | {
+      readonly state: 'at-edge';
+      /**
+       * Seconds the stamp has before the nearer edge, counted so that 1 is the edge itself: the older
+       * edge belongs to the window, so a stamp sitting on it has one second of slack and no more.
+       */
+      readonly marginSeconds: number;
+      readonly stamped: StampDeclaration;
+    }
+  | { readonly state: 'bound-unknown'; readonly stamped: StampDeclaration };
+
+/**
+ * The claim one record's stamp supports against one half-open window, read through the source that
+ * wrote the stamp.
+ *
+ * Both edges are measured because the window is bounded at both: `from` is included and `to` is not, so
+ * a stamp at the older edge is in the span by the rule itself and a stamp one second below the newer
+ * edge is in by one second. That asymmetry is why the margin below counts the edge's own second rather
+ * than the bare distance to it, and why a source declaring an exact clock reports every stamp it wrote
+ * as inside rather than hedging the ones that sit on an edge. The nearer of the two is the whole
+ * question, and it is weighed against the same `PAIRWISE_FACTOR` a distance between two readings is
+ * weighed against, so an edge claim and a span measurement cannot drift apart.
+ */
+function windowClaim(source: TimeSource, iat: number, from: number, to: number): WindowClaim {
+  const stamped: StampDeclaration = { name: source.name, uncertaintySeconds: source.uncertaintySeconds };
+  const bound = source.uncertaintySeconds;
+  if (bound === null) {
+    return { state: 'bound-unknown', stamped };
+  }
+  const marginSeconds = Math.min(iat - from + 1, to - iat);
+  return marginSeconds > PAIRWISE_FACTOR * bound
+    ? { state: 'inside-window', stamped }
+    : { state: 'at-edge', marginSeconds, stamped };
 }
 
 /**
@@ -366,6 +516,16 @@ export interface ReceiptStore {
 
   /** Head of the hash chain. Publishing it is what makes deletion detectable. */
   head(): Promise<Uint8Array>;
+
+  /**
+   * The source this store reads, as it was declared when the store opened.
+   *
+   * A stamp is this source's claim, so whoever needs the bound a record was issued under asks the store
+   * and reads it beside the record. It cannot travel inside the record: the framing in section 5.2 of
+   * `docs/receipt-spec.md` has no byte for it, those bytes are published as conformance vectors, and a
+   * bound belongs to the store's declaration rather than to the signed payload.
+   */
+  timeSource(): StampDeclaration;
 
   /** The anchor and the retirement history, which `window()` and `head()` cannot supply. */
   chainState(): Promise<ChainState>;
@@ -1210,20 +1370,64 @@ function windowOf(retained: Iterable<{ iat: number }>): RetainedWindow {
  * span they cover is the rate, and a window holds that many receipts for every second it is asked to
  * hold, plus the one stamped at its older edge.
  *
- * A span of no seconds at all is read as one second rather than as a rate of infinity. Receipts sharing
- * one stamp is the fastest traffic a file can report, so the count derived from it is the smallest one
- * a refusal could rest on: a store holding its whole bound at a single instant needs at least this
- * many, and possibly far more.
+ * The span is the source's, so it is read through the source. Two of its own readings a bound apart are
+ * not a span of the distance between them: the true distance is smaller by up to twice the bound, and a
+ * smaller span is a faster rate and a larger count, so the count this derives is the one the pairing
+ * supports rather than the one the two numbers print. A source carrying no bound has nothing to narrow
+ * by, and the count it derives is then a reading of the stamps and not a measurement, which every report
+ * that names it has to say. `HOST_CLOCK_SOURCE` is that case, and it is the shipped one.
+ *
+ * A span no wider than the source can resolve is read as one second rather than as a rate of infinity,
+ * which is the oldest state of this rule and the same decision: receipts sharing an instant, or close
+ * enough to one for the source to be unable to tell, is the fastest traffic a file can report, so the
+ * count derived from it is the smallest one a refusal could rest on, and possibly far fewer than truth.
  *
  * Null is not a pass. It says there is nothing to measure, either because fewer than two receipts have
  * ever been filed or because no period was configured, and a store that has measured nothing of its
  * own traffic cannot be refused for holding less than it was asked to.
  */
-export function receiptsNeededForWindow(maxAgeSeconds: number, held: RetainedWindow): number | null {
+export function receiptsNeededForWindow(
+  maxAgeSeconds: number,
+  held: RetainedWindow,
+  source: TimeSource = HOST_CLOCK_SOURCE,
+): number | null {
   if (maxAgeSeconds <= 0 || held.count < 2) {
     return null;
   }
-  return Math.ceil(((held.count - 1) * maxAgeSeconds) / Math.max(held.to - held.from, 1)) + 1;
+  return Math.ceil(((held.count - 1) * maxAgeSeconds) / measurableSpanSeconds(held, source)) + 1;
+}
+
+/**
+ * The span a store's two end stamps support, in seconds, narrowed by whatever its source declares and
+ * never below one. This is the denominator the rate above is taken over, so it is where a bound enters
+ * the arithmetic: a source that can be away by seconds narrows what its own two readings can claim, and
+ * a source nobody measured claims the distance printed.
+ *
+ * Exported beside `receiptsNeededForWindow` for the same reason that one is: a refusal that quotes a span
+ * has to quote the span the count was derived over, and a second copy of this line where the sentence is
+ * written would drift from the number the operator is told to raise.
+ */
+export function measurableSpanSeconds(held: RetainedWindow, source: TimeSource): number {
+  const apart = readingsApart(source, held.from, held.to);
+  return Math.max(apart.apartSeconds - (apart.state === 'unmeasured' ? 0 : apart.resolutionSeconds), 1);
+}
+
+/**
+ * The source as a refusal names it, with the bound it declared or the sentence that there is none. An
+ * operator raising a count has to know which of the two the number was derived under, because the same
+ * stamps give a wider need under a measured bound than under one nobody took. Exported because the
+ * admission refusal in `server.ts` quotes the same span and must not re-derive the wording.
+ */
+export function sourceSentence(declared: StampDeclaration): string {
+  const bound = declared.uncertaintySeconds;
+  if (bound === null) {
+    return `the source named ${declared.name}, on which nobody measured an uncertainty`;
+  }
+  return (
+    `the source named ${declared.name}, whose readings can each be away from the instant they name by ` +
+    `${String(bound)} seconds, so two of its own readings resolve no distance above ` +
+    `${String(PAIRWISE_FACTOR * bound)} seconds`
+  );
 }
 
 /**
@@ -1264,7 +1468,8 @@ function assertWindowHeldable(
   if (maxAgeSeconds === undefined || maxCount === undefined || held.count !== maxCount) {
     return;
   }
-  const needed = receiptsNeededForWindow(maxAgeSeconds, held);
+  const source = retention?.time ?? HOST_CLOCK_SOURCE;
+  const needed = receiptsNeededForWindow(maxAgeSeconds, held, source);
   if (needed === null || needed <= maxCount) {
     return;
   }
@@ -1272,9 +1477,11 @@ function assertWindowHeldable(
   throw new StoreError(
     'RETENTION_WINDOW_UNHOLDABLE',
     `this store is at its durability bound of ${String(maxCount)} receipts and they span ` +
-      `${String(held.to - held.from)} seconds, while the configured period is ${String(maxAgeSeconds)} seconds, ` +
-      `which takes ${String(needed)} receipts at the rate this store has been carrying: the durability bound is ` +
-      `short by ${String(needed - maxCount)} receipts` +
+      `${String(held.to - held.from)} seconds as read from ${sourceSentence(source)}, which leaves ` +
+      `${String(measurableSpanSeconds(held, source))} of those seconds this store can derive a rate from, while ` +
+      `the configured period is ${String(maxAgeSeconds)} seconds, which takes ${String(needed)} receipts ` +
+      `at the rate this store has been carrying: the durability bound is short by ` +
+      `${String(needed - maxCount)} receipts` +
       // Two counts on one screen is the moment an operator needs to know which one the sentence is
       // about, because raising the serving bound changes what a query holds and nothing about what the
       // file keeps.
@@ -1454,7 +1661,10 @@ export async function openFileReceiptStore(options: FileReceiptStoreOptions): Pr
   const path = join(options.dir, RECEIPT_STORE_FILE);
   const retention = options.retention;
   const serving = options.serving;
-  const now = retention?.now ?? ((): number => Math.floor(Date.now() / 1000));
+  const source = retention?.time ?? HOST_CLOCK_SOURCE;
+  // Floored here as well as at the issuance seam: a stamp is a whole second, and a record layout with an
+  // 8-byte unsigned field has no spelling for anything else.
+  const now = (): number => Math.floor(source.now());
   // Nothing else is read from this object but its path, so declining the index is exactly a store with
   // one file in its directory: no read, no write, no answer that the walk could not have given.
   const sidecar: SidecarState | null =
@@ -1581,7 +1791,7 @@ export async function openFileReceiptStore(options: FileReceiptStoreOptions): Pr
                 });
                 // Retired by retention while this walk ran, which the window has already said it kept.
                 if (receipt !== null) {
-                  yield { id, iat: where.iat, receipt };
+                  yield { id, iat: where.iat, receipt, claim: windowClaim(source, where.iat, from, to) };
                 }
               }
             }
@@ -1599,6 +1809,10 @@ export async function openFileReceiptStore(options: FileReceiptStoreOptions): Pr
 
     async head(): Promise<Uint8Array> {
       return new Uint8Array(state.head);
+    },
+
+    timeSource(): StampDeclaration {
+      return { name: source.name, uncertaintySeconds: source.uncertaintySeconds };
     },
 
     async chainState(): Promise<ChainState> {
@@ -1626,7 +1840,10 @@ export function openMemoryReceiptStore(options: {
 } = {}): ReceiptStore {
   const retention = options.retention;
   const serving = options.serving;
-  const now = retention?.now ?? ((): number => Math.floor(Date.now() / 1000));
+  const source = retention?.time ?? HOST_CLOCK_SOURCE;
+  // The same whole-second floor the file store reads a source through, so the two stores age a record
+  // at the same instant when handed the same source and the same period.
+  const now = (): number => Math.floor(source.now());
   const entries = new Map<string, { iat: number; seq: number; prev: Uint8Array; receipt: Uint8Array }>();
   let chainHead: Uint8Array = new Uint8Array(PREV_BYTES);
   let chainSeq = 0;
@@ -1659,7 +1876,12 @@ export function openMemoryReceiptStore(options: {
         async *[Symbol.asyncIterator](): AsyncIterator<StoredReceipt> {
           for (const batch of servedBatches(snapshot.entries(), from, to, through, serving?.maxServedReceipts)) {
             for (const [id, where] of batch) {
-              yield { id, iat: where.iat, receipt: where.receipt };
+              yield {
+                id,
+                iat: where.iat,
+                receipt: where.receipt,
+                claim: windowClaim(source, where.iat, from, to),
+              };
             }
           }
         },
@@ -1672,6 +1894,10 @@ export function openMemoryReceiptStore(options: {
 
     async head() {
       return new Uint8Array(chainHead);
+    },
+
+    timeSource(): StampDeclaration {
+      return { name: source.name, uncertaintySeconds: source.uncertaintySeconds };
     },
 
     async chainState(): Promise<ChainState> {

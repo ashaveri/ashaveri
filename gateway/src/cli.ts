@@ -28,6 +28,7 @@ import { upstreamBackend } from './upstream.js';
 import { mockDeployment, type Deployment, type HardwareTeeKind, type ModelInfo } from './deployment.js';
 import { sha256, toHex } from './digest.js';
 import {
+  HOST_CLOCK_SOURCE,
   MINIMUM_RETENTION_SECONDS,
   openFileReceiptStore,
   openMemoryReceiptStore,
@@ -413,7 +414,15 @@ const servedReceipts = wholeNumber(
   'receipts per query',
   SHIPPED_SERVED_RECEIPTS,
 );
-const retention: ReceiptRetention = { maxAgeSeconds: MINIMUM_RETENTION_SECONDS, maxCount: retainedReceipts };
+/**
+ * The one source this process reads: named, and stating the bound anyone has measured on it. Nothing on
+ * the command line moves it, which is the point: a deployment that can read a source other than its own
+ * host's clock wires one at the seam in `buildGateway` and `openFileReceiptStore`, and the name and the
+ * bound travel with it. What is left unset here is a host clock at the uncertainty nobody measured, and
+ * the start-up line below says so rather than letting an unstamped process read as a measured one.
+ */
+const time = HOST_CLOCK_SOURCE;
+const retention: ReceiptRetention = { maxAgeSeconds: MINIMUM_RETENTION_SECONDS, maxCount: retainedReceipts, time };
 const serving: ReceiptServing = { maxServedReceipts: servedReceipts };
 /**
  * The guard's default threshold, in per cent of the durability bound: 100, the bound itself. That is
@@ -592,6 +601,7 @@ const app = buildGateway({
   access,
   accessLog,
   marking,
+  time,
   receiptIntakeGuard: {
     retention,
     refusesAtFraction: guardAtPercent / GUARD_AT_BOUND_ITSELF_PERCENT,
@@ -644,6 +654,13 @@ const logLabel =
     : `access log: ${accessLogPath}, kept for ${String(accessLogDays)} days${
         held.length === 0 ? '' : `, with ${String(held.length)} file${held.length === 1 ? '' : 's'} from before this boot`
       }`;
+// The source every stamp this process signs comes from, printed as the process reads it. A receipt's
+// issuance instant is only as good as the source it was read from, and this line is where the process
+// says which that was and whether anybody bounded it.
+const timeLabel =
+  time.uncertaintySeconds === null
+    ? `time: every stamp this process signs is read from ${time.name}, on which nobody measured an uncertainty, so a receipt's issuance instant is this host's own claim`
+    : `time: every stamp this process signs is read from ${time.name}, whose readings are bounded at ${String(time.uncertaintySeconds)} seconds`;
 // The two rate limits a request spends, printed as this process holds them rather than as the flags
 // spelled it: every request from one address, signed or not, spends from the first bucket, so behind a
 // reverse proxy that number is the deployment's capacity and not a per-client one. The second is what a
@@ -668,6 +685,7 @@ const lines: string[] = [
   `  ${kept}`,
   `  ${intakeGuardLabel}`,
   `  ${markingLabel}`,
+  `  ${timeLabel}`,
   allowBearer
     ? '  auth: bearer credentials also accepted, which is a refusal of the strongest posture here: a stolen bearer credential is undetectable, and a log record cannot tell its holder from a thief'
     : `  auth: proof of possession, timestamps trusted within ${String(toleranceSeconds)} seconds; bearer credentials refused`,
