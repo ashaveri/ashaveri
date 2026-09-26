@@ -6,7 +6,7 @@ import { fileURLToPath } from 'node:url';
 
 /**
  * The inputs the single-file verifier is proved against, written into a directory that holds nothing
- * else, and the two verbs proved by running the artifact over the published pack and export.
+ * else, and the verbs proved by running the artifact over the published pack, export and amendment.
  *
  * The CI job that runs the bundle needs a policy and a deployment manifest whose pins match the committed
  * receipt it is about to check, and this started life as a script pasted into the workflow file. That shape
@@ -15,13 +15,15 @@ import { fileURLToPath } from 'node:url';
  * typechecked with the rest of this package and runnable by hand, which is the only way the bundle's proof
  * can be observed anywhere other than Actions.
  *
- * The pack and the export are proved here for that same reason, and they are proved by running: the job
- * reaches this file with one line, so a verb added to the bundle is only covered once something in here
- * starts a process with it. `verify-pack` and `verify-export` are the same reader over the same bytes as
- * `verify-handover` with one answer pinned, and a claim that a stranger can verify a pack with nothing
- * installed is about those two verbs as much as about the receipt. So each is run three times: over its
- * own document, over the other verb's, and over one where the material beside the document does not
- * answer for it.
+ * The pack, the export and the amendment are proved here for that same reason, and they are proved by
+ * running: the job reaches this file with one line, so a verb added to the bundle is only covered once
+ * something in here starts a process with it. `verify-pack` and `verify-export` are the same reader over the
+ * same bytes as `verify-handover` with one answer pinned, and a claim that a stranger can verify a pack with
+ * nothing installed is about those two verbs as much as about the receipt. So each is run three times: over
+ * its own document, over the other verb's, and over one where the material beside the document does not
+ * answer for it. An amendment is run four times, because it is the one shape that arrives as a pair: read
+ * against the pack it designates, refused with that pack left at home, refused by the verb that means a
+ * pack, and answered as a pack when the pack itself is what the run was handed.
  *
  * Nothing is invented here. Every value is read out of the committed vector, so the generated document
  * cannot state a pin the receipt does not carry, and the verification time is the vector's own `iat`
@@ -70,6 +72,12 @@ interface VectorRow {
   };
   /** The order the published reader reached the items in, on every pack row this proof reads. */
   readonly walk?: readonly string[];
+  /** The pack an amendment row is checked against, as the whole sealed document. */
+  readonly packBase64Url?: string;
+  /** The records the published amendment leaves in the pack, in the order the pack's links fix them. */
+  readonly survivors?: readonly string[];
+  readonly reducedHex?: string;
+  readonly originalHeadHex?: string;
 }
 
 /** The published pack suite, whose rows carry the key material the pack vectors are sealed under. */
@@ -83,12 +91,25 @@ interface ExportVectorFile {
   readonly vectors: readonly VectorRow[];
 }
 
+/** The published redaction suite, whose rows each carry the pack their amendment designates. */
+interface RedactionVectorFile {
+  readonly vectors: readonly VectorRow[];
+}
+
 function rowNamed(file: string, vectors: readonly VectorRow[], name: string): VectorRow {
   const row = vectors.find((one) => one.name === name);
   if (row === undefined) {
     throw new Error(`the published ${file} has no vector named '${name}', so this proof would be asserting a document nothing publishes`);
   }
   return row;
+}
+
+/** A published field this proof cannot run without, refused by name rather than defaulted to nothing. */
+function stated<T>(value: T | undefined, what: string): T {
+  if (value === undefined) {
+    throw new Error(`the published suite states no ${what}, so this proof would be asserting a value nothing publishes`);
+  }
+  return value;
 }
 
 /**
@@ -109,6 +130,11 @@ interface HandoverReport {
     readonly items?: readonly { readonly id: string }[];
     readonly collection?: { readonly kind: string; readonly items: number };
     readonly originals?: readonly { readonly id: string; readonly sha256: string; readonly original: string }[];
+    readonly survivors?: { readonly survivors: number; readonly declared: number };
+    readonly survivorItems?: readonly { readonly id: string }[];
+    readonly pack?: { readonly sha256: string };
+    readonly reduced?: string;
+    readonly originalHead?: string;
   };
 }
 
@@ -152,16 +178,16 @@ function say(line: string): void {
  * The working directory is the process's own `cwd`, so a bare specifier inside the bundle resolves the
  * way it would on a machine that has nothing installed: the directory has the file, the documents and the
  * four inputs, and no `node_modules` above it. A run that needed an installed tree would fail here for
- * the reason it would fail there, which is what makes these six commands the property the job exists to
+ * the reason it would fail there, which is what makes these ten commands the property the job exists to
  * show rather than a restatement of it.
  */
 function runBundle(workDir: string, args: readonly string[]): BundleRun {
   const result = spawnSync(process.execPath, [BUNDLE_NAME, ...args], {
     cwd: workDir,
     encoding: 'utf8',
-    // The slowest of the six runs below measures 160 ms here, which is three inner receipts verified and
-    // one Node start; the ceiling is two hundred times that so a hang on a runner is a failure naming one
-    // command rather than a job timeout naming a step.
+    // The slowest of the ten runs below measures 109 ms here, which is three inner receipts verified and
+    // one Node start; the ceiling is over two hundred times that so a hang on a runner is a failure naming
+    // one command rather than a job timeout naming a step.
     timeout: 30_000,
     killSignal: 'SIGKILL',
   });
@@ -286,6 +312,90 @@ function proveExport(workDir: string, testCase: ExportCase): void {
   say(`verify-export ${testCase.wrongType}: exit 1, refused ${String(wrong.code)} naming typ=ashaveri/pack`);
 }
 
+/** What `verify-handover` is run over for the fifth shape: the amendment, the pack it names, and one key. */
+interface RedactionCase {
+  readonly document: string;
+  /** The pack the published row states this amendment was checked against, already in the proof directory. */
+  readonly pack: string;
+  readonly key: string;
+  /** The digest of the bytes the pack file holds, which is the designation the reader recomputes. */
+  readonly packDigest: string;
+  readonly survivors: readonly string[];
+  readonly reduced: string;
+  readonly originalHead: string;
+}
+
+/**
+ * The fifth signed shape, run over a published pair: the amendment read against the pack it designates, the
+ * same document refused with that pack left at home, the amendment refused by the verb that means a pack, and
+ * the pack it speaks about answered as the pack it is.
+ *
+ * A redaction is the one shape of the five that arrives as a pair, and the pairing is what these runs are
+ * about. The pack travels as bytes, its digest is recomputed by the reader and compared against the
+ * designation inside the signature, and a run handed only one of the two says so by name rather than reading
+ * an amendment on its own word. Both chain heads come back apart, because the pack's head still holds over
+ * the pack's own run and the head over the survivors is a chain that pack does not contain.
+ */
+function proveRedaction(workDir: string, testCase: RedactionCase): void {
+  const verdictRun = runBundle(workDir, [
+    'verify-handover',
+    `${testCase.document}.cbor`,
+    `--key=${testCase.key}`,
+    `--companion=${join(workDir, `${testCase.pack}.cbor`)}`,
+    '--json',
+  ]);
+  expect(verdictRun.status === 0, verdictRun, 'accept the published amendment read against the pack it designates');
+  const verdict = reportOf(verdictRun);
+  expect(verdict.ok === true, verdictRun, 'report an amendment it read as whole');
+  expect(verdict.contentType === 'ashaveri/redaction', verdictRun, 'name the content type the report is about');
+  expect(verdict.reader === 'verifyRedaction', verdictRun, 'say which reader answered');
+  const survivors = (verdict.document?.survivorItems ?? []).map((one) => one.id).join(', ');
+  expect(survivors === testCase.survivors.join(', '), verdictRun, `report the survivor run the published row states, saw '${survivors}'`);
+  expect(
+    verdict.document?.pack?.sha256 === testCase.packDigest,
+    verdictRun,
+    'answer with the digest of the pack bytes handed over, so the reading ran over the file and not only over the header',
+  );
+  expect(verdict.document?.reduced === testCase.reduced, verdictRun, 'report the chain over the survivors as the row publishes it');
+  expect(verdict.document?.originalHead === testCase.originalHead, verdictRun, 'report the pack head beside it, as a separate number');
+  expect(
+    verdict.document?.reduced !== verdict.document?.originalHead,
+    verdictRun,
+    'keep the two chain heads apart, which is the finding a merged number loses',
+  );
+  say(`verify-handover ${testCase.document}: exit 0, read by verifyRedaction as ashaveri/redaction, survivors ${survivors}`);
+
+  const missingRun = runBundle(workDir, ['verify-handover', `${testCase.document}.cbor`, `--key=${testCase.key}`, '--json']);
+  expect(missingRun.status === 1, missingRun, 'refuse the same amendment with its pack left at home');
+  const missing = reportOf(missingRun);
+  expect(missing.ok === false, missingRun, 'report an amendment without its pack as a refusal');
+  expect(missing.code === 'REDACTION_PACK_UNAVAILABLE', missingRun, `refuse with the missing-pack code, gave ${String(missing.code)}`);
+  say(`verify-handover ${testCase.document} without its pack: exit 1, refused ${String(missing.code)}`);
+
+  const wrongRun = runBundle(workDir, ['verify-pack', `${testCase.document}.cbor`, `--key=${testCase.key}`, '--json']);
+  expect(wrongRun.status === 1, wrongRun, 'refuse the amendment document handed to the pack verb');
+  const wrong = reportOf(wrongRun);
+  expect(wrong.ok === false, wrongRun, 'report an amendment as a refusal for this verb');
+  expect(wrong.contentType === undefined, wrongRun, 'stop before deciding which type the bytes are');
+  expect(wrong.code === 'BAD_PROTECTED_HEADER', wrongRun, `refuse with the header code, gave ${String(wrong.code)}`);
+  expect(wrong.message?.includes('typ=ashaveri/redaction') === true, wrongRun, 'name the type it found in the refusal');
+  say(`verify-pack ${testCase.document}: exit 1, refused ${String(wrong.code)} naming typ=ashaveri/redaction`);
+
+  const packRun = runBundle(workDir, [
+    'verify-handover',
+    `${testCase.pack}.cbor`,
+    `--key=${testCase.key}`,
+    `--companion=${join(workDir, `${testCase.document}.cbor`)}`,
+    '--json',
+  ]);
+  expect(packRun.status === 0, packRun, 'read the pack an amendment speaks about as the pack it is');
+  const pack = reportOf(packRun);
+  expect(pack.ok === true, packRun, 'report the pack it read as whole');
+  expect(pack.contentType === 'ashaveri/pack', packRun, 'answer with the type the document carries and not the one beside it');
+  expect(pack.reader === 'verifyPack', packRun, 'say which reader answered');
+  say(`verify-handover ${testCase.pack}: exit 0, read by verifyPack as ashaveri/pack with an amendment in the companion position`);
+}
+
 function main(): void {
   const [workDir, dataDir] = process.argv.slice(2);
   if (workDir === undefined || dataDir === undefined) {
@@ -332,20 +442,21 @@ function main(): void {
   );
 
   say(`wrote manifest.json, policy.json and args.env into ${workDir}`);
-  provePinnedVerbs(workDir, dataDir);
+  proveHandoverVerbs(workDir, dataDir);
 }
 
 /**
- * The two pinned verbs, run over the published pack and export through the built artifact.
+ * The three verbs that read a whole signed document, run over the published pack, export and amendment
+ * through the built artifact.
  *
  * The documents are the vectors' own bytes under the names their rows carry, and the keys are the ones
  * those rows say a caller holds, so what is asserted is an answer about published material rather than
  * about a file assembled to agree with the reader. The bundle is copied in beside them and run from that
- * directory, which is the one arrangement that shows the artifact carries these two verbs with it: an
- * import the bundler left unresolved would fail here, in the shape it fails on a machine with no
- * checkout, no install and nothing to fetch.
+ * directory, which is the one arrangement that shows the artifact carries these verbs with it: an import
+ * the bundler left unresolved would fail here, in the shape it fails on a machine with no checkout, no
+ * install and nothing to fetch.
  */
-function provePinnedVerbs(workDir: string, dataDir: string): void {
+function proveHandoverVerbs(workDir: string, dataDir: string): void {
   try {
     copyFileSync(BUNDLE_SOURCE, join(workDir, BUNDLE_NAME));
   } catch (err) {
@@ -379,6 +490,23 @@ function provePinnedVerbs(workDir: string, dataDir: string): void {
     writeFileSync(join(workDir, `${row.name}.cbor`), Buffer.from(row.documentBase64Url, 'base64url'));
   }
 
+  const redactionRows = (JSON.parse(readFileSync(join(dataDir, 'redaction-v1.json'), 'utf8')) as RedactionVectorFile).vectors;
+  const amendment = rowNamed('redaction-v1.json', redactionRows, 'removed-middle-record');
+  const amendmentKey = amendment.read.pinned;
+  if (amendmentKey === undefined) {
+    throw new Error('the published redaction row states no pinned key, so the run would designate one the document does not name');
+  }
+  const amendmentPack = stated(amendment.packBase64Url, 'pack the amendment designates');
+  // The published pair is sealed by one key and speaks about the pack the pack suite already publishes, so
+  // the amendment below is read against the same bytes the pack verb reads rather than a second copy of a
+  // pack this file assembled.
+  if (amendmentPack !== whole.documentBase64Url) {
+    throw new Error(
+      `the published amendment designates a pack other than the row '${whole.name}' publishes, so the two readings below would not be about one document`,
+    );
+  }
+  writeFileSync(join(workDir, `${amendment.name}.cbor`), Buffer.from(amendment.documentBase64Url, 'base64url'));
+
   provePack(workDir, {
     whole: whole.name,
     edited: edited.name,
@@ -395,9 +523,18 @@ function provePinnedVerbs(workDir: string, dataDir: string): void {
     companion: companion.name,
     digest: createHash('sha256').update(originalBytes).digest('hex'),
   });
+  proveRedaction(workDir, {
+    document: amendment.name,
+    pack: whole.name,
+    key: amendmentKey,
+    packDigest: createHash('sha256').update(Buffer.from(amendmentPack, 'base64url')).digest('hex'),
+    survivors: stated(amendment.survivors, 'survivor run'),
+    reduced: stated(amendment.reducedHex, 'chain head over the survivors'),
+    originalHead: stated(amendment.originalHeadHex, 'head the pack itself carries'),
+  });
 
   say(
-    'the bundle answered six runs over the published pack and export: two readings, one refusal of the wrong type for each verb, and one refusal of a document whose own contents do not hold for each verb',
+    'the bundle answered ten runs over the published pack, export and amendment: two readings and a survivor run, one refusal of the wrong type for each verb, one refusal of a document whose own contents do not hold for each verb, and one refusal of an amendment handed without the pack it designates',
   );
 }
 
