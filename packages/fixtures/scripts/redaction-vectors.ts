@@ -1058,7 +1058,8 @@ function main(): void {
         layout: {
           format: 'packages/receipt/redaction.cddl',
           twin: 'packages/receipt/schemas/redaction-v1.schema.json',
-          prose: 'docs/receipt-spec.md section 5.4',
+          prose:
+            'docs/receipt-spec.md section 5.2 for the framing the reduced member is folded over; the field set itself is stated by redaction.cddl and its JSON twin',
           contentType: REDACTION_CONTENT_TYPE,
           writer:
             'signRedaction in @ashaveri/receipt, which every honest seal here went through, and encodeRedactionManifest, encodeRedactionProtectedHeader, redactionSigStructure and sealRedaction, which assembled the rows that writer refuses to sign',

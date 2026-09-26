@@ -4,7 +4,7 @@
   "layout": {
     "format": "packages/receipt/redaction.cddl",
     "twin": "packages/receipt/schemas/redaction-v1.schema.json",
-    "prose": "docs/receipt-spec.md section 5.4",
+    "prose": "docs/receipt-spec.md section 5.2 for the framing the reduced member is folded over; the field set itself is stated by redaction.cddl and its JSON twin",
     "contentType": "ashaveri/redaction",
     "writer": "signRedaction in @ashaveri/receipt, which every honest seal here went through, and encodeRedactionManifest, encodeRedactionProtectedHeader, redactionSigStructure and sealRedaction, which assembled the rows that writer refuses to sign",
     "reader": "verifyRedaction in @ashaveri/receipt, which is the verdict column and which reads the pack with verifyPack, and decodeRedaction, which is the structural column and needs no key and no pack",

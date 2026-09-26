@@ -106,7 +106,7 @@ function walked(packBytes: Uint8Array) {
 /**
  * The reduced chain, recomputed in this file from the pack's own bytes: walk the links for the order, drop the
  * named records, and fold `packRecordDigest` from the pack's anchor. This is the reading a port takes from
- * `redaction.cddl` and from section 5.4, and it is deliberately not a call to the published fold.
+ * `redaction.cddl` and from section 5.2, and it is deliberately not a call to the published fold.
  */
 function reducedChainFromPack(packBytes: Uint8Array, removed: readonly string[]): string {
   const { manifest, reached } = walked(packBytes);
