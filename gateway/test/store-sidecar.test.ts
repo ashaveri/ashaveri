@@ -7,6 +7,7 @@ import {
   openFileReceiptStore,
   RECEIPT_SIDECAR_FILE,
   RECEIPT_STORE_FILE,
+  SIDECAR_BLOCK_RECORDS,
   type ReceiptRetention,
 } from '../src/store.js';
 
@@ -92,7 +93,6 @@ interface SidecarEntry {
   readonly payloadLen: number;
   readonly id: string;
   readonly digest: Buffer;
-  readonly check: Buffer;
 }
 
 interface Sidecar {
@@ -103,12 +103,12 @@ interface Sidecar {
 }
 
 /**
- * `magic:4 || version:u16 || identityLen:u16 || identity`, then one entry per record in the order the
- * store file holds them:
- * `recordStart:u64 || seq:u64 || iat:u64 || payloadLen:u32 || idLen:u16 || id || digest:32 || check:32`.
+ * `magic:4 || version:u16 || identityLen:u16 || identity`, then blocks, each one `recordCount:u32 ||
+ * checkpointBytes:u64` followed by that many entries and a 32 byte check. An entry is
+ * `recordStart:u64 || seq:u64 || iat:u64 || payloadLen:u32 || idLen:u16 || id || digest:32`.
  */
 function readSidecar(bytes: Buffer): Sidecar {
-  const identityLength = bytes.readUInt16BE(6);
+  const identityLength = bytes.length >= 8 ? bytes.readUInt16BE(6) : 0;
   const header = {
     magic: bytes.subarray(0, 4).toString('utf8'),
     version: bytes.readUInt16BE(4),
@@ -116,22 +116,30 @@ function readSidecar(bytes: Buffer): Sidecar {
   };
   const entries: SidecarEntry[] = [];
   let at = 8 + identityLength;
-  while (at + 62 <= bytes.length) {
-    const start = at;
-    const recordStart = Number(bytes.readBigUInt64BE(at));
-    const seq = Number(bytes.readBigUInt64BE(at + 8));
-    const iat = Number(bytes.readBigUInt64BE(at + 16));
-    const payloadLen = bytes.readUInt32BE(at + 24);
-    const idLen = bytes.readUInt16BE(at + 28);
-    if (at + 30 + idLen + 64 > bytes.length) break;
-    at += 30;
-    const id = bytes.subarray(at, at + idLen).toString('utf8');
-    at += idLen;
-    const digest = bytes.subarray(at, at + 32);
+  while (at + 12 <= bytes.length) {
+    const count = bytes.readUInt32BE(at);
+    at += 12;
+    for (let i = 0; i < count; i++) {
+      const start = at;
+      const recordStart = Number(bytes.readBigUInt64BE(at));
+      const seq = Number(bytes.readBigUInt64BE(at + 8));
+      const iat = Number(bytes.readBigUInt64BE(at + 16));
+      const payloadLen = bytes.readUInt32BE(at + 24);
+      const idLen = bytes.readUInt16BE(at + 28);
+      if (at + 30 + idLen + 32 > bytes.length) {
+        return { ...header, entries };
+      }
+      at += 30;
+      const id = bytes.subarray(at, at + idLen).toString('utf8');
+      at += idLen;
+      const digest = bytes.subarray(at, at + 32);
+      at += 32;
+      entries.push({ at: start, recordStart, seq, iat, payloadLen, id, digest });
+    }
+    if (at + 32 > bytes.length) {
+      return { ...header, entries };
+    }
     at += 32;
-    const check = bytes.subarray(at, at + 32);
-    at += 32;
-    entries.push({ at: start, recordStart, seq, iat, payloadLen, id, digest, check });
   }
   return { ...header, entries };
 }
@@ -216,12 +224,23 @@ async function answer(dir: string, asking: Asking = {}): Promise<string> {
   });
 }
 
-/** Writes `ids` receipts through the store, a minute apart, and leaves the file holding them. */
-async function fileWith(dir: string, ids: readonly string[], payload: Uint8Array = RECEIPT): Promise<void> {
-  const store = await openFileReceiptStore({ dir });
+/**
+ * Writes `ids` receipts a minute apart, and opens the store once more afterwards. The opening is what
+ * leaves the index speaking for the whole file: an append's entry waits for a block of them, so a
+ * store that has been restarted since it was written is the state a checkpoint is built for.
+ */
+async function fileWith(
+  dir: string,
+  ids: readonly string[],
+  payload: Uint8Array = RECEIPT,
+  declined = false,
+): Promise<void> {
+  const options = declined ? { dir, sidecarIndex: false } : { dir };
+  const store = await openFileReceiptStore(options);
   for (const [i, id] of ids.entries()) {
     await store.put(id, payload, STAMP + i * 60);
   }
+  await openFileReceiptStore(options);
 }
 
 /** The volume's own answer to which file the store file is, read the way the store reads it. */
@@ -244,7 +263,7 @@ describe('the store file is the only authority', () => {
       const dir = await emptyDir();
       await fileWith(dir, IDS);
       const neverDir = await emptyDir();
-      await fileWith(neverDir, IDS);
+      await fileWith(neverDir, IDS, RECEIPT, true);
       const asking = { ids: IDS };
       expect(await readdir(neverDir)).toEqual([RECEIPT_STORE_FILE]);
 
@@ -293,7 +312,7 @@ describe('the store file is the only authority', () => {
 
   it('writes nothing beside the store file when the sidecar is declined', { timeout: CASE_TIMEOUT }, async () => {
     const dir = await emptyDir();
-    await fileWith(dir, IDS);
+    await fileWith(dir, IDS, RECEIPT, true);
     expect(await readdir(dir)).toEqual([RECEIPT_STORE_FILE]);
     // Declining is not a read-only opening: the store still answers, and answers the same.
     const first = await answer(dir, { declined: true, ids: IDS });
@@ -323,24 +342,28 @@ describe('the store file is the only authority', () => {
     'keeps a receipt retention dropped from the served set, so a clock that steps back serves what the walk serves',
     { timeout: CASE_TIMEOUT },
     async () => {
-      // Why the sidecar is written from the records the file holds rather than from the served index: a
-      // pruned record is still bytes in the file, and an opening that re-derives the file indexes it
-      // again. Forward both openings retire it; back, both serve it.
+      // Why the index is written from the records the file holds rather than from the served set: a
+      // pruned receipt is still bytes in the file until a compaction takes them, and an opening that
+      // re-derives the file indexes it again. Forward both openings retire it; back, both serve it.
+      // The kept receipts outweigh the retired one, which is the condition a compaction needs before it
+      // rewrites the file and makes the retirement permanent in bytes as well as in the served set.
       const dir = await emptyDir();
-      let now = STAMP;
-      const retention: ReceiptRetention = { maxAgeSeconds: 1_000, now: () => now };
-      const store = await openFileReceiptStore({ dir, retention });
-      await store.put('aged', RECEIPT, STAMP - 2_000);
-      await store.put('kept', OTHER_RECEIPT, STAMP);
+      const store = await openFileReceiptStore({ dir });
+      await store.put('aged', RECEIPT, STAMP);
+      for (let i = 0; i < 3; i++) {
+        await store.put(`kept_${String(i)}`, OTHER_RECEIPT, STAMP + 5_000 + i);
+      }
+      const ids = ['aged', 'kept_0', 'kept_1', 'kept_2'];
 
-      const forward = { retention: { ...retention, now: () => STAMP }, ids: ['aged', 'kept'] };
+      const forward = { retention: { maxAgeSeconds: 1_000, now: () => STAMP + 5_002 }, ids };
       expect(await answer(dir, forward)).toBe(await answer(dir, { ...forward, declined: true }));
-      expect(JSON.parse(await answer(dir, forward)).window.count).toBe(1);
+      expect(JSON.parse(await answer(dir, forward)).window.count).toBe(3);
+      expect(JSON.parse(await answer(dir, forward)).asked.aged).toBe('absent');
 
-      now = STAMP - 3_000;
-      const back = { retention, ids: ['aged', 'kept'] };
+      const back = { retention: { maxAgeSeconds: 1_000, now: () => STAMP }, ids };
       expect(await answer(dir, back)).toBe(await answer(dir, { ...back, declined: true }));
-      expect(JSON.parse(await answer(dir, back)).window.count).toBe(2);
+      expect(JSON.parse(await answer(dir, back)).window.count).toBe(4);
+      expect(JSON.parse(await answer(dir, back)).asked.aged).toBe(hex(RECEIPT));
     },
   );
 });
@@ -596,19 +619,19 @@ describe('a compaction invalidates the sidecar in the right direction', () => {
   ): Promise<{ anchorBefore: string; sidecarBefore: Buffer }> {
     let now = STAMP;
     const retention: ReceiptRetention = { maxAgeSeconds: 1_000, now: () => now };
-    const store = await openFileReceiptStore({
-      dir,
-      retention,
-      ...(declined ? { sidecarIndex: false } : {}),
-    });
+    const options = { dir, retention, ...(declined ? { sidecarIndex: false } : {}) };
+    const store = await openFileReceiptStore(options);
     for (let i = 0; i < 10; i++) {
       await store.put(`old_${String(i)}`, RECEIPT, now + i);
     }
-    const anchorBefore = hex((await store.chainState()).anchor);
+    // The opening in the middle of the run is what writes an index for the file as it stands, so what
+    // comes back from it is the stale statement a later compaction has to make untrue.
+    const reopened = await openFileReceiptStore(options);
+    const anchorBefore = hex((await reopened.chainState()).anchor);
     const sidecarBefore = declined ? Buffer.alloc(0) : await sidecarBytes(dir);
     now = STAMP + 1_010;
     for (let i = 0; i < 4; i++) {
-      await store.put(`new_${String(i)}`, OTHER_RECEIPT, now + i);
+      await reopened.put(`new_${String(i)}`, OTHER_RECEIPT, now + i);
     }
     return { anchorBefore, sidecarBefore };
   }
@@ -667,11 +690,12 @@ describe('a compaction invalidates the sidecar in the right direction', () => {
     expect(after.anchor).toBe(JSON.parse(truth).anchor);
   });
 
-  it('leaves the sidecar a compaction wrote speaking for the file it moved in', {
-    timeout: CASE_TIMEOUT },
-  async () => {
+  it('leaves an index that speaks for every receipt the compacted file holds', {
+    timeout: CASE_TIMEOUT,
+  }, async () => {
     const dir = await emptyDir();
     await compacted(dir, false);
+    await answer(dir, { retention: AFTER, ids: ['old_0', 'new_0'] });
     const file = await readFile(storeFile(dir));
     const sidecar = readSidecar(await sidecarBytes(dir));
     const receipts = frames(file).filter((frame) => readFrame(frame).kind === 0);
@@ -692,6 +716,7 @@ describe('the sidecar is maintained by an append, not rebuilt', () => {
     await fileWith(dir, IDS);
     const store = await openFileReceiptStore({ dir });
     await store.put(IDS[1]!, FOREIGN, STAMP + 180);
+    await answer(dir, { ids: IDS });
 
     const file = await readFile(storeFile(dir));
     const sidecar = readSidecar(await sidecarBytes(dir));
@@ -710,13 +735,21 @@ describe('the sidecar is maintained by an append, not rebuilt', () => {
     expect(JSON.parse(await answer(dir, { ids: IDS })).asked.rcpt_02).toBe(hex(FOREIGN));
   });
 
-  it('keeps the checkpoint current through an append, so the next opening reads only what is new', {
+  it('reads receipts appended since the index was written out of the store file, then indexes them', {
     timeout: CASE_TIMEOUT,
   }, async () => {
     const dir = await emptyDir();
     await fileWith(dir, IDS);
     const store = await openFileReceiptStore({ dir });
     await store.put('rcpt_04', RECEIPT, STAMP + 180);
+    // An append's entry waits for a block, so the fourth receipt is not in the index yet and the one
+    // it is written into is read from the file. What the opening answers cannot depend on that.
+    expect(readSidecar(await sidecarBytes(dir)).entries).toHaveLength(3);
+
+    const asking = { ids: [...IDS, 'rcpt_04'] };
+    const served = await answer(dir, asking);
+    expect(served).toBe(await answer(dir, { ...asking, declined: true }));
+    expect(JSON.parse(served).walked.map((item: { id: string }) => item.id)).toEqual([...IDS, 'rcpt_04']);
 
     const file = await readFile(storeFile(dir));
     const sidecar = readSidecar(await sidecarBytes(dir));
@@ -725,6 +758,31 @@ describe('the sidecar is maintained by an append, not rebuilt', () => {
     expect(endOfRecord(last.recordStart, last.id, last.payloadLen)).toBe(file.length);
     expect(last.digest).toEqual(frames(file)[3]!.subarray(frames(file)[3]!.length - 32));
   });
+
+  it(
+    'writes an appended block without waiting for another opening',
+    // Two hundred and fifty six durable appends, one per record a block carries, measured at 0.9s here.
+    // The stop is the one the cases above carry times the twenty six appends this one adds.
+    { timeout: 60_000 },
+    async () => {
+      const dir = await emptyDir();
+      const store = await openFileReceiptStore({ dir });
+      const ids = Array.from({ length: SIDECAR_BLOCK_RECORDS - 1 }, (_, i) => `rcpt_${String(i)}`);
+      for (const [i, id] of ids.entries()) {
+        await store.put(id, RECEIPT, STAMP + i);
+      }
+      // Nothing has reached the index: a block is the unit it is written in, and this is the unit's size.
+      expect(readSidecar(await sidecarBytes(dir)).entries).toHaveLength(0);
+      await store.put(`rcpt_${String(SIDECAR_BLOCK_RECORDS - 1)}`, OTHER_RECEIPT, STAMP + ids.length);
+
+      const file = await readFile(storeFile(dir));
+      const sidecar = readSidecar(await sidecarBytes(dir));
+      expect(sidecar.entries).toHaveLength(SIDECAR_BLOCK_RECORDS);
+      const last = sidecar.entries[sidecar.entries.length - 1]!;
+      expect(endOfRecord(last.recordStart, last.id, last.payloadLen)).toBe(file.length);
+      expect(await answer(dir, { declined: true, ids: ['rcpt_0'] })).toBe(await answer(dir, { ids: ['rcpt_0'] }));
+    },
+  );
 
   it('drops a sidecar that disagrees and rebuilds it from the file, leaving the answers unchanged', {
     timeout: CASE_TIMEOUT,
