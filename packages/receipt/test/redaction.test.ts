@@ -161,6 +161,17 @@ function sealed(manifest: PackManifest): SealedPack {
   return sealedOf(bytes);
 }
 
+/**
+ * A pack manifest sealed through the four published pieces rather than through `signPack`, which will not sign
+ * a run that does not close at the head it names. The header, the framing and the key are that writer's own, so
+ * the only thing these bytes differ from a deployment's by is the position a case moved.
+ */
+function packPieces(manifest: PackManifest, signer: SigningKey = KEY): Uint8Array {
+  const payloadBytes = encodePackManifest(manifest);
+  const header = encodePackProtectedHeader(signer.kid);
+  return sealPack(header, payloadBytes, ed25519.sign(packSigStructure(header, payloadBytes), signer.privateKey));
+}
+
 /** The bytes a case already assembled, read back into the manifest they carry. */
 function sealedOf(bytes: Uint8Array): SealedPack {
   return { bytes, manifest: decodePack(bytes).manifest };
@@ -624,8 +635,9 @@ describe('the original pack, untouched by the document written about it', () => 
     );
     // A record lifted out of the middle of a signed run and nothing else touched, so the successor still names
     // the predecessor it had and the head is the one the whole run hashed to. The walk stops at the hole, and
-    // the redaction inherits that answer rather than inventing one of its own.
-    const broken = sealedOf(signPack({ ...PACK.manifest, items: [PACK.manifest.items[0]!, PACK.manifest.items[2]!] }, KEY));
+    // the redaction inherits that answer rather than inventing one of its own. The pack's writer refuses to
+    // sign a run that does not close, so these bytes are sealed from the published pieces.
+    const broken = sealedOf(packPieces({ ...PACK.manifest, items: [PACK.manifest.items[0]!, PACK.manifest.items[2]!] }));
     const aboutBroken = honestRedaction(broken, ['receipt-1']);
     expect(thrownCode(() => verifyRedaction(aboutBroken, readWith(broken)))).toBe('PACK_CHAIN_BROKEN');
     // A caller that retained one epoch of a pack whose span crosses a rotation has too few keys, and the pack
