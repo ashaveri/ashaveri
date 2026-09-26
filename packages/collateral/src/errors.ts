@@ -3,11 +3,11 @@ import { sha256Hex, utf8 } from './bytes.js';
 /**
  * The refusals of this package, and the layer that names them.
  *
- * These codes belong to none of the seven unions in `docs/error-codes.md`, because none of those
- * seven is raised from here: `AttestationErrorCode` answers what a document says about the evidence
- * it carries, and every refusal below answers whether the vendor's own statement about a platform
- * can be read at the moment being appraised. Prefixing them keeps a log line naming its layer,
- * which is the rule that document states for a bare code string.
+ * `docs/error-codes.md` carries every code below as its `CollateralErrorCode` union. The rows rest on the
+ * difference between this vocabulary and `AttestationErrorCode`: that answers what a document says about the
+ * evidence it carries, while each refusal here answers whether the vendor's own statement about a platform can
+ * be read at the moment being appraised. Prefixing the codes keeps a log line naming its layer, which is the
+ * rule that document states for a bare code string.
  */
 export type CollateralErrorCode =
   | 'COLLATERAL_INPUT_MISSING'
