@@ -69,14 +69,12 @@ export interface CollateralQuery {
 export interface DeclaredIdentity {
   /** The CPU type the document claims to cover, verbatim, or null when it names none. */
   readonly cpuType: string | null;
-  /** The level selector as the document spells it, or null when the document states no level ladder. */
-  readonly level: string | null;
-  /** The vendor's own status text beside what was asked, or null when the document states none. */
-  readonly vendorStatus: string | null;
+  /** The vendor's own status text beside what was asked, copied rather than paraphrased. */
+  readonly vendorStatus: string;
 }
 
-/** What this package made of the identity's own statement. */
-export type StatusReading = 'trusted' | 'revoked' | 'unclassified' | 'not-stated';
+/** What this package made of the identity's own statement, which is one of two readings. */
+export type StatusReading = 'trusted' | 'revoked';
 
 /** The window the vendor signed, in Unix seconds, which is how far the answer reaches. */
 export interface SignedWindow {
@@ -124,6 +122,8 @@ export interface CollateralClaim {
    * nothing, and a reader of the retained copy sees that stated in the claim beside them.
    */
   readonly retainUntil: number;
+  /** Where these bytes belong, spelled from the declared key members, so a store cannot mix identities. */
+  readonly cacheKey: string;
 }
 
 /**
@@ -154,12 +154,13 @@ export type CollateralOutcome =
 /** The transport a fetch runs on, injectable so the refusals can be tested without a network. */
 export type CollateralTransport = typeof fetch;
 
-/** Where an appraisal ran: the origin answer, or the caller's own archive. */
+/** How an appraisal is run: what it may ask, and which clock stamps what it saw. */
 export interface CollateralAppraisalOptions {
   readonly transport?: CollateralTransport;
   /**
-   * Wall clock in seconds since the epoch, consulted only when a query states no appraisal instant of
-   * its own, which is the one place this package reads a clock and says which clock it used.
+   * Wall clock in seconds since the epoch, used only to stamp the instant an answer landed. The
+   * appraisal instant is never taken from it: a query that does not say what moment it is asking
+   * about is refused rather than answered about now.
    */
-  readonly now?: () => number;
+  readonly clock?: () => number;
 }

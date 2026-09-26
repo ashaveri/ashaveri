@@ -17,6 +17,9 @@ export {
 export type { CollateralCacheMember, OriginDeclaration, ServedCollateralOrigin } from './intel-origin.js';
 export { fetchFromOrigin, wallClock } from './fetch.js';
 export type { FetchContext, FetchOutcome, FetchedCollateral } from './fetch.js';
+export { readSignedCollateral } from './read.js';
+export type { ReadCollateral, ReadOutcome } from './read.js';
+export { appraiseCollateral } from './classify.js';
 export type {
   CollateralAppraisalOptions,
   CollateralClaim,

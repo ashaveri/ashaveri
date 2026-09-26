@@ -52,7 +52,17 @@ export interface OriginDeclaration {
     /** How long a caller may keep the bytes: the vendor's own next update, copied and never extended. */
     readonly retainUntil: 'vendor-next-update';
   };
-  /** Which refusal each failure of this path answers with. */
+  /**
+   * Which of the vendor's own status words this package reads as what.
+   *
+   * A word outside both lists is refused with the document's text quoted rather than sorted into the
+   * nearer list: a status naming a mitigation is a claim about something other than "trusted" or
+   * "revoked", and deciding what an appraisal should make of it is a decision, not a reading.
+   */
+  readonly status: {
+    readonly trusted: readonly string[];
+    readonly revoked: readonly string[];
+  };
   readonly refusals: {
     readonly transport: CollateralErrorCode;
     readonly status: CollateralErrorCode;
@@ -86,6 +96,18 @@ const CACHE_RULE = {
   retainUntil: 'vendor-next-update',
 } as const;
 
+/**
+ * Intel's own words about a platform level. `OK` is the only one that says nothing is owed, and the
+ * out-of-date spellings are the ones that say the vendor no longer stands behind the level. The
+ * `OutOfDate:ConfigurationNeeded` colon form is kept beside its underscore twin because the two
+ * documents of this path have spelled the same statement both ways, and reading one as the other would
+ * turn a revoked platform into an unclassified one.
+ */
+const STATUS_VOCABULARY = {
+  trusted: ['OK'],
+  revoked: ['OutOfDate', 'OutOfDateConfigurationNeeded', 'OutOfDate:ConfigurationNeeded', 'Revoked'],
+} as const;
+
 const INTEL_PATH = {
   host: 'api.trustedservices.intel.com',
   platformPath: (platform: IntelPlatform) => `/${platform}/certification/v4`,
@@ -98,6 +120,7 @@ const INTEL_PATH = {
     certificateMember: 'x5c',
   },
   refusals: REFUSALS,
+  status: STATUS_VOCABULARY,
 } as const;
 
 /**
