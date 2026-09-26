@@ -500,7 +500,13 @@ export function decodeBase64(value: string): Uint8Array {
     fail('MALFORMED_CERTIFICATE', 'invalid base64 payload');
   }
   const alphabet = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/';
-  const body = value.replace(/=+$/, '');
+  // Index trimming rather than /=+$/: this string arrives from a quoted document, and an
+  // anchored quantifier costs one backtrack per character of a tail that does not end matched.
+  let padding = value.length;
+  while (padding > 0 && value[padding - 1] === '=') {
+    padding -= 1;
+  }
+  const body = value.slice(0, padding);
   const out = new Uint8Array(Math.floor((body.length * 6) / 8));
   let buffer = 0;
   let bits = 0;
