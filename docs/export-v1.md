@@ -239,11 +239,16 @@ endpoints, which are the checks that mean something only against a signature the
 
 The same module publishes the codec the layout is written against: `encodeExportManifest`,
 `encodeExportProtectedHeader`, `exportSigStructure`, `sealExport` and `signExport`, plus
-`exportRecordDigest` for the framing. `signExport` runs a manifest through the structural parse before it
-signs, so a writer cannot produce bytes its own reader rejects, and a document that is meant to be refused
-therefore cannot come out of it. Every document in `packages/fixtures/data/export-v1.json` is assembled from
-the pieces above rather than through `signExport`, and published beside the verdict it owes and the arguments
-it is read with.
+`exportRecordDigest` for the framing. `signExport` runs a manifest through the structural parse and, for the
+anchored arm, through the walk above, before it signs, so a writer cannot produce bytes its own reader rejects:
+a gap, a fork, a run that stops short of the head it names and an item outside the run are each refused where
+the bytes are made, under `EXPORT_CHAIN_BROKEN` and `EXPORT_ITEM_UNREACHED`, rather than after a signature has
+fixed them. One exception is a limit of what the writer can see rather than of the rule: a record's digest is
+taken over the original bytes, so an anchored collection whose items name companion files is sealed on its
+structure and left to the reader that will be handed those files. A document that is meant to be refused
+therefore cannot come out of `signExport`. Every document in `packages/fixtures/data/export-v1.json` is
+assembled from the pieces above rather than through `signExport`, and published beside the verdict it owes and
+the arguments it is read with.
 
 ## The identity of the schema
 
