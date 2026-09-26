@@ -19,7 +19,7 @@ import { mockDeployment, type AttestationBundle, type Deployment } from './deplo
 import { fromHex, sha256, toHex } from './digest.js';
 import { MarkedStreamTail, markBufferedBody, markingFrame, unmarked } from './marking.js';
 import { parseChatCompletionRequest, RequestError } from './mock.js';
-import { openMemoryReceiptStore, type ReceiptStore } from './store.js';
+import { openMemoryReceiptStore, receiptsNeededForWindow, type ReceiptRetention, type ReceiptStore, type RetainedWindow } from './store.js';
 
 const NONCE_BYTES = 16;
 // A cold model load can hold back the first streamed event for minutes.
@@ -42,6 +42,13 @@ export interface GatewayOptions {
    * in this process, so they are gone when it stops; a deployment with a volume passes the file engine.
    */
   readonly store?: ReceiptStore;
+  /**
+   * The durability guard read at admission. Absent means nothing is refused on it, which is what a
+   * deployment that configures nothing runs today: `gateway/src/cli.ts` hands this option the same
+   * retention object it opened the store with, so a process serving traffic compares a period and a
+   * count it did not have to state twice.
+   */
+  readonly receiptIntakeGuard?: ReceiptIntakeGuard;
   /**
    * The pipeline every route runs through. Required: there is no gateway without it,
    * and a default that admits everything would be a floor that opts out.
@@ -158,6 +165,145 @@ async function collect(response: BackendResponse): Promise<Buffer> {
   return Buffer.concat(chunks, size);
 }
 
+/**
+ * The intake guard: the durability bound read while serving rather than only at an opening.
+ *
+ * The two numbers are the pair `gateway/src/store.ts` already compares when a file store opens, and
+ * this is that arithmetic seen from outside the store: the retained set, the span its own stamps
+ * cover, and the count the configured period takes at the rate those stamps measure. What it was for
+ * is the difference between the two moments. An opening refuses a pairing it can no longer honour,
+ * which is correct and too late for the window in force, because a store that reached the pairing
+ * while serving keeps answering completions throughout it and the window a client was told about is
+ * the shorter one the bound leaves. So the same fact, met at admission, is acted on there: a
+ * completion is refused before the upstream is called, and reads, verification and handover keep
+ * serving off the receipts already filed.
+ */
+export interface ReceiptIntakeGuard {
+  /**
+   * The durability policy this deployment configured, as the same object the receipt store was opened
+   * with. A store reports its retained set and not its own configuration, so the two numbers the
+   * guard compares have to be handed over; passing the very object a store was built from is what
+   * keeps a refusal from being raised against a bound nothing was retired by.
+   *
+   * Both halves are needed. A policy bounded only by count, or only by a period, has no pairing to
+   * contradict and is never refused here, exactly as the opening never asks. `now`, which the same
+   * interface carries for a store's retirement clock, is never read: this compares stamps a store has
+   * already written, and inventing a second clock to age them by would be a second answer to a
+   * question the file has settled.
+   */
+  readonly retention?: ReceiptRetention;
+  /**
+   * The fraction of the durability bound at which the guard starts reading, in the half-open interval
+   * (0, 1]. Default: 1, which is the bound itself.
+   *
+   * Because a retained set never exceeds its bound, a threshold at the bound is reached on exactly
+   * one state, `count === maxCount`, which is the state the opening refusal already compares. The
+   * default is therefore not a claim that the two agree in prose but a consequence of one arithmetic,
+   * and `test/intake-guard.test.ts` holds it against a real store that refuses, or does not refuse,
+   * to open on the same file. A deployment that sets nothing sees no change; a deployment that sets
+   * half of it starts refusing when half its volume is retained, which is the point of the number
+   * being a fraction rather than a constant.
+   */
+  readonly refusesAtFraction?: number;
+  /**
+   * The explicit opt-in to grow past the guard, off unless a deployment says so. With it set nothing
+   * is refused at admission and issuance keeps filling the store while the bound retires the oldest
+   * prefix, which is the behaviour this guard exists to stop, and its cost arrives inside a write:
+   * the window served is the shorter one the bound reaches, and the next restart of that same volume
+   * refuses to open rather than serve it. It is offered because a deployment that would rather pay
+   * that than refuse a completion is making a capacity decision nobody here can make for it.
+   */
+  readonly growPastGuard?: boolean;
+}
+
+/** The four numbers a refusal is made of, so the sentence names them and no reader re-derives them. */
+export interface IntakeGuardFigures {
+  /** Receipts retained now. */
+  readonly retained: number;
+  /** The count at which this guard starts reading, which is the threshold applied to the bound. */
+  readonly refusesAt: number;
+  /** The durability bound configured beside the period. */
+  readonly bound: number;
+  /** Seconds between the oldest and newest stamp in the retained set. */
+  readonly spanSeconds: number;
+  /** The configured period. */
+  readonly periodSeconds: number;
+  /** What that period takes at the rate the retained stamps measure. */
+  readonly needed: number;
+}
+
+/**
+ * The threshold a deployment that configures nothing runs at: the durability bound itself, which is
+ * the only point at which the guard's answer and the store opening's answer are the same sentence.
+ */
+export const DEFAULT_INTAKE_GUARD_FRACTION = 1;
+
+/**
+ * Whether this retained set has reached the point where honouring the period would retire a receipt
+ * the period still covers, and the figures that say so. Null means serve.
+ *
+ * Four early returns, and each is one of the states that would otherwise refuse a quiet deployment.
+ * Growing past the guard is an opt-in read first, because a deployment that took it has refused this
+ * decision rather than asked for it later. One bound alone is not a pairing. A retained set that has
+ * not reached the configured point of the bound is shedding nothing, however slow it is, and a store
+ * that has filed fewer than two receipts, or was given no period, has measured no rate for the count
+ * to be derived from. And a retained set at its bound whose stamps already span the period is holding
+ * what it asked for at the traffic it carries, which is the case the opening lets through and this
+ * must too.
+ *
+ * What survives those four is the pairing itself, and the answer is the store's own arithmetic:
+ * `receiptsNeededForWindow` is the function `assertWindowHeldable` refuses by, imported rather than
+ * copied so the two moments cannot drift apart and an operator cannot be told one count by a banner
+ * and another by a refusal.
+ */
+export function intakeGuardRefusal(
+  guard: ReceiptIntakeGuard,
+  held: RetainedWindow,
+): IntakeGuardFigures | null {
+  if (guard.growPastGuard === true) return null;
+  const periodSeconds = guard.retention?.maxAgeSeconds;
+  const bound = guard.retention?.maxCount;
+  if (periodSeconds === undefined || bound === undefined) return null;
+  const fraction = guard.refusesAtFraction ?? DEFAULT_INTAKE_GUARD_FRACTION;
+  // A threshold is read as a fraction of the bound, so it is never above the bound: a value over 1
+  // would ask the guard to start reading after the store has run past the count that retires it,
+  // which no state reaches, and a value that is not a positive finite number reads as the shipped
+  // default rather than as a way to switch the guard off by typo. Turning it off is what
+  // `growPastGuard` is for, and it is named and banners.
+  const refusesAt =
+    Number.isFinite(fraction) && fraction > 0 ? Math.min(bound, Math.ceil(fraction * bound)) : bound;
+  if (held.count < refusesAt) return null;
+  const needed = receiptsNeededForWindow(periodSeconds, held);
+  if (needed === null || needed <= bound) return null;
+  return {
+    retained: held.count,
+    refusesAt,
+    bound,
+    spanSeconds: held.to - held.from,
+    periodSeconds,
+    needed,
+  };
+}
+
+/**
+ * The detail carried by `RECEIPT_WINDOW_UNHOLDABLE`. It states the two configured quantities, the
+ * measured span, the count the period takes and the shortfall, in the order an operator needs to
+ * raise a number from: the same discipline the opening refusal follows in `store.ts`, so a refusal
+ * read off either moment tells the reader which bound is short and by how much.
+ */
+function intakeGuardDetail(figures: IntakeGuardFigures): string {
+  return (
+    `the store holds ${figures.retained} of the ${figures.bound} receipts its durability bound allows, ` +
+    `refusing from ${figures.refusesAt} of them, those stamps span ${figures.spanSeconds} seconds while ` +
+    `the configured period is ${figures.periodSeconds} seconds, and that period takes ${figures.needed} ` +
+    `receipts at the rate this store has been carrying, which is ${figures.needed - figures.bound} more ` +
+    `than the bound holds. Issuing this completion would retire a receipt the period still covers, so it ` +
+    `is refused before any inference is run. Raise the durability bound to at least ${figures.needed}, ` +
+    `shorten the period beside it, or let the traffic this store carries fall; reads, verification and ` +
+    `handover are served from the receipts already filed and are unaffected`
+  );
+}
+
 export function buildGateway(options: GatewayOptions): GatewayInstance {
   const { access, accessLog } = options;
   const deployment =
@@ -177,6 +323,9 @@ export function buildGateway(options: GatewayOptions): GatewayInstance {
   // only thing its clock can be asked is which instant a retirement is written under, and that reads
   // the same source as the receipts it would be timing.
   const receipts = options.store ?? openMemoryReceiptStore({ retention: { now: stamp } });
+  // The durability policy this deployment configured, read once like every other switch on this
+  // process. An absent guard is no guard: see `ReceiptIntakeGuard`.
+  const intakeGuard = options.receiptIntakeGuard ?? {};
   // One HKDF over the deployment's own signing seed, for the whole process. The id a receipt is
   // fetched by is minted here rather than taken from the upstream, and nothing is written down to
   // make the fetch work: the id carries the tag of the credential that minted it.
@@ -299,6 +448,31 @@ export function buildGateway(options: GatewayOptions): GatewayInstance {
         // which is where anyone reaching for `X-Forwarded-For` will find this paragraph.
         peerAddress: request.socket.remoteAddress,
       });
+      // The durability guard, and the sixth check this pipeline makes. It sits behind all five of
+      // `CredentialStore.admit` for the reason section 1 of `docs/access-control.md` states as a rule:
+      // a check that reads the credential file answers only to a caller that proved a key, and a check
+      // that reads nothing a caller wrote answers alike to everyone who got that far. This one reads the
+      // retained set and the two configured numbers, so it names no credential, distinguishes no
+      // credential id, and varies with nothing in the file. It sits ahead of every route body, and so
+      // ahead of `backend.respond`, because what it declines is the issuance of a receipt rather than
+      // the computation behind one: an inference already run is an inference paid for, and a completion
+      // answered without a receipt is the recording obligation dropped rather than a capacity
+      // preference. Only a route that issues one is read at all, which is what keeps verification,
+      // receipts already filed, and handover serving while intake refuses.
+      //
+      // The store reports its retained set asynchronously, so the wait is here and nothing has been
+      // written about the admission yet: a refusal leaves `cred` to the error's own field below, and
+      // `auth` and `scope` null, because what the refusal says did not happen is the issuing of a
+      // receipt and not the verifying of a key.
+      if (admitted.scope === 'complete') {
+        const refusal = intakeGuardRefusal(intakeGuard, await receipts.window());
+        if (refusal !== null) {
+          throw new AccessError('RECEIPT_WINDOW_UNHOLDABLE', {
+            detail: intakeGuardDetail(refusal),
+            credentialId: admitted.credentialId,
+          });
+        }
+      }
       state.credential = admitted.credentialId;
       // Held on the request the moment admission names the credential, so a mint and a read compare
       // the same value they were admitted with rather than looking one up again per request.
