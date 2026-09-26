@@ -63,16 +63,16 @@ deployment. That sentence is about where the package stands today, not about kee
 
 ## What is not here
 
-- **No published packages.** As of September 2026 none of the above is on a registry, so there is no
+- **No published packages.** None of the above is on a registry, so there is no
   published artifact to substitute, no install-time provenance question to raise about a release, and
   no package page whose text could contradict this code.
 - **No hosted service.** We operate no gateway, no verification endpoint, no API and no telemetry
   intake. There is no account, tenant or console of ours to attack, no support desk, and no uptime
   figure anywhere in this project. Nothing of ours sits in a caller's verification loop either: the
   checks are local, against the vendor roots bundled in `@ashaveri/attest-core` and the pins a client
-  supplies. That covers the present and the decided future alike: the attestation-collateral feed described
-  in `README.md` was decided on 21 September 2026 and nothing of it runs, so as of this writing there
-  is still no endpoint of ours for a report to be about.
+  supplies. That covers the decided future as well: the attestation-collateral feed described
+  in `README.md` does not run, so there
+  is no endpoint of ours for a report to be about.
 - **No certifications and no audits.** This repository has completed neither, so it holds no seal to
   lose and no attestation of its own processes. Where a document here names an article of the EU AI
   Act or of the GDPR, it names it as the reason a number or a field is what it is. That is a design
@@ -92,8 +92,8 @@ aspirational. A sample, so you know what you are walking into:
 
 - Nothing in this code fetches vendor attestation collateral, so a genuinely signed but since-revoked
   platform still verifies. Checking freshness needs network access and is deliberately outside the
-  offline path. A convenience feed of that collateral was decided on 21 September 2026 and is described in
-  `README.md`; nothing of it runs today, and it changes nothing about what you are reporting.
+  offline path. A convenience feed of that collateral is described in
+  `README.md`; it does not run, and it changes nothing about what you are reporting.
 - A composite `snp+gpucc` or `tdx+gpucc` label does not prove the attesting GPU is the card attached
   to the attesting VM. That needs TDISP/TEE-IO and no deployment here has it.
 - A deployment manifest is authenticated only where an operator handed that deployment a key for the

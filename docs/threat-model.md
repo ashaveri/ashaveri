@@ -185,7 +185,7 @@ What is still true, in both modes:
   genuinely signed but since deprecated or revoked by the vendor therefore still verifies. Checking
   freshness needs network access and is deliberately outside the offline verification path. The
   residual risk in T12 is the whole of this limitation, and it is not scheduled away: a service
-  publishing this collateral for deployments that want it was decided on 21 September 2026, described in
+  publishing this collateral for deployments that want it is the position, described in
   the README's attestation-collateral section, and nothing of it is in this code or is a precondition of
   any verdict a third party can reach. This document describes the offline path as it is built.
 - **The client's clock is a stranger's, and its two windows are chosen numbers.** In strict mode the
@@ -213,15 +213,15 @@ What is still true, in both modes:
   deployment here has it. Device collection costs a real device seconds, so the gateway asks once
   per challenge and caches the answer, and a plain `"snp"` or `"tdx"` deployment is never upgraded
   into the claim or charged for it.
-- **The producing path has not been answered by a real image.** Today the gateway asks dstack's v1
+- **The producing path has not been answered by a real image.** The gateway asks dstack's v1
   device attestation route and serves the vendor's `nvattest` bundle unchanged; both are
   implemented from published shapes and tested against a fake guest. The guest agent's wire
   contract and the per-device field names stay assumptions until a real dstack image replies to
-  the call. The settled direction, recorded 12 September 2026, is to collect device evidence
+  the call. The settled direction is to collect device evidence
   inside our own container with the vendor's own tool instead of depending on a guest-agent
   release: that tool is what the platform's agent itself shells out to, other vendors document
   their customers running it, and one producing path then serves every rail this stack can run on
-  rather than only the one rented first. That collection code is not in this repository yet. The
+  rather than only the one rented first. That collection code is not in this repository. The
   route already written stays and is used when an image offers it, since it is written and tested
   and deleting it buys nothing. Both producers emit the vendor tool's own bundle format, so the
   verifier cannot tell them apart and does not need to, and what the bundle proves is unchanged by
@@ -245,7 +245,7 @@ What is still true, in both modes:
   T15 and T16: a receipt id's tag is legible to whoever holds the signing seed, log or no log, and a
   credential this deployment issued can still ask a route whether the table has a row for its target
   and read the answer in the refusal's message. What is not there is the older T15 residual, closed
-  on 19 September 2026: an invented `pop` credential id is refused exactly as a failed signature is,
+  earlier: an invented `pop` credential id is refused exactly as a failed signature is,
   so no refusal distinguishes a real id from an invented one for a caller that has proved nothing. The
   access log does keep the true reason for such a refusal, and the log is the deployer's artifact,
   erased with the credential it names.
