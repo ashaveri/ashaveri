@@ -17,6 +17,15 @@ useDefault = true
 # one would let the first of those through. Copying either value to any other path is
 # reported too, which is the reason each path below names a single file.
 #
+# A third block sits below for a different reason. It exempts the public half of the receipt
+# fixture's key at the one place a document prints it: the verify-pack example in README.md,
+# where the same bytes appear base64url rather than hex and the sentence under the example
+# names the file that publishes them. It is the verification key, not the signing key, so the
+# private half above is untouched by it. Measured on 8.30.1 against a clone of this
+# repository: the scan reports README.md's example with no block below, reports nothing with
+# it, and reports both a copy of that value placed in another file and a different key left
+# in README.md itself. The exemption is the intersection, so neither half of it is loose.
+#
 # One limit, measured rather than assumed: the value half of the pairing is enforced when a
 # scan reads commits, which is how CI runs it, and not when a scan reads a working tree. On
 # one tree, one config and gitleaks 8.30.1, the commit scan reported a second key planted
@@ -43,4 +52,15 @@ regexes = [
 ]
 paths = [
   '''^packages/fixtures/data/keys/receipt-key-v1\.json$''',
+]
+
+[[allowlists]]
+description = "The receipt fixture's public verification key, in the README example that prints it"
+condition = "AND"
+regexTarget = "secret"
+regexes = [
+  '''^E6uO0ed3_zm-Ix32lLu8j5Z9W3eet8q1WHYstU-WCwU$''',
+]
+paths = [
+  '''^README\.md$''',
 ]
