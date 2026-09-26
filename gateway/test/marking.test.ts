@@ -13,10 +13,10 @@ import {
   type MarkingScheme,
   type ReceiptPayloadV2,
 } from '@ashaveri/receipt';
-import { MarkedStreamTail, type BackendResponse, type CompletionBackend, type CompletionUsage } from '../src/index.js';
+import { MarkedStreamTail, type BackendResponse, type CompletionBackend, type CompletionUsage, type TimeSource } from '../src/index.js';
 import { MARKING_CHUNK_ID } from '../src/marking.js';
 import { sha256 } from '../src/digest.js';
-import { CLOCK_SECONDS, generated, harness, type Generated, type Harness } from './helpers.js';
+import { CLOCK_SECONDS, fixedClock, generated, harness, type Generated, type Harness } from './helpers.js';
 
 /**
  * The mark, seen from the side that writes it. Each cell below asks the same question of a response
@@ -124,7 +124,7 @@ const credential: Generated = generated('marking', ['complete', 'read']);
 let session: Harness | undefined;
 
 async function open(
-  gateway: { backend?: CompletionBackend; marking?: MarkingScheme; now?: () => number } = {},
+  gateway: { backend?: CompletionBackend; marking?: MarkingScheme; time?: TimeSource } = {},
 ): Promise<Harness> {
   await close();
   session = await harness({ credentials: [credential], gateway });
@@ -251,7 +251,7 @@ describe('a marked buffered completion', () => {
     const h = await open({
       backend: bodyBackend(UPSTREAM_BUFFERED, 'application/json'),
       marking: 'provenance-v1',
-      now: () => MARKED_AT_SECONDS * 1000,
+      time: fixedClock(() => MARKED_AT_SECONDS),
     });
     const res = await send(h, '/v1/chat/completions', REQUEST_BODY);
     expect(res.statusCode).toBe(200);
@@ -350,7 +350,7 @@ describe('a marked streamed completion', () => {
     // A stream is stamped twice: the frame this gateway writes carries an instant, and the receipt
     // signed after the last byte carries one. Two readings of two clocks would let a marked frame
     // date a completion before the receipt that attests it, which a reader holding both can see.
-    const h = await open({ backend: streamBackend(), marking: 'provenance-v1', now: () => MARKED_AT_SECONDS * 1000 });
+    const h = await open({ backend: streamBackend(), marking: 'provenance-v1', time: fixedClock(() => MARKED_AT_SECONDS) });
     const res = await send(h, '/v1/chat/completions', STREAM_REQUEST_BODY);
     const stream = text(new Uint8Array(res.rawPayload));
     const parsed = JSON.parse(

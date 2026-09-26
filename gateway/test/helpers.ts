@@ -19,9 +19,20 @@ import {
   type Scope,
 } from '../src/access.js';
 import { openMemoryAccessLog, type MemoryAccessLog } from '../src/aclog.js';
+import { type TimeSource } from '../src/store.js';
 import { sha256 } from '../src/digest.js';
 
 export const CLOCK_SECONDS = 1_772_000_000;
+
+/**
+ * A clock a fixture pins to an instant it chose, named so a refusal quotes a source rather than a
+ * number, and carrying the bound the case is about. The reading is a function and not a number because
+ * a case that ages records moves the instant it reads. Null, the default, is the shipped state: an
+ * uncertainty nobody measured.
+ */
+export function fixedClock(read: () => number, uncertaintySeconds: number | null = null): TimeSource {
+  return { name: 'fixture clock', uncertaintySeconds, now: read };
+}
 
 /**
  * The one seed rule behind every fixture key pair: the id's own bytes, so two fixtures whose ids

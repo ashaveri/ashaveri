@@ -164,7 +164,14 @@ async function runScenario(scenario: Scenario): Promise<Record<string, unknown>>
   return inStore(async (dir) => {
     const store = await openFileReceiptStore({
       dir,
-      ...(scenario.retention === null ? {} : { retention: { ...scenario.retention, now: () => CLOCK } }),
+      ...(scenario.retention === null
+        ? {}
+        : {
+            retention: {
+              ...scenario.retention,
+              time: { name: 'chain vector generator', uncertaintySeconds: null, now: () => CLOCK },
+            },
+          }),
     });
     for (const each of scenario.puts) {
       await store.put(each.id, each.payload, each.iat);

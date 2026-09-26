@@ -140,7 +140,10 @@ function retentionOf(scenario: ChainScenario): ReceiptRetention | undefined {
   const configured = scenario.retention;
   return configured === undefined
     ? undefined
-    : { ...configured, now: () => scenario.clockSeconds };
+    : {
+        ...configured,
+        time: { name: 'chain vector scenario clock', uncertaintySeconds: null, now: () => scenario.clockSeconds },
+      };
 }
 
 async function withDir<T>(work: (dir: string) => Promise<T>): Promise<T> {

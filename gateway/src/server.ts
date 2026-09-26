@@ -19,7 +19,17 @@ import { mockDeployment, type AttestationBundle, type Deployment } from './deplo
 import { fromHex, sha256, toHex } from './digest.js';
 import { MarkedStreamTail, markBufferedBody, markingFrame, unmarked } from './marking.js';
 import { parseChatCompletionRequest, RequestError } from './mock.js';
-import { openMemoryReceiptStore, receiptsNeededForWindow, type ReceiptRetention, type ReceiptStore, type RetainedWindow } from './store.js';
+import {
+  HOST_CLOCK_SOURCE,
+  measurableSpanSeconds,
+  openMemoryReceiptStore,
+  receiptsNeededForWindow,
+  sourceSentence,
+  type ReceiptRetention,
+  type ReceiptStore,
+  type RetainedWindow,
+  type TimeSource,
+} from './store.js';
 
 const NONCE_BYTES = 16;
 // A cold model load can hold back the first streamed event for minutes.
@@ -68,21 +78,24 @@ export interface GatewayOptions {
    */
   readonly marking?: MarkingScheme;
   /**
-   * This process's one time source, in milliseconds since the Unix epoch, the unit `Date.now` reads
-   * in. Every whole-second stamp this gateway writes into a document it then signs is taken from here,
-   * so the moment a receipt is issued is decided by the one seam a deployment can point at a source of
-   * its own, rather than by a call to the platform clock buried in the handler that makes the
-   * document. Absent means the platform clock, which is what a deployment that configures nothing
-   * reads today, and nothing about the value it gives changes.
+   * This process's one time source: a name, the bound that source can be wrong by, and the reading
+   * every whole-second stamp in this file is taken from. The issuance instant a receipt claims, the
+   * stamp the store files the record under, and the instant a marking frame carries all come from here,
+   * so the moment a receipt claims cannot be moved apart from the moment the filing cabinet says it
+   * arrived by taking them at two moments, and neither is decided by a call the deployment cannot reach.
    *
-   * Handing over a source is not the same as making a stamp unmovable. A process can only read the
-   * clock it was given, so on a deployment where whoever owns the host also chose the clock, this
-   * option moves the move rather than preventing it: what it buys is that the choice is written down
-   * once at construction, that a deployment able to read an attestable or ratcheted time can wire it
-   * here, and that the stamp of a record is a thing a test can fix without waiting. Section 3 of
-   * `docs/receipt-spec.md` states what an `iat` therefore proves and what it cannot.
+   * Absent means `HOST_CLOCK_SOURCE`: this host's own clock, at the uncertainty nobody measured. That is
+   * a stated default rather than an implied one, because a deployment that wires nothing should be read
+   * as claiming a host claim rather than a measured one.
+   *
+   * Handing over a source is not the same as making a stamp unmovable. A process can only read the clock
+   * it was given, so on a deployment where whoever owns the host also chose the clock, this option moves
+   * the move rather than preventing it: what it buys is that the choice is written down once at
+   * construction, that a deployment able to read an attestable or ratcheted time can name it and state
+   * its bound here, and that the stamp of a record is a thing a test can fix without waiting. Section 3
+   * of `docs/receipt-spec.md` states what an `iat` therefore proves and what it cannot.
    */
-  readonly now?: () => number;
+  readonly time?: TimeSource;
 }
 
 export interface ManifestJson {
@@ -186,10 +199,10 @@ export interface ReceiptIntakeGuard {
    * keeps a refusal from being raised against a bound nothing was retired by.
    *
    * Both halves are needed. A policy bounded only by count, or only by a period, has no pairing to
-   * contradict and is never refused here, exactly as the opening never asks. `now`, which the same
-   * interface carries for a store's retirement clock, is never read: this compares stamps a store has
-   * already written, and inventing a second clock to age them by would be a second answer to a
-   * question the file has settled.
+   * contradict and is never refused here, exactly as the opening never asks. The `time` the same
+   * interface carries is read for the bound its source declares and never for its instant: this compares
+   * stamps a store has already written, and inventing a second clock to age them by would be a second
+   * answer to a question the file has settled.
    */
   readonly retention?: ReceiptRetention;
   /**
@@ -216,7 +229,7 @@ export interface ReceiptIntakeGuard {
   readonly growPastGuard?: boolean;
 }
 
-/** The four numbers a refusal is made of, so the sentence names them and no reader re-derives them. */
+/** The numbers a refusal is made of, so the sentence names them and no reader re-derives them. */
 export interface IntakeGuardFigures {
   /** Receipts retained now. */
   readonly retained: number;
@@ -224,11 +237,17 @@ export interface IntakeGuardFigures {
   readonly refusesAt: number;
   /** The durability bound configured beside the period. */
   readonly bound: number;
-  /** Seconds between the oldest and newest stamp in the retained set. */
+  /** Seconds between the oldest and newest stamp in the retained set, as those two stamps read. */
   readonly spanSeconds: number;
+  /** The seconds of that span the source supports a rate over, which is the denominator `needed` uses. */
+  readonly spanSupportSeconds: number;
+  /** The source those stamps came from, named as the store was told to name it. */
+  readonly source: string;
+  /** Seconds a reading of that source can be away by, or null when nobody measured it. */
+  readonly uncertaintySeconds: number | null;
   /** The configured period. */
   readonly periodSeconds: number;
-  /** What that period takes at the rate the retained stamps measure. */
+  /** What that period takes at the rate the span the source supports measures. */
   readonly needed: number;
 }
 
@@ -273,13 +292,17 @@ export function intakeGuardRefusal(
   const refusesAt =
     Number.isFinite(fraction) && fraction > 0 ? Math.min(bound, Math.ceil(fraction * bound)) : bound;
   if (held.count < refusesAt) return null;
-  const needed = receiptsNeededForWindow(periodSeconds, held);
+  const source = guard.retention?.time ?? HOST_CLOCK_SOURCE;
+  const needed = receiptsNeededForWindow(periodSeconds, held, source);
   if (needed === null || needed <= bound) return null;
   return {
     retained: held.count,
     refusesAt,
     bound,
     spanSeconds: held.to - held.from,
+    spanSupportSeconds: measurableSpanSeconds(held, source),
+    source: source.name,
+    uncertaintySeconds: source.uncertaintySeconds,
     periodSeconds,
     needed,
   };
@@ -287,14 +310,17 @@ export function intakeGuardRefusal(
 
 /**
  * The detail carried by `RECEIPT_WINDOW_UNHOLDABLE`. It states the two configured quantities, the
- * measured span, the count the period takes and the shortfall, in the order an operator needs to
- * raise a number from: the same discipline the opening refusal follows in `store.ts`, so a refusal
- * read off either moment tells the reader which bound is short and by how much.
+ * measured span, the span the source of those stamps supports, the count that span takes and the
+ * shortfall, in the order an operator needs to raise a number from: the same discipline the opening
+ * refusal follows in `store.ts`, so a refusal read off either moment tells the reader which bound is
+ * short, by how much, and under which source the answer was derived.
  */
 function intakeGuardDetail(figures: IntakeGuardFigures): string {
   return (
     `the store holds ${figures.retained} of the ${figures.bound} receipts its durability bound allows, ` +
-    `refusing from ${figures.refusesAt} of them, those stamps span ${figures.spanSeconds} seconds while ` +
+    `refusing from ${figures.refusesAt} of them, those stamps span ${figures.spanSeconds} seconds as read ` +
+    `from ${sourcePhrase(figures)}, which is ${figures.spanSupportSeconds} seconds a rate can be ` +
+    `derived from, while ` +
     `the configured period is ${figures.periodSeconds} seconds, and that period takes ${figures.needed} ` +
     `receipts at the rate this store has been carrying, which is ${figures.needed - figures.bound} more ` +
     `than the bound holds. Issuing this completion would retire a receipt the period still covers, so it ` +
@@ -302,6 +328,11 @@ function intakeGuardDetail(figures: IntakeGuardFigures): string {
     `shorten the period beside it, or let the traffic this store carries fall; reads, verification and ` +
     `handover are served from the receipts already filed and are unaffected`
   );
+}
+
+/** The source and its bound, spelled the way a refusal has to spell it: measured, or not. */
+function sourcePhrase(figures: IntakeGuardFigures): string {
+  return sourceSentence({ name: figures.source, uncertaintySeconds: figures.uncertaintySeconds });
 }
 
 export function buildGateway(options: GatewayOptions): GatewayInstance {
@@ -312,17 +343,17 @@ export function buildGateway(options: GatewayOptions): GatewayInstance {
   // Read once, where every other operator switch on this process is read: a completion is marked the
   // same way whichever route served it, and the value is reported on the start-up banner.
   const markingScheme = options.marking ?? DEFAULT_MARKING;
-  // The record stamp of this process: whole Unix seconds off one time source. `issue` below stamps the
-  // signed payload and the store's chain key from the same reading, so the instant a receipt claims and
-  // the instant the filing cabinet says it arrived cannot be moved apart by taking them at two moments,
-  // and neither is decided by a call the deployment cannot reach.
-  const clock = options.now ?? (() => Date.now());
-  const stamp = (): number => Math.floor(clock() / 1000);
-  // A store handed over by a deployment brings its own retention clock, because the retention it was
-  // configured with is that deployment's decision. The in-process default has no bounds at all, so the
-  // only thing its clock can be asked is which instant a retirement is written under, and that reads
-  // the same source as the receipts it would be timing.
-  const receipts = options.store ?? openMemoryReceiptStore({ retention: { now: stamp } });
+  // The record stamp of this process: whole Unix seconds off the one source it was given, or off the
+  // host clock when it was given none. `issue` below stamps the signed payload and the store's chain key
+  // from the same reading, and the store retirement clock reads the very same source object, so a span
+  // this file derives from its own stamps and a span an operator is quoted are the one number.
+  const time = options.time ?? HOST_CLOCK_SOURCE;
+  const stamp = (): number => Math.floor(time.now());
+  // A store handed over by a deployment brings its own source, because the retention it was configured
+  // with is that deployment's decision. The in-process default has no bounds at all, so the only thing its
+  // clock can be asked is which instant a retirement is written under, and that reads the same source as
+  // the receipts it would be timing.
+  const receipts = options.store ?? openMemoryReceiptStore({ retention: { time } });
   // The durability policy this deployment configured, read once like every other switch on this
   // process. An absent guard is no guard: see `ReceiptIntakeGuard`.
   const intakeGuard = options.receiptIntakeGuard ?? {};
