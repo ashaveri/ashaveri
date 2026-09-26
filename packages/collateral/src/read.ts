@@ -321,9 +321,9 @@ function reachAnchor(
       if (anchor === undefined) {
         return { refusal: collateralRefusal(declaration.refusals.anchor, 'the chain reaches a self-signed certificate the caller pinned nothing for') };
       }
-      if (!verifiesCertificate(anchor, anchor)) {
+      if (!verifiesCertificate(cert, anchor)) {
         return {
-          refusal: collateralRefusal(declaration.refusals.signature, 'the anchor does not carry its own signature under the pinned copy'),
+          refusal: collateralRefusal(declaration.refusals.signature, 'the chain reaches a name the caller pinned, but the certificate wearing it is not signed by that pinned copy'),
         };
       }
       return { digest: sha256Hex(anchor.raw) };
