@@ -6,9 +6,8 @@ import { sha256 } from '@noble/hashes/sha2.js';
  *
  * No answer of the vendor's is stored in this repository, so every document a test hands to the reader is
  * built to the shape `intel-origin.ts` declares and signed by a key generated in the test. That keeps the
- * assertions about *this* path honest: they show the reader honours its own declaration, and they show
- * nothing about whether the declaration matches what the vendor publishes, which is the limitation the
- * lane records.
+ * assertions about this path honest: they show the reader honours the declaration written beside it, and they
+ * show nothing about whether that declaration matches what the vendor publishes, which no offline fixture can.
  */
 
 const OID_ECDSA_SHA256 = '1.2.840.10045.4.3.2';
