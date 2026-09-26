@@ -138,20 +138,35 @@ export function signedDocument(
   return utf8(`${first}.${second}.${toBase64Url(signature)}`);
 }
 
+export interface TcbInfoBody {
+  readonly fmspcid: string;
+  readonly issueDate: string;
+  readonly nextUpdate: string;
+  readonly tcb: readonly { readonly tcbDate: string; readonly tcbStatus: string }[];
+}
+
+/** What the vendor writes inside the member its declaration names for the document. */
+export function tcbInfoBody(input: {
+  readonly fmspc: string;
+  readonly issueDate: string;
+  readonly nextUpdate: string;
+  readonly levels: readonly { readonly tcbDate: string; readonly tcbStatus: string }[];
+}): TcbInfoBody {
+  return {
+    fmspcid: input.fmspc,
+    issueDate: input.issueDate,
+    nextUpdate: input.nextUpdate,
+    tcb: input.levels.map((level) => ({ tcbDate: level.tcbDate, tcbStatus: level.tcbStatus })),
+  };
+}
+
 export function tcbInfo(input: {
   readonly fmspc: string;
   readonly issueDate: string;
   readonly nextUpdate: string;
   readonly levels: readonly { readonly tcbDate: string; readonly tcbStatus: string }[];
 }): Record<string, unknown> {
-  return {
-    tcbInfo: {
-      fmspcid: input.fmspc,
-      issueDate: input.issueDate,
-      nextUpdate: input.nextUpdate,
-      tcb: input.levels.map((level) => ({ tcbDate: level.tcbDate, tcbStatus: level.tcbStatus })),
-    },
-  };
+  return { tcbInfo: tcbInfoBody(input) };
 }
 
 export function qeIdentity(input: {
