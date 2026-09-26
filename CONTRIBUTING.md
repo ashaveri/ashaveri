@@ -123,8 +123,8 @@ On the public side, and staying there:
 - the gateway that signs receipts, `@ashaveri/signerd`. Anything that signs, seals or changes what a
   verdict means is open in source and in its published form permanently, and the gateway is one of
   those things, so taking its source out of public view later would be a reclassification with a date
-  and a reason rather than a quiet removal. Its source is here today; a decision of 21 September 2026
-  is that its published package belongs on this side too, and as of that date nothing in this project
+  and a reason rather than a quiet removal. Its source is here; the position
+  is that its published package belongs on this side too. Nothing in this project
   is on a registry at all and the workspace manifest still marks that package `private`, which is what
   `SECURITY.md` records when it says the gateway is run from source;
 - the conformance vectors in `@ashaveri/fixtures`, dedicated to the public domain so that a
@@ -134,11 +134,11 @@ On the public side, and staying there:
 The rule keeps nothing back that a verdict reads, and it names its two survivors. A maintained
 duty-mapping dataset, and the tooling that produces a pack from it, sit outside this repository: the
 first is work someone has to keep correct, and its worth is the maintenance rather than the secrecy.
-A decision of 21 September 2026 is that a deployment receives it as a dated snapshot carrying its own
-revision date, so that a claim made in 2027 is read against the version it was made from. The layout
+A deployment receives it as a dated snapshot carrying its own
+revision date, so that a claim made later is read against the version it was made from. The layout
 such a pack carries is a separate matter, because a deployment reads it and so a verdict can turn on
-it: the rule puts that layout on this side, and the same date settled the order: the layout is
-published here before the tooling that writes it moves on. The layout has been published since, in
+it: the rule puts that layout on this side, and so does the order: the layout is
+published here before the tooling that writes it moves on. The layout is published, in
 `packages/receipt/pack.cddl` and its display twin, with the reader and the encoder in
 `packages/receipt/src/pack.ts` and the pack vectors in `packages/fixtures/data/pack-v1.json` beside them,
 so a third party can write a pack, read one, and check that the two agree. The two survivors this
@@ -176,7 +176,7 @@ project.
 
 The two sections above are the whole of this project's intellectual-property position, and holding no
 patent position is part of it rather than a gap in it. **No patent or design position is claimed on
-what this repository publishes.** That was decided explicitly on 21 September 2026 instead of being
+what this repository publishes.** That is stated explicitly rather than being
 left to drift: this project files no patent application on the receipt format, the verification path
 or the output marking, registers no design over any of them, and claims nothing by silence. Openness
 is the stated position, and it is a credible one here for a reason worth naming: receipts of this

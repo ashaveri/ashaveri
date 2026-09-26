@@ -35,7 +35,7 @@ source rather than as a precondition; that decision, what it covers and what it 
 
 ## Status
 
-The five publishable packages are at `0.1.0` and are not on npm as of September 2026, so take them
+The six publishable packages are at `0.1.0` and none of them is on a registry, so take them
 from this repository: `pnpm install && pnpm build`, then import them by path or link the workspace.
 Publishing is scheduled against a result rather than a date. `@ashaveri/*` goes to npm with trusted
 publishing from CI once a receipt issued by confidential hardware, not by the mock gateway, verifies
@@ -280,12 +280,12 @@ property of an offline check and it is deliberate. The evidence document reaches
 deployment's own evidence URL, in `strict` mode, and that fetch is to the deployment rather than to
 us.
 
-**What was decided on 21 September 2026.** This project decided to run a service publishing exactly
+**The planned collateral service.** This project will run a service publishing exactly
 the collateral named above: the TCB info, the QE identity and the revocation status, and the reference
 measurements a device verdict needs, all fetched from Intel's, AMD's and NVIDIA's own endpoints and
 republished, offered as a convenience and as a second source. Nothing of it exists yet: no endpoint
 runs, no package in this repository reads one, and the paragraph above is the whole of present
-behaviour. Three things were settled with it. A deployer who declines the service gives up nothing,
+behaviour. Three things accompany it. A deployer who declines the service gives up nothing,
 because a feed is a second source and not a precondition, and no verdict a third party can reach
 depends on our service existing; the fetching code and the defaults it fetches under are published
 here in source, because fetching collateral that can change a verdict is itself something a verdict
