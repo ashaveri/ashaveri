@@ -3,10 +3,10 @@
 A capture record states, for one piece of evidence, the exact original bytes a source produced and the
 context that made them verifiable at the instant they were taken in.
 
-**Nothing writes one yet.** No program in this repository collects evidence into this shape; the
-collector that fills it lives apart, in a private repository, and is out of scope here. What is public is
-the layout a collector has to be written against and the reader a stranger can run against whatever they
-are handed. That order is deliberate, and it is the one `packages/receipt/pack.cddl` keeps for a pack: the
+**Nothing in this repository writes one.** A collector fills this shape, apart, in a private repository, and
+out of scope here. What is public is the layout a collector has to be written against and the reader a stranger
+can run against whatever they are handed. That order is deliberate, and it is the one
+`packages/receipt/pack.cddl` keeps for a pack: the
 layout, the reader and the encoder are public there, and what decides a pack's contents is not. The claim
 about continuity is only checkable by somebody who does not trust us if the shape it travels in is public
 and a reader for it exists.
