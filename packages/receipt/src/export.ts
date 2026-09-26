@@ -17,6 +17,7 @@ import {
   type SigningKey,
 } from './cose.js';
 import { ReceiptError } from './errors.js';
+import { packRecordDigest } from './pack.js';
 
 /**
  * The reader of a technical export: what `packages/receipt/export.cddl` states, run.
@@ -357,6 +358,10 @@ export function signExport(manifest: ExportManifest, key: SigningKey): Uint8Arra
  * eight big-endian bytes, the byte length of the id as two big-endian bytes, the id, and the original
  * bytes. No length prefix and no copy of the digest itself are inside the hash, which is what the store's
  * frame adds around it and a recomputation never sees.
+ *
+ * This is `packRecordDigest` rather than a second reading of the same layout, because a reviewer who
+ * recomputes an export's walk has to arrive at the digests the store's own chain states, and two
+ * implementations of one framing agree only for as long as nobody edits either of them.
  */
 export function exportRecordDigest(item: {
   readonly id: string;
@@ -364,22 +369,7 @@ export function exportRecordDigest(item: {
   readonly p: Uint8Array;
   readonly bytes: Uint8Array;
 }): Uint8Array {
-  if (item.p.length !== DIGEST_BYTES) {
-    throw badManifest(`a predecessor of ${item.p.length} bytes, where the format declares ${DIGEST_BYTES}`);
-  }
-  const id = encoder.encode(item.id);
-  if (id.length === 0 || id.length > ID_MAX_BYTES) {
-    throw badManifest(`an id of ${id.length} bytes, outside the 1..${ID_MAX_BYTES} the format declares`);
-  }
-  const input = new Uint8Array(1 + DIGEST_BYTES + 8 + 2 + id.length + item.bytes.length);
-  const view = new DataView(input.buffer);
-  input[0] = 0;
-  input.set(item.p, 1);
-  view.setBigUint64(9, BigInt(item.iat));
-  view.setUint16(17, id.length);
-  input.set(id, 19);
-  input.set(item.bytes, 19 + id.length);
-  return sha256(input);
+  return packRecordDigest({ id: item.id, iat: item.iat, prev: item.p, receipt: item.bytes });
 }
 
 function recordDigest(record: ChainedRecord): Uint8Array {
