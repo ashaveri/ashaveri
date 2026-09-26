@@ -146,7 +146,7 @@ function flagsTheCodeAccepts(): FlagDeclaration[] {
   return flags;
 }
 
-/** Names standing on the left of a `??`, on a parameter's own default, or in a whole-number fallback. */
+/** Names standing on the right of a `??`, on a parameter's own default, or in a whole-number fallback. */
 function constantsReadInDefaultingPositions(): Set<string> {
   const found = new Set<string>();
   for (const source of gatewaySources().values()) {

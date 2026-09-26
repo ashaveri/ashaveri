@@ -2,7 +2,7 @@
 
 Every value a deployment can point this gateway at, and every value the code holds when the
 deployment named nothing. Three tables sort them by class, and the counts below are the counts the
-tables carry: 28 flag rows, 12 shipped defaults, and 8 environment variables, of which 7 are
+tables carry: 30 flag rows, 13 shipped defaults, and 8 environment variables, of which 7 are
 settings and 1 carries credential material. 3 flags name their default in the block that declares
 them. Coverage is the gateway's operator surface only: the values a client verifies against, pinned
 in `packages/sdk/src/policy.ts`, and the record constants in `packages/cli/src/records.ts` are out
@@ -27,7 +27,7 @@ files, so a row that stops being true fails a run rather than aging quietly.
 
 ## 1. Flags this gateway accepts
 
-Class: the operator's to declare. All 28 are declared together in `gateway/src/cli.ts`, in the block
+Class: the operator's to declare. All 30 are declared together in `gateway/src/cli.ts`, in the block
 `parseArgs` is handed, and are spelled here as an operator types them, with the leading dashes. The
 Bound column is what the code refuses outside; where a period or a duty is the deployment's own, the
 row says so rather than inventing a number for it.
@@ -56,6 +56,8 @@ row says so rather than inventing a number for it.
 | `--receipts-dir` | Where issued receipts are kept across restarts, chained so a removal shows | an existing directory, so a volume you forgot to mount is a refusal | none: receipts are kept in this process only and are gone on restart | the operator's to declare | `gateway/src/cli.ts` |
 | `--receipts-keep` | The durability bound: how many receipts the volume keeps | a positive whole number, and the store compares it against the period and the traffic on its own file | `SHIPPED_RETAINED_RECEIPTS`, which is a capacity decision of this deployment and not a period anyone owes | the operator's to declare | `gateway/src/cli.ts` |
 | `--receipts-per-query` | The serving bound: how many receipts one range query holds at once | a positive whole number, bounding a walk and retiring nothing | `SHIPPED_SERVED_RECEIPTS`, and a walk over a longer window is answered in batches | the operator's to declare | `gateway/src/cli.ts` |
+| `--receipts-guard-at` | When the durability guard is read while serving, rather than only when the store opens | a whole percentage from 1 to 100 of the durability bound, where a value that is not one stops the start rather than falling back; once the store holds that share of `--receipts-keep`, a completion is refused with `RECEIPT_WINDOW_UNHOLDABLE` before any inference runs if the period configured beside the bound cannot be held at the rate the store's own retained stamps measure | `DEFAULT_INTAKE_GUARD_FRACTION`, which is the whole of the durability bound, so a run naming no percentage refuses only where the store would also refuse to open | the operator's to declare | `gateway/src/cli.ts` |
+| `--receipts-grow-past-guard` | Keep issuing past the durability guard instead of refusing | boolean, it takes no argument, and it overrides `--receipts-guard-at`; with it the volume grows, the bound keeps retiring the oldest prefix, and the window served is the shorter one that bound reaches rather than the period configured beside it | none: off, which is the posture that leaves a receipt the configured period still covers in the file | the operator's to declare | `gateway/src/cli.ts` |
 | `--credentials-path` | The records every request has to present one from | a readable file of public keys and hashes, which is why mounting it through a platform is safe in a way a secret file never is | none: required in live mode, and a mock run makes one dev credential and prints it | the operator's to declare | `gateway/src/cli.ts` |
 | `--access-log-path` | Where the per-request access log is written | an existing directory, so a volume you forgot to mount is a refusal | none: required in live mode, and a mock run keeps the log in memory | the operator's to declare | `gateway/src/cli.ts` |
 | `--access-log-days` | How long access log files are kept | a positive whole number of days; shorter than the default is allowed and the start-up report says so; the period a deployment owes is its own to declare and nothing in this repository validates it | `MINIMUM_RETENTION_DAYS` | the operator's to declare | `gateway/src/cli.ts` |
@@ -66,13 +68,14 @@ row says so rather than inventing a number for it.
 ## 2. Shipped defaults named in source
 
 Class: shipped default. Each row is a constant this repository declares and reads in a defaulting
-position, which is where the fallback lives: the left of a `??`, a parameter's own default, or the
+position, which is where the fallback lives: the right of a `??`, a parameter's own default, or the
 fallback slot of the CLI's whole-number reader. The Value column is the source's own spelling, so a
 change to it is a change here too.
 
 | Name | Value as source | What it governs | Class | Declared in |
 |---|---|---|---|---|
 | `DEFAULT_MARKING` | `'none'` | The marking a gateway build serves when the run named none | shipped default | `gateway/src/server.ts` |
+| `DEFAULT_INTAKE_GUARD_FRACTION` | `1` | The share of the durability bound a completion is refused at when the run named no percentage | shipped default | `gateway/src/server.ts` |
 | `POP_TIMESTAMP_TOLERANCE_SECONDS` | `120` | The clock slack a proof-of-possession timestamp is trusted within | shipped default | `packages/receipt/src/pop.ts` |
 | `DEFAULT_PEER_RATE` | `{ perMinute: 6000, burst: 2000 }` | What one connection address is held to before its header is read | shipped default | `gateway/src/access.ts` |
 | `DEFAULT_RATE` | `{ perMinute: 60, burst: 120 }` | What a credential record carrying no rate of its own is held to | shipped default | `gateway/src/access.ts` |
