@@ -20,7 +20,7 @@ import {
 /**
  * The published marked-region vectors, replayed the way a port replays them: read the response bytes,
  * locate a region with the rule the label names, hash it, and compare. Nothing here reaches into the
- * fixtures to check them against themselves — the file states a span and a digest, and the only
+ * fixtures to check them against themselves: the file states a span and a digest, and the only
  * question is whether the rule this repository publishes produces that answer for those bytes.
  *
  * The refusals matter as much as the two accepted cases. A stripped region and a duplicated one are

@@ -46,9 +46,9 @@ export interface FakeGatewayOptions {
    * Issue a v2 receipt, and mark the response under that scheme when one is named. Absent keeps the
    * double a v1 gateway, which is what the older suites here expect.
    *
-   * This double writes the mark the way `gateway/src/marking.ts` does — the member spliced in ahead
+   * This double writes the mark the way `gateway/src/marking.ts` does (the member spliced in ahead
    * of the closing brace of its own object, one chunk carrying an empty `choices` beside the member in
-   * a stream — because both sides take the shape from `@ashaveri/receipt`'s published rule rather than
+   * a stream) because both sides take the shape from `@ashaveri/receipt`'s published rule rather than
    * from each other. The client's verdict is only evidence if the bytes it read are bytes a real
    * gateway would have written.
    */

@@ -6,7 +6,7 @@ import { readSourceFile, sectionBody, tableRows } from './doc-contract.js';
 /**
  * The framing prose in `docs/receipt-spec.md` and the record format in `data/chain-v1.json` state the
  * same bytes in two media, which is how one comes to disagree with the other. This reads the section as
- * data — its field tables, its kind values, the layout strings it quotes — and checks every byte
+ * data (its field tables, its kind values, the layout strings it quotes) and checks every byte
  * position against the vector file's published records, so a rewrite that drops a field or moves an
  * offset fails here rather than teaching a reader a framing no store writes.
  *
