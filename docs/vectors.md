@@ -28,12 +28,13 @@ each shape.
 | Technical export | `packages/fixtures/data/export-v1.json` | Whole export documents, the arguments a reader is handed beside each one, and the verdict a conforming reader owes it | `version: 1` |
 | Sealed deployment manifest | `packages/fixtures/data/manifest-v1.json` | One deployment manifest in both shapes it is served in, the signing keys a reader designates beside it, and the verdict the client path owes each | `version: 1` |
 | Evidence pack | `packages/fixtures/data/pack-v1.json` | Whole packs in the shapes a deployment hands them over in, the keys a reader designates beside each one, and the verdict the shipped pack reader owes: run and window reported apart, and an honest pack whose stamps run against its links accepted with a finding | `version: 1` |
+| Redaction manifest | `packages/fixtures/data/redaction-v1.json` | Redaction manifests each beside the pack they are checked against, and the verdict the shipped redaction reader owes the pair: the chain over the survivors published apart from the pack's own head, a redaction pointed at a pack the reader lacks refused, and the three wrong constructions of a survivor chain refused by recomputation | `version: 1` |
 
 `pop-v1.json`, `req-v1.json`, `res-v1.json`, `marking-v1.json`, `chain-v1.json`, `export-v1.json`,
-`manifest-v1.json` and `pack-v1.json` each carry a `description` stating their rule in prose, and the
-digest, marked-region, chain, export, sealed-manifest and pack suites carry a `rule` or `layout` block
-naming the fields, and the widths and the byte order where a suite pins a byte layout, so a reader never
-has to guess what an array of hex is standing for. The manifest
+`manifest-v1.json`, `pack-v1.json` and `redaction-v1.json` each carry a `description` stating their rule in
+prose, and the digest, marked-region, chain, export, sealed-manifest, pack and redaction suites carry a `rule`
+or `layout` block naming the fields, and the widths and the byte order where a suite pins a byte layout, so a
+reader never has to guess what an array of hex is standing for. The manifest
 carries no `description`, because it lists the receipt fixtures rather than stating a rule of its
 own; what they are for is written in
 [receipt-spec.md](receipt-spec.md).
@@ -149,10 +150,22 @@ specific to that case.
   the steps where the stamps disagree with the links, and a conforming reader reports them and accepts the pack.
   `records` in the `layout` block gives the predecessor and the record digest of each item of the honest run, which
   is the pack's own reading of the framing `chain-v1.json` publishes for a store file.
+- **Redaction manifest.** Decode `documentBase64Url`, hand your reader the pack in `packBase64Url` beside the
+  designation the row's `read` block states, and compare the answer with `verdict`. A row stating no pack is the
+  reader that was handed one document of the pair and has to refuse it rather than accept the statement on its own
+  word. Recompute `packBase64Url`'s sha256 and compare it with the manifest's `pack` member: the designation is a
+  digest of the pack's whole bytes, and a reader that resolved a name instead has not checked which pack the
+  removal was stated about. Where a row states `survivors`, your reader has to reach that run in the order the
+  pack's `prev` links fix it, having dropped the named records; `reducedHex` is the head of the chain over those
+  survivors, relinked from the pack's own anchor by the framing section 5.2 states, and `originalHeadHex` is the
+  pack's signed head. The last two are never equal on an accepted row, and a reader that reports one number where
+  the other belongs has merged two findings this suite publishes apart. `run` and `records` in the `layout` block
+  give each record's predecessor in the pack, the predecessor the reduced chain used instead, and the digest that
+  came out, so the construction is checkable against the pack's bytes rather than restated from a writer.
 
 ## Every suite refuses something
 
-Each of the nine suites published here carries at least one case whose stated verdict is a refusal, and
+Each of the ten suites published here carries at least one case whose stated verdict is a refusal, and
 every code those cases name is one [error-codes.md](error-codes.md) lists. That is the half a second
 implementation cannot agree with by accident: an accepted case and a refused one, drawn from the same
 bytes, differ in exactly the rule under test, and a port wrong in the same direction as this one still
@@ -162,7 +175,8 @@ one stated is a wrong vector, and the row's note says which fact it turns on.
 The refusals are near misses rather than garbage on purpose. A digest is off by one byte, a signature by
 two characters, a nonce by a single byte width, a marked span by one field of one member, a store record
 by one bit inside its own bytes or by its length prefix lying about its size, a protected header by the one
-label it added or the one integer it spelled as a float. Each is one small edit to
+label it added or the one integer it spelled as a float, a redaction by the one record it did not name or by
+the chain head it took from the pack rather than recomputed. Each is one small edit to
 bytes this repository already publishes, so reproducing it is reading a row and not guessing at what the
 author meant. The client path over them is in `packages/cli/test/vector-conformance.test.ts`, which
 drives each suite through the shipped verification code rather than through a copy of the rule it is
@@ -181,6 +195,7 @@ pnpm --filter @ashaveri/fixtures generate:chain
 pnpm --filter @ashaveri/fixtures generate:export
 pnpm --filter @ashaveri/fixtures generate:manifest
 pnpm --filter @ashaveri/fixtures generate:pack
+pnpm --filter @ashaveri/fixtures generate:redaction
 ```
 
 The generators live beside the loaders in `packages/fixtures`, and running all of them after a change
@@ -224,8 +239,8 @@ implementation is the deviation.
 These vectors check bytes. They say nothing about trust:
 
 - Nothing here establishes that a key belongs to anybody. The signing keys published in
-  `data/keys/receipt-key-v1.json`, in `pop-v1.json`, in `export-v1.json`, in `manifest-v1.json` and in
-  `pack-v1.json`
+  `data/keys/receipt-key-v1.json`, in `pop-v1.json`, in `export-v1.json`, in `manifest-v1.json`, in
+  `pack-v1.json` and in `redaction-v1.json`
   are test-only, labelled as such in the files themselves, and protect nothing. A port that verifies
   against them has exercised its verifier, not appraised a deployment.
 - Nothing here touches attestation. Evidence documents, platform roots, device certificate chains and

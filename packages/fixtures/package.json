@@ -29,7 +29,8 @@
     "generate:chain": "node --experimental-strip-types scripts/chain-vectors.ts",
     "generate:export": "node --experimental-strip-types scripts/export-vectors.ts",
     "generate:manifest": "node --experimental-strip-types scripts/manifest-vectors.ts",
-    "generate:pack": "node --experimental-strip-types scripts/pack-vectors.ts"
+    "generate:pack": "node --experimental-strip-types scripts/pack-vectors.ts",
+    "generate:redaction": "node --experimental-strip-types scripts/redaction-vectors.ts"
   },
   "dependencies": {
     "@ashaveri/receipt": "workspace:*",

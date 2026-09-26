@@ -17,6 +17,7 @@
     "receipt.cddl",
     "pack.cddl",
     "export.cddl",
+    "redaction.cddl",
     "manifest.cddl",
     "schemas"
   ],

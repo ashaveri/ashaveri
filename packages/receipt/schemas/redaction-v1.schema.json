@@ -1,0 +1,46 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://ashaveri.com/schemas/redaction-v1.json",
+  "title": "Ashaveri Redaction Manifest (JSON twin of the CBOR/COSE container)",
+  "description": "Display-only projection of the signed COSE_Sign1 redaction manifest. The CBOR bytes are canonical and are what a reader verifies; this JSON form is never signed directly. Byte strings appear as lowercase hex, which is how the receipt's, the pack's and the export's own projections write them, and a length that is a number of bytes in the CBOR is not the same measure as a JSON string length, so only `minLength` carries a bound the format states and nothing here pretends to a ceiling: one character is at least one byte, which is the half of `1..2048` a JSON string can assert, and the byte ceiling belongs to `redaction.cddl`. Closure is not the manifest's alone: the manifest map names its members in one object, which is where `additionalProperties` applies, so a member the format does not define is refused at that level rather than read and dropped on the way to a verifier, and the list of removed ids is a list of text and not a second map to close. `protectedHeader` carries the three labels the CDDL declares and no more, and this definition carries no closure keyword: that map is read by number, its bytes are what the signature hashes, and a document carrying a fourth label is refused before any projection of it is built. The envelope above it is projected more loosely than the format writes it, and that is a decision rather than a gap: this document requires `protectedHeader` and `payload`, names `signature` without demanding it, and leaves its own root unclosed, so a redaction shown before it is signed still shows, while `redaction.cddl` requires all four elements of the `COSE_Sign1` and sixty-four bytes in the fourth of them. Requiring the missing one here would refuse a display and not an artifact, which is the same reason the receipt's, the pack's and the export's projections are written the same way. The CBOR tag that wraps the four elements on the wire, tag 18, is stated in `redaction.cddl` and cannot be stated here at all, because a JSON object has no tag to carry: a reader who needs the bytes needs the format, and that is where the number is. Two of the six members are computed over bytes that live in another document, `pack` over the whole sealed pack and `reduced` over the pack's surviving records, and this projection can state their width and nothing else about them: the rules that bind them are in `redaction.cddl`, and the framing that `reduced` folds over is section 5.2 of `docs/receipt-spec.md`, which is where a reader holding this projection has to go to learn them. The rules between members that no keyword reaches are stated there too: that every removed id names exactly one item of the pack the digest binds, that no two entries name the same id, that the surviving sequence is never empty, that `reduced` is the head of the chain over those survivors relinked from the pack's own anchor, that `at` is never before the pack's own `at`, and that no instant lies before the epoch. No legal-category vocabulary is defined in this format: no article, no duty, no ground, no category and no period appears as a member, a label or an enumeration anywhere in this file, and the one place a reason may be given is the free sentence in `states`, which no reader checks and which sits inside the signature for that reason.",
+  "type": "object",
+  "required": ["protectedHeader", "payload"],
+  "properties": {
+    "protectedHeader": {
+      "type": "object",
+      "required": ["alg", "kid", "typ"],
+      "properties": {
+        "alg": { "const": "EdDSA", "description": "COSE algorithm -8, Ed25519" },
+        "kid": { "type": "string", "pattern": "^[0-9a-f]{64}$", "description": "sha256 of the Ed25519 public key, hex" },
+        "typ": { "const": "ashaveri/redaction", "description": "the content type that tells a redaction apart from the receipt, the pack and the export, all four of which one deployment key signs" }
+      }
+    },
+    "payload": {
+      "$ref": "#/$defs/manifest",
+      "description": "The signed manifest. Exactly one version is defined, so `v` is a constant rather than a discriminant, and a document naming another version is not this one."
+    },
+    "signature": { "type": "string", "pattern": "^[0-9a-f]{128}$", "description": "Ed25519 signature over the Sig_structure, hex" }
+  },
+  "$defs": {
+    "manifest": {
+      "type": "object",
+      "required": ["v", "at", "pack", "removed", "reduced", "states"],
+      "properties": {
+        "v": { "const": 1, "description": "format version" },
+        "at": { "type": "integer", "description": "unix seconds, the instant the removal was stated. The only clock in this document, and it is bounded against the pack's own `at` rather than against a reader's clock: a redaction predating the pack it removes from is two documents that cannot both be true." },
+        "pack": { "$ref": "#/$defs/hex32", "description": "sha256 of the whole sealed pack document this redaction speaks about, tag 18 and all four elements included. It is recomputed by a reader from the pack's own bytes and is never a lookup key, which is why it is a digest of the document rather than an id the writer chose." },
+        "removed": {
+          "type": "array",
+          "minItems": 1,
+          "items": { "type": "string", "minLength": 1 },
+          "description": "The ids the pack carries for the records taken out of it, at least one, each naming exactly one item of the pack `pack` designates. A redaction that removes nothing is not a redaction, so the list is never empty and no member of this container may state that the pack's signed head still holds after a removal. The ids are the pack's own names and nothing else travels with them, because every other fact about a removed record is signed in the pack."
+        },
+        "reduced": { "$ref": "#/$defs/hex32", "description": "The head of the chain over the surviving records: the pack's items in the order its links fix them, with the named records dropped, re-chained from the pack's own anchor and hashed by the framing section 5.2 of `docs/receipt-spec.md` publishes. It is not the pack's head and cannot become it, because with nothing removed that fold returns the signed head and with anything removed it does not." },
+        "states": { "type": "string", "minLength": 1, "description": "The writer's own sentence stating this removal. A reader checks that the position is filled and reads nothing out of its content, because the block's whole honesty is that it is inside the signature and outside every recomputation. No reason vocabulary is enumerated here: this estate does not interpret the questions a ground or an article would answer." }
+      },
+      "additionalProperties": false,
+      "description": "A redaction manifest and nothing else. The map is closed: a member outside this list is a malformed redaction rather than a member a reader agreed to forget, and the same holds of the signed header above it."
+    },
+    "hex32": { "type": "string", "pattern": "^[0-9a-f]{64}$" }
+  }
+}

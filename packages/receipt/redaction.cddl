@@ -1,0 +1,231 @@
+; ---------------------------------------------------------------------------
+; The redaction manifest: what a deployment signs when a receipt has to come out of a pack that is
+; already closed. A pack attests that the responses inside one window are all of them, and its chain is
+; linear: a record in the middle is named by the successor's `prev` and hashed into the head, so lifting
+; it out breaks the walk rather than shrinking it. That is the property that makes a pack worth signing,
+; and it is the reason an erasure cannot be honoured inside one.
+;
+; The ruled answer is that the pack is never rewritten. This container is a second signed document that
+; states the removal, and a reader holding one pack and one redaction for it determines four things for
+; itself, without asking anyone: that the redaction was sealed by the key it designates and which pack it
+; speaks about, by a digest the reader recomputes from that pack's own bytes; that every item named is
+; present in that pack and that nothing else is removed; what the chain over the surviving records hashes
+; to, computed with the digest rule the pack itself uses; and that the original seal verifies exactly as
+; it did before. An artifact that quietly matched the request would be worse than refusing, because the
+; disclosure is the point: a reviewer still sees what was sealed, when, and what was later removed.
+;
+; `packages/receipt/src/redaction.ts` reads this layout and writes it, and refuses each shape it will not
+; accept by code. `packages/receipt/schemas/redaction-v1.schema.json` is its machine-readable twin, and
+; `packages/receipt/test/redaction.test.ts` holds the members this file declares, that twin and the
+; reader's own list against each other, so no one of the three can widen alone. The framing the surviving
+; chain is computed over is section 5.2 of `docs/receipt-spec.md`, published as byte images in
+; `packages/fixtures/data/chain-v1.json`; where a sentence here and those two disagree about a frame, they
+; are the authority and this file is wrong.
+; ---------------------------------------------------------------------------
+
+Ashaveri-Redaction = #6.18(COSE_Sign1-Redaction-COSE)
+
+; The envelope every signed document in this estate uses, unchanged but for the content type: COSE_Sign1
+; per RFC 9052 section 4.2, encoded per RFC 8949 with Core Deterministic Encoding, so a reader rebuilds the
+; bytes the issuer signed rather than guessing which of several equivalent spellings was used.
+COSE_Sign1-Redaction-COSE = [
+    protected: bstr .cbor Ashaveri-Redaction-Protected-Header,
+    unprotected: { * any => any }, ; the map that carries no claim; see the note below the manifest
+    payload: bstr .cbor Ashaveri-Redaction-Manifest,
+    signature: bstr .size 64
+]
+
+; The same three labels a receipt, a pack and an export sign with, and a fourth content type. One
+; deployment key seals all four, and each of the four passes its own checks, so the field that tells a
+; reader which claim it is holding has to be answered before anything is read out of the payload. A
+; reader that took a redaction for a pack would be walking a manifest of items over a chain of two
+; endpoints the redaction does not have, and reporting a run nobody sealed.
+Ashaveri-Redaction-Protected-Header = {
+    1: -8,                       ; alg: EdDSA (Ed25519)
+    4: bstr .size 32,            ; kid: sha256(public_key)
+    3: "ashaveri/redaction",     ; typ
+}
+
+; The signed manifest, and the test each member passes is the pack's test: a reader of this container
+; needs it, and nothing inside this container states it. `pack` is the pack this says something about.
+; `removed` is what came out of it. `reduced` is the chain claim that holds after the removal, and it is
+; the one number no reader can derive from this document alone, because it is a hash over bytes that live
+; in the other document. `at` is when the removal was stated, which is the only clock here and is bounded
+; against the pack's own rather than against a clock the reader owns. `states` is the writer's own
+; sentence, which nothing checks and which is the reason the artifact is legible to an auditor six years
+; from now.
+;
+; `v: 1` is one version, and it says what the fields attest rather than which software wrote them, as it
+; does in `receipt.cddl`, `pack.cddl` and `export.cddl`. A second version arrives the day a reader would
+; draw a different conclusion from the same bytes: a removal stated by a record digest as well as an id, a
+; partial redaction of one receipt's bytes rather than the whole record, a second pack named by one
+; document. Each of those is that day, and none of them is this file's business. What is this file's
+; business is that a reader of `v: 1` refuses the other day's bytes rather than reading them as this day's.
+Ashaveri-Redaction-Manifest = {
+    v: 1,                        ; format version
+    at: int,                     ; unix seconds, the instant the removal was stated
+    pack: bstr .size 32,         ; sha256 of the whole sealed pack document this speaks about
+    removed: [+ removed-id],     ; at least one; nothing else is removed
+    reduced: bstr .size 32,      ; the head of the chain over the surviving records
+    states: tstr .size (1..2048) ; the writer's own sentence stating this removal
+}
+
+; An id this container names is the pack's own id for a receipt, as its record names it, with the same
+; bound the pack's framing puts on it: the walk hashes the id through a two-byte length, so a name longer
+; than 65535 bytes cannot be a record's name in the first place. An empty id belongs to a trim record and
+; is never an item, so it is refused here as it is in `pack.cddl`.
+;
+; The list is a set of names and not a table of facts about each removal, and that is deliberate. The pack
+; names its items uniquely, a reader holds the pack, and so the id locates exactly one record and every
+; other fact about it (the stamp, the receipt bytes, the predecessor it was chained from) is in the pack
+; and signed there. Repeating any of them here would put two signed statements of one fact in two
+; documents, which is the thing `pack.cddl` names as the reason not to carry a number twice.
+removed-id = tstr .size (1..65535)
+
+; ---------------------------------------------------------------------------
+; `pack`, the designation. It is sha256 over the whole `Ashaveri-Pack` document as it was handed over:
+; the tagged four elements, the protected bstr, the unprotected map, the payload bstr and the signature,
+; every byte of it. Not of the manifest alone, and not of the receipts inside it.
+;
+; Three readings were available and the other two are worse. A pack id the writer chose is a string a
+; reader cannot check against anything, and a closed pack carries no digest of itself, so there would be
+; nothing to compare it with. A digest of the pack's manifest alone would leave the same manifest
+; travelling inside two envelopes with different signatures, and a redaction would not say which of the
+; two it removed receipts from. The whole document is what a reader has, is what a reader hashes, and
+; binds the seal as well as the span, so a re-signed pack is a different pack to this statement about.
+;
+; A reader recomputes this. It is never a lookup key: the reader is handed the pack beside the redaction,
+; hashes what it was handed, and refuses the pair when the two digests differ, which is the answer that
+; keeps a redaction pointed at one pack from being read against another.
+; ---------------------------------------------------------------------------
+
+; ---------------------------------------------------------------------------
+; `removed`, the set. `[+ …]` requires at least one id, and the reason is the artifact's whole purpose: a
+; redaction that removes nothing is not a redaction, and the only way to state one would be to claim that
+; the pack's signed head still holds after a removal of zero records. That claim is true and useless, and a
+; container that could make it would be a container in which a no-op and a lie look the same. An empty
+; list is a malformed document, refused before any pack is consulted.
+;
+; No two entries carry the same id. The pack refuses duplicate ids among its items, and a reader reports a
+; refusal by naming one, so a list that named the same record twice would leave a count of removals that
+; disagrees with the set it names.
+;
+; Every id has to be the name of exactly one item of the pack the digest binds, or the document is refused:
+; a removal that names a receipt the pack does not carry is a statement about a different pack or about
+; nothing.
+; ---------------------------------------------------------------------------
+
+; ---------------------------------------------------------------------------
+; `reduced`, the chain claim, and the construction that makes it checkable.
+;
+; Take the pack's items in the order its links fix, from the signed anchor to the signed head. Drop the
+; records the `removed` list names. What remains is the surviving sequence, in that order. Now chain it
+; again, from the pack's own anchor: the first survivor is hashed as a record whose predecessor is the
+; pack's anchor, and every later survivor is hashed as a record whose predecessor is the digest recomputed
+; for the survivor before it. `reduced` is the last of those digests, and it is the head of that chain.
+;
+; Each hash is the framing section 5.2 publishes and `pack.cddl` states for an item: kind byte 0, the
+; predecessor digest, `iat` as eight big-endian bytes, the byte length of the id as two big-endian bytes,
+; the id, and the receipt bytes. Nothing about the rule differs. Only the predecessor fed to it differs,
+; and it differs because a relinked chain has to skip the record that is gone. The survivors' own `prev`
+; fields are not used for this: except for the first record of the run, each of them names a digest of a
+; record that is no longer in the sequence, and chaining from those values would produce a chain with
+; holes in it rather than a chain over the survivors.
+;
+; Two facts follow, and both are what a reader checks rather than what it is told.
+;
+; If nothing had been removed, this fold would return the pack's own head, because every survivor's
+; recomputed predecessor would then be the predecessor its record already names. So a statement that
+; removed something and that the original head still holds cannot verify: the recomputation over the
+; larger surviving sequence gives a different digest. That is the sentence this container exists to make
+; unproducible, and it is enforced by arithmetic rather than by a rule forbidding one value.
+;
+; And a reader that recomputes over `the pack's items minus the ids named` cannot be misled about the size
+; of the removal. A writer that lifted two records and named one would state the digest of a one-shorter
+; sequence than the reader computes, and the two disagree by name.
+;
+; The survivor sequence is never empty. A chain over no records has no head, and a value invented for one
+; would read as a chain claim while attesting nothing, which is the same vacuity that makes `pack.cddl`
+; refuse a pack with no items. So a redaction that removes every receipt of a pack is refused: the pack
+; that survives it has nothing to walk, and the artifact that states a window held nothing is a different
+; document.
+;
+; The reduced chain's start is the pack's anchor, by rule, and it is not carried here as a member. It is
+; the pack's own signed value, the reader has the pack, and a second copy of a signed number in a second
+; signed document is what drifts. What is not derivable from the pack, and so is what this member carries,
+; is the end of a chain the pack does not contain.
+; ---------------------------------------------------------------------------
+
+; ---------------------------------------------------------------------------
+; `at`, and the one relation it is bounded by. A redaction is made after the pack it speaks about exists,
+; so `at` is never before the pack's own `at`, which is the instant that pack began to be assembled. Both
+; stamps are inside signatures, one over each document, so a redaction stamped earlier than the pack it
+; removes from is two documents that cannot both be true, and it is refused as a disagreement between them
+; rather than read as a writer that misremembered. Nothing here compares either stamp with a clock the
+; reader owns: freshness is not this container's question, and a reader that cares about it says so out
+; loud and brings its own.
+;
+; `states` is the writer's own sentence about the removal, bounded so that it cannot be empty and free as
+; to what it says. It is inside the signature and outside every recomputation, and that is the whole of
+; what makes it honest: a reader can say that the holder of this key asserted this, at this instant, in
+; these words, and can check nothing about the words themselves. No vocabulary of grounds, categories or
+; articles is defined here, for the reason `export.cddl` gives: whether a receipt is material a named
+; obligation requires to be erased turns on the system, the actor and the law behind it, which this estate
+; does not interpret, and a format that enumerated answers would itself be an answer. A writer states its
+; reason in its own words and the signature is what attributes it.
+; ---------------------------------------------------------------------------
+
+; ---------------------------------------------------------------------------
+; Closure is one rule across this file and not a rule about one map, as `receipt.cddl`, `pack.cddl` and
+; `export.cddl` state it. No block above carries a `...`, and the absence means here what it means there:
+; a member the version named by `v` does not define makes the document invalid rather than a document read
+; with the unexpected member dropped. That reaches the manifest and the signed header alike, and the
+; header closes under the stronger reason: its bytes are hashed into the `Sig_structure`, so a label this
+; block does not name is an authenticated parameter, and a reader that took its three labels out of a
+; header carrying a fourth would hand on a document other than the one the issuer signed. Its members are
+; the COSE registry's integers, which is why they are numbered rather than named.
+;
+; One map a signer fills at will, and that is a decision rather than a gap: the `unprotected` map of
+; `COSE_Sign1-Redaction-COSE` sits outside the signature, so nothing written in it can travel as a claim
+; about the removal, and enforcing that it is empty would buy strictness with no security content behind
+; it. What the format declares of it is only that it carries no claim.
+;
+; Every number above written `int` is a CBOR integer, major type 0 or 1, and no other major type carries
+; one. A floating-point number whose value happens to be a whole number is a different type, and the only
+; reader that can ever tell them apart is one reading the bytes, because a decoder that hands both over as
+; one number leaves a check placed afterwards nothing to distinguish. So a reader decodes every map this
+; file names member by member, in a value and in a key alike, where no floating-point number may appear.
+; Nothing any of them declares can be a float, so that rule refuses no document that follows this file. It
+; matters here because the one quantity somebody reaches for a fraction of is a timestamp, and `at` is a
+; timestamp.
+;
+; Sign is that rule's other half, and it belongs to a reader in the same way: every instant this file
+; names is a unix time no earlier than the epoch, so a negative stamp is a malformed document rather than
+; an unusual way of writing a quantity. CDDL writes `int` because it owns no clock, and the floor belongs
+; to the meaning rather than to the type.
+; ---------------------------------------------------------------------------
+
+; ---------------------------------------------------------------------------
+; What a verified redaction does not establish, stated here because a reimplementer is most likely to
+; over-read exactly this.
+;
+; It is not a claim that the pack's head still holds. The pack's head holds over the pack's own run, which
+; is what the pack attests, and the redaction attests a different chain over a shorter one. A reader that
+; reported one number where the other belongs has merged two findings this format keeps apart, which is
+; why the reader's answer names both.
+;
+; It is not a statement that the removed bytes are gone. This container says that a key holder removed a
+; record from a pack and what the remaining chain hashes to. Where the receipts themselves live, whether
+; they were reachable at all, and what became of the copies a customer holds are not questions these bytes
+; answer, and no digest in them is evidence of byte destruction.
+;
+; It is not a verdict about a duty, a lawful basis or a request. `states` is the writer's sentence and a
+; reader checks only that the position is filled. Which erasure a removal discharges, and whether it was
+; owed at all, is settled outside this format by whoever holds the mapping and the law.
+;
+; It is not a replacement for the pack. A reader that cannot reach a redaction still verifies the original
+; pack exactly as it did before, because the pack was never rewritten and nothing in its rules refers to
+; this document. Availability of a redaction is never a precondition to accepting evidence that was never
+; redacted. The converse is a refusal this reader states by name: a redaction pointed at a pack the reader
+; was not handed cannot be checked at all, and it is refused rather than accepted on its own word.
+; ---------------------------------------------------------------------------

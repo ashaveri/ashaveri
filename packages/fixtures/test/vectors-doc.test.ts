@@ -95,9 +95,9 @@ function publishedSuites(): string[] {
 
 /**
  * The verdict and code of every row one suite states a verdict on, read out of the file rather than
- * from the prose. Each shape is written out because the nine suites do not agree on where a verdict
+ * from the prose. Each shape is written out because the ten suites do not agree on where a verdict
  * lives: four keep the refusing cases in an array beside the accepted ones and name a code on each row,
- * and five give every case one word that is either the accepted verdict or the code of the refusal. A
+ * and six give every case one word that is either the accepted verdict or the code of the refusal. A
  * suite whose file gains a shape no one recognised has to be named here, which is what stops this
  * reading an empty list as a suite with no refusals.
  */
@@ -120,6 +120,7 @@ function verdictsOf(basename: string): { verdict: string; code: string | null }[
     case 'export-v1.json':
     case 'manifest-v1.json':
     case 'pack-v1.json':
+    case 'redaction-v1.json':
       return rows('vectors').map((row) => ({ verdict: field(row, 'verdict'), code: null }));
     case 'pop-v1.json':
     case 'req-v1.json':
