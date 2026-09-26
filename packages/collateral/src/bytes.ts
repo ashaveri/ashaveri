@@ -17,7 +17,13 @@ const BASE64URL = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz012345678
 const BASE64 = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/';
 
 function decode(text: string, alphabet: string): Uint8Array | null {
-  const body = text.replace(/=+$/u, '');
+  // Padding is trimmed by index, not by /"+$/: a quantifier anchored at the end of an
+  // untrusted string backtracks once per character the tail does not match.
+  let end = text.length;
+  while (end > 0 && text[end - 1] === '=') {
+    end -= 1;
+  }
+  const body = text.slice(0, end);
   if (body.length % 4 === 1) {
     return null;
   }
