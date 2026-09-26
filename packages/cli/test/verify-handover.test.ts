@@ -2,7 +2,7 @@ import { createPrivateKey, sign } from 'node:crypto';
 import { spawnSync } from 'node:child_process';
 import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
-import { join } from 'node:path';
+import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { afterAll, describe, expect, it } from 'vitest';
 import {
@@ -67,11 +67,12 @@ interface CliResult {
   readonly stderr: string;
 }
 
-function runCli(args: string[]): CliResult {
+function runCli(args: string[], cwd?: string): CliResult {
   const result = spawnSync(process.execPath, [CLI, ...args], {
     encoding: 'utf8',
     timeout: 15_000,
     killSignal: 'SIGKILL',
+    ...(cwd === undefined ? {} : { cwd }),
   });
   expect(result.error).toBeUndefined();
   return { status: result.status, stdout: result.stdout ?? '', stderr: result.stderr ?? '' };
@@ -585,6 +586,19 @@ describe('the pinned verbs verify-pack and verify-export', () => {
     const first = document.companions[0];
     const companionPath = writtenUnderItsOwnName(first?.name ?? 'companion', first?.bytes ?? new Uint8Array());
     const handed = runCli(['verify-export', path, `--key=${EXPORT_KEY_B64URL}`, `--companion=${companionPath}`, '--json']);
+    expect(handed.status).toBe(0);
+    expect(verdictOf(handed)).toMatchObject({ ok: true, contentType: EXPORT_CONTENT_TYPE });
+  });
+
+  it('reads a companion named by itself, which is how a handover directory is stood in', () => {
+    // The bare name is the spelling the option is documented by, so a caller inside the directory that
+    // holds the originals has to be able to type it.
+    const document = exportVector('companion-handed-and-checked');
+    const path = written('bare-companion.cbor', document.bytes);
+    const first = document.companions[0];
+    const companionPath = writtenUnderItsOwnName(first?.name ?? 'companion', first?.bytes ?? new Uint8Array());
+    const handed = runCli(['verify-export', path, `--key=${EXPORT_KEY_B64URL}`, `--companion=${first?.name ?? 'companion'}`, '--json'], dirname(companionPath));
+    expect(handed.stderr).toBe('');
     expect(handed.status).toBe(0);
     expect(verdictOf(handed)).toMatchObject({ ok: true, contentType: EXPORT_CONTENT_TYPE });
   });

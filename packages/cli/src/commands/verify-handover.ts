@@ -542,8 +542,8 @@ async function companionFiles(paths: readonly string[] | undefined): Promise<Rea
   const byName = new Map<string, Uint8Array>();
   for (const path of paths ?? []) {
     const name = basename(path);
-    if (name === path || name === '') {
-      throw new UsageError(`--companion must name one file, not '${path}': an export item names its original by its bare name, so a path with separators in it answers to nothing`);
+    if (name === '') {
+      throw new UsageError(`--companion must end in a file name, not '${path}': an export item's original is matched on the name at the end of the argument, and this argument has none`);
     }
     if (byName.has(name)) {
       throw new UsageError(`--companion names '${name}' twice, and the second file would answer for the item carrying the first one's bytes`);
