@@ -1,3 +1,5 @@
+import { sha256Hex, utf8 } from './bytes.js';
+
 /**
  * The refusals of this package, and the layer that names them.
  *
@@ -122,6 +124,11 @@ const QUOTABLE = /^[A-Za-z0-9:_.+-]{1,64}$/u;
 
 export function quotable(value: string): boolean {
   return QUOTABLE.test(value);
+}
+
+/** An outside token printed as itself when it can be, and as its digest when it cannot. */
+export function quoteOrDigest(value: string): string {
+  return quotable(value) ? value : `${String(value.length)} characters, sha256 ${sha256Hex(utf8(value)).slice(0, 16)}`;
 }
 
 const MAX_DETAIL = 256;
