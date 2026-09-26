@@ -619,6 +619,14 @@ and those two disagree, the vector file and the store are the authority, not thi
 
 **The frame.** The store appends one record per receipt to a single file it names `receipts.log`
 (`RECEIPT_STORE_FILE` in `gateway/src/store.ts`), concatenating the frames with nothing between them.
+That file is the chain's only authority and every image below is a `receipts.log` image. A default store
+keeps a second file beside it, `receipts.log.index` (`RECEIPT_SIDECAR_FILE` in the same module), holding
+each record's position and digest with a checkpoint naming how much of the log it speaks for, so that an
+opening reads the tail it has not seen instead of re-walking the bytes it has. That second file is an
+accelerator and nothing more: it is accepted only where it ties back to the log, which the opening checks
+by reading the prefix's trim records from the log and hashing the record the checkpoint ends on as though
+it were about to serve it, and it is discarded and rewritten from the log at any disagreement. It can be
+declined outright by `sidecarIndex: false`, and no byte of it enters the framing below.
 A frame reads, field by field:
 
 ```text
