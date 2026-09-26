@@ -41,27 +41,30 @@ Arguments:
   <attestation>      Path to a dStack VersionedAttestation file, or - for stdin.
   <receipt>          Path to a COSE_Sign1 receipt file, or - for stdin.
   <document>         Path to one signed document from a handover, or - for stdin: a receipt, a pack,
-                     an export or a deployment manifest, whichever the bytes say it is. For
-                     verify-pack and verify-export it is the file that says the one thing that verb
-                     reads, and any other document is refused before it is opened.
+                     an export, a deployment manifest or an excision amendment, whichever the bytes say
+                     it is. For verify-pack and verify-export it is the file that says the one thing that
+                     verb reads, and any other document is refused before it is opened.
 
 verify-handover answers the question a pile of files leaves open: what is this, and what holds for it.
-Four signed shapes carry a published content type, in the COSE protected header, inside the signature,
+Five signed shapes carry a published content type, in the COSE protected header, inside the signature,
 so the answer for a pile is one command that reads the header rather than one that makes the caller
 declare the form before looking at it. The type found is printed before anything about validity, in
 both renderings, and the document is then read by the reader for that type: the receipt reader, the
-pack reader, the export reader, or the manifest rule a client applies to a served document. Nothing is
-fetched and no policy is read. Keys are what the command line designates, by role: --key names the keys
-whose signatures hold on a receipt, a pack or an export, matched on the kid each document names, and
---manifest-key names the keys whose seal authenticates a deployment manifest, which is a separate
-designation because a manifest decides which keys sign evidence and cannot be proved by one of them.
-Each key's id is computed from the key, so a designation cannot type an id its own key contradicts, and
-a run prints which designations it was handed and whether the document in front of it consulted them.
-What this command leaves open is printed as open: it compares no nonce against a challenge, no digest
-against the bytes it claims, no pin against a policy and no stamp against a clock, and those are the
-questions ashaveri verify-receipt answers about one request. A directory is refused with the reason,
-because a bundle's rules over which files stand in a substituted root and which are omitted or extra are
-not what decides a document's type, and a pack reads as soon as its file is named.
+pack reader, the export reader, the redaction reader, or the manifest rule a client applies to a served
+document. Nothing is fetched and no policy is read. Keys are what the command line designates, by role:
+--key names the keys whose signatures hold on a receipt, a pack, an export or an amendment, matched on
+the kid each document names, and --manifest-key names the keys whose seal authenticates a deployment
+manifest, which is a separate designation because a manifest decides which keys sign evidence and cannot
+be proved by one of them. An amendment states a removal from one pack and designates that pack by a
+digest of its whole bytes, so it is checked against the pack handed as --companion: the digest is
+recomputed from those bytes and compared, and the pair is refused by name when they disagree or when no
+pack was handed at all. Each key's id is computed from the key, so a designation cannot type an id its
+own key contradicts, and a run prints which designations it was handed and whether the document in front
+of it consulted them. What this command leaves open is printed as open: it compares no nonce against a
+challenge, no digest against the bytes it claims, no pin against a policy and no stamp against a clock,
+and those are the questions ashaveri verify-receipt answers about one request. A directory is refused with
+the reason, because a bundle's rules over which files stand in a substituted root and which are omitted or
+extra are not what decides a document's type, and a pack reads as soon as its file is named.
 
 verify-pack and verify-export are that command with the answer in label 3 fixed to one value, for a
 caller that already knows which file it holds. Ask the free verb about a pile and not knowing is the
@@ -69,11 +72,11 @@ question; tell a script which shape it came for and the shape stops being a ques
 to check a pack that is handed an export should not come back reporting a verdict about the wrong
 material and exiting 0. A pinned verb refuses that before it opens the payload, with the refusal
 verify-handover already gives a content type it holds no reader for, BAD_PROTECTED_HEADER naming the typ
-the header carries, because which of the four shapes these bytes claim is one fact stated in one field
+the header carries, because which of the five shapes these bytes claim is one fact stated in one field
 and it wants one answer, not a code per verb. Neither verb adds an option, a refusal code or an exit
 code: --key designates the keys this run accepts a signature from, exactly as it does there, an export's
-originals still come in through --companion, and --manifest-key is accepted so one line can be run
-across a whole bundle and is printed as not consulted, since neither verb reads a manifest.
+originals and an amendment's pack still come in through --companion, and --manifest-key is accepted so one
+line can be run across a whole bundle and is printed as not consulted, since neither verb reads a manifest.
 
 verify-receipt reaches a verdict about a receipt from the files in front of it: the receipt, the
 policy that names what is trusted, the deployment manifest that declares the signing key, and the
@@ -233,12 +236,17 @@ Handover options, the same for verify-handover, verify-pack and verify-export:
                      as not consulted wherever the document in front of the run did not use it.
                      Base64url includes a dash in its alphabet, and an argument that starts with one
                      is not read as this option's value, so pass such a key as --key=<value>.
-  --companion <file>  One original an export item's digest is recomputed over. Repeatable, and matched
-                     by the file's own name, which is the name the signed item carries: a file named
-                     contract.txt answers the item naming contract.txt. An item whose name was not
-                     handed is refused by that name rather than passed over, because an export that
-                     reported on material nobody looked at is the defect this container exists not to
-                     have. A file no item names is left unused and said so in the report.
+  --companion <file>  A file that travels beside the document: one original an export item's digest is recomputed
+                     over, or the pack an excision amendment is checked against. Repeatable, and matched by the
+                     file's own name, which is the name the signed item carries: a file named contract.txt answers
+                     the item naming contract.txt. An item whose name was not handed is refused by that name rather
+                     than passed over, because an export that reported on material nobody looked at is the defect
+                     this container exists not to have. A file no item names is left unused and said so in the
+                     report. An amendment is the one case where the option carries a second signed document rather
+                     than an original, and it takes exactly one: a redaction designates its pack by a digest of that
+                     pack's whole bytes and never by a name, so the file handed is the file whose digest is
+                     recomputed and compared, none handed is refused as the missing pack it is, and two handed is
+                     refused as a call that designates no pack.
 
 Credential and log options:
   --credentials <file>

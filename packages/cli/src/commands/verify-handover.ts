@@ -6,13 +6,16 @@ import {
   EXPORT_CONTENT_TYPE,
   PACK_CONTENT_TYPE,
   RECEIPT_CONTENT_TYPE,
+  REDACTION_CONTENT_TYPE,
   decodeCanonical,
   ReceiptError,
   verifyExport,
   verifyPack,
   verifyReceipt,
+  verifyRedaction,
   type VerifiedExport,
   type VerifiedPack,
+  type VerifiedRedaction,
   type VerifiedReceipt,
 } from '@ashaveri/receipt';
 import {
@@ -34,20 +37,20 @@ import {
 /**
  * `ashaveri verify-handover <document> [options]`: what is this file, and what holds for it.
  *
- * A verification bundle is a pile of files, and four of the shapes it can hold now carry a published
- * content type: `ashaveri/receipt`, `ashaveri/pack`, `ashaveri/export` and `ashaveri/deployment-manifest`.
- * Two of them had a reader and no verb anybody could run, so a person handed the pile could not ask
- * what any of it was. This is that question, answered by one command rather than by four, because the
- * answer is inside the document: the content type sits in the COSE protected header, the header is
- * inside the signature, and so a stranger holding no key and reaching no network can classify these
+ * A verification bundle is a pile of files, and five of the shapes it can hold now carry a published
+ * content type: `ashaveri/receipt`, `ashaveri/pack`, `ashaveri/export`, `ashaveri/deployment-manifest` and
+ * `ashaveri/redaction`. Two of them had a reader and no verb anybody could run, so a person handed the pile
+ * could not ask what any of it was. This is that question, answered by one command rather than by five,
+ * because the answer is inside the document: the content type sits in the COSE protected header, the header
+ * is inside the signature, and so a stranger holding no key and reaching no network can classify these
  * bytes safely. A command per format would have made the caller declare the shape before reading it,
  * which is the one thing a pile makes impossible.
  *
  * The type is printed first in every answer this command gives, before anything about validity,
  * because a verdict about the wrong document is not a verdict at all.
  *
- * The dispatch is a lookup against the four constants the format package publishes, and each of the
- * four readers re-answers the content type itself, over the protected bytes, inside its own signature
+ * The dispatch is a lookup against the five constants the format package publishes, and each of the
+ * five readers re-answers the content type itself, over the protected bytes, inside its own signature
  * check. That is why a relabelled document cannot be talked into a pass here: the classification picks
  * which reader runs, and only a reader that has verified a signature over the header it read reports a
  * document as verified. A header changed without re-signing is caught by the signature, and a header
@@ -55,12 +58,12 @@ import {
  *
  * Which keys a document is checked against stays the caller's designation, exactly as
  * `ashaveri verify-receipt` treats one. `--key` designates the keys whose signatures this run accepts
- * on receipts, packs and exports, matched by the kid a header names; `--manifest-key` designates the
- * keys whose seal authenticates a deployment manifest. The two roles are kept apart for the reason the
- * policy type gives them: a manifest decides which keys sign evidence, so a key trusted for evidence
- * cannot also be the proof that the document naming them is the deployment's own. Each designation's
- * kid is computed from the key rather than typed beside it, so a designation that contradicts its own
- * key is refused before a byte of anybody's material is read, and what it refused is the call rather
+ * on receipts, packs, exports and redactions, matched by the kid a header names; `--manifest-key`
+ * designates the keys whose seal authenticates a deployment manifest. The two roles are kept apart for the
+ * reason the policy type gives them: a manifest decides which keys sign evidence, so a key trusted for
+ * evidence cannot also be the proof that the document naming them is the deployment's own. Each
+ * designation's kid is computed from the key rather than typed beside it, so a designation that contradicts
+ * its own key is refused before a byte of anybody's material is read, and what it refused is the call rather
  * than the document. Which keys a run was handed, and whether the document in front of it consulted
  * them, are printed either way, because a designation that did nothing is worth as much disclosing as
  * one that did.
@@ -73,11 +76,17 @@ import {
  * told about. So a receipt read here comes back signed by a key this run designated and whole in its own
  * shape, and the report says in terms which questions that leaves open and which command closes them.
  *
- * Two of the four shapes have a verb of their own beside this one: `ashaveri verify-pack` and
+ * Two of the five shapes have a verb of their own beside this one: `ashaveri verify-pack` and
  * `ashaveri verify-export`. They are this command with the answer in label 3 pinned to one value, so a
  * caller that already knows which file it is holding is told, in the same refusal this command gives a
  * type it does not read, when the file in front of it is not that. They add no exit code, no refusal code
  * and no option, because there is nothing here that a pinned type needs and a free type does not.
+ *
+ * One shape carries a second document with it. A redaction states a removal from one pack, and the reader
+ * recomputes a digest of that pack's whole bytes rather than resolving a name, so the pack travels in
+ * through `--companion`, the option this command already uses for the file that arrives beside a document.
+ * Nothing about the fifth type widens what is accepted: an amendment names a content type the format
+ * package publishes, and a header naming anything else is still refused by name.
  */
 
 /** The flags `verify-handover` reads, typed as the one parse in `cli.ts` produces them. */
@@ -86,7 +95,7 @@ export interface VerifyHandoverFlags {
   key?: string[];
   /** Every `--manifest-key` given, unvalidated at this point; see `designatedKeys`. */
   'manifest-key'?: string[];
-  /** Every `--companion` given: the files an export item's originals travel in. */
+  /** Every `--companion` given: the files an export item's originals travel in, and the pack a redaction names. */
   companion?: string[];
   json?: boolean;
 }
@@ -110,10 +119,10 @@ export interface VerbPin {
 /** `ashaveri verify-handover`, the verb that answers the question a pile of files leaves open. */
 export const HANDOVER_VERB: VerbPin = { verb: 'verify-handover', contentType: null };
 
-/** Label 3 of the COSE header registry: the content type. The four formats all put their name there. */
+/** Label 3 of the COSE header registry: the content type. The five formats all put their name there. */
 const CONTENT_TYPE_LABEL = 3;
 
-/** Label 4 of the same registry: the kid. Every one of the four readers requires it to be 32 bytes. */
+/** Label 4 of the same registry: the kid. Every one of the five readers requires it to be 32 bytes. */
 const KID_LABEL = 4;
 
 /** The width a kid is written at across these formats, which is what the readers refuse anything else for. */
@@ -141,7 +150,7 @@ interface Reading {
   readonly notChecked: readonly string[];
 }
 
-/** Everything the four readers share: what this run was handed, and the bytes it was handed. */
+/** Everything the five readers share: what this run was handed, and the bytes it was handed. */
 interface Inputs {
   readonly evidence: readonly DesignatedKey[];
   readonly manifest: readonly DesignatedKey[];
@@ -168,8 +177,8 @@ function refuse(contentType: string | null, err: ReceiptError | SdkError, json: 
  * What these bytes call themselves, read out of the envelope by the package's own CBOR decoder.
  *
  * Nothing is decided about trust here, and nothing needs to be: this answers only which reader the
- * bytes point at, and which kid that reader will be asked to settle. The codes are the ones the four
- * readers already use for the same four facts about an envelope, because a caller who meets a refusal
+ * bytes point at, and which kid that reader will be asked to settle. The codes are the ones the five
+ * readers already use for the same facts about an envelope, because a caller who meets a refusal
  * here and then in a reader should learn one thing twice rather than two things once, and because a
  * command that classified documents is not the place a new refusal code is born.
  *
@@ -244,7 +253,7 @@ function notSign1(): ReceiptError {
 }
 
 /**
- * The key set this run designates for evidence, answered the way the receipt and pack readers ask.
+ * The key set this run designates for evidence, answered the way the receipt, pack and redaction readers ask.
  *
  * A resolver rather than one pinned key, because a pack's span can cross a key rotation and the
  * receipts inside it were signed by the epochs that were current then, which is what the caller
@@ -517,15 +526,118 @@ function readManifest(bytes: Uint8Array, inputs: Inputs, kid: Uint8Array): Readi
 }
 
 /**
- * The four types this command can meet, each with the reader that answers for it. The keys are the
- * constants the format package publishes, so a fifth type published beside them reaches this command as
- * an unknown `typ` and is refused by name rather than read as one of these four.
+ * The pack an amendment is checked against, out of the files this run was handed.
+ *
+ * A redaction designates its pack by a digest of the whole sealed document and resolves nothing by a name,
+ * so the caller says which file it means and the reader recomputes that digest over the bytes it was handed
+ * and refuses the pair when the two disagree. None handed is passed on as none rather than refused here,
+ * because the reader's own refusal names the input the call left out, which is the fact the caller acts on.
+ * More than one is refused as the call that designates no pack, on the rule the same option's duplicate name
+ * is refused by: this command would have to choose which of two documents an amendment speaks about, and
+ * the choice is the caller's to make and nobody else's.
+ */
+function handedPack(companions: ReadonlyMap<string, Uint8Array>): Uint8Array | undefined {
+  if (companions.size > 1) {
+    throw new UsageError(
+      `--companion hands ${String(companions.size)} files and an amendment is checked against one pack, which it designates by a digest and by no name: name the pack this amendment removes records from`,
+    );
+  }
+  return companions.values().next().value;
+}
+
+/**
+ * A redaction, read as a redaction.
+ *
+ * `verifyRedaction` settles the amendment's own envelope, then reads the pack it names through `verifyPack`,
+ * then recomputes the chain over the records that remain, so the caller's designation is forwarded whole
+ * exactly as the pack arm forwards it: the pack an amendment speaks about can cross a key rotation, and its
+ * receipts have to be checked against the epochs the caller retained. The reader's refusals come back as its
+ * own, including the two that are about the call rather than about the bytes.
+ *
+ * The two heads are printed apart, because merging them is the mistake this document exists to make
+ * impossible: the pack's signed head still holds over the pack's own run, and the head over the survivors is
+ * a chain the pack does not contain. What a removal was for, and whether the bytes named as removed are
+ * unreachable anywhere else, are answered by no reading of two documents, and are printed as open.
+ */
+function readRedaction(bytes: Uint8Array, inputs: Inputs, kid: Uint8Array): Reading {
+  const packBytes = handedPack(inputs.companions);
+  const verified: VerifiedRedaction = verifyRedaction(bytes, {
+    resolveKey: resolveEvidence(inputs.evidence),
+    // An absent pack travels on as absent rather than being refused in this file: see `handedPack`.
+    packBytes: packBytes as Uint8Array,
+  });
+  const { manifest, outcome } = verified;
+  const survivors = outcome.survivors.map((one) => one.item);
+  return {
+    contentType: REDACTION_CONTENT_TYPE,
+    reader: 'verifyRedaction',
+    kid: toHex(kid),
+    facts: [
+      { key: 'signature', label: 'signature', value: 'holds, EdDSA over the Sig_structure a redaction frames, under the designated key, and the pack it names verifies through verifyPack', json: true },
+      { key: 'statedAt', label: 'stated at', value: `${manifest.at} (${isoOf(manifest.at)})`, json: manifest.at },
+      {
+        key: 'pack',
+        label: 'pack',
+        value: `${toHex(outcome.packSha256)}, recomputed over the pack this run was handed and matched against the amendment's own designation`,
+        json: { sha256: toHex(outcome.packSha256) },
+      },
+      {
+        key: 'removed',
+        label: 'removed',
+        value: `${String(manifest.removed.length)} record(s): ${manifest.removed.join(', ')}`,
+        json: manifest.removed,
+      },
+      {
+        key: 'survivors',
+        label: 'survivors',
+        value: `${String(outcome.survivors.length)} of ${String(outcome.pack.manifest.items.length)} items, in the order the pack's links fix them`,
+        json: { survivors: outcome.survivors.length, declared: outcome.pack.manifest.items.length },
+      },
+      {
+        key: 'survivorItems',
+        label: 'survivor records',
+        value: survivors.map((one) => `${one.id} at ${one.iat}`).join('; '),
+        json: outcome.survivors.map((one) => ({
+          id: one.item.id,
+          iat: one.item.iat,
+          prev: toHex(one.item.prev),
+          receiptKid: toHex(one.receipt.header.kid),
+          receiptIssuer: one.receipt.payload.iss,
+        })),
+      },
+      {
+        key: 'reduced',
+        label: 'survivor chain head',
+        value: `${toHex(outcome.reduced)}, the head of a chain the pack does not contain`,
+        json: toHex(outcome.reduced),
+      },
+      {
+        key: 'originalHead',
+        label: "pack's own head",
+        value: `${toHex(outcome.originalHead)}, which still holds over the pack's own run`,
+        json: toHex(outcome.originalHead),
+      },
+      { key: 'states', label: 'states', value: manifest.states, json: manifest.states },
+    ],
+    notChecked: [
+      `whether the ${String(manifest.removed.length)} record(s) named as removed are unreachable anywhere this deployment still holds them: this run reads the statement and the pack it names, and no file in a bundle shows what else is stored`,
+      `whether this amendment is the whole of a removal somebody owed and ordered: the removal list and the sentence beside it are the deployment's own statement, and the mapping and the authority behind them are read by no reader of these bytes`,
+      'whether this amendment is the latest statement about this pack, and whether the pack handed as this run\'s companion is the copy a reader held before the removal was stated: the walk inside this reading covers the pack as handed, and nothing here compares one copy of it with another',
+    ],
+  };
+}
+
+/**
+ * The five types this command can meet, each with the reader that answers for it. The keys are the
+ * constants the format package publishes, so a sixth type published beside them reaches this command as
+ * an unknown `typ` and is refused by name rather than read as one of these five.
  */
 const READERS: ReadonlyMap<string, (bytes: Uint8Array, inputs: Inputs, kid: Uint8Array) => Reading> = new Map([
   [RECEIPT_CONTENT_TYPE, readReceipt],
   [PACK_CONTENT_TYPE, readPack],
   [EXPORT_CONTENT_TYPE, readExport],
   [DEPLOYMENT_MANIFEST_CONTENT_TYPE, readManifest],
+  [REDACTION_CONTENT_TYPE, readRedaction],
 ]);
 
 /**

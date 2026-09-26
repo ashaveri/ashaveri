@@ -1,4 +1,4 @@
-import { createPrivateKey, sign } from 'node:crypto';
+import { createHash, createPrivateKey, sign } from 'node:crypto';
 import { spawnSync } from 'node:child_process';
 import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
@@ -10,6 +10,7 @@ import {
   EXPORT_CONTENT_TYPE,
   PACK_CONTENT_TYPE,
   RECEIPT_CONTENT_TYPE,
+  REDACTION_CONTENT_TYPE,
   decodeCanonical,
   encodeCanonical,
   encodeExportProtectedHeader,
@@ -34,7 +35,7 @@ import {
  * than by an assertion in this file, which is the only proof worth having that a pack assembled outside
  * the package is a pack the package reads.
  *
- * What is asserted is the separation the four content types exist to draw, visible at the command edge:
+ * What is asserted is the separation the five content types exist to draw, visible at the command edge:
  * the type found is printed before anything about validity, a document is read by the reader for its
  * own type, and a header changed without a new signature is answered by the signature rather than by a
  * verdict about the shape it now claims to be.
@@ -46,11 +47,16 @@ import {
  * a document of another type meets the refusal this command already gives a type it holds no reader for.
  * The documents are the same bytes either way, which is the only reason the comparison can be made.
  *
- * No case here needs a longer timeout than the runner's default: the slowest measured case is the one
- * that checks a key's canonical spelling, at 946 ms over four CLI invocations, and each invocation
- * signs or verifies a handful of Ed25519 signatures rather than a loop of them. Three cases under the
- * pinned verbs run the CLI more than four times and carry a stated window chosen from what each
- * measures, with the figures beside them.
+ * One shape arrives with a second document. An amendment is checked against the pack it designates by a
+ * digest, so its cases hand that pack in through `--companion`, and the whole published redaction suite is
+ * replayed through the command path here rather than only through the library, with the handful of rows this
+ * path answers otherwise named and explained rather than quietly dropped.
+ *
+ * No case here needs a longer timeout than the runner's default: the slowest measured case without a stated
+ * window is the one that checks a key's canonical spelling, at 1,043 ms over four CLI invocations with three
+ * test files running at once, and each invocation signs or verifies a handful of Ed25519 signatures rather
+ * than a loop of them. Four cases run the CLI far more than four times and carry a stated window chosen from
+ * what each measures, with the figures beside them; the widest is the 43-row replay below.
  */
 
 const CLI = fileURLToPath(new URL('../dist/cli.js', import.meta.url));
@@ -215,6 +221,50 @@ function exportVector(name: string): { bytes: Uint8Array; companions: { name: st
     bytes: Buffer.from(vector.documentBase64Url, 'base64url'),
     companions: (vector.read.companions ?? []).map((one) => ({ name: one.name, bytes: Buffer.from(one.bytesBase64Url, 'base64url') })),
   };
+}
+
+/**
+ * One row of the published redaction suite, and one row of the published pack suite it names.
+ *
+ * The amendment arrives with the pack it speaks about, because the format designates that pack by a digest
+ * of its whole bytes: the rows carry both documents, and the key the row states is the one the pack suite
+ * seals that pack with. So every claim below is read out of published material rather than out of a document
+ * this file assembled to agree with the reader.
+ */
+interface PublishedRedactionRow {
+  readonly name: string;
+  readonly documentBase64Url: string;
+  readonly packBase64Url?: string;
+  readonly read: { readonly pinned?: string; readonly retained?: readonly { kid: string; publicKeyBase64Url: string }[] };
+  readonly verdict: string;
+  readonly survivors?: string[];
+  readonly reducedHex?: string;
+  readonly originalHeadHex?: string;
+}
+
+interface PublishedPackRow {
+  readonly name: string;
+  readonly documentBase64Url: string;
+  readonly read: { readonly pinned?: string };
+}
+
+const REDACTION_FIXTURE = JSON.parse(readFileSync(`${DATA}redaction-v1.json`, 'utf8')) as { vectors: PublishedRedactionRow[] };
+const PACK_FIXTURE = JSON.parse(readFileSync(`${DATA}pack-v1.json`, 'utf8')) as { vectors: PublishedPackRow[] };
+
+function redactionRow(name: string): PublishedRedactionRow {
+  const row = REDACTION_FIXTURE.vectors.find((one) => one.name === name);
+  if (row === undefined) {
+    throw new Error(`the published redaction suite has no vector named '${name}'`);
+  }
+  return row;
+}
+
+function packRow(name: string): PublishedPackRow {
+  const row = PACK_FIXTURE.vectors.find((one) => one.name === name);
+  if (row === undefined) {
+    throw new Error(`the published pack suite has no vector named '${name}'`);
+  }
+  return row;
 }
 
 /** A deployment manifest in the shape the SDK parses, sealed as a deployment that was handed an identity serves it. */
@@ -460,6 +510,165 @@ describe('ashaveri verify-handover', () => {
   });
 });
 
+/** A published field this file cannot do without, refused by name rather than defaulted to an empty frame. */
+function published(value: string | undefined, what: string): string {
+  if (value === undefined) {
+    throw new Error(`the published suite states no ${what}, so this file would be asserting about nothing`);
+  }
+  return value;
+}
+
+/**
+ * One published amendment, the pack it designates, and the pack document itself, as three files, plus the
+ * key the suite states its caller holds. The amendment and the pack are sealed by one key, which is the key
+ * the pack suite seals that pack with, so the same designation answers both documents.
+ */
+const AMENDMENT = redactionRow('removed-middle-record');
+const AMENDMENT_PATH = written('amendment.cbor', Buffer.from(published(AMENDMENT.documentBase64Url, 'amendment document'), 'base64url'));
+const AMENDMENT_PACK_PATH = written('amendment-pack.cbor', Buffer.from(published(AMENDMENT.packBase64Url, 'pack the amendment designates'), 'base64url'));
+const AMENDMENT_KEY = `--key=${published(AMENDMENT.read.pinned, 'pinned key')}`;
+const PACK_DOCUMENT_PATH = written(
+  'published-pack.cbor',
+  Buffer.from(published(packRow('well-formed-three-items').documentBase64Url, 'pack document'), 'base64url'),
+);
+
+/**
+ * The rows whose published verdict the command path answers with a different code, each with that code and
+ * the reason. Three groups, and none of them is a reader disagreeing with itself.
+ *
+ * Two rows pin one key as the reader's `publicKey` where a command line designates a set matched on each
+ * kid, and `--key` cannot file a key under an id that is not its own, so the disagreement those rows state is
+ * answered one step earlier as a kid nothing designates. One row designates no key at all, which this tool
+ * refuses as the gap in the call, with a usage exit, exactly as it does for a receipt, a pack or an export.
+ * Two rows are a document wearing another container's content type, which the dispatch answers by running
+ * that container's reader rather than the redaction reader the row goes on to name. And two rows are refused
+ * by the classifier before a reader is chosen, which answers the same fact with the code the classification
+ * already uses. Every one of them is still a named refusal: the command path is silent about none of the
+ * published cases.
+ */
+const REPLAY_EXCEPTIONS: readonly { name: string; observed: string; exit: number }[] = [
+  { name: 'rotation-read-with-one-pinned-key', observed: 'PACK_UNKNOWN_KEY', exit: 1 },
+  { name: 'sealed-under-another-deployment-key', observed: 'REDACTION_UNKNOWN_KEY', exit: 1 },
+  { name: 'no-designation-at-all', observed: 'usage', exit: 2 },
+  { name: 'protected-content-type-of-a-pack', observed: 'PACK_BAD_MANIFEST', exit: 1 },
+  { name: 'protected-content-type-of-a-receipt', observed: 'BAD_PAYLOAD', exit: 1 },
+  { name: 'protected-kid-of-another-width', observed: 'BAD_PROTECTED_HEADER', exit: 1 },
+  { name: 'document-truncated-mid-envelope', observed: 'MALFORMED_CBOR', exit: 1 },
+];
+
+/** What one command run answered: the published verdict's shape, or the fact that it refused the call. */
+function replayedVerdict(result: CliResult): string {
+  if (result.status === 2) return 'usage';
+  try {
+    const report = JSON.parse(result.stdout) as { ok?: boolean; code?: string };
+    return report.ok === true ? 'verify-ok' : published(report.code, 'refusal code');
+  } catch {
+    return 'unreadable';
+  }
+}
+
+/** The window for the 43-run case below: measured at 9,158 ms over 43 invocations on a warm host, and given eight times that room. */
+const WHOLE_SUITE_THROUGH_THE_COMMAND_PATH = { timeout: 80_000 };
+
+describe('an excision amendment at the command edge', () => {
+  it('reads an amendment against the pack it names, and keeps the two chain heads apart', () => {
+    const json = verdictOf(runCli(['verify-handover', AMENDMENT_PATH, AMENDMENT_KEY, `--companion=${AMENDMENT_PACK_PATH}`, '--json']));
+    expect(json.ok).toBe(true);
+    expect(json.contentType).toBe('ashaveri/redaction');
+    expect(json.reader).toBe('verifyRedaction');
+    const body = json.document as Record<string, unknown>;
+    expect(body.signature).toBe(true);
+    expect(body.survivors).toEqual({ survivors: 2, declared: 3 });
+    expect((body.survivorItems as { id: string }[]).map((one) => one.id)).toEqual(AMENDMENT.survivors);
+    // The published row states both heads, and they are never equal on an accepted row: the pack's signed
+    // head holds over the pack's own run, and the survivor head is a chain that pack does not contain.
+    expect(body.reduced).toBe(AMENDMENT.reducedHex);
+    expect(body.originalHead).toBe(AMENDMENT.originalHeadHex);
+    expect(body.reduced).not.toBe(body.originalHead);
+    // The designation is the reader's hash of the bytes this run handed, and the pack reached this run under
+    // a name no format reserves, because an amendment names its pack by a digest and not by a name.
+    expect(body.pack).toEqual({ sha256: createHash('sha256').update(readFileSync(AMENDMENT_PACK_PATH)).digest('hex') });
+
+    const human = runCli(['verify-handover', AMENDMENT_PATH, AMENDMENT_KEY, `--companion=${AMENDMENT_PACK_PATH}`]);
+    expect(human.status).toBe(0);
+    expect(human.stdout.split('\n')[0]).toBe('content type:     ashaveri/redaction');
+    expect(human.stdout).toContain('survivor chain head');
+    expect(human.stdout).toContain("pack's own head");
+    expect(human.stdout).toContain('unreachable anywhere this deployment still holds them');
+  });
+
+  it('refuses an amendment whose pack was not handed, naming the input the call left out', () => {
+    const result = runCli(['verify-handover', AMENDMENT_PATH, AMENDMENT_KEY, '--json']);
+    expect(result.status).toBe(1);
+    const refusal = verdictOf(result);
+    expect(refusal).toMatchObject({ ok: false, contentType: 'ashaveri/redaction', code: 'REDACTION_PACK_UNAVAILABLE' });
+    expect(String(refusal.message)).toContain('the pack it names');
+  });
+
+  it('refuses the bytes handed as the pack when an amendment designates another', () => {
+    // The amendment's own document parked at the companion position is a pack to nobody: the designation is
+    // recomputed from the bytes and compared before the pack is opened, which is the whole of this row.
+    const result = runCli(['verify-handover', AMENDMENT_PATH, AMENDMENT_KEY, `--companion=${AMENDMENT_PATH}`, '--json']);
+    expect(result.status).toBe(1);
+    const refusal = verdictOf(result);
+    expect(refusal).toMatchObject({ ok: false, contentType: 'ashaveri/redaction', code: 'REDACTION_PACK_MISMATCH' });
+    expect(String(refusal.message)).toContain('redaction names pack=');
+  });
+
+  it('refuses a call that hands an amendment more than one pack', () => {
+    const result = runCli(['verify-handover', AMENDMENT_PATH, AMENDMENT_KEY, `--companion=${AMENDMENT_PACK_PATH}`, `--companion=${PACK_DOCUMENT_PATH}`, '--json']);
+    expect(result.status).toBe(2);
+    expect(result.stderr).toContain('an amendment is checked against one pack');
+    expect(result.stdout).toBe('');
+  });
+
+  it('asks for the key an amendment needs by the type it found, which is the strict answer not the advisory one', () => {
+    const result = runCli(['verify-handover', AMENDMENT_PATH, `--companion=${AMENDMENT_PACK_PATH}`]);
+    expect(result.status).toBe(2);
+    expect(result.stderr).toContain('--key is required to verify ashaveri/redaction');
+  });
+
+  it('reads a pack as a pack where a caller expected an amendment, and says so in the first line', () => {
+    // The pair the other way round: the pack is the whole of an amendment's other document, so a pile read
+    // with one command answers with the type inside the signature rather than with the caller's guess.
+    const json = verdictOf(runCli(['verify-handover', PACK_DOCUMENT_PATH, AMENDMENT_KEY, `--companion=${AMENDMENT_PATH}`, '--json']));
+    expect(json.ok).toBe(true);
+    expect(json.contentType).toBe(PACK_CONTENT_TYPE);
+    expect(json.reader).toBe('verifyPack');
+  });
+
+  it('replays every published redaction row through the command path', WHOLE_SUITE_THROUGH_THE_COMMAND_PATH, () => {
+    expect(REDACTION_FIXTURE.vectors.length).toBeGreaterThanOrEqual(43);
+    const exceptions = new Map(REPLAY_EXCEPTIONS.map((one) => [one.name, one]));
+    const observed: string[] = [];
+    for (const row of REDACTION_FIXTURE.vectors) {
+      const args = ['verify-handover', written(`${row.name}.cbor`, Buffer.from(row.documentBase64Url, 'base64url')), '--json'];
+      for (const key of row.read.pinned !== undefined ? [row.read.pinned] : (row.read.retained ?? []).map((one) => one.publicKeyBase64Url)) {
+        args.push(`--key=${key}`);
+      }
+      if (row.packBase64Url !== undefined) {
+        args.push(`--companion=${written(`${row.name}-pack.cbor`, Buffer.from(row.packBase64Url, 'base64url'))}`);
+      }
+      const result = runCli(args);
+      const answer = replayedVerdict(result);
+      const exception = exceptions.get(row.name);
+      // A row either answers what its published verdict states, or it is named above with the code this path
+      // answers and the exit it answers with. An unreadable run is neither, and fails here.
+      expect(answer, `${row.name}: the command path answered something neither the row nor this file states`).toBe(
+        exception === undefined ? row.verdict : exception.observed,
+      );
+      expect(result.status, `${row.name}: exit status beside the answer`).toBe(exception === undefined ? (row.verdict === 'verify-ok' ? 0 : 1) : exception.exit);
+      observed.push(`${row.name}: ${answer}`);
+    }
+    // Every exception is a claim about a row that exists, so a suite that moves a row cannot leave one of
+    // these notes standing beside nothing.
+    for (const one of exceptions.keys()) {
+      expect(REDACTION_FIXTURE.vectors.some((row) => row.name === one), `${one} is no longer a published row`).toBe(true);
+    }
+    expect(observed.filter((one) => !one.endsWith('verify-ok')).length).toBeGreaterThanOrEqual(33);
+  });
+});
+
 /**
  * The two verbs that pin label 3 to one value, run over the documents above.
  *
@@ -483,9 +692,9 @@ describe('the pinned verbs verify-pack and verify-export', () => {
 
   /**
    * The window for the three cases below that run the CLI more than four times, chosen from what each of
-   * them measures on a machine with a warm store: 1,771 ms over six invocations for the report
-   * comparison, 1,032 ms and 1,061 ms over five each for the two cross-type refusals, of which about
-   * 260 ms per invocation is the cost of starting a `node` process rather than any crypto. The shared
+   * them measures on a machine with a warm store: 1,274 ms over six invocations for the report
+   * comparison, and 1,092 ms and 1,061 ms over six each for the two cross-type refusals, of which about
+   * 180 ms per invocation is the cost of starting a `node` process rather than any crypto. The shared
    * Windows runner pays more for a process start than that, which is what makes a case at about two
    * seconds here a timeout risk there, and six times the slowest measurement leaves room without
    * hiding a case that genuinely hangs.
@@ -514,6 +723,9 @@ describe('the pinned verbs verify-pack and verify-export', () => {
       [exportPath, `--key=${EXPORT_KEY_B64URL}`, EXPORT_CONTENT_TYPE],
       [RECEIPT_PATH, `--key=${RECEIPT_PUBLIC_B64URL}`, RECEIPT_CONTENT_TYPE],
       [manifestPath, manifestDesignation, DEPLOYMENT_MANIFEST_CONTENT_TYPE],
+      // An amendment is refused here before its pack is asked for: the type is settled first, and a verb
+      // that reads packs has no reader to hand those bytes to.
+      [AMENDMENT_PATH, AMENDMENT_KEY, REDACTION_CONTENT_TYPE],
       [futurePath, `--key=${RECEIPT_PUBLIC_B64URL}`, 'ashaveri/telemetry'],
     ] as Array<readonly [string, string, string]>) {
       const json = runCli(['verify-pack', path, designation, '--json']);
@@ -540,6 +752,7 @@ describe('the pinned verbs verify-pack and verify-export', () => {
       [packPath, `--key=${RECEIPT_PUBLIC_B64URL}`, PACK_CONTENT_TYPE],
       [RECEIPT_PATH, `--key=${RECEIPT_PUBLIC_B64URL}`, RECEIPT_CONTENT_TYPE],
       [manifestPath, manifestDesignation, DEPLOYMENT_MANIFEST_CONTENT_TYPE],
+      [AMENDMENT_PATH, AMENDMENT_KEY, REDACTION_CONTENT_TYPE],
       [futurePath, `--key=${RECEIPT_PUBLIC_B64URL}`, 'ashaveri/telemetry'],
     ] as Array<readonly [string, string, string]>) {
       const json = runCli(['verify-export', path, designation, '--json']);
