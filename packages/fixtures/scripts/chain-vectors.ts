@@ -338,7 +338,7 @@ async function main(): Promise<void> {
       {
         version: 1,
         description:
-          'The receipt store record format, published as file images a gateway store wrote and the state a reader derives from them. Each scenario names the writes it performed and states what the file held afterwards byte for byte, alongside the head, the served set and the retention state a reader reports for it. Every image here came out of the store rather than out of a description of it, and a scenario is one directory holding one file named receipts.log.',
+          'The receipt store record format, published as file images a gateway store wrote and the state a reader derives from them. Each scenario names the writes it performed and states what the file held afterwards byte for byte, alongside the head, the served set and the retention state a reader reports for it. Every image here came out of the store rather than out of a description of it, and a scenario is one directory whose chain lives in one file named receipts.log. A default store also writes a disposable receipts.log.index beside that file, holding record positions and a checkpoint so an opening need not re-walk bytes it has already verified; it is rebuilt from the log at any disagreement, it carries no byte of the chain, and no scenario publishes it.',
         layout: {
           file: RECEIPT_STORE_FILE,
           record: 'len:u32 || kind:u8 || prev:32 || iat:u64 || idLen:u16 || id || payload || digest:32',
