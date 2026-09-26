@@ -43,6 +43,7 @@ export type { BufferedMarking } from './marking.js';
 // of that arithmetic would drift from the one that decides, and the message an operator acts on would
 // then name a count no store needed.
 export {
+  HOST_CLOCK_SOURCE,
   MINIMUM_RETENTION_SECONDS,
   openFileReceiptStore,
   openMemoryReceiptStore,
@@ -53,13 +54,17 @@ export {
 export type {
   ChainState,
   FileReceiptStoreOptions,
+  ReadingsApart,
   ReceiptRetention,
   ReceiptServing,
   ReceiptStore,
   RetainedWindow,
+  StampDeclaration,
   StoreErrorCode,
   StoredReceipt,
+  TimeSource,
   TrimEvent,
+  WindowClaim,
 } from './store.js';
 // The credential file's shape and the admission decision are exported for the same reason the
 // store's is: the tooling that writes a credential and the code that checks one are compiled

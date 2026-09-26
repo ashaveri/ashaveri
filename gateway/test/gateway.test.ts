@@ -17,6 +17,7 @@ import {
 } from '../src/access.js';
 import {
   CLOCK_SECONDS,
+  fixedClock,
   generated,
   harness,
   newBearerCredential,
@@ -474,7 +475,7 @@ describe('the issuance clock', () => {
     let issuedAt = ISSUED_AT_SECONDS;
     const h = await harness({
       credentials: [credential()],
-      gateway: { key: DEPLOYMENT_KEY, store, now: () => issuedAt * 1000 + 999 },
+      gateway: { key: DEPLOYMENT_KEY, store, time: fixedClock(() => issuedAt + 0.999) },
     });
     try {
       const first = await send(h, 'POST', '/v1/chat/completions', REQUEST_BODY);
@@ -508,10 +509,10 @@ describe('the issuance clock', () => {
     // is years before either process runs.
     const dir = await mkdtemp(join(tmpdir(), 'ashaveri-clock-'));
     try {
-      const clock = (): number => ISSUED_AT_SECONDS * 1000;
+      const clock = fixedClock(() => ISSUED_AT_SECONDS);
       const first = await harness({
         credentials: [credential()],
-        gateway: { key: DEPLOYMENT_KEY, store: await openFileReceiptStore({ dir }), now: clock },
+        gateway: { key: DEPLOYMENT_KEY, store: await openFileReceiptStore({ dir }), time: clock },
       });
       const id = (await send(first, 'POST', '/v1/chat/completions', REQUEST_BODY)).headers['x-ashaveri-receipt-id'] as string;
       await first.app.close();

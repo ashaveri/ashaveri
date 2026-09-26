@@ -2,7 +2,7 @@
 
 Every value a deployment can point this gateway at, and every value the code holds when the
 deployment named nothing. Three tables sort them by class, and the counts below are the counts the
-tables carry: 30 flag rows, 13 shipped defaults, and 8 environment variables, of which 7 are
+tables carry: 30 flag rows, 14 shipped defaults, and 8 environment variables, of which 7 are
 settings and 1 carries credential material. 3 flags name their default in the block that declares
 them. Coverage is the gateway's operator surface only: the values a client verifies against, pinned
 in `packages/sdk/src/policy.ts`, and the record constants in `packages/cli/src/records.ts` are out
@@ -87,6 +87,7 @@ change to it is a change here too.
 | `DEFAULT_MOCK_MODEL` | `'mock-model-1'` | The model id a mock completion is answered with when none was named | shipped default | `gateway/src/mock.ts` |
 | `SHIPPED_RETAINED_RECEIPTS` | `10_000` | The durability bound a receipt volume is opened with when no flag named one | shipped default | `gateway/src/cli.ts` |
 | `SHIPPED_SERVED_RECEIPTS` | `10_000` | The serving bound a query is walked with when no flag named one | shipped default | `gateway/src/cli.ts` |
+| `HOST_CLOCK_SOURCE` | `{ name: 'host clock', uncertaintySeconds: null, now: () => Math.floor(Date.now() / 1000) }` | The source every whole-second stamp this process signs is read from when the deployment wired none, and the bound nobody measured on it | shipped default | `gateway/src/store.ts` |
 
 Bounds shipped in the same source, and holding whatever the operator named, are not fallbacks and so
 are not rows above: `MAX_CREDENTIALS`, `MAX_TRACKED_PEERS`, `MAX_BUFFERED_BODY`,

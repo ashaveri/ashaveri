@@ -10,6 +10,7 @@ import {
   SIDECAR_BLOCK_RECORDS,
   type ReceiptRetention,
 } from '../src/store.js';
+import { fixedClock } from './helpers.js';
 
 /**
  * The disposable sidecar index a durable receipt store keeps beside `receipts.log`, and the checkpoint
@@ -284,7 +285,7 @@ describe('the store file is the only authority', () => {
       // trim history and the served set are all reported from a prefix no reader holds.
       const run = async (dir: string, declined: boolean): Promise<void> => {
         let now = STAMP;
-        const retention: ReceiptRetention = { maxAgeSeconds: 1_000, now: () => now };
+        const retention: ReceiptRetention = { maxAgeSeconds: 1_000, time: fixedClock(() => now)};
         const options = { dir, retention, ...(declined ? { sidecarIndex: false } : {}) };
         const first = await openFileReceiptStore(options);
         for (let i = 0; i < 10; i++) {
@@ -303,7 +304,7 @@ describe('the store file is the only authority', () => {
       await run(walkedDir, true);
 
       expect(await readdir(walkedDir)).toEqual([RECEIPT_STORE_FILE]);
-      const retention: ReceiptRetention = { maxAgeSeconds: 1_000, now: () => STAMP + 2_020 };
+      const retention: ReceiptRetention = { maxAgeSeconds: 1_000, time: fixedClock(() => STAMP + 2_020)};
       const asking = { retention, ids: ['old_0', 'new_0', 'only'] };
       expect(await readFile(storeFile(sidecarDir))).toEqual(await readFile(storeFile(walkedDir)));
       expect(await answer(sidecarDir, asking)).toBe(await answer(walkedDir, { ...asking, declined: true }));
@@ -355,12 +356,12 @@ describe('the store file is the only authority', () => {
       }
       const ids = ['aged', 'kept_0', 'kept_1', 'kept_2'];
 
-      const forward = { retention: { maxAgeSeconds: 1_000, now: () => STAMP + 5_002 }, ids };
+      const forward = { retention: { maxAgeSeconds: 1_000, time: fixedClock(() => STAMP + 5_002)}, ids };
       expect(await answer(dir, forward)).toBe(await answer(dir, { ...forward, declined: true }));
       expect(JSON.parse(await answer(dir, forward)).window.count).toBe(3);
       expect(JSON.parse(await answer(dir, forward)).asked.aged).toBe('absent');
 
-      const back = { retention: { maxAgeSeconds: 1_000, now: () => STAMP }, ids };
+      const back = { retention: { maxAgeSeconds: 1_000, time: fixedClock(() => STAMP)}, ids };
       expect(await answer(dir, back)).toBe(await answer(dir, { ...back, declined: true }));
       expect(JSON.parse(await answer(dir, back)).window.count).toBe(4);
       expect(JSON.parse(await answer(dir, back)).asked.aged).toBe(hex(RECEIPT));
@@ -618,7 +619,7 @@ describe('a compaction invalidates the sidecar in the right direction', () => {
     declined: boolean,
   ): Promise<{ anchorBefore: string; sidecarBefore: Buffer }> {
     let now = STAMP;
-    const retention: ReceiptRetention = { maxAgeSeconds: 1_000, now: () => now };
+    const retention: ReceiptRetention = { maxAgeSeconds: 1_000, time: fixedClock(() => now)};
     const options = { dir, retention, ...(declined ? { sidecarIndex: false } : {}) };
     const store = await openFileReceiptStore(options);
     for (let i = 0; i < 10; i++) {
@@ -636,7 +637,7 @@ describe('a compaction invalidates the sidecar in the right direction', () => {
     return { anchorBefore, sidecarBefore };
   }
 
-  const AFTER = { maxAgeSeconds: 1_000, now: () => STAMP + 1_013 };
+  const AFTER = { maxAgeSeconds: 1_000, time: fixedClock(() => STAMP + 1_013)};
 
   it('reports the seam a compaction moved to, not the chain before it', { timeout: CASE_TIMEOUT }, async () => {
     const dir = await emptyDir();

@@ -14,6 +14,7 @@ import {
   type ReceiptStore,
   type RetainedWindow,
 } from '../src/store.js';
+import { fixedClock } from './helpers.js';
 
 const RECEIPT = Uint8Array.from(Array.from({ length: 64 }, (_, i) => (i * 7) % 256));
 const OTHER_RECEIPT = Uint8Array.from(Array.from({ length: 48 }, (_, i) => (i * 11) % 256));
@@ -120,7 +121,7 @@ async function emptyDir(): Promise<string> {
 async function twiceCompacted(): Promise<string> {
   const dir = await emptyDir();
   let now = 1_780_000_000;
-  const retention = { maxAgeSeconds: 1_000, now: () => now };
+  const retention = { maxAgeSeconds: 1_000, time: fixedClock(() => now)};
   const first = await openFileReceiptStore({ dir, retention });
   for (let i = 0; i < 10; i++) {
     await first.put(`old_${i}`, RECEIPT, now + i);
@@ -194,7 +195,7 @@ describe('receipt store', () => {
     const dir = await emptyDir();
     const store = await openFileReceiptStore({
       dir,
-      retention: { maxAgeSeconds: 3_600, now: () => 1_780_000_000 },
+      retention: { maxAgeSeconds: 3_600, time: fixedClock(() => 1_780_000_000)},
     });
     await store.put('expired', RECEIPT, 1_779_996_399);
     await store.put('edge', OTHER_RECEIPT, 1_779_996_400);
@@ -209,7 +210,7 @@ describe('receipt store', () => {
     const dir = await emptyDir();
     const store = await openFileReceiptStore({
       dir,
-      retention: { maxAgeSeconds: 3_600, maxCount: 2, now: () => 1_780_000_000 },
+      retention: { maxAgeSeconds: 3_600, maxCount: 2, time: fixedClock(() => 1_780_000_000)},
     });
     await store.put('first', RECEIPT, 1_779_999_000);
     await store.put('second', OTHER_RECEIPT, 1_779_999_500);
@@ -302,7 +303,7 @@ describe('receipt store', () => {
   it('reclaims the space a trimmed prefix occupied without disturbing the chain', async () => {
     const dir = await emptyDir();
     let now = 1_780_000_000;
-    const retention: ReceiptRetention = { maxAgeSeconds: 1_000, now: () => now };
+    const retention: ReceiptRetention = { maxAgeSeconds: 1_000, time: fixedClock(() => now)};
     const store = await openFileReceiptStore({ dir, retention });
     for (let i = 0; i < 10; i++) {
       await store.put(`old_${i}`, RECEIPT, now + i);
@@ -371,7 +372,7 @@ describe('trim records', () => {
     // could only ever hold one: a second has nowhere to put what it knows.
     const dir = await emptyDir();
     let now = 1_780_000_000;
-    const store = await openFileReceiptStore({ dir, retention: { maxAgeSeconds: 1_000, now: () => now } });
+    const store = await openFileReceiptStore({ dir, retention: { maxAgeSeconds: 1_000, time: fixedClock(() => now)} });
     for (let i = 0; i < 10; i++) {
       await store.put(`old_${i}`, RECEIPT, now + i);
     }
@@ -421,7 +422,7 @@ describe('trim records', () => {
     // that survives a restart knowing it, so both the pair and the policy behind it go in the file.
     const agedDir = await emptyDir();
     let now = 1_780_000_000;
-    const byAge = await openFileReceiptStore({ dir: agedDir, retention: { maxAgeSeconds: 1_000, now: () => now } });
+    const byAge = await openFileReceiptStore({ dir: agedDir, retention: { maxAgeSeconds: 1_000, time: fixedClock(() => now)} });
     for (let i = 0; i < 10; i++) {
       await byAge.put(`old_${i}`, RECEIPT, now + i);
     }
@@ -444,7 +445,7 @@ describe('trim records', () => {
     const cappedDir = await emptyDir();
     const byCount = await openFileReceiptStore({
       dir: cappedDir,
-      retention: { maxCount: 4, now: () => 1_780_000_000 },
+      retention: { maxCount: 4, time: fixedClock(() => 1_780_000_000)},
     });
     for (let i = 0; i < 9; i++) {
       await byCount.put(`rcpt_${i}`, RECEIPT, 1_780_000_000 + i);
@@ -491,7 +492,7 @@ describe('chain state', () => {
     // equally consistent with an old quiet store and with a cap that evicted most of a young one.
     // Only the code that dropped the record knows which, so that is where the split has to come from.
     const store = openMemoryReceiptStore({
-      retention: { maxAgeSeconds: 3_600, maxCount: 100, now: () => 1_780_000_000 },
+      retention: { maxAgeSeconds: 3_600, maxCount: 100, time: fixedClock(() => 1_780_000_000)},
     });
     await store.put('expired', RECEIPT, 1_779_996_399);
     await store.put('recent', OTHER_RECEIPT, 1_780_000_000);
@@ -507,7 +508,7 @@ describe('chain state', () => {
     // else can start at the anchor, recompute a digest per receipt, and land on the head. That is
     // a proof rather than a promise, and it only works if the anchor is the predecessor of the
     // oldest retained receipt rather than wherever the chain happens to have finished.
-    const store = openMemoryReceiptStore({ retention: { maxCount: 2, now: () => 1_780_000_000 } });
+    const store = openMemoryReceiptStore({ retention: { maxCount: 2, time: fixedClock(() => 1_780_000_000)} });
     await store.put('rcpt_01', RECEIPT, 1_780_000_000);
     await store.put('rcpt_02', OTHER_RECEIPT, 1_780_000_060);
     await store.put('rcpt_03', RECEIPT, 1_780_000_120);
@@ -531,7 +532,7 @@ describe('chain state', () => {
     // it stood. A hole is what the chain exists to make visible, and a retained set with one in it
     // cannot be walked from any anchor to any head, so the store has to retire up to the chain and
     // no further than the chain.
-    const store = openMemoryReceiptStore({ retention: { maxCount: 2, now: () => 1_780_000_000 } });
+    const store = openMemoryReceiptStore({ retention: { maxCount: 2, time: fixedClock(() => 1_780_000_000)} });
     await store.put('rcpt_c', RECEIPT, 1_780_000_120);
     await store.put('rcpt_a', OTHER_RECEIPT, 1_780_000_000);
     await store.put('rcpt_b', RECEIPT, 1_780_000_060);
@@ -555,7 +556,7 @@ describe('chain state', () => {
     // they went.
     const dir = await emptyDir();
     let now = 1_780_000_000;
-    const retention = { maxAgeSeconds: 1_000, now: () => now };
+    const retention = { maxAgeSeconds: 1_000, time: fixedClock(() => now)};
     const written = await openFileReceiptStore({ dir, retention });
     for (let i = 0; i < 10; i++) {
       await written.put(`old_${i}`, RECEIPT, now + i);
@@ -584,7 +585,7 @@ describe('chain state', () => {
     // bound is gone. This is the one place the answer outlives it.
     const dir = await emptyDir();
     let now = 1_780_000_000;
-    const retention = { maxAgeSeconds: 1_000, maxCount: 100, now: () => now };
+    const retention = { maxAgeSeconds: 1_000, maxCount: 100, time: fixedClock(() => now)};
     const written = await openFileReceiptStore({ dir, retention });
     for (let i = 0; i < 10; i++) {
       await written.put(`old_${i}`, RECEIPT, now + i);
@@ -698,7 +699,7 @@ describe('the window a store is configured to hold', () => {
     const retention: ReceiptRetention = {
       maxAgeSeconds: FIVE_YEARS_SECONDS,
       maxCount: FIXTURE_BOUND,
-      now: () => STAMP + 10,
+      time: fixedClock(() => STAMP + 10),
     };
     const written = await openFileReceiptStore({ dir, retention });
     await burst(written, FIXTURE_RECEIPTS);
@@ -720,7 +721,7 @@ describe('the window a store is configured to hold', () => {
     const retention: ReceiptRetention = {
       maxAgeSeconds: FIVE_YEARS_SECONDS,
       maxCount: FIXTURE_BOUND,
-      now: () => STAMP + 10,
+      time: fixedClock(() => STAMP + 10),
     };
     const written = await openFileReceiptStore({ dir, retention });
     await burst(written, FIXTURE_RECEIPTS);
@@ -747,12 +748,12 @@ describe('the window a store is configured to hold', () => {
     const dir = await emptyDir();
     const written = await openFileReceiptStore({
       dir,
-      retention: { maxAgeSeconds: FIVE_YEARS_SECONDS, maxCount: 1_000_000_000_000, now: () => STAMP + 10 },
+      retention: { maxAgeSeconds: FIVE_YEARS_SECONDS, maxCount: 1_000_000_000_000, time: fixedClock(() => STAMP + 10)},
     });
     await burst(written, FIXTURE_RECEIPTS);
     const reopened = await openFileReceiptStore({
       dir,
-      retention: { maxAgeSeconds: FIVE_YEARS_SECONDS, maxCount: 1_000_000_000_000, now: () => STAMP + 10 },
+      retention: { maxAgeSeconds: FIVE_YEARS_SECONDS, maxCount: 1_000_000_000_000, time: fixedClock(() => STAMP + 10)},
     });
     expect(await reopened.window()).toEqual({ from: STAMP, to: STAMP, count: FIXTURE_RECEIPTS });
   });
@@ -762,7 +763,7 @@ describe('the window a store is configured to hold', () => {
     // cases is the period asked for: one second is inside what those stamps cover, two seconds is not.
     const held = async (maxAgeSeconds: number): Promise<string> => {
       const dir = await emptyDir();
-      const retention: ReceiptRetention = { maxAgeSeconds, maxCount: 10, now: () => STAMP };
+      const retention: ReceiptRetention = { maxAgeSeconds, maxCount: 10, time: fixedClock(() => STAMP)};
       const store = await openFileReceiptStore({ dir, retention });
       await burst(store, 10);
       return openFileReceiptStore({ dir, retention }).then(
@@ -779,7 +780,7 @@ describe('the window a store is configured to hold', () => {
     // the traffic that would decide the question has not arrived. Refusing here would refuse a quiet
     // deployment for being quiet.
     const dir = await emptyDir();
-    const retention: ReceiptRetention = { maxAgeSeconds: FIVE_YEARS_SECONDS, maxCount: 10, now: () => STAMP };
+    const retention: ReceiptRetention = { maxAgeSeconds: FIVE_YEARS_SECONDS, maxCount: 10, time: fixedClock(() => STAMP)};
     const store = await openFileReceiptStore({ dir, retention });
     await burst(store, 3);
     const reopened = await openFileReceiptStore({ dir, retention });
@@ -800,8 +801,8 @@ describe('the window a store is configured to hold', () => {
         (error: unknown) => String((error as { code?: string }).code),
       );
     };
-    expect(await atBound({ maxCount: 10, now: () => STAMP })).toBe('opened');
-    expect(await atBound({ maxAgeSeconds: FIVE_YEARS_SECONDS, now: () => STAMP })).toBe('opened');
+    expect(await atBound({ maxCount: 10, time: fixedClock(() => STAMP)})).toBe('opened');
+    expect(await atBound({ maxAgeSeconds: FIVE_YEARS_SECONDS, time: fixedClock(() => STAMP)})).toBe('opened');
   });
 
   it(
@@ -815,7 +816,7 @@ describe('the window a store is configured to hold', () => {
       // a store that keeps ten receipts and is asked to keep nine seconds of them has to hold, and a
       // walk over all ten is resolved two at a time.
       const dir = await emptyDir();
-      const spaced: ReceiptRetention = { maxAgeSeconds: 9, maxCount: FIXTURE_RECEIPTS, now: () => STAMP + 9 };
+      const spaced: ReceiptRetention = { maxAgeSeconds: 9, maxCount: FIXTURE_RECEIPTS, time: fixedClock(() => STAMP + 9)};
       const serving: ReceiptServing = { maxServedReceipts: 2 };
       const written = await openFileReceiptStore({ dir, retention: spaced, serving });
       for (let i = 0; i < FIXTURE_RECEIPTS; i++) {
@@ -850,7 +851,7 @@ describe('the window a store is configured to hold', () => {
       const retention: ReceiptRetention = {
         maxAgeSeconds: FIVE_YEARS_SECONDS,
         maxCount: FIXTURE_BOUND,
-        now: () => STAMP + 10,
+        time: fixedClock(() => STAMP + 10),
       };
       // A serving bound ten times the durability bound, which is a lawful pairing and the one a single
       // number could not state: what one query may hold says nothing about what the file keeps.
@@ -990,7 +991,7 @@ describe('the serving bound', () => {
 
   it('retires nothing, however far below the retained set it sits', async () => {
     const store = openMemoryReceiptStore({
-      retention: { maxCount: 100, now: () => STAMP + 10 },
+      retention: { maxCount: 100, time: fixedClock(() => STAMP + 10)},
       serving: { maxServedReceipts: 1 },
     });
     await filled(store, 5);
@@ -1002,7 +1003,7 @@ describe('the serving bound', () => {
 
   it('leaves the durability bound the only bound that drops a prefix', async () => {
     const store = openMemoryReceiptStore({
-      retention: { maxCount: 3, now: () => STAMP },
+      retention: { maxCount: 3, time: fixedClock(() => STAMP)},
       serving: { maxServedReceipts: 1 },
     });
     for (let i = 0; i < 5; i++) {
@@ -1044,7 +1045,7 @@ describe('the serving bound', () => {
       let now = STAMP;
       const store = await openFileReceiptStore({
         dir,
-        retention: { maxAgeSeconds: 1_000, now: () => now },
+        retention: { maxAgeSeconds: 1_000, time: fixedClock(() => now)},
         serving: { maxServedReceipts: 1 },
       });
       // Four receipts that the next clock reading ages out, three that it keeps, and the ages chosen so
@@ -1297,7 +1298,7 @@ describe('a rewrite landing underneath a walk', () => {
       let now = STAMP;
       const store = await openFileReceiptStore({
         dir,
-        retention: { maxAgeSeconds: 1_000, now: () => now },
+        retention: { maxAgeSeconds: 1_000, time: fixedClock(() => now)},
         serving: { maxServedReceipts: 1 },
       });
       // Four receipts the next clock reading ages out and three it keeps. The dead prefix outweighs the
@@ -1332,7 +1333,7 @@ describe('a rewrite landing underneath a walk', () => {
       // the only outside voice a walk has: the walk and a fresh opening agree on ids and on bytes.
       const reopened = await openFileReceiptStore({
         dir,
-        retention: { maxAgeSeconds: 1_000, now: () => now },
+        retention: { maxAgeSeconds: 1_000, time: fixedClock(() => now)},
       });
       const again = await served(reopened);
       expect(again.map((item) => item.id)).toEqual(['kept_0', 'kept_1', 'kept_2', 'kept_later']);
