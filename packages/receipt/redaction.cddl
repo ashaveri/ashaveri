@@ -15,11 +15,12 @@
 ; disclosure is the point: a reviewer still sees what was sealed, when, and what was later removed.
 ;
 ; `packages/receipt/src/redaction.ts` reads this layout and writes it, and refuses each shape it will not
-; accept by code. `docs/receipt-spec.md` section 5.4 states the same field set as a table, and
-; `packages/fixtures/test/redaction-doc.test.ts` holds the two against each other, so neither statement of
-; this layout can widen alone. The framing the surviving chain is computed over is section 5.2 of that
-; document, published as byte images in `packages/fixtures/data/chain-v1.json`; where a sentence here and
-; those two disagree about a frame, they are the authority and this file is wrong.
+; accept by code. `packages/receipt/schemas/redaction-v1.schema.json` is its machine-readable twin, and
+; `packages/receipt/test/redaction.test.ts` holds the members this file declares, that twin and the
+; reader's own list against each other, so no one of the three can widen alone. The framing the surviving
+; chain is computed over is section 5.2 of `docs/receipt-spec.md`, published as byte images in
+; `packages/fixtures/data/chain-v1.json`; where a sentence here and those two disagree about a frame, they
+; are the authority and this file is wrong.
 ; ---------------------------------------------------------------------------
 
 Ashaveri-Redaction = #6.18(COSE_Sign1-Redaction-COSE)
