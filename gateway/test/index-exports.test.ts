@@ -62,7 +62,7 @@ describe('the package entry point', () => {
     // The clock is injected because these are instants in 1970, and an age bound read against the
     // platform clock would retire every one of them before the window was asked for.
     const store: ReceiptStore = openMemoryReceiptStore({
-      retention: { maxAgeSeconds: 10, maxCount: 11, time: fixedClock(() => 1_009)},
+      retention: { maxAgeSeconds: 10, maxCount: 11, time: fixedClock(() => 1_009) },
     });
     for (let i = 0; i < 10; i++) {
       await store.put(`r${String(i)}`, Uint8Array.from([i]), 1_000 + i);
@@ -78,7 +78,7 @@ describe('the package entry point', () => {
     // nothing, because only the durability bound decides what a store keeps.
     const serving: ReceiptServing = { maxServedReceipts: 1 };
     const store: ReceiptStore = openMemoryReceiptStore({
-      retention: { maxAgeSeconds: 1_000, maxCount: 10, time: fixedClock(() => 1_004)},
+      retention: { maxAgeSeconds: 1_000, maxCount: 10, time: fixedClock(() => 1_004) },
       serving,
     });
     for (let i = 0; i < 5; i++) {

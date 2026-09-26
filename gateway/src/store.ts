@@ -403,8 +403,11 @@ export type WindowClaim =
   | { readonly state: 'inside-window'; readonly stamped: StampDeclaration }
   | {
       readonly state: 'at-edge';
-      /** Seconds from the stamp to the nearer edge of the window this walk was asked for. */
-      readonly edgeSeconds: number;
+      /**
+       * Seconds the stamp has before the nearer edge, counted so that 1 is the edge itself: the older
+       * edge belongs to the window, so a stamp sitting on it has one second of slack and no more.
+       */
+      readonly marginSeconds: number;
       readonly stamped: StampDeclaration;
     }
   | { readonly state: 'bound-unknown'; readonly stamped: StampDeclaration };
@@ -415,9 +418,11 @@ export type WindowClaim =
  *
  * Both edges are measured because the window is bounded at both: `from` is included and `to` is not, so
  * a stamp at the older edge is in the span by the rule itself and a stamp one second below the newer
- * edge is in by one second. The nearer of the two is the whole question, and it is weighed against the
- * same `PAIRWISE_FACTOR` a distance between two readings is weighed against, so an edge claim and a
- * span measurement cannot drift apart.
+ * edge is in by one second. That asymmetry is why the margin below counts the edge's own second rather
+ * than the bare distance to it, and why a source declaring an exact clock reports every stamp it wrote
+ * as inside rather than hedging the ones that sit on an edge. The nearer of the two is the whole
+ * question, and it is weighed against the same `PAIRWISE_FACTOR` a distance between two readings is
+ * weighed against, so an edge claim and a span measurement cannot drift apart.
  */
 function windowClaim(source: TimeSource, iat: number, from: number, to: number): WindowClaim {
   const stamped: StampDeclaration = { name: source.name, uncertaintySeconds: source.uncertaintySeconds };
@@ -425,10 +430,10 @@ function windowClaim(source: TimeSource, iat: number, from: number, to: number):
   if (bound === null) {
     return { state: 'bound-unknown', stamped };
   }
-  const edgeSeconds = Math.min(iat - from, to - iat);
-  return edgeSeconds > PAIRWISE_FACTOR * bound
+  const marginSeconds = Math.min(iat - from + 1, to - iat);
+  return marginSeconds > PAIRWISE_FACTOR * bound
     ? { state: 'inside-window', stamped }
-    : { state: 'at-edge', edgeSeconds, stamped };
+    : { state: 'at-edge', marginSeconds, stamped };
 }
 
 /**
@@ -1415,10 +1420,14 @@ export function measurableSpanSeconds(held: RetainedWindow, source: TimeSource):
  */
 export function sourceSentence(declared: StampDeclaration): string {
   const bound = declared.uncertaintySeconds;
-  return bound === null
-    ? `the source named ${declared.name}, on which nobody measured an uncertainty`
-    : `the source named ${declared.name}, whose bound of ${String(bound)} seconds a reading is ` +
-      `${String(PAIRWISE_FACTOR * bound)} seconds across two of its own readings`;
+  if (bound === null) {
+    return `the source named ${declared.name}, on which nobody measured an uncertainty`;
+  }
+  return (
+    `the source named ${declared.name}, whose readings can each be away from the instant they name by ` +
+    `${String(bound)} seconds, so two of its own readings resolve no distance above ` +
+    `${String(PAIRWISE_FACTOR * bound)} seconds`
+  );
 }
 
 /**
@@ -1832,7 +1841,9 @@ export function openMemoryReceiptStore(options: {
   const retention = options.retention;
   const serving = options.serving;
   const source = retention?.time ?? HOST_CLOCK_SOURCE;
-  const now = (): number => source.now();
+  // The same whole-second floor the file store reads a source through, so the two stores age a record
+  // at the same instant when handed the same source and the same period.
+  const now = (): number => Math.floor(source.now());
   const entries = new Map<string, { iat: number; seq: number; prev: Uint8Array; receipt: Uint8Array }>();
   let chainHead: Uint8Array = new Uint8Array(PREV_BYTES);
   let chainSeq = 0;
