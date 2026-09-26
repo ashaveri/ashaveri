@@ -173,7 +173,7 @@ serving side:
 
 What is still true, in both modes:
 
-- **No vendor platform-health data is fetched by anything in this code today.** With a pinned Intel
+- **No vendor attestation collateral is fetched by anything in this code today.** With a pinned Intel
   root, `@ashaveri/attest-core` verifies a TDX quote through Intel DCAP: the quote under its
   attestation key, that key inside the QE report, and the report under a PCK chain reaching the
   pinned root. Intel's SGX root CA and the AMD Milan ARK are bundled with the package, so SDK
@@ -185,9 +185,9 @@ What is still true, in both modes:
   genuinely signed but since deprecated or revoked by the vendor therefore still verifies. Checking
   freshness needs network access and is deliberately outside the offline verification path. The
   residual risk in T12 is the whole of this limitation, and it is not scheduled away: a service
-  publishing this data for deployments that want it was decided on 21 September 2026, described in the
-  README's platform-health section, and nothing of it is in this code or is a precondition of any
-  verdict a third party can reach. This document describes the offline path as it is built.
+  publishing this collateral for deployments that want it was decided on 21 September 2026, described in
+  the README's attestation-collateral section, and nothing of it is in this code or is a precondition of
+  any verdict a third party can reach. This document describes the offline path as it is built.
 - **The client's clock is a stranger's, and its two windows are chosen numbers.** In strict mode the
   client refuses a receipt whose `iat` is more than 300 seconds from its own clock, and evidence
   whose `att.ts` is more than 900 seconds from it. Those bound how much skew between two

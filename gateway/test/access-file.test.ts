@@ -277,6 +277,11 @@ describe('the status a refusal answers with', () => {
     NONCE_SEEN: 409,
     SCOPE_DENIED: 403,
     RATE_LIMITED: 429,
+    // A second 429, and the one that carries no `retry-after`: this refusal is a pairing between two
+    // configured numbers and a measured rate, and the only wait that would clear it is the fall in
+    // traffic this process cannot see. Its row in `test/intake-guard.test.ts` is what holds the
+    // absence of the header.
+    RECEIPT_WINDOW_UNHOLDABLE: 429,
   } satisfies Record<AccessErrorCode, number>;
 
   type StatusRow = readonly [code: AccessErrorCode, status: number];

@@ -12,12 +12,13 @@ design addresses and the ones it leaves open.
 
 ## 1. The pipeline
 
-`CredentialStore.admit` runs five checks in a fixed order, and one bound on the connection ahead of all
-five. The order is the contract rather than an optimization. It sorts by what an answer discloses, not by
-what a check costs, and it keeps the property that makes the difference knowable: a request that fails two
-of them reports the earlier one. Each check is listed below with what it proves and, in parentheses, the
-refusal it raises when it fails; the bound is described with them, because it answers with one of their
-codes.
+`CredentialStore.admit` runs five checks in a fixed order, one bound on the connection ahead of all
+five, and one guard on the deployment behind them. The order is the contract rather than an
+optimization. It sorts by what an answer discloses, not by what a check costs, and it keeps the
+property that makes the difference knowable: a request that fails two of them reports the earlier one.
+Each check is listed below with what it proves and, in parentheses, the refusal it raises when it
+fails; the bound is described with them, because it answers with one of their codes, and the guard is
+described after them, because it is the one check that reads the store rather than the credential.
 
 1. **The request says who it is, and when.** The `Authorization` header parses and speaks a scheme
    this deployment runs; the `ts` parameter is within the deployment's tolerance; the
@@ -72,6 +73,45 @@ figure is a flag: the software holds the floor, and a deployment that needs per-
 that can name the client. The counter is memory only, is never written down, and does not outlive the
 process, so it is not the record section 7 declines to keep an address in; how many addresses it remembers is
 capped, so it cannot be grown by making the gateway meet more of them.
+
+**Behind all five sits one guard, and it is held on the deployment rather than on a caller.** A
+completion is the request that issues a receipt, and a receipt is only worth issuing while the
+deployment can keep it: the durability bound retires the oldest prefix of the chain, and the period
+configured beside it states how long a receipt stays fetchable. Where the two cannot both be honoured,
+this gateway refuses the completion at admission, ahead of the upstream call, with
+`RECEIPT_WINDOW_UNHOLDABLE`; section 6 names the two flags that set it, and
+`docs/error-codes.md` gives the refusal its row. Reads, verification of a receipt already filed, and
+a handover assembled from the retained set keep serving, because none of them adds a receipt to the
+store, and what a walk over the retained set costs is what it cost before this check existed.
+
+The guard reads the retained set and the two configured numbers, so it names no credential,
+distinguishes no id, and varies with nothing in the file: it answers one completion as it answers the
+next, whoever sent it. That is what makes a place behind the five lawful for it, on the same rule that
+makes the bound ahead of them lawful. It sits behind them rather than ahead because a request that
+fails one of the five is answered by the earlier check, which is the rule the ordering comes from, and
+because the credential whose completion this is has to be admitted before anything is declined on its
+behalf. It spends the credential's token on the way, since the bucket is the fifth check and this is
+the sixth: a guard refusal is a request this deployment answered, and the line it writes names the
+credential it refused.
+
+Three states keep a quiet deployment from starting to refuse, and they are the three the store's own
+opening refusal respects. A policy bounded on one side only has no pairing to contradict, so it is
+never asked. A retained set below the configured point of its bound is shedding nothing, however
+little it has issued. A store at its bound whose stamps already span the configured period is holding
+what it asked for at the traffic it carries, and a store that has retained fewer than two receipts has
+measured no rate at all, which is that condition's own precondition. The threshold is a fraction of
+the bound and defaults to the bound itself: the retained set never exceeds the count that retires it,
+so that default is the one state a store already refuses to open at, which is why a deployment that
+configures nothing behaves here exactly as it did before this pairing was read while serving.
+
+Growing past the guard is permitted as a named decision and not as a value of the threshold.
+`--receipts-grow-past-guard` turns the refusal off, off being its default: with it the volume keeps
+growing, the durability bound keeps retiring the oldest prefix, the window served is the shorter one
+that bound reaches rather than the period configured beside it, and the pairing is met at the next
+restart by a store refusing to open rather than by an answer a caller can read. That is the cost of
+it, and it is discovered inside a write rather than at a refusal, which is why it is opt-in, why the
+start-up report prints whichever posture the process is running, and why no percentage of the bound
+switches this off instead.
 
 `BAD_CREDENTIAL_RECORD` is not a refusal the pipeline answers a request with, as of 19 September
 2026. A `pop` record carrying no key its kind can be verified against never reaches a request: it is
@@ -150,6 +190,7 @@ definition.
 | `NONCE_SEEN` | 409 | This credential presented this nonce inside the replay window | Build a new request with a fresh nonce. Resending these bytes is exactly what just failed |
 | `SCOPE_DENIED` | 403 | The route needs a scope the credential does not hold, or the target has no row | Use a credential that holds it, or ask the operator to scope the route. This answer takes no token from the credential's own bucket, though the connection's bound was charged before it was decided |
 | `RATE_LIMITED` | 429 | Either the credential's bucket is empty or the connection has spent the request bound held ahead of the five checks. The refusal's own sentence says which, and it names no credential on the connection's answer. The two are separated in the access log and nowhere a caller looks: the connection's bound writes `PEER_RATE_LIMITED` to `deny` and the credential's bucket writes `RATE_LIMITED`, so the volume tells the incidents apart while this answer stays the one answer | Wait `retryAfterSeconds`, then send a new request. One answer is fixed by the rate the operator set for the credential; the other by how much this one address is asking at once |
+| `RECEIPT_WINDOW_UNHOLDABLE` | 429 | This deployment cannot issue a receipt it can keep for the period it configured: the store's retained set has reached the configured point of its durability bound, and the rate that set's own stamps measure says the period takes more receipts than the bound holds. Refused ahead of the upstream call and behind the five checks, on the one route that issues a receipt, and it carries no `retry-after` because no refill is known | Wait, and expect a deployment at its bound to still be at it: this is not a bucket refilling, and nothing a caller holds changes it. The condition clears when this deployment's issuance falls below the rate its bound cannot hold, or when its operator raises the bound to the count the message states or shortens the period beside it. A caller that needs the receipt takes it from a deployment able to keep it, and a caller that needs an answer can take this one, which says plainly that no receipt is coming |
 | `BAD_CREDENTIAL_FILE`, `BAD_CREDENTIAL_RECORD`, `DUPLICATE_CREDENTIAL_ID` | 500 | The operator's file is unusable. None of the three is a refusal the pipeline gives a request: they answer where records enter the store, at start-up and on reload | Not a client fix. A file that will not parse, or that holds a record with no key its kind can be verified against, stops the boot; a reload that fails keeps the records already loaded answering later requests while the file is repaired |
 
 ## 2. Routes and scopes
@@ -394,6 +435,8 @@ deployer's, and the log is where its use shows.
 | `--access-log-days <n>` | 184 | How long log files are kept, in days. 184 is the default and the floor the code names, and it is not enforced as a ceiling on the operator's choice: a shorter value starts, and the start-up report says out loud that the run is below the floor (section 8.2) |
 | `--pop-tolerance <seconds>` | 120 | Clock slack accepted for a proof-of-possession timestamp, in both directions |
 | `--peer-rate perMinute=<n>,burst=<n>` | `perMinute=6000,burst=2000` | The request bound one connection address is held to ahead of every credential check, which section 1 explains: behind one proxy this is the whole deployment sharing one bucket. Both fields are required, each is a whole number of at least 1, and a value that is not stops the start rather than falling back to the default. No value removes the bound, and a large number is the way to stop being shed; the start-up report prints the number the process is holding and says whether it came from this flag. How often this bound refuses is legible on the access log as lines whose `deny` reads `PEER_RATE_LIMITED`, and the count is the whole of what the volume says about it: a line records no address, and the bucket itself is never written down |
+| `--receipts-guard-at <percent>` | 100 | The point of the durability bound from which the guard described in section 1 is read while serving rather than only at an opening. Once the store holds this percentage of `--receipts-keep` receipts, a completion is refused `RECEIPT_WINDOW_UNHOLDABLE` ahead of the upstream call if the period configured beside the bound cannot be held at the rate the store's own retained stamps measure. A whole percentage from 1 to 100, and a value that is not one stops the start rather than falling back. 100 is the bound itself, which is the state a store already refuses to open at, so the default changes nothing for a deployment that sets neither flag; a lower number refuses while there is still room, and no number switches the guard off, because nothing sits above the bound for a threshold to reach. The start-up report prints the percentage this process is holding |
+| `--receipts-grow-past-guard` | off | The named decision to keep issuing past the guard instead of refusing, and the only spelling that turns the check off. With it the volume grows and the durability bound keeps retiring the oldest prefix, so the window served is the shorter one that bound reaches rather than the period configured beside it, and the shortfall is met at the next restart by the store refusing to open rather than by an answer a caller reads. It overrides `--receipts-guard-at`, and the start-up report says which of the two this process is running |
 | `--allow-bearer` | off | Accepts bearer credentials deployment-wide, says so at start-up, and writes `auth=bearer` on every record a bearer secret admitted |
 
 ## 7. The access log
@@ -419,7 +462,7 @@ The twelve fields, in the order the writer emits them:
 | `nce` | The request's nonce, so a record can be tied to a receipt; `null` on a bearer request, which presents no nonce to record |
 | `st` | The HTTP status this gateway answered with |
 | `dur` | Request duration in milliseconds |
-| `deny` | What this gateway decided the refusal was, on a request the pipeline rejected. This is not always the code the caller was told, and the difference is deliberate: the two part where a refusal is collapsed and where one answer stands for two decisions. An id this file does not carry is answered to its caller as `AUTH_SIGNATURE` and written here as `AUTH_UNKNOWN`, because the line sits inside the trust boundary and the response outside it, and an operator reading a spike needs the reason rather than the cover. The sibling case is a name this file carries as a bearer record, answered to its caller as `AUTH_SIGNATURE` and written here as `AUTH_SCHEME`. The third separation is between two limits rather than two names: a connection that has spent the request bound is answered `RATE_LIMITED`, the very code the credential's own bucket answers with, and written here as `PEER_RATE_LIMITED`. What differs between those two refusals is the operator's fix and not the client's, which is to wait `retry-after` either way, so the reason is recorded where a deployer reads and left out of an answer nobody can act on. It is in no status and no message, and it has no row of its own in `docs/error-codes.md`, whose `RATE_LIMITED` row names it as the deployer's reason and not as something a caller catches, which is what it being a reason rather than an answer means. Nothing the caller can observe changes: the status and the body both carry the collapsed answer. A line whose `deny` names a credential the response never acknowledged is still that credential's record, so the scrub described below erases it on the same instruction |
+| `deny` | What this gateway decided the refusal was, on a request the pipeline rejected. This is not always the code the caller was told, and the difference is deliberate: the two part where a refusal is collapsed and where one answer stands for two decisions. An id this file does not carry is answered to its caller as `AUTH_SIGNATURE` and written here as `AUTH_UNKNOWN`, because the line sits inside the trust boundary and the response outside it, and an operator reading a spike needs the reason rather than the cover. The sibling case is a name this file carries as a bearer record, answered to its caller as `AUTH_SIGNATURE` and written here as `AUTH_SCHEME`. The third separation is between two limits rather than two names: a connection that has spent the request bound is answered `RATE_LIMITED`, the very code the credential's own bucket answers with, and written here as `PEER_RATE_LIMITED`. What differs between those two refusals is the operator's fix and not the client's, which is to wait `retry-after` either way, so the reason is recorded where a deployer reads and left out of an answer nobody can act on. It is in no status and no message, and it has no row of its own in `docs/error-codes.md`, whose `RATE_LIMITED` row names it as the deployer's reason and not as something a caller catches, which is what it being a reason rather than an answer means. Nothing the caller can observe changes: the status and the body both carry the collapsed answer. The fourth case on this line is the opposite shape, and it is here because the field is where the two are told apart: a completion refused on the durability guard is answered `RECEIPT_WINDOW_UNHOLDABLE` and written here as that same word, because that refusal is a fact about this deployment which no caller can act on and no wait answers, so it joined the codes a caller branches on rather than staying a reason only a deployer reads. A line whose `deny` names a credential the response never acknowledged is still that credential's record, so the scrub described below erases it on the same instruction |
 
 Deliberately not recorded: request and response bodies, so no prompt and no completion; the
 `Authorization` header; bearer secrets; public keys; query strings; source IP; user agent.

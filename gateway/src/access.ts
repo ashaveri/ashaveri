@@ -38,14 +38,28 @@ export type AccessErrorCode =
   | 'AUTH_NONCE_MISSING'
   | 'NONCE_SEEN'
   | 'SCOPE_DENIED'
-  | 'RATE_LIMITED';
+  | 'RATE_LIMITED'
+  // This reason joins the client-facing union rather than the log-facing tail below, which is a
+  // choice this file has to make and own. `PEER_RATE_LIMITED` stays out of `AccessErrorCode` because
+  // nothing a caller does differs between the two buckets it stands for: one answer covers both, and
+  // only the deployer's fix separates them. Here the answers genuinely diverge. A rate limit is this
+  // caller's own spend, so waiting or presenting another credential is a fix the caller holds. A
+  // completion refused on the durability guard is a statement about this deployment: no wait, no
+  // other credential and no new nonce makes a receipt that cannot be kept for the configured period
+  // into one that can. A caller that needs the receipt has to go elsewhere, and a caller that does
+  // not has to know that this answer arrived without one, so both need a code to branch on that is
+  // not the one a retry clears. That is a fact a response can carry and no log line can deliver.
+  | 'RECEIPT_WINDOW_UNHOLDABLE';
 
 /**
  * What the access log records: every code a caller can be told, plus the reasons that never leave this
  * process. `AccessErrorCode` has three things keyed on it, `ERROR_STATUS` and `ERROR_MESSAGE` below and
  * the caller-facing table `docs/error-codes.md` holds row for row, so a reason only the deployer ever
  * reads gets a type of its own rather than a status it never answers with and a sentence no caller is
- * ever told. Nothing here keeps such a reason out of a response, and `server.ts` says what does.
+ * ever told. Nothing here keeps such a reason out of a response, and `server.ts` says what does. One
+ * member of `AccessErrorCode`, `RECEIPT_WINDOW_UNHOLDABLE`, was offered this tail and refused it for
+ * the reason written on its declaration: its caller's action changes with the reason, so it belongs
+ * to the answer and not only to the record.
  */
 export type DenyCode = AccessErrorCode | 'PEER_RATE_LIMITED';
 
@@ -63,6 +77,17 @@ const ERROR_STATUS: Record<AccessErrorCode, number> = {
   NONCE_SEEN: 409,
   SCOPE_DENIED: 403,
   RATE_LIMITED: 429,
+  // 429, and deliberately no `retry-after`. The refusal has to read as a condition that clears rather
+  // than as a verdict on these bytes, because it is arithmetic on a measured rate: issuance falling
+  // below the rate the bound cannot hold widens the retained span on its own, and the next request
+  // after that is served. A wait figure is withheld because the only honest one is when this
+  // deployment's traffic drops under that rate, which this process cannot observe; the two bucket
+  // refusals are the only answers with a refill time to name, and this adds no third. No 5xx is
+  // available to a code a request is answered with: this union's 500s are, by the map above and by the
+  // tables in both documents, the credential-file refusals no request receives, and a server-fault
+  // status here would tell an operator their installation is broken when what is short is a number
+  // they chose, and tell the caller nothing it can act on.
+  RECEIPT_WINDOW_UNHOLDABLE: 429,
 };
 
 const ERROR_MESSAGE: Record<AccessErrorCode, string> = {
@@ -82,6 +107,10 @@ const ERROR_MESSAGE: Record<AccessErrorCode, string> = {
   // connection's is refused before any credential is read, so a caller-facing sentence that asserted
   // one would print a fact the pipeline does not know. Which limit was spent is the detail's job.
   RATE_LIMITED: 'this request is over a rate limit',
+  // The fixed half says what this gateway will not do; the raise site appends the four numbers that
+  // decide it, because a refusal that named none of them would read to an operator as a wall rather
+  // than as a pairing, and the whole point of the answer is which of the two configured numbers moves.
+  RECEIPT_WINDOW_UNHOLDABLE: 'this deployment is not issuing a receipt it cannot keep for the period it configured',
 };
 
 /**
@@ -90,7 +119,9 @@ const ERROR_MESSAGE: Record<AccessErrorCode, string> = {
  * usable credential is a 401, because retrying a different route changes nothing; a credential
  * that is valid but lacks the scope the route asks for is a 403; a replayed nonce is a 409,
  * which the client clears by sending a fresh request; a rate limit is a 429 that pairs with
- * `retryAfterSeconds`. The credential-file codes are 500s: the file the operator installed is
+ * `retryAfterSeconds`, and the one 429 set below is the durability guard at admission, which is
+ * answered a 429 for the same "come back once this clears" reason and carries no wait figure at
+ * all. The credential-file codes are 500s: the file the operator installed is
  * what is broken, and no header a client sends can fix it.
  */
 export function accessStatus(code: AccessErrorCode): number {

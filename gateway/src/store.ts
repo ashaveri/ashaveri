@@ -1,4 +1,5 @@
 import { open, rename, truncate, type FileHandle } from 'node:fs/promises';
+import type { Stats } from 'node:fs';
 import { join } from 'node:path';
 import { sha256 } from './digest.js';
 
@@ -65,7 +66,7 @@ interface TrimRecord {
   readonly maxCount: number;
 }
 
-/** Where one receipt sits in the file. */
+/** Where one receipt sits in the file, and what the file said about those bytes when it was read. */
 interface Location {
   readonly iat: number;
   /** This record's position in the chain, which is the order a reader has to walk it in. */
@@ -74,6 +75,12 @@ interface Location {
   readonly recordStart: number;
   readonly offset: number;
   readonly length: number;
+  /**
+   * The digest this record carried in its own frame, copied out of the file the index was read from.
+   * A served read hashes the bytes it is about to hand over against this, because this is the only
+   * statement in the index about the file's contents rather than about which file the volume named.
+   */
+  readonly digest: Buffer;
 }
 
 interface StoreState {
@@ -81,6 +88,13 @@ interface StoreState {
   /** The digest the next appended receipt names as its predecessor. */
   head: Buffer;
   size: number;
+  /**
+   * Which file the volume had open when this index was read, in the volume's own terms. A served read
+   * compares its handle against this before it takes any bytes, which is what lets one handle stand
+   * where an open per record used to be, and what lets a walk follow the file a compaction moved into
+   * this path instead of refusing it. It is not a statement about the bytes: see `serialOf`.
+   */
+  identity: string;
   /** The position the next chained record takes, which is one past the last record ever written. */
   nextSeq: number;
   /** Bytes the leading run of trim records occupies, so a compaction keeps them rather than eats them. */
@@ -371,6 +385,30 @@ function trimEvent(record: TrimRecord): TrimEvent {
   };
 }
 
+/**
+ * Which file a handle is on, in the volume's own terms: the volume it belongs to and the number that
+ * volume carries for the file. Read off a handle rather than off a name, so it answers "which file is
+ * this handle on" and never "which file does the path name right now".
+ *
+ * It is a fast path and not an identity, for two reasons no volume's number can answer away. The
+ * number is an allocator's: delete one file and create another and the new one can be handed the
+ * number the old one had. And it comes back through a JavaScript number, which on this host carries
+ * the file reference past `Number.MAX_SAFE_INTEGER`, where representable values are two apart, so two
+ * files living at once can be reported with the same number as easily as two dead ones can. What the
+ * pair does answer is whether this handle is on the file the store last wrote, which is what lets a
+ * walk follow the file a compaction moved over the path instead of refusing it, and the bytes a walk
+ * then takes are checked against the index by `readReceipt`.
+ *
+ * Size and the timestamps are deliberately not part of the pair. The store grows the file as a matter
+ * of course, so a handle discarded for a different size would be an open per record again under
+ * another name, and a backup or an archiver that only sets attributes moves a timestamp while leaving
+ * every byte alone, which is an ordinary thing to happen to a log meant to live for years and is not a
+ * reason to refuse a receipt.
+ */
+function serialOf(stats: Stats): string {
+  return `${String(stats.dev)}:${String(stats.ino)}`;
+}
+
 /** Opens the store file, creating it when absent, and closes it once the walk is done. */
 async function scan(path: string): Promise<StoreState> {
   const file = await open(path, 'a+');
@@ -380,7 +418,6 @@ async function scan(path: string): Promise<StoreState> {
     await file.close();
   }
 }
-
 /**
  * Reads every complete record and checks that they chain.
  *
@@ -391,6 +428,9 @@ async function scan(path: string): Promise<StoreState> {
  * given the id for.
  */
 async function walk(path: string, file: FileHandle): Promise<StoreState> {
+  // Taken before the bytes, from the same handle that reads them, so the index and this statement
+  // about which file it describes are answers about one and the same file.
+  const identity = serialOf(await file.stat());
   const bytes = await file.readFile();
   const records = new Map<string, Location>();
   const trims: TrimEvent[] = [];
@@ -465,6 +505,9 @@ async function walk(path: string, file: FileHandle): Promise<StoreState> {
         recordStart: offset,
         offset: payloadStart,
         length: payloadEnd - payloadStart,
+        // Copied out of the file read for the same reason the seam is: a view of it would keep the
+        // whole file alive for as long as the store is.
+        digest: Buffer.from(digest),
       });
     }
     offset = end;
@@ -477,6 +520,7 @@ async function walk(path: string, file: FileHandle): Promise<StoreState> {
     records,
     head: expectedPrev,
     size: offset,
+    identity,
     nextSeq: seq,
     trimRunEnd,
     anchor,
@@ -589,12 +633,18 @@ async function readRange(file: FileHandle, length: number, position: number): Pr
  * than rewritten so every retirement the file has ever made stays in it and chained: a store that
  * replaced its trim record on each compaction would forget the reason for all of the earlier ones
  * the moment it reset the counter they were counted with.
+ *
+ * `releaseHeld` puts down every read handle a walk is holding, and it has to happen before the
+ * rename: a volume refuses to move a file over one a handle still reads, and a volume that allowed
+ * it would leave that handle answering from the bytes that used to be there while the index had
+ * already moved to the new ones.
  */
 async function compact(
   path: string,
   state: StoreState,
   trimmedAt: number,
   retention: ReceiptRetention | undefined,
+  releaseHeld: () => Promise<void>,
 ): Promise<void> {
   let first = state.size;
   for (const where of state.records.values()) {
@@ -644,11 +694,17 @@ async function compact(
   } finally {
     await out.close();
   }
+  // Every handle a walk is holding goes down before the move. A volume refuses to move a file over
+  // one an open handle still reads, so this is what keeps a compaction possible while a caller is
+  // mid-window, and a volume that allowed it would leave that handle answering from the bytes that
+  // used to be there while the index below had already moved to the new offsets.
+  await releaseHeld();
   await rename(temp, path);
   const recovered = await scan(path);
   state.records = recovered.records;
   state.head = recovered.head;
   state.size = recovered.size;
+  state.identity = recovered.identity;
   state.nextSeq = recovered.nextSeq;
   state.trimRunEnd = recovered.trimRunEnd;
   state.anchor = recovered.anchor;
@@ -824,22 +880,95 @@ function chained<T extends { seq: number }>(
 }
 
 /**
- * Reads one record's bytes at the position the index claims. A short read is a failure rather
- * than a miss: the index and the file then disagree about what is stored, and serving a
- * truncated receipt would hand a client bytes that cannot verify.
+ * Reads one record at the position the index claims and checks the bytes against the index before
+ * handing them over.
+ *
+ * The frame is read whole rather than just its payload, because the digest a record carries covers
+ * its kind, its predecessor, its stamp and its id as well as the payload, and those are exactly the
+ * bytes a reader cannot re-derive from a payload that has been swapped. A foreign store built from the
+ * same ids at the same stamps self-verifies record by record, so a digest recomputed and thrown away
+ * proves nothing: what makes the check bite is that it is compared with the digest this index read off
+ * this record, which is a fact about the indexed file rather than about the file that answered now.
+ *
+ * A short read is a failure rather than a miss: the index and the file then disagree about what is
+ * stored, and serving a truncated receipt would hand a client bytes that cannot verify.
  */
 async function readReceipt(file: FileHandle, where: Location, id: string): Promise<Uint8Array> {
-  const bytes = Buffer.alloc(where.length);
-  const { bytesRead } = await file.read(bytes, 0, bytes.length, where.offset);
-  if (bytesRead !== bytes.length) {
-    throw new Error(`receipt ${id} is indexed at ${where.offset} but only ${bytesRead} of ${bytes.length} bytes are there`);
+  const payloadAt = where.offset - where.recordStart;
+  const frame = Buffer.alloc(payloadAt + where.length + DIGEST_BYTES);
+  const { bytesRead } = await file.read(frame, 0, frame.length, where.recordStart);
+  if (bytesRead !== frame.length) {
+    throw new Error(`store file ended ${String(frame.length - bytesRead)} bytes short of the span its index claims`);
   }
-  return bytes;
+  const recomputed = Buffer.from(sha256(frame.subarray(FRAME_LEN_BYTES, frame.length - DIGEST_BYTES)));
+  if (!recomputed.equals(where.digest) || !frame.subarray(payloadAt + where.length).equals(where.digest)) {
+    throw new Error(
+      `receipt ${id} is indexed at byte ${String(where.recordStart)} of the store file, which does not hold the record that index was read from, so its bytes are not safe to serve`,
+    );
+  }
+  return frame.subarray(payloadAt, payloadAt + where.length);
+}
+
+/** The read handle one range walk holds, empty until the walk reads its first record. */
+interface WalkHandle {
+  file: FileHandle | null;
+}
+
+/** Puts a walk's handle down, once. A read that arrives afterwards opens the file again. */
+async function putDown(walk: WalkHandle): Promise<void> {
+  const file = walk.file;
+  walk.file = null;
+  if (file !== null) {
+    await file.close();
+  }
 }
 
 /**
- * Reads one record's bytes at the position the index claims, opening the file for the read rather
- * than holding a handle across an operation that might be queued behind a rewrite.
+ * One record's bytes, through the handle the walk holding this record is holding.
+ *
+ * Two questions get answered before a byte is taken, and they are different questions. Which file is
+ * this handle on is answered by the volume's pair, and it has to be answered first: a compaction
+ * moves a new file over the path while a walk is parked, and a walk that kept reading the file it had
+ * open would be reading bytes no index describes any more, so the handle goes down, the path is
+ * opened again, and the walk carries on from the file the index moved to. Which bytes are there is
+ * answered by `readReceipt`, and it is the question the pair cannot answer: a replacement that
+ * arrives at this path can carry the number the indexed file carried, at the same length, with nothing
+ * but the receipts different.
+ *
+ * Opening afresh is not the same as the file the index describes, so a handle that still disagrees
+ * with the index after the reopen means the index and the path disagree about which file the receipts
+ * are in at all, and the record is refused rather than read out of a file nothing indexed. A refusal
+ * is a worse answer than a short one for a caller that only wanted this receipt, and it is the better
+ * answer for a store that cannot say which of its positions are still true.
+ */
+async function readServed(
+  walk: WalkHandle,
+  state: StoreState,
+  path: string,
+  where: Location,
+  id: string,
+): Promise<Uint8Array> {
+  const held = walk.file;
+  if (held !== null && serialOf(await held.stat()) === state.identity) {
+    return readReceipt(held, where, id);
+  }
+  await putDown(walk);
+  walk.file = await open(path, 'r');
+  if (serialOf(await walk.file.stat()) !== state.identity) {
+    throw new Error(
+      `receipt store file ${path} is not the file its index was read from, so receipt ${id} has no position that is safe to read`,
+    );
+  }
+  return readReceipt(walk.file, where, id);
+}
+
+/**
+ * Reads one record at the position the index claims, opening the file for the read.
+ *
+ * A single record has no other record to share an open with, so this is the shape that holds no
+ * handle between operations and costs nothing extra for that. A walk of many records holds one handle
+ * for its own length instead, and `readServed` is what makes that safe to do. Either way the bytes
+ * come back through `readReceipt`, so neither path answers out of a file the index was not built from.
  */
 async function readAt(path: string, where: Location, id: string): Promise<Uint8Array> {
   const file = await open(path, 'r');
@@ -882,6 +1011,21 @@ export async function openFileReceiptStore(options: FileReceiptStoreOptions): Pr
     return result;
   }
 
+  /**
+   * The handle each walk in flight is reading through. Walks are registered here rather than holding
+   * one handle between them because a walk that has been asked for and abandoned must not be the
+   * reason another walk keeps a file open, and because a compaction needs all of them: it replaces
+   * the file, and a handle that outlives that is a reader on a file nothing points at.
+   */
+  const walks = new Set<WalkHandle>();
+
+  /** Puts down every handle a walk is holding, which is what makes a rename over the path possible. */
+  async function putDownWalks(): Promise<void> {
+    for (const walk of walks) {
+      await putDown(walk);
+    }
+  }
+
   return {
     put(id: string, receipt: Uint8Array, iat: number): Promise<void> {
       return serialized(async () => {
@@ -907,11 +1051,14 @@ export async function openFileReceiptStore(options: FileReceiptStoreOptions): Pr
           recordStart: state.size,
           offset: state.size + FRAME_LEN_BYTES + HEADER_BYTES + Buffer.byteLength(id, 'utf8'),
           length: receipt.length,
+          // The writer records what it wrote, so a served read has something other than the volume's
+          // number to compare the bytes it is about to hand over against.
+          digest: record.digest,
         });
         state.head = record.digest;
         state.size += record.frame.length;
         prune(state, retention, now());
-        await compact(path, state, now(), retention);
+        await compact(path, state, now(), retention, putDownWalks);
       });
     },
 
@@ -931,20 +1078,35 @@ export async function openFileReceiptStore(options: FileReceiptStoreOptions): Pr
       const through = state.nextSeq;
       return {
         async *[Symbol.asyncIterator](): AsyncIterator<StoredReceipt> {
-          for (const batch of servedBatches(snapshot, from, to, through, serving?.maxServedReceipts)) {
-            // Only the bytes are read late, one queued operation at a time. A walk that held the
-            // queue for its whole length would be a way to stop serving receipts by generating a pack
-            // about them.
-            for (const [id, where] of batch) {
-              const receipt = await serialized(async () => {
-                const still = state.records.get(id);
-                return still === undefined ? null : await readAt(path, still, id);
-              });
-              // Retired by retention while this walk ran, which the window has already said it kept.
-              if (receipt !== null) {
-                yield { id, iat: where.iat, receipt };
+          // One handle for the walk and nothing longer: opened by the first record this walk reads and
+          // put down when the walk ends, whether it ended by running out of receipts or by being
+          // abandoned. A caller sweeping a wide window pays the open once instead of once per record,
+          // which is the cost this path was measured at, and the window in which a rewrite finds
+          // itself waiting on a reader is the walk's own length rather than the life of the store.
+          const walk: WalkHandle = { file: null };
+          walks.add(walk);
+          try {
+            for (const batch of servedBatches(snapshot, from, to, through, serving?.maxServedReceipts)) {
+              // Only the bytes are read late, one queued operation at a time. A walk that held the
+              // queue for its whole length would be a way to stop serving receipts by generating a pack
+              // about them.
+              for (const [id, where] of batch) {
+                const receipt = await serialized(async () => {
+                  // The position comes from the live index, and the handle comes from `readServed`,
+                  // which only answers from the file that index was read from: a compaction that ran
+                  // while this walk was parked moved both.
+                  const still = state.records.get(id);
+                  return still === undefined ? null : await readServed(walk, state, path, still, id);
+                });
+                // Retired by retention while this walk ran, which the window has already said it kept.
+                if (receipt !== null) {
+                  yield { id, iat: where.iat, receipt };
+                }
               }
             }
+          } finally {
+            walks.delete(walk);
+            await putDown(walk);
           }
         },
       };
