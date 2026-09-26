@@ -18,7 +18,7 @@ import {
   type RetainedWindow,
 } from '../src/store.js';
 import type { CredentialRate } from '../src/access.js';
-import { generated, harness, type Generated, type Harness } from './helpers.js';
+import { fixedClock, generated, harness, type Generated, type Harness } from './helpers.js';
 
 /**
  * The guard reads a store's retained set, so every case here is a count and two stamps rather than a
@@ -44,7 +44,7 @@ function held(count: number): RetainedWindow {
 const retention: ReceiptRetention = {
   maxAgeSeconds: TEN_YEARS_SECONDS,
   maxCount: BOUND,
-  now: () => STAMP + 60,
+  time: fixedClock(() => STAMP + 60),
 };
 
 /** The guard a deployment that configures nothing but the two bounds runs. */
@@ -61,6 +61,11 @@ describe('the intake guard, as arithmetic', () => {
       refusesAt: 4,
       bound: 4,
       spanSeconds: 0,
+      // The fixture source declares no bound, so nothing narrows the span and the printed distance is
+      // taken whole, which here means the one-second floor.
+      spanSupportSeconds: 1,
+      source: 'fixture clock',
+      uncertaintySeconds: null,
       periodSeconds: TEN_YEARS_SECONDS,
       needed: 946_080_001,
     });
@@ -86,8 +91,8 @@ describe('the intake guard, as arithmetic', () => {
   it('never asks a policy bounded on one side only, in either shape', () => {
     // One bound is not a pairing. A count with no period retires nothing that a period covers, and a
     // period with no count sheds nothing on capacity, so neither half can be the short one.
-    const countOnly: ReceiptIntakeGuard = { retention: { maxCount: BOUND, now: retention.now } };
-    const periodOnly: ReceiptIntakeGuard = { retention: { maxAgeSeconds: TEN_YEARS_SECONDS, now: retention.now } };
+    const countOnly: ReceiptIntakeGuard = { retention: { maxCount: BOUND, time: retention.time } };
+    const periodOnly: ReceiptIntakeGuard = { retention: { maxAgeSeconds: TEN_YEARS_SECONDS, time: retention.time } };
     expect(intakeGuardRefusal(countOnly, held(BOUND))).toBeNull();
     expect(intakeGuardRefusal(periodOnly, held(BOUND))).toBeNull();
     expect(intakeGuardRefusal({}, held(BOUND))).toBeNull();
@@ -138,7 +143,7 @@ describe('the intake guard, as arithmetic', () => {
     // signature the opening refuses by.
     const dir = await mkdtemp(join(tmpdir(), 'ashaveri-intake-guard-'));
     try {
-      const tight: ReceiptRetention = { maxAgeSeconds: TEN_YEARS_SECONDS, maxCount: 3, now: () => STAMP + 60 };
+      const tight: ReceiptRetention = { maxAgeSeconds: TEN_YEARS_SECONDS, maxCount: 3, time: fixedClock(() => STAMP + 60) };
       const written = await openFileReceiptStore({ dir, retention: tight });
       for (let i = 0; i < 5; i++) {
         await written.put(`rcpt_${String(i)}`, Uint8Array.from([i]), STAMP);
@@ -228,7 +233,7 @@ async function serving(
     gateway: {
       // The gateway's own clock and the store's retention clock are pinned to the same instant, so a
       // retained set's span is a fact of this fixture rather than of how long the run took.
-      now: () => STAMP * 1000,
+      time: fixedClock(() => STAMP),
       backend: upstream.backend,
       store: openMemoryReceiptStore({ retention }),
       receiptIntakeGuard: guard,
@@ -470,7 +475,7 @@ describe('a refusal against a volume a real store wrote', () => {
     async () => {
       const dir = await mkdtemp(join(tmpdir(), 'ashaveri-intake-guard-file-'));
       try {
-        const bound: ReceiptRetention = { maxAgeSeconds: TEN_YEARS_SECONDS, maxCount: 2, now: () => STAMP + 60 };
+        const bound: ReceiptRetention = { maxAgeSeconds: TEN_YEARS_SECONDS, maxCount: 2, time: fixedClock(() => STAMP + 60) };
         const written = await openFileReceiptStore({ dir, retention: bound });
         for (let i = 0; i < 4; i++) {
           await written.put(`rcpt_${String(i)}`, Uint8Array.from([i, 1, 2, 3]), STAMP);
