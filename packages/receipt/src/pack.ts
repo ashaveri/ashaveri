@@ -143,6 +143,15 @@ export interface VerifiedPackItem {
 }
 
 /**
+ * What the walk carries: an item, and nothing else. Which record links to which and what each record hashes to
+ * are both answered from the `prev` link and the bytes the item carries, so `VerifiedPackItem` satisfies this
+ * and the seal path can run the reader's own walk rather than a second implementation of it.
+ */
+interface Walkable {
+  readonly item: PackItem;
+}
+
+/**
  * The one ordering finding this format states, named so that the name can be registered later without the
  * shape below having to change. A second kind would be a second value of this union and a second arm of the
  * comparison in `stampOrderFindings`, not a new field.
@@ -317,7 +326,7 @@ export function packRecordDigest(item: {
   return sha256(input);
 }
 
-function recordDigest(record: VerifiedPackItem): Uint8Array {
+function recordDigest(record: Walkable): Uint8Array {
   return packRecordDigest(record.item);
 }
 
@@ -386,14 +395,18 @@ export function encodePackManifest(manifest: PackManifest): Uint8Array {
 /**
  * Sign a pack.
  *
- * The manifest is encoded, run back through this module's own structural parser, and only then signed, because
- * a writer that produced bytes its own reader refuses has made a document that cannot be handed over. That is
- * the structural half of the reader and it needs no key, which is also what it covers: a stamp outside the
- * span, a revision after the reads, a `held` younger than the oldest receipt the pack carries, a duplicated id
- * and an empty items array all arrive here before a signature is made. The chain itself is not checked, because
- * the endpoints and the links are the caller's inputs, and a caller that wants to hand a reader a document that
- * is *meant* to be refused, which is what a conformance vector is, assembles it from the three pieces above
- * rather than through this function.
+ * The manifest is encoded, run back through this module's own structural parser, walked, and only then signed,
+ * because a writer that produced bytes its own reader refuses has made a document that cannot be handed over.
+ * The structural half needs no key, and neither does the walk: both endpoints and every link are inside the
+ * manifest, and a record's digest is taken over the bytes its own item carries. So the run from the anchor to
+ * the head closes here under the reader's own function, and a document that stops short of the head it names,
+ * forks at one predecessor, or leaves an item outside the run is refused with the code the reader would have
+ * answered with, before a signature makes it unalterable. What is not checked here is what a reader needs a key
+ * for, which is each item's receipt and the stamp it attests.
+ *
+ * What goes into a pack is still not this file's question, and the manifest arrives as one argument already
+ * chained: a caller that wants to hand a reader a document that is *meant* to be refused, which is what a
+ * conformance vector is, assembles it from the four pieces above rather than through this function.
  *
  * The key is checked as `manifest-seal.ts` checks its own: `kid` has to be sha256 of the public half travelling
  * beside it. A pack whose header names a kid that resolves to no key is a document no reader can verify, so
@@ -407,7 +420,8 @@ export function signPack(manifest: PackManifest, key: SigningKey): Uint8Array {
     throw new ReceiptError('BAD_SIGNING_KEY', 'the kid of a pack signing key is sha256 of its public key');
   }
   const payloadBytes = encodePackManifest(manifest);
-  parseManifest(payloadBytes);
+  const parsed = parseManifest(payloadBytes);
+  walk(parsed.items.map((item) => ({ item })), parsed.chain.anchor, parsed.chain.head);
   const protectedBytes = encodePackProtectedHeader(key.kid);
   const signature = ed25519.sign(packSigStructure(protectedBytes, payloadBytes), key.privateKey);
   return sealPack(protectedBytes, payloadBytes, signature);
@@ -712,9 +726,13 @@ function checkOriginals(items: readonly PackItem[], options: PackVerifyOptions):
  * its predecessor. Two halves, both refused by name, because the links alone cannot see a receipt parked
  * beside a span it is not part of: the run from the anchor to the head, and the count of what that run reached
  * against the array that was handed over. A verifier that implements one half has implemented half a rule.
+ *
+ * This is the walk the seal path runs too. It asks nothing of a receipt beyond the bytes the item carries, so
+ * the question "does this run close" has one answer here, whether the caller has verified the originals or is
+ * about to sign them.
  */
-function walk(records: readonly VerifiedPackItem[], anchor: Uint8Array, head: Uint8Array): VerifiedPackItem[] {
-  const walked: VerifiedPackItem[] = [];
+function walk<T extends Walkable>(records: readonly T[], anchor: Uint8Array, head: Uint8Array): T[] {
+  const walked: T[] = [];
   const visited = new Set<string>();
   let cursor = anchor;
   for (;;) {

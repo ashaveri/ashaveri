@@ -751,8 +751,12 @@ against each other in both directions. The field is reported and never refused, 
 reject lawful output on a ground no rule of this format states. It is a finding on a verdict and not a code, so
 it asks for no row in [error-codes.md](error-codes.md), which tabulates what this workspace raises and raises
 nothing about the two orders of a pack. The same module writes these bytes as well as reading them, and its
-`signPack` will not sign a manifest its own reader refuses; which receipts a span holds is decided outside this
-repository, so a pack still arrives from the deployment and this reader reports on it as handed over.
+`signPack` will not sign a manifest its own reader refuses: it runs the structural parse and then this same
+walk, from the signed anchor to the signed head and over every item the manifest carries, so a window whose
+records are not contiguous in chain order, a fork at one predecessor and a record parked outside the run are
+refused where the bytes are made, under `PACK_CHAIN_BROKEN` and `PACK_ITEM_UNREACHED`, rather than after a
+signature has made the document unalterable. Which receipts a span holds is still decided outside this
+repository, so a pack arrives from the deployment and this reader reports on it as handed over.
 
 A reader follows the `prev` links to order the walk, not the offsets in the file, because retention
 retires prefixes and a compaction rewrites the front of the file without changing any surviving

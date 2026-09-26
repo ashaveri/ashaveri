@@ -338,18 +338,43 @@ export function encodeExportManifest(manifest: ExportManifest): Uint8Array {
 }
 
 /**
- * Sign an export. The manifest is encoded, run back through this module's own structural parser, and only
- * then signed, because a writer that produced bytes its own reader refuses has made a document that cannot
- * be handed over. A caller who wants to hand a reader a document that is *meant* to be refused, which is
- * what a conformance vector is, assembles it from the three pieces above rather than through this
- * function.
+ * Sign an export. The manifest is encoded, run back through this module's own structural parser, walked for
+ * the arm that claims a run, and only then signed, because a writer that produced bytes its own reader refuses
+ * has made a document that cannot be handed over.
+ *
+ * The walk an anchored collection offers is the reader's own function over the reader's own records, so a gap,
+ * a fork, a run stopping short of the head and an item outside the run are refused here with the code the
+ * reader states, before a signature makes the document unalterable. It runs only where every item's original
+ * travels inline, because a record's digest is taken over those bytes and a companion's are not in the
+ * writer's hand: an anchored collection naming one is sealed on the structural half and left to a reader that
+ * will be handed the files, which is the one question here that has no answer inside the document.
+ *
+ * A caller who wants to hand a reader a document that is *meant* to be refused, which is what a conformance
+ * vector is, assembles it from the three pieces above rather than through this function.
  */
 export function signExport(manifest: ExportManifest, key: SigningKey): Uint8Array {
   const payloadBytes = encodeExportManifest(manifest);
-  parseManifest(payloadBytes);
+  const parsed = parseManifest(payloadBytes);
+  if (parsed.collection.k === 'anchored') {
+    assertAnchoredRunCloses(parsed.collection);
+  }
   const protectedBytes = encodeExportProtectedHeader(key.kid);
   const signature = ed25519.sign(exportSigStructure(protectedBytes, payloadBytes), key.privateKey);
   return sealExport(protectedBytes, payloadBytes, signature);
+}
+
+/**
+ * The reader's walk, over the records a seal can see. On an inline-only collection every item carries the
+ * bytes the reader hashes, so the question "does this run close" is answered by one function on each side of
+ * the signature rather than by two that have to be kept agreeing.
+ */
+function assertAnchoredRunCloses(collection: ExportAnchoredCollection): void {
+  const records: ChainedRecord[] = [];
+  for (const item of collection.items) {
+    if (item.orig.k !== 'inline') return;
+    records.push({ item, bytes: item.orig.bytes });
+  }
+  walk(records, collection.anchor, collection.head);
 }
 
 /**

@@ -35,10 +35,11 @@ import { PACK_MANIFEST_MEMBERS } from '../src/pack.js';
  * have to be one document, because a writer and a reader that drift apart make a deployment refuse its own pack.
  *
  * The writer takes a manifest and signs it, so the properties worth pinning are the ones about what it will not
- * do. `signPack` runs the bytes it just made through this package's own structural parser before it signs them,
- * and every fault below is a document whose records, chain and receipts are all honest while its manifest
- * contradicts itself: bytes no reader can accept are not made, and the code that refuses them is the code the
- * reader would have answered with.
+ * do. `signPack` runs the bytes it just made through this package's own structural parser and then through its
+ * own walk before it signs them. A fault of the manifest is a document whose records, chain and receipts are
+ * all honest while the manifest contradicts itself; a fault of the chain is a run that does not reach the head
+ * it names. Both are refused where the bytes are made, under the code the reader would have answered with, and
+ * the documents that are meant to be refused are assembled from the published pieces instead.
  *
  * The ordering finding is the third field of a verified pack's outcome and the one thing here that must never
  * refuse. A pack whose stamps run backwards against its links is lawful output, because the store chains under
@@ -161,6 +162,22 @@ function manifestOf(over: Partial<PackManifest> = {}): PackManifest {
 /** The manifest a store produced after correcting its clock: the links ascend, the stamps descend. */
 function backwardsManifest(): PackManifest {
   return manifestFor(chained(BACKWARDS));
+}
+
+/**
+ * A manifest sealed through the four published pieces rather than through `signPack`, which is how a document
+ * that is meant to be refused is made. The header, the framing and the signature are the writer's own, so the
+ * only thing these bytes differ by is the position the case names.
+ */
+function sealedFromPieces(manifest: PackManifest, key: SigningKey = KEY): Uint8Array {
+  const payloadBytes = encodePackManifest(manifest);
+  const header = encodePackProtectedHeader(key.kid);
+  return sealPack(header, payloadBytes, ed25519.sign(packSigStructure(header, payloadBytes), key.privateKey));
+}
+
+/** The bytes of a sealed pack as one digest, which is what a before-and-after comparison reads. */
+function digestOf(bytes: Uint8Array): string {
+  return toHex(sha256(bytes));
 }
 
 /** The CBOR map the writer is held to, spelled here rather than by the writer. */
@@ -348,6 +365,125 @@ describe('the pack writer', () => {
 });
 
 /**
+ * The walk the seal runs, on the writer's side of the signature.
+ *
+ * `docs/receipt-spec.md` states that `signPack` will not sign a manifest its own reader refuses, and the run
+ * from the anchor to the head is part of what that reader refuses over. These cases are the difference between
+ * a document that contradicts itself, which the structural parse answers, and a document whose links do not
+ * add up to the endpoints it names, which only a walk sees. The second is what a deployment reaches when its
+ * window is not contiguous in chain order, and every one of these bytes used to leave the writer signed.
+ *
+ * Both directions are pinned, and the accept side is pinned as a digest rather than as a shape: a guard that
+ * moved a byte of arithmetic would show up here as surely as a missing guard shows up in the refusals.
+ */
+describe('the pack seal walks the run it signs', () => {
+  it('refuses the non-contiguous window a corrected clock produces, under the reader code', () => {
+    // Three records chained in the order the store appended them, and the middle one stamped before its own
+    // predecessor because the clock moved backwards between the two appends. The store answers a window by
+    // stamp, so the two records inside this one are `a` and `c`, and `b`, which `c` chains from, is not in the
+    // set. Nothing here is a forgery: the receipts are honest and every `prev` is the digest its record has.
+    const store = chained([
+      { id: 'a', iat: BASE, nonce: 1 },
+      { id: 'b', iat: BASE - 100, nonce: 2 },
+      { id: 'c', iat: BASE + 1, nonce: 3 },
+    ]);
+    const window = manifestFor({
+      items: [store.items[0]!, store.items[2]!],
+      anchor: store.anchor,
+      head: store.head,
+    });
+    const refused = thrownBy(() => signPack(window, KEY)) as ReceiptError;
+    expect(refused, 'the seal signed a run that stops short of its own head').toBeInstanceOf(ReceiptError);
+    expect(refused.code).toBe('PACK_CHAIN_BROKEN');
+    // The refusal says what the walk reached, which is the sentence the reader states and the reason the
+    // caller can tell a lifted record from a fork without opening the manifest.
+    expect(refused.message).toMatch(/the walk reached 1 item\(s\) and stopped at a digest that is not the head/u);
+    // One rule, not two written to agree: made anyway through the published pieces, the reader answers this
+    // document with the same code and the same sentence.
+    const fromTheReader = thrownBy(() => verifyPack(sealedFromPieces(window), { publicKey: KEY.publicKey })) as ReceiptError;
+    expect(fromTheReader.code).toBe(refused.code);
+    expect(fromTheReader.message).toBe(refused.message);
+    // The same three records are a pack for a window that reaches back over the stamp the clock moved: the
+    // span binds every item, so the record the chain runs through has to be inside the window it links.
+    const whole = manifestFor(store, {
+      span: { from: BASE - 100, to: SPAN_TO },
+      duty: { art: '19(1)', rev: SPAN_TO - 200, required: 3_600, held: SPAN_TO - (BASE - 100) },
+    });
+    expect(codeOf(() => signPack(whole, KEY))).toBe('accepted');
+  });
+
+  it('seals a closing run as the exact bytes the published pieces assemble', () => {
+    // `signPack` and the four pieces are pinned to one document by the case above, so the digest of the
+    // piecewise bytes is what the writer produced before any walk ran at the seal. Same digest on every run
+    // below says the guard refused more documents without writing a different one, which is the whole of what
+    // a change to a seal may do to a signed byte: nothing.
+    const seam = sha256(bytesOf('the seam a trim record carried'));
+    const accepted: Array<[string, PackManifest]> = [
+      ['three records from an empty anchor', manifestOf()],
+      ['one record from an empty anchor', manifestFor(chained([ENTRIES[0]!]))],
+      ['three records from a retired seam', manifestFor(chained(ENTRIES, seam))],
+      ['a run whose stamps run against its links', backwardsManifest()],
+      ['a span crossing a key rotation', manifestFor(chained(ENTRIES.map((one, index) => ({ ...one, key: index === 0 ? SECOND : KEY }))))],
+      ['two records stamped in one second', manifestFor(chained([
+        { id: 'twin-0', iat: BASE, nonce: 4 },
+        { id: 'twin-1', iat: BASE, nonce: 5 },
+      ]))],
+    ];
+    for (const [name, manifest] of accepted) {
+      expect(digestOf(signPack(manifest, KEY)), `${name} moved`).toBe(digestOf(sealedFromPieces(manifest)));
+    }
+  });
+
+  it('answers the three shapes a walk guard gets wrong, in both directions', () => {
+    const seam = sha256(bytesOf('the seam a trim record carried'));
+    // A single record is a whole run when the anchor it names is the anchor the manifest names and its own
+    // digest is the head. One step, no pair, and the case a loop over successive items forgets.
+    const single = chained([ENTRIES[0]!]);
+    expect(codeOf(() => signPack(manifestFor(single), KEY))).toBe('accepted');
+    // The same single record naming a predecessor nobody handed it: nothing links from the anchor, so the walk
+    // reaches no item at all and the head stays out of reach.
+    const orphaned = manifestFor({ ...single, items: [{ ...single.items[0]!, prev: seam }] });
+    const noStep = thrownBy(() => signPack(orphaned, KEY)) as ReceiptError;
+    expect(noStep.code).toBe('PACK_CHAIN_BROKEN');
+    expect(noStep.message).toMatch(/the walk reached 0 item\(s\)/u);
+    // An empty items array is a fault of the manifest and the parse answers it first, which is the only answer
+    // that keeps a walk over nothing from closing vacuously and signing an artifact that reads as evidence.
+    expect(codeOf(() => signPack(manifestFor(single, { items: [] }), KEY))).toBe('PACK_BAD_MANIFEST');
+    // The vacuous pair itself, an anchor and a head that are the same thirty-two zero bytes over no records,
+    // refused by the parse rather than by a walk that would have found nothing to disagree with.
+    expect(codeOf(() => signPack(manifestFor({ items: [], anchor: new Uint8Array(32), head: new Uint8Array(32) }), KEY))).toBe('PACK_BAD_MANIFEST');
+    // An anchor that is not the digest the first item names, on a run that is chained from a seam and states
+    // thirty-two zero bytes instead. The links are perfect and the walk has no door in.
+    const retired = chained(ENTRIES, seam);
+    expect(codeOf(() => signPack(manifestFor(retired), KEY))).toBe('accepted');
+    const misanchored = thrownBy(() => signPack(manifestFor({ ...retired, anchor: new Uint8Array(32) }), KEY)) as ReceiptError;
+    expect(misanchored.code).toBe('PACK_CHAIN_BROKEN');
+    expect(misanchored.message).toMatch(/the walk reached 0 item\(s\)/u);
+    // The trap in that same shape with the head equal to the anchor, where a guard that only asked "did the
+    // run reach the head" would sign: the walk reaches nothing, the cursor is the head already, and only the
+    // count of what it reached against the array it was handed sees the three records outside it.
+    const vacuous = thrownBy(() =>
+      signPack(manifestFor({ ...retired, anchor: new Uint8Array(32), head: new Uint8Array(32) }), KEY),
+    ) as ReceiptError;
+    expect(vacuous.code).toBe('PACK_ITEM_UNREACHED');
+    expect(vacuous.message).toMatch(/receipt-0, receipt-1, receipt-2/u);
+    // Two items claiming one predecessor, where the reader would have to take whichever it met first.
+    const rival: PackItem = { id: 'rival', iat: BASE, prev: new Uint8Array(32), receipt: issueReceipt(receiptPayload(BASE, 6), KEY) };
+    const run = chained(ENTRIES);
+    const forked = thrownBy(() => signPack(manifestFor({ ...run, items: [rival, ...run.items] }), KEY)) as ReceiptError;
+    expect(forked.code).toBe('PACK_CHAIN_BROKEN');
+    expect(forked.message).toMatch(/2 items name the same predecessor, so the run forks at/u);
+    expect(forked.message).toMatch(/rival/u);
+    expect(forked.message).toMatch(/receipt-0/u);
+    // A record parked beside a run it is not part of, which is the half of the rule the endpoints cannot see.
+    const parked: PackItem = { id: 'parked', iat: BASE + 1, prev: seam, receipt: issueReceipt(receiptPayload(BASE + 1, 7), KEY) };
+    const unreached = thrownBy(() => signPack(manifestFor({ ...run, items: [...run.items, parked] }), KEY)) as ReceiptError;
+    expect(unreached.code).toBe('PACK_ITEM_UNREACHED');
+    expect(unreached.message).toMatch(/: parked$/u);
+  });
+});
+
+/**
  * Every kind of ordering finding a verified pack can carry, one row each.
  *
  * `Record<PackOrderingFindingKind, string>` is what makes this a pin rather than a note: a kind added to
@@ -449,14 +585,17 @@ describe('the ordering finding a verified pack carries', () => {
   it('binds the same bytes it reports on, so the finding is not a licence', () => {
     const backwards = signPack(backwardsManifest(), KEY);
     const manifest = decodePack(backwards).manifest;
-    // The walk still refuses a gap in a pack whose stamps run backwards.
+    // The walk still refuses a gap in a pack whose stamps run backwards. These bytes are made from the pieces,
+    // because the writer now refuses to sign a run that does not close.
     const gapped = { ...manifest, items: [manifest.items[0]!, manifest.items[2]!] };
-    expect(codeOf(() => verifyPack(signPack(gapped, KEY), { publicKey: KEY.publicKey }))).toBe('PACK_CHAIN_BROKEN');
+    expect(codeOf(() => verifyPack(sealedFromPieces(gapped), { publicKey: KEY.publicKey }))).toBe('PACK_CHAIN_BROKEN');
     // The item-stamp equality still refuses on these records. A stamp written to agree with the order the chain
     // fixes, while the receipt inside the item attests the stamp it was issued at, is the move the equality
-    // exists for, and it is refused whether the honest stamps ran forwards or backwards.
+    // exists for, and it is refused whether the honest stamps ran forwards or backwards. The reader reaches
+    // that answer before the walk, which is why these bytes are made from the pieces and what the seal says
+    // about them is the case below.
     const lied: PackItem[] = manifest.items.map((one, index) => ({ ...one, iat: one.iat + index }));
-    expect(codeOf(() => verifyPack(signPack({ ...manifest, items: lied }, KEY), { publicKey: KEY.publicKey }))).toBe('PACK_RECEIPT_STAMP_MISMATCH');
+    expect(codeOf(() => verifyPack(sealedFromPieces({ ...manifest, items: lied }), { publicKey: KEY.publicKey }))).toBe('PACK_RECEIPT_STAMP_MISMATCH');
     // A parked receipt is still refused, ordering finding or not.
     const parked: PackItem = {
       id: 'parked',
@@ -464,15 +603,16 @@ describe('the ordering finding a verified pack carries', () => {
       prev: sha256(bytesOf('another chain entirely')),
       receipt: issueReceipt(receiptPayload(BASE, 8), KEY),
     };
-    expect(codeOf(() => verifyPack(signPack({ ...manifest, items: [...manifest.items, parked] }, KEY), { publicKey: KEY.publicKey }))).toBe('PACK_ITEM_UNREACHED');
+    expect(codeOf(() => verifyPack(sealedFromPieces({ ...manifest, items: [...manifest.items, parked] }), { publicKey: KEY.publicKey }))).toBe('PACK_ITEM_UNREACHED');
     // The document these three were cut from is accepted, so none of the answers above is a fault of the shape.
     expect(codeOf(() => verifyPack(backwards, { publicKey: KEY.publicKey }))).toBe('accepted');
   });
 
   it('holds both halves of the chain rule, the walk and the count of what it reached', () => {
     // `pack.cddl` states that a conforming reader's check has two halves and that a verifier implementing only
-    // the first has implemented half a rule. Both are pinned here on bytes the shipped writer made, so neither
-    // half can go missing without this case failing.
+    // the first has implemented half a rule. Both are pinned here on bytes sealed from the published pieces, so
+    // the reader is asked about documents its writer now refuses to sign, and neither half can go missing
+    // without this case failing.
     const run = chained(ENTRIES);
     const honest = manifestFor(run);
     expect(verifyPack(signPack(honest, KEY), { publicKey: KEY.publicKey }).outcome.walked).toHaveLength(3);
@@ -485,17 +625,17 @@ describe('the ordering finding a verified pack carries', () => {
       prev: sha256(bytesOf('a digest nobody in this run names')),
       receipt: issueReceipt(receiptPayload(BASE + 1, 7), KEY),
     };
-    const unreached = thrownBy(() => verifyPack(signPack({ ...honest, items: [...honest.items, parked] }, KEY), { publicKey: KEY.publicKey })) as ReceiptError;
+    const unreached = thrownBy(() => verifyPack(sealedFromPieces({ ...honest, items: [...honest.items, parked] }), { publicKey: KEY.publicKey })) as ReceiptError;
     expect(unreached.code).toBe('PACK_ITEM_UNREACHED');
     expect(unreached.message).toMatch(/: parked$/u);
     // The walk half, on the same three records with one lifted out and nothing else moved: the run stops short
     // of the head the writer signed, which is what publishing the head inside the signature buys.
-    const short = thrownBy(() => verifyPack(signPack({ ...honest, items: [honest.items[0]!, honest.items[2]!] }, KEY), { publicKey: KEY.publicKey })) as ReceiptError;
+    const short = thrownBy(() => verifyPack(sealedFromPieces({ ...honest, items: [honest.items[0]!, honest.items[2]!] }), { publicKey: KEY.publicKey })) as ReceiptError;
     expect(short.code).toBe('PACK_CHAIN_BROKEN');
     expect(short.message).toMatch(/the walk reached 1 item\(s\) and stopped at a digest that is not the head/u);
     // A fork is refused rather than resolved by the order the array happened to be in.
     const rival: PackItem = { id: 'rival', iat: BASE, prev: run.anchor, receipt: issueReceipt(receiptPayload(BASE, 9), KEY) };
-    expect(codeOf(() => verifyPack(signPack({ ...honest, items: [rival, ...honest.items] }, KEY), { publicKey: KEY.publicKey }))).toBe('PACK_CHAIN_BROKEN');
+    expect(codeOf(() => verifyPack(sealedFromPieces({ ...honest, items: [rival, ...honest.items] }), { publicKey: KEY.publicKey }))).toBe('PACK_CHAIN_BROKEN');
     // And the pack these three edits were cut from is accepted, so no answer above is a fault of the document.
     expect(codeOf(() => verifyPack(signPack(honest, KEY), { publicKey: KEY.publicKey }))).toBe('accepted');
   });
