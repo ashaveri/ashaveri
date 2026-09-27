@@ -337,18 +337,23 @@ function sourcePhrase(figures: IntakeGuardFigures): string {
 
 export function buildGateway(options: GatewayOptions): GatewayInstance {
   const { access, accessLog } = options;
-  const deployment =
-    options.deployment ?? mockDeployment({ issuer: options.issuer, instance: options.instance, key: options.key });
-  const backend = options.backend ?? mockBackend();
-  // Read once, where every other operator switch on this process is read: a completion is marked the
-  // same way whichever route served it, and the value is reported on the start-up banner.
-  const markingScheme = options.marking ?? DEFAULT_MARKING;
   // The record stamp of this process: whole Unix seconds off the one source it was given, or off the
   // host clock when it was given none. `issue` below stamps the signed payload and the store's chain key
   // from the same reading, and the store retirement clock reads the very same source object, so a span
   // this file derives from its own stamps and a span an operator is quoted are the one number.
+  //
+  // Read ahead of the two lines below that build a guest and a backend, because a deployment this
+  // function builds has to be built with it: evidence collected off one clock and filed against another
+  // puts two instants that never met inside one signed payload, as `att.ts` beside `iat`.
   const time = options.time ?? HOST_CLOCK_SOURCE;
   const stamp = (): number => Math.floor(time.now());
+  const deployment =
+    options.deployment ??
+    mockDeployment({ issuer: options.issuer, instance: options.instance, key: options.key, time });
+  const backend = options.backend ?? mockBackend({ time });
+  // Read once, where every other operator switch on this process is read: a completion is marked the
+  // same way whichever route served it, and the value is reported on the start-up banner.
+  const markingScheme = options.marking ?? DEFAULT_MARKING;
   // A store handed over by a deployment brings its own source, because the retention it was configured
   // with is that deployment's decision. The in-process default has no bounds at all, so the only thing its
   // clock can be asked is which instant a retirement is written under, and that reads the same source as

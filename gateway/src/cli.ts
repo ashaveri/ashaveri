@@ -501,7 +501,7 @@ const peerRateGiven = values['peer-rate'] !== undefined;
 const accessLogDays = wholeNumber(values['access-log-days'], 'access-log-days', 'days', MINIMUM_RETENTION_DAYS);
 const devCredential =
   values.mock === true && credentialsPath === undefined
-    ? newPopCredential({ id: 'dev', scopes: ['complete', 'read'] })
+    ? newPopCredential({ id: 'dev', scopes: ['complete', 'read'], time })
     : undefined;
 
 let access: CredentialStore;
@@ -538,8 +538,8 @@ let accessLog: AccessLog;
 try {
   accessLog =
     accessLogPath === undefined
-      ? openMemoryAccessLog({ days: accessLogDays })
-      : await openFileAccessLog({ dir: accessLogPath, days: accessLogDays });
+      ? openMemoryAccessLog({ days: accessLogDays, time })
+      : await openFileAccessLog({ dir: accessLogPath, days: accessLogDays, time });
 } catch (error) {
   // A log that will not open on a directory that exists is a fact about the volume, the same way a
   // receipt store's broken chain is, so it is reported as an exit rather than as bad usage.
@@ -578,18 +578,19 @@ async function liveDeployment(values: CliOptions): Promise<Deployment> {
     issuer: values.issuer,
     instance: values.instance,
     tee: values.tee as HardwareTeeKind | undefined,
+    time,
   });
 }
 
 let deployment: Deployment;
 try {
-  deployment = values.mock === true ? mockDeployment() : await liveDeployment(values);
+  deployment = values.mock === true ? mockDeployment({ time }) : await liveDeployment(values);
 } catch (error) {
   process.stderr.write(`signerd: ${error instanceof Error ? error.message : String(error)}\n`);
   process.exit(1);
 }
 const backend: CompletionBackend =
-  values.upstream === undefined ? mockBackend() : upstreamBackend({ baseUrl: values.upstream });
+  values.upstream === undefined ? mockBackend({ time }) : upstreamBackend({ baseUrl: values.upstream });
 
 // The guard reads the very `retention` object the store above was opened with, rather than the two
 // numbers copied out of it: a refusal raised against a bound nothing retires by, or a period nothing

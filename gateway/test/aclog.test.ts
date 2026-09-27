@@ -12,7 +12,7 @@ import {
   renderAccessLine,
   type AccessRecord,
 } from '../src/aclog.js';
-import { MINIMUM_RETENTION_SECONDS } from '../src/store.js';
+import { MINIMUM_RETENTION_SECONDS, type TimeSource } from '../src/store.js';
 
 /**
  * The instant every record below carries, and the clock every log below is opened with: retention
@@ -101,6 +101,22 @@ describe('openMemoryAccessLog', () => {
     await log.record(entry({ rid: 'stale', t: Date.now() - 200 * 86_400_000 }));
     await log.record(entry({ rid: 'fresh', t: Date.now() }));
     expect(log.entries().map((each) => each.rid)).toEqual(['fresh']);
+    await log.close();
+  });
+
+  it('prunes against a source the caller names, in the milliseconds its records carry', async () => {
+    // The source reads whole seconds and this log compares milliseconds, so the reconciliation is the one
+    // multiply on its fallback. Read without it, the cutoff below lands in January 1970, every record
+    // this log holds is newer than that, and a retention bound that is configured retires nothing: this
+    // case fails on `outside`, and the two wall-clock cases beside it fail the same way for the same
+    // reason. Handed a source rather than a bare lambda, the bound an operator set is at least read off
+    // the one clock this process was given.
+    const atSeconds = T0 / 1000;
+    const source: TimeSource = { name: 'fixture clock', uncertaintySeconds: null, now: () => atSeconds };
+    const log = openMemoryAccessLog({ days: 2, time: source });
+    await log.record(entry({ rid: 'inside', t: (atSeconds - 86_400) * 1000 }));
+    await log.record(entry({ rid: 'outside', t: (atSeconds - 3 * 86_400) * 1000 }));
+    expect(log.entries().map((each) => each.rid)).toEqual(['inside']);
     await log.close();
   });
 

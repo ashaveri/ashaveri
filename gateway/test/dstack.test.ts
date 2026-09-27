@@ -11,7 +11,7 @@ import { dstackDeployment, DstackError, nvidiaDeviceReports } from '../src/dstac
 import { sha256 } from '../src/digest.js';
 import type { Deployment } from '../src/deployment.js';
 import { fromBase64Url } from '../src/b64.js';
-import { generated, harness, type Harness } from './helpers.js';
+import { fixedClock, generated, harness, type Harness } from './helpers.js';
 import { GuestError, type GpuEvidenceBundle, type GuestApi, type GuestKey } from '../src/guest.js';
 
 /**
@@ -460,6 +460,30 @@ describe('dstackDeployment evidence binding', () => {
     expect(toHex(standing.document)).not.toBe(toHex(first.document));
     expect(standing.url).toContain(`report_data=${toHex(guest.attested[0]!)}`);
     expect(guest.attested.length).toBe(2);
+  });
+
+  it('dates both evidence legs from the source the deployment was built with', async () => {
+    // The quote carries its own lifetime and this process reads no clock off the platform, so the instant
+    // a deployment notices an answer is its own. One named source and one fixed instant, met by both
+    // bundle reads: a `Date.now()` left in either of them fails on the instant, and a source that reached
+    // only the CPU leg fails on the device leg below, whose document is fetched and re-verified on the
+    // strength of the URL this bundle carries.
+    const collectedAt = 1_500_000_000;
+    const guest = snpGuest();
+    guest.gpu = (nonce) => deviceAnswering(nonce);
+    const deployment = await dstackDeployment({
+      client: guest,
+      models: MODELS,
+      evidenceBaseUrl: 'https://inference.ashaveri.test/v1',
+      tee: 'snp+gpucc',
+      time: fixedClock(() => collectedAt, 4),
+    });
+    const cpu = await deployment.attestation(null);
+    expect(cpu.timestamp).toBe(collectedAt);
+    expect(cpu.stamped).toEqual({ name: 'fixture clock', uncertaintySeconds: 4 });
+    const device = await deployment.deviceAttestation?.(STANDING);
+    expect(device?.timestamp).toBe(collectedAt);
+    expect(device?.stamped).toEqual({ name: 'fixture clock', uncertaintySeconds: 4 });
   });
 });
 

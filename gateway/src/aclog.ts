@@ -1,6 +1,7 @@
 import { mkdir, readdir, readFile, unlink, writeFile, appendFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import type { AccessRecord } from './access-record.js';
+import { HOST_CLOCK_SOURCE, type TimeSource } from './store.js';
 
 export type { AccessRecord } from './access-record.js';
 export const ACCESS_RECORD_FIELDS: readonly (keyof AccessRecord)[] = [
@@ -74,7 +75,21 @@ export interface AccessLogOptions {
    */
   days?: number;
   maxBytesPerFile?: number;
+  /**
+   * The clock this log ages by, in milliseconds, for a caller that has one to hand. It draws the
+   * retention cutoff and nothing else: which day a line is written under comes from the record's own
+   * stamp, so this stays a millisecond read whatever the source below declares.
+   */
   now?: () => number;
+  /**
+   * Where `now` comes from when it names nothing: the same named source the rest of this process stamps
+   * with, read at whole-second resolution. Absent means `HOST_CLOCK_SOURCE`, so how long a line is kept,
+   * and when a day's files are collected, answer to a source the deployment named rather than to one it
+   * was never told about. A source reads seconds and this log compares milliseconds, so one multiply at
+   * the fallback below is the whole of the reconciliation; a caller needing sub-second resolution passes
+   * `now` and stays in milliseconds.
+   */
+  time?: TimeSource;
 }
 
 function dayOf(millis: number): string {
@@ -157,7 +172,8 @@ export interface MemoryAccessLog extends AccessLog {
 
 export function openMemoryAccessLog(options: AccessLogOptions = {}): MemoryAccessLog {
   const days = options.days ?? MINIMUM_RETENTION_DAYS;
-  const now = options.now ?? (() => Date.now());
+  const time = options.time ?? HOST_CLOCK_SOURCE;
+  const now = options.now ?? ((): number => Math.floor(time.now()) * 1000);
   let kept: AccessRecord[] = [];
   let closed = false;
   async function pruneLocked(at: number): Promise<void> {
@@ -236,7 +252,8 @@ function whenNotFound<T>(fallback: T): (err: unknown) => T {
 export async function openFileAccessLog(options: AccessLogOptions & { dir: string }): Promise<AccessLog> {
   const days = options.days ?? MINIMUM_RETENTION_DAYS;
   const maxBytes = options.maxBytesPerFile ?? MAX_ACCESS_FILE_BYTES;
-  const now = options.now ?? (() => Date.now());
+  const time = options.time ?? HOST_CLOCK_SOURCE;
+  const now = options.now ?? ((): number => Math.floor(time.now()) * 1000);
   const dir = options.dir;
   await mkdir(dir, { recursive: true });
 

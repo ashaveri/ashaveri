@@ -452,7 +452,7 @@ describe('the issuance clock', () => {
   const secondBody = '{"model":"mock-model-1","messages":[{"role":"user","content":"again"}]}';
 
   /** The receipt a served completion's id points at, decoded off the route the client fetches it from. */
-  async function payloadOf(h: Harness, id: string): Promise<{ iat: number }> {
+  async function payloadOf(h: Harness, id: string): Promise<{ iat: number; att: { ts: number } }> {
     const res = await send(h, 'GET', `/v1/receipts/${id}`, null);
     expect(res.statusCode).toBe(200);
     return decodeReceipt(new Uint8Array(res.rawPayload)).payload;
@@ -534,6 +534,28 @@ describe('the issuance clock', () => {
     const res = await send(session, 'POST', '/v1/chat/completions', REQUEST_BODY);
     const payload = await payloadOf(session, res.headers['x-ashaveri-receipt-id'] as string);
     expect(Math.abs(payload.iat - near)).toBeLessThan(60);
+  });
+
+  it('builds the guest and the backend it falls back to out of that same source', async () => {
+    // Three instants a completion carries, one reading behind them: `created` in the body the mock
+    // backend served, `att.ts` on the evidence the deployment this function built collected, and `iat`
+    // on the receipt signed between them. The harness spreads the options it hands `buildGateway`, so a
+    // source dropped or misspelled on the way to either of those two builders is invisible to the
+    // compiler, and these equalities are the only thing here that says the guest was built with the
+    // source at all rather than left reading its own host's clock behind the operator's back.
+    const h = await harness({
+      credentials: [credential()],
+      gateway: { key: DEPLOYMENT_KEY, time: fixedClock(() => ISSUED_AT_SECONDS) },
+    });
+    try {
+      const res = await send(h, 'POST', '/v1/chat/completions', REQUEST_BODY);
+      expect((res.json() as { created: number }).created).toBe(ISSUED_AT_SECONDS);
+      const payload = await payloadOf(h, res.headers['x-ashaveri-receipt-id'] as string);
+      expect(payload.att.ts).toBe(ISSUED_AT_SECONDS);
+      expect(payload.iat).toBe(ISSUED_AT_SECONDS);
+    } finally {
+      await h.app.close();
+    }
   });
 });
 

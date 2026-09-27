@@ -4,6 +4,7 @@ import {
   mockCompletion,
   type ChatCompletionRequest,
 } from './mock.js';
+import type { TimeSource } from './store.js';
 
 export interface CompletionUsage {
   readonly model: string;
@@ -35,10 +36,16 @@ async function* oneShot(bytes: Uint8Array): AsyncGenerator<Uint8Array> {
   yield bytes;
 }
 
-export function mockBackend(): CompletionBackend {
+export function mockBackend(options: {
+  /**
+   * The source the completions this backend serves are dated by, handed straight to `mockCompletion`.
+   * Absent means that function's own default, which is `HOST_CLOCK_SOURCE` and names itself as such.
+   */
+  readonly time?: TimeSource;
+} = {}): CompletionBackend {
   return {
     async respond(_rawRequest, request) {
-      const completion = mockCompletion(request);
+      const completion = mockCompletion(request, options);
       const body = new TextEncoder().encode(
         request.stream ? completionSse(completion) : completionJson(completion),
       );

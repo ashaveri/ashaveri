@@ -18,6 +18,7 @@ import {
   type CredentialFile,
   type CredentialRecord,
 } from '../src/access.js';
+import type { TimeSource } from '../src/store.js';
 
 /**
  * The code and the HTTP status a call refuses with, as one pair, so a refusal that carries
@@ -171,6 +172,25 @@ describe('credential file round trip', () => {
     const generated = newPopCredential({ id: 'svc-1', label: 'svc', scopes: ['read', 'complete'], now: 1_772_000_000 });
     const file: CredentialFile = { version: 1, credentials: [generated.record] };
     expect(parseCredentialFile(serializeCredentialFile(file))).toEqual(file);
+  });
+
+  it('dates a generated credential from the source it was handed', () => {
+    // An enrolment stamp is a claim about a moment, so it comes from the clock the caller named and
+    // arrives floored to a whole second: the instant below is years off any wall clock this can run on,
+    // so a factory that read the platform clock beside a named source cannot land on it by accident, and
+    // one that rounded up rather than down would date a record after the instant it was made.
+    const enrolledAt = 1_500_000_000;
+    const source: TimeSource = { name: 'enrolment clock', uncertaintySeconds: null, now: () => enrolledAt + 0.75 };
+    expect(newPopCredential({ id: 'svc-pop', time: source }).record.createdAt).toBe(enrolledAt);
+    expect(newBearerCredential({ id: 'svc-bearer', time: source }).record.createdAt).toBe(enrolledAt);
+    // A caller that names the instant outright still decides it, because that value is the reading and
+    // not a clock to be read.
+    expect(newPopCredential({ id: 'svc-explicit', now: enrolledAt + 60, time: source }).record.createdAt).toBe(
+      enrolledAt + 60,
+    );
+    // Nothing named leaves the shipped source, whose own name says whose clock the record was dated by.
+    const defaulted = newBearerCredential({ id: 'svc-default' }).record.createdAt;
+    expect(Math.abs(defaulted - Math.floor(Date.now() / 1000))).toBeLessThan(2);
   });
 
   it('writes the one version a file can carry', () => {
