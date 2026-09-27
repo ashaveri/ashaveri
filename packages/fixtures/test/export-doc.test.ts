@@ -37,6 +37,7 @@ const READER = '../../../packages/receipt/src/export.ts';
 const LAYOUT_TABLE = '| Member | Type | Required | What it states |';
 const REFUSAL_TABLE = '| Code | The fault |';
 const LABEL_TABLE = '| Label | Name | Value |';
+const ESTATE_TABLE = '| Document | Content type at COSE label 3 | What it establishes |';
 
 interface JsonSchema {
   $defs?: Record<string, JsonSchema>;
@@ -210,6 +211,26 @@ function labelRows(): Array<{ label: string; name: string; value: string }> {
     out.push({ label: cells[1] ?? '', name: cells[2] ?? '', value: cells[3] ?? '' });
   }
   if (out.length === 0) throw new Error('the table of signed header parameters has no rows');
+  return out;
+}
+
+/**
+ * The content types the estate table lists, one row per signed document. The rows of that table are the
+ * checkable statement of how many containers one deployment's estate signs, and the sentence above them
+ * counts them in words.
+ */
+function estateRows(): string[] {
+  const lines = section().split('\n');
+  const at = lines.indexOf(ESTATE_TABLE);
+  if (at < 0) throw new Error(`${ESTATE_TABLE} is not a table in the export document`);
+  const out: string[] = [];
+  for (const line of lines.slice(at + 1)) {
+    if (line.startsWith('|---')) continue;
+    if (!line.startsWith('| ')) break;
+    const cells = line.split('|').map((cell) => cell.trim().replace(/`/gu, ''));
+    out.push(cells[2] ?? '');
+  }
+  if (out.length === 0) throw new Error("the estate's signed-document table has no rows");
   return out;
 }
 
@@ -470,5 +491,22 @@ describe('docs/export-v1.md export layout', () => {
     expect(body).toContain('no floating-point number may appear');
     expect(body).toContain('unpadded base64url');
     expect(body).toContain('lowercase hex');
+  });
+
+  it('counts the estate\'s signed documents at the number its own table lists', () => {
+    // The sentence is prose and the table beside it is data, and the two are exactly as far apart as a newly
+    // published container: the table gains a row and the sentence keeps naming the older number unless some test
+    // holds them together. The table is the checkable half, so the spelled count is read against it and against
+    // nothing else, because a test that restated the number would be edited beside the sentence and pass either
+    // way.
+    const stated = /The estate has ([a-z]+) signed documents/u.exec(prose());
+    expect(stated, 'the document stopped counting the documents it says the estate signs').not.toBeNull();
+    const listed = estateRows();
+    expect(listed.length, 'the estate table and the sentence above it count different documents').toBe(
+      spelledNumber(stated?.[1] ?? ''),
+    );
+    // Each row names one content type and no two rows name the same one, which is what makes the count a number
+    // of containers rather than a number of table lines.
+    expect(new Set(listed).size, 'two rows of the estate table name one content type').toBe(listed.length);
   });
 });
