@@ -311,7 +311,9 @@ const ERROR_MESSAGE: Record<ReceiptErrorCode, string> = {
   // JSON document a deployment writes, and the two facts `JSON.parse` settles silently are settled here
   // instead: a repeated member name, where the parser keeps the last value and the bytes state both, and a
   // number written as a fraction or an exponent, where the parser hands back the very value the integer it
-  // imitates hands back. Both are refused while the characters are still distinguishable.
+  // imitates hands back. Both are refused while the characters are still distinguishable. The third finding
+  // this code answers is the nesting: a document deeper than the eight levels this layout holds is stopped
+  // where the count is cheap rather than by a stack that gives out later.
   EPOCH_INVENTORY_MALFORMED_JSON: 'the payload of an epoch inventory is not one JSON document of the shapes this layout writes',
   // The position that answers "is this an epoch inventory at all", answered before any key is consulted. One
   // code for the shapes a signed header fails in, as `PACK_BAD_HEADER` is for a pack: no map, a map that does
@@ -339,10 +341,12 @@ const ERROR_MESSAGE: Record<ReceiptErrorCode, string> = {
   // is a finding about a location and not about a shape: a reviewer following that path finds a pack, and it
   // is not the one described.
   EPOCH_INVENTORY_PACK_MISNAMED: 'an epoch inventory entry is filed under a digest that is not the pack it states',
-  // A `chain.breaks` or `duty.short` row naming a pack the run does not hold. The two lists are statements
-  // about entries of the same document, so this is not a lookup miss and nothing is missing from the reader's
-  // hands: the row is about a pack this inventory does not describe, and a reader that passed it would be
-  // reporting a break or a shortfall against evidence it was never given.
+  // A `chain.breaks` or `duty.short` row whose pack the fold has nothing to say about, which is two shapes and
+  // the message tells them apart: a pack the run does not hold at all, and a pack the run holds between two
+  // neighbours that neither break nor fall short. The two lists are statements about entries of the same
+  // document, so this is not a lookup miss and nothing is missing from the reader's hands: the row is about a
+  // pack this inventory does not describe the stated thing for, and a reader that passed it would be reporting
+  // a break or a shortfall against evidence it was never given.
   EPOCH_INVENTORY_PACK_UNNAMED: 'an epoch inventory names a pack its run does not hold',
   // The windows of the run do not meet end to start, so the period the inventory attests is not the period its
   // packs sealed. A gap is the honest half of the refusal and an overlap the worse one, and both arrive here
@@ -351,10 +355,11 @@ const ERROR_MESSAGE: Record<ReceiptErrorCode, string> = {
   EPOCH_INVENTORY_RUN_NOT_CONTIGUOUS: 'the packs of an epoch inventory do not seal one window after another',
   // The document's own summaries are not the arithmetic of its own entries: the two chain endpoints beside the
   // run that begins and ends it, `continuous` beside the break rows, `carried` beside the shortfall rows, the
-  // window beside the outer edges, a break quoted from another pair or with one of its two digests moved, and
-  // a shortfall whose four figures or its subtraction are not that pack's. One code, because the fault is one
-  // fault met at several positions and the action never changes: the fold has to be redone from the entries,
-  // which is what this reader just did, and the detail says which figure it stopped on.
+  // window beside the outer edges, a break quoted from another pair or with one of its two digests moved, a
+  // shortfall whose four figures or its subtraction are not that pack's, and a list whose rows name fewer
+  // packs than there are rows, which is one row stated twice and another pack named nowhere. One code, because
+  // the fault is one fault met at several positions and the action never changes: the fold has to be redone
+  // from the entries, which is what this reader just did, and the detail says which figure it stopped on.
   EPOCH_INVENTORY_SUMMARY_DISAGREES: 'an epoch inventory states a window, a chain or a duty its own packs do not',
   // The key the reader reached for hashes to something other than the kid the inventory's header names. The
   // designation answered and what it answered with is another key's, which is a wrong key rather than an
