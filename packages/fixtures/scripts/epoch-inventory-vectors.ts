@@ -365,6 +365,14 @@ interface Case {
  * The one fragment of the reader's own sentence that each guard of each site says and no other guard of that
  * site says. `main` matches the captured refusal against this table, so the direction a folded-list row states
  * is the exact branch of the exact twin it vectors, not merely the code two branches share.
+ *
+ * None of them carries a row position. The `[0]` of the reader's sentence is the place the moved row happens to
+ * hold in the list, which is a fact of that document rather than of that guard, so a fragment naming one stops
+ * matching the first time a case guards a later row and reports a live guard as a quiet one. The two guards that
+ * speak by position, the one naming a row and the one quoting a row's own figures, are told apart by the verb
+ * each uses after the bracket, which is the whole of what distinguishes them at any position. And since the
+ * reader bounds a quoted detail at two hundred bytes, every fragment here sits at the head of its sentence and
+ * survives that bound.
  */
 const GUARD_SENTENCES: Record<'chain.breaks' | 'duty.short', Record<'claim' | 'count' | 'repeat' | 'unheld' | 'without-finding' | 'figures', string>> = {
   'chain.breaks': {
@@ -373,7 +381,7 @@ const GUARD_SENTENCES: Record<'chain.breaks' | 'duty.short', Record<'claim' | 'c
     repeat: 'distinct packs',
     unheld: 'does not hold at all',
     'without-finding': 'holds without a break',
-    figures: 'chain.breaks[0] states',
+    figures: '] states',
   },
   'duty.short': {
     claim: 'duty.carried says',
@@ -381,7 +389,7 @@ const GUARD_SENTENCES: Record<'chain.breaks' | 'duty.short', Record<'claim' | 'c
     repeat: 'distinct packs',
     unheld: 'does not hold at all',
     'without-finding': 'holds without a shortfall',
-    figures: 'duty.short[0] states',
+    figures: '] states',
   },
 };
 
