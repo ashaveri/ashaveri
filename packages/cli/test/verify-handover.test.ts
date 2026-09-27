@@ -241,9 +241,10 @@ interface PublishedRedactionRow {
   /**
    * What this command path answers for the row's pair: `null` where it answers exactly what `verdict` states,
    * and the code and the exit beside it where it reaches the same fact one step earlier than the reader does.
-   * The suite carries this table; this file reads it and does not keep one of its own.
+   * The suite carries this table, states the member on every row, and this file reads it rather than keeping one
+   * of its own; the presence assertion belongs to `packages/fixtures/test/redaction-vectors.test.ts`.
    */
-  readonly command?: { readonly code: string; readonly exit: number } | null;
+  readonly command: { readonly code: string; readonly exit: number } | null;
   readonly survivors?: string[];
   readonly reducedHex?: string;
   readonly originalHeadHex?: string;
@@ -626,8 +627,7 @@ describe('an excision amendment at the command edge', () => {
     // code and the exit in its `command` member, and every other row states null. Both lists below are names of
     // rows this loop ran, so neither can carry a note standing beside a case the suite no longer publishes, and
     // a suite that moves a row moves its exception with it.
-    const stated = (row: PublishedRedactionRow): { readonly code: string; readonly exit: number } | null => row.command ?? null;
-    const recorded = REDACTION_FIXTURE.vectors.filter((row) => stated(row) !== null).map((row) => row.name);
+    const recorded = REDACTION_FIXTURE.vectors.filter((row) => row.command !== null).map((row) => row.name);
     const diverged: string[] = [];
     const observed: string[] = [];
     for (const row of REDACTION_FIXTURE.vectors) {
@@ -640,10 +640,10 @@ describe('an excision amendment at the command edge', () => {
       }
       const result = runCli(args);
       const answer = replayedVerdict(result);
-      const exception = stated(row);
+      const exception = row.command;
       // A row either answers what its published verdict states, or the published row states the code this path
       // answers and the exit it answers with. An unreadable run is neither, and fails here.
-      expect(answer, `${row.name}: the command path answered something neither the published row nor this file states`).toBe(
+      expect(answer, `${row.name}: the command path answered something other than its published row states`).toBe(
         exception === null ? row.verdict : exception.code,
       );
       expect(result.status, `${row.name}: exit status beside the answer`).toBe(
@@ -652,11 +652,11 @@ describe('an excision amendment at the command edge', () => {
       if (answer !== row.verdict) diverged.push(row.name);
       observed.push(`${row.name}: ${answer}`);
     }
-    // The reverse check, read out of published data now rather than out of a table kept here: the rows this run
-    // answered differently from their `verdict` column have to be exactly the rows whose own member says so. An
-    // exception that states no divergence, and a divergence no row records, are the same defect facing two ways,
-    // and a suite that gained or lost one without saying so is caught by this line rather than by agreement
-    // between two copies of a list.
+    // The reverse check, read out of published data now rather than out of a table kept here. What only this line
+    // can catch is the row whose published object states a divergence this run did not have, because its code
+    // repeats its own `verdict`: the per-row expectation above passes on such a row, and a run that diverged
+    // without a row recording it never reaches here, since it fails that expectation first. A published table
+    // can only stay a source of facts rather than a mirror of the tool if this line is able to say so.
     expect(diverged.sort()).toEqual(recorded.sort());
     expect(observed.filter((one) => !one.endsWith('verify-ok')).length).toBeGreaterThanOrEqual(33);
   });

@@ -16,7 +16,7 @@ import {
   type RedactionVerifyOptions,
   type VerifiedRedaction,
 } from '@ashaveri/receipt';
-import { loadPackVectors, loadRedactionVectors, type RedactionVector } from '../src/index.js';
+import { loadPackVectors, loadRedactionVectors, type RedactionCommandAnswer, type RedactionVector } from '../src/index.js';
 import { unionMembers } from './doc-contract.js';
 
 /**
@@ -45,6 +45,36 @@ import { unionMembers } from './doc-contract.js';
 const file = loadRedactionVectors();
 const packFile = loadPackVectors();
 const ERRORS = '../../../packages/receipt/src/errors.ts';
+const VECTORS_DOC = fileURLToPath(new URL('../../../docs/vectors.md', import.meta.url));
+
+/**
+ * One prose member of the published `layout` block, read as the text it is. The block's index signature gives
+ * `unknown`, and a member that vanished is a statement about the published roster with nothing left to state,
+ * which this file would rather report than read as an empty list.
+ */
+function layoutProse(key: string): string {
+  const value = file.layout[key];
+  if (typeof value !== 'string') throw new Error(`redaction-v1.json has no string layout.${key} to read`);
+  return value;
+}
+
+/** The Redaction bullet of `docs/vectors.md`, which is the same division written for a reader who came for prose. */
+function redactionBullet(): string {
+  const doc = readFileSync(VECTORS_DOC, 'utf8');
+  const start = doc.indexOf('\n- **Redaction manifest.');
+  if (start < 0) throw new Error('docs/vectors.md states no Redaction manifest bullet to read');
+  let end = doc.length;
+  for (const marker of ['\n- **', '\n## ']) {
+    const found = doc.indexOf(marker, start + 5);
+    if (found > 0 && found < end) end = found;
+  }
+  return doc.slice(start, end);
+}
+
+/** The row names a piece of prose states literally: backticked, lowercase, and built of hyphenated words. */
+function namedRows(prose: string): string[] {
+  return [...prose.matchAll(/`([a-z][a-z0-9]*(?:-[a-z0-9]+)+)`/gu)].map((found) => found[1]!);
+}
 
 const bytes = (base64url: string): Uint8Array => new Uint8Array(Buffer.from(base64url, 'base64url'));
 const fromHex = (hex: string): Uint8Array => new Uint8Array(Buffer.from(hex, 'hex'));
@@ -425,7 +455,9 @@ describe('the redaction manifest vectors', () => {
     for (const one of file.vectors) {
       expect(Object.hasOwn(one, 'command'), `${one.name} carries no command member at all`).toBe(true);
     }
-    const diverging = file.vectors.filter((one) => one.command !== null);
+    const diverging = file.vectors.filter(
+      (one): one is RedactionVector & { command: RedactionCommandAnswer } => one.command !== null,
+    );
     const agreeing = file.vectors.filter((one) => one.command === null);
     expect(file.vectors.length).toBe(43);
     expect(diverging.length).toBe(7);
@@ -435,18 +467,28 @@ describe('the redaction manifest vectors', () => {
     // beside anything but a refused call, would be a run this tool does not produce. A null states the verdict
     // replayed with the default exit, which is a claim about a live run and is settled one in
     // `packages/cli/test/verify-handover.test.ts`; what the split owes this file is only that it is a split and
-    // not a drift, and that is what the two counts above say. Every code an object does name is one this estate
-    // already declares, so a port learns no new word out here: the receipt registry, or the one answer that is
-    // about the call rather than about the document.
-    const declared = new Set(unionMembers('ReceiptErrorCode', ERRORS));
+    // not a drift, and that is what the two counts above say.
     for (const one of diverging) {
-      const answer = one.command ?? { code: '', exit: -1 };
-      expect(answer.code, `${one.name} states a command answer that repeats its verdict`).not.toBe(one.verdict);
-      expect([0, 1, 2], `${one.name} states an exit no run of this tool leaves`).toContain(answer.exit);
-      expect(answer.exit === 0, `${one.name}: an accepted run beside a refusal, or the reverse`).toBe(one.verdict === 'verify-ok');
-      expect(answer.exit === 2, `${one.name}: only a refused call exits 2`).toBe(answer.code === 'usage');
-      expect(answer.code === 'usage' || declared.has(answer.code), `${one.name} answers ${answer.code}, which no registry declares`).toBe(true);
+      expect(one.command.code, `${one.name} states a command answer that repeats its verdict`).not.toBe(one.verdict);
+      expect([0, 1, 2], `${one.name} states an exit no run of this tool leaves`).toContain(one.command.exit);
+      expect(one.command.exit === 0, `${one.name}: an accepted run beside a refusal, or the reverse`).toBe(one.verdict === 'verify-ok');
+      expect(one.command.exit === 2, `${one.name}: only a refused call exits 2`).toBe(one.command.code === 'usage');
     }
+    // Every word an object names is one this estate already declares, so a port learns no code out here that it
+    // did not have to learn anyway. The one exception is stated in the published prose, in `commandMeaning` and in
+    // the Redaction bullet of `docs/vectors.md`: `usage` is the name this tool gives the exit a refused call
+    // leaves, and not a member of any `*ErrorCode` union that `docs/error-codes.md` lists. Read as a set rather
+    // than as a per-row allowance, it stays the single exception it is published as, because a second undeclared
+    // word would be a contract a port could only guess at.
+    const declared = new Set(unionMembers('ReceiptErrorCode', ERRORS));
+    const undeclared = [...new Set(diverging.map((one) => one.command.code).filter((code) => !declared.has(code)))];
+    expect(undeclared, 'a command answer names a word no registry declares, and only a refused call is undeclared').toEqual(['usage']);
+    // The roster of diverging rows is stated three times now: in the rows themselves, in this file's prose, and in
+    // the document a reader who came for prose reads. Each prose copy is read with one regex, the shape a row name
+    // has, so a roster that gained, lost or swapped a name reports itself by naming what was found in it.
+    const roster = diverging.map((one) => one.name).sort();
+    expect(namedRows(layoutProse('commandMeaning')).sort(), '`commandMeaning` names a roster the published rows do not carry').toEqual(roster);
+    expect(namedRows(redactionBullet()).sort(), 'the Redaction bullet of docs/vectors.md names a roster the published rows do not carry').toEqual(roster);
   });
 
   it('reaches every code the format registry declares for this container', () => {

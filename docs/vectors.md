@@ -28,7 +28,7 @@ each shape.
 | Technical export | `packages/fixtures/data/export-v1.json` | Whole export documents, the arguments a reader is handed beside each one, and the verdict a conforming reader owes it | `version: 1` |
 | Sealed deployment manifest | `packages/fixtures/data/manifest-v1.json` | One deployment manifest in both shapes it is served in, the signing keys a reader designates beside it, and the verdict the client path owes each | `version: 1` |
 | Evidence pack | `packages/fixtures/data/pack-v1.json` | Whole packs in the shapes a deployment hands them over in, the keys a reader designates beside each one, and the verdict the shipped pack reader owes: run and window reported apart, and an honest pack whose stamps run against its links accepted with a finding | `version: 1` |
-| Redaction manifest | `packages/fixtures/data/redaction-v1.json` | Redaction manifests each beside the pack they are checked against, and the verdict the shipped redaction reader owes the pair: the chain over the survivors published apart from the pack's own head, a redaction pointed at a pack the reader lacks refused, and the three wrong constructions of a survivor chain refused by recomputation | `version: 1` |
+| Redaction manifest | `packages/fixtures/data/redaction-v1.json` | Redaction manifests each beside the pack they are checked against, the verdict the shipped redaction reader owes the pair, and what `ashaveri verify-handover` answers for the same pair on every row: the chain over the survivors published apart from the pack's own head, a redaction pointed at a pack the reader lacks refused, and the three wrong constructions of a survivor chain refused by recomputation | `version: 1` |
 
 `pop-v1.json`, `req-v1.json`, `res-v1.json`, `marking-v1.json`, `chain-v1.json`, `export-v1.json`,
 `manifest-v1.json`, `pack-v1.json` and `redaction-v1.json` each carry a `description` stating their rule in
@@ -175,8 +175,10 @@ specific to that case.
   `rotation-read-with-one-pinned-key` and `sealed-under-another-deployment-key` are the two where the row pins one
   key for the whole pair while a document inside that pair names a different kid, which a set matched on each kid
   answers as a kid nothing designates rather than as the receipt's or the envelope's own refusal.
-  `no-designation-at-all` is the call that handed no key, which this tool refuses as the gap in the call: `usage`,
-  with exit 2. `protected-content-type-of-a-pack` and `protected-content-type-of-a-receipt` are documents wearing
+  `no-designation-at-all` is the call that handed no key, which this tool refuses as the gap in the call with exit
+  2, naming it `usage`. That word is the name this tool gives the exit a refused call leaves, and not a member of
+  any `*ErrorCode` union that `docs/error-codes.md` lists. `protected-content-type-of-a-pack` and
+  `protected-content-type-of-a-receipt` are documents wearing
   another container's type, which the dispatch answers by running that container's reader, so `PACK_BAD_MANIFEST`
   and `BAD_PAYLOAD` rather than the header refusal the redaction reader would give. And
   `protected-kid-of-another-width` and `document-truncated-mid-envelope` are refused by the classification on the
