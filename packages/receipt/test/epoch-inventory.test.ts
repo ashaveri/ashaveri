@@ -45,6 +45,7 @@ import {
   EPOCH_INVENTORY_SHORT_MEMBERS,
   EPOCH_INVENTORY_SPAN_MEMBERS,
 } from '../src/epoch-inventory.js';
+import { cddlRule } from './cddl.js';
 
 /**
  * The epoch inventory: a deployment's statement about a closed run of packs, and the arithmetic a reader owes
@@ -889,19 +890,11 @@ function replaceInPayload(from: string, to: string): Uint8Array {
   return sealPayload(new TextEncoder().encode(`${text.slice(0, at)}${to}${text.slice(at + from.length)}`));
 }
 
-/** The text of one CDDL rule of this format, from its opening brace to the line that closes it. */
-function cddlRule(source: string, rule: string): string {
-  const start = source.indexOf(`${rule} = {`);
-  if (start < 0) throw new Error(`${rule} is not declared in epoch-inventory.cddl`);
-  const end = source.indexOf('\n}', start);
-  if (end < 0) throw new Error(`${rule} in epoch-inventory.cddl never closes`);
-  return source.slice(start, end);
-}
-
 /**
- * The members one block declares by text label, in the order it declares them, comments stripped. The label
- * pattern admits the capitals this layout's figures carry (`retentionSha256`, `afterHead`, `shortBy`), which is
- * the one difference from the reader of `receipt.cddl`, whose members are all lowercase.
+ * The members one block declares by text label, in the order it declares them, comments stripped. The rule
+ * whose text this reads is the shared `cddlRule`, and only the member pattern is local, because the pattern
+ * has to admit the capitals this layout's figures carry (`retentionSha256`, `afterHead`, `shortBy`) where
+ * `receipt.cddl` spells every member of a block in lowercase.
  */
 function declaredMembers(block: string): string[] {
   const members: string[] = [];
