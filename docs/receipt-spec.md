@@ -703,9 +703,9 @@ than the instant its own period says it should still be kept and a bound stated 
 seen to bind; and the period is a statement the record carries about the deployment that wrote it, not a
 rule the store acts on, because retirement drops a prefix at the durability bound and reads no period off a
 record. Which records a deployment writes as `bounded`, and which as `receipt`, is its own configuration,
-and `DEFAULT_RECEIPT_RECORD_KIND` in [configured-values.md](configured-values.md) names the kind a
-deployment that named none writes. A trim
-is the record the store writes at the very front of the file when retention reclaims a retired prefix. It
+which a `signerd` run states with `--receipts-record-kind`, and `DEFAULT_RECEIPT_RECORD_KIND` in
+[configured-values.md](configured-values.md) names the kind a deployment that named none writes. A trim is
+the record the store writes at the very front of the file when retention reclaims a retired prefix. It
 carries no receipt, so its `id` is empty, and its payload is a second fixed layout:
 
 ```text
