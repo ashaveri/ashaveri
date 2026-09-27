@@ -692,6 +692,8 @@ export interface EpochInventoryVector {
   };
   /** Which of the two folded lists a row guards, on the rows that vector one of the twin guards. */
   site?: 'chain.breaks' | 'duty.short';
+  /** Which guard of its site a refusing folded-list row reaches, named so the two sites can be compared guard for guard. */
+  guard?: string;
   /** The one position a fault row moved. */
   edited?: string;
   /** The text edit a row was built by, beside the row whose text it edited. */

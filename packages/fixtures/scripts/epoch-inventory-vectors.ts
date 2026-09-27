@@ -227,6 +227,17 @@ const SHORT_TWICE: EpochInventoryManifest = runOf(3, (index, one) =>
   index === 0 ? one : { ...one, duty: { ...one.duty, required: 500, held: 100 } },
 );
 
+/** The honest run with its seven members written in another order than any writer of this format lists them. */
+const MEMBERS_REORDERED: EpochInventoryManifest = {
+  duty: HONEST.duty,
+  chain: HONEST.chain,
+  window: HONEST.window,
+  packs: HONEST.packs,
+  manifest: HONEST.manifest,
+  epoch: HONEST.epoch,
+  v: 1,
+};
+
 /** A pack manifest of the other container, whole by its own layout, for the cross-reading rows. */
 const FOREIGN_PACK: Uint8Array = encodePackManifest({
   v: 1,
@@ -338,11 +349,41 @@ interface Case {
   readonly edited?: string;
   /** Which of the two folded lists a row guards, stated on every row that vectors one of the twin guards. */
   readonly site?: 'chain.breaks' | 'duty.short';
+  /**
+   * Which of the six guards of the named site a refusing row reaches. `main` requires the reader's own sentence
+   * to be that guard's sentence, so a row whose guard has gone quiet and fallen through to the next throw dies
+   * here even though both throws answer with the same code, which is what the code columns cannot see apart.
+   */
+  readonly guard?: 'claim' | 'count' | 'repeat' | 'unheld' | 'without-finding' | 'figures';
   /** The text edit a row was built by, beside the row whose text it edited. */
   readonly edit?: { of: string; from: string; to: string };
   /** The document taken apart into the pieces the format publishes, for a port that rebuilds the framing. */
   readonly reveal?: Record<string, unknown>;
 }
+
+/**
+ * The one fragment of the reader's own sentence that each guard of each site says and no other guard of that
+ * site says. `main` matches the captured refusal against this table, so the direction a folded-list row states
+ * is the exact branch of the exact twin it vectors, not merely the code two branches share.
+ */
+const GUARD_SENTENCES: Record<'chain.breaks' | 'duty.short', Record<'claim' | 'count' | 'repeat' | 'unheld' | 'without-finding' | 'figures', string>> = {
+  'chain.breaks': {
+    claim: 'chain.continuous says',
+    count: 'break(s) in it and the document states',
+    repeat: 'distinct packs',
+    unheld: 'does not hold at all',
+    'without-finding': 'holds without a break',
+    figures: 'chain.breaks[0] states',
+  },
+  'duty.short': {
+    claim: 'duty.carried says',
+    count: 'shortfall(s) in it and the document states',
+    repeat: 'distinct packs',
+    unheld: 'does not hold at all',
+    'without-finding': 'holds without a shortfall',
+    figures: 'duty.short[0] states',
+  },
+};
 
 const CASES: readonly Case[] = [
   {
@@ -398,6 +439,13 @@ const CASES: readonly Case[] = [
     verdict: 'verify-ok',
   },
   {
+    name: 'members-listed-in-another-order',
+    note: 'The honest document with its seven members written duty first and the version last, an order no writer of this format emits. Accepted, and readback identical to `honest-run-of-three`: the payload is rendered by `JSON.stringify`, so the emitted order is the order the calling object lists its members in, and the reader looks each one up by name rather than by position. `packages/receipt/epoch-inventory.cddl` states the field order as the order a writer lists them in, and this row publishes that as the rendering convention it is: an order of members is no claim a reader of this document answers against the layout.',
+    bytes: sealDocument(MEMBERS_REORDERED),
+    read: PINNED,
+    verdict: 'verify-ok',
+  },
+  {
     name: 'run-of-one-pack',
     note: 'A closed window and nothing else beside it. The window is folded one entry at a time, so a run of one states that entry edges, and the two summaries come out of the fold seeds rather than from a special case: continuous, and the duty carried. An empty run never reaches the fold at all, which `a-run-of-no-entries` states.',
     bytes: sealDocument(runOf(1)),
@@ -416,6 +464,33 @@ const CASES: readonly Case[] = [
     })(),
     read: PINNED,
     verdict: 'verify-ok',
+  },
+  {
+    name: 'issuer-id-stated-empty',
+    note: 'The honest run with its issuer id stated as empty text. The row above publishes that these copied positions carry no ceiling; this one and its two siblings publish the floor they do carry, which is text of at least one byte, refused where the deployment block is read rather than at the fold or the key.',
+    bytes: sealDocument({ ...HONEST, manifest: { iss: '', ins: HONEST.manifest.ins, epk: HONEST.manifest.epk } }),
+    read: PINNED,
+    verdict: 'EPOCH_INVENTORY_BAD_DOCUMENT',
+    edited: 'the manifest iss member, emptied',
+  },
+  {
+    name: 'instance-id-stated-empty',
+    note: 'The instance id of the same document emptied, the second of the three text floors. The answer is the one the reading gives for a figure of another type or width, because an empty id is a member the layout cannot hold rather than a deployment the reader does not know.',
+    bytes: sealDocument({ ...HONEST, manifest: { iss: HONEST.manifest.iss, ins: '', epk: HONEST.manifest.epk } }),
+    read: PINNED,
+    verdict: 'EPOCH_INVENTORY_BAD_DOCUMENT',
+    edited: 'the manifest ins member, emptied',
+  },
+  {
+    name: 'duty-label-stated-empty',
+    note: 'The first entry of the honest run carrying no duty label at all, the third of the three text floors and the one read inside an entry rather than beside the deployment. A label routes the figure beside it, so the emptiness is refused where the entry is read, before any summary is folded over it.',
+    bytes: sealDocument({
+      ...HONEST,
+      packs: HONEST.packs.map((one, index) => (index === 0 ? { ...one, duty: { ...one.duty, art: '' } } : one)),
+    }),
+    read: PINNED,
+    verdict: 'EPOCH_INVENTORY_BAD_DOCUMENT',
+    edited: 'the first entry duty art member, emptied',
   },
   {
     name: 'run-label-at-the-printed-width',
@@ -645,12 +720,14 @@ const CASES: readonly Case[] = [
   },
   {
     name: 'a-break-smoothed-over',
-    note: 'The broken run with its chain claim stating continuity and an empty break list. The entries are untouched, so the only difference between this row and the accepted one above it is a summary that has been made to agree with what the deployment would rather have reported.',
+    note: 'The broken run with its chain claim stating continuity while the break row the fold reports stays in the list beside it. The entries are untouched, so the only difference between this row and the accepted one above it is a claim that has been made to agree with what the deployment would rather have reported. `a-duty-stated-as-carried-when-it-is-not` is that same fault at the duty site.',
     bytes: sealDocument({ ...BROKEN, chain: { ...BROKEN.chain, continuous: true } }),
     read: PINNED,
     verdict: 'EPOCH_INVENTORY_SUMMARY_DISAGREES',
     structural: 'verify-ok',
     edited: 'the chain claim of continuity',
+    site: 'chain.breaks',
+    guard: 'claim',
   },
   {
     name: 'a-stated-run-end-that-is-not-where-the-run-ends',
@@ -670,6 +747,7 @@ const CASES: readonly Case[] = [
     structural: 'verify-ok',
     edited: 'the file member of the one break row',
     site: 'chain.breaks',
+    guard: 'unheld',
   },
   {
     name: 'a-shortfall-row-naming-a-pack-the-run-does-not-hold',
@@ -680,6 +758,7 @@ const CASES: readonly Case[] = [
     structural: 'verify-ok',
     edited: 'the file member of the one shortfall row',
     site: 'duty.short',
+    guard: 'unheld',
   },
   {
     name: 'two-rows-naming-one-pack-at-the-break-site',
@@ -693,6 +772,7 @@ const CASES: readonly Case[] = [
     structural: 'verify-ok',
     edited: 'the second break row, pointed at the pack the first names',
     site: 'chain.breaks',
+    guard: 'repeat',
   },
   {
     name: 'two-rows-naming-one-pack-at-the-shortfall-site',
@@ -706,6 +786,7 @@ const CASES: readonly Case[] = [
     structural: 'verify-ok',
     edited: 'the second shortfall row, pointed at the pack the first names',
     site: 'duty.short',
+    guard: 'repeat',
   },
   {
     name: 'a-break-row-more-than-the-run-has',
@@ -726,6 +807,7 @@ const CASES: readonly Case[] = [
     structural: 'verify-ok',
     edited: 'one added break row beside the one the run has',
     site: 'chain.breaks',
+    guard: 'count',
   },
   {
     name: 'a-shortfall-row-more-than-the-run-has',
@@ -742,6 +824,7 @@ const CASES: readonly Case[] = [
     structural: 'verify-ok',
     edited: 'one added shortfall row beside the one the run has',
     site: 'duty.short',
+    guard: 'count',
   },
   {
     name: 'a-break-row-fewer-than-the-run-has',
@@ -752,6 +835,7 @@ const CASES: readonly Case[] = [
     structural: 'verify-ok',
     edited: 'the second break row, left out',
     site: 'chain.breaks',
+    guard: 'count',
   },
   {
     name: 'a-shortfall-row-fewer-than-the-run-has',
@@ -762,6 +846,7 @@ const CASES: readonly Case[] = [
     structural: 'verify-ok',
     edited: 'the second shortfall row, left out',
     site: 'duty.short',
+    guard: 'count',
   },
   {
     name: 'a-break-row-naming-a-held-pack-with-no-break-in-it',
@@ -782,6 +867,35 @@ const CASES: readonly Case[] = [
     structural: 'verify-ok',
     edited: 'the second break row, pointed at the pack the run begins at',
     site: 'chain.breaks',
+    guard: 'without-finding',
+  },
+  {
+    name: 'a-break-row-stating-a-head-the-pair-does-not',
+    note: 'The broken run with its one break row keeping the right pack and the right anchor and having `afterHead` replaced by a digest of nothing. The name is held and the counts agree, so this is the last guard of the site: each row is answered against the two digests of the pair its own `file` fixes, and a port that never compares a folded row to that pair passes every other row in this suite.',
+    bytes: sealDocument({
+      ...BROKEN,
+      chain: { ...BROKEN.chain, continuous: false, breaks: [{ ...BROKEN.chain.breaks[0]!, afterHead: digest('a head no pack of this run left') }] },
+    }),
+    read: PINNED,
+    verdict: 'EPOCH_INVENTORY_SUMMARY_DISAGREES',
+    structural: 'verify-ok',
+    edited: 'the afterHead member of the one break row',
+    site: 'chain.breaks',
+    guard: 'figures',
+  },
+  {
+    name: 'a-break-row-stating-an-anchor-the-pack-does-not',
+    note: 'The same break row with the other of its two digests moved instead: the anchor the pack does not carry. Comparing either position is enough to refuse this row, and the pair of rows states them apart so a port that reads one digest of the pair and skips the other fails at least one of them.',
+    bytes: sealDocument({
+      ...BROKEN,
+      chain: { ...BROKEN.chain, continuous: false, breaks: [{ ...BROKEN.chain.breaks[0]!, anchor: digest('an anchor this pack never carried') }] },
+    }),
+    read: PINNED,
+    verdict: 'EPOCH_INVENTORY_SUMMARY_DISAGREES',
+    structural: 'verify-ok',
+    edited: 'the anchor member of the one break row',
+    site: 'chain.breaks',
+    guard: 'figures',
   },
   {
     name: 'a-shortfall-row-naming-a-held-pack-with-no-shortfall-in-it',
@@ -798,15 +912,46 @@ const CASES: readonly Case[] = [
     structural: 'verify-ok',
     edited: 'the second shortfall row, pointed at the pack that met its own duty',
     site: 'duty.short',
+    guard: 'without-finding',
   },
   {
-    name: 'a-duty-stated-as-carried-when-it-is-not',
-    note: 'The honest run with its duty summary stating nothing short and the flag set to carried. The entries still carry the shortfall, so the only thing this row differs from the accepted one by is a summary that stopped reporting it.',
-    bytes: sealDocument({ ...HONEST, duty: { carried: true, short: [] } }),
+    name: 'a-shortfall-row-stating-a-duty-label-the-pack-does-not',
+    note: 'The honest run with its one shortfall row keeping the right pack and all three of its figures and having the `art` replaced by another article period. The label travels with the figures in the fold, so the row is refused for stating a duty that is not the one beside the pack its `file` names, even though every integer agrees.',
+    bytes: sealDocument({
+      ...HONEST,
+      duty: { carried: false, short: [{ ...HONEST.duty.short[0]!, art: '26(6)' }] },
+    }),
     read: PINNED,
     verdict: 'EPOCH_INVENTORY_SUMMARY_DISAGREES',
     structural: 'verify-ok',
-    edited: 'the duty summary, emptied',
+    edited: 'the art member of the one shortfall row',
+    site: 'duty.short',
+    guard: 'figures',
+  },
+  {
+    name: 'a-shortfall-row-stating-a-shortfall-that-is-not-the-subtraction',
+    note: 'The honest run with its one shortfall row stating the right pack, the right label, the right two figures, and a `shortBy` one larger than required less held. The subtraction is recomputed rather than believed, which is the whole of what this position states: a row that agrees on every figure and lies about the arithmetic between two of them is refused.',
+    bytes: sealDocument({
+      ...HONEST,
+      duty: { carried: false, short: [{ ...HONEST.duty.short[0]!, shortBy: 401 }] },
+    }),
+    read: PINNED,
+    verdict: 'EPOCH_INVENTORY_SUMMARY_DISAGREES',
+    structural: 'verify-ok',
+    edited: 'the shortBy member of the one shortfall row, one off the subtraction',
+    site: 'duty.short',
+    guard: 'figures',
+  },
+  {
+    name: 'a-duty-stated-as-carried-when-it-is-not',
+    note: 'The honest run with its duty summary carrying the shortfall row the fold reports while the flag beside it states that the run carried what it was owed. The flag guard is what refuses here, not the counting: the list is the length the run asks for and every name in it is held, and the only fault is a claim of carrying contradicted by the row stated beside it, which is the duty site twin of `a-break-smoothed-over`.',
+    bytes: sealDocument({ ...HONEST, duty: { carried: true, short: [HONEST.duty.short[0]!] } }),
+    read: PINNED,
+    verdict: 'EPOCH_INVENTORY_SUMMARY_DISAGREES',
+    structural: 'verify-ok',
+    edited: 'the duty flag, set to carried beside the one shortfall the run has',
+    site: 'duty.short',
+    guard: 'claim',
   },
   {
     name: 'an-identity-that-pins-nothing',
@@ -899,6 +1044,7 @@ function published(one: Case, seen: { verdict: string; structural: string; messa
     ...(seen.message === '' ? {} : { message: seen.message }),
     ...(one.edited === undefined ? {} : { edited: one.edited }),
     ...(one.site === undefined ? {} : { site: one.site }),
+    ...(one.guard === undefined ? {} : { guard: one.guard }),
     ...(one.edit === undefined ? {} : { edit: one.edit }),
     ...(one.reveal === undefined ? {} : { reveal: one.reveal }),
     ...(seen.verdict === 'verify-ok' ? { readback: readbackOf(one) } : {}),
@@ -932,6 +1078,24 @@ function main(): void {
     if (seen.structural !== structural) {
       throw new Error(`${one.name}: the keyless reader answers ${seen.structural}, not the ${structural} this case states`);
     }
+    // A folded-list refusal names the guard of its site it reaches, and the reader's own sentence has to be
+    // that guard's sentence. Two guards of one site answer with the same code, so the verdict check above
+    // cannot see a row fall through to its neighbour: a claim guard gone quiet publishes a count refusal under
+    // a note about the flag, and only the sentence tells.
+    if (one.guard !== undefined && one.site === undefined) {
+      throw new Error(`${one.name}: names the ${one.guard} guard at no site`);
+    }
+    if (one.site !== undefined && one.verdict !== 'verify-ok' && one.guard === undefined) {
+      throw new Error(`${one.name}: refuses at ${one.site} and names no guard`);
+    }
+    if (one.site !== undefined && one.guard !== undefined) {
+      const sentence = GUARD_SENTENCES[one.site][one.guard];
+      if (!seen.message.includes(sentence)) {
+        throw new Error(
+          `${one.name}: the refusal the reader gave carries no ${one.guard} guard sentence (${sentence}) of the ${one.site} site: ${seen.message}`,
+        );
+      }
+    }
     rows.push(published(one, seen));
   }
 
@@ -954,7 +1118,7 @@ function main(): void {
       {
         version: 1,
         description:
-          'Sealed epoch inventories and the verdict the shipped reader owes each one: the envelope, the header, the key, the reading of the JSON, the arithmetic over a run of packs, and the names each summary row points at. Every refusal the container names is reached by a row, and the acceptances include the three a reviewer would otherwise read as faults: a break list and a shortfall list stated in another order, which the reader keys by the pack each row names, copied text positions wider than any ceiling this layout states, and a run label at the last byte of the width it does.',
+          'Sealed epoch inventories and the verdict the shipped reader owes each one: the envelope, the header, the key, the reading of the JSON, the arithmetic over a run of packs, and the names each summary row points at. Every refusal the container names is reached by a row, the three text floors the layout states are each refused by an emptied value, and the acceptances include ones a reviewer would otherwise read as faults: a break list and a shortfall list stated in another order, which the reader keys by the pack each row names, a document listing its seven members in an order no writer emits, which the reader looks up by name, copied text positions wider than any ceiling this layout states, and a run label at the last byte of the width it does.',
         layout: {
           format: 'packages/receipt/epoch-inventory.cddl',
           twin: 'packages/receipt/schemas/epoch-inventory-v1.schema.json',
@@ -980,7 +1144,7 @@ function main(): void {
           readFields:
             '`read.pinned` is the one key a caller hands the reader, which answers whatever kid the header names. `read.retained` is the set a resolver answers from, one public half per kid, and is how a deployment holding several keys reads one document; an empty set is a resolver holding nothing for the kid named. A row with neither is the call that designated nothing, which this reader refuses before it reads a byte.',
           summarySites:
-            'the two lists a run folds, `chain.breaks` and `duty.short`, are guarded apart rather than by one routine, and every refusal this suite states at one of them is stated at the other too: a row naming a pack the run does not hold, a list longer than the arithmetic, a list shorter than it, two rows naming one pack, and a row naming a pack the run holds whose own figures carry no such finding. Each list is keyed by the pack its `file` names, so the order the rows are stated in bears nothing, which is what makes the two accepted rows carrying reversed lists acceptances rather than oversights.',
+            'the two lists a run folds, `chain.breaks` and `duty.short`, are guarded apart rather than by one routine, and every fault a list can carry is stated at both sites: a claim of continuity or of carrying contradicted by the list beside it, a list longer than the arithmetic, a list shorter than it, two rows naming one pack, a row naming a pack the run does not hold, a row naming a pack the run holds whose own figures carry no such finding, and a row whose own two digests or four figures are not the pair or the pack it names. Every refusal at a folded-list site carries `site` and the `guard` of the branch it reaches beside it, and each list is keyed by the pack its `file` names, so the order the rows are stated in bears nothing, which is what makes the two accepted rows carrying reversed lists acceptances rather than oversights.',
           assembled:
             'every honest inventory is `signEpochInventory` and no hand-built bytes. Where a row needs something that writer refuses to sign, the manifest is encoded, one position of it is changed, and the result is signed over the published `Sig_structure` and sealed by `sealEpochInventory` under the key its own header names; the generator stops unless that path reproduces `signEpochInventory` byte for byte on the honest document, so each fault row is the one position its `edited` field names and nothing else. Where a row states an `edit` block it was built by replacing one span of the honest document text, which is the pair of run-label rows differing by one byte at one position.',
           codes: [...new Set(CASES.map((one) => one.verdict))].sort(),

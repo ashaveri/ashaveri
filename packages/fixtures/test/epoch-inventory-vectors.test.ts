@@ -217,24 +217,35 @@ describe('the published epoch inventory vectors', () => {
     }
   });
 
-  it('vectors both folded lists the same number of times', () => {
+  it('vectors both folded lists guard for guard', () => {
     const atBreaks = file.vectors.filter((one) => one.site === 'chain.breaks');
     const atShortfall = file.vectors.filter((one) => one.site === 'duty.short');
     expect(atBreaks.length).toBeGreaterThanOrEqual(5);
     expect(atBreaks.length).toBe(atShortfall.length);
-    // Each site carries the same fault shapes: a name the run does not hold, a count too high, a count too low,
-    // two rows naming one pack, a row naming a held pack with no such finding, and the reversed list, which is
-    // an acceptance rather than a refusal. The codes are the readable form of that list, and the two sites are
-    // guarded by twins rather than by one routine, so a suite missing either half is a suite missing both.
+    // Every refusal the reader reaches inside a folded list names its site and the guard of that site it
+    // reaches, and no row carries a guard at no site: a row that lost its site would otherwise hide one half
+    // of the twins from this file, which counted 6 and 6 while one flag guard went unvectored.
+    for (const one of file.vectors) {
+      if (one.guard !== undefined) {
+        expect(one.site, `${one.name} names the ${one.guard} guard at no site`).toBeDefined();
+      }
+      if (one.verdict === 'EPOCH_INVENTORY_PACK_UNNAMED') {
+        expect(one.site, `${one.name} is a folded-list refusal and names no site`).toBeDefined();
+      }
+    }
+    // Each site carries every fault its list can hold: the claim contradicted by the list beside it, the
+    // count too high, the count too low, two rows naming one pack, a name the run does not hold, a row
+    // naming a held pack with no such finding in it, and a row whose own figures are not the pair's or the
+    // pack's, which is two rows, one per moved position. The codes cannot tell a flag refusal from a count
+    // refusal, so the guard names are what let this check see its own asymmetry.
+    const guardsAt = (rows: EpochInventoryVector[]): string[] =>
+      rows.filter((one) => one.verdict !== 'verify-ok').map((one) => one.guard ?? '').sort();
+    const atEachSite = ['claim', 'count', 'count', 'figures', 'figures', 'repeat', 'unheld', 'without-finding'];
+    expect(guardsAt(atBreaks)).toEqual(atEachSite);
+    expect(guardsAt(atShortfall)).toEqual(atEachSite);
+    // The twins answer their guards with the same codes, and each site vectors the reversed-list acceptance.
     const codesAt = (rows: EpochInventoryVector[]): string[] =>
       rows.filter((one) => one.verdict !== 'verify-ok').map((one) => one.verdict).sort();
-    expect(codesAt(atBreaks)).toEqual([
-      'EPOCH_INVENTORY_PACK_UNNAMED',
-      'EPOCH_INVENTORY_PACK_UNNAMED',
-      'EPOCH_INVENTORY_SUMMARY_DISAGREES',
-      'EPOCH_INVENTORY_SUMMARY_DISAGREES',
-      'EPOCH_INVENTORY_SUMMARY_DISAGREES',
-    ]);
     expect(codesAt(atShortfall)).toEqual(codesAt(atBreaks));
     expect(atBreaks.filter((one) => one.verdict === 'verify-ok').length).toBe(1);
     expect(atShortfall.filter((one) => one.verdict === 'verify-ok').length).toBe(1);
