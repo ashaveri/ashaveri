@@ -128,7 +128,8 @@ export interface AshaveriPolicy {
    * version 1 policy document spells a window as a whole number of seconds or as `null`, and `null`
    * loads back as the absent field, which is the default guarding the clock; `policyFileFromPolicy`
    * refuses a non-finite window rather than writing one out as `null`, so a policy published as a
-   * document names a number and a policy that runs no clock stays in the process that verifies.
+   * document names a number or names none, and a policy that runs no clock stays in the process that
+   * verifies it.
    */
   readonly maxReceiptAgeSeconds?: number;
   /**
