@@ -454,7 +454,7 @@ const CASES: readonly Case[] = [
   },
   {
     name: 'copied-text-positions-wider-than-any-ceiling',
-    note: 'An issuer and an instance id of three hundred and one characters each, and a duty label of seventy bytes: the three text positions copied out of a deployment manifest and a pack. This is an acceptance. Both of those sources declare text with a floor and no ceiling, so a wide figure is what today own writer emits, and a ceiling on this side would refuse an inventory for a value its own writer was handed by a format that allows it. What each of the three keeps is the floor those sources state, which is text that is not empty.',
+    note: 'An issuer and an instance id of three hundred and four characters each, and a duty label of seventy bytes: the three text positions copied out of a deployment manifest and a pack. This is an acceptance. Both of those sources declare text with a floor and no ceiling, so a wide figure is what today\'s writer emits, and a ceiling on this side would refuse an inventory for a value its own writer was handed by a format that allows it. What each of the three keeps is the floor those sources state, which is text that is not empty, and `issuer-id-stated-empty`, `instance-id-stated-empty` and `duty-label-stated-empty` are that floor.',
     bytes: (() => {
       const wide = runOf(2, (index, one) => ({
         ...one,
@@ -646,7 +646,7 @@ const CASES: readonly Case[] = [
     bytes: sealPayload(textWith('"v": 1,', '"v": 1,\n  "met": true,')),
     read: PINNED,
     verdict: 'EPOCH_INVENTORY_BAD_DOCUMENT',
-    edited: 'one added member beside the document own seven',
+    edited: 'one added member beside the document\'s own seven',
   },
   {
     name: 'a-run-of-no-entries',
@@ -669,7 +669,7 @@ const CASES: readonly Case[] = [
   },
   {
     name: 'entry-digest-not-the-one-it-is-filed-under',
-    note: 'The second entries own `sha256` moved by one hex character, with its path left where it was, so the directory names a pack this document no longer states. This is a wrong digest over one epoch of the run, and it is refused by name: the layout files an entry under its own digest, and a reader pointed at a directory that does not match the pack beside it is handed a position to go and check.',
+    note: 'The second entry\'s own `sha256` moved by one hex character, with its path left where it was, so the directory names a pack this document no longer states. This is a wrong digest over one epoch of the run, and it is refused by name: the layout files an entry under its own digest, and a reader pointed at a directory that does not match the pack beside it is handed a position to go and check.',
     bytes: sealDocument(
       inventory(
         HONEST.packs.map((one, index) =>
@@ -850,7 +850,7 @@ const CASES: readonly Case[] = [
   },
   {
     name: 'a-break-row-naming-a-held-pack-with-no-break-in-it',
-    note: 'A run that breaks twice, stating two rows of which one is the run own pair and the other names the pack the run begins at, quoted with that pack own anchor and the head before it. The counts agree and every name is a pack the reader holds, so this is reached only past the counting, and it is refused because the named pack begins the run and has no break in it.',
+    note: 'A run that breaks twice, stating two rows of which one is the run\'s own pair and the other names the pack the run begins at, quoted with that pack\'s own anchor and the head before it. The counts agree and every name is a pack the reader holds, so this is reached only past the counting, and it is refused because the named pack begins the run and has no break in it.',
     bytes: sealDocument({
       ...BROKEN_TWICE,
       chain: {
@@ -1133,14 +1133,14 @@ function main(): void {
             'RFC 9052 section 4.4: the array ["Signature1", the protected bstr as written, the external AAD, the payload bstr], canonically encoded. The external AAD is empty for this container and nothing inside the envelope carries which one was used.',
           payloadIsText:
             'the payload of this container is JSON text rather than CBOR, two-space indented and newline terminated as the writer emits it, and the signature covers those bytes rather than a canonical rendering of them: the same document re-indented is a different document to this reader',
-          nestingDepth: `the JSON reading goes to eight levels and no further, which is a rule of the format rather than a parser limit: the layout own deepest position is five, and a payload is bytes nobody believes`,
+          nestingDepth: `the JSON reading goes to eight levels and no further, which is a rule of the format rather than a parser limit: the layout's own deepest position is five, and a payload is bytes nobody believes`,
           labelWidth: `the run label is the one text position carrying a ceiling, at ${String(EPOCH_INVENTORY_LABEL_MAX_BYTES)} bytes, because it is printed beside the run in every report of it; the issuer, the instance id and the duty label are copied out of formats that declare floors and no ceiling, and carry none here`,
           encodings: 'documents unpadded base64url, digests, kids, signatures and other byte strings lowercase hex, instants unix seconds',
           verdictFields: ['verdict', 'structural', 'message', 'readback', 'edited', 'edit', 'reveal'],
           verdictMeaning:
             '`verdict` is what verifyEpochInventory answers for the bytes under the designation the row states: `verify-ok`, or the code it throws, whose message the row carries as `message`. `structural` is what decodeEpochInventory answers for the same bytes with no key. A row that is `verify-ok` there and a refusal in `verdict` is refused about a key, a signature or the arithmetic over a run rather than about a document shape, and every run and summary refusal in this suite is that shape. A conforming reader owes the same code; its sentence may differ, and the published message is what this one said.',
           readbackMeaning:
-            '`readback` is published on every accepted row and is what the reader reported back: `runFiles` is the run in the order the entries own figures put them, which is what `verifyEpochInventory` hands over as its outcome, `statedFiles` is the array as the document wrote it, and the rest are the window, the chain claim and the duty summary as the document states them. Where the two lists of files differ, the array order carried nothing and the reader put the run back.',
+            '`readback` is published on every accepted row and is what the reader reported back: `runFiles` is the reader\'s own recomputation, the run in the order the entries\' own figures put them, which is what `verifyEpochInventory` hands over as its outcome, `statedFiles` is the array as the document wrote it, and the rest are the window, the chain claim and the duty summary as the document states them and the reader echoes them back. Where the two lists of files differ, the array order carried nothing and the reader put the run back.',
           readFields:
             '`read.pinned` is the one key a caller hands the reader, which answers whatever kid the header names. `read.retained` is the set a resolver answers from, one public half per kid, and is how a deployment holding several keys reads one document; an empty set is a resolver holding nothing for the kid named. A row with neither is the call that designated nothing, which this reader refuses before it reads a byte.',
           summarySites:
@@ -1159,7 +1159,7 @@ function main(): void {
           keyNote:
             'test-only, published so a port can produce these signatures itself rather than only checking them, and protecting nothing. The kid of each is sha256 of its own public half, which is what the writer demands of a key before it seals a document, and which is why this suite carries no row for a header naming an id that could never resolve.',
           notChecked:
-            'an inventory describes files a reader is not handed. Nothing here checks that a digest is the digest of a pack that exists, that a pack is sealed by the key its entry gives, that `items` is the count of receipts inside one, or that the run is every window the deployment closed: those are a reviewers next checks, over the pack files and against what the deployment published about its rotations.',
+            'an inventory describes files a reader is not handed. Nothing here checks that a digest is the digest of a pack that exists, that a pack is sealed by the key its entry gives, that `items` is the count of receipts inside one, or that the run is every window the deployment closed: those are a reviewer\'s next checks, over the pack files and against what the deployment published about its rotations.',
         },
         vectors: rows,
       },
