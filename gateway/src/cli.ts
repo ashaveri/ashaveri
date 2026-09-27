@@ -665,7 +665,10 @@ const label =
 const periodDays = Math.round(MINIMUM_RETENTION_SECONDS / 86_400);
 // Which record kind this run appends, printed as the store was handed it. A bounded record's period is
 // bytes inside the file the deployment keeps, and a reader of a volume cannot tell which kind it holds
-// without being told, so the line says both the kind and where it came from.
+// without being told, so the line states the kind, and for a bounded record the period it states and the
+// flag this run used to say so. The receipt arm describes the kind rather than the run's own provenance:
+// a run that names `receipt` is told the same sentence as one that named nothing, because the two write
+// the same bytes.
 const recordKindLabel =
   receiptKind.kind === 'bounded'
     ? `every record stating a retention period of ${String(receiptKind.boundSeconds)} seconds ahead of its receipt bytes, from --receipts-record-kind`
