@@ -146,5 +146,14 @@ export {
   isEventStream,
 } from './response-items.js';
 export type { ResponseItem, ResponseItemFraming } from './response-items.js';
+export { COLLATERAL_PRESENCES } from './disclosure.js';
+export type {
+  CollateralAbsent,
+  CollateralHeld,
+  CollateralPresence,
+  CollateralSlot,
+  CollateralValidityAnchor,
+  StampDisclosure,
+} from './disclosure.js';
 export { receiptToJson, receiptBytesToJson, toHex } from './json.js';
 export type { ReceiptJson } from './json.js';
