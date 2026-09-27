@@ -87,7 +87,9 @@ export interface AccessLogOptions {
    * and when a day's files are collected, answer to a source the deployment named rather than to one it
    * was never told about. A source reads seconds and this log compares milliseconds, so one multiply at
    * the fallback below is the whole of the reconciliation; a caller needing sub-second resolution passes
-   * `now` and stays in milliseconds.
+   * `now` and stays in milliseconds. The `t` on the records this bound ages is read through that same
+   * source where the line is written, in `server.ts`, so a cutoff and the stamp it ages never come from
+   * two clocks that have not met.
    */
   time?: TimeSource;
 }

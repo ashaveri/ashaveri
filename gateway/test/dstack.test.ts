@@ -466,8 +466,8 @@ describe('dstackDeployment evidence binding', () => {
     // The quote carries its own lifetime and this process reads no clock off the platform, so the instant
     // a deployment notices an answer is its own. One named source and one fixed instant, met by both
     // bundle reads: a `Date.now()` left in either of them fails on the instant, and a source that reached
-    // only the CPU leg fails on the device leg below, whose document is fetched and re-verified on the
-    // strength of the URL this bundle carries.
+    // only the CPU leg fails on the device leg below, whose document is the one this gateway serves from
+    // the device route.
     const collectedAt = 1_500_000_000;
     const guest = snpGuest();
     guest.gpu = (nonce) => deviceAnswering(nonce);

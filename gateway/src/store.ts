@@ -425,7 +425,7 @@ export type WindowClaim =
  * weighed against, so an edge claim and a span measurement cannot drift apart.
  */
 function windowClaim(source: TimeSource, iat: number, from: number, to: number): WindowClaim {
-  const stamped: StampDeclaration = { name: source.name, uncertaintySeconds: source.uncertaintySeconds };
+  const stamped = declarationOf(source);
   const bound = source.uncertaintySeconds;
   if (bound === null) {
     return { state: 'bound-unknown', stamped };
@@ -1410,6 +1410,16 @@ export function receiptsNeededForWindow(
 export function measurableSpanSeconds(held: RetainedWindow, source: TimeSource): number {
   const apart = readingsApart(source, held.from, held.to);
   return Math.max(apart.apartSeconds - (apart.state === 'unmeasured' ? 0 : apart.resolutionSeconds), 1);
+}
+
+/**
+ * A source as a stamp states it: the name and the bound, which is all of a source either projection
+ * writes down. It lives beside both types it maps between because an evidence bundle and a window claim
+ * each carry a `StampDeclaration`, and a copy of these two field reads in each of them is one renamed
+ * field away from drifting.
+ */
+export function declarationOf(source: TimeSource): StampDeclaration {
+  return { name: source.name, uncertaintySeconds: source.uncertaintySeconds };
 }
 
 /**

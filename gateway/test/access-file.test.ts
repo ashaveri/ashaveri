@@ -177,9 +177,12 @@ describe('credential file round trip', () => {
   it('dates a generated credential from the source it was handed', () => {
     // An enrolment stamp is a claim about a moment, so it comes from the clock the caller named and
     // arrives floored to a whole second: the instant below is years off any wall clock this can run on,
-    // so a factory that read the platform clock beside a named source cannot land on it by accident, and
-    // one that rounded up rather than down would date a record after the instant it was made.
+    // so a factory that read the platform clock beside a named source cannot land on it by accident.
     const enrolledAt = 1_500_000_000;
+    // A source's contract is whole Unix seconds (`gateway/src/store.ts`), so the fraction below is
+    // deliberately out of contract: it is here to show what the floor is for, that a reading which
+    // overshoots within its own second still dates the record at or before the instant rather than
+    // rounding it up into a moment the enrolment had not reached.
     const source: TimeSource = { name: 'enrolment clock', uncertaintySeconds: null, now: () => enrolledAt + 0.75 };
     expect(newPopCredential({ id: 'svc-pop', time: source }).record.createdAt).toBe(enrolledAt);
     expect(newBearerCredential({ id: 'svc-bearer', time: source }).record.createdAt).toBe(enrolledAt);

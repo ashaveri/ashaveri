@@ -1,7 +1,7 @@
 import { generateSigningKey, type SigningKey, type TeeKind } from '@ashaveri/receipt';
 import { sha256 } from './digest.js';
 import { DEFAULT_MOCK_MODEL } from './mock.js';
-import { HOST_CLOCK_SOURCE, type StampDeclaration, type TimeSource } from './store.js';
+import { declarationOf, HOST_CLOCK_SOURCE, type StampDeclaration, type TimeSource } from './store.js';
 
 export type { TeeKind };
 
@@ -33,6 +33,12 @@ export interface AttestationBundle {
    * `docs/receipt-spec.md` spells `att` as the closed map `{ d, ts, url }`, so a label added here cannot
    * travel with a served record, and what a client checks about `att.ts` stays what the signed bytes
    * themselves carry: the instant, and nothing about whose it was.
+   *
+   * Nothing shipped reads it. The routes serve the bundle's `document`, and `issue` puts `d`, `ts` and
+   * `url` into a payload; the only reader today is the test suite that checks a bundle names the source
+   * it was built with. It stays required, because a bundle that cannot say where its instant came from
+   * is the thing this field exists to make impossible, and a future reader is meant to find a label
+   * rather than have to add one.
    */
   readonly stamped: StampDeclaration;
 }
@@ -114,7 +120,7 @@ export function mockDeployment(options: MockDeploymentOptions = {}): Deployment 
         document: MOCK_EVIDENCE,
         timestamp: Math.floor(time.now()),
         url: 'mock://attestation',
-        stamped: { name: time.name, uncertaintySeconds: time.uncertaintySeconds },
+        stamped: declarationOf(time),
       };
     },
   };

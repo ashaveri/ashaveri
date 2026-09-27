@@ -451,13 +451,14 @@ export function newPopCredential(input: {
   time?: TimeSource;
 }): { record: CredentialRecord; privateKey: Uint8Array } {
   const key = signingKeyFromSeed(randomBytes(32));
+  const time = input.time ?? HOST_CLOCK_SOURCE;
   const record: CredentialRecord = {
     id: credentialId('pop', input.id),
     kind: 'pop',
     publicKey: key.publicKey,
     scopes: input.scopes ?? ['read', 'complete'],
     ...(input.label === undefined ? {} : { label: input.label }),
-    createdAt: input.now ?? Math.floor((input.time ?? HOST_CLOCK_SOURCE).now()),
+    createdAt: input.now ?? Math.floor(time.now()),
   };
   return { record, privateKey: key.privateKey };
 }
@@ -475,13 +476,14 @@ export function newBearerCredential(input: {
   time?: TimeSource;
 }): { record: CredentialRecord; secret: Uint8Array } {
   const secret = randomBytes(32);
+  const time = input.time ?? HOST_CLOCK_SOURCE;
   const record: CredentialRecord = {
     id: credentialId('bearer', input.id),
     kind: 'bearer',
     secretHash: hashSecret(secret),
     scopes: input.scopes ?? ['read', 'complete'],
     ...(input.label === undefined ? {} : { label: input.label }),
-    createdAt: input.now ?? Math.floor((input.time ?? HOST_CLOCK_SOURCE).now()),
+    createdAt: input.now ?? Math.floor(time.now()),
   };
   return { record, secret };
 }

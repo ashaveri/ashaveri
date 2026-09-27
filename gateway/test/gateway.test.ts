@@ -557,6 +557,32 @@ describe('the issuance clock', () => {
       await h.app.close();
     }
   });
+
+  it('stamps the access line it writes off that same source and measures its duration off the host', async () => {
+    // The record is the other half of the promise, and the half a `--access-log-path` deployment lives
+    // with: `t` is the value the file's day name is drawn from and the value the retention bound ages,
+    // so a bare host reading at the write site leaves a line stamped off one clock and pruned against
+    // another that never met it. Revert `arrivedAt` to `Date.now()` and the equality below fails on the
+    // wall-clock millisecond, because the fixture instant is 2017 and no clock this suite can run on is
+    // anywhere near it.
+    const h = await harness({
+      credentials: [credential()],
+      gateway: { key: DEPLOYMENT_KEY, time: fixedClock(() => ISSUED_AT_SECONDS) },
+    });
+    try {
+      await send(h, 'POST', '/v1/chat/completions', REQUEST_BODY);
+      const record = h.log.entries().at(-1);
+      // The source's own unit is whole seconds and the record's is milliseconds, so the stamp is that
+      // reading scaled once: second-granular by design, which is what lets it meet the cutoff beside it.
+      expect(record?.t).toBe(ISSUED_AT_SECONDS * 1000);
+      // A duration is an elapsed time inside this process rather than a stamp, so it stays the host
+      // millisecond pair it has always been: read off the source above it would be a negative number.
+      expect(record?.dur).toBeGreaterThanOrEqual(0);
+      expect(record?.dur).toBeLessThan(60_000);
+    } finally {
+      await h.app.close();
+    }
+  });
 });
 
 describe('receipt retention', () => {

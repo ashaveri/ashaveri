@@ -80,9 +80,10 @@ export interface GatewayOptions {
   /**
    * This process's one time source: a name, the bound that source can be wrong by, and the reading
    * every whole-second stamp in this file is taken from. The issuance instant a receipt claims, the
-   * stamp the store files the record under, and the instant a marking frame carries all come from here,
-   * so the moment a receipt claims cannot be moved apart from the moment the filing cabinet says it
-   * arrived by taking them at two moments, and neither is decided by a call the deployment cannot reach.
+   * stamp the store files the record under, the instant a marking frame carries, and the arrival stamp
+   * on every access log line all come from here, so the moment a receipt claims cannot be moved apart
+   * from the moment the filing cabinet says it arrived by taking them at two moments, and neither is
+   * decided by a call the deployment cannot reach.
    *
    * Absent means `HOST_CLOCK_SOURCE`: this host's own clock, at the uncertainty nobody measured. That is
    * a stated default rather than an implied one, because a deployment that wires nothing should be read
@@ -345,8 +346,22 @@ export function buildGateway(options: GatewayOptions): GatewayInstance {
   // Read ahead of the two lines below that build a guest and a backend, because a deployment this
   // function builds has to be built with it: evidence collected off one clock and filed against another
   // puts two instants that never met inside one signed payload, as `att.ts` beside `iat`.
+  //
+  // That is a promise about this wiring rather than about the option shapes. A caller can build
+  // `dstackDeployment({ time: A })` outside this repository and hand the result to
+  // `buildGateway({ deployment, time: B })`, and the two stamps are read off two clocks again with
+  // nothing in the types refusing it; what closes that gap is whoever starts the process naming one
+  // source once, which is what `gateway/src/cli.ts` does for every builder it calls.
   const time = options.time ?? HOST_CLOCK_SOURCE;
   const stamp = (): number => Math.floor(time.now());
+  // The access record's `t` is epoch milliseconds and a source reads whole seconds, so the line's stamp
+  // is the same reading scaled once, which is the one reconciliation `aclog.ts` applies to the clock its
+  // retention cutoff is drawn from. A line and the bound that ages it therefore answer to one source at
+  // one resolution, and `t` resolves nothing finer than a second: two requests inside one second carry
+  // the same `t` and are told apart by their `rid`, exactly as the day name drawn from it cannot split
+  // them across two days. The duration beside it is an elapsed time inside this process and stays a
+  // pair of host millisecond readings, because a one-second clock would price every fast request at zero.
+  const stampMillis = (): number => stamp() * 1000;
   const deployment =
     options.deployment ??
     mockDeployment({ issuer: options.issuer, instance: options.instance, key: options.key, time });
@@ -390,6 +405,9 @@ export function buildGateway(options: GatewayOptions): GatewayInstance {
   });
 
   interface RequestState {
+    /** The request's arrival as this process's named source reads it, in epoch milliseconds: `t`. */
+    arrivedAt: number;
+    /** The host millisecond the request began, which the duration alone is measured from. */
     startedAt: number;
     rid: string;
     credential: string | null;
@@ -416,7 +434,7 @@ export function buildGateway(options: GatewayOptions): GatewayInstance {
     // alternative is a retry that can land a second line for one request once both listeners fire.
     state.logged = true;
     const record: AccessRecord = {
-      t: state.startedAt,
+      t: state.arrivedAt,
       rid: state.rid,
       cred: state.credential,
       auth: state.auth,
@@ -440,6 +458,10 @@ export function buildGateway(options: GatewayOptions): GatewayInstance {
 
   app.addHook('onRequest', async (request, reply) => {
     states.set(request, {
+      // Two readings, on purpose: the arrival the line reports and the base the duration is measured
+      // from. The first is this process's named source, so the stamp a retention bound ages is the same
+      // clock that bound is drawn from; the second is the host's, and reaches nothing but `dur`.
+      arrivedAt: stampMillis(),
       startedAt: Date.now(),
       rid: randomUUID(),
       credential: null,

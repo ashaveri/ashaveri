@@ -451,7 +451,7 @@ The twelve fields, in the order the writer emits them:
 
 | Field | Purpose |
 |---|---|
-| `t` | Epoch milliseconds at the request's arrival |
+| `t` | Epoch milliseconds at the request's arrival, read through the time source this process was given rather than off an unlabelled host call, so it is a whole number of seconds scaled to milliseconds and two requests inside one second share it and are told apart by `rid` |
 | `rid` | Server-generated request id, the join key between a line and a support ticket |
 | `cred` | Which credential made the request. A refusal that got as far as reading an id records the id the header carried, known to the file or not, including a name the file does not carry whose response said only that the signature failed; `null` covers the rest, which is a request that named none, a refusal raised before the header's id could be read, and the bearer scan's `AUTH_UNKNOWN` |
 | `auth` | `pop`, `bearer`, or `null`. What this request was verified as, so the two postures read differently even in one bearer-capable deployment; `null` on a refusal, since what was verified is the thing the refusal says did not happen |

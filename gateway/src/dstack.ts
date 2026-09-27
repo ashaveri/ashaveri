@@ -13,7 +13,7 @@ import {
 import { claimsConfidentialDevice, signingKeyFromSeed } from '@ashaveri/receipt';
 import { GuestClient, GuestError, type GuestApi, type GpuEvidenceBundle } from './guest.js';
 import { sha256, toHex } from './digest.js';
-import { HOST_CLOCK_SOURCE, type TimeSource } from './store.js';
+import { declarationOf, HOST_CLOCK_SOURCE, type TimeSource } from './store.js';
 import type { AttestationBundle, Deployment, HardwareTeeKind, ModelInfo, TeeKind } from './deployment.js';
 
 /**
@@ -262,7 +262,7 @@ export async function dstackDeployment(options: DstackDeploymentOptions): Promis
       document,
       timestamp: Math.floor(time.now()),
       url: `${evidenceBaseUrl}/attestation?report_data=${hex}`,
-      stamped: { name: time.name, uncertaintySeconds: time.uncertaintySeconds },
+      stamped: declarationOf(time),
     });
   };
 
@@ -301,7 +301,7 @@ export async function dstackDeployment(options: DstackDeploymentOptions): Promis
       document: bundle.evidence,
       timestamp: Math.floor(time.now()),
       url: `${evidenceBaseUrl}/attestation/gpu?report_data=${hex}`,
-      stamped: { name: time.name, uncertaintySeconds: time.uncertaintySeconds },
+      stamped: declarationOf(time),
     });
   };
 

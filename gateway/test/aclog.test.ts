@@ -241,6 +241,31 @@ describe('openFileAccessLog', () => {
     await rm(dir, { recursive: true, force: true });
   });
 
+  it('prunes against a source the caller names, in the milliseconds its records carry', async () => {
+    // The memory case above, mirrored onto the log a production `--access-log-path` opens. A file is
+    // collected by the day in its own name, so this writes one part inside the two-day bound and one
+    // past it and lets only the cutoff move. Left on the wall clock, both days are months old at the
+    // same moment and the sweep takes the survivor too, which is what the second assertion below is for:
+    // a `time` threaded into this opener and never read passes every other case in this file.
+    const dir = await tempDir();
+    const atSeconds = T0 / 1000;
+    const source: TimeSource = { name: 'fixture clock', uncertaintySeconds: null, now: () => atSeconds };
+    const outsideAt = (atSeconds - 3 * 86_400) * 1000;
+    const insideAt = (atSeconds - 86_400) * 1000;
+    const outsideDay = new Date(outsideAt).toISOString().slice(0, 10);
+    const insideDay = new Date(insideAt).toISOString().slice(0, 10);
+    await writeFile(join(dir, `access-${outsideDay}-000.jsonl`), renderAccessLine(entry({ rid: 'outside', t: outsideAt })), 'utf8');
+    const log = await openFileAccessLog({ dir, days: 2, time: source });
+    await log.record(entry({ rid: 'inside', t: insideAt }));
+    await log.drain();
+    const names = (await log.files()).map((path) => path.split(/[\\/]/u).pop());
+    expect(names).not.toContain(`access-${outsideDay}-000.jsonl`);
+    expect(names).toContain(`access-${insideDay}-000.jsonl`);
+    expect((await log.window()).count).toBe(1);
+    await log.close();
+    await rm(dir, { recursive: true, force: true });
+  });
+
   it('draws its cutoff at whole days, because a file is only named for a day: the cutoff day survives, the day before it goes', async () => {
     const dir = await tempDir();
     const atCutoff = T0 - 184 * 86_400_000;
