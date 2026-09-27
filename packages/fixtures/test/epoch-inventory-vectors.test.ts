@@ -90,19 +90,6 @@ if (honest === undefined) throw new Error('the suite publishes no honest row to 
 const reveal = honest.reveal;
 if (reveal === undefined) throw new Error('the honest row publishes no reveal block to rebuild the envelope from');
 
-/** The three published pieces of the honest document, and the key the file publishes for the kid they name. */
-function revealed(): { header: Uint8Array; payload: Uint8Array; signature: Uint8Array; publicKey: Uint8Array } {
-  const header = bytes(String(reveal['protectedHeaderBase64Url']));
-  const published = file.layout.keyMaterial.find((one) => toHex(declaredKid(header)) === one.kidHex);
-  if (published === undefined) throw new Error('the honest header names a kid the suite publishes no key for');
-  return {
-    header,
-    payload: bytes(String(reveal['payloadBase64Url'])),
-    signature: new Uint8Array(Buffer.from(String(reveal['signatureHex']), 'hex')),
-    publicKey: bytes(published.publicKeyBase64Url),
-  };
-}
-
 /** The `kid` a published protected header carries. */
 function declaredKid(header: Uint8Array): Uint8Array {
   const decoded = decodeCanonical(header);
@@ -163,7 +150,12 @@ describe('the published epoch inventory vectors', () => {
     // Neither the writer nor the generator: three published byte strings put back together. This is the proof
     // the framing the file states is the framing the bytes carry, and it is what a port with no access to this
     // repository's writer has to check its own encoder against.
-    const { header, payload, signature, publicKey } = revealed();
+    const header = bytes(String(reveal['protectedHeaderBase64Url']));
+    const payload = bytes(String(reveal['payloadBase64Url']));
+    const signature = new Uint8Array(Buffer.from(String(reveal['signatureHex']), 'hex'));
+    const published = file.layout.keyMaterial.find((one) => one.kidHex === toHex(declaredKid(header)));
+    if (published === undefined) throw new Error('the honest header names a kid the suite publishes no key for');
+    const publicKey = bytes(published.publicKeyBase64Url);
     expect(toBase64Url(header)).toBe(String(reveal['protectedHeaderBase64Url']));
     expect(toHex(sha256(payload))).toBe(String(reveal['payloadSha256Hex']));
     const rebuilt = sealEpochInventory(header, payload, signature);
