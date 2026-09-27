@@ -28,10 +28,12 @@ import { upstreamBackend } from './upstream.js';
 import { mockDeployment, type Deployment, type HardwareTeeKind, type ModelInfo } from './deployment.js';
 import { sha256, toHex } from './digest.js';
 import {
+  DEFAULT_RECEIPT_RECORD_KIND,
   HOST_CLOCK_SOURCE,
   MINIMUM_RETENTION_SECONDS,
   openFileReceiptStore,
   openMemoryReceiptStore,
+  type ReceiptRecordKind,
   type ReceiptRetention,
   type ReceiptServing,
   type ReceiptStore,
@@ -167,6 +169,19 @@ Options:
                                    shorter window does. It overrides
                                    --receipts-guard-at, and the start-up report names
                                    whichever of the two this process is running.
+  --receipts-record-kind <receipt | bounded=<seconds>>
+                                   Which kind of receipt record this process writes. One store file holds
+                                   receipt records of one kind, because where a record's receipt sits inside
+                                   its frame depends on that byte: receipt is the layout every store file
+                                   this repository has published is made of, and its records state nothing
+                                   about how long they are kept. bounded=<seconds> writes the same frame
+                                   with that period in front of the receipt bytes, so whoever holds one
+                                   record can read the retention period this deployment stated for it
+                                   without a manifest beside it. Nothing enforces the period yet: retirement
+                                   drops a prefix at the durability bound and the age period configured
+                                   beside it, and reads no period off a record. A volume whose records were
+                                   written under the other kind is refused at the start and left exactly as
+                                   it was found, never converted. Default: receipt.
   --credentials-path <file>        The credential records every request has to present one from.
                                    Required in live mode; a mock run with no file makes one up and
                                    prints it. The file holds public keys and hashes only, never a
@@ -234,6 +249,7 @@ interface CliOptions {
   readonly 'receipts-per-query'?: string;
   readonly 'receipts-guard-at'?: string;
   readonly 'receipts-grow-past-guard'?: boolean;
+  readonly 'receipts-record-kind'?: string;
   readonly 'credentials-path'?: string;
   readonly 'access-log-path'?: string;
   readonly 'access-log-days'?: string;
@@ -336,6 +352,7 @@ try {
       'receipts-per-query': { type: 'string' },
       'receipts-guard-at': { type: 'string' },
       'receipts-grow-past-guard': { type: 'boolean' },
+      'receipts-record-kind': { type: 'string' },
       'credentials-path': { type: 'string' },
       'access-log-path': { type: 'string' },
       'access-log-days': { type: 'string' },
@@ -456,18 +473,47 @@ if (receiptsDir !== undefined && !isDirectory(receiptsDir)) {
   fail('--receipts-dir must name an existing directory, so a volume you forgot to mount is a refusal and not a store on the root filesystem');
 }
 
+/**
+ * `--receipts-record-kind <receipt | bounded=<seconds>>`: which kind of receipt record this process
+ * appends.
+ *
+ * One store file holds receipt records of one kind, and the kind decides where inside a record its
+ * receipt sits, so this is a decision about a volume and not about a request: the number is stated here
+ * once and written into every record this run appends. A spelling that names neither kind is refused
+ * here, because there would be no record to write. What the period itself may say is the store's rule
+ * rather than this one: a number no 4 byte field can hold, or one the durability window retires before
+ * the record says it should stop being kept, is refused by the opening with the code naming which of the
+ * two it is, and a volume whose records were written under the other kind is refused by
+ * `STORE_RECEIPT_KIND_MISMATCH` rather than converted by this process.
+ */
+function receiptRecordKind(raw: string | undefined): ReceiptRecordKind {
+  if (raw === undefined) {
+    return DEFAULT_RECEIPT_RECORD_KIND;
+  }
+  if (raw === 'receipt') {
+    return { kind: 'receipt' };
+  }
+  const seconds = /^bounded=([0-9]+)$/u.exec(raw)?.[1];
+  if (seconds === undefined) {
+    fail(`--receipts-record-kind must be 'receipt' or 'bounded=<seconds>', got '${raw}'`);
+  }
+  return { kind: 'bounded', boundSeconds: Number(seconds) };
+}
+const receiptKind = receiptRecordKind(values['receipts-record-kind']);
+
 let store: ReceiptStore;
 try {
   store =
     receiptsDir === undefined
-      ? openMemoryReceiptStore({ retention, serving })
-      : await openFileReceiptStore({ dir: receiptsDir, retention, serving });
+      ? openMemoryReceiptStore({ retention, serving, receiptKind })
+      : await openFileReceiptStore({ dir: receiptsDir, retention, serving, receiptKind });
 } catch (error) {
   // A store that will not open is a fact about the deployment rather than about how signerd was
-  // invoked: either the file on the volume no longer chains to itself, or the period this configuration
-  // asks for is wider than the durability bound it was given can hold at the traffic that file has
-  // already carried. Neither is answered by the same flags on a second run, so both are reported as an
-  // exit 1 with the store's own code in front of the sentence.
+  // invoked: either the file on the volume no longer chains to itself, or it is made of receipt records
+  // of the kind this run was not started to write, or the period this configuration asks for is wider
+  // than the durability bound it was given can hold at the traffic that file has already carried. None of
+  // them is answered by the same flags on a second run, so all are reported as an exit 1 with the store's
+  // own code in front of the sentence.
   process.stderr.write(`signerd: ${error instanceof Error ? error.message : String(error)}\n`);
   process.exit(1);
 }
@@ -617,10 +663,17 @@ const label =
   mode === 'mock' ? 'mock' : `live ${deployment.tee} measurement ${toHex(deployment.measurement).slice(0, 16)}...`;
 /** The period this process opens its store with, in whole days, read off the seconds it is set in. */
 const periodDays = Math.round(MINIMUM_RETENTION_SECONDS / 86_400);
+// Which record kind this run appends, printed as the store was handed it. A bounded record's period is
+// bytes inside the file the deployment keeps, and a reader of a volume cannot tell which kind it holds
+// without being told, so the line says both the kind and where it came from.
+const recordKindLabel =
+  receiptKind.kind === 'bounded'
+    ? `every record stating a retention period of ${String(receiptKind.boundSeconds)} seconds ahead of its receipt bytes, from --receipts-record-kind`
+    : 'every record stating no retention period of its own, the receipt kind a run without --receipts-record-kind writes';
 const kept =
   receiptsDir === undefined
-    ? `receipts kept in this process only, as configured: a durability bound of ${String(retainedReceipts)} receipts, one query holding ${String(servedReceipts)} of them at a time, and gone on restart`
-    : `receipts kept in ${receiptsDir} as configured: a period of ${String(periodDays)} days and a durability bound of ${String(retainedReceipts)} receipts, which the store compares against the traffic on its own file and refuses to open when the bound cannot hold the period, and a serving bound of ${String(servedReceipts)} receipts to a query, which bounds what one walk holds and retires nothing`;
+    ? `receipts kept in this process only, as configured: a durability bound of ${String(retainedReceipts)} receipts, one query holding ${String(servedReceipts)} of them at a time, and gone on restart; ${recordKindLabel}`
+    : `receipts kept in ${receiptsDir} as configured: a period of ${String(periodDays)} days and a durability bound of ${String(retainedReceipts)} receipts, which the store compares against the traffic on its own file and refuses to open when the bound cannot hold the period, and a serving bound of ${String(servedReceipts)} receipts to a query, which bounds what one walk holds and retires nothing; ${recordKindLabel}`;
 // The intake guard, printed as this process installed it, in both settings. A deployment that can
 // refuse a completion owes its operator that sentence before the traffic arrives rather than after
 // the first 429, and a deployment that took the opt-in owes the two halves of what it accepted: that

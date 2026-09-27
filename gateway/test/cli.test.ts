@@ -13,7 +13,7 @@ import {
   type PopFields,
 } from '@ashaveri/receipt';
 import { newBearerCredential, newPopCredential, serializeCredentialFile } from '../src/access.js';
-import { MINIMUM_RETENTION_SECONDS, RECEIPT_STORE_FILE } from '../src/store.js';
+import { MINIMUM_RETENTION_SECONDS, openFileReceiptStore, RECEIPT_STORE_FILE } from '../src/store.js';
 
 const CLI = fileURLToPath(new URL('../dist/cli.js', import.meta.url));
 const tempDir = mkdtempSync(join(tmpdir(), 'ashaveri-signerd-'));
@@ -127,6 +127,20 @@ function receiptFrame(prev: Uint8Array, iat: number, id: string, payload: Buffer
 }
 
 /**
+ * The first record of a store file, read out of the framing rather than through the store that wrote it,
+ * so a case can name the kind byte and the payload a run actually put on the volume.
+ */
+function firstRecordOf(file: Buffer): { kind: number; id: string; payload: Buffer } {
+  const idLength = file.readUInt16BE(45);
+  const payloadAt = 47 + idLength;
+  return {
+    kind: file.readUInt8(4),
+    id: file.subarray(47, payloadAt).toString('utf8'),
+    payload: file.subarray(payloadAt, 4 + file.readUInt32BE(0) - 32),
+  };
+}
+
+/**
  * A `receipts.log` carrying `count` receipts spread back over the last `seconds` at the hundred
  * requests a second `docs/access-control.md` states for one address, written in one go.
  *
@@ -209,6 +223,43 @@ async function bootServing(args: string[]): Promise<{ readonly port: number; rea
     await kill();
     throw error;
   }
+}
+
+/**
+ * One completion, and the two things a caller can branch on, against a booted process. Two describes
+ * below ask what a flag does to a served completion, which is why this sits at module scope rather than
+ * beside the first of them.
+ */
+const COMPLETION = '{"model":"mock-model-1","messages":[{"role":"user","content":"guard"}]}';
+
+async function complete(
+  port: number,
+  pop: { record: { id: string }; privateKey: Uint8Array },
+): Promise<{ status: number; code: string | undefined; receiptId: string | null; text: string }> {
+  const nonce = randomNonce();
+  const fields: PopFields = {
+    ts: Math.floor(Date.now() / 1000),
+    nonce,
+    method: 'POST',
+    target: '/v1/chat/completions',
+    bodyDigestHex: createHash('sha256').update(COMPLETION).digest('hex'),
+  };
+  const response = await fetch(`http://127.0.0.1:${String(port)}/v1/chat/completions`, {
+    method: 'POST',
+    headers: {
+      'content-type': 'application/json',
+      authorization: signPopAuthorization(fields, pop.record.id, pop.privateKey),
+      'x-ashaveri-nonce': toBase64Url(nonce),
+    },
+    body: COMPLETION,
+  });
+  const text = await response.text();
+  return {
+    status: response.status,
+    code: (JSON.parse(text) as { error?: { code?: string } }).error?.code,
+    receiptId: response.headers.get('x-ashaveri-receipt-id'),
+    text,
+  };
 }
 
 describe('signerd cli', () => {
@@ -949,7 +1000,6 @@ describe('a volume whose receipts have to outlive the start', () => {
 
 describe('the durability guard read while serving', () => {
 
-  const COMPLETION = '{"model":"mock-model-1","messages":[{"role":"user","content":"guard"}]}';
   /**
    * A signed GET. Every route this gateway serves is behind the pipeline, so the read that has to keep
    * serving while intake refuses is a read a credential asked for, not an anonymous fetch.
@@ -975,37 +1025,6 @@ describe('the durability guard read while serving', () => {
         },
       })
     ).status;
-  }
-
-  /** A signed completion against a booted process, with the two things a caller can branch on. */
-  async function complete(
-    port: number,
-    pop: { record: { id: string }; privateKey: Uint8Array },
-  ): Promise<{ status: number; code: string | undefined; receiptId: string | null; text: string }> {
-    const nonce = randomNonce();
-    const fields: PopFields = {
-      ts: Math.floor(Date.now() / 1000),
-      nonce,
-      method: 'POST',
-      target: '/v1/chat/completions',
-      bodyDigestHex: createHash('sha256').update(COMPLETION).digest('hex'),
-    };
-    const response = await fetch(`http://127.0.0.1:${String(port)}/v1/chat/completions`, {
-      method: 'POST',
-      headers: {
-        'content-type': 'application/json',
-        authorization: signPopAuthorization(fields, pop.record.id, pop.privateKey),
-        'x-ashaveri-nonce': toBase64Url(nonce),
-      },
-      body: COMPLETION,
-    });
-    const text = await response.text();
-    return {
-      status: response.status,
-      code: (JSON.parse(text) as { error?: { code?: string } }).error?.code,
-      receiptId: response.headers.get('x-ashaveri-receipt-id'),
-      text,
-    };
   }
 
   it('documents the threshold and the opt-in, each with what it is settled by', () => {
@@ -1150,5 +1169,179 @@ describe('the durability guard read while serving', () => {
     },
     // The same shape as the case above it, measured at 0.65s here.
     15_000,
+  );
+});
+
+/**
+ * Which kind of receipt record a store appends is a fact about the volume rather than about a request,
+ * and a run that cannot name it cannot choose it: `--receipts-record-kind` is the only road from a
+ * command line to the bounded layout, and these are the cases for the whole of it. The value's two
+ * spellings, the bytes a run that named one then appends, the answer a run gets when it points at a
+ * volume made of the other kind, and the line that says which of the three this process installed.
+ */
+describe('the record kind a volume is written under', () => {
+  /** Receipt bytes, opaque to the store, and 64 of them so a period in front is visible. */
+  const RECEIPT_BYTES = Buffer.alloc(64, 9);
+  /** The bounded kind's own spelling on a command line, and the period it states. */
+  const BOUNDED_VALUE = 'bounded=300';
+
+  it('documents the flag, both of its spellings and what it refuses to do', () => {
+    const result = run('--help');
+    expect(result.status).toBe(0);
+    expect(result.stdout).toContain('--receipts-record-kind <receipt | bounded=<seconds>>');
+    // Read with the folds closed, as the other usage claims in this file are.
+    const help = result.stdout.replace(/\s+/gu, ' ');
+    expect(help).toContain('A volume whose records were written under the other kind is refused');
+    expect(help).toContain('never converted');
+    // The period is written and not enforced, and the first text an operator reads has to say so rather
+    // than leave a number in a record reading like a bound the volume keeps.
+    expect(help).toContain('Nothing enforces the period yet');
+    expect(help).toContain('Default: receipt');
+  });
+
+  it('refuses a value that names neither record kind', () => {
+    // `bounded` without its number, a number that is not one, and the kind that takes none given one:
+    // each is a spelling with no record to write, so the start stops rather than a default stepping in.
+    for (const given of ['bounded', 'bounded=', 'bounded=abc', 'bounded= 300', 'receipt=300', 'both']) {
+      const result = run('--mock', '--port', '0', '--receipts-record-kind', given);
+      expect(result.status, `${given}: ${result.stderr}`).toBe(2);
+      expect(result.stderr, given).toContain(
+        `--receipts-record-kind must be 'receipt' or 'bounded=<seconds>', got '${given}'`,
+      );
+      expect(result.stdout, given).not.toContain('listening on');
+    }
+  });
+
+  it(
+    'appends the kind the flag names, and the kind it does not when the flag is absent',
+    async () => {
+      // The pair is the assertion: one run names the bounded kind and one names nothing, on volumes of
+      // their own, and the bytes each leaves behind differ by the kind byte and by the four period bytes
+      // in front of a receipt. A flag that reached only the banner would leave both files the same.
+      const bounded = join(tempDir, 'kind-bounded');
+      mkdirSync(bounded);
+      const boundedPop = newPopCredential({ id: 'kind-bounded-pop', scopes: ['read', 'complete'] });
+      const boundedCreds = credentialFile(
+        serializeCredentialFile({ version: 1, credentials: [boundedPop.record] }),
+      );
+      const boundedRun = await bootServing([
+        '--receipts-dir',
+        bounded,
+        '--credentials-path',
+        boundedCreds,
+        '--receipts-record-kind',
+        BOUNDED_VALUE,
+      ]);
+      let boundedReceipt: string | null = null;
+      try {
+        const answered = await complete(boundedRun.port, boundedPop);
+        expect(answered.status, answered.text).toBe(200);
+        boundedReceipt = answered.receiptId;
+      } finally {
+        await boundedRun.kill();
+      }
+      expect(boundedReceipt, 'the completion minted no id to file').not.toBeNull();
+
+      const plain = join(tempDir, 'kind-plain');
+      mkdirSync(plain);
+      const plainPop = newPopCredential({ id: 'kind-plain-pop', scopes: ['read', 'complete'] });
+      const plainCreds = credentialFile(serializeCredentialFile({ version: 1, credentials: [plainPop.record] }));
+      const plainRun = await bootServing(['--receipts-dir', plain, '--credentials-path', plainCreds]);
+      let plainReceipt: string | null = null;
+      try {
+        const answered = await complete(plainRun.port, plainPop);
+        expect(answered.status, answered.text).toBe(200);
+        plainReceipt = answered.receiptId;
+        expect(plainReceipt).not.toBeNull();
+      } finally {
+        await plainRun.kill();
+      }
+
+      // What each run left on its volume, read out of the framing: the kind byte, and behind it the
+      // bytes the record carries. The bounded record opens with the period it states; the unflagged run
+      // writes the layout every store file this repository has published is made of, receipt first.
+      const boundedRecord = firstRecordOf(readFileSync(join(bounded, RECEIPT_STORE_FILE)));
+      expect(boundedRecord.kind).toBe(2);
+      expect(boundedRecord.payload.readUInt32BE(0)).toBe(300);
+      const plainRecord = firstRecordOf(readFileSync(join(plain, RECEIPT_STORE_FILE)));
+      expect(plainRecord.kind).toBe(0);
+
+      // And the id the completion handed the client is the record behind that period, whole: the four
+      // bytes in front of it stay in front of it, which is the difference between a record the run wrote
+      // and a receipt the caller can no longer read.
+      const boundedStore = await openFileReceiptStore({ dir: bounded, receiptKind: { kind: 'bounded', boundSeconds: 300 } });
+      expect(Array.from((await boundedStore.get(boundedReceipt!))!)).toEqual(
+        Array.from(boundedRecord.payload.subarray(4)),
+      );
+      const plainStore = await openFileReceiptStore({ dir: plain });
+      expect(Array.from((await plainStore.get(plainReceipt!))!)).toEqual(Array.from(plainRecord.payload));
+    },
+    // Two boots over two volumes, each with a signed completion behind it and a reopening after it.
+    25_000,
+  );
+
+  it(
+    'refuses a bounded run pointed at a volume of records that state no period, with the store sentence',
+    async () => {
+      const dir = join(tempDir, 'volume-of-the-other-kind');
+      mkdirSync(dir);
+      const writer = await openFileReceiptStore({ dir });
+      await writer.put('rcpt_01', RECEIPT_BYTES, Math.floor(Date.now() / 1000));
+      const volume = readFileSync(join(dir, RECEIPT_STORE_FILE));
+
+      // The store's own answer when this volume is opened under the kind it is not made of. The case
+      // below compares a process refusal against it, because the flag adds a road to that refusal and
+      // not a sentence of its own: one message for one state, from either side.
+      const refusal = await openFileReceiptStore({
+        dir,
+        receiptKind: { kind: 'bounded', boundSeconds: 300 },
+      }).then(
+        () => null,
+        (error: unknown) => (error as Error).message,
+      );
+      expect(refusal).not.toBeNull();
+      expect(refusal).toContain('STORE_RECEIPT_KIND_MISMATCH');
+      expect(refusal).toContain('rcpt_01');
+
+      const result = run('--mock', '--port', '0', '--receipts-dir', dir, '--receipts-record-kind', BOUNDED_VALUE);
+      expect(result.status, result.stderr).toBe(1);
+      expect(result.stderr.trim(), result.stderr).toBe(`signerd: ${refusal}`);
+      expect(result.stdout, 'a process that refused to boot printed a banner').not.toContain('listening on');
+      // Nothing was converted, and nothing was rewritten: the records are the evidence the refusal is
+      // read from, and the volume still belongs to the kind that wrote it.
+      expect(readFileSync(join(dir, RECEIPT_STORE_FILE))).toEqual(volume);
+
+      // The other half of the pair, which the refusal above cannot say alone: the same volume boots on a
+      // run that names the kind it holds, and the flag is the only thing that moved.
+      const banner = runStopped('--mock', '--port', '0', '--receipts-dir', dir, '--receipts-record-kind', 'receipt');
+      const printed = banner.join('\n');
+      const line = banner.find((each) => each.startsWith('  receipts kept in '));
+      expect(line, `no receipts line; stdout held ${printed}`).toContain(dir);
+      expect(line, printed).toContain('every record stating no retention period of its own');
+    },
+    // A boot that refuses, a boot that answers, and two openings of the volume between them.
+    20_000,
+  );
+
+  it(
+    'prints the kind this process was told to write, in both settings',
+    () => {
+      // The receipts line is where a start-up report says what a volume is made of, and which kind that
+      // is cannot be read off a flag's presence alone: a bounded run states the period it stamps into
+      // every record, and a run that named nothing states that its records say nothing.
+      const bounded = runStopped('--mock', '--port', '0', '--receipts-record-kind', BOUNDED_VALUE);
+      const boundedLine = bounded.find((each) => each.startsWith('  receipts kept in '));
+      expect(boundedLine, `no receipts line; stdout held ${bounded.join('\n')}`).toContain(
+        'every record stating a retention period of 300 seconds ahead of its receipt bytes, from --receipts-record-kind',
+      );
+
+      const plain = runStopped('--mock', '--port', '0');
+      const plainLine = plain.find((each) => each.startsWith('  receipts kept in '));
+      expect(plainLine, `no receipts line; stdout held ${plain.join('\n')}`).toContain(
+        'every record stating no retention period of its own, the receipt kind a run without --receipts-record-kind writes',
+      );
+    },
+    // Two boots, each stopped by the spawn timeout rather than by its own ending.
+    12_000,
   );
 });
