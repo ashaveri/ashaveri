@@ -52,7 +52,19 @@ export type ReceiptErrorCode =
   | 'REDACTION_PACK_DISAGREES'
   | 'REDACTION_ITEM_ABSENT'
   | 'REDACTION_SURVIVORS_EMPTY'
-  | 'REDACTION_SURVIVOR_CHAIN_MISMATCH';
+  | 'REDACTION_SURVIVOR_CHAIN_MISMATCH'
+  | 'EPOCH_INVENTORY_MALFORMED_CBOR'
+  | 'EPOCH_INVENTORY_MALFORMED_JSON'
+  | 'EPOCH_INVENTORY_BAD_HEADER'
+  | 'EPOCH_INVENTORY_UNSUPPORTED_VERSION'
+  | 'EPOCH_INVENTORY_BAD_DOCUMENT'
+  | 'EPOCH_INVENTORY_DUPLICATE_PACK'
+  | 'EPOCH_INVENTORY_PACK_MISNAMED'
+  | 'EPOCH_INVENTORY_PACK_UNNAMED'
+  | 'EPOCH_INVENTORY_RUN_NOT_CONTIGUOUS'
+  | 'EPOCH_INVENTORY_SUMMARY_DISAGREES'
+  | 'EPOCH_INVENTORY_KID_MISMATCH'
+  | 'EPOCH_INVENTORY_UNKNOWN_KEY';
 
 const ERROR_MESSAGE: Record<ReceiptErrorCode, string> = {
   MALFORMED_CBOR: 'receipt bytes are not valid canonical CBOR',
@@ -284,6 +296,76 @@ const ERROR_MESSAGE: Record<ReceiptErrorCode, string> = {
   // gives the survivor count, the digest the recomputation reached and the one the document carries, because
   // the count is what tells an operator which of the three they are looking at.
   REDACTION_SURVIVOR_CHAIN_MISMATCH: 'the surviving records do not hash to the reduced chain head the redaction carries',
+  // The epoch inventory family below, for the same reason the export's, the pack's and the redaction's exist: a
+  // log line carries only the code string, and the sentences fixed beside the receipt codes name a receipt, so
+  // reading an inventory's bytes under them would hand an operator a diagnosis of the wrong container. The
+  // three envelope refusals stay shared with the receipt's, because their sentences name the COSE structure
+  // and not a document: `NOT_COSE_SIGN1`, `UNSUPPORTED_ALG`, `INVALID_SIGNATURE`. This reader has no code for
+  // a label a version does not define, because, as with the pack and the redaction, no map in this format
+  // chooses between arms. Its codes are also not the commercial rotation's `EpochError` codes, and the
+  // `EPOCH_INVENTORY_` prefix is what keeps the two layers apart in one log: those name what a deployment can
+  // still supply and which key it may seal with, this one names the document.
+  EPOCH_INVENTORY_MALFORMED_CBOR: 'epoch inventory bytes are not valid canonical CBOR',
+  // The one refusal of its kind in this package, and the reason it exists is the payload. Every other signed
+  // container here carries CBOR, so a float wearing an integer is refused by the decoder; this one carries the
+  // JSON document a deployment writes, and the two facts `JSON.parse` settles silently are settled here
+  // instead: a repeated member name, where the parser keeps the last value and the bytes state both, and a
+  // number written as a fraction or an exponent, where the parser hands back the very value the integer it
+  // imitates hands back. Both are refused while the characters are still distinguishable.
+  EPOCH_INVENTORY_MALFORMED_JSON: 'the payload of an epoch inventory is not one JSON document of the shapes this layout writes',
+  // The position that answers "is this an epoch inventory at all", answered before any key is consulted. One
+  // code for the shapes a signed header fails in, as `PACK_BAD_HEADER` is for a pack: no map, a map that does
+  // not decode under the rule this format sets for it, a label outside the three it declares, a `kid` of
+  // another width, an absent parameter, and a `typ` naming another container, which is how a receipt, a pack,
+  // an export or a redaction handed to this reader is refused before one member of its payload is read.
+  EPOCH_INVENTORY_BAD_HEADER: 'epoch inventory protected header does not hold exactly the parameters the format declares',
+  // One code for the two readings of a `v` this package cannot use, as the receipt's, the export's, the pack's
+  // and the redaction's are. A `v` that is not an integer at all is a malformed document, so it answers
+  // `EPOCH_INVENTORY_BAD_DOCUMENT`.
+  EPOCH_INVENTORY_UNSUPPORTED_VERSION: 'epoch inventory declares a version this package cannot parse',
+  // Every structural refusal of the document and of the maps inside it: an absent member, a member this
+  // version does not define, a digest or a path or a label of the wrong type or width, a figure below zero or
+  // past the widest integer a reader holds exactly, a label carrying a control character or a pad, and the
+  // pack list with nothing in it. The empty list is this code rather than a finding about the deployment
+  // because an inventory of no packs states a window no pack covers and a chain no pack chained, which is a
+  // document whose own figures are vacuous rather than a deployment that sealed nothing.
+  EPOCH_INVENTORY_BAD_DOCUMENT: 'epoch inventory does not match the layout its declared version defines',
+  // Two entries answering to one pack digest, which is the same pack counted twice. The digest is also the
+  // entry's location, so one name covers both spellings of the collision, and every figure the document folds
+  // is folded over this list: a run naming one pack twice states an epoch longer than the directory holds.
+  EPOCH_INVENTORY_DUPLICATE_PACK: 'two entries of an epoch inventory answer to the same pack',
+  // An entry filed under a pack home whose digest is not the one the same entry states. The path is derived
+  // from the digest and a reader checks both, so a disagreement is one pack pointed at another's bytes, which
+  // is a finding about a location and not about a shape: a reviewer following that path finds a pack, and it
+  // is not the one described.
+  EPOCH_INVENTORY_PACK_MISNAMED: 'an epoch inventory entry is filed under a digest that is not the pack it states',
+  // A `chain.breaks` or `duty.short` row naming a pack the run does not hold. The two lists are statements
+  // about entries of the same document, so this is not a lookup miss and nothing is missing from the reader's
+  // hands: the row is about a pack this inventory does not describe, and a reader that passed it would be
+  // reporting a break or a shortfall against evidence it was never given.
+  EPOCH_INVENTORY_PACK_UNNAMED: 'an epoch inventory names a pack its run does not hold',
+  // The windows of the run do not meet end to start, so the period the inventory attests is not the period its
+  // packs sealed. A gap is the honest half of the refusal and an overlap the worse one, and both arrive here
+  // because the document states one window across them: an epoch that skips a period attests nothing about it,
+  // and one that seals a window twice puts the same receipts under two signatures and reports them as one run.
+  EPOCH_INVENTORY_RUN_NOT_CONTIGUOUS: 'the packs of an epoch inventory do not seal one window after another',
+  // The document's own summaries are not the arithmetic of its own entries: the two chain endpoints beside the
+  // run that begins and ends it, `continuous` beside the break rows, `carried` beside the shortfall rows, the
+  // window beside the outer edges, a break quoted from another pair or with one of its two digests moved, and
+  // a shortfall whose four figures or its subtraction are not that pack's. One code, because the fault is one
+  // fault met at several positions and the action never changes: the fold has to be redone from the entries,
+  // which is what this reader just did, and the detail says which figure it stopped on.
+  EPOCH_INVENTORY_SUMMARY_DISAGREES: 'an epoch inventory states a window, a chain or a duty its own packs do not',
+  // The key the reader reached for hashes to something other than the kid the inventory's header names. The
+  // designation answered and what it answered with is another key's, which is a wrong key rather than an
+  // edited document, and the two send an operator to different places.
+  EPOCH_INVENTORY_KID_MISMATCH: 'the key handed to the reader does not match the kid the epoch inventory names',
+  // The call carried neither a key nor a resolver, which is refused before a byte is read because the fault is
+  // in the call, or the resolver had nothing for the kid this document names. Nothing about the inventory is
+  // refused here, and that is why this is not `EPOCH_INVENTORY_BAD_DOCUMENT`: the document may be whole and the
+  // caller's key set simply may not reach the key that sealed it. The `kid` each entry states is a different
+  // question and answers with the pack's own code once a reader goes and checks the packs.
+  EPOCH_INVENTORY_UNKNOWN_KEY: 'no key found for the kid an epoch inventory names',
 };
 
 /**

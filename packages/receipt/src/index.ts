@@ -130,6 +130,32 @@ export type {
   VerifiedRedaction,
 } from './redaction.js';
 export {
+  DECLARED_EPOCH_INVENTORY_PROTECTED_LABELS,
+  EPOCH_INVENTORY_CONTENT_TYPE,
+  EPOCH_INVENTORY_LABEL_MAX_BYTES,
+  EPOCH_INVENTORY_PACKS_DIRECTORY,
+  EPOCH_INVENTORY_PACK_FILE,
+  EPOCH_INVENTORY_RETENTION_FILE,
+  decodeEpochInventory,
+  encodeEpochInventoryManifest,
+  encodeEpochInventoryProtectedHeader,
+  epochInventorySigStructure,
+  sealEpochInventory,
+  signEpochInventory,
+  verifyEpochInventory,
+} from './epoch-inventory.js';
+export type {
+  DecodedEpochInventory,
+  EpochInventoryBreak,
+  EpochInventoryDeployment,
+  EpochInventoryManifest,
+  EpochInventoryPack,
+  EpochInventoryRun,
+  EpochInventoryShort,
+  EpochInventoryVerifyOptions,
+  VerifiedEpochInventory,
+} from './epoch-inventory.js';
+export {
   MARKING_MEMBER_NAME,
   PROVENANCE_V1_MEMBER_SCHEME,
   emptyRegion,
