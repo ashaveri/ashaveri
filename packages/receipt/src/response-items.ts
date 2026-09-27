@@ -15,12 +15,26 @@ import { equalBytes } from './cose.js';
  *
  * The rule, stated once and exported so nothing else has to restate it. An item is one `data:` frame of
  * a streamed response: the bytes after the field name, and after the one space that marking treats as
- * framing rather than content, up to the line ending that closes the frame. The `[DONE]` value ends a
- * stream instead of being said by it, so a frame carrying nothing but that token contributes no item.
- * A body that is not `text/event-stream` is one item holding all of it, because a buffered completion
- * has no frames and its body is the whole of what was said. A stream with no data frame in it is a
- * refusal and never an empty list, for the reason `pack.cddl` gives of its own item list: a run of
- * nothing states nothing, and zero digests give a reader nothing to hold the response against.
+ * framing rather than content, up to the line ending that closes the frame. A line ending is a line feed,
+ * a carriage return, or that pair together, which is how a stream of these frames is read at all: a rule
+ * that took only the line feed would decode one item where a client reading the same bytes decodes two,
+ * and a receipt that attests a per-item instant has to attest what a reader of the response receives. The
+ * `[DONE]` value ends a stream instead of being said by it, so a frame carrying nothing but that token
+ * contributes no item. A body that is not `text/event-stream` is one item holding all of it, because a
+ * buffered completion has no frames and its body is the whole of what was said. A stream with no data
+ * frame in it is a refusal and never an empty list, for the reason `pack.cddl` gives of its own item
+ * list: a run of nothing states nothing, and zero digests give a reader nothing to hold the response
+ * against.
+ *
+ * Where this reader and the estate's other reader of the same bytes part company, stated because it is
+ * not settled here. `dataLines` in `gateway/src/upstream.ts` splits an event's lines on a line feed, with
+ * an optional carriage return before it, and on nothing else, so a body framed with bare carriage returns
+ * is one event to that scan and several frames to this one: the usage reader and the item list then
+ * disagree about how many frames a response said. That is a difference between two readers, one of which
+ * follows the stream model and one of which does not, and not a property of the bytes, so it is owed a
+ * reconciliation rather than a sentence of acceptance. `gateway/src/marking.ts` steps the other way: its
+ * `sentinelStart` strips a trailing carriage return before it compares, so there `data: [DONE]\r` is the
+ * sentinel, and it is the sentinel here too rather than an item in this file and a terminator in that one.
  *
  * How this relates to the digest a receipt already carries. `res` is sha256 over the response bytes
  * exactly as transmitted, framing included: section 3.1 of `docs/receipt-spec.md` publishes that, and
@@ -108,11 +122,13 @@ export function frameResponse(contentType: string, body: Uint8Array): ResponseIt
  * good for one response, because items already emitted are the answer for the bytes that produced them
  * and appending a second response's bytes to them would be a different question.
  *
- * Boundary independence is structural rather than defended. A frame is emitted only when a line feed has
- * been seen, the scanner never consumes a byte that is not followed by one, and what is left over at
- * `finish()` is read by the same single rule that reads a complete line. So no decision depends on where
- * a write ended: a `[DONE]` split down its middle, a terminator split between its two line feeds, and a
- * body arriving one byte at a time all reach the same state as the same bytes in one piece.
+ * Boundary independence is structural rather than defended. A frame is emitted only once a byte that ends
+ * a line has been seen, an ending is never read as content, and what is left over at `finish()` is read by
+ * the same single rule that reads a complete line. So no decision depends on where a write ended: a
+ * `[DONE]` split down its middle, a terminator split between its two line feeds, a carriage return split
+ * from the line feed that follows it, and a body arriving one byte at a time all give the same list as the
+ * same bytes in one piece. A carriage return separated this way ends an empty line, and an empty line
+ * names no item, which is why the split cannot change the answer.
  */
 export class ResponseItemFramer {
   private readonly items: ResponseItem[] = [];
@@ -150,19 +166,32 @@ export class ResponseItemFramer {
     return { framed: true, items: this.items };
   }
 
-  /** Consume every complete line in the buffer, leaving any fragment of one that is still arriving. */
+  /**
+   * Consume every complete line in the buffer, leaving any fragment of one that is still arriving.
+   *
+   * A carriage return, a line feed, and the two together each end a line. The pair counts as one ending so
+   * that a CRLF body reads the same frame it always read; a lone carriage return ends the line before it,
+   * which is the reading the stream model gives and the one a client holding these bytes applies.
+   */
   private drainFrames(): void {
     let start = 0;
     for (;;) {
-      const at = this.buffer.indexOf(LF, start);
+      const at = this.endingAt(start);
       if (at < 0) break;
-      // One CR before the LF belongs to the line ending, which is the spelling upstream's own frame
-      // scan accepts; a CR with no LF after it is content, and stays inside the payload it sits in.
-      const last = at > start && this.buffer[at - 1] === CR ? at - 1 : at;
-      this.takeLine(this.buffer.subarray(start, last));
-      start = at + 1;
+      const width = this.buffer[at] === CR && this.buffer[at + 1] === LF ? 2 : 1;
+      this.takeLine(this.buffer.subarray(start, at));
+      start = at + width;
     }
     this.buffer = this.buffer.subarray(start);
+  }
+
+  /** The next byte at or after `start` that ends a line, or -1 when all that is left is one fragment. */
+  private endingAt(start: number): number {
+    const lineFeed = this.buffer.indexOf(LF, start);
+    const carriage = this.buffer.indexOf(CR, start);
+    if (lineFeed < 0) return carriage;
+    if (carriage < 0) return lineFeed;
+    return Math.min(lineFeed, carriage);
   }
 
   /**

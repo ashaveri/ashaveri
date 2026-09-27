@@ -217,8 +217,10 @@ describe('the account a verifier can check', () => {
       offsets.some((at, item) => at <= index && index < at + items[item]!.bytes.length);
     const outside = textOf(body.filter((_byte, index) => !taken(index)));
     // No payload of an item survives in what is left, which is the same claim as `res` being a hash of
-    // these bytes with the items inside them rather than beside them.
-    for (const line of outside.split(/\r?\n/u)) {
+    // these bytes with the items inside them rather than beside them. The leftover is read as lines the
+    // way the framing reads them, so a carriage return splits it too: were it read only at line feeds, a
+    // body framed with those would arrive here as one long line and be judged against the wrong spelling.
+    for (const line of outside.split(/[\r\n]/u)) {
       expect(isFramingOnly(line), `leftover line ${JSON.stringify(line)} carries bytes no item attests`).toBe(true);
     }
     expect(covered + outside.length).toBe(body.length);

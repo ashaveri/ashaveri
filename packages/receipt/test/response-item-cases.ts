@@ -72,6 +72,24 @@ export const FRAME_CASES: readonly FrameCase[] = [
     items: ['{"a":1}', '{"b":2}'],
   },
   {
+    name: 'a bare carriage return ends a frame, including the last one of the response',
+    contentType: STREAMED,
+    body: 'data: {"a":1}\rdata: {"b":2}\r',
+    items: ['{"a":1}', '{"b":2}'],
+  },
+  {
+    name: 'a carriage return after a terminated frame ends a line of no bytes',
+    contentType: STREAMED,
+    body: 'data: {"a":1}\n\rdata: {"b":2}\n\n',
+    items: ['{"a":1}', '{"b":2}'],
+  },
+  {
+    name: 'the sentinel ended by a bare carriage return',
+    contentType: STREAMED,
+    body: 'data: [DONE]\r',
+    items: [],
+  },
+  {
     name: 'an empty data payload, with and without the space',
     contentType: STREAMED,
     body: 'data:\n\ndata: \n\ndata: {"b":2}\n\n',
