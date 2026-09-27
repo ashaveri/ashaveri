@@ -1,0 +1,198 @@
+import { sha256 } from '@noble/hashes/sha2.js';
+import { utf8ToBytes } from '@noble/hashes/utils.js';
+import { equalBytes } from './cose.js';
+
+/**
+ * Which bytes of a gateway response are an item, and what each item's digest covers.
+ *
+ * The unit is a protocol item and not a transport accident. `gateway/src/marking.ts` states the reason
+ * in the estate's own words: "a write boundary falls wherever the transport likes, including inside the
+ * eight letters of `[DONE]`". A rule that read items off write boundaries would therefore attest a
+ * different set of items for one response depending on how the socket chose to deliver it, and a
+ * verifier holding the bytes it was handed could not reproduce the set. So the rule below is a function
+ * of the response bytes alone: the same bytes give the same items and the same digests however they
+ * were written or read, which is what makes an item's digest a claim a stranger can check.
+ *
+ * The rule, stated once and exported so nothing else has to restate it. An item is one `data:` frame of
+ * a streamed response: the bytes after the field name, and after the one space that marking treats as
+ * framing rather than content, up to the line ending that closes the frame. The `[DONE]` value ends a
+ * stream instead of being said by it, so a frame carrying nothing but that token contributes no item.
+ * A body that is not `text/event-stream` is one item holding all of it, because a buffered completion
+ * has no frames and its body is the whole of what was said. A stream with no data frame in it is a
+ * refusal and never an empty list, for the reason `pack.cddl` gives of its own item list: a run of
+ * nothing states nothing, and zero digests give a reader nothing to hold the response against.
+ *
+ * How this relates to the digest a receipt already carries. `res` is sha256 over the response bytes
+ * exactly as transmitted, framing included: section 3.1 of `docs/receipt-spec.md` publishes that, and
+ * `packages/fixtures/data/res-v1.json` holds the bytes it was computed from for both shapes. The
+ * framing above is a walk over those very same bytes. Every item's bytes are a slice of the response,
+ * the slices come in the order the response put them in and overlap nothing, and every byte outside
+ * them is framing this rule names: a `data:` prefix, the one optional space, a line ending, a blank
+ * line, or the sentinel frame. So one verifier holding the response bytes rebuilds the items and hashes
+ * both them and the whole body in the same pass, and `res` and each item's `d` are then two statements
+ * about one byte string rather than two stories that cannot be compared. What is not true, and is worth
+ * saying plainly because the sentence is easy to get backwards: the item digests alone do not
+ * reconstruct `res`, because the framing bytes are outside every item by definition. `res` is what
+ * makes an item list need the response bytes beside it, and `test/response-items.test.ts` holds both
+ * halves of that account open at once.
+ *
+ * What this module does not do. Nothing here stamps anything, and nothing here is read by a payload
+ * yet: the per-item instant arrives with the format member that will carry it. The gateway does not
+ * frame a response today at all, it buffers one: `collect()` in `gateway/src/server.ts` concatenates
+ * the chunks of a buffered completion and keeps no boundary information, so the reader below is the
+ * first code in this tree that can name an item of a response and digest it on its own.
+ */
+
+/** The field name whose value an item is, spelled as `gateway/src/marking.ts` writes it. */
+export const SSE_DATA_FIELD = 'data:';
+
+/** The value that ends a frame stream rather than being said by one, and so attests no item. */
+export const SSE_DONE_VALUE = '[DONE]';
+
+/** The content type whose bodies are read as frames; any other body is taken whole. */
+const EVENT_STREAM_TYPE = 'text/event-stream';
+
+const SPACE = 0x20;
+const LF = 0x0a;
+const CR = 0x0d;
+const DATA_FIELD_BYTES = utf8ToBytes(SSE_DATA_FIELD);
+const DONE_BYTES = utf8ToBytes(SSE_DONE_VALUE);
+
+/**
+ * One attested item: the bytes it was framed from, and their digest.
+ *
+ * `bytes` is what a caller hashes for itself and, later, what it hands to whoever has to reproduce
+ * `res`; `d` is the half a receipt will name. Both are the framed payload and nothing else, which is
+ * the whole content of the rule: a digest over the `data:` prefix and the terminator as well would be
+ * a second, different framing of one response, and a verifier reading the item back from the bytes it
+ * holds would have to guess which of the two it was given.
+ */
+export interface ResponseItem {
+  readonly bytes: Uint8Array;
+  /** sha256 of exactly `bytes`, 32 wide, in the same representation `mk.d` and `att.d` use. */
+  readonly d: Uint8Array;
+}
+
+/**
+ * The items of one response, or the reason that response attests no set of them at all.
+ *
+ * A refusal is a value and not an exception: the caller is deciding what to issue, and "this stream
+ * said nothing" is an answer about the response rather than a fault in the code reading it.
+ */
+export type ResponseItemFraming =
+  | { readonly framed: true; readonly items: readonly ResponseItem[] }
+  | { readonly framed: false; readonly why: string };
+
+/** Whether a body of this content type is framed in `data:` lines rather than taken whole. */
+export function isEventStream(contentType: string): boolean {
+  return contentType.includes(EVENT_STREAM_TYPE);
+}
+
+/**
+ * The framing of one response, read as a stream or as a whole body according to its content type.
+ *
+ * This is the rule applied to bytes that all arrived at once, and it is what `ResponseItemFramer`
+ * agrees with at every split of the same bytes: a verifier holding a response body uses this, and a
+ * gateway that saw the frames as they arrived uses the class below.
+ */
+export function frameResponse(contentType: string, body: Uint8Array): ResponseItemFraming {
+  const framer = new ResponseItemFramer(isEventStream(contentType));
+  framer.feed(body);
+  return framer.finish();
+}
+
+/**
+ * The framing of a response that arrives in pieces.
+ *
+ * Feed the chunks in the order they were received and take the items from `finish()`; the instance is
+ * good for one response, because items already emitted are the answer for the bytes that produced them
+ * and appending a second response's bytes to them would be a different question.
+ *
+ * Boundary independence is structural rather than defended. A frame is emitted only when a line feed has
+ * been seen, the scanner never consumes a byte that is not followed by one, and what is left over at
+ * `finish()` is read by the same single rule that reads a complete line. So no decision depends on where
+ * a write ended: a `[DONE]` split down its middle, a terminator split between its two line feeds, and a
+ * body arriving one byte at a time all reach the same state as the same bytes in one piece.
+ */
+export class ResponseItemFramer {
+  private readonly items: ResponseItem[] = [];
+  private buffer: Uint8Array = new Uint8Array(0);
+  private readonly streamed: boolean;
+
+  constructor(streamed: boolean) {
+    this.streamed = streamed;
+  }
+
+  /** The bytes received so far, which is an item verbatim when the response was not streamed. */
+  feed(chunk: Uint8Array): void {
+    this.buffer = this.buffer.length === 0 ? chunk : join(this.buffer, chunk);
+    if (this.streamed) this.drainFrames();
+  }
+
+  /** The items of the whole response, or the refusal that there are none. */
+  finish(): ResponseItemFraming {
+    if (!this.streamed) {
+      // One item, whatever it holds: a buffered body has no frames to be between, and an empty one is
+      // still the whole of what was said about it. `res` covers these bytes, so the item is a statement
+      // about them and not an omission of one.
+      this.pushItem(this.buffer);
+      return { framed: true, items: this.items };
+    }
+    // A final frame whose terminator never arrived is still a frame the response sent, and the bytes
+    // a client hashed into `res` do not stop being one because the write ended first.
+    this.takeLine(this.buffer);
+    if (this.items.length === 0) {
+      return {
+        framed: false,
+        why: 'the response sent no data frame, so it states nothing for an item to attest',
+      };
+    }
+    return { framed: true, items: this.items };
+  }
+
+  /** Consume every complete line in the buffer, leaving any fragment of one that is still arriving. */
+  private drainFrames(): void {
+    let start = 0;
+    for (;;) {
+      const at = this.buffer.indexOf(LF, start);
+      if (at < 0) break;
+      // One CR before the LF belongs to the line ending, which is the spelling upstream's own frame
+      // scan accepts; a CR with no LF after it is content, and stays inside the payload it sits in.
+      const last = at > start && this.buffer[at - 1] === CR ? at - 1 : at;
+      this.takeLine(this.buffer.subarray(start, last));
+      start = at + 1;
+    }
+    this.buffer = this.buffer.subarray(start);
+  }
+
+  /**
+   * One line of a frame stream. A line that is not a `data:` line is framing and not content: an
+   * `event:` or `id:` field, a comment, the blank line that closes a frame. It carries no item, and
+   * `res` still covers its bytes, so nothing about the response is hidden by the walk.
+   */
+  private takeLine(line: Uint8Array): void {
+    if (!equalBytes(line.subarray(0, DATA_FIELD_BYTES.length), DATA_FIELD_BYTES)) return;
+    const value = line.subarray(DATA_FIELD_BYTES.length);
+    // The one space `data: ` writes is framing, exactly as `MarkedStreamTail` and upstream's scan
+    // both read it. A second space is content, and so is a tab: the digest is of the bytes left.
+    const payload = value[0] === SPACE ? value.subarray(1) : value;
+    // The sentinel is a terminator wherever it sits, and an exact match cannot swallow content:
+    // a chunk's payload here is JSON text, which no completion writes `[DONE]` as.
+    if (equalBytes(payload, DONE_BYTES)) return;
+    this.pushItem(payload);
+  }
+
+  private pushItem(bytes: Uint8Array): void {
+    // Copied, because the buffer ahead of this may be a view of a pooled Node buffer the caller is
+    // free to reuse; an item's bytes outlive the chunk they were framed from only if they own them.
+    const owned = bytes.slice();
+    this.items.push({ bytes: owned, d: sha256(owned) });
+  }
+}
+
+function join(held: Uint8Array, chunk: Uint8Array): Uint8Array {
+  const out = new Uint8Array(held.length + chunk.length);
+  out.set(held);
+  out.set(chunk, held.length);
+  return out;
+}

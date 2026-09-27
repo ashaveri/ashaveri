@@ -138,5 +138,13 @@ export {
   provenanceV1Member,
 } from './marking.js';
 export type { ProvenanceV1Member } from './marking.js';
+export {
+  SSE_DATA_FIELD,
+  SSE_DONE_VALUE,
+  ResponseItemFramer,
+  frameResponse,
+  isEventStream,
+} from './response-items.js';
+export type { ResponseItem, ResponseItemFraming } from './response-items.js';
 export { receiptToJson, receiptBytesToJson, toHex } from './json.js';
 export type { ReceiptJson } from './json.js';
