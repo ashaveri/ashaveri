@@ -416,6 +416,22 @@ describe('an accepted inventory, read the way a reviewer reads it', () => {
     ).toBe('EPOCH_INVENTORY_BAD_DOCUMENT');
   });
 
+  it('folds the window of a run of one pack from that pack and not from the fold\'s own seeds', () => {
+    // The window is folded one entry at a time from the identities of the two operations, so a run of one pack
+    // states that pack's edges and an empty run, which never reaches the fold, is refused where the entries are
+    // read. A document whose single window is restated wider is refused at the same position as a long run
+    // whose stated edges miss an entry, which is what makes the fold one rule at either size.
+    const single = runOf(1);
+    const read = verifyEpochInventory(sealDocument(single), readWith());
+    expect(read.outcome.packs).toHaveLength(1);
+    expect(read.manifest.window).toEqual({ from: RUN_START, to: RUN_START + WINDOW });
+    expect(read.manifest.chain.continuous).toBe(true);
+    expect(read.manifest.duty.carried).toBe(true);
+    expect(thrownCode(() => verifyEpochInventory(sealDocument({ ...single, window: { from: 0, to: single.window.to } }), readWith()))).toBe(
+      'EPOCH_INVENTORY_SUMMARY_DISAGREES',
+    );
+  });
+
   it('decodes with no key at all, and answers the run only to a reader that has one', () => {
     const unsigned = sealEpochInventory(
       encodeEpochInventoryProtectedHeader(KEY.kid),
