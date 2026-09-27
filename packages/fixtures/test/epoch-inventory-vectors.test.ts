@@ -23,7 +23,7 @@ import { unionMembers } from './doc-contract.js';
  * refusal sentences and both verdict columns are data in `data/epoch-inventory-v1.json`, and the only question
  * asked of the code is whether it answers as the file says it does.
  *
- * Four more things are checked on the way, because a suite of one-document artifacts is only as good as the
+ * Five more things are checked on the way, because a suite of one-document artifacts is only as good as the
  * claims it can be read for. The honest envelope is rebuilt here from the three pieces the file publishes
  * beside it, by the shipped seal function rather than by the signing writer or the generator's case list,
  * and required to be byte-identical to
@@ -35,6 +35,12 @@ import { unionMembers } from './doc-contract.js';
  * row at a site naming the guard of that site it reaches,
  * because their guards are twins: a suite that vectored one site or one guard and not its twin would let a
  * port that keyed or compared only the other pass every row here.
+ *
+ * A fifth holds the file's own roster of row columns against the columns its published rows carry, in both
+ * directions. The sibling suites read that roster as the list of fields a row may add, and a verifier written
+ * from the published pattern does the same here, so a column carried by a row and missing from the roster is a
+ * compliant row refused, and a column in the roster and carried by no row is a field the file promises and the
+ * suite withholds.
  *
  * The client half of this reading is not wired yet: `packages/cli/test/vector-conformance.test.ts` drives the
  * other suites through the paths a shipped verifier takes, and these rows go there next. What is here is the
@@ -119,6 +125,19 @@ describe('the published epoch inventory vectors', () => {
     expect(file.layout.contentType).toBe(EPOCH_INVENTORY_CONTENT_TYPE);
     expect(file.layout.twin).toBe('packages/receipt/schemas/epoch-inventory-v1.schema.json');
     expect(file.vectors.length).toBeGreaterThanOrEqual(20);
+  });
+
+  it('declares every column its published rows carry', () => {
+    // The two sibling suites read `verdictFields` as the list of columns a row may carry beside the ones that
+    // name it, and a verifier written from that published pattern reads it the same way here. So the roster and
+    // the rows are checked against each other in both directions: a column the roster names and no row carries
+    // is one the file promises and the suite withholds, and a column a row carries and the roster does not name
+    // is one that pattern would refuse on two compliant rows, which is how `site` and `guard` left it once.
+    const identity = ['name', 'note', 'documentBase64Url', 'documentByteLength', 'read'];
+    const carried = [...new Set(file.vectors.flatMap((one) => Object.keys(one)))]
+      .filter((column) => !identity.includes(column))
+      .sort();
+    expect([...new Set(file.layout.verdictFields)].sort()).toEqual(carried);
   });
 
   it('is answered by both readers exactly as the file says, on every row', () => {
