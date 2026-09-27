@@ -269,7 +269,7 @@ Ashaveri-Epoch-Inventory-Shortfall = {
 ;
 ; The duty adds up, which is `carried` and the `short` rows above.
 ;
-; The arrays of the document have no floor except `packs`, which `[+ ...]` requires to hold at least one entry.
+; The arrays of the document have no floor except `packs`, which `[+ …]` requires to hold at least one entry.
 ; A gap between two windows is refused, so a run of one pack states a window and a run of ten states the span
 ; the ten cover; an inventory of no packs states neither, and states a chain and a duty about nothing, which is
 ; why it is refused as a malformed document rather than accepted as an honest report of an empty epoch. The
