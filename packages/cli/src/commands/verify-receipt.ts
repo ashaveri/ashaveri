@@ -240,9 +240,9 @@ interface Digests {
   readonly responseHash: Uint8Array;
   readonly responseFrom: string;
   /**
-   * The response bytes themselves, or null when the caller supplied only their digest. A v1 receipt
-   * needs nothing more than the digest; a v2 one is refused before this is reached, because its
-   * marking claim is read off the bytes and no digest can stand in for them.
+   * The response bytes themselves, or null when the caller supplied only their digest. A payload
+   * naming no marking needs nothing more than the digest; a payload naming one is refused before this
+   * is reached, because its marking claim is read off the bytes and no digest can stand in for them.
    */
   readonly responseBytes: Uint8Array | null;
 }
@@ -568,13 +568,20 @@ export async function runVerifyReceipt(positionals: string[], values: VerifyRece
 
   // The payload is read before it is verified, which is what `GatewaySession.verifyReceipted` does
   // of its own accord, so this opens no second window onto unverified bytes. It settles one input
-  // question: a v2 receipt attests a region inside the response, and the only thing that can answer
-  // whether the mark is the attested one is the response itself. Taking a digest in its place would
-  // answer "was this the marked response?" with "the caller says so".
+  // question: a payload naming a marking attests one region inside the response, and the only thing
+  // that can answer whether the mark is the attested one is the response itself. Taking a digest in
+  // its place would answer "was this the marked response?" with "the caller says so".
+  //
+  // The test is on the member and not on a version number, which is the same reason `verifyReceipt`
+  // gates the check on the member: `v: 2` and `v: 3` both name `mk`, and a requirement spelled as one
+  // number would let the other through to a verification that quietly skipped the step it exists to
+  // feed. `v: 1` names no marking, claims nothing about the response's interior, and still runs on a
+  // digest alone.
   try {
-    if (decodeReceipt(receiptBytes).payload.v === 2 && digests.responseBytes === null) {
+    const { payload } = decodeReceipt(receiptBytes);
+    if ('mk' in payload && digests.responseBytes === null) {
       throw new UsageError(
-        'this is a v2 receipt, which attests one region inside the response bytes, so --response-body is required and --response-hash cannot carry that check',
+        `this is a v${payload.v} receipt, which names a marking attesting one region inside the response bytes, so --response-body is required and --response-hash cannot carry that check`,
       );
     }
   } catch (err) {

@@ -11,6 +11,7 @@ import {
   toHex,
   type SigningKey,
 } from '@ashaveri/receipt';
+import { ATTESTED_MARKING, stampedReceiptBytes, wrongMarking } from './stamped-receipt.js';
 
 /**
  * `ashaveri verify-receipt`, driven by the published receipt vectors.
@@ -20,6 +21,11 @@ import {
  * means. The policy and the deployment manifest are written per run rather than committed: they are
  * the caller's side of the transaction, and the same key and issuer appear in both because a real
  * deployment's do.
+ *
+ * One document is not published: the `v: 3` cases need a receipt naming a marking whose region the
+ * bytes handed to the command either do or do not carry, and nothing in this tree issues `v: 3` yet.
+ * Those bytes come from `stamped-receipt.ts`, which builds them out of the published marked vector so
+ * the only thing a case moves is the version and the digest under test.
  */
 
 const CLI = fileURLToPath(new URL('../dist/cli.js', import.meta.url));
@@ -673,6 +679,40 @@ describe('ashaveri verify-receipt', () => {
     const result = runCli(argsFor({ receipt: receiptPath('receipt-marked-v2'), responseBody: body }));
     expect(result.status).toBe(1);
     expect(verdictOf(result).code).toBe('RESPONSE_HASH_MISMATCH');
+  });
+
+  it('refuses to check a v3 receipt on a hand-written response digest, as it does a v2 one', () => {
+    // Both payloads name `mk`, so both owe the same region check and both need the bytes it is read
+    // off. The requirement is the half that fails quietly: keyed to one version number it lets the
+    // other through to a verification that never runs the step, reports `verified`, and says nothing
+    // about the material it did not have.
+    const receipt = written('stamped-v3.cbor', Buffer.from(stampedReceiptBytes(ATTESTED_MARKING)));
+    const result = runCli(argsFor({ receipt, json: false }));
+    expect(result.status).toBe(2);
+    expect(result.stdout).toBe('');
+    expect(result.stderr).toContain('this is a v3 receipt');
+    expect(result.stderr).toContain('--response-body is required and --response-hash cannot carry that check');
+  });
+
+  it('refuses a v3 receipt whose response bytes do not carry the region it attests', () => {
+    // The pair this command exists to close over: a validly signed `v: 3` receipt whose `mk.d` digests
+    // something other than the marked region of the bytes handed for it. Every other step holds, the
+    // signature among them, so the only answer a reader is owed is the marking's own refusal.
+    const receipt = written('stamped-v3-mismatch.cbor', Buffer.from(stampedReceiptBytes(wrongMarking())));
+    const result = runCli(argsFor({ receipt, responseBody: markingBody('buffered-member') }));
+    expect(result.status).toBe(1);
+    expect(verdictOf(result).code).toBe('MARK_MISMATCH');
+  });
+
+  it('leaves a v1 receipt answering exactly as it did, with no marking to check', () => {
+    // `v: 1` names no `mk`, so it claims nothing about the response's interior and is satisfied by the
+    // digest alone. The refusal the two versions above earn is not owed here, and the verdict is the
+    // one the published vector's own manifest states: widening the step to the member must not have
+    // reached this document, which is the half of the change that keeps old receipts answering.
+    const result = runCli(argsFor({ receipt: receiptPath('receipt-valid-v1'), json: false }));
+    expect(result.stderr).toBe('');
+    expect(result.status).toBe(0);
+    expect(result.stdout).toContain('receipt verified (COSE_Sign1, payload v1, EdDSA over the signed bytes)');
   });
 
   it('drives every published vector to the verdict the fixtures manifest states', () => {
