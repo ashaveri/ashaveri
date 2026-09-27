@@ -566,6 +566,40 @@ describe('the run, and what a reader recomputes from it', () => {
     );
   });
 
+  it('refuses a run whose two breaks, or two shortfalls, are stated as one pack twice', () => {
+    // The masking case. A list compared by its size and then looked up by name lets two rows naming one pack
+    // hold the count right while the second row is answered by the entry the first already settled, so a run
+    // that breaks twice reads as one that breaks once and the other break is never examined. This is the
+    // fault class the block exists to make refusable: a reviewer told "one break" about a run with two.
+    const twoBreaks = runOf(3, (index, one) =>
+      index === 0 ? one : { ...one, chain: { ...one.chain, anchor: digest(`a seam this run never held/${String(index)}`) } },
+    );
+    expect(twoBreaks.chain.breaks).toHaveLength(2);
+    expect(twoBreaks.chain.continuous).toBe(false);
+    expect(verifyEpochInventory(sealDocument(twoBreaks), readWith()).manifest.chain.breaks).toHaveLength(2);
+    const [firstBreak] = twoBreaks.chain.breaks;
+    const doubledBreak = { ...twoBreaks, chain: { ...twoBreaks.chain, breaks: [firstBreak!, firstBreak!] } };
+    expect(doubledBreak.chain.breaks).toHaveLength(2);
+    expect(
+      thrownCode(() => verifyEpochInventory(sealDocument(doubledBreak), readWith())),
+      'two rows naming one pack, and the run\'s other break stated by nobody',
+    ).toBe('EPOCH_INVENTORY_SUMMARY_DISAGREES');
+
+    const twoShorts = runOf(3, (index, one) =>
+      index === 0 ? one : { ...one, duty: { ...one.duty, required: 500, held: 100 } },
+    );
+    expect(twoShorts.duty.short).toHaveLength(2);
+    expect(twoShorts.duty.carried).toBe(false);
+    expect(verifyEpochInventory(sealDocument(twoShorts), readWith()).manifest.duty.short).toHaveLength(2);
+    const [firstShort] = twoShorts.duty.short;
+    const doubledShort = { ...twoShorts, duty: { carried: false, short: [firstShort!, firstShort!] } };
+    expect(doubledShort.duty.short).toHaveLength(2);
+    expect(
+      thrownCode(() => verifyEpochInventory(sealDocument(doubledShort), readWith())),
+      'two rows naming one pack, and the run\'s other shortfall stated by nobody',
+    ).toBe('EPOCH_INVENTORY_SUMMARY_DISAGREES');
+  });
+
   it('refuses each summary that is not the arithmetic of the entries', () => {
     const [second] = HONEST.packs;
     const claimed: EpochInventoryBreak = { file: second?.file ?? '', afterHead: HONEST.chain.anchor, anchor: digest('a digest of nothing') };

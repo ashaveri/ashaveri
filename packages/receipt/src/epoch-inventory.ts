@@ -768,9 +768,15 @@ function byFile(run: readonly EpochInventoryPack[]): Map<string, EpochInventoryP
  * Each pair of neighbours either continues the run or is listed with the two digests that disagree, and the
  * listing has to be the one the pair supports: a break smoothed into `continuous` is the false statement this
  * block exists to catch, and one named where the two digests meet is the same lie the other way round. A
- * stated break is matched by the pack it names rather than by its position, because a document that listed
- * its breaks in another order states the same run, so what a mismatch can mean is only that the name belongs
- * to no break of this run or that the two digests quoted beside it are not the pair's.
+ * stated break is matched by the pack it names rather than by its position, because a document that listed its
+ * breaks in another order states the same run.
+ *
+ * So the stated rows have to name exactly the packs the run breaks at, and that is three questions answered
+ * together below: no name stated by two rows, the count of rows against the count of breaks, and each row
+ * about the pair its own `file` fixes. The count alone is not the set: two rows naming one pack keep it right
+ * while the second row is answered by the entry the first already settled, so a run that breaks twice can be
+ * stated as breaking once and the break nobody named is never looked at. Refusing a repeated name is what
+ * makes a repeat and an omission one fault rather than one fault and one pass.
  */
 function assertBreakClaim(
   manifest: EpochInventoryManifest,
@@ -780,6 +786,12 @@ function assertBreakClaim(
   const stated = manifest.chain.breaks;
   if (manifest.chain.continuous !== (stated.length === 0)) {
     throw summaryDisagrees(`chain.continuous says ${String(manifest.chain.continuous)} beside ${String(stated.length)} stated break(s)`);
+  }
+  const named = new Set(stated.map((one) => one.file));
+  if (named.size !== stated.length) {
+    throw summaryDisagrees(
+      `chain.breaks states ${String(stated.length)} rows over ${String(named.size)} of the run's packs, so one pack is named by two rows and the list states no break for the pack it left out`,
+    );
   }
   if (stated.length !== expected.size) {
     throw summaryDisagrees(
@@ -808,8 +820,11 @@ function assertBreakClaim(
  * and never with a neighbour's, so a routed article's period is not read against another article's figure and
  * a run whose declarations differ reports each on its own terms. `shortBy` is the subtraction, `carried` is
  * the emptiness of the list, and a shortfall named against a pack the run does not hold is refused by name.
- * What is not here is a judgement: `held` short of `required` is lawful output, and whether it was owed at
- * all turns on the mapping the revision names and on the law behind it.
+ * The rows are matched by the pack they name and not by their position, so, as with the breaks, the stated
+ * names have to be exactly the folded ones: two rows naming one pack hold the count right and answer the
+ * second row out of the entry the first already settled, which is a shortfall of this run the document never
+ * states. What is not here is a judgement: `held` short of `required` is lawful output, and whether it was owed
+ * at all turns on the mapping the revision names and on the law behind it.
  */
 function assertShortClaim(
   manifest: EpochInventoryManifest,
@@ -819,6 +834,12 @@ function assertShortClaim(
   const stated = manifest.duty.short;
   if (manifest.duty.carried !== (stated.length === 0)) {
     throw summaryDisagrees(`duty.carried says ${String(manifest.duty.carried)} beside ${String(stated.length)} stated shortfall(s)`);
+  }
+  const named = new Set(stated.map((one) => one.file));
+  if (named.size !== stated.length) {
+    throw summaryDisagrees(
+      `duty.short states ${String(stated.length)} rows over ${String(named.size)} of the run's packs, so one pack is named by two rows and the list states no shortfall for the pack it left out`,
+    );
   }
   if (stated.length !== expected.size) {
     throw summaryDisagrees(

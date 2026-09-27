@@ -214,7 +214,7 @@ file states the whole set this container can answer with.
 | `EPOCH_INVENTORY_PACK_MISNAMED` | An entry is filed under a pack home whose digest is not the one the same entry states |
 | `EPOCH_INVENTORY_PACK_UNNAMED` | A break or a shortfall names a pack the run does not hold |
 | `EPOCH_INVENTORY_RUN_NOT_CONTIGUOUS` | The windows of the run leave a gap, overlap, or do not run forwards |
-| `EPOCH_INVENTORY_SUMMARY_DISAGREES` | The window, the two chain endpoints, `continuous`, a break's pair of digests, `carried` or a shortfall's figures are not the arithmetic of the entries |
+| `EPOCH_INVENTORY_SUMMARY_DISAGREES` | The window, the two chain endpoints, `continuous`, a break's pair of digests, `carried` or a shortfall's figures are not the arithmetic of the entries, or one of the two lists states one pack twice and leaves another of the run's entries unstated |
 | `EPOCH_INVENTORY_KID_MISMATCH` | The key handed to the reader is not the one the header's kid names |
 | `EPOCH_INVENTORY_UNKNOWN_KEY` | The reader was given no key for the kid the inventory names, including a call that gave it neither a key nor a resolver |
 | `INVALID_SIGNATURE` | The signature does not verify over the `Sig_structure` |
