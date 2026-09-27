@@ -235,6 +235,11 @@ describe('what an item digest covers', () => {
 });
 
 describe('the account a verifier can check', () => {
+  /** Whether a leftover line is the field name and nothing else: one frame whose payload has no bytes. */
+  function isFieldPrefix(line: string): boolean {
+    return line === SSE_DATA_FIELD || line === `${SSE_DATA_FIELD} `;
+  }
+
   /**
    * Whether one line of the bytes left over once the items are lifted out is framing and nothing else.
    *
@@ -242,10 +247,13 @@ describe('the account a verifier can check', () => {
    * dropped an item it should have attested, and `res` would still cover the bytes, so nothing else
    * would notice. A line that never was a `data:` line carries no item by the rule, so its bytes are
    * allowed to sit outside the list, and the sentinel is allowed because it ends a stream instead of
-   * being said by one.
+   * being said by one. The bare field name is not on this list, with or without its one space: both
+   * spellings are a frame whose payload is empty, which is an item the list owes rather than framing the
+   * rule can hand back. `checkAccount` takes those lines one item at a time, so a dropped zero-byte frame
+   * leaves a prefix behind with nothing left to answer for it.
    */
   function isFramingOnly(line: string): boolean {
-    if (line === '' || line === SSE_DATA_FIELD || line === `${SSE_DATA_FIELD} `) return true;
+    if (line === '') return true;
     if (line === SSE_DONE_VALUE || line === `${SSE_DATA_FIELD}${SSE_DONE_VALUE}` || line === `${SSE_DATA_FIELD} ${SSE_DONE_VALUE}`) {
       return true;
     }
@@ -253,7 +261,7 @@ describe('the account a verifier can check', () => {
   }
 
   /** The accounting, for one body and the items framed out of it: positions, and what is left over. */
-  function checkAccount(body: Uint8Array, items: readonly ResponseItem[]): void {
+  function checkAccount(contentType: string, body: Uint8Array, items: readonly ResponseItem[]): void {
     const offsets = offsetsOf(body, items);
     let cursor = 0;
     let covered = 0;
@@ -269,9 +277,26 @@ describe('the account a verifier can check', () => {
     // these bytes with the items inside them rather than beside them. The leftover is read as lines the
     // way the framing reads them, so a carriage return splits it too: were it read only at line feeds, a
     // body framed with those would arrive here as one long line and be judged against the wrong spelling.
+    let prefixes = 0;
     for (const line of outside.split(/[\r\n]/u)) {
+      if (isFieldPrefix(line)) {
+        prefixes += 1;
+        continue;
+      }
       expect(isFramingOnly(line), `leftover line ${JSON.stringify(line)} carries bytes no item attests`).toBe(true);
     }
+    // Every framed item leaves its own field name outside itself and no other item's line, so the count of
+    // those lines is the length of the list: a fact about the list and the body together, which no line of
+    // the leftover can state on its own. A frame dropped from the list still leaves its prefix here, so the
+    // counts part and this is where a zero-byte frame going missing is caught. A buffered body is one item
+    // with no framing around it, so it leaves none.
+    expect(prefixes, 'the framing outside the items names a different number of frames than the list holds').toBe(
+      isEventStream(contentType) ? items.length : 0,
+    );
+    // The two counts add to the body only when no item's bytes were left out and none was read twice, which
+    // the forward walk over the offsets above is the one thing that decides: as a claim about lengths this
+    // is only as strong as that walk, and it is silent about a frame whose payload has no bytes to count.
+    // That case belongs to the prefix count, and not to this line.
     expect(covered + outside.length).toBe(body.length);
   }
 
@@ -279,7 +304,7 @@ describe('the account a verifier can check', () => {
     for (const caseItem of FRAME_CASES) {
       // A refused case is walked too, against the empty list the table publishes for it: every byte of
       // such a response is then framing, which is the other half of why a refusal is the right answer.
-      checkAccount(bytes(caseItem.body), caseItem.items.length === 0 ? [] : framed(caseItem));
+      checkAccount(caseItem.contentType, bytes(caseItem.body), caseItem.items.length === 0 ? [] : framed(caseItem));
     }
   });
 
@@ -306,7 +331,7 @@ describe('the account a verifier can check', () => {
     const outcome = frameResponse(streamed.contentType, body);
     if (!outcome.framed) throw new Error('the published streamed response was refused');
     expect(outcome.items.map((item) => toHex(item.d))).toEqual([...PUBLISHED_ITEM_SHA256_HEX]);
-    checkAccount(body, outcome.items);
+    checkAccount(streamed.contentType, body, outcome.items);
 
     // The framing accounts for every byte: the four payloads plus the prefix, terminator and sentinel
     // bytes of five frames are the whole body, and the payloads in order are the published response

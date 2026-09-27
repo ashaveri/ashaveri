@@ -40,15 +40,15 @@ import { equalBytes } from './cose.js';
  * exactly as transmitted, framing included: section 3.1 of `docs/receipt-spec.md` publishes that, and
  * `packages/fixtures/data/res-v1.json` holds the bytes it was computed from for both shapes. The
  * framing above is a walk over those very same bytes. Every item's bytes are a slice of the response,
- * the slices come in the order the response put them in and overlap nothing, and every byte outside
- * them is framing this rule names: a `data:` prefix, the one optional space, a line ending, a blank
- * line, or the sentinel frame. So one verifier holding the response bytes rebuilds the items and hashes
- * both them and the whole body in the same pass, and `res` and each item's `d` are then two statements
- * about one byte string rather than two stories that cannot be compared. What is not true, and is worth
- * saying plainly because the sentence is easy to get backwards: the item digests alone do not
- * reconstruct `res`, because the framing bytes are outside every item by definition. `res` is what
- * makes an item list need the response bytes beside it, and `test/response-items.test.ts` holds both
- * halves of that account open at once.
+ * the slices come in the order the response put them in and overlap nothing, and every byte outside them
+ * is framing this rule names: a `data:` prefix, the one optional space, a line ending, a blank line, the
+ * sentinel frame, or a whole line that never was a data line, an `event:` or `id:` field or a comment. So
+ * one verifier holding the response bytes rebuilds the items and hashes both them and the whole body in
+ * the same pass, and `res` and each item's `d` are then two statements about one byte string rather than
+ * two stories that cannot be compared. What is not true, and is worth saying plainly because the sentence
+ * is easy to get backwards: the item digests alone do not reconstruct `res`, because the framing bytes
+ * are outside every item by definition. `res` is what makes an item list need the response bytes beside
+ * it, and `test/response-items.test.ts` holds both halves of that account open at once.
  *
  * What this module does not do. Nothing here stamps anything, and nothing here is read by a payload
  * yet: the per-item instant arrives with the format member that will carry it. The gateway does not
@@ -141,7 +141,7 @@ export class ResponseItemFramer {
     this.streamed = streamed;
   }
 
-  /** The bytes received so far, which is an item verbatim when the response was not streamed. */
+  /** Take the next piece of the response, framing what of it is complete and holding the rest back. */
   feed(chunk: Uint8Array): void {
     // The chunk is kept as it stands only when it is about to be scanned and what survives of it copied,
     // which is the streamed case. A buffered body is all of it unframed, so it is copied here instead:

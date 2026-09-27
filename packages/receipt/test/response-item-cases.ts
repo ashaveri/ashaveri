@@ -132,6 +132,12 @@ export const FRAME_CASES: readonly FrameCase[] = [
     items: ['{"a":1}', ' {"b":2}'],
   },
   {
+    name: 'a tab after the field name is content, with and without the space',
+    contentType: STREAMED,
+    body: 'data:\t{"a":1}\n\ndata: \t{"a":1}\n\n',
+    items: ['\t{"a":1}', '\t{"a":1}'],
+  },
+  {
     name: 'a stream that sent only the sentinel',
     contentType: STREAMED,
     body: 'data: [DONE]\n\n',
@@ -179,6 +185,7 @@ export const FRAME_CASES: readonly FrameCase[] = [
 export const ITEM_SHA256_HEX: Readonly<Record<string, string>> = {
   '{"a":1}': '015abd7f5cc57a2dd94b7590f04ad8084273905ee33ec5cebeae62276a97f862',
   '{"b":2}': '0ab1a6d394cd30195f0642b67ae1180c375ffadf5dd7f39c390668b5fdb6da93',
+  '\t{"a":1}': '32d5a006d1c909c851122c83709595f553c43e67e34334ceccacb7657cd5c825',
   '': 'e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855',
   ' {"b":2}': 'd550137e6165098ab6487a8a13d1233ef0eb1b16d0f79f81f9fcb139fc78b277',
   '[DONE ]': '8554fa50b104c84fefc2aa7c809ff3a7ddb50bbdbdfd7c5030e24de8fffa3ebf',
