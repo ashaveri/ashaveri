@@ -697,8 +697,10 @@ function readShort(value: unknown): readonly EpochInventoryShort[] {
 
 function parseManifest(payload: Uint8Array): EpochInventoryManifest {
   const raw = readMap(decodePayload(payload), 'manifest');
+  // The reading has already refused a `v` written as anything but an integer a reader holds exactly, so the one
+  // question left to this position is whether the member is a number at all rather than a name or a flag.
   const version = raw.get('v');
-  if (typeof version !== 'number' || !Number.isSafeInteger(version)) {
+  if (typeof version !== 'number') {
     throw badDocument('v must be an integer inventory version');
   }
   if (version !== 1) {
