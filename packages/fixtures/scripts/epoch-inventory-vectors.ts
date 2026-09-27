@@ -730,8 +730,17 @@ const CASES: readonly Case[] = [
     guard: 'claim',
   },
   {
+    name: 'a-stated-run-beginning-that-is-not-where-the-run-begins',
+    note: 'The honest run with its claimed chain anchor moved to a digest of nothing, while the entries and the break list stay as they were. The reader compares the stated anchor with the anchor of the pack its walk begins at, and refuses where the walk starts rather than at the summary beside it, so this is the beginning of the two chain endpoints the format names and `a-stated-run-end-that-is-not-where-the-run-ends` is the other end of them. A wrong digest over one end of the epoch is reached at the run rather than at an entry, and it is refused because the reader recomputes both ends instead of quoting them.',
+    bytes: sealDocument({ ...HONEST, chain: { ...HONEST.chain, anchor: digest('an anchor this run never began at') } }),
+    read: PINNED,
+    verdict: 'EPOCH_INVENTORY_SUMMARY_DISAGREES',
+    structural: 'verify-ok',
+    edited: 'the stated chain anchor',
+  },
+  {
     name: 'a-stated-run-end-that-is-not-where-the-run-ends',
-    note: 'The honest run with its claimed chain head moved to a digest of nothing, while the entries and the break list stay as they were. A wrong digest over the whole epoch, reached at the summary rather than at an entry, and refused because the reader recomputes the endpoints from the run instead of quoting them.',
+    note: 'The honest run with its claimed chain head moved to a digest of nothing, while the entries and the break list stay as they were. A wrong digest over the whole epoch, reached at the summary rather than at an entry, and refused because the reader recomputes the endpoints from the run instead of quoting them. The run has two of those endpoints and `a-stated-run-beginning-that-is-not-where-the-run-begins` is the one this row does not state.',
     bytes: sealDocument({ ...HONEST, chain: { ...HONEST.chain, head: digest('a head this run never reached') } }),
     read: PINNED,
     verdict: 'EPOCH_INVENTORY_SUMMARY_DISAGREES',
@@ -1118,7 +1127,7 @@ function main(): void {
       {
         version: 1,
         description:
-          'Sealed epoch inventories and the verdict the shipped reader owes each one: the envelope, the header, the key, the reading of the JSON, the arithmetic over a run of packs, and the names each summary row points at. Every refusal the container names is reached by a row, the three text floors the layout states are each refused by an emptied value, and the acceptances include ones a reviewer would otherwise read as faults: a break list and a shortfall list stated in another order, which the reader keys by the pack each row names, a document listing its seven members in an order no writer emits, which the reader looks up by name, copied text positions wider than any ceiling this layout states, and a run label at the last byte of the width it does.',
+          'Sealed epoch inventories and the verdict the shipped reader owes each one: the envelope, the header, the key, the reading of the JSON, the arithmetic over a run of packs, and the names each summary row points at. Every claim the reader recomputes over a run is refused by a row when the document states it wrongly, and those claims are the window, the two chain endpoints beside the run that begins and ends them, the claim each folded list states beside it, and every guard of both lists at both sites, the three text floors the layout states are each refused by an emptied value, and the acceptances include ones a reviewer would otherwise read as faults: a break list and a shortfall list stated in another order, which the reader keys by the pack each row names, a document listing its seven members in an order no writer emits, which the reader looks up by name, copied text positions wider than any ceiling this layout states, and a run label at the last byte of the width it does.',
         layout: {
           format: 'packages/receipt/epoch-inventory.cddl',
           twin: 'packages/receipt/schemas/epoch-inventory-v1.schema.json',
