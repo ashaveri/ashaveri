@@ -811,15 +811,18 @@ function assertBreakClaim(
   if (manifest.chain.continuous !== (stated.length === 0)) {
     throw summaryDisagrees(`chain.continuous says ${String(manifest.chain.continuous)} beside ${String(stated.length)} stated break(s)`);
   }
-  const named = new Set(stated.map((one) => one.file));
-  if (named.size !== stated.length) {
-    throw summaryDisagrees(
-      `chain.breaks states ${String(stated.length)} rows over ${String(named.size)} of the run's packs, so one pack is named by two rows and the list states no break for the pack it left out`,
-    );
-  }
   if (stated.length !== expected.size) {
     throw summaryDisagrees(
       `the run of ${String(run.length)} pack(s) has ${String(expected.size)} break(s) in it and the document states ${String(stated.length)}`,
+    );
+  }
+  // Reached only where the counts already agree, which is what makes the next sentence a finding rather
+  // than a guess: rows naming fewer packs than there are rows, in a list as long as the fold, leave some
+  // pack of the run unnamed somewhere else in it.
+  const named = new Set(stated.map((one) => one.file));
+  if (named.size !== stated.length) {
+    throw summaryDisagrees(
+      `chain.breaks states ${String(stated.length)} rows naming ${String(named.size)} distinct packs, so one break is stated twice and the pack it left out is named nowhere in the list`,
     );
   }
   const held = byFile(run);
@@ -859,15 +862,17 @@ function assertShortClaim(
   if (manifest.duty.carried !== (stated.length === 0)) {
     throw summaryDisagrees(`duty.carried says ${String(manifest.duty.carried)} beside ${String(stated.length)} stated shortfall(s)`);
   }
-  const named = new Set(stated.map((one) => one.file));
-  if (named.size !== stated.length) {
-    throw summaryDisagrees(
-      `duty.short states ${String(stated.length)} rows over ${String(named.size)} of the run's packs, so one pack is named by two rows and the list states no shortfall for the pack it left out`,
-    );
-  }
   if (stated.length !== expected.size) {
     throw summaryDisagrees(
       `the run of ${String(run.length)} pack(s) has ${String(expected.size)} shortfall(s) in it and the document states ${String(stated.length)}`,
+    );
+  }
+  // As above: the counts agree by the time this reads, so a collapsed name set is an omission as well as a
+  // repetition, and the sentence says both because the guard can now prove both.
+  const named = new Set(stated.map((one) => one.file));
+  if (named.size !== stated.length) {
+    throw summaryDisagrees(
+      `duty.short states ${String(stated.length)} rows naming ${String(named.size)} distinct packs, so one shortfall is stated twice and the pack it left out is named nowhere in the list`,
     );
   }
   const held = byFile(run);

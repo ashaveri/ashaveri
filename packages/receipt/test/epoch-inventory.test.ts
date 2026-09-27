@@ -806,6 +806,48 @@ describe('the run, and what a reader recomputes from it', () => {
     expect(verifyEpochInventory(sealDocument(shortReversed), readWith()).manifest.duty).toEqual(shortReversed.duty);
   });
 
+  it('claims nothing about a pack left out until the counts have established one', () => {
+    // A repeated row and an omitted pack arrive under one refusal, and the detail may only state what the
+    // guard that fired has shown. Where the rows and the fold already disagree on count, nothing has been
+    // established about an omission and the sentence is the count. Where the counts agree and the names
+    // collapse, both halves follow from the check, so the sentence is allowed to say both.
+    const detailOf = (edited: EpochInventoryManifest): string => {
+      try {
+        verifyEpochInventory(sealDocument(edited), readWith());
+        return 'accepted';
+      } catch (err) {
+        return err instanceof Error ? err.message : String(err);
+      }
+    };
+    const doubledFirst = <T>(rows: readonly T[]): T[] => [...rows.slice(0, 1), ...rows.slice(0, 1)];
+    const twoBreaks = runOf(3, (index, one) =>
+      index === 0 ? one : { ...one, chain: { ...one.chain, anchor: digest(`a seam this run never held/${String(index)}`) } },
+    );
+    const twoShorts = runOf(3, (index, one) => (index === 0 ? one : { ...one, duty: { ...one.duty, required: 500, held: 100 } }));
+
+    // The masking shape: the run breaks twice, two rows are stated, and both name one of the two packs.
+    const maskedBreaks: EpochInventoryManifest = { ...twoBreaks, chain: { ...twoBreaks.chain, breaks: doubledFirst(twoBreaks.chain.breaks) } };
+    expect(maskedBreaks.chain.breaks).toHaveLength(2);
+    expect(maskedBreaks.chain.breaks[0]?.file).toBe(maskedBreaks.chain.breaks[1]?.file);
+    expect(detailOf(maskedBreaks)).toContain('naming 1 distinct packs');
+    expect(detailOf(maskedBreaks)).toContain('is named nowhere in the list');
+    const maskedShorts: EpochInventoryManifest = { ...twoShorts, duty: { carried: false, short: doubledFirst(twoShorts.duty.short) } };
+    expect(maskedShorts.duty.short).toHaveLength(2);
+    expect(detailOf(maskedShorts)).toContain('naming 1 distinct packs');
+    expect(detailOf(maskedShorts)).toContain('is named nowhere in the list');
+
+    // One break in the run stated by two rows: the counts disagree before any name is weighed, so the
+    // omission this guard would otherwise report is not a finding it may make.
+    const doubled: EpochInventoryManifest = { ...BROKEN, chain: { ...BROKEN.chain, breaks: doubledFirst(BROKEN.chain.breaks) } };
+    expect(doubled.chain.breaks).toHaveLength(2);
+    const doubledDetail = detailOf(doubled);
+    expect(doubledDetail).toContain('has 1 break(s) in it and the document states 2');
+    expect(doubledDetail).not.toContain('is named nowhere in the list');
+    const doubledShort: EpochInventoryManifest = { ...HONEST, duty: { carried: false, short: doubledFirst(HONEST.duty.short) } };
+    expect(doubledShort.duty.short).toHaveLength(2);
+    expect(detailOf(doubledShort)).toContain('has 1 shortfall(s) in it and the document states 2');
+  });
+
   it('refuses each summary that is not the arithmetic of the entries', () => {
     const [second] = HONEST.packs;
     const claimed: EpochInventoryBreak = { file: second?.file ?? '', afterHead: HONEST.chain.anchor, anchor: digest('a digest of nothing') };
