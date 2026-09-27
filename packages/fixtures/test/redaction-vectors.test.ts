@@ -37,7 +37,9 @@ import { unionMembers } from './doc-contract.js';
  *
  * The client half of this reading lives in `packages/cli/test/vector-conformance.test.ts`, which drives the same
  * rows through the paths a shipped verifier takes; what is here is the format package's own reader, the one
- * every verdict in this file was witnessed with when the generator wrote it.
+ * every verdict in this file was witnessed with when the generator wrote it. The third verdict column, the
+ * answer `ashaveri verify-handover` gives for the same pair, is checked here for the shape and the count the
+ * published file states, and against a live run of the tool there.
  */
 
 const file = loadRedactionVectors();
@@ -410,6 +412,40 @@ describe('the redaction manifest vectors', () => {
     expect(packCodes.length, 'no row inherits a refusal from the pack it names').toBeGreaterThanOrEqual(2);
     for (const one of packCodes) {
       expect(one.structural, `${one.name}: a pack refusal answered as a redaction fault`).toBe('verify-ok');
+    }
+  });
+
+  it('states what the command answers for every row, and for seven rows something else', () => {
+    // The two verdict columns are the library answering. `ashaveri verify-handover` is a second reader of the
+    // same pair, and the fact that it sometimes reaches the same fault one step earlier was readable only from
+    // a TypeScript test until it became a member of every row: a port that never runs this repository's code
+    // can now see, out of this file, which rows to expect a different word for and which exit beside it. The
+    // claim that a `null` really is the verdict column replayed is settled row by row against a live run in
+    // `packages/cli/test/verify-handover.test.ts`, which reads its expectations out of this member.
+    for (const one of file.vectors) {
+      expect(Object.hasOwn(one, 'command'), `${one.name} carries no command member at all`).toBe(true);
+    }
+    const diverging = file.vectors.filter((one) => one.command !== null);
+    const agreeing = file.vectors.filter((one) => one.command === null);
+    expect(file.vectors.length).toBe(43);
+    expect(diverging.length).toBe(7);
+    expect(agreeing.length).toBe(36);
+    // A row carrying an object states an answer that is not its `verdict`: an exception that repeated the
+    // library's word would be a note that outlived the divergence, and an exit of 0 beside a refusal, or of 2
+    // beside anything but a refused call, would be a run this tool does not produce. A null states the verdict
+    // replayed with the default exit, which is a claim about a live run and is settled one in
+    // `packages/cli/test/verify-handover.test.ts`; what the split owes this file is only that it is a split and
+    // not a drift, and that is what the two counts above say. Every code an object does name is one this estate
+    // already declares, so a port learns no new word out here: the receipt registry, or the one answer that is
+    // about the call rather than about the document.
+    const declared = new Set(unionMembers('ReceiptErrorCode', ERRORS));
+    for (const one of diverging) {
+      const answer = one.command ?? { code: '', exit: -1 };
+      expect(answer.code, `${one.name} states a command answer that repeats its verdict`).not.toBe(one.verdict);
+      expect([0, 1, 2], `${one.name} states an exit no run of this tool leaves`).toContain(answer.exit);
+      expect(answer.exit === 0, `${one.name}: an accepted run beside a refusal, or the reverse`).toBe(one.verdict === 'verify-ok');
+      expect(answer.exit === 2, `${one.name}: only a refused call exits 2`).toBe(answer.code === 'usage');
+      expect(answer.code === 'usage' || declared.has(answer.code), `${one.name} answers ${answer.code}, which no registry declares`).toBe(true);
     }
   });
 

@@ -162,6 +162,27 @@ specific to that case.
   the other belongs has merged two findings this suite publishes apart. `run` and `records` in the `layout` block
   give each record's predecessor in the pack, the predecessor the reduced chain used instead, and the digest that
   came out, so the construction is checkable against the pack's bytes rather than restated from a writer.
+  Each row states its fact at two entry points and the file gives both answers. `verdict` and `structural` are the
+  library's, and `verdict` carries the code the format names for the fault, because the reader is where the
+  format's rules live. `command` is what `ashaveri verify-handover` answers over the same bytes and the same pack,
+  and it is published because a command line and a library call do not always meet a fault at the same step. This
+  tool files every `--key` under the id its own bytes hash to, which is the only designation a command line can
+  make: it cannot hand a reader one key to answer for every document in the pair, so a document naming another kid
+  meets a set holding nothing for it, and it reads label 3 and chooses a reader before a redaction reader is
+  consulted, so it can state the same fact one step earlier with the code the classification already uses.
+  `command: null` says the command says what `verdict` says, exiting 0 on an accepted row and 1 on a refusal.
+  Seven rows carry an object instead, and none of them is the tool disagreeing with the library.
+  `rotation-read-with-one-pinned-key` and `sealed-under-another-deployment-key` are the two where the row pins one
+  key for the whole pair while a document inside that pair names a different kid, which a set matched on each kid
+  answers as a kid nothing designates rather than as the receipt's or the envelope's own refusal.
+  `no-designation-at-all` is the call that handed no key, which this tool refuses as the gap in the call: `usage`,
+  with exit 2. `protected-content-type-of-a-pack` and `protected-content-type-of-a-receipt` are documents wearing
+  another container's type, which the dispatch answers by running that container's reader, so `PACK_BAD_MANIFEST`
+  and `BAD_PAYLOAD` rather than the header refusal the redaction reader would give. And
+  `protected-kid-of-another-width` and `document-truncated-mid-envelope` are refused by the classification on the
+  envelope, `BAD_PROTECTED_HEADER` and `MALFORMED_CBOR`, before a reader of either kind is chosen. The 43 rows are
+  replayed through this path by `packages/cli/test/verify-handover.test.ts`, which reads the expected answers out
+  of this member rather than keeping a table of its own.
 
 ## Every suite refuses something
 

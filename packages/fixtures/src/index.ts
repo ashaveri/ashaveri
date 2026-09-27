@@ -583,10 +583,16 @@ export interface RedactionRecordRow {
   namedForRemoval: boolean;
 }
 
+/** What the command path answers for one row's pair: the code it prints, and the exit it leaves beside it. */
+export interface RedactionCommandAnswer {
+  code: string;
+  exit: number;
+}
+
 /**
- * One case: the redaction bytes, the pack handed beside them, the designation the caller makes, and what each
- * of the reader's two entry points answers. A row with no `packOf` is the reader that was handed one document
- * of the pair and is refused for that and nothing else.
+ * One case: the redaction bytes, the pack handed beside them, the designation the caller makes, and what the
+ * reader's two entry points and the command answer over them. A row with no `packOf` is the reader that was
+ * handed one document of the pair and is refused for that and nothing else.
  */
 export interface RedactionVector {
   name: string;
@@ -605,6 +611,12 @@ export interface RedactionVector {
   verdict: string;
   /** `verify-ok`, or the code `decodeRedaction` answers with before any key or pack is consulted. */
   structural: string;
+  /**
+   * What `ashaveri verify-handover` answers for the same pair: `null` where it answers exactly what `verdict`
+   * states, which is an exit of 0 on an accepted row and of 1 on a refusal, and the code and the exit beside it
+   * where the command meets this fact one step earlier than the reader does.
+   */
+  command: RedactionCommandAnswer | null;
   /** The records that remain, in the order the pack's links reach them. */
   survivors?: string[];
   /** The head of the chain over the survivors, and the pack's own signed head, never equal on one row. */

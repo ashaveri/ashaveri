@@ -60,6 +60,15 @@ const DATA = join(dirname(fileURLToPath(import.meta.url)), '..', 'data');
  * them, the head the fold over them reaches, and the pack's own head beside it, because the sentence those two
  * numbers exist to keep apart is the one this container must never let a reader merge: the pack's head holds over
  * the pack's own run, and the reduced head holds over a shorter chain the pack does not contain.
+ *
+ * Those columns are what this repository's own code answers. `command` is the command answering, published on
+ * every row: it is `null` wherever `ashaveri verify-handover` says what `verdict` says, which is thirty-six of
+ * these rows, and it carries the code and the exit the command answers with on the seven where it does not. A
+ * command line names keys by kid rather than pinning one key, and reads the type out of the header and chooses a
+ * reader before a redaction reader is consulted, so it meets some of these facts one step earlier and states them
+ * with the code the classification already uses. That is a fact about a shipped verifier, and it has to be
+ * readable from a published file rather than only from a TypeScript test, so it is carried here and consumed
+ * there.
  */
 
 /** The three labels `redaction.cddl` declares for a signed redaction header, and no fourth. */
@@ -821,6 +830,47 @@ const CASES: readonly Case[] = [
   },
 ];
 
+/** What one row's pair is worth at the command edge: the code it answers with, and the exit beside it. */
+interface CommandAnswer {
+  readonly code: string;
+  readonly exit: number;
+}
+
+/**
+ * The rows whose pair the command answers with a code other than the `verdict` column, each with that code and
+ * the exit it arrives with. Three groups, and none of them is the command disagreeing with the library.
+ *
+ * Two rows pin one key as the reader's `publicKey` where a command line designates a set matched on each kid, and
+ * `--key` cannot file a key under an id that is not its own, so the disagreement those rows state is answered one
+ * step earlier as a kid nothing designates. One row designates no key at all, which the command refuses as the gap
+ * in the call, with a usage exit, exactly as it does for a receipt, a pack or an export. Two rows are a document
+ * wearing another container's content type, which the dispatch answers by running that container's reader rather
+ * than the redaction reader the row goes on to name. And two rows are refused by the classification before a
+ * reader is chosen, which answers the same fact with the code the classification already uses. Every one of them
+ * is still a named refusal: the command path is silent about none of these cases, and the rows it answers this way
+ * are published so that a reader of this file, and not only a reader of TypeScript, can tell which they are.
+ */
+const COMMAND_ANSWERS: readonly (CommandAnswer & { readonly name: string })[] = [
+  { name: 'rotation-read-with-one-pinned-key', code: 'PACK_UNKNOWN_KEY', exit: 1 },
+  { name: 'sealed-under-another-deployment-key', code: 'REDACTION_UNKNOWN_KEY', exit: 1 },
+  { name: 'no-designation-at-all', code: 'usage', exit: 2 },
+  { name: 'protected-content-type-of-a-pack', code: 'PACK_BAD_MANIFEST', exit: 1 },
+  { name: 'protected-content-type-of-a-receipt', code: 'BAD_PAYLOAD', exit: 1 },
+  { name: 'protected-kid-of-another-width', code: 'BAD_PROTECTED_HEADER', exit: 1 },
+  { name: 'document-truncated-mid-envelope', code: 'MALFORMED_CBOR', exit: 1 },
+];
+
+const COMMAND_ANSWER_BY_NAME = new Map(COMMAND_ANSWERS.map((one) => [one.name, one]));
+
+/**
+ * What the command answers for one row: `null` where it answers what `verdict` states, with the exit an accepted
+ * row and a refusal already have, and the code and exit it answers with where it does not.
+ */
+function commandOf(one: Case): CommandAnswer | null {
+  const found = COMMAND_ANSWER_BY_NAME.get(one.name);
+  return found === undefined ? null : { code: found.code, exit: found.exit };
+}
+
 /** The options the row's designation builds, plus the pack it hands beside them. */
 function readOptionsFor(one: Case): {
   publicKey?: Uint8Array;
@@ -915,6 +965,7 @@ function published(one: Case): Record<string, unknown> {
     read: one.read,
     verdict: one.verdict,
     structural: one.structural,
+    command: commandOf(one),
     ...(one.survivors === undefined ? {} : { survivors: one.survivors }),
     ...(one.reducedHex === undefined ? {} : { reducedHex: one.reducedHex }),
     ...(one.originalHeadHex === undefined ? {} : { originalHeadHex: one.originalHeadHex }),
@@ -1039,6 +1090,35 @@ function main(): void {
 
   const names = rows.map((one) => one.name);
   if (new Set(names).size !== names.length) throw new Error('two cases of this suite share a name');
+  // The command column is a claim about rows that exist and about a verdict this path does not repeat, so it is
+  // checked both ways here: an exception naming no row is a note left standing beside nothing, and one naming a
+  // row whose answer it only repeats is a table that has outlived the divergence it was written for.
+  const rowsByName = new Map(rows.map((one) => [one.name, one]));
+  if (COMMAND_ANSWERS.length !== 7) {
+    throw new Error(`${String(COMMAND_ANSWERS.length)} command-path exceptions, and the published document says seven`);
+  }
+  const stated = new Set<string>();
+  for (const one of COMMAND_ANSWERS) {
+    if (stated.has(one.name)) throw new Error(`${one.name} is stated twice in the command-path column`);
+    stated.add(one.name);
+    const row = rowsByName.get(one.name);
+    if (row === undefined) throw new Error(`${one.name} is no row of this suite, and its command answer stands beside nothing`);
+    if (one.code === row.verdict) {
+      throw new Error(`${one.name}: the command column states ${one.code}, which is the verdict column, so nothing diverges`);
+    }
+    if (![0, 1, 2].includes(one.exit)) {
+      throw new Error(`${one.name}: exit ${String(one.exit)} is neither an accepted run, a refusal, nor a refused call`);
+    }
+    if (one.code === 'usage' && one.exit !== 2) {
+      throw new Error(`${one.name}: a refused call is the one answer that exits 2, and this one exits ${String(one.exit)}`);
+    }
+    if (one.exit === 2 && one.code !== 'usage') {
+      throw new Error(`${one.name}: exit 2 refuses the call and reads no bytes, which ${one.code} does not`);
+    }
+    if ((row.verdict === 'verify-ok') !== (one.exit === 0)) {
+      throw new Error(`${one.name}: the command exit ${String(one.exit)} does not agree with the verdict ${row.verdict}`);
+    }
+  }
   const accepted = rows.filter((one) => one.verdict === 'verify-ok');
   if (accepted.length < 8) throw new Error(`${accepted.length} accepted rows, and the states a pair arrives in are more than that`);
   const refused = rows.filter((one) => one.verdict !== 'verify-ok');
@@ -1083,9 +1163,11 @@ function main(): void {
           availabilityRule:
             "a reader that cannot reach a redaction still verifies the original pack, because no rule of the pack refers to this document and nothing here rewrites it. The converse is the row named `no-pack-handed`: a redaction pointed at a pack the reader lacks is refused rather than accepted on its own word.",
           encodings: 'documents and byte strings unpadded base64url, digests, kids, predecessors and signatures lowercase hex, instants unix seconds',
-          verdictFields: ['verdict', 'structural', 'survivors', 'reducedHex', 'originalHeadHex', 'item', 'edited'],
+          verdictFields: ['verdict', 'structural', 'command', 'survivors', 'reducedHex', 'originalHeadHex', 'item', 'edited'],
           verdictMeaning:
             "`verdict` is what verifyRedaction answers for the pair the row states: `verify-ok`, or the code it throws. `structural` is what decodeRedaction answers for the redaction bytes alone, with no key and no pack, so a row that is `verify-ok` there and a refusal in `verdict` is refusing about a pack, a key or an arithmetic over survivors rather than about a manifest that contradicts itself. `survivors` is the run that remains in the order the pack's links fix it, `reducedHex` is the head of the chain over it and `originalHeadHex` is the pack's own signed head; all three are published on every accepted row, and the last two are never equal on one.",
+          commandMeaning:
+            "The two verdict columns are the library answering, and `command` is the command answering: `verdict` carries the code the format names for the fact, because the shipped reader is where the format's rules live, and `command` carries what `ashaveri verify-handover` says about the same bytes and the same pack. The two do not always meet a fact at the same step. A command line files each `--key` under the id those bytes hash to, so it cannot pin one key as a reader's `publicKey` and cannot file a key under an id that is not its own, and it reads label 3 and chooses a reader before any redaction reader is consulted, so a row the library refuses for one reason the command can state one step earlier, with the code the classification already uses rather than a second word for the same fault. `command: null` says this path answers exactly what `verdict` states, exiting 0 on an accepted row and 1 on a refusal. An object states the code it answers with and the exit beside it, which is 0 where the command reports an accepted document, 1 where it reports a refusal, and 2 where it refuses the call itself and reads nothing. Seven rows carry one: `rotation-read-with-one-pinned-key` and `sealed-under-another-deployment-key`, where the row hands its reader one pinned key while a document inside the pair names a kid that key is not, so a set matched on each kid answers an undesignated kid rather than the receipt's own refusal or the envelope's; `no-designation-at-all`, which the library answers as the gap in a call before it reads a byte and this tool answers as a refused call, `usage`, with exit 2; `protected-content-type-of-a-pack` and `protected-content-type-of-a-receipt`, which the dispatch hands to the reader for the type the header claims rather than to the redaction reader; and `protected-kid-of-another-width` and `document-truncated-mid-envelope`, which the classification refuses on the envelope before a reader of either kind is chosen. None of the seven is a disagreement about a fact, and the command is silent about none of them: each is the same fact met at an earlier step. `packages/cli/test/verify-handover.test.ts` replays every row through this path and reads the expected answer out of this member, and the Redaction bullet of `docs/vectors.md` states the same division to a reader who came for prose rather than for a file of vectors.",
           readFields:
             "`read.pinned` is the one key the caller holds, which designates the redaction's envelope and every receipt inside the pack. `read.retained` is the set a resolver answers from, one key per kid, which is how a pair whose pack crosses a key rotation is read. A row with neither is the call that designated nothing and is refused before a byte is read. The pack itself is handed beside the designation, and a row that states no pack at all is the reader that was handed one document of the pair.",
           packFields:
