@@ -132,7 +132,7 @@ describe('the published epoch inventory vectors', () => {
     // name it, and a verifier written from that published pattern reads it the same way here. So the roster and
     // the rows are checked against each other in both directions: a column the roster names and no row carries
     // is one the file promises and the suite withholds, and a column a row carries and the roster does not name
-    // is one that pattern would refuse on two compliant rows, which is how `site` and `guard` left it once.
+    // is one that pattern refuses on every row carrying it, which is where `site` and `guard` had been left.
     const identity = ['name', 'note', 'documentBase64Url', 'documentByteLength', 'read'];
     const carried = [...new Set(file.vectors.flatMap((one) => Object.keys(one)))]
       .filter((column) => !identity.includes(column))
