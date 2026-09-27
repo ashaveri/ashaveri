@@ -57,8 +57,8 @@ Ashaveri-Epoch-Inventory-Protected-Header = {
 ; numbers as `uint` and text as `tstr` because it describes a data model, and a JSON document inhabits that
 ; model; what differs from a receipt or a pack is the encoding the payload travels in, stated above.
 ;
-; Two rules belong to the JSON reading rather than to any one member, and a reader enforces both while it is
-; still reading characters, because afterwards there is nothing left to enforce them on.
+; Three rules belong to the JSON reading rather than to any one member, and a reader enforces all three while
+; it is still reading characters, because afterwards there is nothing left to enforce them on.
 ;
 ; A member name appears once. `JSON.parse` keeps the last of two values and says nothing, so a payload naming
 ; `packs` twice would read as whichever of the two lists the parser reached last while the signed bytes carry
@@ -71,6 +71,13 @@ Ashaveri-Epoch-Inventory-Protected-Header = {
 ; integer and its float imitation over as one value, and by the time a check could ask which the writer
 ; signed the question has no answer left in the data. That is the rule every other signed container in this
 ; estate states as "no floating-point number may appear", arrived at through the encoding this one uses.
+;
+; A document nests no deeper than eight levels. The layout's own deepest position is five: the document, one
+; member of `packs`, one entry, one block inside that entry, and the figure inside that block, so the three
+; levels above it are slack and not a shape this format writes. The bound is here because a payload is bytes
+; nobody believes: a reader that recursed with the file rather than with the layout would answer a document
+; nested past the reach of its own stack with a crash, where this container promises a code and a caller
+; branches on that code.
 ; ---------------------------------------------------------------------------
 
 ; The document, closed at every block, and the field order is the order a writer of this format lists them

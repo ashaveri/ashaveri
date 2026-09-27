@@ -557,6 +557,27 @@ describe('the JSON reading, where this container differs from every other signed
     );
   });
 
+  it('stops the reading at the eight levels the layout states, and holds a figure inside what it can state', () => {
+    // The cap is a rule of the format and not a parser detail: the payload is bytes nobody believes, and a
+    // scanner that recursed without a bound answers a nested document with a crash where the contract
+    // promises a code. Eight is the number the format file and the document both state, so the boundary is
+    // asked at both sides of it: a document nested to eight gets past the reading and is refused for what it
+    // says, and one nested past it never gets that far.
+    const nested = (levels: number): string => `${'['.repeat(levels)}${']'.repeat(levels)}`;
+    const read = (text: string): string =>
+      thrownCode(() => decodeEpochInventory(sealPayload(new TextEncoder().encode(text))));
+    expect(read(nested(8)), 'eight levels is the depth the format states and the reading refused').toBe(
+      'EPOCH_INVENTORY_BAD_DOCUMENT',
+    );
+    expect(read(nested(9)), 'nine levels is past the depth the format states and the reading accepted').toBe(
+      'EPOCH_INVENTORY_MALFORMED_JSON',
+    );
+    // The same reading is where a figure past what a reader holds exactly is settled: the scanner refuses the
+    // token, so no field read is ever asked to notice that the number arrived rounded.
+    expect(read(`{"v": 1, "epk": ${String(Number.MAX_SAFE_INTEGER + 2)}}`)).toBe('EPOCH_INVENTORY_MALFORMED_JSON');
+    expect(read(`{"v": 1, "epk": ${String(Number.MAX_SAFE_INTEGER)}}`)).toBe('EPOCH_INVENTORY_BAD_DOCUMENT');
+  });
+
   it('refuses a member this version does not define, at the document and inside an entry', () => {
     const cases: Array<[string, string, string]> = [
       ['a member beside the seven', '"v": 1,', '"v": 1,\n  "met": true,'],
@@ -742,6 +763,8 @@ describe('the layout: this file, the CDDL and the twin', () => {
     }
     expect(headerLabels(cddl)).toEqual([...DECLARED_EPOCH_INVENTORY_PROTECTED_LABELS].sort((a, b) => a - b));
     expect(cddl).toContain(`"${EPOCH_INVENTORY_CONTENT_TYPE}"`);
+    // The bound the scanner keeps is one the format states beside the other rules of the reading.
+    expect(cddl).toContain('A document nests no deeper than eight levels');
     // Every bound a reader enforces is one the format states, because the projection carries floors only:
     // the label this container writes is bounded by a width, and the three positions it copies are bounded by
     // nothing above the floor their own formats give them.

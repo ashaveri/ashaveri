@@ -214,7 +214,13 @@ const text = new TextEncoder();
 
 /** The widths the format writes beside each position, named once rather than per check site. */
 const SIGNATURE_BYTES = 64;
-/** The deepest path the layout has: root, one of its arrays, one entry, one block inside an entry. */
+/**
+ * How many levels of nesting the JSON reading goes to. The layout's own deepest position is five: the
+ * document, one member of `packs`, one entry, one block inside that entry, and the figure inside that block,
+ * so the slack above five is where a document that is not this layout is refused rather than walked until the
+ * reader gives out. A payload is bytes nobody believes, and a scanner that recursed without a bound would
+ * answer a hostile document with a crash standing where this format promises a code.
+ */
 const MAX_JSON_DEPTH = 8;
 
 function toHex(bytes: Uint8Array): string {
@@ -520,9 +526,15 @@ function requireLabel(value: unknown, position: string): string {
   return label;
 }
 
-/** A unix second, a count or an epoch number: a whole number no smaller than zero, and nothing else. */
+/**
+ * A unix second, a count or an epoch number: a whole number no smaller than zero, and nothing else. The two
+ * questions left to a figure by the time it reaches here are its type and its sign. Whether the token was an
+ * integer spelling at all, and whether a reader holds the value exactly, were both answered where the
+ * characters were still distinguishable, and `scanNumber` refuses them under `EPOCH_INVENTORY_MALFORMED_JSON`:
+ * nothing that passes the reading can fail them again here.
+ */
 function requireFigure(value: unknown, position: string): number {
-  if (typeof value !== 'number' || !Number.isSafeInteger(value) || value < 0) {
+  if (typeof value !== 'number' || value < 0) {
     throw badDocument(`${position} must be a whole number no smaller than zero`);
   }
   return value;

@@ -400,6 +400,7 @@ describe('docs/epoch-inventory-v1.md layout', () => {
     expect(body).toContain('signed byte for byte');
     expect(body).toContain('No member name appears twice');
     expect(body).toContain('Every number is written as an integer');
+    expect(body).toContain('Nesting stops at eight levels');
     expect(body, 'the document cites a line number, which is a fact about a file that edits itself').not.toMatch(
       /line \d+/u,
     );

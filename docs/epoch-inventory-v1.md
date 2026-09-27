@@ -63,8 +63,8 @@ claim. Its emptiness is not enforced, because enforcing it would add a refusal w
 
 ## Reading a document of this shape
 
-Two rules belong to the JSON reading rather than to any one member, and the reader enforces both while it is
-still reading characters, because afterwards there is nothing left to enforce them on.
+Three rules belong to the JSON reading rather than to any one member, and the reader enforces all three while
+it is still reading characters, because afterwards there is nothing left to enforce them on.
 
 No member name appears twice. A parser keeps the last of two values and says nothing, so a payload naming
 `packs` twice would read as whichever list the parser reached last while the signed bytes carry both. The
@@ -75,7 +75,14 @@ Every number is written as an integer, and a reader of this document holds it ex
 and `-0` are refused as spellings rather than read as the numbers they equal. That is the rule every other
 signed container in this estate states as "no floating-point number may appear", arrived at through the encoding
 this one uses, and it is the same trap: the integer and its float imitation arrive at a check as one value, and
-by then nothing can say which the issuer wrote.
+by then nothing can say which the issuer wrote. The same reading holds the figure inside the range a reader of
+this document states exactly, so a number past 2^53-1 is refused as a spelling too, and never as a field.
+
+Nesting stops at eight levels. The layout's own deepest position is five: the document, one member of `packs`,
+one entry, one block inside that entry, and the figure inside that block, so the three levels above it are
+slack rather than a shape this format writes. The bound is there because a payload is bytes nobody believes: a
+reader that recursed with the file instead of with the layout would answer a document nested past its own stack
+with a crash, where this container promises a code and a caller branches on the code.
 
 ## The document
 
@@ -216,7 +223,7 @@ file states the whole set this container can answer with.
 | `NOT_COSE_SIGN1` | The top-level value is not the tagged four-element structure |
 | `UNSUPPORTED_ALG` | The header's `alg` is not an integer, or is not EdDSA |
 | `EPOCH_INVENTORY_BAD_HEADER` | The signed header is not a map, does not decode under this format's rule for it, carries a label outside the three, or names a content type that is not an inventory |
-| `EPOCH_INVENTORY_MALFORMED_JSON` | The payload is not one JSON document of the shapes this layout writes: not UTF-8, not parseable, more than one value, a member name stated twice, or a number written other than as an integer |
+| `EPOCH_INVENTORY_MALFORMED_JSON` | The payload is not one JSON document of the shapes this layout writes: not UTF-8, not parseable, more than one value, a member name stated twice, a number written other than as an integer or past what a reader of this document holds exactly, or nesting past the eight levels the reading goes to |
 | `EPOCH_INVENTORY_UNSUPPORTED_VERSION` | The document declares a version no format has used |
 | `EPOCH_INVENTORY_BAD_DOCUMENT` | A member is absent, undefined at this version, of the wrong type or width, negative, a path of another shape, a label that cannot be printed, or a pack list with nothing in it |
 | `EPOCH_INVENTORY_DUPLICATE_PACK` | Two entries answer to one pack digest, which is the same pack counted twice |
