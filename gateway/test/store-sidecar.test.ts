@@ -34,6 +34,8 @@ const OTHER_RECEIPT = Uint8Array.from(Array.from({ length: 48 }, (_, i) => (i * 
 const FOREIGN = Uint8Array.from(RECEIPT, (byte) => (byte + 1) % 256);
 const STAMP = 1_780_000_000;
 const IDS = ['rcpt_01', 'rcpt_02', 'rcpt_03'];
+/** A bounded store's configuration, and the one period every case below states in its records. */
+const BOUNDED: ReceiptRecordKind = { kind: 'bounded', boundSeconds: 300 };
 /**
  * The two receipt kind bytes, spelled out of the framing rather than imported from the store, the same
  * way this file reads the frame and sidecar layouts from its own second copy of them.
@@ -389,6 +391,46 @@ describe('the store file is the only authority', () => {
       expect(await answer(dir, back)).toBe(await answer(dir, { ...back, declined: true }));
       expect(JSON.parse(await answer(dir, back)).window.count).toBe(4);
       expect(JSON.parse(await answer(dir, back)).asked.aged).toBe(hex(RECEIPT));
+    },
+  );
+
+  it(
+    'hands a bounded store back its receipts whole from an index it believes',
+    { timeout: CASE_TIMEOUT },
+    async () => {
+      // The other half of the one-kind rule. A refusal is one answer a kind declaration gets; this is the
+      // answer it gets when the opening goes ahead: every receipt behind the checkpoint is then read from
+      // a location the index supplied rather than one a scan derived, and an entry carries a payload's
+      // width without carrying a kind, so the four period bytes have to be stepped past off the header's
+      // declaration alone. Step that wrong and the store serves a receipt with its own period in front of
+      // it, or four bytes short of itself, and the guard that hashes each served frame never notices,
+      // because the frame is intact and only the slice taken out of it is not.
+      const dir = await emptyDir();
+      await fileWith(dir, IDS, RECEIPT, false, BOUNDED);
+      const sidecar = readSidecar(await sidecarBytes(dir));
+      expect(sidecar.recordKind).toBe(BOUNDED_RECORD_KIND);
+      expect(sidecar.entries.map((entry) => entry.id)).toEqual(IDS);
+      // The index speaks for every byte of the file, which is what makes the opening below believe it
+      // rather than read the records it is answering from.
+      const file = await readFile(storeFile(dir));
+      const lastEntry = sidecar.entries[sidecar.entries.length - 1]!;
+      expect(endOfRecord(lastEntry.recordStart, lastEntry.id, lastEntry.payloadLen)).toBe(file.length);
+
+      const asking = { receiptKind: BOUNDED, ids: IDS };
+      const report = JSON.parse(await answer(dir, asking)) as {
+        refused: string | null;
+        asked: Record<string, string>;
+        walked: { id: string; receipt: string }[];
+      };
+      expect(report.refused).toBeNull();
+      for (const id of IDS) expect(report.asked[id], id).toBe(hex(RECEIPT));
+      expect(report.walked.map((item) => `${item.id}:${item.receipt}`)).toEqual(
+        IDS.map((id) => `${id}:${hex(RECEIPT)}`),
+      );
+      // And an opening that re-derives every record from the file answers the same, which is the claim
+      // this file is written around: the receipts came from the file either way, and only the route to
+      // their bytes differed.
+      expect(await answer(dir, asking)).toBe(await answer(dir, { ...asking, declined: true }));
     },
   );
 });
@@ -833,8 +875,6 @@ describe('the sidecar is maintained by an append, not rebuilt', () => {
  * file, and for the ones the index speaks for, which the header declares.
  */
 describe('a checkpointed opening refuses a log of the kind it does not write', () => {
-  const BOUNDED: ReceiptRecordKind = { kind: 'bounded', boundSeconds: 300 };
-
   /**
    * The frames of a file written by a store of the kind named, taken out of a directory of its own so a
    * case can append them somewhere else. A foreign record is a record some store sealed, not a shape a

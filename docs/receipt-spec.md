@@ -697,12 +697,14 @@ within the bounded payload, counting from that payload's first byte:
 
 `boundSeconds` is the period the record states, an unsigned whole number of seconds between 1 and
 4294967295, and `receipt` runs from byte 4 of the payload to its last byte: the receipt itself, stored
-whole and opaque exactly as in a kind 0 record. A store refuses to open with a period its own durability
-window already achieves, so the field never states a bound the file would not have kept anyway; and it is
-a statement about the record, not a rule the store acts on, because retirement drops a prefix at the
-durability bound and reads no period off a record. Which records a deployment writes as `bounded`, and
-which as `receipt`, is its own configuration, and `DEFAULT_RECEIPT_RECORD_KIND` in
-[configured-values.md](configured-values.md) names the kind a deployment that named none writes. A trim
+whole and opaque exactly as in a kind 0 record. A store refuses to open with a period at or above its own
+durability window, because that window is what retires the record, so the file drops the record no later
+than the instant its own period says it should still be kept and a bound stated that way could never be
+seen to bind; and the period is a statement the record carries about the deployment that wrote it, not a
+rule the store acts on, because retirement drops a prefix at the durability bound and reads no period off a
+record. Which records a deployment writes as `bounded`, and which as `receipt`, is its own configuration,
+and `DEFAULT_RECEIPT_RECORD_KIND` in [configured-values.md](configured-values.md) names the kind a
+deployment that named none writes. A trim
 is the record the store writes at the very front of the file when retention reclaims a retired prefix. It
 carries no receipt, so its `id` is empty, and its payload is a second fixed layout:
 

@@ -89,6 +89,26 @@ function frameDigest(frame: Buffer): Uint8Array {
   return sha256(frame.subarray(4, frame.length - 32));
 }
 
+/**
+ * One record written straight out of the framing, with the `kind` byte and the payload a store never
+ * appends, sealed over its own bytes. A case that needs a frame no writer produces has to hand-seal it,
+ * because a store that would write such a record is a store that reads one back without objecting.
+ */
+function handSealedFrame(kind: number, prev: Uint8Array, iat: number, id: string, payload: Buffer): Buffer {
+  const idBytes = Buffer.from(id, 'utf8');
+  const body = Buffer.alloc(1 + 32 + 8 + 2 + idBytes.length + payload.length);
+  body.writeUInt8(kind, 0);
+  Buffer.from(prev).copy(body, 1);
+  body.writeBigUInt64BE(BigInt(iat), 33);
+  body.writeUInt16BE(idBytes.length, 41);
+  idBytes.copy(body, 43);
+  payload.copy(body, 43 + idBytes.length);
+  const digest = Buffer.from(sha256(body));
+  const prefix = Buffer.alloc(4);
+  prefix.writeUInt32BE(body.length + digest.length);
+  return Buffer.concat([prefix, body, digest]);
+}
+
 /** A trim record's report, read out of the payload at the offsets the layout states. */
 function readTrimReport(payload: Buffer): {
   seam: Buffer;
@@ -643,6 +663,53 @@ describe('one record kind per store', () => {
     });
   });
 
+  it('refuses a bounded record whose payload is shorter than the period its kind states', async () => {
+    // Every check that reads this frame's shape passes: its length, its digest and its link are its own.
+    // What cannot be read out of it is its receipt, because the kind byte says a 4 byte period sits at
+    // the front of a payload with room for 2 bytes in it. Past that answer the store would place the
+    // receipt four bytes behind the payload's start and hand back nothing.
+    const BOUNDED_KIND_BYTE = 2;
+    const stubPayload = Buffer.from(RECEIPT.subarray(0, 2));
+    const dir = await emptyDir();
+    const store = await openFileReceiptStore({ dir, receiptKind: BOUNDED });
+    await store.put('rcpt_01', RECEIPT, 1_780_000_000);
+    const log = await readFile(join(dir, RECEIPT_STORE_FILE));
+    const last = frames(log).at(-1)!;
+    const truncated = handSealedFrame(
+      BOUNDED_KIND_BYTE,
+      last.subarray(last.length - 32),
+      1_780_000_060,
+      'rcpt_no_period_room',
+      stubPayload,
+    );
+    await writeFile(join(dir, RECEIPT_STORE_FILE), Buffer.concat([log, truncated]));
+
+    const opened = openFileReceiptStore({ dir, receiptKind: BOUNDED });
+    await expect(opened).rejects.toMatchObject({ code: 'STORE_CHAIN_BROKEN' });
+    await opened.catch((error: unknown) => {
+      const message = (error as Error).message;
+      expect(message).toContain(`at byte ${String(log.length)}`);
+      expect(message).toContain('carries 2 payload bytes, which is fewer than the 4 its own period needs');
+    });
+
+    // How wide a payload has to be comes off the record's own kind byte rather than off the
+    // configuration, so a store running the other kind answers the same bytes with the same refusal and
+    // never reaches the kind question: a frame lying about itself is settled before whose log it is.
+    const foreignDir = await emptyDir();
+    await writeFile(
+      join(foreignDir, RECEIPT_STORE_FILE),
+      handSealedFrame(BOUNDED_KIND_BYTE, ZERO_HEAD, 1_780_000_000, 'rcpt_no_period_room', stubPayload),
+    );
+    const foreign = openFileReceiptStore({ dir: foreignDir });
+    await expect(foreign).rejects.toMatchObject({ code: 'STORE_CHAIN_BROKEN' });
+    await foreign.catch((error: unknown) => {
+      expect((error as Error).message).toContain('carries 2 payload bytes, which is fewer than the 4 its own period needs');
+    });
+
+    // And refusing leaves the bytes on the volume, as every other chain refusal does.
+    expect(await readFile(join(dir, RECEIPT_STORE_FILE))).toEqual(Buffer.concat([log, truncated]));
+  });
+
   it('reads a run of trim records as the store\'s own bookkeeping and not as a second kind', async () => {
     // Two retirements and one receipt, which is one kind of receipt record. The refusal below is raised
     // at the receipt and not at the run in front of it, which is the difference between a rule about
@@ -678,11 +745,12 @@ describe('one record kind per store', () => {
     }
   });
 
-  it('refuses a bound the store\'s own window already satisfies', async () => {
+  it('refuses a bound at or above the store\'s own durability window', async () => {
     const dir = await emptyDir();
-    // Equal to the window, and longer than it: in both cases the window is what retires the record, so
-    // the period in the record states nothing the file does not already do, and honouring it would widen
-    // the window the deployment declared to fit a bound nobody asked the store to enforce.
+    // Equal to the window, and longer than it: the window is what retires the record, so in both cases
+    // the file drops the record no later than the instant its own period says to keep it, and the stated
+    // bound could never be seen to bind. Honouring it as written would widen the window the deployment
+    // declared to fit a bound nobody asked the store to enforce.
     for (const boundSeconds of [100, 101, 86_400]) {
       await expect(
         openFileReceiptStore({ dir, retention: { maxAgeSeconds: 100 }, receiptKind: { kind: 'bounded', boundSeconds } }),

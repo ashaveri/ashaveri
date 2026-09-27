@@ -60,6 +60,11 @@ export function literalEntries(name: string, file: string): LiteralEntry[] {
  * The rows below one table header, as trimmed cells including the leading empty one. The header has
  * to appear exactly once: a document that grew a second copy of a table would otherwise have its
  * rows read out of whichever one came first.
+ *
+ * A table ends at a blank line, and so does the reading here. What is refused rather than skipped is a
+ * line inside a table that carries no pipe: markdown closes the table at it and renders the rest as a
+ * paragraph, and a reader that stopped there would hand back the rows above the break as if the table
+ * still had them all.
  */
 export function tableRows(markdown: string, header: string): string[][] {
   const lines = markdown.split('\n');
@@ -71,7 +76,11 @@ export function tableRows(markdown: string, header: string): string[][] {
   for (const line of lines.slice(headers[0]! + 1)) {
     if (!line.startsWith('| `')) {
       if (line.startsWith('|---')) continue;
-      break;
+      if (line.trim().length === 0 || line.startsWith('|')) break;
+      throw new Error(
+        `a table row runs onto the line ${JSON.stringify(line.slice(0, 60))}, which ends the table: ` +
+          'one row per physical line, or the rows behind it render outside the table and no reader reaches them',
+      );
     }
     rows.push(line.split('|').map((cell) => cell.trim()));
   }

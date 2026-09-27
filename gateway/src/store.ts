@@ -417,12 +417,18 @@ export const MINIMUM_RETENTION_SECONDS = 184 * 24 * 60 * 60;
  * rather than a manifest. The field is a record's own width in the file, so a store cannot state a
  * period on one receipt and not another: the kind is a property of the log and is chosen once.
  *
- * A period is an upper bound on how long the record is kept, and it is written rather than enforced
- * here: retirement reads `ReceiptRetention` and nothing else, so a bounded record states the bound its
- * own deployment declared for it. `openFileReceiptStore` and `openMemoryReceiptStore` refuse a period
- * that states nothing their durability bound has not already achieved, because a bound the store's
- * window already satisfies is a byte a reader would have to weigh against a number that decides the
- * same question, and the pair would then disagree in silence.
+ * What a bounded record's period says today is what the deployment that wrote the record states it is
+ * kept for, written where whoever holds one record and no manifest can read it. Nothing acts on it:
+ * retirement reads `ReceiptRetention` and no period off a record, and the pairing refused below accepts
+ * only a period the store's own window outruns, so every configuration that opens keeps a bounded record
+ * at least as long again as that record says it is kept. The field is a statement the record carries
+ * about its deployment, which is what a later reader of a lone record has to be able to recover, and not
+ * a limit this store applies to anything.
+ *
+ * `openFileReceiptStore` and `openMemoryReceiptStore` refuse a period at or above their durability
+ * window because the window is what retires the record, so a bound stated at or above it could never be
+ * seen to bind: it would be a byte a reader weighs against a number that decides the same question, and
+ * the pair would then disagree in silence.
  */
 export type ReceiptRecordKind =
   | { readonly kind: 'receipt' }
@@ -555,10 +561,11 @@ function windowClaim(source: TimeSource, iat: number, from: number, to: number):
  * stops being readable off the artifact.
  * `RECORD_BOUND_OUT_OF_RANGE` and `RECORD_BOUND_REDUNDANT` are both about the one number a bounded
  * record states, and they are kept apart because the operator's fix is different for each: one is a
- * number no 4 byte field can hold, the other is a number the store's own window already achieves, so
- * nothing about the file would change if it were written down. The first is refused for the same reason
- * `RECORD_STAMP_OUT_OF_RANGE` is: a value the layout cannot state is not a value the store can be
- * believed for, and a saturating write would publish a period nobody chose.
+ * number no 4 byte field can hold, the other is a number at or above the store's own durability window,
+ * which is what retires the record, so the file drops it no later than the instant the record claims to
+ * still be kept and a bound stated that way could never be seen to bind. The first is refused for the
+ * same reason `RECORD_STAMP_OUT_OF_RANGE` is: a value the layout cannot state is not a value the store
+ * can be believed for, and a saturating write would publish a period nobody chose.
  */
 export type StoreErrorCode =
   | 'STORE_CHAIN_BROKEN'
@@ -736,12 +743,13 @@ function receiptPayload(receipt: Uint8Array, kind: ReceiptRecordKind): Buffer {
  * reach, or not a whole number of seconds, is a number the layout cannot carry: written as a saturating
  * counter it would state a period nobody chose, and left to `writeUInt32BE` it would surface as a Buffer
  * range error from inside an append, which is the same failure a stamp already refuses by name. And a
- * period the store's own durability window already achieves is a statement that changes nothing about
- * what the file keeps: retirement acts on `maxAgeSeconds`, so a record claiming to be kept for at least
- * as long again is either a bound that never binds or a window the deployment did not declare. Refusing
- * keeps the two readings apart rather than letting a reader widen the window to fit the record.
+ * period at or above the store's own durability window states a bound that could never be reached:
+ * retirement acts on `maxAgeSeconds`, so the window ends a record's life at or before the instant the
+ * record says it should still be kept, and what is left is a bound nothing can test rather than a
+ * statement about the file. Refusing keeps the two readings apart rather than letting a reader widen the
+ * window to fit the record.
  *
- * A store with no durability period configured has no window to be satisfied by, so any period the
+ * A store with no durability period configured has no window for a period to reach, so any period the
  * field can hold is the whole of the retention statement that record carries.
  */
 function assertReceiptKind(kind: ReceiptRecordKind, retention: ReceiptRetention | undefined): void {
@@ -762,10 +770,11 @@ function assertReceiptKind(kind: ReceiptRecordKind, retention: ReceiptRetention 
   }
   throw new StoreError(
     'RECORD_BOUND_REDUNDANT',
-    `a per-record retention bound of ${String(boundSeconds)} seconds states nothing this store's durability ` +
-      `window of ${String(maxAgeSeconds)} seconds has not already achieved, so the bound would never bind: ` +
-      `retirement drops a prefix at the window and reads no period off a record. Raise the window above the ` +
-      `bound, set a bound below it, or run the receipt kind that states none`,
+    `a per-record retention bound of ${String(boundSeconds)} seconds sits at or above this store's ` +
+      `durability window of ${String(maxAgeSeconds)} seconds, so the window retires the record first ` +
+      `and the period could never bind: retirement drops a prefix at the window and reads no period off ` +
+      `a record. Raise the window above the bound, set a bound below it, or run the receipt kind that ` +
+      `states none`,
   );
 }
 

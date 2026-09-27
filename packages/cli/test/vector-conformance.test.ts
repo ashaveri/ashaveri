@@ -623,6 +623,13 @@ describe('the receipt store chain refusals through the store reader', () => {
       chain.refusals.filter((refusal) => refusal.openedWith !== undefined).length,
       'no published refusal is given by a store configured for the kind its image is not',
     ).toBeGreaterThanOrEqual(1);
+    // And the other half, which the first half cannot say on its own: a suite that grew a configuration
+    // for every row would stop reading any image as the default store reads it, and the published files
+    // every one of them is made of would be replayed under a configuration none of them was written by.
+    expect(
+      chain.refusals.filter((refusal) => refusal.openedWith === undefined).length,
+      'every published refusal now names a configuration, so no image is read the way a deployment that configured nothing reads it',
+    ).toBeGreaterThanOrEqual(1);
     for (const [index, refusal] of chain.refusals.entries()) {
       const dir = mkdtempSync(join(tempDir, `chain-${String(index)}-`));
       writeFileSync(join(dir, RECEIPT_STORE_FILE), bytes(refusal.imageBase64Url));
