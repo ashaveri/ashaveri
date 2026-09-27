@@ -4,7 +4,7 @@ import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { toBase64Url, toHex } from '@ashaveri/receipt';
-import { openFileReceiptStore, RECEIPT_STORE_FILE, type ReceiptRetention } from '@ashaveri/signerd';
+import { openFileReceiptStore, RECEIPT_STORE_FILE, type ReceiptRecordKind, type ReceiptRetention } from '@ashaveri/signerd';
 import { labeled } from './seed.ts';
 
 const DATA = join(dirname(fileURLToPath(import.meta.url)), '..', 'data');
@@ -19,6 +19,17 @@ const DIGEST_BYTES = 32;
 const HEADER_BYTES = KIND_BYTES + PREV_BYTES + IAT_BYTES + ID_LENGTH_BYTES;
 /** The instant every scenario is written at, and the instant its retention is measured from. */
 const CLOCK = 1_772_000_000;
+
+/**
+ * The second receipt kind, and the period its records state.
+ *
+ * The images published for this kind are published as bytes a store of that kind sealed, because a
+ * refusal is only a reading of a layout if the bytes it objects to came out of a writer. The period is
+ * a stand-in of the same order as the 64 byte payload stand-in below: these vectors state where the
+ * field sits and how it is read, and nothing in a chain digest depends on the number it holds.
+ */
+const BOUND_SECONDS = 300;
+const BOUNDED: ReceiptRecordKind = { kind: 'bounded', boundSeconds: BOUND_SECONDS };
 
 const receiptId = (label: string): string => toHex(labeled(`ashaveri-chain-v1/id/${label}`, 24));
 /**
@@ -204,11 +215,18 @@ async function runScenario(scenario: Scenario): Promise<Record<string, unknown>>
 }
 
 /** The refusal an image earns when it is opened, stated exactly as the reader words it. */
-async function refusalOf(image: Uint8Array, name: string): Promise<{ code: string; message: string }> {
+async function refusalOf(
+  image: Uint8Array,
+  name: string,
+  openedWith: ReceiptRecordKind | undefined,
+): Promise<{ code: string; message: string }> {
   return inStore(async (dir) => {
     await writeFile(join(dir, RECEIPT_STORE_FILE), image);
     try {
-      await openFileReceiptStore({ dir });
+      await openFileReceiptStore({
+        dir,
+        ...(openedWith === undefined ? {} : { receiptKind: openedWith }),
+      });
     } catch (error) {
       const code = (error as { code?: unknown }).code;
       if (!(error instanceof Error) || typeof code !== 'string') {
@@ -217,6 +235,23 @@ async function refusalOf(image: Uint8Array, name: string): Promise<{ code: strin
       return { code, message: error.message };
     }
     throw new Error(`${name} is published as a refusal and opened without refusing`);
+  });
+}
+
+/**
+ * The frames a store of the given kind sealed, one per label, in a directory of its own.
+ *
+ * A published refusal for the second receipt kind has to object to bytes some writer produced rather
+ * than to a shape drawn here: the layout the reader under test refuses is the layout a bounded store
+ * puts on a volume, period, ids, stamps and digest included.
+ */
+async function sealedFrames(kind: ReceiptRecordKind, labels: readonly string[]): Promise<Uint8Array[]> {
+  return inStore(async (dir) => {
+    const store = await openFileReceiptStore({ dir, receiptKind: kind });
+    for (const [index, label] of labels.entries()) {
+      await store.put(receiptId(label), storedBytes(label), CLOCK + index);
+    }
+    return decodeFrames(new Uint8Array(await readFile(join(dir, RECEIPT_STORE_FILE)))).map((each) => each.frame);
   });
 }
 
@@ -298,7 +333,20 @@ async function main(): Promise<void> {
   });
 
   const refusals: Record<string, unknown>[] = [];
-  const cases: readonly { image: Uint8Array; name: string; note: string; tamper: Record<string, unknown> }[] = [
+  // The record the mixture below appends, sealed by a store that writes the bounded kind, so the refusal
+  // is read off bytes a writer made rather than off a drawing of them. Its id is the label's own, which
+  // is the id the published message has to name.
+  const boundedId = receiptId('bounded-refusal');
+  const boundedFrame = (await sealedFrames(BOUNDED, ['bounded-refusal']))[0];
+  if (boundedFrame === undefined) throw new Error('a bounded store sealed no record to publish as a refusal');
+  const cases: readonly {
+    image: Uint8Array;
+    name: string;
+    note: string;
+    tamper: Record<string, unknown>;
+    /** The receipt kind the opening writes, which is the receipt kind unless the row says otherwise. */
+    openedWith?: ReceiptRecordKind;
+  }[] = [
     {
       name: 'tampered-record-byte',
       note: 'One bit flipped inside a record payload. The record still states its own length and names the right predecessor; only its digest over its own bytes stops matching, and that is what a reader checks.',
@@ -327,6 +375,19 @@ async function main(): Promise<void> {
         return new Uint8Array(out);
       })(),
     },
+    {
+      name: 'bounded-record-in-a-receipt-log',
+      note: 'The one-record image of a store that writes the receipt kind, with one bounded record appended behind it: a log holding receipt records of both kinds. The record the store writes is of the kind the opening runs, so the refusal is given for the record appended behind it, named by its id and by the byte its frame starts at. The appended record is whole and self-verifying by its own digest, and its predecessor slot names a chain it is not part of: the kind is answered before the link, because a record of a kind this store does not write has no predecessor anything can interpret, and a reader that checked the link first would report a broken chain for a file nothing edited.',
+      tamper: { of: 'first-record', appendedBoundedFrameSealedFor: boundedId, boundSeconds: BOUND_SECONDS },
+      image: new Uint8Array(Buffer.concat([Buffer.from(firstRecord), Buffer.from(boundedFrame)])),
+    },
+    {
+      name: 'receipt-log-opened-as-bounded',
+      note: 'The two-record image of a store that writes the receipt kind, byte for byte as that store wrote it, read by an opening configured for the bounded kind. Nothing is appended, edited or missing: the disagreement is between the file and the configuration, and it shows at the first record the reader meets, so the id the refusal names is the oldest receipt in the file. One log holds receipt records of one kind, so a store cannot serve a bounded record it did not write any more than it can serve an unbounded one it did.',
+      tamper: { of: 'two-records', openedUnderTheBoundedKind: true },
+      image: twoRecords,
+      openedWith: BOUNDED,
+    },
   ];
   for (const each of cases) {
     refusals.push({
@@ -335,7 +396,8 @@ async function main(): Promise<void> {
       tamper: each.tamper,
       imageBase64Url: toBase64Url(each.image),
       imageByteLength: each.image.length,
-      ...(await refusalOf(each.image, each.name)),
+      ...(each.openedWith === undefined ? {} : { openedWith: each.openedWith }),
+      ...(await refusalOf(each.image, each.name, each.openedWith)),
     });
   }
 
@@ -345,7 +407,7 @@ async function main(): Promise<void> {
       {
         version: 1,
         description:
-          'The receipt store record format, published as file images a gateway store wrote and the state a reader derives from them. Each scenario names the writes it performed and states what the file held afterwards byte for byte, alongside the head, the served set and the retention state a reader reports for it. Every image here came out of the store rather than out of a description of it, and a scenario is one directory whose chain lives in one file named receipts.log. A default store also writes a disposable receipts.log.index beside that file, holding record positions and a checkpoint so an opening need not re-walk bytes it has already verified; it is rebuilt from the log at any disagreement, it carries no byte of the chain, and no scenario publishes it.',
+          'The receipt store record format, published as file images a gateway store wrote and the state a reader derives from them. Each scenario names the writes it performed and states what the file held afterwards byte for byte, alongside the head, the served set and the retention state a reader reports for it. Every image here came out of the store rather than out of a description of it, and a scenario is one directory whose chain lives in one file named receipts.log. A store appends receipt records of one kind per file, the receipt kind or the bounded kind, and a refusal row states the kind its image is read under wherever that is not the receipt kind. A default store also writes a disposable receipts.log.index beside that file, holding record positions and a checkpoint so an opening need not re-walk bytes it has already verified; it is rebuilt from the log at any disagreement, it carries no byte of the chain, and no scenario publishes it.',
         layout: {
           file: RECEIPT_STORE_FILE,
           record: 'len:u32 || kind:u8 || prev:32 || iat:u64 || idLen:u16 || id || payload || digest:32',
@@ -353,9 +415,10 @@ async function main(): Promise<void> {
           digestInput: 'kind through payload, that is every byte between the length prefix and the digest',
           digest: 'sha256 of that input',
           integers: 'unsigned, big-endian',
-          kinds: { receipt: 0, trim: 1 },
+          kinds: { receipt: 0, trim: 1, bounded: 2 },
           receiptPayload:
             'the receipt bytes, stored unaltered and opaque to the chain. These vectors carry a 64 byte stand-in rather than a signed receipt, because nothing in a record digest depends on what the payload holds.',
+          boundedPayload: 'boundSeconds:u32 || receipt',
           trimPayload: 'seam:32 || byAge:u32 || byCount:u32 || maxAgeSeconds:u32 || maxCount:u32',
           notes: [
             'A receipt record names the digest of the record before it in the chain, and the first record of an empty file names thirty-two zero bytes.',
@@ -365,6 +428,8 @@ async function main(): Promise<void> {
             'A partial record at the tail is an append that never finished: a reader takes it back off the file and opens the rest, and nothing can sit behind it because it was never written.',
             'Deleting a record from the middle of a chain, or editing one, is refused rather than worked around, and the refusal names the byte offset it stopped at.',
             'Each record states the offset its frame starts at, counted in bytes from the first byte of the file image, beside the frame, so a difference localizes to a record without adding up the lengths of everything ahead of it.',
+            'A store writes receipt records of one kind per file, and one kind per opening: the receipt kind, whose payload is the receipt bytes, or the bounded kind, whose payload states a retention period ahead of them inside the digest the chain folds. A log holding both has no single reading, because the receipt sits four bytes further back in a bounded record than it does in an unbounded one.',
+            'A bounded log and a receipt log differ only in what sits between the id and the receipt bytes, so a file of the kind an opening does not write is refused for the first record it meets, named by id and byte, and the refusal arrives before any predecessor link is read. Trim records are neither kind: they are the store bookkeeping a retired prefix, they address no receipt, and a run of them ahead of the receipts of either kind is one kind of receipt record.',
           ],
         },
         scenarios,

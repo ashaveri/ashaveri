@@ -622,8 +622,11 @@ and those two disagree, the vector file and the store are the authority, not thi
 That file is the chain's only authority and every image below is a `receipts.log` image. A default store
 keeps a second file beside it, `receipts.log.index` (`RECEIPT_SIDECAR_FILE` in the same module), holding
 each record's position and digest with a checkpoint naming how much of the log it speaks for, so that an
-opening reads the tail it has not seen instead of re-walking the bytes it has. That second file is an
-accelerator and nothing more: it is accepted only where it ties back to the log, which the opening checks
+opening reads the tail it has not seen instead of re-walking the bytes it has. Its header also names which
+receipt kind the records under it are, because an entry states a payload's width and nothing about the
+kind that width belongs to, and an index taken for records of the other kind would shave four bytes off
+every receipt served from it. That second file is an accelerator and nothing more: it is accepted only
+where it ties back to the log, which the opening checks
 by reading the prefix's trim records from the log and hashing the record the checkpoint ends on as though
 it were about to serve it, and it is discarded and rewritten from the log at any disagreement. It can be
 declined outright by `sidecarIndex: false`, and no byte of it enters the framing below.
@@ -656,8 +659,8 @@ widths are what they are. `id` starts at byte 47, one past `idLen`, and runs for
 to the byte before the digest, and `digest` is always the frame's final 32 bytes. `len` counts from
 `kind` through `digest` inclusive, which is the whole frame minus the 4 bytes of `len` itself, so a
 reader locates the end of a record by adding `len` to the offset `len` starts at rather than by reading
-the payload. Every integer in a frame (`len`, `kind`, `iat`, `idLen`, and the trim counters below) is
-unsigned and stored big-endian.
+the payload. Every integer in a frame (`len`, `kind`, `iat`, `idLen`, and the counters inside the two
+payload layouts below) is unsigned and stored big-endian.
 
 **Why the digest covers less than the frame.** `digest` is `sha256` over every byte between the length
 prefix and the digest: `kind` through `payload`, bytes 4 through 158 of the record above, 155 bytes, or
@@ -669,17 +672,39 @@ and the 36-byte gap between the frame and the hashed input is the 4 length bytes
 bytes. A reader who hashed the whole frame, length prefix and digest included, would recompute a value
 no record carries and refuse a file the store wrote correctly.
 
-**Kinds.** `kind` takes one of two values, and they decide how the rest of the frame reads:
+**Kinds.** `kind` takes one of three values, and they decide how the rest of the frame reads:
 
 | Record kind | Byte value |
 |---|---|
 | `receipt` | 0 |
 | `trim` | 1 |
+| `bounded` | 2 |
 
 A receipt's `payload` is the signed receipt bytes, stored whole and opaque to the chain; nothing in a
-record digest depends on what they hold. A trim is the record the store writes at the very front of the
-file when retention reclaims a retired prefix. It carries no receipt, so its `id` is empty, and its
-payload is a second fixed layout:
+record digest depends on what they hold. A `bounded` record's `payload` is the same receipt bytes with
+one field in front of them, so a reader holding one record can say how long that record is kept without
+asking the deployment:
+
+```text
+boundSeconds:u32 || receipt
+```
+
+within the bounded payload, counting from that payload's first byte:
+
+| Field | Byte offset in the bounded payload | Width |
+|---|---|---|
+| `boundSeconds` | 0-3 | 4 |
+
+`boundSeconds` is the period the record states, an unsigned whole number of seconds between 1 and
+4294967295, and `receipt` runs from byte 4 of the payload to its last byte: the receipt itself, stored
+whole and opaque exactly as in a kind 0 record. A store refuses to open with a period its own durability
+window already achieves, so the field never states a bound the file would not have kept anyway; and it is
+a statement about the record, not a rule the store acts on, because retirement drops a prefix at the
+durability bound and reads no period off a record. Which records a deployment writes as `bounded`, and
+which as `receipt`, is its own configuration, and `DEFAULT_RECEIPT_RECORD_KIND` in
+[configured-values.md](configured-values.md) names the kind a deployment that named none writes. A trim
+is the record the store writes at the very front of the file when retention reclaims a retired prefix. It
+carries no receipt, so its `id` is empty, and its payload is a second fixed layout:
 
 ```text
 seam:32 || byAge:u32 || byCount:u32 || maxAgeSeconds:u32 || maxCount:u32
@@ -699,6 +724,24 @@ A bound of zero in a trim states that no such bound was configured, which a read
 from a bound of one. A trim is not a link in the receipt chain: it precedes every receipt in the file
 and nowhere else, and a reader folding one into a recomputation as if it were a receipt has misread the
 frame, not found a broken chain.
+
+**One kind of receipt record per log.** The two receipt kinds put the receipt at different places in the
+same frame: a `bounded` record's receipt begins four bytes behind where a `receipt` record's begins, and
+those four bytes are inside the digest the chain folds. One file holding both therefore has no single
+reading: which offset a record's receipt sits at, and how long that record says it is kept, would depend
+on which record a reader picked up. So a store's log holds receipt records of one kind, chosen when the
+store opens and stated in every record it appends, and an opening that meets a receipt record of the
+other kind refuses with `STORE_RECEIPT_KIND_MISMATCH`, naming that record's id and the byte its frame
+starts at, which is where the disagreement first shows. The kind is settled before the predecessor link
+is checked, because a record of the kind this store does not run has no predecessor anything can
+interpret, and an operator told the file is broken would hunt for an edit that never happened. A `trim`
+is not one of the two receipt kinds and never makes a mixture, and no rule about kinds turns on the
+order a scan met its records: a store reading a run of trims ahead of its receipts is reading one kind of
+receipt record, because a trim is this store's own bookkeeping about a prefix it retired and it addresses
+no receipt. A `kind` byte outside the three values above is refused the same way, since nothing in this
+layout states what such a record's payload holds. A record's own digest is read before its kind, so a
+kind byte edited into a record stops at that record's digest, and an unreadable kind is
+refused only where the frame tells the truth about itself.
 
 **Walking from an anchor to a head.** Recomputation runs forward, from an anchor to a head, and the
 per-record digest is what makes each step checkable:
@@ -784,9 +827,10 @@ unfinished record (the walk's stop in `gateway/src/store.ts`, and the `partial-t
 `chain-v1.json`). A short read behind a length that does not lie about its own size is the different
 case: that is a refusal, not a short file.
 
-**The refusals a reader reproduces.** A chain that cannot be read raises one code, `STORE_CHAIN_BROKEN`,
-and names the byte offset it stopped at (`StoreErrorCode` in `gateway/src/store.ts`). Four images in
-`chain-v1.json` show four distinct ways that happens, and a reader is expected to reproduce all four:
+**The refusals a reader reproduces.** Two refusals come off the bytes, and each names the byte offset it
+stopped at (`StoreErrorCode` in `gateway/src/store.ts`). A chain that cannot be read raises
+`STORE_CHAIN_BROKEN`. Four images in `chain-v1.json` show four distinct ways that happens, and a reader is
+expected to reproduce all four:
 
 - `tampered-record-byte`: one bit flipped inside a receipt's payload. The frame still states its own
   length and names the right predecessor; only its digest over its own bytes stops matching, and that
@@ -797,6 +841,19 @@ and names the byte offset it stopped at (`StoreErrorCode` in `gateway/src/store.
   if it were intended, refused on that alone.
 - `frame-length-too-short`: a `len` claiming fewer bytes than the header needs, so the reader stops at
   the size and never reaches the digest.
+
+A log holding a receipt record of the kind the store does not write raises the second of the two codes,
+`STORE_RECEIPT_KIND_MISMATCH`, and names the record's id beside its byte, because the mixture is a fact
+about one record and an operator has to be told which one the file does not run. Two images in
+`chain-v1.json` show the two ways a reading can disagree with a file, each row stating the receipt kind
+its opening writes: `bounded-record-in-a-receipt-log` is an unbounded file with one bounded record
+appended behind it, refused for that appended record, and `receipt-log-opened-as-bounded` is a published
+unbounded file, byte for byte as the store that wrote it left it, read by an opening configured for the
+bounded kind and refused at its first record. The first is two files' bytes concatenated, so the record it
+names also carries a `prev` slot pointing at a chain it is not part of: the kind is answered first, and a
+reader that checked the predecessor link first would report a broken chain for a file nothing edited. The
+second states that the refusal is about the reading rather than the bytes, because nothing in it was
+touched.
 
 ### 5.3 Retention manifest layout
 

@@ -113,11 +113,17 @@ specific to that case.
   chain state) against what the file states. The `records` table beside each image decomposes it
   into fields with their offsets. Each row states the byte its frame starts at and that frame's
   whole length, so a difference localizes to a width, an endianness or a coverage rule rather than
-  to a whole file. `refusals` are images no writer produced: one bit flipped in a payload, a record
+  to a whole file. `refusals` are images a reader objects to: one bit flipped in a payload, a record
   lifted out of the middle, a retirement written behind a receipt, and a frame lying about its
-  length. Each carries the refusal the reader gave, and your reader has to refuse them too. Its
-  sentence may differ; the fact that it stops may not. `tails` states an append that never finished,
-  which is the one case a reader repairs rather than refuses.
+  length, which are bytes no writer produced. Two more show the rule that one log holds receipt
+  records of one kind, and both are bytes a store did seal: an unbounded file with one bounded record
+  appended behind it, refused for that appended record, and a published unbounded file untouched and
+  read whole by a store configured for the bounded kind, refused for its first record. A refusal row
+  states the receipt kind its opening writes wherever that is not the receipt kind, because a
+  disagreement between a file and a configuration is not reproducible without the configuration. Each
+  carries the refusal the reader gave, and your reader has to refuse them too. Its sentence may
+  differ; the fact that it stops may not. `tails` states an append that never finished, which is the
+  one case a reader repairs rather than refuses.
 - **Technical export.** Decode the base64url document, hand your reader the arguments the case's `read`
   block states, which are the companion bytes it was given, the endpoints it already holds, and the key it
   used, and compare the answer with `verdict`: `verify-ok`, or the code the refusal has to answer with. Where

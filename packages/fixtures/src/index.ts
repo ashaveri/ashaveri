@@ -219,6 +219,12 @@ export interface ChainRefusal {
   tamper: Record<string, unknown>;
   imageBase64Url: string;
   imageByteLength: number;
+  /**
+   * The receipt kind the opening that gives this refusal writes. Absent means the receipt kind, which is
+   * the layout every other image in this file is read under, and which no row states twice: a refusal
+   * between a file and a configuration is only reproducible with the configuration named.
+   */
+  openedWith?: { kind: 'receipt' } | { kind: 'bounded'; boundSeconds: number };
   code: string;
   message: string;
 }
@@ -250,8 +256,9 @@ export interface ChainVectorFile {
     digestInput: string;
     digest: string;
     integers: string;
-    kinds: { receipt: number; trim: number };
+    kinds: { receipt: number; trim: number; bounded: number };
     receiptPayload: string;
+    boundedPayload: string;
     trimPayload: string;
     notes: string[];
   };

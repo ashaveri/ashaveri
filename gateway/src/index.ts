@@ -49,12 +49,14 @@ export {
   openMemoryReceiptStore,
   receiptsNeededForWindow,
   RECEIPT_STORE_FILE,
+  DEFAULT_RECEIPT_RECORD_KIND,
   StoreError,
 } from './store.js';
 export type {
   ChainState,
   FileReceiptStoreOptions,
   ReadingsApart,
+  ReceiptRecordKind,
   ReceiptRetention,
   ReceiptServing,
   ReceiptStore,

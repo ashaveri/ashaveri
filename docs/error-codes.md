@@ -1,7 +1,7 @@
 # Error codes
 
 Every error code this workspace raises, what condition raises it, and what a caller should do
-about it. There are 161 declarations across eight unions, resolving to 159 distinct strings;
+about it. There are 164 declarations across eight unions, resolving to 162 distinct strings;
 `UNSUPPORTED_PLATFORM` and `UNSUPPORTED_VERSION` are the two strings two unions share, and the last
 section says why those pairs are deliberate while every other overlap is not.
 
@@ -198,17 +198,24 @@ would produce receipts whose labels are wider than their proofs.
 
 Raised while opening a receipt store, before the gateway serves a request, and while it files one. The
 store chains every record to the one before it, so `STORE_CHAIN_BROKEN` is the file saying it was changed
-after it was written. The byte offset in the message names which of the three disagreements it found: a
-record whose digest does not match its own bytes, a record naming a predecessor other than the one before
-it, or a retirement record that does not sit at the very front. A record left half-written by an
-interrupted append is not one of them: that tail is repaired at open rather than reported, because
-no receipt was ever handed out for bytes that never finished.
+after it was written, and the byte offset in the message names the record it stopped at, whether the
+disagreement is a record whose digest does not match its own bytes, a record naming a predecessor other
+than the one before it, a retirement record that does not sit at the very front, or a frame that cannot
+state its own size. A record left half-written by an interrupted append is not one of them: that tail is
+repaired at open rather than reported, because
+no receipt was ever handed out for bytes that never finished. `STORE_RECEIPT_KIND_MISMATCH` is the other
+refusal that comes off the bytes, and the two refusals of a per-record period are answered out of the
+configuration before the store file is opened at all.
 
 | Code | Union | Raised when | What the caller does | Verdict |
 |---|---|---|---|---|
 | `STORE_CHAIN_BROKEN` | `StoreErrorCode` | The store file fails to chain at open, at the byte offset the message gives | Stop, and do not serve from that file. Restore from a copy whose head a customer already holds, or investigate the offset: a deleted middle record and a hand-edited one look the same from here, and both mean retained receipts can no longer be shown to be complete | terminal |
 | `RECORD_STAMP_OUT_OF_RANGE` | `StoreErrorCode` | The instant a caller is filing a receipt under is not a whole number of Unix seconds between zero and the largest value this store can state exactly, so no record it writes could carry it. Reachable because the stamp is handed to the store rather than read off a clock the store owns | Fix the time source the caller was given, and re-issue. Nothing was written and no receipt was lost: the stamp a reader would recompute the chain from is the one that is missing | terminal |
 | `RETENTION_WINDOW_UNHOLDABLE` | `StoreErrorCode` | The durability bound and the period a store was opened with cannot both be honoured at the traffic the file has already carried. Raised at the opening, after the file is read and its aged receipts set aside, and only where the retained set sits at its durability bound and the stamps in it span less time than the configured period, which is the signature of the bound cutting the window short rather than of a deployment that has simply issued little. A store bounded on one side only is never asked, and one that has filed fewer than two receipts has measured no rate to refuse by. The serving bound, which bounds what one query holds and retires nothing, is never the reason for this refusal | Raise the durability bound to the number the message states, or shorten the period configured beside it, and start again. The message names both quantities, the count that reconciles them, and how far short the bound is, and says that a serving bound configured next to the durability bound is not the number to raise. Nothing was served and the file was left as it was found, because it is the evidence the refusal is read from. Which period is owed, and to whom, is settled outside this store, and a pairing that opens has said what it serves rather than that a duty was discharged | terminal |
+| `STORE_RECEIPT_KIND_MISMATCH` | `StoreErrorCode` | The store's log holds a receipt record of a kind this store does not write. One log holds receipt records of one kind, because where a record's receipt sits in its frame and how long that record says it is kept both depend on the kind, so a file holding both has no single answer to what the deployment keeps and a reader of one record would be reading it under a layout nothing chose. The record where the disagreement first shows is named by its id and its byte, and the message states both the kind this store writes and the kind that record holds. A run of trim records ahead of the receipts is not a mixture and no rule here turns on the order a scan met its records: a trim is the store's own bookkeeping about a prefix it retired and it addresses no receipt. Where the store keeps its index, an index declaring the other kind is refused before it is trusted and the log is read from its own bytes, which give the same refusal for the same record | Point the configuration at the kind the file is made of, or start a fresh volume for the kind this deployment means to write. The mixture is left exactly as it was found, because it is the evidence the refusal is read from. `docs/receipt-spec.md` section 5.2 states both record layouts, and
+`packages/fixtures/data/chain-v1.json` publishes two mixed images, one in each direction | terminal |
+| `RECORD_BOUND_OUT_OF_RANGE` | `StoreErrorCode` | The period a bounded receipt record was configured to state is not a whole number of seconds between 1 and the largest value its 4 byte field can hold, so no record this store writes could carry it. Answered at the opening, and at the call that constructs the in-memory twin, before the store file is touched: a saturating write would state a period nobody chose, and leaving it to the buffer would surface a range error from inside an append. Reachable because the number arrives from configuration rather than from a field the store fills in itself | Fix the configured period and start again. Nothing was opened and no file was created, so there is nothing to explain afterwards. This is the refusal `RECORD_STAMP_OUT_OF_RANGE` gives for a stamp the record cannot state, given for a retention period the record cannot state | terminal |
+| `RECORD_BOUND_REDUNDANT` | `StoreErrorCode` | The period a bounded record was configured to state is one the store's own durability window already achieves, so writing it into every record would change nothing about what the file keeps: retirement drops a prefix at the durability bound and reads no period off a record. A store configured with no durability period has no window to be satisfied by, so any period the field can hold opens. Answered at the opening, and at the call that constructs the in-memory twin, before the store file is touched | Raise the window above the bound, set a bound below it, or run the receipt kind that states no period; the message names both numbers and which of the three would open. Nothing was written. The refusal keeps the two readings of a retention period apart rather than letting a reader widen the window a deployment declared to fit a bound nobody asked the store to enforce | terminal |
 
 ## `AccessErrorCode`
 
@@ -290,6 +297,14 @@ answers, one to whoever starts the process and one to a caller mid-request, and 
 one name for both would be told to fix a configuration it cannot see. What the shared tail says is
 that both are derived from the same two configured numbers and the same measured rate, and the two
 messages name the same quantities for the same reason.
+
+A third pair differs by one word in the middle, and it is two facts rather than one fact met twice:
+`RECORD_STAMP_OUT_OF_RANGE` is the instant a caller hands the store when it files a receipt, and
+`RECORD_BOUND_OUT_OF_RANGE` is the period a deployment configures for the records that store writes. Both
+refuse a number the record layout cannot state, which is why the names rhyme, and both arrive before any
+byte is written. They are separate strings because the number to fix sits in a different place each time,
+in the caller's clock and in the operator's configuration, and one name for both would tell a reader which
+field was impossible without saying whose field it was.
 
 `UNSUPPORTED_PLATFORM` is deliberately the same string in two unions: it is one condition, a
 platform kind neither layer can handle, seen from the verifier and from the deployment. Collapsing

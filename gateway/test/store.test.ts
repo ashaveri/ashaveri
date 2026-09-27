@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, it } from 'vitest';
 import { createHash } from 'node:crypto';
-import { appendFile, mkdtemp, readFile, rename, rm, stat, utimes, writeFile } from 'node:fs/promises';
+import { appendFile, mkdtemp, readFile, readdir, rename, rm, stat, utimes, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import {
@@ -9,6 +9,7 @@ import {
   receiptsNeededForWindow,
   RECEIPT_STORE_FILE,
   servedBatches,
+  type ReceiptRecordKind,
   type ReceiptRetention,
   type ReceiptServing,
   type ReceiptStore,
@@ -473,6 +474,263 @@ describe('trim records', () => {
 
     await writeFile(file, Buffer.concat([records[1]!, records[2]!]));
     await expect(openFileReceiptStore({ dir })).rejects.toMatchObject({ code: 'STORE_CHAIN_BROKEN' });
+  });
+});
+
+/**
+ * A store's log holds receipt records of one kind. The bounded kind states, inside the record and inside
+ * the digest the chain folds, how long that record is kept; the unbounded kind states nothing about a
+ * single record. The two are read from different offsets, so a file holding both has no answer to what
+ * the deployment keeps, and a store that could serve one of them would be serving bytes it had
+ * interpreted by the wrong layout.
+ */
+describe('one record kind per store', () => {
+  const BOUND_SECONDS = 300;
+  const BOUNDED: ReceiptRecordKind = { kind: 'bounded', boundSeconds: BOUND_SECONDS };
+  /** The whole number range the 4 byte period in a bounded record can state. */
+  const WIDEST_BOUND = 4294967295;
+
+  /**
+   * The first record of a file a store writing `kind` sealed, taken out of a directory of its own. A
+   * case that wants a foreign-kind record is handed bytes a real store wrote rather than a description
+   * of them, which is the only way the reading under test has anything to disagree with.
+   */
+  async function frameSealedBy(kind: ReceiptRecordKind, id: string, receipt: Uint8Array, iat: number): Promise<Buffer> {
+    const dir = await emptyDir();
+    const store = await openFileReceiptStore({ dir, receiptKind: kind });
+    await store.put(id, receipt, iat);
+    const frame = frames(await readFile(join(dir, RECEIPT_STORE_FILE)))[0];
+    if (frame === undefined) throw new Error(`a store writing ${kind.kind} sealed no record for ${id}`);
+    return frame;
+  }
+
+  const UNBOUNDED: ReceiptRecordKind = { kind: 'receipt' };
+
+  it('reopens a store that wrote the bounded kind and serves the receipts it was given', async () => {
+    const dir = await emptyDir();
+    const first = await openFileReceiptStore({ dir, receiptKind: BOUNDED });
+    await first.put('rcpt_01', RECEIPT, 1_780_000_000);
+    await first.put('rcpt_02', OTHER_RECEIPT, 1_780_000_060);
+    const head = await first.head();
+
+    const reopened = await openFileReceiptStore({ dir, receiptKind: BOUNDED });
+    expect(await reopened.head()).toEqual(head);
+    expect(Array.from((await reopened.get('rcpt_01'))!)).toEqual(Array.from(RECEIPT));
+    expect(Array.from((await reopened.get('rcpt_02'))!)).toEqual(Array.from(OTHER_RECEIPT));
+    expect(await reopened.window()).toEqual({ from: 1_780_000_000, to: 1_780_000_060, count: 2 });
+
+    const walked: string[] = [];
+    for await (const item of reopened.range(0, 2_000_000_000)) {
+      walked.push(item.id);
+    }
+    expect(walked).toEqual(['rcpt_01', 'rcpt_02']);
+
+    // What the file actually holds: the bounded kind's byte, the period ahead of the receipt, and the
+    // receipt whole behind it. Read here from the layout rather than through the store, because the
+    // claim being made is about the bytes a reader with no store has to be able to interpret.
+    const records = frames(await readFile(join(dir, RECEIPT_STORE_FILE))).map(readFrame);
+    expect(records.map((record) => record.kind)).toEqual([2, 2]);
+    expect(records[0]!.payload.readUInt32BE(0)).toBe(BOUND_SECONDS);
+    expect(Array.from(records[0]!.payload.subarray(4))).toEqual(Array.from(RECEIPT));
+    expect(records[1]!.payload.readUInt32BE(0)).toBe(BOUND_SECONDS);
+    expect(Array.from(records[1]!.payload.subarray(4))).toEqual(Array.from(OTHER_RECEIPT));
+  });
+
+  it('chains a bounded record the same way in both engines', async () => {
+    // The mock run is a reading of the durable one, so the head it reports for the same writes has to be
+    // the digest the file engine sealed over the same kind, period, stamps and ids.
+    const dir = await emptyDir();
+    const written = await openFileReceiptStore({ dir, receiptKind: BOUNDED });
+    await written.put('rcpt_01', RECEIPT, 1_780_000_000);
+    await written.put('rcpt_02', OTHER_RECEIPT, 1_780_000_060);
+
+    const memory = openMemoryReceiptStore({ receiptKind: BOUNDED });
+    await memory.put('rcpt_01', RECEIPT, 1_780_000_000);
+    await memory.put('rcpt_02', OTHER_RECEIPT, 1_780_000_060);
+
+    expect(await memory.head()).toEqual(await written.head());
+    expect(await memory.get('rcpt_01')).toEqual(Uint8Array.from(RECEIPT));
+    // And the two kinds do not seal one head, which is what makes the kind byte part of the claim.
+    const unbounded = openMemoryReceiptStore();
+    await unbounded.put('rcpt_01', RECEIPT, 1_780_000_000);
+    await unbounded.put('rcpt_02', OTHER_RECEIPT, 1_780_000_060);
+    expect(await unbounded.head()).not.toEqual(await memory.head());
+  });
+
+  it('refuses a store whose log holds one record of the kind it does not write', async () => {
+    const dir = await emptyDir();
+    const store = await openFileReceiptStore({ dir });
+    await store.put('rcpt_01', RECEIPT, 1_780_000_000);
+
+    const file = join(dir, RECEIPT_STORE_FILE);
+    const foreign = await frameSealedBy(BOUNDED, 'rcpt_99', OTHER_RECEIPT, 1_780_000_060);
+    await appendFile(file, foreign);
+    const mixed = await readFile(file);
+
+    const opened = openFileReceiptStore({ dir });
+    await expect(opened).rejects.toMatchObject({ code: 'STORE_RECEIPT_KIND_MISMATCH' });
+    // The record it objected to, named by id: a log with a hundred receipts and one foreign record is
+    // refused for that record, and an operator has to be told which one the file does not run.
+    await opened.catch((error: unknown) => {
+      expect((error as Error).message).toContain('rcpt_99');
+      expect((error as Error).message).toContain('bounded');
+    });
+    // Refusing leaves the file as found, because the mixture is the evidence the refusal is read from.
+    expect(await readFile(file)).toEqual(mixed);
+  });
+
+  it('refuses the same mixture seen from the other store', async () => {
+    const dir = await emptyDir();
+    const store = await openFileReceiptStore({ dir, receiptKind: BOUNDED });
+    await store.put('rcpt_01', RECEIPT, 1_780_000_000);
+
+    const file = join(dir, RECEIPT_STORE_FILE);
+    const foreign = await frameSealedBy(UNBOUNDED, 'rcpt_legacy', OTHER_RECEIPT, 1_780_000_060);
+    await appendFile(file, foreign);
+
+    const opened = openFileReceiptStore({ dir, receiptKind: BOUNDED });
+    await expect(opened).rejects.toMatchObject({ code: 'STORE_RECEIPT_KIND_MISMATCH' });
+    await opened.catch((error: unknown) => {
+      expect((error as Error).message).toContain('rcpt_legacy');
+    });
+  });
+
+  it('refuses a log that holds only the kind this store does not write', async () => {
+    // Not a mixture, and refused for the same reason: the store would be reading a period off bytes that
+    // state none, and serving four bytes of a receipt as part of the record before it.
+    const dir = await emptyDir();
+    const store = await openFileReceiptStore({ dir });
+    await store.put('rcpt_01', RECEIPT, 1_780_000_000);
+    await store.put('rcpt_02', OTHER_RECEIPT, 1_780_000_060);
+
+    const opened = openFileReceiptStore({ dir, receiptKind: BOUNDED });
+    await expect(opened).rejects.toMatchObject({ code: 'STORE_RECEIPT_KIND_MISMATCH' });
+    await opened.catch((error: unknown) => {
+      expect((error as Error).message).toContain('rcpt_01');
+    });
+  });
+
+  it('refuses a kind byte the framing defines no reading for, once a frame verifies', async () => {
+    // The framing states three `kind` values, so a fourth is a byte no reading of a payload follows
+    // from. No store writes one, so a reader only ever meets it in bytes something else put on the
+    // volume, and the case has to be a record that tells the truth about itself: an edited kind byte
+    // alone stops at the digest, which is the other refusal, and the reading below arrives behind it.
+    const UNDEFINED_KIND = 3;
+    const dir = await emptyDir();
+    const store = await openFileReceiptStore({ dir });
+    await store.put('rcpt_01', RECEIPT, 1_780_000_000);
+    const log = await readFile(join(dir, RECEIPT_STORE_FILE));
+
+    const edited = Buffer.from(await frameSealedBy(UNBOUNDED, 'rcpt_unreadable', OTHER_RECEIPT, 1_780_000_060));
+    edited.writeUInt8(UNDEFINED_KIND, 4);
+    const resealed = Buffer.from(edited);
+    Buffer.from(frameDigest(resealed)).copy(resealed, resealed.length - 32);
+
+    const editedDir = await emptyDir();
+    await writeFile(join(editedDir, RECEIPT_STORE_FILE), Buffer.concat([log, edited]));
+    await expect(openFileReceiptStore({ dir: editedDir })).rejects.toMatchObject({ code: 'STORE_CHAIN_BROKEN' });
+
+    const foreignDir = await emptyDir();
+    await writeFile(join(foreignDir, RECEIPT_STORE_FILE), Buffer.concat([log, resealed]));
+    const opened = openFileReceiptStore({ dir: foreignDir });
+    await expect(opened).rejects.toMatchObject({ code: 'STORE_RECEIPT_KIND_MISMATCH' });
+    await opened.catch((error: unknown) => {
+      // Named by id and byte like any other kind refusal, and spelled as what it is rather than as one
+      // of the two kinds, because a reader that guessed which kind the writer meant would be guessing.
+      const message = (error as Error).message;
+      expect(message).toContain('rcpt_unreadable');
+      expect(message).toContain(`kind ${String(UNDEFINED_KIND)}, which this record layout defines no reading for`);
+    });
+  });
+
+  it('reads a run of trim records as the store\'s own bookkeeping and not as a second kind', async () => {
+    // Two retirements and one receipt, which is one kind of receipt record. The refusal below is raised
+    // at the receipt and not at the run in front of it, which is the difference between a rule about
+    // kinds and a rule that counts whatever a scan happened to meet first.
+    const dir = await twiceCompacted();
+    const reopened = await openFileReceiptStore({ dir });
+    expect(Array.from((await reopened.get('only'))!)).toEqual(Array.from(OTHER_RECEIPT));
+    expect((await reopened.chainState()).retired.trims).toHaveLength(2);
+
+    const file = join(dir, RECEIPT_STORE_FILE);
+    const records = frames(await readFile(file));
+    const trimBytes = records[0]!.length + records[1]!.length;
+
+    const opened = openFileReceiptStore({ dir, receiptKind: BOUNDED });
+    await expect(opened).rejects.toMatchObject({ code: 'STORE_RECEIPT_KIND_MISMATCH' });
+    await opened.catch((error: unknown) => {
+      const message = (error as Error).message;
+      expect(message).toContain('only');
+      // The byte the refusal names is the one the trim run ends at: the run was read, accepted, and
+      // never counted as a kind of receipt record.
+      expect(Number(/at byte (\d+)/u.exec(message)![1])).toBe(trimBytes);
+    });
+  });
+
+  it('round-trips the whole range the period can state', async () => {
+    for (const boundSeconds of [1, BOUND_SECONDS, WIDEST_BOUND]) {
+      const dir = await emptyDir();
+      const store = await openFileReceiptStore({ dir, receiptKind: { kind: 'bounded', boundSeconds } });
+      await store.put('rcpt_01', RECEIPT, 1_780_000_000);
+      const payload = readFrame(frames(await readFile(join(dir, RECEIPT_STORE_FILE)))[0]!).payload;
+      expect(payload.readUInt32BE(0)).toBe(boundSeconds);
+      expect(Array.from(payload.subarray(4))).toEqual(Array.from(RECEIPT));
+    }
+  });
+
+  it('refuses a bound the store\'s own window already satisfies', async () => {
+    const dir = await emptyDir();
+    // Equal to the window, and longer than it: in both cases the window is what retires the record, so
+    // the period in the record states nothing the file does not already do, and honouring it would widen
+    // the window the deployment declared to fit a bound nobody asked the store to enforce.
+    for (const boundSeconds of [100, 101, 86_400]) {
+      await expect(
+        openFileReceiptStore({ dir, retention: { maxAgeSeconds: 100 }, receiptKind: { kind: 'bounded', boundSeconds } }),
+      ).rejects.toMatchObject({ code: 'RECORD_BOUND_REDUNDANT' });
+    }
+
+    // One second inside the window is a statement the window does not make, and the store opens.
+    const store = await openFileReceiptStore({
+      dir,
+      retention: { maxAgeSeconds: 100, time: fixedClock(() => 1_780_000_000) },
+      receiptKind: { kind: 'bounded', boundSeconds: 99 },
+    });
+    await store.put('aged', OTHER_RECEIPT, 1_779_999_800);
+    await store.put('fresh', RECEIPT, 1_780_000_000);
+    // What retires the aged receipt is the window, and nothing reads the period off the record: the
+    // bound a bounded record states is that record's own statement, and the retention manifest reports
+    // the window rather than the period.
+    expect(await store.get('aged')).toBeNull();
+    expect(Array.from((await store.get('fresh'))!)).toEqual(Array.from(RECEIPT));
+  });
+
+  it('refuses a bound the record\'s field cannot state, before it writes anything', async () => {
+    const dir = await emptyDir();
+    for (const boundSeconds of [0, -1, 1.5, WIDEST_BOUND + 1, Number.MAX_SAFE_INTEGER, Number.NaN]) {
+      await expect(
+        openFileReceiptStore({ dir, receiptKind: { kind: 'bounded', boundSeconds } }),
+      ).rejects.toMatchObject({ code: 'RECORD_BOUND_OUT_OF_RANGE' });
+    }
+    // Saturating the way a trim's counters do would publish a period nobody chose, and leaving it to the
+    // buffer would surface a range error from inside an append. Neither reaches the volume: the pairing is
+    // refused before a byte of the store file is opened, so a deployment that mistyped a bound has
+    // created nothing to explain later.
+    expect(await readdir(dir)).toEqual([]);
+  });
+
+  it('refuses the same two bounds in the memory engine', async () => {
+    // The twin takes the choice at configuration too, so a pairing that cannot be read off a file cannot
+    // be constructed in memory either, and a mock run cannot reach a state the durable one refuses.
+    expect(() => openMemoryReceiptStore({ receiptKind: { kind: 'bounded', boundSeconds: 0 } })).toThrow(
+      /RECORD_BOUND_OUT_OF_RANGE/u,
+    );
+    expect(() =>
+      openMemoryReceiptStore({ retention: { maxAgeSeconds: 60 }, receiptKind: { kind: 'bounded', boundSeconds: 60 } }),
+    ).toThrow(/RECORD_BOUND_REDUNDANT/u);
+
+    const store = openMemoryReceiptStore({ receiptKind: { kind: 'bounded', boundSeconds: 30 } });
+    await store.put('rcpt_01', RECEIPT, 1_780_000_000);
+    expect(Array.from((await store.get('rcpt_01'))!)).toEqual(Array.from(RECEIPT));
   });
 });
 

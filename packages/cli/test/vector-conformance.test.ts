@@ -34,7 +34,7 @@ import {
   type ReadManifestResult,
 } from '@ashaveri/sdk';
 import { sha256 } from '@noble/hashes/sha2.js';
-import { openFileReceiptStore, RECEIPT_STORE_FILE, StoreError } from '@ashaveri/signerd';
+import { openFileReceiptStore, RECEIPT_STORE_FILE, StoreError, type ReceiptRecordKind } from '@ashaveri/signerd';
 
 /**
  * The published vector suites, replayed through the paths a shipped client takes.
@@ -130,6 +130,13 @@ interface ChainRefusal {
   readonly name: string;
   readonly imageBase64Url: string;
   readonly imageByteLength: number;
+  /**
+   * The receipt kind the opening that gives this refusal writes. Absent means the receipt kind, which is
+   * the layout every other image in this file is read under. A row states it wherever the refusal it
+   * publishes is a disagreement between a file and a configuration rather than a fact about bytes, and
+   * this replay has to open the image under the kind the row names or it is reading a different file.
+   */
+  readonly openedWith?: ReceiptRecordKind;
   readonly code: string;
   readonly message: string;
 }
@@ -609,11 +616,21 @@ describe('the proof-of-possession refusals through the shipped signer and parser
 describe('the receipt store chain refusals through the store reader', () => {
   it('refuses every published image with the code its row states', async () => {
     expect(chain.refusals.length).toBeGreaterThanOrEqual(4);
+    // A refusal between a file and a configuration is not reproducible without the configuration, and a
+    // row states `openedWith` wherever its image is read under a kind other than the receipt kind. The
+    // rows that state none are read under the default, which is what every published image is made of.
+    expect(
+      chain.refusals.filter((refusal) => refusal.openedWith !== undefined).length,
+      'no published refusal is given by a store configured for the kind its image is not',
+    ).toBeGreaterThanOrEqual(1);
     for (const [index, refusal] of chain.refusals.entries()) {
       const dir = mkdtempSync(join(tempDir, `chain-${String(index)}-`));
       writeFileSync(join(dir, RECEIPT_STORE_FILE), bytes(refusal.imageBase64Url));
       expect(bytes(refusal.imageBase64Url)).toHaveLength(refusal.imageByteLength);
-      const opened = await openFileReceiptStore({ dir }).then(
+      const opened = await openFileReceiptStore({
+        dir,
+        ...(refusal.openedWith === undefined ? {} : { receiptKind: refusal.openedWith }),
+      }).then(
         () => null,
         (error: unknown) => error,
       );
