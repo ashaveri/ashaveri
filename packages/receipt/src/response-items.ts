@@ -134,6 +134,8 @@ export class ResponseItemFramer {
   private readonly items: ResponseItem[] = [];
   private buffer: Uint8Array = new Uint8Array(0);
   private readonly streamed: boolean;
+  /** What `finish()` answers, read the first time it is asked for and kept for every later one. */
+  private answer: ResponseItemFraming | undefined;
 
   constructor(streamed: boolean) {
     this.streamed = streamed;
@@ -141,12 +143,29 @@ export class ResponseItemFramer {
 
   /** The bytes received so far, which is an item verbatim when the response was not streamed. */
   feed(chunk: Uint8Array): void {
-    this.buffer = this.buffer.length === 0 ? chunk : join(this.buffer, chunk);
+    // The chunk is kept as it stands only when it is about to be scanned and what survives of it copied,
+    // which is the streamed case. A buffered body is all of it unframed, so it is copied here instead:
+    // nothing this instance holds between two calls is the caller's memory. See `pushItem` for the same
+    // reason at the other end, where an item's bytes outlive the chunk they were framed from.
+    this.buffer = this.buffer.length === 0 && this.streamed ? chunk : join(this.buffer, chunk);
     if (this.streamed) this.drainFrames();
   }
 
-  /** The items of the whole response, or the refusal that there are none. */
+  /**
+   * The items of the whole response, or the refusal that there are none.
+   *
+   * Read once, and answered from that reading however many times it is asked: the items already emitted
+   * belong to the bytes that produced them, so a second reading of what the buffer still held would attest
+   * one frame twice, and a second push of a buffered body would state an item the response never made. A
+   * chunk arriving after this answer belongs to another response, which needs its own framer.
+   */
   finish(): ResponseItemFraming {
+    this.answer ??= this.readAnswer();
+    return this.answer;
+  }
+
+  /** The answer itself, taking whatever the buffer holds as the last line the response sent. */
+  private readAnswer(): ResponseItemFraming {
     if (!this.streamed) {
       // One item, whatever it holds: a buffered body has no frames to be between, and an empty one is
       // still the whole of what was said about it. `res` covers these bytes, so the item is a statement
@@ -182,7 +201,10 @@ export class ResponseItemFramer {
       this.takeLine(this.buffer.subarray(start, at));
       start = at + width;
     }
-    this.buffer = this.buffer.subarray(start);
+    // Copied, not kept as a view of what was scanned: these are the bytes of a frame that has not ended
+    // yet, and they are framed into an item later, by which time the chunk they arrived in may have been
+    // refilled under the caller. `pushItem` copies what it emits for the same reason.
+    this.buffer = this.buffer.subarray(start).slice();
   }
 
   /** The next byte at or after `start` that ends a line, or -1 when all that is left is one fragment. */

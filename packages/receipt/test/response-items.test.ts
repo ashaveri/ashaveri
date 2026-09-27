@@ -22,6 +22,7 @@ import {
   STREAMED,
   WHOLE_BODY_SHA256_HEX,
   itemDigestHex,
+  framingText,
   type FrameCase,
 } from './response-item-cases.js';
 
@@ -59,6 +60,12 @@ function framed(caseItem: FrameCase): readonly ResponseItem[] {
   if (!outcome.framed) throw new Error(`${caseItem.name}: refused where items were expected, "${outcome.why}"`);
   return outcome.items;
 }
+
+/** The answer for two frames, the second of them a payload no terminator closed, in one comparable string. */
+const TWO_ITEMS = `${itemDigestHex('{"a":1}')}<{"a":1}>|${itemDigestHex('{"b":2}')}<{"b":2}>`;
+
+/** The answer for one body that was never framed at all. */
+const ONE_BUFFERED_ITEM = `${itemDigestHex('{"a":1}')}<{"a":1}>`;
 
 function refusal(caseItem: FrameCase): string {
   const outcome = frameResponse(caseItem.contentType, bytes(caseItem.body));
@@ -149,6 +156,24 @@ describe('the framing rule', () => {
     const outcome = framer.finish();
     expect(outcome).toEqual({ framed: false, why: NO_FRAME_REASON });
   });
+
+  it('answers a second finish with the answer it gave the first, in both shapes of response', () => {
+    // `finish()` reads what the buffer still holds: the last frame of a stream whose terminator never
+    // arrived, and the whole of a buffered body. Asked twice, either reading taken again would add a fact
+    // the response never said, a stream duplicating its last item and a buffered body stating a second
+    // item beside the one that is all of it.
+    const streamed = new ResponseItemFramer(true);
+    streamed.feed(bytes('data: {"a":1}\n\ndata: {"b":2}'));
+    const once = framingText(streamed.finish());
+    expect(once).toBe(TWO_ITEMS);
+    expect(framingText(streamed.finish())).toBe(once);
+
+    const buffered = new ResponseItemFramer(false);
+    buffered.feed(bytes('{"a":1}'));
+    const firstBuffered = framingText(buffered.finish());
+    expect(firstBuffered).toBe(ONE_BUFFERED_ITEM);
+    expect(framingText(buffered.finish())).toBe(firstBuffered);
+  });
 });
 
 describe('what an item digest covers', () => {
@@ -182,6 +207,30 @@ describe('what an item digest covers', () => {
     if (!outcome.framed) throw new Error('a fed stream was refused');
     expect(textOf(outcome.items[0]!.bytes)).toBe('{"a":1}');
     expect(toHex(outcome.items[0]!.d)).toBe(itemDigestHex('{"a":1}'));
+  });
+
+  it('owns the bytes of a frame that had not ended when the chunk did', () => {
+    // What a drained chunk leaves behind is the start of the next frame, and it is left behind in the
+    // caller's array: a pooled buffer refilled before the next read would rewrite the bytes the frame
+    // after this one is framed from. The whole frame that ended is copied by `pushItem`; the fragment
+    // that did not has to be copied too, or the two halves of one response own different bytes.
+    const chunk = bytes('data: {"a":1}\n\ndata: {"b":2');
+    const framer = new ResponseItemFramer(true);
+    framer.feed(chunk);
+    chunk.fill(0x5a);
+    framer.feed(bytes('}\n\n'));
+    expect(framingText(framer.finish())).toBe(TWO_ITEMS);
+  });
+
+  it('owns a buffered body from the chunk it arrived in, not from the caller', () => {
+    // Nothing is framed as a buffered body arrives, so everything it holds is still unframed: the copy is
+    // made when the chunk is taken in rather than left to the one `pushItem` makes at the end, because
+    // the bytes hashed at the end would otherwise be whatever the caller wrote over them meanwhile.
+    const chunk = bytes('{"a":1}');
+    const framer = new ResponseItemFramer(false);
+    framer.feed(chunk);
+    chunk.fill(0x5a);
+    expect(framingText(framer.finish())).toBe(ONE_BUFFERED_ITEM);
   });
 });
 
