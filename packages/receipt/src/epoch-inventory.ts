@@ -274,10 +274,12 @@ function isSpace(char: string): boolean {
 const NUMBER = /-?(?:0|[1-9][0-9]*)(?:\.[0-9]+)?(?:[Ee][-+]?[0-9]+)?/yu;
 
 /**
- * An integer, written as an integer. A fraction, an exponent, a leading plus, a leading zero and negative
- * zero are all refused here rather than read as the number they equal, because the layout has no position
- * that holds any of them: every figure an inventory states is a unix second, a count of records, a number of
- * seconds or an epoch number, and `JSON.stringify` of any of those writes the grammar this accepts.
+ * A number, refused unless it is written as an integer. The token grammar above already declines a leading
+ * plus and a leading zero, because neither starts a JSON number, and this is the other half: a fraction, an
+ * exponent and negative zero do parse, equal the integer they imitate, and are refused here rather than read as
+ * it, because the layout has no position that holds any of them. Every figure an inventory states is a unix
+ * second, a count of records, a number of seconds or an epoch number, and `JSON.stringify` of any of those
+ * writes the grammar this accepts.
  */
 function scanNumber(token: string): number {
   if (!/^-?(?:0|[1-9][0-9]*)$/u.test(token) || (token.startsWith('-') && Number(token) === 0)) {
