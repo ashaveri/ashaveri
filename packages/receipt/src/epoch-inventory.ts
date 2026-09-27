@@ -887,13 +887,16 @@ function assertShortClaim(
 
 /**
  * The period the run covers: the outer edges of the windows the packs themselves state, which with the
- * windows meeting below are the start of the first and the end of the last. Folded the way `pack.ts` folds
- * the oldest receipt of a pack, over the entries and not over a position, so the answer cannot depend on how
- * the array arrived.
+ * windows meeting where the run is walked are the start of the first and the end of the last. Folded across
+ * the entries and not over a position, so the answer cannot depend on how the array arrived, and folded one
+ * entry at a time rather than by handing both edges to a spread call: `packs` is bounded by a floor and
+ * nothing else, so a run long enough to overflow an argument list would otherwise answer a reader's question
+ * with a `RangeError` standing where this comparison promises a code. The two seeds are the identities of the
+ * two folds, and a run with nothing in it was refused where the entries were read.
  */
 function assertWindow(manifest: EpochInventoryManifest, run: readonly EpochInventoryPack[]): void {
-  const from = Math.min(...run.map((one) => one.span.from));
-  const to = Math.max(...run.map((one) => one.span.to));
+  const from = run.reduce((lowest, one) => Math.min(lowest, one.span.from), Number.POSITIVE_INFINITY);
+  const to = run.reduce((latest, one) => Math.max(latest, one.span.to), Number.NEGATIVE_INFINITY);
   if (manifest.window.from !== from || manifest.window.to !== to) {
     throw summaryDisagrees(`window is ${manifest.window.from} to ${manifest.window.to} and the run reaches ${from} to ${to}`);
   }
