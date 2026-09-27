@@ -77,6 +77,17 @@ function codeOf(build: () => unknown): SdkErrorCode {
   throw new Error('expected a refusal, but the value was accepted');
 }
 
+/** The words a refusal hands the operator, which is where these cases check what they are told. */
+function messageOf(build: () => unknown): string {
+  try {
+    build();
+  } catch (err) {
+    expect(err).toBeInstanceOf(SdkError);
+    return (err as SdkError).message;
+  }
+  throw new Error('expected a refusal, but the value was accepted');
+}
+
 function parse(document: Record<string, unknown>): PolicyFile {
   return parsePolicyFile(JSON.stringify(document));
 }
@@ -548,6 +559,64 @@ describe('policyFileFromPolicy', () => {
 
   it('refuses an object that pins nothing, on the same rule the file form is held to', () => {
     expect(codeOf(() => policyFileFromPolicy({}))).toBe('POLICY_NOTHING_PINNED');
+  });
+
+  it('refuses a receipt window no document can carry, rather than writing it out as none named', () => {
+    // The text form of a non-finite number is `null`, and `null` on this key is this format's spelling of
+    // a window the policy never named, which every verifier then runs as the shipped default. A caller
+    // that means the clock not to vote means it on the object, so the attempt is a refusal here rather
+    // than a published document that pins a window nobody asked for.
+    for (const spelled of [Number.POSITIVE_INFINITY, Number.NEGATIVE_INFINITY, Number.NaN]) {
+      const build = () => policyFileFromPolicy({ issuers: ['a'], maxReceiptAgeSeconds: spelled });
+      expect(codeOf(build), String(spelled)).toBe('POLICY_FILE_INVALID');
+      const message = messageOf(build);
+      expect(message, String(spelled)).toContain("'maxReceiptAgeSeconds'");
+      expect(message, String(spelled)).toContain(String(spelled));
+      expect(message, String(spelled)).toContain('the written form of it is null');
+      expect(message, String(spelled)).toContain('no policy document can carry as a window');
+    }
+    // And the document route is no wider: a hand-written number past what a reader can state exactly is
+    // refused there too, so there is no spelling this refusal is withholding.
+    expect(refuseWith('{"v":1,"issuers":["a"],"maxReceiptAgeSeconds":1e400}', 'POLICY_FILE_INVALID')).toContain(
+      'whole number',
+    );
+  });
+
+  it('refuses an evidence window no document can carry, rather than writing it out as none named', () => {
+    for (const spelled of [Number.POSITIVE_INFINITY, Number.NEGATIVE_INFINITY, Number.NaN]) {
+      const build = () => policyFileFromPolicy({ issuers: ['a'], maxEvidenceAgeSeconds: spelled });
+      expect(codeOf(build), String(spelled)).toBe('POLICY_FILE_INVALID');
+      const message = messageOf(build);
+      expect(message, String(spelled)).toContain("'maxEvidenceAgeSeconds'");
+      expect(message, String(spelled)).toContain(String(spelled));
+      expect(message, String(spelled)).toContain('the written form of it is null');
+      expect(message, String(spelled)).toContain('no policy document can carry as a window');
+    }
+    expect(refuseWith('{"v":1,"issuers":["a"],"maxEvidenceAgeSeconds":1e400}', 'POLICY_FILE_INVALID')).toContain(
+      'whole number',
+    );
+  });
+
+  it('round-trips a finite receipt window byte for byte, so no cited digest of one can move', async () => {
+    const file = policyFileFromPolicy({ issuers: ['a'], maxReceiptAgeSeconds: 60 });
+    expect(file.maxReceiptAgeSeconds).toBe(60);
+    const text = policyFileToJson(file);
+    expect(text).toContain('"maxReceiptAgeSeconds": 60');
+    expect(policyFileToJson(parsePolicyFile(text)), 'the same text after one read').toBe(text);
+    const loaded = await loadPolicyFromText(text, TEMP);
+    expect(loaded.policy.maxReceiptAgeSeconds, 'a window a document names loads as that number').toBe(60);
+    expect(loaded.digest).toBe(policyFileDigest(file));
+  });
+
+  it('round-trips a finite evidence window byte for byte, so no cited digest of one can move', async () => {
+    const file = policyFileFromPolicy({ issuers: ['a'], maxEvidenceAgeSeconds: 120 });
+    expect(file.maxEvidenceAgeSeconds).toBe(120);
+    const text = policyFileToJson(file);
+    expect(text).toContain('"maxEvidenceAgeSeconds": 120');
+    expect(policyFileToJson(parsePolicyFile(text)), 'the same text after one read').toBe(text);
+    const loaded = await loadPolicyFromText(text, TEMP);
+    expect(loaded.policy.maxEvidenceAgeSeconds, 'a window a document names loads as that number').toBe(120);
+    expect(loaded.digest).toBe(policyFileDigest(file));
   });
 });
 

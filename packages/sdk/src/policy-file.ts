@@ -5,6 +5,7 @@ import { MEASUREMENT_BYTES, isTeeKind, type TeeKind } from '@ashaveri/receipt';
 import { fromBase64Url, toBase64Url, toHex } from './b64.js';
 import { SdkError } from './errors.js';
 import type { EvidenceTrustAnchors } from './evidence.js';
+import { DEFAULT_MAX_EVIDENCE_AGE_SECONDS, DEFAULT_MAX_RECEIPT_AGE_SECONDS } from './policy.js';
 import type { AshaveriPolicy } from './policy.js';
 
 /**
@@ -802,6 +803,23 @@ export function policyFileFromPolicy(
     document['measurements'] = Object.fromEntries(
       Object.entries(policy.measurements).map(([kind, list]) => [kind, [...list]]),
     );
+  }
+  // A window this text form cannot spell is refused here, while each number is still in hand, on the
+  // same rule the stamp-source demand below is held to. A non-finite window survives no further than
+  // `JSON.stringify`, which writes it as `null`, and `null` in one of these two keys is this format's
+  // spelling of a policy that names no window of its own: a reader of the published document would then
+  // run the shipped default the operator meant to switch off. The off switch lives where it works, on
+  // the policy object a calling process hands to a verifier.
+  const windows: Array<[string, number | undefined, number]> = [
+    ['maxReceiptAgeSeconds', policy.maxReceiptAgeSeconds, DEFAULT_MAX_RECEIPT_AGE_SECONDS],
+    ['maxEvidenceAgeSeconds', policy.maxEvidenceAgeSeconds, DEFAULT_MAX_EVIDENCE_AGE_SECONDS],
+  ];
+  for (const [field, named, shipped] of windows) {
+    if (named !== undefined && !Number.isFinite(named)) {
+      throw invalid(
+        `'${field}' is ${String(named)}, which no policy document can carry as a window: the written form of it is null, and null is this format's spelling of a policy that names no window of its own, so publishing this policy would pin the shipped ${shipped}-second default instead`,
+      );
+    }
   }
   document['maxReceiptAgeSeconds'] = policy.maxReceiptAgeSeconds ?? null;
   document['maxEvidenceAgeSeconds'] = policy.maxEvidenceAgeSeconds ?? null;
