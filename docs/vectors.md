@@ -29,10 +29,12 @@ each shape.
 | Sealed deployment manifest | `packages/fixtures/data/manifest-v1.json` | One deployment manifest in both shapes it is served in, the signing keys a reader designates beside it, and the verdict the client path owes each | `version: 1` |
 | Evidence pack | `packages/fixtures/data/pack-v1.json` | Whole packs in the shapes a deployment hands them over in, the keys a reader designates beside each one, and the verdict the shipped pack reader owes: run and window reported apart, and an honest pack whose stamps run against its links accepted with a finding | `version: 1` |
 | Redaction manifest | `packages/fixtures/data/redaction-v1.json` | Redaction manifests each beside the pack they are checked against, the verdict the shipped redaction reader owes the pair, and what `ashaveri verify-handover` answers for the same pair on every row: the chain over the survivors published apart from the pack's own head, a redaction pointed at a pack the reader lacks refused, and the three wrong constructions of a survivor chain refused by recomputation | `version: 1` |
+| Epoch inventory | `packages/fixtures/data/epoch-inventory-v1.json` | Whole sealed inventories and the verdict the two shipped inventory readers owe each one: the envelope, the header, the key, the reading of a JSON payload, the arithmetic a reader recomputes over a run of packs, and the names each row of the two folded lists points at, with one refusal for every fault the container names and the acceptances a reviewer would otherwise read as faults | `version: 1` |
 
 `pop-v1.json`, `req-v1.json`, `res-v1.json`, `marking-v1.json`, `chain-v1.json`, `export-v1.json`,
-`manifest-v1.json`, `pack-v1.json` and `redaction-v1.json` each carry a `description` stating their rule in
-prose, and the digest, marked-region, chain, export, sealed-manifest, pack and redaction suites carry a `rule`
+`manifest-v1.json`, `pack-v1.json`, `redaction-v1.json` and `epoch-inventory-v1.json` each carry a
+`description` stating their rule in
+prose, and the digest, marked-region, chain, export, sealed-manifest, pack, redaction and inventory suites carry a `rule`
 or `layout` block naming the fields, and the widths and the byte order where a suite pins a byte layout, so a
 reader never has to guess what an array of hex is standing for. The manifest
 carries no `description`, because it lists the receipt fixtures rather than stating a rule of its
@@ -186,9 +188,29 @@ specific to that case.
   replayed through this path by `packages/cli/test/verify-handover.test.ts`, which reads the expected answers out
   of this member rather than keeping a table of its own.
 
+- **Epoch inventory.** Decode `documentBase64Url` and hand it to your reader with the designation the row's
+  `read` block states: `pinned` is the one key a caller holds, which answers whatever kid the header names,
+  `retained` is the set a resolver answers from, one public half per kid, and a row stating neither is the call
+  that designated nothing. Compare the answer with `verdict`, and compare `structural` with what your reader
+  says about the same bytes before it has accepted a signature: a row that is `verify-ok` there and a refusal
+  here is refusing about a key, a signature or the arithmetic over a run, and not about a document that
+  contradicts itself. Where a row states `readback`, those are the figures a reader has to hand back as well:
+  `runFiles` is the run in the order the entries' own figures put them, which is not necessarily the order
+  `statedFiles` arrived in, because position in `packs` carries no claim. Two rows state an `edit` block: the
+  same span of the honest document's text replaced with a longer run label, which is the pair differing by one
+  byte at one position, one accepted and one refused. Every refusing row carries the sentence this reader gave,
+  and a conforming port owes the same code while its wording may differ.
+- **Epoch inventory refusals are near misses at two sites.** The two lists a run folds, `chain.breaks` and
+  `duty.short`, are guarded apart rather than by one routine, so each fault a list can carry is stated at both
+  sites and a row names its site: a row about a pack the run does not hold, a list longer than the arithmetic,
+  a list shorter than it, two rows naming one pack while another is named nowhere, and a row naming a pack the
+  run holds whose own figures carry no such finding. The lists are keyed by the pack each row names, which is
+  why the two rows stating a reversed list are acceptances, and the refusal rows beside them are what prove the
+  keying is live rather than absent.
+
 ## Every suite refuses something
 
-Each of the ten suites published here carries at least one case whose stated verdict is a refusal, and
+Each of the eleven suites published here carries at least one case whose stated verdict is a refusal, and
 every code those cases name is one [error-codes.md](error-codes.md) lists. That is the half a second
 implementation cannot agree with by accident: an accepted case and a refused one, drawn from the same
 bytes, differ in exactly the rule under test, and a port wrong in the same direction as this one still
@@ -199,12 +221,15 @@ The refusals are near misses rather than garbage on purpose. A digest is off by 
 two characters, a nonce by a single byte width, a marked span by one field of one member, a store record
 by one bit inside its own bytes or by its length prefix lying about its size, a protected header by the one
 label it added or the one integer it spelled as a float, a redaction by the one record it did not name or by
-the chain head it took from the pack rather than recomputed. Each is one small edit to
+the chain head it took from the pack rather than recomputed, an inventory by the one byte at the end of its run
+label or by the one row a folded list left out. Each is one small edit to
 bytes this repository already publishes, so reproducing it is reading a row and not guessing at what the
 author meant. The client path over them is in `packages/cli/test/vector-conformance.test.ts`, which
-drives each suite through the shipped verification code rather than through a copy of the rule it is
+drives every suite in this table but the epoch inventory through the shipped verification code rather than
+through a copy of the rule it is
 checking, and asserts the verdict in both directions: the accepted rows accepted, the refusing ones
-refused for the reason stated.
+refused for the reason stated. The inventory rows are replayed there next, and until they are its verdicts are
+witnessed by `packages/fixtures/test/epoch-inventory-vectors.test.ts` over the shipped reader.
 
 ## Regenerating
 
@@ -219,6 +244,7 @@ pnpm --filter @ashaveri/fixtures generate:export
 pnpm --filter @ashaveri/fixtures generate:manifest
 pnpm --filter @ashaveri/fixtures generate:pack
 pnpm --filter @ashaveri/fixtures generate:redaction
+pnpm --filter @ashaveri/fixtures generate:epoch-inventory
 ```
 
 The generators live beside the loaders in `packages/fixtures`, and running all of them after a change
@@ -263,7 +289,7 @@ These vectors check bytes. They say nothing about trust:
 
 - Nothing here establishes that a key belongs to anybody. The signing keys published in
   `data/keys/receipt-key-v1.json`, in `pop-v1.json`, in `export-v1.json`, in `manifest-v1.json`, in
-  `pack-v1.json` and in `redaction-v1.json`
+  `pack-v1.json`, in `redaction-v1.json` and in `epoch-inventory-v1.json`
   are test-only, labelled as such in the files themselves, and protect nothing. A port that verifies
   against them has exercised its verifier, not appraised a deployment.
 - Nothing here touches attestation. Evidence documents, platform roots, device certificate chains and

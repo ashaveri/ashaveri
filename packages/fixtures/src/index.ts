@@ -660,3 +660,72 @@ export interface RedactionVectorFile {
 export function loadRedactionVectors(): RedactionVectorFile {
   return JSON.parse(readFileSync(join(DATA, 'redaction-v1.json'), 'utf8')) as RedactionVectorFile;
 }
+
+/** How a row designates a key to the inventory reader: one pinned key, a kid-indexed set, or neither. */
+export interface EpochInventoryDesignation {
+  pinned?: string;
+  retained?: Record<string, string>;
+}
+
+export interface EpochInventoryVector {
+  name: string;
+  note: string;
+  /** The sealed inventory document, unpadded base64url. */
+  documentBase64Url: string;
+  documentByteLength: number;
+  read: EpochInventoryDesignation;
+  /** `verify-ok`, or the code `verifyEpochInventory` answers with. */
+  verdict: string;
+  /** `verify-ok`, or the code `decodeEpochInventory` answers with before any key is consulted. */
+  structural: string;
+  /** The refusal sentence the shipped reader gave, published on every refusing row. */
+  message?: string;
+  /** What the reader reported back for a row it accepted: the run it put together and the summaries it read. */
+  readback?: {
+    runFiles: string[];
+    statedFiles: string[];
+    window: { from: number; to: number };
+    continuous: boolean;
+    breakFiles: string[];
+    carried: boolean;
+    shortFiles: string[];
+  };
+  /** Which of the two folded lists a row guards, on the rows that vector one of the twin guards. */
+  site?: 'chain.breaks' | 'duty.short';
+  /** The one position a fault row moved. */
+  edited?: string;
+  /** The text edit a row was built by, beside the row whose text it edited. */
+  edit?: { of: string; from: string; to: string };
+  /** The honest document taken apart into the four pieces the format publishes. */
+  reveal?: Record<string, unknown>;
+}
+
+export interface EpochInventoryVectorFile {
+  version: number;
+  description: string;
+  layout: {
+    format: string;
+    twin: string;
+    prose: string;
+    contentType: string;
+    reader: string;
+    headerLabels: { alg: number; typ: number; kid: number };
+    codes: string[];
+    verdictFields: string[];
+    keyMaterial: Array<{
+      id: string;
+      seed: string;
+      kidHex: string;
+      publicKeyHex: string;
+      publicKeyBase64Url: string;
+      role: string;
+    }>;
+    [key: string]: unknown;
+  };
+  vectors: EpochInventoryVector[];
+}
+
+/** The epoch inventory: each sealed document, both reader answers, and the run the reader put together. */
+export function loadEpochInventoryVectors(): EpochInventoryVectorFile {
+  return JSON.parse(readFileSync(join(DATA, 'epoch-inventory-v1.json'), 'utf8')) as EpochInventoryVectorFile;
+}
