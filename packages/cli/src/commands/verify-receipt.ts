@@ -438,7 +438,10 @@ function humanVerdict(verdict: Verdict): string {
     `  measurement:      ${toHex(payload.meas.m)} (${payload.meas.tee})`,
     `  request digest:   ${toHex(payload.req)}, ${verdict.digests.requestFrom}`,
     `  response digest:  ${toHex(payload.res)}, ${verdict.digests.responseFrom}`,
-    ...(payload.v === 2
+    // The line is printed for a payload that names a marking, not for one version of them: what the
+    // sentence reports is the member, and this run read it off the bytes printed above because naming
+    // a marking is what made those bytes a precondition of the run.
+    ...('mk' in payload
       ? [`  marked region:    ${toHex(payload.mk.d)} (${payload.mk.sch}), read off the response bytes above`]
       : []),
     `  evidence ref:     ${toHex(payload.att.d)} at ${payload.att.ts} (${isoOf(payload.att.ts)})`,
@@ -491,7 +494,7 @@ function jsonVerdict(verdict: Verdict): Record<string, unknown> {
     measurement: { tee: payload.meas.tee, m: toHex(payload.meas.m) },
     requestDigest: { sha256: toHex(payload.req), takenFrom: verdict.digests.requestFrom },
     responseDigest: { sha256: toHex(payload.res), takenFrom: verdict.digests.responseFrom },
-    markedRegion: payload.v === 2 ? { scheme: payload.mk.sch, sha256: toHex(payload.mk.d) } : null,
+    markedRegion: 'mk' in payload ? { scheme: payload.mk.sch, sha256: toHex(payload.mk.d) } : null,
     evidence: { digest: toHex(payload.att.d), timestamp: payload.att.ts, documentChecked: false },
     policy: { digest: verdict.policyDigest, file: verdict.policyPath },
     // Where every manifest signing key this run checked a seal against came from, printed beside the

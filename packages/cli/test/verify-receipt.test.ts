@@ -708,11 +708,32 @@ describe('ashaveri verify-receipt', () => {
     // `v: 1` names no `mk`, so it claims nothing about the response's interior and is satisfied by the
     // digest alone. The refusal the two versions above earn is not owed here, and the verdict is the
     // one the published vector's own manifest states: widening the step to the member must not have
-    // reached this document, which is the half of the change that keeps old receipts answering.
+    // reached this document, which is the half of the change that keeps old receipts answering. The
+    // last two lines belong to the report rather than the check: a payload naming no marking has no
+    // region to print, and the projection prints none for it exactly as it did before.
     const result = runCli(argsFor({ receipt: receiptPath('receipt-valid-v1'), json: false }));
     expect(result.stderr).toBe('');
     expect(result.status).toBe(0);
     expect(result.stdout).toContain('receipt verified (COSE_Sign1, payload v1, EdDSA over the signed bytes)');
+    expect(result.stdout).not.toContain('marked region');
+    expect(verdictOf(runCli(argsFor({ receipt: receiptPath('receipt-valid-v1') }))).markedRegion).toBeNull();
+  });
+
+  it('checks a v3 receipt against the response bytes and reports the region it read', () => {
+    // The matching half of the pair above, and the projection half of this case: a `v: 3` payload names
+    // a marking exactly as `v: 2` does, so both renderings have to say what it names. Printed from the
+    // version the report keys on, the human line and the JSON member both go quiet about a region the
+    // receipt carries, and a report that says nothing about a claim the document makes is a report that
+    // misdescribes it.
+    const receipt = written('stamped-v3-attested.cbor', Buffer.from(stampedReceiptBytes(ATTESTED_MARKING)));
+    const body = markingBody('buffered-member');
+    const human = runCli(argsFor({ receipt, responseBody: body, json: false }));
+    expect(human.stderr).toBe('');
+    expect(human.status).toBe(0);
+    expect(human.stdout).toContain('receipt verified (COSE_Sign1, payload v3, EdDSA over the signed bytes)');
+    expect(human.stdout).toContain(`  marked region:    ${MARKED.payload.mk?.d} (${ATTESTED_MARKING.sch}), read off the response bytes above`);
+    const json = verdictOf(runCli(argsFor({ receipt, responseBody: body })));
+    expect(json.markedRegion).toEqual({ scheme: ATTESTED_MARKING.sch, sha256: MARKED.payload.mk?.d });
   });
 
   it('drives every published vector to the verdict the fixtures manifest states', () => {
