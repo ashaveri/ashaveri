@@ -40,10 +40,13 @@ export function required<T>(value: T | undefined, detail: string): T {
  * block reads as a format that stopped declaring any members.
  */
 export function cddlRule(cddl: string, rule: string): string {
+  // The text is named rather than the path this reader was handed it from, because callers pass several
+  // CDDL files through this one helper and a missing epoch inventory block reported as missing from the
+  // receipt format sends a reader to the wrong document.
   const start = cddl.indexOf(`${rule} = {`);
-  if (start < 0) throw new Error(`${rule} is not declared in ${cddlPath}`);
+  if (start < 0) throw new Error(`${rule} is not declared in the CDDL text it was handed`);
   const end = cddl.indexOf('\n}', start);
-  if (end < 0) throw new Error(`${rule} in ${cddlPath} never closes`);
+  if (end < 0) throw new Error(`${rule} never closes in the CDDL text it was handed`);
   return cddl.slice(start, end);
 }
 
@@ -86,8 +89,9 @@ export function labeledMembers(block: string): string[] {
  * behind. A block that never closes throws rather than reading as an empty one.
  */
 export function cddlRuleArms(cddl: string, rule: string): string[] {
+  // Named by the rule, not by a path: see `cddlRule`.
   const start = cddl.indexOf(`${rule} = {`);
-  if (start < 0) throw new Error(`${rule} is not declared in ${cddlPath}`);
+  if (start < 0) throw new Error(`${rule} is not declared in the CDDL text it was handed`);
   const arms: string[] = [];
   let current: string[] = [];
   for (const line of cddl.slice(start).split('\n')) {
@@ -102,7 +106,7 @@ export function cddlRuleArms(cddl: string, rule: string): string[] {
     }
     current.push(line);
   }
-  throw new Error(`${rule} in ${cddlPath} never closes`);
+  throw new Error(`${rule} never closes in the CDDL text it was handed`);
 }
 
 /** One map the CDDL defines, the list that stands behind it, and what the rule adds to that list. */
