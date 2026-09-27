@@ -420,10 +420,10 @@ export const MINIMUM_RETENTION_SECONDS = 184 * 24 * 60 * 60;
  * What a bounded record's period says today is what the deployment that wrote the record states it is
  * kept for, written where whoever holds one record and no manifest can read it. Nothing acts on it:
  * retirement reads `ReceiptRetention` and no period off a record, and the pairing refused below accepts
- * only a period the store's own window outruns, so every configuration that opens keeps a bounded record
- * at least as long again as that record says it is kept. The field is a statement the record carries
- * about its deployment, which is what a later reader of a lone record has to be able to recover, and not
- * a limit this store applies to anything.
+ * only a period its store's own window outlasts, so every configuration that opens keeps a bounded
+ * record past the instant that record says it stops being kept. The field is a statement the record
+ * carries about its deployment, which is what a later reader of a lone record has to be able to
+ * recover, and not a limit this store applies to anything.
  *
  * `openFileReceiptStore` and `openMemoryReceiptStore` refuse a period at or above their durability
  * window because the window is what retires the record, so a bound stated at or above it could never be
