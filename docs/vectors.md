@@ -33,13 +33,11 @@ each shape.
 
 `pop-v1.json`, `req-v1.json`, `res-v1.json`, `marking-v1.json`, `chain-v1.json`, `export-v1.json`,
 `manifest-v1.json`, `pack-v1.json`, `redaction-v1.json` and `epoch-inventory-v1.json` each carry a
-`description` stating their rule in
-prose, and the digest, marked-region, chain, export, sealed-manifest, pack, redaction and inventory suites carry a `rule`
-or `layout` block naming the fields, and the widths and the byte order where a suite pins a byte layout, so a
-reader never has to guess what an array of hex is standing for. The manifest
-carries no `description`, because it lists the receipt fixtures rather than stating a rule of its
-own; what they are for is written in
-[receipt-spec.md](receipt-spec.md).
+`description` stating their rule in prose, and the digest, marked-region, chain, export, sealed-manifest,
+pack, redaction and inventory suites carry a `rule` or `layout` block naming the fields, and the widths and
+the byte order where a suite pins a byte layout, so a reader never has to guess what an array of hex is
+standing for. The manifest carries no `description`, because it lists the receipt fixtures rather than
+stating a rule of its own; what they are for is written in [receipt-spec.md](receipt-spec.md).
 
 ## How to consume a suite
 
@@ -202,11 +200,13 @@ specific to that case.
   and a conforming port owes the same code while its wording may differ.
 - **Epoch inventory refusals are near misses at two sites.** The two lists a run folds, `chain.breaks` and
   `duty.short`, are guarded apart rather than by one routine, so each fault a list can carry is stated at both
-  sites and a row names its site: a row about a pack the run does not hold, a list longer than the arithmetic,
-  a list shorter than it, two rows naming one pack while another is named nowhere, and a row naming a pack the
-  run holds whose own figures carry no such finding. The lists are keyed by the pack each row names, which is
-  why the two rows stating a reversed list are acceptances, and the refusal rows beside them are what prove the
-  keying is live rather than absent.
+  sites and a refusing row names its site and the guard of that site it reaches: a claim of continuity or of
+  carrying contradicted by the list beside it, a list longer than the arithmetic, a list shorter than it, two
+  rows naming one pack while another is named nowhere, a row about a pack the run does not hold, a row naming
+  a pack the run holds whose own figures carry no such finding, and a row of the right name whose own two
+  digests or four figures are not the pair's or the pack's. The lists are keyed by the pack each row names,
+  which is why the two rows stating a reversed list are acceptances, and the refusal rows beside them are
+  what prove the keying is live rather than absent.
 
 ## Every suite refuses something
 
@@ -225,10 +225,12 @@ the chain head it took from the pack rather than recomputed, an inventory by the
 label or by the one row a folded list left out. Each is one small edit to
 bytes this repository already publishes, so reproducing it is reading a row and not guessing at what the
 author meant. The client path over them is in `packages/cli/test/vector-conformance.test.ts`, which
-drives every suite in this table but the epoch inventory through the shipped verification code rather than
-through a copy of the rule it is
-checking, and asserts the verdict in both directions: the accepted rows accepted, the refusing ones
-refused for the reason stated. The inventory rows are replayed there next, and until they are its verdicts are
+drives every suite in this table but the technical export and the epoch inventory through the shipped
+verification code rather than
+through a copy of the rule it is checking, and asserts the verdict in both directions: the accepted rows
+accepted, the refusing ones refused for the reason stated. The export suite travels the client path
+through `packages/cli/test/verify-handover.test.ts` instead, beside the command's own cases. The
+inventory rows are replayed through the client path next, and until they are its verdicts are
 witnessed by `packages/fixtures/test/epoch-inventory-vectors.test.ts` over the shipped reader.
 
 ## Regenerating
