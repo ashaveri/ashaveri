@@ -376,6 +376,45 @@ describe('an accepted inventory, read the way a reviewer reads it', () => {
     expect(read.outcome.packs.map((one) => one.file)).toEqual(HONEST.packs.map((one) => one.file));
   });
 
+  it('carries the copied text positions at the lengths their own formats state', () => {
+    // The two ids and a duty label are copied out of a deployment manifest and a pack, and both of those
+    // sources declare text with a floor and no ceiling, so a long issuer and a seventy-byte label make a
+    // document today's own writer emits. A ceiling on this side would refuse the inventory for a figure its
+    // writer was handed by a format that allows it, which no layout that describes artifacts already in the
+    // field may claim.
+    const iss = `dpl-${'x'.repeat(300)}`;
+    const ins = `cvm-${'y'.repeat(300)}`;
+    const art = `19(${('1'.repeat(66))})`;
+    const wide = runOf(2, (index, one) => ({
+      ...one,
+      duty: index === 1 ? { ...one.duty, art, required: 500, held: 100 } : { ...one.duty, art },
+    }));
+    const document: EpochInventoryManifest = { ...wide, manifest: { iss, ins, epk: wide.manifest.epk } };
+    expect(new TextEncoder().encode(art)).toHaveLength(70);
+    expect(thrownCode(() => decodeEpochInventory(sealDocument(document)))).toBe('accepted');
+    const read = verifyEpochInventory(sealDocument(document), readWith());
+    expect(read.manifest.manifest).toEqual({ iss, ins, epk: 3 });
+    expect(read.manifest.packs.map((one) => one.duty.art)).toEqual([art, art]);
+    expect(read.manifest.duty.short).toHaveLength(1);
+    expect(read.manifest.duty.short[0]?.art).toBe(art);
+    // The floor each of the three keeps is the one those sources state: text that is not empty.
+    for (const [name, edited] of [
+      ['an empty issuer', { ...document, manifest: { iss: '', ins, epk: 3 } }],
+      ['an empty instance', { ...document, manifest: { iss, ins: '', epk: 3 } }],
+      ['an empty duty label', runOf(2, (index, one) => ({
+        ...one,
+        duty: index === 1 ? { ...one.duty, art: '', required: 500, held: 100 } : { ...one.duty, art: '' },
+      }))],
+    ] as const) {
+      expect(thrownCode(() => decodeEpochInventory(sealDocument(edited))), name).toBe('EPOCH_INVENTORY_BAD_DOCUMENT');
+    }
+    // And the label this container writes for itself keeps the width the format states beside it.
+    expect(
+      thrownCode(() => decodeEpochInventory(sealDocument({ ...document, epoch: 'x'.repeat(EPOCH_INVENTORY_LABEL_MAX_BYTES + 1) }))),
+      'a run label past the printed width',
+    ).toBe('EPOCH_INVENTORY_BAD_DOCUMENT');
+  });
+
   it('decodes with no key at all, and answers the run only to a reader that has one', () => {
     const unsigned = sealEpochInventory(
       encodeEpochInventoryProtectedHeader(KEY.kid),
@@ -685,8 +724,20 @@ describe('the layout: this file, the CDDL and the twin', () => {
     }
     expect(headerLabels(cddl)).toEqual([...DECLARED_EPOCH_INVENTORY_PROTECTED_LABELS].sort((a, b) => a - b));
     expect(cddl).toContain(`"${EPOCH_INVENTORY_CONTENT_TYPE}"`);
-    // Every bound a reader enforces is one the format states, because the projection carries floors only.
+    // Every bound a reader enforces is one the format states, because the projection carries floors only:
+    // the label this container writes is bounded by a width, and the three positions it copies are bounded by
+    // nothing above the floor their own formats give them.
     expect(cddl).toContain(`epoch: tstr .size (1..${String(EPOCH_INVENTORY_LABEL_MAX_BYTES)})`);
+    for (const [rule, member] of [
+      ['Ashaveri-Epoch-Inventory-Deployment', 'iss: tstr,'],
+      ['Ashaveri-Epoch-Inventory-Deployment', 'ins: tstr,'],
+      ['Ashaveri-Epoch-Inventory-Pack-Duty', 'art: tstr,'],
+      ['Ashaveri-Epoch-Inventory-Shortfall', 'art: tstr,'],
+    ] as const) {
+      const block = cddlRule(cddl, rule);
+      expect(block, `${rule} no longer states ${member} as text bounded by nothing`).toContain(member);
+      expect(block.replace(member, ''), `${rule} grew a ceiling beside ${member}`).not.toContain('.size');
+    }
     expect(cddl).toContain(`packs/<digest>/${EPOCH_INVENTORY_PACK_FILE}`);
     expect(cddl).toContain(`packs/<digest>/${EPOCH_INVENTORY_RETENTION_FILE}`);
   });

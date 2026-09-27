@@ -89,6 +89,15 @@ Byte strings are projected as lowercase hex in the twin and in a document's JSON
 states every digest, key id and chain endpoint in this container. A byte ceiling belongs to the CDDL: a JSON
 string length is a different measure, so the projections state the floor and not the limit.
 
+The CDDL states one byte ceiling, on `epoch`, because the run's label is the only text this container writes
+for itself rather than copies, and it is printed beside the run in every report of it. The rest of the text
+positions travel from documents that bound them by nothing above one byte: the deployment's two ids, as that
+manifest's own schema declares them, and the duty label a pack signs, as `pack.cddl` declares it. A ceiling
+written on this side would refuse an inventory whose writer had copied a published manifest and a sealed pack
+faithfully, which is the one thing a format that describes artifacts already in the field cannot do; a
+narrowing of a copied position arrives as a version of the format, with cases of its own, or it does not
+arrive.
+
 | Member | Type | Required | What it states |
 |---|---|---|---|
 | `protectedHeader` | `object` | yes | The three signed parameters above, as the twin projects them. |
@@ -101,8 +110,8 @@ string length is a different measure, so the projections state the floor and not
 | `window` | `object` | yes | The period the sealed run covers, folded from the windows the packs themselves state. |
 | `chain` | `object` | yes | The two endpoints the run claims to chain between, and each pair of packs where the later one does not continue the earlier. |
 | `duty` | `object` | yes | Whether any pack of the run falls short of the period that same pack states as required, and which. |
-| `deployment.iss` | `string` | yes | The deployment id, as that manifest states it. |
-| `deployment.ins` | `string` | yes | The instance id, as that manifest states it. |
+| `deployment.iss` | `string` | yes | The deployment id, as that manifest states it: never empty, and bounded by no ceiling, because that manifest declares none. |
+| `deployment.ins` | `string` | yes | The instance id, as that manifest states it: never empty, and bounded by no ceiling, because that manifest declares none. |
 | `deployment.epk` | `integer` | yes | The key epoch number, as that manifest states it. An inventory saying only that keys came from a manifest would name no document, and a reader holding two of them could not tell which one this run was checked against. |
 | `pack.file` | `string` | yes | Where the pack is, relative to the epoch directory and with forward slashes: `packs/<digest>/pack-v1.cbor`. The directory is named for this entry's own `sha256`, and an entry filed under another pack's digest is refused by name rather than pointing a reader at bytes that are not the ones described. |
 | `pack.retention` | `string` | yes | The retention artifact assembled with this pack, in the same directory: `packs/<digest>/retention-v1.json`. A closed window is the pair: the pack states the duty it answers and the artifact states what the store held and retired at that same instant. |
@@ -118,7 +127,7 @@ string length is a different measure, so the projections state the floor and not
 | `span.to` | `integer` | yes | Unix seconds, excluded: a receipt stamped exactly here belongs to the next window, which is what lets the windows of a run meet without overlapping. |
 | `packChain.anchor` | `string` | yes | The digest that pack's first record was chained from, or thirty-two zero bytes before any retirement. |
 | `packChain.head` | `string` | yes | The digest of that pack's last record. |
-| `packDuty.art` | `string` | yes | A label from the retention-duty registry, declared text rather than an enumeration for the reason [export-v1.md](export-v1.md) gives for the pack's: this estate does not interpret the questions an article answers, and a format that enumerated answers would itself be an answer. |
+| `packDuty.art` | `string` | yes | A label from the retention-duty registry, declared text rather than an enumeration for the reason [export-v1.md](export-v1.md) gives for the pack's: this estate does not interpret the questions an article answers, and a format that enumerated answers would itself be an answer. It is stated at the width `pack.cddl` states it, which is none, because an inventory copies the label a pack signed. |
 | `packDuty.rev` | `integer` | yes | Unix seconds, the revision of the mapping `required` was read from. |
 | `packDuty.required` | `integer` | yes | Seconds that revision required. |
 | `packDuty.held` | `integer` | yes | Seconds that store had held its oldest retained receipt, measured at `pack.at`. |
@@ -132,7 +141,7 @@ string length is a different measure, so the projections state the floor and not
 | `runDuty.carried` | `boolean` | yes | Whether no pack of the run falls short. It is the emptiness of `short` stated as a word, and a reader refuses the two when they disagree. |
 | `runDuty.short` | `array` | yes | One row per pack whose own `held` falls short of its own `required`, in run order. An empty list is the statement that the run carried what it states, so this one carries no floor. |
 | `shortfall.file` | `string` | yes | The pack this row is about, named by one of this document's own `pack.file` values. |
-| `shortfall.art` | `string` | yes | That pack's own duty label, restated so a reader sees which period was measured. |
+| `shortfall.art` | `string` | yes | That pack's own duty label, restated so a reader sees which period was measured, at the width the pack states it. |
 | `shortfall.required` | `integer` | yes | That pack's own required seconds. |
 | `shortfall.held` | `integer` | yes | That pack's own held seconds. |
 | `shortfall.shortBy` | `integer` | yes | `required` minus `held`, never zero. A reader recomputes the subtraction and refuses a row whose figure is not it. |

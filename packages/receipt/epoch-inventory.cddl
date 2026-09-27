@@ -95,9 +95,16 @@ Ashaveri-Epoch-Inventory-Document = {
 ; Nothing here carries the manifest's bytes, its digest or a copy of its key list, because a claim about which
 ; keys are trusted is the reviewer's own designation and `verifyEpochInventory` authenticates no key of
 ; itself. Naming the document the writer used is the most this container can honestly say.
+;
+; The two ids carry the bound the document that supplies them carries and no other, which is a floor of one
+; byte and no ceiling. A ceiling written here would refuse an inventory whose own writer had copied a published
+; manifest faithfully, and a format that describes an artifact already in the field has no standing to narrow
+; the document it names: a narrowing of a copied position arrives as a version of this format, with cases of
+; its own, or it does not arrive. The same reason bounds `epoch` and nothing else, because that label is
+; written by this container and printed beside the run, so its width is this format's own business.
 Ashaveri-Epoch-Inventory-Deployment = {
-    iss: tstr .size (1..256),  ; the deployment id, as that manifest states it
-    ins: tstr .size (1..256),  ; the instance id, as that manifest states it
+    iss: tstr,       ; the deployment id, as that manifest states it: never empty, bounded by no ceiling
+    ins: tstr,       ; the instance id, as that manifest states it: never empty, bounded by no ceiling
     epk: uint,       ; the key epoch number, as that manifest states it
 }
 
@@ -148,9 +155,11 @@ Ashaveri-Epoch-Inventory-Pack-Chain = {
 
 ; The four integers a pack signs, as signed. `art` is a label from the retention-duty registry, which this
 ; format declares a `tstr` rather than an enum for the reason `pack.cddl` gives: the registry is not this
-; estate's to interpret.
+; estate's to interpret. It is declared at the width `pack.cddl` declares it, which is no width, and read the
+; way that file's reader reads it, as a string that is not empty: an inventory copies the label a pack signed,
+; and a ceiling written here would refuse a pack the pack format seals.
 Ashaveri-Epoch-Inventory-Pack-Duty = {
-    art: tstr .size (1..64),         ; a label from the retention-duty registry, e.g. "19(1)"
+    art: tstr,                       ; a label from the retention-duty registry, e.g. "19(1)": never empty
     rev: uint,                     ; unix seconds, the revision `required` was read from
     required: uint,                ; seconds that revision required
     held: uint,                    ; seconds that store had held its oldest retained receipt, at `at`
@@ -201,7 +210,7 @@ Ashaveri-Epoch-Inventory-Run-Duty = {
 ; a reader can see the subtraction without going back to the entry.
 Ashaveri-Epoch-Inventory-Shortfall = {
     file: tstr,                    ; one of this document's `file` values
-    art: tstr .size (1..64),         ; that pack's own duty label
+    art: tstr,                     ; that pack's own duty label, at the width the pack states it
     required: uint,                ; that pack's own required seconds
     held: uint,                    ; that pack's own held seconds
     shortBy: uint,                 ; required minus held, which is never zero
@@ -248,7 +257,7 @@ Ashaveri-Epoch-Inventory-Shortfall = {
 ;
 ; The duty adds up, which is `carried` and the `short` rows above.
 ;
-; The arrays of the document have no floor except `packs`, which `[+ …]` requires to hold at least one entry.
+; The arrays of the document have no floor except `packs`, which `[+ ...]` requires to hold at least one entry.
 ; A gap between two windows is refused, so a run of one pack states a window and a run of ten states the span
 ; the ten cover; an inventory of no packs states neither, and states a chain and a duty about nothing, which is
 ; why it is refused as a malformed document rather than accepted as an honest report of an empty epoch. The

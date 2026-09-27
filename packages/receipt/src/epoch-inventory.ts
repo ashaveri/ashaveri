@@ -212,8 +212,6 @@ const text = new TextEncoder();
 
 /** The widths the format writes beside each position, named once rather than per check site. */
 const SIGNATURE_BYTES = 64;
-const DEPLOYMENT_ID_MAX_BYTES = 256;
-const DUTY_ART_MAX_BYTES = 64;
 /** The deepest path the layout has: root, one of its arrays, one entry, one block inside an entry. */
 const MAX_JSON_DEPTH = 8;
 
@@ -481,12 +479,18 @@ function assertDefined(raw: JsonObject, members: readonly string[], where: strin
   }
 }
 
-function requireText(value: unknown, position: string, maxBytes: number): string {
+/**
+ * Text this container copies rather than writes: a string, and not an empty one, and bounded no further. The
+ * three positions read here, `manifest.iss`, `manifest.ins` and a `duty.art`, come out of documents this
+ * format describes and does not author, and each of those declares its own floor with no ceiling beside it:
+ * the deployment manifest states a minimum length for its two ids and no maximum, and `pack.cddl` types a
+ * duty label as a bare `tstr` that its own reader asks nothing about but being text. A ceiling stated on this
+ * side would refuse an inventory over a manifest the deployment published and a pack that pack format seals,
+ * which is the one thing a layout written to describe artifacts already in the field may not do.
+ */
+function requireText(value: unknown, position: string): string {
   if (typeof value !== 'string') throw badDocument(`${position} must be a string`);
-  const bytes = text.encode(value).length;
-  if (bytes < 1 || bytes > maxBytes) {
-    throw badDocument(`${position} must be between 1 and ${maxBytes} bytes, got ${bytes}`);
-  }
+  if (text.encode(value).length < 1) throw badDocument(`${position} must be a string of at least one byte`);
   return value;
 }
 
@@ -497,7 +501,11 @@ function requireText(value: unknown, position: string, maxBytes: number): string
  * label is quoted by nothing around it.
  */
 function requireLabel(value: unknown, position: string): string {
-  const label = requireText(value, position, EPOCH_INVENTORY_LABEL_MAX_BYTES);
+  const label = requireText(value, position);
+  const bytes = text.encode(label).length;
+  if (bytes > EPOCH_INVENTORY_LABEL_MAX_BYTES) {
+    throw badDocument(`${position} must be at most ${String(EPOCH_INVENTORY_LABEL_MAX_BYTES)} bytes, got ${bytes}`);
+  }
   if (label !== label.trim()) {
     throw badDocument(`${position} carries leading or trailing space, and it is printed beside the run unpadded`);
   }
@@ -605,7 +613,7 @@ function readPack(value: unknown, position: string): EpochInventoryPack {
     },
     kid: requireDigest(entry.get('kid'), `${position}.kid`),
     duty: {
-      art: requireText(duty.get('art'), `${position}.duty.art`, DUTY_ART_MAX_BYTES),
+      art: requireText(duty.get('art'), `${position}.duty.art`),
       rev: requireFigure(duty.get('rev'), `${position}.duty.rev`),
       required: requireFigure(duty.get('required'), `${position}.duty.required`),
       held: requireFigure(duty.get('held'), `${position}.duty.held`),
@@ -665,7 +673,7 @@ function readShort(value: unknown): readonly EpochInventoryShort[] {
     assertDefined(raw, EPOCH_INVENTORY_SHORT_MEMBERS, position);
     return {
       file: readPackHome(raw.get('file'), `${position}.file`, EPOCH_INVENTORY_PACK_FILE).path,
-      art: requireText(raw.get('art'), `${position}.art`, DUTY_ART_MAX_BYTES),
+      art: requireText(raw.get('art'), `${position}.art`),
       required: requireFigure(raw.get('required'), `${position}.required`),
       held: requireFigure(raw.get('held'), `${position}.held`),
       shortBy: requireFigure(raw.get('shortBy'), `${position}.shortBy`),
@@ -695,8 +703,8 @@ function parseManifest(payload: Uint8Array): EpochInventoryManifest {
     v: 1,
     epoch: requireLabel(raw.get('epoch'), 'epoch'),
     manifest: {
-      iss: requireText(deployment.get('iss'), 'manifest.iss', DEPLOYMENT_ID_MAX_BYTES),
-      ins: requireText(deployment.get('ins'), 'manifest.ins', DEPLOYMENT_ID_MAX_BYTES),
+      iss: requireText(deployment.get('iss'), 'manifest.iss'),
+      ins: requireText(deployment.get('ins'), 'manifest.ins'),
       epk: requireFigure(deployment.get('epk'), 'manifest.epk'),
     },
     packs: readPacks(raw.get('packs')),
