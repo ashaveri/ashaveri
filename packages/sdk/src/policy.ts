@@ -151,6 +151,13 @@ export interface AshaveriPolicy {
    * says the stamp was off by, so the number is the deployment's statement and the demand is the
    * client's. Read it through `assertStampSourceWithinPolicy`, which is the one place the comparison
    * lives.
+   *
+   * This field defines no sentinel, where the two windows above make `Number.POSITIVE_INFINITY` one. A
+   * demand of `Number.POSITIVE_INFINITY` bounds nothing and a demand of `Number.NaN` bounds nothing
+   * too, since no declared number is ever above infinity and every comparison against a not-a-number is
+   * false, so a policy object carrying either accepts every source it is handed. Neither spelling
+   * survives the way out into a document: `policyFileFromPolicy` refuses both rather than let a demand
+   * an operator wrote arrive as the absence of one.
    */
   readonly maxTimeUncertaintySeconds?: number;
   /**
@@ -182,23 +189,16 @@ export interface StampSourceDeclaration {
  * Refuse a stamp whose source stands further from real time than the policy demands.
  *
  * Three refusals below, and a state that reaches none of them: a policy naming no bound demands
- * nothing, so every stamp passes and no verdict taken under such a policy moves.
+ * nothing, so every stamp passes and no verdict taken under such a policy moves, which is what
+ * `test/policy-replay.test.ts` holds by pinning the digests and verdicts such a policy had before this
+ * demand could be stated.
  *
- * A source declaring more than the demand is the plain case. A source declaring `null` is the one a
- * reader gets wrong, because `null` is the absence of a measurement rather than a measurement of
- * nothing, and reading it as zero is how a policy that demands an exact clock ends up accepting the
- * host clock of a deployment that never looked at how well that clock is kept. A policy that demands a
- * bound is answered by a number, not by a claim nobody checked, so the unmeasured case is refused even
- * at a demand of zero and the message says which of the two happened. A declaration that is not a
- * number of seconds at all, negative or not finite, is refused on the same ground: it is a second way
- * of stating nothing, and a wired source is not read through this package's policy loader, which would
- * have refused the spelling.
- *
- * Every message names the source and the bound the policy demands, and the two refusals that have a
- * number the source declared state it beside that bound, because an operator raising a bound and a
- * reviewer lowering a demand are the same conversation seen from two ends and neither can hold it
- * without both numbers. The unmeasured refusal has one number to give, and saying so is the whole
- * point of that message.
+ * The three are a source declaring more than the demand, a source declaring that nobody measured one,
+ * which is refused rather than read as a bound of zero, and a source declaring something that is not a
+ * count of seconds at all. Every message names the source and the bound the policy demands, and the two
+ * refusals that have a number the source declared state it beside that bound. Why the unmeasured case
+ * is refused, and what an operator does about any of the three, is argued once at the row this code has
+ * in `docs/error-codes.md`, and the messages below are the sentences its tests hold.
  */
 export function assertStampSourceWithinPolicy(
   policy: AshaveriPolicy | undefined,

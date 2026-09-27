@@ -461,6 +461,28 @@ describe('policyFileDigest', () => {
       digestOf({ v: 1, issuers: ['a', 'b'], measurements: { snp: [SNP_MEASUREMENT] } }),
     );
   });
+
+  it('digests a hand-built document that never names the time bound as the document naming none', () => {
+    // `canonicalOf` demands the two windows and the anchor block of a hand-built document and demands
+    // this key of no one, because absent and `null` are one demand here. A document written before the
+    // field existed is exactly that shape, and the digest an evidence pack cites has to be the one it
+    // published then.
+    const beforeTheField = {
+      v: 1,
+      issuers: ['a'],
+      maxReceiptAgeSeconds: null,
+      maxEvidenceAgeSeconds: null,
+      trustAnchors: { amdArks: null, intelSgxRoots: null, nvidiaRoots: null },
+    };
+    // Read back as text rather than written out as an object literal: the interface names the key, so a
+    // document from before it existed can only arrive as bytes somebody else parsed.
+    const handBuilt = JSON.parse(JSON.stringify(beforeTheField)) as PolicyFile;
+    expect(policyFileDigest(handBuilt)).toBe(digestOf({ v: 1, issuers: ['a'] }));
+    expect(() => policyFileDigest({ ...handBuilt, maxTimeUncertaintySeconds: 5 })).not.toThrow();
+    expect(policyFileDigest({ ...handBuilt, maxTimeUncertaintySeconds: 5 })).not.toBe(
+      policyFileDigest(handBuilt),
+    );
+  });
 });
 
 describe('policyFileFromPolicy', () => {
@@ -491,6 +513,20 @@ describe('policyFileFromPolicy', () => {
     expect(
       policyFileDigest(policyFileFromPolicy({ issuers: ['a'], maxTimeUncertaintySeconds: undefined })),
     ).toBe(policyFileDigest(policyFileFromPolicy({ issuers: ['a'] })));
+  });
+
+  it('refuses a demand no document can spell, rather than writing it out as nothing', () => {
+    // The text form of a non-finite number is `null`, and `null` is what this format reads as a policy
+    // that asks nothing of a stamp's source. Left alone, a demand an operator wrote would reach an
+    // auditor as the absence of one, which is the reading no other part of this field allows.
+    for (const spelled of [Number.POSITIVE_INFINITY, Number.NEGATIVE_INFINITY, Number.NaN]) {
+      const build = () => policyFileFromPolicy({ issuers: ['a'], maxTimeUncertaintySeconds: spelled });
+      expect(codeOf(build), String(spelled)).toBe('POLICY_FILE_INVALID');
+      expect(build, String(spelled)).toThrow(/'maxTimeUncertaintySeconds'/u);
+    }
+    // A whole number, including the demand of zero, still reaches the document, so the three above are
+    // refused for their spelling and not for being a demand.
+    expect(policyFileFromPolicy({ issuers: ['a'], maxTimeUncertaintySeconds: 0 }).maxTimeUncertaintySeconds).toBe(0);
   });
 
   it('carries the anchor bytes the object pins as their path and digest', () => {

@@ -157,6 +157,24 @@ describe('a policy that demands nothing about a stamp source', () => {
     }
   });
 
+  it('reads a demand that is not a number as a demand that bounds nothing', () => {
+    // The document route refuses both of these spellings, which is where an operator meets the field. A
+    // policy object handed straight to a verifier never reaches that refusal, so the field's own
+    // document states what one decides, and this is the case that keeps that sentence true.
+    for (const spelled of [Number.POSITIVE_INFINITY, Number.NaN]) {
+      expect(
+        refusal(demanding(spelled), declaredBy(measured('gps disciplined clock', 3600))),
+        String(spelled),
+      ).toBe('accept');
+      // A demand that bounds nothing still refuses a source that declares no count of seconds, because
+      // that refusal happens before anything is compared to the demand.
+      expect(
+        refusal(demanding(spelled), { name: 'a hand-wired source', uncertaintySeconds: Number.NaN }),
+        String(spelled),
+      ).toBe('STAMP_SOURCE_TOO_UNCERTAIN');
+    }
+  });
+
   it('is the same policy whether the document names it as null or leaves it out', async () => {
     const absent = await throughDocument(null);
     expect(absent.maxTimeUncertaintySeconds, 'a document demanding nothing loads as demanding nothing').toBeUndefined();

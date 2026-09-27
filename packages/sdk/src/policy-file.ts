@@ -669,7 +669,8 @@ function canonicalValue(value: unknown): string {
  * and whoever holds the document can see from it alone, without asking the deployment, whether a bound
  * on a stamp's source was asked for. A demand nobody stated is written as nothing at all rather than as
  * `null`, which is what keeps the digest of a policy that never made the demand the digest it carried
- * before this field existed. The trade itself is argued at the note above `PolicyFile`.
+ * before this field existed, and `test/policy-replay.test.ts` pins that fact as numbers rather than as
+ * this sentence. The trade itself is argued at the note above `PolicyFile`.
  */
 function canonicalOf(file: PolicyFile): Record<string, unknown> {
   const shape: unknown = file;
@@ -685,6 +686,11 @@ function canonicalOf(file: PolicyFile): Record<string, unknown> {
   if (given['v'] !== POLICY_FORMAT_VERSION) {
     throw invalid(`'v' is ${spelled(given['v'])}, but v must be ${POLICY_FORMAT_VERSION} to be read by this loader`);
   }
+  // The fields the loader always spells, so a document missing one was never read by it. The time bound
+  // is absent from this list on purpose and not by oversight: `null` and no key at all are one demand
+  // there, as the note above `PolicyFile` argues, and a guard that asked a hand-built document to state
+  // the key would be one step from a canonical form that always carries it, which moves every digest
+  // anyone has cited.
   for (const field of ['maxReceiptAgeSeconds', 'maxEvidenceAgeSeconds', 'trustAnchors'] as const) {
     if (given[field] === undefined) {
       throw invalid(`'${field}' is missing, so the document was never normalised by the loader`);
@@ -803,6 +809,14 @@ export function policyFileFromPolicy(
   // policy that demands nothing about a stamp's source is the policy that existed before this field
   // did, and its digest says so by carrying no key for it.
   if (policy.maxTimeUncertaintySeconds !== undefined) {
+    // Refused here, while the number is still in hand. A non-finite demand survives no further than the
+    // text form of this document, which writes it as `null`, and `null` is this format's spelling of a
+    // policy that asks nothing of a stamp's source, so the demand would reach an auditor as its absence.
+    if (!Number.isFinite(policy.maxTimeUncertaintySeconds)) {
+      throw invalid(
+        `'maxTimeUncertaintySeconds' is ${String(policy.maxTimeUncertaintySeconds)}, which no policy document can carry as a demand: the written form of it is null, and null is this format's spelling of a policy that asks nothing of a stamp's source`,
+      );
+    }
     document['maxTimeUncertaintySeconds'] = policy.maxTimeUncertaintySeconds;
   }
   return parsePolicyFile(JSON.stringify(document));
