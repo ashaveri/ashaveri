@@ -13,6 +13,7 @@ export type ReceiptErrorCode =
   | 'BAD_PAYLOAD'
   | 'UNSUPPORTED_SCHEME'
   | 'MARK_MISMATCH'
+  | 'ITEM_STAMP_OUT_OF_ORDER'
   | 'BAD_SIGNING_KEY'
   | 'BAD_POP_HEADER'
   | 'BAD_POP_NONCE'
@@ -84,6 +85,15 @@ const ERROR_MESSAGE: Record<ReceiptErrorCode, string> = {
   BAD_PAYLOAD: 'payload does not match the CDDL schema for its receipt version',
   UNSUPPORTED_SCHEME: 'marking scheme is not in the registry this package can interpret',
   MARK_MISMATCH: 'the marked region does not hash to the digest the receipt carries in mk.d',
+  // The two orders one `v: 3` payload states about its own items, compared. Chain order is the array's
+  // order and stamp order is `t`, so a receipt whose later item carries an earlier instant is one
+  // document contradicting itself, and this is that refusal rather than `BAD_PAYLOAD`: every member is
+  // well-typed and in place, and what is wrong is the pair of signed statements. Two items stamped
+  // inside the same second are not this refusal, because the stamps are whole seconds and two frames of
+  // one completion fall inside one of them routinely. What the check cannot reach is in the specification
+  // beside it: a source uniformly away from the truth moves every stamp together, leaves the list tidy,
+  // and passes, and no reader holding only this document can see that.
+  ITEM_STAMP_OUT_OF_ORDER: 'the per-item stamps are not in the order the item list states them',
   BAD_SIGNING_KEY: 'signing key is not a valid Ed25519 key',
   BAD_POP_HEADER: 'the PoP Authorization header is not parseable',
   BAD_POP_NONCE: 'the PoP nonce is not unpadded base64url of the right width',

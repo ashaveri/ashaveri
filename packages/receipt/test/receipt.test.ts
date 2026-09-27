@@ -17,7 +17,15 @@ import {
   receiptToJson,
   toHex,
 } from '../src/index.js';
-import type { Marking, ReceiptPayload, ReceiptPayloadV1, ReceiptPayloadV2, SigningKey } from '../src/index.js';
+import type {
+  CollateralSlot,
+  Marking,
+  ReceiptPayload,
+  ReceiptPayloadV1,
+  ReceiptPayloadV2,
+  ReceiptPayloadV3,
+  SigningKey,
+} from '../src/index.js';
 import * as receiptParser from '../src/receipt.js';
 import {
   ALG_EDDSA,
@@ -32,7 +40,7 @@ import { ed25519 } from '@noble/curves/ed25519';
 import { Tag, encode, defaultEncodeOptions, encodedNumber } from 'cbor2';
 import { sortCoreDeterministic } from 'cbor2/sorts';
 import { sha256, sha384 } from '@noble/hashes/sha2.js';
-import { cddlIntegerPositions, readCddl } from './cddl.js';
+import { cddlIntegerPositions, cddlRule, cddlRuleArms, memberDeclarations, nestedRuleNames, readCddl } from './cddl.js';
 
 const FIXED_NOW = 1_772_000_000;
 
@@ -553,6 +561,47 @@ function markedPayload(mk: Marking = { sch: 'provenance-v1', d: sha256(MARKED_RE
 }
 
 /**
+ * A `v: 3` payload: the marked one, the version moved, and the three members that moved it filled in
+ * with a source nobody measured, a held collateral and an unrecorded window, and one item.
+ */
+function stampedPayload(): ReceiptPayloadV3 {
+  return {
+    ...markedPayload(),
+    v: 3,
+    sd: { name: 'host clock', uncertaintySeconds: null },
+    cva: {
+      collateral: { presence: 'held', sha256: sha256(new TextEncoder().encode('collateral bytes')) },
+      validity: { presence: 'not-taken-in', reason: 'the collector read no window' },
+    },
+    itm: [{ t: FIXED_NOW, d: sha256(new TextEncoder().encode('{"a":1}')) }],
+  };
+}
+
+/**
+ * The members the corpus carries as an array of maps rather than as a map. Read off the bytes the
+ * writer builds rather than written out beside them, because the index a refusal names for an element
+ * is the reader's own spelling and this file quotes it.
+ */
+function elementMembers(): string[] {
+  const members = membersOf(stampedPayload());
+  return [...members.keys()].filter((key) => Array.isArray(members.get(key)));
+}
+
+/**
+ * The position a swept or edited name reaches. A member of a list is named with the index the reader
+ * reads it at, which is how the refusal this file quotes and the edit this file makes agree on which
+ * entry of one response they are both talking about. A name that is not below a list member is its own
+ * position, so the same call answers for `att.ts`, for `cva.col` and for `itm`.
+ */
+function positionOf(where: string): string {
+  const parts = where.split('.');
+  const head = parts[0]!;
+  const rest = parts.slice(1);
+  if (!elementMembers().includes(head)) return where;
+  return rest.length === 0 ? `${head}[0]` : `${head}[0].${rest.join('.')}`;
+}
+
+/**
  * A payload's members as the codec encodes them, spelled out a second time on purpose. A case that
  * has to hand over bytes no typed payload can express changes one of these, and the agreement
  * between this map and `encodePayload` is then two independent spellings of the same format.
@@ -573,8 +622,19 @@ function membersOf(payload: ReceiptPayload): Map<string, unknown> {
     ['epk', payload.epk],
     ['tok', new Map<string, unknown>([['p', payload.tok.p], ['c', payload.tok.c]])],
   ];
-  if (payload.v === 2) {
+  if (payload.v !== 1) {
     members.push(['mk', new Map<string, unknown>([['sch', payload.mk.sch], ['d', payload.mk.d]])]);
+  }
+  if (payload.v === 3) {
+    const slot = (one: CollateralSlot): Map<string, unknown> =>
+      one.presence === 'held'
+        ? new Map<string, unknown>([['p', one.presence], ['d', one.sha256]])
+        : new Map<string, unknown>([['p', one.presence], ['r', one.reason]]);
+    members.push(
+      ['sd', new Map<string, unknown>([['name', payload.sd.name], ['unc', payload.sd.uncertaintySeconds]])],
+      ['cva', new Map<string, unknown>([['col', slot(payload.cva.collateral)], ['val', slot(payload.cva.validity)]])],
+      ['itm', payload.itm.map((one) => new Map<string, unknown>([['t', one.t], ['d', one.d]]))],
+    );
   }
   return new Map<string, unknown>(members);
 }
@@ -722,7 +782,7 @@ describe('receipt payload v2 and the versions a call accepts', () => {
     const key = generateSigningKey();
     // Both spellings of "not an integer at all" land here, and neither is the version code: a
     // document a reader cannot take a version from is a malformed payload, which is what the spec
-    // and the code table both say. The `v: 3` case further down this block proves the other half,
+    // and the code table both say. The `v: 4` case further down this block proves the other half,
     // that an integer this package does not read is a version answer rather than a payload one.
     const textVersion = membersOf(samplePayload());
     textVersion.set('v', '1');
@@ -747,10 +807,13 @@ describe('receipt payload v2 and the versions a call accepts', () => {
   it('refuses a version this package cannot parse with the same code', () => {
     const key = generateSigningKey();
     const members = membersOf(samplePayload());
-    members.set('v', 3);
+    members.set('v', 4);
     const bytes = signMembers(members, key);
     // One code for both refusals on purpose: which side of a boundary a number sits on is a fact
-    // about releases, and two answers would let a caller find it out.
+    // about releases, and two answers would let a caller find it out. `4` is the sentinel because
+    // `3` is no longer one: the version this package reads moved to include it, and a document
+    // wearing a version the reader does grasp but whose members do not agree with it is a payload
+    // answer, which is the case the two halves below keep apart.
     expectErrorCode(() => verifyReceipt(bytes, { publicKey: key.publicKey, now: FIXED_NOW }), 'UNSUPPORTED_VERSION');
     expectErrorCode(() => decodeReceipt(bytes), 'UNSUPPORTED_VERSION');
 
@@ -759,7 +822,7 @@ describe('receipt payload v2 and the versions a call accepts', () => {
     // so does a version a caller narrowed away. Without this, the one answer the format promises
     // would depend on what else the bytes happened to hold.
     const unreadable = membersOf(samplePayload());
-    unreadable.set('v', 3);
+    unreadable.set('v', 4);
     unreadable.set('mk', new Map<string, unknown>());
     const unreadableBytes = signMembers(unreadable, key);
     expectErrorCode(() => verifyReceipt(unreadableBytes, { publicKey: key.publicKey, now: FIXED_NOW }), 'UNSUPPORTED_VERSION');
@@ -819,20 +882,31 @@ describe('receipt payload v2 and the versions a call accepts', () => {
 });
 
 /**
- * The members of a payload, with `edit` applied inside the map the format puts at `owner`. The maps
+ * The members of a payload, with `edit` applied inside the map the format puts at `route`. The maps
  * below the payload are what the closedness rule reaches, and every case here has to be a document
  * that is whole except for what the edit wrote. `membersOf` builds fresh nested maps on every call, so
  * an edit cannot leak from one case into the next.
+ *
+ * The route is dotted where a map sits behind another map's member, and a step that lands on a list
+ * takes its first element: the member the format writes as an array of maps is closed at the element,
+ * so a closure rule that stopped at the list rather than reaching inside it would refuse nothing at
+ * all, and an edit that stopped at the list would edit nothing.
  */
 function editedNested(
   payload: ReceiptPayload,
-  owner: string,
+  route: string,
   edit: (nested: Map<unknown, unknown>) => void,
 ): Map<string, unknown> {
   const members = membersOf(payload);
-  const nested = members.get(owner);
-  if (!(nested instanceof Map)) throw new Error(`the corpus carries no ${owner} map to edit`);
-  edit(nested);
+  let cursor: unknown = members;
+  for (const part of route.split('.')) {
+    if (Array.isArray(cursor)) cursor = cursor[0];
+    if (!(cursor instanceof Map)) throw new Error(`the corpus carries no ${route} map to edit`);
+    cursor = cursor.get(part);
+  }
+  if (Array.isArray(cursor)) cursor = cursor[0];
+  if (!(cursor instanceof Map)) throw new Error(`the corpus carries no ${route} map to edit`);
+  edit(cursor);
   return members;
 }
 
@@ -840,19 +914,83 @@ function editedNested(
 function payloadForVersion(version: string): ReceiptPayload {
   if (version === '1') return samplePayload();
   if (version === '2') return markedPayload();
+  if (version === '3') return stampedPayload();
   throw new Error(`this corpus has no document for payload version ${version}`);
 }
 
 /**
- * One case per map per version, read off the structure the walk enforces rather than spelled out
- * here. The schema test derives the twin's matrices from this same structure, so a map the format
- * gains arrives in each of them on the day it lands and a version with no document here fails the
- * run rather than covering one case fewer.
+ * The document a swept or edited position belongs to, oldest version first. Every position the first
+ * two blocks declare is carried by `v: 1` as well, so the sweeps below keep using the document they
+ * always used; a member only `v: 3` names is not, and rewriting it on a document that holds no such
+ * member would edit nothing and then assert a refusal those bytes never invited. Read off the versions
+ * the walk defines rather than switched on by name, so a position a later version gains arrives in the
+ * sweep on the day the CDDL declares it.
  */
-function nestedCases(): Array<[ReceiptPayload, string]> {
+function payloadCarrying(route: string): ReceiptPayload {
+  const head = route.split('.')[0]!;
+  for (const version of Object.keys(receiptParser.DEFINED_MAPS)) {
+    const payload = payloadForVersion(version);
+    if (membersOf(payload).has(head)) return payload;
+  }
+  throw new Error(`no version of this corpus carries a ${head} member`);
+}
+
+/**
+ * One closedness case: the document carrying the map, the route to it through the bytes, and the
+ * position the reader names when it refuses a member sitting inside that map. Route and position
+ * differ exactly where the route reaches inside a list, which is where a walk over member names
+ * cannot go and the element's own reader can.
+ */
+interface ClosureCase {
+  readonly payload: ReceiptPayload;
+  readonly route: string;
+  readonly position: string;
+}
+
+/**
+ * The maps a payload version reaches that the closure walk cannot enter by member name, read out of
+ * the block that declares them: a member bound to a rule through an array (`itm` today) is closed at
+ * its element, and a member whose rule names members that are rules of their own (`cva.col` and
+ * `cva.val`, the two arms the label inside a slot selects) is closed one level below the map the walk
+ * enters. Neither kind is written out here, and neither is asked of the walk's own `nested`, because a
+ * hand-written list of positions is the copy that stays green the day the format gains a third map of
+ * this shape and nothing starts refusing at it.
+ */
+function casesBeyondTheWalk(cddl: string, version: number, payload: ReceiptPayload): ClosureCase[] {
+  const rules = nestedRuleNames(cddl);
+  const cases: ClosureCase[] = [];
+  for (const member of memberDeclarations(cddlRule(cddl, `Ashaveri-Receipt-Payload-v${version}`))) {
+    const rule = rules.get(member.name);
+    if (rule === undefined) continue;
+    if (member.type.startsWith('[+')) {
+      cases.push({ payload, route: member.name, position: positionOf(member.name) });
+      continue;
+    }
+    for (const arm of cddlRuleArms(cddl, rule)) {
+      for (const inner of memberDeclarations(arm)) {
+        if (/^[A-Z]/u.test(inner.type)) cases.push({ payload, route: `${member.name}.${inner.name}`, position: `${member.name}.${inner.name}` });
+      }
+    }
+  }
+  return cases;
+}
+
+/**
+ * One case per map per version, read off the structure the walk enforces and off the blocks the CDDL
+ * declares, rather than spelled out here. The schema test derives the twin's matrices from the same
+ * two sources, so a map the format gains arrives in each of them on the day it lands and a version
+ * with no document here fails the run rather than covering one case fewer.
+ */
+function nestedCases(): ClosureCase[] {
+  const cddl = readCddl();
   return Object.entries(receiptParser.DEFINED_MAPS).flatMap(
-    ([version, defined]) =>
-      Object.keys(defined.nested ?? []).map((key): [ReceiptPayload, string] => [payloadForVersion(version), key]),
+    ([version, defined]): ClosureCase[] => {
+      const payload = payloadForVersion(version);
+      const walked = Object.keys(defined.nested ?? []).map(
+        (key): ClosureCase => ({ payload, route: key, position: key }),
+      );
+      return [...walked, ...casesBeyondTheWalk(cddl, Number(version), payload)];
+    },
   );
 }
 
@@ -866,13 +1004,19 @@ describe('the payload map and every map nested inside it are closed', () => {
       expect(() => verifyReceipt(unedited, { publicKey: key.publicKey, now: FIXED_NOW })).not.toThrow();
     }
 
-    for (const [payload, owner] of nestedCases()) {
-      const bytes = signMembers(editedNested(payload, owner, (nested) => nested.set('surprise', 'x')), key);
+    // Two halves of the sentence are matched, and each is a fact of its own: the position says the
+    // reader reached the map it was told to close, and the name says it refused the member it found
+    // rather than the document it was handed. Which phrase names the definer between them is the
+    // reader's prose about which shape it read the map as, and the two spellings it uses are pinned
+    // word for word by the cases further down this file.
+    for (const one of nestedCases()) {
+      const bytes = signMembers(editedNested(one.payload, one.route, (nested) => nested.set('surprise', 'x')), key);
       const failure = expectFailure(() => verifyReceipt(bytes, { publicKey: key.publicKey, now: FIXED_NOW }));
       expect(
         failure.message,
-        `a v${payload.v} payload with an undefined member inside ${owner}`,
-      ).toContain(`${owner} carries a member the format does not define: 'surprise'`);
+        `a v${one.payload.v} payload with an undefined member inside ${one.route}`,
+      ).toContain(`${one.position} carries a member`);
+      expect(failure.message, `the member refused inside ${one.route}`).toContain(`does not define: 'surprise'`);
       // The same answer with no signature check to reach it through: closedness is a fact about the
       // payload rather than about who signed it, so an unread document is refused as a verified one is.
       expectFailure(() => decodeReceipt(bytes), 'BAD_PAYLOAD');
@@ -994,29 +1138,37 @@ function signKeepingMajorTypes(
  * payload itself and is set on the map; a dotted one goes through `editedNested`, which is the same
  * route the closure cases take and leaves every other member exactly as `membersOf` wrote it. The
  * branches are read off the shape of the name rather than off a list of positions, so the row a
- * position contributes below is the row that rewrites it.
+ * position contributes below is the row that rewrites it, and the document each row rewrites is the
+ * oldest version that carries the member the route starts at.
  */
 function payloadWith(where: string, value: unknown): Map<string, unknown> {
   if (!where.includes('.')) {
-    const members = membersOf(samplePayload());
+    const members = membersOf(payloadCarrying(where));
     members.set(where, value);
     return members;
   }
   const [owner, name] = where.split('.') as [string, string];
-  return editedNested(samplePayload(), owner, (nested) => nested.set(name, value));
+  return editedNested(payloadCarrying(where), owner, (nested) => nested.set(name, value));
 }
 
-/** What a parsed payload carries at one of those positions, read the same way the cases name them. */
+/**
+ * What a parsed payload carries at one of those positions, read the same way the cases name them. A
+ * bracketed step indexes a list, so the reader's own spelling of an element (`itm[0].t`) is the one
+ * route this function understands without a second naming convention.
+ */
 function valueAt(payload: ReceiptPayload, where: string): unknown {
   let cursor: unknown = payload;
-  for (const part of where.split('.')) cursor = (cursor as Record<string, unknown>)[part];
+  for (const part of where.replace(/\[(\d+)\]/gu, '.$1').split('.')) {
+    cursor = (cursor as Record<string, unknown>)[part];
+  }
   return cursor;
 }
 
 /**
- * Every position the format types as an integer, with the value each case puts there: the five
- * for which `receipt.cddl` writes `int`, namely `iat`, `epk` and one below each of the maps nested
- * inside the payload, and `v`, which the same file types as the integer literals `1` and `2` rather than as `int`. The
+ * Every position the format types as an integer, with the value each case puts there: the six
+ * for which `receipt.cddl` writes `int`, namely `iat`, `epk`, one below each of the maps nested
+ * inside the payload and one below the element of the list it nests, and `v`, which the same file
+ * types as the integer literals `1`, `2` and `3` rather than as `int`. The
  * whole roster belongs to the sweep, including the literals: a `1.0` at the version is exactly the
  * thing the rule refuses, refused before a reader ever decides which version the document claims.
  *
@@ -1049,7 +1201,7 @@ describe('a position the CDDL writes `int` reads one CBOR major type', () => {
         declaredProtectedHeader(key.kid),
       );
       const accepted = decodeReceipt(integerBytes);
-      expect(valueAt(accepted.payload, member.where), `the integer at ${member.where}`).toBe(member.value);
+      expect(valueAt(accepted.payload, positionOf(member.where)), `the integer at ${member.where}`).toBe(member.value);
 
       for (const [width, floated] of floatWidthsHolding(member.value)) {
         const bytes = signKeepingMajorTypes(
@@ -1082,7 +1234,10 @@ describe('a position the CDDL writes `int` reads one CBOR major type', () => {
         key,
         declaredProtectedHeader(key.kid),
       );
-      expect(valueAt(decodeReceipt(integerBytes).payload, member.where), `the integer at ${member.where}`).toBe(member.value);
+      expect(
+        valueAt(decodeReceipt(integerBytes).payload, positionOf(member.where)),
+        `the integer at ${member.where}`,
+      ).toBe(member.value);
 
       for (const [name, bignum] of bignumWidthsHolding(member.value)) {
         const bytes = signKeepingMajorTypes(
@@ -1095,7 +1250,7 @@ describe('a position the CDDL writes `int` reads one CBOR major type', () => {
         // The two halves are refused at two points, and the detail says which: the narrow one by the
         // decode, in the decoder's words about a bigint that need not be one, the wide one by the read
         // of the field itself. Neither is the float rule, and neither is the other.
-        const detail = name.startsWith('a bignum of') ? 'bigint' : fieldSentence(member.where);
+        const detail = name.startsWith('a bignum of') ? 'bigint' : fieldSentence(positionOf(member.where));
         expect(failure.message, `${member.where} written as ${name}`).toContain(detail);
         expectFailure(() => verifyReceipt(bytes, { publicKey: key.publicKey, now: FIXED_NOW }), 'BAD_PAYLOAD');
       }

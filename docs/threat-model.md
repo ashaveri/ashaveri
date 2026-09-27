@@ -314,7 +314,9 @@ What is still true, in both modes:
   section 6 of [receipt-spec.md](receipt-spec.md), and it holds: a v1 reader checks the thirteen fields
   it knows, finds nothing about a mark, and would verify a receipt over an unmarked response exactly
   as readily as over a marked one, which is silence read as a claim. The closedness that refusal rests
-  on is not the payload map's alone: `meas`, `att`, `tok` and `mk` are closed the same way, and an
+  on is not the payload map's alone: `meas`, `att`, `tok`, `mk`, `sd` and `cva` are closed the same
+  way, and so are the element of `itm` and the two arms a collateral slot's label selects, each by the
+  reader that reaches it, and an
   undefined member of any of them is `BAD_PAYLOAD` rather than a member a reader takes no account of,
   and the signed `Ashaveri-Protected-Header` closes against the three labels `receipt.cddl` names and
   answers any other with `BAD_PROTECTED_HEADER` before it reads one of them. Closing by number is not
@@ -331,7 +333,8 @@ What is still true, in both modes:
   `decodeClosedDocument` is also how an export's header and manifest and a sealed deployment manifest's
   header are read, so a float standing where a label belongs is a malformed document in any of them.
   It reaches the payload's numbers as well,
-  and the format says which ones. The positions are `v`, `iat`, `att.ts`, `epk`, `tok.p` and `tok.c`,
+  and the format says which ones. The positions are `v`, `iat`, `att.ts`, `epk`, `tok.p`, `tok.c` and
+  `itm.t`,
   each read as the integer `receipt.cddl` types it, so a `128.0` written as a float is a malformed
   payload rather than 128 taken on trust. The writer that issues a receipt holds the same line from its
   own side and spells negative zero as the integer zero, so a float standing at one of these positions

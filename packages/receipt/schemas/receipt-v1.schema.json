@@ -2,7 +2,7 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "https://ashaveri.com/schemas/receipt-v1.json",
   "title": "Ashaveri Inference Receipt (JSON twin of the CBOR/COSE wire format)",
-  "description": "Display-only projection of the signed COSE_Sign1 receipt. The CBOR bytes are canonical; this JSON form is never signed directly. The payload branch describes both versions the CDDL defines: receipt-v1's thirteen fields, and receipt-v2, which is those same fields plus the marking attestation. Each branch is closed, so a member its version does not name is a refusal here exactly as it is in the CDDL and in the parser. Closure is not one level: the payload map and the four nested inside it, `meas`, `att`, `tok` and `mk`, are closed, so a member one of them does not name is refused at that level too rather than read here and dropped on the way to a verifier. The payload branches refuse an unnamed member through `unevaluatedProperties`, which is the keyword that reaches through their `allOf`, and the nested definitions through `additionalProperties`, which is the one that applies where the members are named in the same object. `protectedHeader` carries the three labels the CDDL declares and no more, and this definition carries no closure keyword: the parser reads that map by number and accepts only those three labels, so a document carrying another is refused before any projection of it is built and an unnamed label never arrives here as a field left out, and the parser decodes that map where no floating-point number can appear, because a label written as the float 1.0 takes the map slot of the integer 1 and is no longer distinguishable from it afterwards. The unprotected map is the format's one declared carrier of no claim, outside the signature and outside this projection.",
+  "description": "Display-only projection of the signed COSE_Sign1 receipt. The CBOR bytes are canonical; this JSON form is never signed directly. The payload branch describes the three versions the CDDL defines: receipt-v1's thirteen fields, receipt-v2, which is those same fields plus the marking attestation, and receipt-v3, which is v2's fourteen plus the stamp disclosure, the captured collateral validity anchor and the per-item list. Each branch is closed, so a member its version does not name is a refusal here exactly as it is in the CDDL and in the parser. Closure is not one level: the payload map and the six nested inside it, `meas`, `att`, `tok`, `mk`, `sd` and `cva`, are closed, so a member one of them does not name is refused at that level too rather than read here and dropped on the way to a verifier. `itm` is an array rather than a map, and its elements are the closed `itemStamp` map below, so a member an entry does not name is refused at that level as well. The payload branches refuse an unnamed member through `unevaluatedProperties`, which is the keyword that reaches through their `allOf`, and the nested definitions through `additionalProperties`, which is the one that applies where the members are named in the same object. `protectedHeader` carries the three labels the CDDL declares and no more, and this definition carries no closure keyword: the parser reads that map by number and accepts only those three labels, so a document carrying another is refused before any projection of it is built and an unnamed label never arrives here as a field left out, and the parser decodes that map where no floating-point number can appear, because a label written as the float 1.0 takes the map slot of the integer 1 and is no longer distinguishable from it afterwards. The unprotected map is the format's one declared carrier of no claim, outside the signature and outside this projection.",
   "type": "object",
   "required": ["protectedHeader", "payload"],
   "properties": {
@@ -19,7 +19,8 @@
       "description": "Exactly one branch per payload version. `v` is which one the document is, and the branches are exclusive on it.",
       "oneOf": [
         { "$ref": "#/$defs/payloadV1" },
-        { "$ref": "#/$defs/payloadV2" }
+        { "$ref": "#/$defs/payloadV2" },
+        { "$ref": "#/$defs/payloadV3" }
       ]
     },
     "signature": { "type": "string", "pattern": "^[0-9a-f]{128}$", "description": "Ed25519 signature over the Sig_structure, hex" }
@@ -97,24 +98,107 @@
       "required": ["v", "mk"],
       "properties": {
         "v": { "const": 2 },
-        "mk": {
-          "type": "object",
-          "required": ["sch", "d"],
-          "properties": {
-            "sch": {
-              "type": "string",
-              "description": "a label from the marking-scheme registry. Not an enum here because the CDDL admits any tstr: the registry this package reads is `none` and `provenance-v1`, and it refuses a label outside those two as UNSUPPORTED_SCHEME rather than this twin deciding the format."
-            },
-            "d": {
-              "$ref": "#/$defs/hex32",
-              "description": "sha256 of the marked region exactly as it appears in the response, not of the whole response. For `sch: \"none\"` the region is empty and this is the digest of no bytes."
-            }
-          },
-          "additionalProperties": false
-        }
+        "mk": { "$ref": "#/$defs/marking" }
       },
       "unevaluatedProperties": false,
       "description": "A v2 document and nothing else. The map is closed the same way v1's is: fourteen members are the whole of it, so a member outside this list is a malformed payload rather than a member a reader agreed to forget."
+    },
+    "payloadV3": {
+      "allOf": [{ "$ref": "#/$defs/payloadFields" }],
+      "type": "object",
+      "required": ["v", "mk", "sd", "cva", "itm"],
+      "properties": {
+        "v": { "const": 3 },
+        "mk": { "$ref": "#/$defs/marking" },
+        "sd": { "$ref": "#/$defs/stampDisclosure" },
+        "cva": { "$ref": "#/$defs/collateralValidityAnchor" },
+        "itm": {
+          "type": "array",
+          "minItems": 1,
+          "description": "One entry per response item, in the order the response put them in, and never an empty list: a run of nothing states nothing, and a stream that sent no data frame is a refusal at issuance rather than an array of zero here. A response that was not streamed is one entry holding the whole body, which may be no bytes at all.",
+          "items": { "$ref": "#/$defs/itemStamp" }
+        }
+      },
+      "unevaluatedProperties": false,
+      "description": "A v3 document and nothing else. The map is closed the same way the other two are: seventeen members are the whole of it, the fourteen a v2 document carries plus the disclosure, the anchor and the item list, so a member outside this list is a malformed payload rather than a member a reader agreed to forget."
+    },
+    "marking": {
+      "type": "object",
+      "required": ["sch", "d"],
+      "properties": {
+        "sch": {
+          "type": "string",
+          "description": "a label from the marking-scheme registry. Not an enum here because the CDDL admits any tstr: the registry this package reads is `none` and `provenance-v1`, and it refuses a label outside those two as UNSUPPORTED_SCHEME rather than this twin deciding the format."
+        },
+        "d": {
+          "$ref": "#/$defs/hex32",
+          "description": "sha256 of the marked region exactly as it appears in the response, not of the whole response. For `sch: \"none\"` the region is empty and this is the digest of no bytes."
+        }
+      },
+      "additionalProperties": false,
+      "description": "The marking attestation, one map for the two versions that carry it: v2 makes it required and v3 carries it unchanged, so neither branch can drift from the other on the same two members."
+    },
+    "stampDisclosure": {
+      "type": "object",
+      "required": ["name", "unc"],
+      "properties": {
+        "name": { "type": "string", "description": "what the source that read the issuance instant calls itself, as its owner names it" },
+        "unc": {
+          "type": ["integer", "null"],
+          "minimum": 0,
+          "description": "Seconds that source declares it can be away from the instant it names. `null` is the source saying nobody measured how far away it is, which is a different statement from `0` and is refused by a policy that demands a bound; an absent member would be readable as either, so the field is required and its two readings are values."
+        }
+      },
+      "additionalProperties": false,
+      "description": "Where one signed instant came from, in the source's own words. The instant itself is not here, because it is already signed once beside the nonce that dates the document."
+    },
+    "collateralValidityAnchor": {
+      "type": "object",
+      "required": ["col", "val"],
+      "properties": {
+        "col": { "$ref": "#/$defs/collateralSlot", "description": "the signed collateral the bytes were appraised against" },
+        "val": { "$ref": "#/$defs/collateralSlot", "description": "the validity context they were appraised in" }
+      },
+      "additionalProperties": false,
+      "description": "What became of the two pieces of appraisal context, captured when they were taken in. Both halves are required because an anchor that defaults a missing half to a pass is not an anchor."
+    },
+    "collateralSlot": {
+      "oneOf": [{ "$ref": "#/$defs/collateralHeld" }, { "$ref": "#/$defs/collateralAbsent" }],
+      "description": "One of two shapes, told apart by `p`: the context this anchor holds, which is a digest and nothing else, or the context it does not, which is a reason and no digest. `oneOf` rather than a list of members because a slot with a digest and a reason is not a third state, and a reader would have to choose which of the two the writer meant."
+    },
+    "collateralHeld": {
+      "type": "object",
+      "required": ["p", "d"],
+      "properties": {
+        "p": { "const": "held" },
+        "d": {
+          "$ref": "#/$defs/hex32",
+          "description": "sha256 of the bytes exactly as they arrived. No byte count rides beside it, because a count of bytes this document does not hold is a number nothing can check it against, and no verdict, because whether the collateral verifies is a reader's question asked with its own pins."
+        }
+      },
+      "additionalProperties": false
+    },
+    "collateralAbsent": {
+      "type": "object",
+      "required": ["p", "r"],
+      "properties": {
+        "p": {
+          "enum": ["absent-at-source", "not-taken-in"],
+          "description": "Which of the two absences this is: the source had nothing to give, or this collector did not take in what was there. One is a statement about the world and the other about us, and a record that could not tell them apart could be read as either."
+        },
+        "r": { "type": "string", "description": "In one line, the collector's own words for why there are no bytes. Required, because an absence nobody explained is a hole rather than a state." }
+      },
+      "additionalProperties": false
+    },
+    "itemStamp": {
+      "type": "object",
+      "required": ["t", "d"],
+      "properties": {
+        "t": { "type": "integer", "minimum": 0, "description": "unix seconds the source named by `sd` read when this item's bytes were framed" },
+        "d": { "$ref": "#/$defs/hex32", "description": "sha256 of exactly this item's bytes and of none of the framing around them, which is why the item list and the whole-response digest are two statements about one byte string rather than one derivable from the other" }
+      },
+      "additionalProperties": false,
+      "description": "One response item: its instant and its digest, in the order the response put them in. Chain order is that order and stamp order is `t`; a reader refuses a list where the two disagree."
     },
     "hex16": { "type": "string", "pattern": "^[0-9a-f]{32}$" },
     "hex32": { "type": "string", "pattern": "^[0-9a-f]{64}$" },

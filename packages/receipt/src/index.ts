@@ -48,6 +48,7 @@ export type {
   ReceiptPayload,
   ReceiptPayloadV1,
   ReceiptPayloadV2,
+  ReceiptPayloadV3,
   ReceiptVersion,
   Marking,
   MarkingScheme,
@@ -57,6 +58,7 @@ export type {
   TeeKind,
   VerifyOptions,
   VerifiedReceipt,
+  ItemStamp,
 } from './receipt.js';
 export { ReceiptError } from './errors.js';
 export type { ReceiptErrorCode } from './errors.js';

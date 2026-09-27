@@ -12,6 +12,13 @@ import {
   equalBytes,
 } from './cose.js';
 import { ReceiptError } from './errors.js';
+import type {
+  CollateralPresence,
+  CollateralSlot,
+  CollateralValidityAnchor,
+  StampDisclosure,
+} from './disclosure.js';
+import { COLLATERAL_PRESENCES } from './disclosure.js';
 
 /**
  * `software` makes no TEE claim: `m` is the deployment's own digest of what it runs.
@@ -71,9 +78,13 @@ export interface TokenMetering {
  * The payload versions this package reads, the one place that set is written. `2` exists because of
  * what `mk` attests: a v1 reader checks thirteen fields, finds nothing about a mark, and would
  * verify a receipt over an unmarked response as readily as over a marked one, which is silence read
- * as a claim.
+ * as a claim. `3` exists for the same reason three times over: a reader that took `sd`, `cva` and
+ * `itm` and dropped them would verify a receipt whose stamp names no source, whose appraisal
+ * recorded no context, and whose response holds no items, and each of those silences is the claim
+ * the member was added to make or to refuse. Nothing was removed and no member moved, so every
+ * version below is the one before it plus names.
  */
-const PARSED_VERSIONS = [1, 2] as const;
+const PARSED_VERSIONS = [1, 2, 3] as const;
 
 export type ReceiptVersion = (typeof PARSED_VERSIONS)[number];
 
@@ -111,8 +122,9 @@ export interface Marking {
 }
 
 /**
- * The twelve fields every receipt carries, named once so that v2 being v1 plus one member is a
- * fact of the type rather than a second copy that can drift out of step with the first.
+ * The twelve fields every receipt carries, named once so that v2 being v1 plus one member, and v3
+ * being v2 plus three, is a fact of the type rather than a second copy that can drift out of step
+ * with the first.
  */
 interface ReceiptFields {
   iss: string;
@@ -138,14 +150,42 @@ export interface ReceiptPayloadV2 extends ReceiptFields {
   mk: Marking;
 }
 
-export type ReceiptPayload = ReceiptPayloadV1 | ReceiptPayloadV2;
+/**
+ * One response item: the instant its bytes were stamped and their digest, and nothing else. The
+ * order of the list this belongs to is the chain, which is why there is no predecessor field beside
+ * `d`: an item has no identity to name one by. `d` is the same 32-byte representation
+ * `ResponseItem.d`, `mk.d` and `att.d` use.
+ */
+export interface ItemStamp {
+  /** unix seconds the source named by `sd` read when this item's bytes were framed. */
+  t: number;
+  /** sha256 of exactly this item's bytes, and of none of the framing around them. */
+  d: Uint8Array;
+}
 
 /**
- * The members the two payload versions have in common, in the order `receipt.cddl` lists them.
- * `mk` is absent from this list because it belongs to one version, which is the whole of what makes
- * it a v2 member rather than an optional one.
+ * v3 is every member of `ReceiptPayloadV2`, named again rather than extended because a version that
+ * adds names has to say which ones it adds, plus the three that made the number move. The three are
+ * required: an unstated source, an unrecorded context, and an item list that might simply not be
+ * there are three silences, and a receipt is a document that states.
+ */
+export interface ReceiptPayloadV3 extends ReceiptFields {
+  v: 3;
+  mk: Marking;
+  sd: StampDisclosure;
+  cva: CollateralValidityAnchor;
+  itm: readonly ItemStamp[];
+}
+
+export type ReceiptPayload = ReceiptPayloadV1 | ReceiptPayloadV2 | ReceiptPayloadV3;
+
+/**
+ * The members the payload versions have in common, in the order `receipt.cddl` lists them. `mk` is
+ * absent from this list because it belongs to two versions and not to all three, which is the whole
+ * of what makes it a v2 member rather than an optional one, and `sd`, `cva` and `itm` for the same
+ * reason one version further on.
  *
- * This list and the four below are exported so a reader outside the package can hold each one
+ * This list and the ones below are exported so a reader outside the package can hold each one
  * against the map `receipt.cddl` declares it for: they are the whole of what the closure walk
  * refuses, so once a map's members are written in two places the two can come apart, and only one
  * direction of the disagreement is loud. `index.ts` names none of them, so the package's public
@@ -167,13 +207,24 @@ export const MEASUREMENT_MEMBERS = ['tee', 'm'] as const;
 export const EVIDENCE_REF_MEMBERS = ['d', 'ts', 'url'] as const;
 export const TOKEN_METERING_MEMBERS = ['p', 'c'] as const;
 export const MARKING_MEMBERS = ['sch', 'd'] as const;
+export const STAMP_DISCLOSURE_MEMBERS = ['name', 'unc'] as const;
+export const COLLATERAL_ANCHOR_MEMBERS = ['col', 'val'] as const;
+export const COLLATERAL_HELD_MEMBERS = ['p', 'd'] as const;
+export const COLLATERAL_ABSENT_MEMBERS = ['p', 'r'] as const;
+export const ITEM_STAMP_MEMBERS = ['t', 'd'] as const;
 
 /**
  * Which members a payload of each version defines, and the maps nested inside it. A map is closed:
  * carrying a member it does not define makes the document malformed rather than a document read with
  * the extra member dropped, and that is as true one level down as it is at the payload.
  *
- * This is the structure the walk reads, so the five lists above answer for the format only if it is
+ * Two maps of v3 are deliberately not entries in any `nested`: the two arms of a collateral slot,
+ * because which list stands behind `cva.col` is decided by the label in it and no one list answers
+ * for both, and the element map of `itm`, because that member's value is an array and a walk over
+ * map members cannot reach inside one. Both are closed by the reader that resolves the choice, at
+ * the position each one sits at, which is what `receipt.cddl` says of them.
+ *
+ * This is the structure the walk reads, so the lists above answer for the format only if it is
  * read off them: a map whose entry is a copy of a list goes stale the day that list is edited, and a
  * version whose `nested` is missing a name stops refusing members there while every list still
  * matches the CDDL. Exported alongside the lists, for that reason and for no other, and named by
@@ -195,6 +246,17 @@ export const DEFINED_MAPS: Readonly<Record<ReceiptVersion, DefinedMap>> = {
       att: { members: EVIDENCE_REF_MEMBERS },
       tok: { members: TOKEN_METERING_MEMBERS },
       mk: { members: MARKING_MEMBERS },
+    },
+  },
+  3: {
+    members: [...SHARED_MEMBERS, 'mk', 'sd', 'cva', 'itm'],
+    nested: {
+      meas: { members: MEASUREMENT_MEMBERS },
+      att: { members: EVIDENCE_REF_MEMBERS },
+      tok: { members: TOKEN_METERING_MEMBERS },
+      mk: { members: MARKING_MEMBERS },
+      sd: { members: STAMP_DISCLOSURE_MEMBERS },
+      cva: { members: COLLATERAL_ANCHOR_MEMBERS },
     },
   },
 };
@@ -345,11 +407,12 @@ function readReceiptFields(raw: Map<unknown, unknown>): ReceiptFields {
  * `mk` is required, so an absent one is a payload failure and never a reading of "unmarked": the
  * silence would be indistinguishable from "this receipt predates marking", which is exactly the
  * claim a reader must not be able to make. Unmarked is `sch: "none"`, and only the verification
- * step that holds the response bytes can say whether its digest of the empty region agrees.
+ * step that holds the response bytes can say whether its digest of the empty region agrees. Both
+ * versions that carry it require it, so the refusal names the one the bytes claimed.
  */
-function readMarking(raw: Map<unknown, unknown>): Marking {
+function readMarking(raw: Map<unknown, unknown>, version: 2 | 3): Marking {
   const value = raw.get('mk');
-  if (value === undefined) throw badPayload('v2 requires an mk member; absence is mk.sch "none", not a missing mk');
+  if (value === undefined) throw badPayload(`v${version} requires an mk member; absence is mk.sch "none", not a missing mk`);
   const mk = decodedMap(value);
   if (mk === null) throw badPayload('mk must be a map');
   const sch = mk.get('sch');
@@ -362,6 +425,136 @@ function readMarking(raw: Map<unknown, unknown>): Marking {
   return { sch, d };
 }
 
+/**
+ * `sd`, the disclosure of where the issuance instant came from. Two members, both required, because
+ * the whole of what this member adds is that a reader need not go outside the signed document to
+ * ask the question.
+ *
+ * `unc` is the one position in this payload that takes `null` as a value, and it is a value rather
+ * than an absent member on purpose: `null` is that source's own statement that nobody measured how
+ * far it can stand from the instants it names, `0` is that source's statement that it is right, and
+ * a member that could be missing has no way to tell a reader which of the two the writer meant. A
+ * policy that demands a bound reads the difference, which is why nothing here flattens it.
+ */
+function readStampDisclosure(raw: Map<unknown, unknown>): StampDisclosure {
+  const value = raw.get('sd');
+  if (value === undefined) throw badPayload('v3 requires an sd member; a stamp from an unnamed source is not the same document');
+  const sd = decodedMap(value);
+  if (sd === null) throw badPayload('sd must be a map');
+  const name = sd.get('name');
+  if (typeof name !== 'string') throw badPayload('sd.name must be a tstr');
+  const unc = sd.get('unc');
+  if (unc !== null) {
+    if (typeof unc !== 'number' || !Number.isSafeInteger(unc) || unc < 0) {
+      throw badPayload('sd.unc must be a non-negative integer or null');
+    }
+    return { name, uncertaintySeconds: unc };
+  }
+  return { name, uncertaintySeconds: null };
+}
+
+/**
+ * One arm of the anchor, closed by this read rather than by the walk: `p` decides which member list
+ * stands behind the slot, and no single list answers for both arms. A held slot carrying a reason is
+ * refused as surely as an absent one carrying a digest, because each is a document holding the
+ * other arm's claim and dropping its own.
+ */
+/**
+ * Whether a label is one of the three presence states the format declares, which is how a slot knows
+ * which of its two arms it is. The set is the one `disclosure.ts` exports and the capture record
+ * spells, so a fourth label here would have to be added there first.
+ */
+function isCollateralPresence(value: unknown): value is CollateralPresence {
+  return typeof value === 'string' && (COLLATERAL_PRESENCES as readonly string[]).includes(value);
+}
+
+function readCollateralSlot(value: unknown, where: string): CollateralSlot {
+  const slot = decodedMap(value);
+  if (slot === null) throw badPayload(`${where} must be a map`);
+  const presence = slot.get('p');
+  if (!isCollateralPresence(presence)) {
+    throw badPayload(`${where}.p is not one of the three presence states the format declares`);
+  }
+  if (presence === 'held') {
+    assertMembersAreDefined(slot, { members: COLLATERAL_HELD_MEMBERS }, where, 'a held slot');
+    const digest = slot.get('d');
+    if (!isUint8Array(digest) || digest.length !== 32) throw badPayload(`${where}.d must be a 32-byte bstr`);
+    return { presence: 'held', sha256: digest };
+  }
+  assertMembersAreDefined(slot, { members: COLLATERAL_ABSENT_MEMBERS }, where, 'an absent slot');
+  const reason = slot.get('r');
+  if (typeof reason !== 'string') throw badPayload(`${where}.r must be a tstr`);
+  return { presence, reason };
+}
+
+/**
+ * `cva`, the captured validity anchor. Both halves are read and neither is defaulted: a deployment
+ * that held the collateral and never took in a validity window is a state this document can state,
+ * and it is not the same state as holding both or neither. What the collateral proves is nobody's
+ * business here, because no field of an anchor is a verdict, and a record that printed one would
+ * turn custody of bytes into verification of them.
+ */
+function readCollateralAnchor(raw: Map<unknown, unknown>): CollateralValidityAnchor {
+  const value = raw.get('cva');
+  if (value === undefined) throw badPayload('v3 requires a cva member; an unrecorded context is a state, not an omission');
+  const cva = decodedMap(value);
+  if (cva === null) throw badPayload('cva must be a map');
+  return {
+    collateral: readCollateralSlot(cva.get('col'), 'cva.col'),
+    validity: readCollateralSlot(cva.get('val'), 'cva.val'),
+  };
+}
+
+/**
+ * `itm`, the per-item list: one entry per response item, in the order the response put them in, and
+ * never empty. An empty list is refused because a run of nothing states nothing and makes the walk
+ * over it vacuous, which is the reason `pack.cddl` gives for its own item list; a stream that sent no
+ * data frame is a refusal at issuance rather than a receipt carrying zero entries, and a buffered
+ * body of no bytes is one entry holding nothing.
+ *
+ * Each element is closed here rather than by the walk, because the walk reads map members and this
+ * member's value is an array. The position is in the refusal so a reader learns which item of a
+ * response said something the format cannot hold.
+ *
+ * The stamps are then compared with the order the array states, which is the reader-side half of the
+ * rule: chain order is the list, stamp order is `t`, and a receipt whose later item carries an
+ * earlier instant is one document contradicting another one of itself. That disagreement is its own
+ * code rather than `BAD_PAYLOAD`, because every member here is well-typed and in the place the version
+ * puts it, and what is refused is a pair of signed statements. Two items stamped in the same second are
+ * not a disagreement, because a second is the width of the stamp and two frames of one completion fall
+ * inside one routinely; a reader that asked for strictly increasing instants would refuse ordinary
+ * traffic, and the residual the check leaves is stated in the specification rather than widened here.
+ */
+function readItemStamps(raw: Map<unknown, unknown>): readonly ItemStamp[] {
+  const value = raw.get('itm');
+  if (value === undefined) throw badPayload('v3 requires an itm member; a response with no items is a refusal, not an omission');
+  if (!Array.isArray(value)) throw badPayload('itm must be an array');
+  if (value.length === 0) throw badPayload('itm declares at least one item and carries none');
+  const items = value.map((one, index) => readItemStamp(one, `itm[${index}]`));
+  for (let index = 1; index < items.length; index += 1) {
+    const before = items[index - 1]!;
+    const one = items[index]!;
+    if (one.t < before.t) {
+      throw new ReceiptError(
+        'ITEM_STAMP_OUT_OF_ORDER',
+        `itm[${index}] is stamped ${one.t} and itm[${index - 1}] is stamped ${before.t}, so the order the list states and the order the stamps state disagree`,
+      );
+    }
+  }
+  return items;
+}
+
+function readItemStamp(raw: unknown, where: string): ItemStamp {
+  const one = decodedMap(raw);
+  if (one === null) throw badPayload(`${where} must be a map`);
+  assertMembersAreDefined(one, { members: ITEM_STAMP_MEMBERS }, where, 'the format');
+  const t = one.get('t');
+  if (typeof t !== 'number' || !Number.isSafeInteger(t) || t < 0) throw badPayload(`${where}.t must be a non-negative integer`);
+  const d = one.get('d');
+  if (!isUint8Array(d) || d.length !== 32) throw badPayload(`${where}.d must be a 32-byte bstr`);
+  return { t, d };
+}
+
 function parsePayload(bytes: Uint8Array, accepted: readonly ReceiptVersion[]): ReceiptPayload {
   // The payload is the second of the two documents the format declares in full, so it is read under
   // the same rule as the signed header: a number that arrives here as a float is a value of a major
@@ -372,8 +565,29 @@ function parsePayload(bytes: Uint8Array, accepted: readonly ReceiptVersion[]): R
   const version = claimedVersion(raw.get('v'), accepted);
   assertMembersAreDefined(raw, DEFINED_MAPS[version], 'payload', `version ${version}`);
   const fields = readReceiptFields(raw);
-  if (version === 2) return { v: 2, ...fields, mk: readMarking(raw) };
-  return { v: 1, ...fields };
+  if (version === 1) return { v: 1, ...fields };
+  const mk = readMarking(raw, version);
+  if (version === 2) return { v: 2, ...fields, mk };
+  return {
+    v: 3,
+    ...fields,
+    mk,
+    sd: readStampDisclosure(raw),
+    cva: readCollateralAnchor(raw),
+    itm: readItemStamps(raw),
+  };
+}
+
+/** The `mk` map of a payload, in the order `receipt.cddl` declares its two members. */
+function markingMembers(mk: Marking): Map<string, unknown> {
+  return new Map<string, unknown>([['sch', mk.sch], ['d', mk.d]]);
+}
+
+/** One arm of the anchor: the presence label, and then the digest or the reason that label selects. */
+function collateralSlotMembers(slot: CollateralSlot): Map<string, unknown> {
+  return slot.presence === 'held'
+    ? new Map<string, unknown>([['p', slot.presence], ['d', slot.sha256]])
+    : new Map<string, unknown>([['p', slot.presence], ['r', slot.reason]]);
 }
 
 export function encodePayload(payload: ReceiptPayload): Uint8Array {
@@ -394,10 +608,28 @@ export function encodePayload(payload: ReceiptPayload): Uint8Array {
     ['epk', payload.epk],
     ['tok', new Map<string, unknown>([['p', payload.tok.p], ['c', payload.tok.c]])],
   ];
-  // Only a v2 document gains the member, so the bytes a v1 payload encodes to are exactly the
-  // bytes it encoded to before `mk` existed and stay signed by a verifier that never heard of it.
-  if (payload.v === 2) {
-    fields.push(['mk', new Map<string, unknown>([['sch', payload.mk.sch], ['d', payload.mk.d]])]);
+  // Only the versions that gained the member write it, so the bytes a v1 payload encodes to are
+  // exactly the bytes it encoded to before `mk` existed and stay signed by a verifier that never
+  // heard of it.
+  if (payload.v !== 1) {
+    fields.push(['mk', markingMembers(payload.mk)]);
+  }
+  // The same argument one version on: a v2 document carries no `sd`, no `cva` and no `itm`, and the
+  // bytes it signed are the bytes it still signs. `unc` is written whether or not anything was
+  // measured, because `null` is the sentence the source says about itself and an omitted member is
+  // not that sentence.
+  if (payload.v === 3) {
+    fields.push(
+      ['sd', new Map<string, unknown>([['name', payload.sd.name], ['unc', payload.sd.uncertaintySeconds]])],
+      [
+        'cva',
+        new Map<string, unknown>([
+          ['col', collateralSlotMembers(payload.cva.collateral)],
+          ['val', collateralSlotMembers(payload.cva.validity)],
+        ]),
+      ],
+      ['itm', payload.itm.map((one) => new Map<string, unknown>([['t', one.t], ['d', one.d]]))],
+    );
   }
   return encodeCanonical(new Map(fields));
 }
