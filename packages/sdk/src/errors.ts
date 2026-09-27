@@ -23,6 +23,15 @@ export type SdkErrorCode =
   | 'ISSUER_NOT_ALLOWED'
   | 'INSTANCE_NOT_ALLOWED'
   | 'MEASUREMENT_NOT_ALLOWED'
+  // A stamp read from a source that cannot answer the demand a policy makes about it. One code covers
+  // the three ways a source fails that demand, a declared uncertainty wider than the bound, a source
+  // nobody ever measured, and a source declaring a number that no reading can be away by, because the
+  // policy's demand is one question and neither an unmeasured claim nor a nonsense one answers it better
+  // than a wide source does. The message says which of the three it was, and names the source and the
+  // bound, because the fix is at the far end of that pair. Not a pin code: nothing here was mismatched
+  // against a list of names, and a reader told an issuer is unpinned looks in a different file from one
+  // told their clock is not bounded well enough
+  | 'STAMP_SOURCE_TOO_UNCERTAIN'
   | 'GATEWAY_ERROR'
   | 'NOT_RECEIPTED'
   // A capture record. Both answer the question of what a reader was told to read and did not

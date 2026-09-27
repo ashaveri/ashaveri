@@ -101,6 +101,7 @@ describe('parsePolicyFile', () => {
         measurements: { snp: [SNP_MEASUREMENT], software: [SOFTWARE_MEASUREMENT] },
         maxReceiptAgeSeconds: 60,
         maxEvidenceAgeSeconds: 120,
+        maxTimeUncertaintySeconds: 5,
         trustAnchors: { amdArks: [anchor('ark.pem')] },
       }),
       dir,
@@ -112,10 +113,28 @@ describe('parsePolicyFile', () => {
     expect(policy.measurements).toEqual({ snp: [SNP_MEASUREMENT], software: [SOFTWARE_MEASUREMENT] });
     expect(policy.maxReceiptAgeSeconds).toBe(60);
     expect(policy.maxEvidenceAgeSeconds).toBe(120);
+    expect(policy.maxTimeUncertaintySeconds).toBe(5);
     expect(policy.trustAnchors?.amdArks).toEqual([ANCHOR_BYTES]);
     expect(policy.trustAnchors?.intelSgxRoots).toBeUndefined();
     expect(loaded.anchors).toEqual([{ family: 'amdArks', path: 'ark.pem', sha256: ANCHOR_DIGEST }]);
     expect(fromBase64Url(PUBKEY)).toHaveLength(32);
+  });
+
+  it('reads a bound of zero as a demand and a field left out as no demand at all', () => {
+    const zero = parse(minimal({ maxTimeUncertaintySeconds: 0 }));
+    expect(zero.maxTimeUncertaintySeconds).toBe(0);
+    // A demand of zero survives the form worth putting in a repository, which is the difference
+    // between a demand and the absence of one.
+    expect(parsePolicyFile(policyFileToJson(zero)).maxTimeUncertaintySeconds).toBe(0);
+    expect(parse(minimal()).maxTimeUncertaintySeconds).toBeNull();
+    expect(parse(minimal({ maxTimeUncertaintySeconds: null })).maxTimeUncertaintySeconds).toBeNull();
+    const message = refuseWith(minimal({ maxTimeUncertaintySeconds: -1 }), 'POLICY_FILE_INVALID');
+    expect(message).toContain("'maxTimeUncertaintySeconds'");
+    expect(message).toContain('whole number of seconds of at least 0');
+    // The two windows keep the floor they were read by, so a field arriving did not loosen them.
+    expect(refuseWith(minimal({ maxReceiptAgeSeconds: 0 }), 'POLICY_FILE_INVALID')).toContain(
+      'whole number of seconds of at least 1',
+    );
   });
 
   it('refuses a key this format does not define, and names both keys', () => {
@@ -169,6 +188,11 @@ describe('parsePolicyFile', () => {
       ['maxReceiptAgeSeconds', -1],
       ['maxReceiptAgeSeconds', Number.MAX_SAFE_INTEGER + 1],
       ['maxEvidenceAgeSeconds', true],
+      ['maxTimeUncertaintySeconds', '5'],
+      ['maxTimeUncertaintySeconds', 1.5],
+      ['maxTimeUncertaintySeconds', -1],
+      ['maxTimeUncertaintySeconds', Number.MAX_SAFE_INTEGER + 1],
+      ['maxTimeUncertaintySeconds', []],
       ['trustAnchors', []],
       ['trustAnchors', 0],
       ['trustAnchors', { amdArks: 'ark.pem' }],
@@ -371,6 +395,10 @@ describe('policyFileDigest', () => {
     // over the loaded policy rather than over the bytes of the file.
     expect(digestOf({ v: 1, issuers: ['a'], maxReceiptAgeSeconds: null })).toBe(digestOf({ v: 1, issuers: ['a'] }));
     expect(digestOf({ v: 1, issuers: ['a'], trustAnchors: null })).toBe(digestOf({ v: 1, issuers: ['a'] }));
+    // The demand the same document may make about a stamp's source is normalised the same way on the
+    // reading it carries: null and absent are one policy, while the bound itself is inside the digest
+    // whenever it is stated, which is the case the next test adds.
+    expect(digestOf({ v: 1, issuers: ['a'], maxTimeUncertaintySeconds: null })).toBe(digestOf({ v: 1, issuers: ['a'] }));
     expect(
       digestOf({ v: 1, issuers: ['a'], trustAnchors: { amdArks: null, intelSgxRoots: null, nvidiaRoots: null } }),
     ).toBe(digestOf({ v: 1, issuers: ['a'] }));
@@ -395,6 +423,9 @@ describe('policyFileDigest', () => {
       ['a dropped measurement kind', { ...full(), measurements: { snp: [SNP_MEASUREMENT] } }],
       ['receipt age', { ...full(), maxReceiptAgeSeconds: 61 }],
       ['evidence age', { ...full(), maxEvidenceAgeSeconds: null }],
+      ['a time bound stated where none was', { ...full(), maxTimeUncertaintySeconds: 5 }],
+      ['a time bound of zero stated where none was', { ...full(), maxTimeUncertaintySeconds: 0 }],
+      ['a time bound widened by one second', { ...full(), maxTimeUncertaintySeconds: 6 }],
       [
         'anchor path',
         { ...full(), trustAnchors: anchorsWith([anchor('roots/other-ark.pem', 'ab'.repeat(32))]) },
@@ -447,6 +478,19 @@ describe('policyFileFromPolicy', () => {
     expect(file.maxReceiptAgeSeconds).toBeNull();
     expect(file.trustAnchors).toEqual({ amdArks: null, intelSgxRoots: null, nvidiaRoots: null });
     expect(parsePolicyFile(policyFileToJson(file))).toEqual(file);
+  });
+
+  it('writes a demand about a stamp source, and writes nothing where none was made', () => {
+    const demanded = policyFileFromPolicy({ issuers: ['a'], maxTimeUncertaintySeconds: 5 });
+    expect(demanded.maxTimeUncertaintySeconds).toBe(5);
+    expect(policyFileToJson(demanded)).toContain('"maxTimeUncertaintySeconds": 5');
+    expect(policyFileDigest(parsePolicyFile(policyFileToJson(demanded)))).toBe(policyFileDigest(demanded));
+    expect(policyFileDigest(demanded)).not.toBe(policyFileDigest(policyFileFromPolicy({ issuers: ['a'] })));
+    // A policy that demands nothing, however it spells that nothing, is the policy this field had not
+    // arrived for: the same document, and the same digest anyone already cited it by.
+    expect(
+      policyFileDigest(policyFileFromPolicy({ issuers: ['a'], maxTimeUncertaintySeconds: undefined })),
+    ).toBe(policyFileDigest(policyFileFromPolicy({ issuers: ['a'] })));
   });
 
   it('carries the anchor bytes the object pins as their path and digest', () => {

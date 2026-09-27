@@ -1,7 +1,7 @@
 # Error codes
 
 Every error code this workspace raises, what condition raises it, and what a caller should do
-about it. There are 161 declarations across eight unions, resolving to 159 distinct strings;
+about it. There are 162 declarations across eight unions, resolving to 160 distinct strings;
 `UNSUPPORTED_PLATFORM` and `UNSUPPORTED_VERSION` are the two strings two unions share, and the last
 section says why those pairs are deliberate while every other overlap is not.
 
@@ -22,7 +22,7 @@ The eight unions:
 | Union | Package | Owns |
 |---|---|---|
 | `ReceiptErrorCode` | `@ashaveri/receipt` | The COSE receipt wire format, the export, pack and redaction containers and the PoP Authorization header: decoding, signature, payload and manifest fields |
-| `SdkErrorCode` | `@ashaveri/sdk` | Client behaviour: transport, policy pins, strict-mode evidence verification, credential refusal |
+| `SdkErrorCode` | `@ashaveri/sdk` | Client behaviour: transport, policy pins, strict-mode evidence verification, the bound a policy demands of a stamp's source, credential refusal |
 | `AttestationErrorCode` | `@ashaveri/attest-core` | Platform evidence: dStack envelopes, SNP reports, TDX quotes, device reports, X.509 |
 | `GuestErrorCode` | `@ashaveri/signerd` | The guest agent socket inside the confidential VM |
 | `DstackErrorCode` | `@ashaveri/signerd` | Gateway startup: the deployment's own evidence, identity and device claim |
@@ -106,6 +106,7 @@ The eight unions:
 | `ISSUER_NOT_ALLOWED` | `SdkErrorCode` | `iss` is not pinned by the policy | Repin, or refuse. The issuer is who vouched, so this is the decision | terminal |
 | `INSTANCE_NOT_ALLOWED` | `SdkErrorCode` | `ins` is not pinned by the policy | Repin, or refuse; an instance id is not a stable pin by itself | terminal |
 | `MEASUREMENT_NOT_ALLOWED` | `SdkErrorCode` | The measurement is not pinned for that `tee` | Refuse, or add the digest after re-building the image and re-measuring | terminal |
+| `STAMP_SOURCE_TOO_UNCERTAIN` | `SdkErrorCode` | A policy demands a bound on how far the source behind a stamp may stand from the instant it names, and the source that wrote the stamp answers wider than that bound. The demand is `maxTimeUncertaintySeconds` and the statement it is weighed against is the source's own, which `gateway/src/store.ts` states on the store through `timeSource()` and beside every record its walk yields, never inside the receipt's bytes, so it is a demand a verifier can weigh only where the deployment hands that statement over. The second way to reach this code is a source declaring that nobody measured it, which is refused while the policy demands a bound and is not read as a bound of zero, because a question about how far a clock can be is not answered by nobody having looked. A third is a source declaring something that is not a count of seconds, a negative or a not-a-number, which states nothing in the same way and is refused on the same ground: a wired source is not read through the policy loader, which would have refused either spelling. A policy naming no bound asks nothing and never reaches here, so no verdict taken under one moves, and a policy whose bound is `0` is answered by a source declaring `0` and by nothing else | Refuse the stamp, and read which of the three the source answered with: the message names the source and the bound the policy demands, and the number the source declares in the one case where it declares a number. Nothing about a signature is in question and no waiting changes what a source declares about itself, so the fix is at the far end of that pair. Either the deployment wires a source carrying a measurement inside the bound, or whoever holds the policy lowers the demand to the number that source actually states | terminal |
 | `GATEWAY_ERROR` | `SdkErrorCode` | A request to the gateway failed, returned a non-2xx status, or returned a body that is not a chat completion. `wrapOpenAI` raises it one step earlier too, when the client object it was handed has no `fetch` to wrap, so no request was attempted | Retry at a higher level if the operation allows it; a non-JSON body can also mean an intermediary answered | retryable |
 | `NOT_RECEIPTED` | `SdkErrorCode` | The gateway answered without a receipt header | Refuse; an unreceipted response is not a completion this format can prove | terminal |
 | `NOT_CAPTURE_RECORD` | `SdkErrorCode` | A capture record whose members are not the ones the published layout defines, in shape or in value | Refuse; a record that cannot be read is not evidence, and the raise site names the member it stopped at | terminal |
