@@ -25,14 +25,16 @@ import { unionMembers } from './doc-contract.js';
  *
  * Four more things are checked on the way, because a suite of one-document artifacts is only as good as the
  * claims it can be read for. The honest envelope is rebuilt here from the three pieces the file publishes
- * beside it, by a path that is neither the writer's nor the generator's, and required to be byte-identical to
+ * beside it, by the shipped seal function rather than by the signing writer or the generator's case list,
+ * and required to be byte-identical to
  * the published document, so the framing the file states is the framing the bytes carry. The two run-label
  * rows are required to differ by one inserted byte at one position, which is what makes the ceiling they straddle
  * a width rule rather than two unrelated documents. Every code of the inventory family in the registry is
  * required to be reached by a committed row, which is the only way a refusal added to `errors.ts` without a
- * case cannot pass unnoticed. And the two folded lists are required to carry the same number of rows each,
- * because their guards are twins: a suite that vectored only one of them would let a port that keyed only the
- * other pass every row here.
+ * case cannot pass unnoticed. And the two folded lists are required to vector the same guards, every refusing
+ * row at a site naming the guard of that site it reaches,
+ * because their guards are twins: a suite that vectored one site or one guard and not its twin would let a
+ * port that keyed or compared only the other pass every row here.
  *
  * The client half of this reading is not wired yet: `packages/cli/test/vector-conformance.test.ts` drives the
  * other suites through the paths a shipped verifier takes, and these rows go there next. What is here is the
@@ -85,6 +87,15 @@ function payloadText(one: EpochInventoryVector): string {
   return new TextDecoder().decode(contents[2]);
 }
 
+/** The signature element of a sealed document, which is the fourth element of the envelope. */
+function signatureOf(one: EpochInventoryVector): Uint8Array {
+  const contents = (decodeCanonical(bytes(one.documentBase64Url)) as { contents?: unknown }).contents;
+  if (!Array.isArray(contents) || !(contents[3] instanceof Uint8Array)) {
+    throw new Error(`${one.name} is not a four-element envelope with a byte signature`);
+  }
+  return contents[3];
+}
+
 const honest = file.vectors.find((one) => one.name === 'honest-run-of-three');
 if (honest === undefined) throw new Error('the suite publishes no honest row to read the framing from');
 const reveal = honest.reveal;
@@ -124,20 +135,33 @@ describe('the published epoch inventory vectors', () => {
     }
   });
 
-  it('hands back the run and the summaries the accepted rows state', () => {
+  it('hands back the run the reader recomputed and the document it parsed', () => {
     const accepted = file.vectors.filter((one) => one.verdict === 'verify-ok');
     expect(accepted.length).toBeGreaterThanOrEqual(8);
     for (const one of accepted) {
       const read = verifyEpochInventory(bytes(one.documentBase64Url), optionsFor(one));
       const stated = one.readback;
       if (stated === undefined) throw new Error(`${one.name} is accepted and states no readback`);
+      // The one recomputation the accepted rows pin: the run in the order the entries' own figures put them,
+      // which is what makes `entries-listed-backwards` a witness rather than a restatement.
       expect(read.outcome.packs.map((each) => each.file)).toEqual(stated.runFiles);
-      expect(read.manifest.packs.map((each) => each.file)).toEqual(stated.statedFiles);
-      expect(read.manifest.window).toEqual(stated.window);
-      expect(read.manifest.chain.continuous).toBe(stated.continuous);
-      expect(read.manifest.chain.breaks.map((each) => each.file)).toEqual(stated.breakFiles);
-      expect(read.manifest.duty.carried).toBe(stated.carried);
-      expect(read.manifest.duty.short.map((each) => each.file)).toEqual(stated.shortFiles);
+      // The remaining columns are the reader echoing the row's own document text back, so they are published
+      // as data and asserted once, as a single parse echo rather than as six silent recomputations.
+      expect({
+        statedFiles: read.manifest.packs.map((each) => each.file),
+        window: read.manifest.window,
+        continuous: read.manifest.chain.continuous,
+        breakFiles: read.manifest.chain.breaks.map((each) => each.file),
+        carried: read.manifest.duty.carried,
+        shortFiles: read.manifest.duty.short.map((each) => each.file),
+      }).toEqual({
+        statedFiles: stated.statedFiles,
+        window: stated.window,
+        continuous: stated.continuous,
+        breakFiles: stated.breakFiles,
+        carried: stated.carried,
+        shortFiles: stated.shortFiles,
+      });
     }
     // The order a row is listed in bears nothing, so at least one accepted row has to show the reader putting a
     // run back into the order its figures state rather than repeating the array it was handed.
@@ -147,7 +171,8 @@ describe('the published epoch inventory vectors', () => {
   });
 
   it('rebuilds the honest envelope from the pieces the file publishes', () => {
-    // Neither the writer nor the generator: three published byte strings put back together. This is the proof
+    // The shipped seal function over three published byte strings: not the signing writer, which never sees
+    // the pieces taken apart, and not the generator's case list, which sealed them. This is the proof
     // the framing the file states is the framing the bytes carry, and it is what a port with no access to this
     // repository's writer has to check its own encoder against.
     const header = bytes(String(reveal['protectedHeaderBase64Url']));
@@ -192,8 +217,23 @@ describe('the published epoch inventory vectors', () => {
     expect(long.length - short.length).toBe(1);
     let at = 0;
     while (at < short.length && short[at] === long[at]) at += 1;
-    expect(short.slice(0, at)).toBe(long.slice(0, at));
     expect(short.slice(at)).toBe(long.slice(at + 1));
+    // The one inserted payload byte moves two things outside the text: the length prefix of the payload
+    // bstr, the only difference in the two documents before the payload itself, and the signature, which
+    // covers the bytes and so answers afresh on every one of its 64.
+    const withinDoc = bytes(within.documentBase64Url);
+    const pastDoc = bytes(past.documentBase64Url);
+    expect(pastDoc.length - withinDoc.length).toBe(1);
+    expect(withinDoc.slice(0, 72)).toEqual(pastDoc.slice(0, 72));
+    expect(withinDoc[72]).toBe(0x4e);
+    expect(pastDoc[72]).toBe(0x4f);
+    const withinSig = signatureOf(within);
+    const pastSig = signatureOf(past);
+    expect(withinSig.length).toBe(64);
+    expect(pastSig.length).toBe(64);
+    let differing = 0;
+    for (let i = 0; i < 64; i += 1) if (withinSig[i] !== pastSig[i]) differing += 1;
+    expect(differing).toBe(64);
     expect(within.verdict).toBe('verify-ok');
     expect(past.verdict).toBe('EPOCH_INVENTORY_BAD_DOCUMENT');
     expect(past.message).toContain('201');
