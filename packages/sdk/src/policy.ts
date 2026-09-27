@@ -123,12 +123,19 @@ export interface AshaveriPolicy {
    * guards it. Infinity means "I have thought about this, and the clock must not vote": it is what
    * a caller verifying an archived receipt writes, deliberately, because the alternative is a
    * number that silently accepts the archive too.
+   *
+   * That off switch is this object's, and it is read by whatever verifier the caller hands it to. A
+   * version 1 policy document spells a window as a whole number of seconds or as `null`, and `null`
+   * loads back as the absent field, which is the default guarding the clock; `policyFileFromPolicy`
+   * refuses a non-finite window rather than writing one out as `null`, so a policy published as a
+   * document names a number and a policy that runs no clock stays in the process that verifies.
    */
   readonly maxReceiptAgeSeconds?: number;
   /**
    * The client's own bound on how far a receipt's `att.ts` may sit from its clock, with the same
    * two readings as `maxReceiptAgeSeconds`: a number wins over `DEFAULT_MAX_EVIDENCE_AGE_SECONDS`,
    * and `Number.POSITIVE_INFINITY` is the deliberate off switch rather than the absence of one.
+   * The document route has the same rule for this window as for that one, and the same refusal.
    */
   readonly maxEvidenceAgeSeconds?: number;
   /**

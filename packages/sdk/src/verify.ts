@@ -59,9 +59,12 @@ export function verifyCompletionReceipt(params: VerifyCompletionParams): Verifie
   // The rule is deliberately not pushed down into `verifyReceipt`. That package is the format
   // verifier an auditor runs on a receipt from last year with no policy in sight, and it refuses a
   // clock it was not handed; a default there would break the archiving promise the receipt spec
-  // makes. The only off switch on this side of that line is a policy that says
-  // `Number.POSITIVE_INFINITY` for one of the two, which is a decision written down rather than
-  // one left out.
+  // makes. The off switch beside that line is in this object, and it is a number: naming
+  // `Number.POSITIVE_INFINITY` for one of the two leaves that one window open, which is a decision
+  // written down rather than one left out. The document form spells no such reading, because a
+  // version 1 document carries each window as a whole number of seconds or as `null`, and `null` on
+  // either of those keys is the absent field above with the shipped default running.
+  // `policyFileFromPolicy` refuses a non-finite window rather than writing one out as `null`.
   const receiptWindow =
     policy === undefined ? undefined : (policy.maxReceiptAgeSeconds ?? DEFAULT_MAX_RECEIPT_AGE_SECONDS);
   const evidenceWindow =

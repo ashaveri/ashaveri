@@ -1,3 +1,4 @@
+import { tmpdir } from 'node:os';
 import { describe, expect, it } from 'vitest';
 import {
   ReceiptError,
@@ -9,7 +10,15 @@ import {
 } from '@ashaveri/receipt';
 import { sha256 } from '@noble/hashes/sha2.js';
 import { assessCapture } from '../src/capture.js';
-import { SdkError, type AshaveriPolicy } from '../src/index.js';
+import {
+  DEFAULT_MAX_EVIDENCE_AGE_SECONDS,
+  DEFAULT_MAX_RECEIPT_AGE_SECONDS,
+  loadPolicyFromText,
+  policyFileFromPolicy,
+  policyFileToJson,
+  SdkError,
+  type AshaveriPolicy,
+} from '../src/index.js';
 import { equalBytes } from '@ashaveri/receipt';
 
 /**
@@ -259,6 +268,36 @@ describe('the limits and the clock a verdict was reached under', () => {
     expect(verdict.status).toBe('qualified');
     expect(verdict.qualifications.join(' ')).toContain('never closes');
     expect(verdict.repeated.signatureVerifiedWithOwnPins).toBe(true);
+  });
+
+  it('applies the shipped windows to a reader whose document named neither of them', async () => {
+    // A published document spells a window the policy never named as `null`, and the schema says that
+    // names no window of the document's own. What a reader then runs is the shipped default beside each
+    // number the record was checked under, which is the sentence these two qualifications carry.
+    const written = policyFileToJson(policyFileFromPolicy({ keys: PINNED.keys, issuers: PINNED.issuers }));
+    expect(written).toContain('"maxReceiptAgeSeconds": null');
+    expect(written).toContain('"maxEvidenceAgeSeconds": null');
+    const loaded = await loadPolicyFromText(written, tmpdir());
+    expect(loaded.policy.maxReceiptAgeSeconds, 'a window written as null loads as no number named').toBeUndefined();
+    expect(loaded.policy.maxEvidenceAgeSeconds).toBeUndefined();
+    const verdict = assessCapture({
+      record: record(receiptV1, {
+        trust: {
+          roots: [{ family: 'amdArks', digest: ROOT_DIGEST }],
+          limits: { maxReceiptAgeSeconds: 3_600, maxEvidenceAgeSeconds: 3_600 },
+        },
+      }),
+      policy: loaded.policy,
+      anchors: { amdArks: [ROOT] },
+      ...AT_NOW,
+    });
+    const said = verdict.qualifications.join(' ');
+    expect(said, 'the reader runs the receipt default, not no window').toContain(
+      `this reader applied ${DEFAULT_MAX_RECEIPT_AGE_SECONDS}s`,
+    );
+    expect(said, 'and the evidence default beside it').toContain(
+      `this reader applied ${DEFAULT_MAX_EVIDENCE_AGE_SECONDS}s`,
+    );
   });
 
   it('refuses a record whose appraisal precedes its acquisition', () => {
