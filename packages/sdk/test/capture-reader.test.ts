@@ -273,7 +273,7 @@ describe('the limits and the clock a verdict was reached under', () => {
   it('applies the shipped windows to a reader whose document named neither of them', async () => {
     // A published document spells a window the policy never named as `null`, and the schema says that
     // names no window of the document's own. What a reader then runs is the shipped default beside each
-    // number the record was checked under, which is the sentence these two qualifications carry.
+    // number the record states, which is the sentence these two qualifications carry.
     const written = policyFileToJson(policyFileFromPolicy({ keys: PINNED.keys, issuers: PINNED.issuers }));
     expect(written).toContain('"maxReceiptAgeSeconds": null');
     expect(written).toContain('"maxEvidenceAgeSeconds": null');
@@ -298,6 +298,32 @@ describe('the limits and the clock a verdict was reached under', () => {
     expect(said, 'and the evidence default beside it').toContain(
       `this reader applied ${DEFAULT_MAX_EVIDENCE_AGE_SECONDS}s`,
     );
+  });
+
+  it('says a record that names neither window named none, and not that its clock stayed open', () => {
+    // The words this case pins are the whole point: a null in `trust.limits` is the record stating no
+    // window of its own, which is one spelling short of a claim that the check ran with the clock
+    // switched off. What the record left unnamed, this reader cannot recover, so the qualification says
+    // what the record states and what this reader ran, and asserts no disagreement between them.
+    const verdict = assessCapture({
+      record: record(receiptV1, {
+        trust: {
+          roots: [{ family: 'amdArks', digest: ROOT_DIGEST }],
+          limits: { maxReceiptAgeSeconds: null, maxEvidenceAgeSeconds: null },
+        },
+      }),
+      policy: PINNED,
+      anchors: { amdArks: [ROOT] },
+      ...AT_NOW,
+    });
+    const said = verdict.qualifications.join(' ');
+    expect(said).toContain(
+      `the record states no window of its own for the receipt window while this reader applied ${DEFAULT_MAX_RECEIPT_AGE_SECONDS}s`,
+    );
+    expect(said).toContain(
+      `the record states no window of its own for the evidence window while this reader applied ${DEFAULT_MAX_EVIDENCE_AGE_SECONDS}s`,
+    );
+    expect(said).not.toContain('no window while this reader applied');
   });
 
   it('refuses a record whose appraisal precedes its acquisition', () => {

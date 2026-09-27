@@ -161,7 +161,7 @@
           "type": "object",
           "required": ["maxReceiptAgeSeconds", "maxEvidenceAgeSeconds"],
           "additionalProperties": false,
-          "description": "The binding limits the verdict was reached under, with the policy document's two readings: a number, or null for the window nobody set. The reader runs its own windows and reports a disagreement rather than inheriting this one.",
+          "description": "The binding limits the verdict was reached under, spelled the two ways a policy document spells a window: a whole number of seconds, or null where the check named none of its own. A null is not a window that stayed open. The reader runs its own windows and reports a difference rather than inheriting this one.",
           "properties": {
             "maxReceiptAgeSeconds": {
               "type": ["integer", "null"],

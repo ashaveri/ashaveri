@@ -424,6 +424,19 @@ describe('the published schema and the reader decide the same documents', () => 
     });
   }
 
+  it('says what a null window in these limits is, in the words the reader can hold to', () => {
+    // A null in one of these two fields names no window; it is not a window that stayed open, which is
+    // the reading `assessCapture` carries into its qualification beside its own number. The sentence is
+    // part of the published contract: an auditor meets it before meeting the code.
+    const schema = JSON.parse(readFileSync(schemaPath, 'utf8')) as {
+      properties: { trust: { properties: { limits: { description: string } } } };
+    };
+    const said = schema.properties.trust.properties.limits.description;
+    expect(said).toContain('or null where the check named none of its own');
+    expect(said).toContain('A null is not a window that stayed open');
+    expect(said, 'the reading this format no longer carries').not.toContain('the window nobody set');
+  });
+
   it('keeps the manifest a manifest, so a held slot is a document and not a blob', () => {
     expect(parseManifest(JSON.parse(new TextDecoder().decode(manifestBytes)) as unknown).keys[0]?.kid).toBe(KID);
     const record = recordFor(receiptV1);
