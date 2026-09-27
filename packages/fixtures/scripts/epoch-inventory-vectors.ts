@@ -290,14 +290,6 @@ function headerWith(alter: (map: Map<unknown, unknown>) => void): Uint8Array {
   return encodeCanonical(decoded);
 }
 
-/** The honest entries with one of them filed under another entry's digest. */
-function swapFile(packs: readonly EpochInventoryPack[]): EpochInventoryPack[] {
-  const first = packs[0];
-  const second = packs[1];
-  if (first === undefined || second === undefined) throw new Error('this case needs a run of two packs');
-  return packs.map((one, index) => (index === 0 ? { ...one, file: second.file } : one));
-}
-
 /** A document of nothing but `levels` of nesting, which is how the depth bound is asked at both sides. */
 const nested = (levels: number): Uint8Array => new TextEncoder().encode(`${'['.repeat(levels)}${']'.repeat(levels)}`);
 
