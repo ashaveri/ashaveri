@@ -577,6 +577,12 @@ describe('the JSON reading, where this container differs from every other signed
     // token, so no field read is ever asked to notice that the number arrived rounded.
     expect(read(`{"v": 1, "epk": ${String(Number.MAX_SAFE_INTEGER + 2)}}`)).toBe('EPOCH_INVENTORY_MALFORMED_JSON');
     expect(read(`{"v": 1, "epk": ${String(Number.MAX_SAFE_INTEGER)}}`)).toBe('EPOCH_INVENTORY_BAD_DOCUMENT');
+    // `v` is the one figure read before any other member, and it answers from the same place: a version no
+    // reader holds exactly, and a version written as a float, are both refusals of the spelling, which is why
+    // the version read asks nothing but whether the member is a number.
+    expect(read('{"v": 9007199254740993}')).toBe('EPOCH_INVENTORY_MALFORMED_JSON');
+    expect(read('{"v": 9007199254740992}')).toBe('EPOCH_INVENTORY_MALFORMED_JSON');
+    expect(read('{"v": 1.0}')).toBe('EPOCH_INVENTORY_MALFORMED_JSON');
   });
 
   it('refuses a member this version does not define, at the document and inside an entry', () => {
@@ -659,6 +665,104 @@ describe('the run, and what a reader recomputes from it', () => {
       thrownCode(() => verifyEpochInventory(sealDocument(doubledShort), readWith())),
       'two rows naming one pack, and the run\'s other shortfall stated by nobody',
     ).toBe('EPOCH_INVENTORY_SUMMARY_DISAGREES');
+  });
+
+  it('refuses a break list or a shortfall list whose rows are not the run\'s, in either direction', () => {
+    // The two lists are compared by the set of packs they name, so a count that disagrees is a disagreement
+    // whether the document states too many rows or too few. Each of the four is built with every name distinct,
+    // because a repeat is answered by the name rule before the count is reached: with one guard neutered the
+    // document has to be refused by the other, and a case that could be refused either way witnesses neither.
+    const twoBreaks = runOf(3, (index, one) =>
+      index === 0 ? one : { ...one, chain: { ...one.chain, anchor: digest(`a seam this run never held/${String(index)}`) } },
+    );
+    expect(twoBreaks.chain.breaks).toHaveLength(2);
+    const [firstBreak] = twoBreaks.chain.breaks;
+    const missingBreakRow = { ...twoBreaks, chain: { ...twoBreaks.chain, continuous: false, breaks: [firstBreak!] } };
+    const extraBreakRow = {
+      ...BROKEN,
+      chain: {
+        ...BROKEN.chain,
+        continuous: false,
+        breaks: [
+          ...BROKEN.chain.breaks,
+          { file: BROKEN.packs[2]?.file ?? '', afterHead: BROKEN.packs[1]?.chain.head ?? '', anchor: BROKEN.packs[2]?.chain.anchor ?? '' },
+        ],
+      },
+    };
+    expect(extraBreakRow.chain.breaks).toHaveLength(2);
+
+    const twoShorts = runOf(3, (index, one) =>
+      index === 0 ? one : { ...one, duty: { ...one.duty, required: 500, held: 100 } },
+    );
+    expect(twoShorts.duty.short).toHaveLength(2);
+    const [firstShort] = twoShorts.duty.short;
+    const missingShortRow = { ...twoShorts, duty: { carried: false, short: [firstShort!] } };
+    const extraShortRow = {
+      ...HONEST,
+      duty: {
+        carried: false,
+        short: [...HONEST.duty.short, { file: HONEST.packs[2]?.file ?? '', art: '19(1)', required: 100, held: 200, shortBy: 100 }],
+      },
+    };
+    expect(extraShortRow.duty.short).toHaveLength(2);
+
+    for (const [name, manifest] of [
+      ['the run breaks twice and one row is stated', missingBreakRow],
+      ['the run breaks once and two rows are stated', extraBreakRow],
+      ['the run falls short twice and one row is stated', missingShortRow],
+      ['the run falls short once and two rows are stated', extraShortRow],
+    ] as const) {
+      expect(thrownCode(() => verifyEpochInventory(sealDocument(manifest), readWith())), name).toBe(
+        'EPOCH_INVENTORY_SUMMARY_DISAGREES',
+      );
+    }
+  });
+
+  it('refuses a row naming a pack the run holds where the run neither breaks nor falls short', () => {
+    // `EPOCH_INVENTORY_PACK_UNNAMED` answers two documents: one naming a pack the list does not carry, and one
+    // whose rows are as numerous as the run's but pointed at the wrong entries. The second is the one a reader
+    // meets on a document shaped like an honest one, and it is reached only where the counts agree, so both rows
+    // here carry a name taken from the run's own entries beside a row the run does support.
+    const twoBreaks = runOf(3, (index, one) =>
+      index === 0 ? one : { ...one, chain: { ...one.chain, anchor: digest(`a seam this run never held/${String(index)}`) } },
+    );
+    const namedHeldBreak = {
+      ...twoBreaks,
+      chain: {
+        ...twoBreaks.chain,
+        continuous: false,
+        breaks: [
+          twoBreaks.chain.breaks[0]!,
+          { file: twoBreaks.packs[0]?.file ?? '', afterHead: twoBreaks.packs[2]?.chain.head ?? '', anchor: twoBreaks.packs[0]?.chain.anchor ?? '' },
+        ],
+      },
+    };
+    expect(thrownCode(() => verifyEpochInventory(sealDocument(namedHeldBreak), readWith())), 'the run begins at the pack a break row names').toBe(
+      'EPOCH_INVENTORY_PACK_UNNAMED',
+    );
+
+    const twoShorts = runOf(3, (index, one) =>
+      index === 0 ? one : { ...one, duty: { ...one.duty, required: 500, held: 100 } },
+    );
+    const namedHeldShort = {
+      ...twoShorts,
+      duty: {
+        carried: false,
+        short: [twoShorts.duty.short[0]!, { file: twoShorts.packs[0]?.file ?? '', art: '19(1)', required: 100, held: 200, shortBy: 100 }],
+      },
+    };
+    expect(thrownCode(() => verifyEpochInventory(sealDocument(namedHeldShort), readWith())), 'the named pack holds more than it states it owed').toBe(
+      'EPOCH_INVENTORY_PACK_UNNAMED',
+    );
+    // The detail is what tells the two apart for a reviewer, and it is the run's own entry rather than a lookup
+    // miss: the reader says the pack is held and states nothing owed there.
+    let namedHeldShortMessage = '';
+    try {
+      verifyEpochInventory(sealDocument(namedHeldShort), readWith());
+    } catch (err) {
+      namedHeldShortMessage = err instanceof Error ? err.message : String(err);
+    }
+    expect(namedHeldShortMessage).toContain('holds without a shortfall in it');
   });
 
   it('reads a break list and a shortfall list in any order, since each row is keyed by the pack it names', () => {
