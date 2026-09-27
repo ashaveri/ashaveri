@@ -625,7 +625,8 @@ its response was stamped, and the array states the order the response put those 
 is the array's order; stamp order is `t`. The two are two statements inside one signature, so a
 receipt where a later item carries an earlier instant contradicts itself, and it is refused rather
 than read in whichever order a reader reached for: `ITEM_STAMP_OUT_OF_ORDER`, at the point the payload
-is read, before any key is consulted. Two items stamped inside the same second are not that refusal
+is read, which `decodeReceipt` reaches with no key at all and `verifyReceipt` reaches only after the
+signature check it runs first. Two items stamped inside the same second are not that refusal
 and never were: the stamps are whole seconds, two frames of one completion routinely fall inside one
 of them, and a reader that demanded strictly increasing instants would refuse ordinary traffic. What
 this check cannot reach is stated with it because it is inherent rather than waiting to be fixed: a

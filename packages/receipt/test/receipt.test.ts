@@ -25,6 +25,7 @@ import type {
   ReceiptPayloadV2,
   ReceiptPayloadV3,
   SigningKey,
+  StampDisclosure,
 } from '../src/index.js';
 import * as receiptParser from '../src/receipt.js';
 import {
@@ -878,6 +879,292 @@ describe('receipt payload v2 and the versions a call accepts', () => {
     expect(marked(decodeReceipt(bytes).payload).mk.sch).toBe('provenance-v1');
     expectErrorCode(() => decodeReceipt(bytes, { acceptedVersions: [1] }), 'UNSUPPORTED_VERSION');
     expect(marked(decodeReceipt(bytes, { acceptedVersions: [1, 2] }).payload).mk.sch).toBe('provenance-v1');
+  });
+});
+
+/**
+ * A `v: 3` payload with its item list spelled out, so a case that wants more than one entry says how
+ * many and with what instants instead of editing a shared document.
+ */
+function stampedWith(itm: Array<{ t: number; d: Uint8Array }>, sd: StampDisclosure = { name: 'host clock', uncertaintySeconds: null }): ReceiptPayloadV3 {
+  return { ...stampedPayload(), sd, itm };
+}
+
+/** Narrows a parsed payload to the stamped shape, for the cases that came here looking for `sd`. */
+function stamped(payload: ReceiptPayload): ReceiptPayloadV3 {
+  if (payload.v !== 3) throw new Error(`expected a v3 payload, got version ${payload.v}`);
+  return payload;
+}
+
+describe('receipt payload v3, its three members and the order of its items', () => {
+  it('round-trips the three members and keeps the two readings of `unc` apart', () => {
+    const key = generateSigningKey();
+    const bytes = issueReceipt(stampedPayload(), key);
+    const verified = verifyReceipt(bytes, { publicKey: key.publicKey, now: FIXED_NOW });
+    const payload = stamped(verified.payload);
+
+    // `null` is the source saying nobody measured and `0` is the source saying it is right, which is
+    // the pair the specification's `sd` row states and the policy's own bound reads. A reader that
+    // turned one into the other on the way through the codec would retire the difference the member
+    // exists to carry, so this asserts the two as two documents rather than as one field.
+    expect(payload.sd).toEqual({ name: 'host clock', uncertaintySeconds: null });
+    expect(Object.is(payload.sd.uncertaintySeconds, null)).toBe(true);
+    const measured = verifyReceipt(
+      issueReceipt(stampedWith([{ t: FIXED_NOW, d: sha256(new TextEncoder().encode('{"a":1}')) }], { name: '-disc', uncertaintySeconds: 0 }), key),
+      { publicKey: key.publicKey, now: FIXED_NOW },
+    );
+    expect(Object.is(stamped(measured.payload).sd.uncertaintySeconds, 0)).toBe(true);
+    expect(stamped(measured.payload).sd.uncertaintySeconds).not.toBeNull();
+
+    // The anchor's two arms are the two shapes, and the item list keeps its digest as a digest.
+    expect(payload.cva).toEqual({
+      collateral: { presence: 'held', sha256: sha256(new TextEncoder().encode('collateral bytes')) },
+      validity: { presence: 'not-taken-in', reason: 'the collector read no window' },
+    });
+    expect(payload.itm).toHaveLength(1);
+    expect(equalBytes(payload.itm[0]!.d, sha256(new TextEncoder().encode('{"a":1}')))).toBe(true);
+
+    // Re-encoding what the reader parsed gives back the signed bytes, which is the format's claim for
+    // every version and now for the seventeen members of this one, and the projection writes the same
+    // seventeen in the order `receipt.cddl` declares them, with `unc` kept as a value.
+    expect(equalBytes(encodePayload(payload), verified.cose.payloadBytes)).toBe(true);
+    const twin = receiptToJson(payload, verified.cose.signature, verified.header.kid);
+    expect(Object.keys(twin.payload)).toEqual([
+      'v', 'iss', 'ins', 'iat', 'nce', 'req', 'res', 'mdl', 'wts', 'meas', 'att', 'epk', 'tok',
+      'mk', 'sd', 'cva', 'itm',
+    ]);
+    if (twin.payload.v !== 3) throw new Error(`the projection wrote version ${twin.payload.v} for a v3 payload`);
+    expect(twin.payload.sd).toEqual({ name: 'host clock', unc: null });
+    expect(twin.payload.cva).toEqual({
+      col: { p: 'held', d: toHex(sha256(new TextEncoder().encode('collateral bytes'))), },
+      val: { p: 'not-taken-in', r: 'the collector read no window' },
+    });
+    expect(twin.payload.itm).toEqual([{ t: FIXED_NOW, d: toHex(sha256(new TextEncoder().encode('{"a":1}'))) }]);
+    expect(twin.payload.mk).toEqual({ sch: 'provenance-v1', d: toHex(sha256(MARKED_REGION)) });
+  });
+
+  it('refuses an absent sd, cva, itm or mk, because none of the four is a member that may be left out', () => {
+    const key = generateSigningKey();
+    // Each half hands the reader a document whole except for the one member, so the answer can only
+    // be the absence. The sentences are quoted because each one names what the silence would read as,
+    // which is the reason the member is required rather than an optional addition to v2.
+    const cases: Array<[string, string]> = [
+      ['sd', 'v3 requires an sd member'],
+      ['cva', 'v3 requires a cva member'],
+      ['itm', 'v3 requires an itm member'],
+      ['mk', 'v3 requires an mk member'],
+    ];
+    for (const [member, sentence] of cases) {
+      const bytes = signMembers(
+        new Map([...membersOf(stampedPayload())].filter(([name]) => name !== member)),
+        key,
+      );
+      const failure = expectFailure(() => verifyReceipt(bytes, { publicKey: key.publicKey, now: FIXED_NOW }));
+      expect(failure.message, `a v3 payload with no ${member}`).toContain(sentence);
+      expectFailure(() => decodeReceipt(bytes), 'BAD_PAYLOAD');
+    }
+
+    // One member down the same rule holds, and the absence of a bound is not the bound being zero.
+    const noBound = signMembers(
+      editedNested(stampedPayload(), 'sd', (nested) => { nested.delete('unc'); }),
+      key,
+    );
+    expect(expectFailure(() => decodeReceipt(noBound)).message).toContain('sd.unc must be a non-negative integer or null');
+    const noName = signMembers(
+      editedNested(stampedPayload(), 'sd', (nested) => { nested.delete('name'); }),
+      key,
+    );
+    expect(expectFailure(() => decodeReceipt(noName)).message).toContain('sd.name must be a tstr');
+
+    // A reason is what makes an absence a state, so an absent slot with nothing beside its label is
+    // the hole the specification says an anchor must not be.
+    const noReason = signMembers(
+      editedNested(stampedPayload(), 'cva.val', (nested) => { nested.delete('r'); }),
+      key,
+    );
+    expect(expectFailure(() => decodeReceipt(noReason)).message).toContain('cva.val.r must be a tstr');
+  });
+
+  it('refuses a float at `sd.unc`, the one position that also takes null', () => {
+    const key = generateSigningKey();
+    // The integer sweep takes this position no further, because `unc` is written `int / null` and the
+    // sweep reads only the positions written plain `int`. The decode reaches it the same way: a float
+    // here is not the other reading of the member, and a document offering it is one this package did
+    // not write. The control half on the same bytes is what says the refusal is the major type's.
+    for (const [width, floated] of floatWidthsHolding(1)) {
+      const bytes = signKeepingMajorTypes(
+        encodeWithMajorTypes(editedNested(stampedPayload(), 'sd', (nested) => { nested.set('unc', floated); })),
+        key,
+        declaredProtectedHeader(key.kid),
+      );
+      const failure = expectFailure(() => decodeReceipt(bytes), 'BAD_PAYLOAD');
+      expect(failure.message, `unc written as a ${width}`).toContain('floating point');
+      expectFailure(() => verifyReceipt(bytes, { publicKey: key.publicKey, now: FIXED_NOW }), 'BAD_PAYLOAD');
+    }
+    const integer = signKeepingMajorTypes(
+      encodeWithMajorTypes(editedNested(stampedPayload(), 'sd', (nested) => { nested.set('unc', 1); })),
+      key,
+      declaredProtectedHeader(key.kid),
+    );
+    expect(stamped(decodeReceipt(integer).payload).sd.uncertaintySeconds).toBe(1);
+    // A bound written as `null` stays a `null` in the bytes rather than becoming an absent member.
+    const explicit = decodeReceipt(issueReceipt(stampedPayload(), key));
+    expect(membersOf(explicit.payload).get('sd')).toBeInstanceOf(Map);
+    expect((membersOf(explicit.payload).get('sd') as Map<string, unknown>).get('unc')).toBeNull();
+  });
+
+  it('closes each arm of a collateral slot by the label inside it, and refuses a label it does not declare', () => {
+    const key = generateSigningKey();
+    // Three states, two shapes, and the shape is decided by the label rather than by which members
+    // happen to be there. Each half below is a document holding one arm's claim and the other arm's
+    // member, which is what a reader could not resolve without refusing it.
+    const cases: Array<[string, Map<string, unknown>, string]> = [
+      ['a held slot with no digest', new Map([['p', 'held']]), 'cva.col.d must be a 32-byte bstr'],
+      [
+        'a held slot carrying a reason',
+        new Map<string, unknown>([['p', 'held'], ['r', 'both arms at once'], ['d', sha256(new Uint8Array(0))]]),
+        "cva.col carries a member a held slot does not define: 'r'",
+      ],
+      [
+        'an absent slot carrying a digest',
+        new Map<string, unknown>([['p', 'not-taken-in'], ['d', sha256(new Uint8Array(0))]]),
+        "cva.val carries a member an absent slot does not define: 'd'",
+      ],
+      [
+        'a fourth presence',
+        new Map<string, unknown>([['p', 'lost'], ['r', 'a label the format does not have']]),
+        'cva.col.p is not one of the three presence states the format declares',
+      ],
+      ['a slot that is not a map', new Map([['p', 7]]), 'cva.col.p is not one of the three presence states the format declares'],
+    ];
+    for (const [name, slot, sentence] of cases) {
+      const owner = name.startsWith('an absent') ? 'cva.val' : 'cva.col';
+      const bytes = signMembers(editedNested(stampedPayload(), owner, (nested) => { nested.clear(); for (const [k, v] of slot) nested.set(k, v); }), key);
+      const failure = expectFailure(() => verifyReceipt(bytes, { publicKey: key.publicKey, now: FIXED_NOW }));
+      expect(failure.message, name).toContain(sentence);
+      expectFailure(() => decodeReceipt(bytes), 'BAD_PAYLOAD');
+    }
+
+    // The other absence is a label of its own and reads here, because the two absences are two
+    // statements and a reader has to be able to tell them apart.
+    const absent = { presence: 'absent-at-source', reason: 'the source had nothing to give' } as const;
+    const bothAbsent = stampedWith([{ t: FIXED_NOW, d: sha256(new TextEncoder().encode('x')) }]);
+    const bytes = issueReceipt({ ...bothAbsent, cva: { collateral: absent, validity: absent } }, key);
+    expect(stamped(verifyReceipt(bytes, { publicKey: key.publicKey, now: FIXED_NOW }).payload).cva.collateral).toEqual({
+      presence: 'absent-at-source',
+      reason: 'the source had nothing to give',
+    });
+  });
+
+  it('refuses an item list that holds nothing, and one that is not a list', () => {
+    const key = generateSigningKey();
+    // A run of nothing states nothing and makes the walk over it vacuous, which is the reason the
+    // pack's own item list gives for the same rule. The half below that answers with a refusal is the
+    // format holding the line; the half below that accepts one entry is the line not being widened
+    // past what it says.
+    const empty = membersOf(stampedPayload());
+    empty.set('itm', []);
+    const emptyBytes = signMembers(empty, key);
+    expect(expectFailure(() => decodeReceipt(emptyBytes)).message).toContain('itm declares at least one item and carries none');
+    expectFailure(() => verifyReceipt(emptyBytes, { publicKey: key.publicKey, now: FIXED_NOW }), 'BAD_PAYLOAD');
+
+    const members = membersOf(stampedPayload());
+    members.set('itm', new Map<string, unknown>([['t', FIXED_NOW]]));
+    const notAList = signMembers(members, key);
+    expect(expectFailure(() => decodeReceipt(notAList)).message).toContain('itm must be an array');
+
+    const noDigest = signMembers(
+      editedNested(stampedPayload(), 'itm', (nested) => { nested.delete('d'); }),
+      key,
+    );
+    expect(expectFailure(() => decodeReceipt(noDigest)).message).toContain('itm[0].d must be a 32-byte bstr');
+  });
+
+  it('accepts items stamped in one second, which is the width of the stamp', () => {
+    const key = generateSigningKey();
+    // Stamps are whole seconds and two frames of one completion fall inside a second routinely, so a
+    // reader that asked for strictly increasing instants would refuse ordinary traffic. The case the
+    // next test takes is the same list with one instant one second lower, which is a disagreement.
+    const same = FIXED_NOW;
+    const bytes = issueReceipt(
+      stampedWith([
+        { t: same, d: sha256(new TextEncoder().encode('a')) },
+        { t: same, d: sha256(new TextEncoder().encode('b')) },
+        { t: same, d: sha256(new TextEncoder().encode('c')) },
+      ]),
+      key,
+    );
+    expect(stamped(verifyReceipt(bytes, { publicKey: key.publicKey, now: FIXED_NOW }).payload).itm).toHaveLength(3);
+    expect(stamped(decodeReceipt(bytes).payload).itm[2]!.t).toBe(same);
+
+    const rising = issueReceipt(
+      stampedWith([
+        { t: same, d: sha256(new TextEncoder().encode('a')) },
+        { t: same, d: sha256(new TextEncoder().encode('b')) },
+        { t: same + 7, d: sha256(new TextEncoder().encode('c')) },
+      ]),
+      key,
+    );
+    expect(stamped(decodeReceipt(rising).payload).itm[2]!.t).toBe(same + 7);
+  });
+
+  it('refuses a list whose stamps disagree with the order the array states, at the payload read', () => {
+    const key = generateSigningKey();
+    const other = generateSigningKey();
+    const falling = stampedWith([
+      { t: FIXED_NOW, d: sha256(new TextEncoder().encode('a')) },
+      { t: FIXED_NOW, d: sha256(new TextEncoder().encode('b')) },
+      { t: FIXED_NOW - 1, d: sha256(new TextEncoder().encode('c')) },
+    ]);
+    const bytes = issueReceipt(falling, key);
+
+    // Its own code, and not the payload's: every member here is well-typed and in the position the
+    // version puts it, and what cannot both stand is the pair of signed statements. The two positions
+    // and both instants are in the sentence, because a caller reading a log has to know which pair of
+    // one response contradicts itself.
+    const failure = expectFailure(() => verifyReceipt(bytes, { publicKey: key.publicKey, now: FIXED_NOW }), 'ITEM_STAMP_OUT_OF_ORDER');
+    expect(failure.message).toContain('itm[2] is stamped');
+    expect(failure.message).toContain('itm[1] is stamped');
+    expectFailure(() => decodeReceipt(bytes), 'ITEM_STAMP_OUT_OF_ORDER');
+
+    // The reach of the check is stated as far as it goes, and no further. `decodeReceipt` consults no
+    // key at all and answers with the order, which is what makes the refusal a fact of the document
+    // rather than of who signed it. `verifyReceipt` runs its signature check before it parses a
+    // payload, so the same bytes carrying another key's signature answer `INVALID_SIGNATURE` and never
+    // reach the pair: the standing rule that an unauthenticated document gets no payload answer from
+    // this package holds here as it holds for every other member. A case that claimed the order code
+    // refused a forged signature too would be a claim about a capability this reader does not have.
+    const forged = signWithHeaders(encodePayload(falling), other, declaredProtectedHeader(key.kid));
+    expectErrorCode(() => verifyReceipt(forged, { publicKey: key.publicKey, now: FIXED_NOW }), 'INVALID_SIGNATURE');
+    expectErrorCode(() => decodeReceipt(forged), 'ITEM_STAMP_OUT_OF_ORDER');
+
+    // And a narrowing that stops short of this version is a version answer, not an order one: a
+    // caller that only reads v1 and v2 never reaches the pair to compare.
+    expectErrorCode(() => decodeReceipt(bytes, { acceptedVersions: [1, 2] }), 'UNSUPPORTED_VERSION');
+  });
+
+  it('refuses a member another version defines, at the payload level of every version', () => {
+    const key = generateSigningKey();
+    // The closed map is one rule stated one way, so the names crossing the boundaries go both
+    // directions: the member `mk` moved for is not a v1 member, and the three that moved it again are
+    // not members of the two versions before. A document carrying one is a document no version of
+    // this format defines, and reading it with the member dropped is the silence each version exists
+    // to refuse.
+    const cases: Array<[ReceiptPayload, string, string]> = [
+      [samplePayload(), 'sd', "payload carries a member version 1 does not define: 'sd'"],
+      [samplePayload(), 'itm', "payload carries a member version 1 does not define: 'itm'"],
+      [markedPayload(), 'cva', "payload carries a member version 2 does not define: 'cva'"],
+      [markedPayload(), 'itm', "payload carries a member version 2 does not define: 'itm'"],
+      [stampedPayload(), 'not_a_member', "payload carries a member version 3 does not define: 'not_a_member'"],
+    ];
+    for (const [payload, member, sentence] of cases) {
+      const members = membersOf(payload);
+      members.set(member, stampedPayload()[member as keyof ReceiptPayloadV3] as unknown);
+      const bytes = signMembers(members, key);
+      const failure = expectFailure(() => verifyReceipt(bytes, { publicKey: key.publicKey, now: FIXED_NOW }));
+      expect(failure.message, `${member} on a v${payload.v} payload`).toContain(sentence);
+      expectFailure(() => decodeReceipt(bytes), 'BAD_PAYLOAD');
+    }
   });
 });
 

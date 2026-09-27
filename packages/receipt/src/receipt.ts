@@ -454,12 +454,6 @@ function readStampDisclosure(raw: Map<unknown, unknown>): StampDisclosure {
 }
 
 /**
- * One arm of the anchor, closed by this read rather than by the walk: `p` decides which member list
- * stands behind the slot, and no single list answers for both arms. A held slot carrying a reason is
- * refused as surely as an absent one carrying a digest, because each is a document holding the
- * other arm's claim and dropping its own.
- */
-/**
  * Whether a label is one of the three presence states the format declares, which is how a slot knows
  * which of its two arms it is. The set is the one `disclosure.ts` exports and the capture record
  * spells, so a fourth label here would have to be added there first.
@@ -468,6 +462,12 @@ function isCollateralPresence(value: unknown): value is CollateralPresence {
   return typeof value === 'string' && (COLLATERAL_PRESENCES as readonly string[]).includes(value);
 }
 
+/**
+ * One arm of the anchor, closed by this read rather than by the walk: `p` decides which member list
+ * stands behind the slot, and no single list answers for both arms. A held slot carrying a reason is
+ * refused as surely as an absent one carrying a digest, because each is a document holding the
+ * other arm's claim and dropping its own.
+ */
 function readCollateralSlot(value: unknown, where: string): CollateralSlot {
   const slot = decodedMap(value);
   if (slot === null) throw badPayload(`${where} must be a map`);
@@ -531,15 +531,15 @@ function readItemStamps(raw: Map<unknown, unknown>): readonly ItemStamp[] {
   if (!Array.isArray(value)) throw badPayload('itm must be an array');
   if (value.length === 0) throw badPayload('itm declares at least one item and carries none');
   const items = value.map((one, index) => readItemStamp(one, `itm[${index}]`));
-  for (let index = 1; index < items.length; index += 1) {
-    const before = items[index - 1]!;
-    const one = items[index]!;
-    if (one.t < before.t) {
+  let previous: ItemStamp | undefined;
+  for (const [index, one] of items.entries()) {
+    if (previous !== undefined && one.t < previous.t) {
       throw new ReceiptError(
         'ITEM_STAMP_OUT_OF_ORDER',
-        `itm[${index}] is stamped ${one.t} and itm[${index - 1}] is stamped ${before.t}, so the order the list states and the order the stamps state disagree`,
+        `itm[${index}] is stamped ${one.t} and itm[${index - 1}] is stamped ${previous.t}, so the order the list states and the order the stamps state disagree`,
       );
     }
+    previous = one;
   }
   return items;
 }
