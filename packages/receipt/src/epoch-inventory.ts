@@ -161,8 +161,10 @@ export interface EpochInventoryManifest {
     /** Whether each pack's anchor is the head before it, which is what lets a reader chain the run itself. */
     readonly continuous: boolean;
     /**
-     * Where it is not, in run order, each with the head it should have continued and the anchor it carries.
-     * A break is reported and not explained away: the two digests are the evidence, and what happened between
+     * Where it is not, one row per such pair and each row keyed by the pack that failed to continue, with the
+     * head it should have continued and the anchor it carries. The order the rows are written in bears nothing,
+     * as it bears nothing in `packs`, because a reader matches every row to the pair its own `file` fixes. A
+     * break is reported and not explained away: the two digests are the evidence, and what happened between
      * them is a fact about a deployment's store rather than about this document.
      */
     readonly breaks: readonly EpochInventoryBreak[];

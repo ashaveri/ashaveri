@@ -169,9 +169,13 @@ Ashaveri-Epoch-Inventory-Pack-Duty = {
 ;
 ; `anchor` is the first pack's anchor and `head` the last pack's head, where first and last are fixed by the
 ; windows and not by the order the entries were written in. `continuous` says whether each pack's anchor is the
-; head before it, and `breaks` states each pair where it is not, in run order, with the two digests that
-; disagree beside it. A break is reported and not explained away: the two digests are the evidence, and what
-; happened between them is a fact about a deployment's store rather than about this document.
+; head before it, and `breaks` states each pair where it is not, one row per such pair and each row keyed by
+; the pack that failed to continue, with the two digests that disagree beside it. The order the rows are
+; written in bears nothing, exactly as the order of `packs` bears nothing: a reader takes the list as the set
+; of packs it names and matches every row to the pair its own `file` fixes, so the same breaks written in
+; another order are the same run and read the same. A break is reported and not explained away: the two
+; digests are the evidence, and what happened between them is a fact about a deployment's store rather than
+; about this document.
 ;
 ; The two are read together and neither is decorative. A `continuous` of true beside an empty `breaks` is a
 ; claim that this run chains from its anchor to its head, and a reader recomputes it from the entries; a
@@ -197,7 +201,8 @@ Ashaveri-Epoch-Inventory-Break = {
 ; The duty the sealed run carries, stated per pack and nowhere as a verdict.
 ;
 ; `carried` is the emptiness of `short` and nothing else, and each row of `short` is one pack whose own
-; `held` falls short of its own `required`, with `shortBy` the subtraction between them. Each pack is measured
+; `held` falls short of its own `required`, keyed by that pack and stating nothing about where in the list it
+; sits, with `shortBy` the subtraction between them. Each pack is measured
 ; against its own two integers and never against a neighbour's, so a routed article's period is not read
 ; against another article's figure: a run whose declarations differ reports each on its own terms. A shortfall
 ; is lawful output, and whether it was owed is settled outside this format.

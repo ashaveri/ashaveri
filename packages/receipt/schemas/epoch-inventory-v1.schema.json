@@ -113,7 +113,7 @@
         "breaks": {
           "type": "array",
           "items": { "$ref": "#/$defs/break" },
-          "description": "Each pair where the later pack does not continue the earlier, in run order, with the two digests that disagree beside it. A break is reported and not explained away: what happened between the two digests is a fact about a deployment's store rather than about this document. The list carries no floor because an empty one is the statement that the run chains."
+          "description": "Each pair where the later pack does not continue the earlier, one row per such pair and each row keyed by the pack that failed to continue, with the two digests that disagree beside it. The order the rows are written in bears nothing, because a reader takes the list as the set of packs it names and matches each row to the pair its own `file` fixes: the same breaks written in another order are the same run and are accepted. A break is reported and not explained away: what happened between the two digests is a fact about a deployment's store rather than about this document. The list carries no floor because an empty one is the statement that the run chains."
         }
       },
       "additionalProperties": false,
@@ -138,7 +138,7 @@
         "short": {
           "type": "array",
           "items": { "$ref": "#/$defs/shortfall" },
-          "description": "One row per pack whose own `held` falls short of its own `required`, in run order, each restating the four figures the arithmetic is made of. Each pack is measured against itself and never against a neighbour, so a routed article's period is not read against another article's figure. A shortfall is lawful output; the list says nothing about whether the period was owed. The list carries no floor because an empty one is the statement that the run carried everything it states."
+          "description": "One row per pack whose own `held` falls short of its own `required`, each row keyed by that pack and restating the four figures the arithmetic is made of. The order the rows are written in bears nothing, because a reader compares each row with the entry its own `file` names: the same shortfalls written in another order are the same run and are accepted. Each pack is measured against itself and never against a neighbour, so a routed article's period is not read against another article's figure. A shortfall is lawful output; the list says nothing about whether the period was owed. The list carries no floor because an empty one is the statement that the run carried everything it states."
         }
       },
       "additionalProperties": false,

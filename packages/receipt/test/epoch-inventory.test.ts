@@ -639,6 +639,24 @@ describe('the run, and what a reader recomputes from it', () => {
     ).toBe('EPOCH_INVENTORY_SUMMARY_DISAGREES');
   });
 
+  it('reads a break list and a shortfall list in any order, since each row is keyed by the pack it names', () => {
+    // The reader matches a row to the pair or the entry its own `file` fixes, so a document that lists its rows
+    // in another order states the same run and is answered with a pass. Only what the names settle is refused:
+    // a row naming a pack with no break, and a pack named by two rows while another is named by none.
+    const twoBreaks = runOf(3, (index, one) =>
+      index === 0 ? one : { ...one, chain: { ...one.chain, anchor: digest(`a seam this run never held/${String(index)}`) } },
+    );
+    const backwards = { ...twoBreaks, chain: { ...twoBreaks.chain, breaks: [...twoBreaks.chain.breaks].reverse() } };
+    expect(backwards.chain.breaks).toHaveLength(2);
+    expect(verifyEpochInventory(sealDocument(backwards), readWith()).manifest.chain.breaks).toEqual(backwards.chain.breaks);
+    const twoShorts = runOf(3, (index, one) =>
+      index === 0 ? one : { ...one, duty: { ...one.duty, required: 500, held: 100 } },
+    );
+    const shortReversed = { ...twoShorts, duty: { carried: false, short: [...twoShorts.duty.short].reverse() } };
+    expect(shortReversed.duty.short).toHaveLength(2);
+    expect(verifyEpochInventory(sealDocument(shortReversed), readWith()).manifest.duty).toEqual(shortReversed.duty);
+  });
+
   it('refuses each summary that is not the arithmetic of the entries', () => {
     const [second] = HONEST.packs;
     const claimed: EpochInventoryBreak = { file: second?.file ?? '', afterHead: HONEST.chain.anchor, anchor: digest('a digest of nothing') };
