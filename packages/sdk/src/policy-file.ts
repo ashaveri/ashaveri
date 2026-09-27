@@ -809,15 +809,17 @@ export function policyFileFromPolicy(
   // `JSON.stringify`, which writes it as `null`, and `null` in one of these two keys is this format's
   // spelling of a policy that names no window of its own: a reader of the published document would then
   // run the shipped default the operator meant to switch off. The off switch lives where it works, on
-  // the policy object a calling process hands to a verifier.
-  const windows: Array<[string, number | undefined, number]> = [
-    ['maxReceiptAgeSeconds', policy.maxReceiptAgeSeconds, DEFAULT_MAX_RECEIPT_AGE_SECONDS],
-    ['maxEvidenceAgeSeconds', policy.maxEvidenceAgeSeconds, DEFAULT_MAX_EVIDENCE_AGE_SECONDS],
+  // the policy object a calling process hands to a verifier. The message says both of that operator's
+  // two ways out, because dropping the field is not one of them: it lands on the same default this
+  // refusal exists to keep out of a published document.
+  const windows: Array<[string, number | undefined, number, number]> = [
+    ['maxReceiptAgeSeconds', policy.maxReceiptAgeSeconds, DEFAULT_MAX_RECEIPT_AGE_SECONDS, 1],
+    ['maxEvidenceAgeSeconds', policy.maxEvidenceAgeSeconds, DEFAULT_MAX_EVIDENCE_AGE_SECONDS, 1],
   ];
-  for (const [field, named, shipped] of windows) {
+  for (const [field, named, shipped, floor] of windows) {
     if (named !== undefined && !Number.isFinite(named)) {
       throw invalid(
-        `'${field}' is ${String(named)}, which no policy document can carry as a window: the written form of it is null, and null is this format's spelling of a policy that names no window of its own, so publishing this policy would pin the shipped ${shipped}-second default instead`,
+        `'${field}' is ${String(named)}, which no policy document can carry as a window: the written form of it is null, and null is this format's spelling of a policy that names no window of its own, so publishing this policy would pin the shipped ${shipped}-second default instead. Name a whole number of seconds at or above ${floor} for '${field}', or keep the open window on the policy object this process hands to a verifier: leaving '${field}' out of the document is that same default, not this refusal switched off`,
       );
     }
   }

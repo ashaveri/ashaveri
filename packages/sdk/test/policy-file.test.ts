@@ -6,6 +6,8 @@ import { sha256 } from '@noble/hashes/sha2.js';
 import { MEASUREMENT_BYTES } from '@ashaveri/receipt';
 import {
   SdkError,
+  DEFAULT_MAX_EVIDENCE_AGE_SECONDS,
+  DEFAULT_MAX_RECEIPT_AGE_SECONDS,
   fromBase64Url,
   loadPolicyFromText,
   parsePolicyFile,
@@ -67,23 +69,17 @@ function refuseWith(document: unknown, code: SdkErrorCode): string {
   throw new Error(`expected ${code}, but the document was accepted`);
 }
 
-function codeOf(build: () => unknown): SdkErrorCode {
+/**
+ * The refusal a writer throws, whole, so one call serves the code a log line carries and the words the
+ * operator reads. Both halves are checked below: a message no test reads is a message a later edit can
+ * silently empty.
+ */
+function refusalOf(build: () => unknown): SdkError {
   try {
     build();
   } catch (err) {
     expect(err).toBeInstanceOf(SdkError);
-    return (err as SdkError).code;
-  }
-  throw new Error('expected a refusal, but the value was accepted');
-}
-
-/** The words a refusal hands the operator, which is where these cases check what they are told. */
-function messageOf(build: () => unknown): string {
-  try {
-    build();
-  } catch (err) {
-    expect(err).toBeInstanceOf(SdkError);
-    return (err as SdkError).message;
+    return err as SdkError;
   }
   throw new Error('expected a refusal, but the value was accepted');
 }
@@ -531,9 +527,12 @@ describe('policyFileFromPolicy', () => {
     // that asks nothing of a stamp's source. Left alone, a demand an operator wrote would reach an
     // auditor as the absence of one, which is the reading no other part of this field allows.
     for (const spelled of [Number.POSITIVE_INFINITY, Number.NEGATIVE_INFINITY, Number.NaN]) {
-      const build = () => policyFileFromPolicy({ issuers: ['a'], maxTimeUncertaintySeconds: spelled });
-      expect(codeOf(build), String(spelled)).toBe('POLICY_FILE_INVALID');
-      expect(build, String(spelled)).toThrow(/'maxTimeUncertaintySeconds'/u);
+      const refused = refusalOf(() => policyFileFromPolicy({ issuers: ['a'], maxTimeUncertaintySeconds: spelled }));
+      expect(refused.code, String(spelled)).toBe('POLICY_FILE_INVALID');
+      expect(refused.message, String(spelled)).toContain("'maxTimeUncertaintySeconds'");
+      expect(refused.message, String(spelled)).toContain(String(spelled));
+      expect(refused.message, String(spelled)).toContain('the written form of it is null');
+      expect(refused.message, String(spelled)).toContain('no policy document can carry as a demand');
     }
     // A whole number, including the demand of zero, still reaches the document, so the three above are
     // refused for their spelling and not for being a demand.
@@ -558,7 +557,7 @@ describe('policyFileFromPolicy', () => {
   });
 
   it('refuses an object that pins nothing, on the same rule the file form is held to', () => {
-    expect(codeOf(() => policyFileFromPolicy({}))).toBe('POLICY_NOTHING_PINNED');
+    expect(refusalOf(() => policyFileFromPolicy({})).code).toBe('POLICY_NOTHING_PINNED');
   });
 
   it('refuses a receipt window no document can carry, rather than writing it out as none named', () => {
@@ -567,13 +566,21 @@ describe('policyFileFromPolicy', () => {
     // that means the clock not to vote means it on the object, so the attempt is a refusal here rather
     // than a published document that pins a window nobody asked for.
     for (const spelled of [Number.POSITIVE_INFINITY, Number.NEGATIVE_INFINITY, Number.NaN]) {
-      const build = () => policyFileFromPolicy({ issuers: ['a'], maxReceiptAgeSeconds: spelled });
-      expect(codeOf(build), String(spelled)).toBe('POLICY_FILE_INVALID');
-      const message = messageOf(build);
+      const refused = refusalOf(() => policyFileFromPolicy({ issuers: ['a'], maxReceiptAgeSeconds: spelled }));
+      expect(refused.code, String(spelled)).toBe('POLICY_FILE_INVALID');
+      const message = refused.message;
       expect(message, String(spelled)).toContain("'maxReceiptAgeSeconds'");
       expect(message, String(spelled)).toContain(String(spelled));
       expect(message, String(spelled)).toContain('the written form of it is null');
       expect(message, String(spelled)).toContain('no policy document can carry as a window');
+      // The fourth element of the message: the number that would have run in the field's place. Without
+      // this line a later edit can drop it and every case here still passes.
+      expect(message, String(spelled)).toContain(`the shipped ${DEFAULT_MAX_RECEIPT_AGE_SECONDS}-second default`);
+      // What the operator is told to do instead, both roads: a number the document can carry, or the
+      // object this process hands a verifier. Leaving the field out is neither, and says so.
+      expect(message, String(spelled)).toContain('Name a whole number of seconds at or above 1');
+      expect(message, String(spelled)).toContain('keep the open window on the policy object');
+      expect(message, String(spelled)).toContain("'maxReceiptAgeSeconds' out of the document is that same default");
     }
     // And the document route is no wider: a hand-written number past what a reader can state exactly is
     // refused there too, so there is no spelling this refusal is withholding.
@@ -584,13 +591,18 @@ describe('policyFileFromPolicy', () => {
 
   it('refuses an evidence window no document can carry, rather than writing it out as none named', () => {
     for (const spelled of [Number.POSITIVE_INFINITY, Number.NEGATIVE_INFINITY, Number.NaN]) {
-      const build = () => policyFileFromPolicy({ issuers: ['a'], maxEvidenceAgeSeconds: spelled });
-      expect(codeOf(build), String(spelled)).toBe('POLICY_FILE_INVALID');
-      const message = messageOf(build);
+      const refused = refusalOf(() => policyFileFromPolicy({ issuers: ['a'], maxEvidenceAgeSeconds: spelled }));
+      expect(refused.code, String(spelled)).toBe('POLICY_FILE_INVALID');
+      const message = refused.message;
       expect(message, String(spelled)).toContain("'maxEvidenceAgeSeconds'");
       expect(message, String(spelled)).toContain(String(spelled));
       expect(message, String(spelled)).toContain('the written form of it is null');
       expect(message, String(spelled)).toContain('no policy document can carry as a window');
+      // The fourth element of the message, for this field: 900 seconds, not an open window.
+      expect(message, String(spelled)).toContain(`the shipped ${DEFAULT_MAX_EVIDENCE_AGE_SECONDS}-second default`);
+      expect(message, String(spelled)).toContain('Name a whole number of seconds at or above 1');
+      expect(message, String(spelled)).toContain('keep the open window on the policy object');
+      expect(message, String(spelled)).toContain("'maxEvidenceAgeSeconds' out of the document is that same default");
     }
     expect(refuseWith('{"v":1,"issuers":["a"],"maxEvidenceAgeSeconds":1e400}', 'POLICY_FILE_INVALID')).toContain(
       'whole number',
