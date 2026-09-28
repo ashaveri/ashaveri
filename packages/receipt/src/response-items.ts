@@ -1,6 +1,7 @@
 import { sha256 } from '@noble/hashes/sha2.js';
 import { utf8ToBytes } from '@noble/hashes/utils.js';
 import { equalBytes } from './cose.js';
+import { ReceiptError } from './errors.js';
 
 /**
  * Which bytes of a gateway response are an item, and what each item's digest covers.
@@ -130,7 +131,9 @@ export function frameResponse(contentType: string, body: Uint8Array): ResponseIt
  *
  * Feed the chunks in the order they were received and take the items from `finish()`; the instance is
  * good for one response, because items already emitted are the answer for the bytes that produced them
- * and appending a second response's bytes to them would be a different question.
+ * and appending a second response's bytes to them would be a different question. That is enforced at the
+ * call that breaks it, in `feed()`, and the list an answer carries is frozen so that no holder of it can
+ * extend it either.
  *
  * Boundary independence is structural rather than defended. A frame is emitted only once a byte that ends
  * a line has been seen, an ending is never read as content, and what is left over at `finish()` is read by
@@ -151,8 +154,22 @@ export class ResponseItemFramer {
     this.streamed = streamed;
   }
 
-  /** Take the next piece of the response, framing what of it is complete and holding the rest back. */
+  /**
+   * Take the next piece of the response, framing what of it is complete and holding the rest back.
+   *
+   * Refused once the answer has been taken, which is the enforcement of the sentence in `finish()` below
+   * rather than a restatement of it. The framing an answer holds is a statement about the bytes that
+   * produced it, and `items` is that same array the caller was handed: a chunk read after the answer would
+   * extend it in the caller's hands, so a response issued over two items would come to attest five. A
+   * second response takes a second framer, which is what its own `res` and its own items are for.
+   */
   feed(chunk: Uint8Array): void {
+    if (this.answer !== undefined) {
+      throw new ReceiptError(
+        'FRAMER_REUSED',
+        `${String(chunk.length)} bytes arrived after finish() answered this response; a chunk after the answer is another response's bytes, and a response takes its own ResponseItemFramer`,
+      );
+    }
     // The chunk is kept as it stands only when it is about to be scanned and what survives of it copied,
     // which is the streamed case. A buffered body is all of it unframed, so it is copied here instead:
     // nothing this instance holds between two calls is the caller's memory. See `pushItem` for the same
@@ -167,7 +184,17 @@ export class ResponseItemFramer {
    * Read once, and answered from that reading however many times it is asked: the items already emitted
    * belong to the bytes that produced them, so a second reading of what the buffer still held would attest
    * one frame twice, and a second push of a buffered body would state an item the response never made. A
-   * chunk arriving after this answer belongs to another response, which needs its own framer.
+   * chunk arriving after this answer belongs to another response, which needs its own framer, and `feed()`
+   * refuses it now rather than leaving the rule to be remembered.
+   *
+   * The list an answer carries is frozen, which is the other half of the same sentence: the refusal stops
+   * this framer extending it, and the freeze stops anyone holding the answer from doing so. A copy instead
+   * would leave this instance's own array open, so the answer a caller received would be a snapshot of a
+   * list that was still being written. What neither reaches is an item's own bytes: a typed array holding
+   * elements cannot be frozen, so a caller that wrote over one would move the digest beside it. That is a
+   * caller damaging its own reading rather than an answer changing under one that never touched it, which
+   * is the failure the refusal and the frozen list are for, and `pushItem` copying is what keeps this
+   * instance's memory out of the answer either way.
    */
   finish(): ResponseItemFraming {
     this.answer ??= this.readAnswer();
@@ -181,7 +208,7 @@ export class ResponseItemFramer {
       // still the whole of what was said about it. `res` covers these bytes, so the item is a statement
       // about them and not an omission of one.
       this.pushItem(this.buffer);
-      return { framed: true, items: this.items };
+      return { framed: true, items: Object.freeze(this.items) };
     }
     // A final frame whose terminator never arrived is still a frame the response sent, and the bytes
     // a client hashed into `res` do not stop being one because the write ended first.
@@ -192,7 +219,7 @@ export class ResponseItemFramer {
         why: 'the response sent no data frame, so it states nothing for an item to attest',
       };
     }
-    return { framed: true, items: this.items };
+    return { framed: true, items: Object.freeze(this.items) };
   }
 
   /**

@@ -4,6 +4,7 @@ import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import {
   EMPTY_BODY_SHA256_HEX,
+  ReceiptError,
   ResponseItemFramer,
   SSE_DATA_FIELD,
   SSE_DONE_VALUE,
@@ -12,6 +13,7 @@ import {
   isEventStream,
   toHex,
   type ResponseItem,
+  type ResponseItemFraming,
 } from '../src/index.js';
 import {
   FRAMED_LINE_SHA256_HEX,
@@ -173,6 +175,110 @@ describe('the framing rule', () => {
     const firstBuffered = framingText(buffered.finish());
     expect(firstBuffered).toBe(ONE_BUFFERED_ITEM);
     expect(framingText(buffered.finish())).toBe(firstBuffered);
+  });
+});
+
+describe('one framer answers one response', () => {
+  /** Everything a caller can observe about an answer, taken before a refused chunk and again after it. */
+  function shapeOf(outcome: ResponseItemFraming): string {
+    if (!outcome.framed) return `refused: ${outcome.why}`;
+    const decoder = new TextDecoder();
+    return JSON.stringify({
+      length: outcome.items.length,
+      frozen: Object.isFrozen(outcome.items),
+      items: outcome.items.map((item) => ({ payload: decoder.decode(item.bytes), d: toHex(item.d).slice(0, 12) })),
+    });
+  }
+
+  /** The refusal a second response's bytes reach, taken apart from the error class it carries. */
+  function refused(action: () => unknown): ReceiptError {
+    try {
+      action();
+    } catch (err) {
+      if (err instanceof ReceiptError) return err;
+      throw new Error(`the call refused something this is not: ${String(err)}`);
+    }
+    throw new Error('a chunk after the answer was accepted, which is the failure this file exists to stop');
+  }
+
+  it('refuses a chunk fed after the answer, and the answer the caller holds does not change shape', () => {
+    // The half the guard has to be witnessed by: one frame read, the answer taken, and then a second
+    // response's two frames handed to the same instance. Without the refusal the caller's array grows from
+    // one item to three, because `finish()` hands out the very list the framer appends to.
+    const framer = new ResponseItemFramer(true);
+    framer.feed(bytes('data: {"a":1}\n\n'));
+    const answer = framer.finish();
+    const before = shapeOf(answer);
+    expect(before).toContain('"length":1');
+
+    const err = refused(() => framer.feed(bytes('data: {"b":2}\n\ndata: [DONE]\n\n')));
+    expect(err.code).toBe('FRAMER_REUSED');
+    expect(shapeOf(answer)).toBe(before);
+    expect(shapeOf(framer.finish())).toBe(before);
+    expect(framer.finish()).toBe(answer);
+  });
+
+  it('refuses the same call on a buffered body, where the answer would not have moved', () => {
+    // A buffered body is read whole at `finish()`, so a later chunk changes nothing observable about the
+    // item already given: the single bytes of a buffered response stay the single bytes. The refusal is
+    // about the instance's lifetime and not about which arm was hurt, so both arms answer the same way.
+    const framer = new ResponseItemFramer(false);
+    framer.feed(bytes('{"a":1}'));
+    const answer = framer.finish();
+    const before = shapeOf(answer);
+    expect(before).toContain('"length":1');
+    expect(refused(() => framer.feed(bytes('{"b":2}'))).code).toBe('FRAMER_REUSED');
+    expect(shapeOf(answer)).toBe(before);
+  });
+
+  it('names the bytes it refused and the framer to use instead', () => {
+    // The caller is a gateway deciding what to issue, and the sentence has to say which of its own calls
+    // was wrong and what to do about it: a code with no fact in the message sends whoever reads the log
+    // back to this file. The code itself is on the error, which is what a caller branches on.
+    const framer = new ResponseItemFramer(true);
+    framer.feed(bytes('data: {"a":1}\n\n'));
+    framer.finish();
+    const err = refused(() => framer.feed(bytes('data: {"b":2}\n\n')));
+    expect(err.code).toBe('FRAMER_REUSED');
+    expect(err.message).toContain('the response item framer was fed a chunk after its answer was taken');
+    expect(err.message).toContain('15 bytes arrived');
+    expect(err.message).toContain('finish()');
+    expect(err.message).toContain('ResponseItemFramer');
+  });
+
+  it('closes the published list to whoever holds it, and states what the freeze cannot reach', () => {
+    // The guard refuses this framer; the freeze refuses the array. A copy at `finish()` would have left
+    // this instance's own list writable, so the answer a caller received would be a view of a list still
+    // being written rather than a statement about the bytes that ended.
+    const framer = new ResponseItemFramer(true);
+    framer.feed(bytes('data: {"a":1}\n\n'));
+    const answer = framer.finish();
+    if (!answer.framed) throw new Error('a framed stream was refused');
+    const items = answer.items as ResponseItem[];
+    expect(Object.isFrozen(items)).toBe(true);
+    expect(() => items.push(items[0]!)).toThrow(TypeError);
+    expect(items).toHaveLength(1);
+    // What the freeze does not reach is an item's own bytes: a typed array holding elements cannot be
+    // frozen, so this writes over the copy the answer owns. The digest does not move with it, because an
+    // item's `d` is the digest of the bytes that were framed and not a view recomputed on demand, so the
+    // two parts of one item disagree in the open rather than the answer quietly becoming a statement
+    // about bytes no response sent. That is the residual the decision was written against: a holder can
+    // unmake its own reading, and no rule stops it, but an answer cannot change under one that never
+    // touched it.
+    items[0]!.bytes.fill(0x5a);
+    expect(textOf(items[0]!.bytes)).toBe('ZZZZZZZ');
+    expect(toHex(items[0]!.d)).toBe(itemDigestHex('{"a":1}'));
+    expect(otherSha256Hex(items[0]!.bytes)).not.toBe(toHex(items[0]!.d));
+  });
+
+  it('frames a whole response in one call, which is the path that cannot reach the refusal', () => {
+    // `frameResponse` builds a framer, feeds it once and answers from it, so the rule that a framer serves
+    // one response holds of it by construction. This is the shape a verifier holding a body uses, and a
+    // guard that fired here would refuse the reading of bytes that were never streamed.
+    const outcome = frameResponse(STREAMED, bytes('data: {"a":1}\n\ndata: [DONE]\n\n'));
+    if (!outcome.framed) throw new Error('a framed stream was refused');
+    expect(outcome.items.map((item) => textOf(item.bytes))).toEqual(['{"a":1}']);
+    expect(Object.isFrozen(outcome.items)).toBe(true);
   });
 });
 

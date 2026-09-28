@@ -14,6 +14,7 @@ export type ReceiptErrorCode =
   | 'UNSUPPORTED_SCHEME'
   | 'MARK_MISMATCH'
   | 'ITEM_STAMP_OUT_OF_ORDER'
+  | 'FRAMER_REUSED'
   | 'BAD_SIGNING_KEY'
   | 'BAD_POP_HEADER'
   | 'BAD_POP_NONCE'
@@ -94,6 +95,13 @@ const ERROR_MESSAGE: Record<ReceiptErrorCode, string> = {
   // beside it: a source uniformly away from the truth moves every stamp together, leaves the list tidy,
   // and passes, and no reader holding only this document can see that.
   ITEM_STAMP_OUT_OF_ORDER: 'the per-item stamps are not in the order the item list states them',
+  // One framer reads one response: `finish()` takes the items the bytes produced, and a chunk that
+  // arrives after that belongs to another response. This refuses a caller's use of a live object rather
+  // than a statement about bytes, so it is not `BAD_PAYLOAD`, whose sentence is about a signed document
+  // that does not match the schema for its version, and nothing about the response is in question the way
+  // it is for the codes above: the items already taken stand, and the code exists so that a second
+  // response's frames cannot be appended to an answer somebody is already holding.
+  FRAMER_REUSED: 'the response item framer was fed a chunk after its answer was taken',
   BAD_SIGNING_KEY: 'signing key is not a valid Ed25519 key',
   BAD_POP_HEADER: 'the PoP Authorization header is not parseable',
   BAD_POP_NONCE: 'the PoP nonce is not unpadded base64url of the right width',
