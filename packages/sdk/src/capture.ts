@@ -51,6 +51,19 @@ const IMPLEMENTED_CAPTURE_VERSIONS: readonly number[] = [CAPTURE_FORMAT_VERSION]
 const IMPLEMENTED_POLICY_VERSIONS: readonly number[] = [1];
 
 /**
+ * Which receipt format versions a capture record may name, the one place that set is written for this
+ * package. It is narrower than the format's own list on purpose, and the narrowing is capture's rule
+ * rather than the format's: this package's schema declares `enum: [1, 2]` for the member, and a record
+ * naming `3` is refused rather than read. `as const` is what makes the list and the type of the member
+ * below one fact instead of two that can disagree, and widening the list without widening the schema
+ * is answered by the reader's refusal, which `packages/sdk/test/capture.test.ts` already pins.
+ */
+const IMPLEMENTED_RECEIPT_FORMAT_VERSIONS = [1, 2] as const;
+
+/** The versions above as a type, so no caller of the reader has to name them again. */
+type CaptureReceiptFormatVersion = (typeof IMPLEMENTED_RECEIPT_FORMAT_VERSIONS)[number];
+
+/**
  * What became of one piece of context. Three states because two are not enough: a record that says
  * nothing about its collateral cannot be told apart from one whose collateral never existed, and the
  * difference is between a deployment that had nothing to show and a collector that looked away.
@@ -119,7 +132,7 @@ export interface CaptureRecord {
     readonly policyVersion: number;
     readonly policyDigest: string | null;
     /** Which receipt format version the check read, and which verifier build ran it. Versions, not a verdict. */
-    readonly receiptFormatVersion: ReceiptVersion;
+    readonly receiptFormatVersion: CaptureReceiptFormatVersion;
     readonly verifierVersion: string;
     /** Unix seconds on our clock when the appraisal of this context ran. */
     readonly appraisedAt: number;
@@ -291,17 +304,21 @@ function requireDigestOrNull(raw: Record<string, unknown>, key: string, where: s
   return requireDigest(raw, key, where);
 }
 
-function requireImplementedVersion(value: unknown, what: string, implemented: readonly number[]): number {
+function requireImplementedVersion<T extends number>(value: unknown, what: string, implemented: readonly T[]): T {
   if (typeof value !== 'number' || !Number.isSafeInteger(value)) {
     throw new ReceiptError('UNSUPPORTED_VERSION', `${what} names ${describe(value)} where a version number belongs`);
   }
-  if (!implemented.includes(value)) {
+  // The element of the list, and not the number the document named: the lookup is at once the refusal
+  // test and the witness that what comes back is one of the versions this reader implements, which is
+  // why no caller of it has to narrow a returned number against the list a second time.
+  const stated = implemented.find((each): each is T => each === value);
+  if (stated === undefined) {
     throw new ReceiptError(
       'UNSUPPORTED_VERSION',
       `${what} names version ${value}, and this reader implements ${implemented.join(', ')} and does not read it as one of them`,
     );
   }
-  return value;
+  return stated;
 }
 
 /**
@@ -311,10 +328,8 @@ function requireImplementedVersion(value: unknown, what: string, implemented: re
  * name. `requireImplementedVersion` answers it, an `UNSUPPORTED_VERSION` naming the version the record
  * states and the versions this reader implements.
  */
-function requireReceiptVersion(value: unknown, where: string): ReceiptVersion {
-  const version = requireImplementedVersion(value, `${where}.receiptFormatVersion`, [1, 2]);
-  // The list above is capture's own, and the narrowing below states which of its members came back.
-  return version === 1 ? 1 : 2;
+function requireReceiptVersion(value: unknown, where: string): CaptureReceiptFormatVersion {
+  return requireImplementedVersion(value, `${where}.receiptFormatVersion`, IMPLEMENTED_RECEIPT_FORMAT_VERSIONS);
 }
 
 function readSlot(value: unknown, where: string): CaptureSlot {
