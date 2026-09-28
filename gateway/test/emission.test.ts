@@ -23,14 +23,14 @@ import { CLOCK_SECONDS, fixedClock, generated, harness, type Generated, type Har
  * What a gateway puts into a signed payload, and whether the bytes a client holds say the same thing.
  *
  * Every cell below asks one question in both directions: the gateway states a digest, and a reader that
- * was never party to the issuance recomputes it out of the bytes it was handed. That is the whole shape
- * of the hazard this unit lives in. A payload's `res`, each of its item digests, and the marked region
- * `mk.d` name are three statements over one byte string, and any of the three can be taken at a point
- * where the bytes are still the upstream's rather than the client's. A test that read the receipt back
- * and compared it with what the gateway remembered would prove nothing about that, because the gateway
- * remembers the bytes it hashed, not the bytes a stranger received. So nothing here reads the gateway's
- * own bookkeeping: the response is taken as `rawPayload`, the items are framed from it by the shipped
- * `frameResponse`, and the payload has to agree.
+ * was never party to the issuance recomputes it out of the bytes it was handed. That is the whole shape of
+ * the hazard a digest stated inside a signed payload lives under. A payload's `res`, each of its item
+ * digests, and the marked region `mk.d` names are three statements over one byte string, and any of the
+ * three can be taken at a point where the bytes are still the upstream's rather than the client's. A test
+ * that read the receipt back and compared it with what the gateway remembered would prove nothing about
+ * that, because the gateway remembers the bytes it hashed, not the bytes a stranger received. So nothing
+ * here reads the gateway's own bookkeeping: the response is taken as `rawPayload`, the items are framed
+ * from it by the shipped `frameResponse`, and the payload has to agree.
  */
 
 const NONCE = Uint8Array.from({ length: 16 }, (_, i) => i + 1);

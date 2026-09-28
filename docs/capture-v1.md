@@ -85,11 +85,11 @@ That set is the format's and not a narrowing of it, and the reason is the gatewa
 sent no `data:` frame. A record naming `3` is therefore the ordinary output of a check a collector will be
 written against, and refusing one would leave a client unable to record what it verified. A version outside
 the three is still refused, by the schema and by the reader alike, with `UNSUPPORTED_VERSION` naming what
-the record stated and what the reader implements; the refusal is of a number no format has used, not of a
-version this package has not gotten round to.
+the record stated and what the reader implements; the refusal is of a number no format has used, measured
+against the set the format owns, and not of a set this reader chose to keep narrow.
 
 The same walk reads `original.sourceKind` against the `SOURCE_KINDS` list the reader and its type are made
-of, which is the coupling the version list has always had and the kinds never had: a kind added to one side
+of, which is the coupling that holds `check.receiptFormatVersion` to its enum: a kind added to one side
 alone is a document the published schema refuses and the accepted type admits, and that is the disagreement
 a collector outside this repository would only meet in production.
 

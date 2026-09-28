@@ -376,11 +376,11 @@ describe('a version the reader does not implement is refused, not read as its ow
     expect(
       codeOf(() => parseCaptureRecord({ ...recordFor(receiptV1), check: { ...check, policyVersion: 2 } })),
     ).toBe('UNSUPPORTED_VERSION');
-    // Inverted with the rule it stated. This case pinned that a record naming receipt version `3` was
-    // refused while `3` was a version the format defined and nothing emitted; a gateway now signs a v3
-    // whenever its response frames into items, so the refusal had become a client unable to record what it
-    // verified. What it refuses now is the version above the list: `4` is an integer no payload this
-    // package parses names, and a record claiming it is still read as no version at all.
+    // What this case holds is the boundary above the set the format defines. Nothing here refuses a
+    // record naming receipt version `3`: a gateway signs a v3 whenever its response frames into items, so
+    // a reader that refused `3` would leave the client of an emitting deployment unable to record what it
+    // verified. `4` is an integer no payload this package parses names, and a record claiming it meets a
+    // refusal rather than a reading as the nearest version inside the set.
     expect(
       codeOf(() => parseCaptureRecord({ ...recordFor(receiptV1), check: { ...check, receiptFormatVersion: 4 } })),
     ).toBe('UNSUPPORTED_VERSION');
@@ -429,8 +429,8 @@ describe('the published schema and the reader decide the same documents', () => 
   const accepted: Array<[string, Record<string, unknown>]> = [
     ['a whole record', recordFor(receiptV1)],
     ['a v2 original', recordFor(receiptV2, {}, { receiptFormatVersion: 2 })],
-    // Inverted with the emission rule: naming receipt version `3` was the boundary case of this walk on
-    // both sides, and a record of a v3 check is now what a collector of an emitting deployment writes.
+    // The version an emitting deployment signs is an ordinary member of the accepted set: a record of a
+    // v3 check is what a collector of such a deployment writes, and both sides of this walk take it.
     ['a v3 original', recordFor(receiptV3, {}, { receiptFormatVersion: 3 })],
     ['no collateral at the source', recordFor(receiptV1, { context: { collateral: { presence: 'absent-at-source', reason: 'none served' }, validity: { presence: 'not-taken-in', reason: 'not read' } } })],
     ['no policy digest', recordFor(receiptV1, { check: { ...(recordFor(receiptV1).check as object), policyDigest: null } })],

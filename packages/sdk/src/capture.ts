@@ -52,9 +52,9 @@ const IMPLEMENTED_POLICY_VERSIONS: readonly number[] = [1];
 
 /**
  * Which receipt format versions a capture record may name, the one place that set is written for this
- * package. It is the format's own list, and it is no longer narrower than it: a gateway emits `v: 3`
- * whenever the bytes of a response frame into items, so a record of a check over a v3 receipt is the
- * ordinary document a collector hands over, and a reader that refused it would leave every client of
+ * package. It is the format's own list and it carries exactly that set: a gateway emits
+ * `v: 3` whenever the bytes of a response frame into items, so a record of a check over a v3 receipt is
+ * the ordinary document a collector hands over, and a reader that refused it would leave every client of
  * every emitting deployment unable to record what it verified. The list and
  * `packages/sdk/schemas/capture-v1.schema.json`'s `enum` for `check.receiptFormatVersion` are one rule
  * written twice on purpose, because the schema is what a collector outside this repository builds against
@@ -104,10 +104,9 @@ export type CaptureSlot = CaptureHeld | CaptureAbsent;
  *
  * Exported because the list is one of two statements of this set and the other is a published document:
  * `original.sourceKind`'s `enum` in `packages/sdk/schemas/capture-v1.schema.json` is what a collector
- * outside this repository builds a writer against, and nothing compared the two. A fifth kind added here
- * agreed with the type, with the reader and with the schema's silence, and disagreed with the published
- * document quietly. `test/capture.test.ts` now reads both and refuses the disagreement in either
- * direction, so the list and the enum are one set with two spellings.
+ * outside this repository builds a writer against, and a kind added to one side alone is a document the
+ * schema refuses while the type and the reader accept it. `test/capture.test.ts` reads both spellings and
+ * refuses the disagreement in either direction, so the list and the enum are one set with two spellings.
  */
 export const SOURCE_KINDS = ['platform-evidence', 'device-evidence', 'deployment-manifest', 'receipt'] as const;
 
@@ -345,7 +344,7 @@ function requireImplementedVersion<T extends number>(value: unknown, what: strin
 
 /**
  * Which receipt format version the record says the check read, against every version this package reads it
- * as. `receipt.cddl` declares three payload versions and this reader now names all three, because a gateway
+ * as. `receipt.cddl` declares three payload versions and this reader names all three, because a gateway
  * emits `v: 3` on the bytes of the response rather than on a capability the deployment was asked about, so
  * a record of a v3 check is a record a collector will write. A version outside the list is still refused by
  * design and never read as one inside it: `requireImplementedVersion` answers with an `UNSUPPORTED_VERSION`

@@ -5,11 +5,10 @@ import { declarationOf, type TimeSource } from './store.js';
  * The two `v: 3` members that state what this issuance knew about itself.
  *
  * `packages/receipt/src/disclosure.ts` publishes the shapes and `docs/receipt-spec.md` section 3
- * publishes which field of a payload holds which half. What was missing was the code that fills them in,
- * because until emission nothing in this repository had an input for either: a converter written before
- * its caller exists is a pass-through nobody can check. Both conversions live here, in the package that
- * owns the process doing the issuing, and both are answered by a deployment's wiring rather than by a
- * value a caller can pass.
+ * publishes which field of a payload holds which half. Filling them in is what lives here, because a
+ * converter whose caller holds no input for it is a pass-through nobody can check. Both conversions live
+ * in the package that owns the process doing the issuing, and both are answered by a deployment's wiring
+ * rather than by a value a caller can pass.
  *
  * Neither answer is softened into something that reads as a pass, which is the whole discipline of these
  * two members. A disclosure for an unmeasured clock says unmeasured; an anchor for material nobody took
@@ -39,8 +38,8 @@ export function stampDisclosureOf(source: TimeSource): StampDisclosure {
 }
 
 /**
- * The anchor of an issuance that took in no appraisal context, which is every issuance this repository
- * can produce today.
+ * The anchor of an issuance that took in no appraisal context, which is the only state a gateway that
+ * captures no collateral and reads no validity window can put in a payload.
  *
  * The presence is `not-taken-in` in both slots, and that choice is a statement about this collector
  * rather than about the world, which is exactly what the third state exists to keep apart from the
