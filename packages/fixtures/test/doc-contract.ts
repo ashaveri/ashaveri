@@ -134,8 +134,9 @@ export function spelledNumber(word: string): number {
  * and nothing about whether a reader accepts it. `epoch-inventory-v1.json` publishes the same five as
  * `layout.rowNamingFields`, and that test hands the file's own list to `assertRowRoster`; the four
  * suites that publish only their answer columns have no such member to hand, so their tests hand this
- * one. A fifth copy of these names, written inside a suite test rather than passed to the check, is
- * what let a row carry a column its own file never declared.
+ * one. Writing them out again inside a suite test is how one of those tests came to allow columns the
+ * published file never declared: the list the test allowed and the list the file declares were two
+ * different things, and only one of them was published.
  */
 export const ROW_NAMING_FIELDS: readonly string[] = [
   'name',
@@ -153,9 +154,10 @@ export interface RosterFile {
 
 /**
  * The equality a published suite's column roster is held to, in the one order that makes a copy of it
- * trustworthy: first that the declared list names no column twice, then that the columns actually on
- * the rows are exactly the declared list plus the naming list, and last that a row count somebody
- * states out loud is the count of the rows rather than a number carried along beside them.
+ * trustworthy: first that no column is stated twice, inside either list or across the two of them,
+ * then that the columns actually on the rows are exactly the declared list plus the naming list, and
+ * last that a row count somebody states out loud is the count of the rows rather than a number carried
+ * along beside them.
  *
  * A permission check could not do the second half: a list of fields a row may carry lets a column no
  * declaration names sit on a row unnoticed, which is how a reviewer copying the roster out of a
@@ -163,10 +165,10 @@ export interface RosterFile {
  * an undeclared column refuses rows the suite stands behind. So both directions are compared here,
  * and each refusal names what it found rather than a count the reader has to diff by hand.
  *
- * Where a suite's roster is a different shape, that is data in the arguments, not a branch here: a
- * suite publishes its naming columns, or its test passes the shared list, and a suite whose rows are
- * counted in a document passes that number. A column some rows carry and others do not needs nothing
- * special, because the comparison is over the columns the rows carry between them.
+ * Where a suite's roster is a different shape, that is data in the arguments rather than a branch here:
+ * a suite publishes its naming columns, or its test passes the shared list, and a suite whose rows are
+ * counted in a document passes that number. A column some rows carry and others do not needs no special
+ * case, because the comparison is over the columns the rows carry between them.
  */
 export function assertRowRoster(
   file: RosterFile,
