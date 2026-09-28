@@ -460,6 +460,13 @@ describe('the two disclosures a v3 payload states', () => {
     expect(anchor.validity.presence === 'not-taken-in' ? anchor.validity.reason : '').toContain(
       'this gateway records no validity context',
     );
+    // The two absences are two labels because one is a statement about the world and the other about the
+    // collector, and a reason in the collector's slot that reported no window stood open would be an
+    // appraisal this process never ran. What it may claim is what the record holds and what this gateway
+    // looked at, which is what the sentence is now refused for saying otherwise.
+    expect(anchor.validity.presence === 'not-taken-in' ? anchor.validity.reason : '').not.toMatch(
+      /no window (?:stood|stands) open/,
+    );
     // Both halves are stated, and the absence of one is never read in place of the other. The reader
     // hands them back under the names the format gives the slots, which is where `col` and `val` live.
     expect(Object.keys(anchor).sort()).toEqual(['collateral', 'validity']);

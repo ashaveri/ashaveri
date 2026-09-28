@@ -50,6 +50,13 @@ export function stampDisclosureOf(source: TimeSource): StampDisclosure {
  * what happened, at the site it happened, so a reader who wants the material knows who to ask and a
  * verifier that refuses this state is refusing a stated gap rather than a malformed document.
  *
+ * Each reason is also bounded by what its site can know. `not-taken-in` is the collector's own sentence
+ * and `absent-at-source` is the world's, which is the difference the two labels exist to keep readable,
+ * so a reason here that stated that no window ever stood open would be reporting an appraisal this
+ * process never ran and letting a reader weigh two different absences by one yardstick. The validity
+ * reason says that no window was put into the record and that nothing here looked: the rest is the
+ * verifier's to find out, from the evidence this document digests and the pins it holds itself.
+ *
  * This is the whole of what a gateway that captures nothing can attest, and it stops being true the
  * moment something is wired that can do better: the caller that takes evidence in is the caller that has
  * to answer for what it held.
@@ -67,8 +74,9 @@ export function notTakenInAnchor(): CollateralValidityAnchor {
       presence: 'not-taken-in',
       reason:
         'this gateway records no validity context at issuance: nothing in this process appraises the evidence ' +
-        'whose digest it signs, so no window stood open at the instant this receipt was stamped, and the ' +
-        'appraisal that needs one belongs to a verifier, run afterwards against bytes this document only digests',
+        'whose digest it signs, so no window was put into this record, and whether one stood open at the ' +
+        'instant this receipt was stamped is a fact this gateway never looked at; the appraisal that needs ' +
+        'one belongs to a verifier, run afterwards against bytes this document only digests',
     },
   };
 }
