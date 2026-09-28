@@ -77,6 +77,18 @@ interface ManifestEntry {
   readonly digestSha256: string;
   readonly expected: string;
   readonly note?: string;
+  /**
+   * The columns a row states about its own bytes. A `v: 3` document names a marking, and a marking can
+   * only be checked against the response it was read out of, so the client path has to be handed the
+   * bytes the row itself states rather than a guess from the document's version.
+   */
+  readonly keyless?: string;
+  readonly v?: 1 | 2 | 3;
+  readonly marking?: string;
+  readonly contentType?: string;
+  readonly response?: string;
+  readonly responseBase64Url?: string;
+  readonly responseByteLength?: number;
 }
 
 interface MarkingCase {
@@ -340,6 +352,15 @@ function markingBytes(name: string): Uint8Array {
 }
 
 /**
+ * The response bytes one receipt row states its document attests, or `undefined` where the row names
+ * none. A row naming its response is a row the client path can be run over as a client runs it, with the
+ * bytes it holds in hand, and a refusal row whose bytes are not the document's subject is read as before.
+ */
+function responseBytesOf(entry: ManifestEntry): Uint8Array | undefined {
+  return entry.responseBase64Url === undefined ? undefined : bytes(entry.responseBase64Url);
+}
+
+/**
  * One receipt handed to the shipped client path the way a client hands it: the challenge it was asked to
  * answer, the two bodies it attests, and the response bytes themselves.
  */
@@ -389,9 +410,21 @@ describe('the published receipt fixtures through the client path', () => {
     const observed = manifest.fixtures.map((entry) => {
       expect(entry.expected, `${entry.name} states no verdict`).toMatch(/^[A-Za-z0-9_-]+$/u);
       const receiptBytes = new Uint8Array(readFileSync(join(DATA, entry.path)));
-      return `${entry.name}: ${clientVerdict(receiptBytes)}`;
+      return `${entry.name}: ${clientVerdict(receiptBytes, { responseBytes: responseBytesOf(entry) })}`;
     });
     expect(observed).toEqual(manifest.fixtures.map((entry) => `${entry.name}: ${entry.expected}`));
+  });
+
+  it('reads every row that states its own answer without a key', () => {
+    // The same bytes, the same shipped parser, no key in the call: a row whose refusal needs a signature
+    // checked first would be a refusal about authenticity and not about the document.
+    const stated = manifest.fixtures.filter((entry) => entry.keyless !== undefined);
+    expect(stated.length).toBeGreaterThan(0);
+    for (const entry of stated) {
+      const receiptBytes = new Uint8Array(readFileSync(join(DATA, entry.path)));
+      const observed = verdictOf(() => decodeReceipt(receiptBytes));
+      expect(`${entry.name}: ${observed}`).toBe(`${entry.name}: ${entry.keyless}`);
+    }
   });
 
   it('refuses the two broken documents for the two reasons their rows name', () => {

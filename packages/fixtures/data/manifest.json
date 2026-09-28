@@ -34,6 +34,1180 @@
       "path": "receipts/receipt-tampered-v1.cbor",
       "digestSha256": "86ff68e5cc432eb3f9f1a51ee61a87f8180afd69d665235ea89689d96dc3b551",
       "expected": "INVALID_SIGNATURE"
+    },
+    {
+      "name": "receipt-stream-v3",
+      "path": "receipts/receipt-stream-v3.cbor",
+      "digestSha256": "0fd86169341033ab629a4ff399edbeb4ac63f5be1b1e042a77d00b85e9b67f89",
+      "expected": "verify-ok",
+      "keyless": "verify-ok",
+      "v": 3,
+      "marking": "none",
+      "contentType": "text/event-stream",
+      "response": "marking-v1.json#streamed-region-stripped",
+      "responseBase64Url": "ZGF0YTogeyJpZCI6ImNoYXRjbXBsLW1hcmtpbmctMSIsIm9iamVjdCI6ImNoYXQuY29tcGxldGlvbi5jaHVuayIsImNyZWF0ZWQiOjE3NzIwMDAwMDAsIm1vZGVsIjoibW9jay1tb2RlbC0xIiwiY2hvaWNlcyI6W3siaW5kZXgiOjAsImRlbHRhIjp7InJvbGUiOiJhc3Npc3RhbnQiLCJjb250ZW50IjoiTW9jayByZXBseToifSwiZmluaXNoX3JlYXNvbiI6bnVsbH1dfQoKZGF0YTogeyJpZCI6ImNoYXRjbXBsLW1hcmtpbmctMSIsIm9iamVjdCI6ImNoYXQuY29tcGxldGlvbi5jaHVuayIsImNyZWF0ZWQiOjE3NzIwMDAwMDAsIm1vZGVsIjoibW9jay1tb2RlbC0xIiwiY2hvaWNlcyI6W3siaW5kZXgiOjAsImRlbHRhIjp7ImNvbnRlbnQiOiIgY2Fmw6kg4piVIn0sImZpbmlzaF9yZWFzb24iOm51bGx9XX0KCmRhdGE6IHsiaWQiOiJjaGF0Y21wbC1tYXJraW5nLTEiLCJvYmplY3QiOiJjaGF0LmNvbXBsZXRpb24uY2h1bmsiLCJjcmVhdGVkIjoxNzcyMDAwMDAwLCJtb2RlbCI6Im1vY2stbW9kZWwtMSIsImNob2ljZXMiOlt7ImluZGV4IjowLCJkZWx0YSI6eyJjb250ZW50IjoiIHNlcnZlZC4ifSwiZmluaXNoX3JlYXNvbiI6bnVsbH1dfQoKZGF0YTogeyJpZCI6ImNoYXRjbXBsLW1hcmtpbmctMSIsIm9iamVjdCI6ImNoYXQuY29tcGxldGlvbi5jaHVuayIsImNyZWF0ZWQiOjE3NzIwMDAwMDAsIm1vZGVsIjoibW9jay1tb2RlbC0xIiwiY2hvaWNlcyI6W3siaW5kZXgiOjAsImRlbHRhIjp7fSwiZmluaXNoX3JlYXNvbiI6InN0b3AifV19CgpkYXRhOiBbRE9ORV0KCg",
+      "responseByteLength": 772,
+      "items": [
+        {
+          "t": 1771999996,
+          "d": "8ad85524387f8b33d71d6c825b4098967d582a49255a9ce5d399a4dcf82e34de",
+          "bytesBase64Url": "eyJpZCI6ImNoYXRjbXBsLW1hcmtpbmctMSIsIm9iamVjdCI6ImNoYXQuY29tcGxldGlvbi5jaHVuayIsImNyZWF0ZWQiOjE3NzIwMDAwMDAsIm1vZGVsIjoibW9jay1tb2RlbC0xIiwiY2hvaWNlcyI6W3siaW5kZXgiOjAsImRlbHRhIjp7InJvbGUiOiJhc3Npc3RhbnQiLCJjb250ZW50IjoiTW9jayByZXBseToifSwiZmluaXNoX3JlYXNvbiI6bnVsbH1dfQ",
+          "byteLength": 202
+        },
+        {
+          "t": 1771999997,
+          "d": "2b918d88b23a1e4601a9698687c94140916d8d4455746ee42c3029e3331972f4",
+          "bytesBase64Url": "eyJpZCI6ImNoYXRjbXBsLW1hcmtpbmctMSIsIm9iamVjdCI6ImNoYXQuY29tcGxldGlvbi5jaHVuayIsImNyZWF0ZWQiOjE3NzIwMDAwMDAsIm1vZGVsIjoibW9jay1tb2RlbC0xIiwiY2hvaWNlcyI6W3siaW5kZXgiOjAsImRlbHRhIjp7ImNvbnRlbnQiOiIgY2Fmw6kg4piVIn0sImZpbmlzaF9yZWFzb24iOm51bGx9XX0",
+          "byteLength": 182
+        },
+        {
+          "t": 1771999998,
+          "d": "b6317a63b4a079fe282343b5ca0c089280cbce11042acd5f0abd76db4ea548c2",
+          "bytesBase64Url": "eyJpZCI6ImNoYXRjbXBsLW1hcmtpbmctMSIsIm9iamVjdCI6ImNoYXQuY29tcGxldGlvbi5jaHVuayIsImNyZWF0ZWQiOjE3NzIwMDAwMDAsIm1vZGVsIjoibW9jay1tb2RlbC0xIiwiY2hvaWNlcyI6W3siaW5kZXgiOjAsImRlbHRhIjp7ImNvbnRlbnQiOiIgc2VydmVkLiJ9LCJmaW5pc2hfcmVhc29uIjpudWxsfV19",
+          "byteLength": 180
+        },
+        {
+          "t": 1771999999,
+          "d": "63b374984480c1f0adb487b753b9cb3ac2b732bb6749f7f687243aefbe5c1ca2",
+          "bytesBase64Url": "eyJpZCI6ImNoYXRjbXBsLW1hcmtpbmctMSIsIm9iamVjdCI6ImNoYXQuY29tcGxldGlvbi5jaHVuayIsImNyZWF0ZWQiOjE3NzIwMDAwMDAsIm1vZGVsIjoibW9jay1tb2RlbC0xIiwiY2hvaWNlcyI6W3siaW5kZXgiOjAsImRlbHRhIjp7fSwiZmluaXNoX3JlYXNvbiI6InN0b3AifV19",
+          "byteLength": 162
+        }
+      ],
+      "sd": {
+        "name": "ptp-disciplined host clock",
+        "unc": 1
+      },
+      "cva": {
+        "col": {
+          "p": "held",
+          "d": "8701cb3c5b89991d693a58ec59233422f627200be31c8d568ab41bde8710ca34"
+        },
+        "val": {
+          "p": "held",
+          "d": "0f97dfca91870f4e142f6bc275945fc4aca3a21bbde1924dfc181086e0b03ef9"
+        }
+      },
+      "note": "A v3 receipt over the four items a streamed completion frames, issued by a deployment whose time source declares a bound: one reading per item in the order the items were framed, the last a second before `iat`, and both anchor slots holding the digest of bytes that were taken in. Its `res` is sha256 of the whole stream with its framing and its sentinel, the bytes marking-v1.json publishes as `streamed-region-stripped`, and its `itm` digests are the four `data:` payloads inside those bytes."
+    },
+    {
+      "name": "receipt-buffered-v3",
+      "path": "receipts/receipt-buffered-v3.cbor",
+      "digestSha256": "c281005874ac5d349a8d9a3b45aac5edb58075f1a8b709dcaabbba7d4ca6b32c",
+      "expected": "verify-ok",
+      "keyless": "verify-ok",
+      "v": 3,
+      "marking": "none",
+      "contentType": "application/json",
+      "response": "marking-v1.json#absence-declared",
+      "responseBase64Url": "eyJpZCI6ImNoYXRjbXBsLW1hcmtpbmctMSIsIm9iamVjdCI6ImNoYXQuY29tcGxldGlvbiIsImNyZWF0ZWQiOjE3NzIwMDAwMDAsIm1vZGVsIjoibW9jay1tb2RlbC0xIiwiY2hvaWNlcyI6W3siaW5kZXgiOjAsIm1lc3NhZ2UiOnsicm9sZSI6ImFzc2lzdGFudCIsImNvbnRlbnQiOiJNb2NrIHJlcGx5OiBjYWbDqSDimJUgc2VydmVkLiJ9LCJmaW5pc2hfcmVhc29uIjoic3RvcCJ9XSwidXNhZ2UiOnsicHJvbXB0X3Rva2VucyI6OSwiY29tcGxldGlvbl90b2tlbnMiOjYsInRvdGFsX3Rva2VucyI6MTV9fQ",
+      "responseByteLength": 286,
+      "items": [
+        {
+          "t": 1771999999,
+          "d": "f25278113271447ec6a242f1d72db47b101028d2673b2948eb2b329683b970e6",
+          "bytesBase64Url": "eyJpZCI6ImNoYXRjbXBsLW1hcmtpbmctMSIsIm9iamVjdCI6ImNoYXQuY29tcGxldGlvbiIsImNyZWF0ZWQiOjE3NzIwMDAwMDAsIm1vZGVsIjoibW9jay1tb2RlbC0xIiwiY2hvaWNlcyI6W3siaW5kZXgiOjAsIm1lc3NhZ2UiOnsicm9sZSI6ImFzc2lzdGFudCIsImNvbnRlbnQiOiJNb2NrIHJlcGx5OiBjYWbDqSDimJUgc2VydmVkLiJ9LCJmaW5pc2hfcmVhc29uIjoic3RvcCJ9XSwidXNhZ2UiOnsicHJvbXB0X3Rva2VucyI6OSwiY29tcGxldGlvbl90b2tlbnMiOjYsInRvdGFsX3Rva2VucyI6MTV9fQ",
+          "byteLength": 286
+        }
+      ],
+      "sd": {
+        "name": "ptp-disciplined host clock",
+        "unc": 1
+      },
+      "cva": {
+        "col": {
+          "p": "held",
+          "d": "8701cb3c5b89991d693a58ec59233422f627200be31c8d568ab41bde8710ca34"
+        },
+        "val": {
+          "p": "absent-at-source",
+          "r": "the appraisal this receipt was issued from ran on collateral its source reports as never having been issued, and no byte of it reached this record"
+        }
+      },
+      "note": "A v3 receipt over a buffered body, whose item list is the one item holding the whole of it: `itm[0].d` and `res` are two statements about one byte string, and a port that walks a buffered body for frames reads no item out of it and disagrees with both. Its anchor holds the collateral and names the validity context as a document its source reports as never issued, which is the pair of states a slot carries a label for rather than a flag."
+    },
+    {
+      "name": "receipt-unmeasured-v3",
+      "path": "receipts/receipt-unmeasured-v3.cbor",
+      "digestSha256": "d270f87a31a8887b6941bbf09738d269caa12b05bee290df48559a1c4f30dabc",
+      "expected": "verify-ok",
+      "keyless": "verify-ok",
+      "v": 3,
+      "marking": "provenance-v1",
+      "contentType": "application/json",
+      "response": "marking-v1.json#buffered-member",
+      "responseBase64Url": "eyJpZCI6ImNoYXRjbXBsLW1hcmtpbmctMSIsIm9iamVjdCI6ImNoYXQuY29tcGxldGlvbiIsImNyZWF0ZWQiOjE3NzIwMDAwMDAsIm1vZGVsIjoibW9jay1tb2RlbC0xIiwiY2hvaWNlcyI6W3siaW5kZXgiOjAsIm1lc3NhZ2UiOnsicm9sZSI6ImFzc2lzdGFudCIsImNvbnRlbnQiOiJNb2NrIHJlcGx5OiBjYWbDqSDimJUgc2VydmVkLiJ9LCJmaW5pc2hfcmVhc29uIjoic3RvcCJ9XSwidXNhZ2UiOnsicHJvbXB0X3Rva2VucyI6OSwiY29tcGxldGlvbl90b2tlbnMiOjYsInRvdGFsX3Rva2VucyI6MTV9LCJhc2hhdmVyaSI6eyJtYXJraW5nIjp7InNjaCI6ImFzaGF2ZXJpL3Byb3ZlbmFuY2UtdjEiLCJnZW4iOiJhaSIsImF0IjoxNzcyMDAwMDAwfX19",
+      "responseByteLength": 369,
+      "items": [
+        {
+          "t": 1771999999,
+          "d": "53a4609b8d89672cb20f1679943d556f195f3bf0fe5743913529661952ff0fef",
+          "bytesBase64Url": "eyJpZCI6ImNoYXRjbXBsLW1hcmtpbmctMSIsIm9iamVjdCI6ImNoYXQuY29tcGxldGlvbiIsImNyZWF0ZWQiOjE3NzIwMDAwMDAsIm1vZGVsIjoibW9jay1tb2RlbC0xIiwiY2hvaWNlcyI6W3siaW5kZXgiOjAsIm1lc3NhZ2UiOnsicm9sZSI6ImFzc2lzdGFudCIsImNvbnRlbnQiOiJNb2NrIHJlcGx5OiBjYWbDqSDimJUgc2VydmVkLiJ9LCJmaW5pc2hfcmVhc29uIjoic3RvcCJ9XSwidXNhZ2UiOnsicHJvbXB0X3Rva2VucyI6OSwiY29tcGxldGlvbl90b2tlbnMiOjYsInRvdGFsX3Rva2VucyI6MTV9LCJhc2hhdmVyaSI6eyJtYXJraW5nIjp7InNjaCI6ImFzaGF2ZXJpL3Byb3ZlbmFuY2UtdjEiLCJnZW4iOiJhaSIsImF0IjoxNzcyMDAwMDAwfX19",
+          "byteLength": 369
+        }
+      ],
+      "sd": {
+        "name": "host clock",
+        "unc": null
+      },
+      "cva": {
+        "col": {
+          "p": "held",
+          "d": "8701cb3c5b89991d693a58ec59233422f627200be31c8d568ab41bde8710ca34"
+        },
+        "val": {
+          "p": "held",
+          "d": "0f97dfca91870f4e142f6bc275945fc4aca3a21bbde1924dfc181086e0b03ef9"
+        }
+      },
+      "note": "A v3 receipt whose source declares that nobody measured it: `sd.unc` is `null`, which is that source saying nothing here knows how far its readings stand from the instants they name, and neither a bound of zero nor a member left out. The name is the shipped one for a deployment that wired no source. The response is the marked buffered completion, so this row and `receipt-marked-v2` attest one response in the two versions that name a marking."
+    },
+    {
+      "name": "receipt-not-taken-in-v3",
+      "path": "receipts/receipt-not-taken-in-v3.cbor",
+      "digestSha256": "5fe9ce09bb89e9910ba8371baa5cd952f5e5d30311212f7275af6ebe3a76215a",
+      "expected": "verify-ok",
+      "keyless": "verify-ok",
+      "v": 3,
+      "marking": "provenance-v1",
+      "contentType": "text/event-stream",
+      "response": "marking-v1.json#streamed-frame",
+      "responseBase64Url": "ZGF0YTogeyJpZCI6ImNoYXRjbXBsLW1hcmtpbmctMSIsIm9iamVjdCI6ImNoYXQuY29tcGxldGlvbi5jaHVuayIsImNyZWF0ZWQiOjE3NzIwMDAwMDAsIm1vZGVsIjoibW9jay1tb2RlbC0xIiwiY2hvaWNlcyI6W3siaW5kZXgiOjAsImRlbHRhIjp7InJvbGUiOiJhc3Npc3RhbnQiLCJjb250ZW50IjoiTW9jayByZXBseToifSwiZmluaXNoX3JlYXNvbiI6bnVsbH1dfQoKZGF0YTogeyJpZCI6ImNoYXRjbXBsLW1hcmtpbmctMSIsIm9iamVjdCI6ImNoYXQuY29tcGxldGlvbi5jaHVuayIsImNyZWF0ZWQiOjE3NzIwMDAwMDAsIm1vZGVsIjoibW9jay1tb2RlbC0xIiwiY2hvaWNlcyI6W3siaW5kZXgiOjAsImRlbHRhIjp7ImNvbnRlbnQiOiIgY2Fmw6kg4piVIn0sImZpbmlzaF9yZWFzb24iOm51bGx9XX0KCmRhdGE6IHsiaWQiOiJjaGF0Y21wbC1tYXJraW5nLTEiLCJvYmplY3QiOiJjaGF0LmNvbXBsZXRpb24uY2h1bmsiLCJjcmVhdGVkIjoxNzcyMDAwMDAwLCJtb2RlbCI6Im1vY2stbW9kZWwtMSIsImNob2ljZXMiOlt7ImluZGV4IjowLCJkZWx0YSI6eyJjb250ZW50IjoiIHNlcnZlZC4ifSwiZmluaXNoX3JlYXNvbiI6bnVsbH1dfQoKZGF0YTogeyJpZCI6ImNoYXRjbXBsLW1hcmtpbmctMSIsIm9iamVjdCI6ImNoYXQuY29tcGxldGlvbi5jaHVuayIsImNyZWF0ZWQiOjE3NzIwMDAwMDAsIm1vZGVsIjoibW9jay1tb2RlbC0xIiwiY2hvaWNlcyI6W3siaW5kZXgiOjAsImRlbHRhIjp7fSwiZmluaXNoX3JlYXNvbiI6InN0b3AifV19CgpkYXRhOiB7ImlkIjoiY2hhdGNtcGwtbWFya2luZy0xIiwib2JqZWN0IjoiY2hhdC5jb21wbGV0aW9uLmNodW5rIiwiY3JlYXRlZCI6MTc3MjAwMDAwMCwibW9kZWwiOiJtb2NrLW1vZGVsLTEiLCJjaG9pY2VzIjpbXSwiYXNoYXZlcmkiOnsibWFya2luZyI6eyJzY2giOiJhc2hhdmVyaS9wcm92ZW5hbmNlLXYxIiwiZ2VuIjoiYWkiLCJhdCI6MTc3MjAwMDAwMH19fQoKZGF0YTogW0RPTkVdCgo",
+      "responseByteLength": 980,
+      "items": [
+        {
+          "t": 1771999995,
+          "d": "8ad85524387f8b33d71d6c825b4098967d582a49255a9ce5d399a4dcf82e34de",
+          "bytesBase64Url": "eyJpZCI6ImNoYXRjbXBsLW1hcmtpbmctMSIsIm9iamVjdCI6ImNoYXQuY29tcGxldGlvbi5jaHVuayIsImNyZWF0ZWQiOjE3NzIwMDAwMDAsIm1vZGVsIjoibW9jay1tb2RlbC0xIiwiY2hvaWNlcyI6W3siaW5kZXgiOjAsImRlbHRhIjp7InJvbGUiOiJhc3Npc3RhbnQiLCJjb250ZW50IjoiTW9jayByZXBseToifSwiZmluaXNoX3JlYXNvbiI6bnVsbH1dfQ",
+          "byteLength": 202
+        },
+        {
+          "t": 1771999996,
+          "d": "2b918d88b23a1e4601a9698687c94140916d8d4455746ee42c3029e3331972f4",
+          "bytesBase64Url": "eyJpZCI6ImNoYXRjbXBsLW1hcmtpbmctMSIsIm9iamVjdCI6ImNoYXQuY29tcGxldGlvbi5jaHVuayIsImNyZWF0ZWQiOjE3NzIwMDAwMDAsIm1vZGVsIjoibW9jay1tb2RlbC0xIiwiY2hvaWNlcyI6W3siaW5kZXgiOjAsImRlbHRhIjp7ImNvbnRlbnQiOiIgY2Fmw6kg4piVIn0sImZpbmlzaF9yZWFzb24iOm51bGx9XX0",
+          "byteLength": 182
+        },
+        {
+          "t": 1771999997,
+          "d": "b6317a63b4a079fe282343b5ca0c089280cbce11042acd5f0abd76db4ea548c2",
+          "bytesBase64Url": "eyJpZCI6ImNoYXRjbXBsLW1hcmtpbmctMSIsIm9iamVjdCI6ImNoYXQuY29tcGxldGlvbi5jaHVuayIsImNyZWF0ZWQiOjE3NzIwMDAwMDAsIm1vZGVsIjoibW9jay1tb2RlbC0xIiwiY2hvaWNlcyI6W3siaW5kZXgiOjAsImRlbHRhIjp7ImNvbnRlbnQiOiIgc2VydmVkLiJ9LCJmaW5pc2hfcmVhc29uIjpudWxsfV19",
+          "byteLength": 180
+        },
+        {
+          "t": 1771999998,
+          "d": "63b374984480c1f0adb487b753b9cb3ac2b732bb6749f7f687243aefbe5c1ca2",
+          "bytesBase64Url": "eyJpZCI6ImNoYXRjbXBsLW1hcmtpbmctMSIsIm9iamVjdCI6ImNoYXQuY29tcGxldGlvbi5jaHVuayIsImNyZWF0ZWQiOjE3NzIwMDAwMDAsIm1vZGVsIjoibW9jay1tb2RlbC0xIiwiY2hvaWNlcyI6W3siaW5kZXgiOjAsImRlbHRhIjp7fSwiZmluaXNoX3JlYXNvbiI6InN0b3AifV19",
+          "byteLength": 162
+        },
+        {
+          "t": 1771999999,
+          "d": "0d19b35a69c8c6cc3e707510e7b46d19ae7dcdbef79715964615d74fdd0aab2b",
+          "bytesBase64Url": "eyJpZCI6ImNoYXRjbXBsLW1hcmtpbmctMSIsIm9iamVjdCI6ImNoYXQuY29tcGxldGlvbi5jaHVuayIsImNyZWF0ZWQiOjE3NzIwMDAwMDAsIm1vZGVsIjoibW9jay1tb2RlbC0xIiwiY2hvaWNlcyI6W10sImFzaGF2ZXJpIjp7Im1hcmtpbmciOnsic2NoIjoiYXNoYXZlcmkvcHJvdmVuYW5jZS12MSIsImdlbiI6ImFpIiwiYXQiOjE3NzIwMDAwMDB9fX0",
+          "byteLength": 200
+        }
+      ],
+      "sd": {
+        "name": "ptp-disciplined host clock",
+        "unc": 1
+      },
+      "cva": {
+        "col": {
+          "p": "not-taken-in",
+          "r": "this issuer takes no collateral into the record it signs with: it is handed an evidence document, its stamp and a url, and nothing chained to that document, and no collector beside it holds the vendor chain an appraisal of those bytes would run on"
+        },
+        "val": {
+          "p": "not-taken-in",
+          "r": "this issuer records no validity context at issuance: nothing in it appraises the evidence whose digest it signs, so no window was put into this record, and whether one stood open at the instant this receipt was stamped is a fact this process never looked at; the appraisal that needs one belongs to a verifier, run afterwards against bytes this document only digests"
+        }
+      },
+      "note": "A v3 receipt with both anchor slots saying `not-taken-in` beside their reasons, which is the state every artifact this repository issues today is in: an issuer that takes no collateral in and appraises nothing states both absences in the words that name the collector rather than the world, and a verifier weighing the anchor refuses a declared gap instead of an undeclared one. The response is the marked stream, so the list is the four upstream chunks and the marking frame, five items in the order the bytes put them in."
+    },
+    {
+      "name": "receipt-marked-sentinel-v3",
+      "path": "receipts/receipt-marked-sentinel-v3.cbor",
+      "digestSha256": "950feda20c7434f769e739fa48a2fe225f7eb43a4b66a16181da271456ca13d6",
+      "expected": "verify-ok",
+      "keyless": "verify-ok",
+      "v": 3,
+      "marking": "provenance-v1",
+      "contentType": "text/event-stream",
+      "response": "assembled#marking-frame-then-terminator",
+      "assembledFrom": [
+        "marking-v1.json#streamed-frame.region",
+        "res-v1.json#framing.frameSeparator",
+        "res-v1.json#framing.terminator"
+      ],
+      "responseBase64Url": "ZGF0YTogeyJpZCI6ImNoYXRjbXBsLW1hcmtpbmctMSIsIm9iamVjdCI6ImNoYXQuY29tcGxldGlvbi5jaHVuayIsImNyZWF0ZWQiOjE3NzIwMDAwMDAsIm1vZGVsIjoibW9jay1tb2RlbC0xIiwiY2hvaWNlcyI6W10sImFzaGF2ZXJpIjp7Im1hcmtpbmciOnsic2NoIjoiYXNoYXZlcmkvcHJvdmVuYW5jZS12MSIsImdlbiI6ImFpIiwiYXQiOjE3NzIwMDAwMDB9fX0KCmRhdGE6IFtET05FXQoK",
+      "responseByteLength": 222,
+      "items": [
+        {
+          "t": 1771999999,
+          "d": "0d19b35a69c8c6cc3e707510e7b46d19ae7dcdbef79715964615d74fdd0aab2b",
+          "bytesBase64Url": "eyJpZCI6ImNoYXRjbXBsLW1hcmtpbmctMSIsIm9iamVjdCI6ImNoYXQuY29tcGxldGlvbi5jaHVuayIsImNyZWF0ZWQiOjE3NzIwMDAwMDAsIm1vZGVsIjoibW9jay1tb2RlbC0xIiwiY2hvaWNlcyI6W10sImFzaGF2ZXJpIjp7Im1hcmtpbmciOnsic2NoIjoiYXNoYXZlcmkvcHJvdmVuYW5jZS12MSIsImdlbiI6ImFpIiwiYXQiOjE3NzIwMDAwMDB9fX0",
+          "byteLength": 200
+        }
+      ],
+      "sd": {
+        "name": "ptp-disciplined host clock",
+        "unc": 1
+      },
+      "cva": {
+        "col": {
+          "p": "held",
+          "d": "8701cb3c5b89991d693a58ec59233422f627200be31c8d568ab41bde8710ca34"
+        },
+        "val": {
+          "p": "held",
+          "d": "0f97dfca91870f4e142f6bc275945fc4aca3a21bbde1924dfc181086e0b03ef9"
+        }
+      },
+      "note": "A v3 receipt over a stream that framed no item until the mark was written to it: the response is one marking frame, the blank line that closes it, and the closing sentinel, joined from the pieces the marking and response suites publish, and it frames exactly one item, the mark. The same upstream body with the marking off frames nothing at all, and `receipt-no-items-v2` beside this row is the answer those bytes are owed."
+    },
+    {
+      "name": "receipt-no-items-v2",
+      "path": "receipts/receipt-no-items-v2.cbor",
+      "digestSha256": "3cdb0c02c760850bb15f029daf79a18ec796358ed6c3bc8ca2215ef149b1f50d",
+      "expected": "verify-ok",
+      "keyless": "verify-ok",
+      "v": 2,
+      "marking": "none",
+      "contentType": "text/event-stream",
+      "response": "res-v1.json#framing.terminator",
+      "responseBase64Url": "ZGF0YTogW0RPTkVdCgo",
+      "responseByteLength": 14,
+      "note": "The answer for one sentinel with no chunk ahead of it, under marking off: those bytes frame no item, so an `itm` over them would have to be the list the format refuses, and the version that names no item list is the one that states the response truthfully instead. Its `mk.sch` is `none` and its `mk.d` is sha256 over no bytes, so which marking setting these bytes came off is a member of the document and not a word beside it."
+    },
+    {
+      "name": "receipt-stamps-descending-v3",
+      "path": "receipts/receipt-stamps-descending-v3.cbor",
+      "digestSha256": "6531632df71451e4d1ecfd190d84e82e1e41dd988940f0b1e1bf9fec03f35ad3",
+      "expected": "ITEM_STAMP_OUT_OF_ORDER",
+      "keyless": "ITEM_STAMP_OUT_OF_ORDER",
+      "v": 3,
+      "marking": "none",
+      "contentType": "text/event-stream",
+      "response": "marking-v1.json#streamed-region-stripped",
+      "responseBase64Url": "ZGF0YTogeyJpZCI6ImNoYXRjbXBsLW1hcmtpbmctMSIsIm9iamVjdCI6ImNoYXQuY29tcGxldGlvbi5jaHVuayIsImNyZWF0ZWQiOjE3NzIwMDAwMDAsIm1vZGVsIjoibW9jay1tb2RlbC0xIiwiY2hvaWNlcyI6W3siaW5kZXgiOjAsImRlbHRhIjp7InJvbGUiOiJhc3Npc3RhbnQiLCJjb250ZW50IjoiTW9jayByZXBseToifSwiZmluaXNoX3JlYXNvbiI6bnVsbH1dfQoKZGF0YTogeyJpZCI6ImNoYXRjbXBsLW1hcmtpbmctMSIsIm9iamVjdCI6ImNoYXQuY29tcGxldGlvbi5jaHVuayIsImNyZWF0ZWQiOjE3NzIwMDAwMDAsIm1vZGVsIjoibW9jay1tb2RlbC0xIiwiY2hvaWNlcyI6W3siaW5kZXgiOjAsImRlbHRhIjp7ImNvbnRlbnQiOiIgY2Fmw6kg4piVIn0sImZpbmlzaF9yZWFzb24iOm51bGx9XX0KCmRhdGE6IHsiaWQiOiJjaGF0Y21wbC1tYXJraW5nLTEiLCJvYmplY3QiOiJjaGF0LmNvbXBsZXRpb24uY2h1bmsiLCJjcmVhdGVkIjoxNzcyMDAwMDAwLCJtb2RlbCI6Im1vY2stbW9kZWwtMSIsImNob2ljZXMiOlt7ImluZGV4IjowLCJkZWx0YSI6eyJjb250ZW50IjoiIHNlcnZlZC4ifSwiZmluaXNoX3JlYXNvbiI6bnVsbH1dfQoKZGF0YTogeyJpZCI6ImNoYXRjbXBsLW1hcmtpbmctMSIsIm9iamVjdCI6ImNoYXQuY29tcGxldGlvbi5jaHVuayIsImNyZWF0ZWQiOjE3NzIwMDAwMDAsIm1vZGVsIjoibW9jay1tb2RlbC0xIiwiY2hvaWNlcyI6W3siaW5kZXgiOjAsImRlbHRhIjp7fSwiZmluaXNoX3JlYXNvbiI6InN0b3AifV19CgpkYXRhOiBbRE9ORV0KCg",
+      "responseByteLength": 772,
+      "items": [
+        {
+          "t": 1771999996,
+          "d": "8ad85524387f8b33d71d6c825b4098967d582a49255a9ce5d399a4dcf82e34de",
+          "bytesBase64Url": "eyJpZCI6ImNoYXRjbXBsLW1hcmtpbmctMSIsIm9iamVjdCI6ImNoYXQuY29tcGxldGlvbi5jaHVuayIsImNyZWF0ZWQiOjE3NzIwMDAwMDAsIm1vZGVsIjoibW9jay1tb2RlbC0xIiwiY2hvaWNlcyI6W3siaW5kZXgiOjAsImRlbHRhIjp7InJvbGUiOiJhc3Npc3RhbnQiLCJjb250ZW50IjoiTW9jayByZXBseToifSwiZmluaXNoX3JlYXNvbiI6bnVsbH1dfQ",
+          "byteLength": 202
+        },
+        {
+          "t": 1771999998,
+          "d": "2b918d88b23a1e4601a9698687c94140916d8d4455746ee42c3029e3331972f4",
+          "bytesBase64Url": "eyJpZCI6ImNoYXRjbXBsLW1hcmtpbmctMSIsIm9iamVjdCI6ImNoYXQuY29tcGxldGlvbi5jaHVuayIsImNyZWF0ZWQiOjE3NzIwMDAwMDAsIm1vZGVsIjoibW9jay1tb2RlbC0xIiwiY2hvaWNlcyI6W3siaW5kZXgiOjAsImRlbHRhIjp7ImNvbnRlbnQiOiIgY2Fmw6kg4piVIn0sImZpbmlzaF9yZWFzb24iOm51bGx9XX0",
+          "byteLength": 182
+        },
+        {
+          "t": 1771999997,
+          "d": "b6317a63b4a079fe282343b5ca0c089280cbce11042acd5f0abd76db4ea548c2",
+          "bytesBase64Url": "eyJpZCI6ImNoYXRjbXBsLW1hcmtpbmctMSIsIm9iamVjdCI6ImNoYXQuY29tcGxldGlvbi5jaHVuayIsImNyZWF0ZWQiOjE3NzIwMDAwMDAsIm1vZGVsIjoibW9jay1tb2RlbC0xIiwiY2hvaWNlcyI6W3siaW5kZXgiOjAsImRlbHRhIjp7ImNvbnRlbnQiOiIgc2VydmVkLiJ9LCJmaW5pc2hfcmVhc29uIjpudWxsfV19",
+          "byteLength": 180
+        },
+        {
+          "t": 1771999999,
+          "d": "63b374984480c1f0adb487b753b9cb3ac2b732bb6749f7f687243aefbe5c1ca2",
+          "bytesBase64Url": "eyJpZCI6ImNoYXRjbXBsLW1hcmtpbmctMSIsIm9iamVjdCI6ImNoYXQuY29tcGxldGlvbi5jaHVuayIsImNyZWF0ZWQiOjE3NzIwMDAwMDAsIm1vZGVsIjoibW9jay1tb2RlbC0xIiwiY2hvaWNlcyI6W3siaW5kZXgiOjAsImRlbHRhIjp7fSwiZmluaXNoX3JlYXNvbiI6InN0b3AifV19",
+          "byteLength": 162
+        }
+      ],
+      "sd": {
+        "name": "ptp-disciplined host clock",
+        "unc": 1
+      },
+      "cva": {
+        "col": {
+          "p": "held",
+          "d": "8701cb3c5b89991d693a58ec59233422f627200be31c8d568ab41bde8710ca34"
+        },
+        "val": {
+          "p": "held",
+          "d": "0f97dfca91870f4e142f6bc275945fc4aca3a21bbde1924dfc181086e0b03ef9"
+        }
+      },
+      "fault": {
+        "at": "itm[2]",
+        "states": "a stamp earlier than the item before it"
+      },
+      "note": "The four items of `receipt-stream-v3`, in their order, over the same bytes, with the instants of the middle two exchanged so that the list states one order and the stamps state another. Chain order is the array and stamp order is `t`, and a reader that let these through would be holding a signed account of when a completion's items were framed that contradicts itself. Every item digest still belongs to its own item, the signature is the published key's, and no member is out of place: this is the one state `ITEM_STAMP_OUT_OF_ORDER` exists for, and a gateway that reads one instant per item in framing order cannot produce it, so these bytes are assembled from the published list."
+    },
+    {
+      "name": "receipt-empty-items-v3",
+      "path": "receipts/receipt-empty-items-v3.cbor",
+      "digestSha256": "e08a10bdfd9762f993dd4ddf32540a688c0c42dc79b490c7f6a32aeac27ade74",
+      "expected": "BAD_PAYLOAD",
+      "keyless": "BAD_PAYLOAD",
+      "v": 3,
+      "marking": "none",
+      "contentType": "text/event-stream",
+      "response": "res-v1.json#framing.terminator",
+      "responseBase64Url": "ZGF0YTogW0RPTkVdCgo",
+      "responseByteLength": 14,
+      "sd": {
+        "name": "ptp-disciplined host clock",
+        "unc": 1
+      },
+      "cva": {
+        "col": {
+          "p": "held",
+          "d": "8701cb3c5b89991d693a58ec59233422f627200be31c8d568ab41bde8710ca34"
+        },
+        "val": {
+          "p": "held",
+          "d": "0f97dfca91870f4e142f6bc275945fc4aca3a21bbde1924dfc181086e0b03ef9"
+        }
+      },
+      "fault": {
+        "at": "itm",
+        "states": "the list a v3 payload requires and these bytes leave empty"
+      },
+      "items": [],
+      "note": "The stream that frames no item, attested as a `v: 3` document whose `itm` is the empty list: a run of nothing states nothing and zero digests give a reader nothing to hold the response against, which is why the version that names an item list is refused here and the version above that names none is accepted over these very bytes."
+    },
+    {
+      "name": "receipt-held-without-a-digest-v3",
+      "path": "receipts/receipt-held-without-a-digest-v3.cbor",
+      "digestSha256": "357274f7c297aa39df9b12fe175ca7b68ba2868eb23ac87e6dcee5a200a2eb7c",
+      "expected": "BAD_PAYLOAD",
+      "keyless": "BAD_PAYLOAD",
+      "v": 3,
+      "marking": "provenance-v1",
+      "contentType": "text/event-stream",
+      "response": "marking-v1.json#streamed-frame",
+      "responseBase64Url": "ZGF0YTogeyJpZCI6ImNoYXRjbXBsLW1hcmtpbmctMSIsIm9iamVjdCI6ImNoYXQuY29tcGxldGlvbi5jaHVuayIsImNyZWF0ZWQiOjE3NzIwMDAwMDAsIm1vZGVsIjoibW9jay1tb2RlbC0xIiwiY2hvaWNlcyI6W3siaW5kZXgiOjAsImRlbHRhIjp7InJvbGUiOiJhc3Npc3RhbnQiLCJjb250ZW50IjoiTW9jayByZXBseToifSwiZmluaXNoX3JlYXNvbiI6bnVsbH1dfQoKZGF0YTogeyJpZCI6ImNoYXRjbXBsLW1hcmtpbmctMSIsIm9iamVjdCI6ImNoYXQuY29tcGxldGlvbi5jaHVuayIsImNyZWF0ZWQiOjE3NzIwMDAwMDAsIm1vZGVsIjoibW9jay1tb2RlbC0xIiwiY2hvaWNlcyI6W3siaW5kZXgiOjAsImRlbHRhIjp7ImNvbnRlbnQiOiIgY2Fmw6kg4piVIn0sImZpbmlzaF9yZWFzb24iOm51bGx9XX0KCmRhdGE6IHsiaWQiOiJjaGF0Y21wbC1tYXJraW5nLTEiLCJvYmplY3QiOiJjaGF0LmNvbXBsZXRpb24uY2h1bmsiLCJjcmVhdGVkIjoxNzcyMDAwMDAwLCJtb2RlbCI6Im1vY2stbW9kZWwtMSIsImNob2ljZXMiOlt7ImluZGV4IjowLCJkZWx0YSI6eyJjb250ZW50IjoiIHNlcnZlZC4ifSwiZmluaXNoX3JlYXNvbiI6bnVsbH1dfQoKZGF0YTogeyJpZCI6ImNoYXRjbXBsLW1hcmtpbmctMSIsIm9iamVjdCI6ImNoYXQuY29tcGxldGlvbi5jaHVuayIsImNyZWF0ZWQiOjE3NzIwMDAwMDAsIm1vZGVsIjoibW9jay1tb2RlbC0xIiwiY2hvaWNlcyI6W3siaW5kZXgiOjAsImRlbHRhIjp7fSwiZmluaXNoX3JlYXNvbiI6InN0b3AifV19CgpkYXRhOiB7ImlkIjoiY2hhdGNtcGwtbWFya2luZy0xIiwib2JqZWN0IjoiY2hhdC5jb21wbGV0aW9uLmNodW5rIiwiY3JlYXRlZCI6MTc3MjAwMDAwMCwibW9kZWwiOiJtb2NrLW1vZGVsLTEiLCJjaG9pY2VzIjpbXSwiYXNoYXZlcmkiOnsibWFya2luZyI6eyJzY2giOiJhc2hhdmVyaS9wcm92ZW5hbmNlLXYxIiwiZ2VuIjoiYWkiLCJhdCI6MTc3MjAwMDAwMH19fQoKZGF0YTogW0RPTkVdCgo",
+      "responseByteLength": 980,
+      "items": [
+        {
+          "t": 1771999995,
+          "d": "8ad85524387f8b33d71d6c825b4098967d582a49255a9ce5d399a4dcf82e34de",
+          "bytesBase64Url": "eyJpZCI6ImNoYXRjbXBsLW1hcmtpbmctMSIsIm9iamVjdCI6ImNoYXQuY29tcGxldGlvbi5jaHVuayIsImNyZWF0ZWQiOjE3NzIwMDAwMDAsIm1vZGVsIjoibW9jay1tb2RlbC0xIiwiY2hvaWNlcyI6W3siaW5kZXgiOjAsImRlbHRhIjp7InJvbGUiOiJhc3Npc3RhbnQiLCJjb250ZW50IjoiTW9jayByZXBseToifSwiZmluaXNoX3JlYXNvbiI6bnVsbH1dfQ",
+          "byteLength": 202
+        },
+        {
+          "t": 1771999996,
+          "d": "2b918d88b23a1e4601a9698687c94140916d8d4455746ee42c3029e3331972f4",
+          "bytesBase64Url": "eyJpZCI6ImNoYXRjbXBsLW1hcmtpbmctMSIsIm9iamVjdCI6ImNoYXQuY29tcGxldGlvbi5jaHVuayIsImNyZWF0ZWQiOjE3NzIwMDAwMDAsIm1vZGVsIjoibW9jay1tb2RlbC0xIiwiY2hvaWNlcyI6W3siaW5kZXgiOjAsImRlbHRhIjp7ImNvbnRlbnQiOiIgY2Fmw6kg4piVIn0sImZpbmlzaF9yZWFzb24iOm51bGx9XX0",
+          "byteLength": 182
+        },
+        {
+          "t": 1771999997,
+          "d": "b6317a63b4a079fe282343b5ca0c089280cbce11042acd5f0abd76db4ea548c2",
+          "bytesBase64Url": "eyJpZCI6ImNoYXRjbXBsLW1hcmtpbmctMSIsIm9iamVjdCI6ImNoYXQuY29tcGxldGlvbi5jaHVuayIsImNyZWF0ZWQiOjE3NzIwMDAwMDAsIm1vZGVsIjoibW9jay1tb2RlbC0xIiwiY2hvaWNlcyI6W3siaW5kZXgiOjAsImRlbHRhIjp7ImNvbnRlbnQiOiIgc2VydmVkLiJ9LCJmaW5pc2hfcmVhc29uIjpudWxsfV19",
+          "byteLength": 180
+        },
+        {
+          "t": 1771999998,
+          "d": "63b374984480c1f0adb487b753b9cb3ac2b732bb6749f7f687243aefbe5c1ca2",
+          "bytesBase64Url": "eyJpZCI6ImNoYXRjbXBsLW1hcmtpbmctMSIsIm9iamVjdCI6ImNoYXQuY29tcGxldGlvbi5jaHVuayIsImNyZWF0ZWQiOjE3NzIwMDAwMDAsIm1vZGVsIjoibW9jay1tb2RlbC0xIiwiY2hvaWNlcyI6W3siaW5kZXgiOjAsImRlbHRhIjp7fSwiZmluaXNoX3JlYXNvbiI6InN0b3AifV19",
+          "byteLength": 162
+        },
+        {
+          "t": 1771999999,
+          "d": "0d19b35a69c8c6cc3e707510e7b46d19ae7dcdbef79715964615d74fdd0aab2b",
+          "bytesBase64Url": "eyJpZCI6ImNoYXRjbXBsLW1hcmtpbmctMSIsIm9iamVjdCI6ImNoYXQuY29tcGxldGlvbi5jaHVuayIsImNyZWF0ZWQiOjE3NzIwMDAwMDAsIm1vZGVsIjoibW9jay1tb2RlbC0xIiwiY2hvaWNlcyI6W10sImFzaGF2ZXJpIjp7Im1hcmtpbmciOnsic2NoIjoiYXNoYXZlcmkvcHJvdmVuYW5jZS12MSIsImdlbiI6ImFpIiwiYXQiOjE3NzIwMDAwMDB9fX0",
+          "byteLength": 200
+        }
+      ],
+      "sd": {
+        "name": "ptp-disciplined host clock",
+        "unc": 1
+      },
+      "fault": {
+        "at": "cva.col.d",
+        "states": "a held slot carrying no digest"
+      },
+      "cva": {
+        "col": {
+          "p": "held",
+          "d": ""
+        },
+        "val": {
+          "p": "not-taken-in",
+          "r": "this issuer takes no collateral into the record it signs with: it is handed an evidence document, its stamp and a url, and nothing chained to that document, and no collector beside it holds the vendor chain an appraisal of those bytes would run on"
+        }
+      },
+      "note": "An anchor slot that claims its bytes were taken in and carries no digest beside the claim: the member says `held` and the reader weighs that at the width of the digest a held arm asks for, so these bytes are refused. That the refusal is about the claim's own shape and not about whether the material exists is the residual section 3 states about a held digest, which a document cannot see past and a verifier holding pins can."
+    },
+    {
+      "name": "receipt-bound-withheld-v3",
+      "path": "receipts/receipt-bound-withheld-v3.cbor",
+      "digestSha256": "7387500639e6dd65192cf291a6cf66ca4286b4157f19e30e538fa843fa064ab6",
+      "expected": "BAD_PAYLOAD",
+      "keyless": "BAD_PAYLOAD",
+      "v": 3,
+      "marking": "provenance-v1",
+      "contentType": "text/event-stream",
+      "response": "marking-v1.json#streamed-frame",
+      "responseBase64Url": "ZGF0YTogeyJpZCI6ImNoYXRjbXBsLW1hcmtpbmctMSIsIm9iamVjdCI6ImNoYXQuY29tcGxldGlvbi5jaHVuayIsImNyZWF0ZWQiOjE3NzIwMDAwMDAsIm1vZGVsIjoibW9jay1tb2RlbC0xIiwiY2hvaWNlcyI6W3siaW5kZXgiOjAsImRlbHRhIjp7InJvbGUiOiJhc3Npc3RhbnQiLCJjb250ZW50IjoiTW9jayByZXBseToifSwiZmluaXNoX3JlYXNvbiI6bnVsbH1dfQoKZGF0YTogeyJpZCI6ImNoYXRjbXBsLW1hcmtpbmctMSIsIm9iamVjdCI6ImNoYXQuY29tcGxldGlvbi5jaHVuayIsImNyZWF0ZWQiOjE3NzIwMDAwMDAsIm1vZGVsIjoibW9jay1tb2RlbC0xIiwiY2hvaWNlcyI6W3siaW5kZXgiOjAsImRlbHRhIjp7ImNvbnRlbnQiOiIgY2Fmw6kg4piVIn0sImZpbmlzaF9yZWFzb24iOm51bGx9XX0KCmRhdGE6IHsiaWQiOiJjaGF0Y21wbC1tYXJraW5nLTEiLCJvYmplY3QiOiJjaGF0LmNvbXBsZXRpb24uY2h1bmsiLCJjcmVhdGVkIjoxNzcyMDAwMDAwLCJtb2RlbCI6Im1vY2stbW9kZWwtMSIsImNob2ljZXMiOlt7ImluZGV4IjowLCJkZWx0YSI6eyJjb250ZW50IjoiIHNlcnZlZC4ifSwiZmluaXNoX3JlYXNvbiI6bnVsbH1dfQoKZGF0YTogeyJpZCI6ImNoYXRjbXBsLW1hcmtpbmctMSIsIm9iamVjdCI6ImNoYXQuY29tcGxldGlvbi5jaHVuayIsImNyZWF0ZWQiOjE3NzIwMDAwMDAsIm1vZGVsIjoibW9jay1tb2RlbC0xIiwiY2hvaWNlcyI6W3siaW5kZXgiOjAsImRlbHRhIjp7fSwiZmluaXNoX3JlYXNvbiI6InN0b3AifV19CgpkYXRhOiB7ImlkIjoiY2hhdGNtcGwtbWFya2luZy0xIiwib2JqZWN0IjoiY2hhdC5jb21wbGV0aW9uLmNodW5rIiwiY3JlYXRlZCI6MTc3MjAwMDAwMCwibW9kZWwiOiJtb2NrLW1vZGVsLTEiLCJjaG9pY2VzIjpbXSwiYXNoYXZlcmkiOnsibWFya2luZyI6eyJzY2giOiJhc2hhdmVyaS9wcm92ZW5hbmNlLXYxIiwiZ2VuIjoiYWkiLCJhdCI6MTc3MjAwMDAwMH19fQoKZGF0YTogW0RPTkVdCgo",
+      "responseByteLength": 980,
+      "items": [
+        {
+          "t": 1771999995,
+          "d": "8ad85524387f8b33d71d6c825b4098967d582a49255a9ce5d399a4dcf82e34de",
+          "bytesBase64Url": "eyJpZCI6ImNoYXRjbXBsLW1hcmtpbmctMSIsIm9iamVjdCI6ImNoYXQuY29tcGxldGlvbi5jaHVuayIsImNyZWF0ZWQiOjE3NzIwMDAwMDAsIm1vZGVsIjoibW9jay1tb2RlbC0xIiwiY2hvaWNlcyI6W3siaW5kZXgiOjAsImRlbHRhIjp7InJvbGUiOiJhc3Npc3RhbnQiLCJjb250ZW50IjoiTW9jayByZXBseToifSwiZmluaXNoX3JlYXNvbiI6bnVsbH1dfQ",
+          "byteLength": 202
+        },
+        {
+          "t": 1771999996,
+          "d": "2b918d88b23a1e4601a9698687c94140916d8d4455746ee42c3029e3331972f4",
+          "bytesBase64Url": "eyJpZCI6ImNoYXRjbXBsLW1hcmtpbmctMSIsIm9iamVjdCI6ImNoYXQuY29tcGxldGlvbi5jaHVuayIsImNyZWF0ZWQiOjE3NzIwMDAwMDAsIm1vZGVsIjoibW9jay1tb2RlbC0xIiwiY2hvaWNlcyI6W3siaW5kZXgiOjAsImRlbHRhIjp7ImNvbnRlbnQiOiIgY2Fmw6kg4piVIn0sImZpbmlzaF9yZWFzb24iOm51bGx9XX0",
+          "byteLength": 182
+        },
+        {
+          "t": 1771999997,
+          "d": "b6317a63b4a079fe282343b5ca0c089280cbce11042acd5f0abd76db4ea548c2",
+          "bytesBase64Url": "eyJpZCI6ImNoYXRjbXBsLW1hcmtpbmctMSIsIm9iamVjdCI6ImNoYXQuY29tcGxldGlvbi5jaHVuayIsImNyZWF0ZWQiOjE3NzIwMDAwMDAsIm1vZGVsIjoibW9jay1tb2RlbC0xIiwiY2hvaWNlcyI6W3siaW5kZXgiOjAsImRlbHRhIjp7ImNvbnRlbnQiOiIgc2VydmVkLiJ9LCJmaW5pc2hfcmVhc29uIjpudWxsfV19",
+          "byteLength": 180
+        },
+        {
+          "t": 1771999998,
+          "d": "63b374984480c1f0adb487b753b9cb3ac2b732bb6749f7f687243aefbe5c1ca2",
+          "bytesBase64Url": "eyJpZCI6ImNoYXRjbXBsLW1hcmtpbmctMSIsIm9iamVjdCI6ImNoYXQuY29tcGxldGlvbi5jaHVuayIsImNyZWF0ZWQiOjE3NzIwMDAwMDAsIm1vZGVsIjoibW9jay1tb2RlbC0xIiwiY2hvaWNlcyI6W3siaW5kZXgiOjAsImRlbHRhIjp7fSwiZmluaXNoX3JlYXNvbiI6InN0b3AifV19",
+          "byteLength": 162
+        },
+        {
+          "t": 1771999999,
+          "d": "0d19b35a69c8c6cc3e707510e7b46d19ae7dcdbef79715964615d74fdd0aab2b",
+          "bytesBase64Url": "eyJpZCI6ImNoYXRjbXBsLW1hcmtpbmctMSIsIm9iamVjdCI6ImNoYXQuY29tcGxldGlvbi5jaHVuayIsImNyZWF0ZWQiOjE3NzIwMDAwMDAsIm1vZGVsIjoibW9jay1tb2RlbC0xIiwiY2hvaWNlcyI6W10sImFzaGF2ZXJpIjp7Im1hcmtpbmciOnsic2NoIjoiYXNoYXZlcmkvcHJvdmVuYW5jZS12MSIsImdlbiI6ImFpIiwiYXQiOjE3NzIwMDAwMDB9fX0",
+          "byteLength": 200
+        }
+      ],
+      "cva": {
+        "col": {
+          "p": "held",
+          "d": "8701cb3c5b89991d693a58ec59233422f627200be31c8d568ab41bde8710ca34"
+        },
+        "val": {
+          "p": "not-taken-in",
+          "r": "this issuer takes no collateral into the record it signs with: it is handed an evidence document, its stamp and a url, and nothing chained to that document, and no collector beside it holds the vendor chain an appraisal of those bytes would run on"
+        }
+      },
+      "fault": {
+        "at": "sd.unc",
+        "member": "unc",
+        "states": "the bound the shape requires and this document withholds"
+      },
+      "sd": {
+        "name": "ptp-disciplined host clock"
+      },
+      "note": "A disclosure that names its source and withholds the bound, where the shape takes two members and `null` is the answer for a source nobody measured. `receipt-unmeasured-v3` states the same source with the member present and its value `null`, and is accepted: this row is the difference between a source saying it was never measured and a writer leaving the question unasked, which is the silence this version exists to refuse."
+    },
+    {
+      "name": "receipt-shape-of-v2-at-v3",
+      "path": "receipts/receipt-shape-of-v2-at-v3.cbor",
+      "digestSha256": "6bf50ab030406767ea266a5b7a95200244fd1131b54a8fa3b616f3675234baa1",
+      "expected": "BAD_PAYLOAD",
+      "keyless": "BAD_PAYLOAD",
+      "v": 3,
+      "marking": "provenance-v1",
+      "contentType": "text/event-stream",
+      "response": "marking-v1.json#streamed-frame",
+      "responseBase64Url": "ZGF0YTogeyJpZCI6ImNoYXRjbXBsLW1hcmtpbmctMSIsIm9iamVjdCI6ImNoYXQuY29tcGxldGlvbi5jaHVuayIsImNyZWF0ZWQiOjE3NzIwMDAwMDAsIm1vZGVsIjoibW9jay1tb2RlbC0xIiwiY2hvaWNlcyI6W3siaW5kZXgiOjAsImRlbHRhIjp7InJvbGUiOiJhc3Npc3RhbnQiLCJjb250ZW50IjoiTW9jayByZXBseToifSwiZmluaXNoX3JlYXNvbiI6bnVsbH1dfQoKZGF0YTogeyJpZCI6ImNoYXRjbXBsLW1hcmtpbmctMSIsIm9iamVjdCI6ImNoYXQuY29tcGxldGlvbi5jaHVuayIsImNyZWF0ZWQiOjE3NzIwMDAwMDAsIm1vZGVsIjoibW9jay1tb2RlbC0xIiwiY2hvaWNlcyI6W3siaW5kZXgiOjAsImRlbHRhIjp7ImNvbnRlbnQiOiIgY2Fmw6kg4piVIn0sImZpbmlzaF9yZWFzb24iOm51bGx9XX0KCmRhdGE6IHsiaWQiOiJjaGF0Y21wbC1tYXJraW5nLTEiLCJvYmplY3QiOiJjaGF0LmNvbXBsZXRpb24uY2h1bmsiLCJjcmVhdGVkIjoxNzcyMDAwMDAwLCJtb2RlbCI6Im1vY2stbW9kZWwtMSIsImNob2ljZXMiOlt7ImluZGV4IjowLCJkZWx0YSI6eyJjb250ZW50IjoiIHNlcnZlZC4ifSwiZmluaXNoX3JlYXNvbiI6bnVsbH1dfQoKZGF0YTogeyJpZCI6ImNoYXRjbXBsLW1hcmtpbmctMSIsIm9iamVjdCI6ImNoYXQuY29tcGxldGlvbi5jaHVuayIsImNyZWF0ZWQiOjE3NzIwMDAwMDAsIm1vZGVsIjoibW9jay1tb2RlbC0xIiwiY2hvaWNlcyI6W3siaW5kZXgiOjAsImRlbHRhIjp7fSwiZmluaXNoX3JlYXNvbiI6InN0b3AifV19CgpkYXRhOiB7ImlkIjoiY2hhdGNtcGwtbWFya2luZy0xIiwib2JqZWN0IjoiY2hhdC5jb21wbGV0aW9uLmNodW5rIiwiY3JlYXRlZCI6MTc3MjAwMDAwMCwibW9kZWwiOiJtb2NrLW1vZGVsLTEiLCJjaG9pY2VzIjpbXSwiYXNoYXZlcmkiOnsibWFya2luZyI6eyJzY2giOiJhc2hhdmVyaS9wcm92ZW5hbmNlLXYxIiwiZ2VuIjoiYWkiLCJhdCI6MTc3MjAwMDAwMH19fQoKZGF0YTogW0RPTkVdCgo",
+      "responseByteLength": 980,
+      "fault": {
+        "at": "sd",
+        "states": "the member a v3 payload requires and these bytes never wrote"
+      },
+      "note": "A v2 document with its `v` moved to `3`: every member the earlier version names is present, well-typed and in place, and the three that number asks for are not there. This is one half of the version-to-members rule, and the row states which of the three the reader names first, because which member a document left out is not something a reader can guess from what it finds."
+    },
+    {
+      "name": "receipt-member-of-v3-at-v2",
+      "path": "receipts/receipt-member-of-v3-at-v2.cbor",
+      "digestSha256": "3cb2692e6f5f82e62ba5d1c9f6e9ac0a8eaabe7b75716241d05345ed080a4fad",
+      "expected": "BAD_PAYLOAD",
+      "keyless": "BAD_PAYLOAD",
+      "v": 2,
+      "marking": "provenance-v1",
+      "contentType": "text/event-stream",
+      "response": "marking-v1.json#streamed-frame",
+      "responseBase64Url": "ZGF0YTogeyJpZCI6ImNoYXRjbXBsLW1hcmtpbmctMSIsIm9iamVjdCI6ImNoYXQuY29tcGxldGlvbi5jaHVuayIsImNyZWF0ZWQiOjE3NzIwMDAwMDAsIm1vZGVsIjoibW9jay1tb2RlbC0xIiwiY2hvaWNlcyI6W3siaW5kZXgiOjAsImRlbHRhIjp7InJvbGUiOiJhc3Npc3RhbnQiLCJjb250ZW50IjoiTW9jayByZXBseToifSwiZmluaXNoX3JlYXNvbiI6bnVsbH1dfQoKZGF0YTogeyJpZCI6ImNoYXRjbXBsLW1hcmtpbmctMSIsIm9iamVjdCI6ImNoYXQuY29tcGxldGlvbi5jaHVuayIsImNyZWF0ZWQiOjE3NzIwMDAwMDAsIm1vZGVsIjoibW9jay1tb2RlbC0xIiwiY2hvaWNlcyI6W3siaW5kZXgiOjAsImRlbHRhIjp7ImNvbnRlbnQiOiIgY2Fmw6kg4piVIn0sImZpbmlzaF9yZWFzb24iOm51bGx9XX0KCmRhdGE6IHsiaWQiOiJjaGF0Y21wbC1tYXJraW5nLTEiLCJvYmplY3QiOiJjaGF0LmNvbXBsZXRpb24uY2h1bmsiLCJjcmVhdGVkIjoxNzcyMDAwMDAwLCJtb2RlbCI6Im1vY2stbW9kZWwtMSIsImNob2ljZXMiOlt7ImluZGV4IjowLCJkZWx0YSI6eyJjb250ZW50IjoiIHNlcnZlZC4ifSwiZmluaXNoX3JlYXNvbiI6bnVsbH1dfQoKZGF0YTogeyJpZCI6ImNoYXRjbXBsLW1hcmtpbmctMSIsIm9iamVjdCI6ImNoYXQuY29tcGxldGlvbi5jaHVuayIsImNyZWF0ZWQiOjE3NzIwMDAwMDAsIm1vZGVsIjoibW9jay1tb2RlbC0xIiwiY2hvaWNlcyI6W3siaW5kZXgiOjAsImRlbHRhIjp7fSwiZmluaXNoX3JlYXNvbiI6InN0b3AifV19CgpkYXRhOiB7ImlkIjoiY2hhdGNtcGwtbWFya2luZy0xIiwib2JqZWN0IjoiY2hhdC5jb21wbGV0aW9uLmNodW5rIiwiY3JlYXRlZCI6MTc3MjAwMDAwMCwibW9kZWwiOiJtb2NrLW1vZGVsLTEiLCJjaG9pY2VzIjpbXSwiYXNoYXZlcmkiOnsibWFya2luZyI6eyJzY2giOiJhc2hhdmVyaS9wcm92ZW5hbmNlLXYxIiwiZ2VuIjoiYWkiLCJhdCI6MTc3MjAwMDAwMH19fQoKZGF0YTogW0RPTkVdCgo",
+      "responseByteLength": 980,
+      "sd": {
+        "name": "ptp-disciplined host clock",
+        "unc": 1
+      },
+      "fault": {
+        "at": "payload",
+        "member": "sd",
+        "states": "a member version 2 does not define"
+      },
+      "note": "The other half: a document naming version 2 and carrying a well-formed `sd` beside its `mk`. Nothing is malformed about the member, which is exactly what the closed map answers, because a reader that rebuilt the payload from the names its version defines would hand back a verified receipt saying nothing about the claim it carried. The version is the statement, and the version these bytes state is contradicted by the member they hold."
+    },
+    {
+      "name": "receipt-unknown-member-payload-v3",
+      "path": "receipts/receipt-unknown-member-payload-v3.cbor",
+      "digestSha256": "f07e62a6e1583898cb6579b0c9e58375dde4e570e4e2c0b5ca99c343569979d8",
+      "expected": "BAD_PAYLOAD",
+      "keyless": "BAD_PAYLOAD",
+      "v": 3,
+      "marking": "provenance-v1",
+      "contentType": "text/event-stream",
+      "response": "marking-v1.json#streamed-frame",
+      "responseBase64Url": "ZGF0YTogeyJpZCI6ImNoYXRjbXBsLW1hcmtpbmctMSIsIm9iamVjdCI6ImNoYXQuY29tcGxldGlvbi5jaHVuayIsImNyZWF0ZWQiOjE3NzIwMDAwMDAsIm1vZGVsIjoibW9jay1tb2RlbC0xIiwiY2hvaWNlcyI6W3siaW5kZXgiOjAsImRlbHRhIjp7InJvbGUiOiJhc3Npc3RhbnQiLCJjb250ZW50IjoiTW9jayByZXBseToifSwiZmluaXNoX3JlYXNvbiI6bnVsbH1dfQoKZGF0YTogeyJpZCI6ImNoYXRjbXBsLW1hcmtpbmctMSIsIm9iamVjdCI6ImNoYXQuY29tcGxldGlvbi5jaHVuayIsImNyZWF0ZWQiOjE3NzIwMDAwMDAsIm1vZGVsIjoibW9jay1tb2RlbC0xIiwiY2hvaWNlcyI6W3siaW5kZXgiOjAsImRlbHRhIjp7ImNvbnRlbnQiOiIgY2Fmw6kg4piVIn0sImZpbmlzaF9yZWFzb24iOm51bGx9XX0KCmRhdGE6IHsiaWQiOiJjaGF0Y21wbC1tYXJraW5nLTEiLCJvYmplY3QiOiJjaGF0LmNvbXBsZXRpb24uY2h1bmsiLCJjcmVhdGVkIjoxNzcyMDAwMDAwLCJtb2RlbCI6Im1vY2stbW9kZWwtMSIsImNob2ljZXMiOlt7ImluZGV4IjowLCJkZWx0YSI6eyJjb250ZW50IjoiIHNlcnZlZC4ifSwiZmluaXNoX3JlYXNvbiI6bnVsbH1dfQoKZGF0YTogeyJpZCI6ImNoYXRjbXBsLW1hcmtpbmctMSIsIm9iamVjdCI6ImNoYXQuY29tcGxldGlvbi5jaHVuayIsImNyZWF0ZWQiOjE3NzIwMDAwMDAsIm1vZGVsIjoibW9jay1tb2RlbC0xIiwiY2hvaWNlcyI6W3siaW5kZXgiOjAsImRlbHRhIjp7fSwiZmluaXNoX3JlYXNvbiI6InN0b3AifV19CgpkYXRhOiB7ImlkIjoiY2hhdGNtcGwtbWFya2luZy0xIiwib2JqZWN0IjoiY2hhdC5jb21wbGV0aW9uLmNodW5rIiwiY3JlYXRlZCI6MTc3MjAwMDAwMCwibW9kZWwiOiJtb2NrLW1vZGVsLTEiLCJjaG9pY2VzIjpbXSwiYXNoYXZlcmkiOnsibWFya2luZyI6eyJzY2giOiJhc2hhdmVyaS9wcm92ZW5hbmNlLXYxIiwiZ2VuIjoiYWkiLCJhdCI6MTc3MjAwMDAwMH19fQoKZGF0YTogW0RPTkVdCgo",
+      "responseByteLength": 980,
+      "items": [
+        {
+          "t": 1771999995,
+          "d": "8ad85524387f8b33d71d6c825b4098967d582a49255a9ce5d399a4dcf82e34de",
+          "bytesBase64Url": "eyJpZCI6ImNoYXRjbXBsLW1hcmtpbmctMSIsIm9iamVjdCI6ImNoYXQuY29tcGxldGlvbi5jaHVuayIsImNyZWF0ZWQiOjE3NzIwMDAwMDAsIm1vZGVsIjoibW9jay1tb2RlbC0xIiwiY2hvaWNlcyI6W3siaW5kZXgiOjAsImRlbHRhIjp7InJvbGUiOiJhc3Npc3RhbnQiLCJjb250ZW50IjoiTW9jayByZXBseToifSwiZmluaXNoX3JlYXNvbiI6bnVsbH1dfQ",
+          "byteLength": 202
+        },
+        {
+          "t": 1771999996,
+          "d": "2b918d88b23a1e4601a9698687c94140916d8d4455746ee42c3029e3331972f4",
+          "bytesBase64Url": "eyJpZCI6ImNoYXRjbXBsLW1hcmtpbmctMSIsIm9iamVjdCI6ImNoYXQuY29tcGxldGlvbi5jaHVuayIsImNyZWF0ZWQiOjE3NzIwMDAwMDAsIm1vZGVsIjoibW9jay1tb2RlbC0xIiwiY2hvaWNlcyI6W3siaW5kZXgiOjAsImRlbHRhIjp7ImNvbnRlbnQiOiIgY2Fmw6kg4piVIn0sImZpbmlzaF9yZWFzb24iOm51bGx9XX0",
+          "byteLength": 182
+        },
+        {
+          "t": 1771999997,
+          "d": "b6317a63b4a079fe282343b5ca0c089280cbce11042acd5f0abd76db4ea548c2",
+          "bytesBase64Url": "eyJpZCI6ImNoYXRjbXBsLW1hcmtpbmctMSIsIm9iamVjdCI6ImNoYXQuY29tcGxldGlvbi5jaHVuayIsImNyZWF0ZWQiOjE3NzIwMDAwMDAsIm1vZGVsIjoibW9jay1tb2RlbC0xIiwiY2hvaWNlcyI6W3siaW5kZXgiOjAsImRlbHRhIjp7ImNvbnRlbnQiOiIgc2VydmVkLiJ9LCJmaW5pc2hfcmVhc29uIjpudWxsfV19",
+          "byteLength": 180
+        },
+        {
+          "t": 1771999998,
+          "d": "63b374984480c1f0adb487b753b9cb3ac2b732bb6749f7f687243aefbe5c1ca2",
+          "bytesBase64Url": "eyJpZCI6ImNoYXRjbXBsLW1hcmtpbmctMSIsIm9iamVjdCI6ImNoYXQuY29tcGxldGlvbi5jaHVuayIsImNyZWF0ZWQiOjE3NzIwMDAwMDAsIm1vZGVsIjoibW9jay1tb2RlbC0xIiwiY2hvaWNlcyI6W3siaW5kZXgiOjAsImRlbHRhIjp7fSwiZmluaXNoX3JlYXNvbiI6InN0b3AifV19",
+          "byteLength": 162
+        },
+        {
+          "t": 1771999999,
+          "d": "0d19b35a69c8c6cc3e707510e7b46d19ae7dcdbef79715964615d74fdd0aab2b",
+          "bytesBase64Url": "eyJpZCI6ImNoYXRjbXBsLW1hcmtpbmctMSIsIm9iamVjdCI6ImNoYXQuY29tcGxldGlvbi5jaHVuayIsImNyZWF0ZWQiOjE3NzIwMDAwMDAsIm1vZGVsIjoibW9jay1tb2RlbC0xIiwiY2hvaWNlcyI6W10sImFzaGF2ZXJpIjp7Im1hcmtpbmciOnsic2NoIjoiYXNoYXZlcmkvcHJvdmVuYW5jZS12MSIsImdlbiI6ImFpIiwiYXQiOjE3NzIwMDAwMDB9fX0",
+          "byteLength": 200
+        }
+      ],
+      "sd": {
+        "name": "ptp-disciplined host clock",
+        "unc": 1
+      },
+      "cva": {
+        "col": {
+          "p": "held",
+          "d": "8701cb3c5b89991d693a58ec59233422f627200be31c8d568ab41bde8710ca34"
+        },
+        "val": {
+          "p": "not-taken-in",
+          "r": "this issuer takes no collateral into the record it signs with: it is handed an evidence document, its stamp and a url, and nothing chained to that document, and no collector beside it holds the vendor chain an appraisal of those bytes would run on"
+        }
+      },
+      "fault": {
+        "at": "payload",
+        "member": "not_a_member",
+        "states": "a member payload does not define"
+      },
+      "note": "A clean v3 document carrying `not_a_member` in the closed map at `payload`, which is a name no version of the format defines anywhere. The walk over a payload reaches every map its version nests, and the two arms of the anchor and the element of the item list are closed by the reader that resolves each at its own position, so the refusal names the level the name sits on rather than dropping a claim a reader was never told about."
+    },
+    {
+      "name": "receipt-unknown-member-meas-v3",
+      "path": "receipts/receipt-unknown-member-meas-v3.cbor",
+      "digestSha256": "6bfa7b93a099e6032bc86c7b83f463c3dfd9f8ccb4d1236d1dd1d87d0bb10ec7",
+      "expected": "BAD_PAYLOAD",
+      "keyless": "BAD_PAYLOAD",
+      "v": 3,
+      "marking": "provenance-v1",
+      "contentType": "text/event-stream",
+      "response": "marking-v1.json#streamed-frame",
+      "responseBase64Url": "ZGF0YTogeyJpZCI6ImNoYXRjbXBsLW1hcmtpbmctMSIsIm9iamVjdCI6ImNoYXQuY29tcGxldGlvbi5jaHVuayIsImNyZWF0ZWQiOjE3NzIwMDAwMDAsIm1vZGVsIjoibW9jay1tb2RlbC0xIiwiY2hvaWNlcyI6W3siaW5kZXgiOjAsImRlbHRhIjp7InJvbGUiOiJhc3Npc3RhbnQiLCJjb250ZW50IjoiTW9jayByZXBseToifSwiZmluaXNoX3JlYXNvbiI6bnVsbH1dfQoKZGF0YTogeyJpZCI6ImNoYXRjbXBsLW1hcmtpbmctMSIsIm9iamVjdCI6ImNoYXQuY29tcGxldGlvbi5jaHVuayIsImNyZWF0ZWQiOjE3NzIwMDAwMDAsIm1vZGVsIjoibW9jay1tb2RlbC0xIiwiY2hvaWNlcyI6W3siaW5kZXgiOjAsImRlbHRhIjp7ImNvbnRlbnQiOiIgY2Fmw6kg4piVIn0sImZpbmlzaF9yZWFzb24iOm51bGx9XX0KCmRhdGE6IHsiaWQiOiJjaGF0Y21wbC1tYXJraW5nLTEiLCJvYmplY3QiOiJjaGF0LmNvbXBsZXRpb24uY2h1bmsiLCJjcmVhdGVkIjoxNzcyMDAwMDAwLCJtb2RlbCI6Im1vY2stbW9kZWwtMSIsImNob2ljZXMiOlt7ImluZGV4IjowLCJkZWx0YSI6eyJjb250ZW50IjoiIHNlcnZlZC4ifSwiZmluaXNoX3JlYXNvbiI6bnVsbH1dfQoKZGF0YTogeyJpZCI6ImNoYXRjbXBsLW1hcmtpbmctMSIsIm9iamVjdCI6ImNoYXQuY29tcGxldGlvbi5jaHVuayIsImNyZWF0ZWQiOjE3NzIwMDAwMDAsIm1vZGVsIjoibW9jay1tb2RlbC0xIiwiY2hvaWNlcyI6W3siaW5kZXgiOjAsImRlbHRhIjp7fSwiZmluaXNoX3JlYXNvbiI6InN0b3AifV19CgpkYXRhOiB7ImlkIjoiY2hhdGNtcGwtbWFya2luZy0xIiwib2JqZWN0IjoiY2hhdC5jb21wbGV0aW9uLmNodW5rIiwiY3JlYXRlZCI6MTc3MjAwMDAwMCwibW9kZWwiOiJtb2NrLW1vZGVsLTEiLCJjaG9pY2VzIjpbXSwiYXNoYXZlcmkiOnsibWFya2luZyI6eyJzY2giOiJhc2hhdmVyaS9wcm92ZW5hbmNlLXYxIiwiZ2VuIjoiYWkiLCJhdCI6MTc3MjAwMDAwMH19fQoKZGF0YTogW0RPTkVdCgo",
+      "responseByteLength": 980,
+      "items": [
+        {
+          "t": 1771999995,
+          "d": "8ad85524387f8b33d71d6c825b4098967d582a49255a9ce5d399a4dcf82e34de",
+          "bytesBase64Url": "eyJpZCI6ImNoYXRjbXBsLW1hcmtpbmctMSIsIm9iamVjdCI6ImNoYXQuY29tcGxldGlvbi5jaHVuayIsImNyZWF0ZWQiOjE3NzIwMDAwMDAsIm1vZGVsIjoibW9jay1tb2RlbC0xIiwiY2hvaWNlcyI6W3siaW5kZXgiOjAsImRlbHRhIjp7InJvbGUiOiJhc3Npc3RhbnQiLCJjb250ZW50IjoiTW9jayByZXBseToifSwiZmluaXNoX3JlYXNvbiI6bnVsbH1dfQ",
+          "byteLength": 202
+        },
+        {
+          "t": 1771999996,
+          "d": "2b918d88b23a1e4601a9698687c94140916d8d4455746ee42c3029e3331972f4",
+          "bytesBase64Url": "eyJpZCI6ImNoYXRjbXBsLW1hcmtpbmctMSIsIm9iamVjdCI6ImNoYXQuY29tcGxldGlvbi5jaHVuayIsImNyZWF0ZWQiOjE3NzIwMDAwMDAsIm1vZGVsIjoibW9jay1tb2RlbC0xIiwiY2hvaWNlcyI6W3siaW5kZXgiOjAsImRlbHRhIjp7ImNvbnRlbnQiOiIgY2Fmw6kg4piVIn0sImZpbmlzaF9yZWFzb24iOm51bGx9XX0",
+          "byteLength": 182
+        },
+        {
+          "t": 1771999997,
+          "d": "b6317a63b4a079fe282343b5ca0c089280cbce11042acd5f0abd76db4ea548c2",
+          "bytesBase64Url": "eyJpZCI6ImNoYXRjbXBsLW1hcmtpbmctMSIsIm9iamVjdCI6ImNoYXQuY29tcGxldGlvbi5jaHVuayIsImNyZWF0ZWQiOjE3NzIwMDAwMDAsIm1vZGVsIjoibW9jay1tb2RlbC0xIiwiY2hvaWNlcyI6W3siaW5kZXgiOjAsImRlbHRhIjp7ImNvbnRlbnQiOiIgc2VydmVkLiJ9LCJmaW5pc2hfcmVhc29uIjpudWxsfV19",
+          "byteLength": 180
+        },
+        {
+          "t": 1771999998,
+          "d": "63b374984480c1f0adb487b753b9cb3ac2b732bb6749f7f687243aefbe5c1ca2",
+          "bytesBase64Url": "eyJpZCI6ImNoYXRjbXBsLW1hcmtpbmctMSIsIm9iamVjdCI6ImNoYXQuY29tcGxldGlvbi5jaHVuayIsImNyZWF0ZWQiOjE3NzIwMDAwMDAsIm1vZGVsIjoibW9jay1tb2RlbC0xIiwiY2hvaWNlcyI6W3siaW5kZXgiOjAsImRlbHRhIjp7fSwiZmluaXNoX3JlYXNvbiI6InN0b3AifV19",
+          "byteLength": 162
+        },
+        {
+          "t": 1771999999,
+          "d": "0d19b35a69c8c6cc3e707510e7b46d19ae7dcdbef79715964615d74fdd0aab2b",
+          "bytesBase64Url": "eyJpZCI6ImNoYXRjbXBsLW1hcmtpbmctMSIsIm9iamVjdCI6ImNoYXQuY29tcGxldGlvbi5jaHVuayIsImNyZWF0ZWQiOjE3NzIwMDAwMDAsIm1vZGVsIjoibW9jay1tb2RlbC0xIiwiY2hvaWNlcyI6W10sImFzaGF2ZXJpIjp7Im1hcmtpbmciOnsic2NoIjoiYXNoYXZlcmkvcHJvdmVuYW5jZS12MSIsImdlbiI6ImFpIiwiYXQiOjE3NzIwMDAwMDB9fX0",
+          "byteLength": 200
+        }
+      ],
+      "sd": {
+        "name": "ptp-disciplined host clock",
+        "unc": 1
+      },
+      "cva": {
+        "col": {
+          "p": "held",
+          "d": "8701cb3c5b89991d693a58ec59233422f627200be31c8d568ab41bde8710ca34"
+        },
+        "val": {
+          "p": "not-taken-in",
+          "r": "this issuer takes no collateral into the record it signs with: it is handed an evidence document, its stamp and a url, and nothing chained to that document, and no collector beside it holds the vendor chain an appraisal of those bytes would run on"
+        }
+      },
+      "fault": {
+        "at": "meas",
+        "member": "not_a_member",
+        "states": "a member meas does not define"
+      },
+      "note": "A clean v3 document carrying `not_a_member` in the closed map at `meas`, which is a name no version of the format defines anywhere. The walk over a payload reaches every map its version nests, and the two arms of the anchor and the element of the item list are closed by the reader that resolves each at its own position, so the refusal names the level the name sits on rather than dropping a claim a reader was never told about."
+    },
+    {
+      "name": "receipt-unknown-member-att-v3",
+      "path": "receipts/receipt-unknown-member-att-v3.cbor",
+      "digestSha256": "58c40333be02db0a686c653db668292e1deaa6b3868028eb05487ebe8881ece5",
+      "expected": "BAD_PAYLOAD",
+      "keyless": "BAD_PAYLOAD",
+      "v": 3,
+      "marking": "provenance-v1",
+      "contentType": "text/event-stream",
+      "response": "marking-v1.json#streamed-frame",
+      "responseBase64Url": "ZGF0YTogeyJpZCI6ImNoYXRjbXBsLW1hcmtpbmctMSIsIm9iamVjdCI6ImNoYXQuY29tcGxldGlvbi5jaHVuayIsImNyZWF0ZWQiOjE3NzIwMDAwMDAsIm1vZGVsIjoibW9jay1tb2RlbC0xIiwiY2hvaWNlcyI6W3siaW5kZXgiOjAsImRlbHRhIjp7InJvbGUiOiJhc3Npc3RhbnQiLCJjb250ZW50IjoiTW9jayByZXBseToifSwiZmluaXNoX3JlYXNvbiI6bnVsbH1dfQoKZGF0YTogeyJpZCI6ImNoYXRjbXBsLW1hcmtpbmctMSIsIm9iamVjdCI6ImNoYXQuY29tcGxldGlvbi5jaHVuayIsImNyZWF0ZWQiOjE3NzIwMDAwMDAsIm1vZGVsIjoibW9jay1tb2RlbC0xIiwiY2hvaWNlcyI6W3siaW5kZXgiOjAsImRlbHRhIjp7ImNvbnRlbnQiOiIgY2Fmw6kg4piVIn0sImZpbmlzaF9yZWFzb24iOm51bGx9XX0KCmRhdGE6IHsiaWQiOiJjaGF0Y21wbC1tYXJraW5nLTEiLCJvYmplY3QiOiJjaGF0LmNvbXBsZXRpb24uY2h1bmsiLCJjcmVhdGVkIjoxNzcyMDAwMDAwLCJtb2RlbCI6Im1vY2stbW9kZWwtMSIsImNob2ljZXMiOlt7ImluZGV4IjowLCJkZWx0YSI6eyJjb250ZW50IjoiIHNlcnZlZC4ifSwiZmluaXNoX3JlYXNvbiI6bnVsbH1dfQoKZGF0YTogeyJpZCI6ImNoYXRjbXBsLW1hcmtpbmctMSIsIm9iamVjdCI6ImNoYXQuY29tcGxldGlvbi5jaHVuayIsImNyZWF0ZWQiOjE3NzIwMDAwMDAsIm1vZGVsIjoibW9jay1tb2RlbC0xIiwiY2hvaWNlcyI6W3siaW5kZXgiOjAsImRlbHRhIjp7fSwiZmluaXNoX3JlYXNvbiI6InN0b3AifV19CgpkYXRhOiB7ImlkIjoiY2hhdGNtcGwtbWFya2luZy0xIiwib2JqZWN0IjoiY2hhdC5jb21wbGV0aW9uLmNodW5rIiwiY3JlYXRlZCI6MTc3MjAwMDAwMCwibW9kZWwiOiJtb2NrLW1vZGVsLTEiLCJjaG9pY2VzIjpbXSwiYXNoYXZlcmkiOnsibWFya2luZyI6eyJzY2giOiJhc2hhdmVyaS9wcm92ZW5hbmNlLXYxIiwiZ2VuIjoiYWkiLCJhdCI6MTc3MjAwMDAwMH19fQoKZGF0YTogW0RPTkVdCgo",
+      "responseByteLength": 980,
+      "items": [
+        {
+          "t": 1771999995,
+          "d": "8ad85524387f8b33d71d6c825b4098967d582a49255a9ce5d399a4dcf82e34de",
+          "bytesBase64Url": "eyJpZCI6ImNoYXRjbXBsLW1hcmtpbmctMSIsIm9iamVjdCI6ImNoYXQuY29tcGxldGlvbi5jaHVuayIsImNyZWF0ZWQiOjE3NzIwMDAwMDAsIm1vZGVsIjoibW9jay1tb2RlbC0xIiwiY2hvaWNlcyI6W3siaW5kZXgiOjAsImRlbHRhIjp7InJvbGUiOiJhc3Npc3RhbnQiLCJjb250ZW50IjoiTW9jayByZXBseToifSwiZmluaXNoX3JlYXNvbiI6bnVsbH1dfQ",
+          "byteLength": 202
+        },
+        {
+          "t": 1771999996,
+          "d": "2b918d88b23a1e4601a9698687c94140916d8d4455746ee42c3029e3331972f4",
+          "bytesBase64Url": "eyJpZCI6ImNoYXRjbXBsLW1hcmtpbmctMSIsIm9iamVjdCI6ImNoYXQuY29tcGxldGlvbi5jaHVuayIsImNyZWF0ZWQiOjE3NzIwMDAwMDAsIm1vZGVsIjoibW9jay1tb2RlbC0xIiwiY2hvaWNlcyI6W3siaW5kZXgiOjAsImRlbHRhIjp7ImNvbnRlbnQiOiIgY2Fmw6kg4piVIn0sImZpbmlzaF9yZWFzb24iOm51bGx9XX0",
+          "byteLength": 182
+        },
+        {
+          "t": 1771999997,
+          "d": "b6317a63b4a079fe282343b5ca0c089280cbce11042acd5f0abd76db4ea548c2",
+          "bytesBase64Url": "eyJpZCI6ImNoYXRjbXBsLW1hcmtpbmctMSIsIm9iamVjdCI6ImNoYXQuY29tcGxldGlvbi5jaHVuayIsImNyZWF0ZWQiOjE3NzIwMDAwMDAsIm1vZGVsIjoibW9jay1tb2RlbC0xIiwiY2hvaWNlcyI6W3siaW5kZXgiOjAsImRlbHRhIjp7ImNvbnRlbnQiOiIgc2VydmVkLiJ9LCJmaW5pc2hfcmVhc29uIjpudWxsfV19",
+          "byteLength": 180
+        },
+        {
+          "t": 1771999998,
+          "d": "63b374984480c1f0adb487b753b9cb3ac2b732bb6749f7f687243aefbe5c1ca2",
+          "bytesBase64Url": "eyJpZCI6ImNoYXRjbXBsLW1hcmtpbmctMSIsIm9iamVjdCI6ImNoYXQuY29tcGxldGlvbi5jaHVuayIsImNyZWF0ZWQiOjE3NzIwMDAwMDAsIm1vZGVsIjoibW9jay1tb2RlbC0xIiwiY2hvaWNlcyI6W3siaW5kZXgiOjAsImRlbHRhIjp7fSwiZmluaXNoX3JlYXNvbiI6InN0b3AifV19",
+          "byteLength": 162
+        },
+        {
+          "t": 1771999999,
+          "d": "0d19b35a69c8c6cc3e707510e7b46d19ae7dcdbef79715964615d74fdd0aab2b",
+          "bytesBase64Url": "eyJpZCI6ImNoYXRjbXBsLW1hcmtpbmctMSIsIm9iamVjdCI6ImNoYXQuY29tcGxldGlvbi5jaHVuayIsImNyZWF0ZWQiOjE3NzIwMDAwMDAsIm1vZGVsIjoibW9jay1tb2RlbC0xIiwiY2hvaWNlcyI6W10sImFzaGF2ZXJpIjp7Im1hcmtpbmciOnsic2NoIjoiYXNoYXZlcmkvcHJvdmVuYW5jZS12MSIsImdlbiI6ImFpIiwiYXQiOjE3NzIwMDAwMDB9fX0",
+          "byteLength": 200
+        }
+      ],
+      "sd": {
+        "name": "ptp-disciplined host clock",
+        "unc": 1
+      },
+      "cva": {
+        "col": {
+          "p": "held",
+          "d": "8701cb3c5b89991d693a58ec59233422f627200be31c8d568ab41bde8710ca34"
+        },
+        "val": {
+          "p": "not-taken-in",
+          "r": "this issuer takes no collateral into the record it signs with: it is handed an evidence document, its stamp and a url, and nothing chained to that document, and no collector beside it holds the vendor chain an appraisal of those bytes would run on"
+        }
+      },
+      "fault": {
+        "at": "att",
+        "member": "not_a_member",
+        "states": "a member att does not define"
+      },
+      "note": "A clean v3 document carrying `not_a_member` in the closed map at `att`, which is a name no version of the format defines anywhere. The walk over a payload reaches every map its version nests, and the two arms of the anchor and the element of the item list are closed by the reader that resolves each at its own position, so the refusal names the level the name sits on rather than dropping a claim a reader was never told about."
+    },
+    {
+      "name": "receipt-unknown-member-tok-v3",
+      "path": "receipts/receipt-unknown-member-tok-v3.cbor",
+      "digestSha256": "d66607d17bed4b1450aa1af8295e63b2d22d0939e339906dc47321bb640502c5",
+      "expected": "BAD_PAYLOAD",
+      "keyless": "BAD_PAYLOAD",
+      "v": 3,
+      "marking": "provenance-v1",
+      "contentType": "text/event-stream",
+      "response": "marking-v1.json#streamed-frame",
+      "responseBase64Url": "ZGF0YTogeyJpZCI6ImNoYXRjbXBsLW1hcmtpbmctMSIsIm9iamVjdCI6ImNoYXQuY29tcGxldGlvbi5jaHVuayIsImNyZWF0ZWQiOjE3NzIwMDAwMDAsIm1vZGVsIjoibW9jay1tb2RlbC0xIiwiY2hvaWNlcyI6W3siaW5kZXgiOjAsImRlbHRhIjp7InJvbGUiOiJhc3Npc3RhbnQiLCJjb250ZW50IjoiTW9jayByZXBseToifSwiZmluaXNoX3JlYXNvbiI6bnVsbH1dfQoKZGF0YTogeyJpZCI6ImNoYXRjbXBsLW1hcmtpbmctMSIsIm9iamVjdCI6ImNoYXQuY29tcGxldGlvbi5jaHVuayIsImNyZWF0ZWQiOjE3NzIwMDAwMDAsIm1vZGVsIjoibW9jay1tb2RlbC0xIiwiY2hvaWNlcyI6W3siaW5kZXgiOjAsImRlbHRhIjp7ImNvbnRlbnQiOiIgY2Fmw6kg4piVIn0sImZpbmlzaF9yZWFzb24iOm51bGx9XX0KCmRhdGE6IHsiaWQiOiJjaGF0Y21wbC1tYXJraW5nLTEiLCJvYmplY3QiOiJjaGF0LmNvbXBsZXRpb24uY2h1bmsiLCJjcmVhdGVkIjoxNzcyMDAwMDAwLCJtb2RlbCI6Im1vY2stbW9kZWwtMSIsImNob2ljZXMiOlt7ImluZGV4IjowLCJkZWx0YSI6eyJjb250ZW50IjoiIHNlcnZlZC4ifSwiZmluaXNoX3JlYXNvbiI6bnVsbH1dfQoKZGF0YTogeyJpZCI6ImNoYXRjbXBsLW1hcmtpbmctMSIsIm9iamVjdCI6ImNoYXQuY29tcGxldGlvbi5jaHVuayIsImNyZWF0ZWQiOjE3NzIwMDAwMDAsIm1vZGVsIjoibW9jay1tb2RlbC0xIiwiY2hvaWNlcyI6W3siaW5kZXgiOjAsImRlbHRhIjp7fSwiZmluaXNoX3JlYXNvbiI6InN0b3AifV19CgpkYXRhOiB7ImlkIjoiY2hhdGNtcGwtbWFya2luZy0xIiwib2JqZWN0IjoiY2hhdC5jb21wbGV0aW9uLmNodW5rIiwiY3JlYXRlZCI6MTc3MjAwMDAwMCwibW9kZWwiOiJtb2NrLW1vZGVsLTEiLCJjaG9pY2VzIjpbXSwiYXNoYXZlcmkiOnsibWFya2luZyI6eyJzY2giOiJhc2hhdmVyaS9wcm92ZW5hbmNlLXYxIiwiZ2VuIjoiYWkiLCJhdCI6MTc3MjAwMDAwMH19fQoKZGF0YTogW0RPTkVdCgo",
+      "responseByteLength": 980,
+      "items": [
+        {
+          "t": 1771999995,
+          "d": "8ad85524387f8b33d71d6c825b4098967d582a49255a9ce5d399a4dcf82e34de",
+          "bytesBase64Url": "eyJpZCI6ImNoYXRjbXBsLW1hcmtpbmctMSIsIm9iamVjdCI6ImNoYXQuY29tcGxldGlvbi5jaHVuayIsImNyZWF0ZWQiOjE3NzIwMDAwMDAsIm1vZGVsIjoibW9jay1tb2RlbC0xIiwiY2hvaWNlcyI6W3siaW5kZXgiOjAsImRlbHRhIjp7InJvbGUiOiJhc3Npc3RhbnQiLCJjb250ZW50IjoiTW9jayByZXBseToifSwiZmluaXNoX3JlYXNvbiI6bnVsbH1dfQ",
+          "byteLength": 202
+        },
+        {
+          "t": 1771999996,
+          "d": "2b918d88b23a1e4601a9698687c94140916d8d4455746ee42c3029e3331972f4",
+          "bytesBase64Url": "eyJpZCI6ImNoYXRjbXBsLW1hcmtpbmctMSIsIm9iamVjdCI6ImNoYXQuY29tcGxldGlvbi5jaHVuayIsImNyZWF0ZWQiOjE3NzIwMDAwMDAsIm1vZGVsIjoibW9jay1tb2RlbC0xIiwiY2hvaWNlcyI6W3siaW5kZXgiOjAsImRlbHRhIjp7ImNvbnRlbnQiOiIgY2Fmw6kg4piVIn0sImZpbmlzaF9yZWFzb24iOm51bGx9XX0",
+          "byteLength": 182
+        },
+        {
+          "t": 1771999997,
+          "d": "b6317a63b4a079fe282343b5ca0c089280cbce11042acd5f0abd76db4ea548c2",
+          "bytesBase64Url": "eyJpZCI6ImNoYXRjbXBsLW1hcmtpbmctMSIsIm9iamVjdCI6ImNoYXQuY29tcGxldGlvbi5jaHVuayIsImNyZWF0ZWQiOjE3NzIwMDAwMDAsIm1vZGVsIjoibW9jay1tb2RlbC0xIiwiY2hvaWNlcyI6W3siaW5kZXgiOjAsImRlbHRhIjp7ImNvbnRlbnQiOiIgc2VydmVkLiJ9LCJmaW5pc2hfcmVhc29uIjpudWxsfV19",
+          "byteLength": 180
+        },
+        {
+          "t": 1771999998,
+          "d": "63b374984480c1f0adb487b753b9cb3ac2b732bb6749f7f687243aefbe5c1ca2",
+          "bytesBase64Url": "eyJpZCI6ImNoYXRjbXBsLW1hcmtpbmctMSIsIm9iamVjdCI6ImNoYXQuY29tcGxldGlvbi5jaHVuayIsImNyZWF0ZWQiOjE3NzIwMDAwMDAsIm1vZGVsIjoibW9jay1tb2RlbC0xIiwiY2hvaWNlcyI6W3siaW5kZXgiOjAsImRlbHRhIjp7fSwiZmluaXNoX3JlYXNvbiI6InN0b3AifV19",
+          "byteLength": 162
+        },
+        {
+          "t": 1771999999,
+          "d": "0d19b35a69c8c6cc3e707510e7b46d19ae7dcdbef79715964615d74fdd0aab2b",
+          "bytesBase64Url": "eyJpZCI6ImNoYXRjbXBsLW1hcmtpbmctMSIsIm9iamVjdCI6ImNoYXQuY29tcGxldGlvbi5jaHVuayIsImNyZWF0ZWQiOjE3NzIwMDAwMDAsIm1vZGVsIjoibW9jay1tb2RlbC0xIiwiY2hvaWNlcyI6W10sImFzaGF2ZXJpIjp7Im1hcmtpbmciOnsic2NoIjoiYXNoYXZlcmkvcHJvdmVuYW5jZS12MSIsImdlbiI6ImFpIiwiYXQiOjE3NzIwMDAwMDB9fX0",
+          "byteLength": 200
+        }
+      ],
+      "sd": {
+        "name": "ptp-disciplined host clock",
+        "unc": 1
+      },
+      "cva": {
+        "col": {
+          "p": "held",
+          "d": "8701cb3c5b89991d693a58ec59233422f627200be31c8d568ab41bde8710ca34"
+        },
+        "val": {
+          "p": "not-taken-in",
+          "r": "this issuer takes no collateral into the record it signs with: it is handed an evidence document, its stamp and a url, and nothing chained to that document, and no collector beside it holds the vendor chain an appraisal of those bytes would run on"
+        }
+      },
+      "fault": {
+        "at": "tok",
+        "member": "not_a_member",
+        "states": "a member tok does not define"
+      },
+      "note": "A clean v3 document carrying `not_a_member` in the closed map at `tok`, which is a name no version of the format defines anywhere. The walk over a payload reaches every map its version nests, and the two arms of the anchor and the element of the item list are closed by the reader that resolves each at its own position, so the refusal names the level the name sits on rather than dropping a claim a reader was never told about."
+    },
+    {
+      "name": "receipt-unknown-member-mk-v3",
+      "path": "receipts/receipt-unknown-member-mk-v3.cbor",
+      "digestSha256": "8c52c7460c73c9a2e3fc1f66fccca3a98be35936de868ab0cc727068fa3ebf9b",
+      "expected": "BAD_PAYLOAD",
+      "keyless": "BAD_PAYLOAD",
+      "v": 3,
+      "marking": "provenance-v1",
+      "contentType": "text/event-stream",
+      "response": "marking-v1.json#streamed-frame",
+      "responseBase64Url": "ZGF0YTogeyJpZCI6ImNoYXRjbXBsLW1hcmtpbmctMSIsIm9iamVjdCI6ImNoYXQuY29tcGxldGlvbi5jaHVuayIsImNyZWF0ZWQiOjE3NzIwMDAwMDAsIm1vZGVsIjoibW9jay1tb2RlbC0xIiwiY2hvaWNlcyI6W3siaW5kZXgiOjAsImRlbHRhIjp7InJvbGUiOiJhc3Npc3RhbnQiLCJjb250ZW50IjoiTW9jayByZXBseToifSwiZmluaXNoX3JlYXNvbiI6bnVsbH1dfQoKZGF0YTogeyJpZCI6ImNoYXRjbXBsLW1hcmtpbmctMSIsIm9iamVjdCI6ImNoYXQuY29tcGxldGlvbi5jaHVuayIsImNyZWF0ZWQiOjE3NzIwMDAwMDAsIm1vZGVsIjoibW9jay1tb2RlbC0xIiwiY2hvaWNlcyI6W3siaW5kZXgiOjAsImRlbHRhIjp7ImNvbnRlbnQiOiIgY2Fmw6kg4piVIn0sImZpbmlzaF9yZWFzb24iOm51bGx9XX0KCmRhdGE6IHsiaWQiOiJjaGF0Y21wbC1tYXJraW5nLTEiLCJvYmplY3QiOiJjaGF0LmNvbXBsZXRpb24uY2h1bmsiLCJjcmVhdGVkIjoxNzcyMDAwMDAwLCJtb2RlbCI6Im1vY2stbW9kZWwtMSIsImNob2ljZXMiOlt7ImluZGV4IjowLCJkZWx0YSI6eyJjb250ZW50IjoiIHNlcnZlZC4ifSwiZmluaXNoX3JlYXNvbiI6bnVsbH1dfQoKZGF0YTogeyJpZCI6ImNoYXRjbXBsLW1hcmtpbmctMSIsIm9iamVjdCI6ImNoYXQuY29tcGxldGlvbi5jaHVuayIsImNyZWF0ZWQiOjE3NzIwMDAwMDAsIm1vZGVsIjoibW9jay1tb2RlbC0xIiwiY2hvaWNlcyI6W3siaW5kZXgiOjAsImRlbHRhIjp7fSwiZmluaXNoX3JlYXNvbiI6InN0b3AifV19CgpkYXRhOiB7ImlkIjoiY2hhdGNtcGwtbWFya2luZy0xIiwib2JqZWN0IjoiY2hhdC5jb21wbGV0aW9uLmNodW5rIiwiY3JlYXRlZCI6MTc3MjAwMDAwMCwibW9kZWwiOiJtb2NrLW1vZGVsLTEiLCJjaG9pY2VzIjpbXSwiYXNoYXZlcmkiOnsibWFya2luZyI6eyJzY2giOiJhc2hhdmVyaS9wcm92ZW5hbmNlLXYxIiwiZ2VuIjoiYWkiLCJhdCI6MTc3MjAwMDAwMH19fQoKZGF0YTogW0RPTkVdCgo",
+      "responseByteLength": 980,
+      "items": [
+        {
+          "t": 1771999995,
+          "d": "8ad85524387f8b33d71d6c825b4098967d582a49255a9ce5d399a4dcf82e34de",
+          "bytesBase64Url": "eyJpZCI6ImNoYXRjbXBsLW1hcmtpbmctMSIsIm9iamVjdCI6ImNoYXQuY29tcGxldGlvbi5jaHVuayIsImNyZWF0ZWQiOjE3NzIwMDAwMDAsIm1vZGVsIjoibW9jay1tb2RlbC0xIiwiY2hvaWNlcyI6W3siaW5kZXgiOjAsImRlbHRhIjp7InJvbGUiOiJhc3Npc3RhbnQiLCJjb250ZW50IjoiTW9jayByZXBseToifSwiZmluaXNoX3JlYXNvbiI6bnVsbH1dfQ",
+          "byteLength": 202
+        },
+        {
+          "t": 1771999996,
+          "d": "2b918d88b23a1e4601a9698687c94140916d8d4455746ee42c3029e3331972f4",
+          "bytesBase64Url": "eyJpZCI6ImNoYXRjbXBsLW1hcmtpbmctMSIsIm9iamVjdCI6ImNoYXQuY29tcGxldGlvbi5jaHVuayIsImNyZWF0ZWQiOjE3NzIwMDAwMDAsIm1vZGVsIjoibW9jay1tb2RlbC0xIiwiY2hvaWNlcyI6W3siaW5kZXgiOjAsImRlbHRhIjp7ImNvbnRlbnQiOiIgY2Fmw6kg4piVIn0sImZpbmlzaF9yZWFzb24iOm51bGx9XX0",
+          "byteLength": 182
+        },
+        {
+          "t": 1771999997,
+          "d": "b6317a63b4a079fe282343b5ca0c089280cbce11042acd5f0abd76db4ea548c2",
+          "bytesBase64Url": "eyJpZCI6ImNoYXRjbXBsLW1hcmtpbmctMSIsIm9iamVjdCI6ImNoYXQuY29tcGxldGlvbi5jaHVuayIsImNyZWF0ZWQiOjE3NzIwMDAwMDAsIm1vZGVsIjoibW9jay1tb2RlbC0xIiwiY2hvaWNlcyI6W3siaW5kZXgiOjAsImRlbHRhIjp7ImNvbnRlbnQiOiIgc2VydmVkLiJ9LCJmaW5pc2hfcmVhc29uIjpudWxsfV19",
+          "byteLength": 180
+        },
+        {
+          "t": 1771999998,
+          "d": "63b374984480c1f0adb487b753b9cb3ac2b732bb6749f7f687243aefbe5c1ca2",
+          "bytesBase64Url": "eyJpZCI6ImNoYXRjbXBsLW1hcmtpbmctMSIsIm9iamVjdCI6ImNoYXQuY29tcGxldGlvbi5jaHVuayIsImNyZWF0ZWQiOjE3NzIwMDAwMDAsIm1vZGVsIjoibW9jay1tb2RlbC0xIiwiY2hvaWNlcyI6W3siaW5kZXgiOjAsImRlbHRhIjp7fSwiZmluaXNoX3JlYXNvbiI6InN0b3AifV19",
+          "byteLength": 162
+        },
+        {
+          "t": 1771999999,
+          "d": "0d19b35a69c8c6cc3e707510e7b46d19ae7dcdbef79715964615d74fdd0aab2b",
+          "bytesBase64Url": "eyJpZCI6ImNoYXRjbXBsLW1hcmtpbmctMSIsIm9iamVjdCI6ImNoYXQuY29tcGxldGlvbi5jaHVuayIsImNyZWF0ZWQiOjE3NzIwMDAwMDAsIm1vZGVsIjoibW9jay1tb2RlbC0xIiwiY2hvaWNlcyI6W10sImFzaGF2ZXJpIjp7Im1hcmtpbmciOnsic2NoIjoiYXNoYXZlcmkvcHJvdmVuYW5jZS12MSIsImdlbiI6ImFpIiwiYXQiOjE3NzIwMDAwMDB9fX0",
+          "byteLength": 200
+        }
+      ],
+      "sd": {
+        "name": "ptp-disciplined host clock",
+        "unc": 1
+      },
+      "cva": {
+        "col": {
+          "p": "held",
+          "d": "8701cb3c5b89991d693a58ec59233422f627200be31c8d568ab41bde8710ca34"
+        },
+        "val": {
+          "p": "not-taken-in",
+          "r": "this issuer takes no collateral into the record it signs with: it is handed an evidence document, its stamp and a url, and nothing chained to that document, and no collector beside it holds the vendor chain an appraisal of those bytes would run on"
+        }
+      },
+      "fault": {
+        "at": "mk",
+        "member": "not_a_member",
+        "states": "a member mk does not define"
+      },
+      "note": "A clean v3 document carrying `not_a_member` in the closed map at `mk`, which is a name no version of the format defines anywhere. The walk over a payload reaches every map its version nests, and the two arms of the anchor and the element of the item list are closed by the reader that resolves each at its own position, so the refusal names the level the name sits on rather than dropping a claim a reader was never told about."
+    },
+    {
+      "name": "receipt-unknown-member-sd-v3",
+      "path": "receipts/receipt-unknown-member-sd-v3.cbor",
+      "digestSha256": "5f92f9546440c0f53d723e6a8a7a037cbdffbef6fe11d3776e3bdf7dc7b71cd0",
+      "expected": "BAD_PAYLOAD",
+      "keyless": "BAD_PAYLOAD",
+      "v": 3,
+      "marking": "provenance-v1",
+      "contentType": "text/event-stream",
+      "response": "marking-v1.json#streamed-frame",
+      "responseBase64Url": "ZGF0YTogeyJpZCI6ImNoYXRjbXBsLW1hcmtpbmctMSIsIm9iamVjdCI6ImNoYXQuY29tcGxldGlvbi5jaHVuayIsImNyZWF0ZWQiOjE3NzIwMDAwMDAsIm1vZGVsIjoibW9jay1tb2RlbC0xIiwiY2hvaWNlcyI6W3siaW5kZXgiOjAsImRlbHRhIjp7InJvbGUiOiJhc3Npc3RhbnQiLCJjb250ZW50IjoiTW9jayByZXBseToifSwiZmluaXNoX3JlYXNvbiI6bnVsbH1dfQoKZGF0YTogeyJpZCI6ImNoYXRjbXBsLW1hcmtpbmctMSIsIm9iamVjdCI6ImNoYXQuY29tcGxldGlvbi5jaHVuayIsImNyZWF0ZWQiOjE3NzIwMDAwMDAsIm1vZGVsIjoibW9jay1tb2RlbC0xIiwiY2hvaWNlcyI6W3siaW5kZXgiOjAsImRlbHRhIjp7ImNvbnRlbnQiOiIgY2Fmw6kg4piVIn0sImZpbmlzaF9yZWFzb24iOm51bGx9XX0KCmRhdGE6IHsiaWQiOiJjaGF0Y21wbC1tYXJraW5nLTEiLCJvYmplY3QiOiJjaGF0LmNvbXBsZXRpb24uY2h1bmsiLCJjcmVhdGVkIjoxNzcyMDAwMDAwLCJtb2RlbCI6Im1vY2stbW9kZWwtMSIsImNob2ljZXMiOlt7ImluZGV4IjowLCJkZWx0YSI6eyJjb250ZW50IjoiIHNlcnZlZC4ifSwiZmluaXNoX3JlYXNvbiI6bnVsbH1dfQoKZGF0YTogeyJpZCI6ImNoYXRjbXBsLW1hcmtpbmctMSIsIm9iamVjdCI6ImNoYXQuY29tcGxldGlvbi5jaHVuayIsImNyZWF0ZWQiOjE3NzIwMDAwMDAsIm1vZGVsIjoibW9jay1tb2RlbC0xIiwiY2hvaWNlcyI6W3siaW5kZXgiOjAsImRlbHRhIjp7fSwiZmluaXNoX3JlYXNvbiI6InN0b3AifV19CgpkYXRhOiB7ImlkIjoiY2hhdGNtcGwtbWFya2luZy0xIiwib2JqZWN0IjoiY2hhdC5jb21wbGV0aW9uLmNodW5rIiwiY3JlYXRlZCI6MTc3MjAwMDAwMCwibW9kZWwiOiJtb2NrLW1vZGVsLTEiLCJjaG9pY2VzIjpbXSwiYXNoYXZlcmkiOnsibWFya2luZyI6eyJzY2giOiJhc2hhdmVyaS9wcm92ZW5hbmNlLXYxIiwiZ2VuIjoiYWkiLCJhdCI6MTc3MjAwMDAwMH19fQoKZGF0YTogW0RPTkVdCgo",
+      "responseByteLength": 980,
+      "items": [
+        {
+          "t": 1771999995,
+          "d": "8ad85524387f8b33d71d6c825b4098967d582a49255a9ce5d399a4dcf82e34de",
+          "bytesBase64Url": "eyJpZCI6ImNoYXRjbXBsLW1hcmtpbmctMSIsIm9iamVjdCI6ImNoYXQuY29tcGxldGlvbi5jaHVuayIsImNyZWF0ZWQiOjE3NzIwMDAwMDAsIm1vZGVsIjoibW9jay1tb2RlbC0xIiwiY2hvaWNlcyI6W3siaW5kZXgiOjAsImRlbHRhIjp7InJvbGUiOiJhc3Npc3RhbnQiLCJjb250ZW50IjoiTW9jayByZXBseToifSwiZmluaXNoX3JlYXNvbiI6bnVsbH1dfQ",
+          "byteLength": 202
+        },
+        {
+          "t": 1771999996,
+          "d": "2b918d88b23a1e4601a9698687c94140916d8d4455746ee42c3029e3331972f4",
+          "bytesBase64Url": "eyJpZCI6ImNoYXRjbXBsLW1hcmtpbmctMSIsIm9iamVjdCI6ImNoYXQuY29tcGxldGlvbi5jaHVuayIsImNyZWF0ZWQiOjE3NzIwMDAwMDAsIm1vZGVsIjoibW9jay1tb2RlbC0xIiwiY2hvaWNlcyI6W3siaW5kZXgiOjAsImRlbHRhIjp7ImNvbnRlbnQiOiIgY2Fmw6kg4piVIn0sImZpbmlzaF9yZWFzb24iOm51bGx9XX0",
+          "byteLength": 182
+        },
+        {
+          "t": 1771999997,
+          "d": "b6317a63b4a079fe282343b5ca0c089280cbce11042acd5f0abd76db4ea548c2",
+          "bytesBase64Url": "eyJpZCI6ImNoYXRjbXBsLW1hcmtpbmctMSIsIm9iamVjdCI6ImNoYXQuY29tcGxldGlvbi5jaHVuayIsImNyZWF0ZWQiOjE3NzIwMDAwMDAsIm1vZGVsIjoibW9jay1tb2RlbC0xIiwiY2hvaWNlcyI6W3siaW5kZXgiOjAsImRlbHRhIjp7ImNvbnRlbnQiOiIgc2VydmVkLiJ9LCJmaW5pc2hfcmVhc29uIjpudWxsfV19",
+          "byteLength": 180
+        },
+        {
+          "t": 1771999998,
+          "d": "63b374984480c1f0adb487b753b9cb3ac2b732bb6749f7f687243aefbe5c1ca2",
+          "bytesBase64Url": "eyJpZCI6ImNoYXRjbXBsLW1hcmtpbmctMSIsIm9iamVjdCI6ImNoYXQuY29tcGxldGlvbi5jaHVuayIsImNyZWF0ZWQiOjE3NzIwMDAwMDAsIm1vZGVsIjoibW9jay1tb2RlbC0xIiwiY2hvaWNlcyI6W3siaW5kZXgiOjAsImRlbHRhIjp7fSwiZmluaXNoX3JlYXNvbiI6InN0b3AifV19",
+          "byteLength": 162
+        },
+        {
+          "t": 1771999999,
+          "d": "0d19b35a69c8c6cc3e707510e7b46d19ae7dcdbef79715964615d74fdd0aab2b",
+          "bytesBase64Url": "eyJpZCI6ImNoYXRjbXBsLW1hcmtpbmctMSIsIm9iamVjdCI6ImNoYXQuY29tcGxldGlvbi5jaHVuayIsImNyZWF0ZWQiOjE3NzIwMDAwMDAsIm1vZGVsIjoibW9jay1tb2RlbC0xIiwiY2hvaWNlcyI6W10sImFzaGF2ZXJpIjp7Im1hcmtpbmciOnsic2NoIjoiYXNoYXZlcmkvcHJvdmVuYW5jZS12MSIsImdlbiI6ImFpIiwiYXQiOjE3NzIwMDAwMDB9fX0",
+          "byteLength": 200
+        }
+      ],
+      "sd": {
+        "name": "ptp-disciplined host clock",
+        "unc": 1
+      },
+      "cva": {
+        "col": {
+          "p": "held",
+          "d": "8701cb3c5b89991d693a58ec59233422f627200be31c8d568ab41bde8710ca34"
+        },
+        "val": {
+          "p": "not-taken-in",
+          "r": "this issuer takes no collateral into the record it signs with: it is handed an evidence document, its stamp and a url, and nothing chained to that document, and no collector beside it holds the vendor chain an appraisal of those bytes would run on"
+        }
+      },
+      "fault": {
+        "at": "sd",
+        "member": "not_a_member",
+        "states": "a member sd does not define"
+      },
+      "note": "A clean v3 document carrying `not_a_member` in the closed map at `sd`, which is a name no version of the format defines anywhere. The walk over a payload reaches every map its version nests, and the two arms of the anchor and the element of the item list are closed by the reader that resolves each at its own position, so the refusal names the level the name sits on rather than dropping a claim a reader was never told about."
+    },
+    {
+      "name": "receipt-unknown-member-cva-v3",
+      "path": "receipts/receipt-unknown-member-cva-v3.cbor",
+      "digestSha256": "68fbde92656331552214082c8847cb64ef6145a15460b140f345edc56baf5a5b",
+      "expected": "BAD_PAYLOAD",
+      "keyless": "BAD_PAYLOAD",
+      "v": 3,
+      "marking": "provenance-v1",
+      "contentType": "text/event-stream",
+      "response": "marking-v1.json#streamed-frame",
+      "responseBase64Url": "ZGF0YTogeyJpZCI6ImNoYXRjbXBsLW1hcmtpbmctMSIsIm9iamVjdCI6ImNoYXQuY29tcGxldGlvbi5jaHVuayIsImNyZWF0ZWQiOjE3NzIwMDAwMDAsIm1vZGVsIjoibW9jay1tb2RlbC0xIiwiY2hvaWNlcyI6W3siaW5kZXgiOjAsImRlbHRhIjp7InJvbGUiOiJhc3Npc3RhbnQiLCJjb250ZW50IjoiTW9jayByZXBseToifSwiZmluaXNoX3JlYXNvbiI6bnVsbH1dfQoKZGF0YTogeyJpZCI6ImNoYXRjbXBsLW1hcmtpbmctMSIsIm9iamVjdCI6ImNoYXQuY29tcGxldGlvbi5jaHVuayIsImNyZWF0ZWQiOjE3NzIwMDAwMDAsIm1vZGVsIjoibW9jay1tb2RlbC0xIiwiY2hvaWNlcyI6W3siaW5kZXgiOjAsImRlbHRhIjp7ImNvbnRlbnQiOiIgY2Fmw6kg4piVIn0sImZpbmlzaF9yZWFzb24iOm51bGx9XX0KCmRhdGE6IHsiaWQiOiJjaGF0Y21wbC1tYXJraW5nLTEiLCJvYmplY3QiOiJjaGF0LmNvbXBsZXRpb24uY2h1bmsiLCJjcmVhdGVkIjoxNzcyMDAwMDAwLCJtb2RlbCI6Im1vY2stbW9kZWwtMSIsImNob2ljZXMiOlt7ImluZGV4IjowLCJkZWx0YSI6eyJjb250ZW50IjoiIHNlcnZlZC4ifSwiZmluaXNoX3JlYXNvbiI6bnVsbH1dfQoKZGF0YTogeyJpZCI6ImNoYXRjbXBsLW1hcmtpbmctMSIsIm9iamVjdCI6ImNoYXQuY29tcGxldGlvbi5jaHVuayIsImNyZWF0ZWQiOjE3NzIwMDAwMDAsIm1vZGVsIjoibW9jay1tb2RlbC0xIiwiY2hvaWNlcyI6W3siaW5kZXgiOjAsImRlbHRhIjp7fSwiZmluaXNoX3JlYXNvbiI6InN0b3AifV19CgpkYXRhOiB7ImlkIjoiY2hhdGNtcGwtbWFya2luZy0xIiwib2JqZWN0IjoiY2hhdC5jb21wbGV0aW9uLmNodW5rIiwiY3JlYXRlZCI6MTc3MjAwMDAwMCwibW9kZWwiOiJtb2NrLW1vZGVsLTEiLCJjaG9pY2VzIjpbXSwiYXNoYXZlcmkiOnsibWFya2luZyI6eyJzY2giOiJhc2hhdmVyaS9wcm92ZW5hbmNlLXYxIiwiZ2VuIjoiYWkiLCJhdCI6MTc3MjAwMDAwMH19fQoKZGF0YTogW0RPTkVdCgo",
+      "responseByteLength": 980,
+      "items": [
+        {
+          "t": 1771999995,
+          "d": "8ad85524387f8b33d71d6c825b4098967d582a49255a9ce5d399a4dcf82e34de",
+          "bytesBase64Url": "eyJpZCI6ImNoYXRjbXBsLW1hcmtpbmctMSIsIm9iamVjdCI6ImNoYXQuY29tcGxldGlvbi5jaHVuayIsImNyZWF0ZWQiOjE3NzIwMDAwMDAsIm1vZGVsIjoibW9jay1tb2RlbC0xIiwiY2hvaWNlcyI6W3siaW5kZXgiOjAsImRlbHRhIjp7InJvbGUiOiJhc3Npc3RhbnQiLCJjb250ZW50IjoiTW9jayByZXBseToifSwiZmluaXNoX3JlYXNvbiI6bnVsbH1dfQ",
+          "byteLength": 202
+        },
+        {
+          "t": 1771999996,
+          "d": "2b918d88b23a1e4601a9698687c94140916d8d4455746ee42c3029e3331972f4",
+          "bytesBase64Url": "eyJpZCI6ImNoYXRjbXBsLW1hcmtpbmctMSIsIm9iamVjdCI6ImNoYXQuY29tcGxldGlvbi5jaHVuayIsImNyZWF0ZWQiOjE3NzIwMDAwMDAsIm1vZGVsIjoibW9jay1tb2RlbC0xIiwiY2hvaWNlcyI6W3siaW5kZXgiOjAsImRlbHRhIjp7ImNvbnRlbnQiOiIgY2Fmw6kg4piVIn0sImZpbmlzaF9yZWFzb24iOm51bGx9XX0",
+          "byteLength": 182
+        },
+        {
+          "t": 1771999997,
+          "d": "b6317a63b4a079fe282343b5ca0c089280cbce11042acd5f0abd76db4ea548c2",
+          "bytesBase64Url": "eyJpZCI6ImNoYXRjbXBsLW1hcmtpbmctMSIsIm9iamVjdCI6ImNoYXQuY29tcGxldGlvbi5jaHVuayIsImNyZWF0ZWQiOjE3NzIwMDAwMDAsIm1vZGVsIjoibW9jay1tb2RlbC0xIiwiY2hvaWNlcyI6W3siaW5kZXgiOjAsImRlbHRhIjp7ImNvbnRlbnQiOiIgc2VydmVkLiJ9LCJmaW5pc2hfcmVhc29uIjpudWxsfV19",
+          "byteLength": 180
+        },
+        {
+          "t": 1771999998,
+          "d": "63b374984480c1f0adb487b753b9cb3ac2b732bb6749f7f687243aefbe5c1ca2",
+          "bytesBase64Url": "eyJpZCI6ImNoYXRjbXBsLW1hcmtpbmctMSIsIm9iamVjdCI6ImNoYXQuY29tcGxldGlvbi5jaHVuayIsImNyZWF0ZWQiOjE3NzIwMDAwMDAsIm1vZGVsIjoibW9jay1tb2RlbC0xIiwiY2hvaWNlcyI6W3siaW5kZXgiOjAsImRlbHRhIjp7fSwiZmluaXNoX3JlYXNvbiI6InN0b3AifV19",
+          "byteLength": 162
+        },
+        {
+          "t": 1771999999,
+          "d": "0d19b35a69c8c6cc3e707510e7b46d19ae7dcdbef79715964615d74fdd0aab2b",
+          "bytesBase64Url": "eyJpZCI6ImNoYXRjbXBsLW1hcmtpbmctMSIsIm9iamVjdCI6ImNoYXQuY29tcGxldGlvbi5jaHVuayIsImNyZWF0ZWQiOjE3NzIwMDAwMDAsIm1vZGVsIjoibW9jay1tb2RlbC0xIiwiY2hvaWNlcyI6W10sImFzaGF2ZXJpIjp7Im1hcmtpbmciOnsic2NoIjoiYXNoYXZlcmkvcHJvdmVuYW5jZS12MSIsImdlbiI6ImFpIiwiYXQiOjE3NzIwMDAwMDB9fX0",
+          "byteLength": 200
+        }
+      ],
+      "sd": {
+        "name": "ptp-disciplined host clock",
+        "unc": 1
+      },
+      "cva": {
+        "col": {
+          "p": "held",
+          "d": "8701cb3c5b89991d693a58ec59233422f627200be31c8d568ab41bde8710ca34"
+        },
+        "val": {
+          "p": "not-taken-in",
+          "r": "this issuer takes no collateral into the record it signs with: it is handed an evidence document, its stamp and a url, and nothing chained to that document, and no collector beside it holds the vendor chain an appraisal of those bytes would run on"
+        }
+      },
+      "fault": {
+        "at": "cva",
+        "member": "not_a_member",
+        "states": "a member cva does not define"
+      },
+      "note": "A clean v3 document carrying `not_a_member` in the closed map at `cva`, which is a name no version of the format defines anywhere. The walk over a payload reaches every map its version nests, and the two arms of the anchor and the element of the item list are closed by the reader that resolves each at its own position, so the refusal names the level the name sits on rather than dropping a claim a reader was never told about."
+    },
+    {
+      "name": "receipt-unknown-member-cva-col-v3",
+      "path": "receipts/receipt-unknown-member-cva-col-v3.cbor",
+      "digestSha256": "740d967f74f499d5c6aeb4ce4967b97736c441d0105e13ac93a54d48210d6e9a",
+      "expected": "BAD_PAYLOAD",
+      "keyless": "BAD_PAYLOAD",
+      "v": 3,
+      "marking": "provenance-v1",
+      "contentType": "text/event-stream",
+      "response": "marking-v1.json#streamed-frame",
+      "responseBase64Url": "ZGF0YTogeyJpZCI6ImNoYXRjbXBsLW1hcmtpbmctMSIsIm9iamVjdCI6ImNoYXQuY29tcGxldGlvbi5jaHVuayIsImNyZWF0ZWQiOjE3NzIwMDAwMDAsIm1vZGVsIjoibW9jay1tb2RlbC0xIiwiY2hvaWNlcyI6W3siaW5kZXgiOjAsImRlbHRhIjp7InJvbGUiOiJhc3Npc3RhbnQiLCJjb250ZW50IjoiTW9jayByZXBseToifSwiZmluaXNoX3JlYXNvbiI6bnVsbH1dfQoKZGF0YTogeyJpZCI6ImNoYXRjbXBsLW1hcmtpbmctMSIsIm9iamVjdCI6ImNoYXQuY29tcGxldGlvbi5jaHVuayIsImNyZWF0ZWQiOjE3NzIwMDAwMDAsIm1vZGVsIjoibW9jay1tb2RlbC0xIiwiY2hvaWNlcyI6W3siaW5kZXgiOjAsImRlbHRhIjp7ImNvbnRlbnQiOiIgY2Fmw6kg4piVIn0sImZpbmlzaF9yZWFzb24iOm51bGx9XX0KCmRhdGE6IHsiaWQiOiJjaGF0Y21wbC1tYXJraW5nLTEiLCJvYmplY3QiOiJjaGF0LmNvbXBsZXRpb24uY2h1bmsiLCJjcmVhdGVkIjoxNzcyMDAwMDAwLCJtb2RlbCI6Im1vY2stbW9kZWwtMSIsImNob2ljZXMiOlt7ImluZGV4IjowLCJkZWx0YSI6eyJjb250ZW50IjoiIHNlcnZlZC4ifSwiZmluaXNoX3JlYXNvbiI6bnVsbH1dfQoKZGF0YTogeyJpZCI6ImNoYXRjbXBsLW1hcmtpbmctMSIsIm9iamVjdCI6ImNoYXQuY29tcGxldGlvbi5jaHVuayIsImNyZWF0ZWQiOjE3NzIwMDAwMDAsIm1vZGVsIjoibW9jay1tb2RlbC0xIiwiY2hvaWNlcyI6W3siaW5kZXgiOjAsImRlbHRhIjp7fSwiZmluaXNoX3JlYXNvbiI6InN0b3AifV19CgpkYXRhOiB7ImlkIjoiY2hhdGNtcGwtbWFya2luZy0xIiwib2JqZWN0IjoiY2hhdC5jb21wbGV0aW9uLmNodW5rIiwiY3JlYXRlZCI6MTc3MjAwMDAwMCwibW9kZWwiOiJtb2NrLW1vZGVsLTEiLCJjaG9pY2VzIjpbXSwiYXNoYXZlcmkiOnsibWFya2luZyI6eyJzY2giOiJhc2hhdmVyaS9wcm92ZW5hbmNlLXYxIiwiZ2VuIjoiYWkiLCJhdCI6MTc3MjAwMDAwMH19fQoKZGF0YTogW0RPTkVdCgo",
+      "responseByteLength": 980,
+      "items": [
+        {
+          "t": 1771999995,
+          "d": "8ad85524387f8b33d71d6c825b4098967d582a49255a9ce5d399a4dcf82e34de",
+          "bytesBase64Url": "eyJpZCI6ImNoYXRjbXBsLW1hcmtpbmctMSIsIm9iamVjdCI6ImNoYXQuY29tcGxldGlvbi5jaHVuayIsImNyZWF0ZWQiOjE3NzIwMDAwMDAsIm1vZGVsIjoibW9jay1tb2RlbC0xIiwiY2hvaWNlcyI6W3siaW5kZXgiOjAsImRlbHRhIjp7InJvbGUiOiJhc3Npc3RhbnQiLCJjb250ZW50IjoiTW9jayByZXBseToifSwiZmluaXNoX3JlYXNvbiI6bnVsbH1dfQ",
+          "byteLength": 202
+        },
+        {
+          "t": 1771999996,
+          "d": "2b918d88b23a1e4601a9698687c94140916d8d4455746ee42c3029e3331972f4",
+          "bytesBase64Url": "eyJpZCI6ImNoYXRjbXBsLW1hcmtpbmctMSIsIm9iamVjdCI6ImNoYXQuY29tcGxldGlvbi5jaHVuayIsImNyZWF0ZWQiOjE3NzIwMDAwMDAsIm1vZGVsIjoibW9jay1tb2RlbC0xIiwiY2hvaWNlcyI6W3siaW5kZXgiOjAsImRlbHRhIjp7ImNvbnRlbnQiOiIgY2Fmw6kg4piVIn0sImZpbmlzaF9yZWFzb24iOm51bGx9XX0",
+          "byteLength": 182
+        },
+        {
+          "t": 1771999997,
+          "d": "b6317a63b4a079fe282343b5ca0c089280cbce11042acd5f0abd76db4ea548c2",
+          "bytesBase64Url": "eyJpZCI6ImNoYXRjbXBsLW1hcmtpbmctMSIsIm9iamVjdCI6ImNoYXQuY29tcGxldGlvbi5jaHVuayIsImNyZWF0ZWQiOjE3NzIwMDAwMDAsIm1vZGVsIjoibW9jay1tb2RlbC0xIiwiY2hvaWNlcyI6W3siaW5kZXgiOjAsImRlbHRhIjp7ImNvbnRlbnQiOiIgc2VydmVkLiJ9LCJmaW5pc2hfcmVhc29uIjpudWxsfV19",
+          "byteLength": 180
+        },
+        {
+          "t": 1771999998,
+          "d": "63b374984480c1f0adb487b753b9cb3ac2b732bb6749f7f687243aefbe5c1ca2",
+          "bytesBase64Url": "eyJpZCI6ImNoYXRjbXBsLW1hcmtpbmctMSIsIm9iamVjdCI6ImNoYXQuY29tcGxldGlvbi5jaHVuayIsImNyZWF0ZWQiOjE3NzIwMDAwMDAsIm1vZGVsIjoibW9jay1tb2RlbC0xIiwiY2hvaWNlcyI6W3siaW5kZXgiOjAsImRlbHRhIjp7fSwiZmluaXNoX3JlYXNvbiI6InN0b3AifV19",
+          "byteLength": 162
+        },
+        {
+          "t": 1771999999,
+          "d": "0d19b35a69c8c6cc3e707510e7b46d19ae7dcdbef79715964615d74fdd0aab2b",
+          "bytesBase64Url": "eyJpZCI6ImNoYXRjbXBsLW1hcmtpbmctMSIsIm9iamVjdCI6ImNoYXQuY29tcGxldGlvbi5jaHVuayIsImNyZWF0ZWQiOjE3NzIwMDAwMDAsIm1vZGVsIjoibW9jay1tb2RlbC0xIiwiY2hvaWNlcyI6W10sImFzaGF2ZXJpIjp7Im1hcmtpbmciOnsic2NoIjoiYXNoYXZlcmkvcHJvdmVuYW5jZS12MSIsImdlbiI6ImFpIiwiYXQiOjE3NzIwMDAwMDB9fX0",
+          "byteLength": 200
+        }
+      ],
+      "sd": {
+        "name": "ptp-disciplined host clock",
+        "unc": 1
+      },
+      "cva": {
+        "col": {
+          "p": "held",
+          "d": "8701cb3c5b89991d693a58ec59233422f627200be31c8d568ab41bde8710ca34"
+        },
+        "val": {
+          "p": "not-taken-in",
+          "r": "this issuer takes no collateral into the record it signs with: it is handed an evidence document, its stamp and a url, and nothing chained to that document, and no collector beside it holds the vendor chain an appraisal of those bytes would run on"
+        }
+      },
+      "fault": {
+        "at": "cva.col",
+        "member": "not_a_member",
+        "states": "a member cva.col does not define"
+      },
+      "note": "A clean v3 document carrying `not_a_member` in the closed map at `cva.col`, which is a name no version of the format defines anywhere. The walk over a payload reaches every map its version nests, and the two arms of the anchor and the element of the item list are closed by the reader that resolves each at its own position, so the refusal names the level the name sits on rather than dropping a claim a reader was never told about."
+    },
+    {
+      "name": "receipt-unknown-member-cva-val-v3",
+      "path": "receipts/receipt-unknown-member-cva-val-v3.cbor",
+      "digestSha256": "da1f9f22e9b06563f2d36175c68df2b5de562c7dfd57816b9e1b9da8ad63c74b",
+      "expected": "BAD_PAYLOAD",
+      "keyless": "BAD_PAYLOAD",
+      "v": 3,
+      "marking": "provenance-v1",
+      "contentType": "text/event-stream",
+      "response": "marking-v1.json#streamed-frame",
+      "responseBase64Url": "ZGF0YTogeyJpZCI6ImNoYXRjbXBsLW1hcmtpbmctMSIsIm9iamVjdCI6ImNoYXQuY29tcGxldGlvbi5jaHVuayIsImNyZWF0ZWQiOjE3NzIwMDAwMDAsIm1vZGVsIjoibW9jay1tb2RlbC0xIiwiY2hvaWNlcyI6W3siaW5kZXgiOjAsImRlbHRhIjp7InJvbGUiOiJhc3Npc3RhbnQiLCJjb250ZW50IjoiTW9jayByZXBseToifSwiZmluaXNoX3JlYXNvbiI6bnVsbH1dfQoKZGF0YTogeyJpZCI6ImNoYXRjbXBsLW1hcmtpbmctMSIsIm9iamVjdCI6ImNoYXQuY29tcGxldGlvbi5jaHVuayIsImNyZWF0ZWQiOjE3NzIwMDAwMDAsIm1vZGVsIjoibW9jay1tb2RlbC0xIiwiY2hvaWNlcyI6W3siaW5kZXgiOjAsImRlbHRhIjp7ImNvbnRlbnQiOiIgY2Fmw6kg4piVIn0sImZpbmlzaF9yZWFzb24iOm51bGx9XX0KCmRhdGE6IHsiaWQiOiJjaGF0Y21wbC1tYXJraW5nLTEiLCJvYmplY3QiOiJjaGF0LmNvbXBsZXRpb24uY2h1bmsiLCJjcmVhdGVkIjoxNzcyMDAwMDAwLCJtb2RlbCI6Im1vY2stbW9kZWwtMSIsImNob2ljZXMiOlt7ImluZGV4IjowLCJkZWx0YSI6eyJjb250ZW50IjoiIHNlcnZlZC4ifSwiZmluaXNoX3JlYXNvbiI6bnVsbH1dfQoKZGF0YTogeyJpZCI6ImNoYXRjbXBsLW1hcmtpbmctMSIsIm9iamVjdCI6ImNoYXQuY29tcGxldGlvbi5jaHVuayIsImNyZWF0ZWQiOjE3NzIwMDAwMDAsIm1vZGVsIjoibW9jay1tb2RlbC0xIiwiY2hvaWNlcyI6W3siaW5kZXgiOjAsImRlbHRhIjp7fSwiZmluaXNoX3JlYXNvbiI6InN0b3AifV19CgpkYXRhOiB7ImlkIjoiY2hhdGNtcGwtbWFya2luZy0xIiwib2JqZWN0IjoiY2hhdC5jb21wbGV0aW9uLmNodW5rIiwiY3JlYXRlZCI6MTc3MjAwMDAwMCwibW9kZWwiOiJtb2NrLW1vZGVsLTEiLCJjaG9pY2VzIjpbXSwiYXNoYXZlcmkiOnsibWFya2luZyI6eyJzY2giOiJhc2hhdmVyaS9wcm92ZW5hbmNlLXYxIiwiZ2VuIjoiYWkiLCJhdCI6MTc3MjAwMDAwMH19fQoKZGF0YTogW0RPTkVdCgo",
+      "responseByteLength": 980,
+      "items": [
+        {
+          "t": 1771999995,
+          "d": "8ad85524387f8b33d71d6c825b4098967d582a49255a9ce5d399a4dcf82e34de",
+          "bytesBase64Url": "eyJpZCI6ImNoYXRjbXBsLW1hcmtpbmctMSIsIm9iamVjdCI6ImNoYXQuY29tcGxldGlvbi5jaHVuayIsImNyZWF0ZWQiOjE3NzIwMDAwMDAsIm1vZGVsIjoibW9jay1tb2RlbC0xIiwiY2hvaWNlcyI6W3siaW5kZXgiOjAsImRlbHRhIjp7InJvbGUiOiJhc3Npc3RhbnQiLCJjb250ZW50IjoiTW9jayByZXBseToifSwiZmluaXNoX3JlYXNvbiI6bnVsbH1dfQ",
+          "byteLength": 202
+        },
+        {
+          "t": 1771999996,
+          "d": "2b918d88b23a1e4601a9698687c94140916d8d4455746ee42c3029e3331972f4",
+          "bytesBase64Url": "eyJpZCI6ImNoYXRjbXBsLW1hcmtpbmctMSIsIm9iamVjdCI6ImNoYXQuY29tcGxldGlvbi5jaHVuayIsImNyZWF0ZWQiOjE3NzIwMDAwMDAsIm1vZGVsIjoibW9jay1tb2RlbC0xIiwiY2hvaWNlcyI6W3siaW5kZXgiOjAsImRlbHRhIjp7ImNvbnRlbnQiOiIgY2Fmw6kg4piVIn0sImZpbmlzaF9yZWFzb24iOm51bGx9XX0",
+          "byteLength": 182
+        },
+        {
+          "t": 1771999997,
+          "d": "b6317a63b4a079fe282343b5ca0c089280cbce11042acd5f0abd76db4ea548c2",
+          "bytesBase64Url": "eyJpZCI6ImNoYXRjbXBsLW1hcmtpbmctMSIsIm9iamVjdCI6ImNoYXQuY29tcGxldGlvbi5jaHVuayIsImNyZWF0ZWQiOjE3NzIwMDAwMDAsIm1vZGVsIjoibW9jay1tb2RlbC0xIiwiY2hvaWNlcyI6W3siaW5kZXgiOjAsImRlbHRhIjp7ImNvbnRlbnQiOiIgc2VydmVkLiJ9LCJmaW5pc2hfcmVhc29uIjpudWxsfV19",
+          "byteLength": 180
+        },
+        {
+          "t": 1771999998,
+          "d": "63b374984480c1f0adb487b753b9cb3ac2b732bb6749f7f687243aefbe5c1ca2",
+          "bytesBase64Url": "eyJpZCI6ImNoYXRjbXBsLW1hcmtpbmctMSIsIm9iamVjdCI6ImNoYXQuY29tcGxldGlvbi5jaHVuayIsImNyZWF0ZWQiOjE3NzIwMDAwMDAsIm1vZGVsIjoibW9jay1tb2RlbC0xIiwiY2hvaWNlcyI6W3siaW5kZXgiOjAsImRlbHRhIjp7fSwiZmluaXNoX3JlYXNvbiI6InN0b3AifV19",
+          "byteLength": 162
+        },
+        {
+          "t": 1771999999,
+          "d": "0d19b35a69c8c6cc3e707510e7b46d19ae7dcdbef79715964615d74fdd0aab2b",
+          "bytesBase64Url": "eyJpZCI6ImNoYXRjbXBsLW1hcmtpbmctMSIsIm9iamVjdCI6ImNoYXQuY29tcGxldGlvbi5jaHVuayIsImNyZWF0ZWQiOjE3NzIwMDAwMDAsIm1vZGVsIjoibW9jay1tb2RlbC0xIiwiY2hvaWNlcyI6W10sImFzaGF2ZXJpIjp7Im1hcmtpbmciOnsic2NoIjoiYXNoYXZlcmkvcHJvdmVuYW5jZS12MSIsImdlbiI6ImFpIiwiYXQiOjE3NzIwMDAwMDB9fX0",
+          "byteLength": 200
+        }
+      ],
+      "sd": {
+        "name": "ptp-disciplined host clock",
+        "unc": 1
+      },
+      "cva": {
+        "col": {
+          "p": "held",
+          "d": "8701cb3c5b89991d693a58ec59233422f627200be31c8d568ab41bde8710ca34"
+        },
+        "val": {
+          "p": "not-taken-in",
+          "r": "this issuer takes no collateral into the record it signs with: it is handed an evidence document, its stamp and a url, and nothing chained to that document, and no collector beside it holds the vendor chain an appraisal of those bytes would run on"
+        }
+      },
+      "fault": {
+        "at": "cva.val",
+        "member": "not_a_member",
+        "states": "a member cva.val does not define"
+      },
+      "note": "A clean v3 document carrying `not_a_member` in the closed map at `cva.val`, which is a name no version of the format defines anywhere. The walk over a payload reaches every map its version nests, and the two arms of the anchor and the element of the item list are closed by the reader that resolves each at its own position, so the refusal names the level the name sits on rather than dropping a claim a reader was never told about."
+    },
+    {
+      "name": "receipt-unknown-member-itm-0-v3",
+      "path": "receipts/receipt-unknown-member-itm-0-v3.cbor",
+      "digestSha256": "eef23dfc05a3ca932b85b7d86d435e1b03a4d78236d978058cf489b33707017e",
+      "expected": "BAD_PAYLOAD",
+      "keyless": "BAD_PAYLOAD",
+      "v": 3,
+      "marking": "provenance-v1",
+      "contentType": "text/event-stream",
+      "response": "marking-v1.json#streamed-frame",
+      "responseBase64Url": "ZGF0YTogeyJpZCI6ImNoYXRjbXBsLW1hcmtpbmctMSIsIm9iamVjdCI6ImNoYXQuY29tcGxldGlvbi5jaHVuayIsImNyZWF0ZWQiOjE3NzIwMDAwMDAsIm1vZGVsIjoibW9jay1tb2RlbC0xIiwiY2hvaWNlcyI6W3siaW5kZXgiOjAsImRlbHRhIjp7InJvbGUiOiJhc3Npc3RhbnQiLCJjb250ZW50IjoiTW9jayByZXBseToifSwiZmluaXNoX3JlYXNvbiI6bnVsbH1dfQoKZGF0YTogeyJpZCI6ImNoYXRjbXBsLW1hcmtpbmctMSIsIm9iamVjdCI6ImNoYXQuY29tcGxldGlvbi5jaHVuayIsImNyZWF0ZWQiOjE3NzIwMDAwMDAsIm1vZGVsIjoibW9jay1tb2RlbC0xIiwiY2hvaWNlcyI6W3siaW5kZXgiOjAsImRlbHRhIjp7ImNvbnRlbnQiOiIgY2Fmw6kg4piVIn0sImZpbmlzaF9yZWFzb24iOm51bGx9XX0KCmRhdGE6IHsiaWQiOiJjaGF0Y21wbC1tYXJraW5nLTEiLCJvYmplY3QiOiJjaGF0LmNvbXBsZXRpb24uY2h1bmsiLCJjcmVhdGVkIjoxNzcyMDAwMDAwLCJtb2RlbCI6Im1vY2stbW9kZWwtMSIsImNob2ljZXMiOlt7ImluZGV4IjowLCJkZWx0YSI6eyJjb250ZW50IjoiIHNlcnZlZC4ifSwiZmluaXNoX3JlYXNvbiI6bnVsbH1dfQoKZGF0YTogeyJpZCI6ImNoYXRjbXBsLW1hcmtpbmctMSIsIm9iamVjdCI6ImNoYXQuY29tcGxldGlvbi5jaHVuayIsImNyZWF0ZWQiOjE3NzIwMDAwMDAsIm1vZGVsIjoibW9jay1tb2RlbC0xIiwiY2hvaWNlcyI6W3siaW5kZXgiOjAsImRlbHRhIjp7fSwiZmluaXNoX3JlYXNvbiI6InN0b3AifV19CgpkYXRhOiB7ImlkIjoiY2hhdGNtcGwtbWFya2luZy0xIiwib2JqZWN0IjoiY2hhdC5jb21wbGV0aW9uLmNodW5rIiwiY3JlYXRlZCI6MTc3MjAwMDAwMCwibW9kZWwiOiJtb2NrLW1vZGVsLTEiLCJjaG9pY2VzIjpbXSwiYXNoYXZlcmkiOnsibWFya2luZyI6eyJzY2giOiJhc2hhdmVyaS9wcm92ZW5hbmNlLXYxIiwiZ2VuIjoiYWkiLCJhdCI6MTc3MjAwMDAwMH19fQoKZGF0YTogW0RPTkVdCgo",
+      "responseByteLength": 980,
+      "items": [
+        {
+          "t": 1771999995,
+          "d": "8ad85524387f8b33d71d6c825b4098967d582a49255a9ce5d399a4dcf82e34de",
+          "bytesBase64Url": "eyJpZCI6ImNoYXRjbXBsLW1hcmtpbmctMSIsIm9iamVjdCI6ImNoYXQuY29tcGxldGlvbi5jaHVuayIsImNyZWF0ZWQiOjE3NzIwMDAwMDAsIm1vZGVsIjoibW9jay1tb2RlbC0xIiwiY2hvaWNlcyI6W3siaW5kZXgiOjAsImRlbHRhIjp7InJvbGUiOiJhc3Npc3RhbnQiLCJjb250ZW50IjoiTW9jayByZXBseToifSwiZmluaXNoX3JlYXNvbiI6bnVsbH1dfQ",
+          "byteLength": 202
+        },
+        {
+          "t": 1771999996,
+          "d": "2b918d88b23a1e4601a9698687c94140916d8d4455746ee42c3029e3331972f4",
+          "bytesBase64Url": "eyJpZCI6ImNoYXRjbXBsLW1hcmtpbmctMSIsIm9iamVjdCI6ImNoYXQuY29tcGxldGlvbi5jaHVuayIsImNyZWF0ZWQiOjE3NzIwMDAwMDAsIm1vZGVsIjoibW9jay1tb2RlbC0xIiwiY2hvaWNlcyI6W3siaW5kZXgiOjAsImRlbHRhIjp7ImNvbnRlbnQiOiIgY2Fmw6kg4piVIn0sImZpbmlzaF9yZWFzb24iOm51bGx9XX0",
+          "byteLength": 182
+        },
+        {
+          "t": 1771999997,
+          "d": "b6317a63b4a079fe282343b5ca0c089280cbce11042acd5f0abd76db4ea548c2",
+          "bytesBase64Url": "eyJpZCI6ImNoYXRjbXBsLW1hcmtpbmctMSIsIm9iamVjdCI6ImNoYXQuY29tcGxldGlvbi5jaHVuayIsImNyZWF0ZWQiOjE3NzIwMDAwMDAsIm1vZGVsIjoibW9jay1tb2RlbC0xIiwiY2hvaWNlcyI6W3siaW5kZXgiOjAsImRlbHRhIjp7ImNvbnRlbnQiOiIgc2VydmVkLiJ9LCJmaW5pc2hfcmVhc29uIjpudWxsfV19",
+          "byteLength": 180
+        },
+        {
+          "t": 1771999998,
+          "d": "63b374984480c1f0adb487b753b9cb3ac2b732bb6749f7f687243aefbe5c1ca2",
+          "bytesBase64Url": "eyJpZCI6ImNoYXRjbXBsLW1hcmtpbmctMSIsIm9iamVjdCI6ImNoYXQuY29tcGxldGlvbi5jaHVuayIsImNyZWF0ZWQiOjE3NzIwMDAwMDAsIm1vZGVsIjoibW9jay1tb2RlbC0xIiwiY2hvaWNlcyI6W3siaW5kZXgiOjAsImRlbHRhIjp7fSwiZmluaXNoX3JlYXNvbiI6InN0b3AifV19",
+          "byteLength": 162
+        },
+        {
+          "t": 1771999999,
+          "d": "0d19b35a69c8c6cc3e707510e7b46d19ae7dcdbef79715964615d74fdd0aab2b",
+          "bytesBase64Url": "eyJpZCI6ImNoYXRjbXBsLW1hcmtpbmctMSIsIm9iamVjdCI6ImNoYXQuY29tcGxldGlvbi5jaHVuayIsImNyZWF0ZWQiOjE3NzIwMDAwMDAsIm1vZGVsIjoibW9jay1tb2RlbC0xIiwiY2hvaWNlcyI6W10sImFzaGF2ZXJpIjp7Im1hcmtpbmciOnsic2NoIjoiYXNoYXZlcmkvcHJvdmVuYW5jZS12MSIsImdlbiI6ImFpIiwiYXQiOjE3NzIwMDAwMDB9fX0",
+          "byteLength": 200
+        }
+      ],
+      "sd": {
+        "name": "ptp-disciplined host clock",
+        "unc": 1
+      },
+      "cva": {
+        "col": {
+          "p": "held",
+          "d": "8701cb3c5b89991d693a58ec59233422f627200be31c8d568ab41bde8710ca34"
+        },
+        "val": {
+          "p": "not-taken-in",
+          "r": "this issuer takes no collateral into the record it signs with: it is handed an evidence document, its stamp and a url, and nothing chained to that document, and no collector beside it holds the vendor chain an appraisal of those bytes would run on"
+        }
+      },
+      "fault": {
+        "at": "itm[0]",
+        "member": "not_a_member",
+        "states": "a member itm[0] does not define"
+      },
+      "note": "A clean v3 document carrying `not_a_member` in the closed map at `itm[0]`, which is a name no version of the format defines anywhere. The walk over a payload reaches every map its version nests, and the two arms of the anchor and the element of the item list are closed by the reader that resolves each at its own position, so the refusal names the level the name sits on rather than dropping a claim a reader was never told about."
     }
-  ]
+  ],
+  "layout": {
+    "verdictFields": [
+      "expected",
+      "keyless"
+    ],
+    "readers": {
+      "keyless": "decodeReceipt reads the payload a document claims with no key in hand, so a row's `keyless` column is the answer these bytes owe a reader that has not authenticated them",
+      "keyBearing": "verifyReceipt checks the signature under the published key first and reads the payload after it, so `expected` is the answer the same bytes owe a reader holding the key the published key file names"
+    },
+    "columns": {
+      "v": "The payload version the document names in its own `v` member. The entries that state no `v` are the fixtures this suite began with; every row added since names the version its bytes claim, including the rows whose refusal is that claim.",
+      "marking": "Which marking setting the response bytes came off, `none` or `provenance-v1`. This is a fact about the bytes and not about the document: one upstream body frames no item with the marking off and one item with it on, so which version a response yields depends on this column, and `receipt-no-items-v2` and `receipt-marked-sentinel-v3` are those two answers over one completion. The payload states it again as `mk.sch`.",
+      "contentType": "The content type the response was served with, which is what decides whether its items are `data:` frames or one whole body.",
+      "response": "Where these bytes are published already, as `<file>#<vector>`: `res` is sha256 over that file's bytes and every item digest is of a slice of them, so one response is read out of two files and a generator that drifted on either side disagrees here.",
+      "assembledFrom": "On a row whose response is joined rather than quoted, the published pieces it was joined from in the order they were written, each as `<file>#<path>` a reader can look up.",
+      "responseBase64Url": "The response exactly as transmitted, framing and sentinel included, unpadded base64url. These are the bytes the row's `res` is the digest of.",
+      "items": "One entry per item the shipped reader gives those bytes, in the order it gives them: the instant the source named by `sd` read for it, the digest of that item's bytes, and the bytes themselves so the digest is checkable rather than asserted. A row states `items` exactly where its document carries the list. Where a refusal is about the list, the row states the list as the bytes hold it, which is the whole of what the reader compares.",
+      "sd": "The disclosure the payload carries: the source `iat` was read from, and the bound that source declares, where `null` is that source's statement that nobody measured it. A row stating no `unc` is a document that withheld the member, which is a refusal and not the same sentence.",
+      "cva": "The anchor the payload carries, each slot one of the three presence labels with the digest or the reason that label selects. A slot stating `held` with an empty `d` is a claim with no material behind it, which is a refusal.",
+      "fault": "On a refusal row, the position the shipped reader names in the answer these bytes get, and what the row states about it. Where the reader quotes a member back, the row states the name as `member`. The position is what makes the row about one member rather than about the document as a whole."
+    },
+    "encodings": "byte strings unpadded base64url, digests lowercase hex, instants whole Unix seconds"
+  }
 }

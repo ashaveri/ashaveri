@@ -1,5 +1,5 @@
 import { spawnSync } from 'node:child_process';
-import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { mkdtempSync, existsSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -22,9 +22,10 @@ import { ATTESTED_MARKING, stampedReceiptBytes, wrongMarking } from './stamped-r
  * the caller's side of the transaction, and the same key and issuer appear in both because a real
  * deployment's do.
  *
- * One document is not published: the `v: 3` cases need a receipt naming a marking whose region the
- * bytes handed to the command either do or do not carry, and nothing in this tree issues `v: 3` yet.
- * Those bytes come from `stamped-receipt.ts`, which builds them out of the published marked vector so
+ * One document is built rather than read: the `v: 3` cases need a receipt naming a marking whose region
+ * the bytes handed to the command either do or do not carry, and a published row states one verdict for
+ * its bytes rather than the pair a marking case turns on. Those bytes come from `stamped-receipt.ts`,
+ * which builds them out of the published marked vector so
  * the only thing a case moves is the version and the digest under test.
  */
 
@@ -68,6 +69,18 @@ const PUBLIC_KEY = Buffer.from(KEY.publicKey, 'hex').toString('base64url');
 /** The deployment the fixture receipts are issued by, read out of one of them. */
 const VALID = receiptJson('receipt-valid-v1');
 const SOFTWARE = receiptJson('receipt-software-v1');
+
+/**
+ * The published receipt rows, as the fixtures manifest states them.
+ *
+ * This is the suite `ashaveri verify-receipt` is measured against, read once so the number of commands
+ * the run below spends its budget on is the number of rows and not a figure kept beside them.
+ */
+const PUBLISHED_RECEIPTS = (
+  JSON.parse(readFileSync(`${DATA}manifest.json`, 'utf8')) as {
+    fixtures: Array<{ name: string; path: string; expected: string; responseBase64Url?: string }>;
+  }
+).fixtures;
 const MARKED = receiptJson('receipt-marked-v2');
 const ISSUER = VALID.payload.iss;
 const INSTANCE = VALID.payload.ins;
@@ -737,22 +750,26 @@ describe('ashaveri verify-receipt', () => {
   });
 
   it('drives every published vector to the verdict the fixtures manifest states', () => {
-    const published = JSON.parse(readFileSync(`${DATA}manifest.json`, 'utf8')) as {
-      fixtures: { name: string; path: string; expected: string }[];
-    };
-    const stated = new Map(published.fixtures.map((each) => [each.name, each]));
+    const stated = new Map(PUBLISHED_RECEIPTS.map((each) => [each.name, each]));
     expect(stated.size).toBeGreaterThan(4);
     // The marked vector is covered by its own three cases above, because its check is carried by the
-    // response bytes rather than by a digest; the rest run here on the digests their JSON twins state.
+    // response bytes rather than by a digest; the rest run here on the digests their JSON twins state,
+    // and on the response bytes their own row states where a payload names a marking to check.
     const drivenApart = ['receipt-marked-v2'];
     for (const [name, fixture] of stated) {
       if (drivenApart.includes(name)) continue;
-      const sidecar = name === 'receipt-tampered-v1' || name === 'receipt-meas-mismatch-v1' ? VALID : receiptJson(name);
+      // A row whose payload will not parse publishes no twin, and the request every fixture is issued
+      // under is the one the published valid document digests: those rows are refused before a claim of
+      // theirs is read, so which claims they are handed is not what the case is about.
+      const twin = existsSync(`${DATA}receipts/${name}.json`) ? receiptJson(name) : null;
+      const responseBytes =
+        fixture.responseBase64Url === undefined ? undefined : Buffer.from(fixture.responseBase64Url, 'base64url');
       const result = runCli(
         argsFor({
           receipt: `${DATA}${fixture.path}`,
-          requestDigest: sidecar.payload.req,
-          responseDigest: sidecar.payload.res,
+          requestDigest: (twin ?? VALID).payload.req,
+          responseDigest: twin?.payload.res,
+          responseBody: responseBytes === undefined ? undefined : written(`${name}-response`, responseBytes),
         }),
       );
       if (fixture.expected === 'verify-ok') {
@@ -763,7 +780,9 @@ describe('ashaveri verify-receipt', () => {
         expect(verdictOf(result).code, name).toBe(fixture.expected);
       }
     }
-  });
+    // One command per published row, and the rows are the suite: the budget is the count of them, so it
+    // is read off the manifest rather than repeated as a number that drifts behind it.
+  }, Math.max(20_000, PUBLISHED_RECEIPTS.length * 2_000));
 
   it('refuses a receipt whose measurement is not the one the policy pins', () => {
     const policy = policyFile({ measurements: { [SOFTWARE.payload.meas.tee]: [WRONG_SOFTWARE] } });

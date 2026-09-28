@@ -6,11 +6,70 @@ import type { SigningKey, ReceiptJson } from '@ashaveri/receipt';
 
 const DATA = join(dirname(fileURLToPath(import.meta.url)), '..', 'data');
 
+/** One item of a receipt's `itm`, as its row states it: the instant, the digest, and the bytes. */
+export interface ReceiptItemColumn {
+  t: number;
+  d: string;
+  bytesBase64Url: string;
+  byteLength: number;
+}
+
+/** One slot of an anchor, in the spelling the row states it in: a label, then a digest or a reason. */
+export interface ReceiptAnchorSlotColumn {
+  p: string;
+  d?: string;
+  r?: string;
+}
+
+/** The position a refusal row states, the member it quotes where the reader quotes one, and the claim. */
+export interface ReceiptFaultColumn {
+  at: string;
+  member?: string;
+  states: string;
+}
+
+/**
+ * One published receipt and everything its row states about it.
+ *
+ * The columns past `expected` are stated on a row exactly where the document carries what they describe,
+ * which is why a row can state no `items`: the payload it publishes names no item list. `expected` is the
+ * verdict the key-bearing reader owes the bytes and `keyless` the verdict the reader with no key in hand
+ * owes them, which are two answers a port has to get right separately.
+ */
+export interface ReceiptFixtureRow {
+  name: string;
+  path: string;
+  digestSha256: string;
+  expected: string;
+  keyless?: string;
+  v?: 1 | 2 | 3;
+  marking?: string;
+  contentType?: string;
+  response?: string;
+  assembledFrom?: string[];
+  responseBase64Url?: string;
+  responseByteLength?: number;
+  items?: ReceiptItemColumn[];
+  sd?: { name: string; unc?: number | null };
+  cva?: { col: ReceiptAnchorSlotColumn; val: ReceiptAnchorSlotColumn };
+  fault?: ReceiptFaultColumn;
+  note?: string;
+}
+
+/** What the suite says its own columns mean, published beside the rows rather than only in prose. */
+export interface ReceiptFixtureLayout {
+  verdictFields: string[];
+  readers: { keyless: string; keyBearing: string };
+  columns: Record<string, string>;
+  encodings: string;
+}
+
 export interface FixtureManifest {
   version: number;
   generatedBy: string;
   cddl: string;
-  fixtures: Array<{ name: string; path: string; digestSha256: string; expected: string; note?: string }>;
+  fixtures: ReceiptFixtureRow[];
+  layout?: ReceiptFixtureLayout;
 }
 
 export interface ReceiptFixture {

@@ -1,8 +1,10 @@
 import { existsSync, readFileSync, readdirSync, statSync } from 'node:fs';
 import { basename, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { decodeReceipt } from '@ashaveri/receipt';
 import { describe, expect, it } from 'vitest';
 import { DATA } from '../src/index.js';
+import { spelledNumber } from './doc-contract.js';
 
 /**
  * The suite inventory in `docs/vectors.md` is the index a port starts from: it names the file of each
@@ -255,5 +257,95 @@ describe('docs/vectors.md suite inventory', () => {
         );
       }
     }
+  });
+});
+
+/**
+ * The two counts and the one version list the document states about the receipt fixtures.
+ *
+ * Both are arithmetic over `data/manifest.json` and the `.cbor` files it lists, so a row added to the
+ * suite moves the document instead of leaving it to fall out of step: the versions the opening sentence
+ * calls current are read off the bytes a shipped reader will open, and the two counts are the rows that
+ * state no column and the rows that state a refusal without a position. A number that is derived from
+ * nothing is a number nothing keeps true, which is the state these two sentences were in before the
+ * first `v: 3` byte was published beside them.
+ */
+interface ManifestRow {
+  readonly name: string;
+  readonly path: string;
+  readonly expected: string;
+  readonly v?: number;
+  readonly keyless?: string;
+  readonly fault?: { at: string };
+}
+
+function receiptRows(): ManifestRow[] {
+  const found = resolve('packages/fixtures/data/manifest.json');
+  if (found === null) throw new Error('manifest.json is named by the inventory and is not there to read');
+  const parsed = JSON.parse(readFileSync(found, 'utf8')) as { fixtures: ManifestRow[] };
+  return parsed.fixtures;
+}
+
+/** The payload versions the published receipts claim, read by the reader that checks no signature. */
+function versionsPublished(): number[] {
+  const dir = join(DATA, 'receipts');
+  const versions = new Set<number>();
+  for (const file of readdirSync(dir).filter((each) => each.endsWith('.cbor')).sort()) {
+    try {
+      versions.add(decodeReceipt(new Uint8Array(readFileSync(join(dir, file)))).payload.v);
+    } catch {
+      // A document no reader parses states no version this sentence can be built from, which is the
+      // tampered and the malformed fixture, both of which the document counts as refusals elsewhere.
+    }
+  }
+  return [...versions].sort((one, other) => one - other);
+}
+
+/** One spelled count out of the document's own sentence about the receipt fixtures. */
+function statedCount(pattern: RegExp, what: string): number {
+  const found = readFileSync(DOC, 'utf8').match(pattern);
+  if (found === null || found[1] === undefined) {
+    throw new Error(`docs/vectors.md states no spelled count of ${what} for this to check`);
+  }
+  return spelledNumber(found[1]);
+}
+
+describe('docs/vectors.md account of the receipt fixtures', () => {
+  it('names as current the versions its published receipts are read as', () => {
+    const found = readFileSync(DOC, 'utf8').match(/^Status: current for format versions ([0-9, and]+)\./mu);
+    if (found === null || found[1] === undefined) {
+      throw new Error('docs/vectors.md opens with no statement of which formats it is current for');
+    }
+    const stated = [...found[1].matchAll(/\d+/gu)].map((digit) => Number(digit[0])).sort((a, b) => a - b);
+    expect(stated, 'the versions the status sentence names').toEqual(versionsPublished());
+  });
+
+  it('counts the rows that state no version column, spelled in words', () => {
+    const rows = receiptRows();
+    const without = rows.filter((each) => each.v === undefined);
+    expect(
+      statedCount(/The (one|two|three|four|five|six|seven|eight|nine|ten) entries this suite\s+began\s+with/u, 'the entries that state no version'),
+      'the spelled count of entries stating no version column',
+    ).toBe(without.length);
+    // And the other direction: a row stating a version is a row the sentence does not count, so a suite
+    // that grew one without moving the document is caught by the same number.
+    expect(rows.filter((each) => each.v !== undefined).length).toBe(rows.length - without.length);
+    expect(new Set(rows.filter((each) => each.v !== undefined).map((each) => each.v))).toEqual(new Set([2, 3]));
+  });
+
+  it('counts the refusals that predate the position column, spelled in words', () => {
+    const rows = receiptRows();
+    const refused = rows.filter((each) => each.expected !== 'verify-ok');
+    expect(
+      statedCount(/(\w+) entries are deliberately not\s+valid and predate the column/u, 'the refusals stating no position'),
+      'the spelled count of refusal rows with no fault position',
+    ).toBe(refused.filter((each) => each.fault === undefined).length);
+    // Every refusal that does state a position states one the shipped reader quotes, which is what the
+    // sentence about `fault.at` claims; the reading itself is `fixtures.test.ts`'s, and this is the
+    // document's share of it: no row is counted as stating a position it does not.
+    for (const each of refused.filter((row) => row.fault !== undefined)) {
+      expect(typeof each.fault?.at, `${each.name} states a refusal with no position`).toBe('string');
+    }
+    expect(existsSync(join(DATA, 'receipts'))).toBe(true);
   });
 });

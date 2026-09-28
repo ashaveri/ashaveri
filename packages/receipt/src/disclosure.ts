@@ -10,13 +10,13 @@
  *
  * Both are read and written by the format: `v: 3` names `sd` and `cva` as required members, the CDDL
  * rule, its JSON twin and the projection in `json.ts` all declare the same two shapes, and the parser
- * refuses a document that leaves either out or holds it in another shape. What is not the case sits on
- * the producing side: no receipt published as a vector carries either member, because every receipt
- * under `packages/fixtures/data` is a `v: 1` or `v: 2` document, so the only `v: 3` bytes this tree
- * reads are ones a test handed the codec with both members spelled out. These are shapes a reader reads
- * and a writer writes today, and not yet a record any published receipt carries. That is also why they
- * are types in this package rather than in the one that reads a receipt: the writer that will fill them
- * in for real is the issuer, and the issuer's codec lives here.
+ * refuses a document that leaves either out or holds it in another shape. They are published as
+ * records too: the receipt fixtures under `packages/fixtures/data/receipts/` carry both, a source
+ * naming the bound it admits and a source saying nobody measured it, an anchor holding a digest and an
+ * anchor stating which of its two absences it is, and `packages/fixtures/data/manifest.json` states
+ * beside each of those rows the answer a reader owes it, including the rows that state a refusal. That
+ * is also why they are types in this package rather than in the one that reads a receipt: the writer
+ * that fills them in for real is the issuer, and the issuer's codec lives here.
  */
 
 /**
