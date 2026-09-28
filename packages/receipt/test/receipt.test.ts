@@ -880,6 +880,22 @@ describe('receipt payload v2 and the versions a call accepts', () => {
     expectErrorCode(() => decodeReceipt(bytes, { acceptedVersions: [1] }), 'UNSUPPORTED_VERSION');
     expect(marked(decodeReceipt(bytes, { acceptedVersions: [1, 2] }).payload).mk.sch).toBe('provenance-v1');
   });
+
+  it('refuses to project a payload naming a version no arm of the twin claims', () => {
+    // The projection's default arm is closed by the type checker, which is why it needs an assertion
+    // beside it too. Nothing that came from bytes reaches the arm: `claimedVersion` answers a version
+    // outside `PARSED_VERSIONS` before a payload exists, so the only caller with a route here holds a
+    // payload of its own making, and the cast below is that route. What is asserted is that the arm
+    // refuses, because the cascade the switch replaced had the v1 shape as its tail and would have
+    // answered this payload with thirteen members, no `mk`, no `sd`, no `cva`, no `itm`, and a `v`
+    // rewritten to a number the payload does not name.
+    const unprojectable = { ...stampedPayload(), v: 4 } as unknown as ReceiptPayload;
+    const refusal = expectFailure(
+      () => receiptToJson(unprojectable, new Uint8Array(64).fill(3), new Uint8Array(32).fill(4)),
+      'UNSUPPORTED_VERSION',
+    );
+    expect(refusal.message).toContain('is not projected as another version');
+  });
 });
 
 /**

@@ -139,10 +139,13 @@ export function receiptToJson(payload: ReceiptPayload, signature: Uint8Array, ki
     case 1:
       return { protectedHeader, payload: { v: 1, ...fieldsToJson(payload) }, signature: toHex(signature) };
     default: {
-      // Bound and deliberately unread: this arm compiles only for a union member no case above
-      // claims, which is the error the assignment reports. The refusal below is for a caller that
-      // reaches it with bytes no build of this package produced, and it projects nothing rather than
-      // guessing a version whose members these are not.
+      // Bound and deliberately unread. Every version the union names has an arm above, so this arm
+      // compiles today and it is the assignment that fails the day a member reaches it without one: an
+      // arm that never compiled would guard nothing, and one that compiled whatever the union held would
+      // be the cascade this replaced. The refusal is for the caller that hands this function a payload
+      // naming a version of its own making, because no document read from bytes arrives here:
+      // `decodeReceipt` answers an unreadable version before there is a payload to project. It projects
+      // nothing rather than guessing a version whose members these are not.
       const _exhaustive: never = payload;
       throw new ReceiptError(
         'UNSUPPORTED_VERSION',
