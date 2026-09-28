@@ -1,0 +1,58 @@
+{
+  "protectedHeader": {
+    "alg": "EdDSA",
+    "kid": "35013a6e000b8d5dca51c4bd5c1db9f2860283606c76aeeeea8ee72b72b5e15e",
+    "typ": "ashaveri/receipt"
+  },
+  "payload": {
+    "v": 3,
+    "iss": "dpl-9f2a41c3",
+    "ins": "cvm-i-047f2a",
+    "iat": 1772000000,
+    "nce": "5b66873d3dcc9fc96fd9a14341bc1b2e",
+    "req": "ae8b759968f574a1c423445e00f4e73ee2aa0d4fcb889d79d6aed877fc6d9a79",
+    "res": "53a4609b8d89672cb20f1679943d556f195f3bf0fe5743913529661952ff0fef",
+    "mdl": "meta-llama/Llama-3.1-8B-Instruct",
+    "wts": "2689570aecf5054284b06d6022554fb97942cad0a774d5dbc9308b2d0477d9b5",
+    "meas": {
+      "tee": "snp+gpucc",
+      "m": "bd7661367ea7c0fa027295b495a37d8c445e95889c09d6b7beb6ed4052719e30f16f0507827e2d004949b552f1e551f2"
+    },
+    "att": {
+      "d": "4c8cdcf1f0ff0722b002adc9d8323cd314b50f57a01c3de302b1b3a1b664a9db",
+      "ts": 1771999940,
+      "url": "https://inference.ashaveri.com/v1/attestation"
+    },
+    "epk": 1,
+    "tok": {
+      "p": 128,
+      "c": 64
+    },
+    "mk": {
+      "sch": "provenance-v1",
+      "d": "35702fda276f3d0a81742cd54079eeb7031aebf06205993cfed1051e2de282de"
+    },
+    "sd": {
+      "name": "ptp-disciplined host clock",
+      "unc": 1
+    },
+    "cva": {
+      "col": {
+        "p": "absent-at-source",
+        "r": "the appraisal this receipt was issued from ran on collateral its source reports as never having been issued, and no byte of it reached this record"
+      },
+      "val": {
+        "p": "absent-at-source",
+        "r": "the appraisal this receipt was issued from ran under no validity context its source reports as issued: the window it would have been appraised inside was never published, and no byte of one reached this record"
+      }
+    },
+    "itm": [
+      {
+        "t": 1771999999,
+        "d": "53a4609b8d89672cb20f1679943d556f195f3bf0fe5743913529661952ff0fef"
+      }
+    ]
+  },
+  "signature": "6dfcbbbc4857acfab2f393a89125ca5526d388b89fe16ee0e72759874169d69078bb28e0d985cc8ef56b14b518dc6afd5a4cb2aae4097366ef7e357666c69f00",
+  "digestSha256": "1fde1327635f7ba70b8542fd683c5025908ec9ba587c4d498418961399f85cac"
+}

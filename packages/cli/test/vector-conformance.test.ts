@@ -89,6 +89,13 @@ interface ManifestEntry {
   readonly response?: string;
   readonly responseBase64Url?: string;
   readonly responseByteLength?: number;
+  /** The anchor the document carries, each slot one presence label with what that label selects. */
+  readonly cva?: { col: { p: string; d?: string; r?: string }; val: { p: string; d?: string; r?: string } };
+  /**
+   * The verdict the client path gives this document under each posture `minAnchorSlotsHeld` can take, in
+   * the order the suite publishes: no demand named, a demand of one held slot, a demand of both.
+   */
+  readonly handover?: { minAnchorSlotsHeld: number | null; verdict: string }[];
 }
 
 interface MarkingCase {
@@ -362,11 +369,20 @@ function responseBytesOf(entry: ManifestEntry): Uint8Array | undefined {
 
 /**
  * One receipt handed to the shipped client path the way a client hands it: the challenge it was asked to
- * answer, the two bodies it attests, and the response bytes themselves.
+ * answer, the two bodies it attests, the response bytes themselves, and the policy the row names beside
+ * them. With no policy the two freshness windows do not run at all, which is how every row here has always
+ * been read; a policy named for the anchor postures below pins the document's own issuer and nothing else,
+ * so the windows run at their shipped defaults and the only question left open is the anchor's.
  */
 function clientVerdict(
   receiptBytes: Uint8Array,
-  over: { requestHash?: Uint8Array; responseHash?: Uint8Array; responseBytes?: Uint8Array } = {},
+  over: {
+    requestHash?: Uint8Array;
+    responseHash?: Uint8Array;
+    responseBytes?: Uint8Array;
+    policy?: AshaveriPolicy;
+    now?: number;
+  } = {},
 ): string {
   const claims = claimsOf(receiptBytes);
   const responseBytes = over.responseBytes ?? (claims.version === 2 ? markingBytes('buffered-member') : new Uint8Array(0));
@@ -378,7 +394,8 @@ function clientVerdict(
       responseHash: over.responseHash ?? claims.res,
       responseBytes,
       verifyKey: PUBLIC_KEY,
-      now: CLOCK,
+      ...(over.policy === undefined ? {} : { policy: over.policy }),
+      now: over.now ?? CLOCK,
     }),
   );
 }
@@ -448,6 +465,154 @@ describe('the published receipt fixtures through the client path', () => {
     const marked = manifest.fixtures.find((entry) => entry.name === 'receipt-marked-v2');
     expect(marked?.expected).toBe('verify-ok');
     expect(clientVerdict(new Uint8Array(readFileSync(join(DATA, 'receipts/receipt-marked-v2.cbor'))))).toBe('verify-ok');
+  });
+});
+
+/**
+ * The demand a policy states about an anchor, weighed over the published receipts.
+ *
+ * Each row that carries an anchor the client reaches states what the shipped client answers for it under
+ * each posture `minAnchorSlotsHeld` can take, and this runs those answers rather than reading them: the
+ * posture is spelled as the policy field's own name beside the number an operator would write, pinned to
+ * the issuer the document itself carries, and the verdict is the code the client threw or `verify-ok`.
+ * Reading the column without this would leave it a claim about this repository's arithmetic, which is the
+ * one thing a published column cannot be.
+ *
+ * The property the rows are arranged to show is the field's own: the posture naming no demand answers
+ * what the row already states with no policy in the call at all. A policy that pins an issuer is not that
+ * absence, and the rows say which is which beside it.
+ */
+describe('the anchor demand a policy states, through the client path', () => {
+  /**
+   * One posture, spelled as an operator spells it: the document's own issuer pinned, the demand named or
+   * left out, and nothing else, so the only thing the three readings differ in is the anchor.
+   */
+  function policyOver(issuer: string, demand: number | null): AshaveriPolicy {
+    return demand === null ? { issuers: [issuer] } : { issuers: [issuer], minAnchorSlotsHeld: demand };
+  }
+
+  // A policy runs the two freshness windows and no policy runs neither, so the readings below are taken at
+  // the instant these documents are issued at in the unit the clock argument takes: milliseconds. The rest
+  // of this file hands no policy and never reaches a window, which is why the one figure it has always
+  // passed, `CLOCK`, is the same instant in seconds and is left alone here.
+  const CLOCK_MILLIS = CLOCK * 1000;
+
+  const postureOrder = [null, 1, 2];
+
+  it('gives every row that states its readings the verdict it states under each posture', () => {
+    const stated = manifest.fixtures.filter((entry) => entry.handover !== undefined);
+    expect(stated.length).toBeGreaterThanOrEqual(6);
+    for (const entry of stated) {
+      const readings = entry.handover ?? [];
+      expect(readings.map((one) => one.minAnchorSlotsHeld), entry.name).toEqual(postureOrder);
+      const receiptBytes = new Uint8Array(readFileSync(join(DATA, entry.path)));
+      const issuer = decodeReceipt(receiptBytes).payload.iss;
+      for (const reading of readings) {
+        expect(
+          clientVerdict(receiptBytes, {
+            responseBytes: responseBytesOf(entry),
+            policy: policyOver(issuer, reading.minAnchorSlotsHeld),
+            now: CLOCK_MILLIS,
+          }),
+          `${entry.name} under demand ${String(reading.minAnchorSlotsHeld)}`,
+        ).toBe(reading.verdict);
+      }
+      // The reading beside `null` is the row's own answer, stated twice on purpose: once with no policy in
+      // the call at all, which is how this suite has always read these bytes, and once under a policy that
+      // pins the issuer and names nothing about the anchor. Those two agreeing is what the field promises.
+      expect(readings[0]?.verdict, entry.name).toBe(entry.expected);
+    }
+  });
+
+  it('refuses with the code its row names, and weighs each presence label in each of the two slots', () => {
+    const stated = manifest.fixtures.filter((entry) => entry.handover !== undefined);
+    // Three published documents refuse at least one posture, so the column is not a suite of acceptances
+    // with one number attached, and the refusal it states is the code the register carries a row for.
+    const refusing = stated.filter((entry) => entry.handover?.some((one) => one.verdict === 'ANCHOR_SLOT_NOT_HELD'));
+    expect(refusing.length).toBeGreaterThanOrEqual(3);
+    for (const entry of refusing) {
+      const receiptBytes = new Uint8Array(readFileSync(join(DATA, entry.path)));
+      const issuer = decodeReceipt(receiptBytes).payload.iss;
+      for (const reading of entry.handover ?? []) {
+        if (reading.verdict !== 'ANCHOR_SLOT_NOT_HELD') continue;
+        expect(
+          clientVerdict(receiptBytes, {
+            responseBytes: responseBytesOf(entry),
+            policy: policyOver(issuer, reading.minAnchorSlotsHeld),
+            now: CLOCK_MILLIS,
+          }),
+          `${entry.name} under demand ${String(reading.minAnchorSlotsHeld)}`,
+        ).toBe('ANCHOR_SLOT_NOT_HELD');
+      }
+    }
+    // Both absences answer a demand alike, and which of the two slots carried them answers the same: the
+    // count is what decides, and the three labels each state themselves in both halves of an anchor here.
+    const labels = (slot: 'col' | 'val'): string[] => [
+      ...new Set(stated.map((entry) => entry.cva?.[slot]?.p).filter((one): one is string => one !== undefined)),
+    ].sort();
+    expect(labels('col'), 'presence labels published in the collateral slot').toEqual([
+      'absent-at-source',
+      'held',
+      'not-taken-in',
+    ]);
+    expect(labels('val'), 'presence labels published in the validity slot').toEqual([
+      'absent-at-source',
+      'held',
+      'not-taken-in',
+    ]);
+    // And the message a refusal carries names which label reached it, off the bytes rather than off this
+    // file, since a sentence that cannot say which half of the anchor was missing says nothing an operator
+    // can act on. Same call as the one above, read for its sentence instead of its code.
+    const gapRow = stated.find((entry) => entry.name === 'receipt-buffered-v3');
+    expect(gapRow, 'the published anchor with one slot absent at its source is not in the suite').toBeDefined();
+    if (gapRow === undefined) return;
+    const receiptBytes = new Uint8Array(readFileSync(join(DATA, gapRow.path)));
+    const payload = decodeReceipt(receiptBytes).payload;
+    let message = '';
+    let code = 'verify-ok';
+    try {
+      verifyCompletionReceipt({
+        receiptBytes,
+        nonce: payload.nce,
+        requestHash: payload.req,
+        responseHash: payload.res,
+        responseBytes: responseBytesOf(gapRow) ?? new Uint8Array(0),
+        verifyKey: PUBLIC_KEY,
+        policy: policyOver(payload.iss, 2),
+        now: CLOCK_MILLIS,
+      });
+    } catch (err) {
+      message = err instanceof Error ? err.message : String(err);
+      code = err instanceof SdkError || err instanceof ReceiptError ? String(err.code) : 'uncoded';
+    }
+    expect(code, gapRow.name).toBe('ANCHOR_SLOT_NOT_HELD');
+    expect(message).toContain('absent-at-source');
+    expect(message).toContain('the validity slot');
+    // The held half is not swept into the gap list, which is the one way this sentence could state a count
+    // and a list that disagree, and the count and the demand are both in it.
+    expect(message).not.toContain('the collateral slot');
+    expect(message).toContain('1 of 2 slots held');
+    expect(message).toContain('demands 2');
+  });
+
+  it('states its readings on every row whose anchor the client reaches', () => {
+    // The roster and the rows, read off the rows: a document this suite publishes an accepted answer for
+    // carries an anchor the policy stage reads, so a row added without its three readings is caught here
+    // rather than published as a hole nobody noticed in the column.
+    const owed = manifest.fixtures.filter((entry) => entry.cva !== undefined && entry.expected === 'verify-ok');
+    expect(owed.length).toBeGreaterThanOrEqual(7);
+    for (const entry of owed) {
+      expect(entry.handover, `${entry.name} carries an anchor the client accepts and states no reading`).toEqual(
+        expect.arrayContaining(postureOrder.map((one) => expect.objectContaining({ minAnchorSlotsHeld: one }))),
+      );
+    }
+    // And a row stating none of the three is a row the demand cannot reach for one of two stated reasons:
+    // the format reader answers it before any policy is weighed, or its document names no anchor at all and
+    // so makes no presence claim to weigh. Both excuses are read off the row, not from a list kept here.
+    for (const entry of manifest.fixtures.filter((each) => each.handover === undefined)) {
+      const unreachable = entry.expected !== 'verify-ok' || entry.cva === undefined;
+      expect(unreachable, `${entry.name} carries an anchor the client accepts and states no readings`).toBe(true);
+    }
   });
 });
 

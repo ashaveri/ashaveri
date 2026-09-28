@@ -161,6 +161,13 @@ const VALIDITY_NOT_TAKEN_IN: CollateralSlot = {
     'was stamped is a fact this process never looked at; the appraisal that needs one belongs to a verifier, ' +
     'run afterwards against bytes this document only digests',
 };
+/** The other arm's absence at its source: the window this appraisal would have run under, never issued. */
+const VALIDITY_NOT_ISSUED: CollateralSlot = {
+  presence: 'absent-at-source',
+  reason:
+    'the appraisal this receipt was issued from ran under no validity context its source reports as issued: ' +
+    'the window it would have been appraised inside was never published, and no byte of one reached this record',
+};
 
 const ANCHOR_HELD_BOTH: CollateralValidityAnchor = { collateral: HELD_COLLATERAL, validity: HELD_VALIDITY };
 const ANCHOR_HELD_AND_ABSENT: CollateralValidityAnchor = {
@@ -176,6 +183,50 @@ const ANCHOR_ONE_OF_EACH: CollateralValidityAnchor = {
   collateral: HELD_COLLATERAL,
   validity: COLLATERAL_NOT_TAKEN_IN,
 };
+/** The mirror position of the pair above, so the demand is seen to read both slots and not one name. */
+const ANCHOR_COLLATERAL_ABSENT: CollateralValidityAnchor = {
+  collateral: COLLATERAL_NOT_ISSUED,
+  validity: HELD_VALIDITY,
+};
+/** Both slots stating the world's absence, the third shape a demand of one refuses for its own reason. */
+const ANCHOR_BOTH_ABSENT_AT_SOURCE: CollateralValidityAnchor = {
+  collateral: COLLATERAL_NOT_ISSUED,
+  validity: VALIDITY_NOT_ISSUED,
+};
+
+/**
+ * One row's anchor postures, spelled as a port reads them.
+ *
+ * A reading is the policy field's own name beside the number an operator would write, and the verdict the
+ * client path gives the document under it. `null` is the policy that names no demand, which is the posture
+ * every row in this suite has always been read in, so a row states it beside the two that ask: a column
+ * that carried only the refusing postures would hide the one that must not move.
+ *
+ * The verdicts are written at each call site by whoever states the row, and are not computed here from the
+ * anchor's slots. A generator that derived the answer from the same arithmetic the shipped check uses could
+ * disagree with it in nothing, and the published column would record this file rather than the code.
+ */
+function handover(
+  readings: readonly (readonly [demand: number | null, verdict: string])[],
+): Array<{ minAnchorSlotsHeld: number | null; verdict: string }> {
+  return readings.map(([demand, verdict]) => ({ minAnchorSlotsHeld: demand, verdict }));
+}
+
+/** The three postures `minAnchorSlotsHeld` can be in, stated in this order by every row that states any. */
+const POSTURES = [null, 1, 2] as const;
+
+/** The readings for an anchor's two slots, one verdict per posture, in the order every row states them. */
+function handoverFor(verdicts: readonly [none: string, one: string, two: string]): ReturnType<typeof handover> {
+  const [none, one, two] = verdicts;
+  // The postures come off `POSTURES`, which is the order every row states them in, and the verdicts off
+  // the tuple beside them, which is what makes three readings and not two a condition of writing this
+  // row at all. An index into either would be a number this file would have to keep true by itself.
+  return handover([
+    [POSTURES[0], none] as const,
+    [POSTURES[1], one] as const,
+    [POSTURES[2], two] as const,
+  ]);
+}
 
 /**
  * The item stamps of one response, taken the way the format says they are taken.
@@ -233,6 +284,7 @@ interface RowColumns {
   readonly items?: Array<{ t: number; d: string; bytesBase64Url: string; byteLength: number }>;
   readonly sd?: { name: string; unc?: number | null };
   readonly cva?: { col: { p: string; d?: string; r?: string }; val: { p: string; d?: string; r?: string } };
+  readonly handover?: Array<{ minAnchorSlotsHeld: number | null; verdict: string }>;
   readonly fault?: { at: string; member?: string; states: string };
 }
 
@@ -419,8 +471,11 @@ function main(): void {
       row: {
         name: 'receipt-stream-v3',
         expected: 'verify-ok',
-        note: 'A v3 receipt over the four items a streamed completion frames, issued by a deployment whose time source declares a bound: one reading per item in the order the items were framed, the last a second before `iat`, and both anchor slots holding the digest of bytes that were taken in. Its `res` is sha256 of the whole stream with its framing and its sentinel, the bytes marking-v1.json publishes as `streamed-region-stripped`, and its `itm` digests are the four `data:` payloads inside those bytes.',
-        columns: columnsOf(stream, { v: 3, sd: MEASURED_SOURCE, cva: ANCHOR_HELD_BOTH, stamps: streamStamps }),
+        note: 'A v3 receipt over the four items a streamed completion frames, issued by a deployment whose time source declares a bound: one reading per item in the order the items were framed, the last a second before `iat`, and both anchor slots holding the digest of bytes that were taken in. Its `res` is sha256 of the whole stream with its framing and its sentinel, the bytes marking-v1.json publishes as `streamed-region-stripped`, and its `itm` digests are the four `data:` payloads inside those bytes. This is the anchor a demand of two answers: both slots state they were taken in, so every posture a policy can take about an anchor accepts it, and the column states all three beside that fact.',
+        columns: {
+          ...columnsOf(stream, { v: 3, sd: MEASURED_SOURCE, cva: ANCHOR_HELD_BOTH, stamps: streamStamps }),
+          handover: handoverFor(['verify-ok', 'verify-ok', 'verify-ok']),
+        },
       },
       payload: v3Payload(stream, { sd: MEASURED_SOURCE, cva: ANCHOR_HELD_BOTH, itm: streamStamps }),
     },
@@ -428,8 +483,11 @@ function main(): void {
       row: {
         name: 'receipt-buffered-v3',
         expected: 'verify-ok',
-        note: 'A v3 receipt over a buffered body, whose item list is the one item holding the whole of it: `itm[0].d` and `res` are two statements about one byte string, and a port that walks a buffered body for frames reads no item out of it and disagrees with both. Its anchor holds the collateral and names the validity context as a document its source reports as never issued, which is the pair of states a slot carries a label for rather than a flag.',
-        columns: columnsOf(body, { v: 3, sd: MEASURED_SOURCE, cva: ANCHOR_HELD_AND_ABSENT, stamps: bodyStamps }),
+        note: 'A v3 receipt over a buffered body, whose item list is the one item holding the whole of it: `itm[0].d` and `res` are two statements about one byte string, and a port that walks a buffered body for frames reads no item out of it and disagrees with both. Its anchor holds the collateral and names the validity context as a document its source reports as never issued, which is the pair of states a slot carries a label for rather than a flag. The postures say what that pair is worth: a demand of one slot is met by the half that was taken in, and a demand of both is refused by the half that was not.',
+        columns: {
+          ...columnsOf(body, { v: 3, sd: MEASURED_SOURCE, cva: ANCHOR_HELD_AND_ABSENT, stamps: bodyStamps }),
+          handover: handoverFor(['verify-ok', 'verify-ok', 'ANCHOR_SLOT_NOT_HELD']),
+        },
       },
       payload: v3Payload(body, { sd: MEASURED_SOURCE, cva: ANCHOR_HELD_AND_ABSENT, itm: bodyStamps }),
     },
@@ -437,8 +495,11 @@ function main(): void {
       row: {
         name: 'receipt-unmeasured-v3',
         expected: 'verify-ok',
-        note: 'A v3 receipt whose source declares that nobody measured it: `sd.unc` is `null`, which is that source saying nothing here knows how far its readings stand from the instants they name, and neither a bound of zero nor a member left out. The name is the shipped one for a deployment that wired no source. The response is the marked buffered completion, so this row and `receipt-marked-v2` attest one response in the two versions that name a marking.',
-        columns: columnsOf(markedBody, { v: 3, sd: UNMEASURED_SOURCE, cva: ANCHOR_HELD_BOTH, stamps: markedBodyStamps }),
+        note: 'A v3 receipt whose source declares that nobody measured it: `sd.unc` is `null`, which is that source saying nothing here knows how far its readings stand from the instants they name, and neither a bound of zero nor a member left out. The name is the shipped one for a deployment that wired no source. The response is the marked buffered completion, so this row and `receipt-marked-v2` attest one response in the two versions that name a marking. Its anchor holds both halves, so the two windows a policy runs and the demand a policy states are two separate questions here: this row is accepted whatever posture the anchor demand takes.',
+        columns: {
+          ...columnsOf(markedBody, { v: 3, sd: UNMEASURED_SOURCE, cva: ANCHOR_HELD_BOTH, stamps: markedBodyStamps }),
+          handover: handoverFor(['verify-ok', 'verify-ok', 'verify-ok']),
+        },
       },
       payload: v3Payload(markedBody, { sd: UNMEASURED_SOURCE, cva: ANCHOR_HELD_BOTH, itm: markedBodyStamps }),
     },
@@ -446,17 +507,52 @@ function main(): void {
       row: {
         name: 'receipt-not-taken-in-v3',
         expected: 'verify-ok',
-        note: 'A v3 receipt with both anchor slots saying `not-taken-in` beside their reasons, which is the state every artifact this repository issues today is in: an issuer that takes no collateral in and appraises nothing states both absences in the words that name the collector rather than the world, and a verifier weighing the anchor refuses a declared gap instead of an undeclared one. The response is the marked stream, so the list is the four upstream chunks and the marking frame, five items in the order the bytes put them in.',
-        columns: columnsOf(markedStream, { v: 3, sd: MEASURED_SOURCE, cva: ANCHOR_NOT_TAKEN_IN, stamps: markedStreamStamps }),
+        note: 'A v3 receipt with both anchor slots saying `not-taken-in` beside their reasons, which is the state every artifact this repository issues today is in: an issuer that takes no collateral in and appraises nothing states both absences in the words that name the collector rather than the world, and a verifier weighing the anchor refuses a declared gap instead of an undeclared one. The response is the marked stream, so the list is the four upstream chunks and the marking frame, five items in the order the bytes put them in. The postures are the whole of what a demand reaches here: naming nothing leaves this document where it was, and asking for one slot or for both refuses it, because there is no held slot to count.',
+        columns: {
+          ...columnsOf(markedStream, { v: 3, sd: MEASURED_SOURCE, cva: ANCHOR_NOT_TAKEN_IN, stamps: markedStreamStamps }),
+          handover: handoverFor(['verify-ok', 'ANCHOR_SLOT_NOT_HELD', 'ANCHOR_SLOT_NOT_HELD']),
+        },
       },
       payload: v3Payload(markedStream, { sd: MEASURED_SOURCE, cva: ANCHOR_NOT_TAKEN_IN, itm: markedStreamStamps }),
     },
     {
       row: {
+        name: 'receipt-collateral-absent-v3',
+        expected: 'verify-ok',
+        note: 'A v3 receipt over a buffered body whose anchor is the mirror of `receipt-buffered-v3`: the collateral its evidence was appraised against is the half its source reports as never issued, and the validity context is the half held. Written by `issueReceipt` over these bytes like every accepted row here, since a slot naming an absence and its reason is a shape the shipped writer makes. The postures read both halves: a demand of one slot is met by the half that was taken in and a demand of both is refused by the half that was not, and a row whose one held slot is the other one answers alike, which is the only way the column is seen to count slots rather than to look for one name.',
+        columns: {
+          ...columnsOf(body, { v: 3, sd: MEASURED_SOURCE, cva: ANCHOR_COLLATERAL_ABSENT, stamps: bodyStamps }),
+          handover: handoverFor(['verify-ok', 'verify-ok', 'ANCHOR_SLOT_NOT_HELD']),
+        },
+      },
+      payload: v3Payload(body, { sd: MEASURED_SOURCE, cva: ANCHOR_COLLATERAL_ABSENT, itm: bodyStamps }),
+    },
+    {
+      row: {
+        name: 'receipt-both-absent-at-source-v3',
+        expected: 'verify-ok',
+        note: 'A v3 receipt over the marked buffered body whose anchor states both halves as material its source never had: the collateral as never issued and the validity context as never issued, each beside its own reason. This is the absence the world is account for, in contrast to `receipt-not-taken-in-v3`, whose two absences are this deployment\'s own account of looking away, and the two shapes answer a demand alike because neither gives a verifier bytes to weigh. Written by `issueReceipt` over these bytes. Naming no demand leaves it where it was, and a demand of one slot refuses it for the same count a demand of two does: there is no held slot to reach either.',
+        columns: {
+          ...columnsOf(markedBody, {
+            v: 3,
+            sd: MEASURED_SOURCE,
+            cva: ANCHOR_BOTH_ABSENT_AT_SOURCE,
+            stamps: markedBodyStamps,
+          }),
+          handover: handoverFor(['verify-ok', 'ANCHOR_SLOT_NOT_HELD', 'ANCHOR_SLOT_NOT_HELD']),
+        },
+      },
+      payload: v3Payload(markedBody, { sd: MEASURED_SOURCE, cva: ANCHOR_BOTH_ABSENT_AT_SOURCE, itm: markedBodyStamps }),
+    },
+    {
+      row: {
         name: 'receipt-marked-sentinel-v3',
         expected: 'verify-ok',
-        note: 'A v3 receipt over a stream that framed no item until the mark was written to it: the response is one marking frame, the blank line that closes it, and the closing sentinel, joined from the pieces the marking and response suites publish, and it frames exactly one item, the mark. The same upstream body with the marking off frames nothing at all, and `receipt-no-items-v2` beside this row is the answer those bytes are owed.',
-        columns: columnsOf(markedSentinel, { v: 3, sd: MEASURED_SOURCE, cva: ANCHOR_HELD_BOTH, stamps: markedSentinelStamps }),
+        note: 'A v3 receipt over a stream that framed no item until the mark was written to it: the response is one marking frame, the blank line that closes it, and the closing sentinel, joined from the pieces the marking and response suites publish, and it frames exactly one item, the mark. The same upstream body with the marking off frames nothing at all, and `receipt-no-items-v2` beside this row is the answer those bytes are owed. Its anchor holds both halves, so all three postures a policy can take about an anchor accept it, which is the row that states its demand and the rows that state none agreeing.',
+        columns: {
+          ...columnsOf(markedSentinel, { v: 3, sd: MEASURED_SOURCE, cva: ANCHOR_HELD_BOTH, stamps: markedSentinelStamps }),
+          handover: handoverFor(['verify-ok', 'verify-ok', 'verify-ok']),
+        },
       },
       payload: v3Payload(markedSentinel, { sd: MEASURED_SOURCE, cva: ANCHOR_HELD_BOTH, itm: markedSentinelStamps }),
     },
@@ -686,7 +782,7 @@ function main(): void {
         cddl: 'receipt.cddl @ashaveri/receipt v0.1.0',
         fixtures: manifestFixtures,
         layout: {
-          verdictFields: ['expected', 'keyless'],
+          verdictFields: ['expected', 'keyless', 'handover'],
           readers: {
             keyless:
               'decodeReceipt reads the payload a document claims with no key in hand, so a row\'s `keyless` column is the answer these bytes owe a reader that has not authenticated them',
@@ -709,6 +805,8 @@ function main(): void {
               'One entry per item the shipped reader gives those bytes, in the order it gives them: the instant the source named by `sd` read for it, the digest of that item\'s bytes, and the bytes themselves so the digest is checkable rather than asserted. A row states `items` exactly where its document carries the list. Where a refusal is about the list, the row states the list as the bytes hold it, which is the whole of what the reader compares.',
             sd: 'The disclosure the payload carries: the source `iat` was read from, and the bound that source declares, where `null` is that source\'s statement that nobody measured it. A row stating no `unc` is a document that withheld the member, which is a refusal and not the same sentence.',
             cva: 'The anchor the payload carries, each slot one of the three presence labels with the digest or the reason that label selects. A slot stating `held` with an empty `d` is a claim with no material behind it, which is a refusal.',
+            handover:
+              'What the shipped client path answers for this document under each posture `minAnchorSlotsHeld` can take, three entries in the order `null`, `1`, `2`: the policy that names no demand, a demand of one held slot, a demand of both. Each entry is that policy field\'s own name beside the number an operator would write and the verdict the client gives the bytes under it, read off `verifyCompletionReceipt` with the fixture\'s issuer pinned, the clock at the instant the document names, and nothing else named, so the only thing the three readings differ in is the demand. The `null` entry repeats the row\'s `expected` rather than claiming a second answer, because what the field promises is that a demand nobody stated moves no verdict. A row states this column exactly where the client reaches an anchor inside its document, which is every accepted row whose payload names `cva`: a refusal row states none because the format reader answers it before a policy is weighed at all, and an accepted `v: 1` or `v: 2` row states none because its document names no anchor and so makes no presence claim to weigh. Whether a slot stating `held` still resolves is not this column and not this suite: it is answered outside the document.',
             fault:
               'On a refusal row, the position the shipped reader names in the answer these bytes get, and what the row states about it. Where the reader quotes a member back, the row states the name as `member`. The position is what makes the row about one member rather than about the document as a whole.',
           },

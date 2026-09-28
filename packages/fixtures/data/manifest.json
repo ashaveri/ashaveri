@@ -87,7 +87,21 @@
           "d": "0f97dfca91870f4e142f6bc275945fc4aca3a21bbde1924dfc181086e0b03ef9"
         }
       },
-      "note": "A v3 receipt over the four items a streamed completion frames, issued by a deployment whose time source declares a bound: one reading per item in the order the items were framed, the last a second before `iat`, and both anchor slots holding the digest of bytes that were taken in. Its `res` is sha256 of the whole stream with its framing and its sentinel, the bytes marking-v1.json publishes as `streamed-region-stripped`, and its `itm` digests are the four `data:` payloads inside those bytes."
+      "handover": [
+        {
+          "minAnchorSlotsHeld": null,
+          "verdict": "verify-ok"
+        },
+        {
+          "minAnchorSlotsHeld": 1,
+          "verdict": "verify-ok"
+        },
+        {
+          "minAnchorSlotsHeld": 2,
+          "verdict": "verify-ok"
+        }
+      ],
+      "note": "A v3 receipt over the four items a streamed completion frames, issued by a deployment whose time source declares a bound: one reading per item in the order the items were framed, the last a second before `iat`, and both anchor slots holding the digest of bytes that were taken in. Its `res` is sha256 of the whole stream with its framing and its sentinel, the bytes marking-v1.json publishes as `streamed-region-stripped`, and its `itm` digests are the four `data:` payloads inside those bytes. This is the anchor a demand of two answers: both slots state they were taken in, so every posture a policy can take about an anchor accepts it, and the column states all three beside that fact."
     },
     {
       "name": "receipt-buffered-v3",
@@ -123,7 +137,21 @@
           "r": "the appraisal this receipt was issued from ran on collateral its source reports as never having been issued, and no byte of it reached this record"
         }
       },
-      "note": "A v3 receipt over a buffered body, whose item list is the one item holding the whole of it: `itm[0].d` and `res` are two statements about one byte string, and a port that walks a buffered body for frames reads no item out of it and disagrees with both. Its anchor holds the collateral and names the validity context as a document its source reports as never issued, which is the pair of states a slot carries a label for rather than a flag."
+      "handover": [
+        {
+          "minAnchorSlotsHeld": null,
+          "verdict": "verify-ok"
+        },
+        {
+          "minAnchorSlotsHeld": 1,
+          "verdict": "verify-ok"
+        },
+        {
+          "minAnchorSlotsHeld": 2,
+          "verdict": "ANCHOR_SLOT_NOT_HELD"
+        }
+      ],
+      "note": "A v3 receipt over a buffered body, whose item list is the one item holding the whole of it: `itm[0].d` and `res` are two statements about one byte string, and a port that walks a buffered body for frames reads no item out of it and disagrees with both. Its anchor holds the collateral and names the validity context as a document its source reports as never issued, which is the pair of states a slot carries a label for rather than a flag. The postures say what that pair is worth: a demand of one slot is met by the half that was taken in, and a demand of both is refused by the half that was not."
     },
     {
       "name": "receipt-unmeasured-v3",
@@ -159,7 +187,21 @@
           "d": "0f97dfca91870f4e142f6bc275945fc4aca3a21bbde1924dfc181086e0b03ef9"
         }
       },
-      "note": "A v3 receipt whose source declares that nobody measured it: `sd.unc` is `null`, which is that source saying nothing here knows how far its readings stand from the instants they name, and neither a bound of zero nor a member left out. The name is the shipped one for a deployment that wired no source. The response is the marked buffered completion, so this row and `receipt-marked-v2` attest one response in the two versions that name a marking."
+      "handover": [
+        {
+          "minAnchorSlotsHeld": null,
+          "verdict": "verify-ok"
+        },
+        {
+          "minAnchorSlotsHeld": 1,
+          "verdict": "verify-ok"
+        },
+        {
+          "minAnchorSlotsHeld": 2,
+          "verdict": "verify-ok"
+        }
+      ],
+      "note": "A v3 receipt whose source declares that nobody measured it: `sd.unc` is `null`, which is that source saying nothing here knows how far its readings stand from the instants they name, and neither a bound of zero nor a member left out. The name is the shipped one for a deployment that wired no source. The response is the marked buffered completion, so this row and `receipt-marked-v2` attest one response in the two versions that name a marking. Its anchor holds both halves, so the two windows a policy runs and the demand a policy states are two separate questions here: this row is accepted whatever posture the anchor demand takes."
     },
     {
       "name": "receipt-not-taken-in-v3",
@@ -219,7 +261,121 @@
           "r": "this issuer records no validity context at issuance: nothing in it appraises the evidence whose digest it signs, so no window was put into this record, and whether one stood open at the instant this receipt was stamped is a fact this process never looked at; the appraisal that needs one belongs to a verifier, run afterwards against bytes this document only digests"
         }
       },
-      "note": "A v3 receipt with both anchor slots saying `not-taken-in` beside their reasons, which is the state every artifact this repository issues today is in: an issuer that takes no collateral in and appraises nothing states both absences in the words that name the collector rather than the world, and a verifier weighing the anchor refuses a declared gap instead of an undeclared one. The response is the marked stream, so the list is the four upstream chunks and the marking frame, five items in the order the bytes put them in."
+      "handover": [
+        {
+          "minAnchorSlotsHeld": null,
+          "verdict": "verify-ok"
+        },
+        {
+          "minAnchorSlotsHeld": 1,
+          "verdict": "ANCHOR_SLOT_NOT_HELD"
+        },
+        {
+          "minAnchorSlotsHeld": 2,
+          "verdict": "ANCHOR_SLOT_NOT_HELD"
+        }
+      ],
+      "note": "A v3 receipt with both anchor slots saying `not-taken-in` beside their reasons, which is the state every artifact this repository issues today is in: an issuer that takes no collateral in and appraises nothing states both absences in the words that name the collector rather than the world, and a verifier weighing the anchor refuses a declared gap instead of an undeclared one. The response is the marked stream, so the list is the four upstream chunks and the marking frame, five items in the order the bytes put them in. The postures are the whole of what a demand reaches here: naming nothing leaves this document where it was, and asking for one slot or for both refuses it, because there is no held slot to count."
+    },
+    {
+      "name": "receipt-collateral-absent-v3",
+      "path": "receipts/receipt-collateral-absent-v3.cbor",
+      "digestSha256": "8b7bb73a1c4c018e78ff6fd77419ddad3019455a22ccf552c4a756e51bbddef4",
+      "expected": "verify-ok",
+      "keyless": "verify-ok",
+      "v": 3,
+      "marking": "none",
+      "contentType": "application/json",
+      "response": "marking-v1.json#absence-declared",
+      "responseBase64Url": "eyJpZCI6ImNoYXRjbXBsLW1hcmtpbmctMSIsIm9iamVjdCI6ImNoYXQuY29tcGxldGlvbiIsImNyZWF0ZWQiOjE3NzIwMDAwMDAsIm1vZGVsIjoibW9jay1tb2RlbC0xIiwiY2hvaWNlcyI6W3siaW5kZXgiOjAsIm1lc3NhZ2UiOnsicm9sZSI6ImFzc2lzdGFudCIsImNvbnRlbnQiOiJNb2NrIHJlcGx5OiBjYWbDqSDimJUgc2VydmVkLiJ9LCJmaW5pc2hfcmVhc29uIjoic3RvcCJ9XSwidXNhZ2UiOnsicHJvbXB0X3Rva2VucyI6OSwiY29tcGxldGlvbl90b2tlbnMiOjYsInRvdGFsX3Rva2VucyI6MTV9fQ",
+      "responseByteLength": 286,
+      "items": [
+        {
+          "t": 1771999999,
+          "d": "f25278113271447ec6a242f1d72db47b101028d2673b2948eb2b329683b970e6",
+          "bytesBase64Url": "eyJpZCI6ImNoYXRjbXBsLW1hcmtpbmctMSIsIm9iamVjdCI6ImNoYXQuY29tcGxldGlvbiIsImNyZWF0ZWQiOjE3NzIwMDAwMDAsIm1vZGVsIjoibW9jay1tb2RlbC0xIiwiY2hvaWNlcyI6W3siaW5kZXgiOjAsIm1lc3NhZ2UiOnsicm9sZSI6ImFzc2lzdGFudCIsImNvbnRlbnQiOiJNb2NrIHJlcGx5OiBjYWbDqSDimJUgc2VydmVkLiJ9LCJmaW5pc2hfcmVhc29uIjoic3RvcCJ9XSwidXNhZ2UiOnsicHJvbXB0X3Rva2VucyI6OSwiY29tcGxldGlvbl90b2tlbnMiOjYsInRvdGFsX3Rva2VucyI6MTV9fQ",
+          "byteLength": 286
+        }
+      ],
+      "sd": {
+        "name": "ptp-disciplined host clock",
+        "unc": 1
+      },
+      "cva": {
+        "col": {
+          "p": "absent-at-source",
+          "r": "the appraisal this receipt was issued from ran on collateral its source reports as never having been issued, and no byte of it reached this record"
+        },
+        "val": {
+          "p": "held",
+          "d": "0f97dfca91870f4e142f6bc275945fc4aca3a21bbde1924dfc181086e0b03ef9"
+        }
+      },
+      "handover": [
+        {
+          "minAnchorSlotsHeld": null,
+          "verdict": "verify-ok"
+        },
+        {
+          "minAnchorSlotsHeld": 1,
+          "verdict": "verify-ok"
+        },
+        {
+          "minAnchorSlotsHeld": 2,
+          "verdict": "ANCHOR_SLOT_NOT_HELD"
+        }
+      ],
+      "note": "A v3 receipt over a buffered body whose anchor is the mirror of `receipt-buffered-v3`: the collateral its evidence was appraised against is the half its source reports as never issued, and the validity context is the half held. Written by `issueReceipt` over these bytes like every accepted row here, since a slot naming an absence and its reason is a shape the shipped writer makes. The postures read both halves: a demand of one slot is met by the half that was taken in and a demand of both is refused by the half that was not, and a row whose one held slot is the other one answers alike, which is the only way the column is seen to count slots rather than to look for one name."
+    },
+    {
+      "name": "receipt-both-absent-at-source-v3",
+      "path": "receipts/receipt-both-absent-at-source-v3.cbor",
+      "digestSha256": "1fde1327635f7ba70b8542fd683c5025908ec9ba587c4d498418961399f85cac",
+      "expected": "verify-ok",
+      "keyless": "verify-ok",
+      "v": 3,
+      "marking": "provenance-v1",
+      "contentType": "application/json",
+      "response": "marking-v1.json#buffered-member",
+      "responseBase64Url": "eyJpZCI6ImNoYXRjbXBsLW1hcmtpbmctMSIsIm9iamVjdCI6ImNoYXQuY29tcGxldGlvbiIsImNyZWF0ZWQiOjE3NzIwMDAwMDAsIm1vZGVsIjoibW9jay1tb2RlbC0xIiwiY2hvaWNlcyI6W3siaW5kZXgiOjAsIm1lc3NhZ2UiOnsicm9sZSI6ImFzc2lzdGFudCIsImNvbnRlbnQiOiJNb2NrIHJlcGx5OiBjYWbDqSDimJUgc2VydmVkLiJ9LCJmaW5pc2hfcmVhc29uIjoic3RvcCJ9XSwidXNhZ2UiOnsicHJvbXB0X3Rva2VucyI6OSwiY29tcGxldGlvbl90b2tlbnMiOjYsInRvdGFsX3Rva2VucyI6MTV9LCJhc2hhdmVyaSI6eyJtYXJraW5nIjp7InNjaCI6ImFzaGF2ZXJpL3Byb3ZlbmFuY2UtdjEiLCJnZW4iOiJhaSIsImF0IjoxNzcyMDAwMDAwfX19",
+      "responseByteLength": 369,
+      "items": [
+        {
+          "t": 1771999999,
+          "d": "53a4609b8d89672cb20f1679943d556f195f3bf0fe5743913529661952ff0fef",
+          "bytesBase64Url": "eyJpZCI6ImNoYXRjbXBsLW1hcmtpbmctMSIsIm9iamVjdCI6ImNoYXQuY29tcGxldGlvbiIsImNyZWF0ZWQiOjE3NzIwMDAwMDAsIm1vZGVsIjoibW9jay1tb2RlbC0xIiwiY2hvaWNlcyI6W3siaW5kZXgiOjAsIm1lc3NhZ2UiOnsicm9sZSI6ImFzc2lzdGFudCIsImNvbnRlbnQiOiJNb2NrIHJlcGx5OiBjYWbDqSDimJUgc2VydmVkLiJ9LCJmaW5pc2hfcmVhc29uIjoic3RvcCJ9XSwidXNhZ2UiOnsicHJvbXB0X3Rva2VucyI6OSwiY29tcGxldGlvbl90b2tlbnMiOjYsInRvdGFsX3Rva2VucyI6MTV9LCJhc2hhdmVyaSI6eyJtYXJraW5nIjp7InNjaCI6ImFzaGF2ZXJpL3Byb3ZlbmFuY2UtdjEiLCJnZW4iOiJhaSIsImF0IjoxNzcyMDAwMDAwfX19",
+          "byteLength": 369
+        }
+      ],
+      "sd": {
+        "name": "ptp-disciplined host clock",
+        "unc": 1
+      },
+      "cva": {
+        "col": {
+          "p": "absent-at-source",
+          "r": "the appraisal this receipt was issued from ran on collateral its source reports as never having been issued, and no byte of it reached this record"
+        },
+        "val": {
+          "p": "absent-at-source",
+          "r": "the appraisal this receipt was issued from ran under no validity context its source reports as issued: the window it would have been appraised inside was never published, and no byte of one reached this record"
+        }
+      },
+      "handover": [
+        {
+          "minAnchorSlotsHeld": null,
+          "verdict": "verify-ok"
+        },
+        {
+          "minAnchorSlotsHeld": 1,
+          "verdict": "ANCHOR_SLOT_NOT_HELD"
+        },
+        {
+          "minAnchorSlotsHeld": 2,
+          "verdict": "ANCHOR_SLOT_NOT_HELD"
+        }
+      ],
+      "note": "A v3 receipt over the marked buffered body whose anchor states both halves as material its source never had: the collateral as never issued and the validity context as never issued, each beside its own reason. This is the absence the world is account for, in contrast to `receipt-not-taken-in-v3`, whose two absences are this deployment's own account of looking away, and the two shapes answer a demand alike because neither gives a verifier bytes to weigh. Written by `issueReceipt` over these bytes. Naming no demand leaves it where it was, and a demand of one slot refuses it for the same count a demand of two does: there is no held slot to reach either."
     },
     {
       "name": "receipt-marked-sentinel-v3",
@@ -260,7 +416,21 @@
           "d": "0f97dfca91870f4e142f6bc275945fc4aca3a21bbde1924dfc181086e0b03ef9"
         }
       },
-      "note": "A v3 receipt over a stream that framed no item until the mark was written to it: the response is one marking frame, the blank line that closes it, and the closing sentinel, joined from the pieces the marking and response suites publish, and it frames exactly one item, the mark. The same upstream body with the marking off frames nothing at all, and `receipt-no-items-v2` beside this row is the answer those bytes are owed."
+      "handover": [
+        {
+          "minAnchorSlotsHeld": null,
+          "verdict": "verify-ok"
+        },
+        {
+          "minAnchorSlotsHeld": 1,
+          "verdict": "verify-ok"
+        },
+        {
+          "minAnchorSlotsHeld": 2,
+          "verdict": "verify-ok"
+        }
+      ],
+      "note": "A v3 receipt over a stream that framed no item until the mark was written to it: the response is one marking frame, the blank line that closes it, and the closing sentinel, joined from the pieces the marking and response suites publish, and it frames exactly one item, the mark. The same upstream body with the marking off frames nothing at all, and `receipt-no-items-v2` beside this row is the answer those bytes are owed. Its anchor holds both halves, so all three postures a policy can take about an anchor accept it, which is the row that states its demand and the rows that state none agreeing."
     },
     {
       "name": "receipt-no-items-v2",
@@ -1190,7 +1360,8 @@
   "layout": {
     "verdictFields": [
       "expected",
-      "keyless"
+      "keyless",
+      "handover"
     ],
     "readers": {
       "keyless": "decodeReceipt reads the payload a document claims with no key in hand, so a row's `keyless` column is the answer these bytes owe a reader that has not authenticated them",
@@ -1206,6 +1377,7 @@
       "items": "One entry per item the shipped reader gives those bytes, in the order it gives them: the instant the source named by `sd` read for it, the digest of that item's bytes, and the bytes themselves so the digest is checkable rather than asserted. A row states `items` exactly where its document carries the list. Where a refusal is about the list, the row states the list as the bytes hold it, which is the whole of what the reader compares.",
       "sd": "The disclosure the payload carries: the source `iat` was read from, and the bound that source declares, where `null` is that source's statement that nobody measured it. A row stating no `unc` is a document that withheld the member, which is a refusal and not the same sentence.",
       "cva": "The anchor the payload carries, each slot one of the three presence labels with the digest or the reason that label selects. A slot stating `held` with an empty `d` is a claim with no material behind it, which is a refusal.",
+      "handover": "What the shipped client path answers for this document under each posture `minAnchorSlotsHeld` can take, three entries in the order `null`, `1`, `2`: the policy that names no demand, a demand of one held slot, a demand of both. Each entry is that policy field's own name beside the number an operator would write and the verdict the client gives the bytes under it, read off `verifyCompletionReceipt` with the fixture's issuer pinned, the clock at the instant the document names, and nothing else named, so the only thing the three readings differ in is the demand. The `null` entry repeats the row's `expected` rather than claiming a second answer, because what the field promises is that a demand nobody stated moves no verdict. A row states this column exactly where the client reaches an anchor inside its document, which is every accepted row whose payload names `cva`: a refusal row states none because the format reader answers it before a policy is weighed at all, and an accepted `v: 1` or `v: 2` row states none because its document names no anchor and so makes no presence claim to weigh. Whether a slot stating `held` still resolves is not this column and not this suite: it is answered outside the document.",
       "fault": "On a refusal row, the position the shipped reader names in the answer these bytes get, and what the row states about it. Where the reader quotes a member back, the row states the name as `member`. The position is what makes the row about one member rather than about the document as a whole."
     },
     "encodings": "byte strings unpadded base64url, digests lowercase hex, instants whole Unix seconds"

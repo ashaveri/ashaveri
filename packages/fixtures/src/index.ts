@@ -52,6 +52,13 @@ export interface ReceiptFixtureRow {
   items?: ReceiptItemColumn[];
   sd?: { name: string; unc?: number | null };
   cva?: { col: ReceiptAnchorSlotColumn; val: ReceiptAnchorSlotColumn };
+  /**
+   * The verdict the shipped client path gives this document under each posture the policy field
+   * `minAnchorSlotsHeld` can take, stated in the order `null`, `1`, `2`: no demand named, a demand of one
+   * held slot, a demand of both. Present on a row exactly where the client reaches the anchor its document
+   * carries, which is every row this suite publishes an accepted answer for.
+   */
+  handover?: { minAnchorSlotsHeld: number | null; verdict: string }[];
   fault?: ReceiptFaultColumn;
   note?: string;
 }
