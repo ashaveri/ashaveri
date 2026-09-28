@@ -26,15 +26,25 @@ import { equalBytes } from './cose.js';
  * list: a run of nothing states nothing, and zero digests give a reader nothing to hold the response
  * against.
  *
- * Where this reader and the estate's other reader of the same bytes part company, stated because it is
- * not settled here. `dataLines` in `gateway/src/upstream.ts` splits an event's lines on a line feed, with
- * an optional carriage return before it, and on nothing else, so a body framed with bare carriage returns
- * is one event to that scan and several frames to this one: the usage reader and the item list then
- * disagree about how many frames a response said. That is a difference between two readers, one of which
- * follows the stream model and one of which does not, and not a property of the bytes, so it is owed a
- * reconciliation rather than a sentence of acceptance. `gateway/src/marking.ts` steps the other way: its
- * `sentinelStart` strips a trailing carriage return before it compares, so there `data: [DONE]\r` is the
- * sentinel, and it is the sentinel here too rather than an item in this file and a terminator in that one.
+ * How this reader agrees with the estate's other readers of the same bytes, and where it answers another
+ * question. The three endings above are one rule and everything that walks a response reads it: the
+ * `dataLines` split and the event walk in `gateway/src/upstream.ts`, which meter the usage a completion
+ * carried, and `frameLineSpans` in this package, which names the span `mk.d` digests, each break a line
+ * at a carriage return as well as at a line feed, so a stream framed either way gives all of them the
+ * same frames. `gateway/src/marking.ts` reads them from the other end: its `sentinelStart` steps back over
+ * a trailing carriage return before it compares, so `data: [DONE]\r` is the sentinel there, here, and to a
+ * client holding the bytes. The agreement is not a claim in a comment either, it is a table:
+ * `gateway/test/response-frame-readers.test.ts` feeds one body through all four and states what each one
+ * concludes about it.
+ *
+ * What is left between them is a difference of question and not of reading. This file walks lines, so it
+ * attests a `data:` frame whose event was never dispatched, including the last frame of a body that ends
+ * mid-line, because those bytes were sent and `res` covers them. The usage scan walks dispatches, because
+ * what a completion says about its tokens is knowable only once a blank line has closed the event, and a
+ * frame seen half way through is a frame it cannot parse at all. Section 3.1 of `docs/receipt-spec.md`
+ * states which of the two the receipt is built from; the two rows of that table which part, one body
+ * written in line feeds and the same body written in carriage returns with no blank line in either, are
+ * there so the difference is read as the model and not as a terminator.
  *
  * How this relates to the digest a receipt already carries. `res` is sha256 over the response bytes
  * exactly as transmitted, framing included: section 3.1 of `docs/receipt-spec.md` publishes that, and

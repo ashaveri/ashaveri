@@ -64,9 +64,44 @@ function usageOf(event: CompletionEvent): { promptTokens: number; completionToke
   return { promptTokens: prompt, completionTokens: completion };
 }
 
+/**
+ * The width of the line ending at `at`: a carriage return and the line feed after it are one ending,
+ * either alone is one, and anything else is none.
+ *
+ * Section 3.1 of `docs/receipt-spec.md` publishes these three, and `ResponseItemFramer` in
+ * `@ashaveri/receipt` reads a response by them. This scan reads the same bytes for a different answer, the
+ * usage a completion carried, and it has to agree about where the frames are to give one: a carriage
+ * return left unread is worse than an ending missed, because it becomes the first byte of the line behind
+ * it and that line stops being a `data:` field at all.
+ */
+function endingWidth(text: string, at: number): number {
+  const char = text[at];
+  if (char === '\r') return text[at + 1] === '\n' ? 2 : 1;
+  return char === '\n' ? 1 : 0;
+}
+
+/** Where the next event ends: the offset of two line endings written one after another, and their width. */
+function dispatchedAt(text: string): { readonly at: number; readonly width: number } | null {
+  for (let at = 0; at < text.length; ) {
+    const first = endingWidth(text, at);
+    if (first === 0) {
+      at += 1;
+      continue;
+    }
+    const second = endingWidth(text, at + first);
+    if (second === 0) {
+      at += first;
+      continue;
+    }
+    return { at, width: first + second };
+  }
+  return null;
+}
+
+/** The payload of every `data:` line of one event, with the field name and its one space taken off. */
 function dataLines(event: string): string[] {
   const out: string[] = [];
-  for (const line of event.split(/\r?\n/)) {
+  for (const line of event.split(/\r\n|\r|\n/)) {
     if (line.startsWith('data:')) {
       out.push(line.slice(5).replace(/^ /, ''));
     }
@@ -141,15 +176,15 @@ export function upstreamBackend(options: UpstreamOptions): CompletionBackend {
             // chunk, and forward verbatim so the receipt hashes exactly what the client sees.
             pending += decoder.decode(value, { stream: true });
             if (streaming) {
-              let boundary = /\r?\n\r?\n/.exec(pending);
-              while (boundary !== null) {
-                for (const data of dataLines(pending.slice(0, boundary.index))) {
+              let event = dispatchedAt(pending);
+              while (event !== null) {
+                for (const data of dataLines(pending.slice(0, event.at))) {
                   if (data !== '[DONE]') {
                     remember(toFields(JSON.parse(data)) ?? {});
                   }
                 }
-                pending = pending.slice(boundary.index + boundary[0].length);
-                boundary = /\r?\n\r?\n/.exec(pending);
+                pending = pending.slice(event.at + event.width);
+                event = dispatchedAt(pending);
               }
             }
             yield value;
