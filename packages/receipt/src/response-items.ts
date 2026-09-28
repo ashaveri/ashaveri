@@ -108,6 +108,17 @@ export type ResponseItemFraming =
   | { readonly framed: true; readonly items: readonly ResponseItem[] }
   | { readonly framed: false; readonly why: string };
 
+/**
+ * The items of one response as their digests alone, or the reason that response attests no set of them.
+ *
+ * The same two arms as `ResponseItemFraming`, the same refusal in the same words, and no bytes beside the
+ * digests: what a reader of this answer can settle afterwards is which digests a response states and how
+ * many of them it states, and `digests.length` is the count.
+ */
+export type ResponseItemDigestFraming =
+  | { readonly framed: true; readonly digests: readonly Uint8Array[] }
+  | { readonly framed: false; readonly why: string };
+
 /** Whether a body of this content type is framed in `data:` lines rather than taken whole. */
 export function isEventStream(contentType: string): boolean {
   return contentType.includes(EVENT_STREAM_TYPE);
@@ -127,47 +138,47 @@ export function frameResponse(contentType: string, body: Uint8Array): ResponseIt
 }
 
 /**
- * The framing of a response that arrives in pieces.
+ * The reading both readers of these bytes take, walked once.
  *
- * Feed the chunks in the order they were received and take the items from `finish()`; the instance is
- * good for one response, because items already emitted are the answer for the bytes that produced them
- * and appending a second response's bytes to them would be a different question. That is enforced at the
- * call that breaks it, in `feed()`, and the list an answer carries is frozen so that no holder of it can
- * extend it either.
- *
- * Boundary independence is structural rather than defended. A frame is emitted only once a byte that ends
- * a line has been seen, an ending is never read as content, and what is left over at `finish()` is read by
- * the same single rule that reads a complete line. So no decision depends on where a write ended: a
- * `[DONE]` split down its middle, a terminator split between its two line feeds, a carriage return split
- * from the line feed that follows it, and a body arriving one byte at a time all give the same list as the
- * same bytes in one piece. A carriage return separated this way ends an empty line, and an empty line
- * names no item, which is why the split cannot change the answer.
+ * One response's frames, as its bytes arrive: the walk holds back whatever no line ending has closed, ends
+ * a line at a carriage return, a line feed, or that pair together, lifts the payload out of each `data:`
+ * line it ends, passes the one framing space, hands back the sentinel as the terminator it is, and reads
+ * what the buffer still holds as the last line the response sent. What is *kept* of a framed item is not
+ * the walk's business: `take` is called with the item's bytes and the walk counts the item, which is the
+ * whole difference between the two readers built on it. That is deliberate. A reader that answered the same
+ * response differently from the published one would put two stories about one byte string inside one
+ * document, and the difference the estate cannot afford is between bytes, not between two widths of the
+ * same walk.
  */
-export class ResponseItemFramer {
-  private readonly items: ResponseItem[] = [];
+class ResponseItemWalk {
   private buffer: Uint8Array = new Uint8Array(0);
-  private readonly streamed: boolean;
-  /** What `finish()` answers, read the first time it is asked for and kept for every later one. */
-  private answer: ResponseItemFraming | undefined;
+  /** How many items `take` has been handed, which is the number a refusal is decided against. */
+  private taken = 0;
+  /** Whether the answer has been read, which is what ends this response. */
+  private answered = false;
 
-  constructor(streamed: boolean) {
-    this.streamed = streamed;
-  }
+  /**
+   * `reader` is the name the refusal of a late chunk quotes, so that the sentence sends a caller to the
+   * class it should have taken rather than to whichever of the two this walk happens to serve.
+   */
+  constructor(
+    private readonly streamed: boolean,
+    private readonly reader: string,
+    private readonly take: (bytes: Uint8Array) => void,
+  ) {}
 
   /**
    * Take the next piece of the response, framing what of it is complete and holding the rest back.
    *
-   * Refused once the answer has been taken, which is the enforcement of the sentence in `finish()` below
-   * rather than a restatement of it. The framing an answer holds is a statement about the bytes that
-   * produced it, and `items` is that same array the caller was handed: a chunk read after the answer would
-   * extend it in the caller's hands, so a response issued over two items would come to attest five. A
-   * second response takes a second framer, which is what its own `res` and its own items are for.
+   * Refused once the answer has been read, which is the enforcement of one reader per response for both
+   * readers built here: the framing a response produced is a statement about the bytes that produced it,
+   * and a chunk of the next response's bytes belongs to a reading nobody has taken yet.
    */
   feed(chunk: Uint8Array): void {
-    if (this.answer !== undefined) {
+    if (this.answered) {
       throw new ReceiptError(
         'FRAMER_REUSED',
-        `${String(chunk.length)} bytes arrived after finish() answered this response; a chunk after the answer is another response's bytes, and a response takes its own ResponseItemFramer`,
+        `${String(chunk.length)} bytes arrived after finish() answered this response; a chunk after the answer is another response's bytes, and a response takes its own ${this.reader}`,
       );
     }
     // The chunk is kept as it stands only when it is about to be scanned and what survives of it copied,
@@ -179,47 +190,28 @@ export class ResponseItemFramer {
   }
 
   /**
-   * The items of the whole response, or the refusal that there are none.
-   *
-   * Read once, and answered from that reading however many times it is asked: the items already emitted
-   * belong to the bytes that produced them, so a second reading of what the buffer still held would attest
-   * one frame twice, and a second push of a buffered body would state an item the response never made. A
-   * chunk arriving after this answer belongs to another response, which needs its own framer, and `feed()`
-   * refuses it now rather than leaving the rule to be remembered.
-   *
-   * The list an answer carries is frozen, which is the other half of the same sentence: the refusal stops
-   * this framer extending it, and the freeze stops anyone holding the answer from doing so. A copy instead
-   * would leave this instance's own array open, so the answer a caller received would be a snapshot of a
-   * list that was still being written. What neither reaches is an item's own bytes: a typed array holding
-   * elements cannot be frozen, so a caller that wrote over one would move the digest beside it. That is a
-   * caller damaging its own reading rather than an answer changing under one that never touched it, which
-   * is the failure the refusal and the frozen list are for, and `pushItem` copying is what keeps this
-   * instance's memory out of the answer either way.
+   * Read the answer: whatever the buffer still holds is the last line the response sent, and then whether
+   * anything at all was framed. The caller's `take` has been handed every item by the time this returns.
    */
-  finish(): ResponseItemFraming {
-    this.answer ??= this.readAnswer();
-    return this.answer;
-  }
-
-  /** The answer itself, taking whatever the buffer holds as the last line the response sent. */
-  private readAnswer(): ResponseItemFraming {
+  read(): { readonly framed: true } | { readonly framed: false; readonly why: string } {
+    this.answered = true;
     if (!this.streamed) {
       // One item, whatever it holds: a buffered body has no frames to be between, and an empty one is
       // still the whole of what was said about it. `res` covers these bytes, so the item is a statement
       // about them and not an omission of one.
       this.pushItem(this.buffer);
-      return { framed: true, items: Object.freeze(this.items) };
+      return { framed: true };
     }
     // A final frame whose terminator never arrived is still a frame the response sent, and the bytes
     // a client hashed into `res` do not stop being one because the write ended first.
     this.takeLine(this.buffer);
-    if (this.items.length === 0) {
+    if (this.taken === 0) {
       return {
         framed: false,
         why: 'the response sent no data frame, so it states nothing for an item to attest',
       };
     }
-    return { framed: true, items: Object.freeze(this.items) };
+    return { framed: true };
   }
 
   /**
@@ -271,10 +263,145 @@ export class ResponseItemFramer {
   }
 
   private pushItem(bytes: Uint8Array): void {
-    // Copied, because the buffer ahead of this may be a view of a pooled Node buffer the caller is
-    // free to reuse; an item's bytes outlive the chunk they were framed from only if they own them.
-    const owned = bytes.slice();
-    this.items.push({ bytes: owned, d: sha256(owned) });
+    this.taken += 1;
+    this.take(bytes);
+  }
+}
+
+/**
+ * The framing of a response that arrives in pieces.
+ *
+ * Feed the chunks in the order they were received and take the items from `finish()`; the instance is
+ * good for one response, because items already emitted are the answer for the bytes that produced them
+ * and appending a second response's bytes to them would be a different question. That is enforced at the
+ * call that breaks it, in `feed()`, and the list an answer carries is frozen so that no holder of it can
+ * extend it either.
+ *
+ * Boundary independence is structural rather than defended. A frame is emitted only once a byte that ends
+ * a line has been seen, an ending is never read as content, and what is left over at `finish()` is read by
+ * the same single rule that reads a complete line. So no decision depends on where a write ended: a
+ * `[DONE]` split down its middle, a terminator split between its two line feeds, a carriage return split
+ * from the line feed that follows it, and a body arriving one byte at a time all give the same list as the
+ * same bytes in one piece. A carriage return separated this way ends an empty line, and an empty line
+ * names no item, which is why the split cannot change the answer.
+ *
+ * This reader keeps an item's bytes beside its digest, because its answer is the one a verifier holding a
+ * response body reads back: the digests and the bytes they were taken over have to travel together or the
+ * verifier has nothing to compare its own walk against. A caller that has the bytes in hand for one instant
+ * and needs no more than what each item digest is and how many there were takes
+ * `ResponseItemDigestFramer`, which walks these same lines through the same `ResponseItemWalk`.
+ */
+export class ResponseItemFramer {
+  private readonly items: ResponseItem[] = [];
+  private readonly walk: ResponseItemWalk;
+  /** What `finish()` answers, read the first time it is asked for and kept for every later one. */
+  private answer: ResponseItemFraming | undefined;
+
+  constructor(streamed: boolean) {
+    this.walk = new ResponseItemWalk(streamed, 'ResponseItemFramer', (bytes) => {
+      // Copied, because the buffer ahead of this may be a view of a pooled Node buffer the caller is
+      // free to reuse; an item's bytes outlive the chunk they were framed from only if they own them.
+      const owned = bytes.slice();
+      this.items.push({ bytes: owned, d: sha256(owned) });
+    });
+  }
+
+  /**
+   * Take the next piece of the response, framing what of it is complete and holding the rest back.
+   *
+   * Refused once the answer has been taken, which is the enforcement of this file's second paragraph
+   * rather than a restatement of it. The framing an answer holds is a statement about the bytes that
+   * produced it, and `items` is that same array the caller was handed: a chunk read after the answer would
+   * extend it in the caller's hands, so a response issued over two items would come to attest five. A
+   * second response takes a second framer, which is what its own `res` and its own items are for.
+   */
+  feed(chunk: Uint8Array): void {
+    this.walk.feed(chunk);
+  }
+
+  /**
+   * The items of the whole response, or the refusal that there are none.
+   *
+   * Read once, and answered from that reading however many times it is asked: the items already emitted
+   * belong to the bytes that produced them, so a second reading of what the buffer still held would attest
+   * one frame twice, and a second push of a buffered body would state an item the response never made. A
+   * chunk arriving after this answer belongs to another response, which needs its own framer, and `feed()`
+   * refuses it now rather than leaving the rule to be remembered.
+   *
+   * The list an answer carries is frozen, which is the other half of the same sentence: the refusal stops
+   * this framer extending it, and the freeze stops anyone holding the answer from doing so. A copy instead
+   * would leave this instance's own array open, so the answer a caller received would be a snapshot of a
+   * list that was still being written. What neither reaches is an item's own bytes: a typed array holding
+   * elements cannot be frozen, so a caller that wrote over one would move the digest beside it. That is a
+   * caller damaging its own reading rather than an answer changing under one that never touched it, which
+   * is the failure the refusal and the frozen list are for, and the copy each item's bytes are made on is
+   * what keeps this instance's memory out of the answer either way.
+   */
+  finish(): ResponseItemFraming {
+    if (this.answer === undefined) {
+      const outcome = this.walk.read();
+      this.answer = outcome.framed ? { framed: true, items: Object.freeze(this.items) } : outcome;
+    }
+    return this.answer;
+  }
+}
+
+/**
+ * The digests of a response's items, without the items' bytes.
+ *
+ * A process that watches a stream as it leaves has each frame in hand for one instant. What it settles
+ * afterwards is which digests that response states and how many of them it states, and a reader that keeps
+ * nothing but those two answers holds none of the response: the bytes a frame was made of are digested and
+ * dropped, and the only bytes a live instance still owns are the ones of the frame its last write did not
+ * close, which is what the walk has to hold back to know where that frame ends. Holding the whole of a
+ * stream instead, when the answer is a list of 32-byte digests, is a claim about the response that nobody
+ * asked for.
+ *
+ * One `ResponseItemWalk`, one rule, so this cannot read a response differently from `ResponseItemFramer`:
+ * the two answers differ in what they keep and not in what they see. `test/response-items.test.ts` holds
+ * both readers against the same external table of payloads and their digests, refusal included, at every
+ * split of the same bytes, so that agreement is measured rather than argued.
+ *
+ * The answer is a frozen list of 32-byte digests in the order the response put its items, or the same
+ * refusal the published framing gives a stream that sent no `data:` frame. What is not here is an item's
+ * bytes: a caller that needs them needs `ResponseItemFramer`, which is the reader a verifier of a response
+ * body holds. One instance answers one response, and `feed()` refuses a chunk after the answer, as it does
+ * there.
+ */
+export class ResponseItemDigestFramer {
+  private readonly digests: Uint8Array[] = [];
+  private readonly walk: ResponseItemWalk;
+  /** What `finish()` answers, read the first time it is asked for and kept for every later one. */
+  private answer: ResponseItemDigestFraming | undefined;
+
+  constructor(streamed: boolean) {
+    this.walk = new ResponseItemWalk(streamed, 'ResponseItemDigestFramer', (bytes) => {
+      // No copy: `sha256` reads these bytes into its own state and returns a digest of its own, so
+      // nothing outlives the call. The bytes here may be a view of the caller's chunk, and this is the
+      // one answer that does not care, because the view is not kept.
+      this.digests.push(sha256(bytes));
+    });
+  }
+
+  /** The next piece of this response, as `ResponseItemFramer.feed` takes it. */
+  feed(chunk: Uint8Array): void {
+    this.walk.feed(chunk);
+  }
+
+  /**
+   * The digests of the whole response, or the refusal that there are none.
+   *
+   * Read once and answered from that reading however many times it is asked, and the list frozen: the two
+   * halves of the same lifetime rule `ResponseItemFramer.finish()` states. A digest is 32 bytes and is
+   * itself never written over by this class, so the residual the published answer states about an item's
+   * bytes does not arise here.
+   */
+  finish(): ResponseItemDigestFraming {
+    if (this.answer === undefined) {
+      const outcome = this.walk.read();
+      this.answer = outcome.framed ? { framed: true, digests: Object.freeze(this.digests) } : outcome;
+    }
+    return this.answer;
   }
 }
 

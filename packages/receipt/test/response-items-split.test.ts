@@ -1,13 +1,15 @@
 import { describe, expect, it } from 'vitest';
 import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
-import { ResponseItemFramer, frameResponse, fromBase64Url, isEventStream, toHex } from '../src/index.js';
+import { ResponseItemDigestFramer, ResponseItemFramer, frameResponse, fromBase64Url, isEventStream, toHex } from '../src/index.js';
 import {
   FRAME_CASES,
+  NO_FRAME_REASON,
   PUBLISHED_ITEM_SHA256_HEX,
   STREAMED,
   expectedFramingText,
   framingText,
+  itemDigestHex,
 } from './response-item-cases.js';
 
 /**
@@ -17,9 +19,17 @@ import {
  * body, fed in one piece, fed split at every position there is (which includes inside the six characters
  * of `[DONE]`, inside its field name, and between the two line feeds of a frame terminator), fed at
  * every pair of positions, fed one byte at a time, and fed in every fixed width, gives item for item the
- * same list with the same digests. A gateway that reads frames as they arrive, which is what a later
- * step will hand to `ResponseItemFramer`, therefore attests exactly what a verifier holding the whole
- * response rebuilds from it, and no part of the answer is a coincidence of where a write ended.
+ * same list with the same digests. A gateway that reads frames as they arrive hands those same bytes to
+ * one of the two readers in `../src/response-items.ts`: the published `ResponseItemFramer`, whose answer
+ * carries an item's bytes beside its digest, or `ResponseItemDigestFramer`, whose answer carries the
+ * digest and the count and no byte of the item. Both are the same walk, so either attests exactly what a
+ * verifier holding the whole response rebuilds from it, and no part of either answer is a coincidence of
+ * where a write ended.
+ *
+ * The last two cells below sweep the digest reader over the same grid the published reader is swept over,
+ * and read both against the case table's own literals rather than against each other: a digest-only
+ * answer cannot be checked against the bytes it left out, so the agreement between the two readers at
+ * every delivery is the only account of it this suite takes.
  *
  * The expectations come from `response-item-cases.ts`, digests included, so a framing that agreed with
  * itself at every split while disagreeing with the rule would still go red here rather than passing on
@@ -189,6 +199,75 @@ describe('every delivery of one body frames the same items', () => {
       const expected = expectedFramingText(caseItem);
       for (const cuts of [...singleCuts(body), ...cutPairs(body)]) {
         expect(framedInPieces(caseItem.contentType, piecesAt(body, cuts))).toBe(expected);
+      }
+    }
+  });
+});
+
+/** The digest reader's answer for one body delivered as these pieces, reduced to what both readers state. */
+function digestsInPiecesOf(contentType: string, pieces: readonly Uint8Array[]): string {
+  const framer = new ResponseItemDigestFramer(isEventStream(contentType));
+  for (const piece of pieces) framer.feed(piece);
+  const outcome = framer.finish();
+  if (!outcome.framed) return `refused: ${outcome.why}`;
+  return outcome.digests.map(toHex).join('|');
+}
+
+/** The published reader's answer for the same pieces, reduced the same way, so the two are comparable. */
+function publishedDigestsOf(contentType: string, pieces: readonly Uint8Array[]): string {
+  const framer = new ResponseItemFramer(isEventStream(contentType));
+  for (const piece of pieces) framer.feed(piece);
+  const outcome = framer.finish();
+  if (!outcome.framed) return `refused: ${outcome.why}`;
+  return outcome.items.map((item) => toHex(item.d)).join('|');
+}
+
+/** What the case table publishes for one body, as digests alone, written down away from both readers. */
+function expectedDigests(caseItem: (typeof FRAME_CASES)[number]): string {
+  if (caseItem.items.length === 0) return `refused: ${NO_FRAME_REASON}`;
+  return caseItem.items.map(itemDigestHex).join('|');
+}
+
+describe('the digest reader answers where the published reader answers', () => {
+  it('at every delivery of every case body, one rule and two widths of keeping', () => {
+    // The gateway walks a response's bytes as they leave, and asks for digests and a count rather than the
+    // bytes, so the two readings have to agree at every split and not only at the whole body: an answer
+    // that held back an item's bytes cannot be checked against the bytes afterwards, which makes the
+    // agreement below the only account of it. Both halves are read against the case table's own literals,
+    // so a shared drift in the two readers goes red rather than passing on being mutually consistent.
+    for (const caseItem of FRAME_CASES) {
+      const body = bytes(caseItem.body);
+      const expected = expectedDigests(caseItem);
+      expect(digestsInPiecesOf(caseItem.contentType, [body])).toBe(expected);
+      for (const cuts of [...singleCuts(body), ...cutPairs(body)]) {
+        const pieces = piecesAt(body, cuts);
+        const where = `${caseItem.name}: cuts ${String(cuts)}`;
+        expect(digestsInPiecesOf(caseItem.contentType, pieces), where).toBe(expected);
+        expect(publishedDigestsOf(caseItem.contentType, pieces), where).toBe(expected);
+      }
+      for (const width of [1, 2, 3, 5, 7, 11, 13, 16, 31, 64]) {
+        const pieces = fixedWidths(body, width);
+        const where = `${caseItem.name}: width ${String(width)}`;
+        expect(digestsInPiecesOf(caseItem.contentType, pieces), where).toBe(expected);
+        expect(publishedDigestsOf(caseItem.contentType, pieces), where).toBe(expected);
+      }
+      expect(digestsInPiecesOf(caseItem.contentType, oneByteEach(body))).toBe(expected);
+    }
+  });
+
+  it('on the write boundaries the published vectors were sent with', () => {
+    for (const name of FRAMED_VECTORS) {
+      const stream = publishedStream(name);
+      // The four digests this response is published for, as one comparable string rather than a list, which
+      // is the shape both readers above reduce an answer to.
+      const published = [...PUBLISHED_ITEM_SHA256_HEX].join('|');
+      expect(digestsInPiecesOf(stream.contentType, stream.chunks)).toBe(published);
+      expect(digestsInPiecesOf(stream.contentType, oneByteEach(stream.body))).toBe(published);
+      expect(publishedDigestsOf(stream.contentType, stream.chunks)).toBe(published);
+      for (const cuts of singleCuts(stream.body)) {
+        const where = `${name}: cuts ${String(cuts)}`;
+        expect(digestsInPiecesOf(stream.contentType, piecesAt(stream.body, cuts)), where).toBe(published);
+        expect(publishedDigestsOf(stream.contentType, piecesAt(stream.body, cuts)), where).toBe(published);
       }
     }
   });

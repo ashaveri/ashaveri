@@ -5,6 +5,7 @@ import { fileURLToPath } from 'node:url';
 import {
   EMPTY_BODY_SHA256_HEX,
   ReceiptError,
+  ResponseItemDigestFramer,
   ResponseItemFramer,
   SSE_DATA_FIELD,
   SSE_DONE_VALUE,
@@ -13,6 +14,7 @@ import {
   isEventStream,
   toHex,
   type ResponseItem,
+  type ResponseItemDigestFraming,
   type ResponseItemFraming,
 } from '../src/index.js';
 import {
@@ -337,6 +339,169 @@ describe('what an item digest covers', () => {
     framer.feed(chunk);
     chunk.fill(0x5a);
     expect(framingText(framer.finish())).toBe(ONE_BUFFERED_ITEM);
+  });
+});
+
+/**
+ * What a reader still owns of the bytes it read, reached by walking everything the instance can hand back.
+ *
+ * A claim about retention is a claim about reachability: the bytes are held if something the reader holds
+ * points at them, and not otherwise. A digest is 32 bytes on both readers and is kept by both, so this
+ * counts every reachable run of bytes that is not one: what is left is a response's own bytes, and the
+ * difference between the two answers is exactly those. A payload of exactly 32 bytes would read here as a
+ * digest, so the bodies below are framed from payloads of other widths. Own enumerable properties are what
+ * a caller can reach, and both readers keep their state there.
+ */
+function nonDigestBytesHeld(reader: object): number {
+  const seen = new Set<unknown>();
+  const stack: unknown[] = [reader];
+  let held = 0;
+  while (stack.length > 0) {
+    const node = stack.pop();
+    if (node === null || (typeof node !== 'object' && typeof node !== 'function') || seen.has(node)) continue;
+    seen.add(node);
+    if (ArrayBuffer.isView(node)) {
+      if (node.byteLength !== 32) held += node.byteLength;
+      continue;
+    }
+    for (const key of Object.keys(node)) stack.push((node as Record<string, unknown>)[key]);
+  }
+  return held;
+}
+
+/** The digest reader's answer for a body delivered in these pieces, as the digests it states. */
+function digestsInPieces(pieces: readonly Uint8Array[], streamed: boolean): string {
+  const framer = new ResponseItemDigestFramer(streamed);
+  for (const piece of pieces) framer.feed(piece);
+  return digestText(framer.finish());
+}
+
+/** An answer reduced to what both readers can state about it: each item's digest, or the refusal. */
+function digestText(outcome: ResponseItemDigestFraming | ResponseItemFraming): string {
+  if (!outcome.framed) return `refused: ${outcome.why}`;
+  const list = 'items' in outcome ? outcome.items.map((item) => item.d) : outcome.digests;
+  return list.map(toHex).join('|');
+}
+
+/** The same body, read by a caller that asked for each piece of it separately and by one that did not. */
+function splitAt(body: Uint8Array, at: number): Uint8Array[] {
+  return [body.subarray(0, at), body.subarray(at)];
+}
+
+describe('the two readers of these bytes, on one rule', () => {
+  /** The refusal a second response's bytes reach on either reader, apart from the class it names. */
+  function refused(action: () => unknown): ReceiptError {
+    try {
+      action();
+    } catch (err) {
+      if (err instanceof ReceiptError) return err;
+      throw new Error(`the call refused something this is not: ${String(err)}`);
+    }
+    throw new Error('a chunk after the answer was accepted');
+  }
+
+  for (const caseItem of FRAME_CASES) {
+    it(`${caseItem.name}: both readers answer the digests written down for it, and neither invents one`, () => {
+      const body = bytes(caseItem.body);
+      // The expectation is the case table's own literals: a published reading and a digest-only reading
+      // agreeing with each other would also be true of two readings that both moved away from the rule, so
+      // both halves are compared against the digests written down away from this code.
+      const expected =
+        caseItem.items.length === 0 ? `refused: ${NO_FRAME_REASON}` : caseItem.items.map(itemDigestHex).join('|');
+      const published = frameResponse(caseItem.contentType, body);
+      const digests = new ResponseItemDigestFramer(isEventStream(caseItem.contentType));
+      digests.feed(body);
+      expect([digestText(published), digestText(digests.finish())]).toEqual([expected, expected]);
+    });
+  }
+
+  it('keeps no byte of any item it framed, where the published reader keeps every one of them', () => {
+    const body = bytes('data: {"a":1}\n\ndata: {"b":2}\n\ndata: [DONE]\n\n');
+    const digests = new ResponseItemDigestFramer(true);
+    for (const piece of splitAt(body, 20)) digests.feed(piece);
+    const published = new ResponseItemFramer(true);
+    published.feed(body);
+    const outcome = published.finish();
+    if (!outcome.framed) throw new Error('the published framing refused a framed stream');
+    const payloads = outcome.items.reduce((total, item) => total + item.bytes.length, 0);
+    // The two payloads are the whole of what the framing reads out of this body, and the only thing the
+    // digest reader holds beyond 32-byte digests is nothing at all: every frame here arrived closed.
+    expect([payloads, nonDigestBytesHeld(digests), nonDigestBytesHeld(published)]).toEqual([14, 0, 14]);
+    expect(digestText(digests.finish())).toBe(digestText(outcome));
+  });
+
+  it('holds back only the frame a stream has not closed, and gives it up when the frame ends', () => {
+    // One frame of 4,000 bytes that no write terminated, then the two bytes that end it. What the walk
+    // cannot do is decide whether such a run is one frame or half of one until a line ending arrives, so
+    // that run is the widest thing either reader is allowed to hold, and the published reader keeps it as
+    // an item's bytes as well as the frame before it.
+    const open = `data: ${'x'.repeat(4000)}`;
+    const digests = new ResponseItemDigestFramer(true);
+    digests.feed(bytes(open));
+    const heldOpen = nonDigestBytesHeld(digests);
+    digests.feed(bytes('\n\n'));
+    const answer = digests.finish();
+    if (!answer.framed) throw new Error('the closed frame was refused');
+    expect([heldOpen, nonDigestBytesHeld(digests), answer.digests.length]).toEqual([open.length, 0, 1]);
+
+    const published = new ResponseItemFramer(true);
+    published.feed(bytes(open));
+    expect(nonDigestBytesHeld(published)).toBe(open.length);
+    published.feed(bytes('\n\n'));
+    // The payload the published answer keeps, and nothing else: the same frame, one copy wider than the
+    // digest reader's, because that copy is the half a verifier of the bytes is given.
+    expect(nonDigestBytesHeld(published)).toBe(4000);
+    expect(digestText(published.finish())).toBe(digestText(answer));
+  });
+
+  it('answers digests and their count, and no bytes for a caller to read the rule out of', () => {
+    const framer = new ResponseItemDigestFramer(true);
+    framer.feed(bytes('data: {"a":1}\n\ndata: {"b":2}\n\ndata: [DONE]\n\n'));
+    const answer = framer.finish();
+    if (!answer.framed) throw new Error('a framed stream answered a refusal');
+    expect(Object.keys(answer).sort()).toEqual(['digests', 'framed']);
+    expect(Object.isFrozen(answer.digests)).toBe(true);
+    expect(answer.digests.map((one) => one.length)).toEqual([32, 32]);
+    // The count the answer states is the number of items the response framed, which is the second of the
+    // two things a gateway needs from a walk and the one that keeps the two readings comparable.
+    expect(answer.digests.length).toBe(2);
+    expect(answer.digests.map(toHex)).toEqual([itemDigestHex('{"a":1}'), itemDigestHex('{"b":2}')]);
+    const refusedAgain = refused(() => framer.feed(bytes('data: {"b":2}\n\n')));
+    expect(refusedAgain.code).toBe('FRAMER_REUSED');
+  });
+
+  it('names the reader a second response needs, in the refusal each of the two gives', () => {
+    // One rule and one lifetime for both readers, and the refusal sends the caller to the class it should
+    // have taken: a message that named the other one would send a maintainer to the wrong contract.
+    const digests = new ResponseItemDigestFramer(true);
+    digests.feed(bytes('data: {"a":1}\n\n'));
+    digests.finish();
+    const late = bytes('data: {"b":2}\n\ndata: [DONE]\n\n');
+    const err = refused(() => digests.feed(late));
+    expect(err.code).toBe('FRAMER_REUSED');
+    expect(err.message).toContain(`${String(late.length)} bytes arrived`);
+    expect(err.message).toContain('ResponseItemDigestFramer');
+    expect(err.message).not.toContain('own ResponseItemFramer');
+
+    const published = new ResponseItemFramer(true);
+    published.feed(bytes('data: {"a":1}\n\n'));
+    published.finish();
+    expect(refused(() => published.feed(bytes('data: {"b":2}\n\n'))).message).toContain('own ResponseItemFramer');
+  });
+
+  it('refuses a stream that sent no frame with the published reason, in both readings of it', () => {
+    // The empty-list refusal decides which receipt version a gateway signs, so the two readers have to give
+    // the same sentence for the same bytes and not merely the same shape of answer.
+    for (const body of ['data: [DONE]\n\n', 'event: message\n\n: comment\n\n', '']) {
+      const bytesOf = bytes(body);
+      const expected = `refused: ${NO_FRAME_REASON}`;
+      const whole = new ResponseItemDigestFramer(true);
+      whole.feed(bytesOf);
+      expect(digestText(whole.finish())).toBe(expected);
+      expect(digestText(frameResponse(STREAMED, bytesOf))).toBe(expected);
+      // And the same answer when the body arrives in pieces, which is how a gateway reads it.
+      expect(digestsInPieces(splitAt(bytesOf, Math.ceil(bytesOf.length / 2)), true)).toBe(expected);
+    }
   });
 });
 

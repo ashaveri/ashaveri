@@ -144,10 +144,11 @@ export {
   SSE_DATA_FIELD,
   SSE_DONE_VALUE,
   ResponseItemFramer,
+  ResponseItemDigestFramer,
   frameResponse,
   isEventStream,
 } from './response-items.js';
-export type { ResponseItem, ResponseItemFraming } from './response-items.js';
+export type { ResponseItem, ResponseItemFraming, ResponseItemDigestFraming } from './response-items.js';
 export { COLLATERAL_PRESENCES } from './disclosure.js';
 export type {
   CollateralAbsent,
