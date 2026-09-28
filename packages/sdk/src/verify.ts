@@ -10,6 +10,7 @@ import {
 import { toHex } from './b64.js';
 import { SdkError } from './errors.js';
 import type { AshaveriPolicy } from './policy.js';
+import { assertAnchorHeldUnderPolicy } from './policy.js';
 import { DEFAULT_MAX_EVIDENCE_AGE_SECONDS, DEFAULT_MAX_RECEIPT_AGE_SECONDS } from './policy.js';
 
 export interface VerifyCompletionParams {
@@ -109,6 +110,21 @@ export function verifyCompletionReceipt(params: VerifyCompletionParams): Verifie
       'MEASUREMENT_NOT_ALLOWED',
       `receipt measurement ${toHex(payload.meas.m)} (tee ${payload.meas.tee}) is not pinned by the policy`,
     );
+  }
+  // What the policy demands of an anchor, weighed last among the policy's own questions and only over a
+  // document that states one. The order is the same one the pins keep: a receipt this policy would not
+  // trust an issuer or a measurement from is refused for that reason before anybody reads its claims about
+  // what it took in, and a caller that failed two of them is told the earlier one.
+  //
+  // The step is gated on the member and not on a version number, which is how the marking check above is
+  // gated, for the same reason: what makes this demand owed is an anchor in the payload, and a condition
+  // spelled as a list of versions would be missing the next one that carries the member while every gate
+  // stayed green. A version that names no anchor is not refused here, because it states nothing about
+  // presence either way and this is a rule about an anchor rather than about a `v`: `policy.ts` says so at
+  // `assertAnchorHeldUnderPolicy`, and the row this code earns in `docs/error-codes.md` is where a reader
+  // learns which states it reaches and which it does not.
+  if ('cva' in payload) {
+    assertAnchorHeldUnderPolicy(policy, payload.cva);
   }
   return verified;
 }
