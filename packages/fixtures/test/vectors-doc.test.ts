@@ -336,7 +336,9 @@ describe('docs/vectors.md suite inventory', () => {
     // one, would otherwise keep a sentence claiming a number the document no longer matches.
     const stated = /Each of the ([a-z]+) suites the table above lists/u.exec(refusalSection());
     expect(stated, 'the section stopped counting the suites it speaks for').not.toBeNull();
-    expect(spelledNumber(stated?.[1] ?? ''), 'and the count it states is not the count of rows').toBe(rows.length);
+    // The assertion above is what refuses a document that stopped stating the count, so the capture this
+    // line reads is there whenever it runs, and no value stands behind it to fall back on.
+    expect(spelledNumber(stated![1]!), 'and the count it states is not the count of rows').toBe(rows.length);
     for (const row of rows) {
       const files = row.files.filter((each) => each.endsWith('.json')).map((each) => basename(each));
       expect(files.length, `${row.suite} names no file to read verdicts out of`).toBeGreaterThan(0);
