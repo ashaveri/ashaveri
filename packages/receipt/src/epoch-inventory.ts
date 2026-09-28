@@ -917,6 +917,14 @@ function assertWindow(manifest: EpochInventoryManifest, run: readonly EpochInven
  * the reader met. A pack whose own window does not run forwards is refused by the same check and named as
  * itself: it can meet neither a predecessor nor a successor.
  *
+ * The three findings share one code, and an operator reading the line has to be told which one it is, because
+ * the remedies differ: a gap is missing evidence and an overlap is the same receipts under two signatures. So
+ * each of the three details opens with the words naming its finding, ahead of the two pack paths that say
+ * which pair it is about. A detail is quoted to the reader up to a bound, and these three carry two full paths,
+ * which is more than the bound lets through: a finding named at the end of such a sentence is a finding nobody
+ * reads. The paths stay, because which pair is the other half of what a reader is owed, and what is cut is the
+ * rest of the sentence rather than the part that says what was found.
+ *
  * The two endpoints of the run are the anchor the walk begins from and the head of the pack that ends it, so
  * they are compared where the walk reaches each of them, and the window is compared afterwards because it is
  * the statement the contiguity of the windows makes decidable.
@@ -930,7 +938,7 @@ function assertRun(manifest: EpochInventoryManifest): readonly EpochInventoryPac
     if (one.span.to <= one.span.from) {
       throw new ReceiptError(
         'EPOCH_INVENTORY_RUN_NOT_CONTIGUOUS',
-        `${one.file} states the window ${one.span.from} to ${one.span.to}, which does not run forwards and so can meet no neighbour`,
+        `an entry whose own window does not run forwards: ${one.file} states the window ${one.span.from} to ${one.span.to}, so it can meet no neighbour`,
       );
     }
     if (previous === undefined) {
@@ -939,10 +947,12 @@ function assertRun(manifest: EpochInventoryManifest): readonly EpochInventoryPac
       }
     } else {
       if (one.span.from !== previous.span.to) {
+        const overlapped = one.span.from < previous.span.to;
         throw new ReceiptError(
           'EPOCH_INVENTORY_RUN_NOT_CONTIGUOUS',
-          `${previous.file} closes at ${previous.span.to} and ${one.file} begins at ${one.span.from}, so the run ` +
-            (one.span.from < previous.span.to ? 'seals the receipts between them twice' : 'attests a period it does not seal'),
+          `${overlapped ? 'a window sealed twice' : 'a window left out of the run'}: ` +
+            `${previous.file} closes at ${previous.span.to} and ${one.file} begins at ${one.span.from}, so the run ` +
+            (overlapped ? 'seals the receipts between them twice' : 'attests a period it does not seal'),
         );
       }
       if (one.chain.anchor !== previous.chain.head) breaks.set(one.file, breakOf(one, previous));

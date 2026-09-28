@@ -757,7 +757,7 @@
       },
       "verdict": "EPOCH_INVENTORY_RUN_NOT_CONTIGUOUS",
       "structural": "verify-ok",
-      "message": "the packs of an epoch inventory do not seal one window after another: packs/11b3cb801dee8cb8670aaa7260889eea1f1db0e735c2ef5596010b8e2bb58ab9/pack-v1.cbor closes at 1700002000 and packs/cef6bed1ba367dce13b61e65d7df079b17afe179d25e4313ca267011e9d392a2/pack-v1.cbor begins ...",
+      "message": "the packs of an epoch inventory do not seal one window after another: a window left out of the run: packs/11b3cb801dee8cb8670aaa7260889eea1f1db0e735c2ef5596010b8e2bb58ab9/pack-v1.cbor closes at 1700002000 and packs/cef6bed1ba367dce13b61e65d7df079b17afe179d25e4313ca26701...",
       "edited": "the third entry span, five seconds late"
     },
     {
@@ -770,7 +770,7 @@
       },
       "verdict": "EPOCH_INVENTORY_RUN_NOT_CONTIGUOUS",
       "structural": "verify-ok",
-      "message": "the packs of an epoch inventory do not seal one window after another: packs/11b3cb801dee8cb8670aaa7260889eea1f1db0e735c2ef5596010b8e2bb58ab9/pack-v1.cbor closes at 1700002000 and packs/cef6bed1ba367dce13b61e65d7df079b17afe179d25e4313ca267011e9d392a2/pack-v1.cbor begins ...",
+      "message": "the packs of an epoch inventory do not seal one window after another: a window sealed twice: packs/11b3cb801dee8cb8670aaa7260889eea1f1db0e735c2ef5596010b8e2bb58ab9/pack-v1.cbor closes at 1700002000 and packs/cef6bed1ba367dce13b61e65d7df079b17afe179d25e4313ca267011e9d392...",
       "edited": "the third entry span, five seconds early"
     },
     {
@@ -783,7 +783,7 @@
       },
       "verdict": "EPOCH_INVENTORY_RUN_NOT_CONTIGUOUS",
       "structural": "verify-ok",
-      "message": "the packs of an epoch inventory do not seal one window after another: packs/11b3cb801dee8cb8670aaa7260889eea1f1db0e735c2ef5596010b8e2bb58ab9/pack-v1.cbor states the window 1700002000 to 1700002000, which does not run forwards and so can meet no neighbour",
+      "message": "the packs of an epoch inventory do not seal one window after another: an entry whose own window does not run forwards: packs/11b3cb801dee8cb8670aaa7260889eea1f1db0e735c2ef5596010b8e2bb58ab9/pack-v1.cbor states the window 1700002000 to 1700002000, so it can meet no neigh...",
       "edited": "the second entry span start, set to its own end"
     },
     {
