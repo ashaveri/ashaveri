@@ -6,6 +6,7 @@ import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import {
   POP_SCHEME,
   decodeCoseSign1,
+  decodeEpochInventory,
   decodePack,
   decodeRedaction,
   decodeSealedDeploymentManifest,
@@ -16,11 +17,13 @@ import {
   popSigningString,
   ReceiptError,
   signPopAuthorization,
+  verifyEpochInventory,
   verifyExport,
   verifyPack,
   verifyPopSignature,
   verifyRedaction,
   verifySealedDeploymentManifest,
+  type EpochInventoryVerifyOptions,
   type MarkingScheme,
 } from '@ashaveri/receipt';
 import {
@@ -44,9 +47,11 @@ import { openFileReceiptStore, RECEIPT_STORE_FILE, StoreError } from '@ashaveri/
  * implementation that is shipped what it answers for each row: `verifyCompletionReceipt` for anything a
  * receipt decides, the proof-of-possession signer and parser for the wire-format rows, the store reader
  * for the chain images, `readDeploymentManifest` beside its `adjudicateReceiptEpoch` for the sealed
- * deployment manifest, `verifyPack` with `decodePack` underneath it for the evidence pack, and
+ * deployment manifest, `verifyPack` with `decodePack` underneath it for the evidence pack,
+ * `verifyEpochInventory` with `decodeEpochInventory` underneath it for the inventory of a run of packs, and
  * `verifyRedaction`, which reads the pack through `verifyPack` and answers with `decodeRedaction` alone
- * for the structural half, for a redaction manifest and the pack it names. Where a row states a refusal, the code it names is the code that has to
+ * for the structural half, for a redaction manifest and the pack it names. Where a row states a refusal, the
+ * code it names is the code that has to
  * come back; where a row states acceptance, the same call has to accept it. A suite that only ever
  * passed would satisfy the first half and say nothing, so the near misses published here are what make
  * the second half mean something, and each of those rows is a small edit to bytes this repository
@@ -260,6 +265,46 @@ interface RedactionVectorFile {
   readonly crossReading: { readonly cases: { name: string; documentBase64Url: string; expected: string }[] };
 }
 
+/**
+ * One case of the epoch inventory suite: a whole sealed inventory, the designation the caller hands beside
+ * it, what each of the two shipped inventory readers answers for those bytes, the refusal sentence the
+ * reader gave where there is one, and what it handed back where it accepted. A row stating no designation is
+ * the call that named no key.
+ */
+interface EpochInventoryCase {
+  readonly name: string;
+  readonly note: string;
+  readonly documentBase64Url: string;
+  readonly documentByteLength: number;
+  readonly read: { pinned?: string; retained?: Record<string, string> };
+  readonly verdict: string;
+  readonly structural: string;
+  readonly message?: string;
+  readonly readback?: {
+    readonly runFiles: readonly string[];
+    readonly statedFiles: readonly string[];
+    readonly window: { from: number; to: number };
+    readonly continuous: boolean;
+    readonly breakFiles: readonly string[];
+    readonly carried: boolean;
+    readonly shortFiles: readonly string[];
+  };
+  readonly site?: string;
+  readonly guard?: string;
+  readonly edited?: string;
+}
+
+interface EpochInventoryVectorFile {
+  readonly version: number;
+  readonly description: string;
+  readonly layout: {
+    readonly contentType: string;
+    readonly codes: readonly string[];
+    readonly keyMaterial: { kidHex: string; publicKeyHex: string; publicKeyBase64Url: string; role: string }[];
+  };
+  readonly vectors: EpochInventoryCase[];
+}
+
 function json<T>(path: string): T {
   return JSON.parse(readFileSync(join(DATA, path), 'utf8')) as T;
 }
@@ -287,6 +332,7 @@ const chain = json<{ refusals: ChainRefusal[] }>('chain-v1.json');
 const sealedManifests = json<ManifestVectorFile>('manifest-v1.json');
 const packVectors = json<PackVectorFile>('pack-v1.json');
 const redactionVectors = json<RedactionVectorFile>('redaction-v1.json');
+const epochInventories = json<EpochInventoryVectorFile>('epoch-inventory-v1.json');
 
 /** The receipt signing key the fixtures are issued under, as the published key file states it. */
 const PUBLIC_KEY = new Uint8Array(Buffer.from(json<{ publicKey: string }>('keys/receipt-key-v1.json').publicKey, 'hex'));
@@ -1044,6 +1090,195 @@ describe('the redaction manifest vectors through the shipped reader', () => {
     ]);
     for (const code of new Set(declared)) {
       expect(reached.has(code), `${code} is declared and no published row reaches it`).toBe(true);
+    }
+  });
+});
+
+/**
+ * The public halves this suite publishes, joined both ways: by the kid a protected header names, which is how
+ * a resolver answers, and by the half itself, which is how a row stating one key says which it means. A
+ * designation that appears in neither column of this table is a fault this block reports rather than bytes it
+ * hands a reader.
+ */
+const PUBLISHED_INVENTORY_KEYS = new Map(
+  epochInventories.layout.keyMaterial.map((one) => [one.kidHex, one.publicKeyBase64Url]),
+);
+
+/** The published material for a designated public half, named by the kid its own seal carries. */
+function publishedInventoryKey(publicKeyBase64Url: string): { kidHex: string; publicKeyBase64Url: string } {
+  const found = epochInventories.layout.keyMaterial.find((one) => one.publicKeyBase64Url === publicKeyBase64Url);
+  if (found === undefined) throw new Error('a published row designates a half this suite holds no key material for');
+  return found;
+}
+
+/**
+ * What a row hands the inventory reader: the designation it states, read out of the row and resolved through
+ * the published key material rather than as a byte string written into this file. `pinned` is the one half a
+ * caller means, which answers whatever kid the header names, `retained` is the set a resolver answers from,
+ * one half per kid, and a row stating neither is the call that designated nothing, which this reader answers
+ * before it reads a byte.
+ */
+function inventoryOptionsFor(one: EpochInventoryCase): EpochInventoryVerifyOptions {
+  if (one.read.pinned !== undefined) {
+    return { publicKey: bytes(publishedInventoryKey(one.read.pinned).publicKeyBase64Url) };
+  }
+  if (one.read.retained !== undefined) {
+    const held = one.read.retained;
+    return {
+      resolveKey: (kid) => {
+        const found = held[hex(kid)];
+        return found === undefined ? undefined : bytes(found);
+      },
+    };
+  }
+  return {};
+}
+
+/** What the key-bearing reader answered: the code, and the sentence it gave beside a refusal. */
+function inventoryAnswer(one: EpochInventoryCase): { code: string; message: string } {
+  try {
+    verifyEpochInventory(bytes(one.documentBase64Url), inventoryOptionsFor(one));
+    return { code: 'verify-ok', message: '' };
+  } catch (err) {
+    if (err instanceof ReceiptError) return { code: err.code, message: err.message };
+    throw err;
+  }
+}
+
+/**
+ * The epoch inventory suite replayed through the two readers a consumer links against.
+ *
+ * This goes through `verifyEpochInventory` and `decodeEpochInventory` rather than through a command because
+ * there is no command to go through. `packages/cli/src/cli.ts` states the verbs this package ships in one
+ * declaration, `COMMANDS`, and dispatches on it in `run`; they are `verify`, `verify-receipt`,
+ * `verify-handover`, `verify-pack`, `verify-export`, `keygen`, `credential` and `accesslog`, and no verb of
+ * this package reads an epoch inventory, which the absence of the word from every source file under
+ * `packages/cli/src` states outright. Writing a verb for this container would settle what an operator gets to
+ * run, which is a decision about the format's surface rather than about this replay, and a file that replays
+ * published rows does not settle it. What this block does prove is the claim a port has to satisfy: the
+ * readers exported from `@ashaveri/receipt` answer these verdicts from bytes a consumer can hold, under the
+ * key material the same file publishes and nothing else. The redaction block above is the near relation, since
+ * an inventory and a redaction manifest are both summaries over a run of packs and both are read by a
+ * key-bearing and a keyless reader.
+ */
+describe('the epoch inventory vectors through the shipped readers', () => {
+  it('states a verdict for every row and gives every row that verdict', () => {
+    expect(epochInventories.vectors.length).toBeGreaterThanOrEqual(20);
+    const observed = epochInventories.vectors.map((one) => {
+      expect(one.verdict, `${one.name} states no verdict`).toMatch(/^[A-Za-z0-9_-]+$/u);
+      expect(bytes(one.documentBase64Url)).toHaveLength(one.documentByteLength);
+      return `${one.name}: ${verdictOf(() => verifyEpochInventory(bytes(one.documentBase64Url), inventoryOptionsFor(one)))}`;
+    });
+    expect(observed).toEqual(epochInventories.vectors.map((one) => `${one.name}: ${one.verdict}`));
+  });
+
+  it('separates what the bytes say before a key from what the reader decides after one', () => {
+    // `decodeEpochInventory` is handed no key and no arithmetic over a run, so a row that is `verify-ok` there
+    // and a refusal in `verdict` is refused about a key, a signature or the figures the run folds, and a port
+    // that answered both questions at one door would send an operator to the inventory for what is a fact about
+    // their own key set. The two directions are read off the rows rather than stated as numbers here.
+    const observed = epochInventories.vectors.map(
+      (one) => `${one.name}: ${verdictOf(() => decodeEpochInventory(bytes(one.documentBase64Url)))}`,
+    );
+    expect(observed).toEqual(epochInventories.vectors.map((one) => `${one.name}: ${one.structural}`));
+    const wholeButRefused = epochInventories.vectors.filter(
+      (one) => one.structural === 'verify-ok' && one.verdict !== 'verify-ok',
+    );
+    expect(wholeButRefused.length).toBeGreaterThanOrEqual(8);
+    const atTheShape = epochInventories.vectors.filter((one) => one.structural !== 'verify-ok');
+    expect(atTheShape.length).toBeGreaterThanOrEqual(8);
+    for (const one of atTheShape) {
+      expect(one.verdict, `${one.name} is refused at the shape and answered something else at the key`).toBe(
+        one.structural,
+      );
+    }
+  });
+
+  it('answers a refusal in the sentence the row publishes beside it and none an acceptance', () => {
+    // The published sentence is this reader's own wording, and it names the guard it stopped on, so comparing
+    // it is what tells a folded-list refusal reached at one branch from the same code reached at another.
+    const refused = epochInventories.vectors.filter((one) => one.verdict !== 'verify-ok');
+    expect(refused.length).toBeGreaterThanOrEqual(1);
+    const observed = refused.map((one) => {
+      expect(one.message, `${one.name} is refused and the file publishes no sentence for it`).toBeDefined();
+      const answered = inventoryAnswer(one);
+      return `${one.name}: ${answered.code}: ${answered.message}`;
+    });
+    expect(observed).toEqual(refused.map((one) => `${one.name}: ${one.verdict}: ${one.message ?? ''}`));
+    for (const one of epochInventories.vectors) {
+      if (one.verdict !== 'verify-ok') continue;
+      expect(one.message, `${one.name} is accepted and carries a refusal sentence`).toBeUndefined();
+    }
+  });
+
+  it('hands back the run and both claims exactly as each accepted row states them', () => {
+    const accepted = epochInventories.vectors.filter((one) => one.verdict === 'verify-ok');
+    expect(accepted.length).toBeGreaterThanOrEqual(8);
+    for (const one of accepted) {
+      const stated = one.readback;
+      expect(stated, `${one.name} is accepted and states no readback`).toBeDefined();
+      if (stated === undefined) continue;
+      const read = verifyEpochInventory(bytes(one.documentBase64Url), inventoryOptionsFor(one));
+      // `runFiles` is the reader's own recomputation and `statedFiles` the array as the document wrote it, so
+      // one object holds both orders and the row that lost its readback says which one went missing.
+      expect(
+        {
+          runFiles: read.outcome.packs.map((each) => each.file),
+          statedFiles: read.manifest.packs.map((each) => each.file),
+          window: read.manifest.window,
+          continuous: read.manifest.chain.continuous,
+          breakFiles: read.manifest.chain.breaks.map((each) => each.file),
+          carried: read.manifest.duty.carried,
+          shortFiles: read.manifest.duty.short.map((each) => each.file),
+        },
+        one.name,
+      ).toEqual(stated);
+      // Position in the array carries no claim, so the run handed over is the listed members reordered rather
+      // than a different set: the same packs, each keyed by the digest it is filed under, either way.
+      expect([...read.outcome.packs.map((each) => each.sha256)].sort(), one.name).toEqual(
+        [...read.manifest.packs.map((each) => each.sha256)].sort(),
+      );
+      expect(read.header.contentType, one.name).toBe(epochInventories.layout.contentType);
+    }
+  });
+
+  it('reaches every code the published roster states, through a row it replayed', () => {
+    // The roster is a column of the file and the rows answering each code are read out of the file too, both
+    // ways round, so a row that left this suite is reported here as a gap rather than still being spoken of as
+    // covered, and a row answering a code the file does not roster reports itself the same way.
+    const roster = epochInventories.layout.codes;
+    expect(roster.length, 'the published roster states one code twice').toBe(new Set(roster).size);
+    expect(roster.length).toBeGreaterThanOrEqual(12);
+    for (const code of roster) {
+      const rows = epochInventories.vectors.filter((one) => one.verdict === code || one.structural === code);
+      expect(rows.length, `${code} is on the published roster and no replayed row answers it`).toBeGreaterThanOrEqual(1);
+    }
+    for (const one of epochInventories.vectors) {
+      expect(roster, `${one.name} answers ${one.verdict}, which the file rosters nowhere`).toContain(one.verdict);
+      expect(roster, `${one.name} is ${one.structural} at the shape, which the file rosters nowhere`).toContain(
+        one.structural,
+      );
+    }
+  });
+
+  it('designates only the key material this suite publishes, joined by the kid a header names', () => {
+    // The accepted rows are read from the kid in their own protected header against the published material, so
+    // a row accepted under a key its header does not name, or a retained set holding a kid this suite
+    // publishes no half for, is reported rather than verified under some other key this file reached for.
+    for (const one of epochInventories.vectors) {
+      if (one.read.pinned !== undefined) {
+        if (one.verdict !== 'verify-ok') continue;
+        const headerKid = hex(decodeEpochInventory(bytes(one.documentBase64Url)).header.kid);
+        expect(PUBLISHED_INVENTORY_KEYS.get(headerKid), `${one.name} is accepted under a key its own header does not name`).toBe(
+          one.read.pinned,
+        );
+        continue;
+      }
+      for (const [kid, half] of Object.entries(one.read.retained ?? {})) {
+        expect(PUBLISHED_INVENTORY_KEYS.get(kid), `${one.name} retains a kid this suite publishes no half for`).toBe(
+          half,
+        );
+      }
     }
   });
 });
