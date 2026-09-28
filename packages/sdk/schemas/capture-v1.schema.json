@@ -100,8 +100,8 @@
           "description": "SHA-256 of the policy document the check actually loaded, in its canonical re-encoding, or null when the check ran with no policy file at all. A reader may conclude which pins were in force and no more."
         },
         "receiptFormatVersion": {
-          "enum": [1, 2],
-          "description": "Which receipt format version the check read. The version decides which members exist, so a verdict about a v1 document is not a verdict about a v2 one and a record has to say which it answered for."
+          "enum": [1, 2, 3],
+          "description": "Which receipt format version the check read. The version decides which members exist, so a verdict about a v1 document is not a verdict about a v2 one and a record has to say which it answered for. The three labels are every payload version the format defines: a gateway signs a v3 whenever the bytes of its response frame into items, so a record naming 3 is the ordinary output of a check run against an emitting deployment rather than an exception a collector has to explain. A version outside this list is refused by the reader rather than read as the nearest one inside it."
         },
         "verifierVersion": {
           "type": "string",

@@ -52,20 +52,21 @@ const IMPLEMENTED_POLICY_VERSIONS: readonly number[] = [1];
 
 /**
  * Which receipt format versions a capture record may name, the one place that set is written for this
- * package. It is narrower than the format's own list on purpose, and the narrowing is capture's rule
- * rather than the format's: this package's schema declares `enum: [1, 2]` for the member, and a record
- * naming `3` is refused rather than read. Why a record of a v3 check is one this reader does not take
- * is a question neither that schema's description nor `docs/capture-v1.md` answers, and the list does
- * not settle it either way; what is stated here is the mechanism and nothing more.
+ * package. It is the format's own list, and it is no longer narrower than it: a gateway emits `v: 3`
+ * whenever the bytes of a response frame into items, so a record of a check over a v3 receipt is the
+ * ordinary document a collector hands over, and a reader that refused it would leave every client of
+ * every emitting deployment unable to record what it verified. The list and
+ * `packages/sdk/schemas/capture-v1.schema.json`'s `enum` for `check.receiptFormatVersion` are one rule
+ * written twice on purpose, because the schema is what a collector outside this repository builds against
+ * and the reader is what a stranger runs; `test/capture.test.ts` holds the two to each other at the
+ * boundary of the list, where only a disagreement between them can be seen.
  *
  * `as const` is what makes the list and the type of the member below one fact instead of two that can
- * disagree. Widening the list is not answered by a refusal, because this list is the refusal: what
- * answers it is `packages/sdk/test/capture.test.ts`, where one case expects a record naming `3` to be
- * refused outright and the walk that holds the published schema against the reader expects the same
- * document refused on both sides. A list widened without its schema fails at the reader's half of that
- * walk, and a schema widened without its list fails at the schema's half.
+ * disagree. Widening this list is answered at the schema half of that walk, and a version the format gains
+ * without a reader for it fails the same way: `receipt.cddl` and `packages/receipt/src/receipt.ts` own what
+ * can be parsed, and this list only says which of those a record may claim it checked.
  */
-const IMPLEMENTED_RECEIPT_FORMAT_VERSIONS = [1, 2] as const;
+const IMPLEMENTED_RECEIPT_FORMAT_VERSIONS = [1, 2, 3] as const;
 
 /** The versions above as a type, so no caller of the reader has to name them again. */
 type CaptureReceiptFormatVersion = (typeof IMPLEMENTED_RECEIPT_FORMAT_VERSIONS)[number];
@@ -100,8 +101,15 @@ export type CaptureSlot = CaptureHeld | CaptureAbsent;
  * capture version rather than as a new string: a reader that let an unknown kind fall through to its
  * default handling would assess a document it holds no rules for, which is what the test against this
  * list below refuses.
+ *
+ * Exported because the list is one of two statements of this set and the other is a published document:
+ * `original.sourceKind`'s `enum` in `packages/sdk/schemas/capture-v1.schema.json` is what a collector
+ * outside this repository builds a writer against, and nothing compared the two. A fifth kind added here
+ * agreed with the type, with the reader and with the schema's silence, and disagreed with the published
+ * document quietly. `test/capture.test.ts` now reads both and refuses the disagreement in either
+ * direction, so the list and the enum are one set with two spellings.
  */
-const SOURCE_KINDS = ['platform-evidence', 'device-evidence', 'deployment-manifest', 'receipt'] as const;
+export const SOURCE_KINDS = ['platform-evidence', 'device-evidence', 'deployment-manifest', 'receipt'] as const;
 
 /** The kinds above as a type, so the set is named in one place and read in two. */
 export type CaptureSourceKind = (typeof SOURCE_KINDS)[number];
@@ -336,11 +344,13 @@ function requireImplementedVersion<T extends number>(value: unknown, what: strin
 }
 
 /**
- * Which receipt format version the record says the check read, against the two this package reads it
- * as. `receipt.cddl` declares three payload versions; capture's own schema declares `enum: [1, 2]` for
- * this member, and a record naming `3` is refused by design rather than read as a version it does not
- * name. `requireImplementedVersion` answers it, an `UNSUPPORTED_VERSION` naming the version the record
- * states and the versions this reader implements.
+ * Which receipt format version the record says the check read, against every version this package reads it
+ * as. `receipt.cddl` declares three payload versions and this reader now names all three, because a gateway
+ * emits `v: 3` on the bytes of the response rather than on a capability the deployment was asked about, so
+ * a record of a v3 check is a record a collector will write. A version outside the list is still refused by
+ * design and never read as one inside it: `requireImplementedVersion` answers with an `UNSUPPORTED_VERSION`
+ * naming the version the record states and the versions this reader implements, which is the same rule the
+ * capture and policy versions beside it run under.
  */
 function requireReceiptVersion(value: unknown, where: string): CaptureReceiptFormatVersion {
   return requireImplementedVersion(value, `${where}.receiptFormatVersion`, IMPLEMENTED_RECEIPT_FORMAT_VERSIONS);
