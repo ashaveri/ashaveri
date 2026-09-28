@@ -169,6 +169,25 @@ function steppingClock(start: number): TimeSource {
   return { name: 'stepping clock', uncertaintySeconds: 2, now: () => start + (ticks += 1) };
 }
 
+/**
+ * One body handed over at these write boundaries, with a source reading one second later every time it is
+ * asked, as the list of `t` and `d` pairs the response would state.
+ */
+function stampedShape(body: Uint8Array, splits: readonly number[]): string[] {
+  let ticks = 0;
+  const stamps = new StreamedItemStamps(() => CLOCK_SECONDS + (ticks += 1));
+  let cut = 0;
+  for (const at of [...splits].sort((a, b) => a - b)) {
+    if (at <= cut || at >= body.length) continue;
+    stamps.written(body.subarray(cut, at));
+    cut = at;
+  }
+  stamps.written(body.subarray(cut));
+  const answer = stamps.answer();
+  if (!answer.framed) throw new Error(`the split ${String(splits)} framed no items`);
+  return answer.stamps.map((one) => `${String(one.t)}:${toHex(one.d)}`);
+}
+
 /** Whether no stamp in the list runs against the order its items were framed in. */
 function runsInOrder(stamps: readonly number[]): boolean {
   let previous: number | undefined;
@@ -242,6 +261,29 @@ describe('a v3 response, attested in the bytes a client holds', () => {
       expect([splits.length, digests]).toEqual([splits.length, expected]);
       expect(served.payload.v).toBe(3);
     }
+  });
+
+  it('issues one stamped list for one body whatever boundaries the transport chose', async () => {
+    // A rising source, an unmarked stream, and the same body handed over in one piece, a frame at a time,
+    // and in pieces that cut through frames: the list the signed document states is identical in all
+    // three, because the readings a response consumes are its items and nothing else. A stamp that moved
+    // with a write boundary would put a transport's accident inside a signed artifact, which is what a
+    // published multi-item response vector cannot be allowed to freeze.
+    const shapes: string[][] = [];
+    for (const splits of [[], frameEnds(UPSTREAM_STREAM), [1, 20, 44, 96]]) {
+      const h = await open({
+        backend: bodyBackend(UPSTREAM_STREAM, 'text/event-stream', splits),
+        time: steppingClock(CLOCK_SECONDS),
+      });
+      const served = await sendAndFetch(h, '/v1/chat/completions', STREAM_REQUEST_BODY);
+      if (!('itm' in served.payload)) throw new Error('a v3 payload carries no item list');
+      expect(served.payload.v).toBe(3);
+      shapes.push(served.payload.itm.map((one) => `${String(one.t)}:${toHex(one.d)}`));
+    }
+    expect([shapes[1], shapes[2]]).toEqual([shapes[0] ?? [], shapes[0] ?? []]);
+    // Distinct instants, so the equality above is an equality of a sequence and not of one number copied
+    // across a list a frozen clock would have produced anyway.
+    expect(new Set(shapes[0] ?? []).size).toBe((shapes[0] ?? []).length);
   });
 
   it('reads a stream framed by carriage returns as the two items its client reads', async () => {
@@ -385,6 +427,27 @@ describe('the framing of one response, read off the bytes as they pass', () => {
         expected.items.map((one) => toHex(one.d)),
       ]);
     }
+  });
+
+  it('reads one instant per item, so no write boundary is inside a stamp', () => {
+    const body = utf8(UPSTREAM_STREAM);
+    const expected = frameResponse('text/event-stream', body);
+    if (!expected.framed) throw new Error('the body frames into no items');
+    const whole = stampedShape(body, []);
+    // The same body through one write, through one write per frame, and through boundaries that cut
+    // inside frames: one list of instants and digests, because a stamp is a reading of a source taken for
+    // one item and not a record of how many writes carried it. A reading taken once per write would answer
+    // three equal instants for the whole body and three apart for the frames, and a published multi-item
+    // vector would freeze one transport's boundaries into bytes every other implementation is asked to
+    // reproduce.
+    expect([whole, stampedShape(body, frameEnds(UPSTREAM_STREAM)), stampedShape(body, [1, 20, 44, 96])]).toEqual([
+      whole,
+      whole,
+      whole,
+    ]);
+    // One reading per item, and the items are the whole of the count: a source that moves between two
+    // frames shows between their stamps, and nothing put two items inside one reading here.
+    expect([new Set(whole).size, whole.length]).toEqual([whole.length, expected.items.length]);
   });
 
   it('absorbs a clock that steps back between two frames into one readable order', () => {
