@@ -58,7 +58,7 @@
       "required": ["file", "retention", "sha256", "retentionSha256", "at", "span", "items", "chain", "kid", "duty"],
       "properties": {
         "file": { "$ref": "#/$defs/packFile", "description": "Where the pack is, relative to the epoch directory and with forward slashes: `packs/<digest>/pack-v1.cbor`. The digest the directory is named for is this entry's own `sha256`, and a reader refuses an entry filed under another pack's name rather than pointing it at bytes that are not the ones described." },
-        "retention": { "$ref": "#/$defs/retentionFile", "description": "The retention artifact assembled with this pack, in the same directory: `packs/<digest>/retention-v1.json`. A closed window is the pair, and an entry that named only the pack would leave a reader unable to tell which retention statement the duty figures were read with." },
+        "retention": { "$ref": "#/$defs/retentionFile", "description": "The retention artifact assembled with this pack, in the same directory: `packs/<digest>/retention-v1.json` or `packs/<digest>/retention-v2.json`, the file name carrying the version of the layout the file holds. A closed window is the pair, and an entry that named only the pack would leave a reader unable to tell which retention statement the duty figures were read with." },
         "sha256": { "$ref": "#/$defs/hex32", "description": "sha256 over the whole sealed pack document as it sits on the volume, tag and signature included: the identity a redaction of that pack names it by. Recomputable by a reader holding the file, and this document carries nothing that lets a reader check it without the file." },
         "retentionSha256": { "$ref": "#/$defs/hex32", "description": "sha256 over the retention artifact's bytes as they sit on the volume." },
         "at": { "type": "integer", "description": "unix seconds, the instant that pack began to be assembled, copied from the pack after it was read through its own verifier" },
@@ -159,6 +159,6 @@
     },
     "hex32": { "type": "string", "pattern": "^[0-9a-f]{64}$" },
     "packFile": { "type": "string", "pattern": "^packs/[0-9a-f]{64}/pack-v1\\.cbor$" },
-    "retentionFile": { "type": "string", "pattern": "^packs/[0-9a-f]{64}/retention-v1\\.json$" }
+    "retentionFile": { "type": "string", "pattern": "^packs/[0-9a-f]{64}/retention-v(1|2)\\.json$" }
   }
 }

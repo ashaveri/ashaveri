@@ -63,6 +63,9 @@ export type ReceiptErrorCode =
   | 'EPOCH_INVENTORY_PACK_UNNAMED'
   | 'EPOCH_INVENTORY_RUN_NOT_CONTIGUOUS'
   | 'EPOCH_INVENTORY_SUMMARY_DISAGREES'
+  | 'EPOCH_INVENTORY_PRESENCE_UNSEALED'
+  | 'EPOCH_INVENTORY_PRESENCE_GAP'
+  | 'EPOCH_INVENTORY_PRESENCE_WINDOW_TOO_WIDE'
   | 'EPOCH_INVENTORY_KID_MISMATCH'
   | 'EPOCH_INVENTORY_UNKNOWN_KEY'
   | 'RETENTION_UNSUPPORTED_VERSION'
@@ -363,6 +366,35 @@ const ERROR_MESSAGE: Record<ReceiptErrorCode, string> = {
   // the fault is one fault met at several positions and the action never changes: the fold has to be redone
   // from the entries, which is what this reader just did, and the detail says which figure it stopped on.
   EPOCH_INVENTORY_SUMMARY_DISAGREES: 'an epoch inventory states a window, a chain or a duty its own packs do not',
+  // What the presence fold is handed, and what the run seals. A retention artifact is unsigned by design and
+  // travels under the `retentionSha256` an inventory's own signature carries, so an observation the fold reads is
+  // evidence only once the bytes it came from hash to a digest the run states. Three findings arrive here and the
+  // detail says which: bytes hashing to a digest no entry of the run states, which is a bare retention file handed
+  // to a reader and nothing of the run's; one sealed digest handed twice, which is one pack's observation stated
+  // twice and folded as though the run held two; and one digest sealed by two entries, which is a store state
+  // claimed for two windows and an observation that names no pack it belongs to. None of the three is a fault of
+  // either document, which is why this is not `EPOCH_INVENTORY_BAD_DOCUMENT` and not `RETENTION_BAD_DOCUMENT`: the
+  // fold was handed something other than what the signature designates, and the action is to hand over the files
+  // the run names rather than to edit a document that is already whole.
+  EPOCH_INVENTORY_PRESENCE_UNSEALED: 'a presence observation was handed to an epoch inventory under a name that inventory does not seal',
+  // One digest named by the store's own observations at two sealing instants and not named at an instant between
+  // them. The run's windows meet end to start, so the entries between the two are inside the period the document
+  // states it attests and its own duty figures measure against; an observation missing from that stretch is
+  // missing evidence about the material, and the interval the fold owes cannot be drawn across it. This is not a
+  // window left out of the run, which is `EPOCH_INVENTORY_RUN_NOT_CONTIGUOUS` and says the packs do not meet: here
+  // they meet, and what the store said it held at both ends of the stretch goes silent in the middle. The detail
+  // names the family, the digest and the window between the two places that name it, in that order, because a
+  // quoted detail is cut at a bound and a finding named past the cut is a finding nobody reads.
+  EPOCH_INVENTORY_PRESENCE_GAP: 'the presence observations of an epoch inventory leave a period of the run unstated between two places they name one digest',
+  // The document's stated `window` reaches further than its observations reach. Where a gap is a hole inside the
+  // stretch the observations do draw, this is the stretch itself falling short of the period the document attests:
+  // the run's first or last window carries no observation naming what the fold reads, so the interval the entries
+  // support is narrower than the interval the document states, and the stated one would be a claim about material
+  // no observation of that pack names. A run whose artifacts are all of the version that states no observation
+  // arrives here too, which is the honest answer: nothing was folded, so nothing is attested. Refused rather than
+  // reported as a shorter interval, because a reader handed a summary that is not the arithmetic of its entries is
+  // owed the disagreement, and cannot tell a corrected figure from the writer's silence without it.
+  EPOCH_INVENTORY_PRESENCE_WINDOW_TOO_WIDE: 'an epoch inventory states a window wider than the period its presence observations attest',
   // The key the reader reached for hashes to something other than the kid the inventory's header names. The
   // designation answered and what it answered with is another key's, which is a wrong key rather than an
   // edited document, and the two send an operator to different places.

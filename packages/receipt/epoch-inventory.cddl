@@ -119,8 +119,11 @@ Ashaveri-Epoch-Inventory-Deployment = {
 ;
 ; `file` and `retention` are relative to the epoch directory and written with forward slashes wherever the run
 ; is read, and the directory each one names is the pack's own digest: `packs/<digest>/pack-v1.cbor` and
-; `packs/<digest>/retention-v1.json`. A closed window is the pair, and an inventory that named only the pack
-; would leave a reader unable to tell which retention artifact the duty figures were read with.
+; `packs/<digest>/retention-v1.json` or `packs/<digest>/retention-v2.json`. A closed window is the pair, and an
+; inventory that named only the pack would leave a reader unable to tell which retention artifact the duty
+; figures were read with. The retention position is a set rather than one name because the manifest inside that
+; file has two layouts, and the file name carries the version of the layout it holds: a run whose artifacts are
+; written in the newer one is a run of this layout, not a malformed directory.
 ;
 ; The two digests are sha256 over whole files as they sit on the volume: `sha256` of the sealed pack document,
 ; tag and signature included, which is the identity a redaction of that pack names it by, and
@@ -134,7 +137,7 @@ Ashaveri-Epoch-Inventory-Deployment = {
 ; because whether it was owed at all turns on the mapping the revision names and on the law behind it.
 Ashaveri-Epoch-Inventory-Pack = {
     file: tstr,                    ; packs/<sha256>/pack-v1.cbor
-    retention: tstr,               ; packs/<sha256>/retention-v1.json
+    retention: tstr,               ; packs/<sha256>/retention-v1.json or packs/<sha256>/retention-v2.json
     sha256: tstr,                  ; 64 lowercase hex characters
     retentionSha256: tstr,         ; 64 lowercase hex characters
     at: uint,                      ; unix seconds, the instant that pack began to be assembled

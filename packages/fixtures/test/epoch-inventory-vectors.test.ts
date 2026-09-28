@@ -132,17 +132,21 @@ const bytes = (base64url: string): Uint8Array => new Uint8Array(Buffer.from(base
 
 /** The options a row's designation builds, which are the reader's two shapes and no third. */
 function optionsFor(one: EpochInventoryVector): EpochInventoryVerifyOptions {
-  if (one.read.pinned !== undefined) return { publicKey: bytes(one.read.pinned) };
-  if (one.read.retained !== undefined) {
-    const held = one.read.retained;
-    return {
-      resolveKey: (kid: Uint8Array): Uint8Array | undefined => {
-        const found = held[toHex(kid)];
-        return found === undefined ? undefined : bytes(found);
-      },
-    };
-  }
-  return {};
+  const presence = one.read.presence?.map((one) => bytes(one));
+  const key: EpochInventoryVerifyOptions = (() => {
+    if (one.read.pinned !== undefined) return { publicKey: bytes(one.read.pinned) };
+    if (one.read.retained !== undefined) {
+      const held = one.read.retained;
+      return {
+        resolveKey: (kid: Uint8Array): Uint8Array | undefined => {
+          const found = held[toHex(kid)];
+          return found === undefined ? undefined : bytes(found);
+        },
+      };
+    }
+    return {};
+  })();
+  return presence === undefined ? key : { ...key, presence };
 }
 
 /** What one reader answered, in the shape the file states its verdicts in. */

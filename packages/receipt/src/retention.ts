@@ -48,11 +48,23 @@ import { readJsonBytes, type JsonObject } from './json-text.js';
 /** The versions this module reads, and the only place a retention version is asked. */
 export const RETENTION_FORMAT_VERSIONS: readonly number[] = [1, 2];
 
+/** The name a layout is filed under, which is the layout's own version inside the file name. */
+function fileNameFor(version: number): string {
+  return `retention-v${String(version)}.json`;
+}
+
 /** The file name of each layout, as the epoch directory files it and as the inventory's entry names it. */
-export const RETENTION_FILE_NAMES: Readonly<Record<number, string>> = {
-  1: 'retention-v1.json',
-  2: 'retention-v2.json',
-};
+export const RETENTION_FILE_NAMES: Readonly<Record<number, string>> = Object.fromEntries(
+  RETENTION_FORMAT_VERSIONS.map((version) => [version, fileNameFor(version)]),
+);
+
+/**
+ * The same names as one ordered list, for the reader that accepts any layout a run's artifact is written in. The
+ * epoch inventory files a manifest under one of these and seals its digest, and a layout that names a file no
+ * version writes is the silent half of a version-set widening: a run of the new layout is refused as a
+ * malformed path, every existing vector stays green, and nothing says the fold stopped looking at evidence.
+ */
+export const RETENTION_FILE_NAME_SET: readonly string[] = RETENTION_FORMAT_VERSIONS.map(fileNameFor);
 
 /**
  * The member lists of every map this layout closes, in the order the published schemas declare them. Exported

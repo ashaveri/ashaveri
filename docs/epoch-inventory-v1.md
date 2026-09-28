@@ -121,7 +121,7 @@ arrive.
 | `deployment.ins` | `string` | yes | The instance id, as that manifest states it: never empty, and bounded by no ceiling, because that manifest declares none. |
 | `deployment.epk` | `integer` | yes | The key epoch number, as that manifest states it. An inventory saying only that keys came from a manifest would name no document, and a reader holding two of them could not tell which one this run was checked against. |
 | `pack.file` | `string` | yes | Where the pack is, relative to the epoch directory and with forward slashes: `packs/<digest>/pack-v1.cbor`. The directory is named for this entry's own `sha256`, and an entry filed under another pack's digest is refused by name rather than pointing a reader at bytes that are not the ones described. |
-| `pack.retention` | `string` | yes | The retention artifact assembled with this pack, in the same directory: `packs/<digest>/retention-v1.json`. A closed window is the pair: the pack states the duty it answers and the artifact states what the store held and retired at that same instant. |
+| `pack.retention` | `string` | yes | The retention artifact assembled with this pack, in the same directory: `packs/<digest>/retention-v1.json` or `packs/<digest>/retention-v2.json`, the name carrying the version of the layout the file holds. A closed window is the pair: the pack states the duty it answers and the artifact states what the store held and retired at that same instant. The artifact speaks for the instant it stamped and for no period, which is what the fold below is for. |
 | `pack.sha256` | `string` | yes | sha256 over the whole sealed pack document as it sits on the volume, tag and signature included, which is the identity a redaction of that pack names it by. |
 | `pack.retentionSha256` | `string` | yes | sha256 over the retention artifact's bytes as they sit on the volume. |
 | `pack.at` | `integer` | yes | Unix seconds, the instant that pack began to be assembled, copied from the pack after it was read through its own verifier. |
@@ -188,6 +188,45 @@ chain endpoints no pack chained and a duty block that reports having carried not
 own figures are vacuous rather than a deployment that sealed nothing. The honest statement that a period held no
 receipts belongs to the artifact that states windows and retention, which is a pack's pair and not this document.
 
+## The interval a reader folds from what the store reported
+
+The four statements above are inside the signature: the entries state them and the document restates them, and a
+restatement that is not the arithmetic of the entries is a contradiction this reader answers by name. A fifth
+statement is folded the other way, over a document the signature does not carry, and it is therefore not stored
+here at all. It is the interval across which the store reported holding the appraisal context, and a reader gets
+it by handing `verifyEpochInventory` the run's retention artifacts beside the inventory; the answer comes back on
+the outcome it hands over, and nothing in the signed bytes states it.
+
+The reason the figure is computed rather than written down is the reason the other four are. This document states
+which manifests a run seals and what its packs add up to, and it says nothing about what any store held; a
+retention manifest states which collateral and validity digests one store held at the instant it stamped and
+carries none of those bytes. A folded interval restated inside this signature would be a second owner of that
+fact, and the two owners would disagree in silence the first time a manifest was corrected or replaced. So the
+inventory keeps its half and the manifest keeps its, and the fold is where a reader holding both finds out
+whether the period the inventory attests is a period the material was named as held.
+
+Two rules make the fold evidence rather than a transcript of whatever arrived. An artifact is admitted only under
+a digest this document's own signature seals, because a retention manifest is unsigned by design and the pack
+beside it carries no digest of it: `packs[].retentionSha256`, inside the `COSE_Sign1`, is the only thing here that
+says which files belong to the run, and a manifest handed over on its own is refused by name. And the fold reads
+no material: a collateral digest is a name here and nothing else, because whether those bytes are replicated per
+pack, held once and named in a manifest, or carried in a bundle is settled outside this format. Where the fold
+would need the material itself to say more than that a store named it, it refuses on the digest and stops.
+
+The arithmetic runs digest by digest, and the three refusals are the three ways the two documents can fail to
+meet. A digest named at two places of the run and absent from a place between them leaves a period of the
+attested window with nothing said about it, which is a gap and not a shorter answer. An artifact whose bytes hash
+to a digest no entry seals, or to one two entries seal, or the same sealed artifact handed twice, is not evidence
+of this run. And observations whose outer edges fall short of the stated `window`, including a run whose
+artifacts are all of the layout that states no observation, describe a narrower period than the one the document
+attests. Each is refused rather than corrected: a reader handed a figure that is not the arithmetic of what it
+was given cannot tell a correction from a silence, and a folded interval narrower than the stated window would
+read as a claim about material no observation names.
+
+The same call with nothing handed answers exactly as a call handed a document alone answers. The artifacts are
+optional input, and a reader of this document alone is not told less about the document; it is asked a different
+question, and the answer to that one is not in these bytes.
+
 ## What a verified inventory does not establish
 
 A reimplementer who has just read the word `verify` is most likely to over-read exactly this, so the list is
@@ -231,6 +270,9 @@ file states the whole set this container can answer with.
 | `EPOCH_INVENTORY_PACK_UNNAMED` | A break or a shortfall names a pack the run does not hold |
 | `EPOCH_INVENTORY_RUN_NOT_CONTIGUOUS` | The windows of the run leave a gap, overlap, or do not run forwards |
 | `EPOCH_INVENTORY_SUMMARY_DISAGREES` | The window, the two chain endpoints, `continuous`, a break's pair of digests, `carried` or a shortfall's figures are not the arithmetic of the entries, or one of the two lists states one pack twice and leaves another of the run's entries unstated |
+| `EPOCH_INVENTORY_PRESENCE_UNSEALED` | A retention artifact handed to the fold hashes to a digest no entry of the run seals, or to one two entries seal, or the same sealed artifact was handed twice |
+| `EPOCH_INVENTORY_PRESENCE_GAP` | Two of the run's sealed observations name one digest and an observation between them does not, so part of the stated window carries nothing about that material |
+| `EPOCH_INVENTORY_PRESENCE_WINDOW_TOO_WIDE` | The interval the observations add up to is not the stated `window`: the first or last window names nothing the fold reads, a digest's stretch falls short of one edge, or the observations name no digest at all |
 | `EPOCH_INVENTORY_KID_MISMATCH` | The key handed to the reader is not the one the header's kid names |
 | `EPOCH_INVENTORY_UNKNOWN_KEY` | The reader was given no key for the kid the inventory names, including a call that gave it neither a key nor a resolver |
 | `INVALID_SIGNATURE` | The signature does not verify over the `Sig_structure` |
@@ -242,6 +284,14 @@ Four of those answers are about different things and a reader should keep them a
 run's arithmetic is for. `EPOCH_INVENTORY_PACK_UNNAMED` is a row about something the document does not describe.
 And `EPOCH_INVENTORY_UNKNOWN_KEY` is a reader that was handed too little, where nothing about the inventory is
 refused at all.
+
+The three presence codes are a fourth kind, and none of them is a fault of either document. An inventory and a
+set of manifests can each be whole under its own layout and still answer with one of these, because what is being
+refused is the pair: what was handed to the fold against what the signature seals. `EPOCH_INVENTORY_BAD_DOCUMENT`
+and `RETENTION_BAD_DOCUMENT` are both about bytes that do not add up, and a presence refusal says neither of them
+applies. `EPOCH_INVENTORY_RUN_NOT_CONTIGUOUS` and `EPOCH_INVENTORY_PRESENCE_GAP` both name a period the run does
+not attest, and they are the two halves of that sentence: the first is about the packs leaving the epoch, the
+second about the store's own reporting going silent inside it.
 
 ## Reading and writing these bytes
 
@@ -265,6 +315,14 @@ break smoothed into `continuous` and a shortfall list that does not match the pa
 bytes are made, under the code the reader states. A document that is meant to be refused therefore cannot come
 out of `signEpochInventory`, and one assembled to be refused is built from the pieces above rather than through
 it, which is what a conformance vector is.
+
+The retention artifacts are the optional argument at both ends: `verifyEpochInventory` takes them as
+`presence`, and `signEpochInventory` takes them beside the manifest and refuses there too, because a writer that
+sealed a window its own sealed observations do not attest would be signing a claim its reader answers as a
+refusal. Both calls answer with the folded interval on the outcome they hand back, and both answer exactly as
+they did before it when the argument is absent: nothing about held material is claimed, and nothing about it is
+refused. The interval a fold returns is the outer edges of the observations themselves rather than the document's
+`window`, and the two are equal wherever the fold answers at all.
 
 ## The identity of the schema
 

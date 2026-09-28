@@ -9,7 +9,7 @@ import {
   EPOCH_INVENTORY_LABEL_MAX_BYTES,
   EPOCH_INVENTORY_PACK_FILE,
   EPOCH_INVENTORY_PACKS_DIRECTORY,
-  EPOCH_INVENTORY_RETENTION_FILE,
+  EPOCH_INVENTORY_RETENTION_FILES,
   ReceiptError,
   decodeCanonical,
   decodeEpochInventory,
@@ -46,6 +46,26 @@ import {
   EPOCH_INVENTORY_SPAN_MEMBERS,
 } from '../src/epoch-inventory.js';
 import { cddlRule } from './cddl.js';
+import {
+  FOLD_GAP,
+  FOLD_LATE,
+  FOLD_HONEST,
+  FOLD_RUN_START,
+  FOLD_WINDOW,
+  HELD as foldHeld,
+  artifact as foldArtifact,
+  foldReadWith,
+  sealFoldDocument,
+} from './presence-run.js';
+
+/**
+ * The layout these cases file their artifact under, which is the version one manifest. The set the reader accepts
+ * is `EPOCH_INVENTORY_RETENTION_FILES`, and the case below that holds the two statements of the layout to that
+ * set is what keeps this from being a literal in disguise: a name outside the set is refused, and a version that
+ * leaves the set stops this file rather than letting it write a path no reader takes.
+ */
+const RETENTION_FILE = EPOCH_INVENTORY_RETENTION_FILES[0];
+if (RETENTION_FILE === undefined) throw new Error('the inventory accepts no retention file name at all');
 
 /**
  * The epoch inventory: a deployment's statement about a closed run of packs, and the arithmetic a reader owes
@@ -110,7 +130,7 @@ function packEntry(one: {
   const home = `${EPOCH_INVENTORY_PACKS_DIRECTORY}/${sha}`;
   return {
     file: `${home}/${EPOCH_INVENTORY_PACK_FILE}`,
-    retention: `${home}/${EPOCH_INVENTORY_RETENTION_FILE}`,
+    retention: `${home}/${RETENTION_FILE}`,
     sha256: sha,
     retentionSha256: digest(`retention/${String(one.index)}`),
     at: one.to + 10,
@@ -258,6 +278,22 @@ function swapFile(packs: readonly EpochInventoryPack[]): EpochInventoryPack[] {
 
 const readWith = (key: SigningKey = KEY): EpochInventoryVerifyOptions => ({ publicKey: key.publicKey });
 
+/**
+ * The honest run with every entry's artifact filed under `name`, which is how each layout the reader accepts and
+ * one it does not are asked at the same position of an otherwise whole document.
+ */
+function filedUnder(name: string): EpochInventoryPack[] {
+  return HONEST.packs.map((one) => ({ ...one, retention: `${EPOCH_INVENTORY_PACKS_DIRECTORY}/${one.sha256}/${name}` }));
+}
+
+/** The `retentionFile` pattern of the published twin, read out of the twin rather than restated here. */
+function retentionFilePattern(): RegExp {
+  const schema = JSON.parse(readFileSync(schemaPath, 'utf8')) as { $defs?: Record<string, { pattern?: unknown }> };
+  const pattern = schema.$defs?.retentionFile?.pattern;
+  if (typeof pattern !== 'string') throw new Error('the published twin states no retention location pattern');
+  return new RegExp(pattern, 'u');
+}
+
 const honest = sealDocument(HONEST);
 const honestRead = () => verifyEpochInventory(honest, readWith());
 const FOREIGN = `${EPOCH_INVENTORY_PACKS_DIRECTORY}/${digest('a pack of another epoch')}/${EPOCH_INVENTORY_PACK_FILE}`;
@@ -337,7 +373,7 @@ describe('an accepted inventory, read the way a reviewer reads it', () => {
   it('states each entry where the layout files it, and refuses one that is filed elsewhere', () => {
     const [entry] = HONEST.packs;
     expect(entry?.file).toBe(`${EPOCH_INVENTORY_PACKS_DIRECTORY}/${entry?.sha256}/${EPOCH_INVENTORY_PACK_FILE}`);
-    expect(entry?.retention).toBe(`${EPOCH_INVENTORY_PACKS_DIRECTORY}/${entry?.sha256}/${EPOCH_INVENTORY_RETENTION_FILE}`);
+    expect(entry?.retention).toBe(`${EPOCH_INVENTORY_PACKS_DIRECTORY}/${entry?.sha256}/${RETENTION_FILE}`);
     const misnamed = sealDocument(inventory(swapFile(HONEST.packs)));
     expect(thrownCode(() => decodeEpochInventory(misnamed))).toBe('EPOCH_INVENTORY_PACK_MISNAMED');
     expect(thrownCode(() => verifyEpochInventory(misnamed, readWith()))).toBe('EPOCH_INVENTORY_PACK_MISNAMED');
@@ -354,6 +390,36 @@ describe('an accepted inventory, read the way a reviewer reads it', () => {
         'EPOCH_INVENTORY_BAD_DOCUMENT',
       );
     }
+  });
+
+  it('accepts an artifact of either layout at the position, and refuses a name no layout writes', () => {
+    // The retention position is a set rather than one spelling, and a set is only real if both of it are asked
+    // here. Filing every entry of a whole run under the newer name is the case that a single literal at
+    // `EPOCH_INVENTORY_RETENTION_FILE` would have turned into a refusal of a run that is nothing but honest: the
+    // reader would have called the path malformed, every published vector of the older spelling would have stayed
+    // green because none of them reads a manifest, and the fold would have reported nothing about a store that had
+    // said plenty. The third name is the same position asked the other way: `retention-v3.json` is a file no
+    // version this package reads is written into, and an entry naming it is a writer that did not write this layout.
+    for (const name of EPOCH_INVENTORY_RETENTION_FILES) {
+      const filed = sealDocument(inventory(filedUnder(name)));
+      expect(thrownCode(() => decodeEpochInventory(filed)), `${name} is refused as a location`).toBe('accepted');
+      const read = verifyEpochInventory(filed, readWith());
+      expect(read.manifest.packs.map((one) => one.retention), `${name} is not the location it was read as`).toEqual(
+        HONEST.packs.map((one) => `${EPOCH_INVENTORY_PACKS_DIRECTORY}/${one.sha256}/${name}`),
+      );
+    }
+    const foreign = sealDocument(inventory(filedUnder('retention-v3.json')));
+    expect(thrownCode(() => decodeEpochInventory(foreign))).toBe('EPOCH_INVENTORY_BAD_DOCUMENT');
+    expect(thrownCode(() => verifyEpochInventory(foreign, readWith()))).toBe('EPOCH_INVENTORY_BAD_DOCUMENT');
+
+    // The twin over the same layout is the other statement of the same set, and the pattern is where it says so.
+    const accepts = retentionFilePattern();
+    const home = `${EPOCH_INVENTORY_PACKS_DIRECTORY}/${digest('a pack of the run')}`;
+    for (const name of EPOCH_INVENTORY_RETENTION_FILES) {
+      expect(accepts.test(`${home}/${name}`), `the twin refuses ${name}, which the reader files an artifact under`).toBe(true);
+    }
+    expect(accepts.test(`${home}/retention-v3.json`), 'the twin accepts a name no layout writes').toBe(false);
+    expect(accepts.test(`${home}/retention-v1.yaml`), 'the twin accepts a file of another shape').toBe(false);
   });
 
   it('places the entries by their windows and not by the order the array arrived', () => {
@@ -950,7 +1016,13 @@ describe('the layout: this file, the CDDL and the twin', () => {
       expect(block.replace(member, ''), `${rule} grew a ceiling beside ${member}`).not.toContain('.size');
     }
     expect(cddl).toContain(`packs/<digest>/${EPOCH_INVENTORY_PACK_FILE}`);
-    expect(cddl).toContain(`packs/<digest>/${EPOCH_INVENTORY_RETENTION_FILE}`);
+    for (const name of EPOCH_INVENTORY_RETENTION_FILES) {
+      expect(cddl, `the format file stopped naming ${name} as a place an artifact is filed`).toContain(`packs/<digest>/${name}`);
+    }
+    expect(
+      EPOCH_INVENTORY_RETENTION_FILES.length,
+      'the format file names one retention layout and the reader accepts another set',
+    ).toBeGreaterThanOrEqual(2);
   });
 
   it('closes the twin over exactly the members the reader closes, in the same order', () => {
@@ -1037,6 +1109,20 @@ describe('every refusal this container names is reached', () => {
       () => thrownCode(() => verifyEpochInventory(honest, {})),
       () => thrownCode(() => verifyEpochInventory(honest, readWith(SECOND))),
       () => thrownCode(() => verifyEpochInventory(sealEpochInventory(encodeEpochInventoryProtectedHeader(KEY.kid), encodeEpochInventoryManifest(HONEST), new Uint8Array(64)), readWith())),
+      // The presence fold's three refusals, reached here as well as in `presence-fold.test.ts`, because this case
+      // asks that every code the container declares has a refusal beside it in this file too. The fold is the
+      // container's own reading of two artifacts, and a code it raises would otherwise be declared here and owed
+      // by a suite this file never reads.
+      () =>
+        thrownCode(
+          () =>
+            verifyEpochInventory(
+              sealFoldDocument(FOLD_HONEST.manifest),
+              foldReadWith([...FOLD_HONEST.artifacts, foldArtifact(FOLD_RUN_START + 4 * FOLD_WINDOW + 10, foldHeld())]),
+            ),
+        ),
+      () => thrownCode(() => verifyEpochInventory(sealFoldDocument(FOLD_GAP.manifest), foldReadWith(FOLD_GAP.artifacts))),
+      () => thrownCode(() => verifyEpochInventory(sealFoldDocument(FOLD_LATE.manifest), foldReadWith(FOLD_LATE.artifacts))),
       () => thrownCode(() => signEpochInventory(HONEST, { ...KEY, kid: new Uint8Array(32) })),
     ];
     const observed = new Set(runs.map((run) => run()));

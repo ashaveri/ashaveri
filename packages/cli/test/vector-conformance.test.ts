@@ -276,7 +276,7 @@ interface EpochInventoryCase {
   readonly note: string;
   readonly documentBase64Url: string;
   readonly documentByteLength: number;
-  readonly read: { pinned?: string; retained?: Record<string, string> };
+  readonly read: { pinned?: string; retained?: Record<string, string>; presence?: string[] };
   readonly verdict: string;
   readonly structural: string;
   readonly message?: string;
@@ -1116,22 +1116,28 @@ function publishedInventoryKey(publicKeyBase64Url: string): { kidHex: string; pu
  * the published key material rather than as a byte string written into this file. `pinned` is the one half a
  * caller means, which answers whatever kid the header names, `retained` is the set a resolver answers from,
  * one half per kid, and a row stating neither is the call that designated nothing, which this reader answers
- * before it reads a byte.
+ * before it reads a byte. `presence` is beside either of those rather than instead of them: the run's retention
+ * artifacts, handed with the document, which is the fold's input, and a row stating none is the call that handed
+ * nothing and owes the reading of the document alone.
  */
 function inventoryOptionsFor(one: EpochInventoryCase): EpochInventoryVerifyOptions {
-  if (one.read.pinned !== undefined) {
-    return { publicKey: bytes(publishedInventoryKey(one.read.pinned).publicKeyBase64Url) };
-  }
-  if (one.read.retained !== undefined) {
-    const held = one.read.retained;
-    return {
-      resolveKey: (kid) => {
-        const found = held[hex(kid)];
-        return found === undefined ? undefined : bytes(found);
-      },
-    };
-  }
-  return {};
+  const presence = one.read.presence?.map((one) => bytes(one));
+  const key: EpochInventoryVerifyOptions = (() => {
+    if (one.read.pinned !== undefined) {
+      return { publicKey: bytes(publishedInventoryKey(one.read.pinned).publicKeyBase64Url) };
+    }
+    if (one.read.retained !== undefined) {
+      const held = one.read.retained;
+      return {
+        resolveKey: (kid) => {
+          const found = held[hex(kid)];
+          return found === undefined ? undefined : bytes(found);
+        },
+      };
+    }
+    return {};
+  })();
+  return presence === undefined ? key : { ...key, presence };
 }
 
 /** What the key-bearing reader answered: the code, and the sentence it gave beside a refusal. */

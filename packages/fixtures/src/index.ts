@@ -665,6 +665,11 @@ export function loadRedactionVectors(): RedactionVectorFile {
 export interface EpochInventoryDesignation {
   pinned?: string;
   retained?: Record<string, string>;
+  /**
+   * The run's retention artifacts, unpadded base64url, in the order the call hands them. A row stating none is the
+   * call that handed no manifest, which reads the document alone and claims nothing about held material.
+   */
+  presence?: string[];
 }
 
 export interface EpochInventoryVector {

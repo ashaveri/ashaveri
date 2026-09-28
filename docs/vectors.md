@@ -194,7 +194,12 @@ specific to that case.
 - **Epoch inventory.** Decode `documentBase64Url` and hand it to your reader with the designation the row's
   `read` block states: `pinned` is the one key a caller holds, which answers whatever kid the header names,
   `retained` is the set a resolver answers from, one public half per kid, and a row stating neither is the call
-  that designated nothing. Compare the answer with `verdict`, and compare `structural` with what your reader
+  that designated nothing. A row may also state `read.presence`, which is not about a key: the run's retention
+  artifacts as the bytes that sit on the volume, in the order the call hands them, and the reader folds from them
+  the interval across which the store reported holding the appraisal context. Hand them and you get that reading;
+  hand nothing and you get the reading of the document alone, which is what makes a row
+  that is `verify-ok` under one call and a refusal under the other a statement about the pair of inputs rather
+  than about the bytes. Compare the answer with `verdict`, and compare `structural` with what your reader
   says about the same bytes before it has accepted a signature: a row that is `verify-ok` there and a refusal
   here is refusing about a key, a signature or the arithmetic over a run, and not about a document that
   contradicts itself. Where a row states `readback`, those are the figures a reader has to hand back as well:

@@ -5,7 +5,7 @@ import {
   EPOCH_INVENTORY_CONTENT_TYPE,
   EPOCH_INVENTORY_PACK_FILE,
   EPOCH_INVENTORY_PACKS_DIRECTORY,
-  EPOCH_INVENTORY_RETENTION_FILE,
+  EPOCH_INVENTORY_RETENTION_FILES,
 } from '@ashaveri/receipt';
 import { readSourceFile, spelledNumber, tableRows, unionMembers } from './doc-contract.js';
 
@@ -324,13 +324,20 @@ describe('docs/epoch-inventory-v1.md layout', () => {
 
   it('files the entries where the layout files them', () => {
     // The path is a claim a reader checks against the entry's own digest, and the two file names are the layout.
+    // The retention position is named here as the set the reader accepts rather than as one spelling, because a
+    // document that named only the older one would leave a run of the newer layout reading as a directory this
+    // format does not describe, which is the mistake the reader's own widening is there to stop.
     const body = prose();
     for (const named of [
       `${EPOCH_INVENTORY_PACKS_DIRECTORY}/<digest>/${EPOCH_INVENTORY_PACK_FILE}`,
-      `${EPOCH_INVENTORY_PACKS_DIRECTORY}/<digest>/${EPOCH_INVENTORY_RETENTION_FILE}`,
+      ...EPOCH_INVENTORY_RETENTION_FILES.map((name) => `${EPOCH_INVENTORY_PACKS_DIRECTORY}/<digest>/${name}`),
     ]) {
       expect(body, `the document stopped naming ${named}`).toContain(named);
     }
+    expect(
+      EPOCH_INVENTORY_RETENTION_FILES.length,
+      'the document names one retention layout while the reader accepts a set',
+    ).toBeGreaterThanOrEqual(2);
     const cddl = readSourceFile(CDDL);
     expect(cddl).toContain(`"${EPOCH_INVENTORY_CONTENT_TYPE}"`);
   });

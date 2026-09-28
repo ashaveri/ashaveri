@@ -1,4 +1,5 @@
 import { ed25519 } from '@noble/curves/ed25519';
+import { sha256 } from '@noble/hashes/sha2.js';
 import { Tag } from 'cbor2';
 import { decodeCanonical, decodeClosedDocument, decodedMap, encodeCanonical } from './cbor.js';
 import {
@@ -18,6 +19,7 @@ import {
 import { ReceiptError } from './errors.js';
 import { readJsonBytes, type JsonObject } from './json-text.js';
 import type { PackSpan } from './pack.js';
+import { parseRetentionDocument, RETENTION_FILE_NAME_SET, type RetentionManifest } from './retention.js';
 
 /**
  * The epoch inventory, read and written: what `packages/receipt/epoch-inventory.cddl` states, run.
@@ -52,6 +54,20 @@ import type { PackSpan } from './pack.js';
  * unauthenticated bytes. The same ordering rule is why the content type is answered before any resolver is
  * consulted: an inventory's payload and a pack's manifest are two documents that both pass their own checks,
  * and the confusion is not recoverable afterwards.
+ *
+ * A fourth statement is folded when a caller hands the run's retention artifacts beside the document, under
+ * `presence`: the interval across which the store reported holding the appraisal context. It is folded rather
+ * than stored, and the inventory gains no member for it, because the interval is the arithmetic of documents
+ * the signature does not carry and a figure restated from evidence that is not in the document would be a
+ * second owner of one fact. The split between the two artifacts is what each can attest alone: the retention
+ * manifest states which collateral and validity digests one store held at one instant and carries no copy of
+ * any of those bytes, and this document states which manifests the run seals and what its packs add up to, and
+ * says nothing about what any store held. Neither is read as the other, and the fold is where a reader that
+ * holds both finds out whether the period the inventory attests is a period the material was there: a gap
+ * inside it, an observation arriving under a digest no entry of the run seals, and a stated window wider than
+ * the observations support are each refused by name. Where the fold would need the material itself to say more
+ * than that it was once held, it refuses on the digest and stops, because whether those bytes are replicated
+ * per pack, held once and named, or shipped in a bundle is a decision this format does not make.
  *
  * The writer is `encodeEpochInventoryManifest`, `encodeEpochInventoryProtectedHeader`,
  * `sealEpochInventory` and `signEpochInventory`, the four pieces the other containers publish. The payload is
@@ -95,13 +111,23 @@ export const EPOCH_INVENTORY_SHORT_MEMBERS = ['file', 'art', 'required', 'held',
 
 /**
  * Where the packs of a run live inside an epoch directory, and what the two files of one pack home are
- * called. The inventory states each entry's location in its directory, so these three names are part of the
- * layout a reader checks a path against rather than a convention a writer picked: an entry whose `file` is
- * not `packs/<its own digest>/pack-v1.cbor` names a place that does not hold the pack it describes.
+ * called. The inventory states each entry's location in its directory, so these names are part of the layout a
+ * reader checks a path against rather than a convention a writer picked: an entry whose `file` is not
+ * `packs/<its own digest>/pack-v1.cbor` names a place that does not hold the pack it describes.
+ *
+ * The retention name is a set rather than a string, and the set is the retention layouts this package reads.
+ * A single spelling here is the version-set defect in its quietest form: the reader would refuse a run whose
+ * manifests moved to the newer layout as a malformed path, every published vector of the older spelling would
+ * stay green because none of them reads a manifest, and the fold would report nothing about a store that had
+ * said plenty. The name carries the version of the layout filed under it, which is what a writer states about the
+ * file rather than the gate a reader answers at: the path is checked against this set, and the document inside it
+ * is read through `parseRetentionDocument`, which answers for its own `v` and not for the name it arrived under.
+ * An entry filed under the newer name and holding the older document is read as the older document, which states
+ * no observation, rather than as a directory this layout does not describe.
  */
 export const EPOCH_INVENTORY_PACKS_DIRECTORY = 'packs';
 export const EPOCH_INVENTORY_PACK_FILE = 'pack-v1.cbor';
-export const EPOCH_INVENTORY_RETENTION_FILE = 'retention-v1.json';
+export const EPOCH_INVENTORY_RETENTION_FILES = RETENTION_FILE_NAME_SET;
 
 /** The bound the run's label carries, which is the width it is printed at beside the run in every report. */
 export const EPOCH_INVENTORY_LABEL_MAX_BYTES = 200;
@@ -187,6 +213,17 @@ export interface EpochInventoryManifest {
 export interface EpochInventoryVerifyOptions {
   readonly publicKey?: Uint8Array;
   readonly resolveKey?: (kid: Uint8Array) => Uint8Array | undefined;
+  /**
+   * The retention artifacts of the run, each as the bytes that sit on the volume, for the fold of section
+   * "The presence fold" below. The list is what a caller hands and this reader resolves nothing, so it is the
+   * caller's job to hand every artifact the entries name: an entry whose manifest was not handed leaves its
+   * window uncovered, and uncovered inside the period the document states is a refusal rather than a shorter
+   * answer. Nothing in a manifest is believed because a caller produced it: each artifact is hashed and the
+   * digest has to be one of the `retentionSha256` figures this very document carries inside its signature, so
+   * a manifest handed on its own, or handed twice, or sealed by two entries at once, is refused before a
+   * member of it is read.
+   */
+  readonly presence?: readonly Uint8Array[];
 }
 
 export interface DecodedEpochInventory {
@@ -204,6 +241,35 @@ export interface DecodedEpochInventory {
  */
 export interface EpochInventoryRun {
   readonly packs: readonly EpochInventoryPack[];
+  /**
+   * The interval the presence observations support, when the caller handed artifacts to fold. Absent is not a
+   * finding of nothing: it is the call that handed none, which is a reader of this document alone and answers
+   * no question about held material. Where it is present, the interval is the arithmetic of the observations,
+   * it is no wider than the document's own `window`, and the two digests of every named document are listed
+   * with it so that a caller prints which material the period is a period for.
+   */
+  readonly presence?: EpochInventoryPresence;
+}
+
+/**
+ * The period across which the run's own observations attest that named material was present, and the digests
+ * they named. `from` and `to` are the outer edges of the *observations*, which is where the fold differs from
+ * `window`: the window is the period the packs sealed, and this is the period the store said it held the
+ * appraisal context across. The two agree or the document is refused, because a run that states one and attests
+ * the other is claiming a reach it cannot show.
+ *
+ * The two lists are every digest whose own stretch covers the interval, sorted, so a caller reading this gets
+ * the roster the interval is about rather than a count of it. A digest that names nothing here was never named
+ * by a sealed observation of this run, which is what makes the interval a statement about this run and not
+ * about a deployment's volume.
+ */
+export interface EpochInventoryPresence {
+  readonly from: number;
+  readonly to: number;
+  /** How many of the run's entries contributed an observation, which is never more than it has. */
+  readonly observations: number;
+  readonly collateral: readonly string[];
+  readonly validity: readonly string[];
 }
 
 export interface VerifiedEpochInventory extends DecodedEpochInventory {
@@ -375,20 +441,25 @@ function requireFlag(value: unknown, position: string): boolean {
  * the ones it describes, which is the fault a reviewer has to be told by name rather than in a sentence about
  * shape. The same pattern bounds a `breaks` or `short` row's `file`, because those name an entry of the run
  * and an entry is filed exactly once.
+ *
+ * `fileNames` is the set a position may be filed under, and it is one per position rather than one for the
+ * document: a pack is one layout and its retention companion is whichever of the two retention layouts the run
+ * was written with. A caller that passed the pair for the pack's own name would accept an entry filed under a
+ * pack format this document does not describe.
  */
 interface PackHome {
   readonly path: string;
   readonly digest: string;
 }
 
-function readPackHome(value: unknown, position: string, fileName: string): PackHome {
+function readPackHome(value: unknown, position: string, fileNames: readonly string[]): PackHome {
   if (typeof value !== 'string') throw badDocument(`${position} must be a string`);
   const directory = `${EPOCH_INVENTORY_PACKS_DIRECTORY}/`;
-  const tail = `/${fileName}`;
-  if (!value.startsWith(directory) || !value.endsWith(tail)) {
-    throw badDocument(`${position} must be ${directory}<digest>/${fileName}`);
+  const matched = fileNames.map((one) => ({ name: one, tail: `/${one}` })).find((one) => value.endsWith(one.tail));
+  if (!value.startsWith(directory) || matched === undefined) {
+    throw badDocument(`${position} must be ${directory}<digest>/${fileNames.join(' or ')}`);
   }
-  const digest = value.slice(directory.length, value.length - tail.length);
+  const digest = value.slice(directory.length, value.length - matched.tail.length);
   if (!/^[0-9a-f]{64}$/u.test(digest)) {
     throw badDocument(`${position} names a directory that is not sixty-four lowercase hex characters`);
   }
@@ -396,8 +467,14 @@ function readPackHome(value: unknown, position: string, fileName: string): PackH
 }
 
 /** One entry's own location, checked against the digest the same entry states. */
-function readPackPath(value: unknown, position: string, fileName: string, sha256: string, where: string): string {
-  const home = readPackHome(value, position, fileName);
+function readPackPath(
+  value: unknown,
+  position: string,
+  fileNames: readonly string[],
+  sha256: string,
+  where: string,
+): string {
+  const home = readPackHome(value, position, fileNames);
   if (home.digest !== sha256) {
     throw new ReceiptError('EPOCH_INVENTORY_PACK_MISNAMED', `${where} states the pack ${sha256} and is filed as ${home.path}`);
   }
@@ -421,11 +498,11 @@ function readPack(value: unknown, position: string): EpochInventoryPack {
   const chain = readMap(entry.get('chain'), `${position}.chain`);
   const duty = readMap(entry.get('duty'), `${position}.duty`);
   return {
-    file: readPackPath(entry.get('file'), `${position}.file`, EPOCH_INVENTORY_PACK_FILE, sha256, position),
+    file: readPackPath(entry.get('file'), `${position}.file`, [EPOCH_INVENTORY_PACK_FILE], sha256, position),
     retention: readPackPath(
       entry.get('retention'),
       `${position}.retention`,
-      EPOCH_INVENTORY_RETENTION_FILE,
+      EPOCH_INVENTORY_RETENTION_FILES,
       sha256,
       position,
     ),
@@ -485,7 +562,7 @@ function readBreaks(value: unknown): readonly EpochInventoryBreak[] {
     const raw = readMap(one, position);
     assertDefined(raw, EPOCH_INVENTORY_BREAK_MEMBERS, position);
     return {
-      file: readPackHome(raw.get('file'), `${position}.file`, EPOCH_INVENTORY_PACK_FILE).path,
+      file: readPackHome(raw.get('file'), `${position}.file`, [EPOCH_INVENTORY_PACK_FILE]).path,
       afterHead: requireDigest(raw.get('afterHead'), `${position}.afterHead`),
       anchor: requireDigest(raw.get('anchor'), `${position}.anchor`),
     };
@@ -499,7 +576,7 @@ function readShort(value: unknown): readonly EpochInventoryShort[] {
     const raw = readMap(one, position);
     assertDefined(raw, EPOCH_INVENTORY_SHORT_MEMBERS, position);
     return {
-      file: readPackHome(raw.get('file'), `${position}.file`, EPOCH_INVENTORY_PACK_FILE).path,
+      file: readPackHome(raw.get('file'), `${position}.file`, [EPOCH_INVENTORY_PACK_FILE]).path,
       art: requireText(raw.get('art'), `${position}.art`),
       required: requireFigure(raw.get('required'), `${position}.required`),
       held: requireFigure(raw.get('held'), `${position}.held`),
@@ -783,6 +860,167 @@ function assertRun(manifest: EpochInventoryManifest): readonly EpochInventoryPac
 }
 
 // ---------------------------------------------------------------------------
+// The presence fold.
+//
+// A retention manifest states, for the instant it stamped, which collateral and validity documents the store
+// held. Those are statements about single instants, and a reviewer's question is about a period: was the
+// material an anchor names there the whole way across the run this inventory attests? The fold answers it the
+// way the three summaries above answer theirs, in the shape `duty.short` already uses: the entries state, the
+// reader recomputes, a restatement that is not the arithmetic of the entries is refused, and the guard's own
+// sentence is what tells two faults sharing one code apart.
+//
+// Two rules make it evidence rather than a transcript. First, an artifact is admitted only under a digest this
+// document's own signature seals: the manifest is unsigned by design and the pack carries no digest of it, so
+// `packs[].retentionSha256`, inside the inventory's COSE_Sign1, is the only thing here that tells a fold which
+// files belong to the run. A manifest handed over on its own is refused by name, and this is the constraint the
+// layout's own header states: an inventory is a checker, not a verifier of the bytes beside it. Second, nothing
+// here reads the material the observations name. Whether a collateral digest resolves to bytes a reader can
+// fetch is the volume question of a different task, and where this fold needed bytes it is not given, it refuses
+// on the digest rather than assuming they are somewhere.
+//
+// The arithmetic then runs digest by digest. A digest's stretch is the run's entries naming it, and because the
+// windows of a run meet end to start, a stretch that skips an entry is a period the document states it attests
+// and no observation covers: the material left and came back, or the store stopped reporting it, or the caller
+// handed one manifest too few. Each of those is missing evidence and is refused as one. A digest's attested
+// interval is the outer edges of its stretch, and the run's interval is the intersection over the digests named,
+// because the claim being folded is about the appraisal context as a whole rather than about whichever document
+// happened to be held longest. That interval is then compared with the period the document states: a run whose
+// first or last window carries no observation is stating a period wider than its observations support, which is
+// the third refusal, and a fold with nothing to intersect states no period at all and is refused the same way.
+// ---------------------------------------------------------------------------
+
+/** The two families the fold reads, in the order the layout declares them. */
+const PRESENCE_FAMILIES = ['collateral', 'validity'] as const;
+
+function presenceDigest(digest: string, family: (typeof PRESENCE_FAMILIES)[number]): string {
+  return `${family}:${digest}`;
+}
+
+/**
+ * One digest's stretch: the run-order positions of the entries that name it, and the first and last of those
+ * entries themselves. The two entries travel with the positions because the guard's sentence names the packs it
+ * is about, and a reader that had to look an entry up by position to say which ones it meant would be making a
+ * claim about the run's order rather than about the two places it actually read. `to` and `toIndex` move as the
+ * walk goes forwards, which is the only difference between them and the two fields beside them.
+ */
+interface Stretch {
+  readonly named: Set<number>;
+  readonly from: EpochInventoryPack;
+  readonly fromIndex: number;
+  to: EpochInventoryPack;
+  toIndex: number;
+}
+
+/**
+ * The run's presence interval, out of the manifests a caller handed beside the document.
+ *
+ * The three refusals this reaches are named in the fixed sentence and opened in the detail, in the words that
+ * say which finding it is, because a detail is quoted to a reader up to a bound and a finding named past the cut
+ * is a finding nobody can act on. The bound runs over two pack paths and one digest easily, so each detail below
+ * begins with the words that separate it from its siblings rather than with a digest or a path.
+ */
+function foldPresence(
+  manifest: EpochInventoryManifest,
+  run: readonly EpochInventoryPack[],
+  artifacts: readonly Uint8Array[],
+): EpochInventoryPresence {
+  // The digests this document seals, each against the entries that state it. Two entries stating one digest is
+  // one store state claimed for two windows, and an observation arriving under it belongs to neither.
+  const sealed = new Map<string, EpochInventoryPack[]>();
+  for (const one of run) {
+    sealed.set(one.retentionSha256, [...(sealed.get(one.retentionSha256) ?? []), one]);
+  }
+  const observed = new Map<string, RetentionManifest>();
+  const handed = new Set<string>();
+  for (const bytes of artifacts) {
+    const digest = toHex(sha256(bytes));
+    const holders = sealed.get(digest) ?? [];
+    const [holder] = holders;
+    if (holder === undefined) {
+      throw new ReceiptError(
+        'EPOCH_INVENTORY_PRESENCE_UNSEALED',
+        `no entry of the run seals ${digest}, so this manifest is the deployment's own report and folds as nothing`,
+      );
+    }
+    if (holders.length > 1) {
+      const [first, second] = holders as [EpochInventoryPack, EpochInventoryPack];
+      throw new ReceiptError(
+        'EPOCH_INVENTORY_PRESENCE_UNSEALED',
+        `sealed twice: ${digest} is stated by ${first.file} and by ${second.file}, so the observation names no pack it belongs to`,
+      );
+    }
+    if (handed.has(digest)) {
+      throw new ReceiptError(
+        'EPOCH_INVENTORY_PRESENCE_UNSEALED',
+        `handed twice: ${digest} is the manifest the run seals once, and folding it twice counts one pack's observation as two`,
+      );
+    }
+    handed.add(digest);
+    observed.set(holder.file, parseRetentionDocument(bytes));
+  }
+
+  // Which entries name which digest, in the run's own order. A version one manifest contributes nothing, which is
+  // the honest reading: it states no observation, so no period of its window is attested by it.
+  const stretches = new Map<string, Stretch>();
+  let observations = 0;
+  for (const [index, one] of run.entries()) {
+    const document = observed.get(one.file);
+    if (document === undefined || document.v !== 2) continue;
+    observations += 1;
+    for (const family of PRESENCE_FAMILIES) {
+      for (const held of document.presence[family].held) {
+        const key = presenceDigest(held.sha256, family);
+        const seen = stretches.get(key);
+        if (seen === undefined) {
+          stretches.set(key, { named: new Set([index]), from: one, to: one, fromIndex: index, toIndex: index });
+        } else {
+          seen.named.add(index);
+          seen.to = one;
+          seen.toIndex = index;
+        }
+      }
+    }
+  }
+  if (stretches.size === 0) {
+    throw new ReceiptError(
+      'EPOCH_INVENTORY_PRESENCE_WINDOW_TOO_WIDE',
+      `the run states the window ${String(manifest.window.from)} to ${String(manifest.window.to)} and its observations name no digest at all, so nothing is attested across any of it`,
+    );
+  }
+
+  let from = Number.NEGATIVE_INFINITY;
+  let to = Number.POSITIVE_INFINITY;
+  for (const [key, stretch] of stretches) {
+    // A digest named at two places of the run and absent from a place between them. The windows meet end to
+    // start, so that place is inside the period the document states it attests, and the interval the fold owes
+    // cannot be drawn across a stretch of it no sealed observation speaks for.
+    for (const [index, entry] of run.entries()) {
+      if (index <= stretch.fromIndex || index >= stretch.toIndex) continue;
+      if (stretch.named.has(index)) continue;
+      const family = key.slice(0, key.indexOf(':'));
+      throw new ReceiptError(
+        'EPOCH_INVENTORY_PRESENCE_GAP',
+        `${family} digest ${key.slice(family.length + 1)} is missing from ${entry.file} between the two places that name it, ${stretch.from.file} and ${stretch.to.file}, so the run states a period it does not attest`,
+      );
+    }
+    from = Math.max(from, stretch.from.span.from);
+    to = Math.min(to, stretch.to.span.to);
+  }
+  if (manifest.window.from !== from || manifest.window.to !== to) {
+    throw new ReceiptError(
+      'EPOCH_INVENTORY_PRESENCE_WINDOW_TOO_WIDE',
+      `the run states the window ${String(manifest.window.from)} to ${String(manifest.window.to)} and its observations attest ${String(from)} to ${String(to)}, so the stated period is wider than the evidence for it`,
+    );
+  }
+  const roster = (family: (typeof PRESENCE_FAMILIES)[number]): string[] =>
+    [...stretches.keys()]
+      .filter((key) => key.startsWith(`${family}:`))
+      .map((key) => key.slice(family.length + 1))
+      .sort();
+  return { from, to, observations, collateral: roster('collateral'), validity: roster('validity') };
+}
+
+// ---------------------------------------------------------------------------
 // The envelope. Every signed document in this estate is framed the same way and differs in label 3 alone, so
 // the framing below is the shared one and only the content type is this container's own.
 // ---------------------------------------------------------------------------
@@ -851,10 +1089,19 @@ export function encodeEpochInventoryManifest(manifest: EpochInventoryManifest): 
  * that is *meant* to be refused, which is what a conformance vector is, assembles it from the four pieces
  * above rather than through this function.
  *
+ * The retention artifacts are the optional third argument, and where they are handed the fold runs here too: a
+ * writer that states a window its own sealed observations do not attest would be sealing a claim about reach
+ * that its reader refuses, and the place to catch that is before the signature rather than after it. Where they
+ * are not handed, nothing about reach is claimed and the seal is the document's own arithmetic.
+ *
  * The key is checked as the pack's seal checks its own: `kid` has to be sha256 of the public half travelling
  * beside it, because an inventory whose key no reader can resolve is bytes with a signature on them.
  */
-export function signEpochInventory(manifest: EpochInventoryManifest, key: SigningKey): Uint8Array {
+export function signEpochInventory(
+  manifest: EpochInventoryManifest,
+  key: SigningKey,
+  presence?: readonly Uint8Array[],
+): Uint8Array {
   if (key.kid.length !== 32 || key.privateKey.length !== 32 || key.publicKey.length !== 32) {
     throw new ReceiptError('BAD_SIGNING_KEY', 'an inventory signing key is a 32-byte Ed25519 key and a 32-byte kid');
   }
@@ -862,7 +1109,9 @@ export function signEpochInventory(manifest: EpochInventoryManifest, key: Signin
     throw new ReceiptError('BAD_SIGNING_KEY', 'the kid of an inventory signing key is sha256 of its public key');
   }
   const payloadBytes = encodeEpochInventoryManifest(manifest);
-  assertRun(parseManifest(payloadBytes));
+  const parsed = parseManifest(payloadBytes);
+  const run = assertRun(parsed);
+  if (presence !== undefined) foldPresence(parsed, run, presence);
   const protectedBytes = encodeEpochInventoryProtectedHeader(key.kid);
   const signature = ed25519.sign(epochInventorySigStructure(protectedBytes, payloadBytes), key.privateKey);
   return sealEpochInventory(protectedBytes, payloadBytes, signature);
@@ -987,5 +1236,7 @@ export function verifyEpochInventory(
     throw new ReceiptError('INVALID_SIGNATURE');
   }
   const manifest = parseManifest(envelope.payloadBytes);
-  return { manifest, header: envelope.header, envelope, outcome: { packs: assertRun(manifest) } };
+  const packs = assertRun(manifest);
+  const presence = options.presence === undefined ? undefined : foldPresence(manifest, packs, options.presence);
+  return { manifest, header: envelope.header, envelope, outcome: { packs, ...(presence === undefined ? {} : { presence }) } };
 }
