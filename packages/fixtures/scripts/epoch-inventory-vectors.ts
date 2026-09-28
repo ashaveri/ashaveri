@@ -370,9 +370,17 @@ interface Case {
  * hold in the list, which is a fact of that document rather than of that guard, so a fragment naming one stops
  * matching the first time a case guards a later row and reports a live guard as a quiet one. The two guards that
  * speak by position, the one naming a row and the one quoting a row's own figures, are told apart by the verb
- * each uses after the bracket, which is the whole of what distinguishes them at any position. And since the
- * reader bounds a quoted detail at two hundred bytes, every fragment here sits at the head of its sentence and
- * survives that bound.
+ * each uses after the bracket, which is the whole of what distinguishes them at any position.
+ *
+ * Placement near the head is not what makes them match, though, and it is not guaranteed. The reader bounds a
+ * quoted detail at two hundred bytes, and only the two `claim` fragments sit at the head of theirs; measured
+ * against the published rows, `figures` sits at 12 or 14, `count` at 27, `repeat` at 34 or 36, and `unheld` and
+ * `without-finding` at 119 or 121. Ten of the twelve site and guard pairs are therefore off the head, and what
+ * carries them is that the detail each one sits in is shorter than the bound, at 51 to 173 characters. The four
+ * `figures` rows are the ones the bound does bite: their details publish truncated at 203 characters, and their
+ * fragment still matches because it lies at 12 or 14 of what survives. So a fragment belongs near the head of
+ * the reader's sentence, and a case with anything variable between the head and its fragment has to check the
+ * detail length rather than assume the fragment is there.
  */
 const GUARD_SENTENCES: Record<'chain.breaks' | 'duty.short', Record<'claim' | 'count' | 'repeat' | 'unheld' | 'without-finding' | 'figures', string>> = {
   'chain.breaks': {
