@@ -375,9 +375,9 @@ const ERROR_MESSAGE: Record<ReceiptErrorCode, string> = {
 
 /**
  * A detail quotes what the raise site was looking at, and the sites that parse a header quote
- * bytes chosen by whoever sent it. The code is the contract and the sentence is fixed, so this
- * bounds only the quoted part: a diagnostic stays readable and cannot become a copy of a
- * multi-kilobyte request header on its way into a log line.
+ * text a caller chose. The code is the contract and the sentence is fixed, so this bounds only
+ * the quoted part, and bounds it in UTF-16 units of that text rather than in the bytes that
+ * arrived: a diagnostic stays readable and cannot carry a whole request header into a log line.
  */
 const MAX_DETAIL = 200;
 
@@ -392,7 +392,8 @@ function bounded(detail: string): string {
  * that reads a log by lines. The character set is the one the CLI escapes before printing, stated
  * again here because the packages share no module and the promise belongs to whoever builds the
  * message: a `ReceiptError` is one line of visible text, whoever raised it. The bound runs first,
- * on the raw text, so what it limits is what the caller sent rather than how long the escapes got.
+ * on the text as this package holds it, so what it limits is that text's units, not the bytes the
+ * caller sent and not how long the escapes got.
  */
 const INVISIBLE = /[\p{Cc}\p{Cf}\u{2028}\u{2029}\u{e0000}-\u{e007f}]/gu;
 
