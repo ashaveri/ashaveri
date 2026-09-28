@@ -14,7 +14,7 @@ import {
   type EpochInventoryVerifyOptions,
 } from '@ashaveri/receipt';
 import { loadEpochInventoryVectors, type EpochInventoryVector } from '../src/index.js';
-import { assertRowRoster, unionMembers } from './doc-contract.js';
+import { assertRowRoster, ROW_NAMING_FIELDS, unionMembers } from './doc-contract.js';
 
 /**
  * The published epoch inventory vectors, replayed the way a port replays them: take the document out of the
@@ -43,7 +43,9 @@ import { assertRowRoster, unionMembers } from './doc-contract.js';
  * carried by a row and missing from both lists is a compliant row refused, and a column in either list and
  * carried by no row is a field the file promises and the suite withholds. The naming columns are read out of
  * the file rather than repeated here, and a column stated twice in either list or on both is refused, because
- * the equality compares sets and would otherwise pass a roster that lies about a row.
+ * the equality compares sets and would otherwise pass a roster that lies about a row. The shared naming list
+ * those four siblings are handed is held equal to this file's own here, because the two are one list written in
+ * two places and this is the case that reads both.
  *
  * The client half of this reading lives in `packages/cli/test/vector-conformance.test.ts`, which drives the
  * same rows through the two exported inventory readers, since no command of this package reads an epoch
@@ -136,6 +138,16 @@ describe('the published epoch inventory vectors', () => {
     // specific to this one is where the naming columns come from: this file publishes them as
     // `layout.rowNamingFields`, so the generator's list is what is compared rather than a copy of it written
     // here, which is where `site` and `guard` had been left undeclared.
+    //
+    // The list this file publishes is also the list those four siblings are handed, one list written in two
+    // places with nothing reading one against the other until here: each test took one or the other, so a
+    // generator-side rename of a naming column left the shared list standing beside a file that no longer named
+    // it while every roster equality stayed true. Compared as sets, because the order is what the rows' own
+    // bytes state and no reader depends on where a list of naming columns puts a name.
+    expect(
+      [...file.layout.rowNamingFields].sort(),
+      'the naming list this file publishes and the list the sibling suites are handed are not the same names',
+    ).toEqual([...ROW_NAMING_FIELDS].sort());
     assertRowRoster(file, file.layout.rowNamingFields);
   });
 
