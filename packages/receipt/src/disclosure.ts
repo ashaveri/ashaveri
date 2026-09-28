@@ -1,5 +1,5 @@
 /**
- * Two disclosures a receipt will state about itself, declared before any format member carries them.
+ * Two disclosures a receipt states about itself, in the members `v: 3` carries them in.
  *
  * Both answer a question a reader cannot otherwise ask of a signed artifact. `StampDisclosure` names
  * where an issuance instant came from and how far that source admits it can be from an instant, so a
@@ -8,11 +8,15 @@
  * appraisal of the evidence ran on, so a digest of a document nobody retained cannot be read as a
  * verdict that held up.
  *
- * Neither is wired into a payload, a CDDL rule, the JSON twin, the parser or a published vector yet, and
- * nothing in this tree produces either value: they are the shapes the emitter and the reader will be
- * written against, published here so that both sides take them from one place. That is also why they are
- * types in this package rather than in the one that reads a receipt: the writer that will fill them in is
- * the issuer, and the issuer's codec lives here.
+ * Both are read and written by the format: `v: 3` names `sd` and `cva` as required members, the CDDL
+ * rule, its JSON twin and the JSON projection below all declare the same two shapes, and the parser
+ * refuses a document that leaves either out or holds it in another shape. What is not the case sits on
+ * the producing side: no receipt published as a vector carries either member, because every receipt
+ * under `packages/fixtures/data` is a `v: 1` or `v: 2` document, so the only `v: 3` bytes this tree
+ * reads are ones a test handed the codec with both members spelled out. These are shapes a reader reads
+ * and a writer writes today, and not yet a record any published receipt carries. That is also why they
+ * are types in this package rather than in the one that reads a receipt: the writer that will fill them
+ * in for real is the issuer, and the issuer's codec lives here.
  */
 
 /**

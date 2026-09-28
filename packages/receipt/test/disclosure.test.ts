@@ -10,10 +10,10 @@ import {
 } from '../src/index.js';
 
 /**
- * The two disclosures a receipt will state about itself, checked as declarations.
+ * The two disclosures a receipt states about itself, checked as declarations.
  *
- * Neither type is carried by a format member yet, so there is no behaviour here to drive and no test
- * pretending otherwise. What is checked is the vocabulary, which has to agree with code in two other
+ * Both are carried by `v: 3` now, as required members, and the bytes that carry them are driven in
+ * `receipt.test.ts`. What this file holds is the vocabulary, which has to agree with code in two other
  * packages, and the requiredness, which is the half a reader of a signed document can never recover once
  * a field has gone optional.
  *
