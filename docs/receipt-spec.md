@@ -166,6 +166,15 @@ holding the bytes a client received rebuilds the items the gateway attested rath
 set. A verifier that guesses the rule instead, by splitting only at line feeds, decodes one item from
 a response whose client decoded two and finds digests it cannot reproduce over bytes nobody edited.
 
+A frame is one `data:` line and the blank line after it, and a marked response writes its mark as a
+frame of its own: the bytes ahead of it close the frame they are in, whether the response's own
+framing did that or the mark had to. No line of a marked stream therefore carries two `data:`
+prefixes, and the line a mark sits on holds one frame's payload. The frame end is framing in the
+sense this section uses the word: inside `res`, outside every item, and dispatching an event whose
+line the upstream had already written. Where a completion reached its end with the last line of a
+frame open, what the client holds is the upstream's bytes, the frame end that closes them, the mark
+frame, and nothing else this gateway added.
+
 An item is a protocol item and not a transport accident: one `data:` frame of a streamed response,
 which is the bytes after that field name and after the one space it writes, up to the line ending
 that closes the frame as defined just above. The `data: [DONE]` frame ends a stream instead of being
@@ -236,6 +245,11 @@ published rule and the running one are one rule.
 |---|---|---|
 | `"none"` | No region of this response carries a marking, which is a claim about the bytes rather than an absence of a field | No `provenance-v1` region in the response at all. The marked region is the empty input, and `d` is sha256 of zero bytes. A response that does carry a marked region is refused over a `"none"` receipt, so a backend that marks its own output bites a deployment that marks nothing. |
 | `"provenance-v1"` | The response carries one machine-readable marking, and that marking says the content it accompanies was generated | Exactly one region, and `d` is sha256 of exactly its bytes and of nothing beside them. In a buffered completion the region is one top-level member: its name, its colon and its value, spelled as the body carries them. In a stream the region is one `data:` field line, its terminator excluded, whose payload is a completion chunk carrying an empty `choices` beside that same member. |
+
+The region is found structurally, and the writer keeps it findable: a mark on a stream is written as a
+frame of its own, with the frame the upstream left open closed ahead of it, so the line the rule names
+holds one `data:` prefix and one payload. A line that two frames share is not a region, is not what any
+client's parser produces a frame from, and is not a shape a marked response is written in.
 
 The marked region of a `provenance-v1` response is this member:
 

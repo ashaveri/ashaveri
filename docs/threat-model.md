@@ -385,7 +385,15 @@ What is still true, in both modes:
   `parseChunk` in `packages/sdk/src/client.ts` requires a string `id` and an array `choices` on every
   frame and raises `GATEWAY_ERROR` with `stream chunk is not a chat completion chunk`. Clients other
   than these two, and any intermediary between them and the gateway, are unmeasured: what a receipt
-  attests is the bytes the gateway wrote, not what a reader kept of them.
+  attests is the bytes the gateway wrote, not what a reader kept of them. The separation that keeps a
+  mark readable is a frame's, not a line's: a mark is written as one `data:` line and the blank line
+  after it, with the frame ahead of it closed, because a client parsing the response as
+  server-sent events concatenates the `data:` fields of one open event and a mark appended to an
+  event the upstream never dispatched arrives inside a payload that parses as neither chunk. A
+  line two `data:` prefixes share is therefore not a frame a receipt is issued over, and where
+  an upstream stopped mid-line the gateway writes the frame end it owed before its mark
+  (`gateway/src/marking.ts`, `MarkedStreamTail`; section 3.1 of [receipt-spec.md](receipt-spec.md)
+  states the framing as a fact about the format).
 
 The SDK's `strict` mode verifies receipts and the manifest against pins and then fetches and
 deep-verifies the evidence each receipt commits to. What remains unproven is the end-to-end run:
