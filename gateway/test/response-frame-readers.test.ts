@@ -440,6 +440,20 @@ const ROWS: readonly ReaderCase[] = [
     markAt: 14,
   },
   {
+    name: 'two data lines in one block, separated by a bare carriage return',
+    note: 'one event holding two frames, which is the case where the endings between the lines matter as much as the one that dispatched them: a split that reads only line feeds hands the second line to the scan with a carriage return in front of it, and a line that starts with one is not a `data:` field at all',
+    frames: [
+      { payload: '{"a":1}', sep: CR },
+      { payload: '{"b":2}', sep: `${CR}${CR}` },
+    ],
+    items: ['{"a":1}', '{"b":2}'],
+    parsed: [1, 2],
+    metered: 1,
+    scanThrows: false,
+    markLines: 2,
+    markAt: 29,
+  },
+  {
     name: 'a final frame whose terminator never arrived',
     note: 'the bytes were sent, so the framing attests them and `res` covers them, while the usage scan is still waiting for an event that was never dispatched: this is the one row where the two lists differ by design, and section 3.1 states which of the two the receipt is built from',
     frames: [
@@ -460,7 +474,7 @@ describe('four readers of one response body, on the same bytes', () => {
     // The guard against a table that agrees because nobody answered: each row carries a value for each of
     // the four readers, including the empty list, the zero and the body's own length, and each of those
     // values is checked here for being an answer at all before the four runs below compare it to a module.
-    expect(ROWS).toHaveLength(15);
+    expect(ROWS).toHaveLength(16);
     for (const caseItem of ROWS) {
       const body = bodyOf(caseItem.frames);
       expect(caseItem.name.length, 'a row is named by what it is').toBeGreaterThan(12);
