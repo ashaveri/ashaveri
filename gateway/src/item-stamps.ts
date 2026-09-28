@@ -50,6 +50,27 @@ import { ResponseItemDigestFramer, equalBytes, frameResponse, type ItemStamp } f
  * what `stampedBufferedItem` below runs, since a buffered body is in this process's hands whole already and
  * a stream is not.
  *
+ * What the three consistency checks in `answer()` are for, and what a client is left holding. They compare
+ * this file's two readings of one response, and both walk the same sequence of lines through the same rule,
+ * so no bytes a client sends put them apart: they are invariant checks over this process's own bookkeeping,
+ * and what they settle is the fate of a response whose items this gateway cannot state. The choice is worth
+ * making because of when they run. `gateway/src/server.ts` writes `x-ashaveri-receipt-id` into the response
+ * headers before a frame has been read, so a check that fires fires in a response whose id the client
+ * already holds. Two endings are open: finish the stream and file nothing, or fail the response. This
+ * gateway fails it. Section 4.2 of `docs/receipt-spec.md` publishes an id as a handle to bytes and not as a
+ * proof, so the headers cannot tell a client whether a document was filed, and the only thing left that says
+ * anything is how the body ends. A stream that reaches its terminator says that the bytes it delivered are
+ * the bytes this gateway attested, and that is what these checks refuse when they cannot be made good:
+ * answering cleanly while filing nothing would leave a client holding a body it is invited to verify against
+ * an item list nobody could state. A destroyed socket says the opposite, in a reading no client mistakes for
+ * success: the chunked body never terminates, so the response fails where it failed, its id is spent on
+ * nothing, and the store holds no document under it. `answer()` does not catch these throws, and the
+ * handler's own error path destroys the socket, which is how the narrower claim of the two gets kept. The
+ * cost is one response's: the next completion on the same gateway signs and files normally, and a client
+ * that follows section 4.3's brief retry on 404 is answered by the 404 that says this one was never filed.
+ * What covers this is `gateway/test/emission.test.ts`, and it is about the ending a client holds rather
+ * than about a throw no input of theirs can reach.
+ *
  * Why the clock is read once per item and not once per write. A write boundary is a fact about this
  * process's transport: how many bytes the upstream happened to hand over, whether the socket took a
  * whole frame or stopped in the middle of one, whether a marking deployment held the tail back. The
@@ -182,6 +203,10 @@ export class StreamedItemStamps {
    * that had framed an item the whole-response walk does not hold would mean this file and the shipped
    * reader disagree about one response, and an unissued receipt beats a signed document resting on that
    * disagreement.
+   *
+   * A throw here is the refusal this file's paragraph on the three checks states: it is not caught below,
+   * and the response whose id already reached the client ends destroyed rather than ending clean with
+   * nothing filed behind the id.
    */
   answer(): FramedItemStamps {
     const framing = this.authoritative.finish();

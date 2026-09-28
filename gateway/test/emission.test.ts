@@ -1,4 +1,5 @@
 import { afterEach, describe, expect, it } from 'vitest';
+import type { AddressInfo } from 'node:net';
 import {
   decodeReceipt,
   emptyRegion,
@@ -67,12 +68,17 @@ const UPSTREAM_BUFFERED = JSON.stringify({
 /** A body framed with carriage returns and no blank line, which is a second legal spelling of a stream. */
 const CR_STREAM = 'data: {"a":1}\rdata: {"b":2}\rdata: [DONE]\r';
 
+/** A stream whose last frame never got a terminator, so one item is settled only at the response's end. */
+const OPEN_ENDED_STREAM = 'data: {"a":1}\n\ndata: {"b":2}';
+
 /**
- * A backend that hands over these exact bytes in these exact pieces. The splits are the point of the
- * helper: a write boundary is a transport's choice and none of the digests may depend on it, so the same
- * body is run through several and every one has to issue the identical item list.
+ * One body as the writes a transport was allowed to make, cut where this cell names.
+ *
+ * The splits are the point of the helper: a write boundary is a transport's choice and none of the digests
+ * may depend on it, so the same body is run through several and every one has to issue the identical item
+ * list.
  */
-function bodyBackend(body: string, contentType: string, splits: readonly number[] = []): CompletionBackend {
+function piecesOf(body: string, splits: readonly number[]): Uint8Array[] {
   const bytes = utf8(body);
   const pieces: Uint8Array[] = [];
   let cut = 0;
@@ -82,6 +88,41 @@ function bodyBackend(body: string, contentType: string, splits: readonly number[
     cut = at;
   }
   pieces.push(bytes.subarray(cut));
+  return pieces;
+}
+
+/** A backend that hands over these bytes in these pieces and nothing else. */
+function bodyBackend(body: string, contentType: string, splits: readonly number[] = []): CompletionBackend {
+  return streamBackend(contentType, piecesOf(body, splits));
+}
+
+/**
+ * A backend over one response written in these pieces, which calls `passed` once the last of them has been
+ * handed over and waits `pauseMs` after the first.
+ *
+ * `passed` is the cell's handle on the point past which a response has an id and no answer yet, which is
+ * where a stamping failure reaches a client already holding that id. The pause is for a cell that reads the
+ * response as a client does: bytes reach a reader when the socket chooses, and one that needs the headers to
+ * have arrived before the failure has to give them time to get there.
+ */
+function pacedBackend(
+  contentType: string,
+  pieces: readonly Uint8Array[],
+  options: { readonly passed?: () => void; readonly pauseMs?: number } = {},
+): CompletionBackend {
+  const { passed, pauseMs = 0 } = options;
+  return streamBackend(contentType, pieces, async (at) => {
+    if (at === 0 && pauseMs > 0) await new Promise((resolve) => setTimeout(resolve, pauseMs));
+    if (at === pieces.length - 1) passed?.();
+  });
+}
+
+/** The bytes of one completion, served with the usage a frame of it carries and this pacing between them. */
+function streamBackend(
+  contentType: string,
+  pieces: readonly Uint8Array[],
+  between?: (at: number) => Promise<void>,
+): CompletionBackend {
   const usage: Promise<CompletionUsage> = Promise.resolve({
     model: MODEL,
     promptTokens: 9,
@@ -93,7 +134,10 @@ function bodyBackend(body: string, contentType: string, splits: readonly number[
         status: 200,
         contentType,
         chunks: (async function* (): AsyncGenerator<Uint8Array> {
-          for (const piece of pieces) yield piece;
+          for (const [at, piece] of pieces.entries()) {
+            yield piece;
+            if (between !== undefined) await between(at);
+          }
         })(),
         usage,
       };
@@ -583,6 +627,148 @@ describe('the framing of one response, read off the bytes as they pass', () => {
     expect(answer.framed).toBe(false);
     if (answer.framed) throw new Error('a sentinel framed an item');
     expect(answer.why).toContain('no data frame');
+  });
+});
+
+describe('a stream whose stamps cannot be stated when the payload is built', () => {
+  it('does not end the response as though it had attested it, and leaves the id it sent with nothing behind it', async () => {
+    // This cell is about the outcome a client holds, and not about whether one of the three consistency
+    // checks in `gateway/src/item-stamps.ts` fired. Those compare one gateway's two readings of one
+    // response, both taken over the same bytes by the one walk, so no bytes a client can send put the two
+    // readings apart and their liveness is a witnessed claim rather than a testable one. What is testable
+    // is the step they stand at: the readings are taken after every frame has passed and after
+    // `x-ashaveri-receipt-id` has gone out with the headers, so a failure there lands on a response whose
+    // id the client already holds. The source below misses one reading, the one the unterminated last frame
+    // asks for at the response's end, which is the failure those checks stand behind reached from the other
+    // side: what a cell can name is what the client is left with.
+    let passed = false;
+    let missed = false;
+    const first = 'data: {"a":1}\n\n';
+    const h = await open({
+      // Two writes of a body whose last frame has no terminator, with time after the first for the socket to
+      // deliver the headers and the frame it carried: what a client holds before the failure is the thing
+      // the decision has to be readable in.
+      backend: pacedBackend('text/event-stream', piecesOf(OPEN_ENDED_STREAM, [first.length]), {
+        pauseMs: 250,
+        passed: () => {
+          passed = true;
+        },
+      }),
+      time: {
+        name: 'a source that misses the last reading',
+        uncertaintySeconds: null,
+        now: () => {
+          if (passed && !missed) {
+            missed = true;
+            throw new Error('the wired source stopped answering');
+          }
+          // One reading missed and not a source gone: the access log stamps its own record off this same
+          // source, and a forcing that outlived the response would be measured instead of the decision.
+          return CLOCK_SECONDS;
+        },
+      },
+    });
+
+    await h.app.listen({ port: 0, host: '127.0.0.1' });
+    const port = (h.app.server.address() as AddressInfo).port;
+    const res = await fetch(`http://127.0.0.1:${port}/v1/chat/completions`, {
+      method: 'POST',
+      headers: {
+        'content-type': 'application/json',
+        ...h.signFor('emission', 'POST', '/v1/chat/completions', STREAM_REQUEST_BODY),
+      },
+      body: STREAM_REQUEST_BODY,
+    });
+    const id = res.headers.get('x-ashaveri-receipt-id');
+    expect(typeof id).toBe('string');
+    const reader = res.body?.getReader();
+    if (reader === undefined) throw new Error('a completion that carried an id carried no body to read');
+
+    const held: number[] = [];
+    let short = false;
+    try {
+      for (;;) {
+        const next = await reader.read();
+        if (next.done === true) break;
+        held.push(...next.value);
+      }
+    } catch {
+      short = true;
+    }
+    // The client was handed the completion and the read still did not complete: the body is there and the
+    // response is not, which is the one state a client cannot arrive at by accident. An ending that said
+    // "done" over these bytes would be this gateway claiming it had attested them, and the id it advertised
+    // would be a handle a client had no way to know was on nothing.
+    expect([missed, short, new TextDecoder().decode(new Uint8Array(held)).startsWith(first)]).toEqual([
+      true,
+      true,
+      true,
+    ]);
+
+    const target = `/v1/receipts/${id as string}`;
+    const gone = await fetch(`http://127.0.0.1:${port}${target}`, {
+      headers: h.signFor('emission', 'GET', target, null),
+    });
+    expect(gone.status).toBe(404);
+    // Section 4.3 of `docs/receipt-spec.md` tells a client to retry briefly on a 404, so the answer this
+    // decision leaves has to hold on the second try as it does on the first: no document arrives late for
+    // this id, and the id names no other response either. A client that keeps the body and finds nothing
+    // behind the handle is the state that cannot be read as an attestation. The retry is a fresh
+    // presentation, so it is signed afresh rather than replaying the first one's nonce.
+    await new Promise((resolve) => setTimeout(resolve, 250));
+    const again = await fetch(`http://127.0.0.1:${port}${target}`, {
+      headers: h.signFor('emission', 'GET', target, null),
+    });
+    expect(again.status).toBe(404);
+
+    await h.app.close();
+  });
+
+  it('goes on attesting the deployments other responses after one could not be stated', async () => {
+    // The failure is one response's. Its id is spent and nothing is filed under it, and the next completion
+    // on the same gateway signs and files normally: a source that missed one reading costs a deployment the
+    // receipt it could not state, and no more than that.
+    let passed = false;
+    let missed = false;
+    const h = await open({
+      backend: pacedBackend('text/event-stream', piecesOf(OPEN_ENDED_STREAM, []), {
+        passed: () => {
+          passed = true;
+        },
+      }),
+      time: {
+        name: 'a source that misses one reading',
+        uncertaintySeconds: null,
+        now: () => {
+          if (passed && !missed) {
+            missed = true;
+            throw new Error('the wired source stopped answering');
+          }
+          return CLOCK_SECONDS;
+        },
+      },
+    });
+
+    let reason = 'nothing reached the caller: the response was answered';
+    await h.app
+      .inject({
+        method: 'POST' as 'GET',
+        url: '/v1/chat/completions',
+        headers: {
+          'content-type': 'application/json',
+          ...h.signFor('emission', 'POST', '/v1/chat/completions', STREAM_REQUEST_BODY),
+        },
+        payload: STREAM_REQUEST_BODY,
+      })
+      .catch((err: unknown) => {
+        reason = err instanceof Error ? err.message : String(err);
+      });
+    // The socket error carries the reason this gateway stopped, so whoever was on the other end, and the
+    // operator reading the fault, are told which response failed and not that a receipt is missing.
+    expect(reason).toContain('the wired source stopped answering');
+
+    const served = await sendAndFetch(h, '/v1/chat/completions', STREAM_REQUEST_BODY);
+    expect(served.payload.v).toBe(3);
   });
 });
 
