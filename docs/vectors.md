@@ -268,8 +268,10 @@ These vectors check bytes. They say nothing about trust:
 - A passing port is not a certified port. It is a reimplementation that agrees with this one on the
   cases chosen here, which for payload version 1 are the field set, the digests and the framing, for
   for version 2 are the marking member and nothing else, and for version 3 are the disclosure of the source
-  an instant came from, the anchor of the context an appraisal ran on, and the list of items a response
-  was made of. Those cases are examples of where
+  an instant came from, the anchor of the context an appraisal ran on, the list of items a response
+  was made of, and the count of those anchor slots a client's policy demands be stated as taken in,
+  which the receipt suite publishes as the verdict its reader gives under each posture rather than as a
+  rule about bytes. Those cases are examples of where
   implementations have been known to differ rather than an exhaustive sweep of the format's state
   space. Conformance to bytes and soundness of judgement are different claims, and only the first is
   testable this way.

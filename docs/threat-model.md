@@ -198,6 +198,15 @@ What is still true, in both modes:
   content, and a client pointed at a long-streaming deployment has to widen
   `maxEvidenceAgeSeconds` or switch it off. Both numbers are the client's to set, and neither is
   read from the wire.
+- **The client also decides what it will accept about an anchor.** A third standard is a count rather
+  than a duration: `minAnchorSlotsHeld` on the same policy names how many of a receipt's two anchor
+  slots must state that their material was taken in, and a document stating fewer is refused with
+  `ANCHOR_SLOT_NOT_HELD` at the point the artifact is handed over. It is a demand about the anchor and
+  names no unit of time, and like the two windows it is not read from the wire, because a deployment
+  cannot choose what a client asks of it. A policy naming nothing asks nothing, which is what keeps
+  every verdict taken under an earlier policy the verdict it was. What no client asks yet is whether a
+  slot stating `held` still resolves: that is answered by the availability of the material a verifier
+  holds, and not by anything inside a signed document.
 - **The gateway does not deep-verify its own evidence.** It reads the measurement and the
   report-data binding; the certificate chain, TCB and event-log replay are the client's job,
   through `@ashaveri/sdk` in strict mode or `@ashaveri/cli`. That is deliberate, but it means a
