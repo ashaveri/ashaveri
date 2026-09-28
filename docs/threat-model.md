@@ -63,8 +63,9 @@ the mechanism described below is a mark plus the evidence of a mark, not a certi
   bytes and answers `MARK_MISMATCH` when those bytes hold none or hold the shape twice, and the live
   client compares the digest of whatever it locates against `mk.d`, because
   `verifyCompletionReceipt` in `packages/sdk/src/verify.ts` is handed those bytes beside their digest
-  (T18, T20). The bytes: `gateway/src/server.ts` signs a `v: 2` payload
-  for every completion it issues, and whether any byte is added to a customer's response is the
+  (T18, T20). The bytes: `gateway/src/server.ts` signs a payload naming `mk` for every completion it
+  issues, which is a `v: 3` document wherever the response frames into items and a `v: 2` one only where a
+  stream sent no data frame at all, and whether any byte is added to a customer's response is the
   deployment's own setting, `--marking`, whose shipped value is `none`. Section 6 says what none of the
   three amounts to proving.
 - **A8 The marking-scheme registry.** The table that binds every scheme label to exactly one byte
@@ -292,9 +293,11 @@ What is still true, in both modes:
 - **Nothing here measures model behaviour.** A receipt proves who served which bytes; it says
   nothing about quality, alignment, or the prompt template behind the completion.
 - **Marking is issued, read and refused in this code, and none of that reaches past the bytes.** The
-  gateway signs a `v: 2` payload for every completion it issues (`issue()` in `gateway/src/server.ts`),
-  which is the version that has to carry `mk`, and it writes a marking into the response only under
-  `--marking provenance-v1`: started with the shipped `none`, or with nothing, it adds no byte to anyone's
+  gateway signs a payload naming `mk` for every completion it issues (`issue()` in `gateway/src/server.ts`),
+  which is the member that has to travel with a marking, and the version carrying it is `v: 3` wherever the
+  response frames into items and `v: 2` only where a stream sent no data frame at all. It writes a marking
+  into the response only under `--marking provenance-v1`: started with the shipped `none`, or with nothing,
+  it adds no byte to anyone's
   response and signs `sch: none` beside the digest of an empty region to declare that (`gateway/src/cli.ts`
   and `unmarked()` in `gateway/src/marking.ts`). A verifier holding response bytes does carve the region
   out of them and compare its digest against the signed `d`, by the published rule made executable in

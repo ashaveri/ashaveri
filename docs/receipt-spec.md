@@ -102,6 +102,28 @@ countersignature variants (RFC 9338), if ever needed, would be a new format vers
 | `cva` | map | `{ col, val }`: the collateral and the validity context the appraisal of the evidence ran on, captured as they were taken in and read offline ever after. Each half is one of two shapes, told apart by the label in its `p`, and the three labels are the capture record's `CapturePresence`: `held`, `absent-at-source`, `not-taken-in`. A held slot carries `d`, sha256 of those bytes exactly as they arrived; either absence carries `r`, the collector's own sentence for why there are no bytes, and no digest, because a digest of bytes nobody held is a statement about nothing. The two absences are two labels because one is a statement about the world and the other about this collector, and a record that could not tell them apart could not be read as either. Both halves are required and neither defaults: an anchor that reads a missing half as a pass is not an anchor. No arm of either carries a verdict of any kind, because whether the collateral verifies is a question a reader asks with its own pins, and a signed document that printed the conclusion would turn custody of bytes into verification of them. The shape is `CollateralValidityAnchor` in the same file, and its mapping to these labels is that block of the CDDL and nothing else. |
 | `itm` | array | `{ t, d }` once per response item, in the order the response put its items in, and never empty. `d` is sha256 of exactly one item's bytes and of none of the framing around them; `t` is the whole number of Unix seconds the source named by `sd` read when those bytes were framed, the same source that read `iat` and the same unit. What an item is, where its bytes end, and which of the payload's digests covers which span is section 3.1. Chain order is this array's order and stamp order is `t`, and a reader refuses a receipt where the two disagree (`ITEM_STAMP_OUT_OF_ORDER`), which is section 5's last paragraph. A response that was not streamed is one entry holding the whole body, which may be no bytes at all; a stream that sent no data frame is a refusal at issuance rather than a list of none, because a run of nothing states nothing and makes the walk over it vacuous. |
 
+**Which version a deployment's artifact carries.** A gateway signs `v: 3`. The condition is one test, and it
+is a test of the response's bytes rather than of the deployment that served it: the framing of section 3.1
+reads at least one item out of what the client was handed, which is true of every buffered body and of every
+stream that said anything in a `data:` frame. The one `v: 2` a gateway issues is the answer for a stream that
+sent no data frame at all, where `itm` would have to be the empty list this table says the format refuses, so
+the fallback is a fact about one response and not a tier: a reader that learned a deployment's wiring, its
+collector or its tier from a `v` would be reading a statement the document never made.
+
+What the three added members state is what the issuance knew, including that it knew nothing. `sd` names the
+source this process read `iat` from, which is a thing every process has, and the bound that source declares
+about itself, which for a host clock is the sentence that nobody measured it; each item's `t` is a reading of
+that same source, taken as that item's bytes were handed over. `cva` says what became of the collateral and
+the validity context the appraisal of the evidence ran on, and on a gateway that captures nothing it says so:
+`not-taken-in` in both slots, with the reason naming the site that took nothing in. That value is one the
+member was designed to hold, and it is not a placeholder: withholding the version, or leaving the member out
+until something is wired that could fill it, returns the gap to silence, which is the reading every required
+member of this payload exists to refuse. An anchor's `held` digest is no better on its own, since material
+that cannot be resolved when the retention duty still runs attests a claim nobody can weigh. Whether either
+state is acceptable is a verifier's policy, reached beside the bound on the stamp source and stated in the
+refusal it gives, and the payload carries no field for it because a producer that decides the standard is
+grading its own work.
+
 All integers are non-negative. Every one of them is a CBOR integer as well: the payload is decoded
 where no floating-point number may appear, at any depth, so a `tok.p` written as the float `128.0` and
 an `iat` written as the half-precision negative zero `f9 80 00` are malformed payloads (`BAD_PAYLOAD`)
