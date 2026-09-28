@@ -1198,7 +1198,10 @@ describe('the epoch inventory vectors through the shipped readers', () => {
     // The published sentence is this reader's own wording, and it names the guard it stopped on, so comparing
     // it is what tells a folded-list refusal reached at one branch from the same code reached at another.
     const refused = epochInventories.vectors.filter((one) => one.verdict !== 'verify-ok');
-    expect(refused.length).toBeGreaterThanOrEqual(1);
+    // The sentence column exists on refusals only, so the half that carries it has to stay a real share of the
+    // suite for this comparison to measure anything: a suite that lost its negatives would leave two empty
+    // arrays to compare and still report green.
+    expect(refused.length).toBeGreaterThanOrEqual(epochInventories.vectors.length - refused.length);
     const observed = refused.map((one) => {
       expect(one.message, `${one.name} is refused and the file publishes no sentence for it`).toBeDefined();
       const answered = inventoryAnswer(one);
@@ -1220,7 +1223,7 @@ describe('the epoch inventory vectors through the shipped readers', () => {
       if (stated === undefined) continue;
       const read = verifyEpochInventory(bytes(one.documentBase64Url), inventoryOptionsFor(one));
       // `runFiles` is the reader's own recomputation and `statedFiles` the array as the document wrote it, so
-      // one object holds both orders and the row that lost its readback says which one went missing.
+      // one object holds both orders and a row whose readback went missing reports which side of it was lost.
       expect(
         {
           runFiles: read.outcome.packs.map((each) => each.file),
