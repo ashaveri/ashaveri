@@ -54,9 +54,16 @@ const IMPLEMENTED_POLICY_VERSIONS: readonly number[] = [1];
  * Which receipt format versions a capture record may name, the one place that set is written for this
  * package. It is narrower than the format's own list on purpose, and the narrowing is capture's rule
  * rather than the format's: this package's schema declares `enum: [1, 2]` for the member, and a record
- * naming `3` is refused rather than read. `as const` is what makes the list and the type of the member
- * below one fact instead of two that can disagree, and widening the list without widening the schema
- * is answered by the reader's refusal, which `packages/sdk/test/capture.test.ts` already pins.
+ * naming `3` is refused rather than read. Why a record of a v3 check is one this reader does not take
+ * is a question neither that schema's description nor `docs/capture-v1.md` answers, and the list does
+ * not settle it either way; what is stated here is the mechanism and nothing more.
+ *
+ * `as const` is what makes the list and the type of the member below one fact instead of two that can
+ * disagree. Widening the list is not answered by a refusal, because this list is the refusal: what
+ * answers it is `packages/sdk/test/capture.test.ts`, where one case expects a record naming `3` to be
+ * refused outright and the walk that holds the published schema against the reader expects the same
+ * document refused on both sides. A list widened without its schema fails at the reader's half of that
+ * walk, and a schema widened without its list fails at the schema's half.
  */
 const IMPLEMENTED_RECEIPT_FORMAT_VERSIONS = [1, 2] as const;
 
