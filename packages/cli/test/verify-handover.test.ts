@@ -344,6 +344,28 @@ describe('ashaveri verify-handover', () => {
     ).toBeNull();
   });
 
+  it('states the region the published v2 receipt names, in both renderings', () => {
+    // The other shape that names `mk`, and the one published under this tree rather than written by a
+    // test: a row keyed to either version number prints "a v2 payload states none" over bytes that do
+    // name a region, which is a false sentence in the report whose whole promise is that it prints what
+    // the document says. The label and digest come from the fixture's own JSON twin, so the assertion is
+    // against the published document rather than a copy of its contents made here.
+    const marked = JSON.parse(readFileSync(`${DATA}receipts/receipt-marked-v2.json`, 'utf8')) as {
+      payload: { mk: { sch: string; d: string } };
+    };
+    const path = `${DATA}receipts/receipt-marked-v2.cbor`;
+    const human = runCli(['verify-handover', path, `--key=${RECEIPT_PUBLIC_B64URL}`]);
+    expect(human.stderr).toBe('');
+    expect(human.status).toBe(0);
+    expect(human.stdout).toContain('payload:          v2');
+    expect(human.stdout).toContain(`marked region:    ${marked.payload.mk.d} (${marked.payload.mk.sch})`);
+    const json = verdictOf(runCli(['verify-handover', path, `--key=${RECEIPT_PUBLIC_B64URL}`, '--json']));
+    expect((json.document as Record<string, unknown>).markedRegion).toEqual({
+      scheme: marked.payload.mk.sch,
+      sha256: marked.payload.mk.d,
+    });
+  });
+
   it('names a published receipt as a receipt, before it says anything about validity', () => {
     const human = runCli(['verify-handover', RECEIPT_PATH, `--key=${RECEIPT_PUBLIC_B64URL}`]);
     expect(human.stderr).toBe('');
