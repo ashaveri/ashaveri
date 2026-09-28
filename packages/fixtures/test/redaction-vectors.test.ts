@@ -17,7 +17,7 @@ import {
   type VerifiedRedaction,
 } from '@ashaveri/receipt';
 import { loadPackVectors, loadRedactionVectors, type RedactionCommandAnswer, type RedactionVector } from '../src/index.js';
-import { unionMembers } from './doc-contract.js';
+import { assertRowRoster, ROW_NAMING_FIELDS, unionMembers } from './doc-contract.js';
 
 /**
  * The published redaction vectors, replayed the way a port replays them: take the redaction out of the file,
@@ -74,6 +74,15 @@ function redactionBullet(): string {
 /** The row names a piece of prose states literally: backticked, lowercase, and built of hyphenated words. */
 function namedRows(prose: string): string[] {
   return [...prose.matchAll(/`([a-z][a-z0-9]*(?:-[a-z0-9]+)+)`/gu)].map((found) => found[1]!);
+}
+
+/**
+ * The field names a piece of prose states literally: backticked, opening lowercase, and carrying at least one
+ * capital inside the word, which is how this file's layout prose names a column and is what keeps a path like
+ * `packages/fixtures/data/pack-v1.json`, or a word like null, out of the list this compares.
+ */
+function namedFields(prose: string): string[] {
+  return [...prose.matchAll(/`([a-z][a-z0-9]*[A-Z][A-Za-z0-9]*)`/gu)].map((found) => found[1]!);
 }
 
 const bytes = (base64url: string): Uint8Array => new Uint8Array(Buffer.from(base64url, 'base64url'));
@@ -260,25 +269,22 @@ describe('the redaction manifest vectors', () => {
   });
 
   it('carries no field a row is not told about and no code no registry declares', () => {
-    const allowed = new Set([
-      'name',
-      'note',
-      'documentBase64Url',
-      'documentByteLength',
-      'packOf',
-      'packEdited',
-      'packBase64Url',
-      'packByteLength',
-      'read',
-      'verdict',
-      'structural',
-      ...file.layout.verdictFields,
-    ]);
-    for (const one of file.vectors) {
-      for (const field of Object.keys(one)) {
-        expect(allowed.has(field), `${one.name} carries ${field}, which the suite describes no field of`).toBe(true);
-      }
-    }
+    // The published roster is the whole set of columns a row may carry, so it is held as an equality over the
+    // columns the rows actually carry, in the one check every suite with a roster is wired to. Reading
+    // `verdictFields` as a list of allowances is what let four pack columns stand on these rows while the
+    // declaration named eight, and the twelve names written out beside this case were where the undeclared four
+    // hid: a permission check passes a row for carrying a column no reviewer finds by reading the file, and a
+    // port that refuses an undeclared column refuses the row the suite stands behind.
+    assertRowRoster(file, ROW_NAMING_FIELDS);
+    // And the prose that says what the pack columns mean names exactly the columns the declaration now carries
+    // for them, so the roster and the sentence explaining it are read against each other rather than each
+    // trusted alone. The comparison is over which columns rather than the order they are listed in, because the
+    // rows fix the order their own bytes appear in and nothing a port does depends on where the roster lists a
+    // column.
+    expect(
+      namedFields(layoutProse('packFields')).sort(),
+      'the prose that explains the pack columns and the roster do not name the same ones',
+    ).toEqual(file.layout.verdictFields.filter((one) => one.startsWith('pack')).sort());
     const declared = new Set(unionMembers('ReceiptErrorCode', ERRORS));
     for (const one of file.vectors) {
       if (one.verdict === 'verify-ok') continue;

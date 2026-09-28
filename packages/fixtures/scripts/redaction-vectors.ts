@@ -1163,7 +1163,13 @@ function main(): void {
           availabilityRule:
             "a reader that cannot reach a redaction still verifies the original pack, because no rule of the pack refers to this document and nothing here rewrites it. The converse is the row named `no-pack-handed`: a redaction pointed at a pack the reader lacks is refused rather than accepted on its own word.",
           encodings: 'documents and byte strings unpadded base64url, digests, kids, predecessors and signatures lowercase hex, instants unix seconds',
-          verdictFields: ['verdict', 'structural', 'command', 'survivors', 'reducedHex', 'originalHeadHex', 'item', 'edited'],
+          // The roster is every column a row carries, and the pack columns are columns: `published` writes
+          // `packOf`, `packBase64Url` and `packByteLength` on every row that hands the reader a pack, and
+          // `packEdited` on the row that moves one position of such a pack before handing it over. Left out of
+          // the declaration, the list a reviewer copies out of the published file described fewer columns than
+          // its rows carry, and a port that refuses an undeclared column refuses those rows. `packFields`
+          // below is the prose that says what these four mean.
+          verdictFields: ['verdict', 'structural', 'command', 'survivors', 'reducedHex', 'originalHeadHex', 'item', 'edited', 'packOf', 'packBase64Url', 'packByteLength', 'packEdited'],
           verdictMeaning:
             "`verdict` is what verifyRedaction answers for the pair the row states: `verify-ok`, or the code it throws. `structural` is what decodeRedaction answers for the redaction bytes alone, with no key and no pack, so a row that is `verify-ok` there and a refusal in `verdict` is refusing about a pack, a key or an arithmetic over survivors rather than about a manifest that contradicts itself. `survivors` is the run that remains in the order the pack's links fix it, `reducedHex` is the head of the chain over it and `originalHeadHex` is the pack's own signed head; all three are published on every accepted row, and the last two are never equal on one.",
           commandMeaning:
