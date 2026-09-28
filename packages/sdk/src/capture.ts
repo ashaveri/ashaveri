@@ -304,10 +304,16 @@ function requireImplementedVersion(value: unknown, what: string, implemented: re
   return value;
 }
 
+/**
+ * Which receipt format version the record says the check read, against the two this package reads it
+ * as. `receipt.cddl` declares three payload versions; capture's own schema declares `enum: [1, 2]` for
+ * this member, and a record naming `3` is refused by design rather than read as a version it does not
+ * name. `requireImplementedVersion` answers it, an `UNSUPPORTED_VERSION` naming the version the record
+ * states and the versions this reader implements.
+ */
 function requireReceiptVersion(value: unknown, where: string): ReceiptVersion {
   const version = requireImplementedVersion(value, `${where}.receiptFormatVersion`, [1, 2]);
-  // `[1, 2]` above is the whole of what comes back, and it is the list `receipt.cddl` declares. The
-  // narrowing states that fact to the type checker rather than deciding anything about the document.
+  // The list above is capture's own, and the narrowing below states which of its members came back.
   return version === 1 ? 1 : 2;
 }
 
