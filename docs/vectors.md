@@ -171,7 +171,8 @@ specific to that case.
   meets a set holding nothing for it, and it reads label 3 and chooses a reader before a redaction reader is
   consulted, so it can state the same fact one step earlier with the code the classification already uses.
   `command: null` says the command says what `verdict` says, exiting 0 on an accepted row and 1 on a refusal.
-  Seven rows carry an object instead, and none of them is the tool disagreeing with the library.
+  Seven rows carry an object instead, counting them out of the published `command` member, and none of them is
+  the tool disagreeing with the library.
   `rotation-read-with-one-pinned-key` and `sealed-under-another-deployment-key` are the two where the row pins one
   key for the whole pair while a document inside that pair names a different kid, which a set matched on each kid
   answers as a kid nothing designates rather than as the receipt's or the envelope's own refusal.
@@ -182,9 +183,11 @@ specific to that case.
   another container's type, which the dispatch answers by running that container's reader, so `PACK_BAD_MANIFEST`
   and `BAD_PAYLOAD` rather than the header refusal the redaction reader would give. And
   `protected-kid-of-another-width` and `document-truncated-mid-envelope` are refused by the classification on the
-  envelope, `BAD_PROTECTED_HEADER` and `MALFORMED_CBOR`, before a reader of either kind is chosen. The 43 rows are
-  replayed through this path by `packages/cli/test/verify-handover.test.ts`, which reads the expected answers out
-  of this member rather than keeping a table of its own.
+  envelope, `BAD_PROTECTED_HEADER` and `MALFORMED_CBOR`, before a reader of either kind is chosen. The 43 rows
+  `redaction-v1.json` publishes are replayed through this path by `packages/cli/test/verify-handover.test.ts`,
+  which reads the expected answers out of this member rather than keeping a table of its own. That count, and
+  the seven above it, are counts of the published rows which
+  `packages/fixtures/test/redaction-vectors.test.ts` takes out of them rather than restating them here.
 
 - **Epoch inventory.** Decode `documentBase64Url` and hand it to your reader with the designation the row's
   `read` block states: `pinned` is the one key a caller holds, which answers whatever kid the header names,
@@ -210,9 +213,11 @@ specific to that case.
 
 ## Every suite refuses something
 
-Each of the eleven suites published here carries at least one case whose stated verdict is a refusal, and
-every code those cases name is one [error-codes.md](error-codes.md) lists. That is the half a second
-implementation cannot agree with by accident: an accepted case and a refused one, drawn from the same
+Each of the eleven suites the table above lists carries at least one case whose stated verdict is a refusal,
+and every code those cases name is one [error-codes.md](error-codes.md) lists. The eleven are that table's
+rows, which `packages/fixtures/test/vectors-doc.test.ts` counts and compares with this sentence rather than
+trusting it. That is the half a second implementation cannot agree with by accident: an accepted case and
+a refused one, drawn from the same
 bytes, differ in exactly the rule under test, and a port wrong in the same direction as this one still
 has to answer the refusal with the code the row names. A case that fails for some other reason than the
 one stated is a wrong vector, and the row's note says which fact it turns on.

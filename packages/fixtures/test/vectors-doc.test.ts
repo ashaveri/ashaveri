@@ -3,13 +3,16 @@ import { basename, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { describe, expect, it } from 'vitest';
 import { DATA } from '../src/index.js';
+import { sectionBody, spelledNumber } from './doc-contract.js';
 
 /**
  * The suite inventory in `docs/vectors.md` is the index a port starts from: it names the file of each
  * published suite and the version field that file carries. Both are copies of facts that live in
  * `data/`, and a copy is how a document comes to state something the artefacts stopped carrying. This
- * reads the table as data and checks it against them, which is the whole of what it does: the prose
- * around the rows is reviewed by the people who write it, not parsed here.
+ * reads the table as data and checks it against them. The prose around the rows is reviewed by the
+ * people who write it, with one exception: a sentence that states a count of what the table lists is
+ * read for that count, because the number is the table's and a reader typing it from memory is the
+ * drift this refuses to be.
  */
 
 const DOC = fileURLToPath(new URL('../../../docs/vectors.md', import.meta.url));
@@ -151,6 +154,16 @@ function documentedCodes(): Set<string> {
   return codes;
 }
 
+/**
+ * The section that speaks for every suite in the table, read as one run of prose because its sentences
+ * are wrapped across several lines. The one number in it is the count of the table's rows, and a count
+ * written down by hand is a claim that outlives the rows it was taken from, so it is read out of the
+ * section and compared rather than trusted.
+ */
+function refusalSection(): string {
+  return sectionBody(readFileSync(DOC, 'utf8'), '## Every suite refuses something').replace(/\n\s*/gu, ' ');
+}
+
 const rows = suiteRows();
 
 describe('docs/vectors.md suite inventory', () => {
@@ -241,6 +254,12 @@ describe('docs/vectors.md suite inventory', () => {
     // halves are read off the files, because a suite that lost its negative rows would keep a table that
     // still looked right, and a row that named a code no union declares would be a word nobody answers.
     const codes = documentedCodes();
+    // The sentence's opening word counts the suites it speaks for, and what it counts is the table's rows, so
+    // the word is read back out of the section and held against them: a table that gained a suite row, or lost
+    // one, would otherwise keep a sentence claiming a number the document no longer matches.
+    const stated = /Each of the ([a-z]+) suites the table above lists/u.exec(refusalSection());
+    expect(stated, 'the section stopped counting the suites it speaks for').not.toBeNull();
+    expect(spelledNumber(stated?.[1] ?? ''), 'and the count it states is not the count of rows').toBe(rows.length);
     for (const row of rows) {
       const files = row.files.filter((each) => each.endsWith('.json')).map((each) => basename(each));
       expect(files.length, `${row.suite} names no file to read verdicts out of`).toBeGreaterThan(0);

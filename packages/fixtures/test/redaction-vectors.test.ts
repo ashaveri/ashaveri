@@ -17,7 +17,7 @@ import {
   type VerifiedRedaction,
 } from '@ashaveri/receipt';
 import { loadPackVectors, loadRedactionVectors, type RedactionCommandAnswer, type RedactionVector } from '../src/index.js';
-import { assertRowRoster, ROW_NAMING_FIELDS, unionMembers } from './doc-contract.js';
+import { assertRowRoster, ROW_NAMING_FIELDS, spelledNumber, unionMembers } from './doc-contract.js';
 
 /**
  * The published redaction vectors, replayed the way a port replays them: take the redaction out of the file,
@@ -85,8 +85,26 @@ function namedFields(prose: string): string[] {
   return [...prose.matchAll(/`([a-z][a-z0-9]*[A-Z][A-Za-z0-9]*)`/gu)].map((found) => found[1]!);
 }
 
+/** The Redaction bullet read as one run of prose, because a sentence in it is wrapped across several lines. */
+function redactionProse(): string {
+  return redactionBullet().replace(/\n\s*/gu, ' ');
+}
+
 const bytes = (base64url: string): Uint8Array => new Uint8Array(Buffer.from(base64url, 'base64url'));
 const fromHex = (hex: string): Uint8Array => new Uint8Array(Buffer.from(hex, 'hex'));
+
+/**
+ * One of the two counts the Redaction bullet of `docs/vectors.md` states about the published rows, read out of
+ * the sentence that states it. Both were numbers written by hand that nothing derived: a suite that gained or
+ * lost a row, or moved a row's `command` answer from null to an object, kept a document saying the old figure
+ * until somebody noticed. So each is taken back out of the sentence and compared with the rows it counts, and a
+ * sentence that stopped agreeing with the file it speaks about fails here rather than sitting unrefused.
+ */
+function countStatedByTheDocument(states: RegExp, what: string): string {
+  const stated = states.exec(redactionProse());
+  if (stated === null) throw new Error(`the Redaction bullet of docs/vectors.md states no count of ${what}`);
+  return stated[1]!;
+}
 
 /** The options a row's designation builds, beside the pack the row hands, which are the reader's own shapes. */
 function optionsFor(one: RedactionVector): RedactionVerifyOptions {
@@ -270,12 +288,18 @@ describe('the redaction manifest vectors', () => {
 
   it('carries no field a row is not told about and no code no registry declares', () => {
     // The published roster is the whole set of columns a row may carry, so it is held as an equality over the
-    // columns the rows actually carry, in the one check every suite with a roster is wired to. Reading
-    // `verdictFields` as a list of allowances is what let four pack columns stand on these rows while the
-    // declaration named eight, and the twelve names written out beside this case were where the undeclared four
-    // hid: a permission check passes a row for carrying a column no reviewer finds by reading the file, and a
-    // port that refuses an undeclared column refuses the row the suite stands behind.
-    assertRowRoster(file, ROW_NAMING_FIELDS);
+    // columns the rows actually carry, in the one check every suite with a roster is wired to. A permission
+    // check reads `verdictFields` as a list of allowances, which passes a row for carrying a column no
+    // reviewer finds by reading the file while a port that refuses an undeclared column refuses a row the
+    // suite stands behind.
+    //
+    // The third thing the check compares is this suite's row count, which the Redaction bullet of
+    // `docs/vectors.md` states as digits: read back out of that sentence, it is the count the check has to
+    // find rather than a number this file repeats beside the array it counts.
+    const rowsStated = Number(
+      countStatedByTheDocument(/The (\d+) rows `redaction-v1\.json` publishes are/u, 'the rows the file publishes'),
+    );
+    assertRowRoster(file, ROW_NAMING_FIELDS, rowsStated);
     // And the prose that says what the pack columns mean names exactly the columns the declaration now carries
     // for them, so the roster and the sentence explaining it are read against each other rather than each
     // trusted alone. The comparison is over which columns rather than the order they are listed in, because the
@@ -464,16 +488,22 @@ describe('the redaction manifest vectors', () => {
     const diverging = file.vectors.filter(
       (one): one is RedactionVector & { command: RedactionCommandAnswer } => one.command !== null,
     );
-    const agreeing = file.vectors.filter((one) => one.command === null);
-    expect(file.vectors.length).toBe(43);
-    expect(diverging.length).toBe(7);
-    expect(agreeing.length).toBe(36);
+    // How many rows carry an object is stated in words by the Redaction bullet of `docs/vectors.md`, so the word
+    // is read back out of that sentence and compared with the rows rather than written out beside them: the
+    // count of rows itself belongs to the roster case, which takes it from the same document. The count opens
+    // its sentence, so the word is read with whichever letter is capital there.
+    expect(
+      spelledNumber(
+        countStatedByTheDocument(/([A-Za-z]+) rows carry an object instead/u, 'the rows carrying a command object'),
+      ),
+      'the document counts a different number of rows carrying a command object than the rows do',
+    ).toBe(diverging.length);
     // A row carrying an object states an answer that is not its `verdict`: an exception that repeated the
     // library's word would be a note that outlived the divergence, and an exit of 0 beside a refusal, or of 2
     // beside anything but a refused call, would be a run this tool does not produce. A null states the verdict
     // replayed with the default exit, which is a claim about a live run and is settled one in
     // `packages/cli/test/verify-handover.test.ts`; what the split owes this file is only that it is a split and
-    // not a drift, and that is what the two counts above say.
+    // not a drift, and that is what the count above and the member every row carries say.
     for (const one of diverging) {
       expect(one.command.code, `${one.name} states a command answer that repeats its verdict`).not.toBe(one.verdict);
       expect([0, 1, 2], `${one.name} states an exit no run of this tool leaves`).toContain(one.command.exit);
