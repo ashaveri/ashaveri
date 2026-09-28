@@ -136,7 +136,7 @@ describe('the published epoch inventory vectors', () => {
     // column the lists name and no row carries is one the file promises and the suite withholds, and a column a
     // row carries and neither list names is one that pattern refuses on every row carrying it, which is where
     // `site` and `guard` had been left. The naming columns are read out of the file rather than written out
-    // again here, because the generator owns that list and this test was its fourth copy of it. And a column
+    // again here, because the generator owns that list and this test held the third copy of it. And a column
     // stated twice is refused outright: the equality below compares sets, so a duplicate in either list would
     // otherwise pass while telling a port that a row carries something twice.
     const naming = file.layout.rowNamingFields;
