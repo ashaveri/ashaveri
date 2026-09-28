@@ -363,14 +363,15 @@ interface Case {
 
 /**
  * The one fragment of the reader's own sentence that each guard of each site says and no other guard of that
- * site says. `main` matches the captured refusal against this table, so the direction a folded-list row states
- * is the exact branch of the exact twin it vectors, not merely the code two branches share.
+ * site says, as a pattern `main` matches the captured refusal against, so the direction a folded-list row
+ * states is the exact branch of the exact twin it vectors, not merely the code two branches share.
  *
  * None of them carries a row position. The `[0]` of the reader's sentence is the place the moved row happens to
  * hold in the list, which is a fact of that document rather than of that guard, so a fragment naming one stops
- * matching the first time a case guards a later row and reports a live guard as a quiet one. The two guards that
- * speak by position, the one naming a row and the one quoting a row's own figures, are told apart by the verb
- * each uses after the bracket, which is the whole of what distinguishes them at any position.
+ * matching the first time a case guards a later row and reports a live guard as a quiet one. The two figures
+ * guards say the site's own bracket and the verb only that guard puts after it, with `\d+` standing where the
+ * reader writes the position, which holds them apart from the guard naming a row at the same site at any
+ * position and, being anchored by the site's own name, from the twin guard of the other site as well.
  *
  * Placement near the head is not what makes them match, though, and it is not guaranteed. The reader bounds a
  * quoted detail at two hundred bytes, and only the two `claim` fragments sit at the head of theirs; measured
@@ -382,22 +383,22 @@ interface Case {
  * the reader's sentence, and a case with anything variable between the head and its fragment has to check the
  * detail length rather than assume the fragment is there.
  */
-const GUARD_SENTENCES: Record<'chain.breaks' | 'duty.short', Record<'claim' | 'count' | 'repeat' | 'unheld' | 'without-finding' | 'figures', string>> = {
+const GUARD_SENTENCES: Record<'chain.breaks' | 'duty.short', Record<'claim' | 'count' | 'repeat' | 'unheld' | 'without-finding' | 'figures', RegExp>> = {
   'chain.breaks': {
-    claim: 'chain.continuous says',
-    count: 'break(s) in it and the document states',
-    repeat: 'distinct packs',
-    unheld: 'does not hold at all',
-    'without-finding': 'holds without a break',
-    figures: '] states',
+    claim: /chain\.continuous says/u,
+    count: /break\(s\) in it and the document states/u,
+    repeat: /distinct packs/u,
+    unheld: /does not hold at all/u,
+    'without-finding': /holds without a break/u,
+    figures: /chain\.breaks\[\d+\] states/u,
   },
   'duty.short': {
-    claim: 'duty.carried says',
-    count: 'shortfall(s) in it and the document states',
-    repeat: 'distinct packs',
-    unheld: 'does not hold at all',
-    'without-finding': 'holds without a shortfall',
-    figures: '] states',
+    claim: /duty\.carried says/u,
+    count: /shortfall\(s\) in it and the document states/u,
+    repeat: /distinct packs/u,
+    unheld: /does not hold at all/u,
+    'without-finding': /holds without a shortfall/u,
+    figures: /duty\.short\[\d+\] states/u,
   },
 };
 
@@ -761,7 +762,7 @@ const CASES: readonly Case[] = [
   },
   {
     name: 'a-stated-run-beginning-that-is-not-where-the-run-begins',
-    note: 'The honest run with its claimed chain anchor moved to a digest of nothing, while the entries and the break list stay as they were. The reader compares the stated anchor with the anchor of the pack its walk begins at, and refuses where the walk starts rather than at the summary beside it, so this is the beginning of the two chain endpoints the format names and `a-stated-run-end-that-is-not-where-the-run-ends` is the other end of them. A wrong digest over one end of the epoch is reached at the run rather than at an entry, and it is refused because the reader recomputes both ends instead of quoting them.',
+    note: 'The honest run with its claimed chain anchor moved to a digest of nothing, while the entries and the break list stay as they were. The reader compares the stated anchor with the anchor of the pack its walk begins at, and refuses where the walk starts rather than in the folded summaries beside it, so this is the beginning of the two chain endpoints the format names and `a-stated-run-end-that-is-not-where-the-run-ends` is the other end of them. A wrong digest over one end of the epoch is refused because the reader recomputes both ends instead of quoting them.',
     bytes: sealDocument({ ...HONEST, chain: { ...HONEST.chain, anchor: digest('an anchor this run never began at') } }),
     read: PINNED,
     verdict: 'EPOCH_INVENTORY_SUMMARY_DISAGREES',
@@ -770,7 +771,7 @@ const CASES: readonly Case[] = [
   },
   {
     name: 'a-stated-run-end-that-is-not-where-the-run-ends',
-    note: 'The honest run with its claimed chain head moved to a digest of nothing, while the entries and the break list stay as they were. A wrong digest over the whole epoch, reached at the summary rather than at an entry, and refused because the reader recomputes the endpoints from the run instead of quoting them. The run has two of those endpoints and `a-stated-run-beginning-that-is-not-where-the-run-begins` is the one this row does not state.',
+    note: 'The honest run with its claimed chain head moved to a digest of nothing, while the entries and the break list stay as they were. The reader compares the stated head with the head of the pack its walk ends at, and refuses where the walk ends rather than in the folded summaries beside it, so this row is the other end of the two chain endpoints the format names and `a-stated-run-beginning-that-is-not-where-the-run-begins` is the one it does not state. A wrong digest over one end of the epoch is refused because the reader recomputes both ends instead of quoting them.',
     bytes: sealDocument({ ...HONEST, chain: { ...HONEST.chain, head: digest('a head this run never reached') } }),
     read: PINNED,
     verdict: 'EPOCH_INVENTORY_SUMMARY_DISAGREES',
@@ -1071,6 +1072,14 @@ function readbackOf(one: Case): Record<string, unknown> {
   };
 }
 
+/**
+ * The columns every row carries because they say which row and which document it is, rather than answering
+ * anything about it. `published` writes them first, the published `rowNamingFields` is this list, and the suite
+ * holds both lists beside it against the columns its rows actually carry, so a column added to a row without
+ * being named here is refused by that test rather than read as a roster defect.
+ */
+const NAMING_FIELDS = ['name', 'note', 'documentBase64Url', 'documentByteLength', 'read'];
+
 function published(one: Case, seen: { verdict: string; structural: string; message: string }): Record<string, unknown> {
   return {
     name: one.name,
@@ -1129,9 +1138,9 @@ function main(): void {
     }
     if (one.site !== undefined && one.guard !== undefined) {
       const sentence = GUARD_SENTENCES[one.site][one.guard];
-      if (!seen.message.includes(sentence)) {
+      if (!sentence.test(seen.message)) {
         throw new Error(
-          `${one.name}: the refusal the reader gave carries no ${one.guard} guard sentence (${sentence}) of the ${one.site} site: ${seen.message}`,
+          `${one.name}: the refusal the reader gave carries no ${one.guard} guard sentence (${sentence.source}) of the ${one.site} site: ${seen.message}`,
         );
       }
     }
@@ -1175,9 +1184,10 @@ function main(): void {
           nestingDepth: `the JSON reading goes to eight levels and no further, which is a rule of the format rather than a parser limit: the layout's own deepest position is five, and a payload is bytes nobody believes`,
           labelWidth: `the run label is the one text position carrying a ceiling, at ${String(EPOCH_INVENTORY_LABEL_MAX_BYTES)} bytes, because it is printed beside the run in every report of it; the issuer, the instance id and the duty label are copied out of formats that declare floors and no ceiling, and carry none here`,
           encodings: 'documents unpadded base64url, digests, kids, signatures and other byte strings lowercase hex, instants unix seconds',
+          rowNamingFields: [...NAMING_FIELDS],
           verdictFields: ['verdict', 'structural', 'message', 'readback', 'edited', 'site', 'guard', 'edit', 'reveal'],
           verdictFieldsMeaning:
-            '`verdictFields` is every column a row carries beyond the five that name it, `name`, `note`, `documentBase64Url`, `documentByteLength` and `read`, and a conforming reader expects no other column of a row. Two of them state a position rather than an answer. `site` names which of the two folded lists a row guards, and it appears on every refusal inside those lists and on the two acceptances that state one of them in another order. `guard` names which branch of that site the reader stopped on, and it appears beside every `site` refusal and nowhere else. The refusals about the window, the two chain endpoints, the key or the signature are outside those lists and carry neither column, because `site` names the folded lists and nothing else, and where such a row moved one position of its document it says which in `edited`. The suite holds this roster against the columns its published rows actually carry, so the two cannot drift apart without a test saying so.',
+            '`verdictFields` is every column a row carries beyond the ones that name it, and `rowNamingFields` is those naming columns published as data beside it rather than repeated inside this sentence, so the two lists together are the whole set of columns a row may carry and a conforming reader expects no other. Two of them state a position rather than an answer. `site` names which of the two folded lists a row guards, and it appears on every refusal inside those lists and on the two acceptances that state one of them in another order. `guard` names which branch of that site the reader stopped on, and it appears beside every `site` refusal and nowhere else. The refusals about the window, the two chain endpoints, the key or the signature are outside those lists and carry neither column, because `site` names the folded lists and nothing else, and where such a row moved one position of its document it says which in `edited`. The suite holds both lists against the columns its published rows actually carry, so neither can drift and no column can be stated twice without a test saying so.',
           verdictMeaning:
             '`verdict` is what verifyEpochInventory answers for the bytes under the designation the row states: `verify-ok`, or the code it throws, whose message the row carries as `message`. `structural` is what decodeEpochInventory answers for the same bytes with no key. A row that is `verify-ok` there and a refusal in `verdict` is refused about a key, a signature or the arithmetic over a run rather than about a document shape, and every run and summary refusal in this suite is that shape. A conforming reader owes the same code; its sentence may differ, and the published message is what this one said.',
           readbackMeaning:

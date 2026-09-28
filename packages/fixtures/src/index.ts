@@ -714,6 +714,8 @@ export interface EpochInventoryVectorFile {
     headerLabels: { alg: number; typ: number; kid: number };
     codes: string[];
     verdictFields: string[];
+    /** The columns every row carries because they say which row and which document it is. */
+    rowNamingFields: string[];
     keyMaterial: Array<{
       id: string;
       seed: string;
