@@ -215,7 +215,7 @@ chain reached the root you named, not that the platform is still current.
 | Verb | Inputs, all files or the command line |
 | --- | --- |
 | `verify <attestation>` | The attestation, `--ask` and `--vcek` when the document carries no chain, and a root: `--ark`, `--intel-root` or `--gpu-root`. With no policy and no root flag it trusts nothing you did not name, and says so with `MISSING_TRUST_ROOT`. |
-| `verify-receipt <receipt>` | The receipt, `--policy`, `--manifest`, `--nonce`, one of `--request-body` or `--request-hash`, and one of `--response-body` or `--response-hash`. A v2 receipt needs the response bytes, not only their digest, because its claim is a region inside them. |
+| `verify-receipt <receipt>` | The receipt, `--policy`, `--manifest`, `--nonce`, one of `--request-body` or `--request-hash`, and one of `--response-body` or `--response-hash`. A receipt whose payload names a marking needs the response bytes, not only their digest, because its claim is a region inside them. |
 | `verify-handover <document>` | One signed document and `--key` for a receipt, pack or export, or `--manifest-key` for a deployment manifest. It classifies the document by the content type inside its own signature and reads it with the reader for that type. |
 | `verify-pack <document>` | The pack and at least one `--key`: every key whose receipts a span crosses, since a pack over a rotation carries signatures from the epochs current then. |
 | `verify-export <document>` | The export, its `--key`, and one `--companion` per signed item: the original whose digest is recomputed, given by its own name or by a path to it. |

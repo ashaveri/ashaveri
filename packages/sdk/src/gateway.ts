@@ -28,9 +28,9 @@ export interface VerifyReceiptedParams {
   readonly requestHash: Uint8Array;
   readonly responseHash: Uint8Array;
   /**
-   * The response bytes themselves, which a v2 receipt's marking claim is read off. Required, because
-   * an optional member is a route by which a live verification skips the mark without saying so: see
-   * `VerifyCompletionParams.responseBytes`.
+   * The response bytes themselves, from which the region a payload naming a marking attests is read.
+   * Required, because an optional member is a route by which a live verification skips the mark
+   * without saying so: see `VerifyCompletionParams.responseBytes`.
    */
   readonly responseBytes: Uint8Array;
   readonly now?: number;
