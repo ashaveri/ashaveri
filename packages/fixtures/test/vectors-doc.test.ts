@@ -10,8 +10,9 @@ import { sectionBody, spelledNumber } from './doc-contract.js';
  * published suite and the version field that file carries. Both are copies of facts that live in
  * `data/`, and a copy is how a document comes to state something the artefacts stopped carrying. This
  * reads the table as data and checks it against them. The prose around the rows is reviewed by the
- * people who write it, with one exception: a sentence that states a count of what the table lists is
- * read for that count, because the number is the table's and a reader typing it from memory is the
+ * people who write it, with one exception: a sentence that states a count of what the published files
+ * carry is read for that count, and the rows it counts are taken out of the file the table names for
+ * that suite, because the number belongs to the artefact and a reader typing it from memory is the
  * drift this refuses to be.
  */
 
@@ -164,6 +165,82 @@ function refusalSection(): string {
   return sectionBody(readFileSync(DOC, 'utf8'), '## Every suite refuses something').replace(/\n\s*/gu, ' ');
 }
 
+/**
+ * The two bullets `docs/vectors.md` gives the epoch inventory, read as one run of prose because the
+ * sentences in them are wrapped across several lines. Both state a count of the published rows in words
+ * rather than as digits, and both counts belong to the rows rather than to the memory of whoever wrote
+ * the sentence.
+ */
+function epochInventoryProse(): string {
+  const doc = readFileSync(DOC, 'utf8');
+  const start = doc.indexOf('\n- **Epoch inventory.');
+  if (start < 0) throw new Error('docs/vectors.md states no Epoch inventory bullet to read');
+  const rest = doc.slice(start);
+  const end = rest.indexOf('\n## ');
+  return (end < 0 ? rest : rest.slice(0, end)).replace(/\n\s*/gu, ' ');
+}
+
+/**
+ * One of the counts those bullets state about the published rows, taken back out of the sentence that
+ * states it. A document that stopped claiming a count fails as a missing sentence rather than reading as
+ * a claim of nothing, which is the shape an empty match would have.
+ */
+function countStatedByTheDocument(states: RegExp, what: string): string {
+  const stated = states.exec(epochInventoryProse());
+  if (stated === null) throw new Error(`the Epoch inventory bullets state no count of ${what}`);
+  return stated[1]!;
+}
+
+/** One published row of the inventory suite, as the file itself spells its members. */
+type InventoryRow = Record<string, unknown>;
+
+/** The two orders an inventory row publishes beside the folded list it names, where it publishes them. */
+interface InventoryReadback {
+  readonly runFiles?: string[];
+  readonly breakFiles?: string[];
+  readonly shortFiles?: string[];
+}
+
+/**
+ * The rows of the suite the table calls `Epoch inventory`, read out of the file that row names. These are
+ * the rows the two bullets count, so the path comes from the document rather than from a path typed in
+ * beside it.
+ */
+function inventoryRows(): InventoryRow[] {
+  const row = rows.find((each) => each.suite === 'Epoch inventory');
+  if (row === undefined) throw new Error('the suite table lists no Epoch inventory row to read the file from');
+  const files = row.files.filter((each) => each.endsWith('.json'));
+  if (files.length !== 1) {
+    throw new Error(`the Epoch inventory row names ${String(files.length)} files, and this reads the one`);
+  }
+  const named = files[0]!;
+  const found = resolve(named);
+  if (found === null) throw new Error(`${named} is named by the Epoch inventory row and is not there to read`);
+  const parsed = JSON.parse(readFileSync(found, 'utf8')) as { vectors?: unknown };
+  if (!Array.isArray(parsed.vectors)) throw new Error(`${named} publishes no vectors array to read`);
+  return parsed.vectors as InventoryRow[];
+}
+
+/**
+ * Whether one published inventory row states one of the two folded lists in the reverse of the order the
+ * run puts its packs in. The file carries both orders on the rows that state them: `site` names which of
+ * the two lists the row speaks about, and the `readback` beside it carries `runFiles`, the run the
+ * entries' own figures put back into order, and that list as the document states it. A list of one entry
+ * states no order for this to call the reverse of, so a row carrying one entry is not one of these.
+ */
+function statesAReversedList(row: InventoryRow): boolean {
+  const site = row.site;
+  if (site !== 'chain.breaks' && site !== 'duty.short') return false;
+  const readback = row.readback as InventoryReadback | undefined;
+  if (readback === undefined) return false;
+  const run = readback.runFiles;
+  const stated = site === 'chain.breaks' ? readback.breakFiles : readback.shortFiles;
+  if (!Array.isArray(run) || !Array.isArray(stated) || stated.length < 2) return false;
+  const inRunOrder = run.filter((one) => stated.includes(one));
+  if (inRunOrder.length !== stated.length) return false;
+  return stated.every((one, at) => one === inRunOrder[inRunOrder.length - 1 - at]);
+}
+
 const rows = suiteRows();
 
 describe('docs/vectors.md suite inventory', () => {
@@ -274,6 +351,46 @@ describe('docs/vectors.md suite inventory', () => {
           true,
         );
       }
+    }
+  });
+
+  it('states how many inventory rows carry an edit block, and the rows agree', () => {
+    // The sentence counts the rows stating an `edit` block, and that count is a fact of the published file:
+    // a row gaining or losing its block moves one of the two sides of this comparison. What the same
+    // sentence says about the two it counts, that they are the honest span replaced with a longer run
+    // label and differ by one byte at one position, one accepted and one refused, is held row by row by the
+    // inventory's own width-pair case in `epoch-inventory-vectors.test.ts`. What nothing held was the
+    // number standing in the document.
+    const stating = inventoryRows().filter((one) => one.edit !== undefined);
+    expect(
+      spelledNumber(
+        countStatedByTheDocument(/([A-Za-z]+) rows state an `edit` block/u, 'the rows stating an edit block'),
+      ),
+      'the document counts a different number of rows stating an edit block than the rows do',
+    ).toBe(stating.length);
+  });
+
+  it('states that the inventory rows reversing a folded list are acceptances', () => {
+    // Two claims in one sentence, both read off the rows: that the count of rows stating one of the two
+    // folded lists in the reverse of the order the run puts those packs in is the count the sentence states,
+    // and that every one of them is an acceptance rather than an oversight. The keying the sentence appeals
+    // to is why a reversal is accepted at all, so a row that turned from an acceptance into a refusal, or a
+    // reversal the suite gained or lost, is refused here rather than left standing in prose.
+    const reversed = inventoryRows().filter(statesAReversedList);
+    expect(
+      spelledNumber(
+        countStatedByTheDocument(
+          /the ([a-z]+) rows stating a reversed list are acceptances/u,
+          'the rows stating a reversed list',
+        ),
+      ),
+      'the document counts a different number of rows stating a reversed list than the rows do',
+    ).toBe(reversed.length);
+    for (const one of reversed) {
+      expect(
+        one.verdict,
+        `${String(one.name)} states a folded list in the other order and is not an acceptance`,
+      ).toBe('verify-ok');
     }
   });
 });
