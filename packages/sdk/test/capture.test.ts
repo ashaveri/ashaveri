@@ -415,6 +415,12 @@ describe('the published schema and the reader decide the same documents', () => 
     ['a second manifest role', recordFor(receiptV1, { manifests: { deployment: held(manifestBytes), models: held(manifestBytes) } })],
     ['a negative acquisition time', recordFor(receiptV1, { acquired: { at: -1, sourceStatedAt: null } })],
     ['an unimplementable version', { ...recordFor(receiptV1), v: 3 }],
+    // The boundary of the two lists that have to stay in step: `check.receiptFormatVersion` is
+    // `enum: [1, 2]` in the published schema and `IMPLEMENTED_RECEIPT_FORMAT_VERSIONS` in the reader, and
+    // 3 is the version `receipt.cddl` defines that neither of them takes. Widening one side without the
+    // other fails the assertion belonging to the side that moved: a reader list that gains the 3 stops
+    // throwing, and a schema enum that gains it stops refusing the same document.
+    ['a receipt version this record does not read', recordFor(receiptV1, { check: { ...(recordFor(receiptV1).check as object), receiptFormatVersion: 3 } })],
   ];
 
   for (const [name, record] of refused) {
