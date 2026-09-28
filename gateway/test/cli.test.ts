@@ -609,7 +609,8 @@ describe('the flags that make the access floor real', () => {
         `  credentials: 0 records read from ${CREDENTIALS} at start-up, which leaves every request refused`,
       );
     },
-    12_000,
+    // Two boots of an empty volume, measured here at 0.9s together: the runner's default covers that
+    // with room, so no ceiling of its own is set beside the case.
   );
 
   // The count that line prints is the store's own, so this is the half that says where it came from:
@@ -646,7 +647,8 @@ describe('the flags that make the access floor real', () => {
       expect(refused.stderr).toMatch(/3 bytes, not 32/u);
       expect(refused.stdout, 'a process that refused to boot printed a banner').not.toContain('listening on');
     },
-    12_000,
+    // One boot over a two-record credential file and one exit-path refusal, measured here at 0.8s
+    // together, which the runner's default covers: no ceiling of its own is set beside the case.
   );
 });
 
@@ -672,26 +674,34 @@ describe('the bound one connection address is held to', () => {
     expect(noValue.stderr).toContain('--peer-rate');
   });
 
-  it('refuses a peer rate whose numbers are not counts of requests', () => {
-    for (const bad of ['perMinute=0,burst=300', 'perMinute=6000,burst=0']) {
-      const result = run('--mock', '--peer-rate', bad);
-      expect(result.status, bad).toBe(2);
-      expect(result.stderr, bad).toContain('must be a positive whole number');
-      expect(result.stderr, bad).toContain("got '0'");
-      // A bound of nothing at all is the way to disable a control through a flag that looks like it only
-      // sets a size, so it is refused rather than clamped.
-      expect(result.stdout, bad).not.toContain('listening on');
-    }
-    const fractional = run('--mock', '--peer-rate', 'perMinute=12.5,burst=300');
-    expect(fractional.status).toBe(2);
-    expect(fractional.stderr).toContain("--peer-rate perMinute must be a positive whole number of requests a minute, got '12.5'");
-    // A spelling `Number` would accept and no operator wrote: the digits-only rule is what refuses them.
-    for (const exotic of ['perMinute=0x10,burst=300', 'perMinute=1e3,burst=300', 'perMinute=-60,burst=300']) {
-      const result = run('--mock', '--peer-rate', exotic);
-      expect(result.status, exotic).toBe(2);
-      expect(result.stderr, exotic).toContain('must be a positive whole number');
-    }
-  });
+  it(
+    'refuses a peer rate whose numbers are not counts of requests',
+    () => {
+      for (const bad of ['perMinute=0,burst=300', 'perMinute=6000,burst=0']) {
+        const result = run('--mock', '--peer-rate', bad);
+        expect(result.status, bad).toBe(2);
+        expect(result.stderr, bad).toContain('must be a positive whole number');
+        expect(result.stderr, bad).toContain("got '0'");
+        // A bound of nothing at all is the way to disable a control through a flag that looks like it only
+        // sets a size, so it is refused rather than clamped.
+        expect(result.stdout, bad).not.toContain('listening on');
+      }
+      const fractional = run('--mock', '--peer-rate', 'perMinute=12.5,burst=300');
+      expect(fractional.status).toBe(2);
+      expect(fractional.stderr).toContain(
+        "--peer-rate perMinute must be a positive whole number of requests a minute, got '12.5'",
+      );
+      // A spelling `Number` would accept and no operator wrote: the digits-only rule is what refuses them.
+      for (const exotic of ['perMinute=0x10,burst=300', 'perMinute=1e3,burst=300', 'perMinute=-60,burst=300']) {
+        const result = run('--mock', '--peer-rate', exotic);
+        expect(result.status, exotic).toBe(2);
+        expect(result.stderr, exotic).toContain('must be a positive whole number');
+      }
+    },
+    // Six refusals, each its own exit-path spawn: measured here at 2.0s together, about 330 ms a
+    // refusal, so the ceiling is a second a refusal rather than a figure carried over from another case.
+    6 * 1_000,
+  );
 
   it('refuses a peer rate field it does not have, and one given twice', () => {
     const unknown = run('--mock', '--peer-rate', 'perMinute=6000,bursts=300');
@@ -716,32 +726,38 @@ describe('the bound one connection address is held to', () => {
     expect(line, printed).not.toContain('the default');
   });
 
-  it('has no spelling that takes the bound off, and one that amounts to it', () => {
-    // `0` and a bare word are the two shapes a reader reaches for when they want the control out of the
-    // way, and both are refused: a bound of nothing would shed every request this process serves, and a
-    // flag that accepted "off" would be a way to remove a security control from a deployment that thinks
-    // it has one.
-    for (const value of ['off', 'none', '0', 'perMinute=0,burst=0', 'perMinute=0']) {
-      const result = run('--mock', '--peer-rate', value);
-      expect(result.status, value).toBe(2);
-      expect(result.stderr, value).toContain('--peer-rate');
-      expect(result.stdout, value).not.toContain('listening on');
-    }
-    // The way out is a number big enough never to be reached, and it stays a number the banner reports:
-    // a run that is effectively unbounded reads as one with a large limit, not as one with none. This
-    // case stops at the credential file, which the rate is parsed before, so it says the value was taken
-    // without booting a listener.
-    const huge = run(
-      '--mock',
-      '--peer-rate',
-      'perMinute=999999999,burst=999999999',
-      '--credentials-path',
-      join(tempDir, 'not-mounted.json'),
-    );
-    expect(huge.stderr).not.toContain('--peer-rate wants');
-    expect(huge.stderr).not.toContain('must be a positive whole number');
-    expect(huge.stderr).toContain('--credentials-path');
-  });
+  it(
+    'has no spelling that takes the bound off, and one that amounts to it',
+    () => {
+      // `0` and a bare word are the two shapes a reader reaches for when they want the control out of the
+      // way, and both are refused: a bound of nothing would shed every request this process serves, and a
+      // flag that accepted "off" would be a way to remove a security control from a deployment that thinks
+      // it has one.
+      for (const value of ['off', 'none', '0', 'perMinute=0,burst=0', 'perMinute=0']) {
+        const result = run('--mock', '--peer-rate', value);
+        expect(result.status, value).toBe(2);
+        expect(result.stderr, value).toContain('--peer-rate');
+        expect(result.stdout, value).not.toContain('listening on');
+      }
+      // The way out is a number big enough never to be reached, and it stays a number the banner reports:
+      // a run that is effectively unbounded reads as one with a large limit, not as one with none. This
+      // case stops at the credential file, which the rate is parsed before, so it says the value was taken
+      // without booting a listener.
+      const huge = run(
+        '--mock',
+        '--peer-rate',
+        'perMinute=999999999,burst=999999999',
+        '--credentials-path',
+        join(tempDir, 'not-mounted.json'),
+      );
+      expect(huge.stderr).not.toContain('--peer-rate wants');
+      expect(huge.stderr).not.toContain('must be a positive whole number');
+      expect(huge.stderr).toContain('--credentials-path');
+    },
+    // Five spellings refused at the flag and one taken past it, six exit-path spawns: measured here at
+    // 1.8s together, about 300 ms a spawn, so the ceiling is a second a spawn.
+    6 * 1_000,
+  );
 });
 
 /**
@@ -978,8 +994,11 @@ describe('a volume whose receipts have to outlive the start', () => {
     },
     // The volume is written in one go and read back by a start that refuses it: measured here at
     // 3.1s, which is past what the runner's five-second default leaves room for on a slower machine, so
-    // the case carries its own stop rather than the one that has bitten this estate before.
-    20_000,
+    // The volume is written in one go and read back by a start that refuses it, and framing
+    // SHIPPED_RECEIPT_BOUND receipts is the whole of the work: measured here at 2.2s, about a fifth of a
+    // millisecond a receipt, so the ceiling is five times that, a millisecond a receipt, with a five
+    // second floor for the spawn rather than a figure carried over from another case.
+    Math.max(5_000, SHIPPED_RECEIPT_BOUND),
   );
 
   it(
@@ -1005,32 +1024,32 @@ describe('a volume whose receipts have to outlive the start', () => {
       // that takes a sixth of a billion receipts and a query still holds ten thousand of them.
       expect(line, printed).toContain(`a serving bound of ${String(SHIPPED_RECEIPT_BOUND)} receipts to a query`);
     },
-    // The same ten thousand receipts on disk, read by a start that was told a durability bound big
-    // enough to hold 184 days of them with a serving bound nobody raised: measured here at 4.1s, four
-    // of which are the spawn waiting for its listening line.
-    20_000,
+    // The same ten thousand receipts on disk, framed and written in one go, read back by a start that
+    // was told a durability bound big enough to hold 184 days of them with a serving bound nobody
+    // raised: measured here at 0.6s against the 2.2s the refusing start takes on the same volume, so the
+    // ceiling is read off the receipt count the case writes, one millisecond a receipt.
+    Math.max(5_000, SHIPPED_RECEIPT_BOUND),
   );
 
-  it(
-    'starts the same pairing on a volume that has not reached its bound', async () => {
-      const dir = join(tempDir, 'window-held');
-      mkdirSync(dir);
-      // The same window and the same bound, and traffic nowhere near the bound. Nothing is being shed
-      // here, so nothing is asked: a store that has issued less than it can serve is a quiet
-      // deployment, and refusing it would refuse it for being quiet.
-      writeHeldStore(dir, 200, 100);
+  // Two hundred receipts and one boot that prints its banner, measured here at 0.44s: the runner's
+  // default covers that with room, so the case carries no ceiling of its own.
+  it('starts the same pairing on a volume that has not reached its bound', async () => {
+    const dir = join(tempDir, 'window-held');
+    mkdirSync(dir);
+    // The same window and the same bound, and traffic nowhere near the bound. Nothing is being shed
+    // here, so nothing is asked: a store that has issued less than it can serve is a quiet
+    // deployment, and refusing it would refuse it for being quiet.
+    writeHeldStore(dir, 200, 100);
 
-      const banner = await readBanner('--mock', '--port', '0', '--receipts-dir', dir);
-      const printed = banner.join('\n');
-      const line = banner.find((each) => each.startsWith('  receipts kept in '));
-      expect(line, `no receipts line; stdout held ${JSON.stringify(printed)}`).toContain(dir);
-      // The start-up report states the pair as configuration, not as a period kept: a store that opens
-      // has compared its two bounds against its own traffic and nothing more.
-      expect(line, printed).toContain('as configured');
-      expect(line, printed).toContain('a durability bound of 10000 receipts');
-    },
-    12_000,
-  );
+    const banner = await readBanner('--mock', '--port', '0', '--receipts-dir', dir);
+    const printed = banner.join('\n');
+    const line = banner.find((each) => each.startsWith('  receipts kept in '));
+    expect(line, `no receipts line; stdout held ${JSON.stringify(printed)}`).toContain(dir);
+    // The start-up report states the pair as configuration, not as a period kept: a store that opens
+    // has compared its two bounds against its own traffic and nothing more.
+    expect(line, printed).toContain('as configured');
+    expect(line, printed).toContain('a durability bound of 10000 receipts');
+  });
 
   it('refuses a bound that is not a count of receipts', () => {
     for (const flag of ['--receipts-keep', '--receipts-per-query']) {
@@ -1123,9 +1142,9 @@ describe('the durability guard read while serving', () => {
       expect(off, printed).not.toContain('armed at');
       expect(off, printed).toContain('the window served is the shorter one that bound reaches');
     },
-    // Four boots of an empty volume, one per posture the case reads, and no boot waits on a second
-    // one: the ceiling is a multiple of that count, and the figure it is multiplied by is measured.
-    25_000,
+    // Four boots of an empty volume, one per posture the case reads: measured here at 1.7s together,
+    // about 430 ms a boot, so the ceiling is a second a boot and not a figure carried from elsewhere.
+    4 * 1_000,
   );
 
   /**
@@ -1243,18 +1262,24 @@ describe('the record kind a volume is written under', () => {
     expect(help).toContain('Default: receipt');
   });
 
-  it('refuses a value that names neither record kind', () => {
-    // `bounded` without its number, a number that is not one, and the kind that takes none given one:
-    // each is a spelling with no record to write, so the start stops rather than a default stepping in.
-    for (const given of ['bounded', 'bounded=', 'bounded=abc', 'bounded= 300', 'receipt=300', 'both']) {
-      const result = run('--mock', '--port', '0', '--receipts-record-kind', given);
-      expect(result.status, `${given}: ${result.stderr}`).toBe(2);
-      expect(result.stderr, given).toContain(
-        `--receipts-record-kind must be 'receipt' or 'bounded=<seconds>', got '${given}'`,
-      );
-      expect(result.stdout, given).not.toContain('listening on');
-    }
-  });
+  it(
+    'refuses a value that names neither record kind',
+    () => {
+      // `bounded` without its number, a number that is not one, and the kind that takes none given one:
+      // each is a spelling with no record to write, so the start stops rather than a default stepping in.
+      for (const given of ['bounded', 'bounded=', 'bounded=abc', 'bounded= 300', 'receipt=300', 'both']) {
+        const result = run('--mock', '--port', '0', '--receipts-record-kind', given);
+        expect(result.status, `${given}: ${result.stderr}`).toBe(2);
+        expect(result.stderr, given).toContain(
+          `--receipts-record-kind must be 'receipt' or 'bounded=<seconds>', got '${given}'`,
+        );
+        expect(result.stdout, given).not.toContain('listening on');
+      }
+    },
+    // Six spellings, each its own exit-path spawn: measured here at 1.9s together, about 310 ms a
+    // refusal, so the ceiling is a second a refusal, read off the count the loop walks.
+    6 * 1_000,
+  );
 
   it(
     'appends the kind the flag names, and the kind it does not when the flag is absent',
@@ -1363,8 +1388,8 @@ describe('the record kind a volume is written under', () => {
       expect(line, `no receipts line; stdout held ${printed}`).toContain(dir);
       expect(line, printed).toContain('every record stating no retention period of its own');
     },
-    // A boot that refuses, a boot that answers, and two openings of the volume between them.
-    20_000,
+    // A boot that refuses, a boot that answers, and two openings of the volume between them: measured
+    // here at 0.7s, which the runner's default covers, so the case carries no ceiling of its own.
   );
 
   it(
@@ -1385,7 +1410,7 @@ describe('the record kind a volume is written under', () => {
         'every record stating no retention period of its own, the receipt kind a run without --receipts-record-kind writes',
       );
     },
-    // Two boots of a gateway that serves, one per kind, and no boot waits on a request.
-    12_000,
+    // Two boots of a gateway that serves, one per kind: measured here at 0.8s together, which the
+    // runner's default covers, so the case carries no ceiling of its own.
   );
 });
