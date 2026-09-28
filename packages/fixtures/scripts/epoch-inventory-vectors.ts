@@ -371,12 +371,13 @@ interface Case {
  * matching the first time a case guards a later row and reports a live guard as a quiet one. Four of the six
  * guards of a site open their sentence with that site's own name, which is what lets a fragment hold its rows
  * apart from the twin guard of the other site: `figures` and `unheld` say the site's bracket with `\d+` standing
- * where the reader writes the position, and `repeat` says the bracket bare, because that sentence names the list
- * rather than a row of it. The two `unheld` patterns are the one pair here that is not one contiguous fragment:
+ * where the reader writes the position, `repeat` says the bracket bare, because that sentence names the list
+ * rather than a row of it, and `claim` says the summary member it reads, `chain.continuous` at one site and
+ * `duty.carried` at the other. The two `unheld` patterns are the one pair here that is not one contiguous fragment:
  * the head and the tail sit either side of the pack name, so a `.*` spans it, which is also what keeps an
- * `unheld` pattern off the `without-finding` sentence that shares its head. `claim` and `count` need no site
- * name to separate them, because the word that says the site, `break(s)` or `shortfall(s)`, sits inside their
- * fragment already.
+ * `unheld` pattern off the `without-finding` sentence that shares its head. The two guards that open with no name
+ * of the site, `count` and `without-finding`, need none to separate them, because the word that says the site,
+ * `break(s)` or `shortfall(s)`, sits inside their fragment already.
  *
  * Placement near the head is not what makes them match, though, and it is not guaranteed. The reader bounds a
  * quoted detail at two hundred characters, `MAX_DETAIL` at `packages/receipt/src/errors.ts:382`, and measured
@@ -384,7 +385,7 @@ interface Case {
  * do not. At the head: `claim`, `repeat`, `unheld` and `figures`, each of the eight at offset 0. Off the head:
  * `count` at 27 at both sites, and `without-finding` at 121 at `chain.breaks` and 119 at `duty.short`, the two
  * numbers of a pair being its `chain.breaks` row and its `duty.short` row. What carries the four off the head is
- * that the detail each fragment sits in is shorter than the bound, at 51 to 173 characters, so the whole sentence
+ * that the detail each fragment sits in is shorter than the bound, at 67 to 173 characters, so the whole sentence
  * publishes and the fragment lies inside what survives. The two `unheld` patterns need the same of a longer span,
  * since their match runs to the end of a detail of 141 and 139 characters. The four `figures` rows are the ones
  * the bound does bite: their details publish cut at 203 characters, the bound plus the three dots the reader
