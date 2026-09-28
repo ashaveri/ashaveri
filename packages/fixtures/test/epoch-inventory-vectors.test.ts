@@ -44,10 +44,10 @@ import { unionMembers } from './doc-contract.js';
  * columns are read out of the file rather than repeated here, and a column stated twice in either list or on
  * both is refused, because the equality compares sets and would otherwise pass a roster that lies about a row.
  *
- * The client half of this reading is not wired yet: `packages/cli/test/vector-conformance.test.ts` drives the
- * other suites through the paths a shipped verifier takes, and these rows go there next. What is here is the
- * format package's own reader, the one every verdict in this file was witnessed with when the generator wrote
- * it.
+ * The client half of this reading lives in `packages/cli/test/vector-conformance.test.ts`, which drives the
+ * same rows through the two exported inventory readers, since no command of this package reads an epoch
+ * inventory. What is here is the format package's own reader, the one every verdict in this file was
+ * witnessed with when the generator wrote it.
  */
 
 const file = loadEpochInventoryVectors();

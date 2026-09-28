@@ -225,13 +225,16 @@ the chain head it took from the pack rather than recomputed, an inventory by the
 label or by the one row a folded list left out. Each is one small edit to
 bytes this repository already publishes, so reproducing it is reading a row and not guessing at what the
 author meant. The client path over them is in `packages/cli/test/vector-conformance.test.ts`, which
-drives every suite in this table but the technical export and the epoch inventory through the shipped
-verification code rather than
+drives every suite in this table but the technical export through the shipped verification code rather than
 through a copy of the rule it is checking, and asserts the verdict in both directions: the accepted rows
 accepted, the refusing ones refused for the reason stated. The export suite travels the client path
-through `packages/cli/test/verify-handover.test.ts` instead, beside the command's own cases. The
-inventory rows are replayed through the client path next, and until they are its verdicts are
-witnessed by `packages/fixtures/test/epoch-inventory-vectors.test.ts` over the shipped reader.
+through `packages/cli/test/verify-handover.test.ts` instead, beside the command's own cases. The inventory
+rows are read there by the two exported inventory readers, `verifyEpochInventory` and
+`decodeEpochInventory`, rather than through a command, because this package ships no verb that reads an
+epoch inventory, and the block states which verbs it ships in a comment a reviewer can check. Those rows are
+therefore witnessed twice over the same published bytes: by
+`packages/fixtures/test/epoch-inventory-vectors.test.ts`, which reads the format package's own reader, and
+by the consumer's path named above.
 
 ## Regenerating
 
