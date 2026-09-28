@@ -374,14 +374,18 @@ interface Case {
  * position and, being anchored by the site's own name, from the twin guard of the other site as well.
  *
  * Placement near the head is not what makes them match, though, and it is not guaranteed. The reader bounds a
- * quoted detail at two hundred bytes, and only the two `claim` fragments sit at the head of theirs; measured
- * against the published rows, `figures` sits at 12 or 14, `count` at 27, `repeat` at 34 or 36, and `unheld` and
- * `without-finding` at 119 or 121. Ten of the twelve site and guard pairs are therefore off the head, and what
- * carries them is that the detail each one sits in is shorter than the bound, at 51 to 173 characters. The four
- * `figures` rows are the ones the bound does bite: their details publish truncated at 203 characters, and their
- * fragment still matches because it lies at 12 or 14 of what survives. So a fragment belongs near the head of
- * the reader's sentence, and a case with anything variable between the head and its fragment has to check the
- * detail length rather than assume the fragment is there.
+ * quoted detail at two hundred characters, `MAX_DETAIL` at `packages/receipt/src/errors.ts:382`, and measured
+ * against the published rows four of the twelve site and guard pairs sit at the head of their detail and eight
+ * do not. At the head: `claim` at 0 and 0, and `figures` at 0 and 0, because each of those four fragments begins
+ * with the words the reader's sentence opens with. Off the head: `count` at 27 and 27, `repeat` at 36 and 34,
+ * `unheld` at 121 and 119, and `without-finding` at 121 and 119, the two numbers of each pair being the
+ * `chain.breaks` row and the `duty.short` row. What carries the eight off the head is that the detail each
+ * fragment sits in is shorter than the bound, at 51 to 173 characters, so the whole sentence publishes and the
+ * fragment lies inside what survives. The four `figures` rows are the ones the bound does bite: their details
+ * publish cut at 203 characters, the bound plus the three dots the reader appends, and their fragments still
+ * match because they sit at 0, ahead of where the cut falls. So a fragment belongs near the head of the reader's
+ * sentence, and a case with anything variable between the head and its fragment has to check the detail length
+ * rather than assume the fragment is there.
  */
 const GUARD_SENTENCES: Record<'chain.breaks' | 'duty.short', Record<'claim' | 'count' | 'repeat' | 'unheld' | 'without-finding' | 'figures', RegExp>> = {
   'chain.breaks': {
