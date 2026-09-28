@@ -57,25 +57,72 @@ function run(...args: string[]) {
 }
 
 /**
- * Start a gateway that serves, read what it printed, and stop it. Every other case in this file is an
- * exit path, so the command returns by itself; a booted gateway has no such ending, which is why the
- * spawn timeout here is the way the test finishes rather than a symptom of one failing.
+ * Start a gateway that serves, read the banner it printed, and stop it.
+ *
+ * `gateway/src/cli.ts:763` writes the whole banner in one call, measured here as a single 1746 byte
+ * chunk whose last byte is the newline that ends it, so the chunk carrying the listening line carries
+ * every line behind it too. This resolves on that line once the write has ended, rather than on a
+ * deadline expiring: a case asks for the banner and gets it as soon as it is printed, a gateway that
+ * never prints fails with what stdout held, and a slow machine slows the case instead of redding it.
+ *
+ * It returns `stdout.split('\n')`, the same lines the cases were written against, and leaves no child
+ * behind: the kill runs on every road out, including the refused ones, and waits for the exit event.
+ * A case that has to make a request over the same boot uses `bootServing` below instead.
  */
-function runStopped(...args: string[]) {
+async function readBanner(...args: string[]): Promise<string[]> {
   const env = { ...process.env };
   delete env['DSTACK_SIMULATOR_ENDPOINT'];
-  const result = spawnSync(process.execPath, [CLI, ...args], {
-    encoding: 'utf8',
+  const child = spawn(process.execPath, [CLI, ...args], {
     env,
-    timeout: 4000,
-    killSignal: 'SIGKILL',
+    stdio: ['ignore', 'pipe', 'pipe'],
   });
-  // The only acceptable error is the stop itself: anything else means the process died on its own,
-  // and its stdout would then be a refusal message rather than the banner under test. A CLI that
-  // grows an exit path of its own must not pass that check by printing a line about a timeout.
-  const stopped = result.error as (Error & { code?: string }) | undefined;
-  expect(stopped?.code, `the spawn ended with: ${JSON.stringify(result.error)}`).toBe('ETIMEDOUT');
-  return result.stdout.split('\n');
+  let out = '';
+  const stopped = new Promise<void>((resolve) => child.once('exit', () => resolve()));
+  const kill = async (): Promise<void> => {
+    child.kill('SIGKILL');
+    await stopped;
+  };
+  try {
+    child.stdout.setEncoding('utf8');
+    child.stderr.resume();
+    return await new Promise<string[]>((resolve, reject) => {
+      let done = false;
+      // Both windows live on one object so the road out can clear whichever is armed without either
+      // timer being read before it is set.
+      const timers: { deadline?: NodeJS.Timeout; quiet?: NodeJS.Timeout } = {};
+      const stop = (): void => {
+        done = true;
+        if (timers.deadline !== undefined) clearTimeout(timers.deadline);
+        if (timers.quiet !== undefined) clearTimeout(timers.quiet);
+      };
+      const giveUp = (message: string): void => {
+        stop();
+        reject(new Error(`${message}; stdout held ${JSON.stringify(out)}`));
+      };
+      // 10s is the same allowance `bootServing` spends on the same question, and it is what turns a
+      // listener that never reports in a named failure rather than a case that hangs the runner.
+      timers.deadline = setTimeout(() => giveUp('no listening line within 10s'), 10_000);
+      child.once('error', (error) => giveUp(`the gateway failed to spawn: ${error.message}`));
+      child.once('exit', (code) =>
+        giveUp(`the gateway exited with ${String(code)} before it printed its listening line`),
+      );
+      child.stdout.on('data', (chunk: string) => {
+        out += chunk;
+        if (done) return;
+        if (timers.quiet !== undefined) clearTimeout(timers.quiet);
+        const listed = out.split('\n').some((line) => /^signerd \(\w+\) listening on http:\/\//u.test(line));
+        if (!listed || !out.endsWith('\n')) return;
+        // The end of the write, not just its first line: a chunk that arrives inside this window means
+        // the banner split on the way here, and the resolve waits for the rest of it.
+        timers.quiet = setTimeout(() => {
+          stop();
+          resolve(out.split('\n'));
+        }, 0);
+      });
+    });
+  } finally {
+    await kill();
+  }
 }
 
 /**
@@ -172,11 +219,12 @@ function writeHeldStore(dir: string, count: number, seconds: number): Buffer {
 }
 
 /**
- * Start a gateway that serves, and stop it. `runStopped` cannot carry a case about a request: its
- * `spawnSync` blocks until the spawn timeout fires, and by then the process is gone. This resolves on
- * the listening line, which is why `--port 0` prints the port the operating system bound rather than
- * the zero it was asked for, and hands back a `kill` that waits for the exit event, so a case cannot
- * leave a child or its socket behind.
+ * Start a gateway that serves, and stop it. `readBanner` above answers with the printed lines once the
+ * write that carries them has ended, and stops the child before it returns, so it cannot carry a case
+ * about a request: by the time it does return the process is gone. This resolves on the listening line,
+ * which is why `--port 0` prints the port the operating system bound rather than the zero it was asked
+ * for, and hands back a `kill` that waits for the exit event, so a case cannot leave a child or its
+ * socket behind.
  */
 async function bootServing(args: string[]): Promise<{ readonly port: number; readonly kill: () => Promise<void> }> {
   const env = { ...process.env };
@@ -360,23 +408,18 @@ describe('signerd cli', () => {
 describe('the banner a booted gateway prints', () => {
   // A live run cannot boot here: it stops at the guest agent, so only the mock half of the mode
   // label can be seen from a test. The two lines are still pinned to each other, because the first
-  // one is what the second one claims to match. The timeout is the stop plus room to reach it,
-  // since this case spends most of its life waiting to be interrupted.
-  it(
-    'names the mode the printed dev credential belongs to',
-    () => {
-      const banner = runStopped('--mock', '--port', '0');
-      const printed = banner.join('\n');
-      expect(banner[0], `no listening line; stdout held ${JSON.stringify(printed)}`).toMatch(
-        /^signerd \(mock\) listening on http:\/\/127\.0\.0\.1:\d+$/u,
-      );
-      const credential = banner.find((line) => line.includes('id=dev privateKeyHex='));
-      expect(credential, `no dev credential line; stdout held ${JSON.stringify(printed)}`).toMatch(
-        /^ {2}dev credential for this mock run: id=dev privateKeyHex=[0-9a-f]{64}$/u,
-      );
-    },
-    12_000,
-  );
+  // one is what the second one claims to match, and both are in the one write `readBanner` waits for.
+  it('names the mode the printed dev credential belongs to', async () => {
+    const banner = await readBanner('--mock', '--port', '0');
+    const printed = banner.join('\n');
+    expect(banner[0], `no listening line; stdout held ${JSON.stringify(printed)}`).toMatch(
+      /^signerd \(mock\) listening on http:\/\/127\.0\.0\.1:\d+$/u,
+    );
+    const credential = banner.find((line) => line.includes('id=dev privateKeyHex='));
+    expect(credential, `no dev credential line; stdout held ${JSON.stringify(printed)}`).toMatch(
+      /^ {2}dev credential for this mock run: id=dev privateKeyHex=[0-9a-f]{64}$/u,
+    );
+  });
 });
 
 describe('the flags that make the access floor real', () => {
@@ -481,8 +524,8 @@ describe('the flags that make the access floor real', () => {
     expect(result.stderr).toContain("--pop-tolerance must be a positive whole number of seconds, got '12.5'");
   });
 
-  it('reports the posture a flagless mock run boots into', () => {
-    const banner = runStopped('--mock', '--port', '0');
+  it('reports the posture a flagless mock run boots into', async () => {
+    const banner = await readBanner('--mock', '--port', '0');
     const printed = banner.join('\n');
     // `--port 0` is the operating system choosing, so a report that echoed the flag would print a
     // port nothing can connect to. The nonzero requirement is the whole point of this pattern.
@@ -507,8 +550,8 @@ describe('the flags that make the access floor real', () => {
     expect(banner.some((line) => line.includes('bearer credentials also accepted')), printed).toBe(false);
   });
 
-  it('says what bearer mode costs when it is turned on', () => {
-    const banner = runStopped('--mock', '--port', '0', '--allow-bearer');
+  it('says what bearer mode costs when it is turned on', async () => {
+    const banner = await readBanner('--mock', '--port', '0', '--allow-bearer');
     const printed = banner.join('\n');
     const line = banner.find((each) => each.includes('bearer credentials also accepted'));
     expect(line, `no bearer line; stdout held ${JSON.stringify(printed)}`).toContain(
@@ -516,8 +559,8 @@ describe('the flags that make the access floor real', () => {
     );
   });
 
-  it('names a shortened window as the choice it is', () => {
-    const banner = runStopped('--mock', '--port', '0', '--access-log-days', '30');
+  it('names a shortened window as the choice it is', async () => {
+    const banner = await readBanner('--mock', '--port', '0', '--access-log-days', '30');
     const printed = banner.join('\n');
     expect(banner, printed).toContain('  access log: this process only, kept for 30 days and gone on restart');
     const note = banner.find((each) => each.startsWith('  note: '));
@@ -533,13 +576,13 @@ describe('the flags that make the access floor real', () => {
     expect(note, printed).not.toContain('Annex III');
   });
 
-  it('reports the directory and what was already in it', () => {
+  it('reports the directory and what was already in it', async () => {
     const dir = join(tempDir, 'already-held');
     mkdirSync(dir);
     // A name the log's own pattern produces, so the count is of files this tool recognises and not of
     // whatever a stray on the volume happens to be called.
     writeFileSync(join(dir, 'access-2026-09-16-000.jsonl'), '');
-    const banner = runStopped('--mock', '--port', '0', '--access-log-path', dir);
+    const banner = await readBanner('--mock', '--port', '0', '--access-log-path', dir);
     const printed = banner.join('\n');
     const line = banner.find((each) => each.startsWith('  access log: '));
     expect(line, `no access log line; stdout held ${JSON.stringify(printed)}`).toContain(dir);
@@ -549,14 +592,14 @@ describe('the flags that make the access floor real', () => {
   });
 
   // Two boots, because the claim is about a difference between them: one run has no credential file and
-  // one has. Each boot is stopped by the spawn timeout, so this case spends about twice what a
-  // single-boot case does and needs the runner's allowance raised the same way.
+  // one has. Two boots of a gateway that serves, so this case spends twice what a single-boot case
+  // does, and the allowance beside it is read off that count.
   it(
     'keeps the dev credential to the run that has no credential file',
-    () => {
-      const banner = runStopped('--mock', '--port', '0');
+    async () => {
+      const banner = await readBanner('--mock', '--port', '0');
       expect(banner.some((each) => each.includes('id=dev privateKeyHex=')), banner.join('\n')).toBe(true);
-      const held = runStopped('--mock', '--port', '0', '--credentials-path', CREDENTIALS);
+      const held = await readBanner('--mock', '--port', '0', '--credentials-path', CREDENTIALS);
       expect(held.some((each) => each.includes('id=dev')), held.join('\n')).toBe(false);
       // An empty file parses, so nothing else about this gateway says that it will refuse everything.
       expect(
@@ -576,11 +619,11 @@ describe('the flags that make the access floor real', () => {
   // cannot be a constant, a flag's presence, or a count of what survived.
   it(
     'reports the records the store installed, and refuses to boot on a file it cannot take',
-    () => {
+    async () => {
       const pop = newPopCredential({ id: 'banner-pop', scopes: ['read', 'complete'] });
       const bearer = newBearerCredential({ id: 'banner-bearer', scopes: ['read'] });
       const path = credentialFile(serializeCredentialFile({ version: 1, credentials: [pop.record, bearer.record] }));
-      const banner = runStopped('--mock', '--port', '0', '--credentials-path', path);
+      const banner = await readBanner('--mock', '--port', '0', '--credentials-path', path);
       expect(
         banner.some((each) => each.startsWith(`  credentials: 2 records read from ${path} at start-up`)),
         banner.join('\n'),
@@ -662,8 +705,8 @@ describe('the bound one connection address is held to', () => {
     expect(bare.stderr).toContain("'6000' is not one of those two fields");
   });
 
-  it('prints the bound it was given, and says that it was given', () => {
-    const banner = runStopped('--mock', '--port', '0', '--peer-rate', 'perMinute=1234,burst=56');
+  it('prints the bound it was given, and says that it was given', async () => {
+    const banner = await readBanner('--mock', '--port', '0', '--peer-rate', 'perMinute=1234,burst=56');
     const printed = banner.join('\n');
     const line = banner.find((each) => each.startsWith('  rate limits: '));
     expect(line, `no rate limits line; stdout held ${JSON.stringify(printed)}`).toContain(
@@ -707,8 +750,8 @@ describe('the bound one connection address is held to', () => {
  * at the other end of the deployment, and the difference comes from one flag handed to one process.
  */
 describe('the banner names the manifest posture', () => {
-  it('says a deployment with no manifest key serves the plain document', () => {
-    const banner = runStopped('--mock', '--port', '0');
+  it('says a deployment with no manifest key serves the plain document', async () => {
+    const banner = await readBanner('--mock', '--port', '0');
     const printed = banner.join('\n');
     const line = banner.find((each) => each.startsWith('  manifest: '));
     expect(line, `no manifest line; stdout held ${JSON.stringify(printed)}`).toContain('served as plain JSON');
@@ -940,12 +983,12 @@ describe('a volume whose receipts have to outlive the start', () => {
   );
 
   it(
-    'starts the same volume once its durability bound can hold the period', () => {
+    'starts the same volume once its durability bound can hold the period', async () => {
       const dir = join(tempDir, 'window-raised');
       mkdirSync(dir);
       writeHeldStore(dir, SHIPPED_RECEIPT_BOUND, 100);
 
-      const banner = runStopped(
+      const banner = await readBanner(
         '--mock',
         '--port',
         '0',
@@ -969,7 +1012,7 @@ describe('a volume whose receipts have to outlive the start', () => {
   );
 
   it(
-    'starts the same pairing on a volume that has not reached its bound', () => {
+    'starts the same pairing on a volume that has not reached its bound', async () => {
       const dir = join(tempDir, 'window-held');
       mkdirSync(dir);
       // The same window and the same bound, and traffic nowhere near the bound. Nothing is being shed
@@ -977,7 +1020,7 @@ describe('a volume whose receipts have to outlive the start', () => {
       // deployment, and refusing it would refuse it for being quiet.
       writeHeldStore(dir, 200, 100);
 
-      const banner = runStopped('--mock', '--port', '0', '--receipts-dir', dir);
+      const banner = await readBanner('--mock', '--port', '0', '--receipts-dir', dir);
       const printed = banner.join('\n');
       const line = banner.find((each) => each.startsWith('  receipts kept in '));
       expect(line, `no receipts line; stdout held ${JSON.stringify(printed)}`).toContain(dir);
@@ -1054,22 +1097,24 @@ describe('the durability guard read while serving', () => {
 
   it(
     'prints the guard as this process installed it, in both settings',
-    () => {
-      const printed = runStopped('--mock', '--port', '0').join('\n');
-      const armed = runStopped('--mock', '--port', '0').find((line) => line.startsWith('  receipt intake guard:'));
+    async () => {
+      const printed = (await readBanner('--mock', '--port', '0')).join('\n');
+      const armed = (await readBanner('--mock', '--port', '0')).find((line) =>
+        line.startsWith('  receipt intake guard:'),
+      );
       expect(armed, `no guard line; stdout held ${printed}`).toContain('armed at 100% of the durability bound');
       expect(armed, printed).toContain('RECEIPT_WINDOW_UNHOLDABLE');
       expect(armed, printed).toContain('184 days');
       expect(armed, printed).toContain('--receipts-grow-past-guard turns this off');
 
-      const half = runStopped('--mock', '--port', '0', '--receipts-guard-at', '50').find((line) =>
+      const half = (await readBanner('--mock', '--port', '0', '--receipts-guard-at', '50')).find((line) =>
         line.startsWith('  receipt intake guard:'),
       );
       expect(half, `a threshold the flag set is not on the banner; stdout held ${printed}`).toContain(
         'armed at 50% of the durability bound',
       );
 
-      const off = runStopped('--mock', '--port', '0', '--receipts-grow-past-guard').find((line) =>
+      const off = (await readBanner('--mock', '--port', '0', '--receipts-grow-past-guard')).find((line) =>
         line.startsWith('  receipt intake guard:'),
       );
       expect(off, `no guard line for the opt-in; stdout held ${printed}`).toContain('off, as configured with');
@@ -1078,9 +1123,8 @@ describe('the durability guard read while serving', () => {
       expect(off, printed).not.toContain('armed at');
       expect(off, printed).toContain('the window served is the shorter one that bound reaches');
     },
-    // Three boots, each stopped by the spawn timeout rather than by its own ending, so this case is
-    // three times a single boot: measured here at 16.1s for the three, which is past the runner's
-    // five-second default on one boot let alone three.
+    // Four boots of an empty volume, one per posture the case reads, and no boot waits on a second
+    // one: the ceiling is a multiple of that count, and the figure it is multiplied by is measured.
     25_000,
   );
 
@@ -1313,7 +1357,7 @@ describe('the record kind a volume is written under', () => {
 
       // The other half of the pair, which the refusal above cannot say alone: the same volume boots on a
       // run that names the kind it holds, and the flag is the only thing that moved.
-      const banner = runStopped('--mock', '--port', '0', '--receipts-dir', dir, '--receipts-record-kind', 'receipt');
+      const banner = await readBanner('--mock', '--port', '0', '--receipts-dir', dir, '--receipts-record-kind', 'receipt');
       const printed = banner.join('\n');
       const line = banner.find((each) => each.startsWith('  receipts kept in '));
       expect(line, `no receipts line; stdout held ${printed}`).toContain(dir);
@@ -1325,23 +1369,23 @@ describe('the record kind a volume is written under', () => {
 
   it(
     'prints the kind this process was told to write, in both settings',
-    () => {
+    async () => {
       // The receipts line is where a start-up report says what a volume is made of, and which kind that
       // is cannot be read off a flag's presence alone: a bounded run states the period it stamps into
       // every record, and a run that named nothing states that its records say nothing.
-      const bounded = runStopped('--mock', '--port', '0', '--receipts-record-kind', BOUNDED_VALUE);
+      const bounded = await readBanner('--mock', '--port', '0', '--receipts-record-kind', BOUNDED_VALUE);
       const boundedLine = bounded.find((each) => each.startsWith('  receipts kept in '));
       expect(boundedLine, `no receipts line; stdout held ${bounded.join('\n')}`).toContain(
         'every record stating a retention period of 300 seconds ahead of its receipt bytes, from --receipts-record-kind',
       );
 
-      const plain = runStopped('--mock', '--port', '0');
+      const plain = await readBanner('--mock', '--port', '0');
       const plainLine = plain.find((each) => each.startsWith('  receipts kept in '));
       expect(plainLine, `no receipts line; stdout held ${plain.join('\n')}`).toContain(
         'every record stating no retention period of its own, the receipt kind a run without --receipts-record-kind writes',
       );
     },
-    // Two boots, each stopped by the spawn timeout rather than by its own ending.
+    // Two boots of a gateway that serves, one per kind, and no boot waits on a request.
     12_000,
   );
 });
