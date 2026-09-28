@@ -1,4 +1,5 @@
 import type { CollateralSlot, StampDisclosure } from './disclosure.js';
+import { ReceiptError } from './errors.js';
 import type { ItemStamp, Marking, ReceiptPayload } from './receipt.js';
 import { decodeReceipt } from './receipt.js';
 
@@ -98,36 +99,57 @@ function itemStampToJson(one: ItemStamp): { t: number; d: string } {
 
 export function receiptToJson(payload: ReceiptPayload, signature: Uint8Array, kid: Uint8Array): ReceiptJson {
   const protectedHeader = { alg: 'EdDSA', kid: toHex(kid), typ: 'ashaveri/receipt' };
-  // The branches spell the envelope out rather than sharing one object, because a projection
-  // whose keys arrived in another order would be a different document to anything that compares
-  // these bytes. A projection that dropped `mk` would be worse: a v2 receipt with nothing to show
-  // what it attests, which is the misreading the version exists to prevent, and the same for the
-  // three members a v3 receipt was given a version to carry.
-  if (payload.v === 3) {
-    return {
-      protectedHeader,
-      payload: {
-        v: 3,
-        ...fieldsToJson(payload),
-        mk: markingToJson(payload.mk),
-        sd: stampDisclosureToJson(payload.sd),
-        cva: {
-          col: collateralSlotToJson(payload.cva.collateral),
-          val: collateralSlotToJson(payload.cva.validity),
+  // The arms spell the envelope out rather than sharing one object, because a projection whose keys
+  // arrived in another order would be a different document to anything that compares these bytes. A
+  // projection that dropped `mk` would be worse: a v2 receipt with nothing to show what it attests,
+  // which is the misreading the version exists to prevent, and the same for the three members a v3
+  // receipt was given a version to carry.
+  //
+  // The switch is exhaustive on the version a payload names, and it replaced a cascade whose last arm
+  // was the v1 shape with no condition in front of it. That tail was where a version this file has no
+  // arm for landed: a fourth payload would have come out as a version 1 JSON document, its `mk`, `sd`,
+  // `cva` and `itm` dropped and its `v` rewritten to a number it does not name, and no type check
+  // would have said so, because every shape of the union satisfies the v1 arm's object literal. An
+  // unlisted version now reaches the default, where the only type the payload can be bound to is
+  // `never`, so widening the union without adding an arm here stops being a projection and is a
+  // compile error at the file that has to answer for it.
+  switch (payload.v) {
+    case 3:
+      return {
+        protectedHeader,
+        payload: {
+          v: 3,
+          ...fieldsToJson(payload),
+          mk: markingToJson(payload.mk),
+          sd: stampDisclosureToJson(payload.sd),
+          cva: {
+            col: collateralSlotToJson(payload.cva.collateral),
+            val: collateralSlotToJson(payload.cva.validity),
+          },
+          itm: payload.itm.map(itemStampToJson),
         },
-        itm: payload.itm.map(itemStampToJson),
-      },
-      signature: toHex(signature),
-    };
+        signature: toHex(signature),
+      };
+    case 2:
+      return {
+        protectedHeader,
+        payload: { v: 2, ...fieldsToJson(payload), mk: markingToJson(payload.mk) },
+        signature: toHex(signature),
+      };
+    case 1:
+      return { protectedHeader, payload: { v: 1, ...fieldsToJson(payload) }, signature: toHex(signature) };
+    default: {
+      // Bound and deliberately unread: this arm compiles only for a union member no case above
+      // claims, which is the error the assignment reports. The refusal below is for a caller that
+      // reaches it with bytes no build of this package produced, and it projects nothing rather than
+      // guessing a version whose members these are not.
+      const _exhaustive: never = payload;
+      throw new ReceiptError(
+        'UNSUPPORTED_VERSION',
+        'a payload naming a version this projection has no arm for is not projected as another version',
+      );
+    }
   }
-  if (payload.v === 2) {
-    return {
-      protectedHeader,
-      payload: { v: 2, ...fieldsToJson(payload), mk: markingToJson(payload.mk) },
-      signature: toHex(signature),
-    };
-  }
-  return { protectedHeader, payload: { v: 1, ...fieldsToJson(payload) }, signature: toHex(signature) };
 }
 
 export function receiptBytesToJson(bytes: Uint8Array): ReceiptJson {
