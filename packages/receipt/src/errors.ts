@@ -64,7 +64,9 @@ export type ReceiptErrorCode =
   | 'EPOCH_INVENTORY_RUN_NOT_CONTIGUOUS'
   | 'EPOCH_INVENTORY_SUMMARY_DISAGREES'
   | 'EPOCH_INVENTORY_KID_MISMATCH'
-  | 'EPOCH_INVENTORY_UNKNOWN_KEY';
+  | 'EPOCH_INVENTORY_UNKNOWN_KEY'
+  | 'RETENTION_UNSUPPORTED_VERSION'
+  | 'RETENTION_BAD_DOCUMENT';
 
 const ERROR_MESSAGE: Record<ReceiptErrorCode, string> = {
   MALFORMED_CBOR: 'receipt bytes are not valid canonical CBOR',
@@ -371,6 +373,27 @@ const ERROR_MESSAGE: Record<ReceiptErrorCode, string> = {
   // caller's key set simply may not reach the key that sealed it. The `kid` each entry states is a different
   // question and answers with the pack's own code once a reader goes and checks the packs.
   EPOCH_INVENTORY_UNKNOWN_KEY: 'no key found for the kid an epoch inventory names',
+  // The retention family below, for the same reason the export's, the pack's, the redaction's and the
+  // inventory's exist. A log line carries only the code string, and the sentences fixed beside the receipt codes
+  // name a receipt, so reading a retention manifest's bytes under them would hand an operator a diagnosis of the
+  // wrong container. This artifact carries no signature, so it carries no envelope either: the three shared
+  // envelope refusals have no site here, and a code for a content type or a key would be a second voice for a
+  // fault nothing in this layout can raise. What the codes do answer is the layout and nothing else, because
+  // every claim a manifest makes about a duty, a chain or a presence is recomputed by a reader beside it, and a
+  // reader that called a disagreement a malformed document would be reporting a deployment's arithmetic mistake
+  // as its own layout mistake. Which of the two it was is what the inventory's fold says by name.
+  // One code for the two readings of a `v` this package cannot use, as the receipt's, the export's, the pack's
+  // and the inventory's are. A `v` that is not an integer at all is a malformed document, so it answers
+  // `RETENTION_BAD_DOCUMENT`.
+  RETENTION_UNSUPPORTED_VERSION: 'retention manifest declares a version this package cannot parse',
+  // Every structural refusal of the document and of the maps inside it, at both versions this package reads: an
+  // absent member, a member the declared version does not define, which is what a `presence` block at `v: 1` is,
+  // a digest or a label of the wrong type or width, a figure below zero, a duty label outside the three the
+  // layout enumerates, a presence family whose stated count is not the length of its own list, a digest named
+  // twice inside one family, and an empty family carrying a root or chain value it held nothing under. A document
+  // of another version's shape answers here too rather than under the version code, because the fault is in the
+  // bytes and not in the reader's reach.
+  RETENTION_BAD_DOCUMENT: 'retention manifest does not match the layout its declared version defines',
 };
 
 /**
