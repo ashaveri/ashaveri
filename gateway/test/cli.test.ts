@@ -755,7 +755,7 @@ describe('the bound one connection address is held to', () => {
       expect(huge.stderr).toContain('--credentials-path');
     },
     // Five spellings refused at the flag and one taken past it, six exit-path spawns: measured here at
-    // 1.8s together, about 300 ms a spawn, so the ceiling is a second a spawn.
+    // 2.0s together, about 330 ms a spawn, so the ceiling is a second a spawn.
     6 * 1_000,
   );
 });
@@ -995,8 +995,8 @@ describe('a volume whose receipts have to outlive the start', () => {
     // The volume is written in one go and read back by a start that refuses it: measured here at
     // 3.1s, which is past what the runner's five-second default leaves room for on a slower machine, so
     // The volume is written in one go and read back by a start that refuses it, and framing
-    // SHIPPED_RECEIPT_BOUND receipts is the whole of the work: measured here at 2.2s, about a fifth of a
-    // millisecond a receipt, so the ceiling is five times that, a millisecond a receipt, with a five
+    // SHIPPED_RECEIPT_BOUND receipts is the whole of the work: measured here at 3.1s, about a third of a
+    // millisecond a receipt, so the ceiling is three times that, a millisecond a receipt, with a five
     // second floor for the spawn rather than a figure carried over from another case.
     Math.max(5_000, SHIPPED_RECEIPT_BOUND),
   );
@@ -1026,7 +1026,7 @@ describe('a volume whose receipts have to outlive the start', () => {
     },
     // The same ten thousand receipts on disk, framed and written in one go, read back by a start that
     // was told a durability bound big enough to hold 184 days of them with a serving bound nobody
-    // raised: measured here at 0.6s against the 2.2s the refusing start takes on the same volume, so the
+    // raised: measured here at 0.6s against the 3.1s the refusing start takes on the same volume, so the
     // ceiling is read off the receipt count the case writes, one millisecond a receipt.
     Math.max(5_000, SHIPPED_RECEIPT_BOUND),
   );
@@ -1142,8 +1142,8 @@ describe('the durability guard read while serving', () => {
       expect(off, printed).not.toContain('armed at');
       expect(off, printed).toContain('the window served is the shorter one that bound reaches');
     },
-    // Four boots of an empty volume, one per posture the case reads: measured here at 1.7s together,
-    // about 430 ms a boot, so the ceiling is a second a boot and not a figure carried from elsewhere.
+    // Four boots of an empty volume, one per posture the case reads: measured here at 1.9s together,
+    // about 470 ms a boot, so the ceiling is a second a boot and not a figure carried from elsewhere.
     4 * 1_000,
   );
 
