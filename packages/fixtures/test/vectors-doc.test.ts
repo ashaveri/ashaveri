@@ -1,7 +1,8 @@
 import { existsSync, readFileSync, readdirSync, statSync } from 'node:fs';
-import { basename, join } from 'node:path';
+import { basename, dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { describe, expect, it } from 'vitest';
+import { decodeCanonical, decodeCoseSign1 } from '@ashaveri/receipt';
 import { DATA } from '../src/index.js';
 import { sectionBody, spelledNumber } from './doc-contract.js';
 
@@ -189,6 +190,123 @@ function countStatedByTheDocument(states: RegExp, what: string): string {
   const stated = states.exec(epochInventoryProse());
   if (stated === null) throw new Error(`the Epoch inventory bullets state no count of ${what}`);
   return stated[1]!;
+}
+
+/**
+ * One count the document states about a published artifact, read out of the sentence that states it. The
+ * prose is passed in because the same shape is what the Receipt fixtures bullet, the status line and the
+ * inventory bullets all use: a number written where the artifact's rows are described. A sentence that
+ * stopped stating its number fails here as a missing sentence, which is a different finding from a count
+ * of nothing and is the reason this does not return a default.
+ */
+function countStatedIn(prose: string, states: RegExp, where: string): string {
+  const stated = states.exec(prose);
+  if (stated === null) throw new Error(`the document states no count in ${where}`);
+  return stated[1]!;
+}
+
+/**
+ * The Receipt fixtures bullet, read as one run of prose because its sentences are wrapped across several
+ * lines. It is the bullet that counts the receipt fixtures: how many entries there are, how they split by
+ * the payload version each document declares, how many are refused and what each refusal answers with.
+ */
+function receiptBullet(): string {
+  const doc = readFileSync(DOC, 'utf8');
+  const start = doc.indexOf('\n- **Receipt fixtures.');
+  if (start < 0) throw new Error('docs/vectors.md states no Receipt fixtures bullet to read');
+  const end = doc.indexOf('\n- **', start + 5);
+  return (end < 0 ? doc.slice(start) : doc.slice(start, end)).replace(/\n\s*/gu, ' ');
+}
+
+/**
+ * The status paragraph above the suite table, which is the first thing a reader of this document meets and
+ * which counts the same entries the bullet counts. Two prose copies of one fact are how a document comes to
+ * disagree with itself, so both are read against the entries.
+ */
+function statusParagraph(): string {
+  const doc = readFileSync(DOC, 'utf8');
+  const end = doc.indexOf('\n## ');
+  return (end < 0 ? doc : doc.slice(0, end)).replace(/\n\s*/gu, ' ');
+}
+
+/** One entry of the receipt manifest, with the two things the document's counts turn on. */
+interface ReceiptEntry {
+  readonly name: string;
+  /** The payload version the entry's own bytes declare. */
+  readonly declares: number;
+  /** Whether that payload carries a marking member. */
+  readonly carriesMark: boolean;
+  /** The verdict the entry promises, which is `verify-ok` or the code a refusal answers with. */
+  readonly expected: string;
+}
+
+/**
+ * The entries the receipt manifest lists, each read as far as the document's sentence reaches: which
+ * payload version its bytes state, whether they carry `mk`, and which verdict the entry promises.
+ *
+ * The version is read off the envelope rather than through the receipt reader on purpose. One entry is
+ * published precisely because its payload is malformed, and a reader that validates fields refuses to say
+ * what version such a document carries, which would leave the count short of the entries the sentence
+ * counts. `decodeCoseSign1` and `decodeCanonical` take the signed bytes apart and read one member, so the
+ * answer is what the document states about itself and nothing a checker could overrule.
+ */
+function receiptEntries(): ReceiptEntry[] {
+  const row = rows.find((each) => each.suite === 'Receipt fixtures');
+  if (row === undefined) throw new Error('the suite table lists no Receipt fixtures row to read the manifest from');
+  const files = row.files.filter((each) => each.endsWith('.json'));
+  if (files.length !== 1) {
+    throw new Error(`the Receipt fixtures row names ${String(files.length)} files, and this reads the one manifest`);
+  }
+  const manifest = resolve(files[0]!);
+  if (manifest === null) throw new Error(`${files[0]!} is named by the Receipt fixtures row and is not there to read`);
+  const parsed = JSON.parse(readFileSync(manifest, 'utf8')) as {
+    fixtures?: { name?: unknown; path?: unknown; expected?: unknown }[];
+  };
+  if (!Array.isArray(parsed.fixtures)) throw new Error(`${files[0]!} publishes no fixtures array to read`);
+  return parsed.fixtures.map((entry) => {
+    const name = typeof entry.name === 'string' ? entry.name : '';
+    const path = typeof entry.path === 'string' ? entry.path : undefined;
+    const expected = typeof entry.expected === 'string' ? entry.expected : undefined;
+    if (path === undefined || expected === undefined) {
+      throw new Error(`the entry ${name || '(unnamed)'} carries no path or no expected verdict`);
+    }
+    const bytes = new Uint8Array(readFileSync(join(dirname(manifest), path)));
+    const payload = decodeCanonical(decodeCoseSign1(bytes).payloadBytes);
+    if (!(payload instanceof Map)) throw new Error(`${name} is not sealed over a payload map to read a version from`);
+    const version = payload.get('v');
+    if (typeof version !== 'number' || !Number.isInteger(version)) {
+      throw new Error(`${name} states no whole payload version to count`);
+    }
+    return { name, declares: version, carriesMark: payload.get('mk') !== undefined, expected };
+  });
+}
+
+/** How the entries split, counted once and read by both of the sentences that state them. */
+interface ReceiptEntryCounts {
+  readonly entries: number;
+  readonly v1: number;
+  readonly v2: number;
+  readonly marked: number;
+  readonly accepted: number;
+  readonly refused: number;
+  readonly brokenSignature: number;
+  readonly badMeasurement: number;
+}
+
+function receiptEntryCounts(): ReceiptEntryCounts {
+  const entries = receiptEntries();
+  const refused = entries.filter((one) => one.expected !== 'verify-ok');
+  const byCode = (code: string): number => refused.filter((one) => one.expected === code).length;
+  return {
+    entries: entries.length,
+    v1: entries.filter((one) => one.declares === 1).length,
+    v2: entries.filter((one) => one.declares === 2).length,
+    marked: entries.filter((one) => one.carriesMark).length,
+    accepted: entries.filter((one) => one.expected === 'verify-ok').length,
+    refused: refused.length,
+    brokenSignature: byCode('INVALID_SIGNATURE'),
+    badMeasurement: byCode('BAD_PAYLOAD'),
+  };
 }
 
 /** One published row of the inventory suite, as the file itself spells its members. */
@@ -394,5 +512,87 @@ describe('docs/vectors.md suite inventory', () => {
         `${String(one.name)} states a folded list in the other order and is not an acceptance`,
       ).toBe('verify-ok');
     }
+  });
+
+  it('states what the receipt fixtures are, and the entries the manifest lists agree', () => {
+    // The Receipt fixtures bullet is the one place a reader learns what the five documents are: how many
+    // declare which payload version, which of them carries a mark, and how many are refused and for what.
+    // Every number in that sentence was written by hand and nothing derived it, so a manifest that gained an
+    // entry, or moved one entry's verdict, left the document stating the old split. Each number is read back
+    // out of its own sentence and compared with the entries it counts, which are counted from the bytes.
+    const counts = receiptEntryCounts();
+    const bullet = receiptBullet();
+    expect(
+      spelledNumber(countStatedIn(bullet, /([A-Za-z]+) entries are v1 documents/u, 'the entries that are v1')),
+      'the document counts a different number of v1 entries than the manifest lists',
+    ).toBe(counts.v1);
+    expect(
+      spelledNumber(
+        countStatedIn(bullet, /and ([a-z]+) is a v2 carrying a marking member/u, 'the entry that is a v2'),
+      ),
+      'the document counts a different number of v2 entries than the manifest lists',
+    ).toBe(counts.v2);
+    // The sentence says the v2 is the one carrying a mark, so the two counts it states are one fact about the
+    // same entries: a v2 that arrived without `mk`, or a mark on a v1, would make the wording false while
+    // leaving both numbers standing.
+    expect(counts.marked, 'an entry carries a marking member without being the v2 the sentence counts').toBe(
+      counts.v2,
+    );
+    // What the sentence leaves to arithmetic, that the two kinds are the whole manifest, is the one claim
+    // here that a reader cannot see broken: a sixth entry of either kind has to move a stated number before
+    // the sentence still describes the files.
+    expect(counts.v1 + counts.v2, 'entries the sentence counts are not the entries the manifest lists').toBe(
+      counts.entries,
+    );
+    expect(
+      spelledNumber(
+        countStatedIn(bullet, /([A-Za-z]+) entries are deliberately not valid/u, 'the entries that are not valid'),
+      ),
+      'the document counts a different number of refused entries than the manifest promises',
+    ).toBe(counts.refused);
+    expect(
+      spelledNumber(countStatedIn(bullet, /([a-z]+) signature is broken/u, 'the broken signatures')),
+      'the document counts a different number of broken signatures than the entries refusing for that code',
+    ).toBe(counts.brokenSignature);
+    expect(
+      spelledNumber(
+        countStatedIn(
+          bullet,
+          /([a-z]+) payload carries a measurement of a width/u,
+          'the payloads carrying an unusable measurement',
+        ),
+      ),
+      'the document counts a different number of unusable measurements than the entries refusing for that code',
+    ).toBe(counts.badMeasurement);
+    expect(
+      spelledNumber(countStatedIn(bullet, /the rule the other ([a-z]+) test/u, 'the entries that stand')),
+      'the document counts a different number of standing entries than the entries that promise an acceptance',
+    ).toBe(counts.accepted);
+    // The refusal counts are read off the promised verdicts, which is how far a reader can check them: what
+    // the two faults are, a signature taken apart and a measurement of the wrong width, is stated again in
+    // each entry's own `note`, and the codes are settled row by row by `fixtures.test.ts`.
+    expect(counts.refused, 'an entry is refused and the entries counted do not add up').toBe(
+      counts.entries - counts.accepted,
+    );
+  });
+
+  it('counts the same receipt fixtures in its status line as it does in its bullet', () => {
+    // The document states this split twice, once in the sentence a reader meets first and once in the bullet
+    // that explains the manifest. Two copies of one fact drift apart before either drifts from the data, so
+    // both are read against the entries rather than against each other.
+    const counts = receiptEntryCounts();
+    const status = statusParagraph();
+    expect(
+      spelledNumber(
+        countStatedIn(status, /Version 1 is what ([a-z]+) of the receipt fixtures carry/u, 'the fixtures carrying version 1'),
+      ),
+      'the status line counts a different number of version 1 fixtures than the entries do',
+    ).toBe(counts.v1);
+    expect(
+      spelledNumber(
+        countStatedIn(status, /the ([a-z]+) v2 receipt fixture/u, 'the v2 fixture the status line counts'),
+      ),
+      'the status line counts a different number of v2 fixtures than the entries do',
+    ).toBe(counts.v2);
   });
 });

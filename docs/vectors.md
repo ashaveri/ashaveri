@@ -53,13 +53,15 @@ specific to that case.
   sha256 against `digestSha256`, decode them, and give the decoder the published key from
   `data/keys/receipt-key-v1.json` at the timestamp the entry's own payload carries. The `expected`
   field states the verdict: `verify-ok`, or the error code a refusal has to answer with. Four entries
-  are v1 documents and the fifth is a v2 carrying a marking member. Its `res` and `mk.d` are digests
+  are v1 documents and one is a v2 carrying a marking member. Its `res` and `mk.d` are digests
   of the same bytes the marked-region suite publishes as `buffered-member`, so one response is read
   out of two files and a generator that drifted on either side disagrees here. Decoding that entry
   does not check its mark (no `.cbor` file carries the response), which is what the marked-region
   suite is for. Two entries are deliberately not valid: one signature is broken, one payload carries
   a measurement of a width its `tee` kind cannot hold, and a decoder that accepts either has not
-  implemented the rule the other three test.
+  implemented the rule the other three test. Those counts are counts of the entries the manifest
+  lists and of the version each entry's own bytes state, which
+  `packages/fixtures/test/vectors-doc.test.ts` takes out of them rather than restating them here.
 - **Proof of possession.** Rebuild the signing string from the published fields, verify the signature
   in `authorization` against `key.publicKeyHex`, and check the header parses to the same three
   components. The private half is published too, so a port can produce the signatures itself rather
