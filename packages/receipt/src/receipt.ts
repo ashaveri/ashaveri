@@ -632,28 +632,55 @@ export function encodePayload(payload: ReceiptPayload): Uint8Array {
     ['epk', payload.epk],
     ['tok', new Map<string, unknown>([['p', payload.tok.p], ['c', payload.tok.c]])],
   ];
-  // Only the versions that gained the member write it, so the bytes a v1 payload encodes to are
-  // exactly the bytes it encoded to before `mk` existed and stay signed by a verifier that never
-  // heard of it.
-  if (payload.v !== 1) {
-    fields.push(['mk', markingMembers(payload.mk)]);
-  }
-  // The same argument one version on: a v2 document carries no `sd`, no `cva` and no `itm`, and the
-  // bytes it signed are the bytes it still signs. `unc` is written whether or not anything was
-  // measured, because `null` is the sentence the source says about itself and an omitted member is
-  // not that sentence.
-  if (payload.v === 3) {
-    fields.push(
-      ['sd', new Map<string, unknown>([['name', payload.sd.name], ['unc', payload.sd.uncertaintySeconds]])],
-      [
-        'cva',
-        new Map<string, unknown>([
-          ['col', collateralSlotMembers(payload.cva.collateral)],
-          ['val', collateralSlotMembers(payload.cva.validity)],
-        ]),
-      ],
-      ['itm', payload.itm.map((one) => new Map<string, unknown>([['t', one.t], ['d', one.d]]))],
-    );
+  // Which members a document carries is the version's answer, not the object's. Encoding whatever a
+  // payload happens to hold would sign a `v: 2` document carrying an `sd`, and the only notice of two
+  // statements in one document would be the closedness walk refusing the bytes on the way back, which
+  // is a writer producing bytes its own reader will not take. So each arm writes what its version
+  // names and nothing else: the bytes a v1 payload encodes to stay exactly the bytes it encoded to
+  // before `mk` existed, signed by a verifier that never heard of it, and the same one version on, a v2
+  // document carries no `sd`, no `cva` and no `itm`, and the bytes it signed are the bytes it still
+  // signs. `unc` is written whether or not anything was measured, because `null` is the sentence the
+  // source says about itself and an omitted member is not that sentence.
+  //
+  // What this switch closes over is `ReceiptPayload`, so ask what fails if `PARSED_VERSIONS` gains a `4`
+  // and nothing else is edited: `DEFINED_MAPS` and the parse arm, both read off `ReceiptVersion`, and
+  // not this function, whose argument is the payload union. This arm is the one that fails when a
+  // fourth interface joins that union, which is the same decision one edit later, and it fails in this
+  // package at the code that has to write the arm rather than quietly in the bytes a caller gets. A
+  // caller that casts a payload naming a version outside the union reaches the refusal below instead of
+  // an encoding with three members missing from it.
+  switch (payload.v) {
+    case 1:
+      break;
+    case 2:
+      fields.push(['mk', markingMembers(payload.mk)]);
+      break;
+    case 3:
+      fields.push(
+        ['mk', markingMembers(payload.mk)],
+        [
+          'sd',
+          new Map<string, unknown>([['name', payload.sd.name], ['unc', payload.sd.uncertaintySeconds]]),
+        ],
+        [
+          'cva',
+          new Map<string, unknown>([
+            ['col', collateralSlotMembers(payload.cva.collateral)],
+            ['val', collateralSlotMembers(payload.cva.validity)],
+          ]),
+        ],
+        ['itm', payload.itm.map((one) => new Map<string, unknown>([['t', one.t], ['d', one.d]]))],
+      );
+      break;
+    default: {
+      // Bound and deliberately unread: the assignment is what fails for a member no case above claims,
+      // and the refusal is for the caller that arrives here with a payload of its own making.
+      const _exhaustive: never = payload;
+      throw new ReceiptError(
+        'UNSUPPORTED_VERSION',
+        'a payload naming a version this encoder has no members for is not encoded as another version',
+      );
+    }
   }
   return encodeCanonical(new Map(fields));
 }
