@@ -14,7 +14,7 @@ import {
   type VerifiedPack,
 } from '@ashaveri/receipt';
 import { loadPackVectors, type PackVector } from '../src/index.js';
-import { unionMembers } from './doc-contract.js';
+import { assertRowRoster, ROW_NAMING_FIELDS, unionMembers } from './doc-contract.js';
 
 /**
  * The published pack vectors, replayed the way a port replays them: take the document out of the file, hand
@@ -156,12 +156,10 @@ describe('the evidence pack vectors', () => {
   });
 
   it('carries no field a row is not told about and no code no registry declares', () => {
-    const allowed = new Set(['name', 'note', 'documentBase64Url', 'documentByteLength', 'read', 'verdict', 'structural', ...file.layout.verdictFields]);
-    for (const one of file.vectors) {
-      for (const field of Object.keys(one)) {
-        expect(allowed.has(field), `${one.name} carries ${field}, which the suite describes no field of`).toBe(true);
-      }
-    }
+    // The published roster is the whole set of columns a row may carry, so it is held as an equality over the
+    // columns the rows actually carry, in the one check every suite with a roster is wired to. Reading it as a
+    // list of allowances, as this case did, cannot see a column a row carries and the file never declares.
+    assertRowRoster(file, ROW_NAMING_FIELDS);
     const declared = new Set(unionMembers('ReceiptErrorCode', ERRORS));
     for (const one of file.vectors) {
       if (one.verdict === 'verify-ok') continue;

@@ -14,7 +14,7 @@ import {
   type EpochInventoryVerifyOptions,
 } from '@ashaveri/receipt';
 import { loadEpochInventoryVectors, type EpochInventoryVector } from '../src/index.js';
-import { unionMembers } from './doc-contract.js';
+import { assertRowRoster, unionMembers } from './doc-contract.js';
 
 /**
  * The published epoch inventory vectors, replayed the way a port replays them: take the document out of the
@@ -37,12 +37,13 @@ import { unionMembers } from './doc-contract.js';
  * port that keyed or compared only the other pass every row here.
  *
  * A fifth holds the file's own two lists of row columns, the roster of answer columns and the naming columns
- * published beside it, against the columns its published rows carry, in both directions. The sibling suites
- * read that roster as the list of fields a row may add, and a verifier written from the published pattern does
- * the same here, so a column carried by a row and missing from both lists is a compliant row refused, and a
- * column in either list and carried by no row is a field the file promises and the suite withholds. The naming
- * columns are read out of the file rather than repeated here, and a column stated twice in either list or on
- * both is refused, because the equality compares sets and would otherwise pass a roster that lies about a row.
+ * published beside it, against the columns its published rows carry, in both directions, through the one check
+ * every suite with a roster is wired to in `doc-contract.ts`. The sibling suites read that roster as the list
+ * of fields a row may add, and a verifier written from the published pattern does the same here, so a column
+ * carried by a row and missing from both lists is a compliant row refused, and a column in either list and
+ * carried by no row is a field the file promises and the suite withholds. The naming columns are read out of
+ * the file rather than repeated here, and a column stated twice in either list or on both is refused, because
+ * the equality compares sets and would otherwise pass a roster that lies about a row.
  *
  * The client half of this reading lives in `packages/cli/test/vector-conformance.test.ts`, which drives the
  * same rows through the two exported inventory readers, since no command of this package reads an epoch
@@ -130,24 +131,12 @@ describe('the published epoch inventory vectors', () => {
   });
 
   it('declares every column its published rows carry', () => {
-    // The two sibling suites read `verdictFields` as the list of columns a row may carry beside the ones that
-    // name it, and a verifier written from that published pattern reads it the same way here. So the two lists
-    // the file publishes, the roster and the naming columns, are held against the rows in both directions: a
-    // column the lists name and no row carries is one the file promises and the suite withholds, and a column a
-    // row carries and neither list names is one that pattern refuses on every row carrying it, which is where
-    // `site` and `guard` had been left. The naming columns are read out of the file rather than written out
-    // again here, because the generator owns that list and this test held the third copy of it. And a column
-    // stated twice is refused outright: the equality below compares sets, so a duplicate in either list would
-    // otherwise pass while telling a port that a row carries something twice.
-    const naming = file.layout.rowNamingFields;
-    const carried = [...new Set(file.vectors.flatMap((one) => Object.keys(one)))].sort();
-    const declared = [...file.layout.verdictFields, ...naming];
-    expect(file.layout.verdictFields.length, 'the roster declares one column twice').toBe(
-      new Set(file.layout.verdictFields).size,
-    );
-    expect(naming.length, 'the naming list states one column twice').toBe(new Set(naming).size);
-    expect(declared.length, 'a column is on the roster and on the naming list').toBe(new Set(declared).size);
-    expect([...declared].sort(), 'the two lists are not the columns the rows carry').toEqual(carried);
+    // The equality itself is written once, in `assertRowRoster`, because four sibling suites hold their rows to
+    // the same published roster and a rule kept per file is a rule one file can quietly stop following. What is
+    // specific to this one is where the naming columns come from: this file publishes them as
+    // `layout.rowNamingFields`, so the generator's list is what is compared rather than a copy of it written
+    // here, which is where `site` and `guard` had been left undeclared.
+    assertRowRoster(file, file.layout.rowNamingFields);
   });
 
   it('is answered by both readers exactly as the file says, on every row', () => {
