@@ -19,7 +19,7 @@ import { mockBackend, type BackendResponse, type CompletionBackend, type Complet
 import { mockDeployment, type AttestationBundle, type Deployment } from './deployment.js';
 import { fromHex, sha256, toHex } from './digest.js';
 import { notTakenInAnchor, stampDisclosureOf } from './issuance-disclosure.js';
-import { StreamedItemStamps, stampedBufferedItem, type FramedItemStamps } from './item-stamps.js';
+import { StreamedItemStamps, boundStampsAt, stampedBufferedItem, type FramedItemStamps } from './item-stamps.js';
 import { MarkedStreamTail, markBufferedBody, markingFrame, unmarked } from './marking.js';
 import { parseChatCompletionRequest, RequestError } from './mock.js';
 import {
@@ -580,6 +580,12 @@ export function buildGateway(options: GatewayOptions): GatewayInstance {
     marking: Marking;
   }): Promise<void> {
     const iat = stamp();
+    // The instant this payload states bounds every item stamp it carries. Each frame passed before this
+    // reading was taken, so under a source that does not step back the bound holds of itself; a source
+    // that does can read this instant below the stamps the list already carries, because the clamp keeping
+    // the list in its own order is a floor and not a ceiling. `boundStampsAt` reconciles the two at the
+    // one place the payload's instant exists.
+    const framing = boundStampsAt(args.framing, iat);
     // Every member a `v: 2` payload names, which is every member a `v: 3` payload names apart from the
     // three that moved the number. `mk` is required in both, so the answer to "was this response marked?"
     // is a value in a signed document rather than the absence of one, which is the reading a v1 receipt
@@ -617,13 +623,13 @@ export function buildGateway(options: GatewayOptions): GatewayInstance {
     // rather than issuing an empty list: `itm` is required and `items: [+ PackItem]` states the reason
     // for a list of nothing. A `v: 2` says less about a response that framed no items, and it says that
     // much truthfully, so the bytes the client holds stay attested by `res` and the marking by `mk`.
-    const payload: ReceiptPayload = args.framing.framed
+    const payload: ReceiptPayload = framing.framed
       ? {
           v: 3,
           ...named,
           sd: stampDisclosureOf(time),
           cva: notTakenInAnchor(),
-          itm: args.framing.stamps,
+          itm: framing.stamps,
         }
       : { v: 2, ...named };
     // How long this stays fetchable is the store's decision, so the gateway hands over the

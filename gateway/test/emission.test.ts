@@ -268,26 +268,25 @@ describe('a v3 response, attested in the bytes a client holds', () => {
     // The clock here advances one second per reading and the frames were handed over in separate writes,
     // so an `iat` copied across the items would read as three equal values.
     expect(new Set(stamps).size).toBe(stamps.length);
-    // Every item passed before the receipt was signed, so no frame is dated after the document that
-    // attests it.
-    expect(stamps.every((one) => one <= served.payload.iat)).toBe(true);
   });
 
   it('keeps a stepped-back clock from issuing a list its own reader would refuse', async () => {
-    // A source that jumps backwards inside one response is the one way an item stamped after its
+    // A source that steps backwards inside one response is the one way an item stamped after its
     // predecessor can carry an earlier instant, and the reader answers that document with
     // `ITEM_STAMP_OUT_OF_ORDER`. The gateway's answer is the largest instant this response has already
     // claimed, so the list stays readable and the disclosure beside it still names the bound the source
     // declared. `StreamedItemStamps` is tested against a clock that steps back directly below, where the
-    // readings that decreased are visible; here the point is that the issued document survives the
-    // reader it was signed for.
+    // readings that decreased are visible; here the point is that the issued document survives the reader
+    // it was signed for, and states no item after its own issuance. The reading falls every time it is
+    // asked, which is the worst case for both claims: the response's first instant is its highest, and
+    // the instant `iat` is taken from is its lowest.
     let reads = 0;
     const h = await open({
       backend: bodyBackend(UPSTREAM_STREAM, 'text/event-stream', frameEnds(UPSTREAM_STREAM)),
       time: {
         name: 'stepping back clock',
         uncertaintySeconds: null,
-        now: () => ((reads += 1) % 3 === 0 ? CLOCK_SECONDS - 5 : CLOCK_SECONDS),
+        now: () => CLOCK_SECONDS - (reads += 1),
       },
     });
     const served = await sendAndFetch(h, '/v1/chat/completions', STREAM_REQUEST_BODY);
@@ -297,6 +296,11 @@ describe('a v3 response, attested in the bytes a client holds', () => {
     // which is where `ITEM_STAMP_OUT_OF_ORDER` is raised, so a list running against its own order would
     // have failed the fetch rather than the assertion below.
     expect(runsInOrder(stamps)).toBe(true);
+    // Every item passed before the receipt was signed, so no frame is dated after the document that
+    // attests it. The clamp that keeps the list readable is a floor drawn from this response's own
+    // readings, and a floor sits above a later reading when the source runs backwards, so the bound has
+    // to be the instant the payload states.
+    expect(stamps.every((one) => one <= served.payload.iat)).toBe(true);
     expect(served.payload.sd).toEqual({ name: 'stepping back clock', uncertaintySeconds: null });
   });
 

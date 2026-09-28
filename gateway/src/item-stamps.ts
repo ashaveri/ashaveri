@@ -43,9 +43,12 @@ import { ResponseItemFramer, equalBytes, frameResponse, type ItemStamp } from '@
  * descend is a source that steps backwards inside one response. `stampFor` takes the largest reading
  * this response has already carried and never issues a smaller one, which is not a correction of the
  * clock but a bound drawn from this process's own readings: an item is never stamped earlier than the
- * item the response put before it. A source that steps back is a deployment's problem and it is stated
- * by `sd`, whose bound and name travel with the receipt; what this file refuses to do is answer a clock
- * that jumped by signing a document its own reader rejects.
+ * item the response put before it. That bound is a floor, and a floor is no ceiling, so
+ * `boundStampsAt` holds every stamp at the instant the payload states: the one reading taken after the
+ * last frame passed is the latest instant this response may date any of its items with. A source that
+ * steps back is a deployment's problem and it is stated by `sd`, whose bound and name travel with the
+ * receipt; what this file refuses to do is answer a clock that jumped by signing a document its own
+ * reader rejects, or one that dates an item of a response after the receipt attesting it.
  */
 
 /** The items of one response with an instant beside each, or the reason the response has none. */
@@ -196,12 +199,37 @@ export class StreamedItemStamps {
     return flat;
   }
 
-  /** This response's next stamp: a fresh reading, never below one this response already carried. */
+  /**
+   * This response's next stamp: a fresh reading, never below one this response already carried. The floor
+   * is here and the ceiling is not, because the instant a response is stamped with is read where the
+   * payload is built: `boundStampsAt` applies it once that reading exists.
+   */
   private stampFor(): number {
     const read = this.readStamp();
     this.highest = this.highest === undefined ? read : Math.max(this.highest, read);
     return this.highest;
   }
+}
+
+/**
+ * The stamps of one framing, each bounded by the instant the payload that carries them states.
+ *
+ * `iat` is read when the document is signed, and every frame of the response passed before that reading,
+ * so under a source that does not step back `t <= iat` is a fact about the order of two readings and
+ * nothing has to enforce it. The clamp `stampFor` applies is a floor drawn from this response's own
+ * readings, and a floor stands above a later reading when the source runs backwards: the list stays
+ * readable and the receipt states items dated after its own issuance. Bounding each stamp at the instant
+ * the payload names keeps both claims true of the signed bytes, because a minimum taken against one
+ * constant preserves the order it is applied to, so no item is dated above the document attesting it and
+ * none below its predecessor.
+ *
+ * The bound is a ceiling and not a correction of the clock. What the source read is what it read, and a
+ * stamp held down to `iat` states only that this process will not date an item of its own response after
+ * the instant it signed; the source and the bound it declares about itself stay beside the list in `sd`.
+ */
+export function boundStampsAt(framing: FramedItemStamps, iat: number): FramedItemStamps {
+  if (!framing.framed) return framing;
+  return { framed: true, stamps: framing.stamps.map((one) => ({ t: Math.min(one.t, iat), d: one.d })) };
 }
 
 /**
