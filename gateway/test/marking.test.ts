@@ -12,6 +12,7 @@ import {
   toHex,
   type MarkingScheme,
   type ReceiptPayloadV2,
+  type ReceiptPayloadV3,
 } from '@ashaveri/receipt';
 import { MarkedStreamTail, type BackendResponse, type CompletionBackend, type CompletionUsage, type TimeSource } from '../src/index.js';
 import { MARKING_CHUNK_ID } from '../src/marking.js';
@@ -152,13 +153,13 @@ async function send(h: Harness, target: string, body: string) {
   });
 }
 
-/** The receipt this response's id points at, decoded, narrowed to the version it always is. */
-async function receiptFor(h: Harness, id: string): Promise<ReceiptPayloadV2> {
+/** The receipt this response's id points at, decoded, narrowed to the versions that name a marking. */
+async function receiptFor(h: Harness, id: string): Promise<ReceiptPayloadV2 | ReceiptPayloadV3> {
   const url = `/v1/receipts/${id}`;
   const res = await h.app.inject({ method: 'GET', url, headers: h.signFor('marking', 'GET', url, null) });
   expect(res.statusCode).toBe(200);
   const payload = decodeReceipt(new Uint8Array(res.rawPayload)).payload;
-  if (payload.v !== 2) throw new Error(`expected a v2 payload, got version ${String(payload.v)}`);
+  if (payload.v === 1) throw new Error(`expected a payload naming a marking, got version ${String(payload.v)}`);
   return payload;
 }
 
@@ -183,16 +184,20 @@ describe('the marking flag', () => {
     expect(extractMarkedRegion('none', new Uint8Array(res.rawPayload))).toEqual(emptyRegion());
   });
 
-  it('issues a v2 receipt whichever way the flag is set', async () => {
+  it('issues a receipt naming a marking whichever way the flag is set', async () => {
     for (const marking of [undefined, 'none', 'provenance-v1'] as const) {
       const h = await open({ backend: bodyBackend(UPSTREAM_BUFFERED, 'application/json'), marking });
       const res = await send(h, '/v1/chat/completions', REQUEST_BODY);
       const payload = await receiptFor(h, res.headers['x-ashaveri-receipt-id'] as string);
       expect([marking, payload.v, payload.mk.sch]).toEqual([
         marking,
-        2,
+        // A body the framing reads as one item is a `v: 3` whatever the marking says, which is the
+        // version choice stated at its site rather than a capability this deployment does or has not
+        // wired; `emission.test.ts` holds the whole account of what the number carries.
+        3,
         marking === 'provenance-v1' ? 'provenance-v1' : 'none',
       ]);
+      expect(res.statusCode).toBe(200);
     }
   });
 

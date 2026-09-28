@@ -2,6 +2,7 @@ import Fastify, { type FastifyInstance, type FastifyReply, type FastifyRequest }
 import { createHash, randomUUID } from 'node:crypto';
 import {
   hashRequest,
+  isEventStream,
   issueReceipt,
   randomNonce,
   sealDeploymentManifest,
@@ -17,6 +18,8 @@ import { fromBase64Url, toBase64Url } from './b64.js';
 import { mockBackend, type BackendResponse, type CompletionBackend, type CompletionUsage } from './backend.js';
 import { mockDeployment, type AttestationBundle, type Deployment } from './deployment.js';
 import { fromHex, sha256, toHex } from './digest.js';
+import { notTakenInAnchor, stampDisclosureOf } from './issuance-disclosure.js';
+import { StreamedItemStamps, stampedBufferedItem, type FramedItemStamps } from './item-stamps.js';
 import { MarkedStreamTail, markBufferedBody, markingFrame, unmarked } from './marking.js';
 import { parseChatCompletionRequest, RequestError } from './mock.js';
 import {
@@ -569,6 +572,7 @@ export function buildGateway(options: GatewayOptions): GatewayInstance {
     nonce: Uint8Array;
     requestBody: Buffer;
     responseHash: Uint8Array;
+    framing: FramedItemStamps;
     modelId: string;
     weights: Uint8Array;
     evidence: AttestationBundle;
@@ -576,12 +580,11 @@ export function buildGateway(options: GatewayOptions): GatewayInstance {
     marking: Marking;
   }): Promise<void> {
     const iat = stamp();
-    // A v2 payload, always, whatever the marking says. `mk` is a required member of it, so the
-    // answer to "was this response marked?" is a value in a signed document rather than the absence
-    // of one, which is the reading a v1 receipt cannot carry and section 6 of the specification says
-    // is why the version moved.
-    const payload: ReceiptPayload = {
-      v: 2,
+    // Every member a `v: 2` payload names, which is every member a `v: 3` payload names apart from the
+    // three that moved the number. `mk` is required in both, so the answer to "was this response marked?"
+    // is a value in a signed document rather than the absence of one, which is the reading a v1 receipt
+    // cannot carry and section 6 of the specification says is why the version moved.
+    const named = {
       iss: deployment.issuer,
       ins: deployment.instance,
       iat,
@@ -596,6 +599,33 @@ export function buildGateway(options: GatewayOptions): GatewayInstance {
       tok: { p: args.usage.promptTokens, c: args.usage.completionTokens },
       mk: args.marking,
     };
+    // The version this deployment's artifact carries, decided once, here, and by one test: whether the
+    // bytes of this response frame into items. Emission is uniform in the sense that a gateway asks
+    // nothing about itself before it signs a `v: 3`, and the single fallback to `v: 2` is the state
+    // `ResponseItemFramer` answers with `framed: false`, which is a fact about a response that said
+    // nothing in any `data:` frame rather than a capability this process does or has not wired.
+    //
+    // That is the whole of the fork, and it is deliberately not a capability test on the deployment. The
+    // other two members of a v3 payload are filled from what this issuance actually knows: the source
+    // `iat` was read from, which every process has, and the appraisal context it never took in, which is
+    // a state the member was designed to hold. Both are answered beside the payload rather than by a
+    // policy field beside this gateway, because what a receipt states is not the same as what a reader
+    // agrees to accept. A verifier weighing the anchor is the one that refuses `not-taken-in`, and that
+    // refusal is not this document's to write.
+    //
+    // A `v: 3` with no items is not a document the format defines, which is why the refusal falls back
+    // rather than issuing an empty list: `itm` is required and `items: [+ PackItem]` states the reason
+    // for a list of nothing. A `v: 2` says less about a response that framed no items, and it says that
+    // much truthfully, so the bytes the client holds stay attested by `res` and the marking by `mk`.
+    const payload: ReceiptPayload = args.framing.framed
+      ? {
+          v: 3,
+          ...named,
+          sd: stampDisclosureOf(time),
+          cva: notTakenInAnchor(),
+          itm: args.framing.stamps,
+        }
+      : { v: 2, ...named };
     // How long this stays fetchable is the store's decision, so the gateway hands over the
     // timestamp the decision is made from rather than making it here.
     await receipts.put(args.id, issueReceipt(payload, deployment.key), iat);
@@ -744,7 +774,12 @@ export function buildGateway(options: GatewayOptions): GatewayInstance {
     evidencePromise.catch(() => undefined);
     const failed = response.status >= 400;
 
-    if (failed || !response.contentType.includes('text/event-stream')) {
+    // The one question that decides which of the two arms below runs is `isEventStream`'s, and this route
+    // asks it of the shipped reader rather than of a literal, because the same predicate is what tells
+    // the item framing whether it is walking frames or holding one whole body. Two spellings of the test
+    // would let a body be forwarded as a stream and attested as a single item, or the other way round,
+    // and both readings would be internally consistent.
+    if (failed || !isEventStream(response.contentType)) {
       // A buffered body can be hashed and signed before a single byte reaches
       // the client, so an unreceipted response is never observable.
       let body: Buffer;
@@ -788,11 +823,15 @@ export function buildGateway(options: GatewayOptions): GatewayInstance {
         return;
       }
       const sent = marked === null ? body : Buffer.from(marked.body);
+      // Framed out of the bytes about to be handed over, after the mark went in and before anything is
+      // signed, which is the same span `res` digests and the same span `mk.d` cuts a region out of.
+      const framing = stampedBufferedItem(stamp, response.contentType, sent);
       await issue({
         id: receiptId,
         nonce,
         requestBody: raw,
         responseHash: sha256(sent),
+        framing,
         modelId: declared.id,
         weights: declared.wts,
         evidence: await evidencePromise,
@@ -828,6 +867,12 @@ export function buildGateway(options: GatewayOptions): GatewayInstance {
     }
     const id = receiptIds.mint(receiptTag);
     const hasher = createHash('sha256');
+    // The item stamps of this stream, fed from the one closure that puts bytes on the socket. Every
+    // digest the payload states is taken at the write: `res` over the whole sequence this hasher sees,
+    // each item's `d` over the frames that sequence holds, and `mk.d` over the region of the frame this
+    // gateway writes itself. Nothing upstream of `write` can state any of the three, because on a
+    // marking deployment the bytes a client receives are not the bytes the upstream sent.
+    const items = new StreamedItemStamps(stamp);
     // Only a gateway that marks holds back any part of a stream, and only its last frames: see
     // `MarkedStreamTail`.
     const tail = markingScheme === 'none' ? null : new MarkedStreamTail();
@@ -849,8 +894,13 @@ export function buildGateway(options: GatewayOptions): GatewayInstance {
       client.aborted = true;
     });
 
+    // The one place a byte of this response is handed to the client. The hash, the item framing and the
+    // socket see one sequence, in one order, with nothing in between them: a digest stated over bytes
+    // that were not written, or an instant attached to a frame that never passed, both start by a write
+    // reaching one of the three and not the others.
     const write = async (chunk: Uint8Array): Promise<void> => {
       hasher.update(chunk);
+      items.written(chunk);
       if (res.write(chunk)) {
         return;
       }
@@ -916,6 +966,9 @@ export function buildGateway(options: GatewayOptions): GatewayInstance {
         nonce,
         requestBody: raw,
         responseHash: new Uint8Array(hasher.digest()),
+        // Read after the last frame was written, mark frame included, and before the digest is taken,
+        // so the list states the frames the bytes a client holds contain and none that arrived after.
+        framing: items.answer(),
         modelId: declared.id,
         weights: declared.wts,
         evidence: await evidencePromise,
