@@ -718,6 +718,20 @@ const CASES: readonly Case[] = [
     edited: 'the third entry span, five seconds early',
   },
   {
+    name: 'an-entry-whose-own-window-does-not-run-forwards',
+    note: 'The honest run with its second entry stating a window that opens at the instant it closes, so the entry covers no period of its own. `a-window-left-out-of-the-run` and `a-window-sealed-twice` compare one entry with its neighbour, and this row is the third finding the reader answers with the same code, refused against a single entry rather than between two: an entry whose own window does not run forwards. The walk reads an entry\'s own two figures before it compares either neighbour, so it stops at the second entry, and nothing else of the document moved: the stated window, the two chain endpoints and both folded lists still fold out of these same entries.',
+    bytes: sealDocument({
+      ...HONEST,
+      packs: HONEST.packs.map((one, index) =>
+        index === 1 ? { ...one, span: { from: one.span.to, to: one.span.to } } : one,
+      ),
+    }),
+    read: PINNED,
+    verdict: 'EPOCH_INVENTORY_RUN_NOT_CONTIGUOUS',
+    structural: 'verify-ok',
+    edited: 'the second entry span start, set to its own end',
+  },
+  {
     name: 'a-window-wider-than-the-run',
     note: 'The honest entries with the stated window one second wider at the front than the entries add up to. A count that disagrees with the run at the window site, and the disagreement is refused rather than corrected, because a document stating edges its own packs do not reach cannot be trusted for the summaries it states beside them.',
     bytes: sealDocument({ ...HONEST, window: { from: HONEST.window.from - 1, to: HONEST.window.to } }),
@@ -1135,7 +1149,7 @@ function main(): void {
       {
         version: 1,
         description:
-          'Sealed epoch inventories and the verdict the shipped reader owes each one: the envelope, the header, the key, the reading of the JSON, the arithmetic over a run of packs, and the names each summary row points at. Every claim the reader recomputes over a run is refused by a row when the document states it wrongly, and those claims are the window, the two chain endpoints beside the run that begins and ends them, the claim each folded list states beside it, and every guard of both lists at both sites, the three text floors the layout states are each refused by an emptied value, and the acceptances include ones a reviewer would otherwise read as faults: a break list and a shortfall list stated in another order, which the reader keys by the pack each row names, a document listing its seven members in an order no writer emits, which the reader looks up by name, copied text positions wider than any ceiling this layout states, and a run label at the last byte of the width it does.',
+          'Sealed epoch inventories and the verdict the shipped reader owes each one: the envelope, the header, the key, the reading of the JSON, the arithmetic over a run of packs, and the names each summary row points at. Every claim the reader recomputes over a run is refused by a row when the document states it wrongly, and those claims are the windows meeting end to start, including one entry whose own two figures do not run forwards, the window, the two chain endpoints beside the run that begins and ends them, the claim each folded list states beside it, and every guard of both lists at both sites, the three text floors the layout states are each refused by an emptied value, and the acceptances include ones a reviewer would otherwise read as faults: a break list and a shortfall list stated in another order, which the reader keys by the pack each row names, a document listing its seven members in an order no writer emits, which the reader looks up by name, copied text positions wider than any ceiling this layout states, and a run label at the last byte of the width it does.',
         layout: {
           format: 'packages/receipt/epoch-inventory.cddl',
           twin: 'packages/receipt/schemas/epoch-inventory-v1.schema.json',
