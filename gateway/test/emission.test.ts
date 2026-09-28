@@ -635,12 +635,13 @@ describe('a stream whose stamps cannot be stated when the payload is built', () 
     // This cell is about the outcome a client holds, and not about whether one of the three consistency
     // checks in `gateway/src/item-stamps.ts` fired. Those compare one gateway's two readings of one
     // response, both taken over the same bytes by the one walk, so no bytes a client can send put the two
-    // readings apart and their liveness is a witnessed claim rather than a testable one. What is testable
-    // is the step they stand at: the readings are taken after every frame has passed and after
-    // `x-ashaveri-receipt-id` has gone out with the headers, so a failure there lands on a response whose
-    // id the client already holds. The source below misses one reading, the one the unterminated last frame
-    // asks for at the response's end, which is the failure those checks stand behind reached from the other
-    // side: what a cell can name is what the client is left with.
+    // readings apart, and no cell can hand them a disagreement to catch. What a cell can reach is the step
+    // the checks stand at: `gateway/src/server.ts` writes `x-ashaveri-receipt-id` into the headers before
+    // it has handed the client a byte of the body, so an `answer()` that does not return lands on a
+    // response whose id the client has been handed. The source below stops answering at the one reading
+    // `answer()` takes for a last frame the stream left unterminated, inside that method and after every
+    // check it runs, so the failure reaches the client for a reason the client's own bytes cannot cause.
+    // Which reason it was is not this cell's subject; the ending is.
     let passed = false;
     let missed = false;
     const first = 'data: {"a":1}\n\n';
@@ -712,9 +713,10 @@ describe('a stream whose stamps cannot be stated when the payload is built', () 
     expect(gone.status).toBe(404);
     // Section 4.3 of `docs/receipt-spec.md` tells a client to retry briefly on a 404, so the answer this
     // decision leaves has to hold on the second try as it does on the first: no document arrives late for
-    // this id, and the id names no other response either. A client that keeps the body and finds nothing
-    // behind the handle is the state that cannot be read as an attestation. The retry is a fresh
-    // presentation, so it is signed afresh rather than replaying the first one's nonce.
+    // this id. Minting an id records nothing, and only an issuance writes a document, so the second 404 is
+    // the store saying that this handle was never attached to a response rather than saying that one is
+    // still on its way. The retry is a fresh presentation, so it is signed afresh rather than replaying
+    // the first one's nonce.
     await new Promise((resolve) => setTimeout(resolve, 250));
     const again = await fetch(`http://127.0.0.1:${port}${target}`, {
       headers: h.signFor('emission', 'GET', target, null),
@@ -763,8 +765,10 @@ describe('a stream whose stamps cannot be stated when the payload is built', () 
       .catch((err: unknown) => {
         reason = err instanceof Error ? err.message : String(err);
       });
-    // The socket error carries the reason this gateway stopped, so whoever was on the other end, and the
-    // operator reading the fault, are told which response failed and not that a receipt is missing.
+    // The reason leaves the process with the destroyed response, which is what says this ending was the
+    // failed reading and not one of the refusals this route writes before its headers go out. A client on a
+    // live socket is told only that the body stopped: it gets no completion, and the id it holds keeps
+    // meaning no receipt. Nothing here claims the message reaches that client, because it does not.
     expect(reason).toContain('the wired source stopped answering');
 
     const served = await sendAndFetch(h, '/v1/chat/completions', STREAM_REQUEST_BODY);
