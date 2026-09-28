@@ -575,11 +575,11 @@ export async function runVerifyReceipt(positionals: string[], values: VerifyRece
   // that can answer whether the mark is the attested one is the response itself. Taking a digest in
   // its place would answer "was this the marked response?" with "the caller says so".
   //
-  // The test is on the member and not on a version number, which is the same reason `verifyReceipt`
-  // gates the check on the member: `v: 2` and `v: 3` both name `mk`, and a requirement spelled as one
-  // number would let the other through to a verification that quietly skipped the step it exists to
-  // feed. `v: 1` names no marking, claims nothing about the response's interior, and still runs on a
-  // digest alone.
+  // The test is on the member and not on a version number, which is the same reason
+  // `verifyCompletionReceipt` gates the marking check on the member: `v: 2` and `v: 3` both name `mk`,
+  // and a requirement spelled as one number would let the other through to a verification that quietly
+  // skipped the step it exists to feed. `v: 1` names no marking, claims nothing about the response's
+  // interior, and still runs on a digest alone.
   try {
     const { payload } = decodeReceipt(receiptBytes);
     if ('mk' in payload && digests.responseBytes === null) {

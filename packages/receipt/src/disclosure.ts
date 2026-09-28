@@ -9,7 +9,7 @@
  * verdict that held up.
  *
  * Both are read and written by the format: `v: 3` names `sd` and `cva` as required members, the CDDL
- * rule, its JSON twin and the JSON projection below all declare the same two shapes, and the parser
+ * rule, its JSON twin and the projection in `json.ts` all declare the same two shapes, and the parser
  * refuses a document that leaves either out or holds it in another shape. What is not the case sits on
  * the producing side: no receipt published as a vector carries either member, because every receipt
  * under `packages/fixtures/data` is a `v: 1` or `v: 2` document, so the only `v: 3` bytes this tree
