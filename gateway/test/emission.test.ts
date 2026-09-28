@@ -232,6 +232,37 @@ describe('a v3 response, attested in the bytes a client holds', () => {
     expect(payload.mk.sch).toBe('provenance-v1');
   });
 
+  it('frames a stream the upstream stopped mid-line into a mark its own reader accepts', async () => {
+    // The last frame of a completion that arrived with no terminator at all. What the client holds is the
+    // upstream's bytes, the frame end the upstream owed, and this gateway's mark: three statements a reader
+    // has to be able to check, because a receipt over a line two `data:` prefixes share attests bytes the
+    // published rule then refuses under the scheme the same payload names.
+    const unterminated = 'data: {"a":1}\n\ndata: {"b":2}';
+    const h = await open({
+      backend: bodyBackend(unterminated, 'text/event-stream', [14, unterminated.length - 1]),
+      marking: 'provenance-v1',
+    });
+    const served = await sendAndFetch(h, '/v1/chat/completions', STREAM_REQUEST_BODY);
+    expect(served.payload.v).toBe(3);
+    const payload = served.payload;
+    if (!('itm' in payload)) throw new Error('a v3 payload carries no item list');
+
+    const rebuilt = frameResponse('text/event-stream', served.body);
+    if (!rebuilt.framed) throw new Error('the client bytes frame into no items');
+    expect(rebuilt.items.map((one) => text(one.bytes))).toEqual([
+      '{"a":1}',
+      '{"b":2}',
+      text(extractMarkedRegion('provenance-v1', served.body)).slice('data: '.length),
+    ]);
+    expect(payload.itm.map((one) => toHex(one.d))).toEqual(rebuilt.items.map((one) => toHex(one.d)));
+
+    // No line the client holds carries two frames, and the region the mark names is one of them.
+    expect(text(served.body).split(/[\r\n]/).filter((line) => (line.match(/data:/g) ?? []).length > 1)).toEqual([]);
+    expect(payload.mk.sch).toBe('provenance-v1');
+    expect(toHex(sha256(extractMarkedRegion(payload.mk.sch, served.body)))).toBe(toHex(payload.mk.d));
+    expect(toHex(payload.res)).toBe(sha256Hex(served.body));
+  });
+
   it('frames the same stream identically whatever boundaries the transport chose', async () => {
     const body = UPSTREAM_STREAM;
     const cuts: number[][] = [

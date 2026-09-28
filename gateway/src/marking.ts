@@ -13,7 +13,11 @@ import { sha256 } from './digest.js';
  * The rule this module keeps is that the bytes marked are the bytes written: a member is added to a
  * buffered body before that body is hashed, and a frame goes through the same write closure the rest
  * of the stream took before the stream's digest is finalised. A receipt issued over bytes a client
- * never received is the failure this file exists to make impossible. What a reader looks for is
+ * never received is the failure this file exists to make impossible. The streamed shape is written as a
+ * frame, which is one field line and the blank line after it, and a frame is only a frame with the
+ * frame before it closed: a mark set down on a line two `data:` prefixes share is a line no client's
+ * parser makes a frame out of, so the terminator the upstream owed goes out first and the mark begins
+ * its own. What a reader looks for is
  * published in section 3.3 of `docs/receipt-spec.md` and read back by `extractMarkedRegion` in
  * `@ashaveri/receipt`, so a writer here and a reader there cannot drift without a vector disagreeing.
  */
@@ -168,6 +172,51 @@ function join(held: Uint8Array, chunk: Uint8Array): Uint8Array {
   return out;
 }
 
+/** The frame end, as bytes, which is what a stream that stopped mid-frame is owed ahead of a mark. */
+const FRAME_END = new TextEncoder().encode(SSE_FRAME_END);
+
+/**
+ * How many of the bytes already written it takes to tell whether a frame is open. A blank line is two
+ * line endings with nothing between them, the wider ending is the pair, so the last three bytes of what
+ * was written answer it and nothing older is asked.
+ */
+const FRAME_WINDOW = 3;
+
+/** The last bytes of one sequence, which is all `closesFrame` reads. */
+function windowOf(bytes: Uint8Array): Uint8Array {
+  return bytes.length <= FRAME_WINDOW ? bytes : bytes.subarray(bytes.length - FRAME_WINDOW);
+}
+
+/**
+ * The width of the line ending that ends just before `at`: the pair once, a lone carriage return or line
+ * feed once, and nothing otherwise. This is the ending section 3.1 of `docs/receipt-spec.md` publishes and
+ * both shipped readers walk, so a frame closed by a carriage return is closed here too.
+ */
+function lineEndingBefore(bytes: Uint8Array, at: number): number {
+  if (at <= 0) return 0;
+  if (bytes[at - 1] === CR) return 1;
+  if (bytes[at - 1] === LF) return bytes[at - 2] === CR ? 2 : 1;
+  return 0;
+}
+
+/**
+ * Whether these bytes close the frame they are in, which is a blank line: two line endings with nothing
+ * between them. No bytes at all is the same answer, because the first frame of a body begins at the head
+ * of the body and needs nothing ahead of it.
+ *
+ * This is a stronger test than "the last byte ended a line", and the strength is the point. A frame is one
+ * field line and the blank line after it, so a mark written on a new line of an event the upstream never
+ * closed is not a mark written as its own frame: a client that parses the response as server-sent events
+ * concatenates the two `data:` fields it holds into one, and the completion it then reads is neither the
+ * upstream's chunk nor this gateway's chunk. Measured against such a client, only the blank line makes the
+ * mark a chunk of its own.
+ */
+function closesFrame(bytes: Uint8Array): boolean {
+  if (bytes.length === 0) return true;
+  const first = lineEndingBefore(bytes, bytes.length);
+  return first > 0 && lineEndingBefore(bytes, bytes.length - first) > 0;
+}
+
 /**
  * The tail of a stream, held just long enough to write a mark inside the stream rather than after it.
  * A client that reads to the sentinel stops there, so a frame appended after it is inside the hash
@@ -182,30 +231,53 @@ function join(held: Uint8Array, chunk: Uint8Array): Uint8Array {
  * measured of both readers here, in `gateway/test/response-frame-readers.test.ts`: the framing attests
  * the frame behind the sentinel as an item and this tail answers that the body does not end on a
  * sentinel, so its mark goes last.
+ *
+ * A mark is written as a frame: one field line and the blank line after it, with a closed frame ahead of
+ * it. Where the upstream stopped mid-frame — its last line carrying no terminator at all, or carrying a
+ * line ending but never the blank line that dispatches it — the terminator the upstream owed is written
+ * before the mark, and the mark begins a frame of its own. Without that the client is handed one line
+ * holding two `data:` prefixes, which is a line no conforming parser produces a frame from: the receipt
+ * would then honestly attest bytes whose marked region the published rule refuses under the scheme the same
+ * payload names. The bytes a completion is attested over are the bytes the upstream sent plus the frame end
+ * it owed and the mark, in that order, and nothing in them is edited or moved.
  */
 export class MarkedStreamTail {
   private held: Uint8Array = new Uint8Array(0);
+
+  /**
+   * The last bytes this tail put on the socket, kept only to tell whether the frame they are in was
+   * closed. A blank line straddling a write boundary is still one blank line, so this is a window over
+   * what was written rather than a reading of the last write.
+   */
+  private written: Uint8Array = new Uint8Array(0);
 
   /** The bytes this write makes safe to put on the socket now, which may be none of them. */
   writable(chunk: Uint8Array): Uint8Array {
     const combined = join(this.held, chunk);
     const at = sentinelStart(combined);
-    if (at >= 0) {
-      this.held = combined.subarray(at);
-      return combined.subarray(0, at);
-    }
-    const keep = unsettledSuffix(combined);
-    this.held = combined.subarray(combined.length - keep);
-    return combined.subarray(0, combined.length - keep);
+    const ready = at >= 0 ? combined.subarray(0, at) : combined.subarray(0, combined.length - unsettledSuffix(combined));
+    this.held = at >= 0 ? combined.subarray(at) : combined.subarray(combined.length - unsettledSuffix(combined));
+    this.noteWritten(ready);
+    return ready;
   }
 
   /** The pieces still owed to the client, in the order it should receive them. */
   finishing(frame: Uint8Array): Uint8Array[] {
     const at = sentinelStart(this.held);
-    if (at === 0) return [frame, this.held];
-    if (at > 0) return [this.held.subarray(0, at), frame, this.held.subarray(at)];
-    // Held bytes that are not a sentinel go out as they arrived, with the mark behind them: the
-    // alternative would splice a chunk into the middle of a frame that was already on its way.
-    return this.held.length === 0 ? [frame] : [this.held, frame];
+    // What goes out ahead of the mark: the held bytes that are not the sentinel, which is all of them
+    // when these bytes are no sentinel at all and none of them when they begin with one.
+    const before = at > 0 ? this.held.subarray(0, at) : at < 0 ? this.held : new Uint8Array(0);
+    const after = at >= 0 ? this.held.subarray(at) : new Uint8Array(0);
+    const owed = closesFrame(windowOf(join(this.written, before))) ? null : FRAME_END;
+    // Half a sentinel is not a sentinel, and splicing a chunk into the middle of a frame that was
+    // already on its way is the worse error: the held bytes go out as they arrived, the frame end the
+    // upstream owed goes out after them, and the mark begins its own frame.
+    return [before, owed, frame, after].filter((piece): piece is Uint8Array => piece !== null);
+  }
+
+  /** These bytes went to the socket, so they are what the next frame has to be separated from. */
+  private noteWritten(bytes: Uint8Array): void {
+    if (bytes.length === 0) return;
+    this.written = windowOf(join(this.written, bytes));
   }
 }

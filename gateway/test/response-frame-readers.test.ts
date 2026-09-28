@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest';
 import { ResponseItemFramer, extractMarkedRegion, isEventStream } from '@ashaveri/receipt';
 import type { ChatCompletionRequest } from '../src/mock.js';
 import { upstreamBackend } from '../src/upstream.js';
-import { MarkedStreamTail, markingFrame } from '../src/marking.js';
+import { MarkedStreamTail, SSE_FRAME_END, markingFrame } from '../src/marking.js';
 
 /**
  * One response body, read by every module in this estate that reads it, on the same bytes.
@@ -15,6 +15,11 @@ import { MarkedStreamTail, markingFrame } from '../src/marking.js';
  * mark may go. They read one byte string, so on any body they have to agree about where its frames are: a
  * receipt that attests one reading while another counts frames differently is a document that disagrees
  * with itself about what was said. This file is where that agreement is measured rather than asserted.
+ *
+ * The tail's own rule is a frame, not a byte position, and the rows say so: a mark is written as one field
+ * line and the blank line after it, so where the body left a frame open the tail writes the frame end the
+ * upstream owed ahead of its mark and nothing else changes. That is the one addition to the client's copy
+ * of the response this table permits, and `markClosesFrame` states the rows it happens on.
  *
  * Two of the questions are not the same question, and the rows where they part say so in their own note:
  *
@@ -82,6 +87,12 @@ interface ReaderCase {
   readonly markLines: number;
   /** Reader 4, the marked tail: the byte of the response the mark frame is written at. */
   readonly markAt: number;
+  /**
+   * Reader 4 again: whether the tail had to close a frame the body left open before it could write its
+   * mark as a frame of its own. `false` is the answer for a body that ended on a blank line, and for one
+   * that wrote nothing ahead of the mark at all.
+   */
+  readonly markClosesFrame: boolean;
 }
 
 /** A body as its row renders it, optionally with other payloads in the same framing. */
@@ -217,21 +228,37 @@ function readerRegions(caseItem: ReaderCase): { count: number; region: string | 
 
 /**
  * Reader 4, the marked tail: the byte of the response at which the mark frame lands in what a client is
- * sent, and the whole body still there around it.
+ * sent, the frame end it wrote ahead of that mark when the body left a frame open, and the whole body still
+ * there around it.
  *
  * The insertion offset is where that module's question is answered: it holds a stream back until it knows
  * whether these bytes end on the sentinel, and its purpose is to write the mark inside the stream rather
  * than after it. An offset equal to the body's length is the answer for a body that does not end on a
  * sentinel, which is the case section 3.1 settles: what follows a sentinel is still a response.
+ *
+ * A mark is written as a frame, so the frame it follows has to be closed: where the body left one open, the
+ * tail writes the frame end the upstream owed and this row says so, rather than letting those two bytes look
+ * like a byte of the response that went missing. Everything else about the answer is the same test it was:
+ * take the mark frame and the owed frame end out and the body has to be there, byte for byte, in the order
+ * it was sent.
  */
-function readerTail(body: string, cuts: readonly number[]): { at: number; lost: string | null } {
+function readerTail(
+  body: string,
+  cuts: readonly number[],
+): { at: number; owed: boolean; lost: string | null } {
   const tail = new MarkedStreamTail();
   let sent = '';
   for (const write of writesOf(body, cuts)) sent += decoder.decode(tail.writable(write));
-  const whole = sent + tail.finishing(MARK.frame).map((piece) => decoder.decode(piece)).join('');
+  const pieces = tail.finishing(MARK.frame).map((piece) => decoder.decode(piece));
+  const whole = sent + pieces.join('');
   const at = whole.indexOf(MARK_TEXT);
-  const rebuilt = whole.slice(0, at) + whole.slice(at + MARK_TEXT.length);
-  return { at, lost: rebuilt === body ? null : `the client was sent ${JSON.stringify(rebuilt)}` };
+  const ahead = pieces.slice(0, pieces.indexOf(MARK_TEXT));
+  // The frame end is the only element a piece of the body could not be: a held slice always starts at a
+  // `data:` field, so an element spelled as exactly the frame end is the one the tail wrote.
+  const owed = ahead.at(-1) === SSE_FRAME_END;
+  const rebuilt =
+    whole.slice(0, at - (owed ? SSE_FRAME_END.length : 0)) + whole.slice(at + MARK_TEXT.length);
+  return { at, owed, lost: rebuilt === body ? null : `the client was sent ${JSON.stringify(rebuilt)}` };
 }
 
 const ROWS: readonly ReaderCase[] = [
@@ -249,6 +276,7 @@ const ROWS: readonly ReaderCase[] = [
     scanThrows: false,
     markLines: 2,
     markAt: 30,
+    markClosesFrame: false,
   },
   {
     name: 'carriage return line feed pairs only',
@@ -264,6 +292,7 @@ const ROWS: readonly ReaderCase[] = [
     scanThrows: false,
     markLines: 2,
     markAt: 34,
+    markClosesFrame: false,
   },
   {
     name: 'bare carriage returns, and no blank line anywhere',
@@ -278,7 +307,8 @@ const ROWS: readonly ReaderCase[] = [
     metered: 0,
     scanThrows: false,
     markLines: 2,
-    markAt: 28,
+    markAt: 30,
+    markClosesFrame: true,
   },
   {
     name: 'line feeds, and no blank line anywhere',
@@ -293,7 +323,8 @@ const ROWS: readonly ReaderCase[] = [
     metered: 0,
     scanThrows: false,
     markLines: 2,
-    markAt: 28,
+    markAt: 30,
+    markClosesFrame: true,
   },
   {
     name: 'bare carriage returns as frame endings and as blank lines',
@@ -309,6 +340,7 @@ const ROWS: readonly ReaderCase[] = [
     scanThrows: false,
     markLines: 2,
     markAt: 30,
+    markClosesFrame: false,
   },
   {
     name: 'three terminator spellings in one body',
@@ -324,6 +356,7 @@ const ROWS: readonly ReaderCase[] = [
     scanThrows: false,
     markLines: 2,
     markAt: 32,
+    markClosesFrame: false,
   },
   {
     name: 'the sentinel mid-body, with a data frame after it',
@@ -339,6 +372,7 @@ const ROWS: readonly ReaderCase[] = [
     scanThrows: false,
     markLines: 2,
     markAt: 44,
+    markClosesFrame: false,
   },
   {
     name: 'the sentinel with a carriage return of its own before the pair',
@@ -353,6 +387,7 @@ const ROWS: readonly ReaderCase[] = [
     scanThrows: false,
     markLines: 1,
     markAt: 15,
+    markClosesFrame: false,
   },
   {
     name: 'the sentinel ended by a bare carriage return and nothing after it',
@@ -366,7 +401,8 @@ const ROWS: readonly ReaderCase[] = [
     metered: 0,
     scanThrows: false,
     markLines: 1,
-    markAt: 14,
+    markAt: 16,
+    markClosesFrame: true,
   },
   {
     name: 'a stream that sent the sentinel and nothing else',
@@ -378,6 +414,7 @@ const ROWS: readonly ReaderCase[] = [
     scanThrows: false,
     markLines: 0,
     markAt: 0,
+    markClosesFrame: false,
   },
   {
     name: 'the sentinel split across two writes',
@@ -393,6 +430,7 @@ const ROWS: readonly ReaderCase[] = [
     scanThrows: false,
     markLines: 1,
     markAt: 15,
+    markClosesFrame: false,
   },
   {
     name: 'a frame terminator split across two writes',
@@ -409,6 +447,7 @@ const ROWS: readonly ReaderCase[] = [
     scanThrows: false,
     markLines: 2,
     markAt: 30,
+    markClosesFrame: false,
   },
   {
     name: 'a carriage return line feed pair split across two writes',
@@ -424,6 +463,7 @@ const ROWS: readonly ReaderCase[] = [
     scanThrows: false,
     markLines: 1,
     markAt: 17,
+    markClosesFrame: false,
   },
   {
     name: 'the field name with no space after the colon',
@@ -438,6 +478,7 @@ const ROWS: readonly ReaderCase[] = [
     scanThrows: false,
     markLines: 1,
     markAt: 14,
+    markClosesFrame: false,
   },
   {
     name: 'two data lines in one block, separated by a bare carriage return',
@@ -452,6 +493,7 @@ const ROWS: readonly ReaderCase[] = [
     scanThrows: false,
     markLines: 2,
     markAt: 29,
+    markClosesFrame: false,
   },
   {
     name: 'a final frame whose terminator never arrived',
@@ -465,7 +507,8 @@ const ROWS: readonly ReaderCase[] = [
     metered: 1,
     scanThrows: false,
     markLines: 2,
-    markAt: 28,
+    markAt: 30,
+    markClosesFrame: true,
   },
 ];
 
@@ -489,9 +532,10 @@ describe('four readers of one response body, on the same bytes', () => {
       expect(caseItem.markLines, `${caseItem.name}: reader 3 counts no line the body does not hold}`).toBeLessThanOrEqual(
         dataFrames(caseItem),
       );
-      expect(caseItem.markAt, `${caseItem.name}: reader 4 writes inside the body it was sent`).toBeLessThanOrEqual(
-        body.length,
-      );
+      expect(
+        caseItem.markAt,
+        `${caseItem.name}: reader 4 writes inside the body it was sent, past nothing but the frame end it owed`,
+      ).toBeLessThanOrEqual(caseItem.markClosesFrame ? body.length + SSE_FRAME_END.length : body.length);
       expect(body.length, `${caseItem.name}: the body is bytes`).toBeGreaterThan(0);
     }
   });
@@ -559,6 +603,9 @@ describe('four readers of one response body, on the same bytes', () => {
         const tail = readerTail(body, caseItem.cuts ?? []);
         expect(tail.lost, 'the bytes a client is sent').toBeNull();
         expect(tail.at, 'where the mark frame was written').toBe(caseItem.markAt);
+        // The row states which of the two the tail did: close a frame the body left open, or write its mark
+        // where the bytes already began a frame. A mark never goes out on a line somebody else was using.
+        expect(tail.owed, 'whether the tail wrote the frame end the body owed').toBe(caseItem.markClosesFrame);
       });
     });
   }
