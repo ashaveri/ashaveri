@@ -362,45 +362,50 @@ interface Case {
 }
 
 /**
- * The one fragment of the reader's own sentence that each guard of each site says and no other guard of that
- * site says, as a pattern `main` matches the captured refusal against, so the direction a folded-list row
+ * For each guard of each site, the pattern the reader's own sentence for that guard matches and no other
+ * guard's sentence matches. `main` matches the captured refusal against it, so the direction a folded-list row
  * states is the exact branch of the exact twin it vectors, not merely the code two branches share.
  *
  * None of them carries a row position. The `[0]` of the reader's sentence is the place the moved row happens to
  * hold in the list, which is a fact of that document rather than of that guard, so a fragment naming one stops
- * matching the first time a case guards a later row and reports a live guard as a quiet one. The two figures
- * guards say the site's own bracket and the verb only that guard puts after it, with `\d+` standing where the
- * reader writes the position, which holds them apart from the guard naming a row at the same site at any
- * position and, being anchored by the site's own name, from the twin guard of the other site as well.
+ * matching the first time a case guards a later row and reports a live guard as a quiet one. Four of the six
+ * guards of a site open their sentence with that site's own name, which is what lets a fragment hold its rows
+ * apart from the twin guard of the other site: `figures` and `unheld` say the site's bracket with `\d+` standing
+ * where the reader writes the position, and `repeat` says the bracket bare, because that sentence names the list
+ * rather than a row of it. The two `unheld` patterns are the one pair here that is not one contiguous fragment:
+ * the head and the tail sit either side of the pack name, so a `.*` spans it, which is also what keeps an
+ * `unheld` pattern off the `without-finding` sentence that shares its head. `claim` and `count` need no site
+ * name to separate them, because the word that says the site, `break(s)` or `shortfall(s)`, sits inside their
+ * fragment already.
  *
  * Placement near the head is not what makes them match, though, and it is not guaranteed. The reader bounds a
  * quoted detail at two hundred characters, `MAX_DETAIL` at `packages/receipt/src/errors.ts:382`, and measured
- * against the published rows four of the twelve site and guard pairs sit at the head of their detail and eight
- * do not. At the head: `claim` at 0 and 0, and `figures` at 0 and 0, because each of those four fragments begins
- * with the words the reader's sentence opens with. Off the head: `count` at 27 and 27, `repeat` at 36 and 34,
- * `unheld` at 121 and 119, and `without-finding` at 121 and 119, the two numbers of each pair being the
- * `chain.breaks` row and the `duty.short` row. What carries the eight off the head is that the detail each
- * fragment sits in is shorter than the bound, at 51 to 173 characters, so the whole sentence publishes and the
- * fragment lies inside what survives. The four `figures` rows are the ones the bound does bite: their details
- * publish cut at 203 characters, the bound plus the three dots the reader appends, and their fragments still
- * match because they sit at 0, ahead of where the cut falls. So a fragment belongs near the head of the reader's
- * sentence, and a case with anything variable between the head and its fragment has to check the detail length
- * rather than assume the fragment is there.
+ * against the published rows eight of the twelve site and guard pairs sit at the head of their detail and four
+ * do not. At the head: `claim`, `repeat`, `unheld` and `figures`, each of the eight at offset 0. Off the head:
+ * `count` at 27 at both sites, and `without-finding` at 121 at `chain.breaks` and 119 at `duty.short`, the two
+ * numbers of a pair being its `chain.breaks` row and its `duty.short` row. What carries the four off the head is
+ * that the detail each fragment sits in is shorter than the bound, at 51 to 173 characters, so the whole sentence
+ * publishes and the fragment lies inside what survives. The two `unheld` patterns need the same of a longer span,
+ * since their match runs to the end of a detail of 141 and 139 characters. The four `figures` rows are the ones
+ * the bound does bite: their details publish cut at 203 characters, the bound plus the three dots the reader
+ * appends, and their fragments still match because they sit at 0, ahead of where the cut falls. So a fragment
+ * belongs near the head of the reader's sentence, and a case with anything variable between the head and its
+ * fragment has to check the detail length rather than assume the fragment is there.
  */
 const GUARD_SENTENCES: Record<'chain.breaks' | 'duty.short', Record<'claim' | 'count' | 'repeat' | 'unheld' | 'without-finding' | 'figures', RegExp>> = {
   'chain.breaks': {
     claim: /chain\.continuous says/u,
     count: /break\(s\) in it and the document states/u,
-    repeat: /distinct packs/u,
-    unheld: /does not hold at all/u,
+    repeat: /chain\.breaks states \d+ rows naming/u,
+    unheld: /chain\.breaks\[\d+\] names .*which the run does not hold at all/u,
     'without-finding': /holds without a break/u,
     figures: /chain\.breaks\[\d+\] states/u,
   },
   'duty.short': {
     claim: /duty\.carried says/u,
     count: /shortfall\(s\) in it and the document states/u,
-    repeat: /distinct packs/u,
-    unheld: /does not hold at all/u,
+    repeat: /duty\.short states \d+ rows naming/u,
+    unheld: /duty\.short\[\d+\] names .*which the run does not hold at all/u,
     'without-finding': /holds without a shortfall/u,
     figures: /duty\.short\[\d+\] states/u,
   },
