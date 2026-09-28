@@ -565,17 +565,41 @@ function parsePayload(bytes: Uint8Array, accepted: readonly ReceiptVersion[]): R
   const version = claimedVersion(raw.get('v'), accepted);
   assertMembersAreDefined(raw, DEFINED_MAPS[version], 'payload', `version ${version}`);
   const fields = readReceiptFields(raw);
-  if (version === 1) return { v: 1, ...fields };
-  const mk = readMarking(raw, version);
-  if (version === 2) return { v: 2, ...fields, mk };
-  return {
-    v: 3,
-    ...fields,
-    mk,
-    sd: readStampDisclosure(raw),
-    cva: readCollateralAnchor(raw),
-    itm: readItemStamps(raw),
-  };
+  // One arm per version this format defines, and no arm that answers for more than the version it
+  // names. The cascade this replaced ended in a `v: 3` object with nothing in front of it, so a fourth
+  // version landed there and was read under v3's rules: `sd`, `cva` and `itm` looked for in a document
+  // that names none of them, or found in one whose answer for them is another version's, and the
+  // operator heard `payload: v3` about a document only partly checked. `version` is a
+  // `ReceiptVersion`, which is the type `PARSED_VERSIONS` writes, so the day that list names a version
+  // with no arm above, the binding below is a compile error in the file that has to write the reader
+  // for it.
+  switch (version) {
+    case 1:
+      return { v: 1, ...fields };
+    case 2:
+      return { v: 2, ...fields, mk: readMarking(raw, 2) };
+    case 3:
+      return {
+        v: 3,
+        ...fields,
+        mk: readMarking(raw, 3),
+        sd: readStampDisclosure(raw),
+        cva: readCollateralAnchor(raw),
+        itm: readItemStamps(raw),
+      };
+    default: {
+      // Bound and deliberately unread: the assignment is what fails for a member no case above claims.
+      // `claimedVersion` refuses a version outside `PARSED_VERSIONS` before a member is read, so
+      // nothing reaches this arm through the package today; it is here for the caller that arrives with
+      // a version no build of this package can read, and it refuses rather than handing the document
+      // another version's members.
+      const _exhaustive: never = version;
+      throw new ReceiptError(
+        'UNSUPPORTED_VERSION',
+        'a payload naming a version this reader has no arm for is not read as another version',
+      );
+    }
+  }
 }
 
 /** The `mk` map of a payload, in the order `receipt.cddl` declares its two members. */
