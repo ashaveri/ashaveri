@@ -178,7 +178,10 @@ function join(held: Uint8Array, chunk: Uint8Array): Uint8Array {
  * bytes all arrived in one write keeps everything ahead of that frame and loses no part of its
  * streaming. The one shape where the mark does land last is a stream that writes something *after*
  * its own sentinel: a client that stops early will not read the frame, and the bytes are still the
- * ones the receipt attests, which section 3.3 states rather than leaving to be inferred.
+ * ones the receipt attests, which section 3.1 states rather than leaving to be inferred. That row is
+ * measured of both readers here, in `gateway/test/response-frame-readers.test.ts`: the framing attests
+ * the frame behind the sentinel as an item and this tail answers that the body does not end on a
+ * sentinel, so its mark goes last.
  */
 export class MarkedStreamTail {
   private held: Uint8Array = new Uint8Array(0);
