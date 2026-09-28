@@ -1,3 +1,4 @@
+import { isEventStream } from '@ashaveri/receipt';
 import type { CompletionBackend, CompletionUsage } from './backend.js';
 
 export interface UpstreamOptions {
@@ -138,7 +139,12 @@ export function upstreamBackend(options: UpstreamOptions): CompletionBackend {
       // fetch types the body as ReadableStream<any>, so the element type has to be named
       // here or every chunk read below arrives untyped.
       const stream: ReadableStream<Uint8Array> = upstream.body;
-      const streaming = contentType.includes('text/event-stream');
+      // The question this scan asks is the question the route asks before it decides what to attest, so it
+      // is asked of the same predicate and not of a literal spelled out here. The scan answers it to find a
+      // usage line, and the framing answers it to decide whether a body is frames or one whole item; two
+      // spellings would let a body be metered as a stream and attested as a single item, or the other way
+      // round, with each half internally consistent and the pair stating two different responses.
+      const streaming = isEventStream(contentType);
       const usageSlot = deferred<CompletionUsage>();
       // An aborted client stops consuming before this settles, and an awaited
       // promise nobody settles would surface as an unhandled rejection.
