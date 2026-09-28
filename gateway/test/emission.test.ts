@@ -198,6 +198,47 @@ function runsInOrder(stamps: readonly number[]): boolean {
   return true;
 }
 
+/**
+ * What a live `StreamedItemStamps` still owns of the response it read, reached by walking everything the
+ * instance can hand back, and counted over every run of bytes that is not a 32-byte digest.
+ *
+ * A claim about retention is a claim about reachability, so this measures reachability and not a heap
+ * figure: the digests the two readings state are 32 bytes apiece and are kept on purpose, and anything
+ * wider than that is a response's own bytes. A payload of exactly 32 bytes would read here as a digest,
+ * which is why the bodies below are framed from payloads of other widths. The companion claim, about the
+ * reader in `packages/receipt` this one is built on, is at
+ * `packages/receipt/test/response-items.test.ts`.
+ */
+function nonDigestBytesHeld(reader: object): number {
+  const seen = new Set<unknown>();
+  const stack: unknown[] = [reader];
+  let held = 0;
+  while (stack.length > 0) {
+    const node = stack.pop();
+    if (node === null || (typeof node !== 'object' && typeof node !== 'function') || seen.has(node)) continue;
+    seen.add(node);
+    if (ArrayBuffer.isView(node)) {
+      if (node.byteLength !== 32) held += node.byteLength;
+      continue;
+    }
+    for (const key of Object.keys(node)) stack.push((node as Record<string, unknown>)[key]);
+  }
+  return held;
+}
+
+/** The stamps of one body handed over at these boundaries, and the instance that took them. */
+function drivenBy(body: Uint8Array, splits: readonly number[]): StreamedItemStamps {
+  const stamps = new StreamedItemStamps(() => CLOCK_SECONDS);
+  let cut = 0;
+  for (const at of [...splits].sort((a, b) => a - b)) {
+    if (at <= cut || at >= body.length) continue;
+    stamps.written(body.subarray(cut, at));
+    cut = at;
+  }
+  stamps.written(body.subarray(cut));
+  return stamps;
+}
+
 describe('a v3 response, attested in the bytes a client holds', () => {
   it('frames a marked stream into items the reader rebuilds from the response it was handed', async () => {
     const h = await open({
@@ -458,6 +499,35 @@ describe('the framing of one response, read off the bytes as they pass', () => {
         expected.items.map((one) => toHex(one.d)),
       ]);
     }
+  });
+
+  it('holds no byte of a closed frame between its writes and its answer', () => {
+    // The whole-response walk runs from a stream's first write to its last, so what it keeps of the bytes it
+    // has read is kept until the receipt is signed. The two things this file takes from it are each item's
+    // digest and how many there were, so nothing wider than a digest may be reachable once every frame has
+    // arrived closed. The same body read by the verifier's own framing is the check that the digests stated
+    // are the ones the bytes give: the retention claim and the answer claim are taken about one run.
+    const body = utf8(UPSTREAM_STREAM);
+    const stamps = drivenBy(body, frameEnds(UPSTREAM_STREAM));
+    const answer = stamps.answer();
+    if (!answer.framed) throw new Error('the stream framed no items');
+    const expected = frameResponse('text/event-stream', body);
+    if (!expected.framed) throw new Error('the whole body framed no items');
+    expect(answer.stamps.map((one) => toHex(one.d))).toEqual(expected.items.map((one) => toHex(one.d)));
+    expect(nonDigestBytesHeld(stamps)).toBe(0);
+
+    // One frame the stream has not closed is the widest thing a live reader may own, and it is owned twice:
+    // once by the walk that sees every byte, and once by this file's carry, which is by construction the same
+    // value that walk holds internally. Every closed frame before it is gone from both.
+    const open = `data: ${'y'.repeat(200)}`;
+    const left = utf8(`data: {"a":1}\n\n${open}`);
+    const midstream = drivenBy(left, []);
+    expect(nonDigestBytesHeld(midstream)).toBe(open.length * 2);
+    const settled = midstream.answer();
+    if (!settled.framed) throw new Error('the unterminated frame was refused');
+    const rebuilt = frameResponse('text/event-stream', left);
+    if (!rebuilt.framed) throw new Error('the body with the open frame framed no items');
+    expect(settled.stamps.map((one) => toHex(one.d))).toEqual(rebuilt.items.map((one) => toHex(one.d)));
   });
 
   it('reads one instant per item, so no write boundary is inside a stamp', () => {

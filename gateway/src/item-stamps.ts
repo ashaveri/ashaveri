@@ -1,14 +1,15 @@
-import { ResponseItemFramer, equalBytes, frameResponse, type ItemStamp } from '@ashaveri/receipt';
+import { ResponseItemDigestFramer, equalBytes, frameResponse, type ItemStamp } from '@ashaveri/receipt';
 
 /**
  * The per-item stamps a `v: 3` payload carries, taken at the moment each item's bytes are handed over.
  *
  * `itm`'s `d` is sha256 of one response item and `t` is the instant that item passed. The two halves
- * have different owners: the digests belong to `ResponseItemFramer`, which is the shipped reader of a
- * response body and the only code whose reading a client can reproduce from the bytes it holds, and the
- * instants belong to this file, because nobody but the process writing the socket knows when a byte left
- * it. So this module owns exactly one thing: it feeds the shipped framer with the bytes this gateway
- * hands to a client, and it reads the clock once per item, in the order the items were framed.
+ * have different owners: the digests belong to the framing in `packages/receipt/src/response-items.ts`,
+ * which is the shipped reader of a response body and the only code whose reading a client can reproduce
+ * from the bytes it holds, and the instants belong to this file, because nobody but the process writing the
+ * socket knows when a byte left it. So this module owns exactly one thing: it feeds the shipped reader with
+ * the bytes this gateway hands to a client, and it reads the clock once per item, in the order the items
+ * were framed.
  *
  * Why the feed point is the write and not something upstream of it. `gateway/src/marking.ts` states the
  * rule this honours: the bytes marked are the bytes written, and section 3.3 of `docs/receipt-spec.md`
@@ -23,18 +24,31 @@ import { ResponseItemFramer, equalBytes, frameResponse, type ItemStamp } from '@
  * member after the upstream's bytes arrive. `res` and `mk.d` are already taken at the write, so an item
  * digest taken anywhere else would be the one member of the three that disagreed with the other two.
  *
- * Why a second, per-item reading of the same rule, when one framer already walks the bytes. The
- * shipped `ResponseItemFramer` answers once: `finish()` reads the answer, caches it, and `feed()`
- * refuses a chunk after that. An instant has to be attached while the response is still arriving, so
- * this file keeps one framer fed with every byte written, which is where the digests and the empty-list
- * refusal come from, and asks a fresh one how many items each write closed. The two readings cannot
- * disagree about which bytes are which item, because the prefix a write closes always ends on a line
- * ending, and a framer's own held bytes are, by its construction, exactly the bytes after the last line
+ * Why a second, per-item reading of the same rule, when one walk already has every byte. The shipped
+ * framing answers once: `finish()` reads the answer, caches it, and `feed()` refuses a chunk after that.
+ * An instant has to be attached while the response is still arriving, so this file keeps one reader fed
+ * with every byte written, which is where the digests and the empty-list refusal come from, and asks a
+ * fresh framer how many items each write closed. The two readings cannot disagree about which bytes are
+ * which item, because the two readers in `packages/receipt/src/response-items.ts` are one walk over a
+ * sequence of lines, differing only in what each keeps of an item: the prefix a write closes always ends on
+ * a line ending, and a walk's own held bytes are, by its construction, exactly the bytes after the last line
  * ending it has seen. That is why the bytes carried over here are cut at the last line ending rather
- * than at any boundary a transport chose: the carry is the same value the authoritative framer holds
+ * than at any boundary a transport chose: the carry is the same value the authoritative walk holds
  * internally, so the two walks read one sequence of lines. `answer()` compares every digest the readings
- * produced against the authoritative list before returning it, so the claim is checked on the bytes of
- * every response rather than left to this paragraph.
+ * produced against the authoritative list before returning it, and compares the two counts as well, so the
+ * claim is checked on the bytes of every response rather than left to this paragraph.
+ *
+ * Why the authoritative reading keeps digests and not the response. That walk runs from a response's first
+ * write to its last, so whatever it holds of the bytes it has read is held until the receipt is signed.
+ * What this file takes from that walk is each item's digest and the number of items: a list of 32-byte
+ * values whose length is the count, so anything else held is held for nothing, and a walk that kept
+ * payloads would grow with the size of a response rather than with the number of things it said.
+ * `ResponseItemDigestFramer` is the reader that answers those two and holds no byte of any item it framed,
+ * the only bytes it owns being the ones of the frame the last write did not close. The published framing
+ * answers an item's bytes beside its digest, because a stranger verifying a response body compares the
+ * bytes it holds with the bytes the digest was taken over; that is what `frameResponse` is for, and it is
+ * what `stampedBufferedItem` below runs, since a buffered body is in this process's hands whole already and
+ * a stream is not.
  *
  * Why the clock is read once per item and not once per write. A write boundary is a fact about this
  * process's transport: how many bytes the upstream happened to hand over, whether the socket took a
@@ -82,8 +96,8 @@ const CARRIAGE_RETURN = 0x0d;
  * Everything at or before the last line ending of these bytes, as an index one past it, or 0 when they
  * hold no ending at all.
  *
- * A line ending is a line feed or a carriage return, which is the pair `ResponseItemFramer` reads a
- * stream at; the two together end one line, and cutting after either of them leaves a prefix made only
+ * A line ending is a line feed or a carriage return, which is the pair the shipped framing reads a stream
+ * at; the two together end one line, and cutting after either of them leaves a prefix made only
  * of complete lines. Whether the byte after a carriage return is a line feed or the start of the next
  * line cannot change that: in the first case the pair ends the line already cut here, in the second the
  * line feed ends an empty line, which frames no item.
@@ -110,8 +124,8 @@ function join(held: Uint8Array, chunk: Uint8Array): Uint8Array {
  * One instance answers for one response, which is what its `res` and its `itm` are the digests of.
  */
 export class StreamedItemStamps {
-  /** Every byte written to the client, walked once by the shipped reader. */
-  private readonly authoritative = new ResponseItemFramer(true);
+  /** Every byte written to the client, walked once by the shipped reader, digests kept and bytes dropped. */
+  private readonly authoritative = new ResponseItemDigestFramer(true);
   /** Each item the writes closed, with the reading taken for it, in the order the items were framed. */
   private readonly stamped: StampedItem[] = [];
   /** The bytes written since the last line ending: the one frame this stream has not closed. */
@@ -143,10 +157,10 @@ export class StreamedItemStamps {
       this.carry = combined.slice();
       return;
     }
-    const framing = new ResponseItemFramer(true);
+    const framing = new ResponseItemDigestFramer(true);
     framing.feed(combined.subarray(0, closed));
     const answer = framing.finish();
-    const digests = answer.framed ? answer.items.map((one) => one.d) : [];
+    const digests = answer.framed ? answer.digests : [];
     if (digests.length === 0) {
       // A write that closed no frame passed no item, so no instant was read for it: a stream of blank
       // lines and event fields costs this process no clock readings it has nothing to attest.
@@ -163,11 +177,11 @@ export class StreamedItemStamps {
   /**
    * The stamped list, or the refusal.
    *
-   * The list and its digests come from the framer that saw every byte, and the readings taken at the
-   * writes only decide which instant each of those items carries; the two are compared first, because a
-   * reading that had framed an item the whole-body walk does not hold would mean this file and the
-   * shipped reader disagree about one response, and an unissued receipt beats a signed document resting
-   * on that disagreement.
+   * The list and its digests come from the walk that saw every byte, and the readings taken at the writes
+   * only decide which instant each of those items carries; the two are compared first, because a reading
+   * that had framed an item the whole-response walk does not hold would mean this file and the shipped
+   * reader disagree about one response, and an unissued receipt beats a signed document resting on that
+   * disagreement.
    */
   answer(): FramedItemStamps {
     const framing = this.authoritative.finish();
@@ -177,27 +191,27 @@ export class StreamedItemStamps {
       }
       return { framed: false, why: framing.why };
     }
-    const items = framing.items;
-    if (this.stamped.length > items.length) {
+    const digests = framing.digests;
+    if (this.stamped.length > digests.length) {
       throw new Error(
-        `${String(this.stamped.length)} items framed during the writes and ${String(items.length)} at the response's end`,
+        `${String(this.stamped.length)} items framed during the writes and ${String(digests.length)} at the response's end`,
       );
     }
     const stamped: ItemStamp[] = [];
     for (const [index, one] of this.stamped.entries()) {
-      const item = items[index];
-      if (item === undefined || !equalBytes(one.d, item.d)) {
+      const digest = digests[index];
+      if (digest === undefined || !equalBytes(one.d, digest)) {
         throw new Error(`item ${String(index)} was digested differently at its write and at the response's end`);
       }
-      stamped.push({ t: one.at, d: item.d });
+      stamped.push({ t: one.at, d: digest });
     }
-    if (this.stamped.length < items.length) {
+    if (this.stamped.length < digests.length) {
       // The frame the stream left unterminated, if there is one. It is an item the response sent: the
       // shipped reader counts it at the end rather than dropping bytes a client hashed into `res`, and the
       // only instant it can be given is one this process reads now, per item, exactly as the frames that
       // arrived terminated were given theirs.
-      for (const item of items.slice(this.stamped.length)) {
-        stamped.push({ t: this.stampFor(), d: item.d });
+      for (const digest of digests.slice(this.stamped.length)) {
+        stamped.push({ t: this.stampFor(), d: digest });
       }
     }
     // The order `t` is in follows the order the bytes were in: the readings were taken in item order and
