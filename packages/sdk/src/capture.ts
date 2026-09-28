@@ -89,13 +89,20 @@ export interface CaptureAbsent {
 export type CaptureSlot = CaptureHeld | CaptureAbsent;
 
 /**
- * What the stored bytes are. The set is closed, and a new source arrives as a new capture version rather
- * than as a new string: a reader that let an unknown kind fall through to its default handling would
- * assess a document it holds no rules for.
+ * What the stored bytes are, the whole closed set written once as a list. A new source arrives as a new
+ * capture version rather than as a new string: a reader that let an unknown kind fall through to its
+ * default handling would assess a document it holds no rules for, which is what the test against this
+ * list below refuses.
  */
-export type CaptureSourceKind = 'platform-evidence' | 'device-evidence' | 'deployment-manifest' | 'receipt';
+const SOURCE_KINDS = ['platform-evidence', 'device-evidence', 'deployment-manifest', 'receipt'] as const;
 
-const SOURCE_KINDS: readonly string[] = ['platform-evidence', 'device-evidence', 'deployment-manifest', 'receipt'];
+/** The kinds above as a type, so the set is named in one place and read in two. */
+export type CaptureSourceKind = (typeof SOURCE_KINDS)[number];
+
+/** Whether a string the document named itself with is one of the kinds above. */
+function isCaptureSourceKind(value: unknown): value is CaptureSourceKind {
+  return typeof value === 'string' && (SOURCE_KINDS as readonly string[]).includes(value);
+}
 
 export interface CaptureRecord {
   readonly v: number;
@@ -424,7 +431,7 @@ export function parseCaptureRecord(value: unknown): CaptureRecord {
     'original',
   );
   const sourceKind = requireText(original, 'sourceKind', 'original');
-  if (!SOURCE_KINDS.includes(sourceKind)) {
+  if (!isCaptureSourceKind(sourceKind)) {
     refused('NOT_CAPTURE_RECORD', `original.sourceKind '${sourceKind}' is none of the sources this record can describe`);
   }
   const signedBySource = requireBoolean(original, 'signedBySource', 'original');
@@ -483,7 +490,7 @@ export function parseCaptureRecord(value: unknown): CaptureRecord {
   const record: CaptureRecord = {
     v: version,
     original: {
-      sourceKind: sourceKind as CaptureSourceKind,
+      sourceKind,
       sourceId: requireText(original, 'sourceId', 'original'),
       bytes: requireText(original, 'bytes', 'original'),
       sha256: requireDigest(original, 'sha256', 'original'),
