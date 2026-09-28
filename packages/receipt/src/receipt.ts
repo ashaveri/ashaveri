@@ -614,7 +614,168 @@ function collateralSlotMembers(slot: CollateralSlot): Map<string, unknown> {
     : new Map<string, unknown>([['p', slot.presence], ['r', slot.reason]]);
 }
 
+/**
+ * Where a member's name in the interfaces this package publishes differs from its name on the wire.
+ * Three positions differ, each because the type spells out what `receipt.cddl` abbreviates: the bound
+ * a stamp's source states about itself, and the two legs of the anchor. Everywhere else the two names
+ * are one name, so the walk below reads the same member list the reader's closedness walk reads.
+ */
+const WIRE_TO_INPUT_NAME: Readonly<Record<string, string>> = {
+  unc: 'uncertaintySeconds',
+  col: 'collateral',
+  val: 'validity',
+};
+
+/**
+ * The two arms of a collateral slot under the names a caller hands them under, by the presence label
+ * that chooses between them. Written out rather than read off `COLLATERAL_HELD_MEMBERS` and
+ * `COLLATERAL_ABSENT_MEMBERS`, because `p`, `d` and `r` name members of four other maps of this
+ * payload too, where `d` is a mark's digest and `p` a token count, so no global renaming reaches a
+ * slot. Each list is one name per name of the arm's wire list, and `receipt.test.ts` holds that
+ * against the two lists, which is where a fourth member added to one arm would otherwise be missed.
+ */
+const SLOT_INPUT_MEMBERS: Readonly<Record<CollateralPresence, readonly string[]>> = {
+  held: ['presence', 'sha256'],
+  'absent-at-source': ['presence', 'reason'],
+  'not-taken-in': ['presence', 'reason'],
+};
+
+/** A nested map's wire members, as the interfaces name them. */
+function inputMembersOf(wireMembers: readonly string[]): readonly string[] {
+  return wireMembers.map((name) => WIRE_TO_INPUT_NAME[name] ?? name);
+}
+
+/**
+ * The members of a map the writer was handed, once it has proved that what it was handed is a map.
+ * A `null`, a primitive and an array are refused as the map the format writes rather than reaching a
+ * property read that would answer `undefined` for every member and then die in one, which is the
+ * uncoded `TypeError` this walk replaces. Two-step on purpose: the version and a slot's presence
+ * label decide which member list applies, and nothing else about the map is asked until after they
+ * have, so the position that chooses is never checked against a list it has not settled yet.
+ */
+function encodableMapOf(value: unknown, where: string): Record<string, unknown> {
+  if (value === null || typeof value !== 'object' || Array.isArray(value)) {
+    throw badPayload(`${where} is not a map the format writes`);
+  }
+  return value as Record<string, unknown>;
+}
+
+/**
+ * One map the writer was handed, against the members that map defines: nothing it carries is a name
+ * the definition lacks, and nothing the definition requires is a name it does not hold a value under.
+ * A key whose value is `undefined` is the absence of a member and not a member carrying nothing,
+ * which is what makes `sd` with `uncertaintySeconds: null` a statement and `itm: undefined` a hole.
+ */
+function assertEncodableMap(
+  value: unknown,
+  members: readonly string[],
+  where: string,
+  definer: string,
+): Record<string, unknown> {
+  const given = encodableMapOf(value, where);
+  for (const name of Object.keys(given)) {
+    if (!members.includes(name)) {
+      throw badPayload(`${where} carries a member ${definer} does not define: ${memberName(name)}`);
+    }
+  }
+  for (const name of members) {
+    if (given[name] === undefined) {
+      throw badPayload(`${where} is missing '${name}', which ${definer} requires`);
+    }
+  }
+  return given;
+}
+
+/**
+ * One arm of the anchor, closed at the position it sits on, as the reader closes it at the same one.
+ * A slot carrying both arms' claims is reached by the arm its own label selects and refused there for
+ * the member that arm does not define, which is the state `readCollateralSlot` answers by closing each
+ * arm at its own site rather than one list for both.
+ */
+function assertEncodableSlot(value: unknown, where: string): void {
+  const given = encodableMapOf(value, where);
+  const presence = given['presence'];
+  if (typeof presence !== 'string' || !isCollateralPresence(presence)) {
+    throw badPayload(`${where}.p is not one of the three presence states the format declares`);
+  }
+  assertEncodableMap(given, SLOT_INPUT_MEMBERS[presence], where, presence === 'held' ? 'a held slot' : 'an absent slot');
+}
+
+/**
+ * Whether the payload the writer was handed is one its version can state, in full, in these bytes.
+ *
+ * The projection below reads the members its version names, and a projection cannot notice a name it
+ * was not told to look for: an `sd` carried beside a `v: 2` was dropped without a word, and the
+ * signature landed on a document that states nothing about the claim the caller handed over, while a
+ * `v: 3` payload with no `itm` died inside a property read, which is not one of the refusals this
+ * package publishes. So the writer answers the two questions the reader answers, with the reader's own
+ * sentences and the reader's own code, one step before either could be noticed downstream: a member the
+ * version does not define is `BAD_PAYLOAD` there and here, and a required member that is absent is
+ * `BAD_PAYLOAD` there and here. `docs/error-codes.md` holds `BAD_PAYLOAD` to both readings for that
+ * reason, and holds it to a third: a document this walk lets through is still not necessarily a
+ * document the format admits, because what is checked here is what the writer was handed and what it
+ * can write down, not whether the result is legal. An empty `itm` is that case, and the writer writes
+ * it, because it was handed a list and a faithful writer states the length it was given. The reader is
+ * the one that says a run of nothing is not a document, and it does. That division is not a leftover:
+ * the published vector `receipt-empty-items-v3` is made by this function over an empty list, and a
+ * refusal here would delete a byte that is already signed and already published.
+ *
+ * The version is settled first and the members then walked in the order the CDDL lists them, which is
+ * the order `parsePayload` reaches them in, so the two directions of one format answer the same
+ * question and answer it in the same order. The lists are read off `DEFINED_MAPS`, the structure the
+ * reader's closedness walk reads, so the rule a version's member set is written down in one place and
+ * a fourth version that joins `PARSED_VERSIONS` fails to compile in the map that has to describe it
+ * rather than agreeing to be encoded short. The two positions the reader closes at their own sites
+ * rather than in a `nested` entry, the arms of the anchor and the element of the item list, are closed
+ * here at the matching sites too, gated on the member being defined for the version rather than on the
+ * version's number, which is what carries them into any later version that names them.
+ */
+function assertEncodable(payload: ReceiptPayload): void {
+  const given = encodableMapOf(payload, 'payload');
+  // The version, settled before a member list is read, and answered in the two shapes the reader
+  // answers it in: a `v` that is no integer at all is a payload that does not match its schema, and a
+  // number this package has no members for is not one it can read as another version's. Absence is the
+  // first of those and not the second, because nothing about a payload that names no version says
+  // which version it meant.
+  const claimed = given['v'];
+  if (typeof claimed !== 'number' || !Number.isInteger(claimed)) {
+    throw badPayload('v must be an integer receipt version');
+  }
+  if (!isReceiptVersion(claimed)) {
+    throw new ReceiptError(
+      'UNSUPPORTED_VERSION',
+      'a payload naming a version this encoder has no members for is not encoded as another version',
+    );
+  }
+  const defined = DEFINED_MAPS[claimed];
+  const members = assertEncodableMap(given, defined.members, 'payload', `version ${claimed}`);
+  for (const [name, nested] of Object.entries(defined.nested ?? {})) {
+    assertEncodableMap(members[name], inputMembersOf(nested.members), name, 'the format');
+  }
+  if (defined.members.includes('cva')) {
+    const anchor = members['cva'] as Record<string, unknown>;
+    assertEncodableSlot(anchor['collateral'], 'cva.col');
+    assertEncodableSlot(anchor['validity'], 'cva.val');
+  }
+  if (defined.members.includes('itm')) {
+    const items = members['itm'];
+    if (!Array.isArray(items)) throw badPayload('itm must be an array');
+    for (const [index, one] of items.entries()) {
+      assertEncodableMap(one, ITEM_STAMP_MEMBERS, `itm[${index}]`, 'the format');
+    }
+  }
+}
+
+/**
+ * The payload, as the CBOR maps `receipt.cddl` declares them: one `Map` per map, so key order is
+ * bytewise under Core Deterministic Encoding and no field order in this file or in a caller's object
+ * can move a byte of what gets signed.
+ */
 export function encodePayload(payload: ReceiptPayload): Uint8Array {
+  // What the writer was handed is settled before a single member is read, because every read below is
+  // a projection and a projection that reaches for a name the object does not carry is the defect this
+  // refuses, not a step of the layout.
+  assertEncodable(payload);
   // Maps (not plain objects) so key ordering is bytewise per RFC 8949 CDE,
   // independent of any TS field ordering.
   const fields: Array<readonly [string, unknown]> = [
@@ -632,23 +793,25 @@ export function encodePayload(payload: ReceiptPayload): Uint8Array {
     ['epk', payload.epk],
     ['tok', new Map<string, unknown>([['p', payload.tok.p], ['c', payload.tok.c]])],
   ];
-  // Which members a document carries is the version's answer, not the object's. Encoding whatever a
-  // payload happens to hold would sign a `v: 2` document carrying an `sd`, and the only notice of two
-  // statements in one document would be the closedness walk refusing the bytes on the way back, which
-  // is a writer producing bytes its own reader will not take. So each arm writes what its version
-  // names and nothing else: the bytes a v1 payload encodes to stay exactly the bytes it encoded to
-  // before `mk` existed, signed by a verifier that never heard of it, and the same one version on, a v2
+  // Which members a document carries is the version's answer, not the object's. So each arm writes what
+  // its version names: the bytes a v1 payload encodes to stay exactly the bytes it encoded to before
+  // `mk` existed, signed by a verifier that never heard of it, and the same one version on, a v2
   // document carries no `sd`, no `cva` and no `itm`, and the bytes it signed are the bytes it still
-  // signs. `unc` is written whether or not anything was measured, because `null` is the sentence the
-  // source says about itself and an omitted member is not that sentence.
+  // signs. What that leaves unsaid is the case the walk above answers: an arm that writes its version's
+  // members and nothing else would otherwise be a writer that trims, and a caller that handed over an
+  // `sd` beside a `v: 2` would get a signature over a document naming none of the claim it carried,
+  // which is the silence the version exists to refuse rather than a service this file can render. Being
+  // the version's answer is what makes the arms a refusal and not a filter. `unc` is written whether or
+  // not anything was measured, because `null` is the sentence the source says about itself and an
+  // omitted member is not that sentence.
   //
   // What this switch closes over is `ReceiptPayload`, so ask what fails if `PARSED_VERSIONS` gains a `4`
   // and nothing else is edited: `DEFINED_MAPS` and the parse arm, both read off `ReceiptVersion`, and
-  // not this function, whose argument is the payload union. This arm is the one that fails when a
-  // fourth interface joins that union, which is the same decision one edit later, and it fails in this
-  // package at the code that has to write the arm rather than quietly in the bytes a caller gets. A
-  // caller that casts a payload naming a version outside the union reaches the refusal below instead of
-  // an encoding with three members missing from it.
+  // the walk above, which reads the member set off `DEFINED_MAPS` rather than restating it. This arm is
+  // the one that fails when a fourth interface joins the payload union, which is the same decision one
+  // edit later, and it fails in this package at the code that has to write the arm rather than quietly
+  // in the bytes a caller gets. A caller that casts a payload naming a version outside the union is
+  // answered at the version check above, before a member of any version is read.
   switch (payload.v) {
     case 1:
       break;
@@ -686,13 +849,22 @@ export function encodePayload(payload: ReceiptPayload): Uint8Array {
 }
 
 export function issueReceipt(payload: ReceiptPayload, key: SigningKey): Uint8Array {
+  // The projection is settled first, because it is the step that proves `meas` is a map carrying both
+  // of its members: the width rule below reads the kind out of it, and a payload with no `meas` at all
+  // would answer `undefined` for the kind and die inside that read rather than with a named refusal.
+  const payloadBytes = encodePayload(payload);
   // Catch it here rather than after signing: a receipt whose measurement does not
-  // match its kind is one no verifier can accept.
+  // match its kind is one no verifier can accept. The two halves of that are one question the reader
+  // already answers with one sentence, and `isUint8Array` is the reader's own test for a bstr: a
+  // measurement that is not bytes at all has no width to compare, and reaching past it for one is the
+  // uncoded `TypeError` this call exists to keep off the honest path. A `Buffer` is a `Uint8Array`, so
+  // a gateway that read its deployment's measurement out of a file is not refused here for the shape of
+  // what it holds.
   const width = MEASUREMENT_BYTES[payload.meas.tee];
-  if (payload.meas.m.length !== width) {
-    throw new ReceiptError('BAD_PAYLOAD', `meas.m must be ${width} bytes for tee '${payload.meas.tee}'`);
+  if (!isUint8Array(payload.meas.m) || payload.meas.m.length !== width) {
+    throw new ReceiptError('BAD_PAYLOAD', `meas.m must be a ${width}-byte bstr for tee '${payload.meas.tee}'`);
   }
-  return signCoseSign1(encodePayload(payload), key);
+  return signCoseSign1(payloadBytes, key);
 }
 
 /**
