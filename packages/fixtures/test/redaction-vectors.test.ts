@@ -48,6 +48,14 @@ const ERRORS = '../../../packages/receipt/src/errors.ts';
 const VECTORS_DOC = fileURLToPath(new URL('../../../docs/vectors.md', import.meta.url));
 
 /**
+ * The four columns the published roster declares for the pack half of a row and the `packFields` prose
+ * explains. Written out rather than gathered from the roster by a prefix, because a future column opening on
+ * `pack` for a reason of its own, a pack digest or a pack seal, is not one of these and would otherwise be
+ * read into the comparison between the prose and the roster by its spelling alone.
+ */
+const PACK_COLUMNS: readonly string[] = ['packOf', 'packBase64Url', 'packByteLength', 'packEdited'];
+
+/**
  * One prose member of the published `layout` block, read as the text it is. The block's index signature gives
  * `unknown`, and a member that vanished is a statement about the published roster with nothing left to state,
  * which this file would rather report than read as an empty list.
@@ -304,11 +312,12 @@ describe('the redaction manifest vectors', () => {
     // for them, so the roster and the sentence explaining it are read against each other rather than each
     // trusted alone. The comparison is over which columns rather than the order they are listed in, because the
     // rows fix the order their own bytes appear in and nothing a port does depends on where the roster lists a
-    // column.
+    // column. The roster side is read by the four names, so a fifth pack column has to be written here as well
+    // as in the roster and in the prose before any of the three claims it exists.
     expect(
       namedFields(layoutProse('packFields')).sort(),
       'the prose that explains the pack columns and the roster do not name the same ones',
-    ).toEqual(file.layout.verdictFields.filter((one) => one.startsWith('pack')).sort());
+    ).toEqual(file.layout.verdictFields.filter((one) => PACK_COLUMNS.includes(one)).sort());
     const declared = new Set(unionMembers('ReceiptErrorCode', ERRORS));
     for (const one of file.vectors) {
       if (one.verdict === 'verify-ok') continue;
