@@ -1080,6 +1080,64 @@ describe('receipt payload v3, its three members and the order of its items', () 
     expect(expectFailure(() => decodeReceipt(noDigest)).message).toContain('itm[0].d must be a 32-byte bstr');
   });
 
+  it('refuses a v3 map the bytes did not deliver as a map, at each position one sits in', () => {
+    const key = generateSigningKey();
+    // Five positions, one table. `mk` and `meas` already answer this way for the versions that carry
+    // them, and `v: 3` adds five more places where the format names a map: the two disclosures at the
+    // payload, the two arms of the anchor below `cva`, and one element of the item list. Each is the
+    // reader's own refusal rather than the closure walk's, because a walk over a map's members has no
+    // map to enter when the value is not one, and the detail is the assertion because `BAD_PAYLOAD`
+    // is what every one of these answers with: a case that checked only the code would stay green
+    // whichever position the reader named, and the naming is the whole of what tells a reader which
+    // member the bytes got wrong.
+    const cases: Array<[string, (members: Map<string, unknown>) => void, string]> = [
+      ['sd', (members) => members.set('sd', 'host clock'), 'sd must be a map'],
+      ['cva', (members) => members.set('cva', 'nothing was taken in'), 'cva must be a map'],
+      ['cva.col', (members) => (members.get('cva') as Map<string, unknown>).set('col', 'held'), 'cva.col must be a map'],
+      ['cva.val', (members) => (members.get('cva') as Map<string, unknown>).set('val', 7), 'cva.val must be a map'],
+      ['an itm element', (members) => members.set('itm', ['a frame, but not a map']), 'itm[0] must be a map'],
+    ];
+    for (const [where, edit, sentence] of cases) {
+      const members = membersOf(stampedPayload());
+      edit(members);
+      const bytes = signMembers(members, key);
+      const failure = expectFailure(() => verifyReceipt(bytes, { publicKey: key.publicKey, now: FIXED_NOW }));
+      expect(failure.message, `a ${where} that is not a map`).toContain(sentence);
+      expect(expectFailure(() => decodeReceipt(bytes)).message, `the same bytes read without a key`).toContain(sentence);
+    }
+  });
+
+  it('refuses a negative instant or bound where the format names a non-negative one', () => {
+    const key = generateSigningKey();
+    // Two positions, one table. Both take an integer the CDDL writes as non-negative, and both are
+    // refused by the reader that gets there before any comparison of one stamp against another: a
+    // negative bound is not a bound a reader can weigh, and a negative item instant is a frame stamped
+    // before the epoch. The sentence is the assertion again, because
+    // `BAD_PAYLOAD` is what every integer position in this payload answers with when the value is
+    // below zero, and the code says nothing about which one moved.
+    const cases: Array<[string, (members: Map<string, unknown>) => void, string]> = [
+      [
+        'sd.unc',
+        (members) => (members.get('sd') as Map<string, unknown>).set('unc', -1),
+        'sd.unc must be a non-negative integer or null',
+      ],
+      [
+        'itm.t',
+        (members) =>
+          members.set('itm', [new Map<string, unknown>([['t', -1], ['d', sha256(new TextEncoder().encode('one frame'))]])]),
+        'itm[0].t must be a non-negative integer',
+      ],
+    ];
+    for (const [where, edit, sentence] of cases) {
+      const members = membersOf(stampedPayload());
+      edit(members);
+      const bytes = signMembers(members, key);
+      const failure = expectFailure(() => verifyReceipt(bytes, { publicKey: key.publicKey, now: FIXED_NOW }));
+      expect(failure.message, `a negative ${where}`).toContain(sentence);
+      expect(expectFailure(() => decodeReceipt(bytes)).message, `the same bytes read without a key`).toContain(sentence);
+    }
+  });
+
   it('accepts items stamped in one second, which is the width of the stamp', () => {
     const key = generateSigningKey();
     // Stamps are whole seconds and two frames of one completion fall inside a second routinely, so a
