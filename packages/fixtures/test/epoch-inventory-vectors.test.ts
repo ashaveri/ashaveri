@@ -14,7 +14,7 @@ import {
   type EpochInventoryVerifyOptions,
 } from '@ashaveri/receipt';
 import { loadEpochInventoryVectors, type EpochInventoryVector } from '../src/index.js';
-import { assertRowRoster, ROW_NAMING_FIELDS, unionMembers } from './doc-contract.js';
+import { assertRowRoster, literalEntries, readSourceFile, ROW_NAMING_FIELDS, unionMembers } from './doc-contract.js';
 
 /**
  * The published epoch inventory vectors, replayed the way a port replays them: take the document out of the
@@ -23,7 +23,7 @@ import { assertRowRoster, ROW_NAMING_FIELDS, unionMembers } from './doc-contract
  * refusal sentences and both verdict columns are data in `data/epoch-inventory-v1.json`, and the only question
  * asked of the code is whether it answers as the file says it does.
  *
- * Five more things are checked on the way, because a suite of one-document artifacts is only as good as the
+ * Seven more things are checked on the way, because a suite of one-document artifacts is only as good as the
  * claims it can be read for. The honest envelope is rebuilt here from the three pieces the file publishes
  * beside it, by the shipped seal function rather than by the signing writer or the generator's case list,
  * and required to be byte-identical to
@@ -47,6 +47,13 @@ import { assertRowRoster, ROW_NAMING_FIELDS, unionMembers } from './doc-contract
  * those four siblings are handed is held equal to this file's own here, because the two are one list written in
  * two places and this is the case that reads both.
  *
+ * A sixth and a seventh hold the published refusals apart at the width a reader actually prints. Three
+ * findings share `EPOCH_INVENTORY_RUN_NOT_CONTIGUOUS`, the other codes of this family that more than one
+ * published row answers with share a fixed sentence too, and a detail reaches an operator up to a bound: words
+ * naming the finding past the cut are a refusal that reads as every other refusal of its code. The bound and
+ * the fixed sentences are read out of `packages/receipt/src/errors.ts` rather than repeated here, so the
+ * measurement is taken at the width the registry applies and not at one this file remembers.
+ *
  * The client half of this reading lives in `packages/cli/test/vector-conformance.test.ts`, which drives the
  * same rows through the two exported inventory readers, since no command of this package reads an epoch
  * inventory. What is here is the format package's own reader, the one every verdict in this file was
@@ -55,6 +62,71 @@ import { assertRowRoster, ROW_NAMING_FIELDS, unionMembers } from './doc-contract
 
 const file = loadEpochInventoryVectors();
 const ERRORS = '../../../packages/receipt/src/errors.ts';
+
+/**
+ * How many units of a quoted detail the reader publishes, read out of the file that cuts it. Stating the
+ * number here would let the pin drift behind the bound: the width the rows are measured at has to be the
+ * width the reader applies.
+ */
+function detailBound(): number {
+  const stated = /const MAX_DETAIL = (\d+);/u.exec(readSourceFile(ERRORS));
+  if (stated === null) throw new Error('the registry no longer states a bound on a quoted detail');
+  return Number(stated[1]);
+}
+
+const BOUND = detailBound();
+
+/** The fixed sentence the registry publishes beside one code, as written there and not as copied here. */
+const FIXED_SENTENCES = new Map(
+  literalEntries('ERROR_MESSAGE', ERRORS).map((one) => [one.key, one.value.replace(/^'(.*)'$/su, '$1')]),
+);
+
+/**
+ * What an operator can read of one published refusal: the part of its detail the bound lets through. The
+ * published message already carries the cut, so this takes the fixed sentence off the front and keeps the
+ * units behind it that the reader was willing to print, whole where the detail was short enough to publish
+ * entire.
+ */
+function survivesTheBound(one: EpochInventoryVector): string {
+  const sentence = FIXED_SENTENCES.get(one.verdict);
+  if (sentence === undefined) {
+    throw new Error(`${one.name} answers ${one.verdict}, whose fixed sentence the registry does not publish`);
+  }
+  const head = `${sentence}: `;
+  if (one.message === undefined || !one.message.startsWith(head)) {
+    throw new Error(`${one.name} publishes no sentence beginning with the fixed words of ${one.verdict}`);
+  }
+  return one.message.slice(head.length, head.length + BOUND);
+}
+
+/**
+ * The pairs of rows in a group that read as one another inside the bound, each named by both of its row
+ * names. A refusal that says which two collided is the difference between this file telling an operator which
+ * row to look at and telling them that something is wrong somewhere among the suite's refusals.
+ */
+function collidingPairs(rows: readonly EpochInventoryVector[]): string[] {
+  const first = new Map<string, string>();
+  const collisions: string[] = [];
+  for (const one of rows) {
+    const readable = survivesTheBound(one);
+    const seen = first.get(readable);
+    if (seen === undefined) first.set(readable, one.name);
+    else collisions.push(`${seen} and ${one.name}`);
+  }
+  return collisions;
+}
+
+/**
+ * The first unit of two details at which they differ. Where that falls decides whether the words or a
+ * digest carries the difference: the two paths of a contiguity detail are 83 units each and the bound cuts
+ * inside the second of them, so a difference that only shows up past the first path could be nothing but
+ * the pair the row happens to name.
+ */
+function firstDifference(left: string, right: string): number {
+  let at = 0;
+  while (at < left.length && at < right.length && left[at] === right[at]) at += 1;
+  return at;
+}
 
 const bytes = (base64url: string): Uint8Array => new Uint8Array(Buffer.from(base64url, 'base64url'));
 
@@ -336,6 +408,59 @@ describe('the published epoch inventory vectors', () => {
     for (const one of file.vectors) {
       if (one.verdict === one.structural) continue;
       expect(one.verdict, `${one.name} agrees at the shape and disagrees the other way round`).not.toBe('verify-ok');
+    }
+  });
+
+  it('tells the three contiguity findings apart inside the bound', () => {
+    // One code, three findings, and two different remedies among them: a gap is a period the epoch states it
+    // attests and does not, an overlap is the same receipts under two signatures, and an entry whose own window
+    // does not run forwards is neither. A contiguity detail carries pack paths of 83 units, and two of them
+    // where a pair of neighbours is the finding, which is more than the bound lets through. So the words
+    // naming the finding have to sit ahead of the paths rather than after them, or an operator reads one
+    // sentence for three faults.
+    const rows = file.vectors.filter((one) => one.verdict === 'EPOCH_INVENTORY_RUN_NOT_CONTIGUOUS');
+    expect(rows.map((one) => one.name).sort()).toEqual([
+      'a-window-left-out-of-the-run',
+      'a-window-sealed-twice',
+      'an-entry-whose-own-window-does-not-run-forwards',
+    ]);
+    expect(collidingPairs(rows), 'two of the three contiguity refusals read as the same words').toEqual([]);
+    // And the difference is carried by the finding and not by a digest: every pair parts company before the
+    // first pack path of either detail begins, which is the half an operator can act on whatever the run holds.
+    for (const [index, one] of rows.entries()) {
+      for (const other of rows.slice(index + 1)) {
+        const mine = survivesTheBound(one);
+        const theirs = survivesTheBound(other);
+        const pathAt = Math.min(mine.indexOf('packs/'), theirs.indexOf('packs/'));
+        expect(pathAt, `${one.name} and ${other.name} carry no pack path to measure against`).toBeGreaterThan(-1);
+        expect(
+          firstDifference(mine, theirs),
+          `${one.name} and ${other.name} differ only where a digest would have differed, not in the words`,
+        ).toBeLessThan(pathAt);
+      }
+    }
+  });
+
+  it('tells every multi-finding refusal of this family apart inside the bound', () => {
+    // The same promise one class wider. The error-code document states of several of these codes that the detail
+    // says which finding it was, and the published rows are the only place that claim is checkable. The class is
+    // read off the registry rather than named here: every code this package declares for the container, grouped
+    // by the refusing rows that answer with it, which is seven codes carrying more than one row over 46 refusing
+    // rows. Three rows of the suite answer with codes shared with another container, `NOT_COSE_SIGN1`,
+    // `UNSUPPORTED_ALG` and `INVALID_SIGNATURE`, and are outside this class because their sentences belong to
+    // that container's reader. Before the contiguity wording moved, one of the seven published two rows as one
+    // identical string and the other six already read apart; the measurement is the point, so a code that
+    // collapses back is named by its own rows.
+    const family = unionMembers('ReceiptErrorCode', ERRORS).filter((code) => code.startsWith('EPOCH_INVENTORY_'));
+    const refused = file.vectors.filter((one) => typeof one.message === 'string' && one.message !== '');
+    const groups = family
+      .map((code) => ({ code, rows: refused.filter((one) => one.verdict === code) }))
+      .filter((group) => group.rows.length > 1);
+    // A guard over nothing is no guard at all: the family carries seven such codes today, and a reading that
+    // found fewer would be a suite that lost rows, not a family that grew out of needing this.
+    expect(groups.length).toBeGreaterThanOrEqual(5);
+    for (const group of groups) {
+      expect(collidingPairs(group.rows), `${group.code} is answered by rows that read as one another`).toEqual([]);
     }
   });
 });
