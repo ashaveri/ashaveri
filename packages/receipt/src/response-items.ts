@@ -61,11 +61,17 @@ import { ReceiptError } from './errors.js';
  * are outside every item by definition. `res` is what makes an item list need the response bytes beside
  * it, and `test/response-items.test.ts` holds both halves of that account open at once.
  *
- * What this module does not do. Nothing here stamps anything, and nothing here is read by a payload
- * yet: the per-item instant arrives with the format member that will carry it. The gateway does not
- * frame a response today at all, it buffers one: `collect()` in `gateway/src/server.ts` concatenates
- * the chunks of a buffered completion and keeps no boundary information, so the reader below is the
- * first code in this tree that can name an item of a response and digest it on its own.
+ * What this module does not do. Nothing here takes an instant: no clock is read in this file, and the `t`
+ * a `v: 3` payload puts beside each of these digests belongs to `gateway/src/item-stamps.ts`, which reads
+ * it at the moment a frame passes the socket. What these digests are read by is that member: the table in
+ * section 3.1 of `docs/receipt-spec.md` publishes an item's `d` as one item's bytes and none of the framing
+ * around them, carried by `v: 3`, and the bytes this rule frames are the bytes that row means. The gateway
+ * calls this file on both shapes it serves: a stream is walked as it leaves by `StreamedItemStamps`, which
+ * feeds `ResponseItemDigestFramer` and so keeps no byte of any item it framed, and a buffered body is taken
+ * whole by `stampedBufferedItem` through `frameResponse`, which is the reader a verifier of those bytes
+ * runs. What neither reader does is stamp, digest the whole body, or settle what to issue: `res` and `mk.d`
+ * are taken over these bytes elsewhere, by the process writing the socket, and `{framed: false}` is a value
+ * handed to the caller that is deciding, not an answer about which action a refusal calls for.
  */
 
 /** The field name whose value an item is, spelled as `gateway/src/marking.ts` writes it. */
