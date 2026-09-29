@@ -59,6 +59,33 @@
         "digestHex": "4adb016ab70c2aef270b43cab0fccff41174a43176057b4f361f5e69dde3b2d3"
       }
     ],
+    "carriedRecords": [
+      {
+        "position": 0,
+        "id": "receipt-0",
+        "iat": 1772000000,
+        "prevHex": "0000000000000000000000000000000000000000000000000000000000000000",
+        "receiptByteLength": 764,
+        "digestHex": "c2ab87d281c07753aecfeb61be5a31a8e5ee5481a780dee84f2be4d04f965e90"
+      },
+      {
+        "position": 1,
+        "id": "receipt-1",
+        "iat": 1772000001,
+        "prevHex": "c2ab87d281c07753aecfeb61be5a31a8e5ee5481a780dee84f2be4d04f965e90",
+        "receiptByteLength": 764,
+        "digestHex": "9814365ee70dc21424b793b39e520af2bc2735f3e0eb3a67c93f74cb07a66894"
+      },
+      {
+        "position": 2,
+        "id": "receipt-2",
+        "iat": 1772000002,
+        "prevHex": "9814365ee70dc21424b793b39e520af2bc2735f3e0eb3a67c93f74cb07a66894",
+        "receiptByteLength": 764,
+        "digestHex": "8cec5efcbd45e38b82bc0555093678302c0305b4aa7357b80d24f6a1074e7425"
+      }
+    ],
+    "framingRule": "records frames the run of `well-formed-three-items` and carriedRecords frames the run of `collateral-carried-inside-the-pack`, and those are the two runs this suite publishes a framing for: the canonical run, whose receipts state no anchor, and the run whose held slots name material the container carries. A row beside them is read the same way and framed by the same rule, so what the two tables give a port is two published answers to recompute against rather than one. Each row of a table is derived from the sealed bytes of the document it sits beside rather than from the manifest its writer was handed, so a table cannot describe a run the published document does not hold",
     "codes": [
       "INVALID_SIGNATURE",
       "NOT_COSE_SIGN1",

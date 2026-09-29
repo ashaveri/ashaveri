@@ -549,7 +549,7 @@ export interface PackDesignation {
   retained?: DesignatedManifestKey[];
 }
 
-/** One record of the honest run: the predecessor it names and the digest the framing gave back. */
+/** One record of a run this suite frames: the predecessor it names and the digest the framing gave back. */
 export interface PackRecordRow {
   position: number;
   id: string;
@@ -609,6 +609,9 @@ export interface PackVectorFile {
     codes: string[];
     verdictFields: string[];
     records: PackRecordRow[];
+    /** The framing of the run whose held slots name carried material, in the same rows as `records`. */
+    carriedRecords: PackRecordRow[];
+    framingRule: string;
     keyMaterial: Array<{
       id: string;
       seed: string;

@@ -981,12 +981,17 @@ function published(one: Case): Record<string, unknown> {
 }
 
 /**
- * The record framing of the honest run, published field by field. A reader recomputes each item's digest from
+ * The record framing of one honest run, published field by field. A reader recomputes each item's digest from
  * the bytes it was handed and compares the run against the two endpoints inside the signature, so the table is
  * the pack's own version of the images `chain-v1.json` publishes for a store file: the predecessor and the
  * digest that came out of it, for the receipt bytes the item carries.
+ *
+ * The rows come out of the sealed document rather than out of the manifest the writer was handed, which is the
+ * difference between publishing a framing and restating an intention: these bytes are what the suite publishes,
+ * and a table derived from them cannot describe a run the document does not hold.
  */
-function recordTable(manifest: PackManifest): Record<string, unknown>[] {
+function recordTable(document: Uint8Array): Record<string, unknown>[] {
+  const manifest = decodePack(document).manifest;
   return manifest.items.map((one, index) => ({
     position: index,
     id: one.id,
@@ -1116,7 +1121,10 @@ function main() {
             '`verdict` is what verifyPack answers under the designation the row states: `verify-ok`, or the code it throws. `structural` is what decodePack answers for the same bytes with no key, so a row that is `verify-ok` there and a refusal in `verdict` is refusing about a key or a signature and not about a manifest that contradicts itself. `walk` is the order the links reached and `ordering` the steps where the stamps disagree; both are published on every accepted row.',
           readFields:
             '`read.pinned` is the one key the caller holds, which designates the envelope and every receipt inside it. `read.retained` is the set a resolver answers from, one key per kid, which is how a span crossing a rotation is read. A row with neither is the call that designated nothing and is refused before a byte is read.',
-          records: recordTable(honestManifest),
+          records: recordTable(honestBytes),
+          carriedRecords: recordTable(resolving[0]!.bytes),
+          framingRule:
+            'records frames the run of `well-formed-three-items` and carriedRecords frames the run of `collateral-carried-inside-the-pack`, and those are the two runs this suite publishes a framing for: the canonical run, whose receipts state no anchor, and the run whose held slots name material the container carries. A row beside them is read the same way and framed by the same rule, so what the two tables give a port is two published answers to recompute against rather than one. Each row of a table is derived from the sealed bytes of the document it sits beside rather than from the manifest its writer was handed, so a table cannot describe a run the published document does not hold',
           codes: [...new Set(CASES.map((one) => one.verdict))].sort(),
           assembled:
             'every honest pack is `signPack` and no hand-built bytes. Where a row needs something that writer refuses to sign, the manifest is encoded, one position of its map is changed, and the result is signed over the published `Sig_structure` and sealed by `sealPack` under the key its header names; the generator stops unless that path reproduces `signPack` byte for byte on the canonical header, so each fault below is the one position its `edited` field names and nothing else. The writer is also asked to sign a manifest that contradicts its own span, a pack under a key whose kid is not sha256 of its public half, and each of the four positions the carried list can disagree with the slots its sealed receipts name, and refuses all of them with the code the row publishes, which is why this suite carries no row that a deployment could have produced by accident.',
