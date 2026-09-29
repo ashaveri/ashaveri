@@ -33,6 +33,11 @@ export type SdkErrorCode =
   // Not a pin code: nothing here was mismatched against a list of names, and a reader told an issuer is
   // unpinned looks in a different file from one told their clock is not bounded well enough
   | 'STAMP_SOURCE_TOO_UNCERTAIN'
+  // A receipt whose anchor states that its material is not there, met by a policy that demanded an anchor
+  // and reached beside the pins above, in the client's own verification rather than in the format reader.
+  // One code for the two absences, because what a caller does with either is one act and the message names
+  // which of the two it met.
+  | 'ANCHOR_SLOT_NOT_HELD'
   | 'GATEWAY_ERROR'
   | 'NOT_RECEIPTED'
   // A capture record. Both answer the question of what a reader was told to read and did not

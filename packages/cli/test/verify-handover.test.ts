@@ -23,6 +23,7 @@ import {
   toHex,
   type SigningKey,
 } from '@ashaveri/receipt';
+import { ATTESTED_MARKING, stampedReceiptBytes } from './stamped-receipt.js';
 
 /**
  * `ashaveri verify-handover`, run over bytes of every signed shape it can meet.
@@ -317,6 +318,54 @@ function unknownTypeDocument(contentType: string): Uint8Array {
 }
 
 describe('ashaveri verify-handover', () => {
+  it('reports the region a v3 receipt names, and the absence a v1 receipt states, in both renderings', () => {
+    // What this row prints is the payload's own statement about one region of the response, so the
+    // test is the member it names and not the version beside it. Keyed to a version number the row
+    // reads "a v1 payload states none" over a `v: 3` document that names a region, which is a false
+    // sentence in a report whose whole promise is that it prints what the document says. The two
+    // published shapes are read by this command's own reader, which takes no response bytes and so
+    // runs no marking check: the row below reports the claim, not a verdict on it.
+    const stamped = written('stamped-v3.cbor', stampedReceiptBytes(ATTESTED_MARKING));
+    const human = runCli(['verify-handover', stamped, `--key=${RECEIPT_PUBLIC_B64URL}`]);
+    expect(human.stderr).toBe('');
+    expect(human.status).toBe(0);
+    expect(human.stdout).toContain('payload:          v3');
+    expect(human.stdout).toContain(`marked region:    ${toHex(ATTESTED_MARKING.d)} (${ATTESTED_MARKING.sch})`);
+    const json = verdictOf(runCli(['verify-handover', stamped, `--key=${RECEIPT_PUBLIC_B64URL}`, '--json']));
+    expect((json.document as Record<string, unknown>).markedRegion).toEqual({
+      scheme: ATTESTED_MARKING.sch,
+      sha256: toHex(ATTESTED_MARKING.d),
+    });
+
+    const unmarked = runCli(['verify-handover', RECEIPT_PATH, `--key=${RECEIPT_PUBLIC_B64URL}`]);
+    expect(unmarked.stdout).toContain('marked region:    a v1 payload states none');
+    expect(
+      ((verdictOf(runCli(['verify-handover', RECEIPT_PATH, `--key=${RECEIPT_PUBLIC_B64URL}`, '--json'])).document as Record<string, unknown>).markedRegion),
+    ).toBeNull();
+  });
+
+  it('states the region the published v2 receipt names, in both renderings', () => {
+    // The other shape that names `mk`, and the one published under this tree rather than written by a
+    // test: a row keyed to either version number prints "a v2 payload states none" over bytes that do
+    // name a region, which is a false sentence in the report whose whole promise is that it prints what
+    // the document says. The label and digest come from the fixture's own JSON twin, so the assertion is
+    // against the published document rather than a copy of its contents made here.
+    const marked = JSON.parse(readFileSync(`${DATA}receipts/receipt-marked-v2.json`, 'utf8')) as {
+      payload: { mk: { sch: string; d: string } };
+    };
+    const path = `${DATA}receipts/receipt-marked-v2.cbor`;
+    const human = runCli(['verify-handover', path, `--key=${RECEIPT_PUBLIC_B64URL}`]);
+    expect(human.stderr).toBe('');
+    expect(human.status).toBe(0);
+    expect(human.stdout).toContain('payload:          v2');
+    expect(human.stdout).toContain(`marked region:    ${marked.payload.mk.d} (${marked.payload.mk.sch})`);
+    const json = verdictOf(runCli(['verify-handover', path, `--key=${RECEIPT_PUBLIC_B64URL}`, '--json']));
+    expect((json.document as Record<string, unknown>).markedRegion).toEqual({
+      scheme: marked.payload.mk.sch,
+      sha256: marked.payload.mk.d,
+    });
+  });
+
   it('names a published receipt as a receipt, before it says anything about validity', () => {
     const human = runCli(['verify-handover', RECEIPT_PATH, `--key=${RECEIPT_PUBLIC_B64URL}`]);
     expect(human.stderr).toBe('');

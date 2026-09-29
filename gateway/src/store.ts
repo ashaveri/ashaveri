@@ -26,6 +26,14 @@ import { sha256 } from './digest.js';
  * of traffic and answers a question about an hour of it needs both, which is why neither is a setting
  * of the other and why only the first is ever refused against a period.
  *
+ * A third bound is a record's own, and it is a kind rather than a number on the store: a receipt record
+ * can carry the period it is kept for, ahead of the receipt bytes and inside the digest the chain folds.
+ * One log holds records of one kind, and the kind is decided when the store opens, because "what does
+ * this deployment keep" has to have one answer readable off the file. A log that mixes the two kinds is
+ * refused at the reading, at the record where the disagreement first shows, rather than served with a
+ * retention statement that depends on which record a reader picked up. Trim records are not one of the
+ * two kinds and never make a mixture: they are this store's own bookkeeping about a prefix it retired.
+ *
  * An opening used to answer what it holds by reading every byte of `receipts.log` and hashing every
  * record in it, so the cost of starting a process grew with the file and never stopped. A store now
  * keeps a second file beside it, `receipts.log.index`, holding the positions and digests an opening
@@ -54,6 +62,8 @@ const DIGEST_BYTES = 32;
 const COUNT_BYTES = 4;
 /** seam + two causes + the two bounds that produced them. */
 const TRIM_PAYLOAD_BYTES = PREV_BYTES + 4 * COUNT_BYTES;
+/** The width of the period a bounded receipt record states ahead of its receipt bytes. */
+const BOUND_BYTES = COUNT_BYTES;
 /** kind + prev + iat + idLen + digest, with the id and the payload still to come. */
 const MIN_BODY_BYTES = KIND_BYTES + PREV_BYTES + IAT_BYTES + ID_LEN_BYTES + DIGEST_BYTES;
 /** Everything before the id in a record body. */
@@ -62,18 +72,53 @@ const MAX_ID_BYTES = 0xffff;
 const MAX_COUNTER = 0xffffffff;
 const KIND_RECEIPT = 0;
 const KIND_TRIM = 1;
+/**
+ * The second kind of receipt record: the same frame, with a retention period of its own stated in
+ * front of the receipt bytes. `payload = boundSeconds:u32 || receipt`, so a reader holding one record
+ * can say how long that record is kept without asking the deployment, which is the question a
+ * store-wide window cannot answer record by record.
+ *
+ * The period is written, not enforced: retirement reads the durability bound and nothing else, so a
+ * record stating a period is a statement about that record rather than a bound this file acts on.
+ * Kind 0 states no period at all and keeps the byte layout, the digests and the served payload it
+ * always had; the two kinds differ only in what sits between the id and the receipt bytes.
+ *
+ * A store's log holds receipt records of one kind and never both. A file that mixes them makes "what
+ * does this deployment keep" unanswerable from the retention manifest, because the answer would depend
+ * on which records came from which configuration, so the mixture is refused at the reading rather than
+ * tolerated and reported. `KIND_TRIM` markers are not a mixture and are not counted as a kind of
+ * receipt record: a trim is the store's own bookkeeping about a prefix it retired, it addresses no
+ * receipt, and it is refused for sitting anywhere but at the front of the file for reasons that have
+ * nothing to do with which receipt kind the store runs. That is why the check below compares a record's
+ * kind against the kind this store writes and never asks how many distinct kinds it has met: the second
+ * reading would have to remember which trims it passed to keep a retirement out of the tally, and a
+ * rule that depends on what a scan happened to see first is an accident of ordering rather than a rule.
+ */
+const KIND_RECEIPT_BOUNDED = 2;
 
 /**
- * The sidecar's own layout: `magic:4 || version:u16 || identityLen:u16 || identity`, then blocks, each
- * one `recordCount:u32 || checkpointBytes:u64` followed by that many entries and a closing check.
- * An entry is `recordStart:u64 || seq:u64 || iat:u64 || payloadLen:u32 || idLen:u16 || id || digest:32`.
- * Nothing is rewritten in place: a block is appended, and the whole file is replaced only when the
- * store file it speaks for has been replaced, which is the only moment its header stops being true.
+ * The sidecar's own layout: `magic:4 || version:u16 || receiptKind:u8 || identityLen:u16 || identity`,
+ * then blocks, each one `recordCount:u32 || checkpointBytes:u64` followed by that many entries and a
+ * closing check. An entry is `recordStart:u64 || seq:u64 || iat:u64 || payloadLen:u32 || idLen:u16 || id
+ * || digest:32`. Nothing is rewritten in place: a block is appended, and the whole file is replaced only
+ * when the store file it speaks for has been replaced, which is the only moment its header stops being
+ * true.
+ *
+ * The header also names which kind of receipt record the index speaks for, because an entry carries the
+ * width of a payload and nothing about the kind that width belongs to, and a bounded record's payload is
+ * four bytes wider than the receipt it carries. An index whose declaration disagrees with the
+ * configuration is an index that cannot be believed for the records it indexes, so the opening falls back
+ * to the store file, where the kind of every record is read off the bytes. Version 1 stated no kind, and
+ * an index written under it is refused by the version check rather than reinterpreted by a parser that
+ * would have to guess what the absent byte meant.
  */
 const SIDECAR_MAGIC = 'ASRI';
-const SIDECAR_VERSION = 1;
-/** magic, version, and the width of the volume pair this sidecar names its store file by. */
-const SIDECAR_HEADER_BYTES = 4 + 2 + 2;
+const SIDECAR_VERSION = 2;
+/**
+ * magic, version, the one byte naming the receipt kind the indexed records are, and the width of the
+ * volume pair this sidecar names its store file by.
+ */
+const SIDECAR_HEADER_BYTES = 4 + 2 + 1 + 2;
 /** Everything of an entry that is not the id it names or the digest it carries. */
 const SIDECAR_ENTRY_HEAD_BYTES = 8 + 8 + 8 + 4 + 2;
 /** How many entries a block counts, and the byte of the store file the block speaks for. */
@@ -107,14 +152,23 @@ function endOfEntry(entry: CheckpointEntry): number {
   return entry.recordStart + FRAME_LEN_BYTES + HEADER_BYTES + entry.idLength + entry.length + DIGEST_BYTES;
 }
 
-/** Where one entry's record sits in the file, in the terms the served paths read. */
-function locationOf(entry: CheckpointEntry): Location {
+/**
+ * Where one entry's record sits in the file, in the terms the served paths read.
+ *
+ * `boundBytes` is how many of this record's payload bytes belong to the period a bounded record states
+ * rather than to the receipt. The entry's `length` stays the payload's width, because the index speaks
+ * for the file's bytes and the frame's width comes off it; the location's offset and length step past
+ * the period, because they are what a read takes back to a caller, and the two together still land the
+ * frame on the digest: a read of `offset - recordStart` plus `length` plus the digest is the whole frame
+ * whether or not a period sits at its front.
+ */
+function locationOf(entry: CheckpointEntry, boundBytes: number): Location {
   return {
     iat: entry.iat,
     seq: entry.seq,
     recordStart: entry.recordStart,
-    offset: entry.recordStart + FRAME_LEN_BYTES + HEADER_BYTES + entry.idLength,
-    length: entry.length,
+    offset: entry.recordStart + FRAME_LEN_BYTES + HEADER_BYTES + entry.idLength + boundBytes,
+    length: entry.length - boundBytes,
     digest: entry.digest,
   };
 }
@@ -144,7 +198,9 @@ interface Location {
   readonly seq: number;
   /** The byte the record's length prefix starts at, so dead space is measurable. */
   readonly recordStart: number;
+  /** The byte the receipt itself starts at, past the period a bounded record states ahead of it. */
   readonly offset: number;
+  /** How many bytes the receipt runs to, which is the payload less whatever period states it. */
   readonly length: number;
   /**
    * The digest this record carried in its own frame, copied out of the file the index was read from.
@@ -349,12 +405,61 @@ export interface ReceiptServing {
  */
 export const MINIMUM_RETENTION_SECONDS = 184 * 24 * 60 * 60;
 
+/**
+ * Which kind of receipt record a store appends, and the period the bounded kind states in every one of
+ * them.
+ *
+ * The two arms are the two questions a reader of a store file can be answered, and one reading cannot
+ * carry both. `{ kind: 'receipt' }` writes the layout that has always been published: a record whose
+ * payload is the receipt bytes and which states nothing about how long it is kept. `{ kind: 'bounded',
+ * boundSeconds }` writes the same frame with the period ahead of the receipt bytes, so the answer to
+ * "how long is this record kept" travels inside the record and is readable by whoever holds one record
+ * rather than a manifest. The field is a record's own width in the file, so a store cannot state a
+ * period on one receipt and not another: the kind is a property of the log and is chosen once.
+ *
+ * What a bounded record's period says today is what the deployment that wrote the record states it is
+ * kept for, written where whoever holds one record and no manifest can read it. Nothing acts on it:
+ * retirement reads `ReceiptRetention` and no period off a record. Where a durability window is configured,
+ * the pairing refused below additionally demands the record's period sit below it, so retirement by age
+ * cannot drop a bounded record before the instant that record names. A prefix retired by count is held
+ * back by no period, and a store running no window has no period to sit below, so in both of those the
+ * field states a duration the file does not promise. The field is a statement the record carries about its
+ * deployment, which is what a later reader of a lone record has to be able to recover, and not a limit this
+ * store applies to anything.
+ *
+ * `openFileReceiptStore` and `openMemoryReceiptStore` refuse a period at or above their durability
+ * window because the window is what retires the record, so a bound stated at or above it could never be
+ * seen to bind: it would be a byte a reader weighs against a number that decides the same question, and
+ * the pair would then disagree in silence.
+ */
+export type ReceiptRecordKind =
+  | { readonly kind: 'receipt' }
+  | { readonly kind: 'bounded'; readonly boundSeconds: number };
+
+/**
+ * The kind a deployment that named none writes, and the one every published vector and every store file
+ * already on a volume is made of. It is a value rather than a defaulting `undefined` because
+ * `docs/configured-values.md` quotes the line the code actually reads, and a reader asking what an
+ * unstamped deployment keeps is answered by a name in the same table that answers the clock question.
+ */
+export const DEFAULT_RECEIPT_RECORD_KIND: ReceiptRecordKind = { kind: 'receipt' };
+
+/** The largest period a bounded record's 4 byte field can state. */
+const MAX_BOUND_SECONDS = MAX_COUNTER;
+
 export interface FileReceiptStoreOptions {
   readonly dir: string;
   /** Absent means nothing is evicted, which is the right default for a fixture store. */
   readonly retention?: ReceiptRetention;
   /** Absent means a range query resolves the whole window it is asked for. */
   readonly serving?: ReceiptServing;
+  /**
+   * Which kind of receipt record this store appends. Absent means `DEFAULT_RECEIPT_RECORD_KIND`: the
+   * layout that states no period, which is what every store file this repository has published is made
+   * of. A store whose file already holds receipt records of the other kind refuses to open, because one
+   * log holds one kind and a deployment that mixed them has no single answer to what it keeps.
+   */
+  readonly receiptKind?: ReceiptRecordKind;
   /**
    * Declines the sidecar index. The store then touches only `receipts.log`: every opening reads all of
    * it and re-hashes every record in it, which is the cost the index exists to avoid and the only way
@@ -425,7 +530,7 @@ export type WindowClaim =
  * weighed against, so an edge claim and a span measurement cannot drift apart.
  */
 function windowClaim(source: TimeSource, iat: number, from: number, to: number): WindowClaim {
-  const stamped: StampDeclaration = { name: source.name, uncertaintySeconds: source.uncertaintySeconds };
+  const stamped = declarationOf(source);
   const bound = source.uncertaintySeconds;
   if (bound === null) {
     return { state: 'bound-unknown', stamped };
@@ -437,7 +542,7 @@ function windowClaim(source: TimeSource, iat: number, from: number, to: number):
 }
 
 /**
- * Three refusals, answering three different questions about three different things.
+ * Six refusals, answering six different questions about four different things.
  *
  * `STORE_CHAIN_BROKEN` is about the file on the volume: what is there no longer chains to itself, and
  * there is no safe way to serve from it. A short read, an unreadable volume and a corrupt file are
@@ -451,11 +556,26 @@ function windowClaim(source: TimeSource, iat: number, from: number, to: number):
  * was opened with cannot both be honoured at the traffic the file has already carried. It says which
  * bound is short and by how much, and it is refused at the opening rather than left for whoever reads
  * the shortfall out of the retained window afterwards.
+ * `STORE_RECEIPT_KIND_MISMATCH` is about a file and a configuration that do not belong to each other:
+ * the log holds a receipt record of a kind this store does not write, so its payload is not the receipt
+ * and its retention is not the one the store states. Refused at the reading, at the record where the
+ * disagreement first shows, because the mixture is the state where the deployment's retention answer
+ * stops being readable off the artifact.
+ * `RECORD_BOUND_OUT_OF_RANGE` and `RECORD_BOUND_REDUNDANT` are both about the one number a bounded
+ * record states, and they are kept apart because the operator's fix is different for each: one is a
+ * number no 4 byte field can hold, the other is a number at or above the store's own durability window,
+ * which is what retires the record, so the file drops it no later than the instant the record claims to
+ * still be kept and a bound stated that way could never be seen to bind. The first is refused for the
+ * same reason `RECORD_STAMP_OUT_OF_RANGE` is: a value the layout cannot state is not a value the store
+ * can be believed for, and a saturating write would publish a period nobody chose.
  */
 export type StoreErrorCode =
   | 'STORE_CHAIN_BROKEN'
   | 'RECORD_STAMP_OUT_OF_RANGE'
-  | 'RETENTION_WINDOW_UNHOLDABLE';
+  | 'RETENTION_WINDOW_UNHOLDABLE'
+  | 'STORE_RECEIPT_KIND_MISMATCH'
+  | 'RECORD_BOUND_OUT_OF_RANGE'
+  | 'RECORD_BOUND_REDUNDANT';
 
 export class StoreError extends Error {
   readonly code: StoreErrorCode;
@@ -522,8 +642,11 @@ export interface ReceiptStore {
    *
    * A stamp is this source's claim, so whoever needs the bound a record was issued under asks the store
    * and reads it beside the record. It cannot travel inside the record: the framing in section 5.2 of
-   * `docs/receipt-spec.md` has no byte for it, those bytes are published as conformance vectors, and a
-   * bound belongs to the store's declaration rather than to the signed payload.
+   * `docs/receipt-spec.md` has no byte for a source's uncertainty, those bytes are published as
+   * conformance vectors, and a bound belongs to the store's declaration rather than to the signed
+   * payload. The period a bounded receipt record carries is a different thing and has its own byte: it
+   * states how long the record is kept, which is the store's decision about that record, and never how
+   * far the stamp on it can be from the instant it names.
    */
   timeSource(): StampDeclaration;
 
@@ -550,6 +673,111 @@ function assertStamp(iat: number): void {
       `a receipt stamp of ${String(iat)} is not a whole number of Unix seconds between 0 and ${String(Number.MAX_SAFE_INTEGER)}, so no record this store writes can state it`,
     );
   }
+}
+
+/**
+ * The byte a record's `kind` field carries for one configured kind of receipt record, and how many of
+ * that record's payload bytes the period this kind states takes.
+ *
+ * Both are read off one byte rather than off the configuration, because the two answers have to agree
+ * for every record a scan touches whether or not the configuration does: a width that disagrees between
+ * the scan, the index, the append and a checkpoint's re-read serves a receipt from the wrong byte of the
+ * file rather than failing loudly, and four sites deriving it from the same ternary is four chances to
+ * write a fifth.
+ */
+function receiptKindByte(kind: ReceiptRecordKind): number {
+  return kind.kind === 'bounded' ? KIND_RECEIPT_BOUNDED : KIND_RECEIPT;
+}
+
+function boundBytesOf(kindByte: number): number {
+  return kindByte === KIND_RECEIPT_BOUNDED ? BOUND_BYTES : 0;
+}
+
+/**
+ * The sentence one kind earns in a refusal, with the period the bounded kind states beside it.
+ *
+ * One sentence for both sides of a disagreement, because the store's own configuration and a record's
+ * bytes answer the same question, and a message that spelled the unbounded kind two ways would leave a
+ * reader wondering whether the second spelling meant something the first did not. A kind byte the
+ * framing defines no reading for is named as such rather than thrown for: it is a byte out of a file,
+ * the answer to it is a refusal this store already raises, and a second failure on the way to saying the
+ * first would leave the operator with a message about nothing.
+ */
+function kindSentence(kindByte: number, boundSeconds: number | null): string {
+  if (kindByte === KIND_RECEIPT) return 'the receipt kind, which states no period';
+  if (kindByte === KIND_RECEIPT_BOUNDED) {
+    return `the bounded kind, stating a ${String(boundSeconds)} second period ahead of its receipt bytes`;
+  }
+  return `kind ${String(kindByte)}, which this record layout defines no reading for`;
+}
+
+/**
+ * What this store's configuration says it writes, in the same sentence a record's bytes are given. A
+ * refusal states both sides because one of the two is wrong and the file cannot say which: name only the
+ * record and an operator goes looking for an edit in the log, name only the configuration and they go
+ * looking in their own config.
+ */
+function configuredKindSentence(kind: ReceiptRecordKind): string {
+  return kindSentence(receiptKindByte(kind), kind.kind === 'bounded' ? kind.boundSeconds : null);
+}
+
+/**
+ * The bytes a receipt record carries: the receipt whole for the kind that states no period, and the
+ * period ahead of the receipt for the kind that does.
+ *
+ * The field is written rather than handed over as bytes, so the store that states a period is the only
+ * thing that can put one in front of a receipt, and a caller filing a receipt cannot choose a kind by
+ * accident of what it passed to `put`.
+ */
+function receiptPayload(receipt: Uint8Array, kind: ReceiptRecordKind): Buffer {
+  if (kind.kind === 'receipt') {
+    return Buffer.from(receipt);
+  }
+  const bound = Buffer.alloc(BOUND_BYTES);
+  bound.writeUInt32BE(kind.boundSeconds);
+  return Buffer.concat([bound, Buffer.from(receipt)]);
+}
+
+/**
+ * Refuses a per-record period that no record should state.
+ *
+ * Two conditions, and the second is the one the ruling is for. A period outside the 4 byte field's
+ * reach, or not a whole number of seconds, is a number the layout cannot carry: written as a saturating
+ * counter it would state a period nobody chose, and left to `writeUInt32BE` it would surface as a Buffer
+ * range error from inside an append, which is the same failure a stamp already refuses by name. And a
+ * period at or above the store's own durability window states a bound that could never be reached:
+ * retirement acts on `maxAgeSeconds`, so the window ends a record's life at or before the instant the
+ * record says it should still be kept, and what is left is a bound nothing can test rather than a
+ * statement about the file. Refusing keeps the two readings apart rather than letting a reader widen the
+ * window to fit the record.
+ *
+ * A store with no durability period configured has no window for a period to reach, so any period the
+ * field can hold is the whole of the retention statement that record carries.
+ */
+function assertReceiptKind(kind: ReceiptRecordKind, retention: ReceiptRetention | undefined): void {
+  if (kind.kind === 'receipt') {
+    return;
+  }
+  const boundSeconds = kind.boundSeconds;
+  if (!Number.isInteger(boundSeconds) || boundSeconds < 1 || boundSeconds > MAX_BOUND_SECONDS) {
+    throw new StoreError(
+      'RECORD_BOUND_OUT_OF_RANGE',
+      `a per-record retention bound of ${String(boundSeconds)} is not a whole number of seconds between 1 and ` +
+        `${String(MAX_BOUND_SECONDS)}, which is all a bounded receipt record's 4 byte period can state`,
+    );
+  }
+  const maxAgeSeconds = retention?.maxAgeSeconds;
+  if (maxAgeSeconds === undefined || maxAgeSeconds > boundSeconds) {
+    return;
+  }
+  throw new StoreError(
+    'RECORD_BOUND_REDUNDANT',
+    `a per-record retention bound of ${String(boundSeconds)} seconds sits at or above this store's ` +
+      `durability window of ${String(maxAgeSeconds)} seconds, so the window retires the record first ` +
+      `and the period could never bind: retirement drops a prefix at the window and reads no period off ` +
+      `a record. Raise the window above the bound, set a bound below it, or run the receipt kind that ` +
+      `states none`,
+  );
 }
 
 /**
@@ -652,6 +880,13 @@ function serialOf(stats: Stats): string {
 interface Scan {
   readonly records: Map<string, Location>;
   readonly trims: TrimEvent[];
+  /**
+   * The kind of receipt record the store running this scan writes, which is the kind every receipt
+   * record in its file has to state. Carried on the scan rather than re-derived from what the scan has
+   * met, because the refusal is about the configuration and the byte, not about which record a reader
+   * happened to reach first: a trim record is not one of the two kinds and is not counted against this.
+   */
+  readonly receiptKind: ReceiptRecordKind;
   /** What the next receipt has to name as its predecessor: the newest seam while the run lasts, then a digest. */
   expectedPrev: Buffer;
   /** The digest of the last record read, which is what the next trim record has to name. */
@@ -664,11 +899,12 @@ interface Scan {
   end: number;
 }
 
-function emptyScan(): Scan {
+function emptyScan(receiptKind: ReceiptRecordKind): Scan {
   const none = Buffer.alloc(PREV_BYTES);
   return {
     records: new Map<string, Location>(),
     trims: [],
+    receiptKind,
     expectedPrev: none,
     lastDigest: none,
     anchor: none,
@@ -702,12 +938,18 @@ function stateOf(scan: Scan, identity: string): StoreState {
  * byte. `base` is only ever what an error says the position of a record was: a record is indexed by
  * where the file holds it, not by where the buffer this scan was handed starts.
  *
- * From the first byte the chain has two rules and they are checked here, nowhere else: a receipt names
- * the digest of the record the chain runs through, and a trim names the digest of the record
- * physically in front of it. Both are checked against what the bytes say, so a hole in the middle of
- * the chain and an edited digest are refusals rather than a shorter history.
+ * From the first byte the chain has three rules and they are checked here, nowhere else: a receipt
+ * record is of the kind this store writes, a receipt names the digest of the record the chain runs
+ * through, and a trim names the digest of the record physically in front of it. All three are checked
+ * against what the bytes say, so a hole in the middle of the chain, an edited digest and a log holding
+ * two kinds of receipt record are refusals rather than a shorter history or a payload read from the
+ * wrong offset.
  */
 function parseRecords(bytes: Buffer, base: number, scan: Scan, entries: CheckpointEntry[] | null): void {
+  // What this store writes, settled once: the configuration does not change record to record, and the
+  // refusal below reads a record's kind against it rather than against whatever the scan has met.
+  const writes = receiptKindByte(scan.receiptKind);
+  const writesSentence = configuredKindSentence(scan.receiptKind);
   let at = 0;
   while (at + FRAME_LEN_BYTES <= bytes.length) {
     const position = base + at;
@@ -761,6 +1003,29 @@ function parseRecords(bytes: Buffer, base: number, scan: Scan, entries: Checkpoi
       scan.lastDigest = Buffer.from(digest);
       scan.trimRunEnd = base + end;
     } else {
+      const id = bytes.subarray(idStart, payloadStart).toString('utf8');
+      const payloadBytes = payloadEnd - payloadStart;
+      // How much of this record's payload belongs to the period it states rather than to the receipt,
+      // read off the byte in the frame rather than off the configuration: this record's width is a fact
+      // about its own bytes, and the store that does not run this kind still has to know how wide the
+      // period it claims is before it can say whether the frame is telling the truth about itself.
+      const boundBytes = boundBytesOf(kind);
+      if (payloadBytes < boundBytes) {
+        throw new StoreError('STORE_CHAIN_BROKEN', `receipt store chain is broken at byte ${position}: a bounded receipt record carries ${payloadBytes} payload bytes, which is fewer than the ${BOUND_BYTES} its own period needs`);
+      }
+      // The kind is settled before the chain link, because a record this store does not run is not a
+      // record whose predecessor anything can interpret, and an operator told the file is broken when
+      // the file belongs to a different kind of store would go looking for an edit that never happened.
+      if (kind !== writes) {
+        throw new StoreError(
+          'STORE_RECEIPT_KIND_MISMATCH',
+          `receipt store refuses record ${id} at byte ${position}: it is ` +
+            `${kindSentence(kind, kind === KIND_RECEIPT_BOUNDED ? bytes.readUInt32BE(payloadStart) : null)}, ` +
+            `and this store writes ${writesSentence}. A store's log holds receipt records of one kind, ` +
+            `because what the deployment keeps has to be readable off the file it keeps it in; trim ` +
+            `records are the store's own bookkeeping and are not one of the two kinds`,
+        );
+      }
       if (!prev.equals(scan.expectedPrev)) {
         throw new StoreError('STORE_CHAIN_BROKEN', `receipt store chain is broken at byte ${position}: a record names a predecessor that is not the one before it`);
       }
@@ -768,16 +1033,16 @@ function parseRecords(bytes: Buffer, base: number, scan: Scan, entries: Checkpoi
         recordStart: position,
         seq: scan.seq,
         iat,
-        id: bytes.subarray(idStart, payloadStart).toString('utf8'),
+        id,
         idLength,
-        length: payloadEnd - payloadStart,
+        length: payloadBytes,
         // Copied out of the file read for the same reason the seam is: a view of it would keep the
         // whole file alive for as long as the store is.
         digest: Buffer.from(digest),
       };
       scan.expectedPrev = entry.digest;
       scan.lastDigest = entry.digest;
-      scan.records.set(entry.id, locationOf(entry));
+      scan.records.set(entry.id, locationOf(entry, boundBytes));
       entries?.push(entry);
       scan.seq += 1;
     }
@@ -795,12 +1060,12 @@ function parseRecords(bytes: Buffer, base: number, scan: Scan, entries: Checkpoi
  * read and so hides every record appended after it. Dropping it costs a receipt nobody was
  * given the id for.
  */
-async function walk(path: string, file: FileHandle, entries: CheckpointEntry[] | null): Promise<StoreState> {
+async function walk(path: string, file: FileHandle, entries: CheckpointEntry[] | null, receiptKind: ReceiptRecordKind): Promise<StoreState> {
   // Taken before the bytes, from the same handle that reads them, so the index and this statement
   // about which file it describes are answers about one and the same file.
   const identity = serialOf(await file.stat());
   const bytes = await file.readFile();
-  const scan = emptyScan();
+  const scan = emptyScan(receiptKind);
   parseRecords(bytes, 0, scan, entries);
   if (scan.end < bytes.length) {
     // By path, not through the handle: an append-mode handle cannot set the end of a file.
@@ -819,13 +1084,17 @@ async function readSpan(file: FileHandle, from: number, length: number): Promise
   return bytesRead === length ? buffer : buffer.subarray(0, bytesRead);
 }
 
-/** The header every block chains from: which store file this index speaks for, and in what layout. */
-function sidecarHeader(identity: string): Buffer {
+/**
+ * The header every block chains from: which store file this index speaks for, in what layout, and which
+ * kind of receipt record the entries underneath it index.
+ */
+function sidecarHeader(identity: string, recordKind: number): Buffer {
   const name = Buffer.from(identity, 'utf8');
   const out = Buffer.alloc(SIDECAR_HEADER_BYTES + name.length);
   out.write(SIDECAR_MAGIC, 0, 'utf8');
   out.writeUInt16BE(SIDECAR_VERSION, 4);
-  out.writeUInt16BE(name.length, 6);
+  out.writeUInt8(recordKind, 6);
+  out.writeUInt16BE(name.length, 7);
   name.copy(out, SIDECAR_HEADER_BYTES);
   return out;
 }
@@ -870,6 +1139,13 @@ function encodeBlock(previous: Buffer, chunk: readonly CheckpointEntry[]): { byt
 interface SidecarState {
   readonly path: string;
   /**
+   * The kind of receipt record this store writes, declared in the header of the index it writes. An
+   * entry carries a payload's width and no kind, so this one byte is what lets an opening say whether
+   * the index below it speaks for the records this store reads: a disagreement sends the opening back to
+   * the store file, where every record's kind is on the record itself.
+   */
+  readonly recordKind: number;
+  /**
    * The check the last block on disk closed with, which the next block chains from. Null says the
    * index is not being maintained any more, either because it was never written or because a write
    * refused, and it stays null until an opening rebuilds it from the store file.
@@ -882,7 +1158,7 @@ interface SidecarState {
 /** Writes the index whole: a header naming the store file, then a block per run of entries. */
 async function writeSidecar(sidecar: SidecarState, identity: string, entries: readonly CheckpointEntry[]): Promise<void> {
   try {
-    const header = sidecarHeader(identity);
+    const header = sidecarHeader(identity, sidecar.recordKind);
     let previous: Buffer = Buffer.from(sha256(header));
     const file = await open(sidecar.path, 'w');
     try {
@@ -950,9 +1226,9 @@ interface Checkpoint {
  * makes an opening fail, because an index that cannot be read is a store that reads its file instead.
  * That includes an error of this function's own, which is swallowed rather than reported.
  */
-async function loadSidecar(file: FileHandle, path: string, identity: string, fileSize: number): Promise<Checkpoint | null> {
+async function loadSidecar(file: FileHandle, path: string, identity: string, fileSize: number, receiptKind: ReceiptRecordKind): Promise<Checkpoint | null> {
   try {
-    return await readCheckpoint(file, path, identity, fileSize);
+    return await readCheckpoint(file, path, identity, fileSize, receiptKind);
   } catch {
     return null;
   }
@@ -964,12 +1240,16 @@ async function loadSidecar(file: FileHandle, path: string, identity: string, fil
  *
  * What is checked, and what is not. Every byte of the index is hashed, block by block, so a changed
  * position, stamp, id or digest anywhere in it is a disagreement and not an answer. The index names the
- * store file by the volume's pair, and the byte it speaks for has to be inside the file that is there
- * now. The leading run of trim records is read out of the store file and re-verified, so the anchor and
- * the retirement history an opening reports are recomputed from bytes and never remembered. And the
- * record the index ends on is read back out of the store file and hashed, because that one record is
- * where an index written from these bytes is tied to these bytes: it also fixes the checkpoint at a real
- * record boundary, so a resume can never truncate a file on the strength of a number it was handed.
+ * store file by the volume's pair, declares which kind of receipt record the entries below it index, and
+ * the byte it speaks for has to be inside the file that is there now. A declaration that disagrees with
+ * the configuration this opening was handed is an index speaking for records this store would read from
+ * the wrong offset, so it is refused here and the store file is walked instead, which is where the kind
+ * of every record is met. The leading run of trim records is read out of the store file and re-verified,
+ * so the anchor and the retirement history an opening reports are recomputed from bytes and never
+ * remembered. And the record the index ends on is read back out of the store file and hashed, because
+ * that one record is where an index written from these bytes is tied to these bytes: it also fixes the
+ * checkpoint at a real record boundary, so a resume can never truncate a file on the strength of a
+ * number it was handed.
  *
  * What is not checked is the claim the rest of the index carries, which is that the records it indexes
  * before that boundary still hold the bytes they held when the index was written. That is the residual a
@@ -981,27 +1261,31 @@ async function loadSidecar(file: FileHandle, path: string, identity: string, fil
  * `FileReceiptStoreOptions.sidecarIndex` declines the index outright, which is how an operator who needs
  * the whole chain recomputed asks for it without touching the file that holds the receipts.
  */
-async function readCheckpoint(file: FileHandle, path: string, identity: string, fileSize: number): Promise<Checkpoint | null> {
+async function readCheckpoint(file: FileHandle, path: string, identity: string, fileSize: number, receiptKind: ReceiptRecordKind): Promise<Checkpoint | null> {
   const bytes = await readFile(path).catch(() => null);
   if (bytes === null) {
     return null;
   }
-  const identityLength = bytes.length >= SIDECAR_HEADER_BYTES ? bytes.readUInt16BE(6) : 0;
+  const identityLength = bytes.length >= SIDECAR_HEADER_BYTES ? bytes.readUInt16BE(7) : 0;
   const headerEnd = SIDECAR_HEADER_BYTES + identityLength;
   if (
     identityLength === 0 ||
     bytes.length < headerEnd + SIDECAR_BLOCK_HEAD_BYTES ||
     bytes.subarray(0, 4).toString('utf8') !== SIDECAR_MAGIC ||
     bytes.readUInt16BE(4) !== SIDECAR_VERSION ||
+    bytes.readUInt8(6) !== receiptKindByte(receiptKind) ||
     bytes.subarray(SIDECAR_HEADER_BYTES, headerEnd).toString('utf8') !== identity
   ) {
     return null;
   }
+  // How many payload bytes of an indexed record belong to the period its kind states rather than to the
+  // receipt. The declaration above is what makes this one answer good for every entry in the index.
+  const boundBytes = boundBytesOf(receiptKindByte(receiptKind));
 
   // The index is read straight into the state an opening resumes from, one block at a time: what an
   // opening that trusts the index allocates is that state and the block it is checking, so reading a
   // hundred thousand records out of the index costs no more than the records themselves.
-  const scan = emptyScan();
+  const scan = emptyScan(receiptKind);
   let first: CheckpointEntry | undefined;
   let last: CheckpointEntry | undefined;
   let previous: Buffer = Buffer.from(sha256(bytes.subarray(0, headerEnd)));
@@ -1062,7 +1346,7 @@ async function readCheckpoint(file: FileHandle, path: string, identity: string, 
       return null;
     }
     for (const entry of block) {
-      scan.records.set(entry.id, locationOf(entry));
+      scan.records.set(entry.id, locationOf(entry, boundBytes));
     }
     first ??= block[0];
     last = end;
@@ -1086,7 +1370,7 @@ async function readCheckpoint(file: FileHandle, path: string, identity: string, 
   try {
     // The run is read from the file rather than taken from the index, so the seam an opening reports is
     // the one the trim records state and not the one the index was last told.
-    const run = emptyScan();
+    const run = emptyScan(receiptKind);
     parseRecords(await readSpan(file, 0, first.recordStart), 0, run, null);
     if (run.seq !== 0 || run.records.size !== 0 || run.trimRunEnd !== first.recordStart) {
       return null;
@@ -1094,7 +1378,7 @@ async function readCheckpoint(file: FileHandle, path: string, identity: string, 
     // The record the checkpoint ends on, hashed as though it were about to be served. This is the tie
     // between the index and the bytes, and without it a store file rewritten through its own name
     // would answer out of an index that was written for what used to be there.
-    await readReceipt(file, locationOf(last), last.id);
+    await readReceipt(file, locationOf(last, boundBytes), last.id);
     scan.trims.push(...run.trims);
     scan.anchor = run.anchor;
     scan.trimRunEnd = run.trimRunEnd;
@@ -1113,11 +1397,11 @@ async function readCheckpoint(file: FileHandle, path: string, identity: string, 
  * Reads what the store file holds, from the index where the index speaks for it and from the file where
  * it does not, and leaves the index speaking for the whole of the file either way.
  */
-async function readStore(path: string, file: FileHandle, sidecar: SidecarState | null): Promise<StoreState> {
+async function readStore(path: string, file: FileHandle, sidecar: SidecarState | null, receiptKind: ReceiptRecordKind): Promise<StoreState> {
   const stats = await file.stat();
   const identity = serialOf(stats);
   if (sidecar !== null) {
-    const loaded = await loadSidecar(file, sidecar.path, identity, stats.size);
+    const loaded = await loadSidecar(file, sidecar.path, identity, stats.size, receiptKind);
     if (loaded !== null) {
       try {
         const tail: CheckpointEntry[] = [];
@@ -1132,12 +1416,14 @@ async function readStore(path: string, file: FileHandle, sidecar: SidecarState |
         return stateOf(loaded.scan, identity);
       } catch {
         // Past the checkpoint the file answers for itself, and a tail that cannot be read is read again
-        // from the first byte rather than refused: the store file is the authority here.
+        // from the first byte rather than refused: the store file is the authority here. A record whose
+        // kind this store does not write is refused from there as certainly as from the tail, because
+        // the walk below reads the same bytes and asks the same question of them.
       }
     }
   }
   const entries: CheckpointEntry[] = [];
-  const state = await walk(path, file, sidecar === null ? null : entries);
+  const state = await walk(path, file, sidecar === null ? null : entries, receiptKind);
   if (sidecar !== null) {
     await writeSidecar(sidecar, identity, entries);
   }
@@ -1145,10 +1431,10 @@ async function readStore(path: string, file: FileHandle, sidecar: SidecarState |
 }
 
 /** Opens the store file, creating it when absent, and closes it once the reading is done. */
-async function scan(path: string, sidecar: SidecarState | null): Promise<StoreState> {
+async function scan(path: string, sidecar: SidecarState | null, receiptKind: ReceiptRecordKind): Promise<StoreState> {
   const file = await open(path, 'a+');
   try {
-    return await readStore(path, file, sidecar);
+    return await readStore(path, file, sidecar, receiptKind);
   } finally {
     await file.close();
   }
@@ -1276,6 +1562,7 @@ async function compact(
   retention: ReceiptRetention | undefined,
   releaseHeld: () => Promise<void>,
   sidecar: SidecarState | null,
+  receiptKind: ReceiptRecordKind,
 ): Promise<void> {
   let first = state.size;
   for (const where of state.records.values()) {
@@ -1331,7 +1618,7 @@ async function compact(
   // used to be there while the index below had already moved to the new offsets.
   await releaseHeld();
   await rename(temp, path);
-  const recovered = await scan(path, sidecar);
+  const recovered = await scan(path, sidecar, receiptKind);
   state.records = recovered.records;
   state.head = recovered.head;
   state.size = recovered.size;
@@ -1410,6 +1697,16 @@ export function receiptsNeededForWindow(
 export function measurableSpanSeconds(held: RetainedWindow, source: TimeSource): number {
   const apart = readingsApart(source, held.from, held.to);
   return Math.max(apart.apartSeconds - (apart.state === 'unmeasured' ? 0 : apart.resolutionSeconds), 1);
+}
+
+/**
+ * A source as a stamp states it: the name and the bound, which is all of a source either projection
+ * writes down. It lives beside both types it maps between because an evidence bundle and a window claim
+ * each carry a `StampDeclaration`, and a copy of these two field reads in each of them is one renamed
+ * field away from drifting.
+ */
+export function declarationOf(source: TimeSource): StampDeclaration {
+  return { name: source.name, uncertaintySeconds: source.uncertaintySeconds };
 }
 
 /**
@@ -1665,11 +1962,20 @@ export async function openFileReceiptStore(options: FileReceiptStoreOptions): Pr
   // Floored here as well as at the issuance seam: a stamp is a whole second, and a record layout with an
   // 8-byte unsigned field has no spelling for anything else.
   const now = (): number => Math.floor(source.now());
+  // The configuration is refused before a byte of the file is read: a store that cannot say which kind
+  // of receipt record it writes has no reading of the file to offer, and an opening that walked the log
+  // first would prune and truncate through a configuration it was about to refuse.
+  const receiptKind = options.receiptKind ?? DEFAULT_RECEIPT_RECORD_KIND;
+  assertReceiptKind(receiptKind, retention);
+  const recordKind = receiptKindByte(receiptKind);
+  const boundBytes = boundBytesOf(recordKind);
   // Nothing else is read from this object but its path, so declining the index is exactly a store with
   // one file in its directory: no read, no write, no answer that the walk could not have given.
   const sidecar: SidecarState | null =
-    options.sidecarIndex === false ? null : { path: join(options.dir, RECEIPT_SIDECAR_FILE), previous: null, pending: [] };
-  const state = await scan(path, sidecar);
+    options.sidecarIndex === false
+      ? null
+      : { path: join(options.dir, RECEIPT_SIDECAR_FILE), recordKind, previous: null, pending: [] };
+  const state = await scan(path, sidecar, receiptKind);
   // A deployment that was down over a weekend has aged receipts on disk it must not serve.
   prune(state, retention, now());
   // What a file can serve is known once it has been read and pruned, and this is the last moment a
@@ -1714,7 +2020,11 @@ export async function openFileReceiptStore(options: FileReceiptStoreOptions): Pr
   return {
     put(id: string, receipt: Uint8Array, iat: number): Promise<void> {
       return serialized(async () => {
-        const record = encode(KIND_RECEIPT, state.head, iat, id, receipt);
+        // The payload is the receipt, with the period in front of it when this store's kind states one,
+        // and the record's digest covers both: the bound is part of what the chain attests, so a reader
+        // recomputing a record's digest is recomputing the retention statement with it.
+        const payload = receiptPayload(receipt, receiptKind);
+        const record = encode(recordKind, state.head, iat, id, payload);
         // An append handle with no offset, so it has to be the only one in flight.
         const file = await open(path, 'a');
         try {
@@ -1733,7 +2043,7 @@ export async function openFileReceiptStore(options: FileReceiptStoreOptions): Pr
           iat,
           id,
           idLength: Buffer.byteLength(id, 'utf8'),
-          length: receipt.length,
+          length: payload.length,
           // The writer records what it wrote, so a served read has something other than the volume's
           // number to compare the bytes it is about to hand over against.
           digest: record.digest,
@@ -1741,7 +2051,7 @@ export async function openFileReceiptStore(options: FileReceiptStoreOptions): Pr
         if (state.records.size === 0) {
           state.anchor = state.head;
         }
-        state.records.set(id, locationOf(entry));
+        state.records.set(id, locationOf(entry, boundBytes));
         state.head = record.digest;
         state.size += record.frame.length;
         // Told to the index before retention is applied, because the index speaks for the records the
@@ -1749,7 +2059,7 @@ export async function openFileReceiptStore(options: FileReceiptStoreOptions): Pr
         // until a compaction says otherwise, and an opening that re-derives the file would index it.
         await noteEntry(sidecar, entry);
         prune(state, retention, now());
-        await compact(path, state, now(), retention, putDownWalks, sidecar);
+        await compact(path, state, now(), retention, putDownWalks, sidecar, receiptKind);
       });
     },
 
@@ -1833,10 +2143,17 @@ export async function openFileReceiptStore(options: FileReceiptStoreOptions): Pr
  * test that is not about durability asks for. It chains exactly as the file engine does, so
  * `head()` means one thing across both, and a restart takes it back to the empty digest because
  * there is nowhere else for it to live.
+ *
+ * It takes the same kind choice for the same reason: a store that writes the bounded kind has to seal the
+ * period into the record it chains, or the two engines would report two heads for one set of receipts and
+ * a mock run would stop being a reading of the durable one. What it has no equivalent of is the mixture
+ * refusal, which is a claim about a file: nothing is being read back here, and a store that cannot hold
+ * records of a kind it never wrote has no disagreement to notice.
  */
 export function openMemoryReceiptStore(options: {
   readonly retention?: ReceiptRetention;
   readonly serving?: ReceiptServing;
+  readonly receiptKind?: ReceiptRecordKind;
 } = {}): ReceiptStore {
   const retention = options.retention;
   const serving = options.serving;
@@ -1844,6 +2161,9 @@ export function openMemoryReceiptStore(options: {
   // The same whole-second floor the file store reads a source through, so the two stores age a record
   // at the same instant when handed the same source and the same period.
   const now = (): number => Math.floor(source.now());
+  const receiptKind = options.receiptKind ?? DEFAULT_RECEIPT_RECORD_KIND;
+  assertReceiptKind(receiptKind, retention);
+  const recordKind = receiptKindByte(receiptKind);
   const entries = new Map<string, { iat: number; seq: number; prev: Uint8Array; receipt: Uint8Array }>();
   let chainHead: Uint8Array = new Uint8Array(PREV_BYTES);
   let chainSeq = 0;
@@ -1853,7 +2173,7 @@ export function openMemoryReceiptStore(options: {
   return {
     async put(id, receipt, iat) {
       const prev = chainHead;
-      chainHead = encode(KIND_RECEIPT, chainHead, iat, id, receipt).digest;
+      chainHead = encode(recordKind, chainHead, iat, id, receiptPayload(receipt, receiptKind)).digest;
       entries.set(id, { iat, seq: chainSeq++, prev, receipt });
       const retired = retire(entries, retention, now());
       for (const doomed of [...retired.byAge, ...retired.byCount]) {

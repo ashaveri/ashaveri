@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import type { AddressInfo } from 'node:net';
 import type { HTTPMethods } from 'fastify';
-import { decodeReceipt, hashRequest, toHex } from '@ashaveri/receipt';
+import { decodeReceipt, frameResponse, hashRequest, toHex } from '@ashaveri/receipt';
 import { mockDeployment } from '../src/deployment.js';
 import { upstreamBackend } from '../src/upstream.js';
 import { generated, harness, type Harness } from './helpers.js';
@@ -42,10 +42,10 @@ function chunkStream(events: string[], delayMs = 0): ReadableStream<Uint8Array> 
   });
 }
 
-function streamResponse(events: string[], delayMs = 0): Response {
+function streamResponse(events: string[], delayMs = 0, contentType = 'text/event-stream'): Response {
   return new Response(chunkStream(events, delayMs), {
     status: 200,
-    headers: { 'content-type': 'text/event-stream' },
+    headers: { 'content-type': contentType },
   });
 }
 
@@ -181,6 +181,25 @@ describe('upstream backend: streaming', () => {
     expect(upstream.requests[0]?.body).toMatchObject({ stream: true, stream_options: { include_usage: true } });
     const payload = await receiptFor(app, res.headers['x-ashaveri-receipt-id'] as string);
     expect(toHex(payload.req)).toBe(toHex(hashRequest(new TextEncoder().encode(STREAM_REQUEST_BODY))));
+  });
+
+  it('meters and frames one body whose content type carries a parameter', async () => {
+    // The usage of a streamed completion arrives in a frame of its own, so a scan that took this body for
+    // one whole item would report zero tokens while the item list named every frame: the two answers to
+    // "is this a stream" are one answer or the receipt states a completion the metering never saw. This
+    // body is the one where the two readings part if they are ever spelled separately.
+    const events = streamEvents();
+    const upstream = fakeUpstream(() => streamResponse(events, 0, 'text/event-stream; charset=utf-8'));
+    const app = await gatewayWith(upstream);
+    const res = await send(app, 'POST', '/v1/chat/completions', STREAM_REQUEST_BODY, NONCE);
+    expect(res.statusCode).toBe(200);
+    expect(res.headers['content-type']).toBe('text/event-stream; charset=utf-8');
+    const payload = await receiptFor(app, res.headers['x-ashaveri-receipt-id'] as string);
+    expect(payload.tok).toEqual({ p: 9, c: 4 });
+    const rebuilt = frameResponse('text/event-stream; charset=utf-8', new Uint8Array(res.rawPayload));
+    if (!rebuilt.framed) throw new Error('the shipped reader framed nothing out of a body of data frames');
+    if (!('itm' in payload)) throw new Error('a v3 payload carries no item list');
+    expect(payload.itm.map((one) => toHex(one.d))).toEqual(rebuilt.items.map((one) => toHex(one.d)));
   });
 
   it('issues no receipt when the client stops reading mid-stream', async () => {

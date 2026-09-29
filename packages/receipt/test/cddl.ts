@@ -114,33 +114,65 @@ export interface ListBinding {
 
 /**
  * Which list stands behind which map. There is one `adds` in this format: v2 is v1's members plus
- * `mk`, so both payload blocks bind to the one shared list and the version pair stays a row rather
- * than becoming a second copy of every assertion below. `MARKING_MEMBERS` stands behind the map `mk`'s
- * value is, which is why it appears once and not inside the payload's list.
+ * `mk`, and v3 is those four names again, so every payload block binds to the one shared list and the
+ * version set stays a row rather than becoming a second copy of every assertion below.
+ * `MARKING_MEMBERS` stands behind the map `mk`'s value is, which is why it appears once and not
+ * inside the payload's list. The two collateral slot lists and the item list's element list stand
+ * behind maps the closure walk reaches through a reader rather than through a member name, because a
+ * slot's shape is decided by the label inside it and an array has no member to point at, so the
+ * binding below is the only place the format's side of those three maps is written down.
  */
 export const LIST_FOR_MAP: readonly ListBinding[] = [
   { map: 'Ashaveri-Receipt-Payload-v1', list: 'SHARED_MEMBERS' },
   { map: 'Ashaveri-Receipt-Payload-v2', list: 'SHARED_MEMBERS', adds: ['mk'] },
+  { map: 'Ashaveri-Receipt-Payload-v3', list: 'SHARED_MEMBERS', adds: ['mk', 'sd', 'cva', 'itm'] },
   { map: 'Marking', list: 'MARKING_MEMBERS' },
   { map: 'Measurement', list: 'MEASUREMENT_MEMBERS' },
   { map: 'EvidenceRef', list: 'EVIDENCE_REF_MEMBERS' },
   { map: 'TokenMetering', list: 'TOKEN_METERING_MEMBERS' },
+  { map: 'StampDisclosure', list: 'STAMP_DISCLOSURE_MEMBERS' },
+  { map: 'CollateralValidityAnchor', list: 'COLLATERAL_ANCHOR_MEMBERS' },
+  { map: 'CollateralHeld', list: 'COLLATERAL_HELD_MEMBERS' },
+  { map: 'CollateralAbsent', list: 'COLLATERAL_ABSENT_MEMBERS' },
+  { map: 'ItemStamp', list: 'ITEM_STAMP_MEMBERS' },
 ];
 
 /**
+ * The payload versions one CDDL file declares, read off the alternatives of the rule that is a
+ * choice between them. This is the format's own answer to "which versions exist", and the tie
+ * between it and the versions a reader parses is what keeps that set stated once: `receipt.cddl`
+ * names them, `receipt.ts` reads them, and a version that arrived in one of the two and not the
+ * other would otherwise be a document the format defines and no reader can open, or a reader that
+ * accepts a document no version of the format grants.
+ */
+export function cddlPayloadVersions(cddl: string): number[] {
+  const found = /^Ashaveri-Receipt-Payload = (.+)$/mu.exec(cddl);
+  if (found === null) throw new Error(`no Ashaveri-Receipt-Payload choice rule is declared in ${cddlPath}`);
+  const versions = [...found[1]!.matchAll(/Ashaveri-Receipt-Payload-v(\d+)\b/gu)].map((digits) => Number(digits[1]));
+  if (versions.length === 0) throw new Error(`${cddlPath} declares a payload with no version as one of its alternatives`);
+  return versions;
+}
+
+/**
  * The payload members whose value is another map the file defines, each bound to the rule it is:
- * `meas` is a `Measurement`. Derived rather than written out beside the member, because adding a member
- * to a payload block is the only way a new map reaches this format, and a table of rule names kept by
- * hand here would let that map arrive in the CDDL and in the parser while the twin-side assertions
- * went on sweeping the maps before it. Two payload blocks naming one member two different rules is the
- * format describing one member as two maps, so it stops the run rather than settling for one.
+ * `meas` is a `Measurement`, and `itm` is a list of `ItemStamp`. Derived rather than written out
+ * beside the member, because adding a member to a payload block is the only way a new map reaches
+ * this format, and a table of rule names kept by hand here would let that map arrive in the CDDL and
+ * in the parser while the twin-side assertions went on sweeping the maps before it. Two payload
+ * blocks naming one member two different rules is the format describing one member as two maps, so
+ * it stops the run rather than settling for one.
+ *
+ * The array form is read as well as the map form, because which positions a format types as
+ * integers is a question the whole document answers: `itm`'s elements carry one, and a list of them
+ * is as much a declaration of that position as a map of it. Which of the two the closure walk enters
+ * by member name is a different question, and `receipt.cddl` says so beside the block.
  */
 export function nestedRuleNames(cddl: string): Map<string, string> {
   const rules = new Map<string, string>();
   for (const binding of LIST_FOR_MAP.filter((row) => row.map.startsWith('Ashaveri-Receipt-Payload-v'))) {
     for (const line of cddlRule(cddl, binding.map).split('\n').slice(1)) {
       for (const piece of line.split(';')[0]!.split(',')) {
-        const found = /^\s*([a-z][a-z0-9_]*)\s*:\s*([A-Z][A-Za-z0-9_-]*)\s*$/u.exec(piece);
+        const found = /^\s*([a-z][a-z0-9_]*)\s*:\s*(?:\[\+[ \t]*)?([A-Z][A-Za-z0-9_-]*)(?:[ \t]*\])?\s*$/u.exec(piece);
         if (!found) continue;
         const known = rules.get(found[1]!);
         if (known !== undefined && known !== found[2]) {

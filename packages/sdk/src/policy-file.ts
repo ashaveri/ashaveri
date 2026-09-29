@@ -4,6 +4,7 @@ import { sha256 } from '@noble/hashes/sha2.js';
 import { MEASUREMENT_BYTES, isTeeKind, type TeeKind } from '@ashaveri/receipt';
 import { fromBase64Url, toBase64Url, toHex } from './b64.js';
 import { SdkError } from './errors.js';
+import { MAX_ANCHOR_SLOTS_DEMANDABLE } from './policy.js';
 import type { EvidenceTrustAnchors } from './evidence.js';
 import { DEFAULT_MAX_EVIDENCE_AGE_SECONDS, DEFAULT_MAX_RECEIPT_AGE_SECONDS } from './policy.js';
 import type { AshaveriPolicy } from './policy.js';
@@ -56,6 +57,7 @@ const FIELDS = [
   'maxReceiptAgeSeconds',
   'maxEvidenceAgeSeconds',
   'maxTimeUncertaintySeconds',
+  'minAnchorSlotsHeld',
   'trustAnchors',
 ] as const;
 
@@ -90,6 +92,23 @@ const PIN_FIELDS = ['issuers', 'instances', 'keys', 'measurements'] as const;
  * already written and already cited by a digest. So a number an operator states is always inside the
  * canonical form and always inside the digest, and an absent demand leaves the canonical form exactly
  * as it was before this field existed. The rule as implemented is at `canonicalOf`.
+ */
+
+/**
+ * `minAnchorSlotsHeld` is a field of this document, and it is the one whose normalised spelling is
+ * conditional: `canonicalOf` writes the key only where the document stated a number. The trade is the
+ * opposite of the one above, taken on the same grounds and deliberately.
+ *
+ * A manifest signing key is a pin, so a document that carried one outside the canonical form would set a
+ * trust decision outside the identity of the file stating it. A demand about how many of an anchor's slots
+ * were taken in is not a pin and pins nothing on its own: it names no key, no issuer and no measurement,
+ * and it decides no comparison of a receipt against a set. The only case its omission from the canonical
+ * form would lose is the case where nothing was demanded, which is every policy already written, already
+ * cited by a digest, and already answered by a verdict. So a demand an operator states is always inside the
+ * canonical form and always inside the digest, and an unstated demand leaves the canonical form exactly as
+ * it was before this field existed. `test/anchor-slot-demand.test.ts` holds that sentence to numbers: the
+ * digests of documents that never named the field, pinned from before it existed, and the verdicts those
+ * documents reach.
  */
 
 const HEX_64 = /^[0-9a-f]{64}$/;
@@ -137,7 +156,7 @@ export interface PolicyFileTrustAnchors {
  * forward slashes. A pin collection is either present or absent, because `null`, `{}` and `[]` are
  * all one accident with different text; the two age windows and the three anchor families do accept
  * an explicit `null`, which is how a document says it considered them and took the default. The time
- * bound accepts `null` on the same reading, and it is the one field whose `null` is left out of the
+ * bound and the anchor demand both accept `null` on the same reading, and they are the two fields whose
  * canonical form rather than written into it: see the note above this interface on why one optional
  * field is normalised by omission and the two windows are not.
  */
@@ -153,10 +172,15 @@ export interface PolicyFile {
    * How far the source a stamp was read from may stand from the instant it names, or `null` when the
    * document demands nothing about it. An unsigned number, so `0` is a demand and says what it demands.
    *
+   * How many of a receipt's anchor slots this verifier requires to state that their material was taken
+   * in and is held, or `null` where the document demands nothing about an anchor. A whole number of
+   * slots from 1 to `MAX_ANCHOR_SLOTS_DEMANDABLE`, so `1` is a demand and says what it demands.
+   *
    * `null` and an absent field are one policy here, as they are for the two windows above. What differs
    * is the spelling that policy gets in the canonical form, which `canonicalOf` states and explains.
    */
   readonly maxTimeUncertaintySeconds: number | null;
+  readonly minAnchorSlotsHeld: number | null;
   readonly trustAnchors: PolicyFileTrustAnchors;
 }
 
@@ -436,6 +460,38 @@ function seconds(label: string, value: unknown, least: number): number {
   return value;
 }
 
+/**
+ * A count of an anchor's slots at `minAnchorSlotsHeld`, whole, at least one, and no more than the slots an
+ * anchor has.
+ *
+ * This is a deliberate neighbour of `seconds` and not that function with a different name attached: the
+ * quantity is a count of members of a signed map rather than a duration, so a non-finite value is refused
+ * here for the reason the two windows refuse it and an out-of-range value is refused for one they have no
+ * equivalent of. `Number.isSafeInteger` is what catches `1e400` on the way in, which a JSON document of
+ * this shape can spell and no reader can state exactly: digits in the file and the number the loader keeps
+ * would be two different demands.
+ *
+ * Both bounds are refusals rather than clamps, and each message names the two roads open to whoever wrote
+ * the number. Below one: a demand of no slots is met by every artifact ever issued, so it is a silence
+ * written as a decision, and the road out is to leave the field out, which is what this format's spelling
+ * of demanding nothing is. Above the slot count: no document can ever meet it, so the road out is to lower
+ * it to the count the anchor holds or to leave it out, and never to leave a policy standing that has
+ * already refused everything it will ever be shown.
+ */
+function anchorSlots(label: string, value: unknown): number {
+  if (typeof value !== 'number' || !Number.isSafeInteger(value)) {
+    throw invalid(
+      `${label} must be a whole number of slots from 1 to ${MAX_ANCHOR_SLOTS_DEMANDABLE}, not ${spelled(value)}: a demand stated as a fraction or as no number at all is weighed against nothing, so either name that many of the anchor's slots or leave the field out, which is what this format's spelling of demanding nothing about an anchor is`,
+    );
+  }
+  if (value < 1 || value > MAX_ANCHOR_SLOTS_DEMANDABLE) {
+    throw invalid(
+      `${label} is ${String(value)}, which no document can answer: an anchor states ${MAX_ANCHOR_SLOTS_DEMANDABLE} slots, so a demand is a whole number from 1 to ${MAX_ANCHOR_SLOTS_DEMANDABLE} naming how many of them must have been taken in, and either name that many or leave the field out, which is what this format's spelling of demanding nothing about an anchor is`,
+    );
+  }
+  return value;
+}
+
 function pinList(field: string, value: unknown): string[] {
   const label = `'${field}'`;
   if (!Array.isArray(value)) throw invalid(`${label} must be an array of strings, not ${spelled(value)}`);
@@ -580,8 +636,9 @@ function readTrustAnchors(value: unknown): PolicyFileTrustAnchors {
  * Reads one policy document.
  *
  * The result is the document in its normalised spelling: sets sorted, every anchor family written
- * out, both age windows and the time bound present as a number or `null`. `policyFileDigest` is defined
- * on this form, so a digest is a fact about the policy and not about how a copy happened to be laid out.
+ * out, both age windows, the time bound and the anchor demand each present as a number or `null`.
+ * `policyFileDigest` is defined on this form, so a digest is a fact about the policy and not about how a
+ * copy happened to be laid out.
  */
 export function parsePolicyFile(text: string): PolicyFile {
   const document = scanJson(text);
@@ -615,6 +672,10 @@ export function parsePolicyFile(text: string): PolicyFile {
       raw['maxTimeUncertaintySeconds'] === undefined || raw['maxTimeUncertaintySeconds'] === null
         ? null
         : seconds("'maxTimeUncertaintySeconds'", raw['maxTimeUncertaintySeconds'], 0),
+    minAnchorSlotsHeld:
+      raw['minAnchorSlotsHeld'] === undefined || raw['minAnchorSlotsHeld'] === null
+        ? null
+        : anchorSlots("'minAnchorSlotsHeld'", raw['minAnchorSlotsHeld']),
     trustAnchors: readTrustAnchors(raw['trustAnchors']),
   };
   requireSomePinning(file);
@@ -659,11 +720,15 @@ function canonicalValue(value: unknown): string {
  * caller that built a `PolicyFile` by hand could attach a digest to a policy the loader would have
  * refused.
  *
- * `trustAnchors` is the one field whose default is *not* filled in. Leaving a family out means
+ * `trustAnchors` is the one field whose default is *not* filled in with the thing it stands for. Leaving a
+ * family out means
  * "accept the roots bundled with the verifier", and the bundled set is a property of whichever
  * `@ashaveri/attest-core` is installed rather than of this document, so writing those digests in
  * would tie a customer's signed identity to a library version. An unpinned family is written as
- * `null`, which says plainly that no root was pinned here.
+ * `null`, which says plainly that no root was pinned here. The two fields the form leaves out of the
+ * document altogether when nothing was stated are the time bound and the anchor demand below: neither
+ * has a default to substitute, so each writes nothing rather than a `null` that would move every
+ * digest cited before it.
  *
  * `maxTimeUncertaintySeconds` is written only when the document states a demand. A number an operator
  * named is a decision this policy carries, so it is inside the canonical form and inside the digest,
@@ -671,7 +736,14 @@ function canonicalValue(value: unknown): string {
  * on a stamp's source was asked for. A demand nobody stated is written as nothing at all rather than as
  * `null`, which is what keeps the digest of a policy that never made the demand the digest it carried
  * before this field existed, and `test/policy-replay.test.ts` pins that fact as numbers rather than as
- * this sentence. The trade itself is argued at the note above `PolicyFile`.
+ * this sentence.
+ *
+ * `minAnchorSlotsHeld` is written only when the document states a demand. A number an operator named is
+ * a decision this policy carries, so it is inside the canonical form and inside the digest, and whoever
+ * holds the document can see from it alone, without asking the deployment, whether an anchor was demanded
+ * of it. A demand nobody stated is written as nothing at all rather than as `null`, which is what keeps the
+ * digest of a policy that never made the demand the digest it carried before this field existed. The trade
+ * itself is argued at the note above `PolicyFile`.
  */
 function canonicalOf(file: PolicyFile): Record<string, unknown> {
   const shape: unknown = file;
@@ -697,6 +769,10 @@ function canonicalOf(file: PolicyFile): Record<string, unknown> {
       throw invalid(`'${field}' is missing, so the document was never normalised by the loader`);
     }
   }
+  // The anchor demand is absent from that list on purpose and not by oversight. `null` and no key at all
+  // are one policy here, as the note above `PolicyFile` argues, and a guard that asked a hand-built
+  // document to state the key would be one step from a canonical form that always carries it, which moves
+  // every digest anyone has cited.
   const anchors = given['trustAnchors'] as Record<string, unknown>;
   for (const key of Object.keys(anchors)) {
     if (!(ANCHOR_FAMILIES as readonly string[]).includes(key)) {
@@ -735,6 +811,8 @@ function canonicalOf(file: PolicyFile): Record<string, unknown> {
   };
   const demanded = given['maxTimeUncertaintySeconds'];
   if (demanded !== undefined && demanded !== null) canonical['maxTimeUncertaintySeconds'] = demanded;
+  const demandedSlots = given['minAnchorSlotsHeld'];
+  if (demandedSlots !== undefined && demandedSlots !== null) canonical['minAnchorSlotsHeld'] = demandedSlots;
   return canonical;
 }
 
@@ -839,6 +917,23 @@ export function policyFileFromPolicy(
     }
     document['maxTimeUncertaintySeconds'] = policy.maxTimeUncertaintySeconds;
   }
+
+  // The anchor's leg takes the same reading: a
+  // policy that demands nothing about an anchor is the policy that existed before this field did, and its
+  // digest says so by carrying no key for it.
+  if (policy.minAnchorSlotsHeld !== undefined) {
+    // Refused here, while the number is still in hand. A non-finite demand survives no further than the
+    // text form of this document, which writes it as `null`, and `null` is this format's spelling of a
+    // policy that asks nothing of an anchor, so a demand an operator wrote would reach an auditor as its
+    // own absence. The two roads are the two the loader's own refusal names: state a demand a document can
+    // meet, or name no demand at all.
+    if (!Number.isFinite(policy.minAnchorSlotsHeld)) {
+      throw invalid(
+        `'minAnchorSlotsHeld' is ${String(policy.minAnchorSlotsHeld)}, which no policy document can carry as a demand: the written form of it is null, and null is this format's spelling of a policy that asks nothing of an anchor, so either state a whole number of the anchor's ${String(MAX_ANCHOR_SLOTS_DEMANDABLE)} slots or name no demand at all`,
+      );
+    }
+    document['minAnchorSlotsHeld'] = policy.minAnchorSlotsHeld;
+  }
   return parsePolicyFile(JSON.stringify(document));
 }
 
@@ -856,6 +951,12 @@ export function policyFileToJson(file: PolicyFile): string {
   // of the identity, so the text worth putting in a repository reads the same as the digest does.
   if (canonical['maxTimeUncertaintySeconds'] !== undefined) {
     write['maxTimeUncertaintySeconds'] = canonical['maxTimeUncertaintySeconds'];
+  }
+
+  // A demand that was never made is not written into the file, exactly as `canonicalOf` leaves it out of
+  // the identity, so the text worth putting in a repository reads the same as the digest does.
+  if (canonical['minAnchorSlotsHeld'] !== undefined) {
+    write['minAnchorSlotsHeld'] = canonical['minAnchorSlotsHeld'];
   }
   write['trustAnchors'] = canonical['trustAnchors'];
   write['v'] = canonical['v'];
@@ -941,6 +1042,7 @@ function toPolicy(file: PolicyFile, anchors: EvidenceTrustAnchors | undefined): 
     maxReceiptAgeSeconds: file.maxReceiptAgeSeconds ?? undefined,
     maxEvidenceAgeSeconds: file.maxEvidenceAgeSeconds ?? undefined,
     maxTimeUncertaintySeconds: file.maxTimeUncertaintySeconds ?? undefined,
+    minAnchorSlotsHeld: file.minAnchorSlotsHeld ?? undefined,
   };
   return anchors === undefined ? policy : { ...policy, trustAnchors: anchors };
 }

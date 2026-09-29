@@ -4,12 +4,13 @@ import {
   hashRequest,
   ReceiptError,
   verifyReceipt,
-  type ReceiptPayloadV2,
+  type Marking,
   type VerifiedReceipt,
 } from '@ashaveri/receipt';
 import { toHex } from './b64.js';
 import { SdkError } from './errors.js';
 import type { AshaveriPolicy } from './policy.js';
+import { assertAnchorHeldUnderPolicy } from './policy.js';
 import { DEFAULT_MAX_EVIDENCE_AGE_SECONDS, DEFAULT_MAX_RECEIPT_AGE_SECONDS } from './policy.js';
 
 export interface VerifyCompletionParams {
@@ -19,9 +20,10 @@ export interface VerifyCompletionParams {
   readonly responseHash: Uint8Array;
   /**
    * The response bytes themselves, not only their digest. Required rather than optional so that a
-   * live verification cannot be run in a shape that quietly skips the marking check: a v2 receipt
-   * attests a region inside these bytes, and the only way to honour that claim is to read it off the
-   * bytes the caller received.
+   * live verification cannot be run in a shape that quietly skips the marking check: a receipt whose
+   * payload names a marking attests a region inside these bytes, and the only way to honour that
+   * claim is to read it off the bytes the caller received. Which payloads name one is a fact about the
+   * `mk` member, not about a version number: `v: 1` names none, and every version that does is checked.
    *
    * The caller has to hand the same bytes it hashed into `responseHash`. That is checked rather than
    * assumed for a receipt that carries a marking claim, because a region lifted out of bytes the
@@ -39,10 +41,10 @@ export interface VerifyCompletionParams {
  * the signing key, the nonce it sent, and the exact request/response body
  * bytes it sent and received. Throws SdkError or ReceiptError on failure.
  *
- * The response bytes are checked twice, and the second check is the marking claim: a v2 receipt
- * carries `mk.d`, the digest of one region inside the response, and it is verified here rather than
- * left to someone who kept the bytes and thought to look. The signature and the payload checks come
- * first, so this only ever runs over a document that is authentic.
+ * The response bytes are checked twice, and the second check is the marking claim: a payload that
+ * names a marking carries `mk.d`, the digest of one region inside the response, and it is verified
+ * here rather than left to someone who kept the bytes and thought to look. The signature and the
+ * payload checks come first, so this only ever runs over a document that is authentic.
  *
  * With a policy, this is where the two freshness windows close: the policy's own numbers if it
  * names them, the defaults in `policy.ts` if it does not. With no policy, no window runs.
@@ -89,7 +91,14 @@ export function verifyCompletionReceipt(params: VerifyCompletionParams): Verifie
       `receipt response hash ${toHex(payload.res)} does not match the response that was received (${toHex(params.responseHash)})`,
     );
   }
-  if (payload.v === 2) {
+  // The step is gated on the member rather than on a version number, and that is deliberate: what
+  // makes the marking check owed is a payload naming `mk`, and every version that names it attests a
+  // region inside the response bytes. A condition spelled as `payload.v === N` is a list of the
+  // versions someone thought of, and the next version that carries the member would be missing from
+  // it while every gate still went green, because the skipped step answers nothing wrong about the
+  // receipt it skipped. `v: 1` names no marking and so claims nothing to check, which is the one
+  // asymmetry the format itself draws.
+  if ('mk' in payload) {
     verifyMarkedRegion(payload, params.responseBytes);
   }
   if (policy?.issuers !== undefined && !policy.issuers.includes(payload.iss)) {
@@ -105,11 +114,26 @@ export function verifyCompletionReceipt(params: VerifyCompletionParams): Verifie
       `receipt measurement ${toHex(payload.meas.m)} (tee ${payload.meas.tee}) is not pinned by the policy`,
     );
   }
+  // What the policy demands of an anchor, weighed last among the policy's own questions and only over a
+  // document that states one. The order is the same one the pins keep: a receipt this policy would not
+  // trust an issuer or a measurement from is refused for that reason before anybody reads its claims about
+  // what it took in, and a caller that failed two of them is told the earlier one.
+  //
+  // The step is gated on the member and not on a version number, which is how the marking check above is
+  // gated, for the same reason: what makes this demand owed is an anchor in the payload, and a condition
+  // spelled as a list of versions would be missing the next one that carries the member while every gate
+  // stayed green. A version that names no anchor is not refused here, because it states nothing about
+  // presence either way and this is a rule about an anchor rather than about a `v`: `policy.ts` says so at
+  // `assertAnchorHeldUnderPolicy`, and the row this code earns in `docs/error-codes.md` is where a reader
+  // learns which states it reaches and which it does not.
+  if ('cva' in payload) {
+    assertAnchorHeldUnderPolicy(policy, payload.cva);
+  }
   return verified;
 }
 
 /**
- * The marking claim of a v2 receipt, read off the bytes this call was handed.
+ * The marking claim of a receipt that names one, read off the bytes this call was handed.
  *
  * Three checks in this order, and the order carries the meaning. The response digest is recomputed
  * over the bytes first, so a region taken from a document the receipt does not attest cannot become a
@@ -120,8 +144,14 @@ export function verifyCompletionReceipt(params: VerifyCompletionParams): Verifie
  * duplicated here, which is what makes the client's verdict and a third party's detector verdict
  * about the same bytes. Finally the region's digest is compared.
  *
- * A v1 receipt never reaches this function, because it carries no `mk` and so makes no claim to
- * check. That asymmetry is the format's, not a relaxation added here.
+ * The argument is the two members this check reads rather than a payload type named after a version,
+ * which is the same reason the step above is gated on the member: a check typed against `v2`'s payload
+ * type would be the list-of-versions failure again, and the compiler would not catch it either,
+ * because the next version carrying `mk` would not be assignable and only a widening by whoever
+ * noticed would make the call run.
+ *
+ * A payload naming no marking never reaches this function, because there is no claim to check. That
+ * asymmetry is the format's, not a relaxation added here.
  *
  * The codes are the format package's. `MARK_MISMATCH` is what a reader needs in order to tell "the
  * marking does not match" apart from "the receipt is not authentic", which stays
@@ -129,7 +159,7 @@ export function verifyCompletionReceipt(params: VerifyCompletionParams): Verifie
  * `UNSUPPORTED_SCHEME`, already raised by the parser before a payload reaches this point. Nothing
  * here adds to `SdkError`'s vocabulary beyond the response-digest refusal it already had.
  */
-function verifyMarkedRegion(payload: ReceiptPayloadV2, responseBytes: Uint8Array): void {
+function verifyMarkedRegion(payload: { readonly res: Uint8Array; readonly mk: Marking }, responseBytes: Uint8Array): void {
   if (!equalBytes(hashRequest(responseBytes), payload.res)) {
     throw new SdkError(
       'RESPONSE_HASH_MISMATCH',

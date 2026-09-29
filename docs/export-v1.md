@@ -192,6 +192,53 @@ What a completed walk does not establish is the part a reimplementer is most lik
 - It is not a statement that the material is what any law, contract or proceeding requires. That is what the
   assessment block above is for, and this container states that it made no such claim.
 
+## The instants an export carries beside the instants an original carries
+
+Three kinds of instant meet at an export's boundary: a receipt's issuance stamp, that receipt's per-item
+stamps, and the stamps this container writes for its own items and for its assembly. They are all whole
+seconds and none of them is the others, so the orders a reader may assume across the boundary are stated
+here rather than left to be inferred from the fact that the numbers share a unit.
+
+**Inside one receipt.** A payload states `iat`, the instant its issuer's declared time source read when it
+signed, and a payload that names an item list states for each item a `t`, a reading of that same source, in
+that source's own declared uncertainty, taken as that item's bytes were framed. The two are one clock and one
+signature: `t` never stands above `iat`, and the stamps do not run backwards along the array's order. A reader
+may therefore order every item stamp of a receipt against that receipt's issuance instant and against every
+other item stamp of it, and may assume nothing further from the gaps between them, because the spacing of a
+delivery is stated by none of these numbers. Both bounds are [`receipt-spec.md`](receipt-spec.md) section 3's
+`itm` row, and they are kept by different parties: the ordering is a reader's refusal,
+`ITEM_STAMP_OUT_OF_ORDER`, and the ceiling over each item stamp is one a producer holds its own list under,
+which a reader enforces only by asking for it.
+
+**Across the boundary, an unchained item.** Nothing in this container ties `item.iat` to the `iat` inside the
+bytes the item names. The walk hashes an anchored item's original without opening it, so a conforming reader
+holds no payload instant to compare against, and the two numbers are the word of two signers. A reader that
+wants them tied asks for it itself: verify the original as a receipt, read its `iat`, and compare. Where the
+original is a contract or a screenshot there is no issuance instant inside it at all, and the item's stamp is
+the only time this document says about that material; that is a shape of the material rather than a gap in
+the record. The same holds of `t`: an item stamp of a receipt can be ordered against `item.iat` only once the
+reader has opened the receipt, because the ordering it would rest on, `iat` at or below `item.iat`, is a
+statement this container never makes.
+
+**Across the boundary, a chained item.** `chainedItem.iat` is a term of the digest the run folds, so an item
+restamped into a run it was never chained in breaks a link rather than slipping through, and one completed
+walk states one stamped sequence within this container. That is a bound inside the document and not a bridge
+across it. A pack's reader does build the bridge: it verifies each item's receipt and refuses a chained stamp
+that differs from the `iat` that receipt attests, under `PACK_RECEIPT_STAMP_MISMATCH` in
+`packages/receipt/src/pack.ts`. An export's reader has no such rule, and cannot have one that costs nothing,
+because opening every original is the verification this container declines.
+
+**Against the assembly instant.** `at` bounds exactly one other member of this document, `claim.made`. It
+orders nothing against an original: material whose receipt was issued after the export was assembled is not
+refused here, and that is the same limit that makes a completed walk no proof of freshness. A reader that
+cares compares `at` with its own clock, and compares `at` with the issuance instants of the originals it has
+opened for itself.
+
+**What the numbers are worth.** The instants inside a receipt travel with the source they were read from and
+the uncertainty that source declares, and a reader can weigh a stamp against both. This container carries no
+source and declares no bound for any stamp it holds, its own included: every export instant is a writer's
+word about a clock nobody named, and the pairwise orders above are all a reader gets from reading it.
+
 ## The claim block
 
 Provenance and custody are facts about a process rather than about bytes, and no reader can recompute them.

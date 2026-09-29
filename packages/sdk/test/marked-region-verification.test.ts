@@ -11,6 +11,7 @@ import {
   type ReceiptPayload,
   type ReceiptPayloadV1,
   type SigningKey,
+  type VerifiedReceipt,
 } from '@ashaveri/receipt';
 import { AshaveriClient, verifyCompletionReceipt, wrapOpenAI, type ChatCompletionChunk } from '../src/index.js';
 import {
@@ -33,6 +34,11 @@ import {
  * reader told "the mark does not match" needs to know the document itself verified. And the bytes the
  * mark is read out of have to be the bytes the receipt attests, which is checked rather than assumed,
  * because a region lifted out of a document nobody signed is a verdict about the wrong response.
+ *
+ * The claim belongs to the member, not to a version: every payload naming `mk` attests one region, so
+ * the step is taken on the member and the cases below cover the versions that carry it, which is `v: 2`
+ * through the live client and `v: 3` over hand-built bytes. `v: 1` names no marking and is answered by
+ * the case that keeps accepting it.
  */
 
 const MESSAGES = [{ role: 'user' as const, content: 'hi' }];
@@ -80,9 +86,9 @@ function markedBody(...members: string[]): string {
     .join('')}}`;
 }
 
-/** A v2 receipt over `responseBytes`, attesting `mk`, signed by `by`. */
-function receiptOver(responseBytes: Uint8Array, mk: Marking, by: SigningKey = KEY): Uint8Array {
-  const fields: Omit<ReceiptPayloadV1, 'v'> = {
+/** The twelve fields every receipt carries, over `responseBytes`, shared by the two version builders. */
+function fieldsOver(responseBytes: Uint8Array): Omit<ReceiptPayloadV1, 'v'> {
+  return {
     iss: 'handbuilt-issuer',
     ins: 'handbuilt-instance',
     iat: FAKE_IAT,
@@ -96,17 +102,45 @@ function receiptOver(responseBytes: Uint8Array, mk: Marking, by: SigningKey = KE
     epk: 0,
     tok: { p: 1, c: 1 },
   };
-  const payload: ReceiptPayload = { v: 2, ...fields, mk };
+}
+
+/** A v2 receipt over `responseBytes`, attesting `mk`, signed by `by`. */
+function receiptOver(responseBytes: Uint8Array, mk: Marking, by: SigningKey = KEY): Uint8Array {
+  const payload: ReceiptPayload = { v: 2, ...fieldsOver(responseBytes), mk };
+  return issueReceipt(payload, by);
+}
+
+/**
+ * A v3 receipt over `responseBytes`, attesting the same `mk` a v2 receipt would: the marked payload
+ * with the three members `v: 3` adds filled in. The marking claim is the claim `v: 2` makes, named
+ * the same way, which is the whole reason the cases below are built on this builder rather than on
+ * the one above.
+ */
+function stampedOver(responseBytes: Uint8Array, mk: Marking, by: SigningKey = KEY): Uint8Array {
+  const fields = fieldsOver(responseBytes);
+  const payload: ReceiptPayload = {
+    ...fields,
+    v: 3,
+    mk,
+    sd: { name: 'host clock', uncertaintySeconds: null },
+    cva: {
+      collateral: { presence: 'held', sha256: hashRequest(utf8('the collateral the appraisal ran on')) },
+      validity: { presence: 'not-taken-in', reason: 'the collector read no window' },
+    },
+    itm: [{ t: fields.iat, d: hashRequest(utf8('the first item of the response')) }],
+  };
   return issueReceipt(payload, by);
 }
 
 /**
  * One live verification on hand-built bytes. `responseHash` defaults to the digest of the bytes,
  * which is what a client that read them straight would hand over; a case that means to lie about one
- * of the two names the other itself.
+ * of the two names the other itself. The receipt that comes back is returned rather than discarded,
+ * because the cases that expect a refusal and the cases that expect to get through are answered by
+ * the same call and only the second one has an outcome to state.
  */
-function checkLive(receiptBytes: Uint8Array, responseBytes: Uint8Array, verifyKey: Uint8Array, responseHash?: Uint8Array) {
-  verifyCompletionReceipt({
+function checkLive(receiptBytes: Uint8Array, responseBytes: Uint8Array, verifyKey: Uint8Array, responseHash?: Uint8Array): VerifiedReceipt {
+  return verifyCompletionReceipt({
     receiptBytes,
     nonce: new Uint8Array(16).fill(3),
     requestHash: hashRequest(utf8('the request')),
@@ -282,6 +316,31 @@ describe('what a live client refuses', () => {
   it('accepts the empty region over a response that carries no mark', () => {
     const responseBytes = utf8('{"id":"chatcmpl-handbuilt","object":"chat.completion","choices":[]}');
     checkLive(receiptOver(responseBytes, { sch: 'none', d: hashRequest(emptyRegion()) }), responseBytes, KEY.publicKey);
+  });
+
+  it('checks the marking claim of a v3 receipt, which names `mk` exactly as v2 does', async () => {
+    // The step that decides this is gated on the payload naming `mk`, not on one version carrying it.
+    // The half below that refuses is the reason: a `v: 3` receipt signed over a response whose marked
+    // region digests elsewhere passes the signature, the nonce, both digests, the clock and the pins,
+    // and answers verified with the required step never run. Gate the step on a version number that
+    // omits 3 and this case stops refusing, because nothing else about the bytes moves.
+    const responseBytes = utf8(markedBody(memberText(FAKE_IAT)));
+    const attested: Marking = { sch: 'provenance-v1', d: hashRequest(utf8(memberText(FAKE_IAT))) };
+    const mismatched: Marking = { sch: 'provenance-v1', d: hashRequest(utf8(memberText(FAKE_IAT + 60))) };
+
+    const failure = await failureFrom(async () =>
+      checkLive(stampedOver(responseBytes, mismatched), responseBytes, KEY.publicKey),
+    );
+    expect(failure.name).toBe('ReceiptError');
+    expect(failure.code).toBe('MARK_MISMATCH');
+    expect(failure.message).toContain('mk.d');
+
+    // The same document with the region it does attest: the step runs, the region matches, and the
+    // receipt verifies. A case that only showed the refusal would not tell a widened check that
+    // refused everything apart from a correct one.
+    const verified = checkLive(stampedOver(responseBytes, attested), responseBytes, KEY.publicKey);
+    expect(verified.payload.v).toBe(3);
+    expect(verified.payload).toMatchObject({ mk: { sch: 'provenance-v1' } });
   });
 
   it('refuses bytes handed for the marking check that the receipt does not attest, even when a region in them digests right', async () => {

@@ -303,7 +303,12 @@ function memberSpans(bytes: Uint8Array): Span[] {
 /**
  * The candidate frames of a body written as server-sent events: each `data:` field line, its line
  * terminator excluded, whose payload is a completion chunk carrying no choices at all beside its
- * marking member. The empty `choices` is part of the shape rather than decoration: it is what makes
+ * marking member. A line ends at a line feed, a carriage return, or that pair together, which is the
+ * ending section 3.1 of `docs/receipt-spec.md` publishes and `ResponseItemFramer` reads: a stream written
+ * with carriage returns carries the same mark in it, and a reader that looked for line feeds alone would
+ * take the whole body for one line and report that the response holds no region at all.
+ *
+ * The empty `choices` is part of the shape rather than decoration: it is what makes
  * the frame a well-formed chunk to a client that accumulates a completion off a stream, which is
  * measured in `packages/sdk/test/unknown-response-members.test.ts`, and it is what keeps a mark out
  * of a frame that the same client hands to an accumulator un-parsed and then breaks.
@@ -311,35 +316,49 @@ function memberSpans(bytes: Uint8Array): Span[] {
 function frameLineSpans(bytes: Uint8Array): Span[] {
   const found: Span[] = [];
   const decoder = new TextDecoder();
-  let lineStart = 0;
-  for (let boundary = 0; boundary <= bytes.length; boundary += 1) {
-    if (boundary !== bytes.length && bytes[boundary] !== LF) continue;
-    let end = boundary;
-    if (end > lineStart && bytes[end - 1] === CR) end -= 1;
-    const start = lineStart;
-    lineStart = boundary + 1;
-    if (end - start < DATA_PREFIX.length) continue;
+  const consider = (start: number, end: number): void => {
+    if (end - start < DATA_PREFIX.length) return;
     const line = bytes.subarray(start, end);
-    if (decoder.decode(line.subarray(0, DATA_PREFIX.length)) !== DATA_PREFIX) continue;
+    if (decoder.decode(line.subarray(0, DATA_PREFIX.length)) !== DATA_PREFIX) return;
     let payloadAt = DATA_PREFIX.length;
     // One leading space belongs to the field's framing rather than to its value. The region below is
     // still the line exactly as transmitted, prefix and space included.
     if (line[payloadAt] === SPACE) payloadAt += 1;
     const text = decoder.decode(line.subarray(payloadAt));
-    if (text === DONE_TOKEN) continue;
+    if (text === DONE_TOKEN) return;
     let value: unknown;
     try {
       value = JSON.parse(text) as unknown;
     } catch {
-      continue;
+      return;
     }
-    if (typeof value !== 'object' || value === null || Array.isArray(value)) continue;
+    if (typeof value !== 'object' || value === null || Array.isArray(value)) return;
     const record = value as Record<string, unknown>;
     const choices = record['choices'];
-    if (!Array.isArray(choices) || choices.length !== 0) continue;
+    if (!Array.isArray(choices) || choices.length !== 0) return;
     if (isMarkingMemberValue(record[MARKING_MEMBER_NAME])) found.push({ start, end });
+  };
+  let start = 0;
+  for (let at = 0; at < bytes.length; ) {
+    const width = lineEndingWidth(bytes, at);
+    if (width === 0) {
+      at += 1;
+      continue;
+    }
+    consider(start, at);
+    at += width;
+    start = at;
   }
+  // What follows the last ending is a line the response sent without closing, and the region is that line
+  // either way: a reader is not owed the terminator before it can find the mark.
+  consider(start, bytes.length);
   return found;
+}
+
+/** The width of the line ending at `at`: the pair once, a lone carriage return or line feed once, else 0. */
+function lineEndingWidth(bytes: Uint8Array, at: number): number {
+  if (bytes[at] === CR) return bytes[at + 1] === LF ? 2 : 1;
+  return bytes[at] === LF ? 1 : 0;
 }
 
 function regionsOf(response: Uint8Array): Span[] {

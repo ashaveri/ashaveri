@@ -206,7 +206,8 @@ describe('data/chain-v1.json', () => {
     );
     expect(file.layout.digest).toBe('sha256 of that input');
     expect(file.layout.integers).toBe('unsigned, big-endian');
-    expect(file.layout.kinds).toEqual({ receipt: RECEIPT, trim: 1 });
+    expect(file.layout.kinds).toEqual({ receipt: RECEIPT, trim: 1, bounded: 2 });
+    expect(file.layout.boundedPayload).toBe('boundSeconds:u32 || receipt');
     expect(file.layout.notes.length).toBeGreaterThanOrEqual(4);
     expect(file.scenarios.length).toBeGreaterThanOrEqual(4);
     expect(file.refusals.length).toBeGreaterThanOrEqual(3);
@@ -326,7 +327,12 @@ describe('data/chain-v1.json', () => {
       const image = bytes(refusal.imageBase64Url);
       expect(image).toHaveLength(refusal.imageByteLength);
       await writeFile(join(dir, RECEIPT_STORE_FILE), image);
-      const failure = await openFileReceiptStore({ dir }).then(
+      // The kind the row states is part of the case: a refusal between a file and a configuration is
+      // only reproducible with the configuration named, and the message is compared whole.
+      const failure = await openFileReceiptStore({
+        dir,
+        ...(refusal.openedWith === undefined ? {} : { receiptKind: refusal.openedWith }),
+      }).then(
         () => null,
         (error: unknown) => error,
       );
@@ -338,6 +344,38 @@ describe('data/chain-v1.json', () => {
       expect(storeFailure.message).toBe(refusal.message);
       expect(storeFailure.message.startsWith(`${refusal.code}: `)).toBe(true);
     });
+  });
+
+  it('publishes the mixture refusal as bytes a store wrote, and the misreading as a whole file', () => {
+    // Two readings of the same rule, and each has to be checkable off the artifact rather than off the
+    // store: one image holds receipt records of both kinds, the other holds one kind and is refused by
+    // the configuration it is read under. A row that claimed either without bytes behind it would be a
+    // statement about a refusal nobody can reproduce.
+    const mixed = file.refusals.find((each) => each.name === 'bounded-record-in-a-receipt-log');
+    const misread = file.refusals.find((each) => each.name === 'receipt-log-opened-as-bounded');
+    expect(mixed, 'the file publishes no mixture refusal').toBeDefined();
+    expect(misread, 'the file publishes no wrong-configuration refusal').toBeDefined();
+    if (mixed === undefined || misread === undefined) return;
+
+    // The mixture is the appended bounded record, and the id the refusal names is that record's id.
+    expect(decodeFrames(bytes(mixed.imageBase64Url)).map((record) => record.kind)).toEqual([
+      file.layout.kinds.receipt,
+      file.layout.kinds.bounded,
+    ]);
+    expect(mixed.code).toBe('STORE_RECEIPT_KIND_MISMATCH');
+    expect(mixed.message).toContain(String(mixed.tamper['appendedBoundedFrameSealedFor']));
+    expect(mixed.openedWith, 'a mixture read under the receipt kind states no configuration').toBeUndefined();
+
+    // The second image is a published scenario untouched: nothing was appended or edited, and the
+    // refusal is a fact about the reading. The id named is the file's own first record.
+    const sealedBound = Number(mixed.tamper['boundSeconds']);
+    expect(misread.openedWith).toEqual({ kind: 'bounded', boundSeconds: sealedBound });
+    expect(mixed.message, 'the refusal states the period the record it objects to carries').toContain(
+      `stating a ${String(sealedBound)} second period`,
+    );
+    expect(bytes(misread.imageBase64Url)).toEqual(bytes(scenarioNamed('two-records').fileBase64Url));
+    expect(misread.code).toBe('STORE_RECEIPT_KIND_MISMATCH');
+    expect(misread.message).toContain(String(scenarioNamed('two-records').records[0]?.id));
   });
 
   it('refuses an image the store itself wrote, once one byte of it is wrong', () => {

@@ -16,6 +16,7 @@ import {
   type SigningKey,
 } from '@ashaveri/receipt';
 import { fromHex, sha256, toHex } from './digest.js';
+import { HOST_CLOCK_SOURCE, type TimeSource } from './store.js';
 
 /**
  * Who may ask the gateway for what. A credential file lists the identities the gateway knows,
@@ -441,16 +442,23 @@ export function newPopCredential(input: {
   id?: string;
   label?: string;
   scopes?: Scope[];
+  /** The instant to file this record under, in whole Unix seconds, when the caller has one. */
   now?: number;
+  /**
+   * Where the instant comes from when `now` names none. Absent means `HOST_CLOCK_SOURCE`, so an
+   * enrolled credential's `createdAt` says which clock said so rather than arriving unlabelled.
+   */
+  time?: TimeSource;
 }): { record: CredentialRecord; privateKey: Uint8Array } {
   const key = signingKeyFromSeed(randomBytes(32));
+  const time = input.time ?? HOST_CLOCK_SOURCE;
   const record: CredentialRecord = {
     id: credentialId('pop', input.id),
     kind: 'pop',
     publicKey: key.publicKey,
     scopes: input.scopes ?? ['read', 'complete'],
     ...(input.label === undefined ? {} : { label: input.label }),
-    createdAt: input.now ?? Math.floor(Date.now() / 1000),
+    createdAt: input.now ?? Math.floor(time.now()),
   };
   return { record, privateKey: key.privateKey };
 }
@@ -459,16 +467,23 @@ export function newBearerCredential(input: {
   id?: string;
   label?: string;
   scopes?: Scope[];
+  /** The instant to file this record under, in whole Unix seconds, when the caller has one. */
   now?: number;
+  /**
+   * Where the instant comes from when `now` names none. Absent means `HOST_CLOCK_SOURCE`, so an
+   * enrolled credential's `createdAt` says which clock said so rather than arriving unlabelled.
+   */
+  time?: TimeSource;
 }): { record: CredentialRecord; secret: Uint8Array } {
   const secret = randomBytes(32);
+  const time = input.time ?? HOST_CLOCK_SOURCE;
   const record: CredentialRecord = {
     id: credentialId('bearer', input.id),
     kind: 'bearer',
     secretHash: hashSecret(secret),
     scopes: input.scopes ?? ['read', 'complete'],
     ...(input.label === undefined ? {} : { label: input.label }),
-    createdAt: input.now ?? Math.floor(Date.now() / 1000),
+    createdAt: input.now ?? Math.floor(time.now()),
   };
   return { record, secret };
 }

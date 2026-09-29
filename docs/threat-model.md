@@ -63,8 +63,9 @@ the mechanism described below is a mark plus the evidence of a mark, not a certi
   bytes and answers `MARK_MISMATCH` when those bytes hold none or hold the shape twice, and the live
   client compares the digest of whatever it locates against `mk.d`, because
   `verifyCompletionReceipt` in `packages/sdk/src/verify.ts` is handed those bytes beside their digest
-  (T18, T20). The bytes: `gateway/src/server.ts` signs a `v: 2` payload
-  for every completion it issues, and whether any byte is added to a customer's response is the
+  (T18, T20). The bytes: `gateway/src/server.ts` signs a payload naming `mk` for every completion it
+  issues, which is a `v: 3` document wherever the response frames into items and a `v: 2` one only where a
+  stream sent no data frame at all, and whether any byte is added to a customer's response is the
   deployment's own setting, `--marking`, whose shipped value is `none`. Section 6 says what none of the
   three amounts to proving.
 - **A8 The marking-scheme registry.** The table that binds every scheme label to exactly one byte
@@ -197,6 +198,15 @@ What is still true, in both modes:
   content, and a client pointed at a long-streaming deployment has to widen
   `maxEvidenceAgeSeconds` or switch it off. Both numbers are the client's to set, and neither is
   read from the wire.
+- **The client also decides what it will accept about an anchor.** A third standard is a count rather
+  than a duration: `minAnchorSlotsHeld` on the same policy names how many of a receipt's two anchor
+  slots must state that their material was taken in, and a document stating fewer is refused with
+  `ANCHOR_SLOT_NOT_HELD` at the point the artifact is handed over. It is a demand about the anchor and
+  names no unit of time, and like the two windows it is not read from the wire, because a deployment
+  cannot choose what a client asks of it. A policy naming nothing asks nothing, which is what keeps
+  every verdict taken under an earlier policy the verdict it was. What no client asks yet is whether a
+  slot stating `held` still resolves: that is answered by the availability of the material a verifier
+  holds, and not by anything inside a signed document.
 - **The gateway does not deep-verify its own evidence.** It reads the measurement and the
   report-data binding; the certificate chain, TCB and event-log replay are the client's job,
   through `@ashaveri/sdk` in strict mode or `@ashaveri/cli`. That is deliberate, but it means a
@@ -292,9 +302,11 @@ What is still true, in both modes:
 - **Nothing here measures model behaviour.** A receipt proves who served which bytes; it says
   nothing about quality, alignment, or the prompt template behind the completion.
 - **Marking is issued, read and refused in this code, and none of that reaches past the bytes.** The
-  gateway signs a `v: 2` payload for every completion it issues (`issue()` in `gateway/src/server.ts`),
-  which is the version that has to carry `mk`, and it writes a marking into the response only under
-  `--marking provenance-v1`: started with the shipped `none`, or with nothing, it adds no byte to anyone's
+  gateway signs a payload naming `mk` for every completion it issues (`issue()` in `gateway/src/server.ts`),
+  which is the member that has to travel with a marking, and the version carrying it is `v: 3` wherever the
+  response frames into items and `v: 2` only where a stream sent no data frame at all. It writes a marking
+  into the response only under `--marking provenance-v1`: started with the shipped `none`, or with nothing,
+  it adds no byte to anyone's
   response and signs `sch: none` beside the digest of an empty region to declare that (`gateway/src/cli.ts`
   and `unmarked()` in `gateway/src/marking.ts`). A verifier holding response bytes does carve the region
   out of them and compare its digest against the signed `d`, by the published rule made executable in
@@ -314,7 +326,9 @@ What is still true, in both modes:
   section 6 of [receipt-spec.md](receipt-spec.md), and it holds: a v1 reader checks the thirteen fields
   it knows, finds nothing about a mark, and would verify a receipt over an unmarked response exactly
   as readily as over a marked one, which is silence read as a claim. The closedness that refusal rests
-  on is not the payload map's alone: `meas`, `att`, `tok` and `mk` are closed the same way, and an
+  on is not the payload map's alone: `meas`, `att`, `tok`, `mk`, `sd` and `cva` are closed the same
+  way, and so are the element of `itm` and the two arms a collateral slot's label selects, each by the
+  reader that reaches it, and an
   undefined member of any of them is `BAD_PAYLOAD` rather than a member a reader takes no account of,
   and the signed `Ashaveri-Protected-Header` closes against the three labels `receipt.cddl` names and
   answers any other with `BAD_PROTECTED_HEADER` before it reads one of them. Closing by number is not
@@ -331,7 +345,8 @@ What is still true, in both modes:
   `decodeClosedDocument` is also how an export's header and manifest and a sealed deployment manifest's
   header are read, so a float standing where a label belongs is a malformed document in any of them.
   It reaches the payload's numbers as well,
-  and the format says which ones. The positions are `v`, `iat`, `att.ts`, `epk`, `tok.p` and `tok.c`,
+  and the format says which ones. The positions are `v`, `iat`, `att.ts`, `epk`, `tok.p`, `tok.c` and
+  `itm.t`,
   each read as the integer `receipt.cddl` types it, so a `128.0` written as a float is a malformed
   payload rather than 128 taken on trust. The writer that issues a receipt holds the same line from its
   own side and spells negative zero as the integer zero, so a float standing at one of these positions
@@ -379,7 +394,15 @@ What is still true, in both modes:
   `parseChunk` in `packages/sdk/src/client.ts` requires a string `id` and an array `choices` on every
   frame and raises `GATEWAY_ERROR` with `stream chunk is not a chat completion chunk`. Clients other
   than these two, and any intermediary between them and the gateway, are unmeasured: what a receipt
-  attests is the bytes the gateway wrote, not what a reader kept of them.
+  attests is the bytes the gateway wrote, not what a reader kept of them. The separation that keeps a
+  mark readable is a frame's, not a line's: a mark is written as one `data:` line and the blank line
+  after it, with the frame ahead of it closed, because a client parsing the response as
+  server-sent events concatenates the `data:` fields of one open event and a mark appended to an
+  event the upstream never dispatched arrives inside a payload that parses as neither chunk. A
+  line two `data:` prefixes share is therefore not a frame a receipt is issued over, and where
+  an upstream stopped mid-line the gateway writes the frame end it owed before its mark
+  (`gateway/src/marking.ts`, `MarkedStreamTail`; section 3.1 of [receipt-spec.md](receipt-spec.md)
+  states the framing as a fact about the format).
 
 The SDK's `strict` mode verifies receipts and the manifest against pins and then fetches and
 deep-verifies the evidence each receipt commits to. What remains unproven is the end-to-end run:

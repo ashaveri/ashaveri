@@ -13,6 +13,7 @@ import {
 import { claimsConfidentialDevice, signingKeyFromSeed } from '@ashaveri/receipt';
 import { GuestClient, GuestError, type GuestApi, type GpuEvidenceBundle } from './guest.js';
 import { sha256, toHex } from './digest.js';
+import { declarationOf, HOST_CLOCK_SOURCE, type TimeSource } from './store.js';
 import type { AttestationBundle, Deployment, HardwareTeeKind, ModelInfo, TeeKind } from './deployment.js';
 
 /**
@@ -75,6 +76,15 @@ export interface DstackDeploymentOptions {
   readonly instance?: string;
   /** Fails startup if the platform's own evidence disagrees. */
   readonly tee?: HardwareTeeKind;
+  /**
+   * Where the collection instants on the evidence this deployment serves come from, named.
+   *
+   * Absent means `HOST_CLOCK_SOURCE`: the platform quote carries its own lifetime, but the moment this
+   * process noticed it is still this host's claim, and nothing the guest answered makes it measured. A
+   * deployment that can read an attestable or ratcheted clock names it here so the stamp inside a
+   * receipt's `att.ts` and the `iat` beside it come from the one source the operator chose.
+   */
+  readonly time?: TimeSource;
 }
 
 interface PlatformMeasurement {
@@ -198,6 +208,7 @@ function platformHalf(tee: HardwareTeeKind): TeeKind {
 export async function dstackDeployment(options: DstackDeploymentOptions): Promise<Deployment> {
   const client = options.client ?? new GuestClient();
   const keyPath = options.keyPath ?? '/ashaveri/receipt';
+  const time = options.time ?? HOST_CLOCK_SOURCE;
   const evidenceBaseUrl = options.evidenceBaseUrl.replace(/\/+$/, '');
   const standingReportData = sha256(utf8(DEPLOYMENT_EVIDENCE_DOMAIN));
 
@@ -249,8 +260,9 @@ export async function dstackDeployment(options: DstackDeploymentOptions): Promis
     measureEvidence(document, reportData);
     return remember(cache, hex, {
       document,
-      timestamp: Math.floor(Date.now() / 1000),
+      timestamp: Math.floor(time.now()),
       url: `${evidenceBaseUrl}/attestation?report_data=${hex}`,
+      stamped: declarationOf(time),
     });
   };
 
@@ -287,8 +299,9 @@ export async function dstackDeployment(options: DstackDeploymentOptions): Promis
     nvidiaDeviceReports(bundle, reportData);
     return remember(deviceCache, hex, {
       document: bundle.evidence,
-      timestamp: Math.floor(Date.now() / 1000),
+      timestamp: Math.floor(time.now()),
       url: `${evidenceBaseUrl}/attestation/gpu?report_data=${hex}`,
+      stamped: declarationOf(time),
     });
   };
 

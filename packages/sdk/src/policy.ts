@@ -1,6 +1,7 @@
 import { toHex } from './b64.js';
 import { fromBase64Url } from './b64.js';
 import { SdkError } from './errors.js';
+import type { CollateralAbsent, CollateralSlot, CollateralValidityAnchor } from '@ashaveri/receipt';
 import type { EvidenceTrustAnchors } from './evidence.js';
 import type { DeploymentManifest } from './manifest.js';
 
@@ -169,6 +170,40 @@ export interface AshaveriPolicy {
    */
   readonly maxTimeUncertaintySeconds?: number;
   /**
+   * How many of a receipt's anchor slots this verifier requires to state that their material was taken
+   * in and is held, demanded of the deployment rather than measured by the client.
+   *
+   * This is the presence half of what an anchor can be weighed for, and it is a demand about the anchor:
+   * nothing here is a span, a clock or an instant, and the number counts slots. A receipt's anchor states
+   * two of them, the signed collateral the evidence was appraised against and the validity context it was
+   * appraised in, and each states one of three things about itself: that its bytes were taken in and are
+   * held, that its material was absent where it should have come from, or that this deployment never took
+   * it in. The two absences are not nothing: they are the deployment's own account of a gap, and an anchor
+   * that carries a gap in a slot the verifier needed is not an anchor that verifier can weigh.
+   *
+   * The demand is a count and not a switch, because the two slots answer different questions and a
+   * deployment can genuinely fill one. `2` asks for the pair, which is the posture that treats an anchor
+   * with a hole in it as no anchor; `1` asks for at least one half and accepts the other's stated absence,
+   * which is the reading for a verifier that weighs what it can reach and reports the rest. Both are
+   * sentences an operator can mean, and neither is a weaker form of the other.
+   *
+   * Naming nothing asks nothing: a policy that leaves this field out puts no document at a disadvantage it
+   * was not already in, which is what keeps every verdict taken under a policy written before this field
+   * existed the verdict it was. `0` is not that absence spelled another way: a demand of no slots is a
+   * demand every artifact meets, which is a silence written as a decision, so the loader refuses it and
+   * points at leaving the field out. A number above the slots an anchor has is refused on the same ground
+   * from the other side, and the ceiling is `MAX_ANCHOR_SLOTS_DEMANDABLE` beside this declaration.
+   *
+   * Two states this demand does not reach, stated because both look like holes from here and neither is.
+   * The first is a document of a version that names no anchor at all: it makes no statement about presence
+   * either way, and refusing it would be a rule about version numbers rather than about an anchor, which is
+   * what `docs/receipt-spec.md` section 3's rows already settle. The second is whether a slot stating
+   * `held` still resolves: a digest of material nobody retained weighs nothing, and answering that takes the
+   * availability of the material the reader holds, which is a question this field deliberately leaves open
+   * and its documentation says so rather than half-answers it.
+   */
+  readonly minAnchorSlotsHeld?: number;
+  /**
    * Vendor roots hardware evidence must chain to. Omit to accept the roots
    * bundled with `@ashaveri/attest-core`; set it to pin your own.
    */
@@ -244,6 +279,76 @@ export function assertStampSourceWithinPolicy(
 }
 
 /**
+ * The largest demand `minAnchorSlotsHeld` can state and a document can still answer: the number of slots
+ * one anchor holds.
+ *
+ * The format owns that number, as the member list `COLLATERAL_ANCHOR_MEMBERS` declares in
+ * `packages/receipt/src/receipt.ts`, and this is a restatement of it in the same way
+ * `COLLATERAL_PRESENCES` restates the capture record's presence labels across the same package boundary.
+ * `test/anchor-slot-demand.test.ts` reads the list out of the format's own source and holds the two
+ * together, so a third slot widens this ceiling by a failing test and not by a number nobody moved.
+ *
+ * A demand above it is refused at the loader, because no artifact can ever meet it: the posture it states
+ * is unwritable rather than strict, and a policy that cannot be satisfied is a policy that has already
+ * refused everything.
+ */
+export const MAX_ANCHOR_SLOTS_DEMANDABLE = 2;
+
+/**
+ * Refuse an anchor whose slots state less than the policy demands, and say which state did it.
+ *
+ * One refusal, in one place, reached only by a policy that named a demand: `verifyCompletionReceipt`
+ * calls this over the anchor a `v: 3` payload carries, which is where a deployment hands a receipt over
+ * and where the client's own standards are applied, and not the format reader, which weighs nothing a
+ * policy asked for and has to keep working for an auditor holding no policy.
+ *
+ * The count is what decides, and the slots are what the sentence names. A demand of `n` is met by an
+ * anchor with `n` slots stating `held`, and the two absences answer alike because neither is material a
+ * verifier can weigh: one says the world had nothing, the other says this deployment never took what was
+ * there. They are one code and not two because what a caller does with either is the same act, refuse
+ * this receipt and say so, and which of the two it was is the part of the sentence that tells an operator
+ * where the gap sits: `absent-at-source` points at a source that published nothing, `not-taken-in` points
+ * at a collector that looked away. The message names the slot, its state, the reason the slot itself
+ * states, the count that answered and the count demanded, so the finding is readable off one line.
+ *
+ * Three states reach nothing here, and each is a decision rather than an omission. A slot stating `held`
+ * passes this test and only this one: whether its material still resolves is a second question, answered
+ * by an availability interval a verifier reaches outside the artifact, and a held digest that turns out to
+ * name nothing retained is not a hole in this check. A document of a version that names no anchor makes no
+ * statement about presence at all, so there is nothing here to weigh, and refusing it would be a rule about
+ * version numbers. And a policy that named no demand returns before any of it, which is the property
+ * `test/anchor-slot-demand.test.ts` pins as numbers: no verdict taken under a policy that asked nothing of
+ * an anchor moves.
+ */
+export function assertAnchorHeldUnderPolicy(
+  policy: AshaveriPolicy | undefined,
+  anchor: CollateralValidityAnchor,
+): void {
+  const demanded = policy?.minAnchorSlotsHeld;
+  if (demanded === undefined) return;
+  const slots: readonly (readonly [name: string, slot: CollateralSlot])[] = [
+    ['collateral', anchor.collateral],
+    ['validity', anchor.validity],
+  ];
+  const held = slots.filter(([, slot]) => slot.presence === 'held').length;
+  if (held >= demanded) return;
+  const gaps = slots
+    .filter((entry): entry is readonly [string, CollateralAbsent] => entry[1].presence !== 'held')
+    .map(([name, slot]) =>
+      slot.presence === 'absent-at-source'
+        ? `the ${name} slot states its material was absent at the source it should have come from (absent-at-source), saying: ${slot.reason}`
+        : `the ${name} slot states that this deployment never took its material in (not-taken-in), saying: ${slot.reason}`,
+    )
+    .join(' and ');
+  throw new SdkError(
+    'ANCHOR_SLOT_NOT_HELD',
+    `an anchor with ${String(held)} of ${String(slots.length)} slots held is refused: this policy demands ${String(demanded)}, and ${gaps}. ` +
+      'Neither absence is an anchor a verifier can weigh, so either the deployment issues from a collector that took the appraisal context in, ' +
+      'or this policy lowers its demand to the count these artifacts carry or names no demand at all',
+  );
+}
+
+/**
  * The pins a deployment publishes, read out of its manifest. What these are worth depends on whether
  * the manifest arrived sealed and authenticated, which is a fact about the transport rather than about
  * this function: a manifest verified under a key this client designated out of band is the deployment's
@@ -260,8 +365,9 @@ export function assertStampSourceWithinPolicy(
  * verified, so it is not where a freshness rule may be loosened: what a manifest-derived policy
  * checks the clock against is `DEFAULT_MAX_RECEIPT_AGE_SECONDS` and
  * `DEFAULT_MAX_EVIDENCE_AGE_SECONDS`, which are in this package's code and on no wire. For the same
- * reason no bound on a stamp's source is asked for here either: a deployment cannot set the demand a
- * client makes of it, so a manifest-derived policy demands nothing and refuses nothing on that leg.
+ * reason neither a bound on a stamp's source nor a demand about an anchor is asked for here: a deployment
+ * cannot choose what a client asks of it, so a manifest-derived policy demands nothing and refuses nothing
+ * on either leg.
  */
 export function policyFromManifest(manifest: DeploymentManifest): AshaveriPolicy {
   const keys: Record<string, string> = {};

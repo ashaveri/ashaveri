@@ -1,9 +1,10 @@
 # Conformance vectors
 
-Status: current for format versions 1 and 2. Version 1 is what four of the receipt fixtures carry and
-what every other suite here measures; version 2 arrives with the marking member, and what these files
-hold of it is the one v2 receipt fixture plus the v2 document each marked-region case publishes beside
-its bytes, which is still no v2 field beyond `mk`. The files named here are the contract a
+Status: current for format versions 1, 2 and 3. Version 2 arrives with the marking member and
+version 3 with the disclosure of a stamped instant, the anchor of an appraisal context and the item
+list of a response; the receipt fixtures under `data/receipts/` carry all three, and
+`data/manifest.json` states beside each row the answer a reader owes it. The files named here are the
+contract a
 reimplementation is measured against, and this document says what each one states, how to consume it,
 and what a disagreement means. The formats themselves are specified in
 [receipt-spec.md](receipt-spec.md), [access-control.md](access-control.md) and the CDDL; a vector
@@ -19,7 +20,7 @@ each shape.
 
 | Suite | File | What it pins | Version field |
 |---|---|---|---|
-| Receipt fixtures | `packages/fixtures/data/manifest.json` and `data/receipts/` | The COSE_Sign1 envelope, the payload field set, and the verdict a decoder owes each file | `version` in `manifest.json`, which is the manifest's own format version |
+| Receipt fixtures | `packages/fixtures/data/manifest.json` and `data/receipts/` | The COSE_Sign1 envelope, the payload field set of each version a row states, the response bytes and items a document attests, and the verdict a decoder owes each file | `version` in `manifest.json`, which is the manifest's own format version |
 | Proof of possession | `packages/fixtures/data/pop-v1.json` | The signing string, the `Authorization` header built over it, and the signature that header carries | `version: 1` |
 | Request digest | `packages/fixtures/data/req-v1.json` | The `req` a receipt claims, over exact request bytes | `version: 1` |
 | Response digest | `packages/fixtures/data/res-v1.json` | The `res` a receipt claims, over exact response bytes including framing | `version: 1` |
@@ -36,7 +37,9 @@ prose, and the digest, marked-region, chain, export, sealed-manifest, pack and r
 or `layout` block naming the fields, and the widths and the byte order where a suite pins a byte layout, so a
 reader never has to guess what an array of hex is standing for. The manifest
 carries no `description`, because it lists the receipt fixtures rather than stating a rule of its
-own; what they are for is written in
+own, and it does carry a `layout` block naming the columns its rows state, the reader each of its two
+verdicts belongs to, and the encodings the columns are spelled in; what the fixtures themselves are for
+is written in
 [receipt-spec.md](receipt-spec.md).
 
 ## How to consume a suite
@@ -51,15 +54,24 @@ specific to that case.
 
 - **Receipt fixtures.** Read `manifest.json`, and for each entry take the `.cbor` bytes, check their
   sha256 against `digestSha256`, decode them, and give the decoder the published key from
-  `data/keys/receipt-key-v1.json` at the timestamp the entry's own payload carries. The `expected`
-  field states the verdict: `verify-ok`, or the error code a refusal has to answer with. Four entries
-  are v1 documents and the fifth is a v2 carrying a marking member. Its `res` and `mk.d` are digests
+  `data/keys/receipt-key-v1.json` at the timestamp the entry's own payload carries. `expected` states the
+  verdict that reading owes: `verify-ok`, or the error code a refusal has to answer with, and `keyless`
+  states what the same bytes answer for a reader holding no key at all. The five entries this suite began
+  with state neither column beyond `expected`; every row added since names the payload version its bytes
+  claim in `v`, the marking setting its response came off in `marking`, the response bytes themselves, and
+  the item list as the shipped reader of a response body gives them. Which versions those rows name, and
+  how many of them state none, is the `layout` block's business and the tests' arithmetic, not this
+  sentence's. The marked v2 entry's `res` and `mk.d` are digests
   of the same bytes the marked-region suite publishes as `buffered-member`, so one response is read
   out of two files and a generator that drifted on either side disagrees here. Decoding that entry
   does not check its mark (no `.cbor` file carries the response), which is what the marked-region
-  suite is for. Two entries are deliberately not valid: one signature is broken, one payload carries
-  a measurement of a width its `tee` kind cannot hold, and a decoder that accepts either has not
-  implemented the rule the other three test.
+  suite is for; a row that states its response bytes states the mark check too, because those bytes are
+  published beside the document that digests them. An entry whose verdict is a refusal names in
+  `fault.at` the position the shipped reader quotes when it answers those bytes, which is what makes the
+  row about one member rather than about a document nobody could read. Two entries are deliberately not
+  valid and predate the column: one signature is broken, one payload carries a measurement of a width its
+  `tee` kind cannot hold, and a decoder that accepts either has not implemented the rule the accepted
+  rows test.
 - **Proof of possession.** Rebuild the signing string from the published fields, verify the signature
   in `authorization` against `key.publicKeyHex`, and check the header parses to the same three
   components. The private half is published too, so a port can produce the signatures itself rather
@@ -113,11 +125,17 @@ specific to that case.
   chain state) against what the file states. The `records` table beside each image decomposes it
   into fields with their offsets. Each row states the byte its frame starts at and that frame's
   whole length, so a difference localizes to a width, an endianness or a coverage rule rather than
-  to a whole file. `refusals` are images no writer produced: one bit flipped in a payload, a record
+  to a whole file. `refusals` are images a reader objects to: one bit flipped in a payload, a record
   lifted out of the middle, a retirement written behind a receipt, and a frame lying about its
-  length. Each carries the refusal the reader gave, and your reader has to refuse them too. Its
-  sentence may differ; the fact that it stops may not. `tails` states an append that never finished,
-  which is the one case a reader repairs rather than refuses.
+  length, which are bytes no writer produced. Two more show the rule that one log holds receipt
+  records of one kind, and both are bytes a store did seal: an unbounded file with one bounded record
+  appended behind it, refused for that appended record, and a published unbounded file untouched and
+  read whole by a store configured for the bounded kind, refused for its first record. A refusal row
+  states the receipt kind its opening writes wherever that is not the receipt kind, because a
+  disagreement between a file and a configuration is not reproducible without the configuration. Each
+  carries the refusal the reader gave, and your reader has to refuse them too. Its sentence may
+  differ; the fact that it stops may not. `tails` states an append that never finished, which is the
+  one case a reader repairs rather than refuses.
 - **Technical export.** Decode the base64url document, hand your reader the arguments the case's `read`
   block states, which are the companion bytes it was given, the endpoints it already holds, and the key it
   used, and compare the answer with `verdict`: `verify-ok`, or the code the refusal has to answer with. Where
@@ -248,8 +266,12 @@ These vectors check bytes. They say nothing about trust:
   a byte-exact reimplementation of every suite in `data/` is compatible with a deployment that should
   not be trusted at all.
 - A passing port is not a certified port. It is a reimplementation that agrees with this one on the
-  cases chosen here, which for payload version 1 are the field set, the digests and the framing, and
-  for version 2 are the marking member and nothing else. Those cases are examples of where
+  cases chosen here, which for payload version 1 are the field set, the digests and the framing, for
+  for version 2 are the marking member and nothing else, and for version 3 are the disclosure of the source
+  an instant came from, the anchor of the context an appraisal ran on, the list of items a response
+  was made of, and the count of those anchor slots a client's policy demands be stated as taken in,
+  which the receipt suite publishes as the verdict its reader gives under each posture rather than as a
+  rule about bytes. Those cases are examples of where
   implementations have been known to differ rather than an exhaustive sweep of the format's state
   space. Conformance to bytes and soundness of judgement are different claims, and only the first is
   testable this way.

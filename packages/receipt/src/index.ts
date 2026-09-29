@@ -48,6 +48,7 @@ export type {
   ReceiptPayload,
   ReceiptPayloadV1,
   ReceiptPayloadV2,
+  ReceiptPayloadV3,
   ReceiptVersion,
   Marking,
   MarkingScheme,
@@ -57,6 +58,7 @@ export type {
   TeeKind,
   VerifyOptions,
   VerifiedReceipt,
+  ItemStamp,
 } from './receipt.js';
 export { ReceiptError } from './errors.js';
 export type { ReceiptErrorCode } from './errors.js';
@@ -138,5 +140,23 @@ export {
   provenanceV1Member,
 } from './marking.js';
 export type { ProvenanceV1Member } from './marking.js';
+export {
+  SSE_DATA_FIELD,
+  SSE_DONE_VALUE,
+  ResponseItemFramer,
+  ResponseItemDigestFramer,
+  frameResponse,
+  isEventStream,
+} from './response-items.js';
+export type { ResponseItem, ResponseItemFraming, ResponseItemDigestFraming } from './response-items.js';
+export { COLLATERAL_PRESENCES } from './disclosure.js';
+export type {
+  CollateralAbsent,
+  CollateralHeld,
+  CollateralPresence,
+  CollateralSlot,
+  CollateralValidityAnchor,
+  StampDisclosure,
+} from './disclosure.js';
 export { receiptToJson, receiptBytesToJson, toHex } from './json.js';
 export type { ReceiptJson } from './json.js';

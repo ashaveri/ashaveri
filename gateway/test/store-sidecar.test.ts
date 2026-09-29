@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, it } from 'vitest';
 import { createHash } from 'node:crypto';
-import { mkdtemp, readFile, readdir, rm, stat, writeFile } from 'node:fs/promises';
+import { appendFile, mkdtemp, readFile, readdir, rm, stat, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import {
@@ -8,6 +8,7 @@ import {
   RECEIPT_SIDECAR_FILE,
   RECEIPT_STORE_FILE,
   SIDECAR_BLOCK_RECORDS,
+  type ReceiptRecordKind,
   type ReceiptRetention,
 } from '../src/store.js';
 import { fixedClock } from './helpers.js';
@@ -33,6 +34,14 @@ const OTHER_RECEIPT = Uint8Array.from(Array.from({ length: 48 }, (_, i) => (i * 
 const FOREIGN = Uint8Array.from(RECEIPT, (byte) => (byte + 1) % 256);
 const STAMP = 1_780_000_000;
 const IDS = ['rcpt_01', 'rcpt_02', 'rcpt_03'];
+/** A bounded store's configuration, and the one period every case below states in its records. */
+const BOUNDED: ReceiptRecordKind = { kind: 'bounded', boundSeconds: 300 };
+/**
+ * The two receipt kind bytes, spelled out of the framing rather than imported from the store, the same
+ * way this file reads the frame and sidecar layouts from its own second copy of them.
+ */
+const RECEIPT_RECORD_KIND = 0;
+const BOUNDED_RECORD_KIND = 2;
 /**
  * Durable appends are what these fixtures are made of and each one fsyncs. The widest case here writes
  * fifteen of them and opens the store three times, measured at 0.4s; the stop is the one
@@ -99,24 +108,27 @@ interface SidecarEntry {
 interface Sidecar {
   readonly magic: string;
   readonly version: number;
+  /** Which kind of receipt record the entries below the header index. */
+  readonly recordKind: number;
   readonly identity: string;
   readonly entries: SidecarEntry[];
 }
 
 /**
- * `magic:4 || version:u16 || identityLen:u16 || identity`, then blocks, each one `recordCount:u32 ||
- * checkpointBytes:u64` followed by that many entries and a 32 byte check. An entry is
+ * `magic:4 || version:u16 || receiptKind:u8 || identityLen:u16 || identity`, then blocks, each one
+ * `recordCount:u32 || checkpointBytes:u64` followed by that many entries and a 32 byte check. An entry is
  * `recordStart:u64 || seq:u64 || iat:u64 || payloadLen:u32 || idLen:u16 || id || digest:32`.
  */
 function readSidecar(bytes: Buffer): Sidecar {
-  const identityLength = bytes.length >= 8 ? bytes.readUInt16BE(6) : 0;
+  const identityLength = bytes.length >= 9 ? bytes.readUInt16BE(7) : 0;
   const header = {
     magic: bytes.subarray(0, 4).toString('utf8'),
     version: bytes.readUInt16BE(4),
-    identity: bytes.subarray(8, 8 + identityLength).toString('utf8'),
+    recordKind: bytes.readUInt8(6),
+    identity: bytes.subarray(9, 9 + identityLength).toString('utf8'),
   };
   const entries: SidecarEntry[] = [];
-  let at = 8 + identityLength;
+  let at = 9 + identityLength;
   while (at + 12 <= bytes.length) {
     const count = bytes.readUInt32BE(at);
     at += 12;
@@ -174,6 +186,8 @@ interface Asking {
   /** Open as if no sidecar existed: neither read nor written. */
   readonly declined?: boolean;
   readonly retention?: ReceiptRetention;
+  /** Which kind of receipt record the opening writes, and so which kind it reads its file for. */
+  readonly receiptKind?: ReceiptRecordKind;
   readonly ids?: readonly string[];
 }
 
@@ -181,19 +195,26 @@ interface Asking {
  * Everything one opening answers, as one string: the window, the head, the anchor and the retirement
  * history, every receipt a walk over the whole store hands over, and what `get` says of each id named.
  * A refusal is part of the answer rather than an exception out of it, so two openings can be compared on
- * a file one of them objects to.
+ * a file one of them objects to. The code is the answer's shape and the message is its content: a
+ * refusal that named the right code and the wrong record would be two openings agreeing about nothing,
+ * so both are carried.
  */
 async function answer(dir: string, asking: Asking = {}): Promise<string> {
   const options = {
     dir,
     ...(asking.declined === true ? { sidecarIndex: false } : {}),
     ...(asking.retention === undefined ? {} : { retention: asking.retention }),
+    ...(asking.receiptKind === undefined ? {} : { receiptKind: asking.receiptKind }),
   };
   const opened = await openFileReceiptStore(options).then(
-    (store) => ({ store, refused: null as string | null }),
-    (error: unknown) => ({ store: null, refused: String((error as { code?: string }).code) }),
+    (store) => ({ store, refused: null as string | null, refusedDetail: null as string | null }),
+    (error: unknown) => ({
+      store: null,
+      refused: String((error as { code?: string }).code),
+      refusedDetail: (error as Error).message,
+    }),
   );
-  if (opened.store === null) return JSON.stringify({ refused: opened.refused });
+  if (opened.store === null) return JSON.stringify({ refused: opened.refused, refusedDetail: opened.refusedDetail });
 
   const store = opened.store;
   const asked: Record<string, string> = {};
@@ -235,8 +256,13 @@ async function fileWith(
   ids: readonly string[],
   payload: Uint8Array = RECEIPT,
   declined = false,
+  receiptKind?: ReceiptRecordKind,
 ): Promise<void> {
-  const options = declined ? { dir, sidecarIndex: false } : { dir };
+  const options = {
+    dir,
+    ...(declined ? { sidecarIndex: false } : {}),
+    ...(receiptKind === undefined ? {} : { receiptKind }),
+  };
   const store = await openFileReceiptStore(options);
   for (const [i, id] of ids.entries()) {
     await store.put(id, payload, STAMP + i * 60);
@@ -365,6 +391,46 @@ describe('the store file is the only authority', () => {
       expect(await answer(dir, back)).toBe(await answer(dir, { ...back, declined: true }));
       expect(JSON.parse(await answer(dir, back)).window.count).toBe(4);
       expect(JSON.parse(await answer(dir, back)).asked.aged).toBe(hex(RECEIPT));
+    },
+  );
+
+  it(
+    'hands a bounded store back its receipts whole from an index it believes',
+    { timeout: CASE_TIMEOUT },
+    async () => {
+      // The other half of the one-kind rule. A refusal is one answer a kind declaration gets; this is the
+      // answer it gets when the opening goes ahead: every receipt behind the checkpoint is then read from
+      // a location the index supplied rather than one a scan derived, and an entry carries a payload's
+      // width without carrying a kind, so the four period bytes have to be stepped past off the header's
+      // declaration alone. Step that wrong and the store serves a receipt with its own period in front of
+      // it, or four bytes short of itself, and the guard that hashes each served frame never notices,
+      // because the frame is intact and only the slice taken out of it is not.
+      const dir = await emptyDir();
+      await fileWith(dir, IDS, RECEIPT, false, BOUNDED);
+      const sidecar = readSidecar(await sidecarBytes(dir));
+      expect(sidecar.recordKind).toBe(BOUNDED_RECORD_KIND);
+      expect(sidecar.entries.map((entry) => entry.id)).toEqual(IDS);
+      // The index speaks for every byte of the file, which is what makes the opening below believe it
+      // rather than read the records it is answering from.
+      const file = await readFile(storeFile(dir));
+      const lastEntry = sidecar.entries[sidecar.entries.length - 1]!;
+      expect(endOfRecord(lastEntry.recordStart, lastEntry.id, lastEntry.payloadLen)).toBe(file.length);
+
+      const asking = { receiptKind: BOUNDED, ids: IDS };
+      const report = JSON.parse(await answer(dir, asking)) as {
+        refused: string | null;
+        asked: Record<string, string>;
+        walked: { id: string; receipt: string }[];
+      };
+      expect(report.refused).toBeNull();
+      for (const id of IDS) expect(report.asked[id], id).toBe(hex(RECEIPT));
+      expect(report.walked.map((item) => `${item.id}:${item.receipt}`)).toEqual(
+        IDS.map((id) => `${id}:${hex(RECEIPT)}`),
+      );
+      // And an opening that re-derives every record from the file answers the same, which is the claim
+      // this file is written around: the receipts came from the file either way, and only the route to
+      // their bytes differed.
+      expect(await answer(dir, asking)).toBe(await answer(dir, { ...asking, declined: true }));
     },
   );
 });
@@ -513,7 +579,11 @@ describe('a sidecar that does not agree with the store file is discarded', () =>
       const file = await readFile(storeFile(dir));
       const written = readSidecar(await readFile(sidecarFile(dir)));
       expect(written.magic).toBe('ASRI');
-      expect(written.version).toBe(1);
+      expect(written.version).toBe(2);
+      // The header names the kind of receipt record the entries index, because an entry carries a
+      // payload's width and not a kind: this one byte is what lets an opening say whether the index
+      // below it speaks for the records it is configured to read.
+      expect(written.recordKind).toBe(RECEIPT_RECORD_KIND);
       expect(written.identity).toBe(await serial(storeFile(dir)));
       expect(written.entries).toHaveLength(3);
       expect(endOfRecord(written.entries[2]!.recordStart, IDS[2]!, written.entries[2]!.payloadLen)).toBe(
@@ -796,4 +866,73 @@ describe('the sidecar is maintained by an append, not rebuilt', () => {
     expect(await answer(dir, asking)).toBe(truth);
     expect(readSidecar(await sidecarBytes(dir)).entries).toHaveLength(3);
   });
+});
+
+/**
+ * The one record kind rule and the checkpoint. An index that is believed is an opening that did not read
+ * the records it indexes, and a bounded record's payload is four bytes wider than the receipt it carries,
+ * so the kind has to be answered twice: for the records past the checkpoint, which are read out of the
+ * file, and for the ones the index speaks for, which the header declares.
+ */
+describe('a checkpointed opening refuses a log of the kind it does not write', () => {
+  /**
+   * The frames of a file written by a store of the kind named, taken out of a directory of its own so a
+   * case can append them somewhere else. A foreign record is a record some store sealed, not a shape a
+   * test drew, which is the only way the reading under test has real bytes to disagree with.
+   */
+  async function framesFrom(receiptKind: ReceiptRecordKind | undefined): Promise<Buffer[]> {
+    const dir = await emptyDir();
+    const store = await openFileReceiptStore({ dir, ...(receiptKind === undefined ? {} : { receiptKind }) });
+    for (const [i, id] of IDS.entries()) {
+      await store.put(id, RECEIPT, STAMP + i * 60);
+    }
+    return frames(await readFile(storeFile(dir)));
+  }
+
+  it(
+    'refuses a foreign record appended past the byte the index speaks for',
+    { timeout: CASE_TIMEOUT },
+    async () => {
+      const dir = await emptyDir();
+      // A bounded store, its three records, and an index left speaking for the whole of that file.
+      await fileWith(dir, IDS, RECEIPT, false, BOUNDED);
+      expect(readSidecar(await sidecarBytes(dir)).recordKind).toBe(BOUNDED_RECORD_KIND);
+      const foreign = (await framesFrom(undefined))[0]!;
+      await appendFile(storeFile(dir), foreign);
+      const mixed = await readFile(storeFile(dir));
+      const asking = { receiptKind: BOUNDED, ids: IDS };
+
+      const withIndex = await answer(dir, asking);
+      expect(JSON.parse(withIndex).refused).toBe('STORE_RECEIPT_KIND_MISMATCH');
+      // The record the index does not speak for is the one read out of the file, and it is named by id.
+      expect(JSON.parse(withIndex).refusedDetail).toContain(IDS[0]!);
+      expect(JSON.parse(withIndex).refusedDetail).toBe(JSON.parse(await answer(dir, { ...asking, declined: true })).refusedDetail);
+      // Refusing leaves the mixture on the volume, and rebuilds nothing behind it.
+      expect(await readFile(storeFile(dir))).toEqual(mixed);
+    },
+  );
+
+  it(
+    'refuses an index that declares records of a kind this store does not write',
+    { timeout: CASE_TIMEOUT },
+    async () => {
+      const dir = await emptyDir();
+      await fileWith(dir, IDS);
+      // Nothing was appended and nothing was edited: the log holds one kind, and the store opening it now
+      // was configured for the other. The records here are inside the checkpoint, so an index that stated
+      // no kind would be believed and would shave four bytes off every receipt it served.
+      expect(readSidecar(await sidecarBytes(dir)).recordKind).toBe(RECEIPT_RECORD_KIND);
+
+      const asking = { receiptKind: BOUNDED, ids: IDS };
+      const withIndex = await answer(dir, asking);
+      expect(JSON.parse(withIndex).refused).toBe('STORE_RECEIPT_KIND_MISMATCH');
+      expect(JSON.parse(withIndex).refusedDetail).toContain(IDS[0]!);
+      expect(withIndex).toBe(await answer(dir, { ...asking, declined: true }));
+      // A refused opening does not rewrite the declaration it refused: the index still speaks for the
+      // records on the volume, and the store that reads them next is the one that wrote them.
+      expect(readSidecar(await sidecarBytes(dir)).recordKind).toBe(RECEIPT_RECORD_KIND);
+      // And the kind this store does write answers the same file the declined opening answers.
+      expect(await answer(dir, { ids: IDS })).toBe(await answer(dir, { declined: true, ids: IDS }));
+    },
+  );
 });

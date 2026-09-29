@@ -35,9 +35,11 @@ export type { EpochAccepted, EpochRefused, EpochVerdict, ReceiptEpochClaim } fro
 export { readDeploymentManifest } from './manifest-auth.js';
 export type { ManifestAuthentication, ReadManifestResult } from './manifest-auth.js';
 export {
+  assertAnchorHeldUnderPolicy,
   DEFAULT_MAX_EVIDENCE_AGE_SECONDS,
   DEFAULT_MAX_RECEIPT_AGE_SECONDS,
   assertStampSourceWithinPolicy,
+  MAX_ANCHOR_SLOTS_DEMANDABLE,
   policyFromManifest,
   policyKeyByKid,
 } from './policy.js';

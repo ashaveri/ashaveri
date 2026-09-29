@@ -1,0 +1,70 @@
+{
+  "protectedHeader": {
+    "alg": "EdDSA",
+    "kid": "35013a6e000b8d5dca51c4bd5c1db9f2860283606c76aeeeea8ee72b72b5e15e",
+    "typ": "ashaveri/receipt"
+  },
+  "payload": {
+    "v": 3,
+    "iss": "dpl-9f2a41c3",
+    "ins": "cvm-i-047f2a",
+    "iat": 1772000000,
+    "nce": "5b66873d3dcc9fc96fd9a14341bc1b2e",
+    "req": "ae8b759968f574a1c423445e00f4e73ee2aa0d4fcb889d79d6aed877fc6d9a79",
+    "res": "ba7c798c56ade5dd2f18836b7bd51f6e3d4a6573436df50a63bb840b782d5566",
+    "mdl": "meta-llama/Llama-3.1-8B-Instruct",
+    "wts": "2689570aecf5054284b06d6022554fb97942cad0a774d5dbc9308b2d0477d9b5",
+    "meas": {
+      "tee": "snp+gpucc",
+      "m": "bd7661367ea7c0fa027295b495a37d8c445e95889c09d6b7beb6ed4052719e30f16f0507827e2d004949b552f1e551f2"
+    },
+    "att": {
+      "d": "4c8cdcf1f0ff0722b002adc9d8323cd314b50f57a01c3de302b1b3a1b664a9db",
+      "ts": 1771999940,
+      "url": "https://inference.ashaveri.com/v1/attestation"
+    },
+    "epk": 1,
+    "tok": {
+      "p": 128,
+      "c": 64
+    },
+    "mk": {
+      "sch": "none",
+      "d": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    "sd": {
+      "name": "ptp-disciplined host clock",
+      "unc": 1
+    },
+    "cva": {
+      "col": {
+        "p": "held",
+        "d": "8701cb3c5b89991d693a58ec59233422f627200be31c8d568ab41bde8710ca34"
+      },
+      "val": {
+        "p": "held",
+        "d": "0f97dfca91870f4e142f6bc275945fc4aca3a21bbde1924dfc181086e0b03ef9"
+      }
+    },
+    "itm": [
+      {
+        "t": 1771999996,
+        "d": "8ad85524387f8b33d71d6c825b4098967d582a49255a9ce5d399a4dcf82e34de"
+      },
+      {
+        "t": 1771999997,
+        "d": "2b918d88b23a1e4601a9698687c94140916d8d4455746ee42c3029e3331972f4"
+      },
+      {
+        "t": 1771999998,
+        "d": "b6317a63b4a079fe282343b5ca0c089280cbce11042acd5f0abd76db4ea548c2"
+      },
+      {
+        "t": 1771999999,
+        "d": "63b374984480c1f0adb487b753b9cb3ac2b732bb6749f7f687243aefbe5c1ca2"
+      }
+    ]
+  },
+  "signature": "392d21f269fc6d86676c311d6336bfb3e4fa9cb276f6250e52687e6b6f9497bdba9c5bdb29f05fcbff575566778b9a20943b3775eebd51fef903456014c85c0e",
+  "digestSha256": "0fd86169341033ab629a4ff399edbeb4ac63f5be1b1e042a77d00b85e9b67f89"
+}
