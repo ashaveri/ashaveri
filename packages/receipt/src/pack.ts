@@ -870,17 +870,22 @@ function heldSlotDigests(manifest: PackManifest): readonly HeldSlot[] {
  * assemble a `PackManifest` in memory, hand it to the writer, or read one through a reader that is not this
  * package's, and none of those paths runs `assertCarriedResolves` before this question is asked. So the answer
  * proves, for the one digest asked, the two facts that make it true: the bytes handed back hash to the digest
- * that was asked for, and a held slot of a receipt this pack seals names that digest. What the format's own
- * check would refuse is refused here under the same code and with the same sentence naming the same position, so
- * a caller that came through the container and a caller that came with an object in hand are refused alike.
+ * that was asked for, and a held slot of a receipt this pack seals names that digest. What the format's own check
+ * would refuse is refused here too, under one of the same four codes and with a sentence naming a position. The
+ * two readings can stop on different members of that set, because they travel in opposite directions: the
+ * container's check walks the list and reports the entry whose bytes disagree with what it states, while a lookup
+ * keyed by one digest reports that it found no entry at that key. So a mislabeled object is a mismatch read from
+ * the list and, asked by the digest its bytes really hash to, an unresolved slot read from the question. Neither
+ * reading coins a fifth code, and both refuse.
  *
  * What is deliberately not re-run is everything the question does not need. The two ceilings bound the list, the
  * duplicate scan reads it as a whole, and the list-wide halves of resolution compare every entry against every
  * slot; a lookup keyed by one digest cannot change its own answer by finding one of them missing, and a pack
  * that states one digest at two positions states the same bytes at both, since both would have to hash to the
  * digest asked. Re-checking the ceilings would also mean hashing the whole carried list per question, which is
- * the work the decode already did once. The refusal order is the format's own, so one rule reads the same way
- * from both ends: the recompute of the entry found, then the two halves of resolution.
+ * the work the decode already did once. The order here is the cheapest fact first rather than the list's own:
+ * the entry is found or its absence named, that one entry's bytes are recomputed, and only then is the slot side
+ * asked, because a question about one digest cannot be altered by an entry the question never reached.
  */
 export function resolveCarried(manifest: PackManifest, digest: Uint8Array): PackCarriedResolution {
   // Asked before anything is hashed or decoded, and answered the way `packRecordDigest` answers a predecessor of

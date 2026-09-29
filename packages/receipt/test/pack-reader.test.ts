@@ -1188,6 +1188,13 @@ describe('the pack reader and the format it reads', () => {
     expect((mismatched as ReceiptError).code).toBe('PACK_CARRIED_DIGEST_MISMATCH');
     expect((mismatched as ReceiptError).message).toContain(`carried[0] states ${toHex(tcb.sha256)} and its bytes hash to ${toHex(rim.sha256)}`);
     expect(answered(() => decodePack(signPack(lying)))).toBe('PACK_CARRIED_DIGEST_MISMATCH');
+    // Asked by the digest those same bytes really hash to, the same document answers a different member of the
+    // same set, because the lookup travels from the key to the entry and finds nothing there: the list's own check
+    // names the mislabeled entry, and the question names the slot it cannot answer. Both refuse, in the codes the
+    // format already publishes, which is what the two readings have in common.
+    const askedTrueSide = thrownBy(() => resolveCarried(lying, rim.sha256));
+    expect((askedTrueSide as ReceiptError).code).toBe('PACK_CARRIED_UNRESOLVED');
+    expect((askedTrueSide as ReceiptError).message).toContain(`receipt-0 states a held val digest ${toHex(rim.sha256)} this pack carries no object for`);
 
     // Bytes the pack carries that no sealed slot names, asked by their own digest: the other direction of the
     // same disagreement, holding its own code because the construction to fix is the other one.
