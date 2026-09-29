@@ -4,6 +4,7 @@ import { collateralCacheKey, declarationFor, requestUrl, type OriginDeclaration 
 import { readSignedCollateral, type ReadCollateral } from './read.js';
 import { sha256Hex } from './bytes.js';
 import type {
+  CarriedCollateral,
   CollateralAppraisalOptions,
   CollateralClaim,
   CollateralOutcome,
@@ -30,6 +31,39 @@ export async function appraiseCollateral(
     throw new CollateralError(outcome.refusal);
   }
   return outcome;
+}
+
+/**
+ * Material that arrived inside a sealed container rather than from an origin, weighed by the same rules.
+ *
+ * This is the one honest way to appraise bytes the caller did not fetch. The retained path already reads bytes it
+ * is handed, and it refuses any set it cannot stamp, because the instant an answer was observed is the only thing
+ * that separates a retained answer from a fresh one. A container states no such instant: nothing inside one
+ * watched an origin answer, so no observation is recorded anywhere in it. The number a caller hands here is
+ * therefore the instant the record holding the material states it held it, which for a sealed receipt is its own
+ * `iat`, and the receipt states beside that stamp which source it reads and how far that source admits to being
+ * from the instants it names. What the stamp is worth is the receipt's disclosure rather than a claim of this
+ * path, and the alternative, minting an instant nobody recorded, is what the retained path already refuses.
+ *
+ * The consequence is narrow and it is the design working rather than a gap. The instant feeds one sentence, the
+ * one a stale answer carries about when the bytes were seen, and it moves no comparison of its own: the window
+ * the vendor signed is read against `appraisalAt`, which stays the caller's own statement of the moment being
+ * asked about. So a carried answer never reaches `current-knowledge`, which is the reach that requires this run
+ * to have asked the origin, and `claim.observedAt` stays `null`, because this run saw no origin. Those are one
+ * fact from two ends: no document sealed in a container becomes an observation by being read. What the window
+ * check settled is left where a reader can weigh it, in `collateral.classification.window` beside
+ * `claim.appraisalAt`, and a reader asking whether the context stood at the record's own instant hands that
+ * instant as both numbers and reads the pair back.
+ */
+export async function appraiseCarriedCollateral(
+  query: Omit<CollateralQuery, 'retained'>,
+  carried: CarriedCollateral,
+  options: CollateralAppraisalOptions = {},
+): Promise<CollateralOutcome> {
+  // The container's material is the only material this appraises, which is why the query type omits the field and
+  // why it is written here rather than merged: a caller holding both a fetch and a container has to say which one
+  // this answer is about, and the answer it gets is the one it handed in the `carried` argument.
+  return appraiseCollateral({ ...query, retained: { bytes: carried.bytes, observedAt: carried.heldAt } }, options);
 }
 
 async function appraise(

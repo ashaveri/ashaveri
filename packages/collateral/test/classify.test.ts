@@ -2,12 +2,13 @@ import { describe, expect, it } from 'vitest';
 import { sha256 } from '@noble/hashes/sha2.js';
 import {
   CollateralError,
+  appraiseCarriedCollateral,
   appraiseCollateral,
   type CollateralOutcome,
+  type CollateralQuery,
   type CollateralRefusal,
   type CollateralTransport,
 } from '../src/index.js';
-import type { CollateralQuery } from '../src/types.js';
 import { qeIdentity, secondsOf, signedDocument, tcbInfo, testVendor, type TestVendor } from './support/collateral-documents.js';
 
 const FMSPC = '00906EA00000';
@@ -265,5 +266,134 @@ describe('what an absent answer costs the caller', () => {
     expect(reported.claim).toBeNull();
     const required = appraiseCollateral(query({ onAbsent: 'refuse' }), { transport, clock: () => OBSERVED });
     await expect(required).rejects.toBeInstanceOf(CollateralError);
+  });
+});
+
+/**
+ * Material that arrived inside a sealed container rather than from an origin, and the stamp question it settles.
+ *
+ * A container states no observation instant because nothing inside one watched an origin answer, so the instant
+ * a caller hands is the one the record holding the material states: the moment a sealed receipt was chained at.
+ * What that number buys is a read document, established under the root the caller pinned, and what it can never
+ * buy is `current`, which is the reach a run makes by asking. The window the vendor signed is left where a
+ * reader can weigh it against the instant it asks about, and these cases hold that apart from the code a carried
+ * answer arrives with.
+ */
+describe('material that arrived inside a container', () => {
+  /** An instant a sealed record could state: inside the window the vendor signed, and before this run. */
+  const HELD_AT = secondsOf('2026-09-10T00:00:00.000Z');
+
+  /** The same question with its material stated outside the query, which is where a carried appraisal states it. */
+  function question(over: Partial<CollateralQuery> = {}): Omit<CollateralQuery, 'retained'> {
+    const { retained: _notFromAStore, ...rest } = query(over);
+    return rest;
+  }
+
+  it('weighs carried bytes under the root the caller pinned and asks the origin nothing', async () => {
+    const bytes = levelDocument();
+    const { transport, asked } = serve(bytes);
+    const outcome = await appraiseCarriedCollateral(question(), { bytes, heldAt: HELD_AT }, { transport, clock: () => OBSERVED });
+    expect(asked, 'a carried appraisal asked the origin something').toEqual([]);
+    expect(outcome.state).toBe('stale');
+    // The bytes weighed are the bytes handed, and the anchor named is the pin the caller holds: a reader that
+    // resolved a digest out of a container can see that the answer is about those exact bytes and no others.
+    expect(outcome.collateral?.digest).toBe(hex(sha256(bytes)));
+    expect(outcome.collateral?.anchorDigest).toBe(vendor.rootDigest);
+    expect(outcome.collateral?.classification.window).toEqual({ from: secondsOf(LEVEL_DATE), until: secondsOf(NEXT_UPDATE) });
+    expect(outcome.claim?.reach).toBe('historical-knowledge');
+    expect(outcome.claim?.appraisalAt).toBe(WITHIN);
+    expect(outcome.claim?.observedAt, 'the claim reports an observation this run never made').toBeNull();
+    expect(refusalOf(outcome).code).toBe('COLLATERAL_NOT_OBSERVED');
+    // The stamp's one visible effect: the instant the record states, in the sentence about bytes nobody fetched.
+    expect(refusalOf(outcome).detail).toContain(new Date(HELD_AT * 1000).toISOString());
+  });
+
+  it('leaves the current answer to the run that asks the origin, whichever instant it hands', async () => {
+    const bytes = levelDocument();
+    const carried = await appraiseCarriedCollateral(
+      question({ appraisalAt: HELD_AT }),
+      { bytes, heldAt: HELD_AT },
+      { transport: silence() },
+    );
+    expect(carried.state).toBe('stale');
+    expect(carried.claim?.reach).toBe('historical-knowledge');
+    const { transport } = serve(bytes);
+    const live = await appraiseCollateral(query({ appraisalAt: HELD_AT }), { transport, clock: () => OBSERVED });
+    expect(live.state).toBe('current');
+    expect(live.claim?.reach).toBe('current-knowledge');
+  });
+
+  it('keeps what the window check settled in the figures, because a carried run never asked', async () => {
+    const outcome = await appraiseCarriedCollateral(
+      question({ appraisalAt: AFTER }),
+      { bytes: levelDocument(), heldAt: HELD_AT },
+      { transport: silence() },
+    );
+    expect(outcome.state).toBe('stale');
+    // The vendor's window had closed on the moment asked and the answer still names the observation rather than
+    // the window, because the window refusal is what a run that watched the document arrive reports. A reader
+    // weighing the context one appraisal ran in reads the pair below, and no stamp moves either of them.
+    expect(refusalOf(outcome).code).toBe('COLLATERAL_NOT_OBSERVED');
+    expect(outcome.claim?.appraisalAt).toBe(AFTER);
+    expect(outcome.collateral?.classification.window.until).toBeLessThanOrEqual(AFTER);
+  });
+
+  it('reads a vendor revocation out of carried bytes, because the statement does not depend on how they arrived', async () => {
+    const outcome = await appraiseCarriedCollateral(
+      question(),
+      { bytes: levelDocument('Revoked'), heldAt: HELD_AT },
+      { transport: silence() },
+    );
+    expect(outcome.state).toBe('revoked');
+    expect(refusalOf(outcome).code).toBe('COLLATERAL_REVOKED_BY_VENDOR');
+    expect(outcome.collateral?.classification.readAs).toBe('revoked');
+    expect(outcome.claim?.reach).toBe('historical-knowledge');
+  });
+
+  it('refuses a chain that reaches no root the caller pinned, and hands no bytes back from it', async () => {
+    const stranger = testVendor({ rootName: 'Unrelated Root', issuerName: 'Unrelated CA' });
+    const outcome = await appraiseCarriedCollateral(
+      question(),
+      { bytes: levelDocument('OK', stranger), heldAt: HELD_AT },
+      { transport: silence() },
+    );
+    expect(outcome.state).toBe('unavailable');
+    expect(refusalOf(outcome).code).toBe('COLLATERAL_ANCHOR_NOT_PINNED');
+    expect(outcome.collateral).toBeNull();
+    expect(outcome.claim).toBeNull();
+  });
+
+  it('refuses bytes that are not a document, and bytes that are none at all, at the position that names them', async () => {
+    const unreadable = await appraiseCarriedCollateral(
+      question(),
+      { bytes: new TextEncoder().encode('not a document at all'), heldAt: HELD_AT },
+      { transport: silence() },
+    );
+    expect(unreadable.state).toBe('unavailable');
+    expect(refusalOf(unreadable).code).toBe('COLLATERAL_BLOB_UNREADABLE');
+    const empty = await appraiseCarriedCollateral(
+      question(),
+      { bytes: new Uint8Array(0), heldAt: HELD_AT },
+      { transport: silence() },
+    );
+    expect(empty.state).toBe('missing-context');
+    expect(refusalOf(empty).code).toBe('COLLATERAL_INPUT_MISSING');
+    expect(refusalOf(empty).missing).toEqual(['retained.bytes']);
+  });
+
+  it('throws for carried material a policy requires and this run cannot weigh', async () => {
+    const stranger = testVendor({ rootName: 'Other Root', issuerName: 'Other CA' });
+    const required = appraiseCarriedCollateral(
+      question({ onAbsent: 'refuse' }),
+      { bytes: levelDocument('OK', stranger), heldAt: HELD_AT },
+      { transport: silence() },
+    );
+    await expect(required).rejects.toBeInstanceOf(CollateralError);
+    const failure = await required.catch((error: unknown) => error);
+    if (failure instanceof CollateralError) {
+      expect(failure.code).toBe('COLLATERAL_ANCHOR_NOT_PINNED');
+    } else {
+      throw new Error('required carried material was answered instead of refused');
+    }
   });
 });

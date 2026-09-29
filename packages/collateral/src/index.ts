@@ -19,8 +19,9 @@ export { fetchFromOrigin, wallClock } from './fetch.js';
 export type { FetchContext, FetchOutcome, FetchedCollateral } from './fetch.js';
 export { readSignedCollateral } from './read.js';
 export type { ReadCollateral, ReadOutcome } from './read.js';
-export { appraiseCollateral } from './classify.js';
+export { appraiseCarriedCollateral, appraiseCollateral } from './classify.js';
 export type {
+  CarriedCollateral,
   CollateralAppraisalOptions,
   CollateralClaim,
   CollateralClassification,

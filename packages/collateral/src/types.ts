@@ -41,6 +41,26 @@ export interface RetainedCollateral {
   readonly observedAt: number | null;
 }
 
+/**
+ * Material that arrived inside a sealed container rather than from an origin, with the instant the container's
+ * own record states it held it.
+ */
+export interface CarriedCollateral {
+  /** The whole of the material, byte for byte as the container carries it, which is what gets read again. */
+  readonly bytes: Uint8Array;
+  /**
+   * Unix seconds. A container states no observation instant because nothing inside one watched an origin
+   * answer, so the number a caller hands is the instant the record holding this material states it held it: the
+   * `iat` of the sealed receipt whose anchor named these bytes. It is an instant and not the `held` figure of a
+   * pack's duty block, which counts seconds and names no moment.
+   *
+   * It is required, and no caller is handed a default: an appraisal that stamped carried material with the
+   * instant it was asked would be reporting that an archive had just arrived, which is the one sentence this
+   * type exists to make unspellable.
+   */
+  readonly heldAt: number;
+}
+
 /** What an appraisal asks for, and with what it was supplied. */
 export interface CollateralQuery {
   readonly origin: CollateralOriginName;
@@ -59,7 +79,11 @@ export interface CollateralQuery {
    * quietly inherited one would report a verdict reached on a decision the caller never made.
    */
   readonly roots: readonly Uint8Array[];
-  /** Collateral from the caller's own store, or `null` to ask the origin now. */
+  /**
+   * Collateral from the caller's own store, or `null` to ask the origin now. Material that arrived inside a
+   * sealed container instead of a store is appraised by `appraiseCarriedCollateral`, which states where the
+   * instant beside it comes from rather than leaving a caller to invent one.
+   */
   readonly retained: RetainedCollateral | null;
   /** What an absent answer does: reported as unassessed, or refused because this appraisal requires it. */
   readonly onAbsent: 'unassessed' | 'refuse';
