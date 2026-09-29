@@ -27,7 +27,7 @@
       "required": ["v", "epoch", "manifest", "packs", "window", "chain", "duty"],
       "properties": {
         "v": { "const": 1, "description": "format version" },
-        "epoch": { "type": "string", "minLength": 1, "description": "The operator's label for the run: printable text, unpadded, no control character, and bounded in bytes by the CDDL because it is printed beside the run in every report of it. It identifies the artifact and decides nothing in it." },
+        "epoch": { "type": "string", "minLength": 1, "description": "The operator's label for the run: printable text carrying no character that ends, hides, or reorders the row it is printed on, which is the C0 and C1 control ranges, every Unicode format character, the two line separators, and the tag block; unpadded; and bounded in bytes by the CDDL because it is printed beside the run in every report of it. The same class the receipt writer refuses its attested text on. It identifies the artifact and decides nothing in it." },
         "manifest": { "$ref": "#/$defs/deployment", "description": "Which deployment manifest supplied the keys this run was resolved against, named by the three members that identify one. Nothing else about that document travels here, and no copy of its key list is made, because a copy of a signed number in a second signed document is what drifts." },
         "packs": {
           "type": "array",

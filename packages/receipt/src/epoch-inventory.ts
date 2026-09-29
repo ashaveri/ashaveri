@@ -18,6 +18,7 @@ import {
 } from './cose.js';
 import { ReceiptError } from './errors.js';
 import { readJsonBytes, type JsonObject } from './json-text.js';
+import { firstForgingCodePoint } from './line-text.js';
 import type { PackSpan } from './pack.js';
 import { parseRetentionDocument, RETENTION_FILE_NAME_SET, type RetentionManifest } from './retention.js';
 
@@ -382,20 +383,39 @@ function requireText(value: unknown, position: string): string {
 }
 
 /**
- * The run's label, bounded the way the format states it: printable text that a report can print beside the
- * run it names. Control characters, the two line separators and a byte order mark are refused because they
- * would end the printed row rather than because they are rare, and leading or trailing space because the
- * label is quoted by nothing around it.
+ * The run's label: printable text that a report can print beside the run it names, refused on the estate's
+ * printed-line class, which `src/line-text.ts` owns and `src/receipt.ts` refuses a payload's attested text on.
+ * The byte ceiling, the position name and `EPOCH_INVENTORY_BAD_DOCUMENT` are this site's own, and a test drives
+ * one roster of characters through both refusal sites (`packages/receipt/test/line-text.test.ts`).
  *
- * This scan is the read side's, and it is not the writer's. `assertLineSafeText` in `src/receipt.ts`
- * refuses the attested text members of a payload at the step that signs them, and it refuses a wider set:
- * every Unicode format character and the tag block beside the ranges named above, which are the characters
- * that hide a line or reorder it rather than end one. The two stay apart because what each is asked about
- * is not one question: this one bounds a label a caller reads out of somebody else's document, with a byte
- * ceiling beside it, and that ceiling and that code are not the writer's to take, while widening this scan
- * to the writer's set would change which inventories this package accepts. Neither is a general text rule
- * and neither is merged into the other; a later edit that reaches for one of the two should read the other
- * before choosing.
+ * This scan refuses the whole class rather than the line-enders inside it, and that is a decision about which
+ * documents this package accepts, so it is stated here rather than left to the class. Measured on Node 24 with
+ * Unicode 16 tables, the line-enders alone leave two hundred code points accepted in a label the writer would
+ * refuse: the soft hyphen `U+00AD`, the Mongolian vowel separator `U+180E`, `U+0600..U+0605`, `U+061C`, `U+06DD`,
+ * `U+070F`, `U+0890..U+0891` and `U+08E2`, the zero width and joiner characters `U+200B..U+200F`, the directional
+ * embeddings and overrides `U+202A..U+202E`, word joiner and the invisible ones beside it `U+2060..U+2064`, the
+ * directional isolates `U+2066..U+206F`, the interlinear annotation block `U+FFF9..U+FFFB`, `U+110BD`, `U+110CD`,
+ * `U+13430..U+1343F`, `U+1BCA0..U+1BCA3`, `U+1D173..U+1D17A`, and the tag block `U+E0000..U+E007F`.
+ *
+ * Ending the row is one of three ways a printed line stops being the bytes it was made of, and the label is the
+ * position where the other two cost the most: this document's own row for it says it "identifies the artifact and
+ * decides nothing in it" (`docs/epoch-inventory-v1.md`), so identification is the whole of its function, and a
+ * directional override or isolate prints a row whose visible spelling is not the one the signature covers, while
+ * a zero width joiner or a soft hyphen makes two different labels of two different runs print as one row nobody
+ * can tell apart. A reader checking a report cannot cite the run a row names, which is the failure the rule exists
+ * to stop, and the narrower scan stopped only the half of it that ends a line.
+ *
+ * The reason a stricter reader is usually the wrong choice, that somebody's accepted document newly fails, is
+ * answered where the layout actually carries it. `manifest.iss`, `manifest.ins` and `duty.art` travel from a
+ * deployment manifest and a pack that bound them by nothing above one byte, and `requireText` refuses them no
+ * class at all for exactly that reason: a ceiling or a character rule arriving on this side would reject an
+ * inventory whose writer copied a published artifact faithfully, which a layout describing artifacts already in
+ * the field may not do. The run label is the one text position this container writes for itself, and
+ * `signEpochInventory` parses through this function before it signs, so no inventory our own writer produces can
+ * newly fail here. What stops being accepted is a document another body wrote with one of those two hundred
+ * characters in its label, and nothing published is one: every generate key of `packages/fixtures` re-emits
+ * `packages/fixtures/data` byte for byte, and the shipped reader runs over each published vector by name in
+ * `packages/fixtures/test/epoch-inventory-vectors.test.ts`.
  */
 function requireLabel(value: unknown, position: string): string {
   const label = requireText(value, position);
@@ -406,11 +426,9 @@ function requireLabel(value: unknown, position: string): string {
   if (label !== label.trim()) {
     throw badDocument(`${position} carries leading or trailing space, and it is printed beside the run unpadded`);
   }
-  for (const character of label) {
-    const code = character.codePointAt(0) ?? 0;
-    if (code < 0x20 || (code >= 0x7f && code <= 0x9f) || code === 0x2028 || code === 0x2029 || code === 0xfeff) {
-      throw badDocument(`${position} carries the code point ${code.toString(16)}, which is not printable text`);
-    }
+  const code = firstForgingCodePoint(label);
+  if (code !== undefined) {
+    throw badDocument(`${position} carries the code point ${code.toString(16)}, which is not printable text`);
   }
   return label;
 }

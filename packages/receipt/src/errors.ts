@@ -1,3 +1,5 @@
+import { FORGES_A_LINE_RANGES } from './line-text.js';
+
 export type ReceiptErrorCode =
   | 'MALFORMED_CBOR'
   | 'NOT_COSE_SIGN1'
@@ -384,7 +386,8 @@ const ERROR_MESSAGE: Record<ReceiptErrorCode, string> = {
   EPOCH_INVENTORY_UNSUPPORTED_VERSION: 'epoch inventory declares a version this package cannot parse',
   // Every structural refusal of the document and of the maps inside it: an absent member, a member this
   // version does not define, a digest or a path or a label of the wrong type or width, a figure below zero or
-  // past the widest integer a reader holds exactly, a label carrying a control character or a pad, and the
+  // past the widest integer a reader holds exactly, a label carrying a character that ends, hides or reorders
+  // the printed row it belongs to, or a pad on either side of one, and the
   // pack list with nothing in it. The empty list is this code rather than a finding about the deployment
   // because an inventory of no packs states a window no pack covers and a chain no pack chained, which is a
   // document whose own figures are vacuous rather than a deployment that sealed nothing.
@@ -496,13 +499,14 @@ function bounded(detail: string): string {
  * Bounding the length does not close the second way a header can write itself into a message.
  * `parsePopAuthorization` quotes a parameter name it did not recognise, and a name is anything up
  * to an `=` sign, which includes a line feed. A refusal that carries one is two lines to anything
- * that reads a log by lines. The character set is the one the CLI escapes before printing, stated
- * again here because the packages share no module and the promise belongs to whoever builds the
- * message: a `ReceiptError` is one line of visible text, whoever raised it. The bound runs first,
+ * that reads a log by lines. The characters are the printed-line class `src/line-text.ts` owns, which
+ * the two refusal sites of this package refuse their text on, taken here with the global flag because
+ * this site rewrites every one of them out of a message rather than asking whether a value carries
+ * one: a `ReceiptError` is one line of visible text, whoever raised it. The bound runs first,
  * on the text as this package holds it, so what it limits is that text's units, not the bytes the
  * caller sent and not how long the escapes got.
  */
-const INVISIBLE = /[\p{Cc}\p{Cf}\u{2028}\u{2029}\u{e0000}-\u{e007f}]/gu;
+const INVISIBLE = new RegExp(`[${FORGES_A_LINE_RANGES}]`, 'gu');
 
 function asOneLine(message: string): string {
   return message.replace(INVISIBLE, (char) => {

@@ -19,6 +19,7 @@ import type {
   StampDisclosure,
 } from './disclosure.js';
 import { COLLATERAL_PRESENCES } from './disclosure.js';
+import { firstForgingCodePoint } from './line-text.js';
 
 /**
  * `software` makes no TEE claim: `m` is the deployment's own digest of what it runs.
@@ -741,17 +742,6 @@ export const ATTESTED_TEXT_ROWS: readonly AttestedTextRow[] = [
 ];
 
 /**
- * The characters that end a line, hide one, or reorder one: the C0 and C1 ranges, every Unicode format
- * character, the two line separators, and the tag block. The tag range is spelled out beside the property
- * classes rather than folded into them, because which class a character belongs to is data the runtime
- * supplies, and the boundary of what this package refuses carries its own copy of the ranges that matter.
- * It is the same set the CLI escapes before printing a value (`packages/cli/src/usage.ts`) and the one
- * every `ReceiptError` message is escaped through (`src/errors.ts`), which is the estate's answer to what
- * a line is made of.
- */
-const FORGES_A_LINE = /[\p{Cc}\p{Cf}\u{2028}\u{2029}\u{e0000}-\u{e007f}]/u;
-
-/**
  * One attested text member, refused before a byte of it is signed if its text could forge a line.
  *
  * Each member this reaches is bounded in byte length and in nothing else, and each is printed somewhere:
@@ -764,14 +754,14 @@ const FORGES_A_LINE = /[\p{Cc}\p{Cf}\u{2028}\u{2029}\u{e0000}-\u{e007f}]/u;
  * a `tstr` encodes any code point. So this is the writer's question rather than the format's, and it is
  * asked in `assertEncodable`, which is the one step every path to a signature goes through.
  *
- * The rule refused here is deliberately not the one the epoch inventory reads with. `requireLabel`
- * (`src/epoch-inventory.ts`) refuses a label at the read of a document this package does not author,
- * under `EPOCH_INVENTORY_BAD_DOCUMENT`, with a byte ceiling beside it, and its scan reaches no format
- * character beyond a byte order mark, so a soft hyphen, a zero width space and a directional isolate pass
- * it. Two helpers, not one: widening the read side would change which inventory documents this package
- * accepts, which is a different decision on a different body of data, and narrowing this one to match
- * would leave the class open to the characters a line is forged with. Each names the other so neither is
- * merged into the wrong one later.
+ * The class this refuses on has one owner, `src/line-text.ts`, and the epoch inventory's reader of a run label
+ * refuses on that same class (`requireLabel`, `src/epoch-inventory.ts`). What stays apart is everything else
+ * about the two refusals: this one reaches the eight attested text positions of a payload this package signs,
+ * names each the way the format spells it, and answers under `BAD_PAYLOAD` with no byte ceiling of its own,
+ * while that one bounds one position of a document this package reads at the label's stated width and answers
+ * under `EPOCH_INVENTORY_BAD_DOCUMENT`. One class and three site-owned facts, because which characters a printed
+ * row is made of is one answer wherever the row comes from, and which positions carry a printed row, how wide
+ * they may be, and what a caller is told to do about them are not.
  *
  * Leading and trailing space is refused with the class for the inventory's stated reason, which is also
  * this rule's own: these members are printed beside their labels by nothing that quotes them, and a value
@@ -782,11 +772,9 @@ const FORGES_A_LINE = /[\p{Cc}\p{Cf}\u{2028}\u{2029}\u{e0000}-\u{e007f}]/u;
  */
 function assertLineSafeText(value: unknown, position: string): void {
   if (typeof value !== 'string') return;
-  for (const character of value) {
-    if (FORGES_A_LINE.test(character)) {
-      const code = character.codePointAt(0) ?? 0;
-      throw badPayload(`${position} carries the code point ${code.toString(16)}, which would forge a line this document never wrote`);
-    }
+  const code = firstForgingCodePoint(value);
+  if (code !== undefined) {
+    throw badPayload(`${position} carries the code point ${code.toString(16)}, which would forge a line this document never wrote`);
   }
   if (value !== value.trim()) {
     throw badPayload(`${position} carries leading or trailing space, and it is printed beside its label unpadded`);
@@ -848,7 +836,7 @@ function assertAttestedText(members: Record<string, unknown>, defined: DefinedMa
  * member whose content would forge the line it is printed on is refused before one byte of the payload is
  * signed, under this same code, because the encoder is the one step every path to a signature goes
  * through and no reader can refuse what it only ever sees as a well-typed `tstr`. `assertLineSafeText`
- * states the rule and what it reaches that the inventory's read-side scan does not.
+ * states which positions that reaches and what it refuses them on, and `src/line-text.ts` owns the class.
  */
 function assertEncodable(payload: ReceiptPayload): void {
   const given = encodableMapOf(payload, 'payload');
