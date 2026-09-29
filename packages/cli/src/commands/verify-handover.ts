@@ -25,7 +25,7 @@ import {
   toHex,
   type AshaveriPolicy,
 } from '@ashaveri/sdk';
-import { escapeInvisible, UsageError, writeJson } from '../usage.js';
+import { escapeInvisible, printedToken, UsageError, writeJson } from '../usage.js';
 import {
   COLLATERAL_CPU_TYPE_FLAG,
   COLLATERAL_LEVEL_FLAG,
@@ -431,6 +431,19 @@ async function readPack(bytes: Uint8Array, inputs: Inputs, kid: Uint8Array): Pro
  * the format refuses a pack that names a held slot it carries nothing for, at the position that names it, so no
  * report of a pack this command accepted can hold a slot whose material is absent. The absence is a refusal with
  * an exit code, not a row, and `carriedNotChecked` says so beside the rows.
+ *
+ * Four figures in these rows are text this command did not write and has not validated, and each of them enters
+ * the printed shape through `printedToken`: a record's id as the pack spells it, which the format bounds in bytes
+ * and in nothing else, an absent slot's reason, which is the collector's own sentence inside a sealed receipt and
+ * is read as a tstr and no more, the vendor's words beside the level asked about, out of the carried bytes
+ * themselves, and the caller's spellings of the origin, the identity and the rung, echoed back as asked. Quoting
+ * rather than digesting is the choice a report row makes for its reader, who is owed the words and the reason
+ * rather than their sha256, and the escaping inside the quotes is what keeps a document from ending the row it is
+ * printed on. The machine shape gets no such pass, because `writeJson` escapes every quoted span of what it
+ * serializes and a port reads the token exactly rather than with its bounds shown. Which rows are guarded is not
+ * a list this file has to keep correct: `humanReading` escapes every row again on its way to the stream, so a row
+ * added beside these, and the older rows that print an export's or a redaction's own sentence, are covered whether
+ * or not this comment names them.
  */
 function carriedFacts(weighing: CarriedReading): readonly Fact[] {
   const facts: Fact[] = [
@@ -455,7 +468,7 @@ function carriedFacts(weighing: CarriedReading): readonly Fact[] {
   for (const one of weighing.weighings) {
     facts.push({
       key: `carried-${one.digest}`,
-      label: `weighed ${one.slot} ${one.item}`,
+      label: `weighed ${one.slot} ${printedToken(one.item)}`,
       value: weighingLine(one),
       json: weighingJson(one),
     });
@@ -475,16 +488,24 @@ function carriedFacts(weighing: CarriedReading): readonly Fact[] {
     facts.push({
       key: 'anchorAbsences',
       label: 'anchor absences',
-      value: weighing.absences.map((one) => `${one.item} at ${one.slot}: ${one.presence}, ${one.reason}`).join('; '),
+      value: weighing.absences.map((one) => `${printedToken(one.item)} at ${one.slot}: ${one.presence}, ${printedToken(one.reason)}`).join('; '),
       json: weighing.absences,
     });
   }
   return facts;
 }
 
-/** One digest, the question asked of it, and what the appraisal answered. */
+/**
+ * One digest, the question asked of it, and what the appraisal answered.
+ *
+ * The clauses are joined with a semicolon, so a figure from outside this run is quoted on the shared cell rule
+ * before it joins them: the record ids, which the pack spells and the format only bounds in length, the vendor's
+ * status words, which are the signed material's own text even though the classification admits only the five it
+ * reads, and the refusal detail, which is another package's sentence about what it met. Every other figure on the
+ * line is a number, a hex digest, or one of a union this run checked before storing it.
+ */
 function weighingLine(one: CarriedWeighing): string {
-  const named = one.namedBy.map((each) => `${each.item} at ${each.slot}`).join(', ');
+  const named = one.namedBy.map((each) => `${printedToken(each.item)} at ${each.slot}`).join(', ');
   const found = `digest ${one.digest}, carried as ${String(one.bytes)} byte(s), named by ${named}`;
   const outcome = one.outcome;
   if (outcome === null) return `${found}: not weighed, ${one.notWeighed}`;
@@ -492,14 +513,14 @@ function weighingLine(one: CarriedWeighing): string {
   const refusal = refusalOf(outcome);
   const parts = [found];
   if (one.question !== null) parts.push(`weighed as ${questionText(one.question)}`);
-  parts.push(`read against ${one.iat} (${isoOf(one.iat)}), the stamp ${one.item} was chained at, whose own measurement names ${one.environment}`);
+  parts.push(`read against ${one.iat} (${isoOf(one.iat)}), the stamp ${printedToken(one.item)} was chained at, whose own measurement names ${one.environment}`);
   parts.push(`answered ${outcome.state}`);
   if (read !== null) {
-    parts.push(`the vendor's words read ${read.classification.readAs} as ${read.declared.vendorStatus}, under the pinned anchor ${read.anchorDigest}`);
+    parts.push(`the vendor's words read ${read.classification.readAs} as ${printedToken(read.declared.vendorStatus)}, under the pinned anchor ${read.anchorDigest}`);
     parts.push(`the window it signed runs ${isoOf(read.classification.window.from)} to ${isoOf(read.classification.window.until)}, read against ${isoOf(one.iat)}`);
   }
   if (refusal !== null) {
-    parts.push(`refused ${refusal.code}${refusal.missing.length > 0 ? ` for ${refusal.missing.join(', ')}` : ''}: ${refusal.detail}`);
+    parts.push(`refused ${refusal.code}${refusal.missing.length > 0 ? ` for ${refusal.missing.join(', ')}` : ''}: ${printedToken(refusal.detail)}`);
   }
   return parts.join('; ');
 }
@@ -930,6 +951,20 @@ function designationFacts(contentType: string, inputs: Inputs): readonly Fact[] 
   ];
 }
 
+/**
+ * The report as rows, one per line.
+ *
+ * Each row is escaped on its way out rather than each figure as it comes in, because a row is the unit a reader
+ * of this report splits lines on and this command prints sentences its own packages wrote beside figures lifted
+ * out of the document: an export's assessment, a redaction's states, a manifest's advisory about a seal it could
+ * not authenticate. Those were written before any of this run's flags existed and are not going to be relitigated
+ * one row at a time; the guard sits at the one place they all reach the stream, which is the rule `usage.ts`
+ * states for a message. Escaping after the clauses are composed is also what makes the list of guarded rows not a
+ * thing a later row has to remember.
+ *
+ * It is applied per row and not to the joined report, because the newlines between rows are this file's own and
+ * the class the guard reads includes them.
+ */
 function humanReading(reading: Reading, inputs: Inputs): string {
   const field = (one: Fact): string => `  ${`${one.label}:`.padEnd(18)}${one.value}`;
   return [
@@ -939,7 +974,7 @@ function humanReading(reading: Reading, inputs: Inputs): string {
     ...reading.facts.map(field),
     ...designationFacts(reading.contentType, inputs).map(field),
     ...reading.notChecked.map((one) => `  not checked:      ${one}`),
-  ].join('\n');
+  ].map((one) => escapeInvisible(one)).join('\n');
 }
 
 function jsonReading(reading: Reading, inputs: Inputs): Record<string, unknown> {

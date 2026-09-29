@@ -8,7 +8,7 @@ import {
   type IntelTcbLevel,
 } from '@ashaveri/collateral';
 import { resolveCarried, toHex, type CollateralSlot, type PackManifest, type TeeKind, type VerifiedPackItem } from '@ashaveri/receipt';
-import { UsageError } from '../usage.js';
+import { UsageError, printedToken } from '../usage.js';
 import { readBytes } from './verify-receipt.js';
 
 /**
@@ -273,7 +273,7 @@ export async function carriedDesignations(values: CarriedFlagValues): Promise<Ca
     // The name is matched against no list kept here, on purpose. The package answers an origin it does not read
     // with the sentence naming the two it does, which is the reason all six names are in the union at all; a
     // second copy of that set in this file would be a thing to remember on the day the set grew.
-    one.origin = { value: rest as CollateralOriginName, from: `${COLLATERAL_ORIGIN_FLAG} ${slot}=${rest}` };
+    one.origin = { value: rest as CollateralOriginName, from: `${COLLATERAL_ORIGIN_FLAG} ${slot}=${printedToken(rest)}` };
   }
   for (const value of values['collateral-platform'] ?? []) {
     const { slot, rest } = slotValue(value, COLLATERAL_PLATFORM_FLAG);
@@ -289,13 +289,13 @@ export async function carriedDesignations(values: CarriedFlagValues): Promise<Ca
     once(COLLATERAL_CPU_TYPE_FLAG, slot, 'CPU type');
     // The shape is not checked here: `requestUrl` refuses a CPU type that is not twelve hex characters, in the
     // code naming the field, and a second pattern in this file would be two answers to one malformed argument.
-    one.cpuType = { value: rest, from: `${COLLATERAL_CPU_TYPE_FLAG} ${slot}=${rest}` };
+    one.cpuType = { value: rest, from: `${COLLATERAL_CPU_TYPE_FLAG} ${slot}=${printedToken(rest)}` };
   }
   for (const value of values['collateral-level'] ?? []) {
     const { slot, rest } = slotValue(value, COLLATERAL_LEVEL_FLAG);
     const one = draft(slot);
     once(COLLATERAL_LEVEL_FLAG, slot, 'level, which is one rung of the ladder');
-    one.level = { value: levelValue(slot, rest), from: `${COLLATERAL_LEVEL_FLAG} ${slot}=${rest}` };
+    one.level = { value: levelValue(slot, rest), from: `${COLLATERAL_LEVEL_FLAG} ${slot}=${printedToken(rest)}` };
   }
 
   const bySlot = new Map<CarriedSlotLabel, SlotDesignation>();
@@ -403,7 +403,7 @@ export async function weighCarried(
         ...designation.from,
         roots: designations.rootPaths.length === 0
           ? `${INTEL_ROOT_FLAG} named none, and no root bundled with the verifier was consulted`
-          : `${INTEL_ROOT_FLAG} ${designations.rootPaths.join(' and ')}`,
+          : `${INTEL_ROOT_FLAG} ${designations.rootPaths.map((one) => printedToken(one)).join(' and ')}`,
       },
     };
     const query: Omit<CollateralQuery, 'retained'> = {
@@ -466,11 +466,20 @@ export function fieldSources(designations: CarriedDesignations): readonly { read
   ];
 }
 
-/** The question as one printed line, with an unnamed field spelled as unnamed rather than left blank. */
+/**
+ * The question as one printed line, with an unnamed field spelled as unnamed rather than left blank.
+ *
+ * Three of the five figures on this line are the caller's own text: the origin and the CPU type as they were
+ * spelled, and the rung as it was named, none of which is validated before the appraisal refuses it. They are
+ * quoted on the shared cell rule because the line is one of several clauses the row joins with `; `, and a
+ * token that could end a row or move a cursor would otherwise be reported as though this run had written it.
+ * The platform and the root count need no guard: one is matched against the two arms this package publishes for
+ * before it is stored, and the other is a figure.
+ */
 export function questionText(question: CarriedQuestion): string {
-  const parts = [`origin ${question.origin}`, `platform ${question.platform}`];
-  parts.push(question.cpuType === null ? 'cpu type none named' : `cpu type ${question.cpuType}`);
-  parts.push(question.level === null ? 'level none named' : `level ${question.level}`);
+  const parts = [`origin ${printedToken(question.origin)}`, `platform ${question.platform}`];
+  parts.push(question.cpuType === null ? 'cpu type none named' : `cpu type ${printedToken(question.cpuType)}`);
+  parts.push(question.level === null ? 'level none named' : `level ${printedToken(question.level)}`);
   parts.push(question.roots === 0 ? 'roots none handed' : `roots ${String(question.roots)} handed`);
   return parts.join(', ');
 }
