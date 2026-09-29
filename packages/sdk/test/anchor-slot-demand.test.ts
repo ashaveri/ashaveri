@@ -146,7 +146,7 @@ function verdict(
       responseBytes,
       verifyKey: KEY.publicKey,
       ...(policy === undefined ? {} : { policy }),
-      now: IAT * 1000,
+      nowMillis: IAT * 1000,
     });
     return 'verify-ok';
   } catch (err) {
@@ -167,7 +167,7 @@ function messageOf(receiptBytes: Uint8Array, policy: AshaveriPolicy): string {
       responseBytes: EMPTY,
       verifyKey: KEY.publicKey,
       policy,
-      now: IAT * 1000,
+      nowMillis: IAT * 1000,
     });
     return '';
   } catch (err) {

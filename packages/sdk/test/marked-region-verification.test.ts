@@ -147,7 +147,7 @@ function checkLive(receiptBytes: Uint8Array, responseBytes: Uint8Array, verifyKe
     responseHash: responseHash ?? hashRequest(responseBytes),
     responseBytes,
     verifyKey,
-    now: FAKE_IAT * 1000,
+    nowMillis: FAKE_IAT * 1000,
   });
 }
 

@@ -561,10 +561,10 @@ export async function runVerifyReceipt(positionals: string[], values: VerifyRece
   const receiptBytes = await readBytes(receiptPath, 'receipt');
   const manifestBytes = await readBytes(manifestPath, '--manifest');
   const digests = await digestsOf(values);
-  let now: number | undefined;
+  let nowMillis: number | undefined;
   if (values.now !== undefined) {
-    now = Date.parse(values.now);
-    if (Number.isNaN(now)) {
+    nowMillis = Date.parse(values.now);
+    if (Number.isNaN(nowMillis)) {
       throw new UsageError(`--now is not a valid date: ${values.now}`);
     }
   }
@@ -608,7 +608,7 @@ export async function runVerifyReceipt(positionals: string[], values: VerifyRece
       requestHash: digests.requestHash,
       responseHash: digests.responseHash,
       responseBytes: digests.responseBytes ?? new Uint8Array(0),
-      now,
+      nowMillis,
     });
     const manifest = await session.manifest();
     const authentication = await session.manifestAuthentication();
@@ -641,7 +641,7 @@ export async function runVerifyReceipt(positionals: string[], values: VerifyRece
       manifestPath,
       nonce,
       digests,
-      verificationSeconds: Math.floor((now ?? Date.now()) / 1000),
+      verificationSeconds: Math.floor((nowMillis ?? Date.now()) / 1000),
       receiptWindow: loaded.policy.maxReceiptAgeSeconds ?? DEFAULT_MAX_RECEIPT_AGE_SECONDS,
       evidenceWindow: loaded.policy.maxEvidenceAgeSeconds ?? DEFAULT_MAX_EVIDENCE_AGE_SECONDS,
       pinned: families.pinned,

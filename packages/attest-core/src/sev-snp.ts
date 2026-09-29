@@ -219,7 +219,7 @@ function normalizeKernelCertTable(blob: Uint8Array): { ask: Uint8Array; vcek: Ui
 // Verifies the AMD KDS chain shape: a self-signed ARK CA certifying the ASK CA
 // which certifies the VCEK. Issuer/subject are compared as raw DER so an
 // attacker cannot substitute a same-named certificate with different fields.
-export function verifyAmdCertificateChain(ark: ParsedCertificate, ask: ParsedCertificate, vcek: ParsedCertificate, now: number): void {
+export function verifyAmdCertificateChain(ark: ParsedCertificate, ask: ParsedCertificate, vcek: ParsedCertificate, nowMillis: number): void {
   if (ark.isCa !== true || ask.isCa !== true) {
     fail('CERT_CHAIN_INVALID', 'AMD ARK and ASK certificates must be certificate authorities');
   }
@@ -232,9 +232,9 @@ export function verifyAmdCertificateChain(ark: ParsedCertificate, ask: ParsedCer
   if (!equalBytes(vcek.issuer, ask.subject)) {
     fail('CERT_CHAIN_INVALID', 'VCEK issuer does not match the ASK subject');
   }
-  checkCertificateValidity(ark, now, 'ARK');
-  checkCertificateValidity(ask, now, 'ASK');
-  checkCertificateValidity(vcek, now, 'VCEK');
+  checkCertificateValidity(ark, nowMillis, 'ARK');
+  checkCertificateValidity(ask, nowMillis, 'ASK');
+  checkCertificateValidity(vcek, nowMillis, 'VCEK');
   verifyCertificateSignature(ark, ark, 'ARK');
   verifyCertificateSignature(ark, ask, 'ASK');
   verifyCertificateSignature(ask, vcek, 'VCEK');

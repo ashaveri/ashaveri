@@ -143,7 +143,7 @@ function partName(day: string, part: number): string {
 async function windowOver(contents: string): Promise<AccessWindow> {
   const dir = await tempDir();
   await writeFile(join(dir, partName(DAY, 0)), contents, 'utf8');
-  const log = await openFileAccessLog({ dir, days: 184, now: () => T0 });
+  const log = await openFileAccessLog({ dir, days: 184, nowMillis: () => T0 });
   const seen = await log.window();
   await log.close();
   await rm(dir, { recursive: true, force: true });
@@ -467,7 +467,7 @@ describe('what the reader answers for a file of bytes', () => {
 
   it('reads back through the window what the writer was asked to record', async () => {
     const dir = await tempDir();
-    const log = await openFileAccessLog({ dir, days: 184, now: () => T0 });
+    const log = await openFileAccessLog({ dir, days: 184, nowMillis: () => T0 });
     await log.record(entry({ t: T0 + 120_000, rid: 'req-3' }));
     await log.record(entry({ t: T0, rid: 'req-1' }));
     await log.record(entry({ t: T0 + 60_000, rid: 'req-2', deny: null }));
@@ -493,7 +493,7 @@ describe('what the reader answers for a file of bytes', () => {
       measure(`FC_BIG_FIELD=${String(BIG_FIELD)} is under the ${String(MAX_ACCESS_FILE_BYTES)}-byte trigger, so the oversized claim did not run`);
     }
     const dir = await tempDir();
-    const log = await openFileAccessLog({ dir, days: 184, now: () => T0 });
+    const log = await openFileAccessLog({ dir, days: 184, nowMillis: () => T0 });
     const beganAt = performance.now();
     await log.record(wide);
     await log.drain();

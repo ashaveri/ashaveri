@@ -9,10 +9,12 @@ const ASK = fixture('sev-snp-ask.pem');
 const VCEK = fixture('sev-snp-vcek.pem');
 
 // The fixture was captured 2026-06-17; VCEK validity is 2026-06-17 to 2033-06-17.
+// NOW is milliseconds since the epoch: `Date.UTC` returns milliseconds, and the certificate chain
+// verifier reads its clock in milliseconds, so this value enters the verifier with no divide.
 const NOW = Date.UTC(2026, 8, 10);
 
 const OPTIONS = {
-  now: NOW,
+  nowMillis: NOW,
   trustedArks: [ARK],
   askCert: ASK,
   vcekCert: VCEK,
@@ -129,7 +131,7 @@ describe('dStack SEV-SNP attestation verification', () => {
       ...fields,
       certChain: [pemToDer(ASK), pemToDer(VCEK)],
     });
-    const result = verifyAttestation(v1, { now: NOW, trustedArks: [ARK] });
+    const result = verifyAttestation(v1, { nowMillis: NOW, trustedArks: [ARK] });
     expect(result.version).toBe(1);
     expect(result.platformKind).toBe('sev-snp');
     expect(result.quoteSignatureVerified).toBe(true);
@@ -182,14 +184,14 @@ describe('dStack SEV-SNP attestation verification', () => {
 
   it('requires certificates when the cert_chain is empty', () => {
     expectErrorCode(
-      () => verifyAttestation(ATTESTATION, { now: NOW, trustedArks: [ARK] }),
+      () => verifyAttestation(ATTESTATION, { nowMillis: NOW, trustedArks: [ARK] }),
       'MISSING_TRUST_ROOT',
     );
   });
 
   it('rejects verification outside the certificate validity window', () => {
-    expectErrorCode(() => verifyAttestation(ATTESTATION, { ...OPTIONS, now: Date.UTC(2035, 0, 1) }), 'CERT_EXPIRED');
-    expectErrorCode(() => verifyAttestation(ATTESTATION, { ...OPTIONS, now: Date.UTC(2020, 0, 1) }), 'CERT_EXPIRED');
+    expectErrorCode(() => verifyAttestation(ATTESTATION, { ...OPTIONS, nowMillis: Date.UTC(2035, 0, 1) }), 'CERT_EXPIRED');
+    expectErrorCode(() => verifyAttestation(ATTESTATION, { ...OPTIONS, nowMillis: Date.UTC(2020, 0, 1) }), 'CERT_EXPIRED');
   });
 
   it('rejects malformed envelopes', () => {

@@ -73,8 +73,15 @@ import { openFileReceiptStore, RECEIPT_STORE_FILE, StoreError, type ReceiptRecor
 
 const DATA = fileURLToPath(new URL('../../fixtures/data/', import.meta.url));
 
-/** The instant the published fixtures are issued at, so no run reads a clock. */
+/** The instant the published receipts are issued at, in whole seconds, matching their `iat`. */
 const CLOCK = 1_772_000_000;
+/**
+ * The same instant in milliseconds. `verifyCompletionReceipt` reads its clock in milliseconds and
+ * divides it to seconds before the freshness windows run, so a caller that hands it `CLOCK` would be
+ * handing it a 1970 reading and every policy-governed row would answer `STALE_RECEIPT`. The client
+ * verifications below take this figure, never the seconds one.
+ */
+const CLOCK_MILLIS = CLOCK * 1_000;
 
 interface ManifestEntry {
   readonly name: string;
@@ -427,7 +434,7 @@ function clientVerdict(
     responseHash?: Uint8Array;
     responseBytes?: Uint8Array;
     policy?: AshaveriPolicy;
-    now?: number;
+    nowMillis?: number;
   } = {},
 ): string {
   const claims = claimsOf(receiptBytes);
@@ -441,7 +448,7 @@ function clientVerdict(
       responseBytes,
       verifyKey: PUBLIC_KEY,
       ...(over.policy === undefined ? {} : { policy: over.policy }),
-      now: over.now ?? CLOCK,
+      nowMillis: over.nowMillis ?? CLOCK_MILLIS,
     }),
   );
 }
@@ -537,12 +544,10 @@ describe('the anchor demand a policy states, through the client path', () => {
     return demand === null ? { issuers: [issuer] } : { issuers: [issuer], minAnchorSlotsHeld: demand };
   }
 
-  // A policy runs the two freshness windows and no policy runs neither, so the readings below are taken at
-  // the instant these documents are issued at in the unit the clock argument takes: milliseconds. The rest
-  // of this file hands no policy and never reaches a window, which is why the one figure it has always
-  // passed, `CLOCK`, is the same instant in seconds and is left alone here.
-  const CLOCK_MILLIS = CLOCK * 1000;
-
+  // A policy runs the two freshness windows and no policy runs neither, so every reading below is
+  // taken at the instant the published receipts are issued at, in milliseconds, which is the unit
+  // `verifyCompletionReceipt` reads its clock in. That figure is `CLOCK_MILLIS` at module scope; the
+  // seconds figure `CLOCK` is those receipts' `iat` and reaches the verifier only through it.
   const postureOrder = [null, 1, 2];
 
   it('gives every row that states its readings the verdict it states under each posture', () => {
@@ -558,7 +563,7 @@ describe('the anchor demand a policy states, through the client path', () => {
           clientVerdict(receiptBytes, {
             responseBytes: responseBytesOf(entry),
             policy: policyOver(issuer, reading.minAnchorSlotsHeld),
-            now: CLOCK_MILLIS,
+            nowMillis: CLOCK_MILLIS,
           }),
           `${entry.name} under demand ${String(reading.minAnchorSlotsHeld)}`,
         ).toBe(reading.verdict);
@@ -585,7 +590,7 @@ describe('the anchor demand a policy states, through the client path', () => {
           clientVerdict(receiptBytes, {
             responseBytes: responseBytesOf(entry),
             policy: policyOver(issuer, reading.minAnchorSlotsHeld),
-            now: CLOCK_MILLIS,
+            nowMillis: CLOCK_MILLIS,
           }),
           `${entry.name} under demand ${String(reading.minAnchorSlotsHeld)}`,
         ).toBe('ANCHOR_SLOT_NOT_HELD');
@@ -625,7 +630,7 @@ describe('the anchor demand a policy states, through the client path', () => {
         responseBytes: responseBytesOf(gapRow) ?? new Uint8Array(0),
         verifyKey: PUBLIC_KEY,
         policy: policyOver(payload.iss, 2),
-        now: CLOCK_MILLIS,
+        nowMillis: CLOCK_MILLIS,
       });
     } catch (err) {
       message = err instanceof Error ? err.message : String(err);

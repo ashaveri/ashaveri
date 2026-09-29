@@ -32,7 +32,7 @@ const KEY_SEED = new Uint8Array(32).fill(3);
 const NOW = 1_772_000_000;
 
 function record(id: string, scopes: Scope[], extra: Partial<CredentialRecord> = {}) {
-  const generated = newPopCredential({ id, scopes, now: NOW });
+  const generated = newPopCredential({ id, scopes, nowSeconds: NOW });
   const publicKey = signingKeyFromSeed(KEY_SEED).publicKey;
   return {
     record: { ...generated.record, publicKey, ...extra } satisfies CredentialRecord,
@@ -147,7 +147,7 @@ describe('CredentialStore.admit, the five checks in order', () => {
 
   it('tells the log the reason a collapsed refusal was given, and the caller only that it did not verify', () => {
     const generated = record('svc-1', ['complete']);
-    const bearer = newBearerCredential({ id: 'ops-1', now: NOW });
+    const bearer = newBearerCredential({ id: 'ops-1', nowSeconds: NOW });
     const s = store([generated.record, bearer.record], { allowBearer: true });
     const wrongKey = new Uint8Array(32).fill(9);
     // A client pointing a proof of possession at a bearer key and a client naming an id that was never
@@ -305,7 +305,7 @@ describe('CredentialStore.admit, the five checks in order', () => {
 
 describe('bearer mode', () => {
   it('is off by default and refuses a bearer record outright', () => {
-    const bearer = newBearerCredential({ id: 'ops-1', now: NOW });
+    const bearer = newBearerCredential({ id: 'ops-1', nowSeconds: NOW });
     const s = store([bearer.record]);
     expect(
       code(() => s.admit({ method: 'GET', url: '/v1/deployment-manifest', headers: { authorization: `Bearer ${Buffer.from(bearer.secret).toString('base64url')}` }, body: null })),
@@ -313,7 +313,7 @@ describe('bearer mode', () => {
   });
 
   it('admits a correct secret when enabled, and labels the admission bearer', () => {
-    const bearer = newBearerCredential({ id: 'ops-1', now: NOW });
+    const bearer = newBearerCredential({ id: 'ops-1', nowSeconds: NOW });
     const s = store([bearer.record], { allowBearer: true });
     const secret = Buffer.from(bearer.secret).toString('base64url');
     const admission = s.admit({
@@ -329,7 +329,7 @@ describe('bearer mode', () => {
   });
 
   it('still applies scope and rate in bearer mode', () => {
-    const bearer = newBearerCredential({ id: 'ops-1', scopes: ['read'], now: NOW });
+    const bearer = newBearerCredential({ id: 'ops-1', scopes: ['read'], nowSeconds: NOW });
     const s = store([bearer.record], { allowBearer: true });
     const secret = Buffer.from(bearer.secret).toString('base64url');
     expect(
@@ -346,7 +346,7 @@ describe('bearer mode', () => {
   });
 
   it('refuses a bearer scope miss twice on a credential with one token to spend', () => {
-    const bearer = newBearerCredential({ id: 'ops-1', scopes: ['read'], now: NOW });
+    const bearer = newBearerCredential({ id: 'ops-1', scopes: ['read'], nowSeconds: NOW });
     const tight: CredentialRecord = { ...bearer.record, rate: { perMinute: 1, burst: 1 } };
     const s = store([tight], { allowBearer: true });
     const secret = Buffer.from(bearer.secret).toString('base64url');
@@ -365,7 +365,7 @@ describe('bearer mode', () => {
   });
 
   it('refuses either shape of a bearer scope miss with the budget whole', () => {
-    const bearer = newBearerCredential({ id: 'ops-1', scopes: ['read'], now: NOW });
+    const bearer = newBearerCredential({ id: 'ops-1', scopes: ['read'], nowSeconds: NOW });
     const tight: CredentialRecord = { ...bearer.record, rate: { perMinute: 1, burst: 1 } };
     const s = store([tight], { allowBearer: true });
     const secret = Buffer.from(bearer.secret).toString('base64url');
@@ -388,7 +388,7 @@ describe('bearer mode', () => {
   });
 
   it('refuses a bearer record whose stored hash is malformed', () => {
-    const bearer = newBearerCredential({ id: 'ops-1', now: NOW });
+    const bearer = newBearerCredential({ id: 'ops-1', nowSeconds: NOW });
     const broken: CredentialRecord = { ...bearer.record, secretHash: new Uint8Array(31) };
     const s = store([broken], { allowBearer: true });
     expect(
@@ -641,7 +641,7 @@ describe('a store that reads its credential file from disk', () => {
     // The coherent pair, not `complete` alone: this cell is about the reload, and a record that
     // completes without reading is refused at load, so an incoherent list here would test the pairing
     // rule from a cell that means to test something else.
-    const generated = newPopCredential({ id: 'svc-1', scopes: ['read', 'complete'], now: NOW });
+    const generated = newPopCredential({ id: 'svc-1', scopes: ['read', 'complete'], nowSeconds: NOW });
     try {
       await write(file([generated.record]));
       const s = new CredentialStore({ path });
@@ -668,7 +668,7 @@ describe('a store that reads its credential file from disk', () => {
     // The coherent pair, not `complete` alone: this cell is about the reload, and a record that
     // completes without reading is refused at load, so an incoherent list here would test the pairing
     // rule from a cell that means to test something else.
-    const generated = newPopCredential({ id: 'svc-1', scopes: ['read', 'complete'], now: NOW });
+    const generated = newPopCredential({ id: 'svc-1', scopes: ['read', 'complete'], nowSeconds: NOW });
     try {
       await write(file([generated.record]));
       const s = new CredentialStore({ path });
@@ -692,8 +692,8 @@ describe('a store that reads its credential file from disk', () => {
 
   it('keeps the records it has while a replacement file names a key nobody can verify', async () => {
     const { dir, path, write, file } = await dirOf();
-    const good = newPopCredential({ id: 'svc-1', scopes: ['read', 'complete'], now: NOW });
-    const typo = newPopCredential({ id: 'svc-typo', scopes: ['read', 'complete'], now: NOW });
+    const good = newPopCredential({ id: 'svc-1', scopes: ['read', 'complete'], nowSeconds: NOW });
+    const typo = newPopCredential({ id: 'svc-typo', scopes: ['read', 'complete'], nowSeconds: NOW });
     try {
       await write(file([good.record]));
       const s = new CredentialStore({ path });

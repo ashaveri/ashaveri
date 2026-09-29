@@ -178,7 +178,7 @@ describe('chat completions', () => {
   });
 
   it('rejects a nonce that is not valid base64url', async () => {
-    const bearer = newBearerCredential({ id: 'bearer', scopes: ['complete'], now: CLOCK_SECONDS });
+    const bearer = newBearerCredential({ id: 'bearer', scopes: ['complete'], nowSeconds: CLOCK_SECONDS });
     const h = await harness({ extra: [bearer.record], allowBearer: true });
     const res = await sendBearer(h, bearer.secret, 'POST', '/v1/chat/completions', REQUEST_BODY, '###');
     expect(res.statusCode).toBe(400);
@@ -189,7 +189,7 @@ describe('chat completions', () => {
   });
 
   it('rejects a nonce of the wrong length', async () => {
-    const bearer = newBearerCredential({ id: 'bearer', scopes: ['complete'], now: CLOCK_SECONDS });
+    const bearer = newBearerCredential({ id: 'bearer', scopes: ['complete'], nowSeconds: CLOCK_SECONDS });
     const h = await harness({ extra: [bearer.record], allowBearer: true });
     const short = toBase64Url(Uint8Array.from({ length: 8 }, (_, i) => i + 1));
     const res = await sendBearer(h, bearer.secret, 'POST', '/v1/chat/completions', REQUEST_BODY, short);
@@ -228,7 +228,7 @@ describe('receipts', () => {
   });
 
   it('generates a random nonce when the header is absent', async () => {
-    const bearer = newBearerCredential({ id: 'bearer', scopes: ['complete'], now: CLOCK_SECONDS });
+    const bearer = newBearerCredential({ id: 'bearer', scopes: ['complete'], nowSeconds: CLOCK_SECONDS });
     const h = await harness({ extra: [bearer.record], allowBearer: true });
     const res = await sendBearer(h, bearer.secret, 'POST', '/v1/chat/completions', REQUEST_BODY);
     const receiptId = res.headers['x-ashaveri-receipt-id'] as string;
@@ -389,7 +389,7 @@ describe('receipt ids this gateway mints', () => {
     // credential's own key pair. The id is tagged from the credential's *name*, which is why the
     // fetch below still lands.
     const store = openMemoryReceiptStore();
-    const before = newPopCredential({ id: 'tenant-r', scopes: ['complete', 'read'], now: CLOCK_SECONDS });
+    const before = newPopCredential({ id: 'tenant-r', scopes: ['complete', 'read'], nowSeconds: CLOCK_SECONDS });
     const first = await harness({
       credentials: [{ record: before.record, privateKey: before.privateKey }],
       gateway: { key: DEPLOYMENT_KEY, store },
@@ -397,7 +397,7 @@ describe('receipt ids this gateway mints', () => {
     try {
       const res = await asTenant(first, 'tenant-r', 'POST', '/v1/chat/completions', REQUEST_BODY);
       const id = res.headers['x-ashaveri-receipt-id'] as string;
-      const after = newPopCredential({ id: 'tenant-r', scopes: ['complete', 'read'], now: CLOCK_SECONDS });
+      const after = newPopCredential({ id: 'tenant-r', scopes: ['complete', 'read'], nowSeconds: CLOCK_SECONDS });
       expect(after.record.publicKey).not.toEqual(before.record.publicKey);
       const second = await harness({
         credentials: [{ record: after.record, privateKey: after.privateKey }],

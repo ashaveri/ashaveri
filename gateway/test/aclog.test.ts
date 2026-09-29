@@ -80,7 +80,7 @@ describe('the field allowlist', () => {
 
 describe('openMemoryAccessLog', () => {
   it('keeps records in order and drops those past the retention bound', () => {
-    const log = openMemoryAccessLog({ days: 2, now: () => T0 });
+    const log = openMemoryAccessLog({ days: 2, nowMillis: () => T0 });
     void log.record(entry({ rid: 'old', t: T0 - 3 * 86_400_000 }));
     void log.record(entry({ rid: 'new' }));
     void log.prune(T0);
@@ -88,7 +88,7 @@ describe('openMemoryAccessLog', () => {
   });
 
   it('reports the window it actually holds', async () => {
-    const log = openMemoryAccessLog({ now: () => T0 });
+    const log = openMemoryAccessLog({ nowMillis: () => T0 });
     await log.record(entry({ t: T0 }));
     await log.record(entry({ t: T0 + 100_000, rid: 'req-2' }));
     expect(await log.window()).toEqual({ from: T0, to: T0 + 100_000, count: 2 });
@@ -122,7 +122,7 @@ describe('openMemoryAccessLog', () => {
 
   it('draws its cutoff at the exact millisecond, not at whole days like the file log', async () => {
     const cutoff = T0 - 2 * 86_400_000;
-    const log = openMemoryAccessLog({ days: 2, now: () => T0 });
+    const log = openMemoryAccessLog({ days: 2, nowMillis: () => T0 });
     await log.record(entry({ rid: 'one-ms-too-old', t: cutoff - 1 }));
     await log.record(entry({ rid: 'exactly-at-cutoff', t: cutoff }));
     await log.record(entry({ rid: 'one-ms-fresh', t: cutoff + 1 }));
@@ -132,7 +132,7 @@ describe('openMemoryAccessLog', () => {
 
   it('defaults to the six-month floor, not to less', async () => {
     // One millisecond short of the floor's own window, so a shorter default drops the record.
-    const log = openMemoryAccessLog({ now: () => T0 + MINIMUM_RETENTION_DAYS * 86_400_000 - 1 });
+    const log = openMemoryAccessLog({ nowMillis: () => T0 + MINIMUM_RETENTION_DAYS * 86_400_000 - 1 });
     await log.record(entry());
     const held = await log.window();
     expect(held.count).toBe(1);
@@ -145,7 +145,7 @@ describe('openMemoryAccessLog', () => {
 describe('openFileAccessLog', () => {
   it('appends JSONL, one line per record, and flushes on close', async () => {
     const dir = await tempDir();
-    const log = await openFileAccessLog({ dir, days: 184, now: () => T0 });
+    const log = await openFileAccessLog({ dir, days: 184, nowMillis: () => T0 });
     await log.record(entry());
     await log.record(entry({ rid: 'req-2', st: 401, deny: 'AUTH_UNKNOWN', cred: null, auth: null, scope: null }));
     await log.close();
@@ -160,7 +160,7 @@ describe('openFileAccessLog', () => {
 
   it('names the day in UTC, so a rotated file is findable by date alone', async () => {
     const dir = await tempDir();
-    const log = await openFileAccessLog({ dir, days: 184, now: () => Date.UTC(2026, 8, 16, 0, 0, 1) });
+    const log = await openFileAccessLog({ dir, days: 184, nowMillis: () => Date.UTC(2026, 8, 16, 0, 0, 1) });
     await log.record(entry({ t: Date.UTC(2026, 8, 15, 23, 59, 59) }));
     await log.record(entry({ t: Date.UTC(2026, 8, 16, 0, 0, 1), rid: 'req-2' }));
     await log.drain();
@@ -173,7 +173,7 @@ describe('openFileAccessLog', () => {
 
   it('rolls to a new part at the size cap and keeps writing', async () => {
     const dir = await tempDir();
-    const log = await openFileAccessLog({ dir, days: 184, maxBytesPerFile: 400, now: () => T0 });
+    const log = await openFileAccessLog({ dir, days: 184, maxBytesPerFile: 400, nowMillis: () => T0 });
     for (let i = 0; i < 12; i++) {
       await log.record(entry({ rid: `req-${String(i)}` }));
     }
@@ -193,7 +193,7 @@ describe('openFileAccessLog', () => {
     const dir = await tempDir();
     const old = join(dir, 'access-2000-01-01-000.jsonl');
     await writeFile(old, `${renderAccessLine(entry({ t: Date.UTC(2000, 0, 1) }))}\n`, 'utf8');
-    const log = await openFileAccessLog({ dir, days: 184, now: () => T0 });
+    const log = await openFileAccessLog({ dir, days: 184, nowMillis: () => T0 });
     await log.record(entry());
     await log.drain();
     expect((await log.files()).some((path) => path.endsWith('access-2000-01-01-000.jsonl'))).toBe(false);
@@ -207,7 +207,7 @@ describe('openFileAccessLog', () => {
   it('leaves a file it cannot name alone, rather than deleting it', async () => {
     const dir = await tempDir();
     await writeFile(join(dir, 'notes.txt'), 'keep me\n', 'utf8');
-    const log = await openFileAccessLog({ dir, days: 184, now: () => T0 });
+    const log = await openFileAccessLog({ dir, days: 184, nowMillis: () => T0 });
     await log.record(entry());
     await log.drain();
     expect(await readFile(join(dir, 'notes.txt'), 'utf8')).toBe('keep me\n');
@@ -218,7 +218,7 @@ describe('openFileAccessLog', () => {
   it('survives a clock that moves backwards, because the day part is a name and not a counter', async () => {
     const dir = await tempDir();
     let clock = Date.UTC(2026, 8, 16, 12);
-    const log = await openFileAccessLog({ dir, days: 184, now: () => clock });
+    const log = await openFileAccessLog({ dir, days: 184, nowMillis: () => clock });
     await log.record(entry({ t: clock }));
     clock = Date.UTC(2026, 8, 15, 12);
     await log.record(entry({ t: clock, rid: 'req-earlier' }));
@@ -274,7 +274,7 @@ describe('openFileAccessLog', () => {
     const earlierDay = new Date(oneDayEarlier).toISOString().slice(0, 10);
     await writeFile(join(dir, `access-${cutoffDay}-000.jsonl`), renderAccessLine(entry({ rid: 'cutoff-day', t: atCutoff })), 'utf8');
     await writeFile(join(dir, `access-${earlierDay}-000.jsonl`), renderAccessLine(entry({ rid: 'earlier-day', t: oneDayEarlier })), 'utf8');
-    const log = await openFileAccessLog({ dir, days: 184, now: () => T0 });
+    const log = await openFileAccessLog({ dir, days: 184, nowMillis: () => T0 });
     await log.record(entry({ rid: 'fresh' }));
     await log.drain();
     const names = (await log.files()).map((path) => path.split(/[\\/]/u).pop());
@@ -289,7 +289,7 @@ describe('openFileAccessLog', () => {
 
   it('resolves drain() only once every queued write has landed on disk', async () => {
     const dir = await tempDir();
-    const log = await openFileAccessLog({ dir, days: 184, now: () => T0 });
+    const log = await openFileAccessLog({ dir, days: 184, nowMillis: () => T0 });
     // Sixty 8KB lines are sixty sequential file round trips: a drain() that resolved without
     // waiting for the queue would find a half-written directory when this reads the disk back.
     for (let i = 0; i < 60; i++) {
@@ -310,7 +310,7 @@ describe('openFileAccessLog', () => {
     const day = new Date(T0).toISOString().slice(0, 10);
     const target = join(dir, `access-${day}-000.jsonl`);
     await mkdir(target);
-    const log = await openFileAccessLog({ dir, days: 184, now: () => T0 });
+    const log = await openFileAccessLog({ dir, days: 184, nowMillis: () => T0 });
     await expect(log.record(entry({ rid: 'poisoned' }))).rejects.toThrow(/EISDIR/u);
     await rm(target, { recursive: true, force: true });
     await log.record(entry({ rid: 'after' }));
@@ -329,7 +329,7 @@ describe('openFileAccessLog', () => {
 
   it('refuses to call an unreadable part a shorter window', async () => {
     const dir = await tempDir();
-    const log = await openFileAccessLog({ dir, days: 184, maxBytesPerFile: 250, now: () => T0 });
+    const log = await openFileAccessLog({ dir, days: 184, maxBytesPerFile: 250, nowMillis: () => T0 });
     await log.record(entry({ rid: 'req-1' }));
     await log.record(entry({ rid: 'req-2', st: 401 }));
     await log.record(entry({ rid: 'req-3', st: 500 }));
@@ -351,7 +351,7 @@ describe('openFileAccessLog', () => {
     const dir = await tempDir();
     const dayA = Date.UTC(2026, 8, 15, 12);
     const dayB = Date.UTC(2026, 8, 16, 12);
-    const log = await openFileAccessLog({ dir, days: 184, maxBytesPerFile: 250, now: () => dayB });
+    const log = await openFileAccessLog({ dir, days: 184, maxBytesPerFile: 250, nowMillis: () => dayB });
     await log.record(entry({ t: dayA }));
     await log.record(entry({ t: dayA, rid: 'req-2' }));
     await log.record(entry({ t: dayA, rid: 'req-3' }));
@@ -370,7 +370,7 @@ describe('openFileAccessLog', () => {
 
   it('rejects a record whose rendering throws, instead of throwing across a Promise-typed call', async () => {
     const dir = await tempDir();
-    const log = await openFileAccessLog({ dir, days: 184, now: () => T0 });
+    const log = await openFileAccessLog({ dir, days: 184, nowMillis: () => T0 });
     const trap: AccessRecord = {
       ...entry(),
       get t(): number {
@@ -390,7 +390,7 @@ describe('openFileAccessLog', () => {
     const cutoffDay = new Date(T0 - 184 * 86_400_000).toISOString().slice(0, 10);
     await writeFile(join(dir, `access-${cutoffDay}-000.jsonl`), renderAccessLine(entry({ rid: 'boundary', t: T0 - 184 * 86_400_000 })), 'utf8');
     let clock = T0;
-    const log = await openFileAccessLog({ dir, days: 184, now: () => clock });
+    const log = await openFileAccessLog({ dir, days: 184, nowMillis: () => clock });
     await log.record(entry());
     expect((await log.files()).some((path) => path.includes(cutoffDay))).toBe(true);
     clock = T0 + 2 * 86_400_000;
@@ -409,7 +409,7 @@ describe('openFileAccessLog', () => {
     // A marker inside the window stays on disk, so this is the case that says what the log does
     // with one it can still see: nothing. Its `t` is the moment a scrub ran, not a request.
     await writeFile(join(dir, 'scrub-2026-03-01-000.jsonl'), `{"t":${at},"credential":"a","removed":0,"files":0}\n`, 'utf8');
-    const log = await openFileAccessLog({ dir, days: 30, now: () => at });
+    const log = await openFileAccessLog({ dir, days: 30, nowMillis: () => at });
     // Opening does not sweep and drain() only waits for the queue, so one record carries the day
     // roll that does, exactly as it does behind a live gateway.
     await log.record(entry({ rid: 'after-sweep', t: at }));
@@ -432,7 +432,7 @@ describe('openFileAccessLog', () => {
     const poison = join(dir, 'access-2026-01-01-000.jsonl');
     await mkdir(poison);
     await writeFile(join(dir, 'access-2026-01-02-000.jsonl'), renderAccessLine(entry({ t: Date.parse('2026-01-02T00:00:00Z') })), 'utf8');
-    const log = await openFileAccessLog({ dir, days: 30, now: () => at });
+    const log = await openFileAccessLog({ dir, days: 30, nowMillis: () => at });
     await expect(log.record(entry({ rid: 'first', t: at }))).rejects.toThrow(/access-2026-01-01-000\.jsonl/u);
     // The sweep stopped at the name it could not delete, so the younger aged part is still there.
     expect(await readdir(dir)).toContain('access-2026-01-02-000.jsonl');

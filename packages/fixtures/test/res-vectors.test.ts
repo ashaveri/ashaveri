@@ -29,6 +29,8 @@ const file = loadResVectors();
 const requests = loadReqVectors();
 
 const MODEL_ID = 'mock-model-1';
+// CLOCK is whole seconds since the Unix epoch: it is the `createdAt` stamped on the caller credential
+// and the issuance instant the receipts are read against, both of which the gateway holds in seconds.
 const CLOCK = 1_772_000_000;
 /** The lead byte of the three-byte symbol character one of these responses carries. */
 const MULTIBYTE_LEAD = 0xe2;
@@ -96,7 +98,7 @@ async function completion(vector: ResponseVector): Promise<{ receipt: VerifiedRe
       };
     },
   };
-  const caller = newBearerCredential({ id: 'digest-vector-caller', scopes: ['complete', 'read'], now: CLOCK });
+  const caller = newBearerCredential({ id: 'digest-vector-caller', scopes: ['complete', 'read'], nowSeconds: CLOCK });
   const receipts = openMemoryReceiptStore();
   const deployment = mockDeployment({ key: HOST_KEY });
   const app = buildGateway({

@@ -26,7 +26,7 @@ const MESSAGES = [{ role: 'user', content: 'hi' }];
 interface ClientOptions {
   readonly verify?: 'off' | 'receipt' | 'strict';
   readonly policy?: AshaveriPolicy;
-  readonly now?: () => number;
+  readonly nowMillis?: () => number;
 }
 
 function clientWith(gatewayOptions?: Parameters<typeof createFakeGateway>[0], buildClientOptions: (policy: AshaveriPolicy) => ClientOptions = () => ({})) {
@@ -38,8 +38,8 @@ function clientWith(gatewayOptions?: Parameters<typeof createFakeGateway>[0], bu
     // The fake gateway stamps every receipt it signs at one fixed second, and a policy now brings
     // a default window with it, so a client here has to believe a clock near that stamp to get as
     // far as the check each test is about. Five seconds is what a client that verifies its own
-    // completion takes in fact. The staleness cases below pass their own `now` and move it.
-    now: () => (FAKE_IAT + 5) * 1000,
+    // completion takes in fact. The staleness cases below pass their own `nowMillis` and move it.
+    nowMillis: () => (FAKE_IAT + 5) * 1000,
     ...buildClientOptions(policy),
   });
   return { gateway, client, policy };
@@ -416,7 +416,7 @@ describe('strict mode', () => {
     const { client } = clientWith({}, (policy) => ({
       verify: 'strict' as const,
       policy: { ...policy, maxReceiptAgeSeconds: 60 },
-      now: () => (FAKE_IAT + 600) * 1000,
+      nowMillis: () => (FAKE_IAT + 600) * 1000,
     }));
     await expect(client.chat.completions.create({ messages: MESSAGES })).rejects.toMatchObject({
       code: 'STALE_RECEIPT',
@@ -427,7 +427,7 @@ describe('strict mode', () => {
     const { client } = clientWith({}, (policy) => ({
       verify: 'receipt' as const,
       policy: { ...policy, maxReceiptAgeSeconds: 60 },
-      now: () => (FAKE_IAT + 30) * 1000,
+      nowMillis: () => (FAKE_IAT + 30) * 1000,
     }));
     const { receipt } = await client.chat.completions.create({ messages: MESSAGES });
     expect(receipt).not.toBeNull();

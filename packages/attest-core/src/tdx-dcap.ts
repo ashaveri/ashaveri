@@ -130,7 +130,7 @@ export interface TdxDcapOptions {
   /** Pinned Intel SGX root CA certificates as PEM or DER blobs; each may hold several. */
   readonly trustedRoots: readonly Uint8Array[];
   /** Verification time in milliseconds since the Unix epoch, used for certificate validity. */
-  readonly now: number;
+  readonly nowMillis: number;
 }
 
 export interface TdxQuoteVerification {
@@ -165,7 +165,7 @@ export function verifyTdxQuote(quote: Uint8Array, options: TdxDcapOptions): TdxQ
   }
   const chain = parseCertificateChain(qe.pckCertChain);
   const roots = options.trustedRoots.flatMap((blob) => parseCertificateChain(blob));
-  const trustedRoot = verifyPckChain(chain, roots, options.now);
+  const trustedRoot = verifyPckChain(chain, roots, options.nowMillis);
 
   const leaf = chain[0] as ParsedCertificate;
   if (leaf.publicKey.kind !== 'ec-p256') {
@@ -197,7 +197,7 @@ export function verifyTdxQuote(quote: Uint8Array, options: TdxDcapOptions): TdxQ
 // of the pinned roots. Subject and issuer are compared as raw DER so a forged
 // certificate cannot borrow a trusted name, and the anchor's self-signature is
 // checked with the pinned copy's key rather than its own.
-function verifyPckChain(chain: readonly ParsedCertificate[], roots: readonly ParsedCertificate[], now: number): ParsedCertificate {
+function verifyPckChain(chain: readonly ParsedCertificate[], roots: readonly ParsedCertificate[], nowMillis: number): ParsedCertificate {
   const anchor = anchorIndexOf(chain, roots);
   if (anchor < 0) {
     fail('MISSING_TRUST_ROOT', 'PCK chain does not lead to any pinned Intel SGX root certificate');
@@ -214,12 +214,12 @@ function verifyPckChain(chain: readonly ParsedCertificate[], roots: readonly Par
     if (!equalBytes(cert.issuer, issuer.subject)) {
       fail('CERT_CHAIN_INVALID', `PCK chain entry ${i} was not issued by entry ${i + 1}`);
     }
-    checkCertificateValidity(cert, now, certName(i, anchor));
+    checkCertificateValidity(cert, nowMillis, certName(i, anchor));
     verifyCertificateSignature(issuer, cert, certName(i, anchor));
   }
   const anchorCert = chain[anchor] as ParsedCertificate;
   const pinned = roots.find((root) => equalBytes(root.subject, anchorCert.subject)) as ParsedCertificate;
-  checkCertificateValidity(anchorCert, now, certName(anchor, anchor));
+  checkCertificateValidity(anchorCert, nowMillis, certName(anchor, anchor));
   verifyCertificateSignature(pinned, anchorCert, certName(anchor, anchor));
   return anchorCert;
 }

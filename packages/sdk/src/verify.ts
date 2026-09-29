@@ -33,7 +33,7 @@ export interface VerifyCompletionParams {
   readonly verifyKey: Uint8Array;
   readonly policy?: AshaveriPolicy;
   /** Wall clock in milliseconds since the epoch; defaults to Date.now. */
-  readonly now?: number;
+  readonly nowMillis?: number;
 }
 
 /**
@@ -50,7 +50,7 @@ export interface VerifyCompletionParams {
  * names them, the defaults in `policy.ts` if it does not. With no policy, no window runs.
  */
 export function verifyCompletionReceipt(params: VerifyCompletionParams): VerifiedReceipt {
-  const now = Math.floor((params.now ?? Date.now()) / 1000);
+  const nowSeconds = Math.floor((params.nowMillis ?? Date.now()) / 1000);
   const policy = params.policy;
   // A policy carries these two windows whether its owner set them or not, and a policy is what
   // strict mode requires: a caller who pinned keys and measurements and never thought about the
@@ -74,7 +74,7 @@ export function verifyCompletionReceipt(params: VerifyCompletionParams): Verifie
   const verified = verifyReceipt(params.receiptBytes, {
     publicKey: params.verifyKey,
     expectedNonce: params.nonce,
-    now,
+    nowSeconds,
     freshnessSeconds: receiptWindow,
     evidenceFreshnessSeconds: evidenceWindow,
   });

@@ -177,7 +177,7 @@ describe('ashaveri accesslog scrub', () => {
     // program agrees to open. A filter that read a line's outcome beside its name would leave the
     // refused row on the volume and receipt the run as if it had gone.
     const dir = mkdtempSync(join(tempDir, 'refused-'));
-    const log = await openFileAccessLog({ dir, days: 184, now: () => T0 });
+    const log = await openFileAccessLog({ dir, days: 184, nowMillis: () => T0 });
     await log.record(record({ cred: 'never-issued', rid: 'rid-refused', auth: null, scope: null, rcp: null, nce: null, st: 401, deny: 'AUTH_UNKNOWN' }));
     await log.record(record({ cred: 'svc-b', rid: 'rid-keep' }));
     await log.drain();

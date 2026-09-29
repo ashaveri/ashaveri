@@ -86,7 +86,7 @@ async function checkedReceiptStep(
     requestHash: hashRequest(new TextEncoder().encode(body)),
     responseHash: hashRequest(responseBytes),
     responseBytes,
-    now: NOW_MS,
+    nowMillis: NOW_MS,
   });
 }
 
@@ -132,7 +132,7 @@ async function strictCompletionCode(ages: Ages, override?: Partial<AshaveriPolic
     fetch: gateway.fetch,
     verify: 'strict',
     policy: { ...manifestPolicy(gateway), ...override },
-    now: () => NOW_MS,
+    nowMillis: () => NOW_MS,
   });
   try {
     await client.chat.completions.create({ messages: MESSAGES });

@@ -43,6 +43,8 @@ import { sortCoreDeterministic } from 'cbor2/sorts';
 import { sha256, sha384 } from '@noble/hashes/sha2.js';
 import { cddlIntegerPositions, cddlRule, cddlRuleArms, memberDeclarations, nestedRuleNames, readCddl } from './cddl.js';
 
+// FIXED_NOW is whole seconds since the Unix epoch, the receipt format's own unit: it is assigned to
+// `iat` below and handed to `verifyReceipt` as `nowSeconds`, both of which compare against seconds.
 const FIXED_NOW = 1_772_000_000;
 
 function samplePayload(overrides: Partial<ReceiptPayloadV1> = {}): ReceiptPayloadV1 {
@@ -70,7 +72,7 @@ describe('COSE_Sign1 receipt codec', () => {
     const payload = samplePayload();
     const bytes = issueReceipt(payload, key);
 
-    const verified = verifyReceipt(bytes, { publicKey: key.publicKey, now: FIXED_NOW });
+    const verified = verifyReceipt(bytes, { publicKey: key.publicKey, nowSeconds: FIXED_NOW });
     expect(verified.payload.mdl).toBe(payload.mdl);
     expect(equalBytes(verified.payload.nce, payload.nce)).toBe(true);
     expect(equalBytes(keyId(key.publicKey), verified.header.kid)).toBe(true);
@@ -96,14 +98,14 @@ describe('COSE_Sign1 receipt codec', () => {
     const bytes = issueReceipt(samplePayload(), key);
     const tampered = new Uint8Array(bytes);
     tampered[tampered.length - 10]! ^= 0x01;
-    expectErrorCode(() => verifyReceipt(tampered, { publicKey: key.publicKey, now: FIXED_NOW }), 'INVALID_SIGNATURE');
+    expectErrorCode(() => verifyReceipt(tampered, { publicKey: key.publicKey, nowSeconds: FIXED_NOW }), 'INVALID_SIGNATURE');
   });
 
   it('rejects a signature from a different key', () => {
     const signer = generateSigningKey();
     const other = generateSigningKey();
     const bytes = issueReceipt(samplePayload(), signer);
-    expectErrorCode(() => verifyReceipt(bytes, { publicKey: other.publicKey, now: FIXED_NOW }), 'KID_MISMATCH');
+    expectErrorCode(() => verifyReceipt(bytes, { publicKey: other.publicKey, nowSeconds: FIXED_NOW }), 'KID_MISMATCH');
   });
 
   it('resolves keys via resolveKey by kid', () => {
@@ -111,19 +113,19 @@ describe('COSE_Sign1 receipt codec', () => {
     const other = generateSigningKey();
     const bytes = issueReceipt(samplePayload(), key);
     const resolver = (kid: Uint8Array) => (equalBytes(kid, keyId(key.publicKey)) ? key.publicKey : undefined);
-    expect(() => verifyReceipt(bytes, { resolveKey: resolver, now: FIXED_NOW })).not.toThrow();
+    expect(() => verifyReceipt(bytes, { resolveKey: resolver, nowSeconds: FIXED_NOW })).not.toThrow();
     const badResolver = () => other.publicKey;
-    expectErrorCode(() => verifyReceipt(bytes, { resolveKey: badResolver, now: FIXED_NOW }), 'KID_MISMATCH');
-    expectErrorCode(() => verifyReceipt(bytes, { resolveKey: () => undefined, now: FIXED_NOW }), 'UNKNOWN_KEY');
+    expectErrorCode(() => verifyReceipt(bytes, { resolveKey: badResolver, nowSeconds: FIXED_NOW }), 'KID_MISMATCH');
+    expectErrorCode(() => verifyReceipt(bytes, { resolveKey: () => undefined, nowSeconds: FIXED_NOW }), 'UNKNOWN_KEY');
   });
 
   it('enforces nonce echo', () => {
     const key = generateSigningKey();
     const nonce = randomNonce();
     const bytes = issueReceipt(samplePayload({ nce: nonce }), key);
-    expect(() => verifyReceipt(bytes, { publicKey: key.publicKey, expectedNonce: nonce, now: FIXED_NOW })).not.toThrow();
+    expect(() => verifyReceipt(bytes, { publicKey: key.publicKey, expectedNonce: nonce, nowSeconds: FIXED_NOW })).not.toThrow();
     expectErrorCode(
-      () => verifyReceipt(bytes, { publicKey: key.publicKey, expectedNonce: randomNonce(), now: FIXED_NOW }),
+      () => verifyReceipt(bytes, { publicKey: key.publicKey, expectedNonce: randomNonce(), nowSeconds: FIXED_NOW }),
       'NONCE_MISMATCH',
     );
   });
@@ -131,11 +133,11 @@ describe('COSE_Sign1 receipt codec', () => {
   it('enforces receipt and evidence freshness windows', () => {
     const key = generateSigningKey();
     const bytes = issueReceipt(samplePayload(), key);
-    const now = FIXED_NOW + 3600;
-    expect(() => verifyReceipt(bytes, { publicKey: key.publicKey, now, freshnessSeconds: 7200, evidenceFreshnessSeconds: 7200 })).not.toThrow();
-    expectErrorCode(() => verifyReceipt(bytes, { publicKey: key.publicKey, now, freshnessSeconds: 60 }), 'STALE_RECEIPT');
+    const nowSeconds = FIXED_NOW + 3600;
+    expect(() => verifyReceipt(bytes, { publicKey: key.publicKey, nowSeconds, freshnessSeconds: 7200, evidenceFreshnessSeconds: 7200 })).not.toThrow();
+    expectErrorCode(() => verifyReceipt(bytes, { publicKey: key.publicKey, nowSeconds, freshnessSeconds: 60 }), 'STALE_RECEIPT');
     expectErrorCode(
-      () => verifyReceipt(bytes, { publicKey: key.publicKey, now, freshnessSeconds: 7200, evidenceFreshnessSeconds: 60 }),
+      () => verifyReceipt(bytes, { publicKey: key.publicKey, nowSeconds, freshnessSeconds: 7200, evidenceFreshnessSeconds: 60 }),
       'STALE_EVIDENCE',
     );
   });
@@ -147,7 +149,7 @@ describe('COSE_Sign1 receipt codec', () => {
     // length, so the payload this line builds is structurally invalid.
     const bad = { ...payload, nce: new Uint8Array(15) };
     const bytes = issueReceipt(bad as ReceiptPayload, key);
-    expectErrorCode(() => verifyReceipt(bytes, { publicKey: key.publicKey, now: FIXED_NOW }), 'BAD_PAYLOAD');
+    expectErrorCode(() => verifyReceipt(bytes, { publicKey: key.publicKey, nowSeconds: FIXED_NOW }), 'BAD_PAYLOAD');
   });
 
   it('rejects a negative timestamp with BAD_PAYLOAD', () => {
@@ -156,10 +158,10 @@ describe('COSE_Sign1 receipt codec', () => {
     // The spec fixes every integer as non-negative, so a signed document that breaks
     // that rule is malformed even when its signature is valid.
     const negativeIat = issueReceipt(samplePayload({ iat: -1 }), key);
-    expectErrorCode(() => verifyReceipt(negativeIat, { publicKey: key.publicKey, now: FIXED_NOW }), 'BAD_PAYLOAD');
+    expectErrorCode(() => verifyReceipt(negativeIat, { publicKey: key.publicKey, nowSeconds: FIXED_NOW }), 'BAD_PAYLOAD');
     const negativeEvidenceTs = issueReceipt(samplePayload({ att: { ...base.att, ts: -1 } }), key);
     expectErrorCode(
-      () => verifyReceipt(negativeEvidenceTs, { publicKey: key.publicKey, now: FIXED_NOW }),
+      () => verifyReceipt(negativeEvidenceTs, { publicKey: key.publicKey, nowSeconds: FIXED_NOW }),
       'BAD_PAYLOAD',
     );
   });
@@ -188,7 +190,7 @@ describe('COSE_Sign1 receipt codec', () => {
     const key = generateSigningKey();
     const launchDigest = new Uint8Array(48).fill(7);
     const bytes = issueReceipt(samplePayload({ meas: { tee: 'tdx', m: launchDigest } }), key);
-    const verified = verifyReceipt(bytes, { publicKey: key.publicKey, now: FIXED_NOW });
+    const verified = verifyReceipt(bytes, { publicKey: key.publicKey, nowSeconds: FIXED_NOW });
     expect(verified.payload.meas.m).toHaveLength(48);
     expect(equalBytes(verified.payload.meas.m, launchDigest)).toBe(true);
   });
@@ -197,7 +199,7 @@ describe('COSE_Sign1 receipt codec', () => {
     const key = generateSigningKey();
     const digest = sha256(new TextEncoder().encode('deployment image'));
     const bytes = issueReceipt(samplePayload({ meas: { tee: 'software', m: digest } }), key);
-    const verified = verifyReceipt(bytes, { publicKey: key.publicKey, now: FIXED_NOW });
+    const verified = verifyReceipt(bytes, { publicKey: key.publicKey, nowSeconds: FIXED_NOW });
     expect(verified.payload.meas.tee).toBe('software');
     expect(equalBytes(verified.payload.meas.m, digest)).toBe(true);
   });
@@ -206,7 +208,7 @@ describe('COSE_Sign1 receipt codec', () => {
     const key = generateSigningKey();
     const mrtd = new Uint8Array(48).fill(11);
     const bytes = issueReceipt(samplePayload({ meas: { tee: 'tdx+gpucc', m: mrtd } }), key);
-    const verified = verifyReceipt(bytes, { publicKey: key.publicKey, now: FIXED_NOW });
+    const verified = verifyReceipt(bytes, { publicKey: key.publicKey, nowSeconds: FIXED_NOW });
     expect(verified.payload.meas.tee).toBe('tdx+gpucc');
     expect(equalBytes(verified.payload.meas.m, mrtd)).toBe(true);
     expectErrorCode(
@@ -233,7 +235,7 @@ describe('COSE_Sign1 receipt codec', () => {
     );
     let caught: ReceiptError | null = null;
     try {
-      verifyReceipt(foreign, { publicKey: key.publicKey, now: FIXED_NOW });
+      verifyReceipt(foreign, { publicKey: key.publicKey, nowSeconds: FIXED_NOW });
     } catch (e) {
       caught = e as ReceiptError;
     }
@@ -259,7 +261,7 @@ describe('COSE_Sign1 receipt codec', () => {
     // issuer is exactly who the parser has to catch.
     const payload = samplePayload({ meas: { tee: 'snp', m: new Uint8Array(32) } });
     const bytes = signCoseSign1(encodePayload(payload), key);
-    expectErrorCode(() => verifyReceipt(bytes, { publicKey: key.publicKey, now: FIXED_NOW }), 'BAD_PAYLOAD');
+    expectErrorCode(() => verifyReceipt(bytes, { publicKey: key.publicKey, nowSeconds: FIXED_NOW }), 'BAD_PAYLOAD');
   });
 
   it('generates a deterministic kid (sha256 of public key)', () => {
@@ -320,7 +322,7 @@ describe('the protected header closes and the unprotected one does not', () => {
     // under this line would be refusing a broken document while calling it an undeclared label.
     expect(equalBytes(encodeCanonical(declaredProtectedHeader(key.kid)), buildProtectedHeader(key.kid))).toBe(true);
     const declared = signWithHeaders(payloadBytes, key, declaredProtectedHeader(key.kid));
-    const verified = verifyReceipt(declared, { publicKey: key.publicKey, now: FIXED_NOW });
+    const verified = verifyReceipt(declared, { publicKey: key.publicKey, nowSeconds: FIXED_NOW });
     expect(verified.payload.mdl).toBe('meta-llama/Llama-3.1-8B-Instruct');
     expect(equalBytes(verified.cose.payloadBytes, payloadBytes)).toBe(true);
     // And the control is a signature check rather than a reader that always answers yes: one byte of
@@ -328,7 +330,7 @@ describe('the protected header closes and the unprotected one does not', () => {
     // header, which is what makes the acceptance above evidence about the label below.
     const moved = new Uint8Array(declared);
     moved[moved.length - 1]! ^= 0x01;
-    expectFailure(() => verifyReceipt(moved, { publicKey: key.publicKey, now: FIXED_NOW }), 'INVALID_SIGNATURE');
+    expectFailure(() => verifyReceipt(moved, { publicKey: key.publicKey, nowSeconds: FIXED_NOW }), 'INVALID_SIGNATURE');
 
     // One more label and the same rule for making the bytes. Label 5 is not one `receipt.cddl` names,
     // and it is inside the `Sig_structure`, so a reader that took the three it knows and returned
@@ -336,7 +338,7 @@ describe('the protected header closes and the unprotected one does not', () => {
     const fifth = new Map<unknown, unknown>([...declaredProtectedHeader(key.kid), [5, 'x']]);
     const refused = signWithHeaders(payloadBytes, key, fifth);
     const failure = expectFailure(
-      () => verifyReceipt(refused, { publicKey: key.publicKey, now: FIXED_NOW }),
+      () => verifyReceipt(refused, { publicKey: key.publicKey, nowSeconds: FIXED_NOW }),
       'BAD_PROTECTED_HEADER',
     );
     expect(failure.message).toBe(`${UNDECLARED_LABEL_REFUSAL} 5`);
@@ -351,7 +353,7 @@ describe('the protected header closes and the unprotected one does not', () => {
     // unsigned digits would keep the two lists equal over a label like this one.
     const negative = new Map<unknown, unknown>([...declaredProtectedHeader(key.kid), [-1, 0]]);
     const negativeFailure = expectFailure(
-      () => verifyReceipt(signWithHeaders(payloadBytes, key, negative), { publicKey: key.publicKey, now: FIXED_NOW }),
+      () => verifyReceipt(signWithHeaders(payloadBytes, key, negative), { publicKey: key.publicKey, nowSeconds: FIXED_NOW }),
       'BAD_PROTECTED_HEADER',
     );
     expect(negativeFailure.message).toBe(`${UNDECLARED_LABEL_REFUSAL} -1`);
@@ -366,7 +368,7 @@ describe('the protected header closes and the unprotected one does not', () => {
       declaredProtectedHeader(key.kid),
       new Map<unknown, unknown>([[5, 'x']]),
     );
-    const passed = verifyReceipt(unsignedFifth, { publicKey: key.publicKey, now: FIXED_NOW });
+    const passed = verifyReceipt(unsignedFifth, { publicKey: key.publicKey, nowSeconds: FIXED_NOW });
     expect(passed.cose.unprotected.get(5)).toBe('x');
   });
 
@@ -381,7 +383,7 @@ describe('the protected header closes and the unprotected one does not', () => {
     const noKid = new Map<unknown, unknown>([...declaredProtectedHeader(key.kid)]);
     noKid.delete(COSE_HEADER_KID);
     const failure = expectFailure(
-      () => verifyReceipt(signWithHeaders(payloadBytes, key, noKid), { publicKey: key.publicKey, now: FIXED_NOW }),
+      () => verifyReceipt(signWithHeaders(payloadBytes, key, noKid), { publicKey: key.publicKey, nowSeconds: FIXED_NOW }),
       'BAD_PROTECTED_HEADER',
     );
     expect(failure.message).toContain('kid must be a 32-byte bstr');
@@ -400,7 +402,7 @@ describe('the protected header closes and the unprotected one does not', () => {
     const noAlg = new Map<unknown, unknown>([...declaredProtectedHeader(key.kid)]);
     noAlg.delete(COSE_HEADER_ALG);
     const failure = expectFailure(
-      () => verifyReceipt(signWithHeaders(payloadBytes, key, noAlg), { publicKey: key.publicKey, now: FIXED_NOW }),
+      () => verifyReceipt(signWithHeaders(payloadBytes, key, noAlg), { publicKey: key.publicKey, nowSeconds: FIXED_NOW }),
       'UNSUPPORTED_ALG',
     );
     expect(failure.message).toContain('alg must be an integer label, got undefined');
@@ -410,7 +412,7 @@ describe('the protected header closes and the unprotected one does not', () => {
     const wrongAlg = new Map<unknown, unknown>(declaredProtectedHeader(key.kid));
     wrongAlg.set(COSE_HEADER_ALG, -7);
     expectFailure(
-      () => verifyReceipt(signWithHeaders(payloadBytes, key, wrongAlg), { publicKey: key.publicKey, now: FIXED_NOW }),
+      () => verifyReceipt(signWithHeaders(payloadBytes, key, wrongAlg), { publicKey: key.publicKey, nowSeconds: FIXED_NOW }),
       'UNSUPPORTED_ALG',
     );
   });
@@ -435,8 +437,8 @@ describe('the protected header closes and the unprotected one does not', () => {
     ]);
     const openBytes = signWithHeaders(payloadBytes, key, signed, new Map());
     const rivalBytes = signWithHeaders(payloadBytes, key, signed, rival);
-    const empty = verifyReceipt(openBytes, { publicKey: key.publicKey, now: FIXED_NOW });
-    const filled = verifyReceipt(rivalBytes, { publicKey: key.publicKey, now: FIXED_NOW });
+    const empty = verifyReceipt(openBytes, { publicKey: key.publicKey, nowSeconds: FIXED_NOW });
+    const filled = verifyReceipt(rivalBytes, { publicKey: key.publicKey, nowSeconds: FIXED_NOW });
     // The premise first, and about the bytes: two documents, not one document read twice, and the only
     // difference between them is the content of that one map. The signature is the same bytes in both,
     // because the `Sig_structure` covers the protected bytes, the external AAD and the payload and
@@ -660,7 +662,7 @@ describe('receipt payload v2 and the versions a call accepts', () => {
   it('round-trips a well-formed marked receipt', () => {
     const key = generateSigningKey();
     const payload = markedPayload();
-    const verified = verifyReceipt(issueReceipt(payload, key), { publicKey: key.publicKey, now: FIXED_NOW });
+    const verified = verifyReceipt(issueReceipt(payload, key), { publicKey: key.publicKey, nowSeconds: FIXED_NOW });
 
     expect(verified.payload.v).toBe(2);
     expect(marked(verified.payload).mk.sch).toBe('provenance-v1');
@@ -680,7 +682,7 @@ describe('receipt payload v2 and the versions a call accepts', () => {
     const empty = sha256(new Uint8Array(0));
     expect(toHex(empty)).toBe(EMPTY_REGION_SHA256_HEX);
     const bytes = issueReceipt(markedPayload({ sch: 'none', d: empty }), key);
-    const verified = verifyReceipt(bytes, { publicKey: key.publicKey, now: FIXED_NOW });
+    const verified = verifyReceipt(bytes, { publicKey: key.publicKey, nowSeconds: FIXED_NOW });
 
     expect(marked(verified.payload).mk.sch).toBe('none');
     expect(toHex(marked(verified.payload).mk.d)).toBe(EMPTY_REGION_SHA256_HEX);
@@ -694,7 +696,7 @@ describe('receipt payload v2 and the versions a call accepts', () => {
     // The detail is the assertion here. Every member this document is missing is also a wrong-kind
     // read, so the code alone would still be BAD_PAYLOAD if the requirement that `mk` be present
     // were deleted: only the sentence says the refusal was reached for that reason.
-    const failure = expectFailure(() => verifyReceipt(bytes, { publicKey: key.publicKey, now: FIXED_NOW }));
+    const failure = expectFailure(() => verifyReceipt(bytes, { publicKey: key.publicKey, nowSeconds: FIXED_NOW }));
     expect(failure.message).toContain('v2 requires an mk member');
   });
 
@@ -708,7 +710,7 @@ describe('receipt payload v2 and the versions a call accepts', () => {
     const bytes = signMembers(members, key);
     // And here the detail says the refusal is the scheme's, reached with `mk` present and shaped:
     // a payload failure and this one are different answers, and only the message tells them apart.
-    const failure = expectFailure(() => verifyReceipt(bytes, { publicKey: key.publicKey, now: FIXED_NOW }), 'UNSUPPORTED_SCHEME');
+    const failure = expectFailure(() => verifyReceipt(bytes, { publicKey: key.publicKey, nowSeconds: FIXED_NOW }), 'UNSUPPORTED_SCHEME');
     expect(failure.message).toContain("marking scheme 'provenance-v2'");
   });
 
@@ -721,7 +723,7 @@ describe('receipt payload v2 and the versions a call accepts', () => {
     // closed, so the document is refused instead, and the detail names the member it named.
     members.set('mk', new Map<string, unknown>([['sch', 'none'], ['d', sha256(new Uint8Array(0))]]));
     const bytes = signMembers(members, key);
-    const failure = expectFailure(() => verifyReceipt(bytes, { publicKey: key.publicKey, now: FIXED_NOW }));
+    const failure = expectFailure(() => verifyReceipt(bytes, { publicKey: key.publicKey, nowSeconds: FIXED_NOW }));
     expect(failure.message).toContain("member version 1 does not define: 'mk'");
     // Which way the document was opened changes nothing: the refusal belongs to the payload, not to
     // the signature check, so an unread receipt answers the same way as a verified one.
@@ -740,14 +742,14 @@ describe('receipt payload v2 and the versions a call accepts', () => {
       const members = membersOf(markedPayload());
       members.set(name, value);
       const failure = expectFailure(
-        () => verifyReceipt(signMembers(members, key), { publicKey: key.publicKey, now: FIXED_NOW }),
+        () => verifyReceipt(signMembers(members, key), { publicKey: key.publicKey, nowSeconds: FIXED_NOW }),
       );
       expect(failure.message, `${name} on a v2 payload`).toContain(`member version 2 does not define: '${name}'`);
     }
     // A key that is not a text label is not a member either, and no CDDL map admits one.
     const foreignKey = new Map<unknown, unknown>([...membersOf(samplePayload()), [new Uint8Array([7]), 'x']]);
     const failure = expectFailure(
-      () => verifyReceipt(signMembers(foreignKey, key), { publicKey: key.publicKey, now: FIXED_NOW }),
+      () => verifyReceipt(signMembers(foreignKey, key), { publicKey: key.publicKey, nowSeconds: FIXED_NOW }),
     );
     expect(failure.message).toContain('a bstr key of length 1');
   });
@@ -764,7 +766,7 @@ describe('receipt payload v2 and the versions a call accepts', () => {
     const hostile = `mk\u001b[2J${'q'.repeat(4_000)}`;
     const members = new Map<unknown, unknown>([...membersOf(samplePayload()), [hostile, 'x']]);
     const failure = expectFailure(
-      () => verifyReceipt(signMembers(members, key), { publicKey: key.publicKey, now: FIXED_NOW }),
+      () => verifyReceipt(signMembers(members, key), { publicKey: key.publicKey, nowSeconds: FIXED_NOW }),
     );
     expect(failure.message).toContain('payload carries a member version 1 does not define:');
     // One line of visible text, and the escape sequence arrives as a name for itself rather than as
@@ -800,7 +802,7 @@ describe('receipt payload v2 and the versions a call accepts', () => {
     const key = generateSigningKey();
     const bytes = issueReceipt(markedPayload(), key);
     expectErrorCode(
-      () => verifyReceipt(bytes, { publicKey: key.publicKey, now: FIXED_NOW, acceptedVersions: [1] }),
+      () => verifyReceipt(bytes, { publicKey: key.publicKey, nowSeconds: FIXED_NOW, acceptedVersions: [1] }),
       'UNSUPPORTED_VERSION',
     );
   });
@@ -815,7 +817,7 @@ describe('receipt payload v2 and the versions a call accepts', () => {
     // `3` is no longer one: the version this package reads moved to include it, and a document
     // wearing a version the reader does grasp but whose members do not agree with it is a payload
     // answer, which is the case the two halves below keep apart.
-    expectErrorCode(() => verifyReceipt(bytes, { publicKey: key.publicKey, now: FIXED_NOW }), 'UNSUPPORTED_VERSION');
+    expectErrorCode(() => verifyReceipt(bytes, { publicKey: key.publicKey, nowSeconds: FIXED_NOW }), 'UNSUPPORTED_VERSION');
     expectErrorCode(() => decodeReceipt(bytes), 'UNSUPPORTED_VERSION');
 
     // Closedness is settled after the version, so these two refusals never compete for one document:
@@ -826,14 +828,14 @@ describe('receipt payload v2 and the versions a call accepts', () => {
     unreadable.set('v', 4);
     unreadable.set('mk', new Map<string, unknown>());
     const unreadableBytes = signMembers(unreadable, key);
-    expectErrorCode(() => verifyReceipt(unreadableBytes, { publicKey: key.publicKey, now: FIXED_NOW }), 'UNSUPPORTED_VERSION');
+    expectErrorCode(() => verifyReceipt(unreadableBytes, { publicKey: key.publicKey, nowSeconds: FIXED_NOW }), 'UNSUPPORTED_VERSION');
     expectErrorCode(() => decodeReceipt(unreadableBytes), 'UNSUPPORTED_VERSION');
 
     const narrowed = membersOf(markedPayload());
     narrowed.set('not_a_member', 'x');
     const narrowedBytes = signMembers(narrowed, key);
     expectErrorCode(
-      () => verifyReceipt(narrowedBytes, { publicKey: key.publicKey, now: FIXED_NOW, acceptedVersions: [1] }),
+      () => verifyReceipt(narrowedBytes, { publicKey: key.publicKey, nowSeconds: FIXED_NOW, acceptedVersions: [1] }),
       'UNSUPPORTED_VERSION',
     );
     expectErrorCode(() => decodeReceipt(narrowedBytes, { acceptedVersions: [1] }), 'UNSUPPORTED_VERSION');
@@ -845,7 +847,7 @@ describe('receipt payload v2 and the versions a call accepts', () => {
     const v2 = issueReceipt(markedPayload(), key);
     for (const bytes of [v1, v2]) {
       expectErrorCode(
-        () => verifyReceipt(bytes, { publicKey: key.publicKey, now: FIXED_NOW, acceptedVersions: [] }),
+        () => verifyReceipt(bytes, { publicKey: key.publicKey, nowSeconds: FIXED_NOW, acceptedVersions: [] }),
         'UNSUPPORTED_VERSION',
       );
       expectErrorCode(() => decodeReceipt(bytes, { acceptedVersions: [] }), 'UNSUPPORTED_VERSION');
@@ -856,7 +858,7 @@ describe('receipt payload v2 and the versions a call accepts', () => {
     const key = generateSigningKey();
     const payload = samplePayload();
     const bytes = issueReceipt(payload, key);
-    const verified = verifyReceipt(bytes, { publicKey: key.publicKey, now: FIXED_NOW });
+    const verified = verifyReceipt(bytes, { publicKey: key.publicKey, nowSeconds: FIXED_NOW });
 
     expect(verified.payload.v).toBe(1);
     expect(equalBytes(encodePayload(verified.payload), verified.cose.payloadBytes)).toBe(true);
@@ -916,7 +918,7 @@ describe('receipt payload v3, its three members and the order of its items', () 
   it('round-trips the three members and keeps the two readings of `unc` apart', () => {
     const key = generateSigningKey();
     const bytes = issueReceipt(stampedPayload(), key);
-    const verified = verifyReceipt(bytes, { publicKey: key.publicKey, now: FIXED_NOW });
+    const verified = verifyReceipt(bytes, { publicKey: key.publicKey, nowSeconds: FIXED_NOW });
     const payload = stamped(verified.payload);
 
     // `null` is the source saying nobody measured and `0` is the source saying it is right, which is
@@ -927,7 +929,7 @@ describe('receipt payload v3, its three members and the order of its items', () 
     expect(Object.is(payload.sd.uncertaintySeconds, null)).toBe(true);
     const measured = verifyReceipt(
       issueReceipt(stampedWith([{ t: FIXED_NOW, d: sha256(new TextEncoder().encode('{"a":1}')) }], { name: '-disc', uncertaintySeconds: 0 }), key),
-      { publicKey: key.publicKey, now: FIXED_NOW },
+      { publicKey: key.publicKey, nowSeconds: FIXED_NOW },
     );
     expect(Object.is(stamped(measured.payload).sd.uncertaintySeconds, 0)).toBe(true);
     expect(stamped(measured.payload).sd.uncertaintySeconds).not.toBeNull();
@@ -975,7 +977,7 @@ describe('receipt payload v3, its three members and the order of its items', () 
         new Map([...membersOf(stampedPayload())].filter(([name]) => name !== member)),
         key,
       );
-      const failure = expectFailure(() => verifyReceipt(bytes, { publicKey: key.publicKey, now: FIXED_NOW }));
+      const failure = expectFailure(() => verifyReceipt(bytes, { publicKey: key.publicKey, nowSeconds: FIXED_NOW }));
       expect(failure.message, `a v3 payload with no ${member}`).toContain(sentence);
       expectFailure(() => decodeReceipt(bytes), 'BAD_PAYLOAD');
     }
@@ -1015,7 +1017,7 @@ describe('receipt payload v3, its three members and the order of its items', () 
       );
       const failure = expectFailure(() => decodeReceipt(bytes), 'BAD_PAYLOAD');
       expect(failure.message, `unc written as a ${width}`).toContain('floating point');
-      expectFailure(() => verifyReceipt(bytes, { publicKey: key.publicKey, now: FIXED_NOW }), 'BAD_PAYLOAD');
+      expectFailure(() => verifyReceipt(bytes, { publicKey: key.publicKey, nowSeconds: FIXED_NOW }), 'BAD_PAYLOAD');
     }
     const integer = signKeepingMajorTypes(
       encodeWithMajorTypes(editedNested(stampedPayload(), 'sd', (nested) => { nested.set('unc', 1); })),
@@ -1056,7 +1058,7 @@ describe('receipt payload v3, its three members and the order of its items', () 
     for (const [name, slot, sentence] of cases) {
       const owner = name.startsWith('an absent') ? 'cva.val' : 'cva.col';
       const bytes = signMembers(editedNested(stampedPayload(), owner, (nested) => { nested.clear(); for (const [k, v] of slot) nested.set(k, v); }), key);
-      const failure = expectFailure(() => verifyReceipt(bytes, { publicKey: key.publicKey, now: FIXED_NOW }));
+      const failure = expectFailure(() => verifyReceipt(bytes, { publicKey: key.publicKey, nowSeconds: FIXED_NOW }));
       expect(failure.message, name).toContain(sentence);
       expectFailure(() => decodeReceipt(bytes), 'BAD_PAYLOAD');
     }
@@ -1066,7 +1068,7 @@ describe('receipt payload v3, its three members and the order of its items', () 
     const absent = { presence: 'absent-at-source', reason: 'the source had nothing to give' } as const;
     const bothAbsent = stampedWith([{ t: FIXED_NOW, d: sha256(new TextEncoder().encode('x')) }]);
     const bytes = issueReceipt({ ...bothAbsent, cva: { collateral: absent, validity: absent } }, key);
-    expect(stamped(verifyReceipt(bytes, { publicKey: key.publicKey, now: FIXED_NOW }).payload).cva.collateral).toEqual({
+    expect(stamped(verifyReceipt(bytes, { publicKey: key.publicKey, nowSeconds: FIXED_NOW }).payload).cva.collateral).toEqual({
       presence: 'absent-at-source',
       reason: 'the source had nothing to give',
     });
@@ -1082,7 +1084,7 @@ describe('receipt payload v3, its three members and the order of its items', () 
     empty.set('itm', []);
     const emptyBytes = signMembers(empty, key);
     expect(expectFailure(() => decodeReceipt(emptyBytes)).message).toContain('itm declares at least one item and carries none');
-    expectFailure(() => verifyReceipt(emptyBytes, { publicKey: key.publicKey, now: FIXED_NOW }), 'BAD_PAYLOAD');
+    expectFailure(() => verifyReceipt(emptyBytes, { publicKey: key.publicKey, nowSeconds: FIXED_NOW }), 'BAD_PAYLOAD');
 
     const members = membersOf(stampedPayload());
     members.set('itm', new Map<string, unknown>([['t', FIXED_NOW]]));
@@ -1117,7 +1119,7 @@ describe('receipt payload v3, its three members and the order of its items', () 
       const members = membersOf(stampedPayload());
       edit(members);
       const bytes = signMembers(members, key);
-      const failure = expectFailure(() => verifyReceipt(bytes, { publicKey: key.publicKey, now: FIXED_NOW }));
+      const failure = expectFailure(() => verifyReceipt(bytes, { publicKey: key.publicKey, nowSeconds: FIXED_NOW }));
       expect(failure.message, `a ${where} that is not a map`).toContain(sentence);
       expect(expectFailure(() => decodeReceipt(bytes)).message, `the same bytes read without a key`).toContain(sentence);
     }
@@ -1148,7 +1150,7 @@ describe('receipt payload v3, its three members and the order of its items', () 
       const members = membersOf(stampedPayload());
       edit(members);
       const bytes = signMembers(members, key);
-      const failure = expectFailure(() => verifyReceipt(bytes, { publicKey: key.publicKey, now: FIXED_NOW }));
+      const failure = expectFailure(() => verifyReceipt(bytes, { publicKey: key.publicKey, nowSeconds: FIXED_NOW }));
       expect(failure.message, `a negative ${where}`).toContain(sentence);
       expect(expectFailure(() => decodeReceipt(bytes)).message, `the same bytes read without a key`).toContain(sentence);
     }
@@ -1168,7 +1170,7 @@ describe('receipt payload v3, its three members and the order of its items', () 
       ]),
       key,
     );
-    expect(stamped(verifyReceipt(bytes, { publicKey: key.publicKey, now: FIXED_NOW }).payload).itm).toHaveLength(3);
+    expect(stamped(verifyReceipt(bytes, { publicKey: key.publicKey, nowSeconds: FIXED_NOW }).payload).itm).toHaveLength(3);
     expect(stamped(decodeReceipt(bytes).payload).itm[2]!.t).toBe(same);
 
     const rising = issueReceipt(
@@ -1196,7 +1198,7 @@ describe('receipt payload v3, its three members and the order of its items', () 
     // version puts it, and what cannot both stand is the pair of signed statements. The two positions
     // and both instants are in the sentence, because a caller reading a log has to know which pair of
     // one response contradicts itself.
-    const failure = expectFailure(() => verifyReceipt(bytes, { publicKey: key.publicKey, now: FIXED_NOW }), 'ITEM_STAMP_OUT_OF_ORDER');
+    const failure = expectFailure(() => verifyReceipt(bytes, { publicKey: key.publicKey, nowSeconds: FIXED_NOW }), 'ITEM_STAMP_OUT_OF_ORDER');
     expect(failure.message).toContain('itm[2] is stamped');
     expect(failure.message).toContain('itm[1] is stamped');
     expectFailure(() => decodeReceipt(bytes), 'ITEM_STAMP_OUT_OF_ORDER');
@@ -1209,7 +1211,7 @@ describe('receipt payload v3, its three members and the order of its items', () 
     // this package holds here as it holds for every other member. A case that claimed the order code
     // refused a forged signature too would be a claim about a capability this reader does not have.
     const forged = signWithHeaders(encodePayload(falling), other, declaredProtectedHeader(key.kid));
-    expectErrorCode(() => verifyReceipt(forged, { publicKey: key.publicKey, now: FIXED_NOW }), 'INVALID_SIGNATURE');
+    expectErrorCode(() => verifyReceipt(forged, { publicKey: key.publicKey, nowSeconds: FIXED_NOW }), 'INVALID_SIGNATURE');
     expectErrorCode(() => decodeReceipt(forged), 'ITEM_STAMP_OUT_OF_ORDER');
 
     // And a narrowing that stops short of this version is a version answer, not an order one: a
@@ -1235,7 +1237,7 @@ describe('receipt payload v3, its three members and the order of its items', () 
       const members = membersOf(payload);
       members.set(member, stampedPayload()[member as keyof ReceiptPayloadV3] as unknown);
       const bytes = signMembers(members, key);
-      const failure = expectFailure(() => verifyReceipt(bytes, { publicKey: key.publicKey, now: FIXED_NOW }));
+      const failure = expectFailure(() => verifyReceipt(bytes, { publicKey: key.publicKey, nowSeconds: FIXED_NOW }));
       expect(failure.message, `${member} on a v${payload.v} payload`).toContain(sentence);
       expectFailure(() => decodeReceipt(bytes), 'BAD_PAYLOAD');
     }
@@ -1362,7 +1364,7 @@ describe('the payload map and every map nested inside it are closed', () => {
     // member's answer and not one this corpus was already failing for.
     for (const version of Object.keys(receiptParser.DEFINED_MAPS)) {
       const unedited = issueReceipt(payloadForVersion(version), key);
-      expect(() => verifyReceipt(unedited, { publicKey: key.publicKey, now: FIXED_NOW })).not.toThrow();
+      expect(() => verifyReceipt(unedited, { publicKey: key.publicKey, nowSeconds: FIXED_NOW })).not.toThrow();
     }
 
     // Two halves of the sentence are matched, and each is a fact of its own: the position says the
@@ -1372,7 +1374,7 @@ describe('the payload map and every map nested inside it are closed', () => {
     // word for word by the cases further down this file.
     for (const one of nestedCases()) {
       const bytes = signMembers(editedNested(one.payload, one.route, (nested) => nested.set('surprise', 'x')), key);
-      const failure = expectFailure(() => verifyReceipt(bytes, { publicKey: key.publicKey, now: FIXED_NOW }));
+      const failure = expectFailure(() => verifyReceipt(bytes, { publicKey: key.publicKey, nowSeconds: FIXED_NOW }));
       expect(
         failure.message,
         `a v${one.payload.v} payload with an undefined member inside ${one.route}`,
@@ -1389,7 +1391,7 @@ describe('the payload map and every map nested inside it are closed', () => {
       editedNested(samplePayload(), 'tok', (nested) => nested.set(new Uint8Array([7]), 'x')),
       key,
     );
-    const refusal = expectFailure(() => verifyReceipt(foreignKey, { publicKey: key.publicKey, now: FIXED_NOW }));
+    const refusal = expectFailure(() => verifyReceipt(foreignKey, { publicKey: key.publicKey, nowSeconds: FIXED_NOW }));
     expect(refusal.message).toContain('tok carries a member the format does not define: a bstr key of length 1');
   });
 
@@ -1401,19 +1403,19 @@ describe('the payload map and every map nested inside it are closed', () => {
     // values as well as names would answer this document with a membership refusal, and only the
     // message would say that the check had swallowed the one this format has always made here.
     const stringPrompt = editedNested(markedPayload(), 'tok', (nested) => nested.set('p', 'twelve'));
-    const misTyped = expectFailure(() => verifyReceipt(signMembers(stringPrompt, key), { publicKey: key.publicKey, now: FIXED_NOW }));
+    const misTyped = expectFailure(() => verifyReceipt(signMembers(stringPrompt, key), { publicKey: key.publicKey, nowSeconds: FIXED_NOW }));
     expect(misTyped.message).toContain('tok.p must be a non-negative integer');
 
     // A member the format makes a map and the bytes did not deliver one is still the reader's answer,
     // because the walk has no map to enter and cannot claim a membership failure it cannot see.
     const measIsText = membersOf(samplePayload());
     measIsText.set('meas', 'snp');
-    const meas = expectFailure(() => verifyReceipt(signMembers(measIsText, key), { publicKey: key.publicKey, now: FIXED_NOW }));
+    const meas = expectFailure(() => verifyReceipt(signMembers(measIsText, key), { publicKey: key.publicKey, nowSeconds: FIXED_NOW }));
     expect(meas.message).toContain('meas must be a map');
 
     const mkIsText = membersOf(markedPayload());
     mkIsText.set('mk', 'none');
-    const mark = expectFailure(() => verifyReceipt(signMembers(mkIsText, key), { publicKey: key.publicKey, now: FIXED_NOW }));
+    const mark = expectFailure(() => verifyReceipt(signMembers(mkIsText, key), { publicKey: key.publicKey, nowSeconds: FIXED_NOW }));
     expect(mark.message).toContain('mk must be a map');
   });
 });
@@ -1632,7 +1634,7 @@ describe('what the writer refuses to make, and what it makes anyway', () => {
     // bytes a signature covers are the bytes the reader hands back to the writer.
     const key = generateSigningKey();
     for (const payload of [samplePayload(), markedPayload(), stampedPayload()]) {
-      const verified = verifyReceipt(issueReceipt(payload, key), { publicKey: key.publicKey, now: FIXED_NOW });
+      const verified = verifyReceipt(issueReceipt(payload, key), { publicKey: key.publicKey, nowSeconds: FIXED_NOW });
       expect(equalBytes(encodePayload(verified.payload), verified.cose.payloadBytes), `v${payload.v} re-encode`).toBe(true);
     }
 
@@ -1813,7 +1815,7 @@ describe('a position the CDDL writes `int` reads one CBOR major type', () => {
         // The same answer through the door that checks the signature, which is the one a client walks
         // through. The header is well-formed and the signature is this key's, so a refusal that came
         // back as `INVALID_SIGNATURE` would be a reader complaining about the wrong part of the bytes.
-        expectFailure(() => verifyReceipt(bytes, { publicKey: key.publicKey, now: FIXED_NOW }), 'BAD_PAYLOAD');
+        expectFailure(() => verifyReceipt(bytes, { publicKey: key.publicKey, nowSeconds: FIXED_NOW }), 'BAD_PAYLOAD');
       }
     }
   });
@@ -1844,7 +1846,7 @@ describe('a position the CDDL writes `int` reads one CBOR major type', () => {
         // of the field itself. Neither is the float rule, and neither is the other.
         const detail = name.startsWith('a bignum of') ? 'bigint' : fieldSentence(positionOf(member.where));
         expect(failure.message, `${member.where} written as ${name}`).toContain(detail);
-        expectFailure(() => verifyReceipt(bytes, { publicKey: key.publicKey, now: FIXED_NOW }), 'BAD_PAYLOAD');
+        expectFailure(() => verifyReceipt(bytes, { publicKey: key.publicKey, nowSeconds: FIXED_NOW }), 'BAD_PAYLOAD');
       }
     }
   });
@@ -1855,7 +1857,7 @@ describe('a position the CDDL writes `int` reads one CBOR major type', () => {
     const payloadBytes = encodePayload(samplePayload());
     // The control is a signature check and not a reader that always says yes.
     const declared = signWithHeaders(payloadBytes, key, declaredProtectedHeader(key.kid));
-    expect(verifyReceipt(declared, { publicKey: key.publicKey, now: FIXED_NOW }).header.alg).toBe(ALG_EDDSA);
+    expect(verifyReceipt(declared, { publicKey: key.publicKey, nowSeconds: FIXED_NOW }).header.alg).toBe(ALG_EDDSA);
 
     // A declared label written a second time as a float is a fourth label to anything comparing the
     // key bytes and the same slot as the integer to a JavaScript `Map`, and core deterministic order
@@ -1867,7 +1869,7 @@ describe('a position the CDDL writes `int` reads one CBOR major type', () => {
       const merged = new Map<unknown, unknown>([...declaredProtectedHeader(key.kid), [encodedNumber(label, 'f16'), 'x']]);
       const bytes = signKeepingMajorTypes(payloadBytes, key, merged);
       const failure = expectFailure(
-        () => verifyReceipt(bytes, { publicKey: key.publicKey, now: FIXED_NOW }),
+        () => verifyReceipt(bytes, { publicKey: key.publicKey, nowSeconds: FIXED_NOW }),
         'BAD_PROTECTED_HEADER',
       );
       expect(failure.message, `label ${label} carried a second time as a float`).toContain('floating point');
@@ -1891,7 +1893,7 @@ describe('a position the CDDL writes `int` reads one CBOR major type', () => {
       const bytes = signKeepingMajorTypes(payloadBytes, key, header);
       expectFailure(() => decodeReceipt(bytes), 'BAD_PROTECTED_HEADER');
       expect(
-        expectFailure(() => verifyReceipt(bytes, { publicKey: key.publicKey, now: FIXED_NOW }), 'BAD_PROTECTED_HEADER').message,
+        expectFailure(() => verifyReceipt(bytes, { publicKey: key.publicKey, nowSeconds: FIXED_NOW }), 'BAD_PROTECTED_HEADER').message,
         name,
       ).toContain('floating point');
     }
@@ -1906,7 +1908,7 @@ describe('a position the CDDL writes `int` reads one CBOR major type', () => {
     const algBytes = signKeepingMajorTypes(payloadBytes, key, floatedAlg);
     expectFailure(() => decodeReceipt(algBytes), 'BAD_PROTECTED_HEADER');
     expect(
-      expectFailure(() => verifyReceipt(algBytes, { publicKey: key.publicKey, now: FIXED_NOW }), 'BAD_PROTECTED_HEADER').message,
+      expectFailure(() => verifyReceipt(algBytes, { publicKey: key.publicKey, nowSeconds: FIXED_NOW }), 'BAD_PROTECTED_HEADER').message,
     ).toContain('floating point');
 
     // Which is not the same condition as an `alg` slot holding a suite this format does not sign
@@ -1978,7 +1980,7 @@ describe('a position the CDDL writes `int` reads one CBOR major type', () => {
       declaredProtectedHeader(key.kid),
       open,
     );
-    const verified = verifyReceipt(bytes, { publicKey: key.publicKey, now: FIXED_NOW });
+    const verified = verifyReceipt(bytes, { publicKey: key.publicKey, nowSeconds: FIXED_NOW });
     expect(verified.cose.unprotected.size).toBe(1);
     expect(verified.cose.unprotected.get(1)).toBe(2.5);
     expect(verified.payload.iat).toBe(FIXED_NOW);
@@ -2033,7 +2035,7 @@ describe('what this package issues, this package reads back', () => {
     // handed a document it has no reason to trust. A refusal at either half below is the defect: a
     // receipt this package minted that its own verifier would not take.
     const bytes = issueReceipt(negativeZero, key);
-    const verified = verifyReceipt(bytes, { publicKey: key.publicKey, now: FIXED_NOW });
+    const verified = verifyReceipt(bytes, { publicKey: key.publicKey, nowSeconds: FIXED_NOW });
     for (const where of ['iat', 'epk', 'att.ts', 'tok.p', 'tok.c']) {
       // `Object.is(value, 0)` rather than an equality, because `value === 0` is also true of the
       // negative zero the payload was built with, and it is the sign the format refuses to carry.
@@ -2053,7 +2055,7 @@ describe('what this package issues, this package reads back', () => {
     const bytes = issueReceipt(samplePayload({ iat: 2.5 }), key);
     const failure = expectFailure(() => decodeReceipt(bytes), 'BAD_PAYLOAD');
     expect(failure.message).toContain('floating point');
-    expectFailure(() => verifyReceipt(bytes, { publicKey: key.publicKey, now: FIXED_NOW }), 'BAD_PAYLOAD');
+    expectFailure(() => verifyReceipt(bytes, { publicKey: key.publicKey, nowSeconds: FIXED_NOW }), 'BAD_PAYLOAD');
 
     // And the whole number the float was standing for, issued the same way, reads. Without this half
     // the refusal above would only show that a minted document with a `2.5` in it is refused.

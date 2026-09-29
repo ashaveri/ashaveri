@@ -108,7 +108,7 @@ const PINNED: AshaveriPolicy = {
   issuers: ['ashaveri-test'],
   trustAnchors: { amdArks: [ROOT] },
 };
-const AT_NOW = { now: NOW * 1000 };
+const AT_NOW = { nowMillis: NOW * 1000 };
 
 function statusOf(original: Uint8Array, params: { policy?: AshaveriPolicy } = {}): string {
   return assessCapture({ record: record(original), policy: params.policy, ...AT_NOW }).status;
@@ -256,7 +256,7 @@ describe('missing context is never upgraded into a pass', () => {
 describe('the limits and the clock a verdict was reached under', () => {
   it('runs its own windows, and says when they differ from the record', () => {
     const stale = codes(() =>
-      assessCapture({ record: record(receiptV1), policy: PINNED, now: (NOW + 10_000) * 1000 }),
+      assessCapture({ record: record(receiptV1), policy: PINNED, nowMillis: (NOW + 10_000) * 1000 }),
     );
     expect(stale).toBe('STALE_RECEIPT');
     const archive: AshaveriPolicy = {
@@ -264,7 +264,7 @@ describe('the limits and the clock a verdict was reached under', () => {
       maxReceiptAgeSeconds: Number.POSITIVE_INFINITY,
       maxEvidenceAgeSeconds: Number.POSITIVE_INFINITY,
     };
-    const verdict = assessCapture({ record: record(receiptV1), policy: archive, now: (NOW + 10_000) * 1000 });
+    const verdict = assessCapture({ record: record(receiptV1), policy: archive, nowMillis: (NOW + 10_000) * 1000 });
     expect(verdict.status).toBe('qualified');
     expect(verdict.qualifications.join(' ')).toContain('never closes');
     expect(verdict.repeated.signatureVerifiedWithOwnPins).toBe(true);

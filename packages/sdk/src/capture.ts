@@ -241,7 +241,7 @@ export interface AssessCaptureParams {
    */
   readonly anchors?: EvidenceTrustAnchors;
   /** Wall clock in milliseconds since the epoch; defaults to Date.now. */
-  readonly now?: number;
+  readonly nowMillis?: number;
 }
 
 const SLOT_MEMBERS: readonly string[] = ['presence', 'bytes', 'sha256', 'byteCount', 'reason'];
@@ -685,7 +685,7 @@ function repeatSignatureLeg(
   verifyReceipt(originalBytes, {
     publicKey,
     acceptedVersions,
-    now: nowSeconds,
+    nowSeconds,
     freshnessSeconds: policy?.maxReceiptAgeSeconds ?? DEFAULT_MAX_RECEIPT_AGE_SECONDS,
     evidenceFreshnessSeconds: policy?.maxEvidenceAgeSeconds ?? DEFAULT_MAX_EVIDENCE_AGE_SECONDS,
   });
@@ -734,7 +734,7 @@ function matchRoots(
 export function assessCapture(params: AssessCaptureParams): CaptureVerdict {
   const record = parseCaptureRecord(params.record);
   const originalBytes = decodeStated(record.original, 'original');
-  const nowSeconds = Math.floor((params.now ?? Date.now()) / 1000);
+  const nowSeconds = Math.floor((params.nowMillis ?? Date.now()) / 1000);
   const policy = params.policy;
   const anchors = params.anchors ?? policy?.trustAnchors ?? {};
 

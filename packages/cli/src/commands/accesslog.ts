@@ -119,13 +119,13 @@ export interface ScrubOptions {
 export async function accesslogScrub(
   dir: string,
   credential: string,
-  now: () => number,
+  nowMillis: () => number,
   options: ScrubOptions = {},
 ): Promise<ScrubResult> {
   // Settled first, before a single part is opened: a day the retention sweep cannot match would
   // otherwise be discovered after the erasure it is meant to record, which leaves the operator the
   // choice between a receipt nothing will collect and no receipt at all.
-  const at = now();
+  const at = nowMillis();
   const day = markerDay(at);
   const names = await readdirOrThrow(dir);
   const targets = names.filter((each) => ACCESS_FILE.test(each)).sort();
@@ -680,7 +680,7 @@ async function removePart(path: string): Promise<void> {
   }
 }
 
-export async function runAccessLog(sub: string[], flags: AccessLogFlags, now: () => number): Promise<number> {
+export async function runAccessLog(sub: string[], flags: AccessLogFlags, nowMillis: () => number): Promise<number> {
   const name = sub[0];
   if (name !== 'scrub') {
     throw new UsageError('expected an accesslog command: scrub');
@@ -692,7 +692,7 @@ export async function runAccessLog(sub: string[], flags: AccessLogFlags, now: ()
   // Checked before any file is rewritten: this value comes back in the summary line and in the
   // marker, and an erasure whose own report can carry a forged line is a receipt that proves nothing.
   checkId(credential, '--credential');
-  const result = await accesslogScrub(dir, credential, now, { request: requestOf(flags.request) });
+  const result = await accesslogScrub(dir, credential, nowMillis, { request: requestOf(flags.request) });
   if (flags.json === true) {
     writeJson(result);
     return 0;

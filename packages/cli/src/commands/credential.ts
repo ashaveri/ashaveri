@@ -38,7 +38,7 @@ export interface AddInput {
   label?: string;
   rate?: string;
   publicKey?: string;
-  now: () => number;
+  nowMillis: () => number;
 }
 
 function parseKind(raw: string | undefined): 'pop' | 'bearer' {
@@ -136,7 +136,7 @@ export async function credentialAdd(input: AddInput): Promise<AddResult> {
   if (input.publicKey !== undefined && kind !== 'pop') {
     throw new UsageError('--public-key belongs with --kind pop; a bearer credential stores a hash of a secret');
   }
-  const createdAt = Math.floor(input.now() / 1000);
+  const createdAt = Math.floor(input.nowMillis() / 1000);
   const secret: { publicKey?: string; privateKeyHex?: string; bearerSecret?: string } = {};
   let publicKey: string | undefined;
   let secretHash: string | undefined;
@@ -168,12 +168,12 @@ export async function credentialAdd(input: AddInput): Promise<AddResult> {
   return { record, secret };
 }
 
-export async function credentialRevoke(path: string, id: string, now: () => number): Promise<CredentialRecord> {
+export async function credentialRevoke(path: string, id: string, nowMillis: () => number): Promise<CredentialRecord> {
   const file = await readCredentialFile(path);
   const record = file.credentials.find((each) => each.id === id);
   if (record === undefined) throw new UsageError(`no credential with id '${id}'`);
   if (record.revokedAt !== undefined) return record;
-  record.revokedAt = Math.floor(now() / 1000);
+  record.revokedAt = Math.floor(nowMillis() / 1000);
   await writeCredentialFile(path, file);
   return record;
 }
@@ -284,7 +284,7 @@ function machineOf(record: CredentialRecord, secret: AddResult['secret']): Recor
   };
 }
 
-async function runAdd(path: string, flags: CredentialFlags, now: () => number): Promise<number> {
+async function runAdd(path: string, flags: CredentialFlags, nowMillis: () => number): Promise<number> {
   const { record, secret } = await credentialAdd({
     credentials: path,
     ...(flags.id === undefined ? {} : { id: flags.id }),
@@ -293,7 +293,7 @@ async function runAdd(path: string, flags: CredentialFlags, now: () => number): 
     ...(flags.label === undefined ? {} : { label: flags.label }),
     ...(flags.rate === undefined ? {} : { rate: flags.rate }),
     ...(flags['public-key'] === undefined ? {} : { publicKey: flags['public-key'] }),
-    now,
+    nowMillis,
   });
   const notice = `${noticeFor(secret)}\n`;
   if (flags.json) {
@@ -314,14 +314,14 @@ async function runAdd(path: string, flags: CredentialFlags, now: () => number): 
   return 0;
 }
 
-async function runRevoke(path: string, flags: CredentialFlags, now: () => number): Promise<number> {
+async function runRevoke(path: string, flags: CredentialFlags, nowMillis: () => number): Promise<number> {
   const id = flags.id;
   if (id === undefined) throw new UsageError('credential revoke needs --id <id>');
   // Checked here rather than deep in the lookup, because both of the sentences below print this id
   // back: the refusal on stderr and the success line on stdout, which is the one output an operator
   // keeps as evidence that a revocation happened.
   checkId(id, '--id');
-  const record = await credentialRevoke(path, id, now);
+  const record = await credentialRevoke(path, id, nowMillis);
   if (flags.json) {
     writeJson(viewOf(record));
     return 0;
@@ -341,14 +341,14 @@ async function runList(path: string, flags: CredentialFlags): Promise<number> {
   return 0;
 }
 
-export async function runCredential(sub: string[], flags: CredentialFlags, now: () => number): Promise<number> {
+export async function runCredential(sub: string[], flags: CredentialFlags, nowMillis: () => number): Promise<number> {
   const name = sub[0];
   if (name !== 'add' && name !== 'revoke' && name !== 'list') {
     throw new UsageError(`expected a credential command: ${SUBCOMMANDS.join(', ')}`);
   }
   const path = flags.credentials;
   if (path === undefined) throw new UsageError(`credential ${name} needs --credentials <file>`);
-  if (name === 'add') return runAdd(path, flags, now);
-  if (name === 'revoke') return runRevoke(path, flags, now);
+  if (name === 'add') return runAdd(path, flags, nowMillis);
+  if (name === 'revoke') return runRevoke(path, flags, nowMillis);
   return runList(path, flags);
 }

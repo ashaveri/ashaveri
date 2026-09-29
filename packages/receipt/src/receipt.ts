@@ -265,7 +265,12 @@ export interface VerifyOptions {
   publicKey?: Uint8Array;
   resolveKey?: (kid: Uint8Array) => Uint8Array | undefined;
   expectedNonce?: Uint8Array;
-  now?: number;
+  /**
+   * The instant the freshness windows are measured from, in whole seconds since the Unix epoch.
+   * This is the format's own unit: `iat` and a `v: 3` item's `t` are seconds, so the value is read
+   * straight against them with no divide. Defaults to the host clock, in seconds.
+   */
+  nowSeconds?: number;
   freshnessSeconds?: number;
   evidenceFreshnessSeconds?: number;
   /**
@@ -897,13 +902,13 @@ export function verifyReceipt(bytes: Uint8Array, options: VerifyOptions): Verifi
   if (options.expectedNonce && !equalBytes(payload.nce, options.expectedNonce)) {
     throw new ReceiptError('NONCE_MISMATCH');
   }
-  const now = options.now ?? Math.floor(Date.now() / 1000);
-  if (options.freshnessSeconds !== undefined && Math.abs(now - payload.iat) > options.freshnessSeconds) {
+  const nowSeconds = options.nowSeconds ?? Math.floor(Date.now() / 1000);
+  if (options.freshnessSeconds !== undefined && Math.abs(nowSeconds - payload.iat) > options.freshnessSeconds) {
     throw new ReceiptError('STALE_RECEIPT');
   }
   if (
     options.evidenceFreshnessSeconds !== undefined &&
-    Math.abs(now - payload.att.ts) > options.evidenceFreshnessSeconds
+    Math.abs(nowSeconds - payload.att.ts) > options.evidenceFreshnessSeconds
   ) {
     throw new ReceiptError('STALE_EVIDENCE');
   }

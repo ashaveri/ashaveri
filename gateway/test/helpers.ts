@@ -51,7 +51,7 @@ export interface Generated {
 
 /** One generation per cell, so a nonce cannot leak between two assertions. */
 export function generated(id: string, scopes: Scope[], extra: Partial<CredentialRecord> = {}): Generated {
-  const fresh = newPopCredential({ id, scopes, now: CLOCK_SECONDS });
+  const fresh = newPopCredential({ id, scopes, nowSeconds: CLOCK_SECONDS });
   const seed = seedOf(id);
   return {
     record: { ...fresh.record, publicKey: signingKeyFromSeed(seed).publicKey, ...extra },
@@ -178,7 +178,7 @@ export async function harness(input: HarnessInput = {}): Promise<Harness> {
     // the wall clock it would refuse a well-signed request as months stale, and the tolerance test
     // would measure the age of the fixture rather than the offset it names. A test that wants a
     // different instant asks for one with `ts`, which is what that parameter is for.
-    now: () => CLOCK_SECONDS * 1000,
+    nowMillis: () => CLOCK_SECONDS * 1000,
   });
   // Two clocks run through a harness, and only one of them is pinned. The store's `now`, set just
   // above, answers one question: is this stamp inside the window. The access record's `t` is stamped by

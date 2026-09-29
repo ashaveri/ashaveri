@@ -417,10 +417,10 @@ export async function runVerify(positionals: string[], values: VerifyFlags): Pro
   for (const rootPath of values['gpu-root'] ?? []) {
     trustedNvidiaRoots.push(await readFlagFile(rootPath, '--gpu-root'));
   }
-  let now: number | undefined;
+  let nowMillis: number | undefined;
   if (values.now !== undefined) {
-    now = Date.parse(values.now);
-    if (Number.isNaN(now)) {
+    nowMillis = Date.parse(values.now);
+    if (Number.isNaN(nowMillis)) {
       throw new UsageError(`--now is not a valid date: ${values.now}`);
     }
   }
@@ -435,7 +435,7 @@ export async function runVerify(positionals: string[], values: VerifyFlags): Pro
       : undefined;
   try {
     const result = verifyAttestation(attestation, {
-      now,
+      nowMillis,
       trustedArks: rootsForFamily('amdArks', loaded, trustedArks, DEFAULT_AMD_ARKS),
       askCert,
       vcekCert,

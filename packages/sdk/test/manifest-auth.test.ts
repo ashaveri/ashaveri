@@ -221,7 +221,7 @@ describe('one document behind both answers', () => {
         requestHash: payload.req,
         responseHash: payload.res,
         responseBytes: RESPONSE_BYTES,
-        now: IAT * 1000,
+        nowMillis: IAT * 1000,
       });
       expect(toHex(verified.header.kid), shape).toBe(toHex(RECEIPT_KEY.kid));
       const authentication = await session.manifestAuthentication();
@@ -246,7 +246,7 @@ describe('one document behind both answers', () => {
         requestHash: payload.req,
         responseHash: payload.res,
         responseBytes: RESPONSE_BYTES,
-        now: IAT * 1000,
+        nowMillis: IAT * 1000,
       }),
     );
     expect(err.code).toBe('MANIFEST_KEY_NOT_PINNED');

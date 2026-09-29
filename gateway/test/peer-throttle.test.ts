@@ -53,7 +53,7 @@ const STORM = '203.0.113.7';
 const CUSTOMER = '198.51.100.4';
 
 function heldRecord(rate: CredentialRate): CredentialRecord {
-  const generated = newPopCredential({ id: HELD_NAME, scopes: ['read', 'complete'], now: NOW_SECONDS });
+  const generated = newPopCredential({ id: HELD_NAME, scopes: ['read', 'complete'], nowSeconds: NOW_SECONDS });
   return { ...generated.record, publicKey: signingKeyFromSeed(HELD_SEED).publicKey, rate };
 }
 
@@ -163,7 +163,7 @@ function watchedStore(
     file: { version: 1, credentials },
     allowBearer: options.allowBearer ?? false,
     peerRate,
-    now: options.now ?? (() => CLOCK_MS),
+    nowMillis: options.now ?? (() => CLOCK_MS),
     countVerification: () => {
       verifications += 1;
     },
@@ -212,7 +212,7 @@ describe('the request bound a connection meets ahead of the crypto', () => {
     // later one is the throttle's. Each shape gets its own address, which is also what makes the two
     // halves of this case independent of each other.
     const { store, verifications } = watchedStore([heldRecord({ perMinute: 60, burst: 60 })], { perMinute: 60, burst: 1 });
-    const enrolled = newBearerCredential({ id: 'ops-1', scopes: ['read', 'complete'], now: NOW_SECONDS });
+    const enrolled = newBearerCredential({ id: 'ops-1', scopes: ['read', 'complete'], nowSeconds: NOW_SECONDS });
 
     const shapes: AdmissionInput[] = [
       headerless('192.0.2.1'),
@@ -253,7 +253,7 @@ describe('the request bound a connection meets ahead of the crypto', () => {
     const rate: CredentialRate = { perMinute: 60, burst: 3 };
     const holds = watchedStore([heldRecord({ perMinute: 60, burst: 60 })], rate);
     const lacks = watchedStore([], rate);
-    const enrolled = newBearerCredential({ id: 'ops-1', scopes: ['read', 'complete'], now: NOW_SECONDS });
+    const enrolled = newBearerCredential({ id: 'ops-1', scopes: ['read', 'complete'], nowSeconds: NOW_SECONDS });
 
     // Every shape here proves nothing, which is what makes it fair to demand the same answer from both
     // stores: the request that carries a valid proof of possession is legitimately answered out of the
@@ -454,9 +454,9 @@ describe('the bound itself', () => {
     const QUIET_CREDENTIALS = 15;
     const BUSY_REQUESTS = 5000;
     const MINUTE_SECONDS = 60;
-    const busy = newPopCredential({ id: 'busy-customer', scopes: ['read', 'complete'], now: NOW_SECONDS });
+    const busy = newPopCredential({ id: 'busy-customer', scopes: ['read', 'complete'], nowSeconds: NOW_SECONDS });
     const quiet = Array.from({ length: QUIET_CREDENTIALS }, (_, at) =>
-      newPopCredential({ id: `svc-${String(at)}`, scopes: ['read', 'complete'], now: NOW_SECONDS }),
+      newPopCredential({ id: `svc-${String(at)}`, scopes: ['read', 'complete'], nowSeconds: NOW_SECONDS }),
     );
     const records: CredentialRecord[] = [
       { ...busy.record, rate: { perMinute: BUSY_REQUESTS, burst: BUSY_REQUESTS } },

@@ -20,7 +20,8 @@ export const CREDENTIAL_ENV = {
 } as const;
 
 export interface AuthOptions {
-  readonly now?: () => number;
+  /** Wall clock in milliseconds since the epoch; defaults to Date.now. */
+  readonly nowMillis?: () => number;
   readonly nonce?: () => Uint8Array;
 }
 
@@ -104,7 +105,7 @@ function applyCredential(credential: AshaveriCredential, request: Outgoing, opti
   headers.set('x-ashaveri-nonce', toBase64Url(nonce));
   const body = bodyBytes(request.body);
   const fields: PopFields = {
-    ts: Math.floor((options.now?.() ?? Date.now()) / 1000),
+    ts: Math.floor((options.nowMillis?.() ?? Date.now()) / 1000),
     nonce,
     method: (init.method ?? 'GET').toUpperCase(),
     target: requestTarget(request.url),

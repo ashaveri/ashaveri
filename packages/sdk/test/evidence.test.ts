@@ -131,7 +131,7 @@ function verify(document: Uint8Array = DOCUMENT, payload = signedReceipt()) {
     document,
     expectedReportData: fromHex(REPORT_DATA),
     payload,
-    now: NOW,
+    nowMillis: NOW,
   });
 }
 
@@ -171,7 +171,7 @@ describe('verifyCompletionEvidence', () => {
         document: DOCUMENT,
         expectedReportData: fromHex(REPORT_DATA),
         payload: signedReceipt({ tee: 'software' }),
-        now: NOW,
+        nowMillis: NOW,
       }),
       'EVIDENCE_NOT_HARDWARE',
     );
@@ -191,7 +191,7 @@ describe('verifyCompletionEvidence', () => {
           document: DOCUMENT,
           expectedReportData: new Uint8Array(64),
           payload: signedReceipt(),
-          now: NOW,
+          nowMillis: NOW,
         }),
       'EVIDENCE_REPORT_DATA_MISMATCH',
     );
@@ -206,7 +206,7 @@ describe('verifyCompletionEvidence', () => {
       document: DOCUMENT,
       expectedReportData: utf8('Hello from Edgeless Systems!'),
       payload: signedReceipt(),
-      now: NOW,
+      nowMillis: NOW,
     });
     expect(toHex(evidence.reportData)).toBe(REPORT_DATA);
   });
@@ -235,7 +235,7 @@ describe('verifyCompletionEvidence', () => {
           expectedReportData: fromHex(REPORT_DATA),
           payload: signedReceipt({ tee: 'snp' }),
           anchors: { amdArks: [fixture('amd-ark-milan.pem')], intelSgxRoots: [] },
-          now: NOW,
+          nowMillis: NOW,
         }),
       'EVIDENCE_NOT_VERIFIED',
     );
@@ -253,7 +253,7 @@ describe('verifyCompletionEvidence', () => {
           expectedReportData: fromHex(REPORT_DATA),
           payload: signedReceipt(),
           anchors: { intelSgxRoots: [] },
-          now: NOW,
+          nowMillis: NOW,
         }),
       'EVIDENCE_NO_TRUST_ANCHORS',
     );
@@ -266,7 +266,7 @@ describe('verifyCompletionEvidence', () => {
         expectedReportData: fromHex(REPORT_DATA),
         payload: signedReceipt(),
         anchors: { intelSgxRoots: [fixture('amd-ark-milan.pem')] },
-        now: NOW,
+        nowMillis: NOW,
       });
       throw new Error('expected verification to fail');
     } catch (err) {
@@ -337,7 +337,7 @@ function verifySnp(overrides: Partial<Parameters<typeof verifyCompletionEvidence
       measurement: fromHex(SNP_MEASUREMENT),
       evidenceDigest: sha256(SNP_DOCUMENT),
     }),
-    now: SNP_NOW,
+    nowMillis: SNP_NOW,
     ...overrides,
   });
 }
@@ -384,7 +384,7 @@ describe('strict mode for a composite TDX tee', () => {
       document: DOCUMENT,
       expectedReportData: fromHex(REPORT_DATA),
       payload: signedReceipt({ tee: 'tdx+gpucc' }),
-      now: NOW,
+      nowMillis: NOW,
       ...overrides,
     });
   }

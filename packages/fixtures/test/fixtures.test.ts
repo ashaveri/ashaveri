@@ -19,6 +19,8 @@ import {
   type ReceiptFixtureRow,
 } from '../src/index.js';
 
+// FIXED_NOW is whole seconds since the Unix epoch: it equals the published receipts' `iat` and is
+// handed to `verifyReceipt` as `nowSeconds`, which the freshness windows compare against `iat`.
 const FIXED_NOW = 1_772_000_000;
 
 function errorCode(fn: () => unknown): string | 'no-error' {
@@ -101,7 +103,7 @@ describe('golden fixtures', () => {
   it('valid receipt fixture verifies against the fixture key', () => {
     const fixture = loadReceiptFixture('receipt-valid-v1');
     const key = loadFixtureKey();
-    const verified = verifyReceipt(fixture.bytes, { publicKey: key.publicKey, now: FIXED_NOW });
+    const verified = verifyReceipt(fixture.bytes, { publicKey: key.publicKey, nowSeconds: FIXED_NOW });
     expect(verified.payload.mdl).toBe('meta-llama/Llama-3.1-8B-Instruct');
     expect(verified.payload.tok).toEqual({ p: 128, c: 64 });
   });
@@ -109,7 +111,7 @@ describe('golden fixtures', () => {
   it('software receipt fixture verifies and makes no TEE claim', () => {
     const fixture = loadReceiptFixture('receipt-software-v1');
     const key = loadFixtureKey();
-    const verified = verifyReceipt(fixture.bytes, { publicKey: key.publicKey, now: FIXED_NOW });
+    const verified = verifyReceipt(fixture.bytes, { publicKey: key.publicKey, nowSeconds: FIXED_NOW });
     expect(verified.payload.meas.tee).toBe('software');
     expect(verified.payload.meas.m).toHaveLength(32);
   });
@@ -132,7 +134,7 @@ describe('golden fixtures', () => {
     const key = loadFixtureKey();
     for (const entry of loadManifest().fixtures) {
       const fixture = loadReceiptFixture(entry.name);
-      const outcome = errorCode(() => verifyReceipt(fixture.bytes, { publicKey: key.publicKey, now: FIXED_NOW }));
+      const outcome = errorCode(() => verifyReceipt(fixture.bytes, { publicKey: key.publicKey, nowSeconds: FIXED_NOW }));
       const observed = outcome === 'no-error' ? 'verify-ok' : outcome;
       expect(`${entry.name}: ${observed}`).toBe(`${entry.name}: ${entry.expected}`);
     }
@@ -142,7 +144,7 @@ describe('golden fixtures', () => {
     const fixture = loadReceiptFixture('receipt-tampered-v1');
     const key = loadFixtureKey();
     try {
-      verifyReceipt(fixture.bytes, { publicKey: key.publicKey, now: FIXED_NOW });
+      verifyReceipt(fixture.bytes, { publicKey: key.publicKey, nowSeconds: FIXED_NOW });
       throw new Error('expected ReceiptError');
     } catch (e) {
       expect((e as ReceiptError).code).toBe('INVALID_SIGNATURE');
@@ -159,7 +161,7 @@ describe('golden fixtures', () => {
     const options = {
       publicKey: key.publicKey,
       expectedNonce: new Uint8Array(Buffer.from(nonce, 'hex')),
-      now: FIXED_NOW,
+      nowSeconds: FIXED_NOW,
       freshnessSeconds: 3600,
       evidenceFreshnessSeconds: 3600,
     };
@@ -189,7 +191,7 @@ describe('the verdicts a receipt row states, read by both shipped readers', () =
     expect(refusing.length).toBeGreaterThan(0);
     const key = loadFixtureKey();
     for (const entry of refusing) {
-      const given = refusal(() => verifyReceipt(loadReceiptFixture(entry.name).bytes, { publicKey: key.publicKey, now: FIXED_NOW }));
+      const given = refusal(() => verifyReceipt(loadReceiptFixture(entry.name).bytes, { publicKey: key.publicKey, nowSeconds: FIXED_NOW }));
       expect(given.code, `${entry.name} code`).toBe(entry.expected);
       const fault = entry.fault!;
       expect(given.message, `${entry.name} names no ${fault.at}`).toContain(fault.at);

@@ -30,6 +30,8 @@ import {
  */
 
 const file = loadMarkingVectors();
+// CLOCK is whole seconds since the Unix epoch, the receipt format's own unit: it equals the fixture
+// receipt's `iat` and is handed to `verifyReceipt` as `nowSeconds`.
 const CLOCK = 1_772_000_000;
 
 function vectorNamed(name: string): MarkingVector {
@@ -127,7 +129,7 @@ describe('the marked-region vectors', () => {
     const buffered = vectorNamed('buffered-member');
     const verified = verifyReceipt(loadReceiptFixture('receipt-marked-v2').bytes, {
       publicKey: loadFixtureKey().publicKey,
-      now: CLOCK,
+      nowSeconds: CLOCK,
     });
     expect(verified.payload.v).toBe(2);
     const payload = verified.payload as ReceiptPayloadV2;

@@ -169,7 +169,7 @@ describe('parseCredentialFile', () => {
 
 describe('credential file round trip', () => {
   it('survives serialize then parse', () => {
-    const generated = newPopCredential({ id: 'svc-1', label: 'svc', scopes: ['read', 'complete'], now: 1_772_000_000 });
+    const generated = newPopCredential({ id: 'svc-1', label: 'svc', scopes: ['read', 'complete'], nowSeconds: 1_772_000_000 });
     const file: CredentialFile = { version: 1, credentials: [generated.record] };
     expect(parseCredentialFile(serializeCredentialFile(file))).toEqual(file);
   });
@@ -188,7 +188,7 @@ describe('credential file round trip', () => {
     expect(newBearerCredential({ id: 'svc-bearer', time: source }).record.createdAt).toBe(enrolledAt);
     // A caller that names the instant outright still decides it, because that value is the reading and
     // not a clock to be read.
-    expect(newPopCredential({ id: 'svc-explicit', now: enrolledAt + 60, time: source }).record.createdAt).toBe(
+    expect(newPopCredential({ id: 'svc-explicit', nowSeconds: enrolledAt + 60, time: source }).record.createdAt).toBe(
       enrolledAt + 60,
     );
     // Nothing named leaves the shipped source, whose own name says whose clock the record was dated by.

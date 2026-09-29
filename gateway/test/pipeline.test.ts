@@ -240,7 +240,7 @@ describe('the route matrix: five routes by ten states', () => {
           const bearerId = `cred-${state}-bearer`;
           if (state === 'bearer-presented') {
             allowBearer = false;
-            records.push(newBearerCredential({ id: bearerId, scopes: suited, now: CLOCK_SECONDS }).record);
+            records.push(newBearerCredential({ id: bearerId, scopes: suited, nowSeconds: CLOCK_SECONDS }).record);
           }
           if (state === 'revoked') credential.record.revokedAt = CLOCK_SECONDS - 1;
           if (state === 'rate-exhausted') credential.record.rate = { perMinute: 1, burst: 1 };

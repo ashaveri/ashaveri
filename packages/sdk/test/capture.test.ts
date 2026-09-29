@@ -155,7 +155,7 @@ describe('a capture record holds the bytes a source produced', () => {
     expect(equalBytes(stored, receiptV1)).toBe(true);
     // The bytes a stranger gets out of the record are the bytes that were signed: the format's own
     // verifier accepts them under the key that issued them.
-    expect(() => verifyReceipt(stored, { publicKey: KEY.publicKey, now: NOW })).not.toThrow();
+    expect(() => verifyReceipt(stored, { publicKey: KEY.publicKey, nowSeconds: NOW })).not.toThrow();
   });
 
   it('refuses a record whose original does not hash to the digest it states', () => {
@@ -176,7 +176,7 @@ describe('a capture record holds the bytes a source produced', () => {
     // The estate's own reader takes only preferred serializations, so an equivalence between the two can
     // never be shown to it. That is the format's rule, and it is why the byte check has to be the
     // capture's own and has to run before anything decodes.
-    expect(codeOf(() => verifyReceipt(equivalent, { publicKey: KEY.publicKey, now: NOW }))).toBe('MALFORMED_CBOR');
+    expect(codeOf(() => verifyReceipt(equivalent, { publicKey: KEY.publicKey, nowSeconds: NOW }))).toBe('MALFORMED_CBOR');
     // A record stating the digest of what the source produced and carrying what a second encoder wrote
     // is refused rather than read as equal.
     expect(codeOf(() => parseCaptureRecord(swapBytes(recordFor(receiptV1), equivalent)))).toBe(

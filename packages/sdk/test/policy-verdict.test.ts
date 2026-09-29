@@ -75,7 +75,7 @@ function verdict(policy: AshaveriPolicy, atSeconds: number): string {
       responseBytes: new Uint8Array(0),
       verifyKey,
       policy,
-      now: atSeconds * 1000,
+      nowMillis: atSeconds * 1000,
     });
     return 'accept';
   } catch (err) {
