@@ -41,7 +41,7 @@ import { ed25519 } from '@noble/curves/ed25519';
 import { Tag, encode, defaultEncodeOptions, encodedNumber } from 'cbor2';
 import { sortCoreDeterministic } from 'cbor2/sorts';
 import { sha256, sha384 } from '@noble/hashes/sha2.js';
-import { cddlIntegerPositions, cddlRule, cddlRuleArms, memberDeclarations, nestedRuleNames, readCddl } from './cddl.js';
+import { cddlIntegerPositions, cddlRule, cddlRuleArms, cddlTextPositions, memberDeclarations, nestedRuleNames, readCddl } from './cddl.js';
 
 // FIXED_NOW is whole seconds since the Unix epoch, the receipt format's own unit: it is assigned to
 // `iat` below and handed to `verifyReceipt` as `nowSeconds`, both of which compare against seconds.
@@ -1679,7 +1679,204 @@ describe('what the writer refuses to make, and what it makes anyway', () => {
       expect(input.length, `the slot arm lists carry one name per wire member of ${wire.join('+')}`).toBe(wire.length);
     }
   });
+
+  it('holds the writer\'s attested text class to every text member the format declares', () => {
+    // Both halves of one question, asked of two sources that cannot see each other: what `receipt.cddl`
+    // types as a `tstr`, read out of the CDDL, and what `assertAttestedText` refuses, read out of the
+    // writer's own table. A text member arriving in the format and not in the table is a position no
+    // refusal reaches, and a table entry naming nothing in the format is a refusal of a member that does
+    // not exist; either disagreement is this cell, and neither direction is quiet.
+    //
+    // The roster is spelled out beside the two readings rather than left to their agreement, because it is
+    // the record of what the format declares at this head: seven member names across eight positions, the
+    // two legs of the anchor carrying one name. A change to it is a change to what a payload may hold, and
+    // it is supposed to be loud here before it is anywhere else.
+    const declared = cddlTextPositions(readCddl());
+    expect([...declared].sort(), 'the text positions receipt.cddl declares').toEqual([
+      'att.url',
+      'cva.col.r',
+      'cva.val.r',
+      'ins',
+      'iss',
+      'mdl',
+      'mk.sch',
+      'sd.name',
+    ]);
+    expect(attestedTextPositions().map((one) => one.position), 'every position the writer refuses at').toEqual(declared);
+    expect(new Set(declared.map((one) => one.split('.').pop())).size, 'distinct member names in the class').toBe(7);
+
+    // The sets this rule deliberately does not reach, stated because a reader of the derivation will ask:
+    // `tee` and `p` are closed choices between literals, `v` is an integer literal, and no other position
+    // in the file is a text member. The two slot arms contribute their one reason member and nothing else.
+    expect(declared.filter((one) => one.endsWith('.p') || one.endsWith('.tee'))).toEqual([]);
+  });
+
+  it('refuses at the writer every attested text member that could forge a line, and names the one it stopped on', () => {
+    // One refusal per member per defect class, on the document that member's version carries. The classes
+    // are the four the rule answers: a character that ends a line, a format character that hides one or
+    // reorders it, the astral tag block, and an extent nothing quotes. What each is refused for is the same
+    // fact about all of them, which is that the printed row stops being the row the bytes say they are.
+    for (const one of attestedTextPositions()) {
+      for (const defect of LINE_DEFECTS) {
+        const failure = expectFailure(() => encodePayload(withTextAt(one, defect.text)));
+        expect(failure.message, `${one.position} carrying ${defect.name}`).toContain(`${one.position} `);
+        expect(failure.message, `${one.position} refused for ${defect.name}`).toContain(defect.expect);
+      }
+    }
+
+    // The refusal names the position rather than the whole document, which is the difference between a
+    // caller finding a value and a caller guessing which of seven members it put there.
+    const which = expectFailure(() => encodePayload(withTextAt(thePosition('cva.val.r'), 'gone\n')));
+    expect(which.message).toContain('cva.val.r carries the code point a');
+    expect(which.message).not.toContain('cva.col');
+  });
+
+  it('refuses to seal any of them, on the path that makes a record rather than the one that assembles a payload', () => {
+    // `issueReceipt` is the call `gateway/src/server.ts` makes with a payload it built out of its own
+    // configuration and its declared roster, so this is the writer's refusal met where a record is made.
+    // A refusal that only reached a hand-built payload would leave a gateway that assembled the document
+    // first and signed it anyway, and no bytes are the answer this unit is for.
+    const key = generateSigningKey();
+    for (const one of attestedTextPositions()) {
+      const payload = withTextAt(one, 'a\nb');
+      expectFailure(() => issueReceipt(payload, key), 'BAD_PAYLOAD');
+    }
+
+    // And the same document one character away from the refusal does seal, so the cells above are about
+    // the character and not about the member being text at all.
+    const sealed = issueReceipt(withTextAt(thePosition('cva.val.r'), 'gone'), key);
+    expect(readTextAt(decodeReceipt(sealed).payload, thePosition('cva.val.r'))).toBe('gone');
+  });
+
+  it('accepts the text a line is made of at every attested member, and writes it exactly as it was handed', () => {
+    // The clean half of the class. First what this corpus already publishes: nothing about a document that
+    // passed before this rule existed moves, so the bytes a signature covers stay the bytes the layout says
+    // they are, member for member and in the order the format lists them.
+    for (const payload of [samplePayload(), markedPayload(), stampedPayload()]) {
+      expect(equalBytes(encodePayload(payload), encodeCanonical(membersOf(payload))), `v${payload.v} clean class`).toBe(true);
+    }
+
+    // Then the shapes a real value of this class carries that a narrower rule would have refused: an inner
+    // space, text outside ASCII, a symbol above the BMP, an ideograph, a run no ceiling here bounds, and the
+    // one scheme label the CDDL spells as a literal. The writer takes each of them at every position of the
+    // class and writes it into the bytes the format lays out, which is the whole of what this rule claims.
+    for (const one of attestedTextPositions()) {
+      for (const text of ADMITTED_TEXTS) {
+        const payload = withTextAt(one, text);
+        expect(
+          equalBytes(encodePayload(payload), encodeCanonical(membersOf(payload))),
+          `${one.position} carrying ${JSON.stringify(text.slice(0, 24))}`,
+        ).toBe(true);
+      }
+    }
+
+    // And each one seals and reads back as the same string, which is the half a byte comparison cannot give:
+    // the position is a `tstr` on the wire and the caller's own text in the hand of a verifier. `mk.sch` is
+    // the one position a reader bounds further than this writer does, and under its own code: the marking
+    // registry is a closed set the format declares, while the rule here is about the line a value prints on,
+    // so an unregistered but line-safe label is signed and then refused on the way back.
+    const key = generateSigningKey();
+    for (const one of attestedTextPositions()) {
+      for (const text of one.position === 'mk.sch' ? REGISTERED_SCHEMES : ADMITTED_TEXTS) {
+        const decoded = decodeReceipt(issueReceipt(withTextAt(one, text), key));
+        expect(readTextAt(decoded.payload, one), `${one.position} carrying ${JSON.stringify(text.slice(0, 24))}`).toBe(text);
+      }
+    }
+    const unregistered = withTextAt(thePosition('mk.sch'), 'not-a-scheme-in-the-registry');
+    expect(() => encodePayload(unregistered)).not.toThrow();
+    expectFailure(() => decodeReceipt(issueReceipt(unregistered, key)), 'UNSUPPORTED_SCHEME');
+  });
 });
+
+/**
+ * The values a clean member of the class may hold, none of them a refusal: they are here to show that what
+ * this rule reaches is characters a line is made of, and not a set of allowed spellings, an alphabet, or a
+ * length. `'none'` is the label `receipt.cddl` names as a literal beside the open alternative.
+ */
+const ADMITTED_TEXTS = [
+  'meta-llama/Llama-3.1-8B-Instruct',
+  'ptp-disciplined host clock',
+  'ünïcødé label with ãccents',
+  'a symbol ✓ and a CJK 漢字 run',
+  'x'.repeat(4_096),
+  'none',
+];
+
+/** The marking labels this package's reader interprets, for the position it bounds past the writer. */
+const REGISTERED_SCHEMES = ['none', 'provenance-v1'];
+
+/**
+ * Every attested text position, named the way a refusal names it and reachable through the input names a
+ * caller hands the value under. Read off the writer's own table rather than typed out again beside it, so
+ * the sweep over the class is asked about a position the day the class gains one.
+ */
+function attestedTextPositions(): Array<{ position: string; path: readonly string[] }> {
+  return receiptParser.ATTESTED_TEXT_ROWS.flatMap((row) =>
+    row.positions.map((one) => ({
+      position: row.position === '' ? one.wire : `${row.position}.${one.wire}`,
+      path: [...row.path, one.input],
+    })),
+  );
+}
+
+/** One position of the class by the name a refusal gives it, so no case spells the path out a second time. */
+function thePosition(position: string): { position: string; path: readonly string[] } {
+  const found = attestedTextPositions().find((one) => one.position === position);
+  if (found === undefined) throw new Error(`the writer's class carries no ${position}`);
+  return found;
+}
+
+/**
+ * The same document with one attested text member carrying the value a case names.
+ *
+ * A leg of the anchor is swept at the arm that carries its text member: the corpus holds a held collateral,
+ * and `r` belongs to an absent one, so a case that only wrote the reason would be refused for a member the
+ * arm its own label selects does not define. Moving the label therefore moves the digest with it, which is
+ * the pair the format states: an absent slot carries a reason and no digest, and a held one the reverse.
+ */
+function withTextAt(one: { position: string; path: readonly string[] }, value: string): ReceiptPayload {
+  const copy = structuredClone(payloadCarrying(one.position)) as unknown as ReceiptPayload;
+  const root = copy as unknown as Record<string, unknown>;
+  let holder: Record<string, unknown> = root;
+  for (const step of one.path.slice(0, -1)) {
+    holder = holder[step] as Record<string, unknown>;
+    if ('presence' in holder) {
+      holder['presence'] = 'not-taken-in';
+      delete holder['sha256'];
+    }
+  }
+  holder[one.path[one.path.length - 1]!] = value;
+  return copy;
+}
+
+/** What a sealed document says about one attested text member, read back off the decoded payload. */
+function readTextAt(payload: ReceiptPayload, one: { position: string; path: readonly string[] }): unknown {
+  const root = payload as unknown as Record<string, unknown>;
+  let holder: Record<string, unknown> = root;
+  for (const step of one.path.slice(0, -1)) holder = holder[step] as Record<string, unknown>;
+  return holder[one.path[one.path.length - 1]!];
+}
+
+/**
+ * The defect classes this rule answers, each with the character it is made of and the half of the
+ * refusal's sentence that names it. Every position is fed every class, so a member the scan reached by
+ * accident rather than by the table has nowhere to hide.
+ */
+const LINE_DEFECTS: ReadonlyArray<{ name: string; text: string; expect: string }> = [
+  { name: 'a line feed', text: 'a\nb', expect: 'carries the code point a,' },
+  { name: 'a carriage return', text: 'a\rb', expect: 'carries the code point d,' },
+  { name: 'a line separator', text: 'a\u2028b', expect: 'carries the code point 2028,' },
+  { name: 'a paragraph separator', text: 'a\u2029b', expect: 'carries the code point 2029,' },
+  { name: 'a C1 next line', text: 'a\u0085b', expect: 'carries the code point 85,' },
+  { name: 'a soft hyphen', text: 'a\u00adb', expect: 'carries the code point ad,' },
+  { name: 'a zero width space', text: 'a\u200bb', expect: 'carries the code point 200b,' },
+  { name: 'a right-to-left override', text: 'a\u202eb', expect: 'carries the code point 202e,' },
+  { name: 'a byte order mark', text: 'a\ufeffb', expect: 'carries the code point feff,' },
+  { name: 'a tag character', text: 'a\u{e0020}b', expect: 'carries the code point e0020,' },
+  { name: 'a cancelled tag', text: 'a\u{e007f}b', expect: 'carries the code point e007f,' },
+  { name: 'a leading space', text: ' ab', expect: 'carries leading or trailing space' },
+  { name: 'a trailing space', text: 'ab ', expect: 'carries leading or trailing space' },
+];
 
 /**
  * The bytes of a document in which every number keeps the major type it was written with. The

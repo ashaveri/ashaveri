@@ -104,15 +104,32 @@ const headerBoundary = acceptanceBoundary(parsePopAuthorization, header, (source
 
 const TEE_KINDS = Object.keys(MEASUREMENT_BYTES) as TeeKind[];
 
+/**
+ * Text a payload's attested members may hold, which is what this generator's payloads are made of.
+ *
+ * The writer refuses a member of that class carrying anything that would end, hide or reorder the line it
+ * is printed on, so a payload holding one is not a document that reaches a signature at all and the
+ * re-encoding claim below would be about bytes no caller can ask for. What the refusal does not reach stays
+ * in the generator: the whole of the rest of Unicode, astral included, so the fidelity property is tested
+ * over text a deployment in another script really signs rather than over a 95 character ASCII set.
+ */
+const LINE_FORGED = /[\p{Cc}\p{Cf}\u{2028}\u{2029}\u{e0000}-\u{e007f}]/u;
+
+function attestedText(maxLength: number): fc.Arbitrary<string> {
+  return fc
+    .string({ minLength: 1, maxLength })
+    .filter((value) => !LINE_FORGED.test(value) && value === value.trim());
+}
+
 const payloadArbitrary: fc.Arbitrary<ReceiptPayload> = fc
   .record({
-    iss: fc.string({ minLength: 1, maxLength: 24 }),
-    ins: fc.string({ minLength: 1, maxLength: 24 }),
+    iss: attestedText(24),
+    ins: attestedText(24),
     iat: fc.integer({ min: 0, max: 2_000_000_000 }),
     nce: fc.uint8Array({ minLength: 16, maxLength: 16 }),
     req: fc.uint8Array({ minLength: 32, maxLength: 32 }),
     res: fc.uint8Array({ minLength: 32, maxLength: 32 }),
-    mdl: fc.string({ minLength: 1, maxLength: 40 }),
+    mdl: attestedText(40),
     wts: fc.uint8Array({ minLength: 32, maxLength: 32 }),
     meas: fc
       .constantFrom(...TEE_KINDS)
@@ -124,7 +141,7 @@ const payloadArbitrary: fc.Arbitrary<ReceiptPayload> = fc
     att: fc.record({
       d: fc.uint8Array({ minLength: 32, maxLength: 32 }),
       ts: fc.integer({ min: 0, max: 2_000_000_000 }),
-      url: fc.string({ minLength: 1, maxLength: 60 }),
+      url: attestedText(60),
     }),
     epk: fc.integer({ min: 0, max: 1_000_000 }),
     tok: fc.record({ p: fc.integer({ min: 0, max: 1_000_000 }), c: fc.integer({ min: 0, max: 1_000_000 }) }),

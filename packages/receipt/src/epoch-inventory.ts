@@ -386,6 +386,16 @@ function requireText(value: unknown, position: string): string {
  * run it names. Control characters, the two line separators and a byte order mark are refused because they
  * would end the printed row rather than because they are rare, and leading or trailing space because the
  * label is quoted by nothing around it.
+ *
+ * This scan is the read side's, and it is not the writer's. `assertLineSafeText` in `src/receipt.ts`
+ * refuses the attested text members of a payload at the step that signs them, and it refuses a wider set:
+ * every Unicode format character and the tag block beside the ranges named above, which are the characters
+ * that hide a line or reorder it rather than end one. The two stay apart because what each is asked about
+ * is not one question: this one bounds a label a caller reads out of somebody else's document, with a byte
+ * ceiling beside it, and that ceiling and that code are not the writer's to take, while widening this scan
+ * to the writer's set would change which inventories this package accepts. Neither is a general text rule
+ * and neither is merged into the other; a later edit that reaches for one of the two should read the other
+ * before choosing.
  */
 function requireLabel(value: unknown, position: string): string {
   const label = requireText(value, position);

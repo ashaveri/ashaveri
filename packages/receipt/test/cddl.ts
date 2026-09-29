@@ -234,3 +234,66 @@ export function cddlIntegerPositions(cddl: string): string[] {
   if (positions.length === 0) throw new Error(`no position of ${cddlPath} is typed as an integer`);
   return positions;
 }
+
+/**
+ * The type `receipt.cddl` writes for a text position whose content nobody bounds: a bare `tstr`, and
+ * `tstr` spelled as one alternative of a choice with a literal. `"none" / tstr` is the second of those,
+ * and the literal says nothing about what may be written there: it names the value one scheme takes, and
+ * the alternative beside it admits any text at all. A position typed only as literals, the way `tee` and
+ * `p` are, is not in the class: those are closed sets, and a value outside one is a malformed member
+ * rather than a well-formed one carrying text nothing asked about.
+ */
+function isTextType(type: string): boolean {
+  return type.split('/').some((arm) => /^tstr\b/u.test(arm.trim()));
+}
+
+/**
+ * The positions a slot is reached at, with the maps standing behind each. Both legs of the anchor hold a
+ * `CollateralSlot`, which is a choice between two maps and not one of them, so the walk over a payload's
+ * `nested` member names never enters one and `nestedRuleNames` binds no payload member to either arm.
+ * This is the exception `DEFINED_MAPS` states beside its own entry for `cva`, restated for the reader of
+ * the CDDL so a text member arriving in either arm is a position this file answers for.
+ */
+const SLOT_ARMS_AT_POSITION: ReadonlyArray<readonly [position: string, arms: readonly string[]]> = [
+  ['cva.col', ['CollateralHeld', 'CollateralAbsent']],
+  ['cva.val', ['CollateralHeld', 'CollateralAbsent']],
+];
+
+/**
+ * Every position a payload document carries whose type the format leaves open to a `tstr`, named the way a
+ * reader of the document names it: `iss` at the payload level and `att.url` one map down.
+ *
+ * Read off the CDDL rather than written down beside the writer's own list, for the reason the integer
+ * sweep above states: a roster typed out in a test keeps passing the day the format gains a member, and
+ * the whole point of the sweep is to be asked about every position the format has. Every payload block is
+ * read, which is how a text member only one version carries is still found, and a name the blocks list
+ * twice is reported once.
+ */
+export function cddlTextPositions(cddl: string): string[] {
+  const rules = nestedRuleNames(cddl);
+  const positions: string[] = [];
+  const push = (name: string): void => {
+    if (!positions.includes(name)) positions.push(name);
+  };
+  const scanBlock = (block: string, prefix: string): void => {
+    for (const member of memberDeclarations(block)) {
+      if (isTextType(member.type)) push(`${prefix}${member.name}`);
+    }
+  };
+  for (const binding of LIST_FOR_MAP.filter((row) => row.map.startsWith('Ashaveri-Receipt-Payload-v'))) {
+    const block = cddlRule(cddl, binding.map);
+    scanBlock(block, '');
+    for (const member of memberDeclarations(block)) {
+      const rule = rules.get(member.name);
+      if (rule === undefined) continue;
+      for (const arm of cddlRuleArms(cddl, rule)) scanBlock(arm, `${member.name}.`);
+    }
+  }
+  for (const [position, arms] of SLOT_ARMS_AT_POSITION) {
+    for (const arm of arms) {
+      for (const block of cddlRuleArms(cddl, arm)) scanBlock(block, `${position}.`);
+    }
+  }
+  if (positions.length === 0) throw new Error(`no position of ${cddlPath} is typed as a text string`);
+  return positions;
+}

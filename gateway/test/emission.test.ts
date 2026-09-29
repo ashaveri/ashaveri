@@ -159,7 +159,13 @@ const credential: Generated = generated('emission', ['complete', 'read']);
 let session: Harness | undefined;
 
 async function open(
-  gateway: { backend?: CompletionBackend; marking?: 'none' | 'provenance-v1'; time?: TimeSource } = {},
+  gateway: {
+    backend?: CompletionBackend;
+    marking?: 'none' | 'provenance-v1';
+    time?: TimeSource;
+    issuer?: string;
+    instance?: string;
+  } = {},
 ): Promise<Harness> {
   await close();
   session = await harness({ credentials: [credential], gateway });
@@ -846,5 +852,43 @@ describe('the two disclosures a v3 payload states', () => {
     // answer a reader prefers.
     expect(served.payload.sd).toEqual({ name: 'wired at issuance', uncertaintySeconds: 0 });
     expect(served.payload.itm.length).toBe(3);
+  });
+});
+
+describe('a payload whose attested text would forge the line it is printed on', () => {
+  /**
+   * The writer's refusal, met on the path that makes a record.
+   *
+   * `iss` and `ins` of a signed payload are read out of what this process was configured with, and the
+   * payload reaches the signature through `issueReceipt` and nowhere else. A deployment operator who sets
+   * an issuer id carrying a line break therefore asks this gateway to sign a document whose report row is
+   * two rows, and the second one is whatever the configuration says after the break. Nothing about the
+   * bytes is malformed and no reader can see the difference, so the refusal that matters is the one the
+   * gateway's own seal step answers with: no document, no id, and nothing in the store behind either.
+   */
+  it('seals nothing, mints no id, and answers the completion as the failure it is', async () => {
+    for (const issuer of ['ashaveri\nsecond record', 'ashaveri\u202evitiated row', ' ashaveri']) {
+      const h = await open({ issuer });
+      const res = await h.app.inject({
+        method: 'POST' as 'GET',
+        url: '/v1/chat/completions',
+        headers: {
+          'content-type': 'application/json',
+          ...h.signFor('emission', 'POST', '/v1/chat/completions', REQUEST_BODY, { nonce: NONCE }),
+        },
+        payload: REQUEST_BODY,
+      });
+      // The refusal is the writer's and it arrives before a key is consulted, so the route has no receipt
+      // to hand and the client hears a server failure rather than reading an attested lie.
+      expect(res.statusCode, `a completion issued under ${JSON.stringify(issuer)}`).toBe(500);
+      expect(res.headers['x-ashaveri-receipt-id'], `${JSON.stringify(issuer)} mints no receipt id`).toBeUndefined();
+    }
+
+    // The control, on the same route and the same body: one character apart is the whole of the difference,
+    // and a clean configured issuer seals the document it always sealed.
+    const clean = await open({ issuer: 'ashaveri-mock' });
+    const served = await sendAndFetch(clean, '/v1/chat/completions', REQUEST_BODY);
+    expect(served.payload.iss).toBe('ashaveri-mock');
+    expect(served.status).toBe(200);
   });
 });

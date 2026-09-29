@@ -712,6 +712,110 @@ function assertEncodableSlot(value: unknown, where: string): void {
 }
 
 /**
+ * The attested text class: every position of a payload whose type `receipt.cddl` leaves open to a
+ * `tstr`, in the order the format lists them, each with the name a caller hands its value under.
+ *
+ * Exported for one reason, the same reason `DEFINED_MAPS` is: `receipt.test.ts` holds this list against
+ * the CDDL text beside it, so a text member that arrives in the format and not here fails a test rather
+ * than encoding unrefused. Every entry of a row is one position of one document, and the two rows of
+ * the anchor carry the same wire name at the two positions that name is reached through.
+ */
+export interface AttestedTextRow {
+  /** The payload member whose map holds these positions, and `undefined` for the payload's own members. */
+  readonly owner: string | undefined;
+  /** The path the owning map is read at, from the object the writer was handed. */
+  readonly path: readonly string[];
+  /** How the refusal names the map these positions sit in: `cva.col` for the path `cva.collateral`. */
+  readonly position: string;
+  /** The positions this row scans, each stated as the format states it and as a caller hands it. */
+  readonly positions: ReadonlyArray<{ readonly wire: string; readonly input: string }>;
+}
+
+export const ATTESTED_TEXT_ROWS: readonly AttestedTextRow[] = [
+  { owner: undefined, path: [], position: '', positions: [{ wire: 'iss', input: 'iss' }, { wire: 'ins', input: 'ins' }, { wire: 'mdl', input: 'mdl' }] },
+  { owner: 'att', path: ['att'], position: 'att', positions: [{ wire: 'url', input: 'url' }] },
+  { owner: 'mk', path: ['mk'], position: 'mk', positions: [{ wire: 'sch', input: 'sch' }] },
+  { owner: 'sd', path: ['sd'], position: 'sd', positions: [{ wire: 'name', input: 'name' }] },
+  { owner: 'cva', path: ['cva', 'collateral'], position: 'cva.col', positions: [{ wire: 'r', input: 'reason' }] },
+  { owner: 'cva', path: ['cva', 'validity'], position: 'cva.val', positions: [{ wire: 'r', input: 'reason' }] },
+];
+
+/**
+ * The characters that end a line, hide one, or reorder one: the C0 and C1 ranges, every Unicode format
+ * character, the two line separators, and the tag block. The tag range is spelled out beside the property
+ * classes rather than folded into them, because which class a character belongs to is data the runtime
+ * supplies, and the boundary of what this package refuses carries its own copy of the ranges that matter.
+ * It is the same set the CLI escapes before printing a value (`packages/cli/src/usage.ts`) and the one
+ * every `ReceiptError` message is escaped through (`src/errors.ts`), which is the estate's answer to what
+ * a line is made of.
+ */
+const FORGES_A_LINE = /[\p{Cc}\p{Cf}\u{2028}\u{2029}\u{e0000}-\u{e007f}]/u;
+
+/**
+ * One attested text member, refused before a byte of it is signed if its text could forge a line.
+ *
+ * Each member this reaches is bounded in byte length and in nothing else, and each is printed somewhere:
+ * `iss`, `ins` and `mdl` beside the labels that name them, `mk.sch` in a marking row, `att.url` as the
+ * address a verifier fetches, `sd.name` as the source a stamp is claimed from, and `cva.col.r` and
+ * `cva.val.r` as the collector's own words for an absence it did not take in. A member carrying a line
+ * break signs a payload whose report is two lines, and the second one is whoever set the value's to
+ * write; a member carrying a directional isolate or a tag character prints a row whose visible text is
+ * not its byte order. Nothing about the CBOR is wrong in either case, which is why no reader caught it:
+ * a `tstr` encodes any code point. So this is the writer's question rather than the format's, and it is
+ * asked in `assertEncodable`, which is the one step every path to a signature goes through.
+ *
+ * The rule refused here is deliberately not the one the epoch inventory reads with. `requireLabel`
+ * (`src/epoch-inventory.ts`) refuses a label at the read of a document this package does not author,
+ * under `EPOCH_INVENTORY_BAD_DOCUMENT`, with a byte ceiling beside it, and its scan reaches no format
+ * character beyond a byte order mark, so a soft hyphen, a zero width space and a directional isolate pass
+ * it. Two helpers, not one: widening the read side would change which inventory documents this package
+ * accepts, which is a different decision on a different body of data, and narrowing this one to match
+ * would leave the class open to the characters a line is forged with. Each names the other so neither is
+ * merged into the wrong one later.
+ *
+ * Leading and trailing space is refused with the class for the inventory's stated reason, which is also
+ * this rule's own: these members are printed beside their labels by nothing that quotes them, and a value
+ * whose extent a reader cannot state is a value it cannot cite. Anything else about the value is not this
+ * refusal. A space in the middle of one, a length no ceiling here bounds, and text outside ASCII are all
+ * text a line is made of, and a document carrying them is signed exactly as it was handed over. A value
+ * that is not text at all is the membership walk's, not this one's, which is why this scan runs after it.
+ */
+function assertLineSafeText(value: unknown, position: string): void {
+  if (typeof value !== 'string') return;
+  for (const character of value) {
+    if (FORGES_A_LINE.test(character)) {
+      const code = character.codePointAt(0) ?? 0;
+      throw badPayload(`${position} carries the code point ${code.toString(16)}, which would forge a line this document never wrote`);
+    }
+  }
+  if (value !== value.trim()) {
+    throw badPayload(`${position} carries leading or trailing space, and it is printed beside its label unpadded`);
+  }
+}
+
+/** Every attested text member the version defines, in the order the format lists the class. */
+function assertAttestedText(members: Record<string, unknown>, defined: DefinedMap): void {
+  for (const row of ATTESTED_TEXT_ROWS) {
+    // A member this version does not define has no value to read, and the walk above already refused a
+    // document that carried one anyway, so reaching past a version's own member set is not on offer here.
+    if (row.owner !== undefined && !defined.members.includes(row.owner)) continue;
+    if (row.owner === undefined) {
+      for (const one of row.positions) {
+        if (defined.members.includes(one.wire)) assertLineSafeText(members[one.input], one.wire);
+      }
+      continue;
+    }
+    let holder: Record<string, unknown> = members;
+    for (const step of row.path) {
+      // Every map on this path was settled by the walk above: `att`, `mk` and `sd` by the nested member
+      // lists, and both legs of the anchor by `assertEncodableSlot`, which answers a non-map first.
+      holder = holder[step] as Record<string, unknown>;
+    }
+    for (const one of row.positions) assertLineSafeText(holder[one.input], `${row.position}.${one.wire}`);
+  }
+}
+
+/**
  * Whether the payload the writer was handed is one its version can state, in full, in these bytes.
  *
  * The projection below reads the members its version names, and a projection cannot notice a name it
@@ -739,6 +843,12 @@ function assertEncodableSlot(value: unknown, where: string): void {
  * rather than in a `nested` entry, the arms of the anchor and the element of the item list, are closed
  * here at the matching sites too, gated on the member being defined for the version rather than on the
  * version's number, which is what carries them into any later version that names them.
+ *
+ * A third question is answered here, and it is the writer's rather than the format's: an attested text
+ * member whose content would forge the line it is printed on is refused before one byte of the payload is
+ * signed, under this same code, because the encoder is the one step every path to a signature goes
+ * through and no reader can refuse what it only ever sees as a well-typed `tstr`. `assertLineSafeText`
+ * states the rule and what it reaches that the inventory's read-side scan does not.
  */
 function assertEncodable(payload: ReceiptPayload): void {
   const given = encodableMapOf(payload, 'payload');
@@ -774,6 +884,10 @@ function assertEncodable(payload: ReceiptPayload): void {
       assertEncodableMap(one, ITEM_STAMP_MEMBERS, `itm[${index}]`, 'the format');
     }
   }
+  // The members are settled before their characters are asked about, so a document that is short a
+  // member is refused for that and not for text this walk never reached. What the class is, and why it is
+  // refused here rather than read back, is `assertLineSafeText`'s own statement.
+  assertAttestedText(members, defined);
 }
 
 /**

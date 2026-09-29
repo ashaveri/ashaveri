@@ -3,12 +3,15 @@ import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import {
   decodeReceipt,
+  decodeCanonical,
+  encodeCanonical,
   encodePackManifest,
   encodePackProtectedHeader,
-  issueReceipt,
+  encodePayload,
   packRecordDigest,
   packSigStructure,
   sealPack,
+  signCoseSign1,
   signPack,
   signingKeyFromSeed,
   type CollateralSlot,
@@ -31,9 +34,13 @@ import {
  * The pack goes through `signPack` rather than the piecewise framing `verify-handover.test.ts` needs for its
  * fault cases, because every container built here is one the writer signs: a pack the format refuses to seal
  * would not reach the weighing, and a row that reached it because a local framing slipped past the writer would
- * be this file's document rather than the command's. The receipts are issued by `issueReceipt`, so the reader
+ * be this file's document rather than the command's. The receipts are laid out by `encodePayload`, so the reader
  * inside the pack check is the shipped one and the anchor slots are read from signed bytes the same way the
- * command reads them.
+ * command reads them. One member is written after that layout and before the signature: the writer refuses an
+ * attested text member carrying text that would forge the line it is printed on, and a case whose point is that
+ * a reader still has to report such a sentence is about a document this estate will no longer make but another
+ * issuer can hand over. `anchorReceiptOf` says which member that is put in afterwards, and why a reader's corpus
+ * is the one place it has to be.
  */
 
 const DATA = fileURLToPath(new URL('../../fixtures/data/', import.meta.url));
@@ -89,7 +96,21 @@ export function absent(reason: string): CollateralSlot {
   return { presence: 'absent-at-source', reason };
 }
 
-/** A `v: 3` receipt at `iat`, sealing the given anchor pair, signed under the published receipt key. */
+/** The sentence an absent slot carries when the case hands over one the writer will not sign. */
+const PLACEHOLDER_REASON = 'the collector read no window';
+
+/**
+ * A `v: 3` receipt at `iat`, sealing the given anchor pair, signed under the published receipt key.
+ *
+ * The layout is the writer's and the absence reason is put in afterwards, over a placeholder the writer did
+ * sign, because the writer refuses to seal text that would forge the line a member is printed on
+ * (`assertLineSafeText`, `packages/receipt/src/receipt.ts`). A case that hands this file a reason carrying a
+ * newline is not asking for a document this estate would issue; it is asking how a row reads a document it
+ * was handed, which is the half that stays open: an older issuer, or software that never read that refusal,
+ * signs such bytes today and a verifier has to report them rather than drop them. So the hostile reason
+ * arrives below the writer, at the same position and in the same encoding the writer would have used for the
+ * placeholder, and nothing about the layout, the ordering or the signature is hand-written here.
+ */
 export function anchorReceiptOf(slots: HeldPair, iat: number): Uint8Array {
   const payload: ReceiptPayload = {
     ...published,
@@ -97,10 +118,27 @@ export function anchorReceiptOf(slots: HeldPair, iat: number): Uint8Array {
     iat,
     mk: published.mk,
     sd: { name: 'host clock', uncertaintySeconds: null },
-    cva: { collateral: slots.col, validity: slots.val },
+    cva: { collateral: withPlaceholder(slots.col), validity: withPlaceholder(slots.val) },
     itm: [{ t: iat, d: digestOf(new TextEncoder().encode('the first item of the response')) }],
   };
-  return issueReceipt(payload, RECEIPT_KEY);
+  const laid = decodeCanonical(encodePayload(payload)) as Map<string, unknown>;
+  const anchor = laid.get('cva') as Map<string, unknown>;
+  for (const [leg, slot] of [['col', slots.col], ['val', slots.val]] as const) {
+    if (slot.presence === 'held') continue;
+    (anchor.get(leg) as Map<string, unknown>).set('r', slot.reason);
+  }
+  return signCoseSign1(encodeCanonical(laid), RECEIPT_KEY);
+}
+
+/**
+ * The slot as the writer will take it: an absent arm carries the placeholder sentence at the layout step, and
+ * the case's own words go in after it. Every absent arm is written this way, whether or not its reason would
+ * have been refused, so which reason a case chose is never the thing that decides whether a document of the
+ * case can be built at all. The measurement is the published one and no case here moves it, which is why
+ * laying the payload out and signing the result stands in for the issuing call without dropping a check.
+ */
+function withPlaceholder(slot: CollateralSlot): CollateralSlot {
+  return slot.presence === 'held' ? slot : { presence: slot.presence, reason: PLACEHOLDER_REASON };
 }
 
 /** One carried object: the material and the digest the reader recomputes rather than trusts. */
