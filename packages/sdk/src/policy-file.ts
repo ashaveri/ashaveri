@@ -5,6 +5,7 @@ import { MEASUREMENT_BYTES, isTeeKind, type TeeKind } from '@ashaveri/receipt';
 import { fromBase64Url, toBase64Url, toHex } from './b64.js';
 import { SdkError } from './errors.js';
 import type { EvidenceTrustAnchors } from './evidence.js';
+import { DEFAULT_MAX_EVIDENCE_AGE_SECONDS, DEFAULT_MAX_RECEIPT_AGE_SECONDS } from './policy.js';
 import type { AshaveriPolicy } from './policy.js';
 
 /**
@@ -54,6 +55,7 @@ const FIELDS = [
   'measurements',
   'maxReceiptAgeSeconds',
   'maxEvidenceAgeSeconds',
+  'maxTimeUncertaintySeconds',
   'trustAnchors',
 ] as const;
 
@@ -76,6 +78,18 @@ const PIN_FIELDS = ['issuers', 'instances', 'keys', 'measurements'] as const;
  * `policyFileFromPolicy` refuses the first of those two trades rather than making it, so a policy that
  * designates a manifest signer stays a policy built in code until moving every digest is decided in the
  * open.
+ */
+
+/**
+ * `maxTimeUncertaintySeconds` is the one field of this document whose normalised spelling is
+ * conditional, and it is the opposite trade to the one above, taken deliberately and in the open. A
+ * manifest signing key is a pin: reading it from the file while leaving it out of the canonical form
+ * would set a trust decision outside the identity of the document that states it. A demand about how
+ * far a stamp's source may stand from real time is not a pin and pins nothing on its own, so the only
+ * case a canonical omission would lose is the case where nothing was demanded, which is every policy
+ * already written and already cited by a digest. So a number an operator states is always inside the
+ * canonical form and always inside the digest, and an absent demand leaves the canonical form exactly
+ * as it was before this field existed. The rule as implemented is at `canonicalOf`.
  */
 
 const HEX_64 = /^[0-9a-f]{64}$/;
@@ -122,7 +136,10 @@ export interface PolicyFileTrustAnchors {
  * The document form in its normalised spelling: sets sorted, defaults written out, paths with
  * forward slashes. A pin collection is either present or absent, because `null`, `{}` and `[]` are
  * all one accident with different text; the two age windows and the three anchor families do accept
- * an explicit `null`, which is how a document says it considered them and took the default.
+ * an explicit `null`, which is how a document says it considered them and took the default. The time
+ * bound accepts `null` on the same reading, and it is the one field whose `null` is left out of the
+ * canonical form rather than written into it: see the note above this interface on why one optional
+ * field is normalised by omission and the two windows are not.
  */
 export interface PolicyFile {
   readonly v: number;
@@ -132,6 +149,14 @@ export interface PolicyFile {
   readonly measurements?: Readonly<Record<string, readonly string[]>>;
   readonly maxReceiptAgeSeconds: number | null;
   readonly maxEvidenceAgeSeconds: number | null;
+  /**
+   * How far the source a stamp was read from may stand from the instant it names, or `null` when the
+   * document demands nothing about it. An unsigned number, so `0` is a demand and says what it demands.
+   *
+   * `null` and an absent field are one policy here, as they are for the two windows above. What differs
+   * is the spelling that policy gets in the canonical form, which `canonicalOf` states and explains.
+   */
+  readonly maxTimeUncertaintySeconds: number | null;
   readonly trustAnchors: PolicyFileTrustAnchors;
 }
 
@@ -394,9 +419,19 @@ function base64Url32(label: string, value: unknown): string {
   return value;
 }
 
-function seconds(label: string, value: unknown): number {
-  if (typeof value !== 'number' || !Number.isSafeInteger(value) || value < 1) {
-    throw invalid(`${label} must be a whole number of seconds of at least 1, not ${spelled(value)}`);
+/**
+ * A whole number of seconds at or above `least`. `Number.isSafeInteger` is the check that refuses a
+ * value past the point an integer stops being exact: a bound a reader cannot state exactly is not the
+ * bound the document names, and the digits in the file and the number the loader keeps would be two
+ * different demands.
+ *
+ * The two windows take a floor of 1, where a window of no seconds is a refusal rather than a window.
+ * The time bound takes a floor of 0, because demanding that a stamp's source be exact is a sentence an
+ * operator can mean and the format has to be able to carry it.
+ */
+function seconds(label: string, value: unknown, least: number): number {
+  if (typeof value !== 'number' || !Number.isSafeInteger(value) || value < least) {
+    throw invalid(`${label} must be a whole number of seconds of at least ${least}, not ${spelled(value)}`);
   }
   return value;
 }
@@ -545,8 +580,8 @@ function readTrustAnchors(value: unknown): PolicyFileTrustAnchors {
  * Reads one policy document.
  *
  * The result is the document in its normalised spelling: sets sorted, every anchor family written
- * out, and both age windows present as a number or `null`. `policyFileDigest` is defined on this
- * form, so a digest is a fact about the policy and not about how a copy happened to be laid out.
+ * out, both age windows and the time bound present as a number or `null`. `policyFileDigest` is defined
+ * on this form, so a digest is a fact about the policy and not about how a copy happened to be laid out.
  */
 export function parsePolicyFile(text: string): PolicyFile {
   const document = scanJson(text);
@@ -571,11 +606,15 @@ export function parsePolicyFile(text: string): PolicyFile {
     maxReceiptAgeSeconds:
       raw['maxReceiptAgeSeconds'] === undefined || raw['maxReceiptAgeSeconds'] === null
         ? null
-        : seconds("'maxReceiptAgeSeconds'", raw['maxReceiptAgeSeconds']),
+        : seconds("'maxReceiptAgeSeconds'", raw['maxReceiptAgeSeconds'], 1),
     maxEvidenceAgeSeconds:
       raw['maxEvidenceAgeSeconds'] === undefined || raw['maxEvidenceAgeSeconds'] === null
         ? null
-        : seconds("'maxEvidenceAgeSeconds'", raw['maxEvidenceAgeSeconds']),
+        : seconds("'maxEvidenceAgeSeconds'", raw['maxEvidenceAgeSeconds'], 1),
+    maxTimeUncertaintySeconds:
+      raw['maxTimeUncertaintySeconds'] === undefined || raw['maxTimeUncertaintySeconds'] === null
+        ? null
+        : seconds("'maxTimeUncertaintySeconds'", raw['maxTimeUncertaintySeconds'], 0),
     trustAnchors: readTrustAnchors(raw['trustAnchors']),
   };
   requireSomePinning(file);
@@ -625,6 +664,14 @@ function canonicalValue(value: unknown): string {
  * `@ashaveri/attest-core` is installed rather than of this document, so writing those digests in
  * would tie a customer's signed identity to a library version. An unpinned family is written as
  * `null`, which says plainly that no root was pinned here.
+ *
+ * `maxTimeUncertaintySeconds` is written only when the document states a demand. A number an operator
+ * named is a decision this policy carries, so it is inside the canonical form and inside the digest,
+ * and whoever holds the document can see from it alone, without asking the deployment, whether a bound
+ * on a stamp's source was asked for. A demand nobody stated is written as nothing at all rather than as
+ * `null`, which is what keeps the digest of a policy that never made the demand the digest it carried
+ * before this field existed, and `test/policy-replay.test.ts` pins that fact as numbers rather than as
+ * this sentence. The trade itself is argued at the note above `PolicyFile`.
  */
 function canonicalOf(file: PolicyFile): Record<string, unknown> {
   const shape: unknown = file;
@@ -640,6 +687,11 @@ function canonicalOf(file: PolicyFile): Record<string, unknown> {
   if (given['v'] !== POLICY_FORMAT_VERSION) {
     throw invalid(`'v' is ${spelled(given['v'])}, but v must be ${POLICY_FORMAT_VERSION} to be read by this loader`);
   }
+  // The fields the loader always spells, so a document missing one was never read by it. The time bound
+  // is absent from this list on purpose and not by oversight: `null` and no key at all are one demand
+  // there, as the note above `PolicyFile` argues, and a guard that asked a hand-built document to state
+  // the key would be one step from a canonical form that always carries it, which moves every digest
+  // anyone has cited.
   for (const field of ['maxReceiptAgeSeconds', 'maxEvidenceAgeSeconds', 'trustAnchors'] as const) {
     if (given[field] === undefined) {
       throw invalid(`'${field}' is missing, so the document was never normalised by the loader`);
@@ -659,7 +711,7 @@ function canonicalOf(file: PolicyFile): Record<string, unknown> {
     written[family] = entries === undefined || entries === null ? null : sortUnique(entries as PolicyTrustAnchor[], canonicalValue);
   }
   const measurements = given['measurements'] as Record<string, readonly string[]> | undefined;
-  return {
+  const canonical: Record<string, unknown> = {
     issuers: given['issuers'] === undefined ? null : sortUnique(given['issuers'] as readonly string[]),
     instances: given['instances'] === undefined ? null : sortUnique(given['instances'] as readonly string[]),
     keys:
@@ -681,6 +733,9 @@ function canonicalOf(file: PolicyFile): Record<string, unknown> {
     trustAnchors: written,
     v: POLICY_FORMAT_VERSION,
   };
+  const demanded = given['maxTimeUncertaintySeconds'];
+  if (demanded !== undefined && demanded !== null) canonical['maxTimeUncertaintySeconds'] = demanded;
+  return canonical;
 }
 
 /**
@@ -749,8 +804,41 @@ export function policyFileFromPolicy(
       Object.entries(policy.measurements).map(([kind, list]) => [kind, [...list]]),
     );
   }
+  // A window this text form cannot spell is refused here, while each number is still in hand, on the
+  // same rule the stamp-source demand below is held to. A non-finite window survives no further than
+  // `JSON.stringify`, which writes it as `null`, and `null` in one of these two keys is this format's
+  // spelling of a policy that names no window of its own: a reader of the published document would then
+  // run the shipped default the operator meant to switch off. The off switch lives where it works, on
+  // the policy object a calling process hands to a verifier. The message says both of that operator's
+  // two ways out, because dropping the field is not one of them: it lands on the same default this
+  // refusal exists to keep out of a published document.
+  const windows: Array<[string, number | undefined, number, number]> = [
+    ['maxReceiptAgeSeconds', policy.maxReceiptAgeSeconds, DEFAULT_MAX_RECEIPT_AGE_SECONDS, 1],
+    ['maxEvidenceAgeSeconds', policy.maxEvidenceAgeSeconds, DEFAULT_MAX_EVIDENCE_AGE_SECONDS, 1],
+  ];
+  for (const [field, named, shipped, floor] of windows) {
+    if (named !== undefined && !Number.isFinite(named)) {
+      throw invalid(
+        `'${field}' is ${String(named)}, which no policy document can carry as a window: the written form of it is null, and null is this format's spelling of a policy that names no window of its own, so publishing this policy would pin the shipped ${shipped}-second default instead. Name a whole number of seconds at or above ${floor} for '${field}', or keep the open window on the policy object this process hands to a verifier: leaving '${field}' out of the document is that same default, not this refusal switched off`,
+      );
+    }
+  }
   document['maxReceiptAgeSeconds'] = policy.maxReceiptAgeSeconds ?? null;
   document['maxEvidenceAgeSeconds'] = policy.maxEvidenceAgeSeconds ?? null;
+  // Written only when the policy states a demand, which is the reading the canonical form takes too: a
+  // policy that demands nothing about a stamp's source is the policy that existed before this field
+  // did, and its digest says so by carrying no key for it.
+  if (policy.maxTimeUncertaintySeconds !== undefined) {
+    // Refused here, while the number is still in hand. A non-finite demand survives no further than the
+    // text form of this document, which writes it as `null`, and `null` is this format's spelling of a
+    // policy that asks nothing of a stamp's source, so the demand would reach an auditor as its absence.
+    if (!Number.isFinite(policy.maxTimeUncertaintySeconds)) {
+      throw invalid(
+        `'maxTimeUncertaintySeconds' is ${String(policy.maxTimeUncertaintySeconds)}, which no policy document can carry as a demand: the written form of it is null, and null is this format's spelling of a policy that asks nothing of a stamp's source`,
+      );
+    }
+    document['maxTimeUncertaintySeconds'] = policy.maxTimeUncertaintySeconds;
+  }
   return parsePolicyFile(JSON.stringify(document));
 }
 
@@ -764,6 +852,11 @@ export function policyFileToJson(file: PolicyFile): string {
   }
   write['maxReceiptAgeSeconds'] = canonical['maxReceiptAgeSeconds'];
   write['maxEvidenceAgeSeconds'] = canonical['maxEvidenceAgeSeconds'];
+  // A demand that was never made is not written into the file, exactly as `canonicalOf` leaves it out
+  // of the identity, so the text worth putting in a repository reads the same as the digest does.
+  if (canonical['maxTimeUncertaintySeconds'] !== undefined) {
+    write['maxTimeUncertaintySeconds'] = canonical['maxTimeUncertaintySeconds'];
+  }
   write['trustAnchors'] = canonical['trustAnchors'];
   write['v'] = canonical['v'];
   return `${JSON.stringify(rekeySorted(write), null, 2)}\n`;
@@ -847,6 +940,7 @@ function toPolicy(file: PolicyFile, anchors: EvidenceTrustAnchors | undefined): 
     measurements: file.measurements,
     maxReceiptAgeSeconds: file.maxReceiptAgeSeconds ?? undefined,
     maxEvidenceAgeSeconds: file.maxEvidenceAgeSeconds ?? undefined,
+    maxTimeUncertaintySeconds: file.maxTimeUncertaintySeconds ?? undefined,
   };
   return anchors === undefined ? policy : { ...policy, trustAnchors: anchors };
 }

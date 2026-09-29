@@ -1,5 +1,6 @@
 import { toHex } from './b64.js';
 import { fromBase64Url } from './b64.js';
+import { SdkError } from './errors.js';
 import type { EvidenceTrustAnchors } from './evidence.js';
 import type { DeploymentManifest } from './manifest.js';
 
@@ -79,6 +80,10 @@ export const DEFAULT_MAX_EVIDENCE_AGE_SECONDS = 900;
  * It is also where the two clocks are set, and both of them run unless this object says
  * otherwise: strict verification is the path that has a policy, so the defaults above are the
  * defaults for a caller who configures nothing.
+ *
+ * The third time rule here runs the other way round. `maxTimeUncertaintySeconds` bounds how far the
+ * source behind a stamp may be from real time, it has no default at all, and it refuses only when a
+ * caller writes the demand: a bound nobody asked for is not a verdict anybody should reach.
  */
 export interface AshaveriPolicy {
   readonly issuers?: readonly string[];
@@ -118,19 +123,124 @@ export interface AshaveriPolicy {
    * guards it. Infinity means "I have thought about this, and the clock must not vote": it is what
    * a caller verifying an archived receipt writes, deliberately, because the alternative is a
    * number that silently accepts the archive too.
+   *
+   * That off switch is this object's, and it is read by whatever verifier the caller hands it to. A
+   * version 1 policy document spells a window as a whole number of seconds or as `null`, and `null`
+   * loads back as the absent field, which is the default guarding the clock; `policyFileFromPolicy`
+   * refuses a non-finite window rather than writing one out as `null`, so a policy published as a
+   * document names a number or names none, and a policy that runs no clock stays in the process that
+   * verifies it.
    */
   readonly maxReceiptAgeSeconds?: number;
   /**
    * The client's own bound on how far a receipt's `att.ts` may sit from its clock, with the same
    * two readings as `maxReceiptAgeSeconds`: a number wins over `DEFAULT_MAX_EVIDENCE_AGE_SECONDS`,
    * and `Number.POSITIVE_INFINITY` is the deliberate off switch rather than the absence of one.
+   * The document route has the same rule for this window as for that one, and the same refusal.
    */
   readonly maxEvidenceAgeSeconds?: number;
+  /**
+   * How far the source a stamp was read from may stand from the instant it names, demanded of the
+   * deployment rather than measured by the client. A reviewer's demand turned into a number: it bounds
+   * how far a receipt's `iat` may be from the instant it states, which is the one time question a
+   * receipt's own bytes cannot answer.
+   *
+   * This is not a window and it has no default beside it, on purpose. The two numbers above close a
+   * span between a signed instant and this clock, and a caller that named none still gets the shipped
+   * allowance. This one asks how good the signed instant itself was, and a default would answer that
+   * question for every deployment that has never been asked it: any number here refuses
+   * `HOST_CLOCK_SOURCE`, which is what a gateway that wired no measured source stamps with, so a
+   * shipped default would turn an unasked question into a verdict and move it. An absent field demands
+   * nothing, which is what keeps a policy written before this field existed reading the same document
+   * the same way, and `0` is a demand rather than a weaker one: only a source that declares its
+   * readings exact answers it.
+   *
+   * The bound is checked against what the source declares about itself, not against what this clock
+   * says the stamp was off by, so the number is the deployment's statement and the demand is the
+   * client's. Read it through `assertStampSourceWithinPolicy`, which is the one place the comparison
+   * lives.
+   *
+   * This field defines no sentinel, where the two windows above make `Number.POSITIVE_INFINITY` one. A
+   * demand of `Number.POSITIVE_INFINITY` bounds nothing and a demand of `Number.NaN` bounds nothing
+   * too, since no declared number is ever above infinity and every comparison against a not-a-number is
+   * false, so a policy object carrying either accepts every source it is handed. Neither spelling
+   * survives the way out into a document: `policyFileFromPolicy` refuses both rather than let a demand
+   * an operator wrote arrive as the absence of one.
+   */
+  readonly maxTimeUncertaintySeconds?: number;
   /**
    * Vendor roots hardware evidence must chain to. Omit to accept the roots
    * bundled with `@ashaveri/attest-core`; set it to pin your own.
    */
   readonly trustAnchors?: EvidenceTrustAnchors;
+}
+
+/**
+ * Where a stamp's instant came from, as the party that read it states it: a name, and how far its
+ * readings can stand from the instant they name.
+ *
+ * The pair is not invented here. `gateway/src/store.ts` states exactly these two fields as
+ * `StampDeclaration`, on the store through `timeSource()` and beside every record a range walk hands
+ * back, because a stamp without its source is a number nobody can weigh, and the receipt's own bytes
+ * carry neither: the bound belongs to the deployment's declaration and not to the signed payload. A
+ * caller hands over what it was handed, and this is the shape both of those statements arrive in.
+ *
+ * `uncertaintySeconds` of `null` means nobody measured, which is a different sentence from a bound of
+ * zero and is refused by a policy that demands one.
+ */
+export interface StampSourceDeclaration {
+  readonly name: string;
+  readonly uncertaintySeconds: number | null;
+}
+
+/**
+ * Refuse a stamp whose source stands further from real time than the policy demands.
+ *
+ * Three refusals below, and a state that reaches none of them: a policy naming no bound demands
+ * nothing, so every stamp passes and no verdict taken under such a policy moves, which is what
+ * `test/policy-replay.test.ts` holds by pinning the digests and verdicts such a policy had before this
+ * demand could be stated.
+ *
+ * The three are a source declaring more than the demand, a source declaring that nobody measured one,
+ * which is refused rather than read as a bound of zero, and a source declaring something that is not a
+ * count of seconds at all. Every message names the source and the bound the policy demands, and the two
+ * refusals that have a number the source declared state it beside that bound. Why the unmeasured case
+ * is refused, and what an operator does about any of the three, is argued once at the row this code has
+ * in `docs/error-codes.md`, and the messages below are the sentences its tests hold.
+ */
+export function assertStampSourceWithinPolicy(
+  policy: AshaveriPolicy | undefined,
+  source: StampSourceDeclaration,
+): void {
+  const demanded = policy?.maxTimeUncertaintySeconds;
+  if (demanded === undefined) return;
+  const declared = source.uncertaintySeconds;
+  if (declared === null) {
+    throw new SdkError(
+      'STAMP_SOURCE_TOO_UNCERTAIN',
+      `a stamp read from '${source.name}' is refused: that source declares no measured uncertainty at all, and an ` +
+        `unmeasured claim is not a bound of zero, so nothing here shows it inside the ${demanded} seconds this policy ` +
+        `demands a stamp's source be bounded at. Either the deployment wires a source that carries a measurement, or ` +
+        `the policy says in writing that it demands nothing`,
+    );
+  }
+  if (!Number.isFinite(declared) || declared < 0) {
+    throw new SdkError(
+      'STAMP_SOURCE_TOO_UNCERTAIN',
+      `a stamp read from '${source.name}' is refused: the source declares ${String(declared)} seconds of ` +
+        `uncertainty, which is no number of seconds a reading can be away by, so it answers the ${demanded} seconds ` +
+        `this policy demands a stamp's source be bounded at with nothing that can be weighed against it`,
+    );
+  }
+  if (declared > demanded) {
+    throw new SdkError(
+      'STAMP_SOURCE_TOO_UNCERTAIN',
+      `a stamp read from '${source.name}' is refused: its readings can stand ${declared} seconds away from the ` +
+        `instants they name, which is wider than the ${demanded} seconds this policy demands a stamp's source be ` +
+        `bounded at. Either the deployment wires a better-bounded source, or the policy lowers the demand to the ` +
+        `number that source actually carries`,
+    );
+  }
 }
 
 /**
@@ -149,7 +259,9 @@ export interface AshaveriPolicy {
  * Neither window is set here, and that is the point. The manifest comes from the party being
  * verified, so it is not where a freshness rule may be loosened: what a manifest-derived policy
  * checks the clock against is `DEFAULT_MAX_RECEIPT_AGE_SECONDS` and
- * `DEFAULT_MAX_EVIDENCE_AGE_SECONDS`, which are in this package's code and on no wire.
+ * `DEFAULT_MAX_EVIDENCE_AGE_SECONDS`, which are in this package's code and on no wire. For the same
+ * reason no bound on a stamp's source is asked for here either: a deployment cannot set the demand a
+ * client makes of it, so a manifest-derived policy demands nothing and refuses nothing on that leg.
  */
 export function policyFromManifest(manifest: DeploymentManifest): AshaveriPolicy {
   const keys: Record<string, string> = {};

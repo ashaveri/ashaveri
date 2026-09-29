@@ -741,19 +741,19 @@ export function assessCapture(params: AssessCaptureParams): CaptureVerdict {
     );
   }
 
-  // The limits the record was checked under sit beside the ones this reader ran. A disagreement is never
-  // a pass and never a refusal either: the record's looser window is a somebody-else reached, and what
-  // this caller has is the verdict computed under its own.
+  // The limits the record states sit beside the ones this reader ran. A difference is never a pass and
+  // never a refusal either: the record's looser window is a somebody-else reached, and what this caller
+  // has is the verdict computed under its own.
   const appliedReceipt = policy?.maxReceiptAgeSeconds ?? DEFAULT_MAX_RECEIPT_AGE_SECONDS;
   const appliedEvidence = policy?.maxEvidenceAgeSeconds ?? DEFAULT_MAX_EVIDENCE_AGE_SECONDS;
   if (record.trust.limits.maxReceiptAgeSeconds !== appliedReceipt) {
     qualifications.push(
-      `the record was checked under a receipt window of ${stateWindow(record.trust.limits.maxReceiptAgeSeconds)} while this reader applied ${stateWindow(appliedReceipt)}`,
+      `the record states ${stateWindow(record.trust.limits.maxReceiptAgeSeconds)} for the receipt window while this reader applied ${stateWindow(appliedReceipt)}`,
     );
   }
   if (record.trust.limits.maxEvidenceAgeSeconds !== appliedEvidence) {
     qualifications.push(
-      `the record was checked under an evidence window of ${stateWindow(record.trust.limits.maxEvidenceAgeSeconds)} while this reader applied ${stateWindow(appliedEvidence)}`,
+      `the record states ${stateWindow(record.trust.limits.maxEvidenceAgeSeconds)} for the evidence window while this reader applied ${stateWindow(appliedEvidence)}`,
     );
   }
 
@@ -786,8 +786,14 @@ export function assessCapture(params: AssessCaptureParams): CaptureVerdict {
   };
 }
 
+/**
+ * One window in the words a qualification carries. A record states a whole number of seconds or names
+ * none, and a null says only the latter: it is not a window that stayed open, which this reader can meet
+ * only in the policy object its own caller handed it, because `parseCaptureRecord` admits no other
+ * spelling on a record's side.
+ */
 function stateWindow(value: number | null): string {
-  if (value === null) return 'no window';
+  if (value === null) return 'no window of its own';
   if (!Number.isFinite(value)) return 'a window that never closes';
   return `${value}s`;
 }

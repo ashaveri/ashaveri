@@ -37,10 +37,11 @@ export type { ManifestAuthentication, ReadManifestResult } from './manifest-auth
 export {
   DEFAULT_MAX_EVIDENCE_AGE_SECONDS,
   DEFAULT_MAX_RECEIPT_AGE_SECONDS,
+  assertStampSourceWithinPolicy,
   policyFromManifest,
   policyKeyByKid,
 } from './policy.js';
-export type { AshaveriPolicy } from './policy.js';
+export type { AshaveriPolicy, StampSourceDeclaration } from './policy.js';
 export {
   ANCHOR_FAMILIES,
   loadPolicyFile,

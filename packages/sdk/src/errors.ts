@@ -23,6 +23,16 @@ export type SdkErrorCode =
   | 'ISSUER_NOT_ALLOWED'
   | 'INSTANCE_NOT_ALLOWED'
   | 'MEASUREMENT_NOT_ALLOWED'
+  // A stamp read from a source that cannot answer the demand a policy makes about it. One code covers
+  // the three ways a source fails that demand, a wider uncertainty than the bound, a source nobody ever
+  // measured, and a source declaring something that is not a count of seconds, because the policy asks
+  // one question and none of the three answers it. What each refusal says, and why the unmeasured one is
+  // not read as a bound of zero, is carried by the row this code has in `docs/error-codes.md` and by the
+  // messages the raise site builds in `policy.ts`, which are the two copies a test can weigh, and it is
+  // not argued out again here.
+  // Not a pin code: nothing here was mismatched against a list of names, and a reader told an issuer is
+  // unpinned looks in a different file from one told their clock is not bounded well enough
+  | 'STAMP_SOURCE_TOO_UNCERTAIN'
   | 'GATEWAY_ERROR'
   | 'NOT_RECEIPTED'
   // A capture record. Both answer the question of what a reader was told to read and did not
