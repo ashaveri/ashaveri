@@ -601,6 +601,8 @@ export interface PackVectorFile {
   layout: {
     format: string;
     twin: string;
+    /** The standalone statement of this container, which its own document test holds to the twin. */
+    document: string;
     prose: string;
     contentType: string;
     writer: string;

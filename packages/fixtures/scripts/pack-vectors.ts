@@ -1092,6 +1092,7 @@ function main() {
         layout: {
           format: 'packages/receipt/pack.cddl',
           twin: 'packages/receipt/schemas/pack-v2.schema.json',
+          document: 'docs/pack-v2.md',
           prose: 'docs/receipt-spec.md section 5.2',
           contentType: PACK_CONTENT_TYPE,
           writer:

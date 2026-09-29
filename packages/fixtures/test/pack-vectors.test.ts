@@ -87,7 +87,12 @@ describe('the evidence pack vectors', () => {
     expect(file.layout.headerLabels).toEqual({ alg: 1, typ: 3, kid: 4 });
     // Every path the file names is a file, and the format and the twin still carry the content type this
     // suite is about: a port pointed at a document that no longer states the type would compare the wrong pair.
-    for (const path of [file.layout.format, file.layout.twin, file.layout.prose.split(' ')[0] ?? '']) {
+    for (const path of [
+      file.layout.format,
+      file.layout.twin,
+      file.layout.document,
+      file.layout.prose.split(' ')[0] ?? '',
+    ]) {
       expect(existsSync(fileURLToPath(new URL(`../../../${path}`, import.meta.url))), `${path} is named by the suite and is not there`).toBe(true);
     }
     const cddl = readFileSync(fileURLToPath(new URL(`../../../${file.layout.format}`, import.meta.url)), 'utf8');

@@ -4,6 +4,7 @@
   "layout": {
     "format": "packages/receipt/pack.cddl",
     "twin": "packages/receipt/schemas/pack-v2.schema.json",
+    "document": "docs/pack-v2.md",
     "prose": "docs/receipt-spec.md section 5.2",
     "contentType": "ashaveri/pack",
     "writer": "signPack in @ashaveri/receipt, which every honest seal here went through, and encodePackManifest, encodePackProtectedHeader, packSigStructure and sealPack, which assembled the rows that writer refuses to sign",
