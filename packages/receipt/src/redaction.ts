@@ -288,14 +288,6 @@ function survivorFold(anchor: Uint8Array, survivors: readonly SurvivorRecord[]):
 }
 
 /**
- * The manifest, as the CBOR map `redaction.cddl` declares it: one Map, so key order is bytewise under Core
- * Deterministic Encoding and no field order in a caller's object can move a byte of what gets signed. The
- * members come in the order the CDDL lists them, and every integer goes out through `encodeCanonical`, the
- * package's one place where the bytes of a number are chosen. That is not cosmetics: a reader recomputes the
- * designation over the pack's bytes and the chain over the survivors' bytes, and a writer that spelled a
- * number another way would make a deployment refuse its own redaction.
- */
-/**
  * The removal list, before it is spread into the encoder's map. A manifest carrying no `removed` is an absent
  * member of the class `REDACTION_BAD_MANIFEST` names, and the spread answers `TypeError: manifest.removed is
  * not iterable` with no code on it at all, so the question is asked here rather than at the copy. The
@@ -306,6 +298,14 @@ function encodableIds(value: unknown): readonly string[] {
   return value as readonly string[];
 }
 
+/**
+ * The manifest, as the CBOR map `redaction.cddl` declares it: one Map, so key order is bytewise under Core
+ * Deterministic Encoding and no field order in a caller's object can move a byte of what gets signed. The
+ * members come in the order the CDDL lists them, and every integer goes out through `encodeCanonical`, the
+ * package's one place where the bytes of a number are chosen. That is not cosmetics: a reader recomputes the
+ * designation over the pack's bytes and the chain over the survivors' bytes, and a writer that spelled a
+ * number another way would make a deployment refuse its own redaction.
+ */
 export function encodeRedactionManifest(manifest: RedactionManifest): Uint8Array {
   const removed = encodableIds(manifest.removed);
   return encodeCanonical(
