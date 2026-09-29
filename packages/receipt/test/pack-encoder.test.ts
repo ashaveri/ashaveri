@@ -340,6 +340,49 @@ describe('the pack writer', () => {
     expect(codeOf(() => signPack(honest, KEY))).toBe('accepted');
   });
 
+  it('refuses a manifest carrying no map it has to copy, in the sentence its reader uses', () => {
+    // A `chain` that is not there at all is an absent member of the class this container's row names, and the
+    // encoder reached through it for the map it builds: `TypeError: Cannot read properties of undefined (reading
+    // 'anchor')`, which carries no code a caller can branch on. Each row hands the writer one manifest missing
+    // one member and asks the reader about the same document with that member deleted past the writer, so the
+    // two answers are held to be one sentence rather than two written to agree. The rows run in the order the
+    // reader asks its own questions in, which is the order the writer now asks them in.
+    const honest = manifestOf();
+    const headerBytes = encodePackProtectedHeader(KEY.kid);
+    const readBack = (edit: (root: Map<string, unknown>) => void): ReceiptError => {
+      const root = handManifestMap(honest);
+      edit(root);
+      const payloadBytes = encodeCanonical(root);
+      const sealed = sealPack(headerBytes, payloadBytes, ed25519.sign(packSigStructure(headerBytes, payloadBytes), KEY.privateKey));
+      const thrown = thrownBy(() => decodePack(sealed));
+      if (!(thrown instanceof ReceiptError)) throw new Error('the reader took a document with a member deleted from it');
+      return thrown;
+    };
+    const holes: Array<[string, PackManifest, (root: Map<string, unknown>) => void]> = [
+      ['no span', { ...honest, span: undefined } as unknown as PackManifest, (root) => root.delete('span')],
+      ['no chain', { ...honest, chain: undefined } as unknown as PackManifest, (root) => root.delete('chain')],
+      ['no duty', { ...honest, duty: undefined } as unknown as PackManifest, (root) => root.delete('duty')],
+      ['no items', { ...honest, items: undefined } as unknown as PackManifest, (root) => root.delete('items')],
+      [
+        'an item that is not there',
+        { ...honest, items: [undefined as unknown as PackItem] },
+        (root) => {
+          const items = root.get('items');
+          if (Array.isArray(items)) items[0] = null;
+        },
+      ],
+    ];
+    for (const [name, value, edit] of holes) {
+      const written = thrownBy(() => encodePackManifest(value));
+      expect(written, `${name} was encoded`).toBeInstanceOf(ReceiptError);
+      expect((written as ReceiptError).code, name).toBe('PACK_BAD_MANIFEST');
+      // Neither does a signature land on a manifest the writer cannot state in full.
+      expect(codeOf(() => signPack(value, KEY)), `${name} was signed`).toBe('PACK_BAD_MANIFEST');
+      expect((written as ReceiptError).message, `${name} answered beside its own reader`).toBe(readBack(edit).message);
+    }
+    expect(codeOf(() => signPack(honest, KEY))).toBe('accepted');
+  });
+
   it('refuses a signing key whose kid resolves to no key', () => {
     // A pack whose header names a kid nothing hashes to is unverifiable by construction, and `verifyPack`
     // answers that as `PACK_KID_MISMATCH` against any key a caller can hold. The writer refuses it where the

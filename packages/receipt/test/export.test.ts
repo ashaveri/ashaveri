@@ -1068,6 +1068,59 @@ describe('the export reader', () => {
     }
   });
 
+  it('refuses a manifest carrying no map it has to copy, in the sentence its reader uses', () => {
+    // A manifest with no `assessment` is an absent member of the class this container's row names, and the
+    // encoder reached through it for the map it builds: `TypeError: Cannot read properties of undefined (reading
+    // 'k')`, which carries no code a caller can branch on. Each row hands the writer one manifest missing one
+    // member and asks the reader about the same document with that member deleted past the writer, so the two
+    // answers are held to one sentence rather than two written to agree. The rows run in the order the reader
+    // asks its questions in, which is the order the writer now asks them in.
+    const whole = manifest({ collection: plainCollection('inline') });
+    const sealed = sealedManifest('plain');
+    const thrownOf = (run: () => unknown): unknown => {
+      try {
+        run();
+        return null;
+      } catch (err) {
+        return err;
+      }
+    };
+    const holes: Array<[string, ExportManifest, (root: Map<unknown, unknown>) => void]> = [
+      ['no assessment', { ...whole, assessment: undefined } as unknown as ExportManifest, (root) => root.delete('assessment')],
+      ['no collection', { ...whole, collection: undefined } as unknown as ExportManifest, (root) => root.delete('collection')],
+      ['no claim', { ...whole, claim: undefined } as unknown as ExportManifest, (root) => root.delete('claim')],
+      [
+        'no items under the arm that carries them',
+        { ...whole, collection: { k: 'plain' } as unknown as ExportCollection },
+        (root) => mapOf(child(root, 'collection'), 'collection').delete('items'),
+      ],
+      [
+        'an item that is not there',
+        { ...whole, collection: { k: 'plain', items: [undefined as unknown as ExportItem] } },
+        (root) => {
+          const items = child(child(root, 'collection'), 'items');
+          if (Array.isArray(items)) items[0] = null;
+        },
+      ],
+      [
+        'an item with no original',
+        { ...whole, collection: { k: 'plain', items: [{ id: 'item-0', iat: CLOCK, d: sha256(bytesOf('contract text')) } as unknown as ExportItem] } },
+        (root) => itemOf(root, 0).delete('orig'),
+      ],
+    ];
+    for (const [name, value, edit] of holes) {
+      const written = thrownOf(() => encodeExportManifest(value));
+      expect(written, `${name} was encoded`).toBeInstanceOf(ReceiptError);
+      expect(codeOf(written), name).toBe('EXPORT_BAD_MANIFEST');
+      // Neither does a signature land on a manifest the writer cannot state in full.
+      expect(sealedBy(value), `${name} was signed`).toBe('EXPORT_BAD_MANIFEST');
+      const read = thrownByDecode(editSealed(sealed, edit));
+      expect(read, `${name} was read as a whole document`).toBeInstanceOf(ReceiptError);
+      expect((written as Error).message, `${name} answered beside its own reader`).toBe((read as Error).message);
+    }
+    expect(() => encodeExportManifest(whole)).not.toThrow();
+  });
+
   it('refuses an envelope that is not one, whatever it holds', () => {
     expect(codeOf(thrownByDecode(new Uint8Array([0xff])))).toBe('EXPORT_MALFORMED_CBOR');
     expect((thrownByDecode(encodeCanonical([1, 2, 3])) as Error).message).toMatch(/tag 18/u);

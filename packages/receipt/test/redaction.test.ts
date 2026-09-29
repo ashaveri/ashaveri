@@ -327,6 +327,7 @@ describe('the redaction writer and its own reader', () => {
     const manifest = baseManifest(PACK, ['receipt-1']);
     const faults: Array<[string, RedactionManifest, string]> = [
       ['a removal list with nothing in it', { ...manifest, removed: [] }, 'REDACTION_BAD_MANIFEST'],
+      ['no removal list at all', { ...manifest, removed: undefined as unknown as readonly string[] }, 'REDACTION_BAD_MANIFEST'],
       ['an empty id in the list', { ...manifest, removed: [''] }, 'REDACTION_BAD_MANIFEST'],
       [
         'an id wider than the two-byte length the framing gives it',
@@ -345,6 +346,34 @@ describe('the redaction writer and its own reader', () => {
     for (const [name, edited, code] of faults) {
       expect(thrownCode(() => signRedaction(edited, KEY)), `${name} was signed`).toBe(code);
     }
+  });
+
+  it('refuses a removal list that is not there, in the sentence its reader uses', () => {
+    // The copy of the ids into the encoder's map died on an absent `removed` with `TypeError: manifest.removed
+    // is not iterable`, which is no code a caller can branch on. The writer now answers the sentence
+    // `readRemoved` answers over the bytes for the same missing member, and this holds the two to one answer.
+    const manifest = baseManifest(PACK, ['receipt-1']);
+    const missing = { ...manifest, removed: undefined as unknown as readonly string[] };
+    const thrownOf = (run: () => unknown): unknown => {
+      try {
+        run();
+        return null;
+      } catch (err) {
+        return err;
+      }
+    };
+    const written = thrownOf(() => encodeRedactionManifest(missing));
+    expect(written).toBeInstanceOf(ReceiptError);
+    expect(thrownCode(() => signRedaction(missing, KEY))).toBe('REDACTION_BAD_MANIFEST');
+    const root = decodeCanonical(encodeRedactionManifest(manifest));
+    if (!(root instanceof Map)) throw new Error('a manifest this file encoded did not come back as a map');
+    root.delete('removed');
+    const editedBytes = encodeCanonical(root);
+    const header = encodeRedactionProtectedHeader(KEY.kid);
+    const sealed = sealRedaction(header, editedBytes, ed25519.sign(redactionSigStructure(header, editedBytes), KEY.privateKey));
+    const read = thrownOf(() => decodeRedaction(sealed));
+    expect(read, 'the reader took a manifest with no removal list in it').toBeInstanceOf(ReceiptError);
+    expect((written as Error).message).toBe((read as Error).message);
   });
 
   it('refuses a signing key whose kid is not sha256 of its public half', () => {
