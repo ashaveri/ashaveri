@@ -6,8 +6,11 @@ import { sha256 } from '@noble/hashes/sha2.js';
  *
  * No answer of the vendor's is stored in this repository, so every document a test hands to the reader is
  * built to the shape `intel-origin.ts` declares and signed by a key generated in the test. That keeps the
- * assertions about this path honest: they show the reader honours the declaration written beside it, and they
- * show nothing about whether that declaration matches what the vendor publishes, which no offline fixture can.
+ * assertions about this path honest: they show the reader honours the declaration written beside it. The
+ * member naming the CPU type is the vendor's own, `fmspc`, cited in that declaration to the answer the
+ * vendor serves, so a test cannot make the guard fire by writing a name here that the reader looks for
+ * there; it fires because the document says so. What these documents still show nothing about is the rest
+ * of the shape, whose state against the served answer each declaration records where it is written.
  */
 
 const OID_ECDSA_SHA256 = '1.2.840.10045.4.3.2';
@@ -138,7 +141,7 @@ export function signedDocument(
 }
 
 export interface TcbInfoBody {
-  readonly fmspcid: string;
+  readonly fmspc: string;
   readonly issueDate: string;
   readonly nextUpdate: string;
   readonly tcb: readonly { readonly tcbDate: string; readonly tcbStatus: string }[];
@@ -152,7 +155,7 @@ export function tcbInfoBody(input: {
   readonly levels: readonly { readonly tcbDate: string; readonly tcbStatus: string }[];
 }): TcbInfoBody {
   return {
-    fmspcid: input.fmspc,
+    fmspc: input.fmspc,
     issueDate: input.issueDate,
     nextUpdate: input.nextUpdate,
     tcb: input.levels.map((level) => ({ tcbDate: level.tcbDate, tcbStatus: level.tcbStatus })),

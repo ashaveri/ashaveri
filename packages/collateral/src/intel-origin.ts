@@ -126,6 +126,31 @@ const INTEL_PATH = {
 /**
  * Intel's TCB Info for one CPU type: the levels the vendor has published, each with the status it
  * signed beside it and the window the whole statement stands for.
+ *
+ * The member names here are settled against the vendor's own served answer rather than against this
+ * repository's memory of it. `https://api.trustedservices.intel.com/tdx/certification/v4/tcb` and the
+ * `sgx` twin of that path answer a request whose query member is `fmspc`: the same request with that
+ * member absent, spelled otherwise, or holding text that is not twelve hex characters is answered 400,
+ * and one holding a well-formed type the service has no document for is answered 404. The signed body
+ * names the same six bytes the same way, inside its top-level `tcbInfo` object. No member named
+ * `fmspcid` was met in either position, so the request member and the member naming the identity the
+ * document declares are one name, and the guard that refuses a document covering another machine reads
+ * the member the vendor writes.
+ *
+ * What each other member of this declaration claims about the wire, and where it stands against that
+ * same served body:
+ * - `tcbInfo` holding the window and the identity, and `issueDate` and `nextUpdate` inside it: named.
+ * - `tcb` as the name of the level list: not named. The body spells that list `tcbLevels`, whose
+ *   entries carry `tcb`, `tcbDate`, `tcbStatus` and `advisoryIDs`.
+ * - `tcbDate` as the date of a level, and `tcbStatus` as its status: named, inside those entries.
+ * - `tcb` as a level's composition stated as hex text: not named. The entry's `tcb` is an object of
+ *   component arrays, so a document of the served shape matches no `tcb-composition` level here.
+ * - `tcbStatus`'s words: the served entries state `UpToDate` and `OutOfDate`. `OK`, the one word read
+ *   as trusted below, is named by nothing fetched here and stays a claim of this declaration alone.
+ * - `x5c` inside a three-part JWS: not named. The served answer is a JSON object carrying a hex
+ *   `signature` member, and its issuer chain arrives in a `TCB-Info-Issuer-Chain` HTTP header.
+ * Those rows are written where the declaration is read. A document outside the shape this path decodes
+ * is refused rather than assumed, and a document of the served shape is one of those.
  */
 export const INTEL_TCB_INFO: OriginDeclaration = {
   ...INTEL_PATH,
@@ -134,7 +159,8 @@ export const INTEL_TCB_INFO: OriginDeclaration = {
   cpuTypeMember: 'fmspc',
   window: { documentMember: 'tcbInfo', signedMember: 'issueDate', nextUpdateMember: 'nextUpdate' },
   identity: {
-    cpuTypeMember: 'fmspcid',
+    /** The vendor's own member, the same name the request is built with. See the citation above. */
+    cpuTypeMember: 'fmspc',
     levelsMember: 'tcb',
     levelDateMember: 'tcbDate',
     levelCompositionMember: 'tcb',
@@ -146,6 +172,19 @@ export const INTEL_TCB_INFO: OriginDeclaration = {
 /**
  * Intel's QE Identity: the vendor's statement about the quoting enclave, which carries one status for
  * the whole document rather than a ladder of levels.
+ *
+ * Measured against the vendor's own served answer at
+ * `https://api.trustedservices.intel.com/sgx/certification/v4/qe/identity`: the body is a JSON object
+ * holding `enclaveIdentity` and a hex `signature`, and the members this declaration names all live
+ * inside `enclaveIdentity`. `issueDate`, `nextUpdate` and `tcbStatus` are names the vendor writes, and
+ * each is also named by the TCB Info body cited above, but at a position this declaration does not
+ * read: it looks at the top level of the payload, where the served body carries only the wrapper
+ * object and the signature, and it expects one status for the whole document where the served body
+ * states one per entry of a `tcbLevels` list, with values `UpToDate` and `OutOfDate`. The envelope
+ * decoded here, three base64url parts with `x5c`, is likewise not what that address serves.
+ * `cpuTypeMember` being null is confirmed twice: the request is served with no query member, and the
+ * signed body names no CPU type. A document of the served shape is refused by this path, and that
+ * refusal is recorded rather than smoothed over.
  */
 export const INTEL_QE_IDENTITY: OriginDeclaration = {
   ...INTEL_PATH,

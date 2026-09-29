@@ -16,6 +16,7 @@ import {
   secondsOf,
   signedDocument,
   tcbInfo,
+  tcbInfoBody,
   testVendor,
   type TestVendor,
 } from './support/collateral-documents.js';
@@ -161,6 +162,41 @@ describe('the signed collateral document', () => {
     expect(refusal.missing).toEqual(['cpuType']);
   });
 
+  /**
+   * The guard reads the vendor's member and nothing else. Here the vendor's `fmspc` names a foreign
+   * machine while `fmspcid`, a member no served document carries, vouches for the one asked about: a
+   * reader that believed the second would hand back a true statement about somebody else's hardware.
+   */
+  it('refuses what the vendor member names even when another member vouches for the one asked about', () => {
+    const bytes = signedDocument(
+      {
+        tcbInfo: {
+          ...tcbInfoBody({
+            fmspc: '00A0F0000000',
+            issueDate: LEVEL_DATE,
+            nextUpdate: NEXT_UPDATE,
+            levels: [{ tcbDate: LEVEL_DATE, tcbStatus: 'OK' }],
+          }),
+          fmspcid: FMSPC,
+        },
+      },
+      vendor,
+    );
+    const refusal = refusalOf(outcome(bytes));
+    expect(refusal.code).toBe('COLLATERAL_IDENTITY_MISMATCH');
+    expect(refusal.detail).toContain('00A0F0000000');
+  });
+
+  it('refuses a document stating no identity member at all, and names the one it looked for', () => {
+    const bytes = signedDocument(
+      { tcbInfo: { issueDate: LEVEL_DATE, nextUpdate: NEXT_UPDATE, tcb: [{ tcbDate: LEVEL_DATE, tcbStatus: 'OK' }] } },
+      vendor,
+    );
+    const refusal = refusalOf(outcome(bytes));
+    expect(refusal.code).toBe('COLLATERAL_BLOB_UNREADABLE');
+    expect(refusal.detail).toContain('fmspc');
+  });
+
   it('refuses a level the signed list does not carry, and names the field that failed to match', () => {
     const refusal = refusalOf(outcome(levelDocument(), { level: { by: 'tcb-date', value: '2027-01-01T00:00:00.000Z' } }));
     expect(refusal.code).toBe('COLLATERAL_TCB_LEVEL_UNLISTED');
@@ -197,7 +233,7 @@ describe('the signed collateral document', () => {
   });
 
   it('refuses a document stating no window rather than assuming how long it stands', () => {
-    const refusal = refusalOf(outcome(signedDocument({ tcbInfo: { fmspcid: FMSPC, tcb: [] } }, vendor)));
+    const refusal = refusalOf(outcome(signedDocument({ tcbInfo: { fmspc: FMSPC, tcb: [] } }, vendor)));
     expect(refusal.code).toBe('COLLATERAL_BLOB_UNREADABLE');
     expect(refusal.detail).toContain('window');
   });

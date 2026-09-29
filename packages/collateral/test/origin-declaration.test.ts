@@ -290,5 +290,10 @@ describe('the declaration of the Intel retrieval path', () => {
     expect(INTEL_TCB_INFO.window.documentMember).toBe('tcbInfo');
     expect(INTEL_QE_IDENTITY.identity.levelsMember).toBeNull();
     expect(INTEL_QE_IDENTITY.window.documentMember).toBeNull();
+    // The vendor spells the CPU type one name in both positions, so the declaration does too: the
+    // address this path asks and the identity the signed document declares are the same member.
+    expect(INTEL_TCB_INFO.cpuTypeMember).toBe('fmspc');
+    expect(INTEL_TCB_INFO.identity.cpuTypeMember).toBe(INTEL_TCB_INFO.cpuTypeMember);
+    expect(INTEL_QE_IDENTITY.identity.cpuTypeMember).toBeNull();
   });
 });
