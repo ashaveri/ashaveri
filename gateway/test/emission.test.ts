@@ -210,7 +210,7 @@ async function sendAndFetch(h: Harness, target: string, body: string): Promise<S
 /** A source that reads a second later every time it is asked, so a stamp per frame is a stamp apart. */
 function steppingClock(start: number): TimeSource {
   let ticks = 0;
-  return { name: 'stepping clock', uncertaintySeconds: 2, now: () => start + (ticks += 1) };
+  return { name: 'stepping clock', uncertaintySeconds: 2, nowSeconds: () => start + (ticks += 1) };
 }
 
 /**
@@ -444,7 +444,7 @@ describe('a v3 response, attested in the bytes a client holds', () => {
       time: {
         name: 'stepping back clock',
         uncertaintySeconds: null,
-        now: () => CLOCK_SECONDS - (reads += 1),
+        nowSeconds: () => CLOCK_SECONDS - (reads += 1),
       },
     });
     const served = await sendAndFetch(h, '/v1/chat/completions', STREAM_REQUEST_BODY);
@@ -658,7 +658,7 @@ describe('a stream whose stamps cannot be stated when the payload is built', () 
       time: {
         name: 'a source that misses the last reading',
         uncertaintySeconds: null,
-        now: () => {
+        nowSeconds: () => {
           if (passed && !missed) {
             missed = true;
             throw new Error('the wired source stopped answering');
@@ -741,7 +741,7 @@ describe('a stream whose stamps cannot be stated when the payload is built', () 
       time: {
         name: 'a source that misses one reading',
         uncertaintySeconds: null,
-        now: () => {
+        nowSeconds: () => {
           if (passed && !missed) {
             missed = true;
             throw new Error('the wired source stopped answering');
@@ -780,7 +780,7 @@ describe('the two disclosures a v3 payload states', () => {
   it('names the wired source and its bound, and defaults neither', async () => {
     const h = await open({
       backend: bodyBackend(UPSTREAM_BUFFERED, 'application/json'),
-      time: { name: 'lab bench one', uncertaintySeconds: 3, now: () => CLOCK_SECONDS },
+      time: { name: 'lab bench one', uncertaintySeconds: 3, nowSeconds: () => CLOCK_SECONDS },
     });
     const served = await sendAndFetch(h, '/v1/chat/completions', REQUEST_BODY);
     if (!('sd' in served.payload)) throw new Error('a v3 payload carries no stamp disclosure');
@@ -829,7 +829,7 @@ describe('the two disclosures a v3 payload states', () => {
   it('carries the three members of a v3 together, each named and none of them defaulted', async () => {
     const h = await open({
       backend: bodyBackend(UPSTREAM_STREAM, 'text/event-stream'),
-      time: { name: 'wired at issuance', uncertaintySeconds: 0, now: () => CLOCK_SECONDS },
+      time: { name: 'wired at issuance', uncertaintySeconds: 0, nowSeconds: () => CLOCK_SECONDS },
     });
     const served = await sendAndFetch(h, '/v1/chat/completions', STREAM_REQUEST_BODY);
     expect(Object.keys(served.payload).sort()).toEqual(

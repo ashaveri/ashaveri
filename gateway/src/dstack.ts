@@ -260,7 +260,7 @@ export async function dstackDeployment(options: DstackDeploymentOptions): Promis
     measureEvidence(document, reportData);
     return remember(cache, hex, {
       document,
-      timestamp: Math.floor(time.now()),
+      timestamp: Math.floor(time.nowSeconds()),
       url: `${evidenceBaseUrl}/attestation?report_data=${hex}`,
       stamped: declarationOf(time),
     });
@@ -299,7 +299,7 @@ export async function dstackDeployment(options: DstackDeploymentOptions): Promis
     nvidiaDeviceReports(bundle, reportData);
     return remember(deviceCache, hex, {
       document: bundle.evidence,
-      timestamp: Math.floor(time.now()),
+      timestamp: Math.floor(time.nowSeconds()),
       url: `${evidenceBaseUrl}/attestation/gpu?report_data=${hex}`,
       stamped: declarationOf(time),
     });

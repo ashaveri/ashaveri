@@ -95,7 +95,7 @@ export function mockCompletion(
     `the last message role was "${last.role}" with ${last.content.length} characters.`;
   return {
     id: responseId(),
-    created: Math.floor(time.now()),
+    created: Math.floor(time.nowSeconds()),
     model: request.model,
     content,
     promptTokens: Math.ceil(totalChars / 4),

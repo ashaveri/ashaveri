@@ -356,7 +356,7 @@ export function buildGateway(options: GatewayOptions): GatewayInstance {
   // nothing in the types refusing it; what closes that gap is whoever starts the process naming one
   // source once, which is what `gateway/src/cli.ts` does for every builder it calls.
   const time = options.time ?? HOST_CLOCK_SOURCE;
-  const stamp = (): number => Math.floor(time.now());
+  const stamp = (): number => Math.floor(time.nowSeconds());
   // The access record's `t` is epoch milliseconds and a source reads whole seconds, so the line's stamp
   // is the same reading scaled once, which is the one reconciliation `aclog.ts` applies to the clock its
   // retention cutoff is drawn from. A line and the bound that ages it therefore answer to one source at

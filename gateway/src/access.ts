@@ -458,7 +458,7 @@ export function newPopCredential(input: {
     publicKey: key.publicKey,
     scopes: input.scopes ?? ['read', 'complete'],
     ...(input.label === undefined ? {} : { label: input.label }),
-    createdAt: input.nowSeconds ?? Math.floor(time.now()),
+    createdAt: input.nowSeconds ?? Math.floor(time.nowSeconds()),
   };
   return { record, privateKey: key.privateKey };
 }
@@ -483,7 +483,7 @@ export function newBearerCredential(input: {
     secretHash: hashSecret(secret),
     scopes: input.scopes ?? ['read', 'complete'],
     ...(input.label === undefined ? {} : { label: input.label }),
-    createdAt: input.nowSeconds ?? Math.floor(time.now()),
+    createdAt: input.nowSeconds ?? Math.floor(time.nowSeconds()),
   };
   return { record, secret };
 }

@@ -175,7 +175,7 @@ export interface MemoryAccessLog extends AccessLog {
 export function openMemoryAccessLog(options: AccessLogOptions = {}): MemoryAccessLog {
   const days = options.days ?? MINIMUM_RETENTION_DAYS;
   const time = options.time ?? HOST_CLOCK_SOURCE;
-  const nowMillis = options.nowMillis ?? ((): number => Math.floor(time.now()) * 1000);
+  const nowMillis = options.nowMillis ?? ((): number => Math.floor(time.nowSeconds()) * 1000);
   let kept: AccessRecord[] = [];
   let closed = false;
   async function pruneLocked(at: number): Promise<void> {
@@ -255,7 +255,7 @@ export async function openFileAccessLog(options: AccessLogOptions & { dir: strin
   const days = options.days ?? MINIMUM_RETENTION_DAYS;
   const maxBytes = options.maxBytesPerFile ?? MAX_ACCESS_FILE_BYTES;
   const time = options.time ?? HOST_CLOCK_SOURCE;
-  const nowMillis = options.nowMillis ?? ((): number => Math.floor(time.now()) * 1000);
+  const nowMillis = options.nowMillis ?? ((): number => Math.floor(time.nowSeconds()) * 1000);
   const dir = options.dir;
   await mkdir(dir, { recursive: true });
 

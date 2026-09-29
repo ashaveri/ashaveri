@@ -256,7 +256,7 @@ export interface TimeSource {
    * The next reading, in whole Unix seconds, which is the unit every stamp this store writes, compares
    * and retires by is written in. A source that reads in another unit is this function's to convert.
    */
-  readonly now: () => number;
+  readonly nowSeconds: () => number;
 }
 
 /**
@@ -265,7 +265,7 @@ export interface TimeSource {
  * rather than a comment: a reader that wants to know what an unstamped deployment rests on is reading
  * the same three fields the process does, and `docs/configured-values.md` quotes this line whole.
  */
-export const HOST_CLOCK_SOURCE: TimeSource = { name: 'host clock', uncertaintySeconds: null, now: () => Math.floor(Date.now() / 1000) };
+export const HOST_CLOCK_SOURCE: TimeSource = { name: 'host clock', uncertaintySeconds: null, nowSeconds: () => Math.floor(Date.now() / 1000) };
 
 /** Two readings of one source, weighed against what that source can resolve between them. */
 export type ReadingsApart =
@@ -1961,7 +1961,7 @@ export async function openFileReceiptStore(options: FileReceiptStoreOptions): Pr
   const source = retention?.time ?? HOST_CLOCK_SOURCE;
   // Floored here as well as at the issuance seam: a stamp is a whole second, and a record layout with an
   // 8-byte unsigned field has no spelling for anything else.
-  const now = (): number => Math.floor(source.now());
+  const now = (): number => Math.floor(source.nowSeconds());
   // The configuration is refused before a byte of the file is read: a store that cannot say which kind
   // of receipt record it writes has no reading of the file to offer, and an opening that walked the log
   // first would prune and truncate through a configuration it was about to refuse.
@@ -2160,7 +2160,7 @@ export function openMemoryReceiptStore(options: {
   const source = retention?.time ?? HOST_CLOCK_SOURCE;
   // The same whole-second floor the file store reads a source through, so the two stores age a record
   // at the same instant when handed the same source and the same period.
-  const now = (): number => Math.floor(source.now());
+  const now = (): number => Math.floor(source.nowSeconds());
   const receiptKind = options.receiptKind ?? DEFAULT_RECEIPT_RECORD_KIND;
   assertReceiptKind(receiptKind, retention);
   const recordKind = receiptKindByte(receiptKind);

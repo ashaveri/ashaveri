@@ -32,7 +32,7 @@ afterAll(() => {
 
 /** A source that was measured, at the bound its operator wrote down beside it. */
 function measured(name: string, uncertaintySeconds: number): TimeSource {
-  return { name, uncertaintySeconds, now: () => 1_772_000_000 };
+  return { name, uncertaintySeconds, nowSeconds: () => 1_772_000_000 };
 }
 
 /** The statement a store makes about the source it stamps with, which is what a verifier is handed. */

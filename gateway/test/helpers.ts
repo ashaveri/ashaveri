@@ -31,7 +31,7 @@ export const CLOCK_SECONDS = 1_772_000_000;
  * uncertainty nobody measured.
  */
 export function fixedClock(read: () => number, uncertaintySeconds: number | null = null): TimeSource {
-  return { name: 'fixture clock', uncertaintySeconds, now: read };
+  return { name: 'fixture clock', uncertaintySeconds, nowSeconds: read };
 }
 
 /**
@@ -180,12 +180,12 @@ export async function harness(input: HarnessInput = {}): Promise<Harness> {
     // different instant asks for one with `ts`, which is what that parameter is for.
     nowMillis: () => CLOCK_SECONDS * 1000,
   });
-  // Two clocks run through a harness, and only one of them is pinned. The store's `now`, set just
-  // above, answers one question: is this stamp inside the window. The access record's `t` is stamped by
-  // the flush off the source this harness hands `buildGateway`, while `dur` stays a pair of wall-clock
-  // readings, so the log below is opened with that same source exactly as `gateway/src/cli.ts` opens
-  // one: a log left on the host clock would prune a record dated by a fixture instant years from now
-  // before the suite got a chance to read it back.
+  // Two clocks run through a harness, and only one of them is pinned. The credential store's
+  // `nowMillis`, set just above, answers one question: is this stamp inside the window. The access
+  // record's `t` is stamped by the flush off the source this harness hands `buildGateway`, while
+  // `dur` stays a pair of wall-clock readings, so the log below is opened with that same source
+  // exactly as `gateway/src/cli.ts` opens one: a log left on the host clock would prune a record
+  // dated by a fixture instant years from now before the suite got a chance to read it back.
   const log = openMemoryAccessLog({ time: input.gateway?.time });
   const app = buildGateway({ ...input.gateway, access: store, accessLog: log });
   // The replay key is a credential id and a nonce, so one nonce used twice by the same credential

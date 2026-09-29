@@ -310,7 +310,7 @@ describe('the source a guest stamps its evidence with', () => {
     // which is the whole reason the assertions below are about a name and not about an instant.
     const read = (): number => COLLECTED_AT;
     const bound = 3;
-    const named = (name: string): TimeSource => ({ name, uncertaintySeconds: bound, now: read });
+    const named = (name: string): TimeSource => ({ name, uncertaintySeconds: bound, nowSeconds: read });
     const disciplined = mockDeployment({ time: named('disciplined clock') });
     const ratcheted = mockDeployment({ time: named('ratcheted clock') });
     const first = await disciplined.attestation(null);

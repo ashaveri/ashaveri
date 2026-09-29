@@ -112,7 +112,7 @@ describe('openMemoryAccessLog', () => {
     // reason. Handed a source rather than a bare lambda, the bound an operator set is at least read off
     // the one clock this process was given.
     const atSeconds = T0 / 1000;
-    const source: TimeSource = { name: 'fixture clock', uncertaintySeconds: null, now: () => atSeconds };
+    const source: TimeSource = { name: 'fixture clock', uncertaintySeconds: null, nowSeconds: () => atSeconds };
     const log = openMemoryAccessLog({ days: 2, time: source });
     await log.record(entry({ rid: 'inside', t: (atSeconds - 86_400) * 1000 }));
     await log.record(entry({ rid: 'outside', t: (atSeconds - 3 * 86_400) * 1000 }));
@@ -249,7 +249,7 @@ describe('openFileAccessLog', () => {
     // a `time` threaded into this opener and never read passes every other case in this file.
     const dir = await tempDir();
     const atSeconds = T0 / 1000;
-    const source: TimeSource = { name: 'fixture clock', uncertaintySeconds: null, now: () => atSeconds };
+    const source: TimeSource = { name: 'fixture clock', uncertaintySeconds: null, nowSeconds: () => atSeconds };
     const outsideAt = (atSeconds - 3 * 86_400) * 1000;
     const insideAt = (atSeconds - 86_400) * 1000;
     const outsideDay = new Date(outsideAt).toISOString().slice(0, 10);

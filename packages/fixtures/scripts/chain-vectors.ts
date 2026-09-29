@@ -180,7 +180,7 @@ async function runScenario(scenario: Scenario): Promise<Record<string, unknown>>
         : {
             retention: {
               ...scenario.retention,
-              time: { name: 'chain vector generator', uncertaintySeconds: null, now: () => CLOCK },
+              time: { name: 'chain vector generator', uncertaintySeconds: null, nowSeconds: () => CLOCK },
             },
           }),
     });

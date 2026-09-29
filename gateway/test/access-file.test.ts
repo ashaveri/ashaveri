@@ -183,7 +183,11 @@ describe('credential file round trip', () => {
     // deliberately out of contract: it is here to show what the floor is for, that a reading which
     // overshoots within its own second still dates the record at or before the instant rather than
     // rounding it up into a moment the enrolment had not reached.
-    const source: TimeSource = { name: 'enrolment clock', uncertaintySeconds: null, now: () => enrolledAt + 0.75 };
+    const source: TimeSource = {
+      name: 'enrolment clock',
+      uncertaintySeconds: null,
+      nowSeconds: () => enrolledAt + 0.75,
+    };
     expect(newPopCredential({ id: 'svc-pop', time: source }).record.createdAt).toBe(enrolledAt);
     expect(newBearerCredential({ id: 'svc-bearer', time: source }).record.createdAt).toBe(enrolledAt);
     // A caller that names the instant outright still decides it, because that value is the reading and

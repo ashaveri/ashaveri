@@ -118,7 +118,7 @@ export function mockDeployment(options: MockDeploymentOptions = {}): Deployment 
     async attestation() {
       return {
         document: MOCK_EVIDENCE,
-        timestamp: Math.floor(time.now()),
+        timestamp: Math.floor(time.nowSeconds()),
         url: 'mock://attestation',
         stamped: declarationOf(time),
       };

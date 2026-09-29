@@ -142,7 +142,7 @@ function retentionOf(scenario: ChainScenario): ReceiptRetention | undefined {
     ? undefined
     : {
         ...configured,
-        time: { name: 'chain vector scenario clock', uncertaintySeconds: null, now: () => scenario.clockSeconds },
+        time: { name: 'chain vector scenario clock', uncertaintySeconds: null, nowSeconds: () => scenario.clockSeconds },
       };
 }
 
