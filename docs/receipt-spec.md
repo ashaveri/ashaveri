@@ -617,7 +617,11 @@ steps are one receipt.
    policy that names `Number.POSITIVE_INFINITY` switches that one window off, which is the way to
    say so out loud when verifying an archived receipt. A verifier handed no policy at all, which is
    what `@ashaveri/receipt` gives an offline auditor working on last year's receipt, checks no
-   clock: the format never assumes one.
+   clock: the format never assumes one. The checking moment a caller does hand is asked one question
+   before either window runs: it has to be a whole number of Unix seconds inside the span these stamps
+   are weighed in, so a caller who handed the milliseconds figure of the same instant is refused by
+   name (`VERIFICATION_TIME_OUT_OF_RANGE`, in `docs/error-codes.md`) rather than being handed
+   `STALE_RECEIPT` for a document that aged nothing.
 6. **Check the request hash.** `req` must equal sha256 of the exact bytes the client sent.
 7. **Check the response hash.** `res` must equal sha256 of the exact bytes the client
    received.

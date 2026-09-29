@@ -847,6 +847,24 @@ describe('ashaveri verify-receipt', () => {
     expect(verdictOf(result).code).toBe('STALE_RECEIPT');
   });
 
+  it('refuses a clock the flag hands in a scale the verifier does not read', () => {
+    // Both directions of one argument, met at the operator's entry. `--now` is parsed into
+    // milliseconds, so a date at the epoch arrives as a reading below the span the windows weigh
+    // stamps in and a date a century past the four-byte counter arrives above it: each is refused by
+    // name, for the reading, and neither is a word about the receipt. The third call hands the flag a
+    // date inside the span, one hour past the stamp the receipt carries, and is answered about the
+    // receipt instead: that is what shows the guard answers the scale rather than refusing the flag.
+    const epoch = runCli(argsFor({ now: '1970-01-01T00:00:00.000Z' }));
+    expect(epoch.status).toBe(1);
+    expect(verdictOf(epoch).code).toBe('CLIENT_CLOCK_OUT_OF_RANGE');
+    const farFuture = runCli(argsFor({ now: '2200-01-01T00:00:00.000Z' }));
+    expect(farFuture.status).toBe(1);
+    expect(verdictOf(farFuture).code).toBe('CLIENT_CLOCK_OUT_OF_RANGE');
+    const inBand = runCli(argsFor({ now: new Date((VALID.payload.iat + 3600) * 1000).toISOString() }));
+    expect(inBand.status).toBe(1);
+    expect(verdictOf(inBand).code).toBe('STALE_RECEIPT');
+  });
+
   it('refuses bytes that are not a receipt at all', () => {
     const notAReceipt = written('not-a-receipt.bin', 'these are not a COSE_Sign1 structure');
     const result = runCli(argsFor({ receipt: notAReceipt }));

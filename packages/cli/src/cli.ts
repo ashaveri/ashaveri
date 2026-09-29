@@ -280,7 +280,9 @@ Options for every command:
   --now <iso>        The clock the command reads instead of the wall clock: the
                      verification time for verify and verify-receipt, the whole-second createdAt or revokedAt of
                      a credential record for credential add and revoke, and the day a scrub
-                     marker is named for in accesslog scrub.
+                     marker is named for in accesslog scrub. For the two verify verbs a date
+                     outside the span the verifier weighs stamps in is refused by name, so a
+                     reading counted in the wrong scale never answers for the receipt.
   --json             Machine-readable output for every command: the verification result, a
                      credential listing or the record just touched, a scrub's counts and its
                      marker name. On keygen and credential add the object carries the one-time

@@ -107,6 +107,9 @@ a collector outside this repository would only meet in production.
 - a signature that does not hold over the stored bytes: `INVALID_SIGNATURE` or `KID_MISMATCH`
 - a root the record relied on that is none of the caller's: `EVIDENCE_VERIFICATION_FAILED`
 - a receipt or evidence stamp outside the caller's own window: `STALE_RECEIPT`, `STALE_EVIDENCE`
+- a clock the caller handed that is not a whole number of seconds inside the span the reader weighs
+  stamps in: `VERIFICATION_TIME_OUT_OF_RANGE`, a `ReceiptError`, raised before either window runs, so a
+  caller who mixed the two scales is told about their reading rather than about the document
 
 Two codes were added to `SdkErrorCode` for this record rather than borrowing `NOT_RECEIPTED`, which is
 the client's word for a gateway that answered without a receipt header and says nothing about a file a

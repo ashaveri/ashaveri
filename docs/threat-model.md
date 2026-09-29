@@ -198,6 +198,15 @@ What is still true, in both modes:
   content, and a client pointed at a long-streaming deployment has to widen
   `maxEvidenceAgeSeconds` or switch it off. Both numbers are the client's to set, and neither is
   read from the wire.
+- **A clock reading is refused before it can vote on a receipt.** `nowMillis` on the client's entry
+  counts milliseconds while every instant it is weighed against, `iat` and `att.ts`, counts seconds,
+  and the format reader's own `nowSeconds` counts seconds too. A reading handed outside the span these
+  stamps are counted in is refused at the entry, `CLIENT_CLOCK_OUT_OF_RANGE` on the client and
+  `VERIFICATION_TIME_OUT_OF_RANGE` on the format reader, and neither is a verdict about a document: the
+  fault bounded is one caller handing the same instant spelled the other way, which used to answer
+  `STALE_RECEIPT` for a receipt that had aged nothing. What the refusal does not do is vouch for the
+  reading it accepted: a clock inside the span can still stand an hour from the truth, which is the
+  limitation above, and a stamp's own source is what states that.
 - **The client also decides what it will accept about an anchor.** A third standard is a count rather
   than a duration: `minAnchorSlotsHeld` on the same policy names how many of a receipt's two anchor
   slots must state that their material was taken in, and a document stating fewer is refused with

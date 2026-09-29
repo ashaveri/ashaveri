@@ -241,7 +241,9 @@ pack names and on the law behind it. Whether a pack is all the deployment still 
 agrees with the copy a reader held before, are stated as not checked. `--now` is the clock, and it is
 how an archived receipt is read at all: the windows close against it, so last year's receipt judged by
 today's clock is a refusal with a code, and a verdict reached at a stated instant is a historical
-appraisal of that instant rather than a current one.
+appraisal of that instant rather than a current one. A date the verifier cannot weigh as a reading of
+its own clock, because it is counted in the scale the stamps are not, is refused by name at that entry
+before it closes a window on anything, so a caller who mixed the two is told about the clock.
 
 **What it does not do.** It reads one document per run: a directory is refused with the reason, and
 there is no bundle mode that decides which files stand in a handover, which are omitted or which are
