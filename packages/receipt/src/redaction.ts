@@ -295,13 +295,25 @@ function survivorFold(anchor: Uint8Array, survivors: readonly SurvivorRecord[]):
  * designation over the pack's bytes and the chain over the survivors' bytes, and a writer that spelled a
  * number another way would make a deployment refuse its own redaction.
  */
+/**
+ * The removal list, before it is spread into the encoder's map. A manifest carrying no `removed` is an absent
+ * member of the class `REDACTION_BAD_MANIFEST` names, and the spread answers `TypeError: manifest.removed is
+ * not iterable` with no code on it at all, so the question is asked here rather than at the copy. The
+ * sentence is `readRemoved`'s own, so a writer and a reader answer one document the same way.
+ */
+function encodableIds(value: unknown): readonly string[] {
+  if (!Array.isArray(value)) throw badManifest('removed must be an array of ids');
+  return value as readonly string[];
+}
+
 export function encodeRedactionManifest(manifest: RedactionManifest): Uint8Array {
+  const removed = encodableIds(manifest.removed);
   return encodeCanonical(
     new Map<string, unknown>([
       ['v', manifest.v],
       ['at', manifest.at],
       ['pack', manifest.pack],
-      ['removed', [...manifest.removed]],
+      ['removed', [...removed]],
       ['reduced', manifest.reduced],
       ['states', manifest.states],
     ]),

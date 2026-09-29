@@ -287,35 +287,67 @@ export function sealExport(
   return sealCoseSign1(protectedBytes, payloadBytes, signature, unprotected);
 }
 
+/**
+ * A member this encoder copies field by field has to be there before it is copied. A manifest carrying no
+ * `assessment` is an absent member of the class `EXPORT_BAD_MANIFEST` names, and reaching through it for the
+ * encoder's map answers `TypeError: Cannot read properties of undefined` with no code on it at all, so the
+ * question is asked here rather than at the read. The sentence is the reader's own at the same position:
+ * `parseManifest` refuses `assessment must be a map` over the bytes, and a writer that answered one document
+ * on other grounds than its own reader would be a second rule to keep agreeing rather than one read twice.
+ */
+function encodableMap(value: unknown, position: string): void {
+  if (value === null || typeof value !== 'object' || Array.isArray(value)) {
+    throw badManifest(`${position} must be a map`);
+  }
+}
+
+/** The same answer at the two positions this format makes an array of maps. */
+function encodableList(value: unknown, position: string): void {
+  if (!Array.isArray(value)) throw badManifest(`${position} must be an array`);
+}
+
 export function encodeExportManifest(manifest: ExportManifest): Uint8Array {
+  // Asked in the order the reader asks them, so a manifest missing two of these three is refused here for the
+  // same one it is refused for once the bytes come back.
+  encodableMap(manifest.assessment, 'assessment');
+  encodableMap(manifest.collection, 'collection');
+  encodableMap(manifest.claim, 'claim');
   // Maps rather than plain objects, so key order is bytewise per RFC 8949 CDE and no field order in this
   // file or in a caller's object can move a byte of what gets signed.
-  const orig = (one: ExportOriginal): Map<string, unknown> =>
-    one.k === 'inline'
+  const orig = (one: ExportOriginal, position: string): Map<string, unknown> => {
+    encodableMap(one, position);
+    return one.k === 'inline'
       ? new Map<string, unknown>([['k', 'inline'], ['bytes', one.bytes]])
       : new Map<string, unknown>([['k', 'companion'], ['name', one.name]]);
+  };
   // The two item rules differ by the one member the CDDL puts between `d` and `orig`, and the order of
   // the rest is the order `ExportItem` declares them in.
-  const item = (one: ExportItem): Map<string, unknown> => {
+  const item = (one: ExportItem, position: string): Map<string, unknown> => {
+    encodableMap(one, position);
     const fields: Array<readonly [string, unknown]> = [
       ['id', one.id],
       ['iat', one.iat],
       ['d', one.d],
     ];
     if ('p' in one) fields.push(['p', one.p]);
-    fields.push(['orig', orig(one.orig)]);
+    fields.push(['orig', orig(one.orig, `${position}.orig`)]);
     return new Map<string, unknown>(fields);
   };
   const collection = (one: ExportCollection): Map<string, unknown> => {
     if (one.k === 'void') return new Map<string, unknown>([['k', 'void'], ['states', one.states]]);
     if (one.k === 'plain') {
-      return new Map<string, unknown>([['k', 'plain'], ['items', one.items.map(item)]]);
+      encodableList(one.items, 'collection.items');
+      return new Map<string, unknown>([
+        ['k', 'plain'],
+        ['items', one.items.map((member, index) => item(member, `collection.items[${index}]`))],
+      ]);
     }
+    encodableList(one.items, 'collection.items');
     return new Map<string, unknown>([
       ['k', 'anchored'],
       ['anchor', one.anchor],
       ['head', one.head],
-      ['items', one.items.map(item)],
+      ['items', one.items.map((member, index) => item(member, `collection.items[${index}]`))],
     ]);
   };
   return encodeCanonical(

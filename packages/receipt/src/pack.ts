@@ -357,6 +357,25 @@ export function sealPack(
 }
 
 /**
+ * A member this encoder copies field by field has to be there before it is copied. A manifest carrying no
+ * `chain` is an absent member of the class `PACK_BAD_MANIFEST` names, and reaching through it for the
+ * encoder's map answers `TypeError: Cannot read properties of undefined` with no code on it at all, so the
+ * question is asked here rather than at the read. The sentence is the reader's own at the same position:
+ * `parseManifest` refuses `chain must be a map` over the bytes, and a writer that answered one document on
+ * other grounds than its own reader would be a second rule to keep agreeing rather than one rule read twice.
+ */
+function encodableMap(value: unknown, position: string): void {
+  if (value === null || typeof value !== 'object' || Array.isArray(value)) {
+    throw badManifest(`${position} must be a map`);
+  }
+}
+
+/** The same answer at the one position of this manifest that is an array rather than a map. */
+function encodableList(value: unknown, position: string): void {
+  if (!Array.isArray(value)) throw badManifest(`${position} must be an array`);
+}
+
+/**
  * The manifest, as the CBOR maps `pack.cddl` declares them: one Map per map, so key order is bytewise under
  * Core Deterministic Encoding and no field order in a caller's object can move a byte of what gets signed. The
  * members come in the order the CDDL lists them, and every integer goes out through `encodeCanonical`, the
@@ -365,13 +384,21 @@ export function sealPack(
  * same signature, so a writer that spelled a number another way would make a deployment refuse its own pack.
  */
 export function encodePackManifest(manifest: PackManifest): Uint8Array {
-  const item = (one: PackItem): Map<string, unknown> =>
-    new Map<string, unknown>([
+  // Asked in the order the reader asks them, so a manifest missing two of these four is refused here for the
+  // same one it is refused for once the bytes come back.
+  encodableMap(manifest.span, 'span');
+  encodableMap(manifest.chain, 'chain');
+  encodableMap(manifest.duty, 'duty');
+  encodableList(manifest.items, 'items');
+  const item = (one: PackItem, index: number): Map<string, unknown> => {
+    encodableMap(one, `items[${index}]`);
+    return new Map<string, unknown>([
       ['id', one.id],
       ['iat', one.iat],
       ['prev', one.prev],
       ['receipt', one.receipt],
     ]);
+  };
   return encodeCanonical(
     new Map<string, unknown>([
       ['v', manifest.v],
