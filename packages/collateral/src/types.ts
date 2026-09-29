@@ -54,9 +54,9 @@ export interface CarriedCollateral {
    * `iat` of the sealed receipt whose anchor named these bytes. It is an instant and not the `held` figure of a
    * pack's duty block, which counts seconds and names no moment.
    *
-   * It is required, and no caller is handed a default: an appraisal that stamped carried material with the
-   * instant it was asked would be reporting that an archive had just arrived, which is the one sentence this
-   * type exists to make unspellable.
+   * It is required rather than defaulted: an appraisal that stamped carried material with the instant it was
+   * asked would be reporting that an archive had just arrived, and that is the one sentence this path refuses to
+   * state about bytes it never watched land.
    */
   readonly heldAt: number;
 }

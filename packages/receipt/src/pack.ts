@@ -145,9 +145,9 @@ export interface PackCarriedObject {
 /**
  * One carried object found by the digest a sealed receipt's `held` slot names, beside the record that named it.
  *
- * The digest is not repeated here. It is the key the caller asked with and the one place the format states it
- * is the slot itself, so an answer carrying a second copy of it would give one digest two homes and a reader two
- * things to compare before believing either.
+ * The digest is not repeated here. It is the key the caller asked with, and the slot is the one place the format
+ * states it, so an answer carrying a second copy would give one digest two homes and a reader two things to
+ * compare before believing either.
  */
 export interface PackCarriedResolution {
   /** The id of the sealed receipt whose slot asked for this material, as the pack names it. */
