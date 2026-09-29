@@ -141,7 +141,7 @@ function packManifest(
   over: Partial<PackManifest> = {},
 ): PackManifest {
   return {
-    v: 1,
+    v: 2,
     at: SPAN_TO,
     span: { from: SPAN_FROM, to: SPAN_TO },
     chain: { anchor: run.anchor, head: run.head },
@@ -152,6 +152,7 @@ function packManifest(
       held: SPAN_TO - Math.min(...run.items.map((one) => one.iat)),
     },
     items: run.items,
+    carried: [],
     ...over,
   };
 }

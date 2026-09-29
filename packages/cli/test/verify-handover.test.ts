@@ -194,12 +194,13 @@ function packDocument(key: SigningKey, ids: readonly string[], movedStamp?: numb
     items.push(item);
   }
   const manifest = new Map<string, unknown>([
-    ['v', 1],
+    ['v', 2],
     ['at', at],
     ['span', new Map([['from', from], ['to', to]])],
     ['chain', new Map([['anchor', anchor], ['head', previous]])],
     ['duty', new Map<string, unknown>([['art', 'retention-evidence'], ['rev', at - 10], ['required', 31_536_000], ['held', at - from]])],
     ['items', items],
+    ['carried', []],
   ]);
   const payloadBytes = encodeCanonical(manifest);
   const protectedBytes = encodeExportProtectedHeader(key.kid, PACK_CONTENT_TYPE);

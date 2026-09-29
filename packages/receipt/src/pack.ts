@@ -81,11 +81,12 @@ export const DECLARED_PACK_PROTECTED_LABELS: readonly number[] = [
  * to hold against the blocks rather than against this file's reading of them, and exported from `pack.ts`
  * alone: the package's public surface gains the reader and the writer, not a roster.
  */
-export const PACK_MANIFEST_MEMBERS = ['v', 'at', 'span', 'chain', 'duty', 'items'] as const;
+export const PACK_MANIFEST_MEMBERS = ['v', 'at', 'span', 'chain', 'duty', 'items', 'carried'] as const;
 export const PACK_SPAN_MEMBERS = ['from', 'to'] as const;
 export const PACK_CHAIN_MEMBERS = ['anchor', 'head'] as const;
 export const PACK_DUTY_MEMBERS = ['art', 'rev', 'required', 'held'] as const;
 export const PACK_ITEM_MEMBERS = ['id', 'iat', 'prev', 'receipt'] as const;
+export const PACK_CARRIED_MEMBERS = ['bytes', 'sha256'] as const;
 
 export interface PackSpan {
   /** unix seconds, included. */
@@ -127,13 +128,28 @@ export interface PackItem {
   readonly receipt: Uint8Array;
 }
 
+/**
+ * One piece of the appraisal context a sealed receipt's anchor names, carried inside the container that seals
+ * the receipt naming it. The entry states its bytes and the sha256 of exactly those bytes; which slot of which
+ * receipt it answers is not stated here, because the digest a slot states is the only name a reader needs and a
+ * second name for one thing is the thing that drifts.
+ */
+export interface PackCarriedObject {
+  /** The material exactly as it arrived, and the whole of it. */
+  readonly bytes: Uint8Array;
+  /** sha256 of `bytes`, which the reader recomputes rather than trusts. */
+  readonly sha256: Uint8Array;
+}
+
 export interface PackManifest {
-  readonly v: 1;
+  readonly v: 2;
   readonly at: number;
   readonly span: PackSpan;
   readonly chain: PackChain;
   readonly duty: PackDuty;
   readonly items: readonly PackItem[];
+  /** The material the sealed receipts' `held` slots name. It may be empty, and empty is a statement. */
+  readonly carried: readonly PackCarriedObject[];
 }
 
 /** One item, beside the receipt its bytes were verified into. */
@@ -384,12 +400,13 @@ function encodableList(value: unknown, position: string): void {
  * same signature, so a writer that spelled a number another way would make a deployment refuse its own pack.
  */
 export function encodePackManifest(manifest: PackManifest): Uint8Array {
-  // Asked in the order the reader asks them, so a manifest missing two of these four is refused here for the
+  // Asked in the order the reader asks them, so a manifest missing two of these five is refused here for the
   // same one it is refused for once the bytes come back.
   encodableMap(manifest.span, 'span');
   encodableMap(manifest.chain, 'chain');
   encodableMap(manifest.duty, 'duty');
   encodableList(manifest.items, 'items');
+  encodableList(manifest.carried, 'carried');
   const item = (one: PackItem, index: number): Map<string, unknown> => {
     encodableMap(one, `items[${index}]`);
     return new Map<string, unknown>([
@@ -397,6 +414,13 @@ export function encodePackManifest(manifest: PackManifest): Uint8Array {
       ['iat', one.iat],
       ['prev', one.prev],
       ['receipt', one.receipt],
+    ]);
+  };
+  const carried = (one: PackCarriedObject, index: number): Map<string, unknown> => {
+    encodableMap(one, `carried[${index}]`);
+    return new Map<string, unknown>([
+      ['bytes', one.bytes],
+      ['sha256', one.sha256],
     ]);
   };
   return encodeCanonical(
@@ -415,6 +439,7 @@ export function encodePackManifest(manifest: PackManifest): Uint8Array {
         ]),
       ],
       ['items', manifest.items.map(item)],
+      ['carried', manifest.carried.map(carried)],
     ]),
   );
 }
@@ -641,6 +666,33 @@ function readItem(raw: unknown, position: string): PackItem {
 }
 
 /**
+ * The material the pack carries, read as far as its own shape goes.
+ *
+ * `[* …]` allows an empty list, and emptiness is read as what it says rather than as a shortage: a pack whose
+ * receipts state no anchor and a pack whose every slot states an absence both carry nothing, and the member
+ * they both write is the pack saying so. What the shape does not answer is what a digest is a digest *of*, and
+ * the recomputation, the duplicates, the two ceilings and the resolution of a slot against this list are the
+ * reader's next questions rather than this function's.
+ *
+ * An element is closed at its own members, the way an item is: the array has no member to point at, so the
+ * closure walk reaches this map through the reader of its elements and not through the manifest.
+ */
+function readCarried(raw: unknown): readonly PackCarriedObject[] {
+  if (!Array.isArray(raw)) throw badManifest('carried must be an array');
+  return raw.map((one, index): PackCarriedObject => {
+    const position = `carried[${index}]`;
+    const map = decodedMap(one);
+    if (map === null) throw badManifest(`${position} must be a map`);
+    assertDefined(map, PACK_CARRIED_MEMBERS, position);
+    const bytes = map.get('bytes');
+    if (!(bytes instanceof Uint8Array) || bytes.length < 1) {
+      throw badManifest(`${position}.bytes must be a non-empty bstr`);
+    }
+    return { bytes, sha256: requireDigest(map.get('sha256'), `${position}.sha256`) };
+  });
+}
+
+/**
  * The `held` floor, which is the one statement in the manifest about the store as a whole that the container
  * carrying it can check. A pack covers one span and the duty runs against everything still held, so the oldest
  * receipt in the container need not be the oldest one retained; what follows from being in here at all is that
@@ -664,7 +716,7 @@ function parseManifest(bytes: Uint8Array): PackManifest {
   if (typeof version !== 'number' || !Number.isInteger(version)) {
     throw badManifest('v must be an integer pack version');
   }
-  if (version !== 1) {
+  if (version !== 2) {
     throw new ReceiptError('PACK_UNSUPPORTED_VERSION', `pack manifest version ${version} is not a format this package reads`);
   }
   assertDefined(raw, PACK_MANIFEST_MEMBERS, 'manifest', {
@@ -681,12 +733,13 @@ function parseManifest(bytes: Uint8Array): PackManifest {
   const at = requireStamp(raw.get('at'), 'at');
   const span = readSpan(spanMap, at);
   const manifest: PackManifest = {
-    v: 1,
+    v: 2,
     at,
     span,
     chain: readChain(chainMap),
     duty: readDuty(dutyMap, at),
     items: readItems(raw.get('items'), span),
+    carried: readCarried(raw.get('carried')),
   };
   assertHeldCoversItems(manifest);
   return manifest;

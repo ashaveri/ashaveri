@@ -161,12 +161,13 @@ const ENTRIES: readonly Entry[] = [
  */
 function manifestFor(run: { items: PackItem[]; anchor: Uint8Array; head: Uint8Array }, over: Partial<PackManifest> = {}): PackManifest {
   return {
-    v: 1,
+    v: 2,
     at: SPAN_TO,
     span: { from: SPAN_FROM, to: SPAN_TO },
     chain: { anchor: run.anchor, head: run.head },
     duty: { ...HONEST_DUTY, held: Math.max(HONEST_DUTY.held, SPAN_TO - Math.min(...run.items.map((one) => one.iat))) },
     items: run.items,
+    carried: [],
     ...over,
   };
 }
@@ -574,16 +575,16 @@ const CASES: readonly Case[] = [
     edited: 'alg, from -8 to -7',
   },
   {
-    name: 'manifest-version-two',
+    name: 'manifest-version-no-format-has-used',
     note: 'A manifest declaring a pack version no format has used. The answer is about the reach of this reader rather than about the bytes being broken, and it arrives with no key in hand because a version is a fact of the document.',
-    bytes: mutant(honestManifest, (root) => root.set('v', 2)),
+    bytes: mutant(honestManifest, (root) => root.set('v', 3)),
     read: PINNED_CURRENT,
     verdict: 'PACK_UNSUPPORTED_VERSION',
     structural: 'PACK_UNSUPPORTED_VERSION',
-    edited: 'v, from 1 to 2',
+    edited: 'v, from 2 to 3',
   },
   {
-    name: 'manifest-member-unknown-to-version-one',
+    name: 'manifest-member-unknown-to-this-version',
     note: 'A manifest carrying a member this version names nowhere. The map is closed, so the document is malformed rather than read with the unexpected member dropped: a member a reader ignores is a claim inside the signature that nobody looked at.',
     bytes: mutant(honestManifest, (root) => root.set('met', true)),
     read: PINNED_CURRENT,
@@ -902,7 +903,7 @@ function main() {
           'Evidence packs in the shapes a deployment hands them over in, the keys a reader designates beside each one, and the verdict the shipped pack reader owes: whole documents accepted with the run and the window reported apart, an honest pack whose stamps run against its links reported and not refused, and one refusal for every fault the format names.',
         layout: {
           format: 'packages/receipt/pack.cddl',
-          twin: 'packages/receipt/schemas/pack-v1.schema.json',
+          twin: 'packages/receipt/schemas/pack-v2.schema.json',
           prose: 'docs/receipt-spec.md section 5.2',
           contentType: PACK_CONTENT_TYPE,
           writer:

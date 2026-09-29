@@ -98,6 +98,7 @@ export {
 } from './pack.js';
 export type {
   DecodedPack,
+  PackCarriedObject,
   PackChain,
   PackDuty,
   PackItem,

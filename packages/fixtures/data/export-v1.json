@@ -206,9 +206,9 @@
     },
     {
       "name": "pack-read-as-export",
-      "note": "A pack v1 document, signed by the same key and handed to this reader. Its typ is the pack and its manifest names six members this format does not, so it is refused at the header before one member is read.",
-      "documentBase64Url": "0oRYNaMBJwNtYXNoYXZlcmkvcGFjawRYION6vNee_QjblFGKkDlS_-n4r36LRoS2NZFjHO-OiHHIoFkBmqZhdgFiYXQaaZ6TAGRkdXR5pGNhcnRlMTkoMSljcmV2GmmekuJkaGVsZBoA8pQAaHJlcXVpcmVkGgDylABkc3BhbqJidG8aaZ6TAGRmcm9tGmmekKhlY2hhaW6iZGhlYWRYIPiJlMvC68N_zxqNY9v5VlAqtvJLRJM6IPGu5bGYgK0lZmFuY2hvclggAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAABlaXRlbXOBpGJpZGlyZWNlaXB0LTBjaWF0GmmekdRkcHJldlggAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAABncmVjZWlwdFif0oRYOKMBJwNwYXNoYXZlcmkvcmVjZWlwdARYION6vNee_QjblFGKkDlS_-n4r36LRoS2NZFjHO-OiHHIoFgeomF2AWNpc3N1YXNoYXZlcmktcGFjay1maXh0dXJlWECulIQtM_mD3i_Tsyu4Idee9y5ij4ctsP3KIGuxBB-lKqS0ZgHcrLSVJrq7qCwtbxZnr7qPE8oHVmCSxNXz9PkJWECUZstXL52scqYJTWR1WkDuiMJ0ecPGSOxNX3FaMI5-P8zBEyldSnfEtkKxThX62o45objEj3Es_H-LV_9n5FcJ",
-      "documentByteLength": 537,
+      "note": "A pack document, signed by the same key and handed to this reader. Its typ is the pack and its manifest names seven members this format does not, so it is refused at the header before one member is read.",
+      "documentBase64Url": "0oRYNaMBJwNtYXNoYXZlcmkvcGFjawRYION6vNee_QjblFGKkDlS_-n4r36LRoS2NZFjHO-OiHHIoFkBo6dhdgJiYXQaaZ6TAGRkdXR5pGNhcnRlMTkoMSljcmV2GmmekuJkaGVsZBoA8pQAaHJlcXVpcmVkGgDylABkc3BhbqJidG8aaZ6TAGRmcm9tGmmekKhlY2hhaW6iZGhlYWRYIPiJlMvC68N_zxqNY9v5VlAqtvJLRJM6IPGu5bGYgK0lZmFuY2hvclggAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAABlaXRlbXOBpGJpZGlyZWNlaXB0LTBjaWF0GmmekdRkcHJldlggAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAABncmVjZWlwdFif0oRYOKMBJwNwYXNoYXZlcmkvcmVjZWlwdARYION6vNee_QjblFGKkDlS_-n4r36LRoS2NZFjHO-OiHHIoFgeomF2AWNpc3N1YXNoYXZlcmktcGFjay1maXh0dXJlWECulIQtM_mD3i_Tsyu4Idee9y5ij4ctsP3KIGuxBB-lKqS0ZgHcrLSVJrq7qCwtbxZnr7qPE8oHVmCSxNXz9PkJZ2NhcnJpZWSAWEDwNJI7vkkfFN9XZUifuvruuKV1RVDAt3Zbf1BiQA5WzGV6OTEoWSCH_l68SekIGdZAOg_lo-_wt0bAHSJOaHwK",
+      "documentByteLength": 546,
       "read": {},
       "verdict": "EXPORT_BAD_HEADER"
     },
@@ -382,7 +382,7 @@
     "cases": [
       {
         "name": "export-as-pack",
-        "note": "A whole export manifest, projected to JSON as its own twin describes it, given to the pack projection: the pack map is closed at six members and names none of the three an export states, so a pack reader of any shape refuses it before it looks at an item.",
+        "note": "A whole export manifest, projected to JSON as its own twin describes it, given to the pack projection: the pack map is closed at seven members and names none of the three an export states, so a pack reader of any shape refuses it before it looks at an item.",
         "manifest": {
           "protectedHeader": {
             "alg": "EdDSA",
@@ -446,7 +446,7 @@
       {
         "name": "pack-as-export",
         "note": "A pack v1 document signed by the same key, given to the export reader: the content type answers it before a member of the manifest is read.",
-        "documentBase64Url": "0oRYNaMBJwNtYXNoYXZlcmkvcGFjawRYION6vNee_QjblFGKkDlS_-n4r36LRoS2NZFjHO-OiHHIoFkBmqZhdgFiYXQaaZ6TAGRkdXR5pGNhcnRlMTkoMSljcmV2GmmekuJkaGVsZBoA8pQAaHJlcXVpcmVkGgDylABkc3BhbqJidG8aaZ6TAGRmcm9tGmmekKhlY2hhaW6iZGhlYWRYIPiJlMvC68N_zxqNY9v5VlAqtvJLRJM6IPGu5bGYgK0lZmFuY2hvclggAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAABlaXRlbXOBpGJpZGlyZWNlaXB0LTBjaWF0GmmekdRkcHJldlggAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAABncmVjZWlwdFif0oRYOKMBJwNwYXNoYXZlcmkvcmVjZWlwdARYION6vNee_QjblFGKkDlS_-n4r36LRoS2NZFjHO-OiHHIoFgeomF2AWNpc3N1YXNoYXZlcmktcGFjay1maXh0dXJlWECulIQtM_mD3i_Tsyu4Idee9y5ij4ctsP3KIGuxBB-lKqS0ZgHcrLSVJrq7qCwtbxZnr7qPE8oHVmCSxNXz9PkJWECUZstXL52scqYJTWR1WkDuiMJ0ecPGSOxNX3FaMI5-P8zBEyldSnfEtkKxThX62o45objEj3Es_H-LV_9n5FcJ",
+        "documentBase64Url": "0oRYNaMBJwNtYXNoYXZlcmkvcGFjawRYION6vNee_QjblFGKkDlS_-n4r36LRoS2NZFjHO-OiHHIoFkBo6dhdgJiYXQaaZ6TAGRkdXR5pGNhcnRlMTkoMSljcmV2GmmekuJkaGVsZBoA8pQAaHJlcXVpcmVkGgDylABkc3BhbqJidG8aaZ6TAGRmcm9tGmmekKhlY2hhaW6iZGhlYWRYIPiJlMvC68N_zxqNY9v5VlAqtvJLRJM6IPGu5bGYgK0lZmFuY2hvclggAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAABlaXRlbXOBpGJpZGlyZWNlaXB0LTBjaWF0GmmekdRkcHJldlggAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAABncmVjZWlwdFif0oRYOKMBJwNwYXNoYXZlcmkvcmVjZWlwdARYION6vNee_QjblFGKkDlS_-n4r36LRoS2NZFjHO-OiHHIoFgeomF2AWNpc3N1YXNoYXZlcmktcGFjay1maXh0dXJlWECulIQtM_mD3i_Tsyu4Idee9y5ij4ctsP3KIGuxBB-lKqS0ZgHcrLSVJrq7qCwtbxZnr7qPE8oHVmCSxNXz9PkJZ2NhcnJpZWSAWEDwNJI7vkkfFN9XZUifuvruuKV1RVDAt3Zbf1BiQA5WzGV6OTEoWSCH_l68SekIGdZAOg_lo-_wt0bAHSJOaHwK",
         "expected": "EXPORT_BAD_HEADER"
       }
     ]

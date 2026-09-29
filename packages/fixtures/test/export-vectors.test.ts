@@ -39,7 +39,7 @@ import { assertRowRoster, ROW_NAMING_FIELDS, unionMembers } from './doc-contract
 
 const file = loadExportVectors();
 const ERRORS = '../../../packages/receipt/src/errors.ts';
-const PACK_TWIN = '../../../packages/receipt/schemas/pack-v1.schema.json';
+const PACK_TWIN = '../../../packages/receipt/schemas/pack-v2.schema.json';
 const SUITE_KEY = signingKeyFromSeed(new Uint8Array(32).fill(23));
 
 /** The four elements of a sealed document, for the cases that rebuild one around a different payload. */
@@ -284,7 +284,7 @@ describe('the export vectors', () => {
     if (payload === undefined || payload === null || typeof payload !== 'object' || Array.isArray(payload)) {
       throw new Error('the published export projection carries no manifest object');
     }
-    // The pack twin's own required list, read out of its file: six members, of which an export names none
+    // The pack twin's own required list, read out of its file: seven members, of which an export names none
     // but the version and the assembly instant. A reader of the pack closes at that list, so this document
     // is refused by the shape before any of its contents is weighed. The two schema validations a port has
     // to run are in `packages/receipt/test/export.test.ts`, which is where a JSON Schema validator lives.

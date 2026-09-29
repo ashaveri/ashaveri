@@ -14,6 +14,7 @@ import {
   PACK_DUTY_MEMBERS,
   PACK_ITEM_MEMBERS,
   PACK_MANIFEST_MEMBERS,
+  PACK_CARRIED_MEMBERS,
   PACK_SPAN_MEMBERS,
   decodePack,
   packRecordDigest,
@@ -75,6 +76,7 @@ const CLOSED_MAPS: Array<{ rule: string; members: readonly string[]; name: strin
   { rule: 'PackChain', members: PACK_CHAIN_MEMBERS, name: 'PACK_CHAIN_MEMBERS' },
   { rule: 'PackDuty', members: PACK_DUTY_MEMBERS, name: 'PACK_DUTY_MEMBERS' },
   { rule: 'PackItem', members: PACK_ITEM_MEMBERS, name: 'PACK_ITEM_MEMBERS' },
+  { rule: 'PackCarried', members: PACK_CARRIED_MEMBERS, name: 'PACK_CARRIED_MEMBERS' },
 ];
 
 /** The text of one map block of `pack.cddl`, with this file named when the rule is not there. */
@@ -116,7 +118,7 @@ function nestedRules(): Array<{ member: string; rule: string }> {
       nested.push({ member: member.name, rule: one[1]! });
       continue;
     }
-    const many = /^\[\+\s+([A-Z][A-Za-z0-9_-]*)\]$/u.exec(member.type);
+    const many = /^\[\+\s+([A-Z][A-Za-z0-9_-]*)\]$/u.exec(member.type) ?? /^\[\*\s+([A-Z][A-Za-z0-9_-]*)\]$/u.exec(member.type);
     if (many) {
       nested.push({ member: member.name, rule: many[1]! });
       continue;
@@ -209,7 +211,9 @@ const WIDTH_POSITIONS: string[] = [];
 for (const rule of packMapRuleNames()) {
   for (const member of memberDeclarations(packRule(rule))) {
     if (!/^bstr \.size \d+$/u.test(member.type)) continue;
-    WIDTH_POSITIONS.push(rule === 'PackItem' ? `items.${member.name}` : member.name);
+    WIDTH_POSITIONS.push(
+      rule === 'PackItem' ? `items.${member.name}` : rule === 'PackCarried' ? `carried.${member.name}` : member.name,
+    );
   }
 }
 
@@ -311,12 +315,13 @@ function chained(
 function manifestValue(over: Partial<PackManifest> = {}): PackManifest {
   const run = chained(ENTRIES);
   return {
-    v: 1,
+    v: 2,
     at: SPAN_TO,
     span: { from: SPAN_FROM, to: SPAN_TO },
     chain: { anchor: run.anchor, head: run.head },
     duty: { art: '19(1)', rev: SPAN_TO - 30, required: 3_600, held: SPAN_TO - BASE },
     items: run.items,
+    carried: [],
     ...over,
   };
 }
@@ -345,6 +350,15 @@ function manifestMap(manifest: PackManifest): Map<string, unknown> {
       ]),
     ],
     ['items', manifest.items.map(item)],
+    [
+      'carried',
+      manifest.carried.map((one) =>
+        new Map<string, unknown>([
+          ['bytes', one.bytes],
+          ['sha256', one.sha256],
+        ]),
+      ),
+    ],
   ]);
 }
 
@@ -535,7 +549,7 @@ describe('the pack reader and the format it reads', () => {
     expect(SIGNATURE_BYTES).toBe(64);
     expect(KID_BYTES).toBe(32);
     expect(ID_RANGE).toEqual({ min: 1, max: 65_535 });
-    expect(WIDTH_POSITIONS.sort()).toEqual(['anchor', 'head', 'items.prev']);
+    expect(WIDTH_POSITIONS.sort()).toEqual(['anchor', 'carried.sha256', 'head', 'items.prev']);
     // What the format leaves unclosed, in its own words: the one map a signer fills at will.
     expect(CDDL).toContain('unprotected: { * any => any }');
     expect(cddlProse()).toContain('they are the authority and this file is wrong');
@@ -766,7 +780,7 @@ describe('the pack reader and the format it reads', () => {
       ['a receipt that is not bytes', (root) => itemOf(root, 0).set('receipt', 'x'), /receipt must be a bstr/u, 'PACK_BAD_MANIFEST'],
       ['a duty label that is not text', (root) => dutyOf(root).set('art', 19), /duty\.art must be a tstr/u, 'PACK_BAD_MANIFEST'],
       ['a version that is not an integer', (root) => root.set('v', '1'), /v must be an integer pack version/u, 'PACK_BAD_MANIFEST'],
-      ['a version this package cannot read', (root) => root.set('v', 2), /version 2 is not a format this package reads/u, 'PACK_UNSUPPORTED_VERSION'],
+      ['a version this package cannot read', (root) => root.set('v', 3), /version 3 is not a format this package reads/u, 'PACK_UNSUPPORTED_VERSION'],
     ];
     for (const [name, mutate, pattern, code] of cases) {
       const bytes = reSealed(good, mutate);
@@ -779,7 +793,7 @@ describe('the pack reader and the format it reads', () => {
     // Two of these are the answers of the reader with no key in hand, which is the point of the split: a
     // document that contradicts itself does so whoever signed it.
     expect(codeOf(() => decodePack(reSealed(good, (root) => root.set('at', SPAN_TO - 1))))).toBe('PACK_BAD_MANIFEST');
-    expect(codeOf(() => decodePack(reSealed(good, (root) => root.set('v', 2))))).toBe('PACK_UNSUPPORTED_VERSION');
+    expect(codeOf(() => decodePack(reSealed(good, (root) => root.set('v', 3))))).toBe('PACK_UNSUPPORTED_VERSION');
   });
 
   it('keeps the edges the format states rather than tightening them', () => {

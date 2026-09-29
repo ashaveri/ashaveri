@@ -59,7 +59,7 @@ import type { ReceiptErrorCode } from '../src/errors.js';
  */
 const exportCddlPath = fileURLToPath(new URL('../export.cddl', import.meta.url));
 const exportSchemaPath = fileURLToPath(new URL('../schemas/export-v1.schema.json', import.meta.url));
-const packSchemaPath = fileURLToPath(new URL('../schemas/pack-v1.schema.json', import.meta.url));
+const packSchemaPath = fileURLToPath(new URL('../schemas/pack-v2.schema.json', import.meta.url));
 const packCddlPath = fileURLToPath(new URL('../pack.cddl', import.meta.url));
 
 const CDDL = readFileSync(exportCddlPath, 'utf8');
@@ -1142,7 +1142,7 @@ describe('the export reader', () => {
     const packHeader = encodeExportProtectedHeader(KEY.kid, 'ashaveri/pack');
     expect(codeOf(thrownByDecode(sealExport(packHeader, payload, ed25519.sign(exportSigStructure(packHeader, payload), KEY.privateKey))))).toBe('EXPORT_BAD_HEADER');
     // The other direction, which no reader of this container performs and the pack's own projection does:
-    // an export manifest is not a pack manifest, because the six members a pack requires are not the five
+    // an export manifest is not a pack manifest, because the seven members a pack requires are not the five
     // this one carries and both maps are closed.
     expect(outcome(exportDocument({ collection: 'anchored', original: 'inline' }).payload, validatePack), 'a pack projection accepted an export manifest').not.toBeNull();
     // And a reader of this container is not a reader of that one: the pack's twin names the type it

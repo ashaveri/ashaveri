@@ -676,8 +676,8 @@
     {
       "name": "a-pack-document-wearing-the-inventory-label",
       "note": "A whole and separate pack manifest, its own bytes and none of them edited, under this container type. The header admits it and the JSON reading refuses it, which is the confusion the content type is not the whole answer to: these bytes pass the pack checks and fail the inventory ones, so only label three settles which claim a reviewer is holding.",
-      "documentBase64Url": "0oRYQaMBJwN4GGFzaGF2ZXJpL2Vwb2NoLWludmVudG9yeQRYIHJrYQDt5-subTcG8DBWrU3Zk-ETyHhCbQb-Tyf3IVRDoFitpmF2AWJhdBplU_zCZGR1dHmkY2FydGUxOSgxKWNyZXYaZVKfgGRoZWxkGMhocmVxdWlyZWQYZGRzcGFuomJ0bxplU_y4ZGZyb20aZVPxAGVjaGFpbqJkaGVhZFggAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAABmYW5jaG9yWCAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAGVpdGVtc4BYQJ4ky4Ih0_yBReeXeQYTqtBb_jex7E0FhLr-Nr6c3vL_1fhlZgOwH08wZC-GfmGBhZZ3W7CR8slAUEEAYGR3OAw",
-      "documentByteLength": 311,
+      "documentBase64Url": "0oRYQaMBJwN4GGFzaGF2ZXJpL2Vwb2NoLWludmVudG9yeQRYIHJrYQDt5-subTcG8DBWrU3Zk-ETyHhCbQb-Tyf3IVRDoFi2p2F2AmJhdBplU_zCZGR1dHmkY2FydGUxOSgxKWNyZXYaZVKfgGRoZWxkGMhocmVxdWlyZWQYZGRzcGFuomJ0bxplU_y4ZGZyb20aZVPxAGVjaGFpbqJkaGVhZFggAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAABmYW5jaG9yWCAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAGVpdGVtc4BnY2FycmllZIBYQONuOUP1bZv4cKLoUK4oGxR9Q1iGpISm28g3dH58P4_7B8-4Rs9mOOPUyhGfj50Paz9Gng9yVnShpQhNeIm01wU",
+      "documentByteLength": 320,
       "read": {
         "pinned": "Lw8V-7JfGaLWBKP0lJG_2TwzuU18b7YKsTeaQO4XN9o"
       },
