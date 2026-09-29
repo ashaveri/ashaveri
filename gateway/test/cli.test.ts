@@ -47,7 +47,7 @@ function run(...args: string[]) {
   const result = spawnSync(process.execPath, [CLI, ...args], {
     encoding: 'utf8',
     env,
-    timeout: 8000,
+    timeout: SPAWN_DEADLINE_MS,
     killSignal: 'SIGKILL',
   });
   // Without this a process that never started leaves `status` null, which reads as the CLI
@@ -101,7 +101,10 @@ async function readBanner(...args: string[]): Promise<string[]> {
       };
       // 10s is the same allowance `bootServing` spends on the same question, and it is what turns a
       // listener that never reports in a named failure rather than a case that hangs the runner.
-      timers.deadline = setTimeout(() => giveUp('no listening line within 10s'), 10_000);
+      timers.deadline = setTimeout(
+        () => giveUp(`no listening line within ${String(BOOT_DEADLINE_MS / 1_000)}s`),
+        BOOT_DEADLINE_MS,
+      );
       child.once('error', (error) => giveUp(`the gateway failed to spawn: ${error.message}`));
       child.once('exit', (code) =>
         giveUp(`the gateway exited with ${String(code)} before it printed its listening line`),
@@ -148,6 +151,22 @@ function liveArgs(...args: string[]): string[] {
 /** The durability bound and the serving bound `gateway/src/cli.ts` opens a volume store with. Both are
  * shipped at ten thousand receipts, which is a capacity decision and not a figure either count owes
  * the other. */
+/**
+ * The two waits a case can spend, named once because a case's ceiling has to be read off them.
+ *
+ * `SPAWN_DEADLINE_MS` bounds one command that is expected to exit by itself; `BOOT_DEADLINE_MS` bounds one
+ * gateway that is expected to print its banner. A ceiling below the sum of a case's calls and their own
+ * deadlines is a ceiling that fires first, and what it reports is the runner's timeout rather than the named
+ * failure the deadline exists to produce. So `budgetFor` states the arithmetic, and every case that spawns
+ * or boots passes its count through it: the worst case is what a hang costs, and a hang is a defect worth
+ * waiting for once rather than misreading.
+ */
+const SPAWN_DEADLINE_MS = 8_000;
+const BOOT_DEADLINE_MS = 10_000;
+const budgetFor = (calls: number, deadline: number): number => calls * deadline + 2_000;
+const spawnBudget = (calls: number): number => budgetFor(calls, SPAWN_DEADLINE_MS);
+const bootBudget = (boots: number): number => budgetFor(boots, BOOT_DEADLINE_MS);
+
 const SHIPPED_RECEIPT_BOUND = 10_000;
 
 /**
@@ -244,8 +263,8 @@ async function bootServing(args: string[]): Promise<{ readonly port: number; rea
     child.stderr.resume();
     const port = await new Promise<number>((resolve, reject) => {
       const timer = setTimeout(
-        () => reject(new Error(`no listening line within 10s; stdout held ${JSON.stringify(out)}`)),
-        10_000,
+        () => reject(new Error(`no listening line within ${String(BOOT_DEADLINE_MS / 1_000)}s; stdout held ${JSON.stringify(out)}`)),
+        BOOT_DEADLINE_MS,
       );
       const giveUp = (message: string): void => {
         clearTimeout(timer);
@@ -700,7 +719,7 @@ describe('the bound one connection address is held to', () => {
     },
     // Six refusals, each its own exit-path spawn: measured here at 2.0s together, about 330 ms a
     // refusal, so the ceiling is a second a refusal rather than a figure carried over from another case.
-    6 * 1_000,
+    spawnBudget(6),
   );
 
   it('refuses a peer rate field it does not have, and one given twice', () => {
@@ -756,7 +775,7 @@ describe('the bound one connection address is held to', () => {
     },
     // Five spellings refused at the flag and one taken past it, six exit-path spawns: measured here at
     // 2.0s together, about 330 ms a spawn, so the ceiling is a second a spawn.
-    6 * 1_000,
+    spawnBudget(6),
   );
 });
 
@@ -998,7 +1017,7 @@ describe('a volume whose receipts have to outlive the start', () => {
     // SHIPPED_RECEIPT_BOUND receipts is the whole of the work: measured here at 3.1s, about a third of a
     // millisecond a receipt, so the ceiling is three times that, a millisecond a receipt, with a five
     // second floor for the spawn rather than a figure carried over from another case.
-    Math.max(5_000, SHIPPED_RECEIPT_BOUND),
+    bootBudget(1) + SHIPPED_RECEIPT_BOUND,
   );
 
   it(
@@ -1028,7 +1047,7 @@ describe('a volume whose receipts have to outlive the start', () => {
     // was told a durability bound big enough to hold 184 days of them with a serving bound nobody
     // raised: measured here at 0.6s against the 3.1s the refusing start takes on the same volume, so the
     // ceiling is read off the receipt count the case writes, one millisecond a receipt.
-    Math.max(5_000, SHIPPED_RECEIPT_BOUND),
+    bootBudget(1) + SHIPPED_RECEIPT_BOUND,
   );
 
   // Two hundred receipts and one boot that prints its banner, measured here at 0.44s: the runner's
@@ -1106,13 +1125,20 @@ describe('the durability guard read while serving', () => {
     expect(help).toContain('stops this volume opening at the next restart');
   });
 
-  it('refuses a threshold that is not a whole percentage of the bound', () => {
-    for (const given of ['0', '101', '12.5', 'not-a-number']) {
-      const result = run('--mock', '--port', '0', '--receipts-guard-at', given);
-      expect(result.status, `${given}: ${result.stderr}`).toBe(2);
-      expect(result.stderr, given).toContain('--receipts-guard-at must be a whole percentage from 1 to 100');
-    }
-  });
+  // The four spellings a guard threshold refuses, named so the ceiling is read off their count rather
+  // than guessed at: each one is a command that has to exit, and the deadline each carries is the same.
+  const guardThresholdRefusals = ['0', '101', '12.5', 'not-a-number'];
+  it(
+    'refuses a threshold that is not a whole percentage of the bound',
+    () => {
+      for (const given of guardThresholdRefusals) {
+        const result = run('--mock', '--port', '0', '--receipts-guard-at', given);
+        expect(result.status, `${given}: ${result.stderr}`).toBe(2);
+        expect(result.stderr, given).toContain('--receipts-guard-at must be a whole percentage from 1 to 100');
+      }
+    },
+    spawnBudget(guardThresholdRefusals.length),
+  );
 
   it(
     'prints the guard as this process installed it, in both settings',
@@ -1144,7 +1170,7 @@ describe('the durability guard read while serving', () => {
     },
     // Four boots of an empty volume, one per posture the case reads: measured here at 1.9s together,
     // about 470 ms a boot, so the ceiling is a second a boot and not a figure carried from elsewhere.
-    4 * 1_000,
+    bootBudget(4),
   );
 
   /**
@@ -1278,7 +1304,7 @@ describe('the record kind a volume is written under', () => {
     },
     // Six spellings, each its own exit-path spawn: measured here at 1.9s together, about 310 ms a
     // refusal, so the ceiling is a second a refusal, read off the count the loop walks.
-    6 * 1_000,
+    spawnBudget(6),
   );
 
   it(
