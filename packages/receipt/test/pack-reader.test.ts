@@ -19,7 +19,9 @@ import {
   decodePack,
   packRecordDigest,
   packSigStructure,
+  signPack as issuerSignsPack,
   verifyPack,
+  type PackCarriedObject,
   type PackVerifyOptions,
 } from '../src/pack.js';
 import { EXPORT_CONTENT_TYPE } from '../src/export.js';
@@ -36,6 +38,7 @@ import {
   type PackManifest,
   type ReceiptPayload,
   type ReceiptPayloadV1,
+  type ReceiptPayloadV3,
   type SigningKey,
 } from '../src/index.js';
 
@@ -255,6 +258,42 @@ function receiptPayload(iat: number, nonce: number): ReceiptPayloadV1 {
     att: { d: digest, ts: iat - 60, url: 'https://inference.ashaveri.example/v1/attestation' },
     epk: 0,
     tok: { p: 1, c: 1 },
+  };
+}
+
+/**
+ * A piece of appraisal context a slot can name: bytes, and the digest of exactly those bytes, stated the way a
+ * deployment that read the material would state it.
+ */
+function material(label: string, size = label.length): PackCarriedObject {
+  const bytes = new Uint8Array(size);
+  for (let index = 0; index < bytes.length; index += 1) {
+    bytes[index] = (label.charCodeAt(index % label.length) + index) % 256;
+  }
+  return { bytes, sha256: sha256(bytes) };
+}
+
+/**
+ * A v3 payload whose two anchor slots state the digests the case names. A slot this helper leaves out states
+ * `not-taken-in` with a reason, which is the receipt's own statement and owes the pack nothing: an absence is
+ * not a digest the container has to carry.
+ */
+function anchored(iat: number, nonce: number, slots: { col?: Uint8Array; val?: Uint8Array }): ReceiptPayloadV3 {
+  const digest = sha256(new Uint8Array([nonce]));
+  const absent = (which: string) => ({
+    presence: 'not-taken-in' as const,
+    reason: `this collector never took the ${which} in`,
+  });
+  return {
+    ...receiptPayload(iat, nonce),
+    v: 3,
+    mk: { sch: 'none', d: digest },
+    sd: { name: 'host clock', uncertaintySeconds: null },
+    cva: {
+      collateral: slots.col === undefined ? absent('collateral') : { presence: 'held', sha256: slots.col },
+      validity: slots.val === undefined ? absent('validity') : { presence: 'held', sha256: slots.val },
+    },
+    itm: [{ t: iat, d: digest }],
   };
 }
 
@@ -1006,6 +1045,98 @@ describe('the pack reader and the format it reads', () => {
     // mean whichever of the two a reader met first.
     expect(codeOf(() => decodePack(signPack(collided)))).toBe('PACK_DUPLICATE_ID');
     expect(codeOf(() => verifyPack(signPack(collided), { publicKey: KEY.publicKey }))).toBe('PACK_DUPLICATE_ID');
+  });
+
+  it('carries what its sealed slots name, and refuses each way the two can disagree', () => {
+    const tcb = material('tcb-info');
+    const rim = material('rim-bytes');
+    const run = chained(ENTRIES, new Uint8Array(DIGEST_BYTES), KEY, (iat, nonce) => anchored(iat, nonce, { col: tcb.sha256, val: rim.sha256 }));
+    const over = (carried: readonly PackCarriedObject[]): PackManifest =>
+      manifestValue({ chain: { anchor: run.anchor, head: run.head }, items: run.items, carried });
+    const sealedOver = (carried: readonly PackCarriedObject[]): Uint8Array => signPack(over(carried));
+
+    // The acceptance, both directions and through the writer: a slot answered from inside the pack is not a
+    // question a reader has to leave the container for, and the two objects a run names are carried once however
+    // many sealed receipts name them.
+    expect(answered(() => issuerSignsPack(over([tcb, rim]), KEY)), 'the writer signed what it should not have').toBe('accepted');
+    expect(answered(() => decodePack(sealedOver([tcb, rim])))).toBe('accepted');
+    expect(() => verifyPack(sealedOver([tcb, rim]), { publicKey: KEY.publicKey })).not.toThrow();
+
+    // A run whose slots all state an absence owes the pack nothing, and an empty carried list is that
+    // statement rather than a shortage: this is the acceptance that keeps the resolution rule from reading an
+    // absent slot as a missing object.
+    const nowhere = chained(ENTRIES, new Uint8Array(DIGEST_BYTES), KEY, (iat, nonce) => anchored(iat, nonce, {}));
+    const emptySealed = signPack(manifestValue({ chain: { anchor: nowhere.anchor, head: nowhere.head }, items: nowhere.items }));
+    expect(answered(() => decodePack(emptySealed)), 'a pack carrying nothing for slots that state nothing was refused').toBe('accepted');
+
+    const faults: Array<[string, readonly PackCarriedObject[], string, RegExp]> = [
+      [
+        'a held slot the pack carries no object for',
+        [tcb],
+        'PACK_CARRIED_UNRESOLVED',
+        /receipt-0 states a held val digest [0-9a-f]{64} this pack carries no object for/u,
+      ],
+      [
+        'a stated digest that disagrees with its bytes',
+        [tcb, { bytes: rim.bytes, sha256: sha256(tcb.bytes) }],
+        'PACK_CARRIED_DIGEST_MISMATCH',
+        /carried\[1\] states [0-9a-f]{64} and its bytes hash to [0-9a-f]{64}/u,
+      ],
+      [
+        'an object named by nothing in the pack',
+        [tcb, rim, material('a document no slot names')],
+        'PACK_CARRIED_UNNAMED',
+        /carried\[2\] holds [0-9a-f]{64}, which no slot of any receipt this pack seals names/u,
+      ],
+      [
+        'one digest carried twice',
+        [tcb, { bytes: tcb.bytes, sha256: tcb.sha256 }],
+        'PACK_CARRIED_DUPLICATE',
+        /carried\[1\] repeats the digest [0-9a-f]{64} already carried at carried\[0\]/u,
+      ],
+      [
+        'an object past the byte ceiling the format states',
+        [tcb, rim, material('oversized', ID_RANGE.max + 1)],
+        'PACK_BAD_MANIFEST',
+        /carried\[2\] holds 65536 bytes, past the 65535 a pack already bounds/u,
+      ],
+      [
+        'more objects than the sealed receipts can name',
+        [tcb, rim, material('third'), material('fourth'), material('fifth'), material('sixth'), material('seventh')],
+        'PACK_BAD_MANIFEST',
+        /carried holds 7 objects, past the 6 slots 3 sealed receipts can name/u,
+      ],
+    ];
+    for (const [name, carried, code, pattern] of faults) {
+      // The writer refuses to sign what its own reader refuses, and the same document made past the writer is
+      // answered by both readings of the reader, keyless and verified, with the code and the position named.
+      const manifest = over(carried);
+      const written = thrownBy(() => issuerSignsPack(manifest, KEY)) as ReceiptError;
+      expect(written, `${name} was signed`).toBeInstanceOf(ReceiptError);
+      expect(written.code, `${name} was refused by the writer under another code`).toBe(code);
+      const bytes = sealedOver(carried);
+      const read = thrownBy(() => decodePack(bytes)) as ReceiptError;
+      expect(read.code, `${name} answered another code structurally`).toBe(code);
+      expect(read.message, `${name} named no position`).toMatch(pattern);
+      expect(answered(() => verifyPack(bytes, { publicKey: KEY.publicKey })), `${name} answered differently once verified`).toBe(code);
+    }
+
+    // Neither ceiling is tightened past what the format states: an object of exactly the byte ceiling, and a
+    // list of exactly the slots the run names, are both lawful and both resolve.
+    const edge = material('at the byte ceiling', ID_RANGE.max);
+    const cols = [material('col-1'), material('col-2'), material('col-3')];
+    const vals = [material('val-1'), material('val-2'), material('val-3')];
+    const full = chained(ENTRIES, new Uint8Array(DIGEST_BYTES), KEY, (iat, nonce) =>
+      anchored(iat, nonce, { col: cols[nonce - 1]?.sha256, val: vals[nonce - 1]?.sha256 }),
+    );
+    const atBothCeilings = (carried: readonly PackCarriedObject[]): Uint8Array =>
+      signPack(manifestValue({ chain: { anchor: full.anchor, head: full.head }, items: full.items, carried }));
+    expect(answered(() => decodePack(atBothCeilings([...cols, ...vals]))), 'a list exactly as long as the slots was refused').toBe('accepted');
+    const single = chained([ENTRIES[0]!], new Uint8Array(DIGEST_BYTES), KEY, (iat, nonce) => anchored(iat, nonce, { col: edge.sha256 }));
+    const atByteCeiling = signPack(
+      manifestValue({ chain: { anchor: single.anchor, head: single.head }, items: single.items, carried: [edge] }),
+    );
+    expect(answered(() => decodePack(atByteCeiling)), 'an object at the byte ceiling was refused').toBe('accepted');
   });
 
   it('is named by the section of the specification it implements, and says no more than it does', () => {

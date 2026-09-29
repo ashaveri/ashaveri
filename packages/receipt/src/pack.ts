@@ -17,7 +17,8 @@ import {
   type SigningKey,
 } from './cose.js';
 import { ReceiptError } from './errors.js';
-import { verifyReceipt, type VerifiedReceipt } from './receipt.js';
+import { decodeReceipt, verifyReceipt, type VerifiedReceipt } from './receipt.js';
+import type { CollateralSlot } from './disclosure.js';
 
 /**
  * A pack, read and written: what `packages/receipt/pack.cddl` states, run.
@@ -693,6 +694,127 @@ function readCarried(raw: unknown): readonly PackCarriedObject[] {
 }
 
 /**
+ * The ceiling on one carried object's bytes. This is not a new number: it is `ID_MAX_BYTES`, the largest byte
+ * count this container already bounds, because the framing spends two bytes writing an id's length and the
+ * format made that the ceiling of a run of bytes before this member existed. A carried object inherits the
+ * figure the format states rather than one this file invented, which is what keeps the bound the format's and
+ * not the issuer's.
+ */
+const CARRIED_MAX_BYTES = ID_MAX_BYTES;
+
+/** The slots one sealed receipt can name, which is what the count ceiling below is measured against. */
+const CARRIED_SLOTS_PER_ITEM = 2;
+
+/**
+ * The carried list, weighed against the bytes it states and the slots it answers for.
+ *
+ * Five refusals, each naming the position that brought it, and they run in the order a reader can reach them:
+ * the two ceilings before any hashing, because a bound is cheaper to check than a digest and the point of a
+ * ceiling is to be checked before the work it bounds; then the recomputation, because an entry that does not
+ * hash to what it states makes every question about that entry unanswerable; then a digest carried twice,
+ * because deduplication is inside the pack and a second copy of one object makes the count of what a pack
+ * carries stop meaning the material it holds; then the two halves of resolution, an entry no slot names and a
+ * slot no entry answers.
+ *
+ * The last of those is the reason this member exists. A sealed receipt states material it took in, and the pack
+ * that seals that receipt is the container an auditor holds; if it carries no object hashing to the digest the
+ * slot names, the pack attests evidence it does not have. That is reported as the pack's failure and never as
+ * an absence in the world, which is the tenseless division `pack.cddl` keeps elsewhere too: this document says
+ * what it carries, and a policy elsewhere says what it demands. A slot stating an absence answers nothing here,
+ * because an absence is the receipt's own statement and no bytes are owed against it.
+ *
+ * A receipt that does not decode is skipped, and that is the narrower reading rather than the tolerant one.
+ * The originals are read under their own signatures by `checkOriginals`, and an undecodable payload is refused
+ * there as `PACK_RECEIPT_INVALID`; it is not this function's business to guess which slots a document that is
+ * not a receipt would have named. The asymmetry is deliberate: an assembler that could not read a receipt would
+ * otherwise have to be told the pack carries too much, which is a sentence about a different fault.
+ */
+function assertCarriedResolves(manifest: PackManifest): void {
+  for (const [index, one] of manifest.carried.entries()) {
+    if (one.bytes.length > CARRIED_MAX_BYTES) {
+      throw badManifest(
+        `carried[${index}] holds ${one.bytes.length} bytes, past the ${CARRIED_MAX_BYTES} a pack already bounds for a run of bytes`,
+      );
+    }
+  }
+  const slots = manifest.items.length * CARRIED_SLOTS_PER_ITEM;
+  if (manifest.carried.length > slots) {
+    throw badManifest(
+      `carried holds ${manifest.carried.length} objects, past the ${slots} slots ${manifest.items.length} sealed receipts can name`,
+    );
+  }
+  const statedAt = new Map<string, number>();
+  const digests: Uint8Array[] = [];
+  for (const [index, one] of manifest.carried.entries()) {
+    const actual = sha256(one.bytes);
+    if (!equalBytes(actual, one.sha256)) {
+      throw new ReceiptError(
+        'PACK_CARRIED_DIGEST_MISMATCH',
+        `carried[${index}] states ${toHex(one.sha256)} and its bytes hash to ${toHex(actual)}`,
+      );
+    }
+    const hex = toHex(actual);
+    const first = statedAt.get(hex);
+    if (first !== undefined) {
+      throw new ReceiptError(
+        'PACK_CARRIED_DUPLICATE',
+        `carried[${index}] repeats the digest ${hex} already carried at carried[${first}]`,
+      );
+    }
+    statedAt.set(hex, index);
+    digests.push(actual);
+  }
+  const named = heldSlotDigests(manifest);
+  for (const [index, one] of manifest.carried.entries()) {
+    if (!named.some((slot) => equalBytes(slot.sha256, one.sha256))) {
+      throw new ReceiptError(
+        'PACK_CARRIED_UNNAMED',
+        `carried[${index}] holds ${toHex(one.sha256)}, which no slot of any receipt this pack seals names`,
+      );
+    }
+  }
+  for (const slot of named) {
+    if (!digests.some((one) => equalBytes(one, slot.sha256))) {
+      throw new ReceiptError(
+        'PACK_CARRIED_UNRESOLVED',
+        `${slot.item} states a held ${slot.slot} digest ${toHex(slot.sha256)} this pack carries no object for`,
+      );
+    }
+  }
+}
+
+/**
+ * The digests the sealed receipts' anchors state as held, in item order, each with the slot it came from.
+ *
+ * Read from the bytes the pack already seals, which is what makes this answerable with no key in hand: the
+ * receipt bytes sit inside the manifest the pack's signature covers, so the digest a slot names is
+ * authenticated by the container carrying it whether or not the reader has yet verified that receipt's own
+ * signature. Nothing here decides which receipt is authentic; it reads which digests the pack has committed to
+ * carrying, which is a claim about the pack and not a verdict about the deployment.
+ */
+function heldSlotDigests(manifest: PackManifest): readonly { item: string; slot: string; sha256: Uint8Array }[] {
+  const named: { item: string; slot: string; sha256: Uint8Array }[] = [];
+  for (const one of manifest.items) {
+    let payload: VerifiedReceipt['payload'] | undefined;
+    try {
+      payload = decodeReceipt(one.receipt).payload;
+    } catch {
+      continue;
+    }
+    // A `v: 1` or `v: 2` payload names no anchor, so it names no held digest and the pack carries nothing for it.
+    if (!('cva' in payload)) continue;
+    const slots: readonly (readonly [string, CollateralSlot])[] = [
+      ['col', payload.cva.collateral],
+      ['val', payload.cva.validity],
+    ];
+    for (const [label, slot] of slots) {
+      if (slot.presence === 'held') named.push({ item: one.id, slot: label, sha256: slot.sha256 });
+    }
+  }
+  return named;
+}
+
+/**
  * The `held` floor, which is the one statement in the manifest about the store as a whole that the container
  * carrying it can check. A pack covers one span and the duty runs against everything still held, so the oldest
  * receipt in the container need not be the oldest one retained; what follows from being in here at all is that
@@ -742,6 +864,7 @@ function parseManifest(bytes: Uint8Array): PackManifest {
     carried: readCarried(raw.get('carried')),
   };
   assertHeldCoversItems(manifest);
+  assertCarriedResolves(manifest);
   return manifest;
 }
 

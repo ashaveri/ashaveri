@@ -45,6 +45,10 @@ export type ReceiptErrorCode =
   | 'PACK_RECEIPT_STAMP_MISMATCH'
   | 'PACK_CHAIN_BROKEN'
   | 'PACK_ITEM_UNREACHED'
+  | 'PACK_CARRIED_DIGEST_MISMATCH'
+  | 'PACK_CARRIED_DUPLICATE'
+  | 'PACK_CARRIED_UNNAMED'
+  | 'PACK_CARRIED_UNRESOLVED'
   | 'PACK_KID_MISMATCH'
   | 'PACK_UNKNOWN_KEY'
   | 'REDACTION_MALFORMED_CBOR'
@@ -241,6 +245,26 @@ const ERROR_MESSAGE: Record<ReceiptErrorCode, string> = {
   // is the half of the rule the endpoints cannot see, and it is why a conforming reader counts what it walked
   // against the array it was handed.
   PACK_ITEM_UNREACHED: 'a pack item lies outside the run from the anchor to the head',
+  // The four the carried list answers to. They are four codes and not one because the four facts send a
+  // reader to four different places: to the entry, to the pack's own construction, to the issuer's choice of
+  // what to include, and to the pack for attesting material it does not hold. Each detail names a position.
+  // An entry that does not hash to what it states is the pack contradicting itself about bytes it carries, and
+  // the reader recomputes rather than adjudicating between two claims.
+  PACK_CARRIED_DIGEST_MISMATCH: 'a carried object does not hash to the digest the pack states beside it',
+  // Deduplication is inside the pack, so one object appears once however many sealed receipts name it. A
+  // digest carried at two positions is the same object twice under two entries, which makes the count of what
+  // a pack carries mean something other than the material it holds.
+  PACK_CARRIED_DUPLICATE: 'the pack carries the same digest at two positions of its carried list',
+  // The list is a statement about the slots the sealed receipts name, so an entry no slot names is the pack
+  // carrying bytes it attests nothing about. This is the other direction from an unresolved slot and the two
+  // are separate codes because one is a pack that holds too little and this one is a pack that holds more than
+  // it speaks of, which is a different construction to fix.
+  PACK_CARRIED_UNNAMED: 'a carried object is named by no slot of any receipt the pack seals',
+  // The failure the carried member exists to make impossible: a sealed receipt states material it took in, and
+  // the pack that seals that receipt does not carry it. This is the pack's own failure and never a statement
+  // about the world, which is why it is not an absence and why a reader reports it as a defect of the document
+  // rather than as collateral nobody holds.
+  PACK_CARRIED_UNRESOLVED: 'a receipt the pack seals states held collateral the pack does not carry',
   // The key the reader reached for, by whichever of the two designations the caller used, hashes to something
   // other than the kid the pack's header names. This is not a lookup failure: the lookup answered, and what it
   // answered with disagrees with the document, which is a wrong key rather than an edited document. The two
