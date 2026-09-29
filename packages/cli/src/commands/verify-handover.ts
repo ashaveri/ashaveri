@@ -27,6 +27,23 @@ import {
 } from '@ashaveri/sdk';
 import { escapeInvisible, UsageError, writeJson } from '../usage.js';
 import {
+  COLLATERAL_CPU_TYPE_FLAG,
+  COLLATERAL_LEVEL_FLAG,
+  COLLATERAL_ORIGIN_FLAG,
+  COLLATERAL_PLATFORM_FLAG,
+  INTEL_ROOT_FLAG,
+  carriedDesignations,
+  fieldSources,
+  questionText,
+  refusalOf,
+  rootRule,
+  weighCarried,
+  type CarriedDesignations,
+  type CarriedFlagValues,
+  type CarriedReading,
+  type CarriedWeighing,
+} from './carried-collateral.js';
+import {
   KEY_FLAG,
   MANIFEST_KEY_FLAG,
   designatedKeys,
@@ -90,7 +107,7 @@ import {
  */
 
 /** The flags `verify-handover` reads, typed as the one parse in `cli.ts` produces them. */
-export interface VerifyHandoverFlags {
+export interface VerifyHandoverFlags extends CarriedFlagValues {
   /** Every `--key` given, unvalidated at this point; see `designatedKeys`. */
   key?: string[];
   /** Every `--manifest-key` given, unvalidated at this point; see `designatedKeys`. */
@@ -155,6 +172,8 @@ interface Inputs {
   readonly evidence: readonly DesignatedKey[];
   readonly manifest: readonly DesignatedKey[];
   readonly companions: ReadonlyMap<string, Uint8Array>;
+  /** What this run was handed about the material a pack carries: the roots and the question. */
+  readonly carried: CarriedDesignations;
 }
 
 /** The refusal every command in this tool owes in the same shape: the code, and the message beside it. */
@@ -335,10 +354,16 @@ function readReceipt(bytes: Uint8Array, inputs: Inputs, kid: Uint8Array): Readin
  * deployment's own statement and never as a verdict: the comparison the format leaves out of a signed
  * pack is left out here too, because whether a duty was owed turns on the mapping a revision names and
  * on the law behind it, which no reader of one container decides.
+ *
+ * The walk is what the material is weighed against, so the weighing comes after it and nothing else in
+ * this reading depends on it: `carriedFacts` prints the roots, the fields and one row per digest a held
+ * slot names. The reading is a promise for that reason alone, and the four other readers stay as they
+ * were because no other shape carries material a slot names.
  */
-function readPack(bytes: Uint8Array, inputs: Inputs, kid: Uint8Array): Reading {
+async function readPack(bytes: Uint8Array, inputs: Inputs, kid: Uint8Array): Promise<Reading> {
   const verified: VerifiedPack = verifyPack(bytes, { resolveKey: resolveEvidence(inputs.evidence) });
   const { manifest, outcome } = verified;
+  const weighing = await weighCarried(manifest, outcome.walked, inputs.carried);
   return {
     contentType: PACK_CONTENT_TYPE,
     reader: 'verifyPack',
@@ -382,13 +407,152 @@ function readPack(bytes: Uint8Array, inputs: Inputs, kid: Uint8Array): Reading {
         value: `${manifest.duty.art}, revision ${manifest.duty.rev} (${isoOf(manifest.duty.rev)}), required ${manifest.duty.required} s, held ${manifest.duty.held} s, both as the deployment states them`,
         json: manifest.duty,
       },
+      ...carriedFacts(weighing),
     ],
     notChecked: [
       `whether ${manifest.duty.required} s required is met by ${manifest.duty.held} s held: that comparison belongs to the duty mapping revision ${manifest.duty.rev} names, and this command states both figures and judges neither`,
       'whether these receipts are all the deployment still holds, and whether the span is the period somebody asked for: the walk shows that nothing is missing between the first item and the last, and nothing else',
       'whether this pack agrees with the copy a reader held before, which is the only way a deleted tail becomes visible',
+      ...carriedNotChecked(weighing),
     ],
   };
+}
+
+/**
+ * What the material a pack carries amounts to, in the two shapes every reading is printed in.
+ *
+ * Three rows always come first, because they state the terms of the question rather than its answers: the roots
+ * this run stood behind and the rule that decided them, then one line per field of the appraisal saying where
+ * that field came from, then the answers themselves. A row per held digest follows, keyed by the digest because
+ * that is the only name the container gives the material, and a final row for the slots that state an absence,
+ * which are owed no material and so weigh nothing at all.
+ *
+ * `carried` is always true of a printed row, and the reason is worth stating rather than leaving to inference:
+ * the format refuses a pack that names a held slot it carries nothing for, at the position that names it, so no
+ * report of a pack this command accepted can hold a slot whose material is absent. The absence is a refusal with
+ * an exit code, not a row, and `carriedNotChecked` says so beside the rows.
+ */
+function carriedFacts(weighing: CarriedReading): readonly Fact[] {
+  const facts: Fact[] = [
+    {
+      key: 'collateralRoots',
+      label: 'collateral roots',
+      value: rootRule(weighing.designations),
+      json: {
+        handed: weighing.designations.rootPaths.length,
+        files: weighing.designations.rootPaths,
+        bundledConsulted: false,
+        rule: rootRule(weighing.designations),
+      },
+    },
+    {
+      key: 'collateralFields',
+      label: 'collateral fields',
+      value: fieldSources(weighing.designations).map((one) => `${one.field}: ${one.from}`).join('; '),
+      json: fieldSources(weighing.designations),
+    },
+  ];
+  for (const one of weighing.weighings) {
+    facts.push({
+      key: `carried-${one.digest}`,
+      label: `weighed ${one.slot} ${one.item}`,
+      value: weighingLine(one),
+      json: weighingJson(one),
+    });
+  }
+  if (weighing.weighings.length === 0) {
+    facts.push({
+      key: 'carried',
+      label: 'carried material',
+      value:
+        weighing.absences.length === 0
+          ? 'no sealed receipt in this pack names an anchor, so no held slot asked for material and nothing was weighed'
+          : `no held slot names material: ${String(weighing.absences.length)} slot(s) state an absence instead, and an absence is owed no bytes`,
+      json: null,
+    });
+  }
+  if (weighing.absences.length > 0) {
+    facts.push({
+      key: 'anchorAbsences',
+      label: 'anchor absences',
+      value: weighing.absences.map((one) => `${one.item} at ${one.slot}: ${one.presence}, ${one.reason}`).join('; '),
+      json: weighing.absences,
+    });
+  }
+  return facts;
+}
+
+/** One digest, the question asked of it, and what the appraisal answered. */
+function weighingLine(one: CarriedWeighing): string {
+  const named = one.namedBy.map((each) => `${each.item} at ${each.slot}`).join(', ');
+  const found = `digest ${one.digest}, carried as ${String(one.bytes)} byte(s), named by ${named}`;
+  const outcome = one.outcome;
+  if (outcome === null) return `${found}: not weighed, ${one.notWeighed}`;
+  const read = outcome.collateral;
+  const refusal = refusalOf(outcome);
+  const parts = [found];
+  if (one.question !== null) parts.push(`weighed as ${questionText(one.question)}`);
+  parts.push(`read against ${one.iat} (${isoOf(one.iat)}), the stamp ${one.item} was chained at, whose own measurement names ${one.environment}`);
+  parts.push(`answered ${outcome.state}`);
+  if (read !== null) {
+    parts.push(`the vendor's words read ${read.classification.readAs} as ${read.declared.vendorStatus}, under the pinned anchor ${read.anchorDigest}`);
+    parts.push(`the window it signed runs ${isoOf(read.classification.window.from)} to ${isoOf(read.classification.window.until)}, read against ${isoOf(one.iat)}`);
+  }
+  if (refusal !== null) {
+    parts.push(`refused ${refusal.code}${refusal.missing.length > 0 ? ` for ${refusal.missing.join(', ')}` : ''}: ${refusal.detail}`);
+  }
+  return parts.join('; ');
+}
+
+/** The same answer in the machine-readable shape, with the figures left as figures. */
+function weighingJson(one: CarriedWeighing): Record<string, unknown> {
+  const outcome = one.outcome;
+  const read = outcome?.collateral ?? null;
+  return {
+    digest: one.digest,
+    item: one.item,
+    slot: one.slot,
+    namedBy: one.namedBy,
+    carried: true,
+    carriedBytes: one.bytes,
+    appraisalAt: one.iat,
+    heldAt: one.iat,
+    environment: one.environment,
+    question: one.question,
+    weighed: outcome !== null,
+    notWeighed: one.notWeighed,
+    state: outcome?.state ?? null,
+    reach: outcome?.claim?.reach ?? null,
+    readAs: read?.classification.readAs ?? null,
+    vendorStatus: read?.declared.vendorStatus ?? null,
+    declaredCpuType: read?.declared.cpuType ?? null,
+    anchorDigest: read?.anchorDigest ?? null,
+    window: read?.classification.window ?? null,
+    retainUntil: outcome?.claim?.retainUntil ?? null,
+    refusal: outcome === null ? null : refusalOf(outcome),
+  };
+}
+
+/**
+ * What the weighing leaves open, in the rows the report prints under `not checked`.
+ *
+ * These are disclosures about the reading rather than demands on the material: the command states what it did
+ * not compare and stops there. The first is the reach, which is the distinction an archive blurs; the second is
+ * the register the platform was taken from, which the row prints both halves of; the third is why no row can
+ * say that a slot went uncarried.
+ */
+function carriedNotChecked(weighing: CarriedReading): readonly string[] {
+  if (weighing.weighings.length === 0) {
+    return weighing.absences.length === 0
+      ? []
+      : ['whether an anchor slot that states an absence hides material the deployment still holds: the receipt states the absence and the pack owes nothing against it, which is a statement and not a shortage'];
+  }
+  return [
+    'whether the material this pack carries says the platform is trusted at this moment: each answer above was read against the stamp of the record that names it, and this run asked no origin anything, so no answer here reaches current-knowledge',
+    `whether the platform this run asked about is the environment the sealed receipts measured: ${[...weighing.designations.bySlot].map(([slot, one]) => `the ${slot} slot was weighed as ${one.platform}`).join(', ')}, while the receipts name ${[...new Set(weighing.weighings.map((one) => one.environment))].join(' and ')} for their own measurements, and the two are printed apart because a record states the machine it ran on rather than the path its collateral was published by`,
+    'whether a held slot of this pack went uncarried: no row here can say so, because the weighing runs over a document the format accepted, and the format refuses a pack that names a held slot it carries no object for at the position that names it',
+    `whether ${COLLATERAL_ORIGIN_FLAG} named the origin these bytes were published by: the answer is read under the name this run gave, and a document covering another machine is refused as an identity mismatch rather than reported as an answer about this one`,
+  ];
 }
 
 /**
@@ -636,8 +800,20 @@ function readRedaction(bytes: Uint8Array, inputs: Inputs, kid: Uint8Array): Read
  * The five types this command can meet, each with the reader that answers for it. The keys are the
  * constants the format package publishes, so a sixth type published beside them reaches this command as
  * an unknown `typ` and is refused by name rather than read as one of these five.
+ *
+ * The pack reader is the one that returns a promise, because weighing the material a pack carries runs the
+ * collateral package's appraisal, which is an asynchronous signature for a path that fetches nothing: the
+ * material is handed in rather than asked for. The other four readers are as they always were, and the one
+ * call site awaits both shapes.
  */
-const READERS: ReadonlyMap<string, (bytes: Uint8Array, inputs: Inputs, kid: Uint8Array) => Reading> = new Map([
+/**
+ * One reader of this family. The pack's returns a promise, because weighing the material it carries awaits an
+ * appraisal that fetches nothing; the call site awaits both shapes, so a narrower question about the same bytes
+ * does not change what an answer is made of.
+ */
+type DocumentReader = (bytes: Uint8Array, inputs: Inputs, kid: Uint8Array) => Reading | Promise<Reading>;
+
+const READERS: ReadonlyMap<string, DocumentReader> = new Map<string, DocumentReader>([
   [RECEIPT_CONTENT_TYPE, readReceipt],
   [PACK_CONTENT_TYPE, readPack],
   [EXPORT_CONTENT_TYPE, readExport],
@@ -738,6 +914,19 @@ function designationFacts(contentType: string, inputs: Inputs): readonly Fact[] 
           : `no policy document was read: the keys ${contentType} is checked against are the ones this command line named, and nothing else`,
       json: null,
     },
+    // The same rule the two key roles keep: a designation that did nothing is disclosed rather than dropped.
+    // Only a pack carries material an anchor slot names, so on the other four shapes the roots and the question
+    // stand unused, and a caller running one line across a bundle is owed that answer rather than silence.
+    ...(contentType === PACK_CONTENT_TYPE || !inputs.carried.asked
+      ? []
+      : [
+          {
+            key: 'carriedNotConsulted',
+            label: 'not consulted',
+            value: `${[COLLATERAL_ORIGIN_FLAG, COLLATERAL_PLATFORM_FLAG, COLLATERAL_CPU_TYPE_FLAG, COLLATERAL_LEVEL_FLAG, INTEL_ROOT_FLAG].join(', ')} name the material a pack carries and what it says, and ${contentType} carries none`,
+            json: { consulted: false, contentType, roots: inputs.carried.rootPaths.length },
+          },
+        ]),
   ];
 }
 
@@ -787,7 +976,8 @@ export async function runVerifyHandover(
   const manifestKeys = designatedKeys(values['manifest-key'], MANIFEST_KEY_FLAG);
   const companions = await companionFiles(values.companion);
   const json = values.json === true;
-  const inputs: Inputs = { evidence, manifest: manifestKeys, companions };
+  const carried = await carriedDesignations(values);
+  const inputs: Inputs = { evidence, manifest: manifestKeys, companions, carried };
   const bytes = await readOneDocument(path);
 
   let contentType: string | null = null;
@@ -810,7 +1000,7 @@ export async function runVerifyHandover(
         `${KEY_FLAG} is required to verify ${contentType}: its signature is checked against the key its own header designates, and a document that vouched for its own signer would vouch for anything. For ${DEPLOYMENT_MANIFEST_CONTENT_TYPE}, ${MANIFEST_KEY_FLAG} is the flag that designates`,
       );
     }
-    const reading = reader(bytes, inputs, found.kid);
+    const reading = await reader(bytes, inputs, found.kid);
     if (json) {
       writeJson(jsonReading(reading, inputs));
     } else {
