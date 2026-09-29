@@ -21,6 +21,13 @@ import { readBytes } from './verify-receipt.js';
  * material for, and hands the answer back as rows for the report rather than as a verdict: the command that runs
  * it applies no policy, demands no anchor and changes no exit code on anything it prints here.
  *
+ * The question is answerable only for material of the envelope the origin's declaration decodes. Intel serves its
+ * documents as a body with a hex signature member and its issuer chain in a response header, cited at each
+ * declaration in `@ashaveri/collateral`'s `intel-origin.ts`, and a container holds the body with no header beside
+ * it, so bytes taken in as that address actually answers them are refused here at the envelope. A `held` slot
+ * states that the pack carries the bytes an anchor digests; it does not state that a reader holding the pack can
+ * walk a chain out of them.
+ *
  * Where each field of the question comes from is the first thing to settle, because the package settles all of
  * them before it reads a byte of the answer: `askedButNotGiven` refuses an unnamed root, instant or level, and
  * `requestUrl` refuses an unnamed or malformed CPU type, and no refusal of either can be met out of the bytes
@@ -45,7 +52,7 @@ import { readBytes } from './verify-receipt.js';
  * guess written into somebody else's verdict, and it would make the collateral of every `snp` receipt unweighable.
  * No origin is stated either: the two halves of one anchor hold two different documents, and the format gives a
  * carried object no name but its digest. And the package refuses, on purpose, to let a signed document answer for
- * its own identity: it reads the `fmspcid` the document declares and refuses one covering another machine than the
+ * its own identity: it reads the `fmspc` the document declares and refuses one covering another machine than the
  * one asked about, which is the check that stops a misindexed answer passing.
  *
  * So `--collateral-origin`, `--collateral-platform`, `--collateral-cpu-type` and `--collateral-level` are the

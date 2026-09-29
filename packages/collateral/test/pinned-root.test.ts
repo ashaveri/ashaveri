@@ -6,10 +6,10 @@ import type { CollateralQuery } from '../src/types.js';
 import { secondsOf, signedDocument, tcbInfo, testVendor } from './support/collateral-documents.js';
 
 const FMSPC = '00906EA00000';
-const LEVEL_DATE = '2026-09-01T00:00:00.000Z';
-const NEXT_UPDATE = '2026-10-01T00:00:00.000Z';
-const WITHIN = secondsOf('2026-09-15T00:00:00.000Z');
-const OBSERVED = secondsOf('2026-09-15T06:00:00.000Z');
+const LEVEL_DATE = '2026-09-01T00:00:00Z';
+const NEXT_UPDATE = '2026-10-01T00:00:00Z';
+const WITHIN = secondsOf('2026-09-15T00:00:00Z');
+const OBSERVED = secondsOf('2026-09-15T06:00:00Z');
 
 /**
  * Intel's published provisioning root, held by `@ashaveri/attest-core` and digested here against the
@@ -47,7 +47,7 @@ async function verdict(roots: readonly Uint8Array[]): Promise<CollateralOutcome>
       fmspc: FMSPC,
       issueDate: LEVEL_DATE,
       nextUpdate: NEXT_UPDATE,
-      levels: [{ tcbDate: LEVEL_DATE, tcbStatus: 'OK' }],
+      levels: [{ tcbDate: LEVEL_DATE, tcbStatus: 'UpToDate' }],
     }),
     vendor,
   );

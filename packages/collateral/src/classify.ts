@@ -45,6 +45,13 @@ export async function appraiseCollateral(
  * from the instants it names. What the stamp is worth is the receipt's disclosure rather than a claim of this
  * path, and the alternative, minting an instant nobody recorded, is what the retained path already refuses.
  *
+ * What this path appraises is material of the envelope the declaration names, and Intel answers its documents in
+ * another one: a JSON body whose issuer chain arrives in a response header, cited at each declaration in
+ * `intel-origin.ts`. A container holds the body and no header, so bytes taken in as that address actually answers
+ * them are refused here at the envelope rather than weighed, and no stamp changes that. The honesty of this path
+ * is about where an instant comes from; whether it can read the bytes at all is the envelope's question, and it is
+ * open.
+ *
  * The consequence is narrow and it is the design working rather than a gap. The instant feeds one sentence, the
  * one a stale answer carries about when the bytes were seen, and it moves no comparison of its own: the window
  * the vendor signed is read against `appraisalAt`, which stays the caller's own statement of the moment being

@@ -302,7 +302,9 @@ Handover options, the same for verify-handover, verify-pack and verify-export:
                      Which rung of the vendor's ladder the appraisal is asked about, as tcb-date=<instant> or
                      tcb-composition=<hex>. The status the vendor signed beside exactly that rung is what comes
                      back, because a ladder read at no rung is how an archived document becomes an answer about a
-                     platform nobody checked.
+                     platform nobody checked. A rung named by its composition is answered only where the document
+                     states that composition as hex text: Intel states it as the component numbers of an object,
+                     and no caller's text is compared with numbers this package has no rule to fold.
                      None of these four flags demands an answer: what a pack carries is weighed when the caller
                      says what it is, and every slot the run could not ask about is printed as unweighed with the
                      name of the flag that would have asked it. An appraisal never moves the exit code, which

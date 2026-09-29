@@ -208,6 +208,9 @@ describe('the Intel retrieval path', () => {
     if (typeof asked === 'string') throw new Error('a key was built over a missing level');
     expect(asked.missing).toEqual(['level']);
     const qe = collateralCacheKey(query({ origin: 'intel-qe-identity', cpuType: null, level: null }), INTEL_QE_IDENTITY);
-    expect(qe).toBe('origin=intel-qe-identity|platform=tdx');
+    // The served QE Identity body states its status per rung of `tcbLevels`, so a question naming none keys
+    // nothing, exactly as a TCB Info question that names none does.
+    if (typeof qe === 'string') throw new Error('a QE identity key was built over a missing level');
+    expect(qe.missing).toEqual(['level']);
   });
 });

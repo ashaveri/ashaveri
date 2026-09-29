@@ -14,6 +14,7 @@ import {
   mismatchedVendor,
   qeIdentity,
   secondsOf,
+  servedJsonBody,
   signedDocument,
   tcbInfo,
   tcbInfoBody,
@@ -23,8 +24,9 @@ import {
 
 const FMSPC = '00906EA00000';
 const CPU_TYPE = FMSPC.toLowerCase();
-const LEVEL_DATE = '2026-09-01T00:00:00.000Z';
-const NEXT_UPDATE = '2026-10-01T00:00:00.000Z';
+/** The vendor writes its instants with no fraction, so the documents here do too. */
+const LEVEL_DATE = '2026-09-01T00:00:00Z';
+const NEXT_UPDATE = '2026-10-01T00:00:00Z';
 const WITHIN = secondsOf('2026-09-15T00:00:00.000Z');
 
 const vendor = testVendor();
@@ -43,7 +45,7 @@ function query(over: Partial<CollateralQuery> = {}): CollateralQuery {
   };
 }
 
-function levelDocument(signer: TestVendor = vendor, status = 'OK', level = LEVEL_DATE, fmspc = FMSPC): Uint8Array {
+function levelDocument(signer: TestVendor = vendor, status = 'UpToDate', level = LEVEL_DATE, fmspc = FMSPC): Uint8Array {
   return signedDocument(
     tcbInfo({ fmspc, issueDate: level, nextUpdate: NEXT_UPDATE, levels: [{ tcbDate: level, tcbStatus: status }] }),
     signer,
@@ -80,7 +82,7 @@ function refusalOf(result: ReadOutcome): CollateralRefusal {
 describe('the signed collateral document', () => {
   it('reads what the vendor signed once the chain reaches the root the caller pinned', () => {
     const read = readOf(outcome(levelDocument()));
-    expect(read.vendorStatus).toBe('OK');
+    expect(read.vendorStatus).toBe('UpToDate');
     expect(read.signedAt).toBe(secondsOf(LEVEL_DATE));
     expect(read.validUntil).toBe(secondsOf(NEXT_UPDATE));
     expect(read.declaredCpuType).toBe(FMSPC);
@@ -89,15 +91,161 @@ describe('the signed collateral document', () => {
     expect(read.blobs[0]).toEqual(levelDocument());
   });
 
-  it('reads the QE identity, which states one status and names no identity', () => {
+  it('reads the QE identity where the vendor nests it, and names no identity', () => {
     const bytes = signedDocument(
-      qeIdentity({ issueDate: LEVEL_DATE, nextUpdate: NEXT_UPDATE, tcbStatus: 'OK' }),
+      qeIdentity({
+        issueDate: LEVEL_DATE,
+        nextUpdate: NEXT_UPDATE,
+        levels: [{ isvSvn: 0, tcbDate: LEVEL_DATE, tcbStatus: 'UpToDate' }],
+      }),
       vendor,
     );
-    const read = readOf(outcome(bytes, { origin: 'intel-qe-identity', cpuType: null, level: null }, INTEL_QE_IDENTITY));
-    expect(read.vendorStatus).toBe('OK');
+    const read = readOf(outcome(bytes, { origin: 'intel-qe-identity', cpuType: null }, INTEL_QE_IDENTITY));
+    expect(read.vendorStatus).toBe('UpToDate');
     expect(read.declaredCpuType).toBeNull();
+    expect(read.signedAt).toBe(secondsOf(LEVEL_DATE));
     expect(read.anchorDigest).toBe(vendor.rootDigest);
+  });
+
+  /**
+   * The QE Identity window and levels sit inside `enclaveIdentity`, which is the position the served body
+   * states. Here they sit at the top of the payload, which is where this path used to read them, and where
+   * the served answer states nothing at all but that wrapper and a signature.
+   */
+  it('refuses a QE identity whose window sits at the top of the payload instead of inside the wrapper', () => {
+    const bytes = signedDocument({ issueDate: LEVEL_DATE, nextUpdate: NEXT_UPDATE, tcbLevels: [] }, vendor);
+    const refusal = refusalOf(outcome(bytes, { origin: 'intel-qe-identity', cpuType: null }, INTEL_QE_IDENTITY));
+    expect(refusal.code).toBe('COLLATERAL_BLOB_UNREADABLE');
+    expect(refusal.detail).toContain('enclaveIdentity');
+  });
+
+  /**
+   * A document laid out the way Intel lays a TCB Info out, read at each rung it lists. The composition is
+   * the component numbers of an object, the advisories are named beside the rung that owes one, and the
+   * words are the vendor's own. Nothing here is this repository's spelling of a vendor document.
+   */
+  it('reads a document laid out the way the vendor lays one out and reports the vendor words', () => {
+    const bytes = signedDocument(
+      tcbInfo({
+        fmspc: FMSPC,
+        issueDate: LEVEL_DATE,
+        nextUpdate: NEXT_UPDATE,
+        composition: 'tdx',
+        levels: [
+          {
+            svns: [9, 9, 2, 2, 4, 1, 0, 6, 0, 0, 0, 0, 0, 0, 0, 0],
+            pceSvn: 11,
+            tcbDate: LEVEL_DATE,
+            tcbStatus: 'UpToDate',
+            advisoryIDs: ['INTEL-TA0016'],
+          },
+          { tcbDate: '2025-04-01T00:00:00Z', tcbStatus: 'OutOfDate' },
+        ],
+      }),
+      vendor,
+    );
+    const current = readOf(outcome(bytes));
+    expect(current.vendorStatus).toBe('UpToDate');
+    expect(current.declaredCpuType).toBe(FMSPC);
+    expect(current.signedAt).toBe(secondsOf(LEVEL_DATE));
+    expect(current.validUntil).toBe(secondsOf(NEXT_UPDATE));
+
+    const older = readOf(outcome(bytes, { level: { by: 'tcb-date', value: '2025-04-01T00:00:00Z' } }));
+    expect(older.vendorStatus, 'a second rung states its own status').toBe('OutOfDate');
+  });
+
+  /**
+   * The levels hang under `tcbLevels` in every body fetched for the citation at `intel-origin.ts`. Spelled
+   * `tcb`, which is what this package read until the list member was settled, the list is not there at all.
+   */
+  it('refuses a document that spells its level list the way this repository used to spell it', () => {
+    const bytes = signedDocument(
+      {
+        tcbInfo: {
+          issueDate: LEVEL_DATE,
+          nextUpdate: NEXT_UPDATE,
+          fmspc: FMSPC,
+          tcb: [{ tcbDate: LEVEL_DATE, tcbStatus: 'UpToDate' }],
+        },
+      },
+      vendor,
+    );
+    const refusal = refusalOf(outcome(bytes));
+    expect(refusal.code).toBe('COLLATERAL_BLOB_UNREADABLE');
+    expect(refusal.detail).toContain('tcbLevels');
+  });
+
+  it('refuses a level that states no status beside the composition the vendor states', () => {
+    const bytes = signedDocument(
+      {
+        tcbInfo: {
+          issueDate: LEVEL_DATE,
+          nextUpdate: NEXT_UPDATE,
+          fmspc: FMSPC,
+          tcbLevels: [{ tcb: { sgxtcbcomponents: [{ svn: 9 }], pcesvn: 11 }, tcbDate: LEVEL_DATE }],
+        },
+      },
+      vendor,
+    );
+    const refusal = refusalOf(outcome(bytes));
+    expect(refusal.code).toBe('COLLATERAL_BLOB_UNREADABLE');
+    expect(refusal.detail).toContain('the matched level states no tcbStatus');
+  });
+
+  /**
+   * Both directions of the composition position. A served level states its composition as component
+   * numbers, and a hex question has nothing to compare with: the refusal says that rather than blaming the
+   * document for listing no rung. A level stating its composition as hex text is the shape this package
+   * declared and no body serves, and asking it by composition finds a document that states no such numbers.
+   */
+  it('refuses a composition question by the shape the document actually states', () => {
+    const composition = { by: 'tcb-composition', value: '09090202040100060000000000000000' } as const;
+    const numbers = signedDocument(
+      tcbInfo({
+        fmspc: FMSPC,
+        issueDate: LEVEL_DATE,
+        nextUpdate: NEXT_UPDATE,
+        levels: [{ svns: [9, 9, 2, 2, 4, 1, 0, 6, 0, 0, 0, 0, 0, 0, 0, 0], pceSvn: 11, tcbDate: LEVEL_DATE, tcbStatus: 'UpToDate' }],
+      }),
+      vendor,
+    );
+    const metNumbers = refusalOf(outcome(numbers, { level: composition }));
+    expect(metNumbers.code).toBe('COLLATERAL_TCB_LEVEL_UNLISTED');
+    expect(metNumbers.detail).toContain('component numbers');
+
+    const hexSpelled = signedDocument(
+      {
+        tcbInfo: {
+          issueDate: LEVEL_DATE,
+          nextUpdate: NEXT_UPDATE,
+          fmspc: FMSPC,
+          tcbLevels: [{ tcb: composition.value, tcbDate: LEVEL_DATE, tcbStatus: 'UpToDate' }],
+        },
+      },
+      vendor,
+    );
+    const metHex = refusalOf(outcome(hexSpelled, { level: composition }));
+    expect(metHex.code).toBe('COLLATERAL_TCB_LEVEL_UNLISTED');
+    expect(metHex.detail).toContain('lists no level spelled');
+  });
+
+  /**
+   * What the address returns is a JSON body carrying a hex `signature` member, with the issuer chain in
+   * a response header named after the document. This path decodes three base64url parts and reads the
+   * certificates from inside them, so the served body is refused at its envelope, before one member of it
+   * is read. The refusal is pinned because the gap is real: material that arrives in a pack arrives alone,
+   * and the chain is not inside the bytes.
+   */
+  it('refuses the body the vendor actually answers with, at the envelope', () => {
+    const bytes = servedJsonBody(tcbInfo({
+      fmspc: FMSPC,
+      issueDate: LEVEL_DATE,
+      nextUpdate: NEXT_UPDATE,
+      levels: [{ tcbDate: LEVEL_DATE, tcbStatus: 'UpToDate' }],
+    }));
+    const refusal = refusalOf(outcome(bytes));
+    expect(refusal.code).toBe('COLLATERAL_BLOB_UNREADABLE');
+    expect(refusal.detail).toContain('not the three a JWS has');
   });
 
   it('refuses a chain borrowing the pinned root name over a key the pin does not hold', () => {
@@ -118,7 +266,7 @@ describe('the signed collateral document', () => {
         fmspc: FMSPC,
         issueDate: LEVEL_DATE,
         nextUpdate: NEXT_UPDATE,
-        levels: [{ tcbDate: LEVEL_DATE, tcbStatus: 'OK' }],
+        levels: [{ tcbDate: LEVEL_DATE, tcbStatus: 'UpToDate' }],
       }),
       { ...vendor, signingKey: foreignKey() },
     );
@@ -144,7 +292,7 @@ describe('the signed collateral document', () => {
       fmspc: FMSPC,
       issueDate: LEVEL_DATE,
       nextUpdate: NEXT_UPDATE,
-      levels: [{ tcbDate: LEVEL_DATE, tcbStatus: 'OK' }],
+      levels: [{ tcbDate: LEVEL_DATE, tcbStatus: 'UpToDate' }],
     });
     const other = signedDocument(payload, vendor, { alg: 'RS256', x5c: ['MII'] });
     expect(refusalOf(outcome(other)).detail).toContain('RS256');
@@ -157,7 +305,7 @@ describe('the signed collateral document', () => {
   });
 
   it('refuses a document covering another identity than the one asked for', () => {
-    const refusal = refusalOf(outcome(levelDocument(vendor, 'OK', LEVEL_DATE, '00A0F0000000')));
+    const refusal = refusalOf(outcome(levelDocument(vendor, 'UpToDate', LEVEL_DATE, '00A0F0000000')));
     expect(refusal.code).toBe('COLLATERAL_IDENTITY_MISMATCH');
     expect(refusal.missing).toEqual(['cpuType']);
   });
@@ -175,7 +323,7 @@ describe('the signed collateral document', () => {
             fmspc: '00A0F0000000',
             issueDate: LEVEL_DATE,
             nextUpdate: NEXT_UPDATE,
-            levels: [{ tcbDate: LEVEL_DATE, tcbStatus: 'OK' }],
+            levels: [{ tcbDate: LEVEL_DATE, tcbStatus: 'UpToDate' }],
           }),
           fmspcid: FMSPC,
         },
@@ -189,7 +337,7 @@ describe('the signed collateral document', () => {
 
   it('refuses a document stating no identity member at all, and names the one it looked for', () => {
     const bytes = signedDocument(
-      { tcbInfo: { issueDate: LEVEL_DATE, nextUpdate: NEXT_UPDATE, tcb: [{ tcbDate: LEVEL_DATE, tcbStatus: 'OK' }] } },
+      { tcbInfo: { issueDate: LEVEL_DATE, nextUpdate: NEXT_UPDATE, tcbLevels: [{ tcbDate: LEVEL_DATE, tcbStatus: 'UpToDate' }] } },
       vendor,
     );
     const refusal = refusalOf(outcome(bytes));
@@ -225,7 +373,7 @@ describe('the signed collateral document', () => {
         fmspc: FMSPC,
         issueDate: LEVEL_DATE,
         nextUpdate: LEVEL_DATE,
-        levels: [{ tcbDate: LEVEL_DATE, tcbStatus: 'OK' }],
+        levels: [{ tcbDate: LEVEL_DATE, tcbStatus: 'UpToDate' }],
       }),
       vendor,
     );
@@ -233,7 +381,7 @@ describe('the signed collateral document', () => {
   });
 
   it('refuses a document stating no window rather than assuming how long it stands', () => {
-    const refusal = refusalOf(outcome(signedDocument({ tcbInfo: { fmspc: FMSPC, tcb: [] } }, vendor)));
+    const refusal = refusalOf(outcome(signedDocument({ tcbInfo: { fmspc: FMSPC, tcbLevels: [] } }, vendor)));
     expect(refusal.code).toBe('COLLATERAL_BLOB_UNREADABLE');
     expect(refusal.detail).toContain('window');
   });

@@ -24,6 +24,11 @@ export type CollateralOriginName =
  * this package reads the status the vendor signed beside exactly that one. A query that cannot name
  * its level answers as missing context, because an unanchored level is how an archived document gets
  * read as an answer about a platform nobody checked.
+ *
+ * A rung named by its composition is answered only where the document states that composition as the
+ * hex text the value is. Intel's bodies state a level's composition as the component numbers of an
+ * object, which no hex text compares with and which this package will not fold into one by guessing
+ * which numbers a caller meant; see `levelCompositionStatedAs` in `intel-origin.ts`.
  */
 export type IntelTcbLevel =
   | { readonly by: 'tcb-date'; readonly value: string }
@@ -31,7 +36,14 @@ export type IntelTcbLevel =
 
 /** Collateral the caller kept from an earlier run, with the stamp that says when. */
 export interface RetainedCollateral {
-  /** The signed document exactly as it was served, which is what gets read again and not a re-encoding. */
+  /**
+   * The signed document exactly as it was taken in, which is what gets read again and not a re-encoding.
+   *
+   * It is read again only if it is of the envelope the origin's declaration names. Intel serves its
+   * documents as a JSON body whose issuer chain arrives in a response header, cited at each declaration in
+   * `intel-origin.ts`, so bytes taken in as that address answers them arrive here with no chain beside them
+   * and are refused rather than read.
+   */
   readonly bytes: Uint8Array;
   /**
    * Unix seconds, from the caller's own record of the run that asked the origin. It is the only thing
@@ -117,7 +129,7 @@ export interface CollateralClassification {
 export interface SignedCollateral {
   readonly origin: CollateralOriginName;
   readonly platform: IntelPlatform;
-  /** The signed document first, then every certificate the answer presented with it, as served. */
+  /** The signed document first, then every certificate the document itself presented, in the order it presented them. */
   readonly blobs: readonly Uint8Array[];
   /** sha256 of `blobs[0]` as hex: what a caller retains and reads back. */
   readonly digest: string;

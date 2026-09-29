@@ -550,7 +550,7 @@ function proveCarried(workDir: string): void {
       fmspc: FMSPC,
       issueDate: ISSUE_DATE,
       nextUpdate: NEXT_UPDATE,
-      levels: [{ tcbDate: TCB_DATE, tcbStatus: 'OK' }],
+      levels: [{ tcbDate: TCB_DATE, tcbStatus: 'UpToDate' }],
     }),
     vendor,
   );
@@ -625,7 +625,7 @@ function proveCarried(workDir: string): void {
   );
   expect(col.weighed === true && col.notWeighed === null, weighedRun, 'report the slot as weighed rather than as unasked');
   expect(col.state === 'stale' && col.reach === 'historical-knowledge', weighedRun, `answer stale and historical, saw ${String(col.state)} / ${String(col.reach)}`);
-  expect(col.readAs === 'trusted' && col.vendorStatus === 'OK', weighedRun, `print what the vendor's own words say, saw ${String(col.readAs)} / ${String(col.vendorStatus)}`);
+  expect(col.readAs === 'trusted' && col.vendorStatus === 'UpToDate', weighedRun, `print what the vendor's own words say, saw ${String(col.readAs)} / ${String(col.vendorStatus)}`);
   expect(col.declaredCpuType === FMSPC, weighedRun, 'print the identity the document declares for itself beside the one asked');
   expect(col.anchorDigest === vendor.rootDigest, weighedRun, `reach the anchor this run pinned and no other, saw ${String(col.anchorDigest)}`);
   expect(

@@ -262,7 +262,7 @@ const TCB_DOCUMENT = signedDocument(tcbInfo({
   fmspc: FMSPC,
   issueDate: ISSUE_DATE,
   nextUpdate: NEXT_UPDATE,
-  levels: [{ tcbDate: TCB_DATE, tcbStatus: 'OK' }],
+  levels: [{ tcbDate: TCB_DATE, tcbStatus: 'UpToDate' }],
 }), VENDOR);
 const ROOT_PATH = written('intel-root.der', VENDOR.rootDer);
 
@@ -372,7 +372,7 @@ describe('a pack whose carried material is weighed', () => {
     expect(human.stdout).toContain(`digest ${digest}, carried as ${String(TCB_DOCUMENT.byteLength)} byte(s), named by receipt-0 at col`);
     expect(human.stdout).toContain(`read against ${String(IAT)} (${IAT_ISO}), the stamp receipt-0 was chained at`);
     expect(human.stdout).toContain('answered stale');
-    expect(human.stdout).toContain(`the vendor's words read trusted as OK, under the pinned anchor ${VENDOR.rootDigest}`);
+    expect(human.stdout).toContain(`the vendor's words read trusted as UpToDate, under the pinned anchor ${VENDOR.rootDigest}`);
     expect(human.stdout).toContain(`the window it signed runs ${ISSUE_DATE.replace('Z', '.000Z')} to ${NEXT_UPDATE.replace('Z', '.000Z')}, read against ${IAT_ISO}`);
     expect(human.stdout).toContain('refused COLLATERAL_NOT_OBSERVED for retained:');
     // The rule the roots are read under, stated whether or not any were handed.
@@ -397,7 +397,7 @@ describe('a pack whose carried material is weighed', () => {
       state: 'stale',
       reach: 'historical-knowledge',
       readAs: 'trusted',
-      vendorStatus: 'OK',
+      vendorStatus: 'UpToDate',
       declaredCpuType: FMSPC,
       anchorDigest: VENDOR.rootDigest,
       window: { from: WINDOW_FROM, until: WINDOW_UNTIL },

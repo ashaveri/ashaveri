@@ -5,12 +5,25 @@ import { sha256 } from '@noble/hashes/sha2.js';
  * Certificates and signed documents for these tests, written here rather than captured.
  *
  * No answer of the vendor's is stored in this repository, so every document a test hands to the reader is
- * built to the shape `intel-origin.ts` declares and signed by a key generated in the test. That keeps the
- * assertions about this path honest: they show the reader honours the declaration written beside it. The
- * member naming the CPU type is the vendor's own, `fmspc`, cited in that declaration to the answer the
- * vendor serves, so a test cannot make the guard fire by writing a name here that the reader looks for
- * there; it fires because the document says so. What these documents still show nothing about is the rest
- * of the shape, whose state against the served answer each declaration records where it is written.
+ * built here and signed by a key generated in the test. What it is built to is the layout the vendor
+ * publishes, member for member and word for word, as cited at each declaration in `intel-origin.ts`: the
+ * levels under `tcbLevels`, each entry stating its composition as the component numbers of an object under
+ * `tcb`, the status in `tcbStatus` with the vendor's own words, the window in `issueDate` and `nextUpdate`
+ * inside `tcbInfo`, and the QE Identity's members inside `enclaveIdentity`. The member naming the CPU type
+ * is the vendor's `fmspc`, so a test cannot make the identity guard fire by writing a name here that the
+ * reader looks for there.
+ *
+ * One shape is deliberately not the vendor's: the envelope. `signedDocument` writes three base64url parts
+ * with the certificates in the header, because that is the envelope `read.ts` decodes, while Intel answers
+ * a JSON body with a hex `signature` member and its issuer chain in a response header. Material that
+ * arrives inside a pack arrives alone, with no response header beside it, so the two cannot be reconciled
+ * from this file, and `servedJsonBody` below hands a test the vendor's own shape precisely so a case can
+ * pin the refusal it earns rather than pretend the gap away.
+ *
+ * Builders here state only the members this path reads, spelled as the vendor spells them. The members a
+ * served body states and nothing here reads (`id`, `version`, `pceId`, `tcbType`,
+ * `tcbEvaluationDataNumber`, `tdxModule`, `tdxModuleIdentities`) are left out rather than guessed at, and
+ * a case that needs one of them is a case about a member this path does not read.
  */
 
 const OID_ECDSA_SHA256 = '1.2.840.10045.4.3.2';
@@ -140,11 +153,61 @@ export function signedDocument(
   return utf8(`${first}.${second}.${toBase64Url(signature)}`);
 }
 
-export interface TcbInfoBody {
-  readonly fmspc: string;
-  readonly issueDate: string;
-  readonly nextUpdate: string;
-  readonly tcb: readonly { readonly tcbDate: string; readonly tcbStatus: string }[];
+/** The number of components a served TCB Info level lists. */
+const COMPONENT_COUNT = 16;
+
+/**
+ * One level as the vendor's body spells it: `tcb` stating its composition as component numbers, then
+ * `tcbDate`, then the word in `tcbStatus`, then `advisoryIDs` where the vendor has one to name.
+ */
+export interface ServedLevel {
+  readonly tcbDate: string;
+  readonly tcbStatus: string;
+  /** The `svn` of each component, in the order the vendor lists them. Sixteen zeros where a case omits them. */
+  readonly svns?: readonly number[];
+  /** The `svn` of each TDX component, which a TDX document lists beside the SGX ones. */
+  readonly tdxSvns?: readonly number[];
+  /** The vendor's PCE SVN, stated beside the component numbers. */
+  readonly pceSvn?: number;
+  /** The one number a QE Identity level's composition is, spelled `isvsvn`. */
+  readonly isvSvn?: number;
+  readonly advisoryIDs?: readonly string[];
+}
+
+/** Whose component arrays a level states: the SGX document lists one, the TDX document lists two. */
+export type ServedComposition = 'sgx' | 'tdx' | 'isvsvn';
+
+function componentNodes(svns: readonly number[]): readonly Record<string, unknown>[] {
+  return svns.map((svn) => ({ svn }));
+}
+
+function zeros(): number[] {
+  return new Array<number>(COMPONENT_COUNT).fill(0);
+}
+
+/** The composition member of one level entry, spelled the way the served body spells it. */
+export function servedTcb(level: ServedLevel, composition: ServedComposition): Record<string, unknown> {
+  if (composition === 'isvsvn') {
+    return { isvsvn: level.isvSvn ?? 0 };
+  }
+  const stated: Record<string, unknown> = {
+    sgxtcbcomponents: componentNodes(level.svns ?? zeros()),
+    pcesvn: level.pceSvn ?? 0,
+  };
+  if (composition === 'tdx') {
+    stated['tdxtcbcomponents'] = componentNodes(level.tdxSvns ?? zeros());
+  }
+  return stated;
+}
+
+/** One entry of `tcbLevels`, in the member order the vendor's bodies write. */
+export function servedLevel(level: ServedLevel, composition: ServedComposition): Record<string, unknown> {
+  return {
+    tcb: servedTcb(level, composition),
+    tcbDate: level.tcbDate,
+    tcbStatus: level.tcbStatus,
+    ...(level.advisoryIDs === undefined ? {} : { advisoryIDs: [...level.advisoryIDs] }),
+  };
 }
 
 /** What the vendor writes inside the member its declaration names for the document. */
@@ -152,13 +215,14 @@ export function tcbInfoBody(input: {
   readonly fmspc: string;
   readonly issueDate: string;
   readonly nextUpdate: string;
-  readonly levels: readonly { readonly tcbDate: string; readonly tcbStatus: string }[];
-}): TcbInfoBody {
+  readonly composition?: ServedComposition;
+  readonly levels: readonly ServedLevel[];
+}): Record<string, unknown> {
   return {
-    fmspc: input.fmspc,
     issueDate: input.issueDate,
     nextUpdate: input.nextUpdate,
-    tcb: input.levels.map((level) => ({ tcbDate: level.tcbDate, tcbStatus: level.tcbStatus })),
+    fmspc: input.fmspc,
+    tcbLevels: input.levels.map((level) => servedLevel(level, input.composition ?? 'sgx')),
   };
 }
 
@@ -166,17 +230,36 @@ export function tcbInfo(input: {
   readonly fmspc: string;
   readonly issueDate: string;
   readonly nextUpdate: string;
-  readonly levels: readonly { readonly tcbDate: string; readonly tcbStatus: string }[];
+  readonly composition?: ServedComposition;
+  readonly levels: readonly ServedLevel[];
 }): Record<string, unknown> {
   return { tcbInfo: tcbInfoBody(input) };
 }
 
+/** The QE Identity document, whose every named member sits inside `enclaveIdentity`. */
 export function qeIdentity(input: {
   readonly issueDate: string;
   readonly nextUpdate: string;
-  readonly tcbStatus: string;
+  readonly levels: readonly ServedLevel[];
 }): Record<string, unknown> {
-  return { issueDate: input.issueDate, nextUpdate: input.nextUpdate, tcbStatus: input.tcbStatus };
+  return {
+    enclaveIdentity: {
+      issueDate: input.issueDate,
+      nextUpdate: input.nextUpdate,
+      tcbLevels: input.levels.map((level) => servedLevel(level, 'isvsvn')),
+    },
+  };
+}
+
+/**
+ * The answer that address actually returns: the document object and a hex `signature` member, as UTF-8.
+ *
+ * This is the shape a real Intel document arrives in, and this path refuses it, because the certificates a
+ * chain walk needs are not inside it. A case in `test/read.test.ts` hands the reader these bytes and reads
+ * the refusal, so the gap stays measured rather than remembered.
+ */
+export function servedJsonBody(document: Record<string, unknown>): Uint8Array {
+  return utf8(JSON.stringify({ ...document, signature: 'ab'.repeat(64) }));
 }
 
 function certificate(spec: CertificateSpec): Uint8Array {

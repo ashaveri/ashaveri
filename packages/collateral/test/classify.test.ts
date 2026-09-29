@@ -13,11 +13,11 @@ import { qeIdentity, secondsOf, signedDocument, tcbInfo, testVendor, type TestVe
 
 const FMSPC = '00906EA00000';
 const CPU_TYPE = FMSPC.toLowerCase();
-const LEVEL_DATE = '2026-09-01T00:00:00.000Z';
-const NEXT_UPDATE = '2026-10-01T00:00:00.000Z';
-const WITHIN = secondsOf('2026-09-15T00:00:00.000Z');
-const AFTER = secondsOf('2026-11-15T00:00:00.000Z');
-const OBSERVED = secondsOf('2026-09-15T06:00:00.000Z');
+const LEVEL_DATE = '2026-09-01T00:00:00Z';
+const NEXT_UPDATE = '2026-10-01T00:00:00Z';
+const WITHIN = secondsOf('2026-09-15T00:00:00Z');
+const AFTER = secondsOf('2026-11-15T00:00:00Z');
+const OBSERVED = secondsOf('2026-09-15T06:00:00Z');
 
 const vendor = testVendor();
 
@@ -39,7 +39,7 @@ function query(over: Partial<CollateralQuery> = {}): CollateralQuery {
   };
 }
 
-function levelDocument(status = 'OK', signer: TestVendor = vendor): Uint8Array {
+function levelDocument(status = 'UpToDate', signer: TestVendor = vendor): Uint8Array {
   return signedDocument(
     tcbInfo({
       fmspc: FMSPC,
@@ -51,8 +51,15 @@ function levelDocument(status = 'OK', signer: TestVendor = vendor): Uint8Array {
   );
 }
 
-function identityDocument(status = 'OK'): Uint8Array {
-  return signedDocument(qeIdentity({ issueDate: LEVEL_DATE, nextUpdate: NEXT_UPDATE, tcbStatus: status }), vendor);
+function identityDocument(status = 'UpToDate'): Uint8Array {
+  return signedDocument(
+    qeIdentity({
+      issueDate: LEVEL_DATE,
+      nextUpdate: NEXT_UPDATE,
+      levels: [{ isvSvn: 0, tcbDate: LEVEL_DATE, tcbStatus: status }],
+    }),
+    vendor,
+  );
 }
 
 /** A transport that answers with these bytes, and keeps the addresses it was asked. */
@@ -193,18 +200,33 @@ describe('the five answers', () => {
     expect(refusalOf(outcome).missing).toEqual(['origin']);
   });
 
-  it('carries the QE identity to current with no level and no identity in its key', async () => {
+  /**
+   * The QE Identity body states its window and its statuses inside `enclaveIdentity`, and it states one
+   * status per rung of `tcbLevels` rather than one for the document, so the rung is part of what a kept blob
+   * answers and part of the key it belongs under.
+   */
+  it('carries the QE identity to current at the rung it states, and names no identity in its key', async () => {
+    const { transport } = serve(identityDocument());
+    const outcome = await appraiseCollateral(
+      query({ origin: 'intel-qe-identity', cpuType: null }),
+      { transport, clock: () => OBSERVED },
+    );
+    if (outcome.state !== 'current') {
+      throw new Error(`the QE identity answered ${outcome.state}: ${'refusal' in outcome ? outcome.refusal.detail : ''}`);
+    }
+    expect(outcome.claim.cacheKey).toBe(`origin=intel-qe-identity|platform=tdx|level=tcb-date=${LEVEL_DATE}`);
+    expect(outcome.collateral.declared.cpuType).toBeNull();
+    expect(outcome.collateral.declared.vendorStatus).toBe('UpToDate');
+  });
+
+  it('refuses a QE identity question that names no rung, because the vendor states one status per rung', async () => {
     const { transport } = serve(identityDocument());
     const outcome = await appraiseCollateral(
       query({ origin: 'intel-qe-identity', cpuType: null, level: null }),
       { transport, clock: () => OBSERVED },
     );
-    if (outcome.state !== 'current') {
-      throw new Error(`the QE identity answered ${outcome.state}`);
-    }
-    expect(outcome.claim.cacheKey).toBe('origin=intel-qe-identity|platform=tdx');
-    expect(outcome.collateral.declared.cpuType).toBeNull();
-    expect(outcome.collateral.declared.vendorStatus).toBe('OK');
+    expect(outcome.state).toBe('missing-context');
+    expect(refusalOf(outcome).missing).toEqual(['level']);
   });
 });
 
@@ -259,7 +281,7 @@ describe('what an absent answer costs the caller', () => {
 
   it('keeps a chain that reaches no pin out of every passing answer, and refuses it outright when required', async () => {
     const stranger = testVendor({ rootName: 'Unrelated Root', issuerName: 'Unrelated CA' });
-    const { transport } = serve(levelDocument('OK', stranger));
+    const { transport } = serve(levelDocument('UpToDate', stranger));
     const reported = await appraiseCollateral(query(), { transport, clock: () => OBSERVED });
     expect(reported.state).toBe('unavailable');
     expect(reported.collateral).toBeNull();
@@ -281,7 +303,7 @@ describe('what an absent answer costs the caller', () => {
  */
 describe('material that arrived inside a container', () => {
   /** An instant a sealed record could state: inside the window the vendor signed, and before this run. */
-  const HELD_AT = secondsOf('2026-09-10T00:00:00.000Z');
+  const HELD_AT = secondsOf('2026-09-10T00:00:00Z');
 
   /** The same question with its material stated outside the query, which is where a carried appraisal states it. */
   function question(over: Partial<CollateralQuery> = {}): Omit<CollateralQuery, 'retained'> {
@@ -354,7 +376,7 @@ describe('material that arrived inside a container', () => {
     const stranger = testVendor({ rootName: 'Unrelated Root', issuerName: 'Unrelated CA' });
     const outcome = await appraiseCarriedCollateral(
       question(),
-      { bytes: levelDocument('OK', stranger), heldAt: HELD_AT },
+      { bytes: levelDocument('UpToDate', stranger), heldAt: HELD_AT },
       { transport: silence() },
     );
     expect(outcome.state).toBe('unavailable');
@@ -385,7 +407,7 @@ describe('material that arrived inside a container', () => {
     const stranger = testVendor({ rootName: 'Other Root', issuerName: 'Other CA' });
     const required = appraiseCarriedCollateral(
       question({ onAbsent: 'refuse' }),
-      { bytes: levelDocument('OK', stranger), heldAt: HELD_AT },
+      { bytes: levelDocument('UpToDate', stranger), heldAt: HELD_AT },
       { transport: silence() },
     );
     await expect(required).rejects.toBeInstanceOf(CollateralError);

@@ -34,9 +34,15 @@ interface Reading {
  * Reads the document and believes it, in that order.
  *
  * The signature and the chain are established before one field of the payload is looked at, because a
- * reader that parsed what it did not yet trust would be taking instructions from the answer. The
- * envelope is the vendor's own: three dot-separated base64url parts, ES256 over the first two spelled
- * as ASCII, with the certificates in the header member the declaration names.
+ * reader that parsed what it did not yet trust would be taking instructions from the answer. The envelope
+ * decoded here is the one the declaration names: three dot-separated base64url parts, ES256 over the
+ * first two spelled as ASCII, with the certificates in the header member the declaration names. That rule
+ * is this path's and not the vendor's. What Intel serves is a JSON body with a hex `signature` member and
+ * its issuer chain in a response header, cited at each declaration in `intel-origin.ts`, so an answer from
+ * that address is refused at the envelope before any member of it is read, and a case in
+ * `test/read.test.ts` pins that refusal. This file reads no header of a response: the chain is read from
+ * inside the document, which is what material that arrives in a pack can offer and what a served answer
+ * does not put there.
  */
 export function readSignedCollateral(bytes: Uint8Array, reading: Reading): ReadOutcome {
   const { declaration } = reading;
@@ -185,7 +191,7 @@ function statusOf(
     };
   }
   for (const entry of levels) {
-    const fields = typeof entry === 'object' && entry !== null && !Array.isArray(entry) ? entry as Record<string, unknown> : null;
+    const fields = fieldsOf(entry);
     if (fields === null) {
       continue;
     }
@@ -197,6 +203,41 @@ function statusOf(
       ? refused(declaration, `the matched level states no ${statusMember}`)
       : { status: stated };
   }
+  return unlistedLevel(declaration, level, levels);
+}
+
+/**
+ * The answer to a level the read found nothing to compare.
+ *
+ * Two different documents fail this check and a caller learns something different from each. A list that
+ * carries no rung spelled like the one asked is what the code's own sentence names. A list whose rungs
+ * state their composition as the component numbers of an object is not that: it carries rungs, and this
+ * path compares no hex text with a composition stated that way, which is what the declaration says out
+ * loud. Blaming the document for the second would send a reader back to the wrong one.
+ */
+function unlistedLevel(
+  declaration: OriginDeclaration,
+  level: IntelTcbLevel,
+  levels: readonly unknown[],
+): { readonly refusal: CollateralRefusal } {
+  const compositionMember = declaration.identity.levelCompositionMember;
+  if (
+    level.by === 'tcb-composition'
+    && declaration.identity.levelCompositionStatedAs === 'component-numbers'
+    && compositionMember !== null
+    && levels.some((entry) => {
+      const fields = fieldsOf(entry);
+      return fields !== null && objectMember(fields, compositionMember) !== null;
+    })
+  ) {
+    return {
+      refusal: collateralRefusal(
+        declaration.refusals.levels,
+        `a ${level.by} question has nothing to compare: ${compositionMember} states each level's composition as component numbers`,
+        ['level'],
+      ),
+    };
+  }
   return {
     refusal: collateralRefusal(
       declaration.refusals.levels,
@@ -206,14 +247,23 @@ function statusOf(
   };
 }
 
+function fieldsOf(entry: unknown): Record<string, unknown> | null {
+  return typeof entry === 'object' && entry !== null && !Array.isArray(entry) ? entry as Record<string, unknown> : null;
+}
+
 function levelMatches(entry: Record<string, unknown>, level: IntelTcbLevel, declaration: OriginDeclaration): boolean {
-  const dateMember = declaration.identity.levelDateMember;
-  const compositionMember = declaration.identity.levelCompositionMember;
   if (level.by === 'tcb-date') {
+    const dateMember = declaration.identity.levelDateMember;
     const stated = dateMember === null ? null : stringMember(entry, dateMember);
     return stated !== null && sameInstant(stated, level.value);
   }
-  const stated = compositionMember === null ? null : stringMember(entry, compositionMember);
+  const compositionMember = declaration.identity.levelCompositionMember;
+  if (compositionMember === null || declaration.identity.levelCompositionStatedAs !== 'hex-text') {
+    // Either no member states a composition where this path reads one, or it states component numbers,
+    // and which numbers a caller's hex text stands for is a rule the vendor's body states nowhere.
+    return false;
+  }
+  const stated = stringMember(entry, compositionMember);
   return stated !== null && sameHex(stated, level.value);
 }
 
