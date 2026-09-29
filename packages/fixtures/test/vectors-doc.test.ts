@@ -188,9 +188,7 @@ function epochInventoryProse(): string {
  * a claim of nothing, which is the shape an empty match would have.
  */
 function countStatedByTheDocument(states: RegExp, what: string): string {
-  const stated = states.exec(epochInventoryProse());
-  if (stated === null) throw new Error(`the Epoch inventory bullets state no count of ${what}`);
-  return stated[1]!;
+  return countStatedIn(epochInventoryProse(), states, `the Epoch inventory bullets' count of ${what}`);
 }
 
 /**
