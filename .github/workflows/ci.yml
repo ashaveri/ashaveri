@@ -52,10 +52,13 @@ jobs:
       # These are the two suites that read file modes and rename behaviour back off disk, which is what
       # differs between platforms; the other four stay on Linux on cost grounds. The `...` pulls in the
       # packages these two import, whose declarations are build output, so it is a build of the tested
-      # pair and their dependencies, not a wider run.
+      # pair and their dependencies, not a wider run. The test step takes one package at a time
+      # because the ceilings in those two suites are read off the waits each case sets for itself,
+      # and a case scheduled against a sibling package's whole suite is measured against a machine
+      # that is doing something else.
       - run: pnpm -r --filter "@ashaveri/signerd..." --filter "@ashaveri/cli..." build
       - run: pnpm -r --filter "@ashaveri/signerd" --filter "@ashaveri/cli" typecheck
-      - run: pnpm -r --filter "@ashaveri/signerd" --filter "@ashaveri/cli" test
+      - run: pnpm -r --workspace-concurrency=1 --filter "@ashaveri/signerd" --filter "@ashaveri/cli" test
 
   generated-vectors:
     name: Regenerating the vectors changes nothing
