@@ -1,10 +1,14 @@
-import { createHash } from 'node:crypto';
+import { createHash, createPrivateKey, sign } from 'node:crypto';
 import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import {
   decodeReceipt,
+  encodePackManifest,
+  encodePackProtectedHeader,
   issueReceipt,
   packRecordDigest,
+  packSigStructure,
+  sealPack,
   signPack,
   signingKeyFromSeed,
   type CollateralSlot,
@@ -119,6 +123,18 @@ export interface PackEntry {
  * computed from the entries handed in so a case states only which receipts it seals and which objects it carries.
  */
 export function packOf(entries: readonly PackEntry[], carried: readonly PackCarriedObject[]): Uint8Array {
+  return signPack(packManifestOf(entries, carried), RECEIPT_KEY);
+}
+
+/**
+ * The manifest these entries and this material amount to, before anything seals it.
+ *
+ * Published separately from `packOf` because a carried list that contradicts the slots it answers for is a
+ * manifest `signPack` refuses, and the document a deployment would have to assemble by hand to publish one is
+ * the document the reader exists to answer. The cases that need it take this object, move the one position their
+ * row names, and seal the result below.
+ */
+export function packManifestOf(entries: readonly PackEntry[], carried: readonly PackCarriedObject[]): PackManifest {
   const stamps = entries.map((one) => one.iat);
   const from = Math.min(...stamps);
   const to = Math.max(...stamps) + 1;
@@ -129,7 +145,7 @@ export function packOf(entries: readonly PackEntry[], carried: readonly PackCarr
     previous = packRecordDigest(item);
     return item;
   });
-  const manifest: PackManifest = {
+  return {
     v: 2,
     at,
     span: { from, to },
@@ -138,7 +154,31 @@ export function packOf(entries: readonly PackEntry[], carried: readonly PackCarr
     items,
     carried,
   };
-  return signPack(manifest, RECEIPT_KEY);
+}
+
+/**
+ * A pack assembled from the pieces the format publishes, over a manifest the writer would not sign.
+ *
+ * This is the piecewise path `verify-handover.test.ts` takes for the same reason and the published pack suite
+ * documents: a carried list misstating its own bytes, holding one digest twice, holding an entry no slot names,
+ * or missing the entry a slot names is refused by `signPack` before it can be sealed, and only a reader can be
+ * handed it. The framing is the writer's own, so the fault a row states is the only difference between these
+ * bytes and a document a deployment signs.
+ */
+export function sealCarriedPack(manifest: PackManifest): Uint8Array {
+  const payloadBytes = encodePackManifest(manifest);
+  const protectedBytes = encodePackProtectedHeader(RECEIPT_KEY.kid);
+  const signature = sign(null, packSigStructure(protectedBytes, payloadBytes), privateKeyFromSeed(RECEIPT_SEED));
+  return sealPack(protectedBytes, payloadBytes, new Uint8Array(signature));
+}
+
+/** The published seed as a key node can take it: the PKCS8 wrapping of an Ed25519 private key. */
+function privateKeyFromSeed(seedHex: string): ReturnType<typeof createPrivateKey> {
+  return createPrivateKey({
+    key: Buffer.concat([Buffer.from('302e020100300506032b657004220420', 'hex'), Buffer.from(seedHex, 'hex')]),
+    format: 'der',
+    type: 'pkcs8',
+  });
 }
 
 /**

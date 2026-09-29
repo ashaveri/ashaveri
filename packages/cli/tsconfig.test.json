@@ -2,7 +2,9 @@
   "extends": "./tsconfig.json",
   "compilerOptions": {
     "noEmit": true,
-    "rootDir": ".",
+    // test/carried-collateral.test.ts imports ../collateral/test/support/collateral-documents.ts, so the
+    // root has to span the workspace rather than this package.
+    "rootDir": "../..",
     "types": ["node"]
   },
   "include": ["src", "test"]

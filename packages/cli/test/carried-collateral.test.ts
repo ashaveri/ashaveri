@@ -5,15 +5,20 @@ import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { afterAll, describe, expect, it } from 'vitest';
 import { generateSigningKey, sealDeploymentManifest, toHex } from '@ashaveri/receipt';
+import { secondsOf, signedDocument, tcbInfo, testVendor } from '../../collateral/test/support/collateral-documents.js';
 import {
   PUBLISHED_PAYLOAD,
   RECEIPT_PUBLIC_B64URL,
   absent,
   anchorReceiptOf,
   carriedObject,
+  digestHexOf,
   held,
   packCarrying,
+  packManifestOf,
   packOf,
+  sealCarriedPack,
+  type PackEntry,
 } from './carried-pack.js';
 
 /**
@@ -34,6 +39,8 @@ import {
  * The JSON shape is not asserted to quote anything, because a port reads the token exactly: `writeJson` escapes
  * the quoted spans of what it serializes, and the cases here check that a token survives escaping whole rather
  * than that it is shown inside quotes.
+ *
+ * Past the guards sit the weighing and the refusals it is reached by, each described with the cases that make it.
  */
 
 const CLI = fileURLToPath(new URL('../dist/cli.js', import.meta.url));
@@ -217,5 +224,395 @@ describe('the rows a pack, a receipt or a command line writes', () => {
     expect(jsRows(human.stdout)).toBe(writtenRows(human.stdout));
     expect(rowsAtColumnZero(human.stdout)).toHaveLength(2);
     expect(human.stdout).toMatch(/issuer:\s+acme\\u0085region\\u000aFORGED/u);
+  });
+});
+
+/**
+ * The weighing itself, and the four states of a carried list this command refuses a document for.
+ *
+ * The refusals are reached the way a customer reaches them: one pack is sealed honest, the next differs from it
+ * in the one position its row names, and both are handed to the same command line. Each pair is pinned both ways
+ * because a fault case on its own says only that something was refused: the accepted neighbour is what says the
+ * refusal is about the position and not about the document.
+ *
+ * The material weighed in the accepted runs is of two kinds. Where a case is about the container, the bytes are a
+ * sentence no vendor signed, and the answer the row prints is the reader's refusal to read it. Where a case is
+ * about the answer, the bytes are a TCB Info document signed by a test vendor whose root the run pins through
+ * `--intel-root`, built by the same support the collateral package's own cases use, because a window and a status
+ * can only be printed by an appraisal that believed a signature. No case here reaches a network.
+ */
+
+/** The identity the document covers and the run asks by, as Intel's own documents spell both. */
+const FMSPC = '00906e1b0d00';
+const ISSUE_DATE = '2025-01-01T00:00:00Z';
+const NEXT_UPDATE = '2027-01-01T00:00:00Z';
+const TCB_DATE = '2025-06-01T00:00:00Z';
+const LEVEL = `tcb-date=${TCB_DATE}`;
+
+/** The instant the naming record is chained at, which is both the held instant and the moment weighed. */
+const IAT_ISO = '2025-06-15T15:06:40.000Z';
+
+const VENDOR = testVendor({
+  notBefore: secondsOf('2020-01-01T00:00:00.000Z'),
+  notAfter: secondsOf('2035-01-01T00:00:00.000Z'),
+});
+
+/** The signed statement the pack carries, and the root this run pins beside it. */
+const TCB_DOCUMENT = signedDocument(tcbInfo({
+  fmspc: FMSPC,
+  issueDate: ISSUE_DATE,
+  nextUpdate: NEXT_UPDATE,
+  levels: [{ tcbDate: TCB_DATE, tcbStatus: 'OK' }],
+}), VENDOR);
+const ROOT_PATH = written('intel-root.der', VENDOR.rootDer);
+
+/** The five flags that make one slot weighable, as a customer spells them. */
+function designation(slot: string): string[] {
+  return [
+    `--intel-root=${ROOT_PATH}`,
+    `--collateral-origin=${slot}=intel-tcb-info`,
+    `--collateral-platform=${slot}=tdx`,
+    `--collateral-cpu-type=${slot}=${FMSPC}`,
+    `--collateral-level=${slot}=${LEVEL}`,
+  ];
+}
+
+/** The window as seconds, which is how the machine shape prints it and the row prints its two ends. */
+const WINDOW_FROM = Math.floor(Date.parse(ISSUE_DATE) / 1000);
+const WINDOW_UNTIL = Math.floor(Date.parse(NEXT_UPDATE) / 1000);
+
+/** Two distinct pieces of material, so a carried list can name one and contradict the other. */
+const MATERIAL_A = new TextEncoder().encode('the signed statement two records name at col');
+const MATERIAL_B = new TextEncoder().encode('the validity window the appraisal above was published in');
+
+/** Two sealed records whose anchors both take in the same pair: the shape the deduplication rule is for. */
+function twoRecordsNamingBoth(): PackEntry[] {
+  const slots = { col: held(MATERIAL_A), val: held(MATERIAL_B) };
+  return [
+    { id: 'receipt-0', iat: IAT, receipt: anchorReceiptOf(slots, IAT) },
+    { id: 'receipt-1', iat: IAT + 1, receipt: anchorReceiptOf(slots, IAT + 1) },
+  ];
+}
+
+/** The honest carried list for those records, and the four ways a list can disagree with them. */
+const CARRIED_BOTH = [carriedObject(MATERIAL_A), carriedObject(MATERIAL_B)];
+const HONEST = packOf(twoRecordsNamingBoth(), CARRIED_BOTH);
+
+const MISSTATES_ITS_BYTES = sealCarriedPack(packManifestOf(twoRecordsNamingBoth(), [
+  carriedObject(MATERIAL_A),
+  // The bytes of the second object under the first object's digest: the entry misstates the material inside it.
+  { bytes: MATERIAL_B, sha256: carriedObject(MATERIAL_A).sha256 },
+]));
+
+const ONE_DIGEST_TWICE = sealCarriedPack(packManifestOf(twoRecordsNamingBoth(), [
+  carriedObject(MATERIAL_A),
+  carriedObject(MATERIAL_A),
+  carriedObject(MATERIAL_B),
+]));
+
+const NAMED_BY_NO_SLOT = sealCarriedPack(packManifestOf(twoRecordsNamingBoth(), [
+  carriedObject(MATERIAL_A),
+  carriedObject(MATERIAL_B),
+  carriedObject(new TextEncoder().encode('a document no sealed receipt of this pack names')),
+]));
+
+const ANSWERS_NO_SLOT = sealCarriedPack(packManifestOf(twoRecordsNamingBoth(), [carriedObject(MATERIAL_A)]));
+
+/** The digest of one material, spelled the way the report spells it. */
+const DIGEST_A = digestHexOf(MATERIAL_A);
+const DIGEST_B = digestHexOf(MATERIAL_B);
+
+/** One refusal pair: the fault document and the honest one it differs from by one position. */
+function expectRefusedAndNeighbour(fault: Uint8Array, code: string, position: string): void {
+  const path = written('fault.cbor', fault);
+  const json = runCli(['verify-handover', path, `--key=${RECEIPT_PUBLIC_B64URL}`, '--json']);
+  expect(json.status).toBe(1);
+  expect(verdictOf(json)).toMatchObject({ ok: false, contentType: 'ashaveri/pack', code });
+  expect(String(verdictOf(json).message)).toContain(position);
+
+  const human = runCli(['verify-handover', path, `--key=${RECEIPT_PUBLIC_B64URL}`]);
+  expect(human.status).toBe(1);
+  expect(human.stdout).toBe('');
+  expect(human.stderr).toContain(`(${code})`);
+  expect(human.stderr).toContain(position);
+
+  const neighbour = written('honest.cbor', HONEST);
+  const accepted = runCli(['verify-handover', neighbour, `--key=${RECEIPT_PUBLIC_B64URL}`, '--json']);
+  expect(accepted.stderr).toBe('');
+  expect(accepted.status).toBe(0);
+  expect(verdictOf(accepted).ok).toBe(true);
+}
+
+describe('the four states of a carried list a reader refuses a pack for', () => {
+  it('refuses a carried object that misstates the bytes inside it, and accepts the pack beside it', () => {
+    expectRefusedAndNeighbour(MISSTATES_ITS_BYTES, 'PACK_CARRIED_DIGEST_MISMATCH', 'carried[1] states');
+  });
+
+  it('refuses one digest carried at two positions, and accepts the pack beside it', () => {
+    expectRefusedAndNeighbour(ONE_DIGEST_TWICE, 'PACK_CARRIED_DUPLICATE', `carried[1] repeats the digest ${DIGEST_A} already carried at carried[0]`);
+  });
+
+  it('refuses a carried object no held slot names, and accepts the pack beside it', () => {
+    expectRefusedAndNeighbour(NAMED_BY_NO_SLOT, 'PACK_CARRIED_UNNAMED', 'carried[2] holds');
+  });
+
+  it('refuses a held slot no carried object answers, and accepts the pack beside it', () => {
+    expectRefusedAndNeighbour(ANSWERS_NO_SLOT, 'PACK_CARRIED_UNRESOLVED', `receipt-0 states a held val digest ${DIGEST_B} this pack carries no object for`);
+  });
+});
+
+describe('a pack whose carried material is weighed', () => {
+  it('weighs the material a held slot names and prints the digest, the naming record, the instant, the state and the window', () => {
+    const { pack, digest } = packCarrying(TCB_DOCUMENT, IAT);
+    const path = written('weighed.cbor', pack);
+    const human = runCli(['verify-handover', path, `--key=${RECEIPT_PUBLIC_B64URL}`, ...designation('col')]);
+    expect(human.stderr).toBe('');
+    expect(human.status).toBe(0);
+    // The five figures this step exists to state, each in the row that carries it.
+    expect(human.stdout).toContain(`digest ${digest}, carried as ${String(TCB_DOCUMENT.byteLength)} byte(s), named by receipt-0 at col`);
+    expect(human.stdout).toContain(`read against ${String(IAT)} (${IAT_ISO}), the stamp receipt-0 was chained at`);
+    expect(human.stdout).toContain('answered stale');
+    expect(human.stdout).toContain(`the vendor's words read trusted as OK, under the pinned anchor ${VENDOR.rootDigest}`);
+    expect(human.stdout).toContain(`the window it signed runs ${ISSUE_DATE.replace('Z', '.000Z')} to ${NEXT_UPDATE.replace('Z', '.000Z')}, read against ${IAT_ISO}`);
+    expect(human.stdout).toContain('refused COLLATERAL_NOT_OBSERVED for retained:');
+    // The rule the roots are read under, stated whether or not any were handed.
+    expect(human.stdout).toContain('1 --intel-root file(s) handed');
+    expect(human.stdout).toContain('no root bundled with the verifier is consulted on this path');
+
+    const json = verdictOf(runCli(['verify-handover', path, `--key=${RECEIPT_PUBLIC_B64URL}`, ...designation('col'), '--json']));
+    const row = (json.document as Record<string, Record<string, unknown>>)[`carried-${digest}`] ?? {};
+    expect(row).toMatchObject({
+      digest,
+      item: 'receipt-0',
+      slot: 'col',
+      namedBy: [{ item: 'receipt-0', slot: 'col' }],
+      carried: true,
+      carriedBytes: TCB_DOCUMENT.byteLength,
+      appraisalAt: IAT,
+      heldAt: IAT,
+      environment: PUBLISHED_PAYLOAD.meas.tee,
+      question: { origin: 'intel-tcb-info', platform: 'tdx', cpuType: FMSPC, level: LEVEL, roots: 1 },
+      weighed: true,
+      notWeighed: null,
+      state: 'stale',
+      reach: 'historical-knowledge',
+      readAs: 'trusted',
+      vendorStatus: 'OK',
+      declaredCpuType: FMSPC,
+      anchorDigest: VENDOR.rootDigest,
+      window: { from: WINDOW_FROM, until: WINDOW_UNTIL },
+      retainUntil: WINDOW_UNTIL,
+      refusal: { code: 'COLLATERAL_NOT_OBSERVED', missing: ['retained'], verdict: 'terminal' },
+    });
+    // The seal line answers the container and nothing else: an appraisal that came back stale moves it not at all.
+    expect(json.ok).toBe(true);
+    expect((json.document as { signature: unknown }).signature).toBe(true);
+  });
+
+  it('weighs one object once however many sealed records name it', () => {
+    const path = written('deduplicated.cbor', HONEST);
+    const json = verdictOf(runCli(['verify-handover', path, `--key=${RECEIPT_PUBLIC_B64URL}`, ...designation('col'), '--json']));
+    const document = json.document as Record<string, { digest: string; item: string; namedBy: { item: string; slot: string }[] }>;
+    const rows = Object.entries(document).filter(([key]) => key.startsWith('carried-'));
+    expect(rows).toHaveLength(2);
+    const col = rows.find(([, value]) => value.digest === DIGEST_A);
+    expect(col?.[1]?.namedBy).toEqual([
+      { item: 'receipt-0', slot: 'col' },
+      { item: 'receipt-1', slot: 'col' },
+    ]);
+    // One row per digest, named by every slot that states it: the pack holds the material once, and the two
+    // records agree on which object each of them took in.
+    expect(String(col?.[1]?.item)).toBe('receipt-0');
+  });
+
+  it('reports every held slot as not weighed when the run hands no designation, and exits as it did without the flags', () => {
+    const path = written('undesigned.cbor', HONEST);
+    const human = runCli(['verify-handover', path, `--key=${RECEIPT_PUBLIC_B64URL}`]);
+    expect(human.stderr).toBe('');
+    expect(human.status).toBe(0);
+    expect(human.stdout).toContain("not weighed, --collateral-origin and --collateral-platform named no 'col' question");
+    expect(human.stdout).toContain("named no 'val' question");
+    expect(human.stdout).toContain('no --intel-root was handed');
+    expect(human.stdout).not.toContain('answered');
+
+    const json = verdictOf(runCli(['verify-handover', path, `--key=${RECEIPT_PUBLIC_B64URL}`, '--json']));
+    const document = json.document as Record<string, Record<string, unknown>>;
+    expect(document[`carried-${DIGEST_A}`]).toMatchObject({
+      weighed: false,
+      state: null,
+      question: null,
+      notWeighed: expect.stringContaining('--collateral-origin'),
+    });
+    // The same document, the same key, the same exit: nothing an appraisal could not answer moves the verdict the
+    // format gave the container.
+    const pinned = runCli(['verify-pack', path, `--key=${RECEIPT_PUBLIC_B64URL}`]);
+    expect(pinned.status).toBe(0);
+  });
+
+  it('answers a CPU type the format cannot index by with the refusal that names the field', () => {
+    // Twelve hex characters is what the address is built from, and the code that builds it says so: this command
+    // keeps no second pattern, so the answer a caller gets is the package's own and it arrives as a row.
+    const { pack, digest } = packCarrying(TCB_DOCUMENT, IAT);
+    const path = written('short-key.cbor', pack);
+    const args = [
+      'verify-handover',
+      path,
+      `--key=${RECEIPT_PUBLIC_B64URL}`,
+      `--intel-root=${ROOT_PATH}`,
+      '--collateral-origin=col=intel-tcb-info',
+      '--collateral-platform=col=tdx',
+      '--collateral-cpu-type=col=00906e1b0d0',
+      `--collateral-level=col=${LEVEL}`,
+    ];
+    const human = runCli(args);
+    expect(human.stderr).toBe('');
+    expect(human.status).toBe(0);
+    expect(human.stdout).toContain('cpuType 00906e1b0d0 is not twelve hex characters');
+    expect(human.stdout).toContain('answered missing-context');
+
+    const json = verdictOf(runCli([...args, '--json']));
+    const row = (json.document as Record<string, Record<string, unknown>>)[`carried-${digest}`] ?? {};
+    expect(row).toMatchObject({
+      weighed: true,
+      state: 'missing-context',
+      readAs: null,
+      vendorStatus: null,
+      window: null,
+      refusal: { code: 'COLLATERAL_INPUT_MISSING', missing: ['cpuType'], verdict: 'terminal' },
+    });
+  });
+
+  it('refuses a held slot whose digest the format cannot state, before any lookup is keyed by it', () => {
+    // Thirty-one bytes is a lookup key no carried object can hash to, and the width is settled where the slot is
+    // read: the command never reaches the answer's own refusal because the seal names the position first.
+    const receipt = anchorReceiptOf({ col: { presence: 'held', sha256: new Uint8Array(31) }, val: absent('the collector read no window') }, IAT);
+    const path = written('short-digest.cbor', packOf([{ id: 'receipt-0', iat: IAT, receipt }], []));
+    const result = runCli(['verify-handover', path, `--key=${RECEIPT_PUBLIC_B64URL}`, '--json']);
+    expect(result.status).toBe(1);
+    expect(verdictOf(result)).toMatchObject({ ok: false, contentType: 'ashaveri/pack', code: 'PACK_RECEIPT_INVALID' });
+    expect(String(verdictOf(result).message)).toContain('must be a 32-byte bstr');
+  });
+
+  it('discloses a designation the document in front of it carries no material for', () => {
+    // Only a pack carries material a slot names, and a caller looping one line across a bundle hands these flags
+    // to every file: the answer is that they were accepted and unused, in the report rather than in silence.
+    const receipt = anchorReceiptOf({ col: held(MATERIAL_A), val: absent('the collector read no window') }, IAT);
+    const path = written('standalone-receipt.cbor', receipt);
+    const human = runCli(['verify-handover', path, `--key=${RECEIPT_PUBLIC_B64URL}`, ...designation('col')]);
+    expect(human.stderr).toBe('');
+    expect(human.status).toBe(0);
+    expect(human.stdout).toContain('not consulted:');
+    expect(human.stdout).toContain('and ashaveri/receipt carries none');
+
+    const json = verdictOf(runCli(['verify-handover', path, `--key=${RECEIPT_PUBLIC_B64URL}`, ...designation('col'), '--json']));
+    const designations = json.keyDesignations as Record<string, unknown>[];
+    expect(designations).toContainEqual({ consulted: false, contentType: 'ashaveri/receipt', roots: 1 });
+  });
+
+  it('states where each field of the question came from, and holds the absence rows in the machine shape', () => {
+    const slots = { col: held(MATERIAL_A), val: absent(HOSTILE_REASON) };
+    const path = written('fields.cbor', packOf([{ id: 'receipt-0', iat: IAT, receipt: anchorReceiptOf(slots, IAT) }], [carriedObject(MATERIAL_A)]));
+    const json = verdictOf(runCli(['verify-handover', path, `--key=${RECEIPT_PUBLIC_B64URL}`, '--json']));
+    const document = json.document as Record<string, unknown>;
+    expect(document.collateralRoots).toMatchObject({ handed: 0, files: [], bundledConsulted: false });
+    const fields = document.collateralFields as { field: string; from: string }[];
+    expect(fields.map((one) => one.field)).toEqual(['bytes', 'heldAt', 'appraisalAt', 'platform', 'cpuType', 'level', 'roots', 'onAbsent']);
+    expect(String(fields[0]?.from)).toContain('resolveCarried');
+    expect(String(fields[3]?.from)).toContain('--collateral-platform named none');
+    expect(document.anchorAbsences).toMatchObject([{ item: 'receipt-0', slot: 'val', presence: 'absent-at-source' }]);
+    expect(document.carried).toBeUndefined();
+    // A row is only owed when nothing at all was weighed, and this pack weighed one object.
+    expect(Object.keys(document).filter((key) => key.startsWith('carried-'))).toHaveLength(1);
+  });
+});
+
+describe('the designations refused before the document is opened', () => {
+  const path = written('args.cbor', HONEST);
+  const key = `--key=${RECEIPT_PUBLIC_B64URL}`;
+
+  /** The two lines a refusal at the argument edge owes: the exit, and the flag the message names. */
+  function expectUsageRefusal(args: string[], phrase: string): void {
+    const result = runCli(['verify-handover', path, key, ...args]);
+    expect(result.status).toBe(2);
+    expect(result.stdout).toBe('');
+    expect(result.stderr.startsWith('ashaveri: ')).toBe(true);
+    expect(result.stderr).toContain(phrase);
+    expect(result.stderr).toContain("Try 'ashaveri --help' for usage.");
+  }
+
+  it('refuses a value that states no slot before its separator', () => {
+    expectUsageRefusal(['--collateral-origin=intel-tcb-info'], "--collateral-origin takes '<slot>=<value>'");
+    expectUsageRefusal(['--collateral-origin=col='], "names the 'col' slot and states nothing for it");
+    expectUsageRefusal(['--collateral-origin==tdx'], "names '', and a sealed receipt's anchor has two slots");
+  });
+
+  it('refuses a slot name no anchor has', () => {
+    expectUsageRefusal(['--collateral-origin=validity=intel-tcb-info'], "names 'validity', and a sealed receipt's anchor has two slots: 'col' and 'val'");
+    expectUsageRefusal(['--collateral-platform=x1=tdx'], "names 'x1', and a sealed receipt's anchor has two slots");
+  });
+
+  it('refuses an origin with no platform and a platform with no origin', () => {
+    expectUsageRefusal(
+      ['--collateral-origin=col=intel-tcb-info'],
+      "--collateral-origin names the 'col' slot as intel-tcb-info, and --collateral-platform names no platform for it",
+    );
+    expectUsageRefusal(
+      ['--collateral-platform=col=tdx'],
+      "--collateral-platform names the 'col' slot, which --collateral-origin named no origin for",
+    );
+  });
+
+  it('refuses a platform this package publishes no collateral for', () => {
+    expectUsageRefusal(
+      ['--collateral-platform=col=amd', '--collateral-origin=col=intel-tcb-info'],
+      "--collateral-platform names 'amd' for the 'col' slot, and this package publishes collateral for sgx and tdx",
+    );
+  });
+
+  it('refuses a level with no arm and a level with no value', () => {
+    expectUsageRefusal(
+      ['--collateral-level=col=2026-01-01', '--collateral-origin=col=intel-tcb-info', '--collateral-platform=col=tdx'],
+      "names '2026-01-01' for the 'col' slot, and a level is asked by one of the two arms",
+    );
+    expectUsageRefusal(
+      ['--collateral-level=col=tcb-date', '--collateral-origin=col=intel-tcb-info', '--collateral-platform=col=tdx'],
+      "names 'tcb-date' for the 'col' slot and states no value for it",
+    );
+    expectUsageRefusal(
+      ['--collateral-level=col=tcb-composition=', '--collateral-origin=col=intel-tcb-info', '--collateral-platform=col=tdx'],
+      "names 'tcb-composition' for the 'col' slot and states no value for it",
+    );
+  });
+
+  it('refuses one slot named twice for one field, and accepts the same slot named by all four fields', () => {
+    expectUsageRefusal(
+      ['--collateral-origin=col=intel-tcb-info', '--collateral-origin=col=intel-qe-identity', '--collateral-platform=col=tdx'],
+      "--collateral-origin names the 'col' slot twice, and a slot has one origin, which is the path the bytes were published by per run",
+    );
+    expectUsageRefusal(
+      ['--collateral-level=col=tcb-date=2026-01-01T00:00:00Z', '--collateral-level=col=tcb-composition=00', '--collateral-origin=col=intel-tcb-info', '--collateral-platform=col=tdx'],
+      "--collateral-level names the 'col' slot twice, and a slot has one level, which is one rung of the ladder per run",
+    );
+    expectUsageRefusal(
+      ['--collateral-cpu-type=col=00906e1b0d00', '--collateral-cpu-type=col=00906e1b0d01', '--collateral-origin=col=intel-tcb-info', '--collateral-platform=col=tdx'],
+      "--collateral-cpu-type names the 'col' slot twice, and a slot has one CPU type per run",
+    );
+    // The refusal reads the field, not the slot: one slot named by all four flags is the ordinary call, and the
+    // other slot named by its own pair beside it is what a pack holding both halves asks for.
+    const bothSlots = runCli([
+      'verify-handover',
+      path,
+      key,
+      ...designation('col'),
+      '--collateral-origin=val=intel-tcb-info',
+      '--collateral-platform=val=tdx',
+    ]);
+    expect(bothSlots.stderr).toBe('');
+    expect(bothSlots.status).toBe(0);
+    expect(bothSlots.stdout).toContain('weighed col receipt-0');
+    expect(bothSlots.stdout).toContain('weighed val receipt-0');
+    const oneSlot = runCli(['verify-handover', path, key, ...designation('col')]);
+    expect(oneSlot.stderr).toBe('');
+    expect(oneSlot.status).toBe(0);
   });
 });
