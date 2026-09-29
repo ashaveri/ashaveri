@@ -19,6 +19,7 @@ import {
   decodePack,
   packRecordDigest,
   packSigStructure,
+  resolveCarried,
   signPack as issuerSignsPack,
   verifyPack,
   type PackCarriedObject,
@@ -1137,6 +1138,81 @@ describe('the pack reader and the format it reads', () => {
       manifestValue({ chain: { anchor: single.anchor, head: single.head }, items: single.items, carried: [edge] }),
     );
     expect(answered(() => decodePack(atByteCeiling)), 'an object at the byte ceiling was refused').toBe('accepted');
+  });
+
+  it('resolves a held slot digest to the material it names, and refuses the digests it does not', () => {
+    const tcb = material('tcb-info');
+    const rim = material('rim-bytes');
+    const run = chained(ENTRIES, new Uint8Array(DIGEST_BYTES), KEY, (iat, nonce) => anchored(iat, nonce, { col: tcb.sha256, val: rim.sha256 }));
+    const honest = manifestValue({ chain: { anchor: run.anchor, head: run.head }, items: run.items, carried: [tcb, rim] });
+
+    // One digest per half of the anchor, asked of a manifest read out of a signed pack, out of a verified one,
+    // and out of an object assembled in memory that no reader has ever run the format's check over. The three
+    // answer alike because the lookup keys on the digest alone, and the bytes come back as the entry's own and
+    // not as a copy: whoever weighs carried material weighs what the pack held, and a re-encoding of it would
+    // put a third set of bytes in the story. The record named is the first in item order, since all three
+    // receipts name these two digests and the pack carries each of them once.
+    for (const one of [decodePack(signPack(honest)).manifest, verifyPack(signPack(honest), { publicKey: KEY.publicKey }).manifest, honest]) {
+      const col = resolveCarried(one, tcb.sha256);
+      expect([col.item, col.slot, col.iat]).toEqual(['receipt-0', 'col', BASE]);
+      expect(col.bytes).toBe(required(one.carried[0], 'the honest pack states no first object').bytes);
+      const val = resolveCarried(one, rim.sha256);
+      expect([val.item, val.slot, val.iat]).toEqual(['receipt-0', 'val', BASE]);
+      expect(toHex(sha256(val.bytes))).toBe(toHex(rim.sha256));
+      // The answer states no second copy of the digest it was keyed by, so the slot stays its one owner.
+      expect(Object.keys(val).sort()).toEqual(['bytes', 'iat', 'item', 'slot']);
+    }
+
+    // A held slot the pack carries nothing for, refused at the position that would have named it: the failure the
+    // member exists to make impossible, and the code and the sentence are the ones the format's own check uses
+    // for the same document, so a caller holding an object in hand is refused as a caller holding a pack is.
+    const short = manifestValue({ chain: { anchor: run.anchor, head: run.head }, items: run.items, carried: [tcb] });
+    const unresolved = thrownBy(() => resolveCarried(short, rim.sha256));
+    expect(unresolved).toBeInstanceOf(ReceiptError);
+    expect((unresolved as ReceiptError).code).toBe('PACK_CARRIED_UNRESOLVED');
+    expect((unresolved as ReceiptError).message).toContain(`receipt-0 states a held val digest ${toHex(rim.sha256)} this pack carries no object for`);
+    expect(answered(() => decodePack(signPack(short)))).toBe('PACK_CARRIED_UNRESOLVED');
+    // The lookup answers the one digest it was handed and adjudicates nothing about the rest of the list, so the
+    // object this pack does carry still resolves beside the one it does not.
+    expect(resolveCarried(short, tcb.sha256).item).toBe('receipt-0');
+
+    // An entry whose bytes do not hash to the digest it states, reached through that digest. The recompute is the
+    // lookup's own rather than borrowed from a check the caller may never have run, which is what makes the
+    // answer safe for a manifest built in memory: a stated digest buys nothing unless the bytes behind it agree.
+    const lying = manifestValue({
+      chain: { anchor: run.anchor, head: run.head },
+      items: run.items,
+      carried: [{ bytes: rim.bytes, sha256: tcb.sha256 }],
+    });
+    const mismatched = thrownBy(() => resolveCarried(lying, tcb.sha256));
+    expect((mismatched as ReceiptError).code).toBe('PACK_CARRIED_DIGEST_MISMATCH');
+    expect((mismatched as ReceiptError).message).toContain(`carried[0] states ${toHex(tcb.sha256)} and its bytes hash to ${toHex(rim.sha256)}`);
+    expect(answered(() => decodePack(signPack(lying)))).toBe('PACK_CARRIED_DIGEST_MISMATCH');
+
+    // Bytes the pack carries that no sealed slot names, asked by their own digest: the other direction of the
+    // same disagreement, holding its own code because the construction to fix is the other one.
+    const extra = material('a document no slot names');
+    const overfull = manifestValue({ chain: { anchor: run.anchor, head: run.head }, items: run.items, carried: [tcb, rim, extra] });
+    expect(answered(() => resolveCarried(overfull, extra.sha256))).toBe('PACK_CARRIED_UNNAMED');
+    expect(answered(() => decodePack(signPack(overfull)))).toBe('PACK_CARRIED_UNNAMED');
+
+    // A digest nothing in the pack states and no slot names is a question this container never agreed to answer,
+    // and the detail says so on both halves rather than blaming a receipt that named nothing.
+    const unheard = sha256(bytesOf('material this pack never saw'));
+    const outside = thrownBy(() => resolveCarried(honest, unheard));
+    expect((outside as ReceiptError).code).toBe('PACK_CARRIED_UNRESOLVED');
+    expect((outside as ReceiptError).message).toContain(`no carried object of this pack states ${toHex(unheard)} and no held slot of any receipt it seals names it`);
+
+    // An anchor whose every slot states an absence names no digest, so nothing resolves out of it and no absence
+    // is ever read as a missing object.
+    const nowhere = chained(ENTRIES, new Uint8Array(DIGEST_BYTES), KEY, (iat, nonce) => anchored(iat, nonce, {}));
+    const silent = manifestValue({ chain: { anchor: nowhere.anchor, head: nowhere.head }, items: nowhere.items });
+    expect(answered(() => resolveCarried(silent, tcb.sha256))).toBe('PACK_CARRIED_UNRESOLVED');
+
+    // The width of the key is the format's own, asked before a byte is hashed or a receipt decoded, and answered
+    // as the call rather than as a hole in the pack: a digest no reader can name is a question with no answer.
+    expect(answered(() => resolveCarried(honest, new Uint8Array(DIGEST_BYTES - 1)))).toBe('PACK_BAD_MANIFEST');
+    expect(answered(() => resolveCarried(honest, new Uint8Array(DIGEST_BYTES + 1)))).toBe('PACK_BAD_MANIFEST');
   });
 
   it('is named by the section of the specification it implements, and says no more than it does', () => {

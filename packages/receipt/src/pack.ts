@@ -28,7 +28,7 @@ import type { CollateralSlot } from './disclosure.js';
  * questions about it, separately: whether the bytes are a well-formed pack, whether the key it was handed
  * signed them, and whether the receipts inside walk from the anchor the manifest names to the head it names.
  * It is a checker and not a verdict engine. It answers nothing about a legal duty, nothing about whether the
- * deployment still holds anything else, and nothing about freshness, and it resolves nothing by itself: every
+ * deployment still holds anything else, and nothing about freshness, and it resolves no key by itself: every
  * key arrives as an argument, either the one key the caller holds or a function of the caller's own that
  * answers a kid with the key the caller retains for it, and no code path here reaches a network, a filesystem
  * or a key directory.
@@ -140,6 +140,28 @@ export interface PackCarriedObject {
   readonly bytes: Uint8Array;
   /** sha256 of `bytes`, which the reader recomputes rather than trusts. */
   readonly sha256: Uint8Array;
+}
+
+/**
+ * One carried object found by the digest a sealed receipt's `held` slot names, beside the record that named it.
+ *
+ * The digest is not repeated here. It is the key the caller asked with and the one place the format states it
+ * is the slot itself, so an answer carrying a second copy of it would give one digest two homes and a reader two
+ * things to compare before believing either.
+ */
+export interface PackCarriedResolution {
+  /** The id of the sealed receipt whose slot asked for this material, as the pack names it. */
+  readonly item: string;
+  /** Which half of that receipt's anchor asked: `col` for the signed collateral, `val` for the validity context. */
+  readonly slot: 'col' | 'val';
+  /**
+   * unix seconds, the stamp the naming record was chained at. This is that record's own statement of the
+   * instant it held the material, which is the only instant a pack can offer for material sealed inside it; the
+   * receipt's stamp disclosure states, beside it, what that instant is worth.
+   */
+  readonly iat: number;
+  /** The material, whole and exactly as the pack carries it, not a copy and not a re-encoding. */
+  readonly bytes: Uint8Array;
 }
 
 export interface PackManifest {
@@ -784,6 +806,19 @@ function assertCarriedResolves(manifest: PackManifest): void {
 }
 
 /**
+ * One `held` slot of one sealed receipt, as this module reads it: the id the pack gives the record that states
+ * it, which of the anchor's two slots it is, the stamp that record was chained at, and the digest the slot
+ * states. The two labels are this module's own shorthand for `collateral` and `validity`, the members of the
+ * anchor, and they exist so a refusal can name the half of a receipt it stopped on.
+ */
+type HeldSlot = {
+  readonly item: string;
+  readonly slot: 'col' | 'val';
+  readonly iat: number;
+  readonly sha256: Uint8Array;
+};
+
+/**
  * The digests the sealed receipts' anchors state as held, in item order, each with the slot it came from.
  *
  * Read from the bytes the pack already seals, which is what makes this answerable with no key in hand: the
@@ -792,8 +827,8 @@ function assertCarriedResolves(manifest: PackManifest): void {
  * signature. Nothing here decides which receipt is authentic; it reads which digests the pack has committed to
  * carrying, which is a claim about the pack and not a verdict about the deployment.
  */
-function heldSlotDigests(manifest: PackManifest): readonly { item: string; slot: string; sha256: Uint8Array }[] {
-  const named: { item: string; slot: string; sha256: Uint8Array }[] = [];
+function heldSlotDigests(manifest: PackManifest): readonly HeldSlot[] {
+  const named: HeldSlot[] = [];
   for (const one of manifest.items) {
     let payload: VerifiedReceipt['payload'] | undefined;
     try {
@@ -803,15 +838,73 @@ function heldSlotDigests(manifest: PackManifest): readonly { item: string; slot:
     }
     // A `v: 1` or `v: 2` payload names no anchor, so it names no held digest and the pack carries nothing for it.
     if (!('cva' in payload)) continue;
-    const slots: readonly (readonly [string, CollateralSlot])[] = [
+    const slots: readonly (readonly [HeldSlot['slot'], CollateralSlot])[] = [
       ['col', payload.cva.collateral],
       ['val', payload.cva.validity],
     ];
     for (const [label, slot] of slots) {
-      if (slot.presence === 'held') named.push({ item: one.id, slot: label, sha256: slot.sha256 });
+      if (slot.presence === 'held') named.push({ item: one.id, slot: label, iat: one.iat, sha256: slot.sha256 });
     }
   }
   return named;
+}
+
+/**
+ * The material a pack carries for one digest, and the record whose `held` slot named it.
+ *
+ * The digest is the only key, because the digest is the only name the format gives. A carried object states its
+ * bytes and their hash, a sealed receipt's slot states a hash, and no position in either document names an item
+ * or a slot: a lookup that took a third designation would be a second way of pointing at one object, and the
+ * pack would then answer for its material at two keys that can disagree.
+ *
+ * The stated digest is re-verified here rather than taken on trust, and that is a decision about the caller
+ * rather than about the bytes. The manifest argument does not have to have come from `decodePack`: a caller can
+ * assemble a `PackManifest` in memory, hand it to the writer, or read one through a reader that is not this
+ * package's, and none of those paths runs `assertCarriedResolves` before this question is asked. So the answer
+ * proves, for the one digest asked, the two facts that make it true: the bytes handed back hash to the digest
+ * that was asked for, and a held slot of a receipt this pack seals names that digest. What the format's own
+ * check would refuse is refused here under the same code and with the same sentence naming the same position, so
+ * a caller that came through the container and a caller that came with an object in hand are refused alike.
+ *
+ * What is deliberately not re-run is everything the question does not need. The two ceilings bound the list, the
+ * duplicate scan reads it as a whole, and the list-wide halves of resolution compare every entry against every
+ * slot; a lookup keyed by one digest cannot change its own answer by finding one of them missing, and a pack
+ * that states one digest at two positions states the same bytes at both, since both would have to hash to the
+ * digest asked. Re-checking the ceilings would also mean hashing the whole carried list per question, which is
+ * the work the decode already did once. The refusal order is the format's own, so one rule reads the same way
+ * from both ends: the recompute of the entry found, then the two halves of resolution.
+ */
+export function resolveCarried(manifest: PackManifest, digest: Uint8Array): PackCarriedResolution {
+  // Asked before anything is hashed or decoded, and answered the way `packRecordDigest` answers a predecessor of
+  // the wrong width: this is a caller's value at a position the format types as thirty-two bytes, and a digest a
+  // reader cannot name is a question with no answer rather than a pack with a hole in it.
+  if (digest.length !== DIGEST_BYTES) {
+    throw badManifest(`a carried lookup is keyed by a ${DIGEST_BYTES}-byte digest and was handed one of ${digest.length} bytes`);
+  }
+  const hex = toHex(digest);
+  const named = heldSlotDigests(manifest).find((slot) => equalBytes(slot.sha256, digest));
+  const at = manifest.carried.findIndex((one) => equalBytes(one.sha256, digest));
+  const entry = at === -1 ? undefined : manifest.carried[at];
+  if (entry === undefined) {
+    // Two absences and one sentence. Where a slot names the digest, this is the failure the carried member
+    // exists to make impossible and the detail is the format's own at that position; where nothing in the pack
+    // names it either, the honest report is that the pack says nothing about the digest at all, which is what
+    // the detail says while the code keeps naming the one thing both cases have in common: no object for it.
+    throw new ReceiptError(
+      'PACK_CARRIED_UNRESOLVED',
+      named === undefined
+        ? `no carried object of this pack states ${hex} and no held slot of any receipt it seals names it`
+        : `${named.item} states a held ${named.slot} digest ${hex} this pack carries no object for`,
+    );
+  }
+  const actual = sha256(entry.bytes);
+  if (!equalBytes(actual, digest)) {
+    throw new ReceiptError('PACK_CARRIED_DIGEST_MISMATCH', `carried[${String(at)}] states ${hex} and its bytes hash to ${toHex(actual)}`);
+  }
+  if (named === undefined) {
+    throw new ReceiptError('PACK_CARRIED_UNNAMED', `carried[${String(at)}] holds ${hex}, which no slot of any receipt this pack seals names`);
+  }
+  return { item: named.item, slot: named.slot, iat: named.iat, bytes: entry.bytes };
 }
 
 /**

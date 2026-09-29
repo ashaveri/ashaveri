@@ -91,6 +91,7 @@ export {
   encodePackProtectedHeader,
   packRecordDigest,
   packSigStructure,
+  resolveCarried,
   sealPack,
   signPack,
   decodePack,
@@ -99,6 +100,7 @@ export {
 export type {
   DecodedPack,
   PackCarriedObject,
+  PackCarriedResolution,
   PackChain,
   PackDuty,
   PackItem,
