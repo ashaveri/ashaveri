@@ -50,8 +50,9 @@ import { ATTESTED_MARKING, stampedReceiptBytes } from './stamped-receipt.js';
  *
  * One shape arrives with a second document. An amendment is checked against the pack it designates by a
  * digest, so its cases hand that pack in through `--companion`, and the whole published redaction suite is
- * replayed through the command path here rather than only through the library, with the handful of rows this
- * path answers otherwise named and explained rather than quietly dropped.
+ * replayed through the command path here rather than only through the library. The rows this path answers
+ * otherwise are not named by a table in this file: each row states its own answer, with the code and the exit
+ * beside it where they differ from the library's, and what is checked here is that a run agrees with the file.
  *
  * No case here needs a longer timeout than the runner's default: the slowest measured case without a stated
  * window is the one that checks a key's canonical spelling, at 1,043 ms over four CLI invocations with three
@@ -238,6 +239,13 @@ interface PublishedRedactionRow {
   readonly packBase64Url?: string;
   readonly read: { readonly pinned?: string; readonly retained?: readonly { kid: string; publicKeyBase64Url: string }[] };
   readonly verdict: string;
+  /**
+   * What this command path answers for the row's pair: `null` where it answers exactly what `verdict` states,
+   * and the code and the exit beside it where it reaches the same fact one step earlier than the reader does.
+   * The suite carries this table, states the member on every row, and this file reads it rather than keeping one
+   * of its own; the presence assertion belongs to `packages/fixtures/test/redaction-vectors.test.ts`.
+   */
+  readonly command: { readonly code: string; readonly exit: number } | null;
   readonly survivors?: string[];
   readonly reducedHex?: string;
   readonly originalHeadHex?: string;
@@ -581,30 +589,6 @@ const PACK_DOCUMENT_PATH = written(
   Buffer.from(published(packRow('well-formed-three-items').documentBase64Url, 'pack document'), 'base64url'),
 );
 
-/**
- * The rows whose published verdict the command path answers with a different code, each with that code and
- * the reason. Three groups, and none of them is a reader disagreeing with itself.
- *
- * Two rows pin one key as the reader's `publicKey` where a command line designates a set matched on each
- * kid, and `--key` cannot file a key under an id that is not its own, so the disagreement those rows state is
- * answered one step earlier as a kid nothing designates. One row designates no key at all, which this tool
- * refuses as the gap in the call, with a usage exit, exactly as it does for a receipt, a pack or an export.
- * Two rows are a document wearing another container's content type, which the dispatch answers by running
- * that container's reader rather than the redaction reader the row goes on to name. And two rows are refused
- * by the classifier before a reader is chosen, which answers the same fact with the code the classification
- * already uses. Every one of them is still a named refusal: the command path is silent about none of the
- * published cases.
- */
-const REPLAY_EXCEPTIONS: readonly { name: string; observed: string; exit: number }[] = [
-  { name: 'rotation-read-with-one-pinned-key', observed: 'PACK_UNKNOWN_KEY', exit: 1 },
-  { name: 'sealed-under-another-deployment-key', observed: 'REDACTION_UNKNOWN_KEY', exit: 1 },
-  { name: 'no-designation-at-all', observed: 'usage', exit: 2 },
-  { name: 'protected-content-type-of-a-pack', observed: 'PACK_BAD_MANIFEST', exit: 1 },
-  { name: 'protected-content-type-of-a-receipt', observed: 'BAD_PAYLOAD', exit: 1 },
-  { name: 'protected-kid-of-another-width', observed: 'BAD_PROTECTED_HEADER', exit: 1 },
-  { name: 'document-truncated-mid-envelope', observed: 'MALFORMED_CBOR', exit: 1 },
-];
-
 /** What one command run answered: the published verdict's shape, or the fact that it refused the call. */
 function replayedVerdict(result: CliResult): string {
   if (result.status === 2) return 'usage';
@@ -688,7 +672,12 @@ describe('an excision amendment at the command edge', () => {
 
   it('replays every published redaction row through the command path', WHOLE_SUITE_THROUGH_THE_COMMAND_PATH, () => {
     expect(REDACTION_FIXTURE.vectors.length).toBeGreaterThanOrEqual(43);
-    const exceptions = new Map(REPLAY_EXCEPTIONS.map((one) => [one.name, one]));
+    // The exception table is published with the rows: a row whose command answer is not its `verdict` states the
+    // code and the exit in its `command` member, and every other row states null. Both lists below are names of
+    // rows this loop ran, so neither can carry a note standing beside a case the suite no longer publishes, and
+    // a suite that moves a row moves its exception with it.
+    const recorded = REDACTION_FIXTURE.vectors.filter((row) => row.command !== null).map((row) => row.name);
+    const diverged: string[] = [];
     const observed: string[] = [];
     for (const row of REDACTION_FIXTURE.vectors) {
       const args = ['verify-handover', written(`${row.name}.cbor`, Buffer.from(row.documentBase64Url, 'base64url')), '--json'];
@@ -700,20 +689,24 @@ describe('an excision amendment at the command edge', () => {
       }
       const result = runCli(args);
       const answer = replayedVerdict(result);
-      const exception = exceptions.get(row.name);
-      // A row either answers what its published verdict states, or it is named above with the code this path
+      const exception = row.command;
+      // A row either answers what its published verdict states, or the published row states the code this path
       // answers and the exit it answers with. An unreadable run is neither, and fails here.
-      expect(answer, `${row.name}: the command path answered something neither the row nor this file states`).toBe(
-        exception === undefined ? row.verdict : exception.observed,
+      expect(answer, `${row.name}: the command path answered something other than its published row states`).toBe(
+        exception === null ? row.verdict : exception.code,
       );
-      expect(result.status, `${row.name}: exit status beside the answer`).toBe(exception === undefined ? (row.verdict === 'verify-ok' ? 0 : 1) : exception.exit);
+      expect(result.status, `${row.name}: exit status beside the answer`).toBe(
+        exception === null ? (row.verdict === 'verify-ok' ? 0 : 1) : exception.exit,
+      );
+      if (answer !== row.verdict) diverged.push(row.name);
       observed.push(`${row.name}: ${answer}`);
     }
-    // Every exception is a claim about a row that exists, so a suite that moves a row cannot leave one of
-    // these notes standing beside nothing.
-    for (const one of exceptions.keys()) {
-      expect(REDACTION_FIXTURE.vectors.some((row) => row.name === one), `${one} is no longer a published row`).toBe(true);
-    }
+    // The reverse check, read out of published data now rather than out of a table kept here. What only this line
+    // can catch is the row whose published object states a divergence this run did not have, because its code
+    // repeats its own `verdict`: the per-row expectation above passes on such a row, and a run that diverged
+    // without a row recording it never reaches here, since it fails that expectation first. A published table
+    // can only stay a source of facts rather than a mirror of the tool if this line is able to say so.
+    expect(diverged.sort()).toEqual(recorded.sort());
     expect(observed.filter((one) => !one.endsWith('verify-ok')).length).toBeGreaterThanOrEqual(33);
   });
 });

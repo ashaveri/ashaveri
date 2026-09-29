@@ -1,17 +1,21 @@
 import { existsSync, readFileSync, readdirSync, statSync } from 'node:fs';
-import { basename, join } from 'node:path';
+import { basename, dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { decodeReceipt } from '@ashaveri/receipt';
 import { describe, expect, it } from 'vitest';
+import { decodeCanonical, decodeCoseSign1 } from '@ashaveri/receipt';
 import { DATA } from '../src/index.js';
-import { spelledNumber } from './doc-contract.js';
+import { sectionBody, spelledNumber } from './doc-contract.js';
 
 /**
  * The suite inventory in `docs/vectors.md` is the index a port starts from: it names the file of each
  * published suite and the version field that file carries. Both are copies of facts that live in
  * `data/`, and a copy is how a document comes to state something the artefacts stopped carrying. This
- * reads the table as data and checks it against them, which is the whole of what it does: the prose
- * around the rows is reviewed by the people who write it, not parsed here.
+ * reads the table as data and checks it against them. The prose around the rows is reviewed by the
+ * people who write it, with one exception: a sentence that states a count of what the published files
+ * carry is read for that count, and the rows it counts are taken out of the file the table names for
+ * that suite, because the number belongs to the artefact and a reader typing it from memory is the
+ * drift this refuses to be.
  */
 
 const DOC = fileURLToPath(new URL('../../../docs/vectors.md', import.meta.url));
@@ -97,9 +101,9 @@ function publishedSuites(): string[] {
 
 /**
  * The verdict and code of every row one suite states a verdict on, read out of the file rather than
- * from the prose. Each shape is written out because the ten suites do not agree on where a verdict
+ * from the prose. Each shape is written out because the eleven suites do not agree on where a verdict
  * lives: four keep the refusing cases in an array beside the accepted ones and name a code on each row,
- * and six give every case one word that is either the accepted verdict or the code of the refusal. A
+ * and seven give every case one word that is either the accepted verdict or the code of the refusal. A
  * suite whose file gains a shape no one recognised has to be named here, which is what stops this
  * reading an empty list as a suite with no refusals.
  */
@@ -123,6 +127,7 @@ function verdictsOf(basename: string): { verdict: string; code: string | null }[
     case 'manifest-v1.json':
     case 'pack-v1.json':
     case 'redaction-v1.json':
+    case 'epoch-inventory-v1.json':
       return rows('vectors').map((row) => ({ verdict: field(row, 'verdict'), code: null }));
     case 'pop-v1.json':
     case 'req-v1.json':
@@ -150,6 +155,209 @@ function documentedCodes(): Set<string> {
   }
   if (codes.size < 20) throw new Error(`${codes.size} codes read from docs/error-codes.md, which lists more`);
   return codes;
+}
+
+/**
+ * The section that speaks for every suite in the table, read as one run of prose because its sentences
+ * are wrapped across several lines. The one number in it is the count of the table's rows, and a count
+ * written down by hand is a claim that outlives the rows it was taken from, so it is read out of the
+ * section and compared rather than trusted.
+ */
+function refusalSection(): string {
+  return sectionBody(readFileSync(DOC, 'utf8'), '## Every suite refuses something').replace(/\n\s*/gu, ' ');
+}
+
+/**
+ * The two bullets `docs/vectors.md` gives the epoch inventory, read as one run of prose because the
+ * sentences in them are wrapped across several lines. Both state a count of the published rows in words
+ * rather than as digits, and both counts belong to the rows rather than to the memory of whoever wrote
+ * the sentence.
+ */
+function epochInventoryProse(): string {
+  const doc = readFileSync(DOC, 'utf8');
+  const start = doc.indexOf('\n- **Epoch inventory.');
+  if (start < 0) throw new Error('docs/vectors.md states no Epoch inventory bullet to read');
+  const rest = doc.slice(start);
+  const end = rest.indexOf('\n## ');
+  return (end < 0 ? rest : rest.slice(0, end)).replace(/\n\s*/gu, ' ');
+}
+
+/**
+ * One of the counts those bullets state about the published rows, taken back out of the sentence that
+ * states it. A document that stopped claiming a count fails as a missing sentence rather than reading as
+ * a claim of nothing, which is the shape an empty match would have.
+ */
+function countStatedByTheDocument(states: RegExp, what: string): string {
+  const stated = states.exec(epochInventoryProse());
+  if (stated === null) throw new Error(`the Epoch inventory bullets state no count of ${what}`);
+  return stated[1]!;
+}
+
+/**
+ * One count the document states about a published artifact, read out of the sentence that states it. The
+ * prose is passed in because the same shape is what the Receipt fixtures bullet, the status line and the
+ * inventory bullets all use: a number written where the artifact's rows are described. A sentence that
+ * stopped stating its number fails here as a missing sentence, which is a different finding from a count
+ * of nothing and is the reason this does not return a default.
+ */
+function countStatedIn(prose: string, states: RegExp, where: string): string {
+  const stated = states.exec(prose);
+  if (stated === null) throw new Error(`the document states no count in ${where}`);
+  return stated[1]!;
+}
+
+/**
+ * The Receipt fixtures bullet, read as one run of prose because its sentences are wrapped across several
+ * lines. It is the bullet that counts the receipt fixtures: how many entries there are, how they split by
+ * the payload version each document declares, how many are refused and what each refusal answers with.
+ */
+function receiptBullet(): string {
+  const doc = readFileSync(DOC, 'utf8');
+  const start = doc.indexOf('\n- **Receipt fixtures.');
+  if (start < 0) throw new Error('docs/vectors.md states no Receipt fixtures bullet to read');
+  const end = doc.indexOf('\n- **', start + 5);
+  return (end < 0 ? doc.slice(start) : doc.slice(start, end)).replace(/\n\s*/gu, ' ');
+}
+
+/**
+ * The status paragraph above the suite table, which is the first thing a reader of this document meets and
+ * which counts the same entries the bullet counts. Two prose copies of one fact are how a document comes to
+ * disagree with itself, so both are read against the entries.
+ */
+function statusParagraph(): string {
+  const doc = readFileSync(DOC, 'utf8');
+  const end = doc.indexOf('\n## ');
+  return (end < 0 ? doc : doc.slice(0, end)).replace(/\n\s*/gu, ' ');
+}
+
+/** One entry of the receipt manifest, with the two things the document's counts turn on. */
+interface ReceiptEntry {
+  readonly name: string;
+  /** The payload version the entry's own bytes declare. */
+  readonly declares: number;
+  /** Whether that payload carries a marking member. */
+  readonly carriesMark: boolean;
+  /** The verdict the entry promises, which is `verify-ok` or the code a refusal answers with. */
+  readonly expected: string;
+}
+
+/**
+ * The entries the receipt manifest lists, each read as far as the document's sentence reaches: which
+ * payload version its bytes state, whether they carry `mk`, and which verdict the entry promises.
+ *
+ * The version is read off the envelope rather than through the receipt reader on purpose. One entry is
+ * published precisely because its payload is malformed, and a reader that validates fields refuses to say
+ * what version such a document carries, which would leave the count short of the entries the sentence
+ * counts. `decodeCoseSign1` and `decodeCanonical` take the signed bytes apart and read one member, so the
+ * answer is what the document states about itself and nothing a checker could overrule.
+ */
+function receiptEntries(): ReceiptEntry[] {
+  const row = rows.find((each) => each.suite === 'Receipt fixtures');
+  if (row === undefined) throw new Error('the suite table lists no Receipt fixtures row to read the manifest from');
+  const files = row.files.filter((each) => each.endsWith('.json'));
+  if (files.length !== 1) {
+    throw new Error(`the Receipt fixtures row names ${String(files.length)} files, and this reads the one manifest`);
+  }
+  const manifest = resolve(files[0]!);
+  if (manifest === null) throw new Error(`${files[0]!} is named by the Receipt fixtures row and is not there to read`);
+  const parsed = JSON.parse(readFileSync(manifest, 'utf8')) as {
+    fixtures?: { name?: unknown; path?: unknown; expected?: unknown }[];
+  };
+  if (!Array.isArray(parsed.fixtures)) throw new Error(`${files[0]!} publishes no fixtures array to read`);
+  return parsed.fixtures.map((entry) => {
+    const name = typeof entry.name === 'string' ? entry.name : '';
+    const path = typeof entry.path === 'string' ? entry.path : undefined;
+    const expected = typeof entry.expected === 'string' ? entry.expected : undefined;
+    if (path === undefined || expected === undefined) {
+      throw new Error(`the entry ${name || '(unnamed)'} carries no path or no expected verdict`);
+    }
+    const bytes = new Uint8Array(readFileSync(join(dirname(manifest), path)));
+    const payload = decodeCanonical(decodeCoseSign1(bytes).payloadBytes);
+    if (!(payload instanceof Map)) throw new Error(`${name} is not sealed over a payload map to read a version from`);
+    const version = payload.get('v');
+    if (typeof version !== 'number' || !Number.isInteger(version)) {
+      throw new Error(`${name} states no whole payload version to count`);
+    }
+    return { name, declares: version, carriesMark: payload.get('mk') !== undefined, expected };
+  });
+}
+
+/** How the entries split, counted once and read by both of the sentences that state them. */
+interface ReceiptEntryCounts {
+  readonly entries: number;
+  readonly v1: number;
+  readonly v2: number;
+  readonly marked: number;
+  readonly accepted: number;
+  readonly refused: number;
+  readonly brokenSignature: number;
+  readonly badMeasurement: number;
+}
+
+function receiptEntryCounts(): ReceiptEntryCounts {
+  const entries = receiptEntries();
+  const refused = entries.filter((one) => one.expected !== 'verify-ok');
+  const byCode = (code: string): number => refused.filter((one) => one.expected === code).length;
+  return {
+    entries: entries.length,
+    v1: entries.filter((one) => one.declares === 1).length,
+    v2: entries.filter((one) => one.declares === 2).length,
+    marked: entries.filter((one) => one.carriesMark).length,
+    accepted: entries.filter((one) => one.expected === 'verify-ok').length,
+    refused: refused.length,
+    brokenSignature: byCode('INVALID_SIGNATURE'),
+    badMeasurement: byCode('BAD_PAYLOAD'),
+  };
+}
+
+/** One published row of the inventory suite, as the file itself spells its members. */
+type InventoryRow = Record<string, unknown>;
+
+/** The two orders an inventory row publishes beside the folded list it names, where it publishes them. */
+interface InventoryReadback {
+  readonly runFiles?: string[];
+  readonly breakFiles?: string[];
+  readonly shortFiles?: string[];
+}
+
+/**
+ * The rows of the suite the table calls `Epoch inventory`, read out of the file that row names. These are
+ * the rows the two bullets count, so the path comes from the document rather than from a path typed in
+ * beside it.
+ */
+function inventoryRows(): InventoryRow[] {
+  const row = rows.find((each) => each.suite === 'Epoch inventory');
+  if (row === undefined) throw new Error('the suite table lists no Epoch inventory row to read the file from');
+  const files = row.files.filter((each) => each.endsWith('.json'));
+  if (files.length !== 1) {
+    throw new Error(`the Epoch inventory row names ${String(files.length)} files, and this reads the one`);
+  }
+  const named = files[0]!;
+  const found = resolve(named);
+  if (found === null) throw new Error(`${named} is named by the Epoch inventory row and is not there to read`);
+  const parsed = JSON.parse(readFileSync(found, 'utf8')) as { vectors?: unknown };
+  if (!Array.isArray(parsed.vectors)) throw new Error(`${named} publishes no vectors array to read`);
+  return parsed.vectors as InventoryRow[];
+}
+
+/**
+ * Whether one published inventory row states one of the two folded lists in the reverse of the order the
+ * run puts its packs in. The file carries both orders on the rows that state them: `site` names which of
+ * the two lists the row speaks about, and the `readback` beside it carries `runFiles`, the run the
+ * entries' own figures put back into order, and that list as the document states it. A list of one entry
+ * states no order for this to call the reverse of, so a row carrying one entry is not one of these.
+ */
+function statesAReversedList(row: InventoryRow): boolean {
+  const site = row.site;
+  if (site !== 'chain.breaks' && site !== 'duty.short') return false;
+  const readback = row.readback as InventoryReadback | undefined;
+  if (readback === undefined) return false;
+  const run = readback.runFiles;
+  const stated = site === 'chain.breaks' ? readback.breakFiles : readback.shortFiles;
+  if (!Array.isArray(run) || !Array.isArray(stated) || stated.length < 2) return false;
+  const inRunOrder = run.filter((one) => stated.includes(one));
+  if (inRunOrder.length !== stated.length) return false;
+  return stated.every((one, at) => one === inRunOrder[inRunOrder.length - 1 - at]);
 }
 
 const rows = suiteRows();
@@ -242,6 +450,14 @@ describe('docs/vectors.md suite inventory', () => {
     // halves are read off the files, because a suite that lost its negative rows would keep a table that
     // still looked right, and a row that named a code no union declares would be a word nobody answers.
     const codes = documentedCodes();
+    // The sentence's opening word counts the suites it speaks for, and what it counts is the table's rows, so
+    // the word is read back out of the section and held against them: a table that gained a suite row, or lost
+    // one, would otherwise keep a sentence claiming a number the document no longer matches.
+    const stated = /Each of the ([a-z]+) suites the table above lists/u.exec(refusalSection());
+    expect(stated, 'the section stopped counting the suites it speaks for').not.toBeNull();
+    // The assertion above is what refuses a document that stopped stating the count, so the capture this
+    // line reads is there whenever it runs, and no value stands behind it to fall back on.
+    expect(spelledNumber(stated![1]!), 'and the count it states is not the count of rows').toBe(rows.length);
     for (const row of rows) {
       const files = row.files.filter((each) => each.endsWith('.json')).map((each) => basename(each));
       expect(files.length, `${row.suite} names no file to read verdicts out of`).toBeGreaterThan(0);
@@ -256,6 +472,92 @@ describe('docs/vectors.md suite inventory', () => {
           true,
         );
       }
+    }
+  });
+
+  it('states how many inventory rows carry an edit block, and the rows agree', () => {
+    // The sentence counts the rows stating an `edit` block, and that count is a fact of the published file:
+    // a row gaining or losing its block moves one of the two sides of this comparison. What the same
+    // sentence says about the two it counts, that they are the honest span replaced with a longer run
+    // label and differ by one byte at one position, one accepted and one refused, is held row by row by the
+    // inventory's own width-pair case in `epoch-inventory-vectors.test.ts`. What nothing held was the
+    // number standing in the document.
+    const stating = inventoryRows().filter((one) => one.edit !== undefined);
+    expect(
+      spelledNumber(
+        countStatedByTheDocument(/([A-Za-z]+) rows state an `edit` block/u, 'the rows stating an edit block'),
+      ),
+      'the document counts a different number of rows stating an edit block than the rows do',
+    ).toBe(stating.length);
+  });
+
+  it('states that the inventory rows reversing a folded list are acceptances', () => {
+    // Two claims in one sentence, both read off the rows: that the count of rows stating one of the two
+    // folded lists in the reverse of the order the run puts those packs in is the count the sentence states,
+    // and that every one of them is an acceptance rather than an oversight. The keying the sentence appeals
+    // to is why a reversal is accepted at all, so a row that turned from an acceptance into a refusal, or a
+    // reversal the suite gained or lost, is refused here rather than left standing in prose.
+    const reversed = inventoryRows().filter(statesAReversedList);
+    expect(
+      spelledNumber(
+        countStatedByTheDocument(
+          /the ([a-z]+) rows stating a reversed list are acceptances/u,
+          'the rows stating a reversed list',
+        ),
+      ),
+      'the document counts a different number of rows stating a reversed list than the rows do',
+    ).toBe(reversed.length);
+    for (const one of reversed) {
+      expect(
+        one.verdict,
+        `${String(one.name)} states a folded list in the other order and is not an acceptance`,
+      ).toBe('verify-ok');
+    }
+  });
+
+  it('states what the receipt fixtures are, and carries no count a growing manifest could contradict', () => {
+    // This bullet once stated by hand how many entries declared each version, how many carried a mark, and
+    // how many were refused. Nothing derived those numbers, so a manifest that gained a version-3 row left
+    // the sentence describing a smaller suite than the file published, and no reader could see it. The counts
+    // now live in the entries and in the manifest's `layout` block, and the prose says what to read instead
+    // of doing the arithmetic. So this test holds two things: the sentence states no spelled fixture count,
+    // and the tally a reader would have looked for still adds up out of each entry's own bytes.
+    const counts = receiptEntryCounts();
+    const bullet = receiptBullet();
+    // Two of the counts the old sentence carried are still stated, and held elsewhere: how many rows state no
+    // version column, and how many refusals predate the position column. What must not come back is a count of
+    // the whole manifest by version, which is the split three published formats made unspeakable.
+    for (const states of [/([A-Za-z]+) entries are v1 documents/u, /the rule the other ([a-z]+) test/u]) {
+      expect(states.test(bullet), `the receipt bullet states a count it cannot hold: ${states.source}`).toBe(false);
+    }
+    expect(counts.accepted + counts.refused, 'an entry is neither accepted nor refused').toBe(counts.entries);
+    for (const one of receiptEntries()) {
+      expect([1, 2, 3], `${one.name} declares a payload version no published format defines`).toContain(one.declares);
+      if (one.carriesMark) {
+        expect(
+          one.declares,
+          `${one.name} carries a marking member in a version whose rows state no mark`,
+        ).toBeGreaterThan(1);
+      }
+    }
+  });
+
+  it('names in its status line every version its entries are read as, and counts none in words', () => {
+    // The document used to state this split twice, once in the sentence a reader meets first and once in the
+    // bullet that explains the manifest. Two copies of one fact drift apart before either drifts from the
+    // data, and the joined suite showed exactly that: three versions and a marked majority made both
+    // sentences false at the same time. Neither states a fixture count now, so what remains to hold is the
+    // one claim the status line does make, that it is current for the versions the entries really carry.
+    const status = statusParagraph();
+    for (const states of [/Version 1 is what [a-z]+ of the receipt fixtures carry/u, /the [a-z]+ v2 receipt fixture/u]) {
+      expect(states.test(status), `the status line counts fixtures in words: ${states.source}`).toBe(false);
+    }
+    const declared = [...new Set(receiptEntries().map((one) => one.declares))].sort((x, y) => x - y);
+    const named = /current for format versions ([0-9, and]+)\./u.exec(status)?.[1] ?? '';
+    for (const version of declared) {
+      expect(named, `the status line never names version ${String(version)}, which entries declare`).toContain(
+        String(version),
+      );
     }
   });
 });

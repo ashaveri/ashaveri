@@ -16,8 +16,8 @@ import {
   type RedactionVerifyOptions,
   type VerifiedRedaction,
 } from '@ashaveri/receipt';
-import { loadPackVectors, loadRedactionVectors, type RedactionVector } from '../src/index.js';
-import { unionMembers } from './doc-contract.js';
+import { loadPackVectors, loadRedactionVectors, type RedactionCommandAnswer, type RedactionVector } from '../src/index.js';
+import { assertRowRoster, ROW_NAMING_FIELDS, spelledNumber, unionMembers } from './doc-contract.js';
 
 /**
  * The published redaction vectors, replayed the way a port replays them: take the redaction out of the file,
@@ -37,15 +37,82 @@ import { unionMembers } from './doc-contract.js';
  *
  * The client half of this reading lives in `packages/cli/test/vector-conformance.test.ts`, which drives the same
  * rows through the paths a shipped verifier takes; what is here is the format package's own reader, the one
- * every verdict in this file was witnessed with when the generator wrote it.
+ * every verdict in this file was witnessed with when the generator wrote it. The third verdict column, the
+ * answer `ashaveri verify-handover` gives for the same pair, is checked here for the shape and the count the
+ * published file states, and against a live run of the tool there.
  */
 
 const file = loadRedactionVectors();
 const packFile = loadPackVectors();
 const ERRORS = '../../../packages/receipt/src/errors.ts';
+const VECTORS_DOC = fileURLToPath(new URL('../../../docs/vectors.md', import.meta.url));
+
+/**
+ * The four columns the published roster declares for the pack half of a row and the `packFields` prose
+ * explains. Written out rather than gathered from the roster by a prefix, because a future column opening on
+ * `pack` for a reason of its own, a pack digest or a pack seal, is not one of these and would otherwise be
+ * read into the comparison between the prose and the roster by its spelling alone.
+ */
+const PACK_COLUMNS: readonly string[] = ['packOf', 'packBase64Url', 'packByteLength', 'packEdited'];
+
+/**
+ * One prose member of the published `layout` block, read as the text it is. The block's index signature gives
+ * `unknown`, and a member that vanished is a statement about the published roster with nothing left to state,
+ * which this file would rather report than read as an empty list.
+ */
+function layoutProse(key: string): string {
+  const value = file.layout[key];
+  if (typeof value !== 'string') throw new Error(`redaction-v1.json has no string layout.${key} to read`);
+  return value;
+}
+
+/** The Redaction bullet of `docs/vectors.md`, which is the same division written for a reader who came for prose. */
+function redactionBullet(): string {
+  const doc = readFileSync(VECTORS_DOC, 'utf8');
+  const start = doc.indexOf('\n- **Redaction manifest.');
+  if (start < 0) throw new Error('docs/vectors.md states no Redaction manifest bullet to read');
+  let end = doc.length;
+  for (const marker of ['\n- **', '\n## ']) {
+    const found = doc.indexOf(marker, start + 5);
+    if (found > 0 && found < end) end = found;
+  }
+  return doc.slice(start, end);
+}
+
+/** The row names a piece of prose states literally: backticked, lowercase, and built of hyphenated words. */
+function namedRows(prose: string): string[] {
+  return [...prose.matchAll(/`([a-z][a-z0-9]*(?:-[a-z0-9]+)+)`/gu)].map((found) => found[1]!);
+}
+
+/**
+ * The field names a piece of prose states literally: backticked, opening lowercase, and carrying at least one
+ * capital inside the word, which is how this file's layout prose names a column and is what keeps a path like
+ * `packages/fixtures/data/pack-v1.json`, or a word like null, out of the list this compares.
+ */
+function namedFields(prose: string): string[] {
+  return [...prose.matchAll(/`([a-z][a-z0-9]*[A-Z][A-Za-z0-9]*)`/gu)].map((found) => found[1]!);
+}
+
+/** The Redaction bullet read as one run of prose, because a sentence in it is wrapped across several lines. */
+function redactionProse(): string {
+  return redactionBullet().replace(/\n\s*/gu, ' ');
+}
 
 const bytes = (base64url: string): Uint8Array => new Uint8Array(Buffer.from(base64url, 'base64url'));
 const fromHex = (hex: string): Uint8Array => new Uint8Array(Buffer.from(hex, 'hex'));
+
+/**
+ * One of the two counts the Redaction bullet of `docs/vectors.md` states about the published rows, read out of
+ * the sentence that states it. Both were numbers written by hand that nothing derived: a suite that gained or
+ * lost a row, or moved a row's `command` answer from null to an object, kept a document saying the old figure
+ * until somebody noticed. So each is taken back out of the sentence and compared with the rows it counts, and a
+ * sentence that stopped agreeing with the file it speaks about fails here rather than sitting unrefused.
+ */
+function countStatedByTheDocument(states: RegExp, what: string): string {
+  const stated = states.exec(redactionProse());
+  if (stated === null) throw new Error(`the Redaction bullet of docs/vectors.md states no count of ${what}`);
+  return stated[1]!;
+}
 
 /** The options a row's designation builds, beside the pack the row hands, which are the reader's own shapes. */
 function optionsFor(one: RedactionVector): RedactionVerifyOptions {
@@ -228,25 +295,29 @@ describe('the redaction manifest vectors', () => {
   });
 
   it('carries no field a row is not told about and no code no registry declares', () => {
-    const allowed = new Set([
-      'name',
-      'note',
-      'documentBase64Url',
-      'documentByteLength',
-      'packOf',
-      'packEdited',
-      'packBase64Url',
-      'packByteLength',
-      'read',
-      'verdict',
-      'structural',
-      ...file.layout.verdictFields,
-    ]);
-    for (const one of file.vectors) {
-      for (const field of Object.keys(one)) {
-        expect(allowed.has(field), `${one.name} carries ${field}, which the suite describes no field of`).toBe(true);
-      }
-    }
+    // The published roster is the whole set of columns a row may carry, so it is held as an equality over the
+    // columns the rows actually carry, in the one check every suite with a roster is wired to. A permission
+    // check reads `verdictFields` as a list of allowances, which passes a row for carrying a column no
+    // reviewer finds by reading the file while a port that refuses an undeclared column refuses a row the
+    // suite stands behind.
+    //
+    // The third thing the check compares is this suite's row count, which the Redaction bullet of
+    // `docs/vectors.md` states as digits: read back out of that sentence, it is the count the check has to
+    // find rather than a number this file repeats beside the array it counts.
+    const rowsStated = Number(
+      countStatedByTheDocument(/The (\d+) rows `redaction-v1\.json` publishes are/u, 'the rows the file publishes'),
+    );
+    assertRowRoster(file, ROW_NAMING_FIELDS, rowsStated);
+    // And the prose that says what the pack columns mean names exactly the columns the declaration now carries
+    // for them, so the roster and the sentence explaining it are read against each other rather than each
+    // trusted alone. The comparison is over which columns rather than the order they are listed in, because the
+    // rows fix the order their own bytes appear in and nothing a port does depends on where the roster lists a
+    // column. The roster side is read by the four names, so a fifth pack column has to be written here as well
+    // as in the roster and in the prose before any of the three claims it exists.
+    expect(
+      namedFields(layoutProse('packFields')).sort(),
+      'the prose that explains the pack columns and the roster do not name the same ones',
+    ).toEqual(file.layout.verdictFields.filter((one) => PACK_COLUMNS.includes(one)).sort());
     const declared = new Set(unionMembers('ReceiptErrorCode', ERRORS));
     for (const one of file.vectors) {
       if (one.verdict === 'verify-ok') continue;
@@ -411,6 +482,58 @@ describe('the redaction manifest vectors', () => {
     for (const one of packCodes) {
       expect(one.structural, `${one.name}: a pack refusal answered as a redaction fault`).toBe('verify-ok');
     }
+  });
+
+  it('states what the command answers for every row, and for seven rows something else', () => {
+    // The two verdict columns are the library answering. `ashaveri verify-handover` is a second reader of the
+    // same pair, and the fact that it sometimes reaches the same fault one step earlier was readable only from
+    // a TypeScript test until it became a member of every row: a port that never runs this repository's code
+    // can now see, out of this file, which rows to expect a different word for and which exit beside it. The
+    // claim that a `null` really is the verdict column replayed is settled row by row against a live run in
+    // `packages/cli/test/verify-handover.test.ts`, which reads its expectations out of this member.
+    for (const one of file.vectors) {
+      expect(Object.hasOwn(one, 'command'), `${one.name} carries no command member at all`).toBe(true);
+    }
+    const diverging = file.vectors.filter(
+      (one): one is RedactionVector & { command: RedactionCommandAnswer } => one.command !== null,
+    );
+    // How many rows carry an object is stated in words by the Redaction bullet of `docs/vectors.md`, so the word
+    // is read back out of that sentence and compared with the rows rather than written out beside them: the
+    // count of rows itself belongs to the roster case, which takes it from the same document. The count opens
+    // its sentence, so the word is read with whichever letter is capital there.
+    expect(
+      spelledNumber(
+        countStatedByTheDocument(/([A-Za-z]+) rows carry an object instead/u, 'the rows carrying a command object'),
+      ),
+      'the document counts a different number of rows carrying a command object than the rows do',
+    ).toBe(diverging.length);
+    // A row carrying an object states an answer that is not its `verdict`: an exception that repeated the
+    // library's word would be a note that outlived the divergence, and an exit of 0 beside a refusal, or of 2
+    // beside anything but a refused call, would be a run this tool does not produce. A null states the verdict
+    // replayed with the default exit, which is a claim about a live run and is settled one in
+    // `packages/cli/test/verify-handover.test.ts`; what the split owes this file is only that it is a split and
+    // not a drift, and that is what the count above and the member every row carries say.
+    for (const one of diverging) {
+      expect(one.command.code, `${one.name} states a command answer that repeats its verdict`).not.toBe(one.verdict);
+      expect([0, 1, 2], `${one.name} states an exit no run of this tool leaves`).toContain(one.command.exit);
+      expect(one.command.exit === 0, `${one.name}: an accepted run beside a refusal, or the reverse`).toBe(one.verdict === 'verify-ok');
+      expect(one.command.exit === 2, `${one.name}: only a refused call exits 2`).toBe(one.command.code === 'usage');
+    }
+    // Every word an object names is one this estate already declares, so a port learns no code out here that it
+    // did not have to learn anyway. The one exception is stated in the published prose, in `commandMeaning` and in
+    // the Redaction bullet of `docs/vectors.md`: `usage` is the name this tool gives the exit a refused call
+    // leaves, and not a member of any `*ErrorCode` union that `docs/error-codes.md` lists. Read as a set rather
+    // than as a per-row allowance, it stays the single exception it is published as, because a second undeclared
+    // word would be a contract a port could only guess at.
+    const declared = new Set(unionMembers('ReceiptErrorCode', ERRORS));
+    const undeclared = [...new Set(diverging.map((one) => one.command.code).filter((code) => !declared.has(code)))];
+    expect(undeclared, 'a command answer names a word no registry declares, and only a refused call is undeclared').toEqual(['usage']);
+    // The roster of diverging rows is stated three times now: in the rows themselves, in this file's prose, and in
+    // the document a reader who came for prose reads. Each prose copy is read with one regex, the shape a row name
+    // has, so a roster that gained, lost or swapped a name reports itself by naming what was found in it.
+    const roster = diverging.map((one) => one.name).sort();
+    expect(namedRows(layoutProse('commandMeaning')).sort(), '`commandMeaning` names a roster the published rows do not carry').toEqual(roster);
+    expect(namedRows(redactionBullet()).sort(), 'the Redaction bullet of docs/vectors.md names a roster the published rows do not carry').toEqual(roster);
   });
 
   it('reaches every code the format registry declares for this container', () => {

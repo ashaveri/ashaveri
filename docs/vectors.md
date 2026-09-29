@@ -29,18 +29,18 @@ each shape.
 | Technical export | `packages/fixtures/data/export-v1.json` | Whole export documents, the arguments a reader is handed beside each one, and the verdict a conforming reader owes it | `version: 1` |
 | Sealed deployment manifest | `packages/fixtures/data/manifest-v1.json` | One deployment manifest in both shapes it is served in, the signing keys a reader designates beside it, and the verdict the client path owes each | `version: 1` |
 | Evidence pack | `packages/fixtures/data/pack-v1.json` | Whole packs in the shapes a deployment hands them over in, the keys a reader designates beside each one, and the verdict the shipped pack reader owes: run and window reported apart, and an honest pack whose stamps run against its links accepted with a finding | `version: 1` |
-| Redaction manifest | `packages/fixtures/data/redaction-v1.json` | Redaction manifests each beside the pack they are checked against, and the verdict the shipped redaction reader owes the pair: the chain over the survivors published apart from the pack's own head, a redaction pointed at a pack the reader lacks refused, and the three wrong constructions of a survivor chain refused by recomputation | `version: 1` |
+| Redaction manifest | `packages/fixtures/data/redaction-v1.json` | Redaction manifests each beside the pack they are checked against, the verdict the shipped redaction reader owes the pair, and what `ashaveri verify-handover` answers for the same pair on every row: the chain over the survivors published apart from the pack's own head, a redaction pointed at a pack the reader lacks refused, and the three wrong constructions of a survivor chain refused by recomputation | `version: 1` |
+| Epoch inventory | `packages/fixtures/data/epoch-inventory-v1.json` | Whole sealed inventories and the verdict the two shipped inventory readers owe each one: the envelope, the header, the key, the reading of a JSON payload, the arithmetic a reader recomputes over a run of packs, and the names each row of the two folded lists points at, with a refusal for every claim the reader recomputes over the run and answers from it, which is the windows meeting end to start, including one entry whose own two figures do not run forwards, the window, the two chain endpoints beside the run that begins and ends them, the claim each folded list states beside it, and every guard of both lists, and with the acceptances a reviewer would otherwise read as faults | `version: 1` |
 
 `pop-v1.json`, `req-v1.json`, `res-v1.json`, `marking-v1.json`, `chain-v1.json`, `export-v1.json`,
-`manifest-v1.json`, `pack-v1.json` and `redaction-v1.json` each carry a `description` stating their rule in
-prose, and the digest, marked-region, chain, export, sealed-manifest, pack and redaction suites carry a `rule`
-or `layout` block naming the fields, and the widths and the byte order where a suite pins a byte layout, so a
-reader never has to guess what an array of hex is standing for. The manifest
-carries no `description`, because it lists the receipt fixtures rather than stating a rule of its
-own, and it does carry a `layout` block naming the columns its rows state, the reader each of its two
-verdicts belongs to, and the encodings the columns are spelled in; what the fixtures themselves are for
-is written in
-[receipt-spec.md](receipt-spec.md).
+`manifest-v1.json`, `pack-v1.json`, `redaction-v1.json` and `epoch-inventory-v1.json` each carry a
+`description` stating their rule in prose, and the digest, marked-region, chain, export,
+sealed-manifest, pack, redaction and inventory suites carry a `rule` or `layout` block naming the fields,
+and the widths and the byte order where a suite pins a byte layout, so a reader never has to guess what an
+array of hex is standing for. The manifest carries no `description`, because it lists the receipt fixtures
+rather than stating a rule of its own, and it does carry a `layout` block naming the columns its rows
+state, the reader each of its two verdicts belongs to, and the encodings the columns are spelled in; what
+the fixtures themselves are for is written in [receipt-spec.md](receipt-spec.md).
 
 ## How to consume a suite
 
@@ -180,12 +180,67 @@ specific to that case.
   the other belongs has merged two findings this suite publishes apart. `run` and `records` in the `layout` block
   give each record's predecessor in the pack, the predecessor the reduced chain used instead, and the digest that
   came out, so the construction is checkable against the pack's bytes rather than restated from a writer.
+  Each row states its fact at two entry points and the file gives both answers. `verdict` and `structural` are the
+  library's, and `verdict` carries the code the format names for the fault, because the reader is where the
+  format's rules live. `command` is what `ashaveri verify-handover` answers over the same bytes and the same pack,
+  and it is published because a command line and a library call do not always meet a fault at the same step. This
+  tool files every `--key` under the id its own bytes hash to, which is the only designation a command line can
+  make: it cannot hand a reader one key to answer for every document in the pair, so a document naming another kid
+  meets a set holding nothing for it, and it reads label 3 and chooses a reader before a redaction reader is
+  consulted, so it can state the same fact one step earlier with the code the classification already uses.
+  `command: null` says the command says what `verdict` says, exiting 0 on an accepted row and 1 on a refusal.
+  Seven rows carry an object instead, counting them out of the published `command` member, and none of them is
+  the tool disagreeing with the library.
+  `rotation-read-with-one-pinned-key` and `sealed-under-another-deployment-key` are the two where the row pins one
+  key for the whole pair while a document inside that pair names a different kid, which a set matched on each kid
+  answers as a kid nothing designates rather than as the receipt's or the envelope's own refusal.
+  `no-designation-at-all` is the call that handed no key, which this tool refuses as the gap in the call with exit
+  2, naming it `usage`. That word is the name this tool gives the exit a refused call leaves, and not a member of
+  any `*ErrorCode` union that `docs/error-codes.md` lists. `protected-content-type-of-a-pack` and
+  `protected-content-type-of-a-receipt` are documents wearing
+  another container's type, which the dispatch answers by running that container's reader, so `PACK_BAD_MANIFEST`
+  and `BAD_PAYLOAD` rather than the header refusal the redaction reader would give. And
+  `protected-kid-of-another-width` and `document-truncated-mid-envelope` are refused by the classification on the
+  envelope, `BAD_PROTECTED_HEADER` and `MALFORMED_CBOR`, before a reader of either kind is chosen. The 43 rows
+  `redaction-v1.json` publishes are replayed through this path by `packages/cli/test/verify-handover.test.ts`,
+  which reads the expected answers out of this member rather than keeping a table of its own. That count, and
+  the seven above it, are counts of the published rows which
+  `packages/fixtures/test/redaction-vectors.test.ts` takes out of them rather than restating them here.
+
+- **Epoch inventory.** Decode `documentBase64Url` and hand it to your reader with the designation the row's
+  `read` block states: `pinned` is the one key a caller holds, which answers whatever kid the header names,
+  `retained` is the set a resolver answers from, one public half per kid, and a row stating neither is the call
+  that designated nothing. A row may also state `read.presence`, which is not about a key: the run's retention
+  artifacts as the bytes that sit on the volume, in the order the call hands them, and the reader folds from them
+  the interval across which the store reported holding the appraisal context. Hand them and you get that reading;
+  hand nothing and you get the reading of the document alone, which is what makes a row
+  that is `verify-ok` under one call and a refusal under the other a statement about the pair of inputs rather
+  than about the bytes. Compare the answer with `verdict`, and compare `structural` with what your reader
+  says about the same bytes before it has accepted a signature: a row that is `verify-ok` there and a refusal
+  here is refusing about a key, a signature or the arithmetic over a run, and not about a document that
+  contradicts itself. Where a row states `readback`, those are the figures a reader has to hand back as well:
+  `runFiles` is the run in the order the entries' own figures put them, which is not necessarily the order
+  `statedFiles` arrived in, because position in `packs` carries no claim. Two rows state an `edit` block: the
+  same span of the honest document's text replaced with a longer run label, which is the pair differing by one
+  byte at one position, one accepted and one refused. Every refusing row carries the sentence this reader gave,
+  and a conforming port owes the same code while its wording may differ.
+- **Epoch inventory refusals are near misses at two sites.** The two lists a run folds, `chain.breaks` and
+  `duty.short`, are guarded apart rather than by one routine, so each fault a list can carry is stated at both
+  sites and a refusing row names its site and the guard of that site it reaches: a claim of continuity or of
+  carrying contradicted by the list beside it, a list longer than the arithmetic, a list shorter than it, two
+  rows naming one pack while another is named nowhere, a row about a pack the run does not hold, a row naming
+  a pack the run holds whose own figures carry no such finding, and a row of the right name whose own two
+  digests or four figures are not the pair's or the pack's. The lists are keyed by the pack each row names,
+  which is why the two rows stating a reversed list are acceptances, and the refusal rows beside them are
+  what prove the keying is live rather than absent.
 
 ## Every suite refuses something
 
-Each of the ten suites published here carries at least one case whose stated verdict is a refusal, and
-every code those cases name is one [error-codes.md](error-codes.md) lists. That is the half a second
-implementation cannot agree with by accident: an accepted case and a refused one, drawn from the same
+Each of the eleven suites the table above lists carries at least one case whose stated verdict is a refusal,
+and every code those cases name is one [error-codes.md](error-codes.md) lists. The eleven are that table's
+rows, which `packages/fixtures/test/vectors-doc.test.ts` counts and compares with this sentence rather than
+trusting it. That is the half a second implementation cannot agree with by accident: an accepted case and
+a refused one, drawn from the same
 bytes, differ in exactly the rule under test, and a port wrong in the same direction as this one still
 has to answer the refusal with the code the row names. A case that fails for some other reason than the
 one stated is a wrong vector, and the row's note says which fact it turns on.
@@ -194,12 +249,20 @@ The refusals are near misses rather than garbage on purpose. A digest is off by 
 two characters, a nonce by a single byte width, a marked span by one field of one member, a store record
 by one bit inside its own bytes or by its length prefix lying about its size, a protected header by the one
 label it added or the one integer it spelled as a float, a redaction by the one record it did not name or by
-the chain head it took from the pack rather than recomputed. Each is one small edit to
+the chain head it took from the pack rather than recomputed, an inventory by the one byte at the end of its run
+label or by the one row a folded list left out. Each is one small edit to
 bytes this repository already publishes, so reproducing it is reading a row and not guessing at what the
 author meant. The client path over them is in `packages/cli/test/vector-conformance.test.ts`, which
-drives each suite through the shipped verification code rather than through a copy of the rule it is
-checking, and asserts the verdict in both directions: the accepted rows accepted, the refusing ones
-refused for the reason stated.
+drives every suite in this table but the technical export through the shipped verification code rather than
+through a copy of the rule it is checking, and asserts the verdict in both directions: the accepted rows
+accepted, the refusing ones refused for the reason stated. The export suite travels the client path
+through `packages/cli/test/verify-handover.test.ts` instead, beside the command's own cases. The inventory
+rows are read there by the two exported inventory readers, `verifyEpochInventory` and
+`decodeEpochInventory`, rather than through a command, because this package ships no verb that reads an
+epoch inventory, and the block states which verbs it ships in a comment a reviewer can check. Those rows are
+therefore witnessed twice over the same published bytes: by
+`packages/fixtures/test/epoch-inventory-vectors.test.ts`, which reads the format package's own reader, and
+by the consumer's path named above.
 
 ## Regenerating
 
@@ -214,6 +277,7 @@ pnpm --filter @ashaveri/fixtures generate:export
 pnpm --filter @ashaveri/fixtures generate:manifest
 pnpm --filter @ashaveri/fixtures generate:pack
 pnpm --filter @ashaveri/fixtures generate:redaction
+pnpm --filter @ashaveri/fixtures generate:epoch-inventory
 ```
 
 The generators live beside the loaders in `packages/fixtures`, and running all of them after a change
@@ -258,7 +322,7 @@ These vectors check bytes. They say nothing about trust:
 
 - Nothing here establishes that a key belongs to anybody. The signing keys published in
   `data/keys/receipt-key-v1.json`, in `pop-v1.json`, in `export-v1.json`, in `manifest-v1.json`, in
-  `pack-v1.json` and in `redaction-v1.json`
+  `pack-v1.json`, in `redaction-v1.json` and in `epoch-inventory-v1.json`
   are test-only, labelled as such in the files themselves, and protect nothing. A port that verifies
   against them has exercised its verifier, not appraised a deployment.
 - Nothing here touches attestation. Evidence documents, platform roots, device certificate chains and

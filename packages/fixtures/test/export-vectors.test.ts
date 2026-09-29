@@ -18,7 +18,7 @@ import {
   type ExportItem,
 } from '@ashaveri/receipt';
 import { loadExportVectors, type ExportVector, type ExportVectorFile } from '../src/index.js';
-import { unionMembers } from './doc-contract.js';
+import { assertRowRoster, ROW_NAMING_FIELDS, unionMembers } from './doc-contract.js';
 
 /**
  * The published export vectors, replayed the way a port replays them: read the document out of the file,
@@ -27,11 +27,14 @@ import { unionMembers } from './doc-contract.js';
  * and the walk orders are data in `data/export-v1.json`, and the only question asked of the code is whether
  * it answers as the file says it does.
  *
- * Two things are checked on the way, because a suite of documents is only as good as the documents. Each
+ * Three things are checked on the way, because a suite of documents is only as good as the documents. Each
  * file is re-encoded from its own decoded form, so a byte that only this implementation's writer produces
- * would show up as a port's disagreement rather than as a silent convention. And every code of the export
+ * would show up as a port's disagreement rather than as a silent convention. Every code of the export
  * family in the registry is required to be reached by a committed document, which is the only way a refusal
- * added to `errors.ts` without a case cannot pass unnoticed.
+ * added to `errors.ts` without a case cannot pass unnoticed. And the roster of columns the file declares is
+ * required to be the columns its rows carry, through the one check every suite with a published roster is
+ * wired to, because a port reads that list as the whole set a row may carry and a roster no test reads is a
+ * claim nothing holds.
  */
 
 const file = loadExportVectors();
@@ -155,6 +158,15 @@ describe('the export vectors', () => {
     // The names of the three artifacts are one fact shared between the vectors, the format and the
     // document, so a file that moved has to move here too.
     expect(readFileSync(fileURLToPath(new URL(`../../../${file.layout.format}`, import.meta.url)), 'utf8')).toContain('"ashaveri/export"');
+  });
+
+  it('declares every column its published rows carry', () => {
+    // `layout.verdictFields` names the five columns a row carries beyond the ones that say which row and which
+    // document it is, which is exactly what a verifier written from this file expects to be told: a column on a
+    // row and not in the list is a row it refuses, and a column in the list and on no row is a field the file
+    // promises and the suite withholds. Both directions are the shared equality's, and this suite hands in the
+    // shared naming columns because it publishes no list of its own.
+    assertRowRoster(file, ROW_NAMING_FIELDS);
   });
 
   it('answer as each case promises, on the arguments the case is handed', () => {

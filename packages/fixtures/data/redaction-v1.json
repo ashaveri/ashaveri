@@ -25,13 +25,19 @@
     "verdictFields": [
       "verdict",
       "structural",
+      "command",
       "survivors",
       "reducedHex",
       "originalHeadHex",
       "item",
-      "edited"
+      "edited",
+      "packOf",
+      "packBase64Url",
+      "packByteLength",
+      "packEdited"
     ],
     "verdictMeaning": "`verdict` is what verifyRedaction answers for the pair the row states: `verify-ok`, or the code it throws. `structural` is what decodeRedaction answers for the redaction bytes alone, with no key and no pack, so a row that is `verify-ok` there and a refusal in `verdict` is refusing about a pack, a key or an arithmetic over survivors rather than about a manifest that contradicts itself. `survivors` is the run that remains in the order the pack's links fix it, `reducedHex` is the head of the chain over it and `originalHeadHex` is the pack's own signed head; all three are published on every accepted row, and the last two are never equal on one.",
+    "commandMeaning": "The two verdict columns are the library answering, and `command` is the command answering: `verdict` carries the code the format names for the fact, because the shipped reader is where the format's rules live, and `command` carries what `ashaveri verify-handover` says about the same bytes and the same pack. The two do not always meet a fact at the same step. A command line files each `--key` under the id those bytes hash to, so it cannot pin one key as a reader's `publicKey` and cannot file a key under an id that is not its own, and it reads label 3 and chooses a reader before any redaction reader is consulted, so a row the library refuses for one reason the command can state one step earlier, with the code the classification already uses rather than a second word for the same fault. `command: null` says this path answers exactly what `verdict` states, exiting 0 on an accepted row and 1 on a refusal. An object states the code it answers with and the exit beside it, which is 0 where the command reports an accepted document, 1 where it reports a refusal, and 2 where it refuses the call itself and reads nothing. Seven rows carry one: `rotation-read-with-one-pinned-key` and `sealed-under-another-deployment-key`, where the row hands its reader one pinned key while a document inside the pair names a kid that key is not, so a set matched on each kid answers an undesignated kid rather than the receipt's own refusal or the envelope's; `no-designation-at-all`, which the library answers as the gap in a call before it reads a byte and this tool answers as a refused call with exit 2, where `usage` is the name this tool gives the exit a refused call leaves and not a member of any `*ErrorCode` union that `docs/error-codes.md` lists; `protected-content-type-of-a-pack` and `protected-content-type-of-a-receipt`, which the dispatch hands to the reader for the type the header claims rather than to the redaction reader; and `protected-kid-of-another-width` and `document-truncated-mid-envelope`, which the classification refuses on the envelope before a reader of either kind is chosen. None of the seven is a disagreement about a fact, and the command is silent about none of them: each is the same fact met at an earlier step. `packages/cli/test/verify-handover.test.ts` replays every row through this path and reads the expected answer out of this member, and the Redaction bullet of `docs/vectors.md` states the same division to a reader who came for prose rather than for a file of vectors.",
     "readFields": "`read.pinned` is the one key the caller holds, which designates the redaction's envelope and every receipt inside the pack. `read.retained` is the set a resolver answers from, one key per kid, which is how a pair whose pack crosses a key rotation is read. A row with neither is the call that designated nothing and is refused before a byte is read. The pack itself is handed beside the designation, and a row that states no pack at all is the reader that was handed one document of the pair.",
     "packFields": "`packOf` names the row of `packages/fixtures/data/pack-v1.json` whose document this row hands the reader, `packBase64Url` carries those bytes and `packByteLength` their length. No pack here is rebuilt: every pack this suite redacts is evidence the pack suite already publishes. Where a row moves one position of such a pack before handing it over it says so in `packEdited`, and its bytes then differ from that row's by the edit named and nothing else.",
     "chainRule": "the pack's walk is run by verifyPack over the bytes the designation binds, so the survivor sequence is the pack's own run with the named records dropped and the original head is re-established on every reading of a redaction. A reader that reports the reduced head where the pack's head belongs, or the reverse, is merging two findings this suite publishes apart.",
@@ -146,6 +152,7 @@
       },
       "verdict": "verify-ok",
       "structural": "verify-ok",
+      "command": null,
       "survivors": [
         "receipt-0",
         "receipt-2"
@@ -166,6 +173,7 @@
       },
       "verdict": "verify-ok",
       "structural": "verify-ok",
+      "command": null,
       "survivors": [
         "receipt-1",
         "receipt-2"
@@ -186,6 +194,7 @@
       },
       "verdict": "verify-ok",
       "structural": "verify-ok",
+      "command": null,
       "survivors": [
         "receipt-0",
         "receipt-1"
@@ -206,6 +215,7 @@
       },
       "verdict": "verify-ok",
       "structural": "verify-ok",
+      "command": null,
       "survivors": [
         "receipt-1"
       ],
@@ -225,6 +235,7 @@
       },
       "verdict": "verify-ok",
       "structural": "verify-ok",
+      "command": null,
       "survivors": [
         "receipt-0",
         "receipt-2"
@@ -245,6 +256,7 @@
       },
       "verdict": "verify-ok",
       "structural": "verify-ok",
+      "command": null,
       "survivors": [
         "receipt-0",
         "receipt-2"
@@ -274,6 +286,7 @@
       },
       "verdict": "verify-ok",
       "structural": "verify-ok",
+      "command": null,
       "survivors": [
         "receipt-0",
         "receipt-1"
@@ -294,6 +307,7 @@
       },
       "verdict": "verify-ok",
       "structural": "verify-ok",
+      "command": null,
       "survivors": [
         "receipt-2"
       ],
@@ -313,6 +327,7 @@
       },
       "verdict": "verify-ok",
       "structural": "verify-ok",
+      "command": null,
       "survivors": [
         "receipt-0",
         "receipt-2"
@@ -333,6 +348,7 @@
       },
       "verdict": "verify-ok",
       "structural": "verify-ok",
+      "command": null,
       "survivors": [
         "receipt-0",
         "receipt-2"
@@ -349,7 +365,8 @@
         "pinned": "E6uO0ed3_zm-Ix32lLu8j5Z9W3eet8q1WHYstU-WCwU"
       },
       "verdict": "REDACTION_PACK_UNAVAILABLE",
-      "structural": "verify-ok"
+      "structural": "verify-ok",
+      "command": null
     },
     {
       "name": "redaction-naming-another-pack",
@@ -363,7 +380,8 @@
         "pinned": "E6uO0ed3_zm-Ix32lLu8j5Z9W3eet8q1WHYstU-WCwU"
       },
       "verdict": "REDACTION_PACK_MISMATCH",
-      "structural": "verify-ok"
+      "structural": "verify-ok",
+      "command": null
     },
     {
       "name": "honest-redaction-read-against-the-wrong-pack",
@@ -377,7 +395,8 @@
         "pinned": "E6uO0ed3_zm-Ix32lLu8j5Z9W3eet8q1WHYstU-WCwU"
       },
       "verdict": "REDACTION_PACK_MISMATCH",
-      "structural": "verify-ok"
+      "structural": "verify-ok",
+      "command": null
     },
     {
       "name": "redaction-naming-a-pack-and-not-its-envelope",
@@ -391,7 +410,8 @@
         "pinned": "E6uO0ed3_zm-Ix32lLu8j5Z9W3eet8q1WHYstU-WCwU"
       },
       "verdict": "REDACTION_PACK_MISMATCH",
-      "structural": "verify-ok"
+      "structural": "verify-ok",
+      "command": null
     },
     {
       "name": "redaction-predating-the-pack",
@@ -406,6 +426,7 @@
       },
       "verdict": "REDACTION_PACK_DISAGREES",
       "structural": "verify-ok",
+      "command": null,
       "edited": "at, to one second before the pack states its reads began"
     },
     {
@@ -421,6 +442,7 @@
       },
       "verdict": "REDACTION_ITEM_ABSENT",
       "structural": "verify-ok",
+      "command": null,
       "item": "receipt-9",
       "edited": "the removed list, naming a record this pack does not carry"
     },
@@ -437,6 +459,7 @@
       },
       "verdict": "REDACTION_DUPLICATE_ID",
       "structural": "REDACTION_DUPLICATE_ID",
+      "command": null,
       "item": "receipt-1",
       "edited": "the removed list, with one entry duplicated"
     },
@@ -453,6 +476,7 @@
       },
       "verdict": "REDACTION_SURVIVORS_EMPTY",
       "structural": "verify-ok",
+      "command": null,
       "edited": "the survivor sequence, emptied"
     },
     {
@@ -468,6 +492,7 @@
       },
       "verdict": "REDACTION_SURVIVOR_CHAIN_MISMATCH",
       "structural": "verify-ok",
+      "command": null,
       "edited": "reduced, to the head the pack signs for its own run"
     },
     {
@@ -483,6 +508,7 @@
       },
       "verdict": "REDACTION_SURVIVOR_CHAIN_MISMATCH",
       "structural": "verify-ok",
+      "command": null,
       "edited": "the pack, one record shorter than the removal list states"
     },
     {
@@ -498,6 +524,7 @@
       },
       "verdict": "REDACTION_SURVIVOR_CHAIN_MISMATCH",
       "structural": "verify-ok",
+      "command": null,
       "edited": "reduced, folded from thirty-two zero bytes rather than from the pack's anchor"
     },
     {
@@ -513,6 +540,7 @@
       },
       "verdict": "REDACTION_SURVIVOR_CHAIN_MISMATCH",
       "structural": "verify-ok",
+      "command": null,
       "edited": "reduced, taken from the last survivor's own predecessor rather than relinked"
     },
     {
@@ -529,6 +557,7 @@
       },
       "verdict": "INVALID_SIGNATURE",
       "structural": "verify-ok",
+      "command": null,
       "edited": "the thirteenth byte of the pack's items[0].receipt, under the pack signature made for it"
     },
     {
@@ -544,6 +573,7 @@
       },
       "verdict": "PACK_CHAIN_BROKEN",
       "structural": "verify-ok",
+      "command": null,
       "edited": "the pack's items, with the middle record removed and the head left as it was signed"
     },
     {
@@ -559,6 +589,10 @@
       },
       "verdict": "PACK_RECEIPT_INVALID",
       "structural": "verify-ok",
+      "command": {
+        "code": "PACK_UNKNOWN_KEY",
+        "exit": 1
+      },
       "item": "receipt-0"
     },
     {
@@ -579,6 +613,7 @@
       },
       "verdict": "PACK_UNKNOWN_KEY",
       "structural": "verify-ok",
+      "command": null,
       "item": "receipt-0"
     },
     {
@@ -593,7 +628,11 @@
         "pinned": "E6uO0ed3_zm-Ix32lLu8j5Z9W3eet8q1WHYstU-WCwU"
       },
       "verdict": "REDACTION_KID_MISMATCH",
-      "structural": "verify-ok"
+      "structural": "verify-ok",
+      "command": {
+        "code": "REDACTION_UNKNOWN_KEY",
+        "exit": 1
+      }
     },
     {
       "name": "header-naming-one-key-signed-by-another",
@@ -608,6 +647,7 @@
       },
       "verdict": "INVALID_SIGNATURE",
       "structural": "verify-ok",
+      "command": null,
       "edited": "the private half that made the signature, with the header naming the other key"
     },
     {
@@ -620,7 +660,11 @@
       "packByteLength": 2145,
       "read": {},
       "verdict": "REDACTION_UNKNOWN_KEY",
-      "structural": "verify-ok"
+      "structural": "verify-ok",
+      "command": {
+        "code": "usage",
+        "exit": 2
+      }
     },
     {
       "name": "protected-content-type-of-a-pack",
@@ -635,6 +679,10 @@
       },
       "verdict": "REDACTION_BAD_HEADER",
       "structural": "REDACTION_BAD_HEADER",
+      "command": {
+        "code": "PACK_BAD_MANIFEST",
+        "exit": 1
+      },
       "edited": "typ, from ashaveri/redaction to ashaveri/pack"
     },
     {
@@ -650,6 +698,10 @@
       },
       "verdict": "REDACTION_BAD_HEADER",
       "structural": "REDACTION_BAD_HEADER",
+      "command": {
+        "code": "BAD_PAYLOAD",
+        "exit": 1
+      },
       "edited": "typ, from ashaveri/redaction to ashaveri/receipt"
     },
     {
@@ -665,6 +717,7 @@
       },
       "verdict": "REDACTION_BAD_HEADER",
       "structural": "REDACTION_BAD_HEADER",
+      "command": null,
       "edited": "a fourth protected label, 5, carrying a tstr"
     },
     {
@@ -680,6 +733,10 @@
       },
       "verdict": "REDACTION_BAD_HEADER",
       "structural": "REDACTION_BAD_HEADER",
+      "command": {
+        "code": "BAD_PROTECTED_HEADER",
+        "exit": 1
+      },
       "edited": "the protected kid, one byte short of the digest it is meant to be"
     },
     {
@@ -695,6 +752,7 @@
       },
       "verdict": "UNSUPPORTED_ALG",
       "structural": "UNSUPPORTED_ALG",
+      "command": null,
       "edited": "alg, from -8 to -7"
     },
     {
@@ -710,6 +768,7 @@
       },
       "verdict": "REDACTION_UNSUPPORTED_VERSION",
       "structural": "REDACTION_UNSUPPORTED_VERSION",
+      "command": null,
       "edited": "v, from 1 to 2"
     },
     {
@@ -725,6 +784,7 @@
       },
       "verdict": "REDACTION_BAD_MANIFEST",
       "structural": "REDACTION_BAD_MANIFEST",
+      "command": null,
       "edited": "a member named 'head' added to the manifest"
     },
     {
@@ -740,6 +800,7 @@
       },
       "verdict": "REDACTION_BAD_MANIFEST",
       "structural": "REDACTION_BAD_MANIFEST",
+      "command": null,
       "edited": "the removed list, emptied, and reduced, set to the pack's head"
     },
     {
@@ -755,6 +816,7 @@
       },
       "verdict": "REDACTION_BAD_MANIFEST",
       "structural": "REDACTION_BAD_MANIFEST",
+      "command": null,
       "edited": "at, written as the float of a whole number"
     },
     {
@@ -770,6 +832,7 @@
       },
       "verdict": "REDACTION_BAD_MANIFEST",
       "structural": "REDACTION_BAD_MANIFEST",
+      "command": null,
       "edited": "states, emptied"
     },
     {
@@ -785,6 +848,7 @@
       },
       "verdict": "REDACTION_BAD_MANIFEST",
       "structural": "REDACTION_BAD_MANIFEST",
+      "command": null,
       "edited": "pack, to sixteen bytes where the format declares thirty-two"
     },
     {
@@ -800,6 +864,7 @@
       },
       "verdict": "NOT_COSE_SIGN1",
       "structural": "NOT_COSE_SIGN1",
+      "command": null,
       "edited": "the CBOR tag 18 around the four envelope elements"
     },
     {
@@ -815,6 +880,7 @@
       },
       "verdict": "NOT_COSE_SIGN1",
       "structural": "NOT_COSE_SIGN1",
+      "command": null,
       "edited": "the last byte of the signature"
     },
     {
@@ -829,7 +895,11 @@
         "pinned": "E6uO0ed3_zm-Ix32lLu8j5Z9W3eet8q1WHYstU-WCwU"
       },
       "verdict": "REDACTION_MALFORMED_CBOR",
-      "structural": "REDACTION_MALFORMED_CBOR"
+      "structural": "REDACTION_MALFORMED_CBOR",
+      "command": {
+        "code": "MALFORMED_CBOR",
+        "exit": 1
+      }
     }
   ],
   "crossReading": {

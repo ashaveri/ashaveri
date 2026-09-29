@@ -10,7 +10,7 @@ import {
   verifySealedDeploymentManifest,
 } from '@ashaveri/receipt';
 import { loadSealedManifestVectors } from '../src/index.js';
-import { unionMembers } from './doc-contract.js';
+import { assertRowRoster, ROW_NAMING_FIELDS, unionMembers } from './doc-contract.js';
 
 /**
  * The published sealed-manifest suite, read back against the artifacts it names.
@@ -33,7 +33,6 @@ import { unionMembers } from './doc-contract.js';
 const file = loadSealedManifestVectors();
 const RECEIPT_ERRORS = '../../../packages/receipt/src/errors.ts';
 const SDK_ERRORS = '../../../packages/sdk/src/errors.ts';
-const BASE_FIELDS = ['name', 'note', 'documentBase64Url', 'documentByteLength', 'read', 'verdict', 'seal'];
 
 const bytes = (base64url: string): Uint8Array => new Uint8Array(Buffer.from(base64url, 'base64url'));
 
@@ -111,11 +110,14 @@ describe('the sealed deployment manifest vectors', () => {
   });
 
   it('carries no field a row is not told about and no code no registry declares', () => {
-    const allowed = new Set([...BASE_FIELDS, ...file.layout.verdictFields]);
+    // The roster is the whole set of columns a row may carry, so it is held as an equality over the columns the
+    // rows actually carry, in the one check every suite with a published roster is wired to. A permission check
+    // read `verdictFields` as a list of allowances, which cannot see a column a row carries and the file never
+    // declared, and this suite publishes no naming list of its own, so the shared naming columns are handed in.
+    assertRowRoster(file, ROW_NAMING_FIELDS);
+    // `authentication` is a column of its own shape rather than a set of row columns, and it arrives only where
+    // the client path had something to report about a key, so its members are compared per row that carries it.
     for (const one of file.vectors) {
-      for (const field of Object.keys(one)) {
-        expect(allowed.has(field), `${one.name} carries ${field}, which the suite describes no field of`).toBe(true);
-      }
       if (one.authentication === undefined) continue;
       expect(Object.keys(one.authentication).sort()).toEqual([...file.layout.authenticationFields].sort());
     }

@@ -1,0 +1,308 @@
+; ---------------------------------------------------------------------------
+; The epoch inventory: what a deployment leaves beside a closed run of packs, and the only artifact of an
+; epoch a reviewer can be handed alone.
+;
+; A deployment retires receipts out of its live store on the bounds it configures, and an evidence epoch is
+; what survives that: a directory holding one sealed pack and one retention artifact per closed window, and
+; one document at its root stating what the run covers, what each pack in it says, and what the run adds up
+; to. This file states that document, and it states it in the public repository because the estate's claim is
+; that a reviewer holding an epoch inventory can check it with published code and no service of ours in the
+; loop. The generator that fills the layout runs on the paid side; the layout, its reader and the arithmetic
+; a reader owes itself are here.
+;
+; `packages/receipt/src/epoch-inventory.ts` reads this layout and writes it, and refuses each shape it will
+; not accept by code. `packages/receipt/schemas/epoch-inventory-v1.schema.json` is its machine-readable twin,
+; `docs/epoch-inventory-v1.md` is the prose a reimplementer opens first, and
+; `packages/receipt/test/epoch-inventory.test.ts` holds the blocks this file declares, that twin and the
+; reader's own member lists against each other, so no one of the three can widen alone. Where a sentence here
+; and those files disagree about a member, the reader is what a client actually runs and this file is wrong.
+; ---------------------------------------------------------------------------
+
+Ashaveri-Epoch-Inventory = #6.18(COSE_Sign1-Epoch-Inventory-COSE)
+
+; The envelope every signed document in this estate uses, unchanged but for the content type: COSE_Sign1 per
+; RFC 9052 section 4.2, encoded per RFC 8949 with Core Deterministic Encoding, so a reader rebuilds the bytes
+; that were signed rather than guessing which of several equivalent spellings was used.
+;
+; The payload carries no `.cbor`, and that is a statement and not an omission. It is the JSON document a
+; deployment writes into the epoch directory, as UTF-8, and it is signed byte for byte: no re-encode, no key
+; order chosen here, no whitespace decision. A deployment that reformats its own inventory has to reseal it,
+; which is what `sealDeploymentManifest` does for the document at `GET /deployment-manifest` and for the same
+; reason. The alternative was to put the run's figures in CBOR, which would have made the signed artifact a
+; different document from the file an operator leaves on a volume and handed over, and the point of this
+; container is that the file a reviewer holds is the file that was signed.
+COSE_Sign1-Epoch-Inventory-COSE = [
+    protected: bstr .cbor Ashaveri-Epoch-Inventory-Protected-Header,
+    unprotected: { * any => any }, ; the map that carries no claim; see the note below the document
+    payload: bstr,                 ; the epoch inventory document, as written into the epoch directory
+    signature: bstr .size 64
+]
+
+; The same three labels a receipt, a pack, an export and a redaction sign with, and a fifth content type. One
+; deployment key signs all five, and each of the five passes its own checks, so the field that tells a reader
+; which claim it is holding has to be answered before anything is read out of the payload. A reader that took
+; an inventory for a pack would be folding a chain over entries that name files rather than over receipts that
+; carry them, and reporting a walk nobody performed.
+Ashaveri-Epoch-Inventory-Protected-Header = {
+    1: -8,                            ; alg: EdDSA (Ed25519)
+    4: bstr .size 32,                 ; kid: sha256(public_key)
+    3: "ashaveri/epoch-inventory"     ; typ
+}
+
+; ---------------------------------------------------------------------------
+; The document inside the payload, and how a JSON document is read against a CDDL statement.
+;
+; The blocks below are the layout, member by member, and they are the same members
+; `schemas/epoch-inventory-v1.schema.json` declares and the same ones the reader closes over. CDDL writes
+; numbers as `uint` and text as `tstr` because it describes a data model, and a JSON document inhabits that
+; model; what differs from a receipt or a pack is the encoding the payload travels in, stated above.
+;
+; Three rules belong to the JSON reading rather than to any one member, and a reader enforces all three while
+; it is still reading characters, because afterwards there is nothing left to enforce them on.
+;
+; A member name appears once. `JSON.parse` keeps the last of two values and says nothing, so a payload naming
+; `packs` twice would read as whichever of the two lists the parser reached last while the signed bytes carry
+; both. The closure rule below already refuses a member this version does not define; this one refuses a
+; member defined twice, which is the same loss of the writer's intent arrived at from the other side.
+;
+; A number is written as an integer. No position of this layout holds a fraction, a duration with a sub-second
+; part, or a quantity so large that a reader of this document cannot state it exactly, so `1.0`, `1e2`, `+1`,
+; `01` and `-0` are refused as spellings rather than read as the numbers they equal: the parser hands the
+; integer and its float imitation over as one value, and by the time a check could ask which the writer
+; signed the question has no answer left in the data. That is the rule every other signed container in this
+; estate states as "no floating-point number may appear", arrived at through the encoding this one uses.
+;
+; A document nests no deeper than eight levels. The layout's own deepest position is five: the document, one
+; member of `packs`, one entry, one block inside that entry, and the figure inside that block, so the three
+; levels above it are slack and not a shape this format writes. The bound is here because a payload is bytes
+; nobody believes: a reader that recursed with the file rather than with the layout would answer a document
+; nested past the reach of its own stack with a crash, where this container promises a code and a caller
+; branches on that code.
+; ---------------------------------------------------------------------------
+
+; The document, closed at every block, and the field order is the order a writer of this format lists them
+; in. `packs` is the run and the three blocks after it are what the run adds up to, which is why they follow
+; it rather than preceding it: a reader takes the entries first and the summaries second, and the summaries
+; are refused when they are not the arithmetic of the entries.
+Ashaveri-Epoch-Inventory-Document = {
+    v: 1,                                  ; format version
+    epoch: tstr .size (1..200),              ; the operator's label for the run: printable text, unpadded
+    manifest: Ashaveri-Epoch-Inventory-Deployment,
+    packs: [+ Ashaveri-Epoch-Inventory-Pack],
+    window: Ashaveri-Epoch-Inventory-Span,
+    chain: Ashaveri-Epoch-Inventory-Run-Chain,
+    duty: Ashaveri-Epoch-Inventory-Run-Duty,
+}
+
+; Which deployment the run belongs to, named by the three members that identify a deployment manifest. An
+; inventory saying only that its keys came from a manifest would name no document, and a reviewer holding two
+; of them could not tell which one this run was checked against: the keys a run was resolved against are read
+; out of that document, and a run of packs sealed across a rotation resolves under more than one of them.
+;
+; Nothing here carries the manifest's bytes, its digest or a copy of its key list, because a claim about which
+; keys are trusted is the reviewer's own designation and `verifyEpochInventory` authenticates no key of
+; itself. Naming the document the writer used is the most this container can honestly say.
+;
+; The two ids carry the bound the document that supplies them carries and no other, which is a floor of one
+; byte and no ceiling. A ceiling written here would refuse an inventory whose own writer had copied a published
+; manifest faithfully, and a format that describes an artifact already in the field has no standing to narrow
+; the document it names: a narrowing of a copied position arrives as a version of this format, with cases of
+; its own, or it does not arrive. The same reason bounds `epoch` and nothing else, because that label is
+; written by this container and printed beside the run, so its width is this format's own business.
+Ashaveri-Epoch-Inventory-Deployment = {
+    iss: tstr,       ; the deployment id, as that manifest states it: never empty, bounded by no ceiling
+    ins: tstr,       ; the instance id, as that manifest states it: never empty, bounded by no ceiling
+    epk: uint,       ; the key epoch number, as that manifest states it
+}
+
+; One pack of the run, stated as a location and the figures read out of the pack that sits there.
+;
+; `file` and `retention` are relative to the epoch directory and written with forward slashes wherever the run
+; is read, and the directory each one names is the pack's own digest: `packs/<digest>/pack-v1.cbor` and
+; `packs/<digest>/retention-v1.json` or `packs/<digest>/retention-v2.json`. A closed window is the pair, and an
+; inventory that named only the pack would leave a reader unable to tell which retention artifact the duty
+; figures were read with. The retention position is a set rather than one name because the manifest inside that
+; file has two layouts, and the file name carries the version of the layout it holds: a run whose artifacts are
+; written in the newer one is a run of this layout, not a malformed directory.
+;
+; The two digests are sha256 over whole files as they sit on the volume: `sha256` of the sealed pack document,
+; tag and signature included, which is the identity a redaction of that pack names it by, and
+; `retentionSha256` of the retention artifact beside it. Both are recomputable by a reader holding the files,
+; and this document carries no claim about whether they are the files a reviewer is handed, because a reader
+; of this document alone was not handed them. See the note at the foot of this file.
+;
+; `at`, `span`, `items`, the two `chain` endpoints, `kid` and the four `duty` integers are the pack's own
+; figures, copied after the pack was read through `verifyPack`, and not re-derived here. A conclusion is not
+; among them: `duty` carries the two integers a pack signs and never a word about whether the duty was met,
+; because whether it was owed at all turns on the mapping the revision names and on the law behind it.
+Ashaveri-Epoch-Inventory-Pack = {
+    file: tstr,                    ; packs/<sha256>/pack-v1.cbor
+    retention: tstr,               ; packs/<sha256>/retention-v1.json or packs/<sha256>/retention-v2.json
+    sha256: tstr,                  ; 64 lowercase hex characters
+    retentionSha256: tstr,         ; 64 lowercase hex characters
+    at: uint,                      ; unix seconds, the instant that pack began to be assembled
+    span: Ashaveri-Epoch-Inventory-Span,
+    items: uint,                   ; the receipts that pack carries
+    chain: Ashaveri-Epoch-Inventory-Pack-Chain,
+    kid: tstr,                     ; 64 lowercase hex characters, the key that sealed that pack
+    duty: Ashaveri-Epoch-Inventory-Pack-Duty,
+}
+
+; A half-open window, from included and to excluded, which is the pack's own framing and this document's
+; copying of it. A receipt stamped exactly at `to` belongs to the next window, which is what lets the windows
+; of a run meet without overlapping.
+Ashaveri-Epoch-Inventory-Span = {
+    from: uint,
+    to: uint,
+}
+
+; The two endpoints the pack signs, as hex. `anchor` is what the pack's first record was chained from and
+; `head` the digest of its last, so the pair is what a reader compares between neighbours below.
+Ashaveri-Epoch-Inventory-Pack-Chain = {
+    anchor: tstr,                  ; 64 lowercase hex characters
+    head: tstr,                    ; 64 lowercase hex characters
+}
+
+; The four integers a pack signs, as signed. `art` is a label from the retention-duty registry, which this
+; format declares a `tstr` rather than an enum for the reason `pack.cddl` gives: the registry is not this
+; estate's to interpret. It is declared at the width `pack.cddl` declares it, which is no width, and read the
+; way that file's reader reads it, as a string that is not empty: an inventory copies the label a pack signed,
+; and a ceiling written here would refuse a pack the pack format seals.
+Ashaveri-Epoch-Inventory-Pack-Duty = {
+    art: tstr,                       ; a label from the retention-duty registry, e.g. "19(1)": never empty
+    rev: uint,                     ; unix seconds, the revision `required` was read from
+    required: uint,                ; seconds that revision required
+    held: uint,                    ; seconds that store had held its oldest retained receipt, at `at`
+}
+
+; The run's chain, which is the second thing an inventory exists to state after its window.
+;
+; `anchor` is the first pack's anchor and `head` the last pack's head, where first and last are fixed by the
+; windows and not by the order the entries were written in. `continuous` says whether each pack's anchor is the
+; head before it, and `breaks` states each pair where it is not, one row per such pair and each row keyed by
+; the pack that failed to continue, with the two digests that disagree beside it. The order the rows are
+; written in bears nothing, exactly as the order of `packs` bears nothing: a reader takes the list as the set
+; of packs it names and matches every row to the pair its own `file` fixes, so the same breaks written in
+; another order are the same run and read the same. A break is reported and not explained away: the two
+; digests are the evidence, and what happened between them is a fact about a deployment's store rather than
+; about this document.
+;
+; The two are read together and neither is decorative. A `continuous` of true beside an empty `breaks` is a
+; claim that this run chains from its anchor to its head, and a reader recomputes it from the entries; a
+; document that smoothed a break into `true` would be stating a continuity its own figures contradict, which
+; is the defect the pair exists to make visible. A `false` beside an empty list is the same disagreement
+; arrived at from the other side, and it is refused the same way.
+Ashaveri-Epoch-Inventory-Run-Chain = {
+    anchor: tstr,                  ; 64 lowercase hex characters, the first pack's anchor
+    head: tstr,                    ; 64 lowercase hex characters, the last pack's head
+    continuous: bool,
+    breaks: [* Ashaveri-Epoch-Inventory-Break],
+}
+
+; One place where the run does not continue itself, named by the pack that failed to carry the head before it
+; forward and by the two digests that show it. `file` names a pack of this run: a row about a pack the
+; document does not describe is a statement about something else, and it is refused rather than dropped.
+Ashaveri-Epoch-Inventory-Break = {
+    file: tstr,                    ; one of this document's `file` values
+    afterHead: tstr,               ; the head the predecessor pack states
+    anchor: tstr,                  ; the anchor this pack carries instead
+}
+
+; The duty the sealed run carries, stated per pack and nowhere as a verdict.
+;
+; `carried` is the emptiness of `short` and nothing else, and each row of `short` is one pack whose own
+; `held` falls short of its own `required`, keyed by that pack and stating nothing about where in the list it
+; sits, with `shortBy` the subtraction between them. Each pack is measured
+; against its own two integers and never against a neighbour's, so a routed article's period is not read
+; against another article's figure: a run whose declarations differ reports each on its own terms. A shortfall
+; is lawful output, and whether it was owed is settled outside this format.
+Ashaveri-Epoch-Inventory-Run-Duty = {
+    carried: bool,
+    short: [* Ashaveri-Epoch-Inventory-Shortfall],
+}
+
+; One unmet pack, restating the four figures the arithmetic is made of beside the seconds it fell short by, so
+; a reader can see the subtraction without going back to the entry.
+Ashaveri-Epoch-Inventory-Shortfall = {
+    file: tstr,                    ; one of this document's `file` values
+    art: tstr,                     ; that pack's own duty label, at the width the pack states it
+    required: uint,                ; that pack's own required seconds
+    held: uint,                    ; that pack's own held seconds
+    shortBy: uint,                 ; required minus held, which is never zero
+}
+
+; ---------------------------------------------------------------------------
+; Closure is one rule across this file and not a rule about one map, as `receipt.cddl`, `pack.cddl` and
+; `redaction.cddl` state it. No block above carries a `...`, and the absence means here what it means there: a
+; member the version named by `v` does not define makes the document invalid rather than a document read with
+; the unexpected member dropped. That reaches every block of the document and the signed header alike, and the
+; header closes under the stronger reason: its bytes are hashed into the `Sig_structure`, so a label this block
+; does not name is an authenticated parameter, and a reader that took the three it knows and returned those
+; would hand its caller a document other than the one that was signed. The header's members are the COSE
+; registry's integers, which is why they are numbered rather than named.
+;
+; One map a signer fills at will, and that is a decision rather than a gap: the `unprotected` map of
+; `COSE_Sign1-Epoch-Inventory-COSE` sits outside the signature, so nothing written in it can travel as a claim
+; about the run, and enforcing that it is empty would buy strictness with no security content behind it. What
+; the format declares of it is only that it carries no claim.
+;
+; Sign is the rule that a bare `uint` does not carry: every instant in this document is a unix time no earlier
+; than the epoch and every count a whole number no smaller than zero, so a negative figure is a malformed
+; document rather than an unusual way of writing a quantity. CDDL writes `uint` because it owns no clock, and
+; the bound that matters is the one the encoding enforces above, that a number is written as an integer at all.
+; ---------------------------------------------------------------------------
+
+; ---------------------------------------------------------------------------
+; What the run states about itself, which is where this container differs from every other signed document in
+; this estate. A pack's items are ordered by their links and their endpoints are inside the signature, so a
+; reader walks them. An inventory's entries are ordered by their windows, and the order is derived by a reader
+; rather than claimed by an array position: position in `packs` bears nothing, exactly as position bears
+; nothing in a pack's items. Three statements follow from the entries and are restated inside the signature,
+; and a reader recomputes all three and refuses a document whose restatement is not its own arithmetic.
+;
+; The windows meet. Each entry's `span` runs forwards, and each entry's `span.from` is its predecessor's
+; `span.to`. A gap is a period the epoch states it attests and does not, and an overlap seals the same
+; receipts twice under two signatures while reporting them as one run. `window` is then the outer edges of the
+; windows the packs state, and nothing else: it is not the period somebody asked for, and a reader that cared
+; about that compared it with the request, which no reading of this document can see.
+;
+; The chain continues, pair by pair, which is what gives the two endpoints their meaning: a run that chains
+; from its anchor to its head is a sequence of packs a reader can lay end to end, and a run that does not says
+; so with the two digests of each place it does not.
+;
+; The duty adds up, which is `carried` and the `short` rows above.
+;
+; The arrays of the document have no floor except `packs`, which `[+ …]` requires to hold at least one entry.
+; A gap between two windows is refused, so a run of one pack states a window and a run of ten states the span
+; the ten cover; an inventory of no packs states neither, and states a chain and a duty about nothing, which is
+; why it is refused as a malformed document rather than accepted as an honest report of an empty epoch. The
+; honest report of a period that sealed no receipts is the artifact that states windows and retention, which is
+; a pack's pair and not this document.
+; ---------------------------------------------------------------------------
+
+; ---------------------------------------------------------------------------
+; What a verified inventory does not establish, stated here because a reimplementer who has just read the word
+; `verify` is most likely to over-read exactly this.
+;
+; It is not a claim that the packs exist, or that they say what this document says they say. The reader is
+; handed this document and nothing else, and the digests, item counts and per-pack figures in it are the
+; writer's restatement of packs it was never given. A reviewer who wants that check runs `verifyPack` over the
+; files the entries name and compares each entry's `sha256` with `redactionPackDigest` of the bytes it holds,
+; which is the second check a reader makes and not a conclusion of this one. That is why the reader is handed a
+; document rather than pointed at a directory: an inventory is the artifact that travels, and a verdict about
+; it has to be reachable by somebody with no access to the volume it was written on.
+;
+; It is not a claim that the run is complete. An inventory lists the packs its directory held when it was
+; written, and a directory with a window left out of it reads exactly like an epoch that sealed no more. This
+; is the same bound a pack's head puts on a walk: a deletion is visible only against a copy the reader had
+; cause to believe before, and this container states its own figures and no reader's expectation.
+;
+; It is not a statement about a duty, a lawful basis or a request. `duty.short` is arithmetic on two integers
+; each pack signed and `states` is nowhere in this format: which period was owed, to whom, and under which
+; mapping revision, is settled outside this document by whoever holds the mapping and the law.
+;
+; It is not a claim about freshness, and it is not a claim about the deployment manifest it names. The three
+; figures of `manifest` say which document the writer resolved keys against; whether that document is the
+; deployment's own, and whether the keys listed in it are trusted for anything, are answered by reading it,
+; which this container neither does nor replaces.
+; ---------------------------------------------------------------------------

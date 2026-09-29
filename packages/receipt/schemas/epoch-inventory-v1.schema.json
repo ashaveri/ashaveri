@@ -1,0 +1,164 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://ashaveri.com/schemas/epoch-inventory-v1.json",
+  "title": "Ashaveri Epoch Inventory Manifest (JSON twin of the signed epoch inventory document)",
+  "description": "Display-only projection of the signed COSE_Sign1 epoch inventory: the document a deployment leaves at the root of a closed run of packs, stating what the run covers, what each pack in it says, and what the run adds up to. The signature is over the JSON bytes of `payload` exactly as they were written, so this projection is a statement of the layout and not a document any reader verifies: a reviewer who has the bytes runs `verifyEpochInventory` on them, and a reviewer who has only this object has a rendering of them. Byte strings appear as lowercase hex throughout, which is how the writer states every digest, key id and chain endpoint in this document, and a length that is a number of bytes in the format is not the same measure as a JSON string length, so only `minLength` carries a bound the format states and nothing here pretends to a ceiling: one character is at least one byte, which is the half of a bound a JSON string can state, and the byte ceiling belongs to `packages/receipt/epoch-inventory.cddl`: the format states exactly one, on the run's label, and none on the deployment's two ids or on the duty label a pack signs, which travel here at whatever length the documents that hold them allow. The maps close. `payload` and every block under it name their members in one object, which is where `additionalProperties: false` applies, so a member the format does not define is refused at that level rather than read and dropped on the way to a reader, and the same holds of the signed header above. The envelope itself is projected more loosely than the format writes it, and that is a decision rather than a gap: this document requires `protectedHeader` and `payload`, names `signature` without demanding it, and leaves its own root unclosed, so an inventory shown before it is signed still shows, while `epoch-inventory.cddl` requires all four elements of the `COSE_Sign1` and sixty-four bytes in the fourth of them. The CBOR tag that wraps the four elements on the wire, tag 18, is stated in the CDDL and cannot be stated here at all, because a JSON object has no tag to carry. Three rules of the reading are not keywords this projection can carry and are stated there because a reader enforces them: no member name appears twice in the payload's JSON text, which a projection of a parsed object cannot express because parsing is what loses it; every number below is written as an integer and held exactly by a reader of this document, so a fraction, an exponent or a figure past 2^53-1 is refused at the read rather than coerced; and a document nests no deeper than eight levels, which is slack above the deepest position this layout writes and the bound that keeps a hostile payload a refusal rather than a crash. Three blocks are folded from `packs` and are refused when they are not its arithmetic: `window` is the outer edges of the entries' spans, `chain` names the first entry's anchor and the last entry's head and lists each pair whose digests do not meet, and `duty` carries one row per entry whose own `held` is short of its own `required`. The four figures a pack states about itself, and the two digests that identify its files, are recomputable only from the pack and its retention artifact, which this document does not carry and their reader is not handed; `docs/epoch-inventory-v1.md` states what a verified inventory therefore does not establish. No legal-category vocabulary is defined in this format beyond the four integers and the label a pack itself signs: no mapping, no qualification and no statement of whether a duty was met appears anywhere in this file, and the word that reports a shortfall is arithmetic on two numbers the pack carries.",
+  "type": "object",
+  "required": ["protectedHeader", "payload"],
+  "properties": {
+    "protectedHeader": {
+      "type": "object",
+      "required": ["alg", "kid", "typ"],
+      "properties": {
+        "alg": { "const": "EdDSA", "description": "COSE algorithm -8, Ed25519" },
+        "kid": { "$ref": "#/$defs/hex32", "description": "sha256 of the Ed25519 public key that sealed this document, hex. It is the key `verifyEpochInventory` is handed, and it need not be any of the keys the entries name: one deployment key seals an inventory whose packs were sealed across a rotation" },
+        "typ": { "const": "ashaveri/epoch-inventory", "description": "the content type that tells an inventory apart from the receipt, the pack, the export and the redaction, all four of which one deployment key signs and each of which passes its own checks" }
+      }
+    },
+    "payload": {
+      "$ref": "#/$defs/manifest",
+      "description": "The signed document, which is the JSON a deployment writes into its epoch directory. Exactly one version is defined, so `v` is a constant rather than a discriminant, and a document naming another version is not this one."
+    },
+    "signature": { "type": "string", "pattern": "^[0-9a-f]{128}$", "description": "Ed25519 signature over the Sig_structure, hex, taken as the payload bytes were written rather than as this projection renders them" }
+  },
+  "$defs": {
+    "manifest": {
+      "type": "object",
+      "required": ["v", "epoch", "manifest", "packs", "window", "chain", "duty"],
+      "properties": {
+        "v": { "const": 1, "description": "format version" },
+        "epoch": { "type": "string", "minLength": 1, "description": "The operator's label for the run: printable text, unpadded, no control character, and bounded in bytes by the CDDL because it is printed beside the run in every report of it. It identifies the artifact and decides nothing in it." },
+        "manifest": { "$ref": "#/$defs/deployment", "description": "Which deployment manifest supplied the keys this run was resolved against, named by the three members that identify one. Nothing else about that document travels here, and no copy of its key list is made, because a copy of a signed number in a second signed document is what drifts." },
+        "packs": {
+          "type": "array",
+          "minItems": 1,
+          "items": { "$ref": "#/$defs/pack" },
+          "description": "The run: one entry per closed window, each stating where its pack is and what the pack says. At least one, because an inventory of no packs states a window no pack covers and a chain no pack chained. The order the entries are written in bears nothing: a reader places them by their windows, and the three blocks below are folded from them in that order."
+        },
+        "window": { "$ref": "#/$defs/span", "description": "The period the sealed run covers, folded from the windows the packs themselves state. It is the outer edges of the entries and not the period somebody asked for." },
+        "chain": { "$ref": "#/$defs/runChain", "description": "What the run states about its own continuity: the two endpoints it runs between, and each pair of packs where the later one does not continue the earlier." },
+        "duty": { "$ref": "#/$defs/runDuty", "description": "What the run states about the periods its packs signed: whether any of them falls short, and which." }
+      },
+      "additionalProperties": false,
+      "description": "An epoch inventory and nothing else. The map is closed: a member outside this list is a malformed inventory rather than a member a reader agreed to forget, and the same holds of every block below it and of the signed header above."
+    },
+    "deployment": {
+      "type": "object",
+      "required": ["iss", "ins", "epk"],
+      "properties": {
+        "iss": { "type": "string", "minLength": 1, "description": "the deployment id, as that manifest states it" },
+        "ins": { "type": "string", "minLength": 1, "description": "the instance id, as that manifest states it" },
+        "epk": { "type": "integer", "description": "the key epoch number, as that manifest states it, and a unix time never before the epoch like every other integer here" }
+      },
+      "additionalProperties": false,
+      "description": "The deployment manifest this run was resolved against, named rather than copied."
+    },
+    "pack": {
+      "type": "object",
+      "required": ["file", "retention", "sha256", "retentionSha256", "at", "span", "items", "chain", "kid", "duty"],
+      "properties": {
+        "file": { "$ref": "#/$defs/packFile", "description": "Where the pack is, relative to the epoch directory and with forward slashes: `packs/<digest>/pack-v1.cbor`. The digest the directory is named for is this entry's own `sha256`, and a reader refuses an entry filed under another pack's name rather than pointing it at bytes that are not the ones described." },
+        "retention": { "$ref": "#/$defs/retentionFile", "description": "The retention artifact assembled with this pack, in the same directory: `packs/<digest>/retention-v1.json` or `packs/<digest>/retention-v2.json`, the file name carrying the version of the layout the file holds. A closed window is the pair, and an entry that named only the pack would leave a reader unable to tell which retention statement the duty figures were read with." },
+        "sha256": { "$ref": "#/$defs/hex32", "description": "sha256 over the whole sealed pack document as it sits on the volume, tag and signature included: the identity a redaction of that pack names it by. Recomputable by a reader holding the file, and this document carries nothing that lets a reader check it without the file." },
+        "retentionSha256": { "$ref": "#/$defs/hex32", "description": "sha256 over the retention artifact's bytes as they sit on the volume." },
+        "at": { "type": "integer", "description": "unix seconds, the instant that pack began to be assembled, copied from the pack after it was read through its own verifier" },
+        "span": { "$ref": "#/$defs/span", "description": "The window that pack sealed, from included and to excluded, as the pack states it." },
+        "items": { "type": "integer", "description": "How many receipts that pack carries. A reader that wants it checked counts them out of the pack, which is the only place the figure comes from." },
+        "chain": { "$ref": "#/$defs/packChain", "description": "The two endpoints the pack signs, which is what a reader compares between neighbours to decide whether the run continues itself." },
+        "kid": { "$ref": "#/$defs/hex32", "description": "The key that pack was sealed with, as its own protected header names it, hex. Where a caller keeps each key, and how the manifest named above came to list it, are the caller's facts: this document authenticates nothing." },
+        "duty": { "$ref": "#/$defs/packDuty", "description": "The four integers that pack signs, as signed. A conclusion is not one of them and is not added here." }
+      },
+      "additionalProperties": false,
+      "description": "One pack of the run, stated as a location and the figures read out of the pack that sits there."
+    },
+    "span": {
+      "type": "object",
+      "required": ["from", "to"],
+      "properties": {
+        "from": { "type": "integer", "description": "unix seconds, included" },
+        "to": { "type": "integer", "description": "unix seconds, excluded: a receipt stamped exactly here belongs to the next window, which is what lets the windows of a run meet without overlapping" }
+      },
+      "additionalProperties": false,
+      "description": "A half-open window, the pack's own framing."
+    },
+    "packChain": {
+      "type": "object",
+      "required": ["anchor", "head"],
+      "properties": {
+        "anchor": { "$ref": "#/$defs/hex32", "description": "the digest the pack's first record was chained from, or thirty-two zero bytes before any retirement" },
+        "head": { "$ref": "#/$defs/hex32", "description": "the digest of the pack's last record" }
+      },
+      "additionalProperties": false,
+      "description": "The two endpoints a pack signs, as hex."
+    },
+    "packDuty": {
+      "type": "object",
+      "required": ["art", "rev", "required", "held"],
+      "properties": {
+        "art": { "type": "string", "minLength": 1, "description": "a label from the retention-duty registry, which this format declares text rather than an enumeration for the reason `pack.cddl` gives" },
+        "rev": { "type": "integer", "description": "unix seconds, the revision of the mapping `required` was read from" },
+        "required": { "type": "integer", "description": "seconds that revision required" },
+        "held": { "type": "integer", "description": "seconds that store had held its oldest retained receipt, measured at `at`" }
+      },
+      "additionalProperties": false,
+      "description": "The duty a pack states, as the pack states it. Whether the duty was owed, and to whom, is settled outside this format, and no comparison of these two integers is a verdict about either."
+    },
+    "runChain": {
+      "type": "object",
+      "required": ["anchor", "head", "continuous", "breaks"],
+      "properties": {
+        "anchor": { "$ref": "#/$defs/hex32", "description": "the anchor of the pack the run begins with, where the beginning is fixed by the windows and not by the array position" },
+        "head": { "$ref": "#/$defs/hex32", "description": "the head of the pack the run ends with" },
+        "continuous": { "type": "boolean", "description": "Whether each pack's anchor is the head before it, which is the claim that lets a reader lay the run end to end. It is the emptiness of `breaks` stated as a word, and a reader refuses the two when they disagree, because a break smoothed into `true` is the false statement this block exists to make visible." },
+        "breaks": {
+          "type": "array",
+          "items": { "$ref": "#/$defs/break" },
+          "description": "Each pair where the later pack does not continue the earlier, one row per such pair and each row keyed by the pack that failed to continue, with the two digests that disagree beside it. The order the rows are written in bears nothing, because a reader takes the list as the set of packs it names and matches each row to the pair its own `file` fixes: the same breaks written in another order are the same run and are accepted. A break is reported and not explained away: what happened between the two digests is a fact about a deployment's store rather than about this document. The list carries no floor because an empty one is the statement that the run chains."
+        }
+      },
+      "additionalProperties": false,
+      "description": "What the run states about its own continuity."
+    },
+    "break": {
+      "type": "object",
+      "required": ["file", "afterHead", "anchor"],
+      "properties": {
+        "file": { "$ref": "#/$defs/packFile", "description": "The pack that failed to carry the head before it forward, named by one of this document's own `packs[].file` values. A row about a pack the document does not describe is a statement about something else, and it is refused rather than dropped." },
+        "afterHead": { "$ref": "#/$defs/hex32", "description": "the head the predecessor pack states" },
+        "anchor": { "$ref": "#/$defs/hex32", "description": "the anchor this pack carries instead" }
+      },
+      "additionalProperties": false,
+      "description": "One place where the run does not continue itself, stated as the two digests that show it."
+    },
+    "runDuty": {
+      "type": "object",
+      "required": ["carried", "short"],
+      "properties": {
+        "carried": { "type": "boolean", "description": "Whether no pack of the run falls short of the period that same pack states as required. It is the emptiness of `short` stated as a word, and a reader refuses the two when they disagree." },
+        "short": {
+          "type": "array",
+          "items": { "$ref": "#/$defs/shortfall" },
+          "description": "One row per pack whose own `held` falls short of its own `required`, each row keyed by that pack and restating the four figures the arithmetic is made of. The order the rows are written in bears nothing, because a reader compares each row with the entry its own `file` names: the same shortfalls written in another order are the same run and are accepted. Each pack is measured against itself and never against a neighbour, so a routed article's period is not read against another article's figure. A shortfall is lawful output; the list says nothing about whether the period was owed. The list carries no floor because an empty one is the statement that the run carried everything it states."
+        }
+      },
+      "additionalProperties": false,
+      "description": "The duty the sealed run carries, stated per pack and nowhere as a verdict."
+    },
+    "shortfall": {
+      "type": "object",
+      "required": ["file", "art", "required", "held", "shortBy"],
+      "properties": {
+        "file": { "$ref": "#/$defs/packFile", "description": "The pack this row is about, named by one of this document's own `packs[].file` values." },
+        "art": { "type": "string", "minLength": 1, "description": "that pack's own duty label, restated so a reader sees which period was measured" },
+        "required": { "type": "integer", "description": "that pack's own required seconds" },
+        "held": { "type": "integer", "description": "that pack's own held seconds" },
+        "shortBy": { "type": "integer", "description": "`required` minus `held`, which is never zero because a row stands only for a pack that falls short. A reader recomputes the subtraction and refuses a row whose figure is not it." }
+      },
+      "additionalProperties": false,
+      "description": "One unmet pack, beside the seconds it fell short by."
+    },
+    "hex32": { "type": "string", "pattern": "^[0-9a-f]{64}$" },
+    "packFile": { "type": "string", "pattern": "^packs/[0-9a-f]{64}/pack-v1\\.cbor$" },
+    "retentionFile": { "type": "string", "pattern": "^packs/[0-9a-f]{64}/retention-v(1|2)\\.json$" }
+  }
+}

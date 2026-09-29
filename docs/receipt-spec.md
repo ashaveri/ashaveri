@@ -982,16 +982,25 @@ defines `v: 1` as section 3's thirteen fields and `v: 2` as those same thirteen 
 published schema to that rule, in both directories, so the convention is a checked property of the tree
 rather than a habit this sentence asks a reader to trust.
 
-The generator that fills these fields is not part of this repository, and nothing here writes or reads the
-document today. It is published anyway because the check a reader owes is public even when the program that
-produced the bytes is not, and because a shape that lives only in a writer cannot be recomputed by
-somebody handed the output. One consequence is worth stating before any field: this manifest carries no
-signature. A receipt and a pack are both `COSE_Sign1` over the bytes they attest, and a retention manifest
-is a JSON file a deployment writes about its own store, so every value in it is the deployment's say-so
-until a reader recomputes it against something signed. The writer serializes the document with two-space
-indentation, a trailing newline, and its members in the order the table lists them, so the same store state
-produces the same bytes twice; a JSON Schema states no member order, which is the only reason the order
-below is this section's to carry.
+The generator that fills these fields is not part of this repository, and nothing in this repository's shipped
+deployment path writes the document: a gateway that closes a window hands the store's state to a tool on the paid
+side, and that tool is not here. What is here is the reader and the writer of these bytes,
+`packages/receipt/src/retention.ts`, which reads this layout and the version after it alike, publishes the member
+lists the two layouts close, and refuses at the point of writing a manifest its own reader would refuse. The
+layout is published anyway because the check a reader owes is public even when the program that produced the
+bytes is not, and because a shape that lives only in a writer cannot be recomputed by somebody handed the
+output. One consequence is worth stating before any field: this manifest carries no signature. A receipt and a
+pack are both `COSE_Sign1` over the bytes they attest, and a retention manifest is a JSON file a deployment
+writes about its own store, so every value in it is the deployment's say-so until a reader recomputes it against
+something signed. What signs it is the epoch inventory: `packages/receipt/epoch-inventory.cddl` names this file's
+location in the run and carries sha256 over its bytes as `packs[].retentionSha256`, inside that inventory's own
+signature, which is why a manifest handed over on its own is a report and a manifest handed over beside the
+inventory that seals it is evidence. The pack format itself carries neither this document nor a digest of it, and
+the reason the block below repeats the chain endpoints rather than deferring to a pack is the same fact. The
+writer serializes the document with two-space indentation, a trailing newline, and its members in the order the
+table lists them, so the same store state produces the same bytes twice, which matters because those bytes are
+what gets hashed; a JSON Schema states no member order, which is the only reason the order below is this
+section's to carry.
 
 | Member | Type | Required | What it states |
 |---|---|---|---|
@@ -1093,6 +1102,125 @@ them: `heldSeconds` is `at` less `retained.from`, or zero when `count` is zero; 
 reader can only check event by event because the bounds move. A document that satisfies the schema and
 contradicts one of these is a malformed manifest read as a whole, not a deployment that failed to hold what
 it promised, and keeping those two answers apart is the reason the layout is public.
+
+### 5.4 Retention manifest layout, version 2
+
+Version two of the layout above adds one member, `presence`, and changes nothing else: `v`, `at`, `policy`,
+`retained`, `retired`, `chain` and `duty` are version one's members, unchanged in name, order, width and
+meaning, and a version one document stays whole under its own layout rather than being read as a store that
+held nothing. The normative statement of the second layout is
+[`packages/receipt/schemas/retention-v2.schema.json`](../packages/receipt/schemas/retention-v2.schema.json),
+whose identity carries the version, `https://ashaveri.com/schemas/retention-v2.json`, and
+`packages/fixtures/test/retention-doc.test.ts` reads both sections' tables out of this document and holds every
+member name, type and required-ness against the schema of its own version in both directions. Where a sentence
+here and one of those two files disagree, the schemas are the authority and this prose is wrong. As in section
+5.3, the generator that fills these fields is not part of this repository; what is here is the reader and the
+writer of these bytes, `packages/receipt/src/retention.ts`, which reads both layouts, refuses at the point of
+writing a manifest its own reader would refuse, and is held to the two schemas member for member by
+`packages/receipt/test/retention-presence.test.ts`.
+
+**Why a member arrives as a version and not as an option.** Every map in this artifact is closed, so a member
+the layout does not define makes a document malformed rather than a member a reader agreed to forget. That rule
+has one door out and it is a version number: a `presence` member made optional would let a manifest say nothing
+about the appraisal context and be read as a manifest that said it held nothing, which is the pair of findings
+this artifact keeps apart everywhere else, and it would leave a reader unable to tell a store that held no
+collateral from a deployment that had not been asked. `packages/receipt/src/retention.ts` asks a document's `v`
+of `RETENTION_FORMAT_VERSIONS`, the set, rather than comparing it to a literal, because a literal is the
+defect this class of change produces: a reader that answered a second version by falling through to the branch
+written for the first reports a document it never read as one it did, and every gate stays green while it does.
+The same list is what the epoch inventory's fold and the published vectors are built against.
+
+**What the two documents attest, and which half each one carries.** This manifest states what one store held at
+one instant: the receipts it kept, the ones it retired and on which bound, and from this version the collateral
+and validity documents it had beside them. The epoch inventory states what a run of sealed packs adds up to
+across those instants, and it is the only place the folded interval lives:
+`packages/receipt/epoch-inventory.cddl`, its reader, and the section "What a run states about itself" of
+[epoch-inventory-v1.md](epoch-inventory-v1.md). Neither statement replaces
+the other and neither is readable as the other. A manifest cannot say that any of the material it names is
+reachable, is still on the volume, or will be there when a reader arrives, because it holds no bytes and no
+clock outside the instant it stamped; an inventory cannot say what a store held, because it carries no presence
+observation of its own and folds only the ones the manifests it seals state. So a reader that wants to know
+whether material named by one receipt's anchor was there across a period asks the manifest which documents the
+store held at each sealing instant, asks the inventory which of those manifests the run seals and what interval
+their observations add up to, and holds neither answer as the other. The artifact that states an observation is
+not the artifact that states a reach, and the reason both say so in their own words is that a reader holding one
+of them alone cannot see the half the other carries.
+
+| Member | Type | Required | What it states |
+|---|---|---|---|
+| `v` | `2` | yes | Format version, one constant per layout rather than a discriminant. A reader refuses a version its set does not name rather than reading the bytes under rules written for another version. |
+| `at` | `integer` | yes | Unix seconds, the instant generation began, stamped before the store is read so a slow store cannot date the window later than it was. `presence` states what was held at this same instant and at no other. |
+| `policy` | `object` | yes | The bounds the deployment asked the store to enforce, as intention. |
+| `policy.maxAgeSeconds` | `integer` | no | A receipt is served while its stamp is at or after `at` less this. Absent means no age bound; zero is a bound that keeps almost nothing. |
+| `policy.maxCount` | `integer` | no | How many receipts are served. Absent means no count bound. |
+| `retained` | `object` | yes | What the store holds right now, copied from the store itself. |
+| `retained.from` | `integer` | yes | Unix seconds, inclusive: the oldest stamp still held, and zero with a count of zero for an empty store. |
+| `retained.to` | `integer` | yes | Unix seconds, inclusive: the newest stamp still held. Both edges are inclusive, which is not the half-open interval a pack answers for. |
+| `retained.count` | `integer` | yes | How many receipts sit between them. The member that decides whether `from` means anything. |
+| `retired` | `object` | yes | What left, in total and event by event. |
+| `retired.byAge` | `integer` | yes | Receipts retired for falling past the age bound, including any dropped since the last compaction wrote. |
+| `retired.byCount` | `integer` | yes | Receipts retired because the count bound evicted them, on the same basis. |
+| `retired.trims` | `array` | yes | One entry per compaction, oldest first. Empty means nothing has been compacted, which is not the same as nothing having been retired. |
+| `retired.trims[*].at` | `integer` | yes | Unix seconds, the stamp that compaction wrote. |
+| `retired.trims[*].byAge` | `integer` | yes | How many it removed for age. |
+| `retired.trims[*].byCount` | `integer` | yes | How many it removed for count. |
+| `retired.trims[*].under` | `object` | yes | The bounds in force then, read off that trim record's own payload rather than out of memory. |
+| `retired.trims[*].under.maxAgeSeconds` | `integer` | no | The age bound at that moment, absent if none was configured. |
+| `retired.trims[*].under.maxCount` | `integer` | no | The count bound at that moment, absent if none was configured. |
+| `chain` | `object` | yes | The two endpoints a reader walks between, stated here as the store reports them. |
+| `chain.anchor` | `string` | yes | Sixty-four lowercase hex characters: the digest the oldest retained receipt was chained from. |
+| `chain.head` | `string` | yes | Sixty-four lowercase hex characters: the digest of the last receipt in the chain. |
+| `duty` | `object` | yes | The article the manifest is written against, the period taken from it, the time held, and the comparison. |
+| `duty.article` | `string` | yes | Which obligation: `19(1)`, `19(2)` or `26(6)`. |
+| `duty.requiredSeconds` | `integer` | yes | Seconds the deployment takes that article to require, never below one. |
+| `duty.heldSeconds` | `integer` | yes | Seconds the store has held the oldest receipt it retains, measured at `at`, and zero for a store holding nothing. |
+| `duty.met` | `boolean` | yes | Whether `heldSeconds` is at least `requiredSeconds`, computed by the writer. |
+| `presence` | `object` | yes | The appraisal context this store held at `at`, in the two families it arrives in. Required, and never read as optional: a manifest that said nothing about a family would be a malformed document rather than a store that held nothing. |
+| `presence.collateral` | `object` | yes | The vendor-signed material held at `at`: the count the store gave and one entry per document. |
+| `presence.collateral.count` | `integer` | yes | How many collateral documents the store held. The reader recomputes it against `presence.collateral.held` and a manifest whose two disagree is malformed. |
+| `presence.collateral.held` | `array` | yes | One entry per held document, in no order that bears anything, matched by the digest each names. The list carries no floor: an empty one beside a count of zero states that nothing was held of this family. |
+| `presence.collateral.held[*].sha256` | `string` | yes | Sixty-four lowercase hex characters: sha256 over the document's bytes as they sat on the volume. One digest named twice inside one family is a refusal, because a fold that met it twice cannot tell one document stated twice from two documents. |
+| `presence.collateral.held[*].under` | `object` | yes | What that document was believed under, as a label and a digest. |
+| `presence.collateral.held[*].under.kind` | `string` | yes | `root` for the self-signed end the material is read under, `chain` for the sequence the document was presented by. |
+| `presence.collateral.held[*].under.value` | `string` | yes | Sixty-four lowercase hex characters: the digest of the bytes carrying that root or that chain end. |
+| `presence.validity` | `object` | yes | The validity material held at `at`: the window and the appraisal the same evidence was read in, stated the same two ways as the collateral family. |
+| `presence.validity.count` | `integer` | yes | How many validity documents the store held, recomputed against the list beside it. |
+| `presence.validity.held` | `array` | yes | One entry per held document, matched by the digest it names, with no floor for the same reason the collateral family has none. |
+| `presence.validity.held[*].sha256` | `string` | yes | Sixty-four lowercase hex characters: sha256 over that document's bytes as they sat on the volume. |
+| `presence.validity.held[*].under` | `object` | yes | What that document was believed under, as a label and a digest. |
+| `presence.validity.held[*].under.kind` | `string` | yes | `root` or `chain`, the two ways a held document is believed. |
+| `presence.validity.held[*].under.value` | `string` | yes | Sixty-four lowercase hex characters: the digest of the bytes carrying that root or that chain end. |
+
+Every block is closed here exactly as it is in section 5.3, and it reaches the two policy blocks, the window,
+the retirement history, each trim event, the chain, the duty, the presence block, each family, each held
+document and each root or chain value alike. `presence` beside a `v: 1` document is that rule's most important
+case: the reader refuses the combination rather than reading it as a manifest that held nothing, and a reader
+that dropped the member instead would fold a run whose store had said something the layout it was reading says
+nothing about.
+
+**What a presence block states, and what it cannot.** It states one thing: at the instant in `at`, this store
+held these documents, this many of them, each under this value. That statement stays true whatever happens to
+those bytes afterwards, which is the property the whole shape is built on and the reason no member here is
+forward-looking. What it does not state is that the material is reachable, that the bytes are still anywhere,
+that a reader could fetch them, or that the belief recorded in `under` was well founded: this artifact carries
+no copy of any of those bytes, no verifier for any of those signatures, and no clock outside its own instant.
+Whether a root signs what it claims to, and whether a chain runs to it, are a reader's own checks with its own
+pins. The block is what makes a retired document visible rather than merely absent: a digest named at one sealing
+instant and not named at the next is a document that left, and only the fold across a run can see the pair.
+
+**The fold, and the three refusals it owes.** The observations above are per instant. The interval a reviewer
+actually asks for, the period across which the material a run names was present, is assembled by
+`verifyEpochInventory` in `packages/receipt/src/epoch-inventory.ts` from the manifests the run's own entries
+seal, and three disagreements are refused there rather than footnoted: a digest named at two instants and not
+between them, which is a gap inside the period the run states it attests
+(`EPOCH_INVENTORY_PRESENCE_GAP`); an observation arriving under a digest no entry of the run seals, which is a
+bare manifest handed to a reader rather than evidence, and is refused on the digest rather than read as the
+run's own statement (`EPOCH_INVENTORY_PRESENCE_UNSEALED`); and a `window` the inventory states that reaches
+further than the observations reach (`EPOCH_INVENTORY_PRESENCE_WINDOW_TOO_WIDE`). Those three belong to the
+inventory and its rows are in [error-codes.md](error-codes.md) beside the rest of that container's family; they
+are named here because a reader of this artifact is the one handed both halves and is the party the confusion is
+possible for. Nothing in this layout refuses any of them, and nothing in it can: a manifest states one instant
+and has no neighbours to compare it with.
 
 ## 6. Versioning
 

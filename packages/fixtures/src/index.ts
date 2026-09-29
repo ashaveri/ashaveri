@@ -656,10 +656,16 @@ export interface RedactionRecordRow {
   namedForRemoval: boolean;
 }
 
+/** What the command path answers for one row's pair: the code it prints, and the exit it leaves beside it. */
+export interface RedactionCommandAnswer {
+  code: string;
+  exit: number;
+}
+
 /**
- * One case: the redaction bytes, the pack handed beside them, the designation the caller makes, and what each
- * of the reader's two entry points answers. A row with no `packOf` is the reader that was handed one document
- * of the pair and is refused for that and nothing else.
+ * One case: the redaction bytes, the pack handed beside them, the designation the caller makes, and what the
+ * reader's two entry points and the command answer over them. A row with no `packOf` is the reader that was
+ * handed one document of the pair and is refused for that and nothing else.
  */
 export interface RedactionVector {
   name: string;
@@ -678,6 +684,12 @@ export interface RedactionVector {
   verdict: string;
   /** `verify-ok`, or the code `decodeRedaction` answers with before any key or pack is consulted. */
   structural: string;
+  /**
+   * What `ashaveri verify-handover` answers for the same pair: `null` where it answers exactly what `verdict`
+   * states, which is an exit of 0 on an accepted row and of 1 on a refusal, and the code and the exit beside it
+   * where the command meets this fact one step earlier than the reader does.
+   */
+  command: RedactionCommandAnswer | null;
   /** The records that remain, in the order the pack's links reach them. */
   survivors?: string[];
   /** The head of the chain over the survivors, and the pack's own signed head, never equal on one row. */
@@ -720,4 +732,82 @@ export interface RedactionVectorFile {
 /** The redaction manifest: each pair of documents, both reader answers, and the chain over the survivors. */
 export function loadRedactionVectors(): RedactionVectorFile {
   return JSON.parse(readFileSync(join(DATA, 'redaction-v1.json'), 'utf8')) as RedactionVectorFile;
+}
+
+/** How a row designates a key to the inventory reader: one pinned key, a kid-indexed set, or neither. */
+export interface EpochInventoryDesignation {
+  pinned?: string;
+  retained?: Record<string, string>;
+  /**
+   * The run's retention artifacts, unpadded base64url, in the order the call hands them. A row stating none is the
+   * call that handed no manifest, which reads the document alone and claims nothing about held material.
+   */
+  presence?: string[];
+}
+
+export interface EpochInventoryVector {
+  name: string;
+  note: string;
+  /** The sealed inventory document, unpadded base64url. */
+  documentBase64Url: string;
+  documentByteLength: number;
+  read: EpochInventoryDesignation;
+  /** `verify-ok`, or the code `verifyEpochInventory` answers with. */
+  verdict: string;
+  /** `verify-ok`, or the code `decodeEpochInventory` answers with before any key is consulted. */
+  structural: string;
+  /** The refusal sentence the shipped reader gave, published on every refusing row. */
+  message?: string;
+  /** What the reader reported back for a row it accepted: the run it put together and the summaries it read. */
+  readback?: {
+    runFiles: string[];
+    statedFiles: string[];
+    window: { from: number; to: number };
+    continuous: boolean;
+    breakFiles: string[];
+    carried: boolean;
+    shortFiles: string[];
+  };
+  /** Which of the two folded lists a row guards, on the rows that vector one of the twin guards. */
+  site?: 'chain.breaks' | 'duty.short';
+  /** Which guard of its site a refusing folded-list row reaches, named so the two sites can be compared guard for guard. */
+  guard?: string;
+  /** The one position a fault row moved. */
+  edited?: string;
+  /** The text edit a row was built by, beside the row whose text it edited. */
+  edit?: { of: string; from: string; to: string };
+  /** The honest document taken apart into the four pieces the format publishes. */
+  reveal?: Record<string, unknown>;
+}
+
+export interface EpochInventoryVectorFile {
+  version: number;
+  description: string;
+  layout: {
+    format: string;
+    twin: string;
+    prose: string;
+    contentType: string;
+    reader: string;
+    headerLabels: { alg: number; typ: number; kid: number };
+    codes: string[];
+    verdictFields: string[];
+    /** The columns every row carries because they say which row and which document it is. */
+    rowNamingFields: string[];
+    keyMaterial: Array<{
+      id: string;
+      seed: string;
+      kidHex: string;
+      publicKeyHex: string;
+      publicKeyBase64Url: string;
+      role: string;
+    }>;
+    [key: string]: unknown;
+  };
+  vectors: EpochInventoryVector[];
+}
+
+/** The epoch inventory: each sealed document, both reader answers, and the run the reader put together. */
+export function loadEpochInventoryVectors(): EpochInventoryVectorFile {
+  return JSON.parse(readFileSync(join(DATA, 'epoch-inventory-v1.json'), 'utf8')) as EpochInventoryVectorFile;
 }
