@@ -261,8 +261,11 @@ export async function carriedDesignations(values: CarriedFlagValues): Promise<Ca
     drafts.set(slot, fresh);
     return fresh;
   };
-  const once = (flag: string, slot: CarriedSlotLabel, says: string): void => {
-    if (drafts.get(slot) !== undefined) {
+  // A slot has one of each field, and which field a repeat fills is read off the draft rather than off whether
+  // the slot has a draft at all: four flags name one slot in the ordinary run, an origin, a platform, an identity
+  // and a rung, and a check on the slot would refuse the call this whole surface is for.
+  const once = (flag: string, slot: CarriedSlotLabel, says: string, already: unknown): void => {
+    if (already !== undefined) {
       throw new UsageError(`${flag} names the '${slot}' slot twice, and a slot has one ${says} per run`);
     }
   };
@@ -270,6 +273,7 @@ export async function carriedDesignations(values: CarriedFlagValues): Promise<Ca
   for (const value of values['collateral-origin'] ?? []) {
     const { slot, rest } = slotValue(value, COLLATERAL_ORIGIN_FLAG);
     const one = draft(slot);
+    once(COLLATERAL_ORIGIN_FLAG, slot, 'origin, which is the path the bytes were published by', one.origin);
     // The name is matched against no list kept here, on purpose. The package answers an origin it does not read
     // with the sentence naming the two it does, which is the reason all six names are in the union at all; a
     // second copy of that set in this file would be a thing to remember on the day the set grew.
@@ -281,12 +285,13 @@ export async function carriedDesignations(values: CarriedFlagValues): Promise<Ca
       throw new UsageError(`${COLLATERAL_PLATFORM_FLAG} names '${rest}' for the '${slot}' slot, and this package publishes collateral for ${PLATFORMS.join(' and ')}`);
     }
     const one = draft(slot);
+    once(COLLATERAL_PLATFORM_FLAG, slot, 'platform, which is the machine that path publishes for', one.platform);
     one.platform = { value: rest as IntelPlatform, from: `${COLLATERAL_PLATFORM_FLAG} ${slot}=${rest}` };
   }
   for (const value of values['collateral-cpu-type'] ?? []) {
     const { slot, rest } = slotValue(value, COLLATERAL_CPU_TYPE_FLAG);
     const one = draft(slot);
-    once(COLLATERAL_CPU_TYPE_FLAG, slot, 'CPU type');
+    once(COLLATERAL_CPU_TYPE_FLAG, slot, 'CPU type', one.cpuType);
     // The shape is not checked here: `requestUrl` refuses a CPU type that is not twelve hex characters, in the
     // code naming the field, and a second pattern in this file would be two answers to one malformed argument.
     one.cpuType = { value: rest, from: `${COLLATERAL_CPU_TYPE_FLAG} ${slot}=${printedToken(rest)}` };
@@ -294,7 +299,7 @@ export async function carriedDesignations(values: CarriedFlagValues): Promise<Ca
   for (const value of values['collateral-level'] ?? []) {
     const { slot, rest } = slotValue(value, COLLATERAL_LEVEL_FLAG);
     const one = draft(slot);
-    once(COLLATERAL_LEVEL_FLAG, slot, 'level, which is one rung of the ladder');
+    once(COLLATERAL_LEVEL_FLAG, slot, 'level, which is one rung of the ladder', one.level);
     one.level = { value: levelValue(slot, rest), from: `${COLLATERAL_LEVEL_FLAG} ${slot}=${printedToken(rest)}` };
   }
 
