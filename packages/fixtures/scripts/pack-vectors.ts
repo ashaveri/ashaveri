@@ -41,10 +41,10 @@ import { FIXED_IAT, fixtureKey, fixturePayload } from './receipt-envelope.ts';
 const DATA = join(dirname(fileURLToPath(import.meta.url)), '..', 'data');
 
 /**
- * The evidence pack vectors: whole packs in both shapes a reader is handed, the key material it designates
+ * The evidence pack vectors: whole packs in every shape a reader is handed them, the key material it designates
  * beside each one, and the verdict the shipped reader owes it.
  *
- * A pack is the fourth published container and the last one with no suite, which leaves a third party
+ * A pack was the last of this estate's signed containers to gain a suite, which had left a third party
  * implementing a reader with nothing to read. Every row here is bytes `packages/receipt/src/pack.ts` made, so
  * the file records what the writer and the reader agree on rather than what either of them was described as
  * doing: the honest seals come from `signPack`, and where a row needs bytes that writer will not sign, which is

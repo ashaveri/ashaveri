@@ -187,8 +187,14 @@ What is still true, in both modes:
   freshness needs network access and is deliberately outside the offline verification path. The
   residual risk in T12 is the whole of this limitation, and it is not scheduled away: a service
   publishing this collateral for deployments that want it is the position, described in
-  the README's attestation-collateral section, and nothing of it is in this code or is a precondition of
-  any verdict a third party can reach. This document describes the offline path as it is built.
+  the README's attestation-collateral section, and no service, endpoint or fetch is in this code or is a
+  precondition of any verdict a third party can reach. What is in this code is the other half of the same
+  question and closes none of it: `@ashaveri/collateral` reads and classifies a vendor document it is handed,
+  and a pack carries the material its sealed receipts' anchors name, so `ashaveri verify-pack` weighs those
+  bytes against the roots its caller names and prints each slot it could not weigh beside the flag that would
+  have supplied the question. That weighing asks no origin anything, reaches no network, feeds no attestation
+  verdict, and changes what T12 says about a platform the vendor has since deprecated. This document describes
+  the offline path as it is built.
 - **The client's clock is a stranger's, and its two windows are chosen numbers.** In strict mode the
   client refuses a receipt whose `iat` is more than 300 seconds from its own clock, and evidence
   whose `att.ts` is more than 900 seconds from it. Those bound how much skew between two
@@ -214,8 +220,14 @@ What is still true, in both modes:
   names no unit of time, and like the two windows it is not read from the wire, because a deployment
   cannot choose what a client asks of it. A policy naming nothing asks nothing, which is what keeps
   every verdict taken under an earlier policy the verdict it was. What no client asks yet is whether a
-  slot stating `held` still resolves: that is answered by the availability of the material a verifier
-  holds, and not by anything inside a signed document.
+  slot stating `held` still resolves. That was answered by the availability of the material a verifier
+  holds and by nothing inside a signed document, and the pack moved the first half of that sentence: the
+  container that seals a receipt naming material carries that material in `carried`, and its reader
+  recomputes every stated digest and refuses a slot the list does not answer as the pack's own failure, at
+  the position that names it. A held slot inside a pack is therefore a claim the container is answerable
+  for, while a held slot in a receipt fetched on its own is still a promise about somebody else's archive.
+  Neither shape states whether the bytes verify under the reader's roots, and that stays T12's limitation
+  rather than this bullet's.
 - **The gateway does not deep-verify its own evidence.** It reads the measurement and the
   report-data binding; the certificate chain, TCB and event-log replay are the client's job,
   through `@ashaveri/sdk` in strict mode or `@ashaveri/cli`. That is deliberate, but it means a
