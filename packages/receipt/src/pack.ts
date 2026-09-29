@@ -721,11 +721,19 @@ function readCarried(raw: unknown): readonly PackCarriedObject[] {
  * format made that the ceiling of a run of bytes before this member existed. A carried object inherits the
  * figure the format states rather than one this file invented, which is what keeps the bound the format's and
  * not the issuer's.
+ *
+ * Published because the ceiling is a fact a reader of the format can state: the conformance suite quotes this
+ * figure in its own `carriedRule` rather than writing a number beside the prose, and the number it prints is
+ * the one the reader refuses on.
  */
-const CARRIED_MAX_BYTES = ID_MAX_BYTES;
+export const CARRIED_MAX_BYTES = ID_MAX_BYTES;
 
-/** The slots one sealed receipt can name, which is what the count ceiling below is measured against. */
-const CARRIED_SLOTS_PER_ITEM = 2;
+/**
+ * The slots one sealed receipt can name, which is what the count ceiling below is measured against. Published
+ * for the same reason as the byte ceiling above: the suite states the figure the reader enforces, and a figure
+ * written twice is a figure that can disagree with itself.
+ */
+export const CARRIED_SLOTS_PER_ITEM = 2;
 
 /**
  * The carried list, weighed against the bytes it states and the slots it answers for.

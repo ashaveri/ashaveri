@@ -4,6 +4,8 @@ import { describe, expect, it } from 'vitest';
 import { sha256 } from '@noble/hashes/sha2.js';
 import {
   PACK_CONTENT_TYPE,
+  CARRIED_MAX_BYTES,
+  CARRIED_SLOTS_PER_ITEM,
   ReceiptError,
   decodePack,
   packRecordDigest,
@@ -122,6 +124,22 @@ describe('the evidence pack vectors', () => {
     // digest is the signed head, which is the pair the walk is between.
     expect(file.layout.records[0]!.prevHex).toBe(toHex(manifest.chain.anchor));
     expect(file.layout.records[file.layout.records.length - 1]!.digestHex).toBe(toHex(manifest.chain.head));
+  });
+
+  it('states the two carried ceilings as the figures the reader enforces', () => {
+    // Both ceilings used to appear in this sentence as words, which is a claim that stays true when the number
+    // under it moves. The generator reads the two figures out of `packages/receipt/src/pack.ts`, so what the
+    // published rule prints is the figure the reader refuses on, and this case is what notices if the prose and
+    // the constants part again.
+    const rule = file.layout.carriedRule;
+    expect(typeof rule, 'the suite publishes no carried rule').toBe('string');
+    if (typeof rule !== 'string') return;
+    expect(rule, 'the byte ceiling the rule states is not the one the reader enforces').toContain(
+      `${String(CARRIED_MAX_BYTES)} bytes`,
+    );
+    expect(rule, 'the slot ceiling the rule states is not the one the reader counts against').toContain(
+      `${String(CARRIED_SLOTS_PER_ITEM)} slots`,
+    );
   });
 
   it('designates only keys it publishes, and publishes keys that resolve', () => {

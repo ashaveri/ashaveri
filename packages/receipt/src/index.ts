@@ -87,6 +87,8 @@ export type {
 } from './export.js';
 export {
   PACK_CONTENT_TYPE,
+  CARRIED_MAX_BYTES,
+  CARRIED_SLOTS_PER_ITEM,
   encodePackManifest,
   encodePackProtectedHeader,
   packRecordDigest,

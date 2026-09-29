@@ -5,6 +5,8 @@ import { ed25519 } from '@noble/curves/ed25519';
 import { sha256 } from '@noble/hashes/sha2.js';
 import {
   ALG_EDDSA,
+  CARRIED_MAX_BYTES,
+  CARRIED_SLOTS_PER_ITEM,
   EXPORT_CONTENT_TYPE,
   PACK_CONTENT_TYPE,
   ReceiptError,
@@ -1107,7 +1109,7 @@ function main() {
           orderingRule:
             'the links fix the order of the run and an item iat is the stamp that record was chained under, and the two are free to disagree because the store chains under whatever stamp it was handed. A reader reports a disagreement on the result and never refuses it: the lawful output of a deployment that corrected its clock is a pack with the finding beside a clean walk',
           carriedRule:
-            'carried holds one entry per object the pack carries, and an entry is the bytes and the sha256 of those bytes. The reader recomputes each digest instead of trusting the statement beside it, refuses an object past the byte ceiling the format already states for a run of bytes and a list past the two slots every sealed receipt can name, and then requires the list and the slots to speak of the same material: no digest at two positions, no entry no held slot names, no held slot no entry hashes to. A slot that states an absence names no digest and owes no bytes, so a pack carrying nothing for a run of absences is whole. Each refusal names the position it found',
+            `carried holds one entry per object the pack carries, and an entry is the bytes and the sha256 of those bytes. The reader recomputes each digest instead of trusting the statement beside it, refuses an object past the ${String(CARRIED_MAX_BYTES)} bytes the format already states for a run of bytes and a list past the ${String(CARRIED_SLOTS_PER_ITEM)} slots every sealed receipt can name, and then requires the list and the slots to speak of the same material: no digest at two positions, no entry no held slot names, no held slot no entry hashes to. A slot that states an absence names no digest and owes no bytes, so a pack carrying nothing for a run of absences is whole. Each refusal names the position it found`,
           encodings: 'documents and byte strings unpadded base64url, digests, kids, predecessors and signatures lowercase hex, instants unix seconds',
           verdictFields: ['verdict', 'structural', 'walk', 'ordering', 'span', 'item', 'edited'],
           verdictMeaning:
