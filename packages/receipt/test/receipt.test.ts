@@ -142,6 +142,36 @@ describe('COSE_Sign1 receipt codec', () => {
     );
   });
 
+  it('refuses a verification time that is not a reading of a seconds clock', () => {
+    // Two spellings of one instant, handed over the same bytes under the same window. The refused case
+    // is the milliseconds figure, a thousand times the seconds the receipt is stamped in, and the
+    // accepted case is the same instant counted whole: a guard that refused the first while refusing
+    // the second as well would simply be refusing every clock, and nothing in the suite would say
+    // which of the two it had met.
+    const key = generateSigningKey();
+    const bytes = issueReceipt(samplePayload(), key);
+    const refusal = expectFailure(
+      () => verifyReceipt(bytes, { publicKey: key.publicKey, nowSeconds: FIXED_NOW * 1000, freshnessSeconds: 60 }),
+      'VERIFICATION_TIME_OUT_OF_RANGE',
+    );
+    // Both ends of the band are in the sentence, because whoever handed the figure has to be able to
+    // see which side of it their number fell outside without opening this file.
+    expect(refusal.message).toContain('1000000000');
+    expect(refusal.message).toContain('4294967295');
+    expect(refusal.message).toContain('1772000000000');
+    expect(() =>
+      verifyReceipt(bytes, { publicKey: key.publicKey, nowSeconds: FIXED_NOW, freshnessSeconds: 60 }),
+    ).not.toThrow();
+    // The reading is refused at the entry rather than inside a window, so a caller who opened neither
+    // is still told their argument is impossible instead of being handed a verified receipt they
+    // weighed nothing against.
+    expectErrorCode(
+      () => verifyReceipt(bytes, { publicKey: key.publicKey, nowSeconds: FIXED_NOW * 1000 }),
+      'VERIFICATION_TIME_OUT_OF_RANGE',
+    );
+    expect(() => verifyReceipt(bytes, { publicKey: key.publicKey, nowSeconds: FIXED_NOW })).not.toThrow();
+  });
+
   it('rejects structurally invalid payloads with BAD_PAYLOAD', () => {
     const key = generateSigningKey();
     const payload = samplePayload();

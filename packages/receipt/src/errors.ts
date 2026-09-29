@@ -9,6 +9,11 @@ export type ReceiptErrorCode =
   | 'NONCE_MISMATCH'
   | 'STALE_EVIDENCE'
   | 'STALE_RECEIPT'
+  // The two windows above weigh a reading the caller handed. This one refuses a reading that cannot
+  // be the count of seconds its own parameter names, which is the fault that made those two answers
+  // lie. It is not `STALE_RECEIPT` under another name: a stale receipt is a document that aged, and
+  // this is an argument that never reached the question.
+  | 'VERIFICATION_TIME_OUT_OF_RANGE'
   | 'UNSUPPORTED_VERSION'
   | 'BAD_PAYLOAD'
   | 'UNSUPPORTED_SCHEME'
@@ -96,6 +101,11 @@ const ERROR_MESSAGE: Record<ReceiptErrorCode, string> = {
   NONCE_MISMATCH: 'receipt nonce does not match the expected client nonce',
   STALE_EVIDENCE: 'attestation evidence timestamp is outside the freshness window',
   STALE_RECEIPT: 'receipt issuance time is outside the freshness window',
+  // What the two windows above are measured from, refused at the entry where the reading is taken up.
+  // The message carries the band rather than a suggestion about what the caller meant, because the
+  // reading is theirs to state: a number between the two ends is accepted whichever way it was counted,
+  // and one outside them is the other scale of the same instant or no instant at all.
+  VERIFICATION_TIME_OUT_OF_RANGE: 'the verification time handed to this reader is not a whole number of Unix seconds it can weigh a stamp against',
   // One code for both refusals: a version this package cannot parse and one it can parse but the
   // caller did not accept are the same answer to whoever sent the bytes, and which of the two it
   // was is not a fact about those bytes.

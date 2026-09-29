@@ -32,8 +32,53 @@ export interface VerifyCompletionParams {
   readonly responseBytes: Uint8Array;
   readonly verifyKey: Uint8Array;
   readonly policy?: AshaveriPolicy;
-  /** Wall clock in milliseconds since the epoch; defaults to Date.now. */
+  /**
+   * The instant the client read its answer, in whole milliseconds since the Unix epoch; defaults to
+   * `Date.now`. It is the client's own clock, and the format's two windows are closed against it after
+   * it has been turned into the seconds the stamps are counted in.
+   *
+   * A reading is refused by `CLIENT_CLOCK_OUT_OF_RANGE` when it is not a whole number of milliseconds
+   * in the span this estate's instants are counted in. That is the argument's fault and not the
+   * receipt's: a seconds figure in this parameter answers `STALE_RECEIPT` about an honest document,
+   * which is a verdict nobody earned.
+   */
   readonly nowMillis?: number;
+}
+
+/**
+ * The two ends of the span a handed client clock is weighed in, in whole milliseconds. They are the
+ * same two instants the format's reader states for its own seconds parameter, spelled in the unit this
+ * one names: the first ten-digit Unix second times a thousand, and the last second a four-byte Unix
+ * counter states before it rolls over, times a thousand.
+ *
+ * The lower end is what catches the mistake this refuses. A seconds figure handed into a milliseconds
+ * parameter reads here as a day in 1970, and the divide below turns it into a stamp no receipt of this
+ * estate is near, so every honest document would come back stale. A reading above the upper end is the
+ * same class of misspelling at the other scale.
+ */
+const EARLIEST_CLOCK_MILLIS = 1_000_000_000_000;
+const LATEST_CLOCK_MILLIS = 4_294_967_295_000;
+
+/**
+ * The one question asked of a handed clock, before a byte of the receipt is read.
+ *
+ * Nothing here decides which scale the number came from; the band does that by excluding the other
+ * scale's magnitude for every instant this format can be asked about, so a caller handing a plausible
+ * reading never meets a guess about what they meant to write.
+ */
+function assertClockMillis(handed: number): void {
+  if (
+    !Number.isSafeInteger(handed) ||
+    handed < EARLIEST_CLOCK_MILLIS ||
+    handed > LATEST_CLOCK_MILLIS
+  ) {
+    throw new SdkError(
+      'CLIENT_CLOCK_OUT_OF_RANGE',
+      `params.nowMillis of ${String(handed)} is not a whole number of milliseconds between ${String(
+        EARLIEST_CLOCK_MILLIS,
+      )} and ${String(LATEST_CLOCK_MILLIS)}: hand the instant in whole milliseconds, as Date.now spells it, or hand nothing and this client reads its own host clock`,
+    );
+  }
 }
 
 /**
@@ -50,7 +95,13 @@ export interface VerifyCompletionParams {
  * names them, the defaults in `policy.ts` if it does not. With no policy, no window runs.
  */
 export function verifyCompletionReceipt(params: VerifyCompletionParams): VerifiedReceipt {
-  const nowSeconds = Math.floor((params.nowMillis ?? Date.now()) / 1000);
+  // The client's clock is asked its question before a byte of the document is read, because a reading
+  // that is not a count of milliseconds in this estate's span is the caller's argument to fix. Refusing
+  // it here is what keeps the two windows below measuring the receipt rather than measuring the caller's
+  // scale against the format's, which is the wrong verdict this entry met once already.
+  const handed = params.nowMillis;
+  if (handed !== undefined) assertClockMillis(handed);
+  const nowSeconds = Math.floor((handed ?? Date.now()) / 1000);
   const policy = params.policy;
   // A policy carries these two windows whether its owner set them or not, and a policy is what
   // strict mode requires: a caller who pinned keys and measurements and never thought about the

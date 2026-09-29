@@ -33,6 +33,13 @@ export type SdkErrorCode =
   // Not a pin code: nothing here was mismatched against a list of names, and a reader told an issuer is
   // unpinned looks in a different file from one told their clock is not bounded well enough
   | 'STAMP_SOURCE_TOO_UNCERTAIN'
+  // A clock reading the caller handed this client that is not a count of milliseconds in the span the
+  // format weighs its stamps in. Beside the code above rather than under it, and the pair goes one way:
+  // that one weighs how far a deployment's source may stand from the instant it names, this one refuses
+  // an argument that is not the instant its own parameter says it is. Neither is a verdict about a
+  // receipt, and a caller told their clock is unbounded looks at the deployment while a caller told
+  // their reading is the wrong scale looks at their own call.
+  | 'CLIENT_CLOCK_OUT_OF_RANGE'
   // A receipt whose anchor states that its material is not there, met by a policy that demanded an anchor
   // and reached beside the pins above, in the client's own verification rather than in the format reader.
   // One code for the two absences, because what a caller does with either is one act and the message names

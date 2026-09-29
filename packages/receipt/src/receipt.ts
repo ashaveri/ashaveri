@@ -269,6 +269,11 @@ export interface VerifyOptions {
    * The instant the freshness windows are measured from, in whole seconds since the Unix epoch.
    * This is the format's own unit: `iat` and a `v: 3` item's `t` are seconds, so the value is read
    * straight against them with no divide. Defaults to the host clock, in seconds.
+   *
+   * A reading is refused by `VERIFICATION_TIME_OUT_OF_RANGE` when it is not a whole number of Unix
+   * seconds this reader could weigh a stamp against. The refusal is about the argument, not the
+   * document: the same bytes under a stated second answer the same way they would have answered had
+   * the caller handed seconds in the first place.
    */
   nowSeconds?: number;
   freshnessSeconds?: number;
@@ -883,6 +888,47 @@ export function decodeReceipt(bytes: Uint8Array, options?: VerifyOptions): Verif
   return { payload, header: cose.header, cose };
 }
 
+/**
+ * The two ends of the span a handed clock reading is weighed in, in whole Unix seconds.
+ *
+ * The lower end is the first ten-digit Unix second, and the upper is the last a four-byte Unix counter
+ * states before it rolls over. Between them lies every instant this format can be asked to stamp, on
+ * either side of any window it is asked to run, and the same instant spelled in milliseconds lies outside
+ * them by a factor of a thousand: `1772000000` read as seconds is a receipt of this estate and read as
+ * milliseconds is a day in 1970, while `1772000000000` read as milliseconds is that same receipt's own
+ * instant and read as seconds is a date past the counter these stamps are counted on.
+ *
+ * A band rather than a comparison, because the mistake this refuses has already been made in this
+ * estate: a reader that fell back to a seconds figure while its parameter was named for milliseconds
+ * answered with a verdict about the receipt when the only thing wrong was the unit of the argument.
+ * Refusing the reading is what makes that visible at the entry rather than downstream, and it is why
+ * the ends are stated in the message rather than left for the caller to guess.
+ */
+const EARLIEST_VERIFICATION_SECONDS = 1_000_000_000;
+const LATEST_VERIFICATION_SECONDS = 4_294_967_295;
+
+/**
+ * The one question asked of a handed `nowSeconds`, answered before either window runs.
+ *
+ * Nothing here decides which unit the number came from; the band does that by excluding the other
+ * unit's magnitude, which is why a caller handing a plausible reading is never met by a second guess
+ * about what they meant to write.
+ */
+function assertVerificationSeconds(handed: number): void {
+  if (
+    !Number.isSafeInteger(handed) ||
+    handed < EARLIEST_VERIFICATION_SECONDS ||
+    handed > LATEST_VERIFICATION_SECONDS
+  ) {
+    throw new ReceiptError(
+      'VERIFICATION_TIME_OUT_OF_RANGE',
+      `a verification time of ${String(handed)} is not a whole number of Unix seconds between ${String(
+        EARLIEST_VERIFICATION_SECONDS,
+      )} and ${String(LATEST_VERIFICATION_SECONDS)}: hand the instant in whole seconds, or hand nothing and the host clock is read`,
+    );
+  }
+}
+
 export function verifyReceipt(bytes: Uint8Array, options: VerifyOptions): VerifiedReceipt {
   let cose: CoseSign1 & { header: ProtectedHeader };
   if (options.publicKey) {
@@ -902,7 +948,13 @@ export function verifyReceipt(bytes: Uint8Array, options: VerifyOptions): Verifi
   if (options.expectedNonce && !equalBytes(payload.nce, options.expectedNonce)) {
     throw new ReceiptError('NONCE_MISMATCH');
   }
-  const nowSeconds = options.nowSeconds ?? Math.floor(Date.now() / 1000);
+  // The reading is asked its question where it is taken up: after the checks the document itself owes,
+  // and before either window weighs it. A caller who handed a number that is not a reading of a
+  // seconds counter hears that, rather than hearing `STALE_RECEIPT` from a subtraction between two
+  // scales, which is the wrong verdict this refusal exists to keep off the honest path.
+  const handed = options.nowSeconds;
+  if (handed !== undefined) assertVerificationSeconds(handed);
+  const nowSeconds = handed ?? Math.floor(Date.now() / 1000);
   if (options.freshnessSeconds !== undefined && Math.abs(nowSeconds - payload.iat) > options.freshnessSeconds) {
     throw new ReceiptError('STALE_RECEIPT');
   }
