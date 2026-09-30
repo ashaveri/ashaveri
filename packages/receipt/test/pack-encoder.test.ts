@@ -152,7 +152,7 @@ const BACKWARDS = [
 
 function manifestFor(run: { items: PackItem[]; anchor: Uint8Array; head: Uint8Array }, over: Partial<PackManifest> = {}): PackManifest {
   return {
-    v: 2,
+    v: 1,
     at: SPAN_TO,
     span: { from: SPAN_FROM, to: SPAN_TO },
     chain: { anchor: run.anchor, head: run.head },
@@ -235,7 +235,7 @@ describe('the pack writer', () => {
     const read = decodePack(bytes);
     // Every member comes back as it went in, digests and stamps included, which is what a caller comparing its
     // own records against a reader's answer has to be able to do.
-    expect(read.manifest.v).toBe(2);
+    expect(read.manifest.v).toBe(1);
     expect(read.manifest.at).toBe(manifest.at);
     expect(read.manifest.span).toEqual(manifest.span);
     expect(toHex(read.manifest.chain.anchor)).toBe(toHex(manifest.chain.anchor));
@@ -341,7 +341,7 @@ describe('the pack writer', () => {
       ['an id of no bytes', manifestFor(run, { items: run.items.map((one, index) => (index === 0 ? { ...one, id: '' } : one)) }), 'PACK_BAD_MANIFEST'],
       ['a chain endpoint of another width', manifestFor(run, { chain: { anchor: run.anchor, head: new Uint8Array(33) } }), 'PACK_BAD_MANIFEST'],
       ['an item carrying something other than bytes', manifestFor(run, { items: run.items.map((one, index) => (index === 0 ? { ...one, receipt: 'not a receipt' as unknown as Uint8Array } : one)) }), 'PACK_BAD_MANIFEST'],
-      ['a version no format has used', { ...honest, v: 3 as unknown as 2 }, 'PACK_UNSUPPORTED_VERSION'],
+      ['the number the undelivered earlier shape wore', { ...honest, v: 2 as unknown as 1 }, 'PACK_UNSUPPORTED_VERSION'],
     ];
     const headerBytes = encodePackProtectedHeader(KEY.kid);
     for (const [name, manifest, code] of faults) {

@@ -25,7 +25,7 @@ import { cddlRule, cddlRuleArms, labeledMembers, memberDeclarations, readCddl, r
  * helpers out of a file another suite owns is a change to that file rather than to this one.
  */
 const packCddlPath = fileURLToPath(new URL('../pack.cddl', import.meta.url));
-const packSchemaPath = fileURLToPath(new URL('../schemas/pack-v2.schema.json', import.meta.url));
+const packSchemaPath = fileURLToPath(new URL('../schemas/pack-v1.schema.json', import.meta.url));
 
 function readPackCddl(): string {
   return readFileSync(packCddlPath, 'utf8');

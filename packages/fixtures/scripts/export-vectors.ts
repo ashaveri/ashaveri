@@ -192,7 +192,7 @@ function packManifest(): Uint8Array {
   const receipt = signCoseSign1(encodeCanonical(new Map<string, unknown>([['v', 1], ['iss', 'ashaveri-pack-fixture']])), KEY);
   return encodeCanonical(
     new Map<string, unknown>([
-      ['v', 2],
+      ['v', 1],
       ['at', CLOCK],
       ['span', new Map<string, unknown>([['from', CLOCK - 600], ['to', CLOCK]])],
       ['chain', new Map<string, unknown>([['anchor', ZEROS], ['head', digest(receipt)]])],
@@ -667,7 +667,7 @@ function main() {
             },
             {
               name: 'pack-as-export',
-              note: 'A pack v1 document signed by the same key, given to the export reader: the content type answers it before a member of the manifest is read.',
+              note: 'A pack document signed by the same key, given to the export reader: the content type answers it before a member of the manifest is read.',
               documentBase64Url: toBase64Url(underContentType('ashaveri/pack', packManifest())),
               expected: 'EXPORT_BAD_HEADER',
             },

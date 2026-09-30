@@ -31,8 +31,8 @@ import { readSourceFile, spelledNumber, tableRows, unionMembers } from './doc-co
  * unnoticed.
  */
 
-const DOC = '../../../docs/pack-v2.md';
-const SCHEMA = '../../../packages/receipt/schemas/pack-v2.schema.json';
+const DOC = '../../../docs/pack-v1.md';
+const SCHEMA = '../../../packages/receipt/schemas/pack-v1.schema.json';
 const CDDL = '../../../packages/receipt/pack.cddl';
 const ERRORS = '../../../packages/receipt/src/errors.ts';
 const READER = '../../../packages/receipt/src/pack.ts';
@@ -235,7 +235,7 @@ const declared = declaredRows();
 const byPath = new Map(declared.map((one) => [one.path, one]));
 const headerDef = schema.properties?.protectedHeader ?? {};
 
-describe('docs/pack-v2.md layout', () => {
+describe('docs/pack-v1.md layout', () => {
   it('names every member the layout declares, and no member it does not', () => {
     // Order-insensitive on purpose: which block of the table comes first is a choice of prose, and the case
     // below is what pins order. What this case owes the reader is that the two statements name one set.
@@ -388,10 +388,10 @@ describe('docs/pack-v2.md layout', () => {
   it('states the identity of the schema file it restates', () => {
     const body = prose();
     expect(schema.$id, 'the schema carries no identity for the document to state').toBe(
-      'https://ashaveri.com/schemas/pack-v2.json',
+      'https://ashaveri.com/schemas/pack-v1.json',
     );
     expect(body).toContain(String(schema.$id));
-    expect(body).toContain('packages/receipt/schemas/pack-v2.schema.json');
+    expect(body).toContain('packages/receipt/schemas/pack-v1.schema.json');
     expect(body).toContain('packages/receipt/pack.cddl');
     expect(body, 'the document points at the vectors it is measured with').toContain('packages/fixtures/data/pack-v1.json');
     expect(body, 'and at the test that holds this table to the schema').toContain('packages/fixtures/test/pack-doc.test.ts');

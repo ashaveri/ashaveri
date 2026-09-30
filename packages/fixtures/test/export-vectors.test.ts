@@ -39,7 +39,7 @@ import { assertRowRoster, ROW_NAMING_FIELDS, unionMembers } from './doc-contract
 
 const file = loadExportVectors();
 const ERRORS = '../../../packages/receipt/src/errors.ts';
-const PACK_TWIN = '../../../packages/receipt/schemas/pack-v2.schema.json';
+const PACK_TWIN = '../../../packages/receipt/schemas/pack-v1.schema.json';
 const SUITE_KEY = signingKeyFromSeed(new Uint8Array(32).fill(23));
 
 /** The four elements of a sealed document, for the cases that rebuild one around a different payload. */

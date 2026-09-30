@@ -1,9 +1,9 @@
-# Evidence pack, version 2
+# Evidence pack, version 1
 
-Status: current for pack version 2. The normative statement of the container is
+Status: current for pack version 1. The normative statement of the container is
 [`packages/receipt/pack.cddl`](../packages/receipt/pack.cddl); its JSON twin is
-[`packages/receipt/schemas/pack-v2.schema.json`](../packages/receipt/schemas/pack-v2.schema.json), whose
-identity is `https://ashaveri.com/schemas/pack-v2.json`; the conformance vectors are
+[`packages/receipt/schemas/pack-v1.schema.json`](../packages/receipt/schemas/pack-v1.schema.json), whose
+identity is `https://ashaveri.com/schemas/pack-v1.json`; the conformance vectors are
 [`packages/fixtures/data/pack-v1.json`](../packages/fixtures/data/pack-v1.json) and are read as described in
 [vectors.md](vectors.md). The table below is the same layout as the twin, and
 `packages/fixtures/test/pack-doc.test.ts` holds the two against each other in both directions: every row
@@ -69,17 +69,19 @@ negative stamp is a malformed document and not an unusual way of writing a quant
 
 ## The manifest
 
-The payload is a closed map at `v: 2`: a member the version a document names does not define makes the document
+The payload is a closed map at `v: 1`: a member the format does not define makes the document
 malformed rather than a document read with that member dropped. That holds of every map below, so a span cannot
 be read with a duty's keywords and a carried entry cannot be read as an item. The manifest names seven members
 and each is required, so no position is optional, none carries a default, and a reader never has to work out
 what an omitted field meant.
 
-Version one named six of these and no more. Version two is the seventh, `carried`, and it is a version rather
-than an addition because the member is one a reader must not miss: a pack that carries nothing of what its
-receipts' anchors name leaves every held slot weighable only against material the reader has to go somewhere
-else for, which is a different document from the one the auditor holds. The version states what the fields
-attest, not which software wrote them.
+`carried` is required rather than optional, and that is the reason it would have moved a version had there
+been one to move: a pack that carries nothing of what its receipts' anchors name leaves every held slot
+weighable only against material the reader has to go somewhere else for, which is a different document from
+the one the auditor holds. An earlier shape of this container named six of these seven members. It was never
+delivered outside this estate, no bytes carrying it exist to be read, and no reader has to be protected from
+it, so it is not a version and the number starts at one. The version states what the fields attest, not which
+software wrote them, and a number that documents no shape a reader can meet states nothing.
 
 Byte strings are projected as lowercase hex in the twin and in the vectors, and documents and byte strings are
 unpadded base64url in the vectors. A byte ceiling belongs to the CDDL: a JSON string length is a different
@@ -90,7 +92,7 @@ measure, so the twin states the floor and not the limit.
 | `protectedHeader` | `object` | yes | The three signed parameters above, as the twin projects them. |
 | `payload` | `object` | yes | The signed manifest, which is the only part of a pack a verifier has to believe before it starts walking. |
 | `signature` | `string` | no | Ed25519 over the `Sig_structure`, hex. Named without being demanded, because a display of an unsigned pack still shows; `pack.cddl` requires four elements and sixty-four bytes. |
-| `v` | `2` | yes | Format version, one constant rather than a discriminant. A reader refuses a version it does not define rather than reading the bytes under rules that were not written for them. |
+| `v` | `1` | yes | Format version, one constant rather than a discriminant. A reader refuses a number it does not define rather than reading the bytes under rules that were not written for them. |
 | `at` | `integer` | yes | Unix seconds, the instant assembly began, stamped before the reads rather than after them so that a slow store cannot date a pack later than the window it describes. `held` is measured at it and the span is served as of it. |
 | `span` | `object` | yes | The period the pack answers for, half-open: `from` included, `to` excluded. |
 | `chain` | `object` | yes | The two endpoints a reader walks between, neither of them derivable from the items. |
@@ -259,10 +261,10 @@ and not a clock the run reads.
 
 | Fact | Value |
 |---|---|
-| File | `packages/receipt/schemas/pack-v2.schema.json` |
-| `$id` | `https://ashaveri.com/schemas/pack-v2.json` |
+| File | `packages/receipt/schemas/pack-v1.schema.json` |
+| `$id` | `https://ashaveri.com/schemas/pack-v1.json` |
 | Draft | JSON Schema 2020-12 |
-| Version member | `v` is the constant `2`, and the number in the identity is the number in the document |
+| Version member | `v` is the constant `1`, and the number in the identity is the number in the document |
 
 The identity carries the version because a pack manifest states which members a reader owes it, and a schema
 named for no version would have to mean two shapes at once the day an eighth member arrives.

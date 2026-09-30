@@ -412,7 +412,7 @@ export interface ExportCrossReadingCase {
   note: string;
   /** The export manifest projected as its own twin describes it, for the pack side of the pair. */
   manifest?: Record<string, unknown>;
-  /** A pack v1 document, sealed, for the export side of the pair. */
+  /** A pack document, sealed, for the export side of the pair. */
   documentBase64Url?: string;
   expected: string;
 }

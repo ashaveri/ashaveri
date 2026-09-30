@@ -165,7 +165,7 @@ export interface PackCarriedResolution {
 }
 
 export interface PackManifest {
-  readonly v: 2;
+  readonly v: 1;
   readonly at: number;
   readonly span: PackSpan;
   readonly chain: PackChain;
@@ -300,7 +300,7 @@ interface DefinedMap {
 }
 
 /**
- * The closedness rule, applied to one map and then to the maps it opens. A member no position of this version
+ * The closedness rule, applied to one map and then to the maps it opens. A member no position the format
  * defines makes the document malformed rather than a member a reader agreed to forget, and the walk has to
  * reach the maps a document actually opened: a `span` whose bounds were read and then dropped on the way to a
  * verifier is the silence the rule exists to refuse. A value the format makes an array of maps is closed at its
@@ -309,7 +309,7 @@ interface DefinedMap {
 function assertDefined(raw: Map<unknown, unknown>, members: readonly string[], where: string, nested: Readonly<Record<string, DefinedMap>> = {}): void {
   for (const [key, value] of raw) {
     if (typeof key !== 'string' || !members.includes(key)) {
-      throw badManifest(`${where} carries a member this version does not define: ${memberName(key)}`);
+      throw badManifest(`${where} carries a member the format does not define: ${memberName(key)}`);
     }
     const inner = nested[key];
     if (inner === undefined) continue;
@@ -944,7 +944,7 @@ function parseManifest(bytes: Uint8Array): PackManifest {
   if (typeof version !== 'number' || !Number.isInteger(version)) {
     throw badManifest('v must be an integer pack version');
   }
-  if (version !== 2) {
+  if (version !== 1) {
     throw new ReceiptError('PACK_UNSUPPORTED_VERSION', `pack manifest version ${version} is not a format this package reads`);
   }
   assertDefined(raw, PACK_MANIFEST_MEMBERS, 'manifest', {
@@ -961,7 +961,7 @@ function parseManifest(bytes: Uint8Array): PackManifest {
   const at = requireStamp(raw.get('at'), 'at');
   const span = readSpan(spanMap, at);
   const manifest: PackManifest = {
-    v: 2,
+    v: 1,
     at,
     span,
     chain: readChain(chainMap),

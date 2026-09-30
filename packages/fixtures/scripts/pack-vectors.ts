@@ -198,7 +198,7 @@ const ENTRIES: readonly Entry[] = [
  */
 function manifestFor(run: { items: PackItem[]; anchor: Uint8Array; head: Uint8Array }, over: Partial<PackManifest> = {}): PackManifest {
   return {
-    v: 2,
+    v: 1,
     at: SPAN_TO,
     span: { from: SPAN_FROM, to: SPAN_TO },
     chain: { anchor: run.anchor, head: run.head },
@@ -1066,8 +1066,8 @@ function main() {
           'Evidence packs in the shapes a deployment hands them over in, the keys a reader designates beside each one, and the verdict the shipped pack reader owes: whole documents accepted with the run and the window reported apart, the collateral a pack carries for the slots its sealed receipts name, an honest pack whose stamps run against its links reported and not refused, and one refusal for every fault the format names.',
         layout: {
           format: 'packages/receipt/pack.cddl',
-          twin: 'packages/receipt/schemas/pack-v2.schema.json',
-          document: 'docs/pack-v2.md',
+          twin: 'packages/receipt/schemas/pack-v1.schema.json',
+          document: 'docs/pack-v1.md',
           prose: 'docs/receipt-spec.md section 5.2',
           contentType: PACK_CONTENT_TYPE,
           writer:

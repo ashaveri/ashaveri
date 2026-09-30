@@ -532,7 +532,7 @@ describe('the envelope and the header', () => {
     // to a reader that believes the label. Both pairs of bytes pass their own checks, so only label 3 settles
     // which claim a reviewer is holding.
     const packManifest: PackManifest = {
-      v: 2,
+      v: 1,
       at: RUN_START + 3 * WINDOW + 10,
       span: { from: RUN_START, to: RUN_START + 3 * WINDOW },
       chain: { anchor: new Uint8Array(32), head: new Uint8Array(32) },

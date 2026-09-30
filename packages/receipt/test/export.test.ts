@@ -59,7 +59,7 @@ import type { ReceiptErrorCode } from '../src/errors.js';
  */
 const exportCddlPath = fileURLToPath(new URL('../export.cddl', import.meta.url));
 const exportSchemaPath = fileURLToPath(new URL('../schemas/export-v1.schema.json', import.meta.url));
-const packSchemaPath = fileURLToPath(new URL('../schemas/pack-v2.schema.json', import.meta.url));
+const packSchemaPath = fileURLToPath(new URL('../schemas/pack-v1.schema.json', import.meta.url));
 const packCddlPath = fileURLToPath(new URL('../pack.cddl', import.meta.url));
 
 const CDDL = readFileSync(exportCddlPath, 'utf8');
@@ -761,7 +761,7 @@ describe('the export CDDL and its JSON twin', () => {
     saidOnce('the CDDL', PROSE, 'not proof of freshness');
     saidOnce('the CDDL', PROSE, 'not a verification of the receipts inside it');
     saidOnce('the CDDL', PROSE, 'An empty collection has an explicit outcome');
-    saidOnce('the CDDL', PROSE, 'the opposite of pack v1');
+    saidOnce('the CDDL', PROSE, 'the opposite of the pack');
     saidOnce('the CDDL', PROSE, 'Closure is one rule across this file and not a rule about one map');
     saidOnce('the CDDL', PROSE, 'One map a signer fills at will, and that is a decision rather than a gap');
     saidOnce('the CDDL', PROSE, 'Two differences make a new pack version the wrong instrument');

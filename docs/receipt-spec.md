@@ -1084,7 +1084,7 @@ requires a provider to keep the logs a high-risk system generates, `19(2)` and `
 as part of the documentation a financial institution keeps under applicable Union financial-services law
 instead, where the period is longer and is not this estate's to name. The three labels are the closed set
 the shipped writer admits, which is why they are enumerated in the schema;
-`packages/receipt/schemas/pack-v2.schema.json` deliberately leaves its own duty label a plain string
+`packages/receipt/schemas/pack-v1.schema.json` deliberately leaves its own duty label a plain string
 because the registry is a reader's question rather than that format's, so the two artifacts take opposite
 stances on that one question and neither is a mistake.
 

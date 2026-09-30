@@ -194,7 +194,7 @@ function packDocument(key: SigningKey, ids: readonly string[], movedStamp?: numb
     items.push(item);
   }
   const manifest = new Map<string, unknown>([
-    ['v', 2],
+    ['v', 1],
     ['at', at],
     ['span', new Map([['from', from], ['to', to]])],
     ['chain', new Map([['anchor', anchor], ['head', previous]])],

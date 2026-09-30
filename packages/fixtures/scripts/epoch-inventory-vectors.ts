@@ -346,7 +346,7 @@ const MEMBERS_REORDERED: EpochInventoryManifest = {
 
 /** A pack manifest of the other container, whole by its own layout, for the cross-reading rows. */
 const FOREIGN_PACK: Uint8Array = encodePackManifest({
-  v: 2,
+  v: 1,
   at: RUN_START + 3 * WINDOW + 10,
   span: { from: RUN_START, to: RUN_START + 3 * WINDOW },
   chain: { anchor: new Uint8Array(32), head: new Uint8Array(32) },

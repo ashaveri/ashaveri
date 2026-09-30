@@ -854,7 +854,7 @@ const COMMAND_ANSWERS: readonly (CommandAnswer & { readonly name: string })[] = 
   { name: 'rotation-read-with-one-pinned-key', code: 'PACK_UNKNOWN_KEY', exit: 1 },
   { name: 'sealed-under-another-deployment-key', code: 'REDACTION_UNKNOWN_KEY', exit: 1 },
   { name: 'no-designation-at-all', code: 'usage', exit: 2 },
-  { name: 'protected-content-type-of-a-pack', code: 'PACK_UNSUPPORTED_VERSION', exit: 1 },
+  { name: 'protected-content-type-of-a-pack', code: 'PACK_BAD_MANIFEST', exit: 1 },
   { name: 'protected-content-type-of-a-receipt', code: 'BAD_PAYLOAD', exit: 1 },
   { name: 'protected-kid-of-another-width', code: 'BAD_PROTECTED_HEADER', exit: 1 },
   { name: 'document-truncated-mid-envelope', code: 'MALFORMED_CBOR', exit: 1 },

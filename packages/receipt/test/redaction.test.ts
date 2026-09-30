@@ -148,7 +148,7 @@ function packManifest(
   over: Partial<PackManifest> = {},
 ): PackManifest {
   return {
-    v: 2,
+    v: 1,
     at: SPAN_TO,
     span: { from: SPAN_FROM, to: SPAN_TO },
     chain: { anchor: run.anchor, head: run.head },

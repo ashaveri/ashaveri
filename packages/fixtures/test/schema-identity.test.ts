@@ -5,11 +5,12 @@ import { fileURLToPath } from 'node:url';
 /**
  * Every published schema URI names the version it describes.
  *
- * The rule exists because two documents already share one format family: the receipt spec defines payload
+ * The rule exists because one family already carries two documents at once: the retention manifest is
  * `v: 1` and `v: 2`, and a reader is told to refuse a version it does not implement. An identity like
- * `schemas/receipt.json` cannot stand for one of those two, so the next version would either reuse a URI
- * that already meant something else or leave the old file named as though it were the only one. Carrying
- * the number in the identity is what makes a second version an addition rather than a redefinition.
+ * `schemas/retention.json` could stand for neither of those two, so a second version would either reuse a
+ * URI that already meant something else or leave the old file named as though it were the only one.
+ * Carrying the number in the identity is what makes a second version an addition rather than a
+ * redefinition, and it is why a single-version family still names its one number in the file.
  *
  * The directory is walked rather than a list written down, because a fifth schema added on its own terms is
  * exactly the case this catches, and a list would have to be edited to notice. Both schema directories are

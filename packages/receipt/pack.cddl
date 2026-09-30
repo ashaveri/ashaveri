@@ -52,16 +52,16 @@ Ashaveri-Pack-Protected-Header = {
 ; rules the bytes are read under, so a reader needs it before it can read a member of anything, and
 ; needing it ahead of the walk is as strong a claim on the manifest as needing it during one.
 ;
-; `v: 2` is the version this file states, and a version here says what the fields attest rather than which
-; software wrote them, as it does in `receipt.cddl`. Version one named six members and no more. This one names
-; seven, and the seventh is a member a reader must not miss: a pack that carries nothing of what its receipts'
-; anchors name leaves every `held` slot weighable only against an endpoint the reader has to reach somewhere
-; else, which is a different document from the one the auditor holds. An added member a verifier may ignore is
-; one version; an added member it must not miss is another, because silence must not read as compliance, and a
-; closed map cannot gain a member without saying so. Nothing about the duty mapping, the framing or the
-; envelope is expected to change without one.
+; `v: 1` is the only version this file states, and a version here says what the fields attest rather than
+; which software wrote them, as it does in `receipt.cddl`. The manifest names seven members and `carried` is
+; among them: a pack that carries nothing of what its receipts' anchors name leaves every `held` slot weighable
+; only against an endpoint the reader has to reach somewhere else, which is a different document from the one
+; the auditor holds, so the member is required and an empty list is a statement rather than an omission. An
+; earlier shape of this container named six and not the seventh; it was never delivered outside this estate and
+; no bytes carrying it exist to be read, so it is not a version this file has to refuse and the number starts at
+; one. Nothing about the duty mapping, the framing or the envelope is expected to change without one.
 Ashaveri-Pack-Manifest = {
-    v: 2,                     ; format version
+    v: 1,                     ; format version
     at: int,                  ; unix seconds, the instant assembly began
     span: PackSpan,
     chain: PackChain,

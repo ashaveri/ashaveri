@@ -359,7 +359,7 @@ function chained(
 function manifestValue(over: Partial<PackManifest> = {}): PackManifest {
   const run = chained(ENTRIES);
   return {
-    v: 2,
+    v: 1,
     at: SPAN_TO,
     span: { from: SPAN_FROM, to: SPAN_TO },
     chain: { anchor: run.anchor, head: run.head },
@@ -655,11 +655,11 @@ describe('the pack reader and the format it reads', () => {
   it('refuses a member no map of this version defines, at every level including the signed header', () => {
     const good = signPack(manifestValue());
     const levels: Array<[string, (root: Map<unknown, unknown>) => void, string]> = [
-      ['the manifest', (root) => root.set('surprise', 'x'), "manifest carries a member this version does not define: 'surprise'"],
-      ['the span', (root) => spanOf(root).set('surprise', 'x'), "span carries a member this version does not define: 'surprise'"],
-      ['the chain', (root) => chainOf(root).set('surprise', 'x'), "chain carries a member this version does not define: 'surprise'"],
-      ['the duty', (root) => dutyOf(root).set('met', true), "duty carries a member this version does not define: 'met'"],
-      ['an item', (root) => itemOf(root, 0).set('surprise', 'x'), "items\\[0\\] carries a member this version does not define: 'surprise'"],
+      ['the manifest', (root) => root.set('surprise', 'x'), "manifest carries a member the format does not define: 'surprise'"],
+      ['the span', (root) => spanOf(root).set('surprise', 'x'), "span carries a member the format does not define: 'surprise'"],
+      ['the chain', (root) => chainOf(root).set('surprise', 'x'), "chain carries a member the format does not define: 'surprise'"],
+      ['the duty', (root) => dutyOf(root).set('met', true), "duty carries a member the format does not define: 'met'"],
+      ['an item', (root) => itemOf(root, 0).set('surprise', 'x'), "items\\[0\\] carries a member the format does not define: 'surprise'"],
     ];
     for (const [name, mutate, phrase] of levels) {
       const bytes = reSealed(good, mutate);

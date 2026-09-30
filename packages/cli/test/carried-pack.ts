@@ -181,7 +181,7 @@ export function packManifestOf(entries: readonly PackEntry[], carried: readonly 
     return item;
   });
   return {
-    v: 2,
+    v: 1,
     at,
     span: { from, to },
     chain: { anchor: new Uint8Array(32), head: previous },
