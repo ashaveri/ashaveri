@@ -2,7 +2,7 @@ import type { CollateralValidityAnchor, StampDisclosure } from '@ashaveri/receip
 import { declarationOf, type TimeSource } from './store.js';
 
 /**
- * The two `v: 3` members that state what this issuance knew about itself.
+ * The two payload members that state what this issuance knew about itself.
  *
  * `packages/receipt/src/disclosure.ts` publishes the shapes and `docs/receipt-spec.md` section 3
  * publishes which field of a payload holds which half. Filling them in is what lives here, because a

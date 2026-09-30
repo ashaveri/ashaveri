@@ -88,11 +88,13 @@ const ANCHORS: Record<string, CollateralValidityAnchor> = {
 };
 
 /**
- * One payload, at one version. `res` is the digest of no bytes because the client below is handed no bytes:
- * the marking claimed here is `sch: none`, whose region is the empty input by the format's own rule, so the
- * response checks hold and the only question left open is the anchor's.
+ * One payload, at the one version this format declares. `res` is the digest of no bytes because the client
+ * below is handed no bytes: the marking claimed here is `sch: none`, whose region is the empty input by the
+ * format's own rule, so the response checks hold and the only question left open is the anchor's. The anchor
+ * is the only member of the four a receipt states about itself that this file moves, because the demand under
+ * test reads it and nothing else.
  */
-function payloadOver(version: 1 | 2 | 3, cva?: CollateralValidityAnchor): ReceiptPayload {
+function payloadOver(cva: CollateralValidityAnchor): ReceiptPayload {
   const shared = {
     iss: 'dpl-9f2a41c3',
     ins: 'cvm-i-047f2a',
@@ -107,22 +109,18 @@ function payloadOver(version: 1 | 2 | 3, cva?: CollateralValidityAnchor): Receip
     epk: 0,
     tok: { p: 1, c: 1 },
   };
-  if (version === 1) return { v: 1, ...shared };
-  const mk = { sch: 'none' as const, d: RESPONSE_HASH };
-  if (version === 2) return { v: 2, ...shared, mk };
-  if (cva === undefined) throw new Error('a v3 payload is built with the anchor it states');
   return {
-    v: 3,
+    v: 1,
     ...shared,
-    mk,
+    mk: { sch: 'none' as const, d: RESPONSE_HASH },
     sd: { name: 'host clock', uncertaintySeconds: null },
     cva,
     itm: [{ t: IAT - 1, d: hashRequest(utf8('the one item of a buffered body')) }],
   };
 }
 
-function receiptOver(version: 1 | 2 | 3, cva?: CollateralValidityAnchor, by = KEY): Uint8Array {
-  return issueReceipt(payloadOver(version, cva), by);
+function receiptOver(cva: CollateralValidityAnchor, by = KEY): Uint8Array {
+  return issueReceipt(payloadOver(cva), by);
 }
 
 /**
@@ -440,7 +438,7 @@ describe('an anchor weighed against the demand', () => {
     expect(table.map(([shape]) => shape).sort()).toEqual(Object.keys(ANCHORS).sort());
     for (const [shape, heldSlots, owed] of table) {
       const anchor = ANCHORS[shape]!;
-      const receipt = receiptOver(3, anchor);
+      const receipt = receiptOver(anchor);
       // The count the posture is decided on is read off the shape beside it, so the two cannot drift.
       const slots = [anchor.collateral, anchor.validity];
       expect(slots.filter((slot) => slot.presence === 'held').length, shape).toBe(heldSlots);
@@ -452,7 +450,7 @@ describe('an anchor weighed against the demand', () => {
   });
 
   it('reaches the demand through a document as well as through an object', async () => {
-    const receipt = receiptOver(3, ANCHORS['collateral held, validity never taken in']!);
+    const receipt = receiptOver(ANCHORS['collateral held, validity never taken in']!);
     const two = await loadPolicyFromText(docWith({ minAnchorSlotsHeld: 2 }), '.');
     expect(verdict(receipt, two.policy)).toBe('ANCHOR_SLOT_NOT_HELD');
     const one = await loadPolicyFromText(docWith({ minAnchorSlotsHeld: 1 }), '.');
@@ -460,7 +458,7 @@ describe('an anchor weighed against the demand', () => {
   });
 
   it('says which state reached it, whose slot it was, and what that slot said', () => {
-    const message = messageOf(receiptOver(3, ANCHORS['collateral held, validity absent at source']!), demandOf(2));
+    const message = messageOf(receiptOver(ANCHORS['collateral held, validity absent at source']!), demandOf(2));
     expect(message).toContain('the validity slot states its material was absent at the source');
     expect(message).toContain('absent-at-source');
     expect(message).toContain(CHAIN_GAP);
@@ -470,11 +468,11 @@ describe('an anchor weighed against the demand', () => {
     // state a count and a list that disagree with each other.
     expect(message).not.toContain('the collateral slot states');
 
-    expect(messageOf(receiptOver(3, ANCHORS['collateral absent at source, validity held']!), demandOf(2))).toContain(
+    expect(messageOf(receiptOver(ANCHORS['collateral absent at source, validity held']!), demandOf(2))).toContain(
       'the collateral slot states',
     );
 
-    const both = messageOf(receiptOver(3, ANCHORS['both never taken in']!), demandOf(1));
+    const both = messageOf(receiptOver(ANCHORS['both never taken in']!), demandOf(1));
     expect(both).toContain('the collateral slot states that this deployment never took its material in');
     expect(both).toContain('the validity slot states that this deployment never took its material in');
     expect(both).toContain('an anchor with 0 of 2 slots held');
@@ -483,22 +481,23 @@ describe('an anchor weighed against the demand', () => {
   });
 
   it('keeps its refusal one line of visible text, as every refusal is', () => {
-    expect(messageOf(receiptOver(3, ANCHORS['both absent at source']!), demandOf(2)).split('\n')).toHaveLength(1);
+    expect(messageOf(receiptOver(ANCHORS['both absent at source']!), demandOf(2)).split('\n')).toHaveLength(1);
   });
 });
 
 describe('what the demand does not reach', () => {
-  it('leaves a document that states no anchor exactly where it was', () => {
-    // A `v: 1` and a `v: 2` payload name no anchor, so they make no statement about presence either way.
-    // That is the boundary of this rule and not a hole in it: refusing them would be a rule about version
-    // numbers, and the row in docs/error-codes.md says so in the same words a caller reads.
-    for (const version of [1, 2] as const) {
-      const receipt = receiptOver(version);
-      expect(verdict(receipt, undefined), `v${version} with no policy`).toBe('verify-ok');
-      expect(verdict(receipt, demandOf(MAX_ANCHOR_SLOTS_DEMANDABLE)), `v${version} under the fullest demand`).toBe(
-        'verify-ok',
-      );
-    }
+  it('weighs every receipt this format reads, and moves none of them when nobody states a demand', () => {
+    // Every payload this reader opens names an anchor, so the demand reaches all of them: the documents
+    // that stated none retired with the versions that named none, and a `not-taken-in` pair is now the
+    // shortest statement a receipt can make about presence. What the rule still does not reach is a
+    // policy that names no demand, which is the same posture the table above pins as `none`, and the
+    // refusal below is reached through what the anchor states rather than through a member that is not
+    // there. The row in docs/error-codes.md says which states it reaches in the words a caller reads.
+    const receipt = receiptOver(ANCHORS['both never taken in']!);
+    expect(verdict(receipt, undefined), 'no anchor demand stated by anybody').toBe('verify-ok');
+    expect(verdict(receipt, demandOf(MAX_ANCHOR_SLOTS_DEMANDABLE)), 'the fullest demand').toBe(
+      'ANCHOR_SLOT_NOT_HELD',
+    );
   });
 
   it('weighs nothing about whether a held digest still resolves', () => {
@@ -509,7 +508,7 @@ describe('what the demand does not reach', () => {
       collateral: { presence: 'held', sha256: new Uint8Array(32).fill(1) },
       validity: { presence: 'held', sha256: new Uint8Array(32).fill(2) },
     };
-    expect(verdict(receiptOver(3, thin), demandOf(2))).toBe('verify-ok');
+    expect(verdict(receiptOver(thin), demandOf(2))).toBe('verify-ok');
   });
 });
 
@@ -525,13 +524,11 @@ describe('a policy naming nothing changes no existing verdict', () => {
    * each other would prove nothing, because a guard that fired on an absent demand refuses both.
    */
   const cases: Array<[label: string, receipt: Uint8Array, answer: string, responseBytes?: Uint8Array]> = [
-    ['a v1 receipt', receiptOver(1), 'verify-ok'],
-    ['a v2 receipt', receiptOver(2), 'verify-ok'],
-    ['a v3 receipt with both slots held', receiptOver(3, ANCHORS['both held']!), 'verify-ok'],
-    ['a v3 receipt with both gaps stated', receiptOver(3, ANCHORS['both never taken in']!), 'verify-ok'],
-    ['a v3 receipt with one slot held', receiptOver(3, ANCHORS['collateral held, validity absent at source']!), 'verify-ok'],
-    ['a receipt signed by another key', receiptOver(3, ANCHORS['both held']!, OTHER_KEY), 'receipt:KID_MISMATCH'],
-    ['a marked receipt handed bytes it does not attest', receiptOver(2), 'RESPONSE_HASH_MISMATCH', utf8('the body some other completion served')],
+    ['a receipt with both slots held', receiptOver(ANCHORS['both held']!), 'verify-ok'],
+    ['a receipt with both gaps stated', receiptOver(ANCHORS['both never taken in']!), 'verify-ok'],
+    ['a receipt with one slot held', receiptOver(ANCHORS['collateral held, validity absent at source']!), 'verify-ok'],
+    ['a receipt signed by another key', receiptOver(ANCHORS['both held']!, OTHER_KEY), 'receipt:KID_MISMATCH'],
+    ['a marked receipt handed bytes it does not attest', receiptOver(ANCHORS['both never taken in']!), 'RESPONSE_HASH_MISMATCH', utf8('the body some other completion served')],
   ];
 
   for (const [label, receipt, answer, responseBytes] of cases) {
@@ -543,7 +540,7 @@ describe('a policy naming nothing changes no existing verdict', () => {
   }
 
   it('refuses on the pins it always refused on, ahead of the demand', () => {
-    const receipt = receiptOver(3, ANCHORS['both never taken in']!);
+    const receipt = receiptOver(ANCHORS['both never taken in']!);
     expect(verdict(receipt, { issuers: ['someone-else'] })).toBe('ISSUER_NOT_ALLOWED');
     // A receipt this policy would not trust an issuer from is not also asked about its anchor: the earlier
     // question is the answer a caller gets, which is the order the pins have always kept.
@@ -552,7 +549,7 @@ describe('a policy naming nothing changes no existing verdict', () => {
   });
 
   it('reaches the same verdict through a designated key as through a handed one', () => {
-    const receipt = receiptOver(3, ANCHORS['both held']!);
+    const receipt = receiptOver(ANCHORS['both held']!);
     const policy: AshaveriPolicy = { issuers: ['dpl-9f2a41c3'], keys: { [KID]: toBase64Url(KEY.publicKey) } };
     expect(policyKeyByKid(policy, KEY.kid)).toEqual(KEY.publicKey);
     expect(verdict(receipt, policy)).toBe('verify-ok');

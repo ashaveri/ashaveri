@@ -1,9 +1,10 @@
 # Conformance vectors
 
-Status: current for format versions 1, 2 and 3. Version 2 arrives with the marking member and
-version 3 with the disclosure of a stamped instant, the anchor of an appraisal context and the item
-list of a response; the receipt fixtures under `data/receipts/` carry all three, and
-`data/manifest.json` states beside each row the answer a reader owes it. The files named here are the
+Status: current for format versions 1. The payload carries one version, and it states seventeen members:
+the twelve every receipt has always carried, the marking member, the disclosure of a stamped instant, the
+anchor of an appraisal context, and the item list of a response. The receipt fixtures under
+`data/receipts/` all carry that document, and `data/manifest.json` states beside each row the answer a
+reader owes it. The files named here are the
 contract a
 reimplementation is measured against, and this document says what each one states, how to consume it,
 and what a disagreement means. The formats themselves are specified in
@@ -57,11 +58,14 @@ specific to that case.
   `data/keys/receipt-key-v1.json` at the timestamp the entry's own payload carries. `expected` states the
   verdict that reading owes: `verify-ok`, or the error code a refusal has to answer with, and `keyless`
   states what the same bytes answer for a reader holding no key at all. The five entries this suite began
-  with state neither column beyond `expected`; every row added since names the payload version its bytes
+  with state no column beyond `expected` and the response bytes their documents digest; every row added
+  since names the payload version its bytes
   claim in `v`, the marking setting its response came off in `marking`, the response bytes themselves, and
   the item list as the shipped reader of a response body gives them. Which versions those rows name, and
   how many of them state none, is the `layout` block's business and the tests' arithmetic, not this
-  sentence's. The marked v2 entry's `res` and `mk.d` are digests
+  sentence's. Every row states its response bytes because every payload this format reads names a
+  marking, and the region a marking attests is read out of the response rather than out of the document:
+  a row that published no body would be a row no client path could be run over. The marked entry's `res` and `mk.d` are digests
   of the same bytes the marked-region suite publishes as `buffered-member`, so one response is read
   out of two files and a generator that drifted on either side disagrees here. Decoding that entry
   does not check its mark (no `.cbor` file carries the response), which is what the marked-region
@@ -112,13 +116,13 @@ specific to that case.
   suite is where the `exactly one` half of the rule is checkable: a port that resolves a response
   carrying the shape twice by taking the first match, or the last, or the longest, fails here and cannot
   fail anywhere else, because no other artifact in this repository states which it should have done.
-  Each row also carries `client.receiptBase64Url`: a v2 document issued under the published fixture key
+  Each row also carries `client.receiptBase64Url`: a document issued under the published fixture key
   over exactly that response, with `res` the digest of the whole bytes and `mk.d` the digest of the
   span the row attests. That makes `expected` a verdict a client owes rather than only a reading of the
   rule, and it is how `MARK_MISMATCH` is reached at all. The marking check runs after the response
   digest is recomputed, so a row whose bytes do not hash to the digest its document claims cannot be
   refused for its mark; every refusing row here is bytes that do, holding a span that does not. The
-  `buffered-member` document is byte for byte the committed `receipt-marked-v2.cbor`.
+  `buffered-member` document is byte for byte the committed `receipt-marked-v1.cbor`.
 - **Store chain.** Each scenario states the writes it performed and the file they produced. Either
   reproduce it with your writer and compare the image byte for byte, or read the published image with
   your reader and compare what you derive (the head, the served set, the retention window and the
@@ -170,7 +174,7 @@ specific to that case.
   the two runs the suite frames, the honest run whose receipts state no anchor and the run whose held slots name
   material the pack carries, and `framingRule` states which row each table sits beside and that both are read out
   of the sealed bytes of that row. A table is the pack's own reading of the framing `chain-v1.json` publishes for
-  a store file, published for the runs a reader is handed whole so that a `v: 3` item's digest has a stated answer
+  a store file, published for the runs a reader is handed whole so that an `itm` entry's digest has a stated answer
   beside it rather than only the bytes in the row. `carried` is the material a
   pack holds for the collateral its sealed receipts name: recompute every stated digest from the bytes beside it,
   and resolve each `held` slot of each receipt inside the container against that list, so a reader holding a pack
@@ -341,8 +345,8 @@ These vectors check bytes. They say nothing about trust:
   a byte-exact reimplementation of every suite in `data/` is compatible with a deployment that should
   not be trusted at all.
 - A passing port is not a certified port. It is a reimplementation that agrees with this one on the
-  cases chosen here, which for payload version 1 are the field set, the digests and the framing, for
-  for version 2 are the marking member and nothing else, and for version 3 are the disclosure of the source
+  cases chosen here, which for the one payload version are the field set, the digests and the framing,
+  the marking member, the disclosure of the source
   an instant came from, the anchor of the context an appraisal ran on, the list of items a response
   was made of, and the count of those anchor slots a client's policy demands be stated as taken in,
   which the receipt suite publishes as the verdict its reader gives under each posture rather than as a

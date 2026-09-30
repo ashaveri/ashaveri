@@ -123,6 +123,13 @@ function signedReceipt(overrides: { tee?: TeeKind; measurement?: Uint8Array; evi
     },
     epk: 0,
     tok: { p: 1, c: 1 },
+    mk: { sch: 'none', d: sha256(utf8('')) },
+    sd: { name: 'host clock', uncertaintySeconds: null },
+    cva: {
+      collateral: { presence: 'not-taken-in', reason: 'this corpus takes no collateral in' },
+      validity: { presence: 'not-taken-in', reason: 'this corpus records no validity context' },
+    },
+    itm: [{ t: Math.floor(NOW / 1000), d: sha256(utf8('response bytes')) }],
   };
 }
 

@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import {
+  frameResponse,
   fromBase64Url,
   hashRequest,
   signingKeyFromSeed,
@@ -165,11 +166,24 @@ describe('data/res-v1.json', () => {
     }
   });
 
-  it.each(file.vectors)('a running gateway signs $name as the file states', async (vector) => {
+  // A response that said nothing in any `data:` frame has no item list to attest, and the format requires
+  // a non-empty one, so the gateway keeps no receipt for those bytes. The split is read off the shipped
+  // framer rather than from a list of names, so a vector that starts or stops framing moves with it.
+  const framable = file.vectors.filter((vector) => frameResponse(vector.contentType, asBytes(vector)).framed);
+  const unframable = file.vectors.filter((vector) => !framable.includes(vector));
+
+  it.each(framable)('a running gateway signs $name as the file states', async (vector) => {
     const { receipt, wire } = await completion(vector);
     expect(wire).toEqual(asBytes(vector));
     expect(toHex(receipt.payload.res)).toBe(vector.resHex);
     expect(toHex(receipt.payload.req)).toBe(requestOf(vector).reqHex);
+  });
+
+  it('keeps no receipt for a response whose bytes frame no item', async () => {
+    expect(unframable.map((vector) => vector.name)).toContain('streamed-payloads-without-framing');
+    for (const vector of unframable) {
+      await expect(completion(vector)).rejects.toThrow('no item list to attest');
+    }
   });
 
   it('hashes the framing a streamed completion arrives in', async () => {

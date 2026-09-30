@@ -90,7 +90,7 @@ interface ManifestEntry {
   readonly expected: string;
   readonly note?: string;
   /**
-   * The columns a row states about its own bytes. A `v: 3` document names a marking, and a marking can
+   * The columns a row states about its own bytes. Every document this format states names a marking, and a marking can
    * only be checked against the response it was read out of, so the client path has to be handed the
    * bytes the row itself states rather than a guess from the document's version.
    */
@@ -404,13 +404,6 @@ function claimsOf(receiptBytes: Uint8Array): { nonce: Uint8Array; req: Uint8Arra
   }
 }
 
-/** The response bytes one marked case publishes, which is what a client holding a mark has to have. */
-function markingBytes(name: string): Uint8Array {
-  const found = marking.vectors.find((each) => each.name === name);
-  if (found === undefined) throw new Error(`marking-v1.json states no ${name} case`);
-  return bytes(found.responseBase64Url);
-}
-
 /**
  * The response bytes one receipt row states its document attests, or `undefined` where the row names
  * none. A row naming its response is a row the client path can be run over as a client runs it, with the
@@ -427,6 +420,24 @@ function responseBytesOf(entry: ManifestEntry): Uint8Array | undefined {
  * been read; a policy named for the anchor postures below pins the document's own issuer and nothing else,
  * so the windows run at their shipped defaults and the only question left open is the anchor's.
  */
+/**
+ * The manifest row a receipt's bytes are published under, found by the digest the row states. A client
+ * holds a receipt and nothing else, so this is the only way from the document back to the response it
+ * names, and the row is where that response is published.
+ */
+function manifestEntryFor(receiptBytes: Uint8Array): ManifestEntry | undefined {
+  const digest = hex(sha256(receiptBytes));
+  return manifest.fixtures.find((each) => each.digestSha256 === digest);
+}
+
+/**
+ * The body the fixture envelope signs by default, read off the published row rather than restated here.
+ * A receipt built by overriding one member and nothing else attests this response.
+ */
+const FIXTURE_RESPONSE_BYTES = bytes(
+  manifest.fixtures.find((each) => each.name === 'receipt-valid-v1')?.responseBase64Url ?? '',
+);
+
 function clientVerdict(
   receiptBytes: Uint8Array,
   over: {
@@ -438,7 +449,12 @@ function clientVerdict(
   } = {},
 ): string {
   const claims = claimsOf(receiptBytes);
-  const responseBytes = over.responseBytes ?? (claims.version === 2 ? markingBytes('buffered-member') : new Uint8Array(0));
+  // The response bytes are the row's own, not a guess keyed to which version the document claims: every
+  // payload this format reads names a marking, and the client hashes what it was handed against both
+  // `res` and `mk.d`. A row publishing no response is read with none, which is the case that owes a
+  // refusal rather than an acceptance.
+  const entry = manifestEntryFor(receiptBytes);
+  const responseBytes = over.responseBytes ?? (entry === undefined ? new Uint8Array(0) : responseBytesOf(entry) ?? new Uint8Array(0));
   return verdictOf(() =>
     verifyCompletionReceipt({
       receiptBytes,
@@ -515,9 +531,9 @@ describe('the published receipt fixtures through the client path', () => {
   });
 
   it('accepts the marked fixture over the response bytes its own row states', () => {
-    const marked = manifest.fixtures.find((entry) => entry.name === 'receipt-marked-v2');
+    const marked = manifest.fixtures.find((entry) => entry.name === 'receipt-marked-v1');
     expect(marked?.expected).toBe('verify-ok');
-    expect(clientVerdict(new Uint8Array(readFileSync(join(DATA, 'receipts/receipt-marked-v2.cbor'))))).toBe('verify-ok');
+    expect(clientVerdict(new Uint8Array(readFileSync(join(DATA, 'receipts/receipt-marked-v1.cbor'))))).toBe('verify-ok');
   });
 });
 
@@ -614,7 +630,7 @@ describe('the anchor demand a policy states, through the client path', () => {
     // And the message a refusal carries names which label reached it, off the bytes rather than off this
     // file, since a sentence that cannot say which half of the anchor was missing says nothing an operator
     // can act on. Same call as the one above, read for its sentence instead of its code.
-    const gapRow = stated.find((entry) => entry.name === 'receipt-buffered-v3');
+    const gapRow = stated.find((entry) => entry.name === 'receipt-buffered-v1');
     expect(gapRow, 'the published anchor with one slot absent at its source is not in the suite').toBeDefined();
     if (gapRow === undefined) return;
     const receiptBytes = new Uint8Array(readFileSync(join(DATA, gapRow.path)));
@@ -668,11 +684,10 @@ describe('the anchor demand a policy states, through the client path', () => {
 });
 
 describe('the marked-region vectors through the marking check', () => {
-  it('carries a signed v2 document per case, issued under the published key', () => {
+  it('carries a signed receipt per case, issued under the published key', () => {
     for (const one of marking.vectors) {
       const decoded = decodeReceipt(bytes(one.client.receiptBase64Url));
-      expect(decoded.payload.v, `${one.name} is not a v2 document`).toBe(2);
-      if (decoded.payload.v !== 2) continue;
+      expect(decoded.payload.v, `${one.name} is not a v1 document`).toBe(1);
       expect(hex(hashRequest(bytes(one.responseBase64Url))), `${one.name} response digest`).toBe(
         hex(decoded.payload.res),
       );
@@ -689,7 +704,7 @@ describe('the marked-region vectors through the marking check', () => {
     const embedded = bytes(
       marking.vectors.find((each) => each.name === 'buffered-member')?.client.receiptBase64Url ?? '',
     );
-    const committed = new Uint8Array(readFileSync(join(DATA, 'receipts/receipt-marked-v2.cbor')));
+    const committed = new Uint8Array(readFileSync(join(DATA, 'receipts/receipt-marked-v1.cbor')));
     expect(hex(hashRequest(embedded))).toBe(hex(hashRequest(committed)));
     expect(embedded).toEqual(committed);
   });
@@ -759,12 +774,17 @@ describe('the request and response digest refusals through the client path', () 
     for (const refusal of requests.refusals) {
       const receipt = bytes(refusal.receiptBase64Url);
       expect(hex(hashRequest(receipt))).toBe(refusal.receiptSha256Hex);
+      // These receipts move `req` and nothing else, so the response they attest is the one the envelope
+      // signs by default, which is published as `receipt-valid-v1`'s row. A client of a receipt has to
+      // hold the body the document digests, and the marking check reads the region out of it.
       const held = vectorsByName.get(refusal.heldVector);
-      expect(clientVerdict(receipt, { requestHash: hashRequest(bytes(held?.bodyBase64Url ?? '')) })).toBe(refusal.code);
+      expect(
+        clientVerdict(receipt, { requestHash: hashRequest(bytes(held?.bodyBase64Url ?? '')), responseBytes: FIXTURE_RESPONSE_BYTES }),
+      ).toBe(refusal.code);
       const claimed = vectorsByName.get(refusal.claimedVector);
-      expect(clientVerdict(receipt, { requestHash: hashRequest(bytes(claimed?.bodyBase64Url ?? '')) })).toBe(
-        'verify-ok',
-      );
+      expect(
+        clientVerdict(receipt, { requestHash: hashRequest(bytes(claimed?.bodyBase64Url ?? '')), responseBytes: FIXTURE_RESPONSE_BYTES }),
+      ).toBe('verify-ok');
     }
   });
 

@@ -1,5 +1,5 @@
 /**
- * Two disclosures a receipt states about itself, in the members `v: 3` carries them in.
+ * Two disclosures a receipt states about itself, in the `sd` and `cva` members that carry them.
  *
  * Both answer a question a reader cannot otherwise ask of a signed artifact. `StampDisclosure` names
  * where an issuance instant came from and how far that source admits it can be from an instant, so a
@@ -8,7 +8,7 @@
  * appraisal of the evidence ran on, so a digest of a document nobody retained cannot be read as a
  * verdict that held up.
  *
- * Both are read and written by the format: `v: 3` names `sd` and `cva` as required members, the CDDL
+ * Both are read and written by the format: the payload names `sd` and `cva` as required members, the CDDL
  * rule, its JSON twin and the projection in `json.ts` all declare the same two shapes, and the parser
  * refuses a document that leaves either out or holds it in another shape. They are published as
  * records too: the receipt fixtures under `packages/fixtures/data/receipts/` carry both, a source

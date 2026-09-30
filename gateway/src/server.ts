@@ -75,9 +75,9 @@ export interface GatewayOptions {
    * response shapes and signs its digest. Which of the two a deployment runs is the operator's
    * decision, and so is any duty a marking is meant to discharge.
    *
-   * There is no spelling of this option that leaves the marking field out of a receipt. A v2 payload
-   * always carries one, because an absent `mk` would read to a verifier as "unmarked" and as "this
-   * build predates marking" at once, which is the silence the version exists to refuse.
+   * There is no spelling of this option that leaves the marking field out of a receipt. Every payload
+   * this format writes carries one, because an absent `mk` would read to a verifier as "unmarked" and as
+   * "this build predates marking" at once, which is the silence the member exists to refuse.
    */
   readonly marking?: MarkingScheme;
   /**
@@ -586,11 +586,31 @@ export function buildGateway(options: GatewayOptions): GatewayInstance {
     // the list in its own order is a floor and not a ceiling. `boundStampsAt` reconciles the two at the
     // one place the payload's instant exists.
     const framing = boundStampsAt(args.framing, iat);
-    // Every member a `v: 2` payload names, which is every member a `v: 3` payload names apart from the
-    // three that moved the number. `mk` is required in both, so the answer to "was this response marked?"
-    // is a value in a signed document rather than the absence of one, which is the reading a v1 receipt
-    // cannot carry and section 6 of the specification says is why the version moved.
-    const named = {
+    // One version, and every member it names is filled from what this issuance actually holds. `mk` is
+    // required, so the answer to "was this response marked?" is a value in a signed document rather than
+    // the absence of one. `sd` is the source `iat` was read from, which every process has, and `cva` is the
+    // appraisal context this gateway never took in, which is a state the member was designed to hold. Both
+    // are answered beside the payload rather than by a policy field beside this gateway, because what a
+    // receipt states is not the same as what a reader agrees to accept. A verifier weighing the anchor is
+    // the one that refuses `not-taken-in`, and that refusal is not this document's to write.
+    //
+    // `itm` is the member with a demand this gateway cannot always meet: it is required and it is never
+    // empty, because a run of nothing states nothing and `readItemStamps` refuses one on bytes that are
+    // otherwise well-formed. `ResponseItemFramer` answers `framed: false` for a response that said nothing
+    // in any `data:` frame, and there is no shorter document left to fall back to: a receipt over those
+    // bytes would have to be a document this package's own reader rejects. So the issuance stops there,
+    // which is the second ending `gateway/src/item-stamps.ts` states for a response whose items this
+    // gateway cannot state, and it says it by destroying the body rather than terminating it. The destroy
+    // takes the response head with it: measured on a loopback socket, the client's read returns nothing at
+    // all, so no id reaches anyone and the completion is simply not served. Minting one records nothing,
+    // because only issuance writes a document. The retired versions said less about such a response and
+    // said it truthfully; one version says everything, so it says nothing about a response that has
+    // nothing to be said, and the whole cost of that is one completion per stream that framed no item.
+    if (!framing.framed) {
+      throw new Error(`no item list to attest: ${framing.why}`);
+    }
+    const payload: ReceiptPayload = {
+      v: 1,
       iss: deployment.issuer,
       ins: deployment.instance,
       iat,
@@ -604,34 +624,10 @@ export function buildGateway(options: GatewayOptions): GatewayInstance {
       epk: deployment.epk,
       tok: { p: args.usage.promptTokens, c: args.usage.completionTokens },
       mk: args.marking,
+      sd: stampDisclosureOf(time),
+      cva: notTakenInAnchor(),
+      itm: framing.stamps,
     };
-    // The version this deployment's artifact carries, decided once, here, and by one test: whether the
-    // bytes of this response frame into items. Emission is uniform in the sense that a gateway asks
-    // nothing about itself before it signs a `v: 3`, and the single fallback to `v: 2` is the state
-    // `ResponseItemFramer` answers with `framed: false`, which is a fact about a response that said
-    // nothing in any `data:` frame rather than a capability this process does or has not wired.
-    //
-    // That is the whole of the fork, and it is deliberately not a capability test on the deployment. The
-    // other two members of a v3 payload are filled from what this issuance actually knows: the source
-    // `iat` was read from, which every process has, and the appraisal context it never took in, which is
-    // a state the member was designed to hold. Both are answered beside the payload rather than by a
-    // policy field beside this gateway, because what a receipt states is not the same as what a reader
-    // agrees to accept. A verifier weighing the anchor is the one that refuses `not-taken-in`, and that
-    // refusal is not this document's to write.
-    //
-    // A `v: 3` with no items is not a document the format defines, which is why the refusal falls back
-    // rather than issuing an empty list: `itm` is required and `items: [+ PackItem]` states the reason
-    // for a list of nothing. A `v: 2` says less about a response that framed no items, and it says that
-    // much truthfully, so the bytes the client holds stay attested by `res` and the marking by `mk`.
-    const payload: ReceiptPayload = framing.framed
-      ? {
-          v: 3,
-          ...named,
-          sd: stampDisclosureOf(time),
-          cva: notTakenInAnchor(),
-          itm: framing.stamps,
-        }
-      : { v: 2, ...named };
     // How long this stays fetchable is the store's decision, so the gateway hands over the
     // timestamp the decision is made from rather than making it here.
     await receipts.put(args.id, issueReceipt(payload, deployment.key), iat);

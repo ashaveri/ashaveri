@@ -14,8 +14,7 @@ import {
   type CollateralValidityAnchor,
   type ItemStamp,
   type MarkingScheme,
-  type ReceiptPayloadV2,
-  type ReceiptPayloadV3,
+  type ReceiptPayload,
   type StampDisclosure,
 } from '@ashaveri/receipt';
 import { writeFileSync, mkdirSync } from 'node:fs';
@@ -30,7 +29,7 @@ import {
   unmarkedResponse,
   unmarkedStream,
 } from './marking-shapes.ts';
-import { FIXED_IAT, fixtureKey, fixturePayload } from './receipt-envelope.ts';
+import { FIXED_IAT, FIXTURE_RESPONSE, fixtureKey, fixturePayload } from './receipt-envelope.ts';
 
 const DATA = join(dirname(fileURLToPath(import.meta.url)), '..', 'data');
 
@@ -248,13 +247,20 @@ function itemStamps(shape: ResponseShape): ItemStamp[] {
   return framing.items.map((one, index) => ({ t: first + index, d: one.d }));
 }
 
-function v3Payload(
+/**
+ * The document a published row is made of: the one version this format declares, its twelve shared fields
+ * over these bytes, and the four members a receipt states about itself. `mk` is read off the response
+ * shape, because which marking these bytes came off is a fact of the bytes; the disclosure, the anchor and
+ * the item list are what the row names, because a document that left one of them out is one the writer
+ * refuses to make and the reader refuses to open.
+ */
+function payloadFor(
   shape: ResponseShape,
   over: { sd: StampDisclosure; cva: CollateralValidityAnchor; itm: readonly ItemStamp[] },
-): ReceiptPayloadV3 {
+): ReceiptPayload {
   return {
     ...fixturePayload({ res: sha256(shape.bytes) }),
-    v: 3,
+    v: 1,
     mk: { sch: shape.marking, d: sha256(shape.region) },
     sd: over.sd,
     cva: over.cva,
@@ -262,19 +268,11 @@ function v3Payload(
   };
 }
 
-function v2Payload(shape: ResponseShape): ReceiptPayloadV2 {
-  return {
-    ...fixturePayload({ res: sha256(shape.bytes) }),
-    v: 2,
-    mk: { sch: shape.marking, d: sha256(shape.region) },
-  };
-}
-
 /** The columns a row states about the document it publishes. */
 interface RowColumns {
   [key: string]: unknown;
   readonly keyless: string;
-  readonly v: 1 | 2 | 3;
+  readonly v: 1;
   readonly marking: MarkingScheme;
   readonly contentType: string;
   readonly response: string;
@@ -318,7 +316,7 @@ function slotColumn(slot: CollateralSlot): { p: string; d?: string; r?: string }
 function columnsOf(
   shape: ResponseShape,
   over: {
-    v: 1 | 2 | 3;
+    v: 1;
     sd?: StampDisclosure;
     cva?: CollateralValidityAnchor;
     stamps?: readonly ItemStamp[];
@@ -397,7 +395,12 @@ interface PublishedRow {
   readonly expected: string;
   readonly twin: boolean;
   readonly note?: string;
-  readonly columns?: RowColumns;
+  /**
+   * The columns a row states beside its verdict. `columnsOf` fills every one of them for a row built over a
+   * response shape; the four fixtures this suite began with state only the response bytes, which is what the
+   * shipped verifier now cannot do without, and no more of the column set than they need.
+   */
+  readonly columns?: Partial<RowColumns>;
 }
 
 function main(): void {
@@ -418,38 +421,64 @@ function main(): void {
   tampered[tampered.length - 1]! ^= 0x01;
 
   /**
-   * A marked v2 receipt over the same bytes `marking-v1.json` publishes for the buffered shape, so the
-   * two suites check each other: `res` is sha256 of the whole response and `mk.d` is sha256 of the one
-   * member inside it, and a port that gets either span wrong disagrees with one file or the other.
-   * Nothing here invents a third spelling of the mark: the response and its region come from the same
-   * builder the vector generator uses.
+   * A marked receipt over the same bytes `marking-v1.json` publishes for the buffered shape, so the two
+   * suites check each other: `res` is sha256 of the whole response and `mk.d` is sha256 of the one member
+   * inside it, and a port that gets either span wrong disagrees with one file or the other. Nothing here
+   * invents a third spelling of the mark: the response and its region come from the same builder the
+   * vector generator uses, and the disclosure, the anchor and the item list come from the same envelope
+   * the marking suite signs its rows under, so the two documents are one document.
    */
   const markedResponse = markedBuffered();
-  const markedPayload: ReceiptPayloadV2 = {
-    ...fixturePayload({ res: sha256(new TextEncoder().encode(markedResponse.response)) }),
-    v: 2,
-    mk: { sch: 'provenance-v1', d: sha256(new TextEncoder().encode(markedResponse.region)) },
-  };
-  const markedBytes = issueReceipt(markedPayload, key);
+  const markedBytes = issueReceipt(
+    fixturePayload({
+      res: sha256(new TextEncoder().encode(markedResponse.response)),
+      mk: { sch: 'provenance-v1', d: sha256(new TextEncoder().encode(markedResponse.region)) },
+    }),
+    key,
+  );
 
+  // The verifier reads a receipt's marked region out of the response, so a row a reader is asked to verify
+  // owes that reader the bytes. The five fixtures this suite began with carried `res` alone, which was
+  // enough while a payload naming no marking could skip the region check; every payload names one now.
+  const fixtureResponseB64 = toBase64Url(FIXTURE_RESPONSE);
   const rows: PublishedRow[] = [
-    { name: 'receipt-valid-v1', bytes: validBytes, expected: 'verify-ok', twin: true },
-    { name: 'receipt-software-v1', bytes: softwareBytes, expected: 'verify-ok', twin: true },
     {
-      name: 'receipt-marked-v2',
+      name: 'receipt-valid-v1',
+      bytes: validBytes,
+      expected: 'verify-ok',
+      twin: true,
+      columns: { responseBase64Url: fixtureResponseB64 },
+    },
+    {
+      name: 'receipt-software-v1',
+      bytes: softwareBytes,
+      expected: 'verify-ok',
+      twin: true,
+      columns: { responseBase64Url: fixtureResponseB64 },
+    },
+    {
+      name: 'receipt-marked-v1',
       bytes: markedBytes,
       expected: 'verify-ok',
       twin: true,
-      note: 'A v2 receipt carrying `mk`: its `res` is sha256 of the marked buffered response and its `mk.d` is sha256 of the one marking member inside those same bytes, both the bytes marking-v1.json publishes for the buffered shape.',
+      columns: { responseBase64Url: toBase64Url(new TextEncoder().encode(markedResponse.response)) },
+      note: 'A receipt carrying a `provenance-v1` mark: its `res` is sha256 of the marked buffered response and its `mk.d` is sha256 of the one marking member inside those same bytes, both the bytes marking-v1.json publishes for the buffered shape. The disclosure, the anchor and the item list state what this issuance says about itself beside that mark: a source nobody measured, an appraisal context never taken in, and the one buffered item, which is the whole of the body `res` digests.',
     },
     {
       name: 'receipt-meas-mismatch-v1',
       bytes: mismatchBytes,
       expected: 'BAD_PAYLOAD',
       twin: false,
+      columns: { responseBase64Url: fixtureResponseB64 },
       note: 'Signature is valid; the payload claims tee "snp" but carries a 32-byte measurement, which is the software width.',
     },
-    { name: 'receipt-tampered-v1', bytes: tampered, expected: 'INVALID_SIGNATURE', twin: false },
+    {
+      name: 'receipt-tampered-v1',
+      bytes: tampered,
+      expected: 'INVALID_SIGNATURE',
+      twin: false,
+      columns: { responseBase64Url: fixtureResponseB64 },
+    },
   ];
 
   const stream = SHAPES['stream-unmarked']!;
@@ -466,75 +495,75 @@ function main(): void {
   const markedSentinelStamps = itemStamps(markedSentinel);
 
   /** The acceptances, each over a response this package already publishes. */
-  const accepted: Array<{ row: Omit<PublishedRow, 'bytes' | 'twin'>; payload: ReceiptPayloadV2 | ReceiptPayloadV3 }> = [
+  const accepted: Array<{ row: Omit<PublishedRow, 'bytes' | 'twin'>; payload: ReceiptPayload }> = [
     {
       row: {
-        name: 'receipt-stream-v3',
+        name: 'receipt-stream-v1',
         expected: 'verify-ok',
-        note: 'A v3 receipt over the four items a streamed completion frames, issued by a deployment whose time source declares a bound: one reading per item in the order the items were framed, the last a second before `iat`, and both anchor slots holding the digest of bytes that were taken in. Its `res` is sha256 of the whole stream with its framing and its sentinel, the bytes marking-v1.json publishes as `streamed-region-stripped`, and its `itm` digests are the four `data:` payloads inside those bytes. This is the anchor a demand of two answers: both slots state they were taken in, so every posture a policy can take about an anchor accepts it, and the column states all three beside that fact.',
+        note: 'A receipt over the four items a streamed completion frames, issued by a deployment whose time source declares a bound: one reading per item in the order the items were framed, the last a second before `iat`, and both anchor slots holding the digest of bytes that were taken in. Its `res` is sha256 of the whole stream with its framing and its sentinel, the bytes marking-v1.json publishes as `streamed-region-stripped`, and its `itm` digests are the four `data:` payloads inside those bytes. This is the anchor a demand of two answers: both slots state they were taken in, so every posture a policy can take about an anchor accepts it, and the column states all three beside that fact.',
         columns: {
-          ...columnsOf(stream, { v: 3, sd: MEASURED_SOURCE, cva: ANCHOR_HELD_BOTH, stamps: streamStamps }),
+          ...columnsOf(stream, { v: 1, sd: MEASURED_SOURCE, cva: ANCHOR_HELD_BOTH, stamps: streamStamps }),
           handover: handoverFor(['verify-ok', 'verify-ok', 'verify-ok']),
         },
       },
-      payload: v3Payload(stream, { sd: MEASURED_SOURCE, cva: ANCHOR_HELD_BOTH, itm: streamStamps }),
+      payload: payloadFor(stream, { sd: MEASURED_SOURCE, cva: ANCHOR_HELD_BOTH, itm: streamStamps }),
     },
     {
       row: {
-        name: 'receipt-buffered-v3',
+        name: 'receipt-buffered-v1',
         expected: 'verify-ok',
-        note: 'A v3 receipt over a buffered body, whose item list is the one item holding the whole of it: `itm[0].d` and `res` are two statements about one byte string, and a port that walks a buffered body for frames reads no item out of it and disagrees with both. Its anchor holds the collateral and names the validity context as a document its source reports as never issued, which is the pair of states a slot carries a label for rather than a flag. The postures say what that pair is worth: a demand of one slot is met by the half that was taken in, and a demand of both is refused by the half that was not.',
+        note: 'A receipt over a buffered body, whose item list is the one item holding the whole of it: `itm[0].d` and `res` are two statements about one byte string, and a port that walks a buffered body for frames reads no item out of it and disagrees with both. Its anchor holds the collateral and names the validity context as a document its source reports as never issued, which is the pair of states a slot carries a label for rather than a flag. The postures say what that pair is worth: a demand of one slot is met by the half that was taken in, and a demand of both is refused by the half that was not.',
         columns: {
-          ...columnsOf(body, { v: 3, sd: MEASURED_SOURCE, cva: ANCHOR_HELD_AND_ABSENT, stamps: bodyStamps }),
+          ...columnsOf(body, { v: 1, sd: MEASURED_SOURCE, cva: ANCHOR_HELD_AND_ABSENT, stamps: bodyStamps }),
           handover: handoverFor(['verify-ok', 'verify-ok', 'ANCHOR_SLOT_NOT_HELD']),
         },
       },
-      payload: v3Payload(body, { sd: MEASURED_SOURCE, cva: ANCHOR_HELD_AND_ABSENT, itm: bodyStamps }),
+      payload: payloadFor(body, { sd: MEASURED_SOURCE, cva: ANCHOR_HELD_AND_ABSENT, itm: bodyStamps }),
     },
     {
       row: {
-        name: 'receipt-unmeasured-v3',
+        name: 'receipt-unmeasured-v1',
         expected: 'verify-ok',
-        note: 'A v3 receipt whose source declares that nobody measured it: `sd.unc` is `null`, which is that source saying nothing here knows how far its readings stand from the instants they name, and neither a bound of zero nor a member left out. The name is the shipped one for a deployment that wired no source. The response is the marked buffered completion, so this row and `receipt-marked-v2` attest one response in the two versions that name a marking. Its anchor holds both halves, so the two windows a policy runs and the demand a policy states are two separate questions here: this row is accepted whatever posture the anchor demand takes.',
+        note: 'A receipt whose source declares that nobody measured it: `sd.unc` is `null`, which is that source saying nothing here knows how far its readings stand from the instants they name, and neither a bound of zero nor a member left out. The name is the shipped one for a deployment that wired no source. The response is the marked buffered completion, so this row and `receipt-marked-v1` attest one response, one disclosure apart. Its anchor holds both halves, so the two windows a policy runs and the demand a policy states are two separate questions here: this row is accepted whatever posture the anchor demand takes.',
         columns: {
-          ...columnsOf(markedBody, { v: 3, sd: UNMEASURED_SOURCE, cva: ANCHOR_HELD_BOTH, stamps: markedBodyStamps }),
+          ...columnsOf(markedBody, { v: 1, sd: UNMEASURED_SOURCE, cva: ANCHOR_HELD_BOTH, stamps: markedBodyStamps }),
           handover: handoverFor(['verify-ok', 'verify-ok', 'verify-ok']),
         },
       },
-      payload: v3Payload(markedBody, { sd: UNMEASURED_SOURCE, cva: ANCHOR_HELD_BOTH, itm: markedBodyStamps }),
+      payload: payloadFor(markedBody, { sd: UNMEASURED_SOURCE, cva: ANCHOR_HELD_BOTH, itm: markedBodyStamps }),
     },
     {
       row: {
-        name: 'receipt-not-taken-in-v3',
+        name: 'receipt-not-taken-in-v1',
         expected: 'verify-ok',
-        note: 'A v3 receipt with both anchor slots saying `not-taken-in` beside their reasons, which is the state every artifact this repository issues today is in: an issuer that takes no collateral in and appraises nothing states both absences in the words that name the collector rather than the world, and a verifier weighing the anchor refuses a declared gap instead of an undeclared one. The response is the marked stream, so the list is the four upstream chunks and the marking frame, five items in the order the bytes put them in. The postures are the whole of what a demand reaches here: naming nothing leaves this document where it was, and asking for one slot or for both refuses it, because there is no held slot to count.',
+        note: 'A receipt with both anchor slots saying `not-taken-in` beside their reasons, which is the state every artifact this repository issues today is in: an issuer that takes no collateral in and appraises nothing states both absences in the words that name the collector rather than the world, and a verifier weighing the anchor refuses a declared gap instead of an undeclared one. The response is the marked stream, so the list is the four upstream chunks and the marking frame, five items in the order the bytes put them in. The postures are the whole of what a demand reaches here: naming nothing leaves this document where it was, and asking for one slot or for both refuses it, because there is no held slot to count.',
         columns: {
-          ...columnsOf(markedStream, { v: 3, sd: MEASURED_SOURCE, cva: ANCHOR_NOT_TAKEN_IN, stamps: markedStreamStamps }),
+          ...columnsOf(markedStream, { v: 1, sd: MEASURED_SOURCE, cva: ANCHOR_NOT_TAKEN_IN, stamps: markedStreamStamps }),
           handover: handoverFor(['verify-ok', 'ANCHOR_SLOT_NOT_HELD', 'ANCHOR_SLOT_NOT_HELD']),
         },
       },
-      payload: v3Payload(markedStream, { sd: MEASURED_SOURCE, cva: ANCHOR_NOT_TAKEN_IN, itm: markedStreamStamps }),
+      payload: payloadFor(markedStream, { sd: MEASURED_SOURCE, cva: ANCHOR_NOT_TAKEN_IN, itm: markedStreamStamps }),
     },
     {
       row: {
-        name: 'receipt-collateral-absent-v3',
+        name: 'receipt-collateral-absent-v1',
         expected: 'verify-ok',
-        note: 'A v3 receipt over a buffered body whose anchor is the mirror of `receipt-buffered-v3`: the collateral its evidence was appraised against is the half its source reports as never issued, and the validity context is the half held. Written by `issueReceipt` over these bytes like every accepted row here, since a slot naming an absence and its reason is a shape the shipped writer makes. The postures read both halves: a demand of one slot is met by the half that was taken in and a demand of both is refused by the half that was not, and a row whose one held slot is the other one answers alike, which is the only way the column is seen to count slots rather than to look for one name.',
+        note: 'A receipt over a buffered body whose anchor is the mirror of `receipt-buffered-v1`: the collateral its evidence was appraised against is the half its source reports as never issued, and the validity context is the half held. Written by `issueReceipt` over these bytes like every accepted row here, since a slot naming an absence and its reason is a shape the shipped writer makes. The postures read both halves: a demand of one slot is met by the half that was taken in and a demand of both is refused by the half that was not, and a row whose one held slot is the other one answers alike, which is the only way the column is seen to count slots rather than to look for one name.',
         columns: {
-          ...columnsOf(body, { v: 3, sd: MEASURED_SOURCE, cva: ANCHOR_COLLATERAL_ABSENT, stamps: bodyStamps }),
+          ...columnsOf(body, { v: 1, sd: MEASURED_SOURCE, cva: ANCHOR_COLLATERAL_ABSENT, stamps: bodyStamps }),
           handover: handoverFor(['verify-ok', 'verify-ok', 'ANCHOR_SLOT_NOT_HELD']),
         },
       },
-      payload: v3Payload(body, { sd: MEASURED_SOURCE, cva: ANCHOR_COLLATERAL_ABSENT, itm: bodyStamps }),
+      payload: payloadFor(body, { sd: MEASURED_SOURCE, cva: ANCHOR_COLLATERAL_ABSENT, itm: bodyStamps }),
     },
     {
       row: {
-        name: 'receipt-both-absent-at-source-v3',
+        name: 'receipt-both-absent-at-source-v1',
         expected: 'verify-ok',
-        note: 'A v3 receipt over the marked buffered body whose anchor states both halves as material its source never had: the collateral as never issued and the validity context as never issued, each beside its own reason. This is the absence the world is account for, in contrast to `receipt-not-taken-in-v3`, whose two absences are this deployment\'s own account of looking away, and the two shapes answer a demand alike because neither gives a verifier bytes to weigh. Written by `issueReceipt` over these bytes. Naming no demand leaves it where it was, and a demand of one slot refuses it for the same count a demand of two does: there is no held slot to reach either.',
+        note: 'A receipt over the marked buffered body whose anchor states both halves as material its source never had: the collateral as never issued and the validity context as never issued, each beside its own reason. This is the absence the world is account for, in contrast to `receipt-not-taken-in-v1`, whose two absences are this deployment\'s own account of looking away, and the two shapes answer a demand alike because neither gives a verifier bytes to weigh. Written by `issueReceipt` over these bytes. Naming no demand leaves it where it was, and a demand of one slot refuses it for the same count a demand of two does: there is no held slot to reach either.',
         columns: {
           ...columnsOf(markedBody, {
-            v: 3,
+            v: 1,
             sd: MEASURED_SOURCE,
             cva: ANCHOR_BOTH_ABSENT_AT_SOURCE,
             stamps: markedBodyStamps,
@@ -542,28 +571,19 @@ function main(): void {
           handover: handoverFor(['verify-ok', 'ANCHOR_SLOT_NOT_HELD', 'ANCHOR_SLOT_NOT_HELD']),
         },
       },
-      payload: v3Payload(markedBody, { sd: MEASURED_SOURCE, cva: ANCHOR_BOTH_ABSENT_AT_SOURCE, itm: markedBodyStamps }),
+      payload: payloadFor(markedBody, { sd: MEASURED_SOURCE, cva: ANCHOR_BOTH_ABSENT_AT_SOURCE, itm: markedBodyStamps }),
     },
     {
       row: {
-        name: 'receipt-marked-sentinel-v3',
+        name: 'receipt-marked-sentinel-v1',
         expected: 'verify-ok',
-        note: 'A v3 receipt over a stream that framed no item until the mark was written to it: the response is one marking frame, the blank line that closes it, and the closing sentinel, joined from the pieces the marking and response suites publish, and it frames exactly one item, the mark. The same upstream body with the marking off frames nothing at all, and `receipt-no-items-v2` beside this row is the answer those bytes are owed. Its anchor holds both halves, so all three postures a policy can take about an anchor accept it, which is the row that states its demand and the rows that state none agreeing.',
+        note: 'A receipt over a stream that framed no item until the mark was written to it: the response is one marking frame, the blank line that closes it, and the closing sentinel, joined from the pieces the marking and response suites publish, and it frames exactly one item, the mark. The same upstream body with the marking off frames nothing at all, and no document this format declares can be signed over those bytes: `itm` is required and never empty, which is what `receipt-empty-items-v1` states as a refusal. Its anchor holds both halves, so all three postures a policy can take about an anchor accept it, which is the row that states its demand and the rows that state none agreeing.',
         columns: {
-          ...columnsOf(markedSentinel, { v: 3, sd: MEASURED_SOURCE, cva: ANCHOR_HELD_BOTH, stamps: markedSentinelStamps }),
+          ...columnsOf(markedSentinel, { v: 1, sd: MEASURED_SOURCE, cva: ANCHOR_HELD_BOTH, stamps: markedSentinelStamps }),
           handover: handoverFor(['verify-ok', 'verify-ok', 'verify-ok']),
         },
       },
-      payload: v3Payload(markedSentinel, { sd: MEASURED_SOURCE, cva: ANCHOR_HELD_BOTH, itm: markedSentinelStamps }),
-    },
-    {
-      row: {
-        name: 'receipt-no-items-v2',
-        expected: 'verify-ok',
-        note: 'The answer for one sentinel with no chunk ahead of it, under marking off: those bytes frame no item, so an `itm` over them would have to be the list the format refuses, and the version that names no item list is the one that states the response truthfully instead. Its `mk.sch` is `none` and its `mk.d` is sha256 over no bytes, so which marking setting these bytes came off is a member of the document and not a word beside it.',
-        columns: columnsOf(sentinel, { v: 2 }),
-      },
-      payload: v2Payload(sentinel),
+      payload: payloadFor(markedSentinel, { sd: MEASURED_SOURCE, cva: ANCHOR_HELD_BOTH, itm: markedSentinelStamps }),
     },
   ];
 
@@ -576,7 +596,7 @@ function main(): void {
   // name tests the rule its `fault` states. Every one of these is signed under the published key, so none
   // of them refuses for authenticity, and every one is answered the same with a key in hand and without.
 
-  const refusalBase = v3Payload(markedStream, {
+  const refusalBase = payloadFor(markedStream, {
     sd: MEASURED_SOURCE,
     cva: ANCHOR_ONE_OF_EACH,
     itm: markedStreamStamps,
@@ -590,12 +610,12 @@ function main(): void {
 
   const nearMisses: PublishedRow[] = [
     {
-      name: 'receipt-stamps-descending-v3',
+      name: 'receipt-stamps-descending-v1',
       expected: 'ITEM_STAMP_OUT_OF_ORDER',
       twin: false,
-      note: 'The four items of `receipt-stream-v3`, in their order, over the same bytes, with the instants of the middle two exchanged so that the list states one order and the stamps state another. Chain order is the array and stamp order is `t`, and a reader that let these through would be holding a signed account of when a completion\'s items were framed that contradicts itself. Every item digest still belongs to its own item, the signature is the published key\'s, and no member is out of place: this is the one state `ITEM_STAMP_OUT_OF_ORDER` exists for, and a gateway that reads one instant per item in framing order cannot produce it, so these bytes are assembled from the published list.',
+      note: 'The four items of `receipt-stream-v1`, in their order, over the same bytes, with the instants of the middle two exchanged so that the list states one order and the stamps state another. Chain order is the array and stamp order is `t`, and a reader that let these through would be holding a signed account of when a completion\'s items were framed that contradicts itself. Every item digest still belongs to its own item, the signature is the published key\'s, and no member is out of place: this is the one state `ITEM_STAMP_OUT_OF_ORDER` exists for, and a gateway that reads one instant per item in framing order cannot produce it, so these bytes are assembled from the published list.',
       columns: columnsOf(stream, {
-        v: 3,
+        v: 1,
         sd: MEASURED_SOURCE,
         cva: ANCHOR_HELD_BOTH,
         stamps: descendingStamps,
@@ -603,38 +623,38 @@ function main(): void {
         fault: { at: 'itm[2]', states: 'a stamp earlier than the item before it' },
       }),
       bytes: issueReceipt(
-        v3Payload(stream, { sd: MEASURED_SOURCE, cva: ANCHOR_HELD_BOTH, itm: descendingStamps }),
+        payloadFor(stream, { sd: MEASURED_SOURCE, cva: ANCHOR_HELD_BOTH, itm: descendingStamps }),
         key,
       ),
     },
     {
-      name: 'receipt-empty-items-v3',
+      name: 'receipt-empty-items-v1',
       expected: 'BAD_PAYLOAD',
       twin: false,
-      note: 'The stream that frames no item, attested as a `v: 3` document whose `itm` is the empty list: a run of nothing states nothing and zero digests give a reader nothing to hold the response against, which is why the version that names an item list is refused here and the version above that names none is accepted over these very bytes.',
+      note: 'The stream that frames no item, attested as a document whose `itm` is the empty list: a run of nothing states nothing and zero digests give a reader nothing to hold the response against. The writer writes the list it was handed, because a faithful writer states the length it was given; the reader is the one that says a run of nothing is not a document, and this row is that answer over the very bytes a gateway that marks cannot state.',
       // An empty list is a value the writer makes and the reader refuses: `itm` is required, so this
       // document carries the member and holds nothing in it, which is a state and not an omission. The
       // column states it as an empty list, because the row is about the list and not about its absence.
       columns: {
         ...columnsOf(sentinel, {
-          v: 3,
+          v: 1,
           sd: MEASURED_SOURCE,
           cva: ANCHOR_HELD_BOTH,
           keyless: 'BAD_PAYLOAD',
-          fault: { at: 'itm', states: 'the list a v3 payload requires and these bytes leave empty' },
+          fault: { at: 'itm', states: 'the list the format requires and these bytes leave empty' },
         }),
         items: [],
       },
-      bytes: issueReceipt(v3Payload(sentinel, { sd: MEASURED_SOURCE, cva: ANCHOR_HELD_BOTH, itm: [] }), key),
+      bytes: issueReceipt(payloadFor(sentinel, { sd: MEASURED_SOURCE, cva: ANCHOR_HELD_BOTH, itm: [] }), key),
     },
     {
-      name: 'receipt-held-without-a-digest-v3',
+      name: 'receipt-held-without-a-digest-v1',
       expected: 'BAD_PAYLOAD',
       twin: false,
       note: 'An anchor slot that claims its bytes were taken in and carries no digest beside the claim: the member says `held` and the reader weighs that at the width of the digest a held arm asks for, so these bytes are refused. That the refusal is about the claim\'s own shape and not about whether the material exists is the residual section 3 states about a held digest, which a document cannot see past and a verifier holding pins can.',
       columns: {
         ...columnsOf(markedStream, {
-          v: 3,
+          v: 1,
           sd: MEASURED_SOURCE,
           stamps: markedStreamStamps,
           keyless: 'BAD_PAYLOAD',
@@ -655,13 +675,13 @@ function main(): void {
       }),
     },
     {
-      name: 'receipt-bound-withheld-v3',
+      name: 'receipt-bound-withheld-v1',
       expected: 'BAD_PAYLOAD',
       twin: false,
-      note: 'A disclosure that names its source and withholds the bound, where the shape takes two members and `null` is the answer for a source nobody measured. `receipt-unmeasured-v3` states the same source with the member present and its value `null`, and is accepted: this row is the difference between a source saying it was never measured and a writer leaving the question unasked, which is the silence this version exists to refuse.',
+      note: 'A disclosure that names its source and withholds the bound, where the shape takes two members and `null` is the answer for a source nobody measured. `receipt-unmeasured-v1` states the same source with the member present and its value `null`, and is accepted: this row is the difference between a source saying it was never measured and a writer leaving the question unasked, which is the silence the member exists to refuse.',
       columns: {
         ...columnsOf(markedStream, {
-          v: 3,
+          v: 1,
           cva: ANCHOR_ONE_OF_EACH,
           stamps: markedStreamStamps,
           keyless: 'BAD_PAYLOAD',
@@ -675,50 +695,29 @@ function main(): void {
       }),
     },
     {
-      name: 'receipt-shape-of-v2-at-v3',
+      name: 'receipt-retired-shape-v1',
       expected: 'BAD_PAYLOAD',
       twin: false,
-      note: 'A v2 document with its `v` moved to `3`: every member the earlier version names is present, well-typed and in place, and the three that number asks for are not there. This is one half of the version-to-members rule, and the row states which of the three the reader names first, because which member a document left out is not something a reader can guess from what it finds.',
+      note: 'The shape a retired version used to state, wearing `v: 1`: the twelve shared members present, well-typed and in place, and the four a receipt states about itself not there at all. One version requires all seventeen, so what used to hold a document\'s number against its member set now holds one document\'s member set against the format, and the row states which member the reader names first, because which member a document left out is not something a reader can guess from what it finds.',
       columns: columnsOf(markedStream, {
-        v: 3,
+        v: 1,
         keyless: 'BAD_PAYLOAD',
-        fault: { at: 'sd', states: 'the member a v3 payload requires and these bytes never wrote' },
+        fault: { at: 'mk', states: 'the member the format requires and these bytes never wrote' },
       }),
-      bytes: signedEditedDocument(encodePayload(v2Payload(markedStream)), (payload) => {
-        payload.set('v', 3);
-      }),
-    },
-    {
-      name: 'receipt-member-of-v3-at-v2',
-      expected: 'BAD_PAYLOAD',
-      twin: false,
-      note: 'The other half: a document naming version 2 and carrying a well-formed `sd` beside its `mk`. Nothing is malformed about the member, which is exactly what the closed map answers, because a reader that rebuilt the payload from the names its version defines would hand back a verified receipt saying nothing about the claim it carried. The version is the statement, and the version these bytes state is contradicted by the member they hold.',
-      columns: columnsOf(markedStream, {
-        v: 2,
-        sd: MEASURED_SOURCE,
-        keyless: 'BAD_PAYLOAD',
-        fault: { at: 'payload', member: 'sd', states: 'a member version 2 does not define' },
-      }),
-      bytes: signedEditedDocument(encodePayload(v2Payload(markedStream)), (payload) => {
-        payload.set(
-          'sd',
-          new Map<unknown, unknown>([
-            ['name', MEASURED_SOURCE.name],
-            ['unc', MEASURED_SOURCE.uncertaintySeconds],
-          ]),
-        );
+      bytes: signedEditedDocument(encodePayload(refusalBase), (payload) => {
+        for (const member of ['mk', 'sd', 'cva', 'itm']) payload.delete(member);
       }),
     },
   ];
 
   for (const level of CLOSED_MAPS) {
     nearMisses.push({
-      name: `receipt-unknown-member-${slug(level)}-v3`,
+      name: `receipt-unknown-member-${slug(level)}-v1`,
       expected: 'BAD_PAYLOAD',
       twin: false,
-      note: `A clean v3 document carrying \`${UNKNOWN_MEMBER}\` in the closed map at \`${level}\`, which is a name no version of the format defines anywhere. The walk over a payload reaches every map its version nests, and the two arms of the anchor and the element of the item list are closed by the reader that resolves each at its own position, so the refusal names the level the name sits on rather than dropping a claim a reader was never told about.`,
+      note: `A clean v1 document carrying \`${UNKNOWN_MEMBER}\` in the closed map at \`${level}\`, which is a name the format does not define anywhere. The walk over a payload reaches every map the format nests, and the two arms of the anchor and the element of the item list are closed by the reader that resolves each at its own position, so the refusal names the level the name sits on rather than dropping a claim a reader was never told about.`,
       columns: columnsOf(markedStream, {
-        v: 3,
+        v: 1,
         sd: MEASURED_SOURCE,
         cva: ANCHOR_ONE_OF_EACH,
         stamps: markedStreamStamps,
@@ -790,9 +789,9 @@ function main(): void {
               'verifyReceipt checks the signature under the published key first and reads the payload after it, so `expected` is the answer the same bytes owe a reader holding the key the published key file names',
           },
           columns: {
-            v: 'The payload version the document names in its own `v` member. The entries that state no `v` are the fixtures this suite began with; every row added since names the version its bytes claim, including the rows whose refusal is that claim.',
+            v: 'The payload version the document names in its own `v` member. The format declares one, so every row that states this column states `1`, and the entries that state no `v` are the fixtures this suite began with.',
             marking:
-              'Which marking setting the response bytes came off, `none` or `provenance-v1`. This is a fact about the bytes and not about the document: one upstream body frames no item with the marking off and one item with it on, so which version a response yields depends on this column, and `receipt-no-items-v2` and `receipt-marked-sentinel-v3` are those two answers over one completion. The payload states it again as `mk.sch`.',
+              'Which marking setting the response bytes came off, `none` or `provenance-v1`. This is a fact about the bytes and not about the document: one upstream body frames no item with the marking off and one item with it on, so whether a document can be signed over a response at all depends on this column, and `receipt-marked-sentinel-v1` and `receipt-empty-items-v1` are those two answers over one completion, the second a refusal because the format requires a non-empty item list. The payload states the setting again as `mk.sch`.',
             contentType:
               'The content type the response was served with, which is what decides whether its items are `data:` frames or one whole body.',
             response:

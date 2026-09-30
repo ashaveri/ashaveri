@@ -80,11 +80,11 @@ The list is the same on both sides of the reader: `enum: [1, 2, 3]` in the publi
 `packages/sdk/test/capture.test.ts` at the boundary of the list, so a version gained on one side without the
 other fails the assertion belonging to the side that moved rather than passing in silence.
 
-That set is the format's and not a narrowing of it, and the reason is the gateway's: a deployment signs a
-`v: 3` receipt for every response whose bytes frame into items, which is every response but a stream that
-sent no `data:` frame. A record naming `3` is therefore the ordinary output of a check a collector will be
-written against, and refusing one would leave a client unable to record what it verified. A version outside
-the three is still refused, by the schema and by the reader alike, with `UNSUPPORTED_VERSION` naming what
+That set is the format's and not a narrowing of it, and the reason is the gateway's: a deployment signs the
+one receipt version for every response whose bytes frame into items, and serves no completion at all for a
+stream that sent no `data:` frame. A record naming `1` is therefore the ordinary output of a check a
+collector will be written against, and refusing one would leave a client unable to record what it verified.
+A version outside the one the format declares is still refused, by the schema and by the reader alike, with `UNSUPPORTED_VERSION` naming what
 the record stated and what the reader implements; the refusal is of a number no format has used, measured
 against the set the format owns, and not of a set this reader chose to keep narrow.
 

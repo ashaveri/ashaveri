@@ -8,7 +8,6 @@ import {
   toHex,
   verifyReceipt,
   type MarkingScheme,
-  type ReceiptPayloadV2,
 } from '@ashaveri/receipt';
 import {
   loadFixtureKey,
@@ -122,17 +121,16 @@ describe('the marked-region vectors', () => {
     }
   });
 
-  it('are the same bytes the v2 receipt fixture attests, pair for pair', () => {
+  it('are the same bytes the marked receipt fixture attests, pair for pair', () => {
     // The two suites publish one fact about one response: `marking-v1.json` states the region and its
     // digest, and the receipt fixture signs a document whose `res` covers the whole body and whose
     // `mk.d` covers the span inside it. A generator that drifted on either side would disagree here.
     const buffered = vectorNamed('buffered-member');
-    const verified = verifyReceipt(loadReceiptFixture('receipt-marked-v2').bytes, {
+    const verified = verifyReceipt(loadReceiptFixture('receipt-marked-v1').bytes, {
       publicKey: loadFixtureKey().publicKey,
       nowSeconds: CLOCK,
     });
-    expect(verified.payload.v).toBe(2);
-    const payload = verified.payload as ReceiptPayloadV2;
+    const { payload } = verified;
     expect(payload.mk.sch).toBe(buffered.sch);
     expect(toHex(payload.res)).toBe(toHex(hashRequest(fromBase64Url(buffered.responseBase64Url))));
     expect(toHex(payload.mk.d)).toBe(buffered.dHex);

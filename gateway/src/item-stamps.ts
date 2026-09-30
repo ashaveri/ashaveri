@@ -1,7 +1,7 @@
 import { ResponseItemDigestFramer, equalBytes, frameResponse, type ItemStamp } from '@ashaveri/receipt';
 
 /**
- * The per-item stamps a `v: 3` payload carries, taken at the moment each item's bytes are handed over.
+ * The per-item stamps an `itm` list carries, taken at the moment each item's bytes are handed over.
  *
  * `itm`'s `d` is sha256 of one response item and `t` is the instant that item passed. The two halves
  * have different owners: the digests belong to the framing in `packages/receipt/src/response-items.ts`,

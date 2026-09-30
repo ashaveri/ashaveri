@@ -22,9 +22,6 @@ import {
   type Marking,
   type Measurement,
   type ReceiptPayload,
-  type ReceiptPayloadV1,
-  type ReceiptPayloadV2,
-  type ReceiptPayloadV3,
 } from '../src/index.js';
 import * as receiptParser from '../src/receipt.js';
 import * as coseCodec from '../src/cose.js';
@@ -75,9 +72,9 @@ function branchSchema(name: string): PayloadBranch {
 
 /**
  * The definition one payload member's value is checked against, following a `$ref` where the branch
- * points at a shared definition rather than naming its members itself. The `mk` map is one
- * definition two versions reach, because v2 and v3 carry the same two members and a twin that
- * spelled them out twice is two twins.
+ * points at a shared definition rather than naming its members itself. The `mk` map is one definition
+ * the payload reaches through that `$ref`, and a twin that spelled its two members out in two places
+ * is two twins.
  */
 function deref(definition: ObjectSchema | undefined): ObjectSchema | undefined {
   if (definition?.$ref === undefined) return definition;
@@ -89,7 +86,8 @@ function deref(definition: ObjectSchema | undefined): ObjectSchema | undefined {
 const definedMaps = receiptParser.DEFINED_MAPS;
 
 /**
- * The nested members a document can carry, which is `mk` on v2 and v3 and the other five on either.
+ * The nested members a document can carry: all six of them, because the format declares one version
+ * and that version names every map it nests.
  * This is the roster every matrix below sweeps, so it is read out of the structure the parser walks
  * rather than typed here: a roster of this file's own would go on asking the twin about a map the walk
  * had stopped entering, and the lists the parser exports would still match the CDDL rule by rule.
@@ -319,11 +317,15 @@ const validate = compile(schema);
 const DIGEST = new Uint8Array(32).fill(2);
 
 /**
- * The projection the schema describes, with only the measurement varying per case. The signature and
- * kid are placeholders here: this suite checks the schema against the same kind-to-width table the
- * codec enforces, and the schema only constrains their shape.
+ * The projection the schema describes, with only the measurement and the marking varying per case. The
+ * signature and kid are placeholders here: this suite checks the schema against the same kind-to-width
+ * table the codec enforces, and the schema only constrains their shape.
+ *
+ * One document, because the format declares one version. Every case below moves a member of this payload
+ * or its measurement, and the retired numbers are answered by `twinForVersion`, which has one branch to
+ * name and no document to build for any other.
  */
-function v1(tee: string, m: Uint8Array): ReceiptPayloadV1 {
+function payloadOf(tee: string, m: Uint8Array, mk: Marking = { sch: 'none', d: DIGEST }): ReceiptPayload {
   return {
     v: 1,
     iss: 'ashaveri-schema',
@@ -338,26 +340,7 @@ function v1(tee: string, m: Uint8Array): ReceiptPayloadV1 {
     att: { d: DIGEST, ts: 1_772_000_000 - 60, url: 'https://inference.ashaveri.com/v1/attestation' },
     epk: 0,
     tok: { p: 1, c: 1 },
-  };
-}
-
-/** v2 is v1's fields and one member, so the marked document is the same payload with `mk` on it. */
-function v2(mk: Marking): ReceiptPayloadV2 {
-  return { ...v1('software', new Uint8Array(32).fill(4)), v: 2, mk };
-}
-
-/** The three members v3 adds, as this file's document carries them: a bound, two held slots, one item. */
-const HELD_COLLATERAL = new Uint8Array(32).fill(6);
-const ITEM_DIGEST = new Uint8Array(32).fill(8);
-
-/**
- * v3 is v2's fourteen fields and three members, so the document below is the marked one with the
- * disclosure, the anchor and one item added: what the version is, spelled as the fields it carries.
- */
-function v3(): ReceiptPayloadV3 {
-  return {
-    ...v2({ sch: 'none', d: DIGEST }),
-    v: 3,
+    mk,
     sd: { name: 'host clock', uncertaintySeconds: null },
     cva: {
       collateral: { presence: 'held', sha256: HELD_COLLATERAL },
@@ -367,16 +350,19 @@ function v3(): ReceiptPayloadV3 {
   };
 }
 
+/** The two positions a held slot and an item digest sit at, as this file's document carries them. */
+const HELD_COLLATERAL = new Uint8Array(32).fill(6);
+const ITEM_DIGEST = new Uint8Array(32).fill(8);
+
 /**
  * The twin's side of one payload version the parser reads: the branch that describes it and the
  * document this file builds for it. Both are looked up off the version the walk names rather than
  * beside a roster typed out here, so a version the walk gains has to be answered for in this file
- * before a matrix below can quietly test one document fewer.
+ * before a matrix below can quietly test one document fewer, and a number the walk does not name has
+ * no branch here to answer with.
  */
 function twinForVersion(version: string): { branch: string; document: ReceiptPayload } {
-  if (version === '1') return { branch: 'payloadV1', document: v1('software', DIGEST) };
-  if (version === '2') return { branch: 'payloadV2', document: v2({ sch: 'none', d: DIGEST }) };
-  if (version === '3') return { branch: 'payloadV3', document: v3() };
+  if (version === '1') return { branch: 'payloadV1', document: payloadOf('software', DIGEST) };
   throw new Error(`this file has no branch or document for payload version ${version}`);
 }
 
@@ -386,7 +372,7 @@ function twin(payload: ReceiptPayload): unknown {
 
 /**
  * A twin rewritten through its JSON text, because the negative cases are about a member the
- * projection does not produce: the codec will not hand out a v2 payload with no `mk`, and that is
+ * projection does not produce: the codec will not hand out a payload with no `mk`, and that is
  * exactly the document a schema has to refuse.
  */
 function rewritten(payload: ReceiptPayload, edit: (members: Record<string, unknown>) => void): unknown {
@@ -427,77 +413,80 @@ function outcome(value: unknown): string | null {
 describe('the receipt JSON Schema', () => {
   it('accepts every kind at the width the codec requires', () => {
     for (const [tee, bytes] of Object.entries(MEASUREMENT_BYTES)) {
-      expect(outcome(twin(v1(tee, new Uint8Array(bytes).fill(1)))), `tee ${tee} with ${bytes} bytes`).toBeNull();
+      expect(outcome(twin(payloadOf(tee, new Uint8Array(bytes).fill(1)))), `tee ${tee} with ${bytes} bytes`).toBeNull();
     }
   });
 
   it("rejects a measurement at another kind's width", () => {
     for (const [tee, bytes] of Object.entries(MEASUREMENT_BYTES)) {
       const wrong = bytes === 32 ? 48 : 32;
-      expect(outcome(twin(v1(tee, new Uint8Array(wrong).fill(1)))), `tee ${tee} with ${wrong} bytes`).not.toBeNull();
+      expect(outcome(twin(payloadOf(tee, new Uint8Array(wrong).fill(1)))), `tee ${tee} with ${wrong} bytes`).not.toBeNull();
     }
   });
 
   it('rejects an unknown environment kind', () => {
-    expect(outcome(twin(v1('sgx', new Uint8Array(48).fill(1))))).not.toBeNull();
+    expect(outcome(twin(payloadOf('sgx', new Uint8Array(48).fill(1))))).not.toBeNull();
   });
 
   it('accepts a marked payload and requires its mk', () => {
-    expect(outcome(twin(v2({ sch: 'provenance-v1', d: DIGEST })))).toBeNull();
-    expect(outcome(rewritten(v2({ sch: 'provenance-v1', d: DIGEST }), (members) => { delete members.mk; }))).not.toBeNull();
+    const marked = payloadOf('software', DIGEST, { sch: 'provenance-v1', d: DIGEST });
+    expect(outcome(twin(marked))).toBeNull();
+    expect(outcome(rewritten(marked, (members) => { delete members.mk; }))).not.toBeNull();
   });
 
-  it('accepts a v3 payload and requires each of the three members the version added', () => {
-    expect(outcome(twin(v3()))).toBeNull();
+  it('accepts the payload and requires each of the four members that state what this issuance knew', () => {
+    expect(outcome(twin(payloadOf('software', DIGEST)))).toBeNull();
     for (const member of ['mk', 'sd', 'cva', 'itm']) {
       expect(
-        outcome(rewritten(v3(), (members) => { delete members[member]; })),
-        `a v3 document missing the ${member} member`,
+        outcome(rewritten(payloadOf('software', DIGEST), (members) => { delete members[member]; })),
+        `a v1 document missing the ${member} member`,
       ).not.toBeNull();
     }
     // The two readings of `unc` are one field with two values, and the twin has to admit both: a
     // projection that dropped the member for the unmeasured source would let a document that says
     // nothing about its clock pass as one that says it was measured.
-    expect(outcome(rewrittenNested(v3(), 'sd', (members) => { members.unc = 0; }))).toBeNull();
-    expect(outcome(rewrittenNested(v3(), 'sd', (members) => { members.unc = 'unmeasured'; }))).not.toBeNull();
-    expect(outcome(rewrittenNested(v3(), 'sd', (members) => { delete members.unc; }))).not.toBeNull();
+    expect(outcome(rewrittenNested(payloadOf('software', DIGEST), 'sd', (members) => { members.unc = 0; }))).toBeNull();
+    expect(outcome(rewrittenNested(payloadOf('software', DIGEST), 'sd', (members) => { members.unc = 'unmeasured'; }))).not.toBeNull();
+    expect(outcome(rewrittenNested(payloadOf('software', DIGEST), 'sd', (members) => { delete members.unc; }))).not.toBeNull();
     // A held slot carries a digest, an absent one carries a reason, and each arm refuses the other's
     // member: three states, two shapes, and no third shape a document can write itself into.
     expect(
-      outcome(rewrittenNested(v3(), 'cva', (members) => { members.col = { p: 'held', r: 'both arms at once' }; })),
+      outcome(rewrittenNested(payloadOf('software', DIGEST), 'cva', (members) => { members.col = { p: 'held', r: 'both arms at once' }; })),
       'a held slot carrying a reason',
     ).not.toBeNull();
     expect(
-      outcome(rewrittenNested(v3(), 'cva', (members) => { members.val = { p: 'not-taken-in', d: toHex(DIGEST) }; })),
+      outcome(rewrittenNested(payloadOf('software', DIGEST), 'cva', (members) => { members.val = { p: 'not-taken-in', d: toHex(DIGEST) }; })),
       'an absent slot carrying a digest',
     ).not.toBeNull();
     expect(
-      outcome(rewrittenNested(v3(), 'cva', (members) => { members.val = { p: 'lost', r: 'a fourth presence' }; })),
+      outcome(rewrittenNested(payloadOf('software', DIGEST), 'cva', (members) => { members.val = { p: 'lost', r: 'a fourth presence' }; })),
       'a presence label the format does not declare',
     ).not.toBeNull();
     // The item list is never empty, and an entry is a stamp and a digest.
-    expect(outcome(rewritten(v3(), (members) => { members.itm = []; }))).not.toBeNull();
+    expect(outcome(rewritten(payloadOf('software', DIGEST), (members) => { members.itm = []; }))).not.toBeNull();
     expect(
-      outcome(rewritten(v3(), (members) => { members.itm = [{ t: 1_772_000_000 }]; })),
+      outcome(rewritten(payloadOf('software', DIGEST), (members) => { members.itm = [{ t: 1_772_000_000 }]; })),
       'an item with no digest',
     ).not.toBeNull();
   });
 
-  it('holds a v1 payload to its thirteen members and a v2 payload to its fourteen', () => {
-    // Both halves of the discriminant, now that the branches are closed: a v1 document rewritten to
-    // `v: 2` is missing a member it now needs, and a v1 document that keeps its thirteen and adds
-    // the marking attestation is a document no version defines. The twin refuses both, which is what
-    // makes "v: 1 carries no mk" something the schema states rather than something a reader hopes.
-    expect(outcome(rewritten(v1('software', DIGEST), (members) => { members.v = 2; }))).not.toBeNull();
-    expect(outcome(rewritten(v1('software', DIGEST), (members) => { members.mk = { sch: 'none', d: toHex(DIGEST) }; }))).not.toBeNull();
-    expect(outcome(rewritten(v2({ sch: 'none', d: DIGEST }), (members) => { members.not_a_member = 'x'; }))).not.toBeNull();
-    // The same discriminant one version on. A v2 document cannot carry the disclosure, the anchor or
-    // the item list, and a v1 document cannot carry any of the four members that moved the number
-    // twice: each is a document no version of this format defines.
-    expect(outcome(rewritten(v2({ sch: 'none', d: DIGEST }), (members) => { members.sd = v3().sd; }))).not.toBeNull();
-    expect(outcome(rewritten(v2({ sch: 'none', d: DIGEST }), (members) => { members.itm = v3().itm; }))).not.toBeNull();
-    expect(outcome(rewritten(v1('software', DIGEST), (members) => { members.cva = v3().cva; }))).not.toBeNull();
-    expect(outcome(rewritten(v3(), (members) => { members.not_a_member = 'x'; }))).not.toBeNull();
+  it('holds the payload to its seventeen members and refuses a document naming another version', () => {
+    // Two halves of one closed map. A document that moves its `v` is not the document the branch
+    // describes, and the branch's `const: 1` answers it: the retired numbers get no branch, so a twin
+    // reading `v: 2` or `v: 3` refuses it rather than reading it as the nearest one inside. A document
+    // carrying a name the branch does not name is malformed rather than read with the extra member
+    // dropped, which is what makes closure something the schema states rather than something a reader
+    // hopes for.
+    expect(outcome(rewritten(payloadOf('software', DIGEST), (members) => { members.v = 2; }))).not.toBeNull();
+    expect(outcome(rewritten(payloadOf('software', DIGEST), (members) => { members.v = 3; }))).not.toBeNull();
+    expect(outcome(rewritten(payloadOf('software', DIGEST), (members) => { members.v = '1'; }))).not.toBeNull();
+    expect(outcome(rewritten(payloadOf('software', DIGEST), (members) => { members.not_a_member = 'x'; }))).not.toBeNull();
+    // The member that only a retired number's document left out: every name the branch requires is
+    // present here, so the refusal this half answers for is the added name, not a missing one.
+    expect(
+      outcome(rewritten(payloadOf('software', DIGEST), (members) => { members.mk = { sch: 'none', d: toHex(DIGEST), surprise: 'x' }; })),
+      'a marking carrying a member Marking does not name',
+    ).not.toBeNull();
   });
 
   it('refuses an undefined member inside each nested map, where the keyword is the only thing that does', () => {
@@ -506,9 +495,8 @@ describe('the receipt JSON Schema', () => {
     // reason. Delete a nested `additionalProperties` and the second half of each pair goes red; the
     // first half keeps green, which is the point: the case tests the keyword, not the document.
     //
-    // One case per map per version, read off the structure the walk enforces: `meas`, `att` and `tok`
-    // are declared once and shared by every branch through their `allOf`, so each is asked for on the
-    // branch that never sees `mk` as well as the two that do. The arrays a version declares join the
+    // One case per map, read off the structure the walk enforces: `meas`, `att` and `tok` are declared
+    // once, below the one branch, through their `allOf`. The arrays the format declares join the
     // same roster, read out of the blocks that name them rather than written beside them here, because
     // an element map is closed by a keyword sitting one level deeper than the member names it.
     const cddl = readCddl();
@@ -537,9 +525,9 @@ describe('the receipt JSON Schema', () => {
     const roster = new Map(versions.map((version) => [version, cddlMembers(cddl, `Ashaveri-Receipt-Payload-v${version}`)]));
     const membersOf = (version: number): string[] =>
       required(roster.get(version), `the CDDL defines no version ${version} block to read`);
-    expect(membersOf(1)).toHaveLength(13);
-    expect(membersOf(2)).toEqual([...membersOf(1), 'mk']);
-    expect(membersOf(3)).toEqual([...membersOf(2), 'sd', 'cva', 'itm']);
+    expect(membersOf(1)).toHaveLength(17);
+    expect(membersOf(1).slice(0, 13)).toEqual(['v', 'iss', 'ins', 'iat', 'nce', 'req', 'res', 'mdl', 'wts', 'meas', 'att', 'epk', 'tok']);
+    expect(membersOf(1).slice(13)).toEqual(['mk', 'sd', 'cva', 'itm']);
     const twinMembers = (branch: string): string[] => [
       ...Object.keys(shape.$defs.payloadFields.properties),
       ...Object.keys(branchSchema(branch).properties),
@@ -553,8 +541,8 @@ describe('the receipt JSON Schema', () => {
     // need not decide whether the absence was a rule or an oversight. The pin is the sentence rather
     // than the word "closed": a comment saying the opposite still contains that word.
     const prose = cddlProse(cddl);
-    saidOnce('the CDDL payload note', prose, 'A payload map is closed at every version this file defines');
-    saidOnce('the CDDL payload note', prose, 'the absence of `...` in the three blocks below is that rule rather than an oversight');
+    saidOnce('the CDDL payload note', prose, 'A payload map is closed');
+    saidOnce('the CDDL payload note', prose, 'the absence of `...` below is that rule rather than an oversight');
     for (const version of versions) {
       expect(cddlRule(cddl, `Ashaveri-Receipt-Payload-v${version}`).includes('...'), `v${version} closes`).toBe(false);
     }
@@ -615,7 +603,7 @@ describe('the receipt JSON Schema', () => {
     // hashes, and the unprotected map is the single one a signer fills at will because no claim can
     // travel through it. Either sentence sliding back into a claim about every map the file defines,
     // or back into exempting the protected header, is one the parser contradicts on its first read.
-    saidOnce('the CDDL closure note', prose, 'so the payload map and every map nested inside it close, at every version');
+    saidOnce('the CDDL closure note', prose, 'so the payload map and every map nested inside it close at every level');
     saidOnce('the CDDL closure note', prose, '`Ashaveri-Protected-Header` closes with them');
     saidOnce('the CDDL closure note', prose, 'The parser refuses the unknown label by number');
     saidOnce('the CDDL closure note', prose, 'One map this file leaves a signer free to fill, and that is a decision rather than a gap');
@@ -664,7 +652,7 @@ describe('the receipt JSON Schema', () => {
     // payload map, and it names every nested key and says which keyword closes each level; the
     // branch descriptions close their own map and name nothing inside it, so a reader never takes
     // a claim about one level from a sentence about another.
-    saidOnce('the twin', shape.description, 'Each branch is closed');
+    saidOnce('the twin', shape.description, 'The branch is closed');
     saidOnce('the twin', shape.description, 'Closure is not one level');
     saidOnce('the twin', shape.description, 'the six nested inside it');
     saidOnce('the twin', shape.description, 'the nested definitions through `additionalProperties`');
@@ -777,8 +765,8 @@ describe('the receipt JSON Schema', () => {
     const wrongWidth = (members: Record<string, unknown>): void => {
       members.mk = { sch: 'provenance-v1', d: toHex(new Uint8Array(31).fill(1)) };
     };
-    expect(outcome(rewritten(v2({ sch: 'none', d: DIGEST }), missingLabel))).not.toBeNull();
-    expect(outcome(rewritten(v2({ sch: 'none', d: DIGEST }), wrongWidth))).not.toBeNull();
+    expect(outcome(rewritten(payloadOf('software', DIGEST), missingLabel))).not.toBeNull();
+    expect(outcome(rewritten(payloadOf('software', DIGEST), wrongWidth))).not.toBeNull();
   });
 
   it('refuses to compile a keyword this schema does not define', () => {
@@ -904,7 +892,7 @@ describe("the parser's member lists", () => {
     for (const binding of LIST_FOR_MAP) {
       const list = required(lists.get(binding.list), `${binding.list} is not an export of src/receipt.ts`);
       const defined = cddlMembers(cddl, binding.map);
-      const enforced = [...list, ...(binding.adds ?? [])];
+      const enforced = [...list];
       // A name the format defines and the list drops is refused as an undefined member by the parser
       // that reads it; a name the list carries and the format does not define buys a document
       // acceptance no version of the format grants. Either one alone passes a subset check pointed at
@@ -913,7 +901,7 @@ describe("the parser's member lists", () => {
       expect(missing, `${binding.list} does not enforce ${binding.map}'s member(s): ${missing.join(', ')}`).toEqual([]);
       const extra = enforced.filter((member) => !defined.includes(member));
       expect(extra, `${binding.list} names member(s) ${binding.map} does not define: ${extra.join(', ')}`).toEqual([]);
-      // Order bears on nothing here, but `SHARED_MEMBERS` and the twin both say they list members in
+      // Order bears on nothing here, but `PAYLOAD_MEMBERS` and the twin both say they list members in
       // the order the CDDL writes them. Once the two sides agree on which names, that claim gets its
       // own line, so a reordering that leaves the set intact says so instead of going unmentioned.
       expect(enforced, `${binding.list} is in another order than ${binding.map}: ${enforced.join(', ')} against ${defined.join(', ')}`).toEqual(defined);
@@ -931,7 +919,8 @@ describe("the parser's member lists", () => {
     // What this cannot see, said plainly rather than implied: a list exported under a name that does
     // not end in `_MEMBERS` is a fact about `receipt.ts` and not about a map the format gained, and
     // the payload level's own member list is read through its export rather than against the walk,
-    // because the v2 entry is built from the shared list plus one name and is a copy on purpose. The
+    // because it names every member of the one block the walk reads, and a list that dropped one would
+    // be a copy of a copy. The
     // signed header's list is the one the case below reads, because no rule here reaches it.
     //
     // Neither reaches which label holds which parameter, and that is the third thing this cannot see.

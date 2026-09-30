@@ -35,8 +35,9 @@ const NOW = 1_800_000_000;
 const TEXT = (value: string): Uint8Array => new TextEncoder().encode(value);
 const ROOT = TEXT('a pinned vendor root');
 
-function receiptPayload(version: 1 | 2 | 3, at: number): ReceiptPayload {
-  const shared = {
+function receiptPayload(at: number): ReceiptPayload {
+  return {
+    v: 1,
     iss: 'ashaveri-test',
     ins: 'cvm-test-1',
     iat: at,
@@ -53,31 +54,21 @@ function receiptPayload(version: 1 | 2 | 3, at: number): ReceiptPayload {
     },
     epk: 1,
     tok: { p: 11, c: 22 },
+    mk: { sch: 'none' as const, d: sha256(emptyRegion()) },
+    sd: { name: 'fixture clock', uncertaintySeconds: 2 },
+    cva: {
+      collateral: { presence: 'not-taken-in', reason: 'the issuance took no collateral in' },
+      validity: { presence: 'not-taken-in', reason: 'the issuance recorded no validity window' },
+    },
+    itm: [
+      { t: at, d: sha256(TEXT('the first item of the response')) },
+      { t: at + 1, d: sha256(TEXT('the second item of the response')) },
+    ],
   };
-  if (version === 3) {
-    return {
-      v: 3,
-      ...shared,
-      mk: { sch: 'none' as const, d: sha256(emptyRegion()) },
-      sd: { name: 'fixture clock', uncertaintySeconds: 2 },
-      cva: {
-        collateral: { presence: 'not-taken-in', reason: 'the issuance took no collateral in' },
-        validity: { presence: 'not-taken-in', reason: 'the issuance recorded no validity window' },
-      },
-      itm: [
-        { t: at, d: sha256(TEXT('the first item of the response')) },
-        { t: at + 1, d: sha256(TEXT('the second item of the response')) },
-      ],
-    };
-  }
-  return version === 2
-    ? { v: 2, ...shared, mk: { sch: 'none' as const, d: sha256(emptyRegion()) } }
-    : { v: 1, ...shared };
 }
 
-const receiptV1 = issueReceipt(receiptPayload(1, NOW - 20), KEY);
-const receiptV2 = issueReceipt(receiptPayload(2, NOW - 20), KEY);
-const receiptV3 = issueReceipt(receiptPayload(3, NOW - 20), KEY);
+const receiptV1 = issueReceipt(receiptPayload(NOW - 20), KEY);
+const secondReceipt = issueReceipt(receiptPayload(NOW - 19), KEY);
 
 const manifestDocument = {
   v: 1,
@@ -101,7 +92,7 @@ const held = (bytes: Uint8Array): Record<string, unknown> => ({
 function recordFor(
   original: Uint8Array,
   over: Record<string, unknown> = {},
-  block: { readonly receiptFormatVersion?: 1 | 2 | 3 } = {},
+  block: { readonly receiptFormatVersion?: number } = {},
 ): Record<string, unknown> {
   return {
     v: 1,
@@ -376,25 +367,32 @@ describe('a version the reader does not implement is refused, not read as its ow
     expect(
       codeOf(() => parseCaptureRecord({ ...recordFor(receiptV1), check: { ...check, policyVersion: 2 } })),
     ).toBe('UNSUPPORTED_VERSION');
-    // What this case holds is the boundary above the set the format defines. Nothing here refuses a
-    // record naming receipt version `3`: a gateway signs a v3 whenever its response frames into items, so
-    // a reader that refused `3` would leave the client of an emitting deployment unable to record what it
-    // verified. `4` is an integer no payload this package parses names, and a record claiming it meets a
-    // refusal rather than a reading as the nearest version inside the set.
+    // What this case holds is the boundary above the set the format defines. The payload version the
+    // format declares is one, so every integer above it is a version no build of this reader names, and
+    // each meets a refusal rather than a reading as the nearest version inside the set. The case below
+    // that reads a v1 original is the other half: the number a record names is refused or taken, and no
+    // record is ever read at a version it did not name.
     expect(
       codeOf(() => parseCaptureRecord({ ...recordFor(receiptV1), check: { ...check, receiptFormatVersion: 4 } })),
     ).toBe('UNSUPPORTED_VERSION');
   });
 
-  it('reads a v3 original for a record that says it was checked against v3', () => {
-    const parsed = parseCaptureRecord(recordFor(receiptV3, {}, { receiptFormatVersion: 3 }));
-    expect(parsed.check.receiptFormatVersion).toBe(3);
+  it('refuses a record naming a receipt version this build has no reader for', () => {
+    // The format declares one payload version, so a record naming any other number describes a document
+    // no reader of these bytes can open. The refusal is the same whichever number above the one is named:
+    // the reader answers the version the record claims to have checked rather than re-reading the original
+    // at the nearest version it does implement.
+    for (const named of [2, 3, 4] as const) {
+      expect(
+        codeOf(() => parseCaptureRecord(recordFor(receiptV1, {}, { receiptFormatVersion: named }))),
+        `a record naming receipt version ${named}`,
+      ).toBe('UNSUPPORTED_VERSION');
+    }
   });
 
-  it('reads a v2 original only for a record that says it was checked against v2', () => {
-    expect(parseCaptureRecord(recordFor(receiptV2, {}, { receiptFormatVersion: 2 })).check.receiptFormatVersion).toBe(2);
-    const parsed = parseCaptureRecord(recordFor(receiptV2, {}, { receiptFormatVersion: 2 }));
-    expect(parsed.check.receiptFormatVersion).toBe(2);
+  it('reads a v1 original for the record that says it was checked against v1', () => {
+    const parsed = parseCaptureRecord(recordFor(receiptV1, {}, { receiptFormatVersion: 1 }));
+    expect(parsed.check.receiptFormatVersion).toBe(1);
   });
 
   it('refuses a member capture v1 does not define', () => {
@@ -428,10 +426,6 @@ describe('the published schema and the reader decide the same documents', () => 
 
   const accepted: Array<[string, Record<string, unknown>]> = [
     ['a whole record', recordFor(receiptV1)],
-    ['a v2 original', recordFor(receiptV2, {}, { receiptFormatVersion: 2 })],
-    // The version an emitting deployment signs is an ordinary member of the accepted set: a record of a
-    // v3 check is what a collector of such a deployment writes, and both sides of this walk take it.
-    ['a v3 original', recordFor(receiptV3, {}, { receiptFormatVersion: 3 })],
     ['no collateral at the source', recordFor(receiptV1, { context: { collateral: { presence: 'absent-at-source', reason: 'none served' }, validity: { presence: 'not-taken-in', reason: 'not read' } } })],
     ['no policy digest', recordFor(receiptV1, { check: { ...(recordFor(receiptV1).check as object), policyDigest: null } })],
     ['an unnamed root', recordFor(receiptV1, { trust: { roots: [{ family: 'amdArks', digest: null }], limits: { maxReceiptAgeSeconds: null, maxEvidenceAgeSeconds: null } } })],
@@ -454,11 +448,14 @@ describe('the published schema and the reader decide the same documents', () => 
     ['a negative acquisition time', recordFor(receiptV1, { acquired: { at: -1, sourceStatedAt: null } })],
     ['an unimplementable version', { ...recordFor(receiptV1), v: 3 }],
     // The boundary of the two lists that have to stay in step: `check.receiptFormatVersion` is
-    // `enum: [1, 2, 3]` in the published schema and `IMPLEMENTED_RECEIPT_FORMAT_VERSIONS` in the reader,
-    // and `4` is the integer above both, a version `receipt.cddl` has never defined. Widening one side
-    // without the other fails the assertion belonging to the side that moved: a reader list that gains `4`
-    // stops throwing on the case below, and a schema enum that gains it stops refusing the same document.
+    // `enum: [1]` in the published schema and `IMPLEMENTED_RECEIPT_FORMAT_VERSIONS` in the reader, and
+    // every integer above that one element is a version `receipt.cddl` no longer defines. Widening one
+    // side without the other fails the assertion belonging to the side that moved: a reader list that
+    // gains `2` stops throwing on the case below, and a schema enum that gains it stops refusing the same
+    // document.
     ['a receipt version no format defines', recordFor(receiptV1, { check: { ...(recordFor(receiptV1).check as object), receiptFormatVersion: 4 } })],
+    ['the retired receipt version 2', recordFor(receiptV1, { check: { ...(recordFor(receiptV1).check as object), receiptFormatVersion: 2 } })],
+    ['the retired receipt version 3', recordFor(receiptV1, { check: { ...(recordFor(receiptV1).check as object), receiptFormatVersion: 3 } })],
   ];
 
   for (const [name, record] of refused) {
@@ -509,7 +506,7 @@ describe('the published schema and the reader decide the same documents', () => 
     // A document that says the same thing with its members written in the other order is the same
     // capture, so a collector may retry one as many times as it likes.
     expect(captureRecordKey(parseCaptureRecord(reverseKeyOrder(recordFor(receiptV1))))).toBe(captureRecordKey(honest));
-    expect(captureRecordKey(parseCaptureRecord(recordFor(receiptV2, {}, { receiptFormatVersion: 2 })))).not.toBe(
+    expect(captureRecordKey(parseCaptureRecord(recordFor(secondReceipt)))).not.toBe(
       captureRecordKey(honest),
     );
     // The instant the bytes were taken in is part of the record, so a second capture of the same

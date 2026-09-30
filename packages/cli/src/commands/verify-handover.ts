@@ -302,11 +302,10 @@ function isoOf(epochSeconds: number): string {
 function readReceipt(bytes: Uint8Array, inputs: Inputs, kid: Uint8Array): Reading {
   const verified: VerifiedReceipt = verifyReceipt(bytes, { resolveKey: resolveEvidence(inputs.evidence) });
   const payload = verified.payload;
-  // The marking is read once, off the member, because whether this report has a region to name is a
-  // fact about the payload naming `mk` and not about which version number it carries: `v: 2` and `v: 3`
-  // both name one, and a report keyed to either number prints a false sentence about the other. A
-  // payload naming no marking states its own version instead, which is the only case left.
-  const marking = 'mk' in payload ? payload.mk : null;
+  // The marking is read off the member, because whether this report has a region to name is a fact about
+  // the payload naming `mk`: every document this reader opens names one, so the report names the region
+  // it attests or it is not looking at a receipt this format writes.
+  const marking = payload.mk;
   return {
     contentType: RECEIPT_CONTENT_TYPE,
     reader: 'verifyReceipt',
@@ -327,8 +326,8 @@ function readReceipt(bytes: Uint8Array, inputs: Inputs, kid: Uint8Array): Readin
       {
         key: 'markedRegion',
         label: 'marked region',
-        value: marking === null ? `a v${payload.v} payload states none` : `${toHex(marking.d)} (${marking.sch})`,
-        json: marking === null ? null : { scheme: marking.sch, sha256: toHex(marking.d) },
+        value: `${toHex(marking.d)} (${marking.sch})`,
+        json: { scheme: marking.sch, sha256: toHex(marking.d) },
       },
       { key: 'tokens', label: 'tokens', value: `${payload.tok.p} prompt, ${payload.tok.c} completion`, json: { prompt: payload.tok.p, completion: payload.tok.c } },
       {

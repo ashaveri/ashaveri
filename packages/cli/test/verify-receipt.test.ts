@@ -22,7 +22,7 @@ import { ATTESTED_MARKING, stampedReceiptBytes, wrongMarking } from './stamped-r
  * the caller's side of the transaction, and the same key and issuer appear in both because a real
  * deployment's do.
  *
- * One document is built rather than read: the `v: 3` cases need a receipt naming a marking whose region
+ * One document is built rather than read: the marked cases need a receipt naming a marking whose region
  * the bytes handed to the command either do or do not carry, and a published row states one verdict for
  * its bytes rather than the pair a marking case turns on. Those bytes come from `stamped-receipt.ts`,
  * which builds them out of the published marked vector so
@@ -81,7 +81,27 @@ const PUBLISHED_RECEIPTS = (
     fixtures: Array<{ name: string; path: string; expected: string; responseBase64Url?: string }>;
   }
 ).fixtures;
-const MARKED = receiptJson('receipt-marked-v2');
+const MARKED = receiptJson('receipt-marked-v1');
+
+/**
+ * The response bytes a published row states, written once to a file the command can be pointed at.
+ *
+ * Every receipt this format reads names a marking, and the region a marking attests is read out of the
+ * response rather than out of the document, so the command refuses to run on a digest alone. A row that
+ * publishes no bytes is therefore a row this suite cannot verify, and that is a fault in the fixtures
+ * rather than something to work around here.
+ */
+const responseBodies = new Map<string, string>();
+function publishedResponseBody(path: string): string | undefined {
+  const entry = PUBLISHED_RECEIPTS.find((each) => `${DATA}${each.path}` === path);
+  if (entry?.responseBase64Url === undefined) return undefined;
+  const held = responseBodies.get(entry.responseBase64Url);
+  if (held !== undefined) return held;
+  const written = join(tempDir, `response-${String(responseBodies.size)}.bin`);
+  writeFileSync(written, Buffer.from(entry.responseBase64Url, 'base64url'));
+  responseBodies.set(entry.responseBase64Url, written);
+  return written;
+}
 const ISSUER = VALID.payload.iss;
 const INSTANCE = VALID.payload.ins;
 const NONCE = VALID.payload.nce;
@@ -253,8 +273,14 @@ interface RunOptions {
  * digest is left out only when the bytes it stands for are given, which is why the two share a slot.
  */
 function argsFor(options: RunOptions): string[] {
-  const args = ['verify-receipt', options.receipt ?? receiptPath('receipt-valid-v1')];
+  const receipt = options.receipt ?? receiptPath('receipt-valid-v1');
+  const args = ['verify-receipt', receipt];
   const requestDigest = options.requestBody === undefined ? (options.requestDigest ?? REQUEST_DIGEST) : undefined;
+  // A caller naming no response at all gets the bytes the receipt's own row publishes, because the command
+  // reads the marked region out of them. A caller naming a digest names one deliberately: the refusal this
+  // suite is looking for is the one between that digest and the receipt.
+  const responseBody =
+    options.responseBody ?? (options.responseDigest === undefined ? publishedResponseBody(receipt) : undefined);
   const flags: [string, string | readonly string[] | undefined][] = [
     ['--policy', options.policy ?? policyFile()],
     ['--manifest', options.manifest ?? manifestFile()],
@@ -262,8 +288,8 @@ function argsFor(options: RunOptions): string[] {
     ['--nonce', options.nonce ?? NONCE],
     ['--request-body', options.requestBody],
     ['--request-hash', requestDigest],
-    ['--response-body', options.responseBody],
-    ['--response-hash', options.responseBody === undefined ? (options.responseDigest ?? RESPONSE_DIGEST) : undefined],
+    ['--response-body', responseBody],
+    ['--response-hash', responseBody === undefined ? options.responseDigest : undefined],
     ['--now', options.now ?? NOW],
   ];
   for (const [flag, value] of flags) {
@@ -334,7 +360,8 @@ describe('ashaveri verify-receipt', () => {
 
   it('reads the receipt from stdin when the argument is -', () => {
     const bytes = readFileSync(receiptPath('receipt-valid-v1'));
-    expect(runCli(argsFor({ receipt: '-' }), bytes).status).toBe(0);
+    const body = publishedResponseBody(receiptPath('receipt-valid-v1'));
+    expect(runCli(argsFor({ receipt: '-', responseBody: body }), bytes).status).toBe(0);
   });
 
   it('reports a machine-readable verdict naming the pins, the files and the windows', () => {
@@ -369,7 +396,7 @@ describe('ashaveri verify-receipt', () => {
     });
     expect(out.measurement).toEqual({ tee: VALID.payload.meas.tee, m: VALID.payload.meas.m });
     expect(out.requestDigest).toEqual({ sha256: REQUEST_DIGEST, takenFrom: 'the --request-hash value as written' });
-    expect(out.markedRegion).toBeNull();
+    expect(out.markedRegion).toEqual({ scheme: 'none', sha256: VALID.payload.mk?.d });
     expect(out.evidence).toEqual({ digest: VALID.payload.att.d, timestamp: VALID.payload.att.ts, documentChecked: false });
     expect(out.policy).toEqual({ digest: expect.stringMatching(/^sha256:[0-9a-f]{64}$/u), file: policy });
     expect(out.manifest).toEqual({ file: manifest, issuer: ISSUER, instance: INSTANCE, declaredKeys: [KID] });
@@ -670,80 +697,68 @@ describe('ashaveri verify-receipt', () => {
 
   it('checks a marked receipt against the response bytes and reports the region it read', () => {
     const body = markingBody('buffered-member');
-    const result = runCli(argsFor({ receipt: receiptPath('receipt-marked-v2'), responseBody: body, json: false }));
+    const result = runCli(argsFor({ receipt: receiptPath('receipt-marked-v1'), responseBody: body, json: false }));
     expect(result.stderr).toBe('');
     expect(result.status).toBe(0);
     expect(result.stdout).toContain(`  response digest:  ${MARKED.payload.res}, sha256 of the bytes in ${body}`);
     expect(result.stdout).toContain(`  marked region:    ${MARKED.payload.mk?.d} (provenance-v1)`);
-    const json = runCli(argsFor({ receipt: receiptPath('receipt-marked-v2'), responseBody: body }));
+    const json = runCli(argsFor({ receipt: receiptPath('receipt-marked-v1'), responseBody: body }));
     expect(verdictOf(json).markedRegion).toEqual({ scheme: 'provenance-v1', sha256: MARKED.payload.mk?.d });
   });
 
-  it('refuses to check a marked receipt on a hand-written response digest', () => {
-    const result = runCli(argsFor({ receipt: receiptPath('receipt-marked-v2'), json: false }));
+  it('refuses to check a receipt on a hand-written response digest', () => {
+    // Every payload this format reads names `mk`, so every receipt owed by a caller is the same case and
+    // there is no version left to let through. The requirement is the half that fails quietly: keyed to a
+    // member and a version list it lets the document off that list through to a verification that never
+    // runs the step, reports `verified`, and says nothing about the material it did not have.
+    const result = runCli(argsFor({ receipt: receiptPath('receipt-marked-v1'), responseDigest: RESPONSE_DIGEST, json: false }));
     expect(result.status).toBe(2);
     expect(result.stdout).toBe('');
-    expect(result.stderr).toContain('this is a v2 receipt');
     expect(result.stderr).toContain('--response-body is required and --response-hash cannot carry that check');
   });
 
   it('refuses a marked receipt whose response bytes no longer carry the attested region', () => {
     const body = markingBody('region-stripped');
-    const result = runCli(argsFor({ receipt: receiptPath('receipt-marked-v2'), responseBody: body }));
+    const result = runCli(argsFor({ receipt: receiptPath('receipt-marked-v1'), responseBody: body }));
     expect(result.status).toBe(1);
     expect(verdictOf(result).code).toBe('RESPONSE_HASH_MISMATCH');
   });
 
-  it('refuses to check a v3 receipt on a hand-written response digest, as it does a v2 one', () => {
-    // Both payloads name `mk`, so both owe the same region check and both need the bytes it is read
-    // off. The requirement is the half that fails quietly: keyed to one version number it lets the
-    // other through to a verification that never runs the step, reports `verified`, and says nothing
-    // about the material it did not have.
-    const receipt = written('stamped-v3.cbor', Buffer.from(stampedReceiptBytes(ATTESTED_MARKING)));
-    const result = runCli(argsFor({ receipt, json: false }));
-    expect(result.status).toBe(2);
-    expect(result.stdout).toBe('');
-    expect(result.stderr).toContain('this is a v3 receipt');
-    expect(result.stderr).toContain('--response-body is required and --response-hash cannot carry that check');
-  });
-
-  it('refuses a v3 receipt whose response bytes do not carry the region it attests', () => {
-    // The pair this command exists to close over: a validly signed `v: 3` receipt whose `mk.d` digests
-    // something other than the marked region of the bytes handed for it. Every other step holds, the
-    // signature among them, so the only answer a reader is owed is the marking's own refusal.
-    const receipt = written('stamped-v3-mismatch.cbor', Buffer.from(stampedReceiptBytes(wrongMarking())));
+  it('refuses a receipt whose response bytes do not carry the region it attests', () => {
+    // The pair this command exists to close over: a validly signed receipt whose `mk.d` digests something
+    // other than the marked region of the bytes handed for it. Every other step holds, the signature among
+    // them, so the only answer a reader is owed is the marking's own refusal.
+    const receipt = written('stamped-mismatch.cbor', Buffer.from(stampedReceiptBytes(wrongMarking())));
     const result = runCli(argsFor({ receipt, responseBody: markingBody('buffered-member') }));
     expect(result.status).toBe(1);
     expect(verdictOf(result).code).toBe('MARK_MISMATCH');
   });
 
-  it('leaves a v1 receipt answering exactly as it did, with no marking to check', () => {
-    // `v: 1` names no `mk`, so it claims nothing about the response's interior and is satisfied by the
-    // digest alone. The refusal the two versions above earn is not owed here, and the verdict is the
-    // one the published vector's own manifest states: widening the step to the member must not have
-    // reached this document, which is the half of the change that keeps old receipts answering. The
-    // last two lines belong to the report rather than the check: a payload naming no marking has no
-    // region to print, and the projection prints none for it exactly as it did before.
+  it('checks the region a receipt attesting no mark names, and prints that it read one', () => {
+    // `sch: "none"` is not an absence: it is the attestation that no region of this response is marked, so
+    // the receipt owes the same reading as a marked one and the report prints the empty region rather than
+    // falling silent about a claim the document makes. The digest of that empty region is what the row's
+    // own payload carries, and a report that printed nothing here would misdescribe the verdict.
     const result = runCli(argsFor({ receipt: receiptPath('receipt-valid-v1'), json: false }));
     expect(result.stderr).toBe('');
     expect(result.status).toBe(0);
     expect(result.stdout).toContain('receipt verified (COSE_Sign1, payload v1, EdDSA over the signed bytes)');
-    expect(result.stdout).not.toContain('marked region');
-    expect(verdictOf(runCli(argsFor({ receipt: receiptPath('receipt-valid-v1') }))).markedRegion).toBeNull();
+    expect(result.stdout).toContain(`  marked region:    ${VALID.payload.mk?.d} (none), read off the response bytes above`);
+    expect(verdictOf(runCli(argsFor({ receipt: receiptPath('receipt-valid-v1') }))).markedRegion).toEqual({
+      scheme: 'none',
+      sha256: VALID.payload.mk?.d,
+    });
   });
 
-  it('checks a v3 receipt against the response bytes and reports the region it read', () => {
-    // The matching half of the pair above, and the projection half of this case: a `v: 3` payload names
-    // a marking exactly as `v: 2` does, so both renderings have to say what it names. Printed from the
-    // version the report keys on, the human line and the JSON member both go quiet about a region the
-    // receipt carries, and a report that says nothing about a claim the document makes is a report that
-    // misdescribes it.
-    const receipt = written('stamped-v3-attested.cbor', Buffer.from(stampedReceiptBytes(ATTESTED_MARKING)));
+  it('checks a receipt against the response bytes and reports the region it read', () => {
+    // The marked half of the pair above, and the projection half of this case: both renderings have to say
+    // what the payload names, read from the bytes the caller handed rather than from the digest.
+    const receipt = written('stamped-attested.cbor', Buffer.from(stampedReceiptBytes(ATTESTED_MARKING)));
     const body = markingBody('buffered-member');
     const human = runCli(argsFor({ receipt, responseBody: body, json: false }));
     expect(human.stderr).toBe('');
     expect(human.status).toBe(0);
-    expect(human.stdout).toContain('receipt verified (COSE_Sign1, payload v3, EdDSA over the signed bytes)');
+    expect(human.stdout).toContain('receipt verified (COSE_Sign1, payload v1, EdDSA over the signed bytes)');
     expect(human.stdout).toContain(`  marked region:    ${MARKED.payload.mk?.d} (${ATTESTED_MARKING.sch}), read off the response bytes above`);
     const json = verdictOf(runCli(argsFor({ receipt, responseBody: body })));
     expect(json.markedRegion).toEqual({ scheme: ATTESTED_MARKING.sch, sha256: MARKED.payload.mk?.d });
@@ -755,7 +770,7 @@ describe('ashaveri verify-receipt', () => {
     // The marked vector is covered by its own three cases above, because its check is carried by the
     // response bytes rather than by a digest; the rest run here on the digests their JSON twins state,
     // and on the response bytes their own row states where a payload names a marking to check.
-    const drivenApart = ['receipt-marked-v2'];
+    const drivenApart = ['receipt-marked-v1'];
     for (const [name, fixture] of stated) {
       if (drivenApart.includes(name)) continue;
       // A row whose payload will not parse publishes no twin, and the request every fixture is issued
@@ -867,7 +882,7 @@ describe('ashaveri verify-receipt', () => {
 
   it('refuses bytes that are not a receipt at all', () => {
     const notAReceipt = written('not-a-receipt.bin', 'these are not a COSE_Sign1 structure');
-    const result = runCli(argsFor({ receipt: notAReceipt }));
+    const result = runCli(argsFor({ receipt: notAReceipt, responseDigest: RESPONSE_DIGEST }));
     expect(result.status).toBe(1);
     expect(verdictOf(result).code).toBe('MALFORMED_CBOR');
   });

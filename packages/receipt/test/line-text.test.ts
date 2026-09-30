@@ -8,7 +8,7 @@ import {
   generateSigningKey,
   issueReceipt,
 } from '../src/index.js';
-import type { ReceiptPayloadV1 } from '../src/index.js';
+import type { ReceiptPayload } from '../src/index.js';
 import { FOLD_HONEST, sealFoldDocument, sealOf } from './presence-run.js';
 
 /**
@@ -104,7 +104,7 @@ const SWEEPS: ReadonlyArray<{ readonly name: string; readonly from: number; read
 ];
 
 /** A whole document, so the only thing a case moves is the text the class is asked about. */
-function payloadV1(overrides: Partial<ReceiptPayloadV1> = {}): ReceiptPayloadV1 {
+function payloadV1(overrides: Partial<ReceiptPayload> = {}): ReceiptPayload {
   const at = 1_772_000_000;
   return {
     v: 1,
@@ -120,6 +120,13 @@ function payloadV1(overrides: Partial<ReceiptPayloadV1> = {}): ReceiptPayloadV1 
     att: { d: sha256(new Uint8Array(64).fill(2)), ts: at - 60, url: 'https://inference.ashaveri.com/v1/attestation' },
     epk: 3,
     tok: { p: 128, c: 64 },
+    mk: { sch: 'none', d: sha256(new Uint8Array(0)) },
+    sd: { name: 'host clock', uncertaintySeconds: null },
+    cva: {
+      collateral: { presence: 'not-taken-in', reason: 'this test took no collateral in' },
+      validity: { presence: 'not-taken-in', reason: 'this test recorded no validity context' },
+    },
+    itm: [{ t: at, d: sha256(new Uint8Array(0)) }],
     ...overrides,
   };
 }
@@ -129,7 +136,7 @@ function payloadV1(overrides: Partial<ReceiptPayloadV1> = {}): ReceiptPayloadV1 
  * the class to is the site's own fact and the sweep should reach both shapes it holds them in. All eight attested
  * positions are swept against the class in `receipt.test.ts`; this file is about membership.
  */
-const WRITER_POSITIONS: ReadonlyArray<{ readonly name: string; readonly carrying: (text: string) => ReceiptPayloadV1 }> = [
+const WRITER_POSITIONS: ReadonlyArray<{ readonly name: string; readonly carrying: (text: string) => ReceiptPayload }> = [
   { name: 'iss', carrying: (text) => payloadV1({ iss: text }) },
   {
     name: 'att.url',
@@ -158,7 +165,7 @@ function verdictOf(run: () => unknown): Verdict {
 }
 
 /** What the receipt writer says about one value at one attested position. */
-function atWriter(position: { readonly name: string; readonly carrying: (text: string) => ReceiptPayloadV1 }, text: string): Verdict {
+function atWriter(position: { readonly name: string; readonly carrying: (text: string) => ReceiptPayload }, text: string): Verdict {
   return verdictOf(() => encodePayload(position.carrying(text)));
 }
 

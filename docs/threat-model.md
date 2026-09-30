@@ -56,15 +56,15 @@ the mechanism described below is a mark plus the evidence of a mark, not a certi
   in isolation. The mark is not the evidence; the receipt is. A mark is bytes anyone holding the
   response can delete, and the signed statement about those bytes is the part that cannot be edited
   without the edit showing. Three pieces, and this tree holds all three. The payload:
-  `@ashaveri/receipt` reads a `v: 2` document that carries `mk` and refuses a `v: 1` one that carries
-  it, because a payload map is closed at either version ([receipt-spec.md](receipt-spec.md) section 6),
+  `@ashaveri/receipt` requires `mk` of every document it reads and refuses one that carries
+  none, because a payload map is closed ([receipt-spec.md](receipt-spec.md) section 6),
   so the marking attestation cannot arrive on a document that has agreed to say nothing about it. The
   rule: `extractMarkedRegion` in `packages/receipt/src/marking.ts` locates a region inside response
   bytes and answers `MARK_MISMATCH` when those bytes hold none or hold the shape twice, and the live
   client compares the digest of whatever it locates against `mk.d`, because
   `verifyCompletionReceipt` in `packages/sdk/src/verify.ts` is handed those bytes beside their digest
   (T18, T20). The bytes: `gateway/src/server.ts` signs a payload naming `mk` for every completion it
-  issues, which is a `v: 3` document wherever the response frames into items and a `v: 2` one only where a
+  issues that one document wherever the response frames into items, and serves nothing where a
   stream sent no data frame at all, and whether any byte is added to a customer's response is the
   deployment's own setting, `--marking`, whose shipped value is `none`. Section 6 says what none of the
   three amounts to proving.
@@ -324,8 +324,9 @@ What is still true, in both modes:
   nothing about quality, alignment, or the prompt template behind the completion.
 - **Marking is issued, read and refused in this code, and none of that reaches past the bytes.** The
   gateway signs a payload naming `mk` for every completion it issues (`issue()` in `gateway/src/server.ts`),
-  which is the member that has to travel with a marking, and the version carrying it is `v: 3` wherever the
-  response frames into items and `v: 2` only where a stream sent no data frame at all. It writes a marking
+  which is the member that has to travel with a marking, and it is stated wherever the
+  response frames into items; a stream that sent no data frame is not served at all, because `itm` would
+  have to be the empty list the format refuses. It writes a marking
   into the response only under `--marking provenance-v1`: started with the shipped `none`, or with nothing,
   it adds no byte to anyone's
   response and signs `sch: none` beside the digest of an empty region to declare that (`gateway/src/cli.ts`
@@ -336,17 +337,16 @@ What is still true, in both modes:
   `verifyReceipt` and `decodeReceipt` still never reach that code, and cannot: neither is handed a
   response, so a reader holding the receipt alone performs no marking check. What a receipt carrying `mk`
   establishes is one pairing and no more: the holder of a deployment's signing key matched one labelled
-  extraction rule and one 32-byte digest with the bytes of one response. The published artifacts are no
-  longer all v1 either: a marked-region suite (`packages/fixtures/data/marking-v1.json`) measures the
-  extraction rule, and one of the five receipt fixtures is a `v: 2` document, which is as far as version 2
-  reaches in published coverage, as [vectors.md](vectors.md) states. That a marked receipt verifies
+  extraction rule and one 32-byte digest with the bytes of one response. Every published receipt names `mk`:
+  a marked-region suite (`packages/fixtures/data/marking-v1.json`) measures the extraction rule, and the
+  receipt fixtures carry a marking on every document, as [vectors.md](vectors.md) states. That a marked receipt verifies
   wherever the accepted version set is left at its default, which is every version the package parses and
   which no client in this estate narrows, is a fact about readers rather than a guard for them. Whether a
   deployment marks at all is now a start-up setting rather than an unmade decision, and T17 through T20
-  are written to hold under either setting. Why a mark took a new version rather than arriving as an optional member of the old one is
-  section 6 of [receipt-spec.md](receipt-spec.md), and it holds: a v1 reader checks the thirteen fields
-  it knows, finds nothing about a mark, and would verify a receipt over an unmarked response exactly
-  as readily as over a marked one, which is silence read as a claim. The closedness that refusal rests
+  are written to hold under either setting. Why a mark is a required member rather than an optional one is
+  section 6 of [receipt-spec.md](receipt-spec.md), and it holds: a reader that found no `mk` would verify a
+  receipt over an unmarked response exactly as readily as over a marked one, which is silence read as a
+  claim. The closedness that refusal rests
   on is not the payload map's alone: `meas`, `att`, `tok`, `mk`, `sd` and `cva` are closed the same
   way, and so are the element of `itm` and the two arms a collateral slot's label selects, each by the
   reader that reaches it, and an

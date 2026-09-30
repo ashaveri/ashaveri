@@ -2,7 +2,7 @@ import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterAll, describe, expect, it } from 'vitest';
-import { issueReceipt, signingKeyFromSeed, type ReceiptPayload } from '@ashaveri/receipt';
+import { hashRequest, issueReceipt, signingKeyFromSeed, type ReceiptPayload } from '@ashaveri/receipt';
 import {
   SdkError,
   loadPolicyFromText,
@@ -119,7 +119,10 @@ const OTHER_PUBLIC_KEY = toBase64Url(new Uint8Array(32).fill(2));
 const IAT = 1_772_000_000;
 const NONCE = new Uint8Array(16).fill(3);
 const REQUEST_HASH = new Uint8Array(32).fill(4);
-const RESPONSE_HASH = new Uint8Array(32).fill(5);
+// The verifier hashes the response bytes it is handed against `res` before it reads the mark, so the
+// digest is taken from real bytes here rather than invented.
+const RESPONSE_BYTES = new TextEncoder().encode('the completion body this receipt attests');
+const RESPONSE_HASH = hashRequest(RESPONSE_BYTES);
 const MEASUREMENT_HEX = toHex(new Uint8Array(48).fill(6));
 
 const RECEIPT = issueReceipt(
@@ -137,6 +140,15 @@ const RECEIPT = issueReceipt(
     att: { d: new Uint8Array(32).fill(9), ts: IAT - 60, url: 'https://inference.ashaveri.com/v1/attestation' },
     epk: 0,
     tok: { p: 11, c: 5 },
+    // The one version names all seventeen members. `sch: none` is over the empty region, because this
+    // completion carries no mark, and the single item is the whole buffered body.
+    mk: { sch: 'none', d: hashRequest(new Uint8Array(0)) },
+    sd: { name: 'host clock', uncertaintySeconds: null },
+    cva: {
+      collateral: { presence: 'not-taken-in', reason: 'this replay takes no collateral in' },
+      validity: { presence: 'not-taken-in', reason: 'this replay records no validity context' },
+    },
+    itm: [{ t: IAT, d: RESPONSE_HASH }],
   } satisfies ReceiptPayload,
   KEY,
 );
@@ -155,7 +167,7 @@ function verdict(policy: AshaveriPolicy, atSeconds: number): string {
       nonce: NONCE,
       requestHash: REQUEST_HASH,
       responseHash: RESPONSE_HASH,
-      responseBytes: new Uint8Array(0),
+      responseBytes: RESPONSE_BYTES,
       verifyKey,
       policy,
       nowMillis: atSeconds * 1000,

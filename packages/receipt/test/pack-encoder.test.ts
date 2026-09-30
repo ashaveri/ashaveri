@@ -20,7 +20,7 @@ import {
   type PackItem,
   type PackManifest,
   type PackOrderingFindingKind,
-  type ReceiptPayloadV1,
+  type ReceiptPayload,
   type SigningKey,
 } from '../src/index.js';
 import { PACK_MANIFEST_MEMBERS } from '../src/pack.js';
@@ -85,7 +85,7 @@ function compareBytes(a: Uint8Array, b: Uint8Array): number {
 }
 
 /** A receipt payload whose every field is the width its kind needs, moving only by stamp and nonce. */
-function receiptPayload(iat: number, nonce: number): ReceiptPayloadV1 {
+function receiptPayload(iat: number, nonce: number): ReceiptPayload {
   const digest = sha256(new Uint8Array([nonce]));
   return {
     v: 1,
@@ -101,6 +101,13 @@ function receiptPayload(iat: number, nonce: number): ReceiptPayloadV1 {
     att: { d: digest, ts: iat - 60, url: 'https://inference.ashaveri.example/v1/attestation' },
     epk: 0,
     tok: { p: 1, c: 1 },
+    mk: { sch: 'none', d: sha256(new Uint8Array(0)) },
+    sd: { name: 'host clock', uncertaintySeconds: null },
+    cva: {
+      collateral: { presence: 'not-taken-in', reason: 'this test took no collateral in' },
+      validity: { presence: 'not-taken-in', reason: 'this test recorded no validity context' },
+    },
+    itm: [{ t: iat, d: digest }],
   };
 }
 

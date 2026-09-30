@@ -53,10 +53,10 @@ export const RECEIPT_KEY: SigningKey = signingKeyFromSeed(new Uint8Array(Buffer.
 /** The same key as the `--key` designation the command takes. */
 export const RECEIPT_PUBLIC_B64URL = Buffer.from(RECEIPT_KEY.publicKey).toString('base64url');
 
-/** The published marked v2 payload, which is the document a `v: 3` receipt here differs from by its members. */
-const decoded = decodeReceipt(new Uint8Array(readFileSync(`${DATA}receipts/receipt-marked-v2.cbor`))).payload;
-if (decoded.v !== 2) {
-  throw new Error(`the published marked vector is not a v2 document but a v${decoded.v} one`);
+/** The published marked payload, which is the document the receipts below differ from by one member. */
+const decoded = decodeReceipt(new Uint8Array(readFileSync(`${DATA}receipts/receipt-marked-v1.cbor`))).payload;
+if (decoded.v !== 1) {
+  throw new Error(`the published marked vector is not a v1 document but a v${decoded.v} one`);
 }
 
 // Captured in a second name rather than read through the check above: a narrowing of a discriminant does not
@@ -100,7 +100,7 @@ export function absent(reason: string): CollateralSlot {
 const PLACEHOLDER_REASON = 'the collector read no window';
 
 /**
- * A `v: 3` receipt at `iat`, sealing the given anchor pair, signed under the published receipt key.
+ * A receipt at `iat`, sealing the given anchor pair, signed under the published receipt key.
  *
  * The layout is the writer's and the absence reason is put in afterwards, over a placeholder the writer did
  * sign, because the writer refuses to seal text that would forge the line a member is printed on
@@ -114,10 +114,7 @@ const PLACEHOLDER_REASON = 'the collector read no window';
 export function anchorReceiptOf(slots: HeldPair, iat: number): Uint8Array {
   const payload: ReceiptPayload = {
     ...published,
-    v: 3,
     iat,
-    mk: published.mk,
-    sd: { name: 'host clock', uncertaintySeconds: null },
     cva: { collateral: withPlaceholder(slots.col), validity: withPlaceholder(slots.val) },
     itm: [{ t: iat, d: digestOf(new TextEncoder().encode('the first item of the response')) }],
   };
@@ -220,7 +217,7 @@ function privateKeyFromSeed(seedHex: string): ReturnType<typeof createPrivateKey
 }
 
 /**
- * A `v: 3` receipt and the one pack that seals it, whose `col` slot names the bytes handed here.
+ * A receipt naming held slots and the one pack that seals it, whose `col` slot names the bytes handed here.
  *
  * The shortest container that reaches the weighing: one record, one held slot naming one object, and the object
  * carried. A case that wants two slots or a stated absence builds the pair itself with `anchorReceiptOf`.

@@ -1,0 +1,74 @@
+{
+  "protectedHeader": {
+    "alg": "EdDSA",
+    "kid": "35013a6e000b8d5dca51c4bd5c1db9f2860283606c76aeeeea8ee72b72b5e15e",
+    "typ": "ashaveri/receipt"
+  },
+  "payload": {
+    "v": 1,
+    "iss": "dpl-9f2a41c3",
+    "ins": "cvm-i-047f2a",
+    "iat": 1772000000,
+    "nce": "5b66873d3dcc9fc96fd9a14341bc1b2e",
+    "req": "ae8b759968f574a1c423445e00f4e73ee2aa0d4fcb889d79d6aed877fc6d9a79",
+    "res": "3ba002937ba8859b6afa2de2388be36ae13214eade57fee385a73e3b3baa45d1",
+    "mdl": "meta-llama/Llama-3.1-8B-Instruct",
+    "wts": "2689570aecf5054284b06d6022554fb97942cad0a774d5dbc9308b2d0477d9b5",
+    "meas": {
+      "tee": "snp+gpucc",
+      "m": "bd7661367ea7c0fa027295b495a37d8c445e95889c09d6b7beb6ed4052719e30f16f0507827e2d004949b552f1e551f2"
+    },
+    "att": {
+      "d": "4c8cdcf1f0ff0722b002adc9d8323cd314b50f57a01c3de302b1b3a1b664a9db",
+      "ts": 1771999940,
+      "url": "https://inference.ashaveri.com/v1/attestation"
+    },
+    "epk": 1,
+    "tok": {
+      "p": 128,
+      "c": 64
+    },
+    "mk": {
+      "sch": "provenance-v1",
+      "d": "5bab82851c424a2bcf379ac329507a1681bb46de44af02e1970e689703b5f1ce"
+    },
+    "sd": {
+      "name": "ptp-disciplined host clock",
+      "unc": 1
+    },
+    "cva": {
+      "col": {
+        "p": "not-taken-in",
+        "r": "this issuer takes no collateral into the record it signs with: it is handed an evidence document, its stamp and a url, and nothing chained to that document, and no collector beside it holds the vendor chain an appraisal of those bytes would run on"
+      },
+      "val": {
+        "p": "not-taken-in",
+        "r": "this issuer records no validity context at issuance: nothing in it appraises the evidence whose digest it signs, so no window was put into this record, and whether one stood open at the instant this receipt was stamped is a fact this process never looked at; the appraisal that needs one belongs to a verifier, run afterwards against bytes this document only digests"
+      }
+    },
+    "itm": [
+      {
+        "t": 1771999995,
+        "d": "8ad85524387f8b33d71d6c825b4098967d582a49255a9ce5d399a4dcf82e34de"
+      },
+      {
+        "t": 1771999996,
+        "d": "2b918d88b23a1e4601a9698687c94140916d8d4455746ee42c3029e3331972f4"
+      },
+      {
+        "t": 1771999997,
+        "d": "b6317a63b4a079fe282343b5ca0c089280cbce11042acd5f0abd76db4ea548c2"
+      },
+      {
+        "t": 1771999998,
+        "d": "63b374984480c1f0adb487b753b9cb3ac2b732bb6749f7f687243aefbe5c1ca2"
+      },
+      {
+        "t": 1771999999,
+        "d": "0d19b35a69c8c6cc3e707510e7b46d19ae7dcdbef79715964615d74fdd0aab2b"
+      }
+    ]
+  },
+  "signature": "dfcf5e7bcbf0b9b5f4972ed62444af891be0e2e60f0d75574cbb2bf757967c3e7cd394a658a1f3c119844b0e05f602d9fd21fd16de04f08feb7b6b2190f7ca04",
+  "digestSha256": "aff6996dafeeb4d15ab033bbe43cd3162c1ec8da585354cf8351adb0031f9667"
+}

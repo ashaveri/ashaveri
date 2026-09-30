@@ -15,29 +15,32 @@ Ashaveri-Protected-Header = {
     3: "ashaveri/receipt",    ; typ
 }
 
-; A receipt's version says what its fields attest, not which software wrote them. v2 is v1's
-; thirteen fields plus `mk`, and a v1 reader that ignored the addition would verify a receipt
-; whose response carries no mark while its holder believed it carried one. Silence must not read
-; as compliance, so the mark is a new version rather than an optional member of v1.
+; A receipt's version says what its fields attest, not which software wrote them. This format declares
+; one version, `v: 1`, and it carries the seventeen members the three numbers it replaced used to spell
+; out: the twelve a document has always carried, then `mk` so a mark is attested rather than passed over,
+; then `sd` (the source the issuance stamp was read from and the bound that source declares on itself),
+; `cva` (what became of the two pieces of context the appraisal of the evidence ran on) and `itm` (one
+; entry per response item). No member changed name, order, width or meaning in the collapse, and none was
+; added.
 ;
-; v3 is v2's fourteen fields, each of them unchanged in name, order, width and meaning, plus three
-; that are required for the same reason. `sd` names the source the issuance stamp was read from and
-; the bound that source declares on itself; `cva` records what became of the two pieces of context
-; the appraisal of the evidence ran on; `itm` is one entry per response item. A reader of v2 that
-; took those three and dropped them would verify a receipt whose stamp names nobody, whose
-; appraisal recorded no context, and whose response holds no items, and in each of those cases a
-; silence would read as the claim the member is there to make or to refuse. Nothing was removed and
-; no member moved, so the fourteen bytes-in-their-order that a v2 document signs are the same
-; fourteen in a v3 one, with three named members added after them.
+; A version number moves when bytes carrying the old number exist that a reader must refuse, and not
+; otherwise. Nothing outside this repository has ever held a receipt: `@ashaveri/receipt` is unpublished,
+; the package version is `0.1.0`, and no party was handed a document bearing `1`, `2` or `3`. So the
+; history those three numbers told was internal, and the members stayed while the number that named them
+; was settled on the one a reader of these bytes has to be able to open. Silence is still what each of the
+; five added members refuses: a reader that took a mark, a stamp's source, an appraisal's context and a
+; response's items and dropped them would verify a receipt that states nothing about any of them, and a
+; receipt is a document that states. That is why all five are required rather than optional members of
+; the number that has always been read.
 ;
-; A payload map is closed at every version this file defines, and the absence of `...` in the three
-; blocks below is that rule rather than an oversight: a member the version a document names does
-; not define, including one another version defines, makes the document invalid. It is not read
-; with the unexpected member dropped.
-Ashaveri-Receipt-Payload = Ashaveri-Receipt-Payload-v1 / Ashaveri-Receipt-Payload-v2 / Ashaveri-Receipt-Payload-v3
+; A payload map is closed, and the absence of `...` below is that rule rather than an oversight: a member
+; this file does not define, including one a retired number used to name, makes the document invalid. It
+; is not read with the unexpected member dropped. A document naming any number but `1` is refused as a
+; version, with the number named back to the reader, before one member of it is read.
+Ashaveri-Receipt-Payload = Ashaveri-Receipt-Payload-v1
 
 Ashaveri-Receipt-Payload-v1 = {
-    v: 1,                     ; format version
+    v: 1,                     ; the one version this format declares
     iss: tstr,                ; deployment id (dStack compose-hash prefix)
     ins: tstr,                ; CVM instance id
     iat: int,                 ; unix seconds, issuance time
@@ -50,24 +53,7 @@ Ashaveri-Receipt-Payload-v1 = {
     att: EvidenceRef,
     epk: int,                 ; signing-key epoch
     tok: TokenMetering,
-}
-
-Ashaveri-Receipt-Payload-v2 = {
-    v: 2,                     ; format version
-    ; every v: 1 field, unchanged in name, order, width and meaning:
-    iss: tstr, ins: tstr, iat: int, nce: bstr .size 16,
-    req: bstr .size 32, res: bstr .size 32, mdl: tstr, wts: bstr .size 32,
-    meas: Measurement, att: EvidenceRef, epk: int, tok: TokenMetering,
-    mk: Marking,              ; required: v2 attests that marking was considered
-}
-
-Ashaveri-Receipt-Payload-v3 = {
-    v: 3,                     ; format version
-    ; every v: 2 field, unchanged in name, order, width and meaning:
-    iss: tstr, ins: tstr, iat: int, nce: bstr .size 16,
-    req: bstr .size 32, res: bstr .size 32, mdl: tstr, wts: bstr .size 32,
-    meas: Measurement, att: EvidenceRef, epk: int, tok: TokenMetering,
-    mk: Marking,              ; required here exactly as v2 makes it required
+    mk: Marking,              ; required: a receipt attests that marking was considered
     sd: StampDisclosure,      ; what source read the issuance stamp, and what it admits
     cva: CollateralValidityAnchor, ; what became of the context the appraisal ran on
     itm: [+ ItemStamp],       ; one entry per response item, and never an empty list
@@ -79,7 +65,7 @@ Ashaveri-Receipt-Payload-v3 = {
 ; it means here: a member one of these maps does not define makes the document invalid rather than
 ; a document read with the unexpected member dropped. The parser and the JSON twin refuse it at that
 ; level exactly as they refuse one at the payload level, so the payload map and every map nested
-; inside it close, at every version. The one position the walk cannot close by itself is `itm`,
+; inside it close at every level. The one position the walk cannot close by itself is `itm`,
 ; whose value is an array rather than a map: its elements are closed one at a time by the reader
 ; that reads them, at the position each one sits at, which is what `ItemStamp` names. `p` closes the
 ; two slot maps the same way, because which member list stands behind `cva.col` is decided by the

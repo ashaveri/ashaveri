@@ -558,7 +558,7 @@ function proveCarried(workDir: string): void {
   const digestOfTcb = digestHexOf(tcbDocument);
   const digestOfContext = digestHexOf(validityContext);
 
-  // One `v: 3` record whose two anchor slots both state a digest, so the held half of the path is what runs.
+  // One record whose two anchor slots both state a digest, so the held half of the path is what runs.
   const entries: readonly PackEntry[] = [{
     id: 'receipt-0',
     iat: CARRIED_IAT,

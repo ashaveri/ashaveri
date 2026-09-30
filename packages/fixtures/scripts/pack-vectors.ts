@@ -30,8 +30,6 @@ import {
   type PackManifest,
   type PackOrderingFinding,
   type ReceiptPayload,
-  type ReceiptPayloadV1,
-  type ReceiptPayloadV3,
   type SigningKey,
   type VerifiedPack,
 } from '@ashaveri/receipt';
@@ -124,27 +122,19 @@ const text = (value: string): Uint8Array => new TextEncoder().encode(value);
 
 /**
  * One record's receipt, under the key that epoch held, attesting the stamp it is chained with. Given `slots` it
- * is the version that names an anchor and states them; given none it is the field set the suite started from,
- * or that set with a marking member beside it.
+ * is the document whose anchors name carried material; given none it is the field set the suite started from,
+ * whose two slots each state that this collector took nothing in.
  */
-function receiptFor(
-  id: string,
-  iat: number,
-  key: SigningKey = CURRENT,
-  marked = false,
-  slots?: AnchorSlots,
-): Uint8Array {
-  const fields: ReceiptPayloadV1 = {
+function receiptFor(id: string, iat: number, key: SigningKey = CURRENT, slots?: AnchorSlots): Uint8Array {
+  const fields: ReceiptPayload = {
     ...fixturePayload({ iat }),
     nce: labeled(`ashaveri-pack-v1/nonce/${id}`, 16),
   };
-  if (slots !== undefined) return issueReceipt(anchoredPayload(fields, iat, slots), key);
-  const payload: ReceiptPayload = marked ? { ...fields, v: 2 as const, mk: { sch: 'none', d: digest(EMPTY) } } : fields;
-  return issueReceipt(payload, key);
+  return issueReceipt(slots === undefined ? fields : anchoredPayload(fields, iat, slots), key);
 }
 
 /**
- * The two anchor slots a `v: 3` receipt states. A slot given a digest is a demand on the container: the pack
+ * The two anchor slots a receipt states. A slot given a digest is a demand on the container: the pack
  * that seals this receipt has to carry an object hashing to it. A slot left out states that the collector never
  * took that material in, which is the receipt's own statement about its own appraisal and owes the pack no bytes,
  * so an absent slot is not a shortage and a pack carrying nothing for a run of absent slots is whole.
@@ -154,14 +144,11 @@ interface AnchorSlots {
   readonly val?: Uint8Array;
 }
 
-/** The `v: 3` form of one record's receipt: the same fields, the version that names an anchor, and the slots. */
-function anchoredPayload(fields: ReceiptPayloadV1, iat: number, slots: AnchorSlots): ReceiptPayloadV3 {
+/** The form of one record's receipt that names its anchor slots: the same fields, and the slots beside them. */
+function anchoredPayload(fields: ReceiptPayload, iat: number, slots: AnchorSlots): ReceiptPayload {
   const absent = (which: string) => ({ presence: 'not-taken-in' as const, reason: `this collector never took the ${which} in` });
   return {
     ...fields,
-    v: 3,
-    mk: { sch: 'none', d: digest(EMPTY) },
-    sd: { name: 'host clock', uncertaintySeconds: null },
     cva: {
       collateral: slots.col === undefined ? absent('collateral') : { presence: 'held', sha256: slots.col },
       validity: slots.val === undefined ? absent('validity') : { presence: 'held', sha256: slots.val },
@@ -174,7 +161,6 @@ interface Entry {
   readonly id: string;
   readonly iat: number;
   readonly key?: SigningKey;
-  readonly marked?: boolean;
   readonly slots?: AnchorSlots;
 }
 
@@ -191,7 +177,7 @@ function chained(entries: readonly Entry[], anchor: Uint8Array = ZEROS): { items
       id: entry.id,
       iat: entry.iat,
       prev,
-      receipt: receiptFor(entry.id, entry.iat, entry.key ?? CURRENT, entry.marked, entry.slots),
+      receipt: receiptFor(entry.id, entry.iat, entry.key ?? CURRENT, entry.slots),
     };
     items.push(item);
     prev = packRecordDigest(item);
@@ -390,7 +376,6 @@ const SAME_SECOND = chained([
 
 const SHORTER = chained([ENTRIES[0]!, ENTRIES[2]!]);
 const SINGLE = chained([ENTRIES[0]!]);
-const MARKED = chained([{ id: 'receipt-0', iat: BASE, marked: true }, ENTRIES[1]!, ENTRIES[2]!]);
 const SEAM = chained(ENTRIES, digest(text('the seam a trim record carried')));
 
 /**
@@ -408,7 +393,7 @@ const VAL = collateral('the validity window the appraisal above was published in
 const RIM = collateral('the signed firmware measurements of the host that served the third record');
 
 /**
- * A run whose receipts are `v: 3` and whose anchors name carried material. Two records name the same pair and
+ * A run whose receipts name carried material in their anchors. Two records name the same pair and
  * the third names the same `col` beside a different `val`, which is the shape the deduplication rule is for:
  * the shared collateral is carried once however many sealed receipts name it, and the count of the list is the
  * count of the material the pack holds rather than the count of the slots naming it.
@@ -534,18 +519,8 @@ const CASES: readonly Case[] = [
     item: 'receipt-0',
   },
   {
-    name: 'marked-receipt-inside-a-pack',
-    note: 'A v2 receipt carrying a marking member of the `none` scheme, chained among v1 documents. A pack states which receipts it carries and nothing about which payload versions a caller reads, so the marked original is verified as the receipt it is.',
-    bytes: signPack(manifestFor(MARKED), CURRENT),
-    read: PINNED_CURRENT,
-    verdict: 'verify-ok',
-    structural: 'verify-ok',
-    walk: ['receipt-0', 'receipt-1', 'receipt-2'],
-    ordering: [],
-  },
-  {
     name: 'collateral-carried-inside-the-pack',
-    note: 'Three `v: 3` receipts whose anchors name material, and the pack that carries it. The `col` digest all three records name is one entry rather than three, the third record names a different `val` beside that same `col`, and every stated digest hashes to the bytes beside it, so a reader holding this pack resolves each held slot without reaching a vendor endpoint. This is what the carried member is for: the sealed receipt states material it took in, and the container handed to an auditor carries it.',
+    note: 'Three receipts whose anchors name material, and the pack that carries it. The `col` digest all three records name is one entry rather than three, the third record names a different `val` beside that same `col`, and every stated digest hashes to the bytes beside it, so a reader holding this pack resolves each held slot without reaching a vendor endpoint. This is what the carried member is for: the sealed receipt states material it took in, and the container handed to an auditor carries it.',
     bytes: signPack(carriedManifest, CURRENT),
     read: PINNED_CURRENT,
     verdict: 'verify-ok',

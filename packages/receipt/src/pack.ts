@@ -844,8 +844,8 @@ function heldSlotDigests(manifest: PackManifest): readonly HeldSlot[] {
     } catch {
       continue;
     }
-    // A `v: 1` or `v: 2` payload names no anchor, so it names no held digest and the pack carries nothing for it.
-    if (!('cva' in payload)) continue;
+    // Every receipt a pack seals names an anchor, so every one of them owes its held slots a look: the
+    // pack carries the material a `held` digests, and nothing here decides whether that material exists.
     const slots: readonly (readonly [HeldSlot['slot'], CollateralSlot])[] = [
       ['col', payload.cva.collateral],
       ['val', payload.cva.validity],

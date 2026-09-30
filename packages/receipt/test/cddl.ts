@@ -53,7 +53,8 @@ export function cddlRule(cddl: string, rule: string): string {
 /**
  * The members one CDDL block declares, each with the type expression written beside it, in the order
  * the block declares them: comments stripped, then every `name:` read off the commas that separate the
- * members. The order is not decoration: v2's block puts `mk` after the thirteen, and the twin and the
+ * members. The order is not decoration: the payload block puts `mk` after the twelve every document
+ * shares, and the twin and the
  * parser both claim that list as theirs. The type rides along for the same reason the name does: which
  * of these positions the format makes an integer is the CDDL's answer, and a test that asks for it has
  * to read it here rather than remember it.
@@ -109,17 +110,15 @@ export function cddlRuleArms(cddl: string, rule: string): string[] {
   throw new Error(`${rule} never closes in the CDDL text it was handed`);
 }
 
-/** One map the CDDL defines, the list that stands behind it, and what the rule adds to that list. */
+/** One map the CDDL defines and the list that stands behind it. */
 export interface ListBinding {
   readonly map: string;
   readonly list: string;
-  readonly adds?: readonly string[];
 }
 
 /**
- * Which list stands behind which map. There is one `adds` in this format: v2 is v1's members plus
- * `mk`, and v3 is those four names again, so every payload block binds to the one shared list and the
- * version set stays a row rather than becoming a second copy of every assertion below.
+ * Which list stands behind which map. There is one payload block in this format and it binds to the
+ * one list that names all seventeen of its members.
  * `MARKING_MEMBERS` stands behind the map `mk`'s value is, which is why it appears once and not
  * inside the payload's list. The two collateral slot lists and the item list's element list stand
  * behind maps the closure walk reaches through a reader rather than through a member name, because a
@@ -127,9 +126,7 @@ export interface ListBinding {
  * binding below is the only place the format's side of those three maps is written down.
  */
 export const LIST_FOR_MAP: readonly ListBinding[] = [
-  { map: 'Ashaveri-Receipt-Payload-v1', list: 'SHARED_MEMBERS' },
-  { map: 'Ashaveri-Receipt-Payload-v2', list: 'SHARED_MEMBERS', adds: ['mk'] },
-  { map: 'Ashaveri-Receipt-Payload-v3', list: 'SHARED_MEMBERS', adds: ['mk', 'sd', 'cva', 'itm'] },
+  { map: 'Ashaveri-Receipt-Payload-v1', list: 'PAYLOAD_MEMBERS' },
   { map: 'Marking', list: 'MARKING_MEMBERS' },
   { map: 'Measurement', list: 'MEASUREMENT_MEMBERS' },
   { map: 'EvidenceRef', list: 'EVIDENCE_REF_MEMBERS' },
@@ -142,12 +139,12 @@ export const LIST_FOR_MAP: readonly ListBinding[] = [
 ];
 
 /**
- * The payload versions one CDDL file declares, read off the alternatives of the rule that is a
- * choice between them. This is the format's own answer to "which versions exist", and the tie
- * between it and the versions a reader parses is what keeps that set stated once: `receipt.cddl`
- * names them, `receipt.ts` reads them, and a version that arrived in one of the two and not the
- * other would otherwise be a document the format defines and no reader can open, or a reader that
- * accepts a document no version of the format grants.
+ * The payload versions one CDDL file declares, read off the alternatives of the rule that names them.
+ * This is the format's own answer to "which versions exist", and the tie between it and the versions a
+ * reader parses is what keeps that set stated once: `receipt.cddl` names them, `receipt.ts` reads them,
+ * and a version that arrived in one of the two and not the other would otherwise be a document the
+ * format defines and no reader can open, or a reader that accepts a document no version of the format
+ * grants. Today the rule has one alternative, and that is the whole of what this format declares.
  */
 export function cddlPayloadVersions(cddl: string): number[] {
   const found = /^Ashaveri-Receipt-Payload = (.+)$/mu.exec(cddl);
@@ -164,7 +161,8 @@ export function cddlPayloadVersions(cddl: string): number[] {
  * this format, and a table of rule names kept by hand here would let that map arrive in the CDDL and
  * in the parser while the twin-side assertions went on sweeping the maps before it. Two payload
  * blocks naming one member two different rules is the format describing one member as two maps, so
- * it stops the run rather than settling for one.
+ * it stops the run rather than settling for one, and the walk stays written for more than one block
+ * because a later version that joins this format arrives as one.
  *
  * The array form is read as well as the map form, because which positions a format types as
  * integers is a question the whole document answers: `itm`'s elements carry one, and a list of them
@@ -208,8 +206,8 @@ const INTEGER_TYPE = /^(?:int|-?\d+)$/u;
  * is expanded even when the rule holds no integer, so a position gaining one in the CDDL arrives in
  * this list with no edit here.
  *
- * Both payload blocks are read, which is how a position that only one version carries would still be
- * found; a name the two blocks list twice is reported once.
+ * Every payload block the file declares is read, which is how a position a later version would carry
+ * is still found; a name the blocks list twice is reported once.
  */
 export function cddlIntegerPositions(cddl: string): string[] {
   const rules = nestedRuleNames(cddl);
@@ -266,7 +264,7 @@ const SLOT_ARMS_AT_POSITION: ReadonlyArray<readonly [position: string, arms: rea
  * Read off the CDDL rather than written down beside the writer's own list, for the reason the integer
  * sweep above states: a roster typed out in a test keeps passing the day the format gains a member, and
  * the whole point of the sweep is to be asked about every position the format has. Every payload block is
- * read, which is how a text member only one version carries is still found, and a name the blocks list
+ * read, which is how a text member a later version carries is still found, and a name the blocks list
  * twice is reported once.
  */
 export function cddlTextPositions(cddl: string): string[] {

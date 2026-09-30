@@ -2,7 +2,7 @@ import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterAll, describe, expect, it } from 'vitest';
-import { issueReceipt, signingKeyFromSeed, type ReceiptPayload } from '@ashaveri/receipt';
+import { hashRequest, issueReceipt, signingKeyFromSeed, type ReceiptPayload } from '@ashaveri/receipt';
 import {
   SdkError,
   loadPolicyFile,
@@ -37,7 +37,10 @@ const OTHER_PUBLIC_KEY = toBase64Url(new Uint8Array(32).fill(2));
 const IAT = 1_772_000_000;
 const NONCE = new Uint8Array(16).fill(3);
 const REQUEST_HASH = new Uint8Array(32).fill(4);
-const RESPONSE_HASH = new Uint8Array(32).fill(5);
+// The verifier hashes the response bytes it is handed against `res` before it reads the mark, so the
+// digest is taken from real bytes here rather than invented.
+const RESPONSE_BYTES = new TextEncoder().encode('the completion body this receipt attests');
+const RESPONSE_HASH = hashRequest(RESPONSE_BYTES);
 const MEASUREMENT = new Uint8Array(48).fill(6);
 const MEASUREMENT_HEX = toHex(MEASUREMENT);
 
@@ -55,6 +58,16 @@ const PAYLOAD: ReceiptPayload = {
   att: { d: new Uint8Array(32).fill(9), ts: IAT - 60, url: 'https://inference.ashaveri.com/v1/attestation' },
   epk: 0,
   tok: { p: 11, c: 5 },
+  // The one version names all seventeen members, so the marking, the disclosure, the anchor and the item
+  // list are stated here as every gateway that signs states them: `sch: none` over the empty region,
+  // because this completion carries no mark, and one item holding the whole buffered body.
+  mk: { sch: 'none', d: hashRequest(new Uint8Array(0)) },
+  sd: { name: 'host clock', uncertaintySeconds: null },
+  cva: {
+    collateral: { presence: 'not-taken-in', reason: 'this run takes no collateral in' },
+    validity: { presence: 'not-taken-in', reason: 'this run records no validity context' },
+  },
+  itm: [{ t: IAT, d: RESPONSE_HASH }],
 };
 
 const RECEIPT = issueReceipt(PAYLOAD, KEY);
@@ -69,10 +82,9 @@ function verdict(policy: AshaveriPolicy, atSeconds: number): string {
       nonce: NONCE,
       requestHash: REQUEST_HASH,
       responseHash: RESPONSE_HASH,
-      // The receipt below is a v1 document, so it carries no `mk` and no region of these bytes is
-      // read. The parameter is still required, which is the point of it: a caller cannot reach a
-      // v2 marking check without having handed over the bytes that check reads.
-      responseBytes: new Uint8Array(0),
+      // Every receipt this format reads names a marking, so the region check runs on these bytes and the
+      // caller cannot reach a verdict without handing over the response it is verifying.
+      responseBytes: RESPONSE_BYTES,
       verifyKey,
       policy,
       nowMillis: atSeconds * 1000,

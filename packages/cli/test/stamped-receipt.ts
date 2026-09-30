@@ -10,15 +10,13 @@ import {
 } from '@ashaveri/receipt';
 
 /**
- * A `v: 3` receipt over the response bytes the published marked vector attests, signed under the key
- * the fixtures publish their receipts under.
+ * A receipt over the response bytes the published marked vector attests, signed under the key the
+ * fixtures publish their receipts under.
  *
- * The twelve fields every receipt carries are lifted out of the published `receipt-marked-v2` document
- * rather than spelled out beside it, so the only differences between the two are the version and the
- * three members that moved it: every pin, digest, kid and stamp the fixture policy and deployment
- * manifest already accept still holds. `mk` is the one member a case names for itself, because the
- * cases this serves are about the marking claim, and the pair that matters is the region the vector
- * publishes against a digest of something else.
+ * The seventeen fields are lifted out of the published `receipt-marked-v1` document rather than spelled
+ * out beside it, so the only differences between the two are the ones a case names for itself: the
+ * marking claim, and the anchor a held-slot case needs material beside its digest. Every pin, digest, kid
+ * and stamp the fixture policy and deployment manifest already accept still holds.
  *
  * Shared by `verify-receipt` and `verify-handover` because the two report on the same document, and a
  * second builder in the second file would be two spellings of one receipt free to disagree.
@@ -31,10 +29,10 @@ const RECEIPT_SEED = (
   JSON.parse(readFileSync(`${DATA}keys/receipt-key-v1.json`, 'utf8')) as { privateKey: string }
 ).privateKey;
 
-/** The published marked v2 receipt, decoded: the document a `v: 3` here differs from by its members. */
-const published = decodeReceipt(new Uint8Array(readFileSync(`${DATA}receipts/receipt-marked-v2.cbor`))).payload;
-if (published.v !== 2) {
-  throw new Error(`the published marked vector is not a v2 document but a v${published.v} one`);
+/** The published marked receipt, decoded: the document the cases below differ from only by a member. */
+const published = decodeReceipt(new Uint8Array(readFileSync(`${DATA}receipts/receipt-marked-v1.cbor`))).payload;
+if (published.v !== 1) {
+  throw new Error(`the published marked vector is not a v1 document but a v${published.v} one`);
 }
 
 /** The marking the published vector attests, which is the one its response bytes carry. */
@@ -45,13 +43,11 @@ export function wrongMarking(): Marking {
   return { sch: ATTESTED_MARKING.sch, d: hashRequest(new TextEncoder().encode('a region these bytes do not carry')) };
 }
 
-/** A `v: 3` receipt over the published vector's response, attesting `mk`, signed under the fixture key. */
+/** A receipt over the published vector's response, attesting `mk`, signed under the fixture key. */
 export function stampedReceiptBytes(mk: Marking): Uint8Array {
   const payload: ReceiptPayload = {
     ...published,
-    v: 3,
     mk,
-    sd: { name: 'host clock', uncertaintySeconds: null },
     cva: {
       collateral: { presence: 'held', sha256: hashRequest(new TextEncoder().encode('the collateral the appraisal ran on')) },
       validity: { presence: 'not-taken-in', reason: 'the collector read no window' },

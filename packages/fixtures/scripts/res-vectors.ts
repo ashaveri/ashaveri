@@ -8,7 +8,7 @@ import {
   issueReceipt,
   toBase64Url,
   toHex,
-  type ReceiptPayloadV1,
+  type ReceiptPayload,
 } from '@ashaveri/receipt';
 import { fixtureKey, fixturePayload } from './receipt-envelope.ts';
 
@@ -195,10 +195,7 @@ const REFUSALS: readonly RefusalCase[] = [
 function refusalReceipt(claimed: string): { receiptBase64Url: string; receiptSha256Hex: string } {
   const source = vectors.find((each) => each.name === claimed);
   if (source === undefined) throw new Error(`res-v1.json states no vector named ${claimed}`);
-  const payload: ReceiptPayloadV1 = {
-    ...fixturePayload({ res: new Uint8Array(Buffer.from(source.resHex, 'hex')) }),
-    v: 1,
-  };
+  const payload: ReceiptPayload = fixturePayload({ res: new Uint8Array(Buffer.from(source.resHex, 'hex')) });
   const bytes = issueReceipt(payload, fixtureKey());
   const decoded = decodeReceipt(bytes);
   if (toHex(decoded.payload.res) !== source.resHex) {

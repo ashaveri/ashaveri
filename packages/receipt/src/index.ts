@@ -46,9 +46,6 @@ export {
 } from './receipt.js';
 export type {
   ReceiptPayload,
-  ReceiptPayloadV1,
-  ReceiptPayloadV2,
-  ReceiptPayloadV3,
   ReceiptVersion,
   Marking,
   MarkingScheme,

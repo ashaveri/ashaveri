@@ -52,10 +52,10 @@ const IMPLEMENTED_POLICY_VERSIONS: readonly number[] = [1];
 
 /**
  * Which receipt format versions a capture record may name, the one place that set is written for this
- * package. It is the format's own list and it carries exactly that set: a gateway emits
- * `v: 3` whenever the bytes of a response frame into items, so a record of a check over a v3 receipt is
- * the ordinary document a collector hands over, and a reader that refused it would leave every client of
- * every emitting deployment unable to record what it verified. The list and
+ * package. It is the format's own list and it carries exactly that set, which today is one version: a
+ * gateway emits `v: 1` for every completion whose bytes frame into items, so a record of a check over a
+ * v1 receipt is the ordinary document a collector hands over, and a reader that refused it would leave
+ * every client of every emitting deployment unable to record what it verified. The list and
  * `packages/sdk/schemas/capture-v1.schema.json`'s `enum` for `check.receiptFormatVersion` are one rule
  * written twice on purpose, because the schema is what a collector outside this repository builds against
  * and the reader is what a stranger runs; `test/capture.test.ts` holds the two to each other at the
@@ -64,9 +64,11 @@ const IMPLEMENTED_POLICY_VERSIONS: readonly number[] = [1];
  * `as const` is what makes the list and the type of the member below one fact instead of two that can
  * disagree. Widening this list is answered at the schema half of that walk, and a version the format gains
  * without a reader for it fails the same way: `receipt.cddl` and `packages/receipt/src/receipt.ts` own what
- * can be parsed, and this list only says which of those a record may claim it checked.
+ * can be parsed, and this list only says which of those a record may claim it checked. A record naming
+ * `2` or `3` is refused at that boundary, because the numbers retired with the versions they named and a
+ * collector that hands one over is describing a document no reader in this estate can open.
  */
-const IMPLEMENTED_RECEIPT_FORMAT_VERSIONS = [1, 2, 3] as const;
+const IMPLEMENTED_RECEIPT_FORMAT_VERSIONS = [1] as const;
 
 /** The versions above as a type, so no caller of the reader has to name them again. */
 type CaptureReceiptFormatVersion = (typeof IMPLEMENTED_RECEIPT_FORMAT_VERSIONS)[number];

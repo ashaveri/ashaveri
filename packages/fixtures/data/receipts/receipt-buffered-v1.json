@@ -1,0 +1,58 @@
+{
+  "protectedHeader": {
+    "alg": "EdDSA",
+    "kid": "35013a6e000b8d5dca51c4bd5c1db9f2860283606c76aeeeea8ee72b72b5e15e",
+    "typ": "ashaveri/receipt"
+  },
+  "payload": {
+    "v": 1,
+    "iss": "dpl-9f2a41c3",
+    "ins": "cvm-i-047f2a",
+    "iat": 1772000000,
+    "nce": "5b66873d3dcc9fc96fd9a14341bc1b2e",
+    "req": "ae8b759968f574a1c423445e00f4e73ee2aa0d4fcb889d79d6aed877fc6d9a79",
+    "res": "f25278113271447ec6a242f1d72db47b101028d2673b2948eb2b329683b970e6",
+    "mdl": "meta-llama/Llama-3.1-8B-Instruct",
+    "wts": "2689570aecf5054284b06d6022554fb97942cad0a774d5dbc9308b2d0477d9b5",
+    "meas": {
+      "tee": "snp+gpucc",
+      "m": "bd7661367ea7c0fa027295b495a37d8c445e95889c09d6b7beb6ed4052719e30f16f0507827e2d004949b552f1e551f2"
+    },
+    "att": {
+      "d": "4c8cdcf1f0ff0722b002adc9d8323cd314b50f57a01c3de302b1b3a1b664a9db",
+      "ts": 1771999940,
+      "url": "https://inference.ashaveri.com/v1/attestation"
+    },
+    "epk": 1,
+    "tok": {
+      "p": 128,
+      "c": 64
+    },
+    "mk": {
+      "sch": "none",
+      "d": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    "sd": {
+      "name": "ptp-disciplined host clock",
+      "unc": 1
+    },
+    "cva": {
+      "col": {
+        "p": "held",
+        "d": "8701cb3c5b89991d693a58ec59233422f627200be31c8d568ab41bde8710ca34"
+      },
+      "val": {
+        "p": "absent-at-source",
+        "r": "the appraisal this receipt was issued from ran on collateral its source reports as never having been issued, and no byte of it reached this record"
+      }
+    },
+    "itm": [
+      {
+        "t": 1771999999,
+        "d": "f25278113271447ec6a242f1d72db47b101028d2673b2948eb2b329683b970e6"
+      }
+    ]
+  },
+  "signature": "78781aea4be1946ed6345ad8990c9ce152a1e2bd68065a73e9171bec41256b290dc78fcf59f59af506743caa838b231ca7d5ba097cedb66e06c15000e9d6910a",
+  "digestSha256": "f423d55c9a3c1bb3db31dab429e2a20ecac76df83efb1583f0b1a30f615ec793"
+}

@@ -38,8 +38,6 @@ import {
   type PackItem,
   type PackManifest,
   type ReceiptPayload,
-  type ReceiptPayloadV1,
-  type ReceiptPayloadV3,
   type SigningKey,
 } from '../src/index.js';
 
@@ -243,7 +241,7 @@ function bytesOf(text: string): Uint8Array {
 }
 
 /** The receipt payload attested by one item, with only the stamp and a nonce moving per case. */
-function receiptPayload(iat: number, nonce: number): ReceiptPayloadV1 {
+function receiptPayload(iat: number, nonce: number): ReceiptPayload {
   const digest = sha256(new Uint8Array([nonce]));
   return {
     v: 1,
@@ -259,6 +257,13 @@ function receiptPayload(iat: number, nonce: number): ReceiptPayloadV1 {
     att: { d: digest, ts: iat - 60, url: 'https://inference.ashaveri.example/v1/attestation' },
     epk: 0,
     tok: { p: 1, c: 1 },
+    mk: { sch: 'none', d: sha256(new Uint8Array(0)) },
+    sd: { name: 'host clock', uncertaintySeconds: null },
+    cva: {
+      collateral: { presence: 'not-taken-in', reason: 'this test took no collateral in' },
+      validity: { presence: 'not-taken-in', reason: 'this test recorded no validity context' },
+    },
+    itm: [{ t: iat, d: digest }],
   };
 }
 
@@ -275,11 +280,11 @@ function material(label: string, size = label.length): PackCarriedObject {
 }
 
 /**
- * A v3 payload whose two anchor slots state the digests the case names. A slot this helper leaves out states
+ * A payload whose two anchor slots state the digests the case names. A slot this helper leaves out states
  * `not-taken-in` with a reason, which is the receipt's own statement and owes the pack nothing: an absence is
  * not a digest the container has to carry.
  */
-function anchored(iat: number, nonce: number, slots: { col?: Uint8Array; val?: Uint8Array }): ReceiptPayloadV3 {
+function anchored(iat: number, nonce: number, slots: { col?: Uint8Array; val?: Uint8Array }): ReceiptPayload {
   const digest = sha256(new Uint8Array([nonce]));
   const absent = (which: string) => ({
     presence: 'not-taken-in' as const,
@@ -287,7 +292,6 @@ function anchored(iat: number, nonce: number, slots: { col?: Uint8Array; val?: U
   });
   return {
     ...receiptPayload(iat, nonce),
-    v: 3,
     mk: { sch: 'none', d: digest },
     sd: { name: 'host clock', uncertaintySeconds: null },
     cva: {
@@ -900,16 +904,16 @@ describe('the pack reader and the format it reads', () => {
       items: run.items.map((one, index) => (index === 1 ? { ...one, receipt: new Uint8Array(one.receipt.map((each) => each ^ 0x01)) } : one)),
     });
     expect(answered(() => verifyPack(signPack(flipped), { publicKey: KEY.publicKey }))).toBe('PACK_RECEIPT_INVALID');
-    // A marked v2 receipt is still a receipt, and this reader is not where a version policy is decided. The
-    // run is re-chained over those bytes, because a receipt is inside the hash the next one names.
+    // A receipt naming a marking scheme this reader does not interpret is still a receipt, and this reader is
+    // not where a marking policy is decided. The run is re-chained over those bytes, because a receipt is
+    // inside the hash the next one names.
     const markedRun = chained(ENTRIES, new Uint8Array(DIGEST_BYTES), KEY, (iat, nonce) => ({
       ...receiptPayload(iat, nonce),
-      v: 2 as const,
-      mk: { sch: 'none', d: sha256(new Uint8Array(0)) },
+      mk: { sch: 'provenance-v1', d: sha256(bytesOf('one marked region')) },
     }));
     const markedPack = manifestValue({ chain: { anchor: markedRun.anchor, head: markedRun.head }, items: markedRun.items });
     expect(answered(() => verifyPack(signPack(markedPack), { publicKey: KEY.publicKey }))).toBe('accepted');
-    expect(verifyPack(signPack(markedPack), { publicKey: KEY.publicKey }).outcome.walked[0]!.receipt.payload.v).toBe(2);
+    expect(verifyPack(signPack(markedPack), { publicKey: KEY.publicKey }).outcome.walked[0]!.receipt.payload.mk.sch).toBe('provenance-v1');
     // Structural faults need no key, and an item whose original is junk is not a structural fault: a caller
     // with no key hears the manifest's own answers and nothing about the bytes inside the items.
     expect(answered(() => decodePack(signPack(junk)))).toBe('accepted');

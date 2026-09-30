@@ -119,7 +119,7 @@ const ERROR_MESSAGE: Record<ReceiptErrorCode, string> = {
   BAD_PAYLOAD: 'payload does not match the CDDL schema for its receipt version',
   UNSUPPORTED_SCHEME: 'marking scheme is not in the registry this package can interpret',
   MARK_MISMATCH: 'the marked region does not hash to the digest the receipt carries in mk.d',
-  // The two orders one `v: 3` payload states about its own items, compared. Chain order is the array's
+  // The two orders one payload states about its own items, compared. Chain order is the array's
   // order and stamp order is `t`, so a receipt whose later item carries an earlier instant is one
   // document contradicting itself, and this is that refusal rather than `BAD_PAYLOAD`: every member is
   // well-typed and in place, and what is wrong is the pair of signed statements. Two items stamped

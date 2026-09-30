@@ -673,8 +673,8 @@ describe('ashaveri verify --policy', () => {
  * `src/commands/verify-receipt.ts`, and not from a version number. Five sentences elsewhere are copies
  * of that one fact: two in this command's own flag help, one in the paragraph that introduces the verb,
  * one in the README's table of verbs, and one on a public SDK surface in `packages/sdk/src/gateway.ts`.
- * A copy is how a document comes to state something the code stopped doing, and the stale shape here was
- * a requirement credited to `v: 2` while `v: 3` owed it too. This reads each copy as data and holds it to
+ * A copy is how a document comes to state something the code stopped doing, and the stale shape this guards
+ * against is a requirement credited to one payload version. This reads each copy as data and holds it to
  * the refusal the code actually raises, so wording that keys the requirement to a version, or that drifts
  * from the phrase the refusal uses, fails here rather than quietly outliving the rule it describes.
  */

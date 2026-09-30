@@ -110,9 +110,9 @@ verification rules, in the same order, from the same package, over a receipt tak
 header and put on a disk. What it does not do is read
 the evidence document behind att.d, which no file here stands in for; the receipt's own att.ts still
 has to sit inside the policy's evidence window, and the report says in terms that the document was not
-fetched. A receipt whose payload names no marking attests the digest of a response, which
---response-hash can carry. A payload naming a marking attests one region inside those bytes, which
-needs --response-body, because the digest of a region nobody handed over is not a check. --now is
+fetched. Every receipt this format states names a marking, and a marking attests one region inside
+the response bytes, which needs --response-body: the digest of a region nobody handed over is not a
+check, and no receipt can be verified from --response-hash alone. --now is
 the verification time, and it is how an archived receipt
 is read at all: the policy's windows close against it, so judging last year's receipt by today's
 clock is a refusal with a code rather than a verdict, which is the honest answer to a question about
@@ -243,11 +243,11 @@ Receipt verification options:
                      That digest itself, 64 hex, where the bytes are gone and the digest was kept.
   --response-body <file>
                      The response bytes as they were received, framing included for a streamed
-                     answer. Required for a receipt whose payload names a marking, whose claim is a
-                     digest of one region read out of exactly these bytes.
+                     answer. Required: every receipt this format states names a marking, whose claim
+                     is a digest of one region read out of exactly these bytes.
   --response-hash <hex>
-                     The digest of those bytes, 64 hex, which carries the check of a payload naming
-                     no marking, and not the region check of one naming a marking.
+                     The digest of those bytes, 64 hex. It cannot carry the check of a payload naming a
+                     marking on its own, because no payload this format states is silent about a mark.
 
 Handover options, the same for verify-handover, verify-pack and verify-export:
   --key <b64url>      A public key this run accepts a signature from, as the base64url of its 32

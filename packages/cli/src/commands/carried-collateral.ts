@@ -326,10 +326,9 @@ function slotsOf(one: VerifiedPackItem): readonly {
   readonly environment: TeeKind;
 }[] {
   const payload = one.receipt.payload;
-  if (!('cva' in payload)) {
-    // A `v: 1` or `v: 2` payload names no anchor, so it names no material and the pack owes it nothing.
-    return [];
-  }
+  // Every receipt a pack seals names an anchor, so both slots of every item reach the list below: a
+  // slot stating a digest asks the pack for the material behind it, and a slot stating an absence asks
+  // for nothing.
   const halves: readonly (readonly [CarriedSlotLabel, CollateralSlot])[] = [
     ['col', payload.cva.collateral],
     ['val', payload.cva.validity],

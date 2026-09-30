@@ -21,9 +21,6 @@ import type {
   CollateralSlot,
   Marking,
   ReceiptPayload,
-  ReceiptPayloadV1,
-  ReceiptPayloadV2,
-  ReceiptPayloadV3,
   SigningKey,
   StampDisclosure,
 } from '../src/index.js';
@@ -47,7 +44,7 @@ import { cddlIntegerPositions, cddlRule, cddlRuleArms, cddlTextPositions, member
 // `iat` below and handed to `verifyReceipt` as `nowSeconds`, both of which compare against seconds.
 const FIXED_NOW = 1_772_000_000;
 
-function samplePayload(overrides: Partial<ReceiptPayloadV1> = {}): ReceiptPayloadV1 {
+function samplePayload(overrides: Partial<ReceiptPayload> = {}): ReceiptPayload {
   return {
     v: 1,
     iss: 'dpl-9f2a41',
@@ -62,6 +59,13 @@ function samplePayload(overrides: Partial<ReceiptPayloadV1> = {}): ReceiptPayloa
     att: { d: sha256(new Uint8Array(64).fill(2)), ts: FIXED_NOW - 60, url: 'https://inference.ashaveri.com/v1/attestation' },
     epk: 3,
     tok: { p: 128, c: 64 },
+    mk: { sch: 'none', d: sha256(new Uint8Array(0)) },
+    sd: { name: 'host clock', uncertaintySeconds: null },
+    cva: {
+      collateral: { presence: 'not-taken-in', reason: 'this corpus takes no collateral in' },
+      validity: { presence: 'not-taken-in', reason: 'this corpus records no validity context' },
+    },
+    itm: [{ t: FIXED_NOW, d: sha256(new TextEncoder().encode('{"choices":[]}')) }],
     ...overrides,
   };
 }
@@ -578,7 +582,7 @@ describe('the protected header closes and the unprotected one does not', () => {
 });
 
 /**
- * The digest an unmarked v2 receipt carries: the marked region is empty, so `mk.d` is the digest of
+ * The digest an unmarked receipt carries: the marked region is empty, so `mk.d` is the digest of
  * no bytes at all. Spelled out here rather than derived because it is the value that turns "not
  * marked" into a claim a reader can check instead of a hole where a field would have been.
  */
@@ -589,18 +593,20 @@ const MARKED_REGION = new TextEncoder().encode(
   '{"ashaveri":{"marking":{"sch":"ashaveri/provenance-v1","gen":"ai","at":1772000000}}}',
 );
 
-function markedPayload(mk: Marking = { sch: 'provenance-v1', d: sha256(MARKED_REGION) }): ReceiptPayloadV2 {
-  return { ...samplePayload(), v: 2, mk };
+function markedPayload(mk: Marking = { sch: 'provenance-v1', d: sha256(MARKED_REGION) }): ReceiptPayload {
+  return { ...samplePayload(), mk };
 }
 
 /**
- * A `v: 3` payload: the marked one, the version moved, and the three members that moved it filled in
- * with a source nobody measured, a held collateral and an unrecorded window, and one item.
+ * The document this corpus carries at its fullest: a marked receipt whose disclosure names a source
+ * nobody measured, whose anchor holds one piece of appraisal context and states the other as never
+ * taken in, and whose item list holds one item. Every sweep below that reaches inside `sd`, `cva` or
+ * `itm` reads this document, because it is the one that carries all four of the members a receipt
+ * states about itself.
  */
-function stampedPayload(): ReceiptPayloadV3 {
+function stampedPayload(): ReceiptPayload {
   return {
     ...markedPayload(),
-    v: 3,
     sd: { name: 'host clock', uncertaintySeconds: null },
     cva: {
       collateral: { presence: 'held', sha256: sha256(new TextEncoder().encode('collateral bytes')) },
@@ -655,20 +661,16 @@ function membersOf(payload: ReceiptPayload): Map<string, unknown> {
     ['epk', payload.epk],
     ['tok', new Map<string, unknown>([['p', payload.tok.p], ['c', payload.tok.c]])],
   ];
-  if (payload.v !== 1) {
-    members.push(['mk', new Map<string, unknown>([['sch', payload.mk.sch], ['d', payload.mk.d]])]);
-  }
-  if (payload.v === 3) {
-    const slot = (one: CollateralSlot): Map<string, unknown> =>
-      one.presence === 'held'
-        ? new Map<string, unknown>([['p', one.presence], ['d', one.sha256]])
-        : new Map<string, unknown>([['p', one.presence], ['r', one.reason]]);
-    members.push(
-      ['sd', new Map<string, unknown>([['name', payload.sd.name], ['unc', payload.sd.uncertaintySeconds]])],
-      ['cva', new Map<string, unknown>([['col', slot(payload.cva.collateral)], ['val', slot(payload.cva.validity)]])],
-      ['itm', payload.itm.map((one) => new Map<string, unknown>([['t', one.t], ['d', one.d]]))],
-    );
-  }
+  members.push(['mk', new Map<string, unknown>([['sch', payload.mk.sch], ['d', payload.mk.d]])]);
+  const slot = (one: CollateralSlot): Map<string, unknown> =>
+    one.presence === 'held'
+      ? new Map<string, unknown>([['p', one.presence], ['d', one.sha256]])
+      : new Map<string, unknown>([['p', one.presence], ['r', one.reason]]);
+  members.push(
+    ['sd', new Map<string, unknown>([['name', payload.sd.name], ['unc', payload.sd.uncertaintySeconds]])],
+    ['cva', new Map<string, unknown>([['col', slot(payload.cva.collateral)], ['val', slot(payload.cva.validity)]])],
+    ['itm', payload.itm.map((one) => new Map<string, unknown>([['t', one.t], ['d', one.d]]))],
+  );
   return new Map<string, unknown>(members);
 }
 
@@ -682,21 +684,15 @@ function signMembers(members: ReadonlyMap<unknown, unknown>, key: SigningKey): U
   return signCoseSign1(encodeCanonical(members), key);
 }
 
-/** Narrows a parsed payload to the marked shape, for the cases that came here looking for `mk`. */
-function marked(payload: ReceiptPayload): ReceiptPayloadV2 {
-  if (payload.v !== 2) throw new Error(`expected a v2 payload, got version ${payload.v}`);
-  return payload;
-}
-
-describe('receipt payload v2 and the versions a call accepts', () => {
+describe('the receipt payload and the versions a call accepts', () => {
   it('round-trips a well-formed marked receipt', () => {
     const key = generateSigningKey();
     const payload = markedPayload();
     const verified = verifyReceipt(issueReceipt(payload, key), { publicKey: key.publicKey, nowSeconds: FIXED_NOW });
 
-    expect(verified.payload.v).toBe(2);
-    expect(marked(verified.payload).mk.sch).toBe('provenance-v1');
-    expect(equalBytes(marked(verified.payload).mk.d, sha256(MARKED_REGION))).toBe(true);
+    expect(verified.payload.v).toBe(1);
+    expect(verified.payload.mk.sch).toBe('provenance-v1');
+    expect(equalBytes(verified.payload.mk.d, sha256(MARKED_REGION))).toBe(true);
     // Every v1 field still arrives, and the re-encode is the bytes that were signed.
     expect(verified.payload.mdl).toBe(payload.mdl);
     expect(equalBytes(encodePayload(verified.payload), verified.cose.payloadBytes)).toBe(true);
@@ -707,18 +703,18 @@ describe('receipt payload v2 and the versions a call accepts', () => {
     expect(equalBytes(encodePayload(payload), encodeCanonical(membersOf(payload)))).toBe(true);
   });
 
-  it("parses an unmarked v2 receipt carrying the empty region's digest", () => {
+  it("parses an unmarked receipt carrying the empty region's digest", () => {
     const key = generateSigningKey();
     const empty = sha256(new Uint8Array(0));
     expect(toHex(empty)).toBe(EMPTY_REGION_SHA256_HEX);
     const bytes = issueReceipt(markedPayload({ sch: 'none', d: empty }), key);
     const verified = verifyReceipt(bytes, { publicKey: key.publicKey, nowSeconds: FIXED_NOW });
 
-    expect(marked(verified.payload).mk.sch).toBe('none');
-    expect(toHex(marked(verified.payload).mk.d)).toBe(EMPTY_REGION_SHA256_HEX);
+    expect(verified.payload.mk.sch).toBe('none');
+    expect(toHex(verified.payload.mk.d)).toBe(EMPTY_REGION_SHA256_HEX);
   });
 
-  it('refuses a v2 payload with no mk as a payload failure, not as an unmarked receipt', () => {
+  it('refuses a payload with no mk as a payload failure, not as an unmarked receipt', () => {
     const key = generateSigningKey();
     const members = membersOf(markedPayload());
     members.delete('mk');
@@ -727,7 +723,7 @@ describe('receipt payload v2 and the versions a call accepts', () => {
     // read, so the code alone would still be BAD_PAYLOAD if the requirement that `mk` be present
     // were deleted: only the sentence says the refusal was reached for that reason.
     const failure = expectFailure(() => verifyReceipt(bytes, { publicKey: key.publicKey, nowSeconds: FIXED_NOW }));
-    expect(failure.message).toContain('v2 requires an mk member');
+    expect(failure.message).toContain('v1 requires an mk member');
   });
 
   it('refuses a marking scheme outside the registry it reads', () => {
@@ -744,20 +740,23 @@ describe('receipt payload v2 and the versions a call accepts', () => {
     expect(failure.message).toContain("marking scheme 'provenance-v2'");
   });
 
-  it('refuses a v1 payload carrying mk, because a payload map is closed', () => {
+  it('refuses a document bearing a retired version and names the number it read', () => {
     const key = generateSigningKey();
-    const members = membersOf(samplePayload());
-    // Fourteen members, thirteen of them v1's, and the fourteenth is the marking attestation. Read
-    // with that member dropped, this is a verified v1 receipt whose holder has been told nothing
-    // about a mark, which is the same silence `mk` was given a version to refuse. The map is
-    // closed, so the document is refused instead, and the detail names the member it named.
-    members.set('mk', new Map<string, unknown>([['sch', 'none'], ['d', sha256(new Uint8Array(0))]]));
-    const bytes = signMembers(members, key);
-    const failure = expectFailure(() => verifyReceipt(bytes, { publicKey: key.publicKey, nowSeconds: FIXED_NOW }));
-    expect(failure.message).toContain("member version 1 does not define: 'mk'");
-    // Which way the document was opened changes nothing: the refusal belongs to the payload, not to
-    // the signature check, so an unread receipt answers the same way as a verified one.
-    expectFailure(() => decodeReceipt(bytes), 'BAD_PAYLOAD');
+    // The retired numbers get a version answer, not a structural one: these bytes carry every member
+    // the format defines and move only the `v`, so a refusal here that named a member would say the
+    // document was incomplete when what it says is that this build reads no such version. Each number
+    // arrives in the message, and neither reading of the document is left to fall through.
+    for (const retired of [2, 3]) {
+      const members = membersOf(stampedPayload());
+      members.set('v', retired);
+      const bytes = signMembers(members, key);
+      const failure = expectFailure(
+        () => verifyReceipt(bytes, { publicKey: key.publicKey, nowSeconds: FIXED_NOW }),
+        'UNSUPPORTED_VERSION',
+      );
+      expect(failure.message).toContain(`receipt payload version ${retired} is not a format this package reads`);
+      expectErrorCode(() => decodeReceipt(bytes), 'UNSUPPORTED_VERSION');
+    }
   });
 
   it('refuses any member the payload version does not define, not only the marking one', () => {
@@ -774,7 +773,7 @@ describe('receipt payload v2 and the versions a call accepts', () => {
       const failure = expectFailure(
         () => verifyReceipt(signMembers(members, key), { publicKey: key.publicKey, nowSeconds: FIXED_NOW }),
       );
-      expect(failure.message, `${name} on a v2 payload`).toContain(`member version 2 does not define: '${name}'`);
+      expect(failure.message, `${name} on the payload`).toContain(`member version 1 does not define: '${name}'`);
     }
     // A key that is not a text label is not a member either, and no CDDL map admits one.
     const foreignKey = new Map<unknown, unknown>([...membersOf(samplePayload()), [new Uint8Array([7]), 'x']]);
@@ -828,11 +827,11 @@ describe('receipt payload v2 and the versions a call accepts', () => {
     expect(expectFailure(() => decodeReceipt(absent)).message).toContain('v must be an integer receipt version');
   });
 
-  it("refuses a v2 receipt a caller narrowed away with the version's own code", () => {
+  it('refuses a receipt a caller narrowed away with the code for versions', () => {
     const key = generateSigningKey();
     const bytes = issueReceipt(markedPayload(), key);
     expectErrorCode(
-      () => verifyReceipt(bytes, { publicKey: key.publicKey, nowSeconds: FIXED_NOW, acceptedVersions: [1] }),
+      () => verifyReceipt(bytes, { publicKey: key.publicKey, nowSeconds: FIXED_NOW, acceptedVersions: [] }),
       'UNSUPPORTED_VERSION',
     );
   });
@@ -843,10 +842,10 @@ describe('receipt payload v2 and the versions a call accepts', () => {
     members.set('v', 4);
     const bytes = signMembers(members, key);
     // One code for both refusals on purpose: which side of a boundary a number sits on is a fact
-    // about releases, and two answers would let a caller find it out. `4` is the sentinel because
-    // `3` is no longer one: the version this package reads moved to include it, and a document
-    // wearing a version the reader does grasp but whose members do not agree with it is a payload
-    // answer, which is the case the two halves below keep apart.
+    // about releases, and two answers would let a caller find it out. `4` is the sentinel because no
+    // number below it is one: `2` and `3` are retired, `1` is read, and a document wearing a version
+    // this reader does grasp but whose members do not agree with it is a payload answer, which is the
+    // case the two halves below keep apart.
     expectErrorCode(() => verifyReceipt(bytes, { publicKey: key.publicKey, nowSeconds: FIXED_NOW }), 'UNSUPPORTED_VERSION');
     expectErrorCode(() => decodeReceipt(bytes), 'UNSUPPORTED_VERSION');
 
@@ -865,17 +864,17 @@ describe('receipt payload v2 and the versions a call accepts', () => {
     narrowed.set('not_a_member', 'x');
     const narrowedBytes = signMembers(narrowed, key);
     expectErrorCode(
-      () => verifyReceipt(narrowedBytes, { publicKey: key.publicKey, nowSeconds: FIXED_NOW, acceptedVersions: [1] }),
+      () => verifyReceipt(narrowedBytes, { publicKey: key.publicKey, nowSeconds: FIXED_NOW, acceptedVersions: [] }),
       'UNSUPPORTED_VERSION',
     );
-    expectErrorCode(() => decodeReceipt(narrowedBytes, { acceptedVersions: [1] }), 'UNSUPPORTED_VERSION');
+    expectErrorCode(() => decodeReceipt(narrowedBytes, { acceptedVersions: [] }), 'UNSUPPORTED_VERSION');
   });
 
-  it('refuses both versions when the accepted set is empty', () => {
+  it('refuses the document when the accepted set is empty', () => {
     const key = generateSigningKey();
-    const v1 = issueReceipt(samplePayload(), key);
-    const v2 = issueReceipt(markedPayload(), key);
-    for (const bytes of [v1, v2]) {
+    const marked = issueReceipt(markedPayload(), key);
+    const stamped = issueReceipt(stampedPayload(), key);
+    for (const bytes of [marked, stamped]) {
       expectErrorCode(
         () => verifyReceipt(bytes, { publicKey: key.publicKey, nowSeconds: FIXED_NOW, acceptedVersions: [] }),
         'UNSUPPORTED_VERSION',
@@ -884,7 +883,7 @@ describe('receipt payload v2 and the versions a call accepts', () => {
     }
   });
 
-  it('verifies a v1 receipt with nothing set and nothing gained', () => {
+  it('verifies a receipt with nothing set and every member it states read back', () => {
     const key = generateSigningKey();
     const payload = samplePayload();
     const bytes = issueReceipt(payload, key);
@@ -892,15 +891,17 @@ describe('receipt payload v2 and the versions a call accepts', () => {
 
     expect(verified.payload.v).toBe(1);
     expect(equalBytes(encodePayload(verified.payload), verified.cose.payloadBytes)).toBe(true);
-    // The thirteen members are the whole document, in the order the format lists them and the twin
-    // writes them: a v1 receipt has no marking to be read out of it, and its JSON projection has
-    // neither gained a member nor reordered the ones it has. Sorted, this assertion would hold for
+    // The seventeen members are the whole document, in the order the format lists them and the twin
+    // writes them: a receipt states its marking, its source, its anchor and its items or it states
+    // nothing about them, and its JSON projection has neither gained a member nor reordered the ones
+    // it has. Sorted, this assertion would hold for
     // any key order, and `receiptToJson` claims order is part of what it publishes. What pins the
     // committed twin's order is the vector-drift step of the continuous build regenerating
     // `packages/fixtures/data` and refusing a diff; this is the guard that says which order.
     const twin = receiptToJson(verified.payload, verified.cose.signature, verified.header.kid);
     expect(Object.keys(twin.payload)).toEqual([
       'v', 'iss', 'ins', 'iat', 'nce', 'req', 'res', 'mdl', 'wts', 'meas', 'att', 'epk', 'tok',
+      'mk', 'sd', 'cva', 'itm',
     ]);
   });
 
@@ -908,19 +909,17 @@ describe('receipt payload v2 and the versions a call accepts', () => {
     const key = generateSigningKey();
     const bytes = issueReceipt(markedPayload(), key);
 
-    expect(marked(decodeReceipt(bytes).payload).mk.sch).toBe('provenance-v1');
-    expectErrorCode(() => decodeReceipt(bytes, { acceptedVersions: [1] }), 'UNSUPPORTED_VERSION');
-    expect(marked(decodeReceipt(bytes, { acceptedVersions: [1, 2] }).payload).mk.sch).toBe('provenance-v1');
+    expect(decodeReceipt(bytes).payload.mk.sch).toBe('provenance-v1');
+    expectErrorCode(() => decodeReceipt(bytes, { acceptedVersions: [] }), 'UNSUPPORTED_VERSION');
+    expect(decodeReceipt(bytes, { acceptedVersions: [1] }).payload.mk.sch).toBe('provenance-v1');
   });
 
-  it('refuses to project a payload naming a version no arm of the twin claims', () => {
-    // The projection's default arm is closed by the type checker, which is why it needs an assertion
-    // beside it too. Nothing that came from bytes reaches the arm: `claimedVersion` answers a version
-    // outside `PARSED_VERSIONS` before a payload exists, so the only caller with a route here holds a
-    // payload of its own making, and the cast below is that route. What is asserted is that the arm
-    // refuses, because the cascade the switch replaced had the v1 shape as its tail and would have
-    // answered this payload with thirteen members, no `mk`, no `sd`, no `cva`, no `itm`, and a `v`
-    // rewritten to a number the payload does not name.
+  it('refuses to project a payload naming a version this build has no members for', () => {
+    // The projection asks the same question the encoder asks, and one number wide is still a question:
+    // a caller that casts has built a payload no reader of these bytes would hand back. What is asserted
+    // is that the projection refuses, because the cascade the switch replaced had the old v1 shape as its
+    // tail and would have answered this payload with thirteen members and a `v` rewritten to a number the
+    // payload does not name.
     const unprojectable = { ...stampedPayload(), v: 4 } as unknown as ReceiptPayload;
     const refusal = expectFailure(
       () => receiptToJson(unprojectable, new Uint8Array(64).fill(3), new Uint8Array(32).fill(4)),
@@ -931,25 +930,19 @@ describe('receipt payload v2 and the versions a call accepts', () => {
 });
 
 /**
- * A `v: 3` payload with its item list spelled out, so a case that wants more than one entry says how
+ * The document with its item list spelled out, so a case that wants more than one entry says how
  * many and with what instants instead of editing a shared document.
  */
-function stampedWith(itm: Array<{ t: number; d: Uint8Array }>, sd: StampDisclosure = { name: 'host clock', uncertaintySeconds: null }): ReceiptPayloadV3 {
+function stampedWith(itm: Array<{ t: number; d: Uint8Array }>, sd: StampDisclosure = { name: 'host clock', uncertaintySeconds: null }): ReceiptPayload {
   return { ...stampedPayload(), sd, itm };
 }
 
-/** Narrows a parsed payload to the stamped shape, for the cases that came here looking for `sd`. */
-function stamped(payload: ReceiptPayload): ReceiptPayloadV3 {
-  if (payload.v !== 3) throw new Error(`expected a v3 payload, got version ${payload.v}`);
-  return payload;
-}
-
-describe('receipt payload v3, its three members and the order of its items', () => {
+describe('the four members a receipt states about itself and the order of its items', () => {
   it('round-trips the three members and keeps the two readings of `unc` apart', () => {
     const key = generateSigningKey();
     const bytes = issueReceipt(stampedPayload(), key);
     const verified = verifyReceipt(bytes, { publicKey: key.publicKey, nowSeconds: FIXED_NOW });
-    const payload = stamped(verified.payload);
+    const payload = verified.payload;
 
     // `null` is the source saying nobody measured and `0` is the source saying it is right, which is
     // the pair the specification's `sd` row states and the policy's own bound reads. A reader that
@@ -961,8 +954,8 @@ describe('receipt payload v3, its three members and the order of its items', () 
       issueReceipt(stampedWith([{ t: FIXED_NOW, d: sha256(new TextEncoder().encode('{"a":1}')) }], { name: '-disc', uncertaintySeconds: 0 }), key),
       { publicKey: key.publicKey, nowSeconds: FIXED_NOW },
     );
-    expect(Object.is(stamped(measured.payload).sd.uncertaintySeconds, 0)).toBe(true);
-    expect(stamped(measured.payload).sd.uncertaintySeconds).not.toBeNull();
+    expect(Object.is(measured.payload.sd.uncertaintySeconds, 0)).toBe(true);
+    expect(measured.payload.sd.uncertaintySeconds).not.toBeNull();
 
     // The anchor's two arms are the two shapes, and the item list keeps its digest as a digest.
     expect(payload.cva).toEqual({
@@ -981,7 +974,7 @@ describe('receipt payload v3, its three members and the order of its items', () 
       'v', 'iss', 'ins', 'iat', 'nce', 'req', 'res', 'mdl', 'wts', 'meas', 'att', 'epk', 'tok',
       'mk', 'sd', 'cva', 'itm',
     ]);
-    if (twin.payload.v !== 3) throw new Error(`the projection wrote version ${twin.payload.v} for a v3 payload`);
+    if (twin.payload.v !== 1) throw new Error(`the projection wrote version ${twin.payload.v} for a v1 payload`);
     expect(twin.payload.sd).toEqual({ name: 'host clock', unc: null });
     expect(twin.payload.cva).toEqual({
       col: { p: 'held', d: toHex(sha256(new TextEncoder().encode('collateral bytes'))), },
@@ -997,10 +990,10 @@ describe('receipt payload v3, its three members and the order of its items', () 
     // be the absence. The sentences are quoted because each one names what the silence would read as,
     // which is the reason the member is required rather than an optional addition to v2.
     const cases: Array<[string, string]> = [
-      ['sd', 'v3 requires an sd member'],
-      ['cva', 'v3 requires a cva member'],
-      ['itm', 'v3 requires an itm member'],
-      ['mk', 'v3 requires an mk member'],
+      ['sd', 'v1 requires an sd member'],
+      ['cva', 'v1 requires a cva member'],
+      ['itm', 'v1 requires an itm member'],
+      ['mk', 'v1 requires an mk member'],
     ];
     for (const [member, sentence] of cases) {
       const bytes = signMembers(
@@ -1008,7 +1001,7 @@ describe('receipt payload v3, its three members and the order of its items', () 
         key,
       );
       const failure = expectFailure(() => verifyReceipt(bytes, { publicKey: key.publicKey, nowSeconds: FIXED_NOW }));
-      expect(failure.message, `a v3 payload with no ${member}`).toContain(sentence);
+      expect(failure.message, `the payload with no ${member}`).toContain(sentence);
       expectFailure(() => decodeReceipt(bytes), 'BAD_PAYLOAD');
     }
 
@@ -1054,7 +1047,7 @@ describe('receipt payload v3, its three members and the order of its items', () 
       key,
       declaredProtectedHeader(key.kid),
     );
-    expect(stamped(decodeReceipt(integer).payload).sd.uncertaintySeconds).toBe(1);
+    expect(decodeReceipt(integer).payload.sd.uncertaintySeconds).toBe(1);
     // A bound written as `null` stays a `null` in the bytes rather than becoming an absent member.
     const explicit = decodeReceipt(issueReceipt(stampedPayload(), key));
     expect(membersOf(explicit.payload).get('sd')).toBeInstanceOf(Map);
@@ -1098,7 +1091,7 @@ describe('receipt payload v3, its three members and the order of its items', () 
     const absent = { presence: 'absent-at-source', reason: 'the source had nothing to give' } as const;
     const bothAbsent = stampedWith([{ t: FIXED_NOW, d: sha256(new TextEncoder().encode('x')) }]);
     const bytes = issueReceipt({ ...bothAbsent, cva: { collateral: absent, validity: absent } }, key);
-    expect(stamped(verifyReceipt(bytes, { publicKey: key.publicKey, nowSeconds: FIXED_NOW }).payload).cva.collateral).toEqual({
+    expect(verifyReceipt(bytes, { publicKey: key.publicKey, nowSeconds: FIXED_NOW }).payload.cva.collateral).toEqual({
       presence: 'absent-at-source',
       reason: 'the source had nothing to give',
     });
@@ -1128,10 +1121,10 @@ describe('receipt payload v3, its three members and the order of its items', () 
     expect(expectFailure(() => decodeReceipt(noDigest)).message).toContain('itm[0].d must be a 32-byte bstr');
   });
 
-  it('refuses a v3 map the bytes did not deliver as a map, at each position one sits in', () => {
+  it('refuses a map the bytes did not deliver as a map, at each position one sits in', () => {
     const key = generateSigningKey();
     // Five positions, one table. `mk` and `meas` already answer this way for the versions that carry
-    // them, and `v: 3` adds five more places where the format names a map: the two disclosures at the
+    // them, and the four members a receipt states about itself add five more places where the format names a map: the two disclosures at the
     // payload, the two arms of the anchor below `cva`, and one element of the item list. Each is the
     // reader's own refusal rather than the closure walk's, because a walk over a map's members has no
     // map to enter when the value is not one, and the detail is the assertion because `BAD_PAYLOAD`
@@ -1200,8 +1193,8 @@ describe('receipt payload v3, its three members and the order of its items', () 
       ]),
       key,
     );
-    expect(stamped(verifyReceipt(bytes, { publicKey: key.publicKey, nowSeconds: FIXED_NOW }).payload).itm).toHaveLength(3);
-    expect(stamped(decodeReceipt(bytes).payload).itm[2]!.t).toBe(same);
+    expect(verifyReceipt(bytes, { publicKey: key.publicKey, nowSeconds: FIXED_NOW }).payload.itm).toHaveLength(3);
+    expect(decodeReceipt(bytes).payload.itm[2]!.t).toBe(same);
 
     const rising = issueReceipt(
       stampedWith([
@@ -1211,7 +1204,7 @@ describe('receipt payload v3, its three members and the order of its items', () 
       ]),
       key,
     );
-    expect(stamped(decodeReceipt(rising).payload).itm[2]!.t).toBe(same + 7);
+    expect(decodeReceipt(rising).payload.itm[2]!.t).toBe(same + 7);
   });
 
   it('refuses a list whose stamps disagree with the order the array states, at the payload read', () => {
@@ -1245,30 +1238,27 @@ describe('receipt payload v3, its three members and the order of its items', () 
     expectErrorCode(() => decodeReceipt(forged), 'ITEM_STAMP_OUT_OF_ORDER');
 
     // And a narrowing that stops short of this version is a version answer, not an order one: a
-    // caller that only reads v1 and v2 never reaches the pair to compare.
-    expectErrorCode(() => decodeReceipt(bytes, { acceptedVersions: [1, 2] }), 'UNSUPPORTED_VERSION');
+    // caller that reads no version at all never reaches the pair to compare.
+    expectErrorCode(() => decodeReceipt(bytes, { acceptedVersions: [] }), 'UNSUPPORTED_VERSION');
   });
 
-  it('refuses a member another version defines, at the payload level of every version', () => {
+  it('refuses a member the format does not define at the payload level, whichever document carries it', () => {
     const key = generateSigningKey();
-    // The closed map is one rule stated one way, so the names crossing the boundaries go both
-    // directions: the member `mk` moved for is not a v1 member, and the three that moved it again are
-    // not members of the two versions before. A document carrying one is a document no version of
-    // this format defines, and reading it with the member dropped is the silence each version exists
-    // to refuse.
+    // The closed map is one rule stated one way, so the name that crosses no boundary is the one it
+    // answers: a document carrying a name this format never defines is refused rather than read with
+    // the member dropped, which is the silence the closed map exists to refuse. Three documents,
+    // because the refusal must not depend on which of the four members about itself a payload states.
     const cases: Array<[ReceiptPayload, string, string]> = [
-      [samplePayload(), 'sd', "payload carries a member version 1 does not define: 'sd'"],
-      [samplePayload(), 'itm', "payload carries a member version 1 does not define: 'itm'"],
-      [markedPayload(), 'cva', "payload carries a member version 2 does not define: 'cva'"],
-      [markedPayload(), 'itm', "payload carries a member version 2 does not define: 'itm'"],
-      [stampedPayload(), 'not_a_member', "payload carries a member version 3 does not define: 'not_a_member'"],
+      [samplePayload(), 'surprise', "payload carries a member version 1 does not define: 'surprise'"],
+      [markedPayload(), 'not_a_member', "payload carries a member version 1 does not define: 'not_a_member'"],
+      [stampedPayload(), 'enc', "payload carries a member version 1 does not define: 'enc'"],
     ];
     for (const [payload, member, sentence] of cases) {
       const members = membersOf(payload);
-      members.set(member, stampedPayload()[member as keyof ReceiptPayloadV3] as unknown);
+      members.set(member, 'x');
       const bytes = signMembers(members, key);
       const failure = expectFailure(() => verifyReceipt(bytes, { publicKey: key.publicKey, nowSeconds: FIXED_NOW }));
-      expect(failure.message, `${member} on a v${payload.v} payload`).toContain(sentence);
+      expect(failure.message, `${member} on the payload`).toContain(sentence);
       expectFailure(() => decodeReceipt(bytes), 'BAD_PAYLOAD');
     }
   });
@@ -1305,19 +1295,16 @@ function editedNested(
 
 /** A document of the payload version the closure walk names, which is the whole corpus here. */
 function payloadForVersion(version: string): ReceiptPayload {
-  if (version === '1') return samplePayload();
-  if (version === '2') return markedPayload();
-  if (version === '3') return stampedPayload();
+  if (version === '1') return stampedPayload();
   throw new Error(`this corpus has no document for payload version ${version}`);
 }
 
 /**
- * The document a swept or edited position belongs to, oldest version first. Every position the first
- * two blocks declare is carried by `v: 1` as well, so the sweeps below keep using the document they
- * always used; a member only `v: 3` names is not, and rewriting it on a document that holds no such
- * member would edit nothing and then assert a refusal those bytes never invited. Read off the versions
- * the walk defines rather than switched on by name, so a position a later version gains arrives in the
- * sweep on the day the CDDL declares it.
+ * The document a swept or edited position belongs to. A position the format names is a position this one
+ * document carries; a member it names nowhere is not, and rewriting one on a document that holds no such
+ * member would edit nothing and then assert a refusal those bytes never invited. Read off the versions the
+ * walk defines rather than switched on by name, so a position the format gains arrives in the sweep on the
+ * day the CDDL declares it.
  */
 function payloadCarrying(route: string): ReceiptPayload {
   const head = route.split('.')[0]!;
@@ -1486,21 +1473,21 @@ function givenWithoutMember(payload: ReceiptPayload, name: string): ReceiptPaylo
 }
 
 describe('what the writer refuses to make, and what it makes anyway', () => {
-  it('refuses a member the version does not define, and names the member and the version', () => {
-    // The three shapes that made the number move are the ones a `v: 2` caller can hold: the drop these
-    // bytes used to take is silent in the output rather than loud in a refusal, so the assertion is the
-    // member's own name beside the version that does not carry it. `mk` at `v: 1` is the same fact one
-    // version earlier, and it is the case a document that predates marking cannot be confused with.
-    const cases: Array<[string, string, ReceiptPayload]> = [
-      ['sd', '2', givenWithMember(markedPayload(), 'payload', 'sd', { name: 'host clock', uncertaintySeconds: 0 })],
-      ['cva', '2', givenWithMember(markedPayload(), 'payload', 'cva', { collateral: { presence: 'not-taken-in', reason: 'x' }, validity: { presence: 'not-taken-in', reason: 'x' } })],
-      ['itm', '2', givenWithMember(markedPayload(), 'payload', 'itm', [{ t: FIXED_NOW, d: sha256(new TextEncoder().encode('x')) }])],
-      ['mk', '1', givenWithMember(samplePayload(), 'payload', 'mk', { sch: 'none', d: sha256(new Uint8Array(0)) })],
+  it('refuses a member the format does not define, and names the member and the version it read', () => {
+    // The writer answers with the reader's sentence and the reader's code, so the names it refuses are
+    // the ones no block of this format defines. `enc` is a name an outside implementation might hand
+    // over for an encryption marker, and the four members a receipt states about itself are the ones a
+    // caller is most likely to move: each is spelled here as an extra one, because a writer that trimmed
+    // in silence is the defect this walk was placed in front of.
+    const cases: Array<[string, ReceiptPayload]> = [
+      ['surprise', givenWithMember(samplePayload(), 'payload', 'surprise', 'x')],
+      ['enc', givenWithMember(markedPayload(), 'payload', 'enc', { alg: 'none' })],
+      ['extra', givenWithMember(stampedPayload(), 'payload', 'extra', [{ t: FIXED_NOW, d: sha256(new TextEncoder().encode('x')) }])],
     ];
-    for (const [member, version, payload] of cases) {
+    for (const [member, payload] of cases) {
       const failure = expectFailure(() => encodePayload(payload));
-      expect(failure.message, `a v${version} payload carrying ${member}`).toContain(
-        `payload carries a member version ${version} does not define: '${member}'`,
+      expect(failure.message, `the payload carrying ${member}`).toContain(
+        `payload carries a member version 1 does not define: '${member}'`,
       );
     }
 
@@ -1508,11 +1495,11 @@ describe('what the writer refuses to make, and what it makes anyway', () => {
     // silent-drop path has nothing left to be silent about. `issueReceipt` is the honest caller's path
     // and it answers alike, before a key is consulted.
     const key = generateSigningKey();
-    expect(() => encodePayload(cases[0]![2])).toThrow(ReceiptError);
-    expectFailure(() => issueReceipt(cases[0]![2], key), 'BAD_PAYLOAD');
+    expect(() => encodePayload(cases[0]![1])).toThrow(ReceiptError);
+    expectFailure(() => issueReceipt(cases[0]![1], key), 'BAD_PAYLOAD');
   });
 
-  it('refuses a required member the payload does not carry, one at a time, at every version', () => {
+  it('refuses a required member the payload does not carry, one at a time, for the version the format declares', () => {
     // A `TypeError` is not a refusal, and a test that quoted its message would be worth nothing: what
     // this file proves is the code. `expectFailure` reads `code` off the object it was handed, so a
     // plain `TypeError` arriving here reports `undefined` and the cell goes red rather than green on a
@@ -1542,7 +1529,7 @@ describe('what the writer refuses to make, and what it makes anyway', () => {
     const noBound = expectFailure(() => encodePayload(givenWithMember(stampedPayload(), 'sd', 'uncertaintySeconds', undefined)));
     expect(noBound.message).toContain("sd is missing 'uncertaintySeconds', which the format requires");
     const noDigest = expectFailure(() => encodePayload(givenWithoutMember(stampedPayload(), 'mk')));
-    expect(noDigest.message).toContain("payload is missing 'mk', which version 3 requires");
+    expect(noDigest.message).toContain("payload is missing 'mk', which version 1 requires");
     const slotIsText = expectFailure(() =>
       encodePayload({ ...stampedPayload(), cva: { collateral: 'held', validity: stampedPayload().cva.validity } as never }),
     );
@@ -1647,7 +1634,7 @@ describe('what the writer refuses to make, and what it makes anyway', () => {
 
     // Two items out of order are the last pair: every member is present, named and typed, and what
     // disagrees is a pair of signed statements, which is a reader's finding, not a projection failure.
-    const falling: ReceiptPayloadV3 = { ...stampedPayload(), itm: [{ t: FIXED_NOW, d: sha256(new TextEncoder().encode('a')) }, { t: FIXED_NOW - 1, d: sha256(new TextEncoder().encode('b')) }] };
+    const falling: ReceiptPayload = { ...stampedPayload(), itm: [{ t: FIXED_NOW, d: sha256(new TextEncoder().encode('a')) }, { t: FIXED_NOW - 1, d: sha256(new TextEncoder().encode('b')) }] };
     expect(equalBytes(encodePayload(falling), encodeCanonical(membersOf(falling)))).toBe(true);
     expectFailure(() => decodeReceipt(issueReceipt(falling, key)), 'ITEM_STAMP_OUT_OF_ORDER');
   });
@@ -2242,14 +2229,14 @@ describe('what this package issues, this package reads back', () => {
     // Four positions at once, because the writer's rule is one branch taken at every depth: two are
     // members of the payload and two sit inside the maps nested below it, where the same value had the
     // same effect.
-    const negativeZero: ReceiptPayloadV1 = {
+    const negativeZero: ReceiptPayload = {
       ...base,
       iat: -0,
       epk: -0,
       att: { ...base.att, ts: -0 },
       tok: { p: -0, c: -0 },
     };
-    const plainZero: ReceiptPayloadV1 = {
+    const plainZero: ReceiptPayload = {
       ...base,
       iat: 0,
       epk: 0,

@@ -11,8 +11,7 @@ import {
   sha256Hex,
   toHex,
   type MarkingScheme,
-  type ReceiptPayloadV2,
-  type ReceiptPayloadV3,
+  type ReceiptPayload,
 } from '@ashaveri/receipt';
 import { MarkedStreamTail, type BackendResponse, type CompletionBackend, type CompletionUsage, type TimeSource } from '../src/index.js';
 import { MARKING_CHUNK_ID, markingFrame } from '../src/marking.js';
@@ -153,14 +152,12 @@ async function send(h: Harness, target: string, body: string) {
   });
 }
 
-/** The receipt this response's id points at, decoded, narrowed to the versions that name a marking. */
-async function receiptFor(h: Harness, id: string): Promise<ReceiptPayloadV2 | ReceiptPayloadV3> {
+/** The receipt this response's id points at, decoded. Every payload this format reads names a marking. */
+async function receiptFor(h: Harness, id: string): Promise<ReceiptPayload> {
   const url = `/v1/receipts/${id}`;
   const res = await h.app.inject({ method: 'GET', url, headers: h.signFor('marking', 'GET', url, null) });
   expect(res.statusCode).toBe(200);
-  const payload = decodeReceipt(new Uint8Array(res.rawPayload)).payload;
-  if (payload.v === 1) throw new Error(`expected a payload naming a marking, got version ${String(payload.v)}`);
-  return payload;
+  return decodeReceipt(new Uint8Array(res.rawPayload)).payload;
 }
 
 function refusal(error: unknown): string {
@@ -191,10 +188,11 @@ describe('the marking flag', () => {
       const payload = await receiptFor(h, res.headers['x-ashaveri-receipt-id'] as string);
       expect([marking, payload.v, payload.mk.sch]).toEqual([
         marking,
-        // A body the framing reads as one item is a `v: 3` whatever the marking says, which is the
-        // version choice stated at its site rather than a capability this deployment does or has not
-        // wired; `emission.test.ts` holds the whole account of what the number carries.
-        3,
+        // A body the framing reads as one item is the one version this format declares, whatever the
+        // marking says: the number states the members the document carries, and every receipt a gateway
+        // writes carries all seventeen of them. `emission.test.ts` holds the whole account of what the
+        // number carries.
+        1,
         marking === 'provenance-v1' ? 'provenance-v1' : 'none',
       ]);
       expect(res.statusCode).toBe(200);

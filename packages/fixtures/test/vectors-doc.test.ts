@@ -530,12 +530,12 @@ describe('docs/vectors.md suite inventory', () => {
     }
     expect(counts.accepted + counts.refused, 'an entry is neither accepted nor refused').toBe(counts.entries);
     for (const one of receiptEntries()) {
-      expect([1, 2, 3], `${one.name} declares a payload version no published format defines`).toContain(one.declares);
-      if (one.carriesMark) {
-        expect(
-          one.declares,
-          `${one.name} carries a marking member in a version whose rows state no mark`,
-        ).toBeGreaterThan(1);
+      expect(one.declares, `${one.name} declares a payload version the format defines no reader for`).toBe(1);
+      // `mk` is a required member of the one version, so a published receipt that names none is a document
+      // the shipped reader refuses. An acceptance without it would be a row the suite promises to verify
+      // over bytes that cannot verify.
+      if (!one.carriesMark) {
+        expect(one.expected, `${one.name} names no mk, which the format requires`).not.toBe('verify-ok');
       }
     }
   });
@@ -630,7 +630,7 @@ describe('docs/vectors.md account of the receipt fixtures', () => {
     // And the other direction: a row stating a version is a row the sentence does not count, so a suite
     // that grew one without moving the document is caught by the same number.
     expect(rows.filter((each) => each.v !== undefined).length).toBe(rows.length - without.length);
-    expect(new Set(rows.filter((each) => each.v !== undefined).map((each) => each.v))).toEqual(new Set([2, 3]));
+    expect(new Set(rows.filter((each) => each.v !== undefined).map((each) => each.v))).toEqual(new Set([1]));
   });
 
   it('counts the refusals that predate the position column, spelled in words', () => {

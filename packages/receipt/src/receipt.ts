@@ -76,20 +76,31 @@ export interface TokenMetering {
 }
 
 /**
- * The payload versions this package reads, the one place that set is written. `2` exists because of
- * what `mk` attests: a v1 reader checks thirteen fields, finds nothing about a mark, and would
- * verify a receipt over an unmarked response as readily as over a marked one, which is silence read
- * as a claim. `3` exists for the same reason three times over: a reader that took `sd`, `cva` and
- * `itm` and dropped them would verify a receipt whose stamp names no source, whose appraisal
- * recorded no context, and whose response holds no items, and each of those silences is the claim
- * the member was added to make or to refuse. Nothing was removed and no member moved, so every
- * version below is the one before it plus names.
+ * The payload versions this package reads, the one place that set is written. It holds one version,
+ * because nothing outside this repository holds bytes bearing another: `@ashaveri/receipt` is unpublished,
+ * the package version is `0.1.0`, and no party outside this estate has ever been handed a receipt. A
+ * version number is a demand on readers, and a number no reader outside these files was ever asked to
+ * refuse earns its keep by nothing.
+ *
+ * So this one version carries what the retired numbers used to: `mk`, because a reader that found nothing
+ * about a mark would verify a receipt over an unmarked response as readily as over a marked one, which is
+ * silence read as a claim. `sd`, `cva` and `itm` for the same reason three times over: a reader that took
+ * a stamp's source, an appraisal's context and a response's items and dropped them would verify a receipt
+ * whose stamp names no source, whose appraisal recorded no context, and whose response holds no items. No
+ * member changed name, type, order or meaning in the collapse, and no member was added: the seventeen
+ * names below are the ones the newest retired version already spelled, at the same seventeen positions.
  */
-const PARSED_VERSIONS = [1, 2, 3] as const;
+const PARSED_VERSIONS = [1] as const;
 
 export type ReceiptVersion = (typeof PARSED_VERSIONS)[number];
 
-function isReceiptVersion(value: unknown): value is ReceiptVersion {
+/**
+ * Whether a number is one of the versions above, which is the question every reader and writer of this
+ * format answers before it reads a member. Exported for `json.ts`, the one other place a version is
+ * settled, and not named by `index.ts`: the set of what this package reads is stated once, in the list
+ * above, and every refusal of a number outside it is read off that list rather than restated.
+ */
+export function isReceiptVersion(value: unknown): value is ReceiptVersion {
   return (PARSED_VERSIONS as readonly unknown[]).includes(value);
 }
 
@@ -123,9 +134,9 @@ export interface Marking {
 }
 
 /**
- * The twelve fields every receipt carries, named once so that v2 being v1 plus one member, and v3
- * being v2 plus three, is a fact of the type rather than a second copy that can drift out of step
- * with the first.
+ * The twelve fields every receipt carries, named apart from the five that state what this issuance knew
+ * about itself, because the two groups are read by different code: the walk over the payload's closed map
+ * reaches all seventeen, and only the twelve below are checked in one order by one reader.
  */
 interface ReceiptFields {
   iss: string;
@@ -142,15 +153,6 @@ interface ReceiptFields {
   tok: TokenMetering;
 }
 
-export interface ReceiptPayloadV1 extends ReceiptFields {
-  v: 1;
-}
-
-export interface ReceiptPayloadV2 extends ReceiptFields {
-  v: 2;
-  mk: Marking;
-}
-
 /**
  * One response item: the instant its bytes were stamped and their digest, and nothing else. The
  * order of the list this belongs to is the chain, which is why there is no predecessor field beside
@@ -165,26 +167,24 @@ export interface ItemStamp {
 }
 
 /**
- * v3 is every member of `ReceiptPayloadV2`, named again rather than extended because a version that
- * adds names has to say which ones it adds, plus the three that made the number move. The three are
- * required: an unstated source, an unrecorded context, and an item list that might simply not be
- * there are three silences, and a receipt is a document that states.
+ * The receipt payload, one version, at seventeen positions. The twelve every document has always
+ * carried, then `mk` so a mark is attested rather than passed over, then the three members that made
+ * the newest retired number move: the disclosure of the source `iat` was read from, what became of the
+ * two pieces of appraisal context, and one entry per response item. All five are required, because an
+ * unstated mark, an unstated source, an unrecorded context, and an item list that might simply not be
+ * there are silences, and a receipt is a document that states.
  */
-export interface ReceiptPayloadV3 extends ReceiptFields {
-  v: 3;
+export interface ReceiptPayload extends ReceiptFields {
+  v: 1;
   mk: Marking;
   sd: StampDisclosure;
   cva: CollateralValidityAnchor;
   itm: readonly ItemStamp[];
 }
 
-export type ReceiptPayload = ReceiptPayloadV1 | ReceiptPayloadV2 | ReceiptPayloadV3;
-
 /**
- * The members the payload versions have in common, in the order `receipt.cddl` lists them. `mk` is
- * absent from this list because it belongs to two versions and not to all three, which is the whole
- * of what makes it a v2 member rather than an optional one, and `sd`, `cva` and `itm` for the same
- * reason one version further on.
+ * The members the payload declares, in the order `receipt.cddl` lists them: the twelve every document
+ * shares, then the marking, the disclosure, the anchor and the item list.
  *
  * This list and the ones below are exported so a reader outside the package can hold each one
  * against the map `receipt.cddl` declares it for: they are the whole of what the closure walk
@@ -192,7 +192,10 @@ export type ReceiptPayload = ReceiptPayloadV1 | ReceiptPayloadV2 | ReceiptPayloa
  * direction of the disagreement is loud. `index.ts` names none of them, so the package's public
  * surface is what it was.
  */
-export const SHARED_MEMBERS = ['v', 'iss', 'ins', 'iat', 'nce', 'req', 'res', 'mdl', 'wts', 'meas', 'att', 'epk', 'tok'] as const;
+export const PAYLOAD_MEMBERS = [
+  'v', 'iss', 'ins', 'iat', 'nce', 'req', 'res', 'mdl', 'wts', 'meas', 'att', 'epk', 'tok',
+  'mk', 'sd', 'cva', 'itm',
+] as const;
 
 /**
  * A map the CDDL defines: which members it names, and which of them the format makes into another
@@ -215,42 +218,25 @@ export const COLLATERAL_ABSENT_MEMBERS = ['p', 'r'] as const;
 export const ITEM_STAMP_MEMBERS = ['t', 'd'] as const;
 
 /**
- * Which members a payload of each version defines, and the maps nested inside it. A map is closed:
- * carrying a member it does not define makes the document malformed rather than a document read with
- * the extra member dropped, and that is as true one level down as it is at the payload.
+ * Which members the payload defines, and the maps nested inside it. A map is closed: carrying a member
+ * it does not define makes the document malformed rather than a document read with the extra member
+ * dropped, and that is as true one level down as it is at the payload.
  *
- * Two maps of v3 are deliberately not entries in any `nested`: the two arms of a collateral slot,
- * because which list stands behind `cva.col` is decided by the label in it and no one list answers
- * for both, and the element map of `itm`, because that member's value is an array and a walk over
- * map members cannot reach inside one. Both are closed by the reader that resolves the choice, at
- * the position each one sits at, which is what `receipt.cddl` says of them.
+ * Two maps here are deliberately not entries in any `nested`: the two arms of a collateral slot, because
+ * which list stands behind `cva.col` is decided by the label in it and no one list answers for both, and
+ * the element map of `itm`, because that member's value is an array and a walk over map members cannot
+ * reach inside one. Both are closed by the reader that resolves the choice, at the position each one sits
+ * at, which is what `receipt.cddl` says of them.
  *
  * This is the structure the walk reads, so the lists above answer for the format only if it is
  * read off them: a map whose entry is a copy of a list goes stale the day that list is edited, and a
- * version whose `nested` is missing a name stops refusing members there while every list still
+ * `nested` that is missing a name stops refusing members there while every list still
  * matches the CDDL. Exported alongside the lists, for that reason and for no other, and named by
  * `index.ts` as little as they are, so the package's public surface is what it was.
  */
 export const DEFINED_MAPS: Readonly<Record<ReceiptVersion, DefinedMap>> = {
   1: {
-    members: SHARED_MEMBERS,
-    nested: {
-      meas: { members: MEASUREMENT_MEMBERS },
-      att: { members: EVIDENCE_REF_MEMBERS },
-      tok: { members: TOKEN_METERING_MEMBERS },
-    },
-  },
-  2: {
-    members: [...SHARED_MEMBERS, 'mk'],
-    nested: {
-      meas: { members: MEASUREMENT_MEMBERS },
-      att: { members: EVIDENCE_REF_MEMBERS },
-      tok: { members: TOKEN_METERING_MEMBERS },
-      mk: { members: MARKING_MEMBERS },
-    },
-  },
-  3: {
-    members: [...SHARED_MEMBERS, 'mk', 'sd', 'cva', 'itm'],
+    members: PAYLOAD_MEMBERS,
     nested: {
       meas: { members: MEASUREMENT_MEMBERS },
       att: { members: EVIDENCE_REF_MEMBERS },
@@ -268,7 +254,7 @@ export interface VerifyOptions {
   expectedNonce?: Uint8Array;
   /**
    * The instant the freshness windows are measured from, in whole seconds since the Unix epoch.
-   * This is the format's own unit: `iat` and a `v: 3` item's `t` are seconds, so the value is read
+   * This is the format's own unit: `iat` and an `itm` entry's `t` are seconds, so the value is read
    * straight against them with no divide. Defaults to the host clock, in seconds.
    *
    * A reading is refused by `VERIFICATION_TIME_OUT_OF_RANGE` when it is not a whole number of Unix
@@ -281,9 +267,9 @@ export interface VerifyOptions {
   evidenceFreshnessSeconds?: number;
   /**
    * Which payload versions this call accepts, defaulting to every version this package parses.
-   * The default is deliberately the wide one: narrowing to `[1]` is how a caller refuses a marked
-   * receipt on purpose, and it must not be the setting a caller gets for free the day a
-   * deployment starts marking.
+   * The default is deliberately the wide one, and today that set is one version wide. An empty list is
+   * how a caller says it reads no receipt at all; a document naming a number outside the set this
+   * package parses is refused under either setting, and the refusal names the number it read.
    */
   acceptedVersions?: readonly ReceiptVersion[];
 }
@@ -307,7 +293,7 @@ function badPayload(detail: string): ReceiptError {
  * one list that holds it. Spelled a second time, the two can disagree and only one direction of the
  * disagreement is quiet: a default that forgot a version refuses real receipts no caller chose to
  * refuse, and a default that names a version nothing parses promises an acceptance the package
- * cannot deliver. Widening what this package reads is therefore one decision, taken where the set of
+ * cannot deliver. What this package reads is therefore one decision, taken where the set of
  * what it reads lives.
  */
 const ACCEPTED_BY_DEFAULT: readonly ReceiptVersion[] = PARSED_VERSIONS;
@@ -316,7 +302,9 @@ const ACCEPTED_BY_DEFAULT: readonly ReceiptVersion[] = PARSED_VERSIONS;
  * Which version the bytes claim, settled before a single field is read. A member that is not an
  * integer at all is a malformed payload rather than a version; an integer this package cannot read
  * and one the caller did not accept are answered alike, because which of the two it was is not a
- * fact about the bytes, and a second code would let a caller probe where the boundary sits.
+ * fact about the bytes, and a second code would let a caller probe where the boundary sits. Every
+ * number outside the one list this package parses is refused here and named in the message, so no
+ * retired version falls through to a structural error about a member its document did or did not carry.
  */
 function claimedVersion(value: unknown, accepted: readonly ReceiptVersion[]): ReceiptVersion {
   if (typeof value !== 'number' || !Number.isInteger(value)) throw badPayload('v must be an integer receipt version');
@@ -344,10 +332,10 @@ function memberName(key: unknown): string {
  * The closedness rule, applied once to a map and to every map the format puts inside it, each read
  * off the one member list that map declares. It runs before any field's value is checked, so an
  * unexpected member is the answer a caller hears whatever else the document is missing, and one rule
- * retires the whole class rather than the one name that happened to be noticed: a `v: 1` payload
- * carrying `mk` read with the member dropped would hand a reader a verified receipt that says
- * nothing about a mark, which is the silence the version exists to refuse, and any other unexpected
- * name buys the same silence about whatever it stood for. That is why the walk does not stop at the
+ * retires the whole class rather than the one name that happened to be noticed: a payload carrying a
+ * name this format does not define, read with that name dropped, would hand a reader a verified receipt
+ * that says nothing about the claim the extra member carried, which is the same silence the closed map
+ * exists to refuse wherever it is found. That is why the walk does not stop at the
  * payload. A member inside `meas` is a claim about the measurement no verifier was told to look at,
  * and a reader that rebuilds the map from the names it knows drops it in the same silence one level
  * down. A value that is not a map is left for the reader's own check, which says which member it
@@ -368,7 +356,7 @@ function assertMembersAreDefined(raw: Map<unknown, unknown>, defined: DefinedMap
   }
 }
 
-/** The twelve members every version carries, checked in the order the CDDL lists them. */
+/** The twelve members that are not a statement about this issuance itself, checked in the order the CDDL lists them. */
 function readReceiptFields(raw: Map<unknown, unknown>): ReceiptFields {
   const iss = raw.get('iss');
   if (typeof iss !== 'string') throw badPayload('iss must be a tstr');
@@ -418,12 +406,11 @@ function readReceiptFields(raw: Map<unknown, unknown>): ReceiptFields {
  * `mk` is required, so an absent one is a payload failure and never a reading of "unmarked": the
  * silence would be indistinguishable from "this receipt predates marking", which is exactly the
  * claim a reader must not be able to make. Unmarked is `sch: "none"`, and only the verification
- * step that holds the response bytes can say whether its digest of the empty region agrees. Both
- * versions that carry it require it, so the refusal names the one the bytes claimed.
+ * step that holds the response bytes can say whether its digest of the empty region agrees.
  */
-function readMarking(raw: Map<unknown, unknown>, version: 2 | 3): Marking {
+function readMarking(raw: Map<unknown, unknown>): Marking {
   const value = raw.get('mk');
-  if (value === undefined) throw badPayload(`v${version} requires an mk member; absence is mk.sch "none", not a missing mk`);
+  if (value === undefined) throw badPayload('v1 requires an mk member; absence is mk.sch "none", not a missing mk');
   const mk = decodedMap(value);
   if (mk === null) throw badPayload('mk must be a map');
   const sch = mk.get('sch');
@@ -449,7 +436,7 @@ function readMarking(raw: Map<unknown, unknown>, version: 2 | 3): Marking {
  */
 function readStampDisclosure(raw: Map<unknown, unknown>): StampDisclosure {
   const value = raw.get('sd');
-  if (value === undefined) throw badPayload('v3 requires an sd member; a stamp from an unnamed source is not the same document');
+  if (value === undefined) throw badPayload('v1 requires an sd member; a stamp from an unnamed source is not the same document');
   const sd = decodedMap(value);
   if (sd === null) throw badPayload('sd must be a map');
   const name = sd.get('name');
@@ -507,7 +494,7 @@ function readCollateralSlot(value: unknown, where: string): CollateralSlot {
  */
 function readCollateralAnchor(raw: Map<unknown, unknown>): CollateralValidityAnchor {
   const value = raw.get('cva');
-  if (value === undefined) throw badPayload('v3 requires a cva member; an unrecorded context is a state, not an omission');
+  if (value === undefined) throw badPayload('v1 requires a cva member; an unrecorded context is a state, not an omission');
   const cva = decodedMap(value);
   if (cva === null) throw badPayload('cva must be a map');
   return {
@@ -538,7 +525,7 @@ function readCollateralAnchor(raw: Map<unknown, unknown>): CollateralValidityAnc
  */
 function readItemStamps(raw: Map<unknown, unknown>): readonly ItemStamp[] {
   const value = raw.get('itm');
-  if (value === undefined) throw badPayload('v3 requires an itm member; a response with no items is a refusal, not an omission');
+  if (value === undefined) throw badPayload('v1 requires an itm member; a response with no items is a refusal, not an omission');
   if (!Array.isArray(value)) throw badPayload('itm must be an array');
   if (value.length === 0) throw badPayload('itm declares at least one item and carries none');
   const items = value.map((one, index) => readItemStamp(one, `itm[${index}]`));
@@ -576,41 +563,21 @@ function parsePayload(bytes: Uint8Array, accepted: readonly ReceiptVersion[]): R
   const version = claimedVersion(raw.get('v'), accepted);
   assertMembersAreDefined(raw, DEFINED_MAPS[version], 'payload', `version ${version}`);
   const fields = readReceiptFields(raw);
-  // One arm per version this format defines, and no arm that answers for more than the version it
-  // names. The cascade this replaced ended in a `v: 3` object with nothing in front of it, so a fourth
-  // version landed there and was read under v3's rules: `sd`, `cva` and `itm` looked for in a document
-  // that names none of them, or found in one whose answer for them is another version's, and the
-  // operator heard `payload: v3` about a document only partly checked. `version` is a
-  // `ReceiptVersion`, which is the type `PARSED_VERSIONS` writes, so the day that list names a version
-  // with no arm above, the binding below is a compile error in the file that has to write the reader
-  // for it.
-  switch (version) {
-    case 1:
-      return { v: 1, ...fields };
-    case 2:
-      return { v: 2, ...fields, mk: readMarking(raw, 2) };
-    case 3:
-      return {
-        v: 3,
-        ...fields,
-        mk: readMarking(raw, 3),
-        sd: readStampDisclosure(raw),
-        cva: readCollateralAnchor(raw),
-        itm: readItemStamps(raw),
-      };
-    default: {
-      // Bound and deliberately unread: the assignment is what fails for a member no case above claims.
-      // `claimedVersion` refuses a version outside `PARSED_VERSIONS` before a member is read, so
-      // nothing reaches this arm through the package today; it is here for the caller that arrives with
-      // a version no build of this package can read, and it refuses rather than handing the document
-      // another version's members.
-      const _exhaustive: never = version;
-      throw new ReceiptError(
-        'UNSUPPORTED_VERSION',
-        'a payload naming a version this reader has no arm for is not read as another version',
-      );
-    }
-  }
+  // One reader for the one version this format declares, and no arm left behind for a number that
+  // version retired. The cascade this replaced ended in a `v: 3` object with nothing in front of it, so a
+  // fourth version landed there and was read under v3's rules; that shape of bug cannot come back here,
+  // because `claimedVersion` refuses every number outside `PARSED_VERSIONS` before one member is read,
+  // and the number it refuses is in the message. What this return states is the format's whole member
+  // set: the twelve shared fields, then the marking, the disclosure, the anchor and the item list, none of
+  // them defaulted and none of them optional.
+  return {
+    v: version,
+    ...fields,
+    mk: readMarking(raw),
+    sd: readStampDisclosure(raw),
+    cva: readCollateralAnchor(raw),
+    itm: readItemStamps(raw),
+  };
 }
 
 /** The `mk` map of a payload, in the order `receipt.cddl` declares its two members. */
@@ -804,33 +771,33 @@ function assertAttestedText(members: Record<string, unknown>, defined: DefinedMa
 }
 
 /**
- * Whether the payload the writer was handed is one its version can state, in full, in these bytes.
+ * Whether the payload the writer was handed is one this format can state, in full, in these bytes.
  *
- * The projection below reads the members its version names, and a projection cannot notice a name it
- * was not told to look for: an `sd` carried beside a `v: 2` was dropped without a word, and the
+ * The projection below reads the members the format names, and a projection cannot notice a name it
+ * was not told to look for: a member outside the seventeen was dropped without a word, and the
  * signature landed on a document that states nothing about the claim the caller handed over, while a
- * `v: 3` payload with no `itm` died inside a property read, which is not one of the refusals this
+ * payload with no `itm` died inside a property read, which is not one of the refusals this
  * package publishes. So the writer answers the two questions the reader answers, with the reader's own
  * sentences and the reader's own code, one step before either could be noticed downstream: a member the
- * version does not define is `BAD_PAYLOAD` there and here, and a required member that is absent is
+ * format does not define is `BAD_PAYLOAD` there and here, and a required member that is absent is
  * `BAD_PAYLOAD` there and here. `docs/error-codes.md` holds `BAD_PAYLOAD` to both readings for that
  * reason, and holds it to a third: a document this walk lets through is still not necessarily a
  * document the format admits, because what is checked here is what the writer was handed and what it
  * can write down, not whether the result is legal. An empty `itm` is that case, and the writer writes
  * it, because it was handed a list and a faithful writer states the length it was given. The reader is
  * the one that says a run of nothing is not a document, and it does. That division is not a leftover:
- * the published vector `receipt-empty-items-v3` is made by this function over an empty list, and a
+ * the published vector `receipt-empty-items-v1` is made by this function over an empty list, and a
  * refusal here would delete a byte that is already signed and already published.
  *
  * The version is settled first and the members then walked in the order the CDDL lists them, which is
  * the order `parsePayload` reaches them in, so the two directions of one format answer the same
  * question and answer it in the same order. The lists are read off `DEFINED_MAPS`, the structure the
- * reader's closedness walk reads, so the rule a version's member set is written down in one place and
- * a fourth version that joins `PARSED_VERSIONS` fails to compile in the map that has to describe it
+ * reader's closedness walk reads, so the rule the member set is written down in one place and
+ * a version that joins `PARSED_VERSIONS` fails to compile in the map that has to describe it
  * rather than agreeing to be encoded short. The two positions the reader closes at their own sites
  * rather than in a `nested` entry, the arms of the anchor and the element of the item list, are closed
- * here at the matching sites too, gated on the member being defined for the version rather than on the
- * version's number, which is what carries them into any later version that names them.
+ * here at the matching sites too, gated on the member being defined rather than on the payload's
+ * number, which is what carries them into any later version that names them.
  *
  * A third question is answered here, and it is the writer's rather than the format's: an attested text
  * member whose content would forge the line it is printed on is refused before one byte of the payload is
@@ -905,58 +872,33 @@ export function encodePayload(payload: ReceiptPayload): Uint8Array {
     ['epk', payload.epk],
     ['tok', new Map<string, unknown>([['p', payload.tok.p], ['c', payload.tok.c]])],
   ];
-  // Which members a document carries is the version's answer, not the object's. So each arm writes what
-  // its version names: the bytes a v1 payload encodes to stay exactly the bytes it encoded to before
-  // `mk` existed, signed by a verifier that never heard of it, and the same one version on, a v2
-  // document carries no `sd`, no `cva` and no `itm`, and the bytes it signed are the bytes it still
-  // signs. What that leaves unsaid is the case the walk above answers: an arm that writes its version's
-  // members and nothing else would otherwise be a writer that trims, and a caller that handed over an
-  // `sd` beside a `v: 2` would get a signature over a document naming none of the claim it carried,
-  // which is the silence the version exists to refuse rather than a service this file can render. Being
-  // the version's answer is what makes the arms a refusal and not a filter. `unc` is written whether or
-  // not anything was measured, because `null` is the sentence the source says about itself and an
-  // omitted member is not that sentence.
+  // The one version this format declares writes all seventeen members, in the order `receipt.cddl` lists
+  // them, and nothing is trimmed for being new: `unc` is written whether or not anything was measured,
+  // because `null` is the sentence the source says about itself and an omitted member is not that
+  // sentence. What a writer that filtered would have hidden is the case `assertEncodable` answers: a
+  // caller that handed over a member the format does not define, or held one back that it requires, gets a
+  // refusal at the walk above rather than a signature over a document that states something other than
+  // what it was given.
   //
-  // What this switch closes over is `ReceiptPayload`, so ask what fails if `PARSED_VERSIONS` gains a `4`
-  // and nothing else is edited: `DEFINED_MAPS` and the parse arm, both read off `ReceiptVersion`, and
-  // the walk above, which reads the member set off `DEFINED_MAPS` rather than restating it. This arm is
-  // the one that fails when a fourth interface joins the payload union, which is the same decision one
-  // edit later, and it fails in this package at the code that has to write the arm rather than quietly
-  // in the bytes a caller gets. A caller that casts a payload naming a version outside the union is
-  // answered at the version check above, before a member of any version is read.
-  switch (payload.v) {
-    case 1:
-      break;
-    case 2:
-      fields.push(['mk', markingMembers(payload.mk)]);
-      break;
-    case 3:
-      fields.push(
-        ['mk', markingMembers(payload.mk)],
-        [
-          'sd',
-          new Map<string, unknown>([['name', payload.sd.name], ['unc', payload.sd.uncertaintySeconds]]),
-        ],
-        [
-          'cva',
-          new Map<string, unknown>([
-            ['col', collateralSlotMembers(payload.cva.collateral)],
-            ['val', collateralSlotMembers(payload.cva.validity)],
-          ]),
-        ],
-        ['itm', payload.itm.map((one) => new Map<string, unknown>([['t', one.t], ['d', one.d]]))],
-      );
-      break;
-    default: {
-      // Bound and deliberately unread: the assignment is what fails for a member no case above claims,
-      // and the refusal is for the caller that arrives here with a payload of its own making.
-      const _exhaustive: never = payload;
-      throw new ReceiptError(
-        'UNSUPPORTED_VERSION',
-        'a payload naming a version this encoder has no members for is not encoded as another version',
-      );
-    }
-  }
+  // Ask what fails if `PARSED_VERSIONS` gains a second number and nothing else is edited: `DEFINED_MAPS`,
+  // keyed by `ReceiptVersion`, has to describe it, and `assertEncodable` reads the member set off that map
+  // rather than restating it. What does not exist any more is an arm per number: the retired versions are
+  // gone from this file rather than left unreachable in it, which is what `test/receipt.test.ts` holds.
+  fields.push(
+    ['mk', markingMembers(payload.mk)],
+    [
+      'sd',
+      new Map<string, unknown>([['name', payload.sd.name], ['unc', payload.sd.uncertaintySeconds]]),
+    ],
+    [
+      'cva',
+      new Map<string, unknown>([
+        ['col', collateralSlotMembers(payload.cva.collateral)],
+        ['val', collateralSlotMembers(payload.cva.validity)],
+      ]),
+    ],
+    ['itm', payload.itm.map((one) => new Map<string, unknown>([['t', one.t], ['d', one.d]]))],
+  );
   return encodeCanonical(new Map(fields));
 }
 

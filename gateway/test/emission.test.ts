@@ -2,7 +2,6 @@ import { afterEach, describe, expect, it } from 'vitest';
 import type { AddressInfo } from 'node:net';
 import {
   decodeReceipt,
-  emptyRegion,
   extractMarkedRegion,
   frameResponse,
   sha256Hex,
@@ -289,16 +288,16 @@ function drivenBy(body: Uint8Array, splits: readonly number[]): StreamedItemStam
   return stamps;
 }
 
-describe('a v3 response, attested in the bytes a client holds', () => {
+describe('the one version, attested in the bytes a client holds', () => {
   it('frames a marked stream into items the reader rebuilds from the response it was handed', async () => {
     const h = await open({
       backend: bodyBackend(UPSTREAM_STREAM, 'text/event-stream', [40, UPSTREAM_STREAM.length - SENTINEL.length + 4]),
       marking: 'provenance-v1',
     });
     const served = await sendAndFetch(h, '/v1/chat/completions', STREAM_REQUEST_BODY);
-    expect(served.payload.v).toBe(3);
+    expect(served.payload.v).toBe(1);
     const payload = served.payload;
-    if (!('itm' in payload)) throw new Error('a v3 payload carries no item list');
+    if (!('itm' in payload)) throw new Error('the payload carries no item list');
 
     // Recomputed by the published rule, out of the bytes this client holds and nothing else.
     const rebuilt = frameResponse('text/event-stream', served.body);
@@ -334,9 +333,9 @@ describe('a v3 response, attested in the bytes a client holds', () => {
       marking: 'provenance-v1',
     });
     const served = await sendAndFetch(h, '/v1/chat/completions', STREAM_REQUEST_BODY);
-    expect(served.payload.v).toBe(3);
+    expect(served.payload.v).toBe(1);
     const payload = served.payload;
-    if (!('itm' in payload)) throw new Error('a v3 payload carries no item list');
+    if (!('itm' in payload)) throw new Error('the payload carries no item list');
 
     const rebuilt = frameResponse('text/event-stream', served.body);
     if (!rebuilt.framed) throw new Error('the client bytes frame into no items');
@@ -381,7 +380,7 @@ describe('a v3 response, attested in the bytes a client holds', () => {
       // bytes and not of how this process was allowed to hand them over.
       if (expected === undefined) expected = digests;
       expect([splits.length, digests]).toEqual([splits.length, expected]);
-      expect(served.payload.v).toBe(3);
+      expect(served.payload.v).toBe(1);
     }
   });
 
@@ -398,8 +397,8 @@ describe('a v3 response, attested in the bytes a client holds', () => {
         time: steppingClock(CLOCK_SECONDS),
       });
       const served = await sendAndFetch(h, '/v1/chat/completions', STREAM_REQUEST_BODY);
-      if (!('itm' in served.payload)) throw new Error('a v3 payload carries no item list');
-      expect(served.payload.v).toBe(3);
+      if (!('itm' in served.payload)) throw new Error('the payload carries no item list');
+      expect(served.payload.v).toBe(1);
       shapes.push(served.payload.itm.map((one) => `${String(one.t)}:${toHex(one.d)}`));
     }
     expect([shapes[1], shapes[2]]).toEqual([shapes[0] ?? [], shapes[0] ?? []]);
@@ -426,7 +425,7 @@ describe('a v3 response, attested in the bytes a client holds', () => {
       time: steppingClock(CLOCK_SECONDS),
     });
     const served = await sendAndFetch(h, '/v1/chat/completions', STREAM_REQUEST_BODY);
-    if (!('itm' in served.payload)) throw new Error('a v3 payload carries no item list');
+    if (!('itm' in served.payload)) throw new Error('the payload carries no item list');
     const stamps = served.payload.itm.map((one) => one.t);
     expect(runsInOrder(stamps)).toBe(true);
     // The clock here advances one second per reading and the frames were handed over in separate writes,
@@ -454,7 +453,7 @@ describe('a v3 response, attested in the bytes a client holds', () => {
       },
     });
     const served = await sendAndFetch(h, '/v1/chat/completions', STREAM_REQUEST_BODY);
-    if (!('itm' in served.payload)) throw new Error('a v3 payload carries no item list');
+    if (!('itm' in served.payload)) throw new Error('the payload carries no item list');
     const stamps = served.payload.itm.map((one) => one.t);
     // Reaching this line is half the witness: `sendAndFetch` decoded the document with `decodeReceipt`,
     // which is where `ITEM_STAMP_OUT_OF_ORDER` is raised, so a list running against its own order would
@@ -471,13 +470,13 @@ describe('a v3 response, attested in the bytes a client holds', () => {
   it('attests a marked buffered body as the one item the client was handed', async () => {
     const h = await open({ backend: bodyBackend(UPSTREAM_BUFFERED, 'application/json'), marking: 'provenance-v1' });
     const served = await sendAndFetch(h, '/v1/chat/completions', REQUEST_BODY);
-    expect(served.payload.v).toBe(3);
-    if (!('itm' in served.payload)) throw new Error('a v3 payload carries no item list');
+    expect(served.payload.v).toBe(1);
+    if (!('itm' in served.payload)) throw new Error('the payload carries no item list');
     const issued = served.payload.itm[0];
     // The whole body, mark member included, and nothing else: a buffered completion has no frames, so
     // its one item is the bytes `res` digests, which is why the two digests are equal here and unequal
     // on every stream.
-    if (issued === undefined) throw new Error('a v3 payload states an item list with nothing in it');
+    if (issued === undefined) throw new Error('the payload states an item list with nothing in it');
     expect(served.payload.itm.length).toBe(1);
     expect(toHex(issued.d)).toBe(toHex(served.payload.res));
     const rebuilt = frameResponse('application/json', served.body);
@@ -492,38 +491,73 @@ describe('a v3 response, attested in the bytes a client holds', () => {
   });
 });
 
-describe('the fallback the bytes can reach', () => {
-  it('issues v2 for a stream that sent no data frame, and v2 alone', async () => {
+describe('the response with nothing for the item list to attest', () => {
+  it('issues no receipt for a stream that sent no data frame, and hands its client nothing', async () => {
     // Frames, an event field and the sentinel, and not one `data:` line said: the response exists, its
-    // bytes are hashed, and there is nothing for an item list to attest. The empty list is the format's
-    // refusal, so the version that names no list is the one that can be signed truthfully.
+    // bytes are hashed, and there is nothing for an item list to attest. `itm` is required and never
+    // empty, so no document this format declares states such a response, and an empty list is the
+    // reader's own refusal rather than a shorter receipt. One version therefore ends the issuance.
+    //
+    // How it ends was measured rather than assumed, and it is harsher than "an id naming nothing": the
+    // socket closes with 521 bytes written by the client and 0 read back, so the destroy takes the
+    // response head with it and no id reaches anyone. A completion that cannot be attested is therefore
+    // not served at all, which is the sentence this case holds.
     const body = 'event: message\n\n: a comment\n\ndata: [DONE]\n\n';
     const h = await open({ backend: bodyBackend(body, 'text/event-stream', [20]) });
-    const served = await sendAndFetch(h, '/v1/chat/completions', STREAM_REQUEST_BODY);
-    if (served.payload.v !== 2) throw new Error(`a stream of nothing issued a v${String(served.payload.v)} receipt`);
-    // The three members are not present as empties, which is what a `v: 3` with a defaulted disclosure
-    // would look like: a version that does not name them cannot carry them, and the closed map is what
-    // makes that a fact of the bytes rather than an expectation about them.
-    for (const member of ['itm', 'sd', 'cva']) {
-      expect(Object.hasOwn(served.payload, member)).toBe(false);
+    await h.app.listen({ port: 0, host: '127.0.0.1' });
+    const port = (h.app.server.address() as AddressInfo).port;
+    let handed = new Uint8Array(0);
+    let completed = false;
+    try {
+      const res = await fetch(`http://127.0.0.1:${port}/v1/chat/completions`, {
+        method: 'POST',
+        headers: {
+          'content-type': 'application/json',
+          ...h.signFor('emission', 'POST', '/v1/chat/completions', STREAM_REQUEST_BODY),
+        },
+        body: STREAM_REQUEST_BODY,
+      });
+      const reader = res.body?.getReader();
+      if (reader === undefined) throw new Error('a completion that carried no body to read');
+      const held: number[] = [];
+      for (;;) {
+        const next = await reader.read();
+        if (next.done === true) break;
+        held.push(...next.value);
+      }
+      handed = new Uint8Array(held);
+      completed = true;
+    } catch {
+      // The socket closed on the gateway's side before a head reached the client.
     }
-    // The reason the payload gives by falling back is the reason the shipped reader gives about the very
-    // same bytes, which is the only statement of it a stranger can check.
-    const rebuilt = frameResponse('text/event-stream', served.body);
+    expect([completed, handed.length]).toEqual([false, 0]);
+    // The reason the gateway stopped is the reason the shipped reader gives about the very same bytes,
+    // which is the only statement of it a stranger can check.
+    const rebuilt = frameResponse('text/event-stream', utf8(body));
     expect(rebuilt.framed).toBe(false);
     if (rebuilt.framed) throw new Error('the client bytes framed into items');
     expect(rebuilt.why).toContain('no data frame');
-    // And the attestation the version can carry is still true of those bytes.
-    expect(toHex(served.payload.res)).toBe(sha256Hex(served.body));
-    expect(served.payload.mk.sch).toBe('none');
-    expect(toHex(served.payload.mk.d)).toBe(sha256Hex(emptyRegion()));
+    await h.app.close();
   });
 
-  it('issues v2 for a stream of nothing but an unterminated event field', async () => {
+  it('issues no receipt for a stream of nothing but an unterminated event field', async () => {
     const h = await open({ backend: bodyBackend('event: message', 'text/event-stream') });
-    const served = await sendAndFetch(h, '/v1/chat/completions', STREAM_REQUEST_BODY);
-    expect(served.payload.v).toBe(2);
-    expect(toHex(served.payload.res)).toBe(sha256Hex(served.body));
+    let reason = 'nothing reached the caller: the response was answered';
+    await h.app
+      .inject({
+        method: 'POST' as 'GET',
+        url: '/v1/chat/completions',
+        headers: {
+          'content-type': 'application/json',
+          ...h.signFor('emission', 'POST', '/v1/chat/completions', STREAM_REQUEST_BODY),
+        },
+        payload: STREAM_REQUEST_BODY,
+      })
+      .catch((err: unknown) => {
+        reason = err instanceof Error ? err.message : String(err);
+      });
+    expect(reason).toContain('no item list to attest');
+    expect(reason).toContain('no data frame');
   });
 });
 
@@ -778,18 +812,18 @@ describe('a stream whose stamps cannot be stated when the payload is built', () 
     expect(reason).toContain('the wired source stopped answering');
 
     const served = await sendAndFetch(h, '/v1/chat/completions', STREAM_REQUEST_BODY);
-    expect(served.payload.v).toBe(3);
+    expect(served.payload.v).toBe(1);
   });
 });
 
-describe('the two disclosures a v3 payload states', () => {
+describe('the two disclosures a payload states', () => {
   it('names the wired source and its bound, and defaults neither', async () => {
     const h = await open({
       backend: bodyBackend(UPSTREAM_BUFFERED, 'application/json'),
       time: { name: 'lab bench one', uncertaintySeconds: 3, nowSeconds: () => CLOCK_SECONDS },
     });
     const served = await sendAndFetch(h, '/v1/chat/completions', REQUEST_BODY);
-    if (!('sd' in served.payload)) throw new Error('a v3 payload carries no stamp disclosure');
+    if (!('sd' in served.payload)) throw new Error('the payload carries no stamp disclosure');
     expect(served.payload.sd).toEqual({ name: 'lab bench one', uncertaintySeconds: 3 });
     // Not the shipped host claim, and not a bound smoothed to zero: a deployment that measured its clock
     // has the measurement signed, and one that did not signs the absence of it.
@@ -799,14 +833,14 @@ describe('the two disclosures a v3 payload states', () => {
   it('names the host clock and the uncertainty nobody measured when nothing was wired', async () => {
     const h = await open({ backend: bodyBackend(UPSTREAM_BUFFERED, 'application/json') });
     const served = await sendAndFetch(h, '/v1/chat/completions', REQUEST_BODY);
-    if (!('sd' in served.payload)) throw new Error('a v3 payload carries no stamp disclosure');
+    if (!('sd' in served.payload)) throw new Error('the payload carries no stamp disclosure');
     expect(served.payload.sd).toEqual({ name: 'host clock', uncertaintySeconds: null });
   });
 
   it('states that no appraisal context was taken in, in the words that say so', async () => {
     const h = await open({ backend: bodyBackend(UPSTREAM_BUFFERED, 'application/json') });
     const served = await sendAndFetch(h, '/v1/chat/completions', REQUEST_BODY);
-    if (!('cva' in served.payload)) throw new Error('a v3 payload carries no validity anchor');
+    if (!('cva' in served.payload)) throw new Error('the payload carries no validity anchor');
     const anchor = served.payload.cva;
     for (const slot of [anchor.collateral, anchor.validity]) {
       expect(slot.presence).toBe('not-taken-in');
@@ -832,7 +866,7 @@ describe('the two disclosures a v3 payload states', () => {
     expect(Object.keys(anchor).sort()).toEqual(['collateral', 'validity']);
   });
 
-  it('carries the three members of a v3 together, each named and none of them defaulted', async () => {
+  it('carries the members a receipt states about itself together, each named and none of them defaulted', async () => {
     const h = await open({
       backend: bodyBackend(UPSTREAM_STREAM, 'text/event-stream'),
       time: { name: 'wired at issuance', uncertaintySeconds: 0, nowSeconds: () => CLOCK_SECONDS },
@@ -845,7 +879,7 @@ describe('the two disclosures a v3 payload states', () => {
       ].sort(),
     );
     if (!('sd' in served.payload) || !('cva' in served.payload) || !('itm' in served.payload)) {
-      throw new Error('a v3 payload is missing one of the three members that moved the version');
+      throw new Error('the payload is missing one of the members it states about itself');
     }
     // A bound of zero is a source claiming it is right, and it is not the same document as the null the
     // host clock carries: the member is written either way, because an omitted bound reads as whichever

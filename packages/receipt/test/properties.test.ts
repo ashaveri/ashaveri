@@ -13,6 +13,7 @@ import {
   signPopAuthorization,
   signingKeyFromSeed,
   verifyPopSignature,
+  type CollateralSlot,
   type PopFields,
   type ReceiptPayload,
   type TeeKind,
@@ -39,6 +40,13 @@ const payload: ReceiptPayload = {
   att: { d: new Uint8Array(32).fill(5), ts: 1_772_000_000 - 60, url: 'https://inference.ashaveri.test/v1/attestation' },
   epk: 3,
   tok: { p: 128, c: 64 },
+  mk: { sch: 'none', d: new Uint8Array(32) },
+  sd: { name: 'host clock', uncertaintySeconds: null },
+  cva: {
+    collateral: { presence: 'not-taken-in', reason: 'the property corpus takes no collateral in' },
+    validity: { presence: 'not-taken-in', reason: 'the property corpus records no validity context' },
+  },
+  itm: [{ t: 1_772_000_000, d: new Uint8Array(32) }],
 };
 
 const signed = issueReceipt(payload, key);
@@ -121,6 +129,12 @@ function attestedText(maxLength: number): fc.Arbitrary<string> {
     .filter((value) => !LINE_FORGED.test(value) && value === value.trim());
 }
 
+/** One anchor slot: either arm, each carrying what its own label says it carries. */
+const slotArbitrary: fc.Arbitrary<CollateralSlot> = fc.oneof(
+  fc.uint8Array({ minLength: 32, maxLength: 32 }).map((sha256) => ({ presence: 'held' as const, sha256 })),
+  attestedText(60).map((reason) => ({ presence: 'not-taken-in' as const, reason })),
+);
+
 const payloadArbitrary: fc.Arbitrary<ReceiptPayload> = fc
   .record({
     iss: attestedText(24),
@@ -145,8 +159,32 @@ const payloadArbitrary: fc.Arbitrary<ReceiptPayload> = fc
     }),
     epk: fc.integer({ min: 0, max: 1_000_000 }),
     tok: fc.record({ p: fc.integer({ min: 0, max: 1_000_000 }), c: fc.integer({ min: 0, max: 1_000_000 }) }),
+    mk: fc.record({
+      sch: fc.constantFrom('none' as const, 'provenance-v1' as const),
+      d: fc.uint8Array({ minLength: 32, maxLength: 32 }),
+    }),
+    sd: fc.record({
+      name: attestedText(40),
+      uncertaintySeconds: fc.oneof(fc.integer({ min: 0, max: 60 }), fc.constant(null)),
+    }),
+    cva: fc.record({ collateral: slotArbitrary, validity: slotArbitrary }),
+    itm: fc.array(
+      fc.record({
+        t: fc.integer({ min: 0, max: 2_000_000_000 }),
+        d: fc.uint8Array({ minLength: 32, maxLength: 32 }),
+      }),
+      { minLength: 1, maxLength: 3 },
+    ),
   })
-  .map((each) => ({ v: 1 as const, ...each }));
+  .map((each) => {
+    // `itm` is ordered by the format: the list states chain order and `t` states the instant each item
+    // was framed, and a reader refuses a list whose stamps run backwards with `ITEM_STAMP_OUT_OF_ORDER`.
+    // A round-trip property over such a list would be answering its own refusal, so the arbitrary states
+    // what a gateway that reads one instant per item in framing order produces. Two items in the same
+    // second stay in the sample: those are not the refusal.
+    const items = [...each.itm].sort((a, b) => a.t - b.t);
+    return { v: 1 as const, ...each, itm: items };
+  });
 
 const popFieldsArbitrary: fc.Arbitrary<PopFields> = fc.record({
   ts: fc.integer({ min: 0, max: 2_000_000_000 }),

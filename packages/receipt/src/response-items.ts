@@ -62,10 +62,10 @@ import { ReceiptError } from './errors.js';
  * it, and `test/response-items.test.ts` holds both halves of that account open at once.
  *
  * What this module does not do. Nothing here takes an instant: no clock is read in this file, and the `t`
- * a `v: 3` payload puts beside each of these digests belongs to `gateway/src/item-stamps.ts`, which reads
+ * the `itm` entry puts beside each of these digests belongs to `gateway/src/item-stamps.ts`, which reads
  * it at the moment a frame passes the socket. What these digests are read by is that member: the table in
  * section 3.1 of `docs/receipt-spec.md` publishes an item's `d` as one item's bytes and none of the framing
- * around them, carried by `v: 3`, and the bytes this rule frames are the bytes that row means. The gateway
+ * around them, carried in `itm`, and the bytes this rule frames are the bytes that row means. The gateway
  * calls this file on both shapes it serves: a stream is walked as it leaves by `StreamedItemStamps`, which
  * feeds `ResponseItemDigestFramer` and so keeps no byte of any item it framed, and a buffered body is taken
  * whole by `stampedBufferedItem` through `frameResponse`, which is the reader a verifier of those bytes

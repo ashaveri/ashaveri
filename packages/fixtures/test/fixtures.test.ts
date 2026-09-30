@@ -259,7 +259,7 @@ describe('what a receipt row states about the bytes it attests', () => {
     expect(rows.length).toBeGreaterThan(0);
     for (const entry of rows) {
       const payload = decodeReceipt(loadReceiptFixture(entry.name).bytes).payload;
-      if (payload.v !== 3) throw new Error(`${entry.name} states items and is not a v3 document`);
+      if (payload.v !== 1) throw new Error(`${entry.name} states items and is not a v1 document`);
       let previous = -1;
       for (const [index, one] of payload.itm.entries()) {
         const stated = entry.items![index]!;
@@ -294,13 +294,13 @@ describe('what a receipt row states about the bytes it attests', () => {
     for (const entry of rows) {
       if (entry.expected !== 'verify-ok') continue;
       const payload = decodeReceipt(loadReceiptFixture(entry.name).bytes).payload;
-      if (payload.v !== 3) throw new Error(`${entry.name} states sd or cva and is not v3`);
+      if (payload.v !== 1) throw new Error(`${entry.name} states sd or cva and is not v1`);
       expect(payload.sd.name, `${entry.name} sd.name`).toBe(entry.sd!.name);
       expect(payload.sd.uncertaintySeconds, `${entry.name} sd.unc`).toBe(entry.sd!.unc ?? null);
       const twin = loadReceiptFixture(entry.name).json;
       expect(twin, `${entry.name} has no twin to compare its columns against`).not.toBeNull();
       if (twin === null) continue;
-      if (twin.payload.v !== 3) throw new Error(`${entry.name} twin is not a v3 projection`);
+      if (twin.payload.v !== 1) throw new Error(`${entry.name} twin is not a v1 projection`);
       expect(twin.payload.sd).toEqual({ name: entry.sd!.name, unc: entry.sd!.unc ?? null });
       expect(twin.payload.cva).toEqual(entry.cva);
       expect(twin.payload.itm).toEqual(entry.items?.map((one) => ({ t: one.t, d: one.d })));
@@ -310,23 +310,34 @@ describe('what a receipt row states about the bytes it attests', () => {
   });
 });
 
-describe('the version a response yields', () => {
-  it('follows the framing of the bytes and names the marking they came off', () => {
-    // Every document this suite issues, a reader accepts on the strength of its own bytes: the version it
-    // names is the answer to whether those bytes frame an item, and the marking that decided it is a
-    // column on the row rather than a fact a port has to infer.
+describe('what a response frames, and what the document says about it', () => {
+  it('names the one version the format declares, and states an item list that follows the framing', () => {
+    // The version is not an answer about the bytes any more, because the format declares one. What the
+    // bytes do answer is the item list: a response that frames items yields one entry per item in
+    // framing order, and the entry digests are the shipped framer's own, read off these bytes rather
+    // than restated. A row whose bytes frame nothing has no accepted document beside it to compare.
     const issued = columned().filter((entry) => entry.expected === 'verify-ok');
     expect(issued.length).toBeGreaterThan(0);
     for (const entry of issued) {
+      const payload = decodeReceipt(loadReceiptFixture(entry.name).bytes).payload;
+      expect(payload.v, `${entry.name} version against the one the format declares`).toBe(1);
       const framing = frameResponse(entry.contentType!, bytesOf(entry.responseBase64Url!));
-      expect(entry.v, `${entry.name} version against its framing`).toBe(framing.framed ? 3 : 2);
+      if (!framing.framed) continue;
+      expect(
+        payload.itm.map((one) => toHex(one.d)),
+        `${entry.name} itm against the digests the shipped framer reads`,
+      ).toEqual(framing.items.map((one) => toHex(one.d)));
     }
   });
 
   it('states both shapes of the stream whose only item is the mark', () => {
-    const unmarked = rowOf('receipt-no-items-v2');
-    const marked = rowOf('receipt-marked-sentinel-v3');
-    expect([unmarked.v, marked.v]).toEqual([2, 3]);
+    const unmarked = rowOf('receipt-empty-items-v1');
+    const marked = rowOf('receipt-marked-sentinel-v1');
+    expect([unmarked.v, marked.v]).toEqual([1, 1]);
+    // One upstream body, two marking settings: with marking on the bytes frame the mark, so the row is a
+    // document; with it off they frame nothing, and a document over them would state an empty item list,
+    // which is the refusal this row is published for.
+    expect([unmarked.expected, marked.expected]).toEqual(['BAD_PAYLOAD', 'verify-ok']);
     expect([unmarked.marking, marked.marking]).toEqual(['none', 'provenance-v1']);
     expect(frameResponse(unmarked.contentType!, unmarked.responseBytes).framed).toBe(false);
     const framed = frameResponse(marked.contentType!, marked.responseBytes);
@@ -343,7 +354,6 @@ describe('the version a response yields', () => {
     const prefix = encode(loadResVectors().framing.fieldPrefix);
     expect(bytesOf(marked.items![0]!.bytesBase64Url)).toEqual(markLine!.slice(prefix.length));
     const marked3 = decodeReceipt(marked.receipt).payload;
-    if (marked3.v !== 3) throw new Error('the marked sentinel row is not the v3 document its column states');
     expect(toHex(hashRequest(markLine!))).toBe(toHex(marked3.mk.d));
   });
 });
