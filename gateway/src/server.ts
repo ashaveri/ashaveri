@@ -134,7 +134,36 @@ export type GatewayInstance = FastifyInstance & {
  * a request line or a header name is refused 400 before a route runs, and a target quoted back by
  * admission therefore only ever holds the percent-encoded spelling; a credential id passes a character rule
  * on the way in and on the way out; and the parser packages escape these two where they build a message.
- * `asOneLine` in `packages/receipt/src/errors.ts` is the same rule for the same reason.
+ *
+ * This is a fourth copy of the printed-line ranges rather than the same rule as the others. The owner of the
+ * class inside the receipt package is `packages/receipt/src/line-text.ts`, the CLI and `attest-core` state
+ * their own copies beside their own boundaries, and this one differs from all three in two ways, both
+ * deliberate here. It is narrower: the tag block `U+E0000..U+E007F` is not spelled out, so those code points
+ * are caught only for as long as the runtime's tables classify them as format characters, which is the
+ * reliance the owner refuses about its own class. And it rewrites instead of refusing or escaping: a
+ * character it removes leaves a space behind, so a value carrying a line separator and a value carrying a
+ * space leave this gateway as one visible string.
+ *
+ * The question that copy answers is whether a gateway input owes the estate's printed-line rule, and the answer
+ * is that this one does not. A reply body naming a model the caller typed is not evidence: it is not signed, not
+ * inventoried, and not printed beside an attestation, and the request-chosen spelling is answered by a rule of
+ * its own before this line is reached, because admission compares it whole against the ids the deployment
+ * declares and answers 400 when nothing matches, which a name carrying an invisible member of the class does
+ * not. What travels into a receipt is the declared id rather than the requested spelling, so the unprintable
+ * request stays a line of the error that refused it and becomes no row of any signed document. Where the class
+ * does reach this path is the deployment's own list: a declared model id is what `mdl` carries, and
+ * `assertLineSafeText` (`packages/receipt/src/receipt.ts`) refuses a payload whose `mdl` carries one of those
+ * characters at the step that signs, so an unprintable id is a boot-time or issuance refusal on this side of
+ * the wire and not a silence.
+ *
+ * What the narrower copy leaves, and what a reader of this note should weigh rather than fix in passing, is the
+ * rewrite's own lossiness. A removed character leaves a space behind, so two request names differing by one
+ * member of the class print as one sentence, and anything a deployment copies out of that sentence carries a
+ * string whose extent nobody can recover from it. Two changes would close that: building this copy from
+ * `FORGES_A_LINE_RANGES`, which the class owner publishes inside its own package and no other package imports,
+ * or escaping what is removed the way `packages/receipt/src/errors.ts` escapes it, so a message states the
+ * character it cut instead of hiding it. Neither is taken here, because this site answers for one line of a
+ * client's log and not for a document a reviewer cites, and the exposure is the copying, not the rewriting.
  */
 function asOneLine(text: string): string {
   return text.replace(/[\p{Cc}\p{Cf}\u2028\u2029]/gu, ' ');

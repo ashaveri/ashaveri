@@ -7,28 +7,32 @@ import {
   encodePayload,
   generateSigningKey,
   issueReceipt,
+  verifyEpochInventory,
 } from '../src/index.js';
-import type { ReceiptPayload } from '../src/index.js';
-import { FOLD_HONEST, sealFoldDocument, sealOf } from './presence-run.js';
+import type { EpochInventoryManifest, ReceiptPayload } from '../src/index.js';
+import { buildRun, FOLD_HONEST, HELD as foldHeld, sealFoldDocument, sealOf, FOLD_KEY } from './presence-run.js';
 
 /**
  * The printed-line character class has one owner (`src/line-text.ts`) and three consumers in this package: the
  * receipt writer refuses it at the attested text members of a payload (`src/receipt.ts`), the epoch inventory
- * refuses it at the run label (`src/epoch-inventory.ts`), and `src/errors.ts` escapes every one of them out of a
- * message. This file drives one set of characters through all three and holds them to one membership, because two
- * prose comments saying that two classes are deliberately different is drift waiting to happen, and this estate has
+ * refuses it at the five text positions it prints, the run label and the two deployment ids and the two duty
+ * labels it copies (`src/epoch-inventory.ts`), and `src/errors.ts` escapes every one of them out of a message.
+ * This file drives one set of characters through all of them and holds them to one membership, because two prose
+ * comments saying that two classes are deliberately different is drift waiting to happen, and this estate has
  * already had one guard notice a character that a second guard let through (`packages/cli/src/usage.ts` states that
  * history beside its own copy of the ranges).
  *
  * Two facts are asserted per character and they are not the same fact. Each site's verdict is held to what this
  * file expects of the character, stated below as data rather than read out of the owner, so a test can disagree
- * with its producer rather than borrow its pattern; and the two refusal sites are then held to each other, which
- * is the claim of one owner. A site that narrowed its own scan while the owner stayed put fails both halves, and a
+ * with its producer rather than borrow its pattern; and the refusal sites are then held to each other, which is
+ * the claim of one owner. A site that narrowed its own scan while the owner stayed put fails both halves, and a
  * site that widened past the class fails the first.
  *
  * What stays site-owned is asserted beside it, because sharing a class is not merging two refusals: the byte
- * ceiling belongs to the label alone, and so do the position a refusal names, the sentence it gives, and the code a
- * caller branches on.
+ * ceiling belongs to the label alone and reaches no copied position, and so do the position a refusal names, the
+ * sentence it gives, and the code a caller branches on. The reader half of that is asked twice over here, at the
+ * label and at each copied position, because a rule held at one member of a container and dropped at four is the
+ * defect this file exists to catch.
  */
 
 /** The class restated here for the same reason the escaping suites restate it: disagreement has to be possible. */
@@ -184,6 +188,61 @@ function carrying(character: string): string {
   return `a${character}b`;
 }
 
+/**
+ * The four positions an inventory copies out of a deployment manifest and a pack, each with the edit that puts one
+ * value at it. They are asked beside the run label because the label is the position the class has always reached
+ * and these four are the ones it now reaches too, and a rule held at one member of a container and dropped at four
+ * is the defect this file is for.
+ *
+ * The run they edit is the presence fold's own, with its middle entry short of the period that entry states it
+ * owed, because `duty.short[0].art` exists only where a shortfall is stated: a case that wrote the row by hand
+ * would be asking the position of a document the fold refuses for another reason, and the refusal a reader would
+ * then meet is the summary's and not the text's.
+ */
+interface CopiedPosition {
+  readonly name: string;
+  readonly at: (manifest: EpochInventoryManifest, value: string) => EpochInventoryManifest;
+}
+
+const SHORT_RUN = buildRun(3, foldHeld, (index, one) =>
+  index === 1 ? { ...one, duty: { ...one.duty, required: 500, held: 100 } } : one,
+);
+
+const COPIED_POSITIONS: readonly CopiedPosition[] = [
+  {
+    name: 'manifest.iss',
+    at: (one, value) => ({ ...one, manifest: { ...one.manifest, iss: value } }),
+  },
+  {
+    name: 'manifest.ins',
+    at: (one, value) => ({ ...one, manifest: { ...one.manifest, ins: value } }),
+  },
+  {
+    name: 'packs[0].duty.art',
+    at: (one, value) => ({
+      ...one,
+      packs: one.packs.map((each, index) => (index === 0 ? { ...each, duty: { ...each.duty, art: value } } : each)),
+    }),
+  },
+  {
+    name: 'duty.short[0].art',
+    at: (one, value) => ({
+      ...one,
+      duty: { carried: one.duty.carried, short: one.duty.short.map((each, index) => (index === 0 ? { ...each, art: value } : each)) },
+    }),
+  },
+];
+
+/** What the inventory reader says about one value at one copied position, at the shape half, where the text is read. */
+function atCopied(position: CopiedPosition, value: string): Verdict {
+  return verdictOf(() => decodeEpochInventory(sealFoldDocument(position.at(SHORT_RUN.manifest, value))));
+}
+
+/** What the inventory writer says about the same value, at the step that signs, which parses before it seals. */
+function atCopiedWriter(position: CopiedPosition, value: string): Verdict {
+  return verdictOf(() => sealOf({ manifest: position.at(SHORT_RUN.manifest, value), artifacts: SHORT_RUN.artifacts }));
+}
+
 describe('the printed-line character class has one owner', () => {
   it('holds the roster to a sweep of the class and not a token sample', () => {
     // A roster that quietly stopped covering the class would let all three sites agree on a subset of it, and a
@@ -213,6 +272,83 @@ describe('the printed-line character class has one owner', () => {
         expect(reader.refused, `${one.name} refused at one site and not the other`).toBe(writer.refused);
       }
     }
+  });
+
+  it('holds every copied position to the membership the run label is held to', () => {
+    // One roster, four positions, and the label beside them. `inClass` is this file's own reading of the ranges,
+    // so a reader that refused the line-enders and let the zero width and directional ones through would fail here
+    // at the position that let one, by name, rather than in a sentence about which positions the rule reaches.
+    for (const one of ROSTER) {
+      const value = carrying(one.character);
+      const label = atReader(value);
+      for (const position of COPIED_POSITIONS) {
+        const copied = atCopied(position, value);
+        expect(copied.refused, `${position.name} carrying ${one.name}`).toBe(one.inClass);
+        expect(copied.code, `${position.name} carrying ${one.name} answered under another code`).toBe(
+          one.inClass ? 'EPOCH_INVENTORY_BAD_DOCUMENT' : 'accepted',
+        );
+        if (one.inClass) {
+          expect(copied.message, `${one.name} refused at ${position.name} without naming the position`).toContain(
+            `${position.name} carries the code point ${hexOf(one.character)}, which is not printable text`,
+          );
+          expect(copied.message, `${one.name} refused with the writer's sentence at ${position.name}`).not.toContain(
+            'forge a line',
+          );
+        }
+        expect(copied.refused, `${one.name} refused at ${position.name} and not at the run label`).toBe(label.refused);
+      }
+    }
+  });
+
+  it('refuses the same characters at the copied positions before it seals one', () => {
+    // The symmetry the estate asks of a stricter reader: the writer parses what it signs, so a document whose
+    // reader now refuses a copied value cannot be made through this package's own seal. Each refusal names the
+    // position and the code point, which is the half that shows the guard is the one answering rather than some
+    // earlier shape complaint about the same document.
+    for (const position of COPIED_POSITIONS) {
+      for (const one of ROSTER.filter((each) => each.inClass)) {
+        const answer = atCopiedWriter(position, carrying(one.character));
+        expect(answer.code, `${position.name} carrying ${one.name} was signed`).toBe('EPOCH_INVENTORY_BAD_DOCUMENT');
+        expect(answer.message, `${position.name} carrying ${one.name} named another position at the writer`).toContain(
+          `${position.name} carries the code point ${hexOf(one.character)}`,
+        );
+      }
+    }
+    expect(verdictOf(() => sealOf(SHORT_RUN)).code, 'the run these cases start from does not seal').toBe('accepted');
+  });
+
+  it('copies a clean value of any length and any text outside the class, unchanged', () => {
+    // The other half of both directions, and the half that keeps the widening honest: no ceiling arrives at a
+    // copied position with the class, so a figure as long as a deployment manifest states and as foreign as the
+    // document that supplied it reads back byte for byte.
+    const clean = ['dpl-47f', `dpl-${'x'.repeat(300)}`, 'cvm-é漢', 'a b', '19(1)\u00a0\u2005\u0301', 'ins-\u{1f600}'];
+    for (const position of COPIED_POSITIONS) {
+      for (const value of clean) {
+        expect(atCopied(position, value).code, `${position.name} carrying ${JSON.stringify(value)} was refused`).toBe(
+          'accepted',
+        );
+      }
+    }
+    const long = `dpl-${'x'.repeat(300)}-é漢\u{1f600}`;
+    const sealed = sealOf({ manifest: COPIED_POSITIONS[0]!.at(SHORT_RUN.manifest, long), artifacts: SHORT_RUN.artifacts });
+    const read = verifyEpochInventory(sealed, { publicKey: FOLD_KEY.publicKey, presence: SHORT_RUN.artifacts });
+    expect(read.manifest.manifest.iss, 'the value that came back is the value that went in').toBe(long);
+    expect(read.outcome.presence, 'the fold stopped answering for a document with a wide issuer').toBeDefined();
+  });
+
+  it('answers the class before the width at the label, now that one scan reads both', () => {
+    // The label's own scan moved into the function the copied positions share, and the order this position answers
+    // its three questions in moved with it: emptiness, class, width, padding. Pinned rather than left to the
+    // reading order, because a label that is both too wide and unprintable is a document two refusals could name.
+    const joiner = String.fromCodePoint(0x200d);
+    const past = `${'x'.repeat(EPOCH_INVENTORY_LABEL_MAX_BYTES)}${joiner}`;
+    const answer = atReader(past);
+    expect(answer.code).toBe('EPOCH_INVENTORY_BAD_DOCUMENT');
+    expect(answer.message, 'the width answered before the class').toContain('epoch carries the code point 200d');
+    expect(answer.message).not.toContain('must be at most');
+    expect(atReader('x'.repeat(EPOCH_INVENTORY_LABEL_MAX_BYTES + 1)).message, 'a wide label with no class member').toContain(
+      'must be at most',
+    );
   });
 
   it('agrees with one reading of the ranges at both sites, code point by code point', () => {

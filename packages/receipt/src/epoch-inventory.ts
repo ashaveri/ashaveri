@@ -368,25 +368,58 @@ function assertDefined(raw: JsonObject, members: readonly string[], where: strin
 }
 
 /**
- * Text this container copies rather than writes: a string, and not an empty one, and bounded no further. The
- * three positions read here, `manifest.iss`, `manifest.ins` and a `duty.art`, come out of documents this
- * format describes and does not author, and each of those declares its own floor with no ceiling beside it:
- * the deployment manifest states a minimum length for its two ids and no maximum, and `pack.cddl` types a
- * duty label as a bare `tstr` that its own reader asks nothing about but being text. A ceiling stated on this
- * side would refuse an inventory over a manifest the deployment published and a pack that pack format seals,
- * which is the one thing a layout written to describe artifacts already in the field may not do.
+ * Text this container copies rather than writes: a string, not an empty one, and carrying no character of the
+ * printed-line class. The four positions read here, `manifest.iss`, `manifest.ins`, a `packs[].duty.art` and a
+ * `duty.short[].art`, come out of documents this format describes and does not author, and each of those declares
+ * its own floor with no ceiling beside it: the deployment manifest states a minimum length for its two ids and no
+ * maximum, and `pack.cddl` types a duty label as a bare `tstr` that its own reader asks nothing about but being
+ * text. So no length is refused here and none is on offer, for the reason this position has always given: a
+ * ceiling stated on this side would refuse an inventory over a manifest the deployment published and a pack that
+ * pack format seals, which is the one thing a layout written to describe artifacts already in the field may not
+ * do.
+ *
+ * The character class is a separate question, and it is answered here on the same ground as the run label beside
+ * it. These four values are printed. A reviewer reads the issuer and the instance beside the run this document
+ * attests, and reads a duty label beside the shortfall it is listed with, and a character that ends, hides or
+ * reorders one of those rows makes the line a reader sees stop being the bytes the signature covers. That is a
+ * fact about what this container can print and not about what the layout behind the value allowed, so it is
+ * answered on this side: the class `src/line-text.ts` owns is asked here, while the byte ceiling, the padding rule
+ * and the position a refusal names stay this reader's own, at `EPOCH_INVENTORY_BAD_DOCUMENT` as before. Nothing
+ * measured is measured away: a value of any length carrying none of these characters is still accepted, which is
+ * what keeps the ceiling argument above standing, and the width stated for `epoch` is where it was.
+ *
+ * The cost of the wider scan is stated rather than left out, because it is the cost of any stricter reader. A
+ * document another body wrote with one of the class's characters in one of these four positions is refused here,
+ * and so is an inventory of a pack that signed such a duty label, because `pack.cddl` types that label as text and
+ * `src/pack.ts` asks it nothing but being text: the class reaches this container's copy of the label and not the
+ * pack's own signed one. That asymmetry is a finding of its own and it is left standing as one. What is published
+ * is not caught by it, which was measured rather than argued: every generate key of `packages/fixtures` re-emits
+ * `packages/fixtures/data` byte for byte, and the shipped reader runs over each published vector by name in
+ * `packages/fixtures/test/epoch-inventory-vectors.test.ts`.
  */
 function requireText(value: unknown, position: string): string {
   if (typeof value !== 'string') throw badDocument(`${position} must be a string`);
   if (text.encode(value).length < 1) throw badDocument(`${position} must be a string of at least one byte`);
+  const code = firstForgingCodePoint(value);
+  if (code !== undefined) {
+    throw badDocument(`${position} carries the code point ${code.toString(16)}, which is not printable text`);
+  }
   return value;
 }
 
 /**
- * The run's label: printable text that a report can print beside the run it names, refused on the estate's
- * printed-line class, which `src/line-text.ts` owns and `src/receipt.ts` refuses a payload's attested text on.
- * The byte ceiling, the position name and `EPOCH_INVENTORY_BAD_DOCUMENT` are this site's own, and a test drives
- * one roster of characters through both refusal sites (`packages/receipt/test/line-text.test.ts`).
+ * The run's label: printable text that a report can print beside the run it names. The class it has to be
+ * printable under is the estate's printed-line class, which `src/line-text.ts` owns, which `src/receipt.ts`
+ * refuses a payload's attested text on, and which `requireText` above now asks of this position and of the four it
+ * copies in the same sentence. What this function adds is the width the format states for this member alone,
+ * `EPOCH_INVENTORY_LABEL_MAX_BYTES`, and the padding rule; the position name and `EPOCH_INVENTORY_BAD_DOCUMENT`
+ * stay this site's own, and a test drives one roster of characters through the writer, this position and the four
+ * copied ones (`packages/receipt/test/line-text.test.ts`).
+ *
+ * The order the three questions are answered in is now the shared one: the class, then the width, then the
+ * padding. A label both past the printed width and carrying a zero width joiner is therefore refused for its
+ * characters rather than for its length, which is the one behaviour of this position that the widening moved, and
+ * a case in that test holds the order rather than leaving it to the reading of this file.
  *
  * This scan refuses the whole class rather than the line-enders inside it, and that is a decision about which
  * documents this package accepts, so it is stated here rather than left to the class. Measured on Node 24 with
@@ -406,16 +439,17 @@ function requireText(value: unknown, position: string): string {
  * to stop, and the narrower scan stopped only the half of it that ends a line.
  *
  * The reason a stricter reader is usually the wrong choice, that somebody's accepted document newly fails, is
- * answered where the layout actually carries it. `manifest.iss`, `manifest.ins` and `duty.art` travel from a
- * deployment manifest and a pack that bound them by nothing above one byte, and `requireText` refuses them no
- * class at all for exactly that reason: a ceiling or a character rule arriving on this side would reject an
- * inventory whose writer copied a published artifact faithfully, which a layout describing artifacts already in
- * the field may not do. The run label is the one text position this container writes for itself, and
- * `signEpochInventory` parses through this function before it signs, so no inventory our own writer produces can
- * newly fail here. What stops being accepted is a document another body wrote with one of those two hundred
- * characters in its label, and nothing published is one: every generate key of `packages/fixtures` re-emits
- * `packages/fixtures/data` byte for byte, and the shipped reader runs over each published vector by name in
- * `packages/fixtures/test/epoch-inventory-vectors.test.ts`.
+ * answered where the layout carries it, and the two halves of this position's rule are answered apart. A byte
+ * ceiling stays off the four copied positions, for the reason `requireText` gives beside them: an inventory that
+ * copied a published manifest's id or a sealed pack's duty label would be refused for a length no document that
+ * supplied it declares, and a narrowing of that kind arrives as a version of this format, with cases of its own,
+ * or it does not arrive. The class does arrive, at this label and at those four, because it refuses nothing for
+ * how much a value holds: it refuses a document whose printed row is not the row its signed bytes spell, which is
+ * a question this reader owes itself whoever wrote the value. `signEpochInventory` parses through this function
+ * before it signs, so no inventory this package seals can newly fail at either position, and what stops being
+ * accepted is a document another body wrote with one of those two hundred characters in a run label or in a
+ * copied id. Nothing published is one, which is measured where the copied positions are read, in `requireText`,
+ * and holds here because the two are refused by the one scan.
  */
 function requireLabel(value: unknown, position: string): string {
   const label = requireText(value, position);
@@ -425,10 +459,6 @@ function requireLabel(value: unknown, position: string): string {
   }
   if (label !== label.trim()) {
     throw badDocument(`${position} carries leading or trailing space, and it is printed beside the run unpadded`);
-  }
-  const code = firstForgingCodePoint(label);
-  if (code !== undefined) {
-    throw badDocument(`${position} carries the code point ${code.toString(16)}, which is not printable text`);
   }
   return label;
 }

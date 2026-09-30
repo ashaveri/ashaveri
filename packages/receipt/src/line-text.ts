@@ -18,18 +18,21 @@
  * outside ASCII are text a line is made of, and none of them is refused here or by any consumer below.
  *
  * Three sites in this package consume it and none of them states it again: the receipt writer refuses the attested
- * text members of a payload at the step that signs them (`src/receipt.ts`), the epoch inventory refuses a run
- * label that cannot be printed beside the run (`src/epoch-inventory.ts`), and every `ReceiptError` message is
- * escaped through it so that a refusal about a token cannot itself carry a token that moves a cursor
- * (`src/errors.ts`). Which positions a site applies the class to, what byte ceiling bounds the value beside it,
- * how a refusal names the position, and which code it carries are the site's own, because those are the facts
- * that differ between text this package writes and text it reads from somebody else. A test drives the same
- * roster of characters through the two refusal sites and the escaping one and holds them to one membership
- * (`test/line-text.test.ts`), so a class that drifts at one site fails a test rather than a paragraph.
+ * text members of a payload at the step that signs them (`src/receipt.ts`), the epoch inventory refuses the text it
+ * prints, at the run label it writes for itself and at the four positions it copies out of a deployment manifest
+ * and a pack (`src/epoch-inventory.ts`), and every `ReceiptError` message is escaped through it so that a refusal
+ * about a token cannot itself carry a token that moves a cursor (`src/errors.ts`). Which positions a site applies
+ * the class to, what byte ceiling bounds the value beside it, how a refusal names the position, and which code it
+ * carries are the site's own, because those are the facts that differ between text this package writes and text it
+ * reads from somebody else. A test drives the same roster of characters through the refusal sites and the escaping
+ * one and holds them to one membership (`test/line-text.test.ts`), so a class that drifts at one site fails a test
+ * rather than a paragraph.
  *
- * Two packages outside this one state the same ranges for their own boundary, the CLI before printing a value and
- * `attest-core` before quoting one, and share no module with this one. That is a different question from who owns
- * a class inside a package, and is answered beside them.
+ * Three packages outside this one state these ranges for their own boundary and share no module with this one:
+ * the CLI before printing a value, `attest-core` before quoting one, and the gateway before rewriting a
+ * request-chosen model name into a reply body, where the copy is narrower than this one for two stated reasons
+ * (`gateway/src/server.ts`). Who owns a class inside a package is a different question from what a boundary
+ * outside it states, and each of the three answers that beside itself.
  */
 
 /** The class as ranges, in the spelling a character class body takes, so a consumer can add its own flags. */

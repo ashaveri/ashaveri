@@ -721,12 +721,14 @@ export const ATTESTED_TEXT_ROWS: readonly AttestedTextRow[] = [
  * a `tstr` encodes any code point. So this is the writer's question rather than the format's, and it is
  * asked in `assertEncodable`, which is the one step every path to a signature goes through.
  *
- * The class this refuses on has one owner, `src/line-text.ts`, and the epoch inventory's reader of a run label
- * refuses on that same class (`requireLabel`, `src/epoch-inventory.ts`). What stays apart is everything else
- * about the two refusals: this one reaches the eight attested text positions of a payload this package signs,
+ * The class this refuses on has one owner, `src/line-text.ts`, and the epoch inventory's reader refuses on that
+ * same class, at the run label it writes for itself and at the four text positions it copies out of a deployment
+ * manifest and a pack (`requireText` and `requireLabel`, `src/epoch-inventory.ts`). What stays apart is everything
+ * else about the two refusals: this one reaches the eight attested text positions of a payload this package signs,
  * names each the way the format spells it, and answers under `BAD_PAYLOAD` with no byte ceiling of its own,
- * while that one bounds one position of a document this package reads at the label's stated width and answers
- * under `EPOCH_INVENTORY_BAD_DOCUMENT`. One class and three site-owned facts, because which characters a printed
+ * while that one reaches five positions of a document this package reads, bounds only the label by a width
+ * because the four it copies travel at whatever length the documents holding them state, and answers under
+ * `EPOCH_INVENTORY_BAD_DOCUMENT`. One class and the site's own three facts, because which characters a printed
  * row is made of is one answer wherever the row comes from, and which positions carry a printed row, how wide
  * they may be, and what a caller is told to do about them are not.
  *

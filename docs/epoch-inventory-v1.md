@@ -101,9 +101,29 @@ for itself rather than copies, and it is printed beside the run in every report 
 positions travel from documents that bound them by nothing above one byte: the deployment's two ids, as that
 manifest's own schema declares them, and the duty label a pack signs, as `pack.cddl` declares it. A ceiling
 written on this side would refuse an inventory whose writer had copied a published manifest and a sealed pack
-faithfully, which is the one thing a format that describes artifacts already in the field cannot do; a
-narrowing of a copied position arrives as a version of the format, with cases of its own, or it does not
-arrive.
+faithfully, which is the one thing a format that describes artifacts already in the field cannot do; a ceiling
+on a copied position arrives as a version of the format, with cases of its own, or it does not arrive.
+
+What the reader refuses at all five of those positions, the run label and the four it copies, is not a length.
+It is a character that ends, hides or reorders the printed row: the C0 and C1 control ranges, every Unicode
+format character, the two line separators, and the tag block, the class `packages/receipt/src/line-text.ts`
+owns and the receipt writer refuses its attested text on. That the class is asked of copied text and no ceiling
+is is the difference between the two rules. A ceiling would reject a value for being as long as the document
+that supplied it states it may be, which is a question this format does not own. The class rejects nothing about
+the value's own claim and one thing about this artifact: a reviewer is handed this document, prints its issuer,
+its instance and each duty label beside the run they describe, and a row carrying a directional isolate, a zero
+width joiner or a soft hyphen shows a spelling that is not the byte order the signature covers. A reader who
+cannot cite the row cannot use the document, whatever layout wrote the value.
+
+The cost of that is the cost any stricter reader pays, and it is stated here rather than left to be found. A
+document another body wrote with one of those characters in a copied id is refused, and so is an inventory of a
+pack that signed such a duty label, because `pack.cddl` types its own label as text and
+`packages/receipt/src/pack.ts` asks it nothing but being text: the class reaches this container's copy of the
+label, not the pack's signed one. That asymmetry is a finding about this rule and is left standing as one.
+Nothing published is caught by it, which was measured and not argued: every generate key of
+`packages/fixtures` re-emits `packages/fixtures/data` byte for byte, and
+`packages/fixtures/test/epoch-inventory-vectors.test.ts` runs the shipped reader over every published row by
+name.
 
 | Member | Type | Required | What it states |
 |---|---|---|---|
@@ -117,8 +137,8 @@ arrive.
 | `window` | `object` | yes | The period the sealed run covers, folded from the windows the packs themselves state. |
 | `chain` | `object` | yes | The two endpoints the run claims to chain between, and each pair of packs where the later one does not continue the earlier. |
 | `duty` | `object` | yes | Whether any pack of the run falls short of the period that same pack states as required, and which. |
-| `deployment.iss` | `string` | yes | The deployment id, as that manifest states it: never empty, and bounded by no ceiling, because that manifest declares none. |
-| `deployment.ins` | `string` | yes | The instance id, as that manifest states it: never empty, and bounded by no ceiling, because that manifest declares none. |
+| `deployment.iss` | `string` | yes | The deployment id, as that manifest states it: never empty, and bounded by no ceiling, because that manifest declares none. It carries no character of the printed-line class `epoch` is refused on, which bounds what a reader can print beside the run and not how long the id is. |
+| `deployment.ins` | `string` | yes | The instance id, as that manifest states it: never empty, and bounded by no ceiling, because that manifest declares none, and refused for the same class and for no length. |
 | `deployment.epk` | `integer` | yes | The key epoch number, as that manifest states it. An inventory saying only that keys came from a manifest would name no document, and a reader holding two of them could not tell which one this run was checked against. |
 | `pack.file` | `string` | yes | Where the pack is, relative to the epoch directory and with forward slashes: `packs/<digest>/pack-v1.cbor`. The directory is named for this entry's own `sha256`, and an entry filed under another pack's digest is refused by name rather than pointing a reader at bytes that are not the ones described. |
 | `pack.retention` | `string` | yes | The retention artifact assembled with this pack, in the same directory: `packs/<digest>/retention-v1.json` or `packs/<digest>/retention-v2.json`, the name carrying the version of the layout the file holds. A closed window is the pair: the pack states the duty it answers and the artifact states what the store held and retired at that same instant. The artifact speaks for the instant it stamped and for no period, which is what the fold below is for. |
@@ -134,7 +154,7 @@ arrive.
 | `span.to` | `integer` | yes | Unix seconds, excluded: a receipt stamped exactly here belongs to the next window, which is what lets the windows of a run meet without overlapping. |
 | `packChain.anchor` | `string` | yes | The digest that pack's first record was chained from, or thirty-two zero bytes before any retirement. |
 | `packChain.head` | `string` | yes | The digest of that pack's last record. |
-| `packDuty.art` | `string` | yes | A label from the retention-duty registry, declared text rather than an enumeration for the reason [export-v1.md](export-v1.md) gives for the pack's: this estate does not interpret the questions an article answers, and a format that enumerated answers would itself be an answer. It is stated at the width `pack.cddl` states it, which is none, because an inventory copies the label a pack signed. |
+| `packDuty.art` | `string` | yes | A label from the retention-duty registry, declared text rather than an enumeration for the reason [export-v1.md](export-v1.md) gives for the pack's: this estate does not interpret the questions an article answers, and a format that enumerated answers would itself be an answer. It is stated at the width `pack.cddl` states it, which is none, because an inventory copies the label a pack signed, and it carries none of the characters that would make the row it is printed on unreadable. The pack's own format asks that label nothing but being text, so a pack signing an unprintable one can no longer be described by this document, which is the cost of the rule and is stated above the field table. |
 | `packDuty.rev` | `integer` | yes | Unix seconds, the revision of the mapping `required` was read from. |
 | `packDuty.required` | `integer` | yes | Seconds that revision required. |
 | `packDuty.held` | `integer` | yes | Seconds that store had held its oldest retained receipt, measured at `pack.at`. |
@@ -148,7 +168,7 @@ arrive.
 | `runDuty.carried` | `boolean` | yes | Whether no pack of the run falls short. It is the emptiness of `short` stated as a word, and a reader refuses the two when they disagree. |
 | `runDuty.short` | `array` | yes | One row per pack whose own `held` falls short of its own `required`, keyed by that pack and stating nothing about where in the list it sits: a reader compares each row with the entry its own `file` names, so the same shortfalls written in another order are the same run and are accepted rather than refused. An empty list is the statement that the run carried what it states, so this one carries no floor. |
 | `shortfall.file` | `string` | yes | The pack this row is about, named by one of this document's own `pack.file` values. |
-| `shortfall.art` | `string` | yes | That pack's own duty label, restated so a reader sees which period was measured, at the width the pack states it. |
+| `shortfall.art` | `string` | yes | That pack's own duty label, restated so a reader sees which period was measured, at the width the pack states it, and refused on the printed-line class exactly as the entry it restates is: the row a reader prints is the same row either way. |
 | `shortfall.required` | `integer` | yes | That pack's own required seconds. |
 | `shortfall.held` | `integer` | yes | That pack's own held seconds. |
 | `shortfall.shortBy` | `integer` | yes | `required` minus `held`, never zero. A reader recomputes the subtraction and refuses a row whose figure is not it. |

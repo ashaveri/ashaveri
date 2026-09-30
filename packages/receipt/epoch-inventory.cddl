@@ -106,12 +106,24 @@ Ashaveri-Epoch-Inventory-Document = {
 ; The two ids carry the bound the document that supplies them carries and no other, which is a floor of one
 ; byte and no ceiling. A ceiling written here would refuse an inventory whose own writer had copied a published
 ; manifest faithfully, and a format that describes an artifact already in the field has no standing to narrow
-; the document it names: a narrowing of a copied position arrives as a version of this format, with cases of
-; its own, or it does not arrive. The same reason bounds `epoch` and nothing else, because that label is
-; written by this container and printed beside the run, so its width is this format's own business.
+; the document it names: a ceiling on a copied position arrives as a version of this format, with cases of its
+; own, or it does not arrive. The same reason bounds `epoch` and nothing else, because that label is written by
+; this container and printed beside the run, so its width is this format's own business.
+;
+; What is asked of these five text positions, the two ids, the two duty labels and the run label, is not a
+; width: no character that ends, hides or reorders the row this document is printed on. That rule belongs to
+; the class `packages/receipt/src/line-text.ts` owns and is enforced at the read, and it is stated here because
+; a reviewer prints an issuer, an instance and a duty label beside the run this artifact attests. A row whose
+; visible text is not the byte order the signature covers is a row nobody can cite, whatever the layout behind
+; the value let it be, so the class is asked of the copied values on this side and the ceiling is not, which is
+; the difference between refusing what a document prints and narrowing what somebody else's format allowed. The
+; cost of the first is stated where the reader applies it, and it is a document another body wrote with one of
+; those characters in a copied id, or an inventory of a pack that signed such a duty label: this file refuses
+; both, and `pack.cddl` refuses neither, because the pack types its own label as text and asks it nothing
+; further.
 Ashaveri-Epoch-Inventory-Deployment = {
-    iss: tstr,       ; the deployment id, as that manifest states it: never empty, bounded by no ceiling
-    ins: tstr,       ; the instance id, as that manifest states it: never empty, bounded by no ceiling
+    iss: tstr,       ; the deployment id, as that manifest states it: never empty, bounded by no ceiling, printable
+    ins: tstr,       ; the instance id, as that manifest states it: never empty, bounded by no ceiling, printable
     epk: uint,       ; the key epoch number, as that manifest states it
 }
 
@@ -165,11 +177,13 @@ Ashaveri-Epoch-Inventory-Pack-Chain = {
 
 ; The four integers a pack signs, as signed. `art` is a label from the retention-duty registry, which this
 ; format declares a `tstr` rather than an enum for the reason `pack.cddl` gives: the registry is not this
-; estate's to interpret. It is declared at the width `pack.cddl` declares it, which is no width, and read the
-; way that file's reader reads it, as a string that is not empty: an inventory copies the label a pack signed,
-; and a ceiling written here would refuse a pack the pack format seals.
+; estate's to interpret. It is declared at the width `pack.cddl` declares it, which is no width, and read as
+; that file's reader reads it, as a string that is not empty: an inventory copies the label a pack signed, and a
+; ceiling written here would refuse a pack the pack format seals. What is refused beside the emptiness is the
+; printed-line class, and it is refused here because a reader prints this label beside the pack it names, which
+; is the rule and the cost stated above the deployment block.
 Ashaveri-Epoch-Inventory-Pack-Duty = {
-    art: tstr,                       ; a label from the retention-duty registry, e.g. "19(1)": never empty
+    art: tstr,                       ; a label from the retention-duty registry, e.g. "19(1)": never empty, printable
     rev: uint,                     ; unix seconds, the revision `required` was read from
     required: uint,                ; seconds that revision required
     held: uint,                    ; seconds that store had held its oldest retained receipt, at `at`
@@ -225,7 +239,7 @@ Ashaveri-Epoch-Inventory-Run-Duty = {
 ; a reader can see the subtraction without going back to the entry.
 Ashaveri-Epoch-Inventory-Shortfall = {
     file: tstr,                    ; one of this document's `file` values
-    art: tstr,                     ; that pack's own duty label, at the width the pack states it
+    art: tstr,                     ; that pack's own duty label, at the width the pack states it, printable like the entry it restates
     required: uint,                ; that pack's own required seconds
     held: uint,                    ; that pack's own held seconds
     shortBy: uint,                 ; required minus held, which is never zero
