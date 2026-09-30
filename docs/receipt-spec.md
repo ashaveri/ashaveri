@@ -24,6 +24,18 @@ A client that holds the gateway's public key can verify, offline, that the bytes
 the bytes the gateway vouches for, and can pin which keys, deployments, and measurements it
 is willing to accept.
 
+**Four documents are called a manifest, and the word means none of them on its own.** The
+*deployment manifest* (`packages/receipt/manifest.cddl`, one version) states which keys sign a
+deployment's receipts and is fetched over HTTP. The *pack manifest* (`packages/receipt/pack.cddl`,
+one version) is the signed body inside an evidence pack and states a span, a chain and a duty; its
+own specification is [pack-v1.md](pack-v1.md). The *retention manifest* (section 5.3 and section 5.4,
+two versions) is an unsigned JSON file a deployment writes about its own store. A *redaction
+manifest* is the excision amendment over a pack, and its rows are in [error-codes.md](error-codes.md).
+Each section below uses the bare word for the document that section is about, and a reference that
+crosses between them is qualified. The four share nothing but the name: their `v` members are
+independent numbers, their signed content types differ, and a reader that guessed which one a bare
+"manifest" meant would be weighing a document it was never handed.
+
 ## 2. Envelope
 
 A receipt is a COSE_Sign1 object (RFC 9052 section 4.2) encoded with deterministic CBOR
@@ -1154,10 +1166,10 @@ across those instants, and it is the only place the folded interval lives:
 the other and neither is readable as the other. A manifest cannot say that any of the material it names is
 reachable, is still on the volume, or will be there when a reader arrives, because it holds no bytes and no
 clock outside the instant it stamped; an inventory cannot say what a store held, because it carries no presence
-observation of its own and folds only the ones the manifests it seals state. So a reader that wants to know
-whether material named by one receipt's anchor was there across a period asks the manifest which documents the
-store held at each sealing instant, asks the inventory which of those manifests the run seals and what interval
-their observations add up to, and holds neither answer as the other. The artifact that states an observation is
+observation of its own and folds only the ones the retention manifests it seals state. So a reader that wants to know
+whether material named by one receipt's anchor was there across a period asks the retention manifest which documents the
+store held at each sealing instant, asks the inventory which of those retention manifests the run seals and what
+interval their observations add up to, and holds neither answer as the other. The artifact that states an observation is
 not the artifact that states a reach, and the reason both say so in their own words is that a reader holding one
 of them alone cannot see the half the other carries.
 
@@ -1225,16 +1237,16 @@ instant and not named at the next is a document that left, and only the fold acr
 
 **The fold, and the three refusals it owes.** The observations above are per instant. The interval a reviewer
 actually asks for, the period across which the material a run names was present, is assembled by
-`verifyEpochInventory` in `packages/receipt/src/epoch-inventory.ts` from the manifests the run's own entries
+`verifyEpochInventory` in `packages/receipt/src/epoch-inventory.ts` from the retention manifests the run's own entries
 seal, and three disagreements are refused there rather than footnoted: a digest named at two instants and not
 between them, which is a gap inside the period the run states it attests
 (`EPOCH_INVENTORY_PRESENCE_GAP`); an observation arriving under a digest no entry of the run seals, which is a
-bare manifest handed to a reader rather than evidence, and is refused on the digest rather than read as the
+bare retention manifest handed to a reader rather than evidence, and is refused on the digest rather than read as the
 run's own statement (`EPOCH_INVENTORY_PRESENCE_UNSEALED`); and a `window` the inventory states that reaches
 further than the observations reach (`EPOCH_INVENTORY_PRESENCE_WINDOW_TOO_WIDE`). Those three belong to the
 inventory and its rows are in [error-codes.md](error-codes.md) beside the rest of that container's family; they
 are named here because a reader of this artifact is the one handed both halves and is the party the confusion is
-possible for. Nothing in this layout refuses any of them, and nothing in it can: a manifest states one instant
+possible for. Nothing in this layout refuses any of them, and nothing in it can: a retention manifest states one instant
 and has no neighbours to compare it with.
 
 ## 6. Versioning
@@ -1264,20 +1276,20 @@ receipt whose stamp names no source, whose appraisal recorded no context, and wh
 items is three silences a verifier cannot see from inside the document. The deployment manifest is a different document, and it still
 carries the one version, `v: 1`, for a reason that is not the receipt's.
 
-A manifest's parser reads the members it names and leaves the rest, at the top level and inside each entry
+A deployment manifest's parser reads the members it names and leaves the rest, at the top level and inside each entry
 of `keys[]`, which is the opposite trade to the closed payload map above and is made for the opposite
-need: a manifest is a deployment's current statement about itself, and the only way it can grow while
+need: a deployment manifest is a deployment's current statement about itself, and the only way it can grow while
 clients update at their own pace is for a reader to be permitted to leave what it does not know alone.
 That is why the epoch and validity start of section 4.4 arrived as two optional members of a `keys[]`
-entry rather than as `v: 2`. Every manifest published today carries neither and stays valid; a member is
+entry rather than as `v: 2`. Every deployment manifest published today carries neither and stays valid; a member is
 refused by nothing that accepts it now. And a version move would have cost exactly what a version move
-costs here: `parseManifest` refuses a `v` it does not implement, a client fetches the manifest inside
+costs here: `parseManifest` refuses a `v` it does not implement, a client fetches the deployment manifest inside
 every receipt verification rather than only when it wants the deployment's identity, so a deployment that
 published `v: 2` would have left every un-updated client of its own able to verify no receipt at all,
 including the receipts no epoch rule touches.
 
 What an un-updated client does with the richer document is the other half of that judgement, and it is
-refusal in the direction that matters and silence in the direction that does not. It parses a windowed
+refusal in the direction that matters and silence in the direction that does not. It parses a windowed deployment
 manifest, leaves `epk` and `validFrom` inside `keys[]` where they are, resolves a receipt key by kid as it
 always did, and enforces no epoch, which is precisely what it enforced before the members existed. It
 cannot be talked into accepting a key the deployment withdrew, because a withdrawn entry is a key it no
