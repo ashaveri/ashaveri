@@ -1,7 +1,7 @@
 import { createHash } from 'node:crypto';
 import { spawnSync } from 'node:child_process';
 import { copyFileSync, readFileSync, writeFileSync } from 'node:fs';
-import { join } from 'node:path';
+import { isAbsolute, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import {
   RECEIPT_PUBLIC_B64URL,
@@ -707,6 +707,20 @@ function main(): void {
   const [workDir, dataDir] = process.argv.slice(2);
   if (workDir === undefined || dataDir === undefined) {
     throw new Error('usage: offline-proof <work-directory> <fixtures-data-directory>');
+  }
+  // The first argument is read two ways at once: the paths this proof writes are built out of it here, and
+  // it is handed to each run of the artifact as that run's own working directory. A relative one is then
+  // resolved twice over, once from where this script was started and again from where the child already
+  // is, and what the second reading reaches is the directory inside itself: a run refused with `ENOENT` on
+  // a file this proof wrote one step earlier, in a path that names nothing on any disk. Refusing the shape
+  // at the entry point is what makes the sentence the reader gets one about the argument. The fixtures
+  // directory is only ever read by this process, so its own spelling stays as it is.
+  if (!isAbsolute(workDir)) {
+    throw new Error(
+      `usage: offline-proof <absolute-work-directory> <fixtures-data-directory>, and '${workDir}' is a relative path: ` +
+        'the work directory is both the paths below are built out of and the working directory each run of the artifact starts in, ' +
+        'so it has to name one place wherever this script is started from',
+    );
   }
 
   const key = JSON.parse(readFileSync(join(dataDir, 'keys/receipt-key-v1.json'), 'utf8')) as FixtureKey;
