@@ -190,8 +190,19 @@ slot stating an absence names no digest and owes no bytes, so a pack carrying no
 nothing in is whole. A receipt that does not decode at all is not this refusal either: the originals are read
 under their own signatures, and an anchor nobody authenticated states nothing the pack has to answer for.
 
-What the container carries is the material, not a verdict on it. Whether those bytes verify is settled by the
-roots a reader stands behind, at the instant the reader asks about, and a pack prints neither.
+What the container carries is the material, not a verdict on it, and this is the document that states what one
+carried entry answers for. Whether those bytes verify is settled by the roots a reader stands behind, at the
+instant the reader asks about, and a pack prints neither. What a reader can settle out of the pack alone turns
+on something else. An entry is one byte string and the sha256 of exactly those bytes, and weighing a vendor
+document means walking the chain that presents its signature, so the answer depends on whether the bytes
+themselves carry that chain. The envelope the origin's declaration decodes does present its certificates
+inside the signed document, and the two Intel documents do not: their issuer chain arrives in a response
+header beside the body, cited at each declaration in `packages/collateral/src/intel-origin.ts`, so an entry
+of bytes taken in as those addresses actually answer them is custody of material, and an appraisal run on it
+is refused at the envelope rather than answered. The property that would settle such an entry out of the pack
+alone is the chain beside the body, and this container states no member holding it: one byte string per
+entry, the list bounded at the two slots a sealed receipt names, and no name an entry carries besides its
+digest.
 
 ## Refusals
 

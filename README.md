@@ -302,9 +302,13 @@ published here in source, because fetching collateral that can change a verdict 
 verdict reads; and an unreachable or unanswered feed has to be reported as freshness unknown and refused
 rather than pass a check it did not perform. That refusal, and every other answer the collateral package
 gives, is tabulated under `CollateralErrorCode` in [docs/error-codes.md](docs/error-codes.md), including
-the ones naming a status the vendor no longer stands behind and a window that had closed, and those
-answers are reached by weighing material a caller hands over rather than by asking an origin: that is how
-the collateral a pack carries is weighed. None of it reaches an attestation verdict. `ashaveri verify`
+the ones naming a status the vendor no longer stands behind and a window that had closed. The answers a
+shipped command gives are reached by weighing material a caller hands over rather than by asking an
+origin, and weighing answers only for material of the envelope the origin's declaration decodes: Intel's
+documents present their certificates outside the body, so the collateral a pack carries from that address
+is held and refused at the envelope rather than weighed, and
+[docs/pack-v1.md](docs/pack-v1.md) states what a carried entry answers for. None of it reaches an
+attestation verdict. `ashaveri verify`
 consults no vendor endpoint and no carried entry, so a quote verified under a pinned root still says
 nothing about whether that vendor stands behind the platform.
 

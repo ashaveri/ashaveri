@@ -138,7 +138,9 @@ thing are one record and a re-encoded original is a different one.
 
 It states no retention duty period, no compliance result, no count of retained documents, and no verdict
 of any kind. It cannot show that bytes were produced by a genuine device: the vendor chain walk belongs to
-`verifyCompletionEvidence`, and this record hands that walk the bytes and the collateral it is about. It
+`verifyCompletionEvidence`, which runs on the evidence document and the caller's own anchors and takes no
+collateral input, and this record stores the bytes and the collateral slot beside them without handing either
+to that walk; its own reader repeats the receipt leg and names the vendor leg as one it did not run. It
 cannot show that the source was honest, only that one party said what it saw and when. It cannot make
 custody into verification, and the reader is written so that a caller who wants that must notice the
 difference in the verdict's own two halves.

@@ -75,12 +75,14 @@ the reason, because a bundle's rules over which files stand in a substituted roo
 extra are not what decides a document's type, and a pack reads as soon as its file is named.
 
 A pack carries the material its sealed receipts' anchors state they took in, and a held slot can be weighed
-there rather than promised: --intel-root hands the roots, --collateral-origin and --collateral-platform say
-which path one slot's bytes were published by and for which platform, and --collateral-cpu-type and
---collateral-level name the identity and the rung the vendor's ladder is read at. The material and the instant
-it is read against come out of the container, from the record whose slot names the digest, and no clock of
-this run's is consulted. What those flags do not name is reported as not weighed with the reason, and an
-appraisal never moves the exit code: a pack that verifies exits 0 whatever the collateral says, because the
+there rather than promised where those bytes carry the chain their signature stands on: --intel-root hands the
+roots, --collateral-origin and --collateral-platform say which path one slot's bytes were published by and for
+which platform, and --collateral-cpu-type and --collateral-level name the identity and the rung the vendor's
+ladder is read at. The material and the instant it is read against come out of the container, from the record
+whose slot names the digest, and no clock of this run's is consulted. What those flags do not name is reported
+as not weighed with the reason, and an entry whose bytes do not carry that chain prints the refusal it earned
+rather than a verdict, because a held slot states custody of bytes and not an appraisal. An appraisal never
+moves the exit code: a pack that verifies exits 0 whatever the collateral says, because the
 material being stale, revoked, unreadable or unasked about is a finding about an archive and not a fault in
 the signature over it. The two places a reader looks for a verdict stay apart in the report: the signature
 line answers the container, and each weighed slot prints the appraisal's own state, its refusal detail where
@@ -305,9 +307,10 @@ Handover options, the same for verify-handover, verify-pack and verify-export:
                      platform nobody checked. A rung named by its composition is answered only where the document
                      states that composition as hex text: Intel states it as the component numbers of an object,
                      and no caller's text is compared with numbers this package has no rule to fold.
-                     None of these four flags demands an answer: what a pack carries is weighed when the caller
-                     says what it is, and every slot the run could not ask about is printed as unweighed with the
-                     name of the flag that would have asked it. An appraisal never moves the exit code, which
+                     None of these four flags demands an answer: what a pack carries is weighed when the
+                     caller says what it is and the bytes carry the chain the reading walks, and every
+                     slot the run could not ask about is printed as unweighed with the name of the flag
+                     that would have asked it. An appraisal never moves the exit code, which
                      stays what the format said about the document: a stale, revoked, unreadable or unaskable
                      answer is a row in the report and a run that exited 0.
 

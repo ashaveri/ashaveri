@@ -192,7 +192,11 @@ What is still true, in both modes:
   question and closes none of it: `@ashaveri/collateral` reads and classifies a vendor document it is handed,
   and a pack carries the material its sealed receipts' anchors name, so `ashaveri verify-pack` weighs those
   bytes against the roots its caller names and prints each slot it could not weigh beside the flag that would
-  have supplied the question. That weighing asks no origin anything, reaches no network, feeds no attestation
+  have supplied the question. Weighing reaches an answer only for bytes of the envelope that document's
+  declaration decodes. Intel answers its two document addresses with the issuer chain in a response header
+  beside the body, so an entry of that material is a pack's held bytes that no root a caller names reaches a
+  verdict on, and [pack-v1.md](pack-v1.md) states that limit and what a carried entry answers for. That weighing
+  asks no origin anything, reaches no network, feeds no attestation
   verdict, and changes what T12 says about a platform the vendor has since deprecated. This document describes
   the offline path as it is built.
 - **The client's clock is a stranger's, and its two windows are chosen numbers.** In strict mode the
