@@ -237,6 +237,24 @@ function writeHeldStore(dir: string, count: number, seconds: number): Buffer {
   return bytes;
 }
 
+/** How long a request that got no answer waits for the exit event before it describes the child. */
+const DEPARTURE_SETTLE_MS = 250;
+
+/**
+ * A gateway `bootServing` booted and left listening, and the two things a case can do to it.
+ *
+ * `reached` is for the question a request that got no answer cannot answer for itself: whether the
+ * process that printed the listening line still holds that port, and if it does not, how it went away
+ * and what it printed on the way out. A `TypeError: fetch failed` carries none of that, and the two
+ * readings a case would otherwise have to guess between, a start that went away behind its own banner
+ * and a port the client refuses before it opens a socket, look alike without it.
+ */
+interface ServedGateway {
+  readonly port: number;
+  readonly kill: () => Promise<void>;
+  readonly reached: () => Promise<string>;
+}
+
 /**
  * Start a gateway that serves, and stop it. `readBanner` above answers with the printed lines once the
  * write that carries them has ended, and stops the child before it returns, so it cannot carry a case
@@ -244,8 +262,15 @@ function writeHeldStore(dir: string, count: number, seconds: number): Buffer {
  * which is why `--port 0` prints the port the operating system bound rather than the zero it was asked
  * for, and hands back a `kill` that waits for the exit event, so a case cannot leave a child or its
  * socket behind.
+ *
+ * Resolving on that line leaves one window the helper does not police: a child that printed it can still
+ * go away before the case asks it for anything, and the case then reads a fetch error about a port nobody
+ * holds. So the child's state is kept here instead of inferred downstream. `kill` fails a case whose child
+ * left of its own accord after it said it was listening, `reached` says where that child got to, and `ask`
+ * below puts both into the request that got no answer. The stderr that used to be drained and thrown away
+ * is kept, because it is where a gateway that is about to stop says why.
  */
-async function bootServing(args: string[]): Promise<{ readonly port: number; readonly kill: () => Promise<void> }> {
+async function bootServing(args: string[]): Promise<ServedGateway> {
   const env = { ...process.env };
   delete env['DSTACK_SIMULATOR_ENDPOINT'];
   const child = spawn(process.execPath, [CLI, '--mock', '--port', '0', ...args], {
@@ -253,14 +278,53 @@ async function bootServing(args: string[]): Promise<{ readonly port: number; rea
     stdio: ['ignore', 'pipe', 'pipe'],
   });
   let out = '';
-  const stopped = new Promise<void>((resolve) => child.once('exit', () => resolve()));
+  let err = '';
+  // The two facts a departure is made of: how the child went, and whether this helper was the one that
+  // asked. `undefined` while it is listening.
+  let departed: { readonly exit: string; readonly asked: boolean } | undefined;
+  let asking = false;
+  // The port the listening line named. It stands for whether the child ever said it was listening, which
+  // is the difference between an exit to name as a start that never served and an exit to name as a
+  // gateway that left after it promised a port, and it is the number a request was aimed at.
+  let bound: number | undefined;
+  const stopped = new Promise<void>((resolve) => {
+    child.once('exit', (code, signal) => {
+      departed = { exit: signal === null ? `exit code ${String(code)}` : `signal ${signal}`, asked: asking };
+      resolve();
+    });
+  });
+
+  /** The child, as far as this helper can tell it: whether it is there, and what it printed. */
+  async function reached(): Promise<string> {
+    // A refused connection and the exit event are in flight together at the moment a child goes away, so
+    // this waits for whichever of the two arrives first, up to a short settle. The sentence then says the
+    // child had gone, rather than that this helper had not yet been told of it.
+    await Promise.race([stopped, new Promise((resolve) => setTimeout(resolve, DEPARTURE_SETTLE_MS))]);
+    const where =
+      departed === undefined
+        ? 'was still running when this was read'
+        : `had gone with ${departed.exit}${departed.asked ? ', after this helper asked for the kill' : ', of its own accord'}`;
+    return (
+      `the gateway this helper started as pid ${String(child.pid)} with [--mock --port 0 ${args.join(' ')}] ` +
+      `${where}. The port its listening line named, and the one this request was aimed at, is ${String(bound)}. ` +
+      `Its stderr held ${JSON.stringify(err)} and the first line of its stdout held ${JSON.stringify(out.split('\n')[0] ?? '')}`
+    );
+  }
+
   const kill = async (): Promise<void> => {
+    asking = true;
     child.kill('SIGKILL');
     await stopped;
+    if (bound !== undefined && departed !== undefined && !departed.asked) {
+      throw new Error(`the gateway exited after it printed its listening line and before this helper stopped it; ${await reached()}`);
+    }
   };
   try {
     child.stdout.setEncoding('utf8');
-    child.stderr.resume();
+    child.stderr.setEncoding('utf8');
+    child.stderr.on('data', (chunk: string) => {
+      err += chunk;
+    });
     const port = await new Promise<number>((resolve, reject) => {
       const timer = setTimeout(
         () => reject(new Error(`no listening line within ${String(BOOT_DEADLINE_MS / 1_000)}s; stdout held ${JSON.stringify(out)}`)),
@@ -276,20 +340,47 @@ async function bootServing(args: string[]): Promise<{ readonly port: number; rea
         out += chunk;
         const line = out.split('\n').find((each) => each.startsWith('signerd (mock) listening on '));
         if (line === undefined) return;
-        const bound = /^signerd \(mock\) listening on http:\/\/127\.0\.0\.1:([1-9]\d*)\s*$/u.exec(line);
-        if (bound?.[1] === undefined) {
+        const named = /^signerd \(mock\) listening on http:\/\/127\.0\.0\.1:([1-9]\d*)\s*$/u.exec(line);
+        if (named?.[1] === undefined) {
           giveUp(`the listening line names no bound port: ${line}`);
           return;
         }
+        bound = Number(named[1]);
         clearTimeout(timer);
-        resolve(Number(bound[1]));
+        resolve(bound);
       });
     });
-    return { port, kill };
+    return { port, kill, reached };
   } catch (error) {
     await kill();
     throw error;
   }
+}
+
+/**
+ * One request to a gateway `bootServing` booted, and a failure that names the child it aimed at.
+ *
+ * A connection that reaches nothing arrives as `TypeError: fetch failed`, which says neither the port it
+ * was aimed at nor the reason the stack gave, and a case read on a runner cannot go and ask the child. The
+ * three facts that tell a start which left after it printed its listening line apart from a port the
+ * client refuses before it opens a socket are the port, the reason the connection carried, and whether the
+ * process is still there to be carried by, so the failure is rebuilt out of those. The original error
+ * stays as the cause, which is what keeps the fetch's own stack in the report.
+ */
+async function ask(served: ServedGateway, target: string, init: RequestInit): Promise<Response> {
+  try {
+    return await fetch(`http://127.0.0.1:${String(served.port)}${target}`, init);
+  } catch (error) {
+    throw new Error(`no answer at ${target}: ${connectionReason(error)}; ${await served.reached()}`, { cause: error });
+  }
+}
+
+/** The reason a connection failed, as the layer under `fetch` spelled it, since `fetch failed` never does. */
+function connectionReason(error: unknown): string {
+  const cause = error instanceof Error ? error.cause : undefined;
+  if (!(cause instanceof Error)) return String(error);
+  const code = (cause as NodeJS.ErrnoException).code;
+  return `${cause.message}${code === undefined ? '' : ` (${code})`}`;
 }
 
 /**
@@ -300,7 +391,7 @@ async function bootServing(args: string[]): Promise<{ readonly port: number; rea
 const COMPLETION = '{"model":"mock-model-1","messages":[{"role":"user","content":"guard"}]}';
 
 async function complete(
-  port: number,
+  served: ServedGateway,
   pop: { record: { id: string }; privateKey: Uint8Array },
 ): Promise<{ status: number; code: string | undefined; receiptId: string | null; text: string }> {
   const nonce = randomNonce();
@@ -311,7 +402,7 @@ async function complete(
     target: '/v1/chat/completions',
     bodyDigestHex: createHash('sha256').update(COMPLETION).digest('hex'),
   };
-  const response = await fetch(`http://127.0.0.1:${String(port)}/v1/chat/completions`, {
+  const response = await ask(served, '/v1/chat/completions', {
     method: 'POST',
     headers: {
       'content-type': 'application/json',
@@ -806,7 +897,7 @@ describe('the banner names the manifest posture', () => {
  * process that holds the store: nothing in this file up to here has shown a request outcome move.
  */
 describe('a gateway that serves answers the way its banner says', () => {
-  const url = (port: number): string => `http://127.0.0.1:${String(port)}/v1/deployment-manifest`;
+  const manifestTarget = '/v1/deployment-manifest';
 
   // The pair is the assertion. A banner that promises bearer is accepted beside a store that was
   // never told about it is the failure this file exists to prevent, and neither half catches it
@@ -820,7 +911,7 @@ describe('a gateway that serves answers the way its banner says', () => {
 
       const allowed = await bootServing(['--allow-bearer', '--credentials-path', path]);
       try {
-        const response = await fetch(url(allowed.port), { headers });
+        const response = await ask(allowed, manifestTarget, { headers });
         const body = await response.text();
         expect(response.status, body).toBe(200);
         expect(JSON.parse(body) as { v?: unknown }).toHaveProperty('v', 1);
@@ -830,7 +921,7 @@ describe('a gateway that serves answers the way its banner says', () => {
 
       const refused = await bootServing(['--credentials-path', path]);
       try {
-        const response = await fetch(url(refused.port), { headers });
+        const response = await ask(refused, manifestTarget, { headers });
         const body = await response.text();
         expect(response.status, body).toBe(401);
         expect(body).toContain('AUTH_SCHEME');
@@ -873,7 +964,7 @@ describe('a gateway that serves answers the way its banner says', () => {
             target,
             bodyDigestHex: EMPTY_BODY_SHA256_HEX,
           };
-          const response = await fetch(url(served.port), {
+          const response = await ask(served, target, {
             headers: {
               authorization: signPopAuthorization(fields, pop.record.id, pop.privateKey),
               'x-ashaveri-nonce': toBase64Url(nonce),
@@ -924,7 +1015,7 @@ describe('a gateway that serves answers the way its banner says', () => {
           target,
           bodyDigestHex: EMPTY_BODY_SHA256_HEX,
         };
-        const refused = await fetch(url(served.port), {
+        const refused = await ask(served, target, {
           headers: {
             authorization: signPopAuthorization(stale, pop.record.id, pop.privateKey),
             'x-ashaveri-nonce': toBase64Url(staleNonce),
@@ -943,7 +1034,7 @@ describe('a gateway that serves answers the way its banner says', () => {
           target,
           bodyDigestHex: EMPTY_BODY_SHA256_HEX,
         };
-        const answered = await fetch(url(served.port), {
+        const answered = await ask(served, target, {
           headers: {
             authorization: signPopAuthorization(fresh, pop.record.id, pop.privateKey),
             'x-ashaveri-nonce': toBase64Url(freshNonce),
@@ -1086,7 +1177,7 @@ describe('the durability guard read while serving', () => {
    * serving while intake refuses is a read a credential asked for, not an anonymous fetch.
    */
   async function readStatus(
-    port: number,
+    served: ServedGateway,
     pop: { record: { id: string }; privateKey: Uint8Array },
     target: string,
   ): Promise<number> {
@@ -1099,7 +1190,7 @@ describe('the durability guard read while serving', () => {
       bodyDigestHex: EMPTY_BODY_SHA256_HEX,
     };
     return await (
-      await fetch(`http://127.0.0.1:${String(port)}${target}`, {
+      await ask(served, target, {
         headers: {
           authorization: signPopAuthorization(fields, pop.record.id, pop.privateKey),
           'x-ashaveri-nonce': toBase64Url(nonce),
@@ -1214,7 +1305,7 @@ describe('the durability guard read while serving', () => {
       const volume = guardedVolume('guard-at-half-the-bound');
       const served = await bootServing(volume.args);
       try {
-        const refused = await complete(served.port, volume.pop);
+        const refused = await complete(served, volume.pop);
         expect(refused.status, refused.text).toBe(429);
         expect(refused.code).toBe('RECEIPT_WINDOW_UNHOLDABLE');
         expect(refused.receiptId, 'a refusal mints no id').toBeNull();
@@ -1222,7 +1313,7 @@ describe('the durability guard read while serving', () => {
         expect(refused.text).toContain('refusing from 10000 of them');
         expect(refused.text).not.toContain('retry-after');
         expect(
-          await readStatus(served.port, volume.pop, '/v1/deployment-manifest'),
+          await readStatus(served, volume.pop, '/v1/deployment-manifest'),
           'a read is served while intake refuses',
         ).toBe(200);
       } finally {
@@ -1245,11 +1336,11 @@ describe('the durability guard read while serving', () => {
       const volume = guardedVolume('opt-in-past-the-guard');
       const served = await bootServing([...volume.args, '--receipts-grow-past-guard']);
       try {
-        const answered = await complete(served.port, volume.pop);
+        const answered = await complete(served, volume.pop);
         expect(answered.status, answered.text).toBe(200);
         expect(answered.receiptId, 'the opt-in issues, and says so in a receipt id').not.toBeNull();
         expect(
-          await readStatus(served.port, volume.pop, '/v1/deployment-manifest'),
+          await readStatus(served, volume.pop, '/v1/deployment-manifest'),
           'and keeps serving everything the guarded run serves',
         ).toBe(200);
       } finally {
@@ -1329,7 +1420,7 @@ describe('the record kind a volume is written under', () => {
       ]);
       let boundedReceipt: string | null = null;
       try {
-        const answered = await complete(boundedRun.port, boundedPop);
+        const answered = await complete(boundedRun, boundedPop);
         expect(answered.status, answered.text).toBe(200);
         boundedReceipt = answered.receiptId;
       } finally {
@@ -1344,7 +1435,7 @@ describe('the record kind a volume is written under', () => {
       const plainRun = await bootServing(['--receipts-dir', plain, '--credentials-path', plainCreds]);
       let plainReceipt: string | null = null;
       try {
-        const answered = await complete(plainRun.port, plainPop);
+        const answered = await complete(plainRun, plainPop);
         expect(answered.status, answered.text).toBe(200);
         plainReceipt = answered.receiptId;
         expect(plainReceipt).not.toBeNull();
