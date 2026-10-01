@@ -174,6 +174,20 @@ describe('the envelope the origin actually serves', () => {
     expect(readOf(weigh(asAnswered.body, asAnswered.chain)).vendorStatus, 'the same key and root over the span as sent').toBe('UpToDate');
   });
 
+  /**
+   * The span and not the parsed member: a body whose document member carries its own spacing is weighed over
+   * the bytes that arrived, and a reader that re-made the text from the object it parsed would sign-check a
+   * different sequence and refuse an answer that is whole. This is the same rule the sorted-key case reads from
+   * the other side, and it is the reason the walk returns a substring rather than a stringify.
+   */
+  it('weighs a body whose member text carries its own spacing, over those bytes and no re-made copy', () => {
+    const inner = servedDocument()[TCB_MEMBER] as Record<string, unknown>;
+    const spaced = JSON.stringify(inner, null, 1);
+    expect(spaced, 'the spaced text has to differ, or this case proves nothing').not.toBe(servedMemberText(servedDocument(), TCB_MEMBER));
+    const body = servedWrapperBody(TCB_MEMBER, spaced, servedSignatureMember(spaced, vendor));
+    expect(readOf(weigh(body, servedChain(vendor))).vendorStatus).toBe('UpToDate');
+  });
+
   it('refuses a body whose signed span was altered by one byte, and quotes none of what it says', () => {
     const altered = { [TCB_MEMBER]: tcbInfoBody({
       fmspc: FMSPC,
@@ -273,10 +287,16 @@ describe('the envelope the origin actually serves', () => {
 
   it('refuses a chain header that is no text, is not URL-encoded, or decodes to no certificate', () => {
     const answer = servedAnswer(servedDocument(), TCB_MEMBER, vendor);
-    for (const spelling of [new Uint8Array([0xff, 0xfe, 0x00]), new TextEncoder().encode('%E0%A4%A'), new TextEncoder().encode('no certificates here')]) {
+    const met = [
+      [new Uint8Array([0xff, 0xfe, 0x00]), 'is not UTF-8 text'],
+      [new TextEncoder().encode('%E0%A4%A'), 'is not URL-encoded text'],
+      [new TextEncoder().encode('no certificates here'), 'holds no certificate that parses'],
+    ] as const;
+    for (const [spelling, why] of met) {
       const refusal = refusalOf(weigh(answer.body, spelling));
       expect(refusal.code, new TextDecoder().decode(spelling)).toBe('COLLATERAL_BLOB_UNREADABLE');
-      expect(refusal.detail).toContain(TCB_HEADER);
+      expect(refusal.detail, why).toContain(TCB_HEADER);
+      expect(refusal.detail, why).toContain(why);
     }
   });
 
@@ -287,16 +307,19 @@ describe('the envelope the origin actually serves', () => {
    */
   it('refuses a body that is not the JSON wrapper this envelope states', () => {
     const text = servedMemberText(servedDocument(), TCB_MEMBER);
-    for (const body of [
-      new TextEncoder().encode('this is not a wrapper'),
-      new TextEncoder().encode('[1,2,3]'),
-      servedWrapperBody(TCB_MEMBER, text, '1234'),
-    ]) {
+    // Spelled by hand rather than by the writer, because the writer quotes its signature member and this member
+    // is not a string at all: a number between braces is what a wrapper that is nearly right looks like.
+    const numeric = new TextEncoder().encode(`{"${TCB_MEMBER}":${text},"signature":1234}`);
+    const met = [
+      [new TextEncoder().encode('this is not a wrapper'), 'is not a JSON object'],
+      [new TextEncoder().encode('[1,2,3]'), 'is not a JSON object'],
+      [numeric, 'not spelled as a JSON string'],
+    ] as const;
+    for (const [body, why] of met) {
       const refusal = refusalOf(weigh(body, servedChain(vendor)));
       expect(refusal.code, new TextDecoder().decode(body).slice(0, 24)).toBe('COLLATERAL_BLOB_UNREADABLE');
+      expect(refusal.detail, why).toContain(why);
     }
-    const numeric = refusalOf(weigh(servedWrapperBody(TCB_MEMBER, text, '1234'), servedChain(vendor)));
-    expect(numeric.detail).toContain('signature');
   });
 
   it('weighs no served answer for a declaration that names no document member', () => {
