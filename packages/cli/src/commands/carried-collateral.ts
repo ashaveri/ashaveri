@@ -426,7 +426,15 @@ export async function weighCarried(
       roots: designations.roots,
       onAbsent: 'unassessed',
     };
-    const outcome = await appraiseCarriedCollateral(query, { bytes: resolution.bytes, heldAt: resolution.iat });
+    // The container states no header beside these bytes, so the pair is handed as a body alone: the appraisal
+    // reads the absence rather than inventing a header, and a pack that came to state one would hand its own
+    // bytes through the same two positions.
+    const outcome = await appraiseCarriedCollateral(query, {
+      bytes: resolution.bytes,
+      chain: null,
+      chainSha256: null,
+      heldAt: resolution.iat,
+    });
     weighings.push({ ...base, question, outcome });
   }
   return { weighings, absences, designations };

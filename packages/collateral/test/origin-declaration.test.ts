@@ -268,7 +268,7 @@ describe('the declaration of the Intel retrieval path', () => {
     expect(live.claim?.retainUntil).toBe(secondsOf(NEXT_UPDATE));
     expect(live.claim?.observedAt).toBe(OBSERVED);
 
-    const kept = await ask({ retained: { bytes, observedAt: OBSERVED } }, silence());
+    const kept = await ask({ retained: { bytes, chain: null, chainSha256: null, observedAt: OBSERVED } }, silence());
     expect(kept.state).toBe('stale');
     expect(kept.claim?.reach).toBe('historical-knowledge');
     expect(kept.claim?.observedAt).toBeNull();

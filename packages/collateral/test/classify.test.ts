@@ -120,7 +120,7 @@ describe('the five answers', () => {
 
   it('refuses to read a current answer out of an archived one, and reads the same bytes as current live', async () => {
     const bytes = levelDocument();
-    const archived = await ask({ retained: { bytes, observedAt: OBSERVED } });
+    const archived = await ask({ retained: { bytes, chain: null, chainSha256: null, observedAt: OBSERVED } });
     expect(archived.state).toBe('stale');
     expect(refusalOf(archived).code).toBe('COLLATERAL_NOT_OBSERVED');
     expect(archived.claim?.reach).toBe('historical-knowledge');
@@ -147,7 +147,7 @@ describe('the five answers', () => {
   it('outranks a closed window with a revoked statement, and keeps the archived reach it has', async () => {
     const archived = await ask({
       appraisalAt: AFTER,
-      retained: { bytes: levelDocument('Revoked'), observedAt: OBSERVED },
+      retained: { bytes: levelDocument('Revoked'), chain: null, chainSha256: null, observedAt: OBSERVED },
     });
     expect(archived.state).toBe('revoked');
     expect(refusalOf(archived).code).toBe('COLLATERAL_REVOKED_BY_VENDOR');
@@ -179,11 +179,15 @@ describe('the five answers', () => {
       { over: { level: null }, code: 'COLLATERAL_INPUT_MISSING', field: 'level' },
       { over: { cpuType: null }, code: 'COLLATERAL_INPUT_MISSING', field: 'cpuType' },
       {
-        over: { retained: { bytes: new Uint8Array(0), observedAt: OBSERVED } },
+        over: { retained: { bytes: new Uint8Array(0), chain: null, chainSha256: null, observedAt: OBSERVED } },
         code: 'COLLATERAL_INPUT_MISSING',
         field: 'retained.bytes',
       },
-      { over: { retained: { bytes: levelDocument(), observedAt: null } }, code: 'COLLATERAL_INPUT_MISSING', field: 'retained.observedAt' },
+      {
+        over: { retained: { bytes: levelDocument(), chain: null, chainSha256: null, observedAt: null } },
+        code: 'COLLATERAL_INPUT_MISSING',
+        field: 'retained.observedAt',
+      },
     ];
     for (const one of cases) {
       const outcome = await ask(one.over);
@@ -314,7 +318,7 @@ describe('material that arrived inside a container', () => {
   it('weighs carried bytes under the root the caller pinned and asks the origin nothing', async () => {
     const bytes = levelDocument();
     const { transport, asked } = serve(bytes);
-    const outcome = await appraiseCarriedCollateral(question(), { bytes, heldAt: HELD_AT }, { transport, clock: () => OBSERVED });
+    const outcome = await appraiseCarriedCollateral(question(), { bytes, chain: null, chainSha256: null, heldAt: HELD_AT }, { transport, clock: () => OBSERVED });
     expect(asked, 'a carried appraisal asked the origin something').toEqual([]);
     expect(outcome.state).toBe('stale');
     // The bytes weighed are the bytes handed, and the anchor named is the pin the caller holds: a reader that
@@ -334,7 +338,7 @@ describe('material that arrived inside a container', () => {
     const bytes = levelDocument();
     const carried = await appraiseCarriedCollateral(
       question({ appraisalAt: HELD_AT }),
-      { bytes, heldAt: HELD_AT },
+      { bytes, chain: null, chainSha256: null, heldAt: HELD_AT },
       { transport: silence() },
     );
     expect(carried.state).toBe('stale');
@@ -348,7 +352,7 @@ describe('material that arrived inside a container', () => {
   it('keeps what the window check settled in the figures, because a carried run never asked', async () => {
     const outcome = await appraiseCarriedCollateral(
       question({ appraisalAt: AFTER }),
-      { bytes: levelDocument(), heldAt: HELD_AT },
+      { bytes: levelDocument(), chain: null, chainSha256: null, heldAt: HELD_AT },
       { transport: silence() },
     );
     expect(outcome.state).toBe('stale');
@@ -363,7 +367,7 @@ describe('material that arrived inside a container', () => {
   it('reads a vendor revocation out of carried bytes, because the statement does not depend on how they arrived', async () => {
     const outcome = await appraiseCarriedCollateral(
       question(),
-      { bytes: levelDocument('Revoked'), heldAt: HELD_AT },
+      { bytes: levelDocument('Revoked'), chain: null, chainSha256: null, heldAt: HELD_AT },
       { transport: silence() },
     );
     expect(outcome.state).toBe('revoked');
@@ -376,7 +380,7 @@ describe('material that arrived inside a container', () => {
     const stranger = testVendor({ rootName: 'Unrelated Root', issuerName: 'Unrelated CA' });
     const outcome = await appraiseCarriedCollateral(
       question(),
-      { bytes: levelDocument('UpToDate', stranger), heldAt: HELD_AT },
+      { bytes: levelDocument('UpToDate', stranger), chain: null, chainSha256: null, heldAt: HELD_AT },
       { transport: silence() },
     );
     expect(outcome.state).toBe('unavailable');
@@ -388,14 +392,14 @@ describe('material that arrived inside a container', () => {
   it('refuses bytes that are not a document, and bytes that are none at all, at the position that names them', async () => {
     const unreadable = await appraiseCarriedCollateral(
       question(),
-      { bytes: new TextEncoder().encode('not a document at all'), heldAt: HELD_AT },
+      { bytes: new TextEncoder().encode('not a document at all'), chain: null, chainSha256: null, heldAt: HELD_AT },
       { transport: silence() },
     );
     expect(unreadable.state).toBe('unavailable');
     expect(refusalOf(unreadable).code).toBe('COLLATERAL_BLOB_UNREADABLE');
     const empty = await appraiseCarriedCollateral(
       question(),
-      { bytes: new Uint8Array(0), heldAt: HELD_AT },
+      { bytes: new Uint8Array(0), chain: null, chainSha256: null, heldAt: HELD_AT },
       { transport: silence() },
     );
     expect(empty.state).toBe('missing-context');
@@ -407,7 +411,7 @@ describe('material that arrived inside a container', () => {
     const stranger = testVendor({ rootName: 'Other Root', issuerName: 'Other CA' });
     const required = appraiseCarriedCollateral(
       question({ onAbsent: 'refuse' }),
-      { bytes: levelDocument('UpToDate', stranger), heldAt: HELD_AT },
+      { bytes: levelDocument('UpToDate', stranger), chain: null, chainSha256: null, heldAt: HELD_AT },
       { transport: silence() },
     );
     await expect(required).rejects.toBeInstanceOf(CollateralError);

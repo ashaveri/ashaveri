@@ -1,7 +1,7 @@
 # Error codes
 
 Every error code this workspace raises, what condition raises it, and what a caller should do
-about it. There are 194 declarations across eight unions, resolving to 192 distinct strings;
+about it. There are 195 declarations across eight unions, resolving to 193 distinct strings;
 `UNSUPPORTED_PLATFORM` and `UNSUPPORTED_VERSION` are the two strings two unions share, and the last
 section says why those pairs are deliberate while every other overlap is not.
 
@@ -302,6 +302,7 @@ call site that met it.
 | `COLLATERAL_STATUS_UNSUPPORTED` | `CollateralErrorCode` | The document states a vendor status that is in neither the trusted list nor the revoked list the declaration carries. The refusal quotes the vendor's own word rather than sorting it into the nearer list | Refuse, and add the word to the declaration only once somebody has decided what it means for an appraisal. A status naming a mitigation is not a weaker form of trusted, and reading it as one is the confusion this code is the answer to | terminal |
 | `COLLATERAL_WINDOW_CLOSED` | `CollateralErrorCode` | The bytes were asked for this run and read cleanly, but the moment being appraised falls outside the window the vendor signed | Ask the origin for a document that reaches the moment, or appraise at a moment this one speaks for. Kept bytes answer for their own window and no later one | terminal |
 | `COLLATERAL_NOT_OBSERVED` | `CollateralErrorCode` | The bytes came from what the caller kept, so this run asked the origin nothing, whatever the window they signed says | Re-ask the origin to answer a question about now, or take the historical reach the claim beside the bytes already states. A kept answer is not a current one and is not reported as one | terminal |
+| `COLLATERAL_RETAINED_CHAIN_MISMATCH` | `CollateralErrorCode` | The caller handed a chain beside its retained bytes and named a digest for it, and the header's own bytes hash to something else. The check runs where both the header and the stated digest are in hand, ahead of either reading arm, so no member of a body is believed while the pair disagrees. A stated digest with no header beside it, or a header nobody stated a digest for, is not this refusal: nothing was promised that could be broken | Hand the header exactly as it arrived, or drop the stated digest and let the pair answer on its own shape. The detail gives both hexes and the list names both fields, which is what tells a caller whether the record or the bytes are the half that drifted | terminal |
 | `COLLATERAL_REVOKED_BY_VENDOR` | `CollateralErrorCode` | The signed document states, for the level asked about, a status the declaration lists as one the vendor no longer stands behind. This outranks a closed window, because nothing published later un-revokes a level, so it is the answer even when the document is itself too old to be a fresh one | Refuse the platform, or move it to a level the vendor still stands behind. The document is kept and quoted, and it is never a pass | terminal |
 
 ## Why these strings do not overlap
