@@ -13,6 +13,8 @@ import { afterAll, describe, expect, it } from 'vitest';
  */
 const SCRIPT = fileURLToPath(new URL('../scripts/offline-proof.ts', import.meta.url));
 const DATA = fileURLToPath(new URL('../../fixtures/data', import.meta.url));
+/** The repository the script is checked out of, which is the one place its work directory cannot be. */
+const CHECKOUT = fileURLToPath(new URL('../../../', import.meta.url));
 const startDir = mkdtempSync(join(tmpdir(), 'ashaveri-offline-proof-'));
 
 afterAll(() => {
@@ -61,5 +63,27 @@ describe('the offline proof reads its work directory as one place', () => {
     expect(result.status, result.stderr).toBe(1);
     expect(result.stderr).toContain('usage: offline-proof <work-directory> <fixtures-data-directory>');
     expect(result.stdout).toBe('');
+  });
+
+  it('refuses an absolute work directory that sits inside the checkout, by naming the argument', () => {
+    // The other shape the argument arrives in that defeats the proof: spelled absolutely, and under this
+    // repository. Every run of the artifact starts in the work directory, and a directory inside the
+    // checkout has the installed tree among its ancestors, which is the one thing a machine holding only
+    // the copied file does not have; a specifier the bundler left unresolved would resolve here and the
+    // run would report a property that no stranger could repeat. This is the invocation a hand makes when
+    // it points the proof at a scratch directory of its own, so the sentence is about the argument, and it
+    // comes before any input is written, so the next attempt does not read a half-made directory as a
+    // prepared one.
+    const inside = join(CHECKOUT, 'temp', 'offline-proof-inside-checkout');
+    const result = runProof([inside, DATA]);
+    expect(result.status, result.stderr).toBe(1);
+    expect(result.stderr).toContain(`'${inside}' is inside this checkout`);
+    expect(result.stderr).toContain('usage: offline-proof <absolute-work-directory> <fixtures-data-directory>');
+    expect(result.stdout).toBe('');
+    // Refused at the entry point, so the directory the argument named was never made and holds none of the
+    // three inputs the proof writes beside the artifact.
+    expect(existsSync(inside)).toBe(false);
+    expect(existsSync(join(inside, 'manifest.json'))).toBe(false);
+    expect(existsSync(join(inside, 'policy.json'))).toBe(false);
   });
 });

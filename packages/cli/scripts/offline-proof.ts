@@ -1,7 +1,7 @@
 import { createHash } from 'node:crypto';
 import { spawnSync } from 'node:child_process';
-import { copyFileSync, readFileSync, writeFileSync } from 'node:fs';
-import { isAbsolute, join } from 'node:path';
+import { copyFileSync, existsSync, readFileSync, writeFileSync } from 'node:fs';
+import { basename, isAbsolute, join, resolve, sep } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import {
   RECEIPT_PUBLIC_B64URL,
@@ -27,6 +27,15 @@ import { secondsOf, signedDocument, tcbInfo, testVendor } from '../../collateral
  * it fails on a runner, in a pull request, with nothing local able to reach it first. As a script it is
  * typechecked with the rest of this package and runnable by hand, which is the only way the bundle's proof
  * can be observed anywhere other than Actions.
+ *
+ * The receipt runs live here for the same reason, and they are the reason that reason is written down: a
+ * claim checked in two places is checked by whichever reader reaches both, and a workflow step is reached
+ * by no typechecker and by no test suite. `verify-receipt` refuses a receipt that names a marking when it
+ * is handed only the digest of the response the marking attests, so a step that ran the published vector
+ * that way exits 2 and never reaches the checks written beneath it. Both arms of that rule are proved
+ * below, over the bytes the published rows supply rather than bytes carried by hand, beside the guard that
+ * the artifact imports nothing outside `node:` and itself and the guard that the directory it is run in is
+ * not this checkout.
  *
  * The pack, the export and the amendment are proved here for that same reason, and they are proved by
  * running: the job reaches this file with one line, so a verb added to the bundle is only covered once
@@ -63,7 +72,11 @@ interface FixtureKey {
   readonly publicKey: string;
 }
 
-/** The JSON rendering of the published valid receipt, whose payload the pins are read from. */
+/**
+ * The JSON rendering of a published receipt, whose payload the pins, the digests and the marking claim are
+ * read from. Only the members this proof compares anything against are named here; the rest of the payload
+ * travels in the `.cbor` bytes the run reads.
+ */
 interface FixtureReceipt {
   readonly payload: {
     readonly iss: string;
@@ -76,6 +89,7 @@ interface FixtureReceipt {
     readonly res: string;
     readonly iat: number;
     readonly meas: { readonly tee: string; readonly m: string };
+    readonly mk: { readonly sch: string; readonly d: string };
   };
 }
 
@@ -121,12 +135,62 @@ interface RedactionVectorFile {
   readonly vectors: readonly VectorRow[];
 }
 
-function rowNamed(file: string, vectors: readonly VectorRow[], name: string): VectorRow {
-  const row = vectors.find((one) => one.name === name);
+/**
+ * One row of the published receipt fixtures, as `data/manifest.json` indexes them.
+ *
+ * The index is the only place a receipt's response bytes are published: a receipt's own rendering holds the
+ * header, the payload, the signature and the digest of the whole document, and the region a marking attests
+ * is a span inside bytes no `.cbor` file carries. So the bytes a `verify-receipt` run is owed come from the
+ * row beside the document it digests, and `expected` is the verdict that run is demanded to answer with,
+ * read off the published file rather than written beside it here.
+ */
+interface ReceiptFixtureRow {
+  readonly name: string;
+  /** The document's own path, relative to the fixtures data directory this proof was handed. */
+  readonly path: string;
+  readonly digestSha256: string;
+  /** `verify-ok`, or the code a refusal has to answer with. */
+  readonly expected: string;
+  /** The response bytes the document's `res` digests, unpadded base64url. */
+  readonly responseBase64Url?: string;
+  /** On a refusal row, the position the shipped reader names when it answers these bytes. */
+  readonly fault?: { readonly at: string; readonly states: string };
+}
+
+/** The published receipt fixtures, as their index states them. */
+interface ReceiptIndexFile {
+  readonly fixtures: readonly ReceiptFixtureRow[];
+}
+
+/**
+ * One row of the published marked-region suite, for the arm whose marking attests a region that is not
+ * empty. The suite carries the response and the region inside it as two separate columns, which is what
+ * lets a proof compare a document's `mk.d` against bytes nothing reconstructed.
+ */
+interface MarkingRow {
+  readonly name: string;
+  readonly sch: string;
+  readonly responseBase64Url: string;
+  readonly attestedRegionBase64Url: string;
+  readonly dHex: string;
+}
+
+/** The published marked-region suite. */
+interface MarkingVectorFile {
+  readonly vectors: readonly MarkingRow[];
+}
+
+/** One published row, by the name its own suite gives it, refused by name where a suite states none. */
+function namedRow<T extends { readonly name: string }>(file: string, kind: string, rows: readonly T[], name: string): T {
+  const row = rows.find((one) => one.name === name);
   if (row === undefined) {
-    throw new Error(`the published ${file} has no vector named '${name}', so this proof would be asserting a document nothing publishes`);
+    throw new Error(`the published ${file} has no ${kind} named '${name}', so this proof would be asserting a document nothing publishes`);
   }
   return row;
+}
+
+function rowNamed(file: string, vectors: readonly VectorRow[], name: string): VectorRow {
+  return namedRow(file, 'vector', vectors, name);
 }
 
 /** A published field this proof cannot run without, refused by name rather than defaulted to nothing. */
@@ -135,6 +199,35 @@ function stated<T>(value: T | undefined, what: string): T {
     throw new Error(`the published suite states no ${what}, so this proof would be asserting a value nothing publishes`);
   }
   return value;
+}
+
+/** The JSON a run printed, refused with the whole run beside the reason when it printed none of it. */
+function jsonOf<T>(run: BundleRun, shape: string): T {
+  try {
+    return JSON.parse(run.stdout) as T;
+  } catch (err) {
+    throw new Error(
+      `'ashaveri.mjs ${run.args.join(' ')}' printed no ${shape} to parse: ${err instanceof Error ? err.message : String(err)}\n${describeRun(run)}`,
+    );
+  }
+}
+
+/**
+ * The report `ashaveri verify-receipt` prints under `--json`, read for the members that carry the two
+ * digests and the marking claim.
+ *
+ * `ok` is absent on a refusal given before a document was opened, which is a usage error on stderr and not
+ * an object at all: the command puts no refusal of its own inputs into a shape a reader is asked to parse.
+ * `code` and `message` are the two members such a refusal does carry once the document is the thing being
+ * refused.
+ */
+interface ReceiptReport {
+  readonly ok?: boolean;
+  readonly code?: string;
+  readonly message?: string;
+  readonly markedRegion?: { readonly scheme: string; readonly sha256: string };
+  readonly requestDigest?: { readonly sha256: string; readonly takenFrom: string };
+  readonly responseDigest?: { readonly sha256: string; readonly takenFrom: string };
 }
 
 /**
@@ -239,6 +332,77 @@ const BUNDLE_NAME = 'ashaveri.mjs';
 /** Where the bundle step writes the single file this proof runs: this script's own package's `dist`. */
 const BUNDLE_SOURCE = fileURLToPath(new URL('../dist/ashaveri-bundle.mjs', import.meta.url));
 
+/** This script's own package manifest, the one the bundler reads the version it stamps into the file from. */
+const CLI_MANIFEST = fileURLToPath(new URL('../package.json', import.meta.url));
+
+/**
+ * The repository this script is checked out of, three levels above `packages/cli/scripts`.
+ *
+ * The proof directory is refused by name when it sits beneath this directory, because the property the runs
+ * below show is that the artifact starts and answers with nothing installed: a directory inside the checkout
+ * has the installed tree among its ancestors, and a bare specifier the bundler failed to inline would then
+ * resolve here and fail on a machine that has nothing beside the file.
+ */
+const CHECKOUT_ROOT = fileURLToPath(new URL('../../../', import.meta.url));
+
+/**
+ * One import or re-export of the artifact, anchored to the start of the line it is written on.
+ *
+ * The anchor is the whole point of the pattern and not decoration: an unanchored search for `from '...'`
+ * also matches that text inside a string or a comment, and the bundle carries both, so an unanchored guard
+ * would refuse a good artifact. A specifier the file genuinely imports is a line that begins with `import`
+ * or `export`, and `[^;]*` keeps one match inside one statement the way the statement's own terminator does.
+ */
+const BUNDLE_IMPORT_LINE = /^[^\S\n]*(?:import|export)[^;]*from ['"]([^'"]+)['"]/gmu;
+
+/** The two specifiers a single file may resolve for itself: the standard library, and its own directory. */
+const BUNDLED_SPECIFIER = /^(?:node:|\.)/u;
+
+/** Whether one resolved path is the other or sits beneath it, as this platform spells directories. */
+function isInsideDirectory(candidate: string, parent: string): boolean {
+  // Windows reaches the same directory under more than one spelling, and a guard that compared bytes would
+  // call `C:\Users\NAME\proj` outside a checkout named `c:\users\name\proj`.
+  const equal = process.platform === 'win32'
+    ? (a: string, b: string) => a.toLowerCase() === b.toLowerCase()
+    : (a: string, b: string) => a === b;
+  const beneath = parent.endsWith(sep) ? parent : `${parent}${sep}`;
+  return equal(candidate, parent) || equal(candidate.slice(0, beneath.length), beneath);
+}
+
+/**
+ * The artifact, placed in the proof directory, and the two properties the job that runs it exists for.
+ *
+ * The scan reads the copied file, not the one in `dist`, because that copy is the file every run below
+ * starts: the guard answers for the artifact that is actually reached across the standard library, and a
+ * scan of a source tree would answer for bytes nothing ran. A specifier outside those two families is the
+ * bundler having left something for the module loader to find, and a loader with no `node_modules` to find
+ * it in is the machine this proof is a rehearsal of.
+ */
+function prepareArtifact(workDir: string): string {
+  const target = join(workDir, BUNDLE_NAME);
+  try {
+    copyFileSync(BUNDLE_SOURCE, target);
+  } catch (err) {
+    throw new Error(
+      `this proof runs a built artifact and does not build one: ${BUNDLE_SOURCE} is not there (${err instanceof Error ? err.message : String(err)}). ` +
+        "Run 'pnpm build' and 'pnpm -C packages/cli bundle' from the repository root first",
+    );
+  }
+  if (existsSync(join(workDir, 'node_modules'))) {
+    throw new Error(
+      `the proof directory ${workDir} already holds a 'node_modules', so a specifier the bundle left unresolved could resolve here and answer for nothing`,
+    );
+  }
+  const outside = [...readFileSync(target, 'utf8').matchAll(BUNDLE_IMPORT_LINE)]
+    .map((match) => match[1] as string)
+    .filter((specifier) => !BUNDLED_SPECIFIER.test(specifier));
+  if (outside.length > 0) {
+    throw new Error(`the bundle imports a module it did not bundle:\n${outside.join('\n')}`);
+  }
+  say(`the bundle resolved ${BUNDLE_NAME} against no specifier outside 'node:' and its own file`);
+  return target;
+}
+
 function describeRun(run: BundleRun): string {
   return [
     `  command:  ashaveri.mjs ${run.args.join(' ')}`,
@@ -255,9 +419,25 @@ function expect(condition: boolean, run: BundleRun, wanted: string): void {
   }
 }
 
+/**
+ * The same shape for a property read out of the published files rather than off a run.
+ *
+ * A run answers for the artifact. These answer for the material this proof reads its inputs out of, and a
+ * row that no longer states what a run was built from is a fault in the fixtures that has to name itself
+ * rather than become a run over bytes somebody copied from a document.
+ */
+function published(condition: boolean, wanted: string): void {
+  if (!condition) {
+    throw new Error(`the published fixtures do not ${wanted}`);
+  }
+}
+
 function say(line: string): void {
   process.stdout.write(`${line}\n`);
 }
+
+/** How many times the artifact has been started from the proof directory, read for the closing summary. */
+let bundleRuns = 0;
 
 /**
  * One run of the artifact, from inside the proof directory and nowhere else.
@@ -265,10 +445,11 @@ function say(line: string): void {
  * The working directory is the process's own `cwd`, so a bare specifier inside the bundle resolves the
  * way it would on a machine that has nothing installed: the directory has the file, the documents, the
  * root one run names and the four inputs, and no `node_modules` above it. A run that needed an installed
- * tree would fail here for the reason it would fail there, which is what makes these thirteen commands the
- * property the job exists to show rather than a restatement of it.
+ * tree would fail here for the reason it would fail there, which is what makes each command counted below
+ * the property the job exists to show rather than a restatement of it.
  */
 function runBundle(workDir: string, args: readonly string[]): BundleRun {
+  bundleRuns++;
   const result = spawnSync(process.execPath, [BUNDLE_NAME, ...args], {
     cwd: workDir,
     encoding: 'utf8',
@@ -286,13 +467,279 @@ function runBundle(workDir: string, args: readonly string[]): BundleRun {
 }
 
 function reportOf(run: BundleRun): HandoverReport {
-  try {
-    return JSON.parse(run.stdout) as HandoverReport;
-  } catch (err) {
-    throw new Error(
-      `'ashaveri.mjs ${run.args.join(' ')}' printed no report to parse: ${err instanceof Error ? err.message : String(err)}\n${describeRun(run)}`,
+  return jsonOf<HandoverReport>(run, 'report');
+}
+
+/** The four values a receipt run is reached from, which the proof directory also carries as `args.env`. */
+interface ReceiptInputs {
+  readonly nonce: string;
+  readonly requestDigest: string;
+  readonly responseDigest: string;
+  readonly verificationTime: string;
+}
+
+/**
+ * The published rows the receipt arm runs over, named the way the index names them.
+ *
+ * Each name is a lookup rather than a literal carried beside a file, so a suite that renames or drops one of
+ * these rows stops this proof by name instead of leaving a run pointed at bytes nothing states anything about.
+ */
+const RECEIPT_ROWS = {
+  /** The vector the index states verifies, over a response whose marking attests that nothing is marked. */
+  declaresAbsence: 'receipt-valid-v1',
+  /** The same request answered with a `provenance-v1` mark inside the response. */
+  carriesMark: 'receipt-marked-v1',
+  /** The valid document with one bit of its signature moved. */
+  brokenSignature: 'receipt-tampered-v1',
+  /** A document whose payload names no marking at all. */
+  namesNoMarking: 'receipt-retired-shape-v1',
+} as const;
+
+/**
+ * `ashaveri verify-receipt` over the published receipt fixtures, with both arms of the marking rule.
+ *
+ * Every input here is read out of a published file, and the two halves of the pairing between them are
+ * asserted rather than assumed. The document bytes come from the path the index states and are compared
+ * against the digest the same row carries. The response bytes come from the row beside the document, and
+ * which row those bytes belong to is settled by hashing them against the `res` the payload digests: the
+ * marked-region suite publishes bytes for both response shapes and none of them hash to this vector's
+ * digest, so the row that answers is the receipt's own, and the comparison below is what says so rather
+ * than a sentence above it.
+ *
+ * The arms are the two readings a caller can ask for, and they answer differently. A payload that names a
+ * marking, which is every payload this format's reader opens, is verified over the bytes and refused before
+ * it opens anything when only the digest of those bytes is handed: the refusal is a usage error, so it exits
+ * 2, prints no object, and names both the flag whose absence it met and the flag whose value cannot carry
+ * the check. That is the half a caller can get wrong on a command line, and it is the half a step that
+ * handed the digest alone met, which is why the arms are run both ways here rather than once. A payload that
+ * names no marking is a different event and a different exit: the reader refuses the document as a
+ * malformed payload at 1, and `fault.at` in the row states which member that refusal names, so nothing here
+ * is asked to be silent about a mark the format does not let a document be silent about.
+ *
+ * The tampered vector runs over its published bytes for the same reason the valid one does: handed only its
+ * digest it would be refused as a missing input rather than answered as a broken signature, and the code the
+ * index states for that row is a verdict about the document. The bare run and the version line close the
+ * arm: one shows a run with nothing beside the document is refused by the flag it lacks, and the other shows
+ * the file carries the version of the package it was built under rather than reading a manifest that is not
+ * in the directory it starts in.
+ */
+function proveReceiptVerbs(workDir: string, dataDir: string, inputs: ReceiptInputs, payload: FixtureReceipt['payload']): void {
+  const started = bundleRuns;
+  const index = (JSON.parse(readFileSync(join(dataDir, 'manifest.json'), 'utf8')) as ReceiptIndexFile).fixtures;
+  const markingRows = (JSON.parse(readFileSync(join(dataDir, 'marking-v1.json'), 'utf8')) as MarkingVectorFile).vectors;
+  const valid = namedRow('manifest.json', 'fixture', index, RECEIPT_ROWS.declaresAbsence);
+  const marked = namedRow('manifest.json', 'fixture', index, RECEIPT_ROWS.carriesMark);
+  const tampered = namedRow('manifest.json', 'fixture', index, RECEIPT_ROWS.brokenSignature);
+  const unmarked = namedRow('manifest.json', 'fixture', index, RECEIPT_ROWS.namesNoMarking);
+
+  /** Put one published document into the proof directory under the name its own row carries. */
+  function placed(row: ReceiptFixtureRow): string {
+    const bytes = readFileSync(join(dataDir, row.path));
+    const digest = createHash('sha256').update(bytes).digest('hex');
+    published(
+      digest === row.digestSha256,
+      `hash to the digest the index states for '${row.path}': the file gives ${digest} and the row states ${row.digestSha256}`,
     );
+    const file = basename(row.path);
+    writeFileSync(join(workDir, file), bytes);
+    return file;
   }
+
+  /** Write the response bytes a row publishes beside its document, under a name that says whose they are. */
+  function responseBody(row: ReceiptFixtureRow): { readonly file: string; readonly digest: string; readonly bytes: number } {
+    const bytes = Buffer.from(stated(row.responseBase64Url, `response bytes for the row '${row.name}'`), 'base64url');
+    const file = `${row.name}-response.bin`;
+    writeFileSync(join(workDir, file), bytes);
+    return { file, bytes: bytes.byteLength, digest: createHash('sha256').update(bytes).digest('hex') };
+  }
+
+  /** The rendering of one published receipt, read for the payload its row's bytes digest. */
+  function twinOf(row: ReceiptFixtureRow): FixtureReceipt['payload'] {
+    return (JSON.parse(readFileSync(join(dataDir, `receipts/${row.name}.json`), 'utf8')) as FixtureReceipt).payload;
+  }
+
+  // The policy, the manifest and the four inputs all describe the deployment and the request the valid
+  // vector was issued for, so a second row run through them is only a fair run if its own payload names
+  // the same challenge, request and instant. That is read off the row rather than left to a coincidence.
+  const shared = [
+    '--policy=policy.json',
+    '--manifest=manifest.json',
+    `--nonce=${inputs.nonce}`,
+    `--request-hash=${inputs.requestDigest}`,
+    `--now=${inputs.verificationTime}`,
+  ];
+
+  const validFile = placed(valid);
+  const validBody = responseBody(valid);
+  published(
+    validBody.digest === payload.res,
+    `state response bytes for '${valid.name}' that hash to the ${payload.res} the document digests into res: the row's bytes hash to ${validBody.digest}`,
+  );
+  // An absence in this format is a value the member holds rather than a member left out, and the value it
+  // holds is the digest of no bytes at all. The arm below is owed the response for that same reason the
+  // marked one is: what the receipt attests is a region, and the empty region is still a region read off
+  // the bytes.
+  const emptyRegion = createHash('sha256').update(Buffer.alloc(0)).digest('hex');
+  published(
+    payload.mk.sch === 'none' && payload.mk.d === emptyRegion,
+    `state the absence of a mark the way this format spells one for '${valid.name}': the payload gives ${payload.mk.sch} over ${payload.mk.d} and no bytes hash to ${emptyRegion}`,
+  );
+
+  const verifiedRun = runBundle(workDir, ['verify-receipt', validFile, ...shared, `--response-body=${validBody.file}`, '--json']);
+  expect(verifiedRun.status === 0, verifiedRun, `verify the published valid vector over the ${String(validBody.bytes)} response bytes its own row publishes`);
+  const verified = jsonOf<ReceiptReport>(verifiedRun, 'receipt report');
+  expect(verified.ok === true, verifiedRun, 'report the valid vector as verified');
+  expect(
+    verified.responseDigest?.sha256 === payload.res,
+    verifiedRun,
+    `name as the response digest the ${payload.res} the receipt carries`,
+  );
+  expect(
+    verified.responseDigest?.takenFrom === `sha256 of the bytes in ${validBody.file}`,
+    verifiedRun,
+    'say that the digest it compared was recomputed from the bytes handed over rather than read off the command line',
+  );
+  expect(
+    verified.requestDigest?.takenFrom === 'the --request-hash value as written',
+    verifiedRun,
+    'say that the request digest was taken as written, which is the half of the pair no region is read out of',
+  );
+  expect(
+    verified.markedRegion?.scheme === payload.mk.sch && verified.markedRegion?.sha256 === payload.mk.d,
+    verifiedRun,
+    `print the marking claim the payload states, and saw ${JSON.stringify(verified.markedRegion)}`,
+  );
+  say(
+    `verify-receipt ${validFile}: exit 0, ${payload.mk.sch} region ${payload.mk.d} read off ${String(validBody.bytes)} bytes that hash to the res the document digests`,
+  );
+
+  const digestOnlyRun = runBundle(workDir, ['verify-receipt', validFile, ...shared, `--response-hash=${payload.res}`, '--json']);
+  expect(
+    digestOnlyRun.status === 2,
+    digestOnlyRun,
+    'refuse the same vector handed only the digest of the response whose region its marking attests',
+  );
+  expect(digestOnlyRun.stdout === '', digestOnlyRun, 'print no object for a refusal of what the caller handed');
+  for (const phrase of [
+    'this receipt names a marking',
+    '--response-body is required',
+    '--response-hash cannot carry that check',
+  ]) {
+    expect(digestOnlyRun.stderr.includes(phrase), digestOnlyRun, `name ${JSON.stringify(phrase)} in the refusal`);
+  }
+  say(`verify-receipt ${validFile} on a digest alone: exit 2, refused by the sentence naming --response-body and --response-hash`);
+
+  const markedPayload = twinOf(marked);
+  published(
+    markedPayload.nce === payload.nce
+      && markedPayload.req === payload.req
+      && markedPayload.iat === payload.iat
+      && markedPayload.mdl === payload.mdl
+      && markedPayload.meas.tee === payload.meas.tee,
+    `issue '${marked.name}' under the challenge, request, instant and measurement the valid vector's pins carry, so one set of inputs answers for both rows`,
+  );
+  const region = namedRow('marking-v1.json', 'vector', markingRows, 'buffered-member');
+  const markedBody = responseBody(marked);
+  // One response, published by two suites: the receipt row digests it whole into `res` and the marking row
+  // states the region its mark attests inside it. A document and a vector that drifted apart are visible in
+  // the comparison below rather than in a verdict that read the wrong span out of the right bytes.
+  const regionBytes = Buffer.from(region.attestedRegionBase64Url, 'base64url');
+  published(
+    marked.responseBase64Url === region.responseBase64Url,
+    `publish the same response bytes for '${marked.name}' and for the marked-region row '${region.name}'`,
+  );
+  published(
+    markedBody.digest === markedPayload.res,
+    `state response bytes for '${marked.name}' that hash to the ${markedPayload.res} the document digests into res: the row's bytes hash to ${markedBody.digest}`,
+  );
+  const regionDigest = createHash('sha256').update(regionBytes).digest('hex');
+  published(
+    regionDigest === markedPayload.mk.d && regionDigest === region.dHex,
+    `state the marked region of '${region.name}' as the bytes whose digest the receipt carries in mk.d: the published region hashes to ${regionDigest}, the payload to ${markedPayload.mk.d} and the vector to ${region.dHex}`,
+  );
+
+  const markedRun = runBundle(workDir, ['verify-receipt', placed(marked), ...shared, `--response-body=${markedBody.file}`, '--json']);
+  expect(markedRun.status === 0, markedRun, `verify the marked vector over the ${String(markedBody.bytes)} response bytes its own row publishes`);
+  const markedReport = jsonOf<ReceiptReport>(markedRun, 'receipt report');
+  expect(markedReport.ok === true, markedRun, 'report the marked vector as verified');
+  expect(
+    markedReport.markedRegion?.scheme === markedPayload.mk.sch && markedReport.markedRegion?.sha256 === regionDigest,
+    markedRun,
+    `answer with the ${markedPayload.mk.sch} region the other suite publishes, and saw ${JSON.stringify(markedReport.markedRegion)}`,
+  );
+  expect(
+    markedReport.responseDigest?.takenFrom === `sha256 of the bytes in ${markedBody.file}`,
+    markedRun,
+    'say that the digest of a marked response was recomputed from the bytes handed over',
+  );
+  say(
+    `verify-receipt ${marked.name}: exit 0, ${markedPayload.mk.sch} region of ${String(regionBytes.byteLength)} published bytes digests to ${regionDigest}, the mk.d the receipt carries`,
+  );
+
+  // Handed a digest rather than the bytes, the same document meets the same usage refusal: the rule is
+  // carried by the member the payload states, and not by which label that member names.
+  const markedDigestOnlyRun = runBundle(workDir, ['verify-receipt', placed(marked), ...shared, `--response-hash=${markedPayload.res}`, '--json']);
+  expect(markedDigestOnlyRun.status === 2, markedDigestOnlyRun, 'refuse the marked vector on its digest alone too');
+  expect(
+    markedDigestOnlyRun.stderr.includes('--response-body is required'),
+    markedDigestOnlyRun,
+    'name the same flag in the refusal of the marked vector',
+  );
+  say(`verify-receipt ${marked.name} on a digest alone: exit 2, refused by the same sentence`);
+
+  // The tampered row is handed its response bytes rather than only their digest, which is what lets the
+  // refusal below be the answer about the document. A run given the digest alone exits 2 on the input rule
+  // before any signature is read, so the verdict the index states for this row would never be reached.
+  const tamperedBody = responseBody(tampered);
+  const tamperedRun = runBundle(workDir, ['verify-receipt', placed(tampered), ...shared, `--response-body=${tamperedBody.file}`, '--json']);
+  expect(tamperedRun.status === 1, tamperedRun, 'refuse the tampered vector as a document, at the exit a verdict takes rather than the one a missing input takes');
+  const tamperedReport = jsonOf<ReceiptReport>(tamperedRun, 'receipt refusal');
+  expect(tamperedReport.ok === false, tamperedRun, 'report the tampered vector as a refusal');
+  expect(
+    tamperedReport.code === tampered.expected,
+    tamperedRun,
+    `answer with the code the fixtures index states for '${tampered.name}', which is ${tampered.expected}`,
+  );
+  say(`verify-receipt ${tampered.name}: exit 1, refused ${tamperedReport.code} over the bytes its row publishes`);
+
+  const absentMember = stated(unmarked.fault, `fault for the row '${unmarked.name}'`).at;
+  const unmarkedBody = responseBody(unmarked);
+  const noMarkingRun = runBundle(workDir, ['verify-receipt', placed(unmarked), ...shared, `--response-hash=${unmarkedBody.digest}`, '--json']);
+  expect(
+    noMarkingRun.status === 1,
+    noMarkingRun,
+    'refuse a payload that names no marking as a malformed document rather than answer it on a digest',
+  );
+  const noMarking = jsonOf<ReceiptReport>(noMarkingRun, 'receipt refusal');
+  expect(
+    noMarking.code === unmarked.expected,
+    noMarkingRun,
+    `answer with the code the fixtures index states for '${unmarked.name}', which is ${unmarked.expected}`,
+  );
+  expect(
+    noMarking.message?.includes(absentMember) === true,
+    noMarkingRun,
+    `name the member the row states these bytes never wrote, '${absentMember}', and saw ${JSON.stringify(noMarking.message)}`,
+  );
+  say(
+    `verify-receipt ${unmarked.name}: exit 1, refused ${noMarking.code} naming '${absentMember}', which is the reading of a document that names no marking and not an answer reached on its digest`,
+  );
+
+  const bareRun = runBundle(workDir, ['verify-receipt', validFile]);
+  expect(bareRun.status === 2, bareRun, 'refuse a run handed no policy, no manifest, no nonce and no digests');
+  expect(bareRun.stderr.includes('--policy is required'), bareRun, 'name the first input that run is missing');
+  expect(bareRun.stdout === '', bareRun, 'print nothing for a run refused before it opened a document');
+  say(`verify-receipt with no inputs at all: exit 2, refused by the sentence naming --policy`);
+
+  const versionRun = runBundle(workDir, ['--version']);
+  expect(versionRun.status === 0, versionRun, 'print a version from a directory holding no package manifest');
+  const stamped = (JSON.parse(readFileSync(CLI_MANIFEST, 'utf8')) as { version?: string }).version;
+  expect(versionRun.stdout.trim() === stamped, versionRun, `carry the version of the package it was built under, which is ${String(stamped)}`);
+  say(`--version: exit 0, ${versionRun.stdout.trimEnd()}`);
+
+  say(
+    `verify-receipt answered ${String(bundleRuns - started)} runs over the published receipt fixtures: two vectors verified over the response bytes their own rows publish, two refused at exit 2 for the digest alone, one refused at the signature, one payload naming no marking refused as a malformed document, one run with no inputs named the flag it lacked, and the version read out of the file`,
+  );
 }
 
 /** What `verify-pack` is run over: its own document, a document that is not one, and one that is lying. */
@@ -722,6 +1169,18 @@ function main(): void {
         'so it has to name one place wherever this script is started from',
     );
   }
+  // The other shape the argument can arrive in and be wrong: an absolute path that sits under this
+  // directory. Every run below starts in the work directory with nothing installed beside the artifact,
+  // and a proof directory inside the checkout has the installed tree in its ancestors, so the reading it
+  // would report is one a machine holding only the file cannot repeat. Refused here rather than assumed,
+  // and refused before a byte is written, so the answer is about the argument and not about a half-made
+  // directory left behind for the next attempt to read as a prepared one.
+  if (isInsideDirectory(resolve(workDir), CHECKOUT_ROOT)) {
+    throw new Error(
+      `usage: offline-proof <absolute-work-directory> <fixtures-data-directory>, and '${workDir}' is inside this checkout at ${CHECKOUT_ROOT}: ` +
+        'the work directory is where the artifact is started from with nothing installed, so it has to be outside the tree this repository keeps its dependencies in',
+    );
+  }
 
   const key = JSON.parse(readFileSync(join(dataDir, 'keys/receipt-key-v1.json'), 'utf8')) as FixtureKey;
   const { payload } = JSON.parse(
@@ -755,16 +1214,29 @@ function main(): void {
     }),
   );
 
-  // Sourced by the job so the verifier is handed the four values it needs. A receipt is checked against
-  // the time it names, so a step that used the current clock would fail a valid vector.
+  // The four values a receipt run is reached from, written out beside the inputs they pair with so a hand
+  // standing in that directory can source them and type the command itself. A receipt is checked against the
+  // time it names, so a run that read the current clock would fail a valid vector. The runs below are handed
+  // this same object, so the file and the runs cannot state two different instants about one document.
+  const inputs: ReceiptInputs = {
+    nonce: payload.nce,
+    requestDigest: payload.req,
+    responseDigest: payload.res,
+    verificationTime: new Date(payload.iat * 1000).toISOString(),
+  };
   writeFileSync(
     join(workDir, 'args.env'),
-    `NONCE=${payload.nce}\nREQ=${payload.req}\nRES=${payload.res}\nNOW=${new Date(payload.iat * 1000).toISOString()}\n`,
+    `NONCE=${inputs.nonce}\nREQ=${inputs.requestDigest}\nRES=${inputs.responseDigest}\nNOW=${inputs.verificationTime}\n`,
   );
 
   say(`wrote manifest.json, policy.json and args.env into ${workDir}`);
+  prepareArtifact(workDir);
+  proveReceiptVerbs(workDir, dataDir, inputs, payload);
   proveHandoverVerbs(workDir, dataDir);
   proveCarried(workDir);
+  say(
+    `the offline proof started the artifact ${String(bundleRuns)} times from ${workDir}, a directory outside this checkout and holding no node_modules, after scanning that file for every import outside 'node:' and its own directory`,
+  );
 }
 
 /**
@@ -773,21 +1245,12 @@ function main(): void {
  *
  * The documents are the vectors' own bytes under the names their rows carry, and the keys are the ones
  * those rows say a caller holds, so what is asserted is an answer about published material rather than
- * about a file assembled to agree with the reader. The bundle is copied in beside them and run from that
- * directory, which is the one arrangement that shows the artifact carries these verbs with it: an import
- * the bundler left unresolved would fail here, in the shape it fails on a machine with no checkout, no
- * install and nothing to fetch.
+ * about a file assembled to agree with the reader. The artifact is in the directory beside them already,
+ * copied and scanned by `prepareArtifact`, and every run below starts from that directory, which is the one
+ * arrangement that shows the artifact carries these verbs with it: an import the bundler left unresolved
+ * would fail here, in the shape it fails on a machine with no checkout, no install and nothing to fetch.
  */
 function proveHandoverVerbs(workDir: string, dataDir: string): void {
-  try {
-    copyFileSync(BUNDLE_SOURCE, join(workDir, BUNDLE_NAME));
-  } catch (err) {
-    throw new Error(
-      `this proof runs a built artifact and does not build one: ${BUNDLE_SOURCE} is not there (${err instanceof Error ? err.message : String(err)}). ` +
-        "Run 'pnpm build' and 'pnpm -C packages/cli bundle' from the repository root first",
-    );
-  }
-
   const packRows = (JSON.parse(readFileSync(join(dataDir, 'pack-v1.json'), 'utf8')) as PackVectorFile).vectors;
   const exportFile = JSON.parse(readFileSync(join(dataDir, 'export-v1.json'), 'utf8')) as ExportVectorFile;
   const whole = rowNamed('pack-v1.json', packRows, 'well-formed-three-items');
