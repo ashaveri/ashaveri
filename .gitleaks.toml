@@ -88,3 +88,28 @@ regexes = [
 paths = [
   '''^packages/fixtures/data/epoch-inventory-v1\.json$''',
 ]
+
+# A fifth block, and it exempts a marker rather than a key. The gateway's provenance case puts one short
+# string in the prompt, the completion, the model id and the credential of every request it issues, then
+# asserts that string reaches none of the receipt's text members. The value is a canary: it authenticates
+# nothing, and eight hex characters behind a word is too short for any real credential to be. The built-in
+# generic-api-key rule matched it anyway, at the line that declared the constant under the name `TOKEN`,
+# because that rule reads the name beside the value rather than what the value is worth. The constant now
+# carries the name the case uses for the thing, so no line of the current tree matches. This block exists
+# because the scan reads commits, and the line that introduced the shape stays in the history whatever the
+# constant is called after it.
+#
+# Measured on 8.30.1 against this repository's history: the scan reports the file with no block below and
+# reports nothing with it. The same value written into another file in a fresh commit is still reported, and
+# a different value declared the same way inside this file is still reported, because the exemption is the
+# intersection of the two lines below and not either one alone.
+[[allowlists]]
+description = "The provenance case's canary marker, in the file that asserts it goes nowhere"
+condition = "AND"
+regexTarget = "secret"
+regexes = [
+  '''^CANARY-4f7b2e9a$''',
+]
+paths = [
+  '''^gateway/test/receipt-provenance\.test\.ts$''',
+]

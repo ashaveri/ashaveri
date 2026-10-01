@@ -37,10 +37,10 @@ import { CLOCK_SECONDS, generated, harness, type Generated, type Harness } from 
  * and is not in `ATTESTED_TEXT_POSITIONS` fails this case rather than passing unlooked-at.
  */
 
-const TOKEN = 'CANARY-4f7b2e9a';
-const PROMPT = `${TOKEN}-prompt-text-never-attested`;
-const COMPLETION = `${TOKEN}-completion-text-never-attested`;
-const NOT_DECLARED = `${TOKEN}-model-no-deployment-lists`;
+const CANARY = 'CANARY-4f7b2e9a';
+const PROMPT = `${CANARY}-prompt-text-never-attested`;
+const COMPLETION = `${CANARY}-completion-text-never-attested`;
+const NOT_DECLARED = `${CANARY}-model-no-deployment-lists`;
 
 /** What this deployment is configured to say it is. Neither value is reachable from a request. */
 const ISSUER = 'ashaveri-provenance-issuer';
@@ -66,8 +66,8 @@ const COLLATERAL_REASON_OPEN = 'this gateway takes no collateral into issuance';
 const VALIDITY_REASON_OPEN = 'this gateway records no validity context at issuance';
 
 /** One request per arm, each carrying the token twice and inside its first thirty-two bytes. */
-const BUFFERED_REQUEST_BODY = `{"${TOKEN}":1,"model":"${DECLARED_MODEL}","messages":[{"role":"user","content":"${PROMPT}"}]}`;
-const STREAM_REQUEST_BODY = `{"${TOKEN}":1,"model":"${DECLARED_MODEL}","messages":[{"role":"user","content":"${PROMPT}"}],"stream":true}`;
+const BUFFERED_REQUEST_BODY = `{"${CANARY}":1,"model":"${DECLARED_MODEL}","messages":[{"role":"user","content":"${PROMPT}"}]}`;
+const STREAM_REQUEST_BODY = `{"${CANARY}":1,"model":"${DECLARED_MODEL}","messages":[{"role":"user","content":"${PROMPT}"}],"stream":true}`;
 
 /** The bytes this caller names for itself, presented as the nonce header and echoed as `nce`. */
 const NONCE = Uint8Array.from({ length: 16 }, (_, i) => i + 1);
@@ -80,7 +80,7 @@ const asText = (bytes: Uint8Array): string => new TextDecoder().decode(bytes);
 
 /** Whether these bytes carry the token, read as bytes and not through a decoder's substitutions. */
 function carriesToken(bytes: Uint8Array): boolean {
-  const needle = utf8(TOKEN);
+  const needle = utf8(CANARY);
   for (let at = 0; at + needle.length <= bytes.length; at += 1) {
     if (needle.every((one, offset) => bytes[at + offset] === one)) return true;
   }
@@ -224,7 +224,7 @@ async function issue(arm: Arm, requestBody: string = arm === 'buffered' ? BUFFER
     },
   };
 
-  const credential: Generated = generated(`${TOKEN}-cred`, ['complete', 'read']);
+  const credential: Generated = generated(`${CANARY}-cred`, ['complete', 'read']);
   session = await harness({ credentials: [credential], gateway: { deployment, backend, marking } });
 
   const target = '/v1/chat/completions';
@@ -262,7 +262,7 @@ function check(issued: Issued): void {
 
   // The token was in every slot this file could fill, and the caller's text reached the client: the digest
   // below is taken over bytes carrying it, so an absence further down is not an absence of input.
-  expect(issued.requestBody.slice(0, DIGEST_BYTES)).toContain(TOKEN);
+  expect(issued.requestBody.slice(0, DIGEST_BYTES)).toContain(CANARY);
   expect(issued.requestBody).toContain(PROMPT);
   expect(asText(issued.body)).toContain(COMPLETION);
   expect(toHex(payload.res)).toBe(sha256Hex(issued.body));
@@ -272,7 +272,7 @@ function check(issued: Issued): void {
   expect([...strings.keys()].sort()).toEqual([...ATTESTED_TEXT_POSITIONS.map((one) => one.path)].sort());
   expect(strings.size).toBe(ATTESTED_TEXT_POSITIONS.length);
   for (const [path, value] of strings) {
-    expect(value, `the text at ${path} carries a caller's words`).not.toContain(TOKEN);
+    expect(value, `the text at ${path} carries a caller's words`).not.toContain(CANARY);
   }
 
   // And no byte member carries them either. The request and the response travel as digests at the widths
@@ -334,10 +334,10 @@ describe('who writes a receipt', () => {
     // carrying the token as its model therefore earns no receipt, which is why no request spelling reaches
     // `mdl` at all.
     await close();
-    const credential: Generated = generated(`${TOKEN}-cred`, ['complete', 'read']);
+    const credential: Generated = generated(`${CANARY}-cred`, ['complete', 'read']);
     session = await harness({ credentials: [credential], gateway: {} });
     const target = '/v1/chat/completions';
-    const requestBody = `{"${TOKEN}":1,"model":"${NOT_DECLARED}","messages":[{"role":"user","content":"${PROMPT}"}]}`;
+    const requestBody = `{"${CANARY}":1,"model":"${NOT_DECLARED}","messages":[{"role":"user","content":"${PROMPT}"}]}`;
     const res = await session.app.inject({
       method: 'POST' as 'GET',
       url: target,
