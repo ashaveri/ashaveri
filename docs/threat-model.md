@@ -223,15 +223,35 @@ What is still true, in both modes:
   `ANCHOR_SLOT_NOT_HELD` at the point the artifact is handed over. It is a demand about the anchor and
   names no unit of time, and like the two windows it is not read from the wire, because a deployment
   cannot choose what a client asks of it. A policy naming nothing asks nothing, which is what keeps
-  every verdict taken under an earlier policy the verdict it was. What no client asks yet is whether a
-  slot stating `held` still resolves. That was answered by the availability of the material a verifier
-  holds and by nothing inside a signed document, and the pack moved the first half of that sentence: the
+  every verdict taken under an earlier policy the verdict it was. The second question about an anchor is
+  a client demand too: whether a slot stating `held` still resolves. `minAnchorSlotsWeighed` names how
+  many of the two slots the reader must reach and find standing as their own signed statement at the
+  instant the record claims. It is answered by the availability of the material a verifier holds and by
+  nothing inside a signed document, and the pack moved the first half of that sentence: the
   container that seals a receipt naming material carries that material in `carried`, and its reader
   recomputes every stated digest and refuses a slot the list does not answer as the pack's own failure, at
   the position that names it. A held slot inside a pack is therefore a claim the container is answerable
   for, while a held slot in a receipt fetched on its own is still a promise about somebody else's archive.
-  Neither shape states whether the bytes verify under the reader's roots, and that stays T12's limitation
-  rather than this bullet's.
+  The two ways that demand goes unanswered keep two codes, because an operator told only that an anchor
+  failed cannot act: a digest nothing reached answers `ANCHOR_MATERIAL_UNREACHED`, and reached material
+  whose signature nobody establishes, whose own statement names no window, whose window misses the
+  record's `iat`, or which the vendor itself withdraws answers `ANCHOR_MATERIAL_NOT_STANDING`. What is
+  weighed is the window the material states for itself against the instant the record claims, never the
+  state an appraisal settled on, because material read out of a container states no instant at which
+  anybody watched an origin answer, so such a reading is never a current one and never arrives with a
+  closed window beside it. Whether the vendor stands behind a level is the collateral package's own
+  question, under `COLLATERAL_REVOKED_BY_VENDOR`, reported here as the reading that failed in its own
+  words; how recently that standing was watched stays T12's limitation rather than this bullet's.
+- **A client can demand a shape of the text a deployment authors.** The writer refuses to sign any text
+  member carrying a character that could end or reorder the line a report is read off, and that refusal is
+  one producer's standard, stated where bytes are made. What a particular auditor accepts from any
+  producer at all is a reader's decision, so `attestedTextShapes` on the policy names a shape for each text
+  member a deployment authors, keyed by the payload's own member names, and a receipt whose text is outside
+  it answers `ATTESTED_TEXT_OUTSIDE_SHAPE`. The refusal names the position, the shape it did not match and
+  the length of what was found, and never the value, because the class this rule runs over is the class that
+  forges a printed line and a refusal that pasted it in would carry the forgery into the tool reporting it.
+  A policy naming no shape demands nothing of any member, so no document that verified before this field
+  exists verifies differently now.
 - **The gateway does not deep-verify its own evidence.** It reads the measurement and the
   report-data binding; the certificate chain, TCB and event-log replay are the client's job,
   through `@ashaveri/sdk` in strict mode or `@ashaveri/cli`. That is deliberate, but it means a
