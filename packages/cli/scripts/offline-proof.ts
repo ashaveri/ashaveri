@@ -25,8 +25,8 @@ import { secondsOf, signedDocument, tcbInfo, testVendor } from '../../collateral
  * receipt it is about to check, and this started life as a script pasted into the workflow file. That shape
  * is the reason it is a file now: a heredoc inside a job is read by no `tsconfig`, so a wrong field name in
  * it fails on a runner, in a pull request, with nothing local able to reach it first. As a script it is
- * typechecked with the rest of this package and runnable by hand, which is the only way the bundle's proof
- * can be observed anywhere other than Actions.
+ * typechecked with the rest of this package and runnable from the repository root, which is the only way
+ * the bundle's proof can be observed anywhere other than Actions.
  *
  * The receipt runs live here for the same reason, and they are the reason that reason is written down: a
  * claim checked in two places is checked by whichever reader reaches both, and a workflow step is reached

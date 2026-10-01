@@ -120,8 +120,9 @@ jobs:
       # Nothing in this job asserts anything about the artifact, and that is the property: a check written
       # in this file is read by no typechecker and reached by no test suite, so it is only ever observed
       # failing on a runner, while the same check in `packages/cli/scripts/offline-proof.ts` is typechecked
-      # with the package whose bundle it proves and runs wherever a hand asks it to. The directory comes
-      # from `mktemp -d` because the proof refuses one spelled relatively or sitting inside this checkout.
+      # with the package whose bundle it proves and runs from any working directory a caller chooses. The
+      # directory comes from `mktemp -d` because the proof refuses one spelled relatively or sitting inside
+      # this checkout.
       - name: Run the bundled verifier outside the checkout
         run: |
           set -euo pipefail
