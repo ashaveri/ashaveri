@@ -547,8 +547,9 @@ not the spelling a request asked for, `mk.sch` from the marking scheme this proc
 with, `sd.name` from the clock source named at construction, and the two reasons of `cva`
 from literals at `issuance-disclosure.ts`, the one site that builds an anchor. The request
 and the response travel into the document only as digests, at the widths the format states,
-and the one member a caller does write is `nce`, the sixteen nonce bytes it named for itself,
-whose link section 8.3 states. The exception is `att.url`, which nothing in this repository
+and the one member a caller may write is `nce`, the sixteen nonce bytes it names in
+`x-ashaveri-nonce`, which this gateway draws at random for itself when that header is absent.
+The exception is `att.url`, which nothing in this repository
 authors: its value is what the deployment's attestation provider hands back beside the evidence
 it collected. `gateway/test/receipt-provenance.test.ts` holds that list against a document
 a running gateway issued, member by member, and fails if a text member arrives that the case
