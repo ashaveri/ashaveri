@@ -34,6 +34,15 @@ function url(over: Partial<CollateralQuery> = {}): string {
   throw new Error(`the query was refused before a URL: ${asked.refusal.detail}`);
 }
 
+/**
+ * A body of the wrapper shape, made here rather than taken from anywhere. This path weighs a body and never
+ * reads one, so nothing below depends on a member of it; only its length matters.
+ */
+const servedBody = `{"tcbInfo":{"fmspc":"${CPU_TYPE}"},"signature":"${'ab'.repeat(64)}"}`;
+
+/** One PEM block, sent the way a chain arrives: URL-encoded, so the value holds no literal newline. */
+const onePem = encodeURIComponent('-----BEGIN CERTIFICATE-----\nMIID\n-----END CERTIFICATE-----');
+
 /** A transport that answers whatever the test needs answered, and keeps what it was asked with. */
 function recorder(reply: (init: RequestInit) => Response | Promise<Response>) {
   const seen: { url: string; init: RequestInit }[] = [];
@@ -113,6 +122,40 @@ describe('the Intel retrieval path', () => {
     } else {
       throw new Error(outcome.refusal.detail);
     }
+  });
+
+  it('returns the issuer chain beside the document when the declaration names a header', async () => {
+    // A chain has to be asked for by the name that document's own answer was recorded under, and the two
+    // documents spell it differently, so each declaration carries its own rather than one shared guess.
+    expect(INTEL_TCB_INFO.chainHeader).toBe('TCB-Info-Issuer-Chain');
+    expect(INTEL_QE_IDENTITY.chainHeader).toBe('SGX-Enclave-Identity-Issuer-Chain');
+    const outcome = await fetchFromOrigin(url(), INTEL_TCB_INFO, {
+      transport: async () => new Response(servedBody, { headers: { [INTEL_TCB_INFO.chainHeader as string]: onePem } }),
+      clock: () => 1790000000,
+    });
+    if (!('fetched' in outcome)) throw new Error(`expected a fetch, saw ${JSON.stringify(outcome)}`);
+    expect(new TextDecoder().decode(outcome.fetched.chain)).toBe(onePem);
+  });
+
+  it('reports no chain rather than refusing when the header is absent', async () => {
+    const outcome = await fetchFromOrigin(url(), INTEL_TCB_INFO, { transport: async () => new Response(servedBody) });
+    if (!('fetched' in outcome)) throw new Error(`expected a fetch, saw ${JSON.stringify(outcome)}`);
+    expect(outcome.fetched.chain).toBeNull();
+    expect(outcome.fetched.bytes.byteLength).toBeGreaterThan(0);
+  });
+
+  it('keeps every certificate and the order the vendor sent them in', async () => {
+    const leaf = encodeURIComponent('-----BEGIN CERTIFICATE-----\nA\n-----END CERTIFICATE-----');
+    const root = encodeURIComponent('-----BEGIN CERTIFICATE-----\nB\n-----END CERTIFICATE-----');
+    const two = `AA${leaf}%0A${root}BB`;
+    const outcome = await fetchFromOrigin(url(), INTEL_TCB_INFO, {
+      transport: async () => new Response(servedBody, { headers: { [INTEL_TCB_INFO.chainHeader as string]: two } }),
+    });
+    if (!('fetched' in outcome)) throw new Error('expected a fetch');
+    const kept = new TextDecoder().decode(outcome.fetched.chain);
+    expect(kept.startsWith('AA')).toBe(true);
+    expect(kept.endsWith('BB')).toBe(true);
+    expect(kept).toBe(two);
   });
 
   it('refuses an address that names any host but the declared one, before asking it', async () => {

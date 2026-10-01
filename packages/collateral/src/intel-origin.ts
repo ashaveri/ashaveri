@@ -33,6 +33,17 @@ export interface OriginDeclaration {
     readonly mediaType: string;
     readonly certificateMember: 'x5c';
   };
+  /**
+   * The response header that carries this document's issuer chain, or null where no served answer recorded here
+   * names one. A signature is only as good as the path from it to a name a reader pinned, and that path arrives
+   * beside the body rather than inside it, so the bytes are kept as the vendor sent them and nothing here
+   * decodes, reorders or drops one.
+   *
+   * The spelling belongs to one document at one version, so it is read off that document's own cited answer,
+   * quoted in the note above each declaration below: a name remembered from a neighbouring document, or from
+   * the same document at another version, asks for a header no answer carries.
+   */
+  readonly chainHeader: string | null;
   /** Where the signed window is written, and inside which member of the payload it is written. */
   readonly window: {
     readonly documentMember: string | null;
@@ -214,6 +225,8 @@ export const INTEL_TCB_INFO: OriginDeclaration = {
   name: 'intel-tcb-info',
   documentPath: 'tcb',
   cpuTypeMember: 'fmspc',
+  /** The header the citation above records this document's chain arriving in, at the v4 address this path asks. */
+  chainHeader: 'TCB-Info-Issuer-Chain',
   window: { documentMember: 'tcbInfo', signedMember: 'issueDate', nextUpdateMember: 'nextUpdate' },
   identity: {
     /** The vendor's own member, the same name the request is built with. See the citation above. */
@@ -254,6 +267,8 @@ export const INTEL_QE_IDENTITY: OriginDeclaration = {
   name: 'intel-qe-identity',
   documentPath: 'qe/identity',
   cpuTypeMember: null,
+  /** The header the note above records this document's chain arriving in, spelled after the enclave identity. */
+  chainHeader: 'SGX-Enclave-Identity-Issuer-Chain',
   window: { documentMember: 'enclaveIdentity', signedMember: 'issueDate', nextUpdateMember: 'nextUpdate' },
   identity: {
     cpuTypeMember: null,

@@ -98,7 +98,7 @@ async function appraise(
   if (typeof url !== 'string') {
     return missingContext(url.refusal);
   }
-  let observed: { readonly bytes: Uint8Array; readonly observedAt: number } | { readonly refusal: CollateralRefusal };
+  let observed: { readonly bytes: Uint8Array; readonly chain: Uint8Array | null; readonly observedAt: number } | { readonly refusal: CollateralRefusal };
   if (query.retained === null) {
     const asked = await fetchFromOrigin(url, declaration, { transport: options.transport, clock: options.clock ?? wallClock });
     if ('refusal' in asked) {
@@ -111,7 +111,9 @@ async function appraise(
         collateralRefusal('COLLATERAL_INPUT_MISSING', 'the retained bytes carry no stamp for when they were seen', ['retained.observedAt']),
       );
     }
-    observed = { bytes: query.retained.bytes, observedAt: query.retained.observedAt };
+    // A header is not a member of a body, so bytes kept from an earlier run, or sealed inside a container,
+    // reach this reading with no chain beside them. The absence is carried rather than invented.
+    observed = { bytes: query.retained.bytes, chain: null, observedAt: query.retained.observedAt };
   }
   const read = readSignedCollateral(observed.bytes, { query, declaration, appraisalAt });
   if ('refusal' in read) {
