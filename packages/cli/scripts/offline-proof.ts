@@ -453,10 +453,9 @@ function runBundle(workDir: string, args: readonly string[]): BundleRun {
   const result = spawnSync(process.execPath, [BUNDLE_NAME, ...args], {
     cwd: workDir,
     encoding: 'utf8',
-    // The slowest of the thirteen runs below measures 192 ms here, which is one Node start, a pack with one
-    // inner receipt, and the carried material read as a signature under the root that run named; the ceiling
-    // is over a hundred and fifty times that, so a hang on a runner is a failure naming one command rather
-    // than a job timeout naming a step.
+    // Each run below starts one Node process over a directory holding nothing but the artifact and its
+    // inputs, so a ceiling this far above the work answers a hang with the one command that hung, rather
+    // than with a job timeout naming a step.
     timeout: 30_000,
     killSignal: 'SIGKILL',
   });
