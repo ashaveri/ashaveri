@@ -199,6 +199,24 @@ What is still true, in both modes:
   asks no origin anything, reaches no network, feeds no attestation
   verdict, and changes what T12 says about a platform the vendor has since deprecated. This document describes
   the offline path as it is built.
+- **The origins that hold those answers are gated, and one of them is not.** NVIDIA's RIM service and NRAS
+  both require an NVIDIA attestation account, so a golden driver or VBIOS measurement, or a revocation
+  verdict from NRAS, is an external dependency to be agreed with NVIDIA rather than a stance this code chose
+  to take. Intel's balance is the other way and belongs beside that: its PCK CRL is published for anonymous
+  retrieval and carries a month of freshness, so a fetch and compare has material to work with and an answer
+  to state.
+- **The vendor certificates state where revocation is published.** Certificate by certificate, over the ten
+  certificates the six tracked `.pem` fixtures hold and the three the tracked TDX quote carries: the AMD Milan
+  ARK and ASK
+  each hold a CRL distribution point at `https://kdsintf.amd.com/vcek/v1/Milan/crl`; Intel's SGX Root CA and
+  the PCK Platform CA inside that quote each hold one at
+  `https://certificates.trustedservices.intel.com/IntelSGXRootCA.der`, and the quote's PCK leaf holds one at
+  the published CRL route itself; two of the five Hopper chain certificates, NVIDIA GH100 Identity and NVIDIA
+  GH100 Provisioner ICA 1, hold both an OCSP pointer to `http://ocsp.ndis.nvidia.com` and a CRL point under
+  `http://crl.ndis.nvidia.com`. The per-chip VCEK, the GPU device leaf, that leaf's BROM certificate and the
+  pinned NVIDIA Device Identity CA root hold neither. So revocation being out of scope describes what this
+  code reads and not a silence in the material: the pointers are in the bytes a verifier already holds, and
+  none of them is followed.
 - **The client's clock is a stranger's, and its two windows are chosen numbers.** In strict mode the
   client refuses a receipt whose `iat` is more than 300 seconds from its own clock, and evidence
   whose `att.ts` is more than 900 seconds from it. Those bound how much skew between two

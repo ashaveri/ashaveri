@@ -19,7 +19,17 @@ import { fail } from './errors.js';
  * signed document: the host's request is prepended to the GPU's response, and the
  * signature covers both. Nothing here reaches out to NVIDIA's attestation service,
  * the same posture the TDX and SNP legs keep, so certificate revocation and the
- * golden driver and VBIOS measurements are out of scope by design.
+ * golden driver and VBIOS measurements are out of scope.
+ *
+ * That limit is not only a preference. NVIDIA's RIM service and NRAS each sit behind an
+ * NVIDIA attestation account, so a golden measurement or an NRAS verdict is an external
+ * dependency to be agreed with NVIDIA rather than a call this package could simply make.
+ *
+ * Nor do the certificates hide the revocation question. Of the five in
+ * `test/fixtures/nvidia-hopper-cert-chain.pem`, NVIDIA GH100 Identity and NVIDIA GH100
+ * Provisioner ICA 1 each carry an OCSP pointer and a CRL distribution point, and the
+ * device leaf, its BROM certificate and the pinned root carry neither. Nothing above is
+ * consulted here.
  */
 
 /**
