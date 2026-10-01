@@ -96,7 +96,7 @@ countersignature variants (RFC 9338), if ever needed, would be a new format vers
 
 | Field | Type | Meaning |
 |---|---|---|
-| `v` | int | Payload version, and the member that says which shape the rest of the map is: `1` is the thirteen fields of this table, `2` is those same thirteen plus a required `mk`, and `3` is those fourteen plus a required `sd`, `cva` and `itm`, as [`receipt.cddl`](../packages/receipt/receipt.cddl) defines. Which of the three a verifier reads is section 6's rule, and the map is closed, so a member a document carries that its own version does not define is a malformed payload rather than one the reader leaves out. |
+| `v` | int | Payload version, and the member that says which shape the rest of the map is. The format declares one payload version, `1`, and it states the seventeen members of this table: the twelve fields every receipt carries beside `v`, then a required `mk`, `sd`, `cva` and `itm`, as [`receipt.cddl`](../packages/receipt/receipt.cddl) defines. Which numbers a call reads is section 6's rule, and the map is closed, so a member a document carries that the version it names does not define is a malformed payload rather than one the reader leaves out. |
 | `iss` | tstr | Issuing deployment identity. |
 | `ins` | tstr | Issuing instance identity. |
 | `iat` | int | Issuance time, Unix seconds: the instant this deployment's declared time source read when it signed, and the instant a verifier's receipt window is measured from. What it proves is bounded by what it is: the moment a signing process believed, and the source it believed it from, and nothing about how far that source can stand from the truth. Absent a source a deployment wired, that is the host's own clock at an uncertainty nobody measured, so an unstamped deployment signs a host claim and a verifier reads it as one. The payload carries the source and its bound beside the instant in `sd`, so a verifier never has to go outside the document for that pair and never reads the instant as a claim about a clock the receipt does not name. Where no source was wired the disclosure states that rather than omitting itself, and `unc: null` is the sentence "nobody measured how far this stands from the truth". The map is closed, and the bytes at one instant are the same bytes whatever the clock of the host that wrote them turned out to be. |
@@ -141,8 +141,8 @@ All integers are non-negative. Every one of them is a CBOR integer as well: the 
 where no floating-point number may appear, at any depth, so a `tok.p` written as the float `128.0` and
 an `iat` written as the half-precision negative zero `f9 80 00` are malformed payloads (`BAD_PAYLOAD`)
 rather than 128 and 0 read loosely. The positions are `v`, `iat`, `att.ts`, `epk`, `tok.p`, `tok.c` and
-`itm.t`: six the normative CDDL writes `int`, and the version it writes as the integer literals `1`,
-`2` and `3`, which a `1.0` does not become. The one position that also takes `null` is `sd.unc`, and
+`itm.t`: six the normative CDDL writes `int`, and the version it writes as the integer literal `1`,
+which a `1.0` does not become. The one position that also takes `null` is `sd.unc`, and
 the decode reaches it the same way it reaches every other value of a map whose every member the file
 names: a float there is refused, and no reading of "or nothing" is offered in its place. The writer
 that issues a receipt keeps the same rule from its own side, and `encodeCanonical` in this repository
@@ -650,7 +650,8 @@ steps are one receipt.
    response that does carry a marked region is refused over that receipt too. The other two failures
    keep their own codes: a mark deleted from bytes a reader stored moves `res` and stops at step 7,
    and `INVALID_SIGNATURE` stays the answer about a receipt that is not authentic. A reader handed no
-   response bytes performs no marking check, and a `v: 1` payload makes no marking claim to check.
+   response bytes performs no marking check, because every payload this format states names a marking and
+   the bytes `mk.d` is a digest of sit in the response rather than in the document.
 9. **Check policy pins.** Issuer, instance, and measurement must each be pinned by the
    policy when the client pins that dimension.
 10. **Verify the evidence the receipt commits to.** Strict mode only. The client asks the
@@ -1003,11 +1004,13 @@ that schema disagree, the schema is the authority and this prose is wrong.
 
 The identity that schema answers to carries its version, `https://ashaveri.com/schemas/retention-v1.json`,
 and the receipt and pack twins beside it now do the same. An identity that names no version has to mean two
-documents the moment a second one is defined, which is the state the pack and retention families are in: each
-carries a `v: 1` and a `v: 2` document with real bytes behind both. The receipt family is one document,
-section 6's `v: 1`, and its identity names that. `packages/fixtures/test/schema-identity.test.ts` holds every
-published schema to that rule, in both directories, so the convention is a checked property of the tree
-rather than a habit this sentence asks a reader to trust.
+documents the moment a second one is defined, which is the state the retention family is in: it carries a
+`v: 1` and a `v: 2` document with real bytes behind both, and a reader refuses a version its own set does
+not name. The receipt family is one document, section 6's `v: 1`, and its identity names that, as the pack
+family is one document at [`pack.cddl`](../packages/receipt/pack.cddl)'s own `v: 1`.
+`packages/fixtures/test/schema-identity.test.ts` holds every published schema to that rule, in both
+directories, so the convention is a checked property of the tree rather than a habit this sentence asks a
+reader to trust.
 
 The generator that fills these fields is not part of this repository, and nothing in this repository's shipped
 deployment path writes the document: a gateway that closes a window hands the store's state to a tool on the paid

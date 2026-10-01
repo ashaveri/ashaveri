@@ -63,7 +63,7 @@ Each row says what the member states, what a reader may conclude from it, and wh
 | `acquired.sourceStatedAt` | the timestamp the source claimed, or none | that the two stamps agree, or that the record says how they do not | that either is right |
 | `manifests.deployment` | the manifest the source served, as served | which pins were in force at that instant, from a document rather than a summary | that the manifest was this deployment's: the record authenticates nothing, and a sealed manifest is only attributed by a reader that holds the key that signed it |
 | `check.policyVersion`, `policyDigest` | which policy rules, and the digest of the document used | which pins the check read, given the document | that the check was right to read them |
-| `check.receiptFormatVersion` | which receipt version the check read, of the three the format defines | that a reader reads the bytes at the version named and refuses one it does not | that the version was current, which it need not be |
+| `check.receiptFormatVersion` | which receipt version the check read, of the one version the format defines | that a reader reads the bytes at the version named and refuses one it does not | that the version was current, which it need not be |
 | `check.verifierVersion` | which verifier build ran | which procedure produced the context | that the procedure was correct |
 | `check.appraisedAt` | when the appraisal ran, on our clock | that the appraisal could have seen these bytes | anything about validity, which lives in `context.validity` |
 | `context.collateral` | the vendor chain the bytes were appraised against | that a verdict about the signature has something to stand on | that the chain was this platform's |
@@ -71,11 +71,11 @@ Each row says what the member states, what a reader may conclude from it, and wh
 | `trust.roots` | which references the check believed | that a caller who pinned the same bytes can agree, and one who pinned others is refused | that an unnamed or unpinned root was any root in particular |
 | `trust.limits` | how far the check let a clock sit from the bytes | that the verdict was reached under a window this caller would accept | a pass. The reader runs its own windows and reports a difference |
 
-## Which receipt versions a record may name
+## Which receipt version a record may name
 
-`check.receiptFormatVersion` carries one of `1`, `2` or `3`, which is every payload version
+`check.receiptFormatVersion` carries `1`, which is every payload version
 [`receipt.cddl`](../packages/receipt/receipt.cddl) defines and every version `@ashaveri/receipt` parses.
-The list is the same on both sides of the reader: `enum: [1, 2, 3]` in the published schema and
+The list is the same on both sides of the reader: `enum: [1]` in the published schema and
 `IMPLEMENTED_RECEIPT_FORMAT_VERSIONS` in `capture.ts`, held to each other by
 `packages/sdk/test/capture.test.ts` at the boundary of the list, so a version gained on one side without the
 other fails the assertion belonging to the side that moved rather than passing in silence.

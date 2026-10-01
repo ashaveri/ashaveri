@@ -155,7 +155,7 @@ reviewer should weigh.
 
 ## The material a pack carries
 
-An anchor slot of a `v: 3` receipt states either a digest of material that was taken in or the collector's own
+An anchor slot of a sealed receipt states either a digest of material that was taken in or the collector's own
 sentence for why there are no bytes. A pack that seals such a receipt answers the first kind inside itself: the
 `carried` list holds one entry per object, each entry the bytes and the sha256 of exactly those bytes, and
 `resolveCarried` hands a caller the object a digest names out of the container rather than an endpoint.
