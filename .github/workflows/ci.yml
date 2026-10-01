@@ -52,10 +52,13 @@ jobs:
       # These are the two suites that read file modes and rename behaviour back off disk, which is what
       # differs between platforms; the other four stay on Linux on cost grounds. The `...` pulls in the
       # packages these two import, whose declarations are build output, so it is a build of the tested
-      # pair and their dependencies, not a wider run.
+      # pair and their dependencies, not a wider run. The test step takes one package at a time
+      # because the ceilings in those two suites are read off the waits each case sets for itself,
+      # and a case scheduled against a sibling package's whole suite is measured against a machine
+      # that is doing something else.
       - run: pnpm -r --filter "@ashaveri/signerd..." --filter "@ashaveri/cli..." build
       - run: pnpm -r --filter "@ashaveri/signerd" --filter "@ashaveri/cli" typecheck
-      - run: pnpm -r --filter "@ashaveri/signerd" --filter "@ashaveri/cli" test
+      - run: pnpm -r --workspace-concurrency=1 --filter "@ashaveri/signerd" --filter "@ashaveri/cli" test
 
   generated-vectors:
     name: Regenerating the vectors changes nothing
@@ -86,6 +89,7 @@ jobs:
       - run: pnpm -C packages/fixtures generate:manifest
       - run: pnpm -C packages/fixtures generate:pack
       - run: pnpm -C packages/fixtures generate:redaction
+      - run: pnpm -C packages/fixtures generate:epoch-inventory
       - run: git diff --exit-code packages/fixtures/data
 
   offline-verifier:
@@ -109,50 +113,21 @@ jobs:
       # one, because the command imports the receipt, the client and the attestation packages.
       - run: pnpm -r --filter "@ashaveri/cli..." build
       - run: pnpm -C packages/cli bundle
-      # A bundle that builds has proved nothing about running, so this step leaves the checkout
-      # entirely: the directory it works in holds the artifact, two committed receipt vectors, and the
-      # policy and manifest the run reads. It has no node_modules in it and no parent that does, and
-      # the runs below assert the exit codes rather than printing them.
+      # A bundle that builds has proved nothing about running, so the step below leaves the checkout
+      # entirely: it makes one directory and reaches the proof with it, and the proof fills that directory
+      # with the artifact, the committed vectors, and the policy, manifest and four values its own runs
+      # read, then starts the file from inside it and asserts the exit codes rather than printing them.
+      # Nothing in this job asserts anything about the artifact, and that is the property: a check written
+      # in this file is read by no typechecker and reached by no test suite, so it is only ever observed
+      # failing on a runner, while the same check in `packages/cli/scripts/offline-proof.ts` is typechecked
+      # with the package whose bundle it proves and runs from any working directory a caller chooses. The
+      # directory comes from `mktemp -d` because the proof refuses one spelled relatively or sitting inside
+      # this checkout.
       - name: Run the bundled verifier outside the checkout
         run: |
           set -euo pipefail
           work="$(mktemp -d)"
-          cp packages/cli/dist/ashaveri-bundle.mjs "$work/ashaveri.mjs"
-          cp packages/fixtures/data/receipts/receipt-valid-v1.cbor "$work/"
-          cp packages/fixtures/data/receipts/receipt-tampered-v1.cbor "$work/"
           node --experimental-strip-types packages/cli/scripts/offline-proof.ts "$work" packages/fixtures/data
-          # Nothing outside the standard library may be resolved from outside the file, or the
-          # artifact would still need an installed tree to start. The scan is anchored to line starts
-          # on purpose: an unanchored search for `from '...'` also matches that text inside a string
-          # or a comment, and the bundle carries both, so the guard would refuse a good artifact. A
-          # specifier the file genuinely imports is a line that begins with `import` or `export`.
-          left="$(grep -oE "^[[:space:]]*(import|export)[^;]*from ['\"][^'\"]+['\"]" "$work/ashaveri.mjs" | grep -vE "['\"](node:|\.)" || true)"
-          if [ -n "$left" ]; then
-            printf '%s\n' "$left" >&2
-            echo 'the bundle imports a module it did not bundle' >&2
-            exit 1
-          fi
-          test ! -e "$work/node_modules"
-          cd "$work"
-          # shellcheck disable=SC1091
-          . ./args.env
-          node ashaveri.mjs verify-receipt receipt-valid-v1.cbor --policy policy.json \
-            --manifest manifest.json --nonce "$NONCE" --request-hash "$REQ" --response-hash "$RES" \
-            --now "$NOW" --json > verified.json
-          echo "the published vector exited $?"
-          grep -q '"ok": true' verified.json
-          status=0
-          node ashaveri.mjs verify-receipt receipt-tampered-v1.cbor --policy policy.json \
-            --manifest manifest.json --nonce "$NONCE" --request-hash "$REQ" --response-hash "$RES" \
-            --now "$NOW" --json > tampered.json || status=$?
-          echo "the tampered vector exited $status"
-          test "$status" -eq 1
-          grep -q '"code": "INVALID_SIGNATURE"' tampered.json
-          status=0
-          node ashaveri.mjs verify-receipt receipt-valid-v1.cbor > usage.txt 2>&1 || status=$?
-          echo "a run with no policy or manifest exited $status"
-          test "$status" -eq 2
-          node ashaveri.mjs --version
 
   secret-scan:
     name: Secret scan over the full commit history

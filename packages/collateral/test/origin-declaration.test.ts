@@ -24,11 +24,11 @@ import {
 } from './support/collateral-documents.js';
 
 const FMSPC = '00906EA00000';
-const LEVEL_DATE = '2026-09-01T00:00:00.000Z';
-const NEXT_UPDATE = '2026-10-01T00:00:00.000Z';
-const WITHIN = secondsOf('2026-09-15T00:00:00.000Z');
-const AFTER = secondsOf('2026-11-15T00:00:00.000Z');
-const OBSERVED = secondsOf('2026-09-15T06:00:00.000Z');
+const LEVEL_DATE = '2026-09-01T00:00:00Z';
+const NEXT_UPDATE = '2026-10-01T00:00:00Z';
+const WITHIN = secondsOf('2026-09-15T00:00:00Z');
+const AFTER = secondsOf('2026-11-15T00:00:00Z');
+const OBSERVED = secondsOf('2026-09-15T06:00:00Z');
 
 const vendor = testVendor();
 
@@ -46,7 +46,7 @@ function query(over: Partial<CollateralQuery> = {}): CollateralQuery {
   };
 }
 
-function levelDocument(signer: TestVendor = vendor, status = 'OK', fmspc = FMSPC): Uint8Array {
+function levelDocument(signer: TestVendor = vendor, status = 'UpToDate', fmspc = FMSPC): Uint8Array {
   return signedDocument(
     tcbInfo({
       fmspc,
@@ -66,7 +66,7 @@ function paddedDocument(signer: TestVendor = vendor): Uint8Array {
         fmspc: FMSPC,
         issueDate: LEVEL_DATE,
         nextUpdate: NEXT_UPDATE,
-        levels: [{ tcbDate: LEVEL_DATE, tcbStatus: 'OK' }],
+        levels: [{ tcbDate: LEVEL_DATE, tcbStatus: 'UpToDate' }],
       }),
       padding: 'x'.repeat(90000),
     },
@@ -111,10 +111,10 @@ const failures: readonly { readonly slot: keyof OriginDeclaration['refusals']; r
   { slot: 'oversize', outcome: () => ask({}, serve(paddedDocument())) },
   { slot: 'envelope', outcome: () => ask({}, serve(new TextEncoder().encode('not a jose message'))) },
   { slot: 'window', outcome: () => ask({ appraisalAt: AFTER }, serve(levelDocument())) },
-  { slot: 'identity', outcome: () => ask({}, serve(levelDocument(vendor, 'OK', '00A0F0000000'))) },
+  { slot: 'identity', outcome: () => ask({}, serve(levelDocument(vendor, 'UpToDate', '00A0F0000000'))) },
   {
     slot: 'levels',
-    outcome: () => ask({ level: { by: 'tcb-date', value: '2027-01-01T00:00:00.000Z' } }, serve(levelDocument())),
+    outcome: () => ask({ level: { by: 'tcb-date', value: '2027-01-01T00:00:00Z' } }, serve(levelDocument())),
   },
   {
     slot: 'statusUnknown',
@@ -146,7 +146,7 @@ describe('the declaration of the Intel retrieval path', () => {
     };
     expect(requestUrl(query(), spelled)).toBe(`https://${INTEL_TCB_INFO.host}/tdx/certification/v9/tcb?pcpu=${FMSPC.toLowerCase()}`);
     const qe: OriginDeclaration = { ...INTEL_QE_IDENTITY, documentPath: 'qe/self' };
-    expect(requestUrl(query({ origin: 'intel-qe-identity', cpuType: null, level: null }), qe)).toBe(
+    expect(requestUrl(query({ origin: 'intel-qe-identity', cpuType: null }), qe)).toBe(
       `https://${INTEL_QE_IDENTITY.host}/tdx/certification/v4/qe/self`,
     );
   });
@@ -218,7 +218,7 @@ describe('the declaration of the Intel retrieval path', () => {
     }
     const unlisted = await ask({}, serve(levelDocument(vendor, 'OutOfDateConfiguration')));
     expect(codeOf(unlisted)).toBe(INTEL_TCB_INFO.refusals.statusUnknown);
-    expect(INTEL_TCB_INFO.status.trusted).toEqual(['OK']);
+    expect(INTEL_TCB_INFO.status.trusted).toEqual(['UpToDate']);
   });
 
   it('takes the member it names for the document rather than one it remembers', () => {
@@ -226,13 +226,13 @@ describe('the declaration of the Intel retrieval path', () => {
       fmspc: FMSPC,
       issueDate: LEVEL_DATE,
       nextUpdate: NEXT_UPDATE,
-      levels: [{ tcbDate: LEVEL_DATE, tcbStatus: 'OK' }],
+      levels: [{ tcbDate: LEVEL_DATE, tcbStatus: 'UpToDate' }],
     }) }, vendor);
     const declared: OriginDeclaration = { ...INTEL_TCB_INFO, window: { ...INTEL_TCB_INFO.window, documentMember: 'body' } };
     const reading = { query: query(), declaration: declared, appraisalAt: WITHIN };
     const believed = readSignedCollateral(nested, reading);
     if ('refusal' in believed) throw new Error(`the declared member was not read: ${believed.refusal.detail}`);
-    expect(believed.read.vendorStatus).toBe('OK');
+    expect(believed.read.vendorStatus).toBe('UpToDate');
     expect(believed.read.validUntil).toBe(secondsOf(NEXT_UPDATE));
 
     const asUsual = readSignedCollateral(nested, { query: query(), declaration: INTEL_TCB_INFO, appraisalAt: WITHIN });
@@ -244,9 +244,14 @@ describe('the declaration of the Intel retrieval path', () => {
     expect(collateralCacheKey(query(), INTEL_TCB_INFO)).toBe(
       `origin=intel-tcb-info|platform=tdx|cpuType=${FMSPC.toLowerCase()}|level=tcb-date=${LEVEL_DATE}`,
     );
-    expect(collateralCacheKey(query({ origin: 'intel-qe-identity', cpuType: null, level: null }), INTEL_QE_IDENTITY)).toBe(
-      'origin=intel-qe-identity|platform=tdx',
+    expect(collateralCacheKey(query({ origin: 'intel-qe-identity', cpuType: null }), INTEL_QE_IDENTITY)).toBe(
+      `origin=intel-qe-identity|platform=tdx|level=tcb-date=${LEVEL_DATE}`,
     );
+    // The QE Identity body states its status per rung, so a question naming none keys nothing: the answer
+    // these bytes give depends on the rung asked, and a store that could not name it would mix rungs.
+    expect(collateralCacheKey(query({ origin: 'intel-qe-identity', cpuType: null, level: null }), INTEL_QE_IDENTITY)).toEqual({
+      missing: ['level'],
+    });
     const narrower: OriginDeclaration = {
       ...INTEL_TCB_INFO,
       cache: { ...INTEL_TCB_INFO.cache, keyMembers: ['origin', 'platform', 'cpuType'] },
@@ -254,7 +259,6 @@ describe('the declaration of the Intel retrieval path', () => {
     expect(collateralCacheKey(query(), narrower)).toBe(`origin=intel-tcb-info|platform=tdx|cpuType=${FMSPC.toLowerCase()}`);
     expect(collateralCacheKey(query({ appraisalAt: AFTER }), INTEL_TCB_INFO)).toBe(collateralCacheKey(query(), INTEL_TCB_INFO));
     expect(INTEL_TCB_INFO.cache.keyMembers).toContain('level');
-    expect(INTEL_QE_IDENTITY.cache.keyMembers).toEqual(['origin', 'platform']);
   });
 
   it('holds the cache rule it states: the vendor expires the record, and a kept blob never answers now', async () => {
@@ -274,7 +278,13 @@ describe('the declaration of the Intel retrieval path', () => {
     expect(INTEL_QE_IDENTITY.cache.answersCurrentQuestions).toBe(false);
   });
 
-  it('states one envelope, one suite and one certificate member for both documents', () => {
+  /**
+   * The positions the vendor's served answers settle, read off the declaration that points at them. Each
+   * name and each word here is copied from a body cited at `intel-origin.ts`, and a case in `read.test.ts`
+   * reads a document laid out this way, so neither the declaration nor the test support vouches for the
+   * other: the served shape is the third thing both are checked against.
+   */
+  it('states the members and the words the vendor serves, for both documents', () => {
     for (const declaration of [INTEL_TCB_INFO, INTEL_QE_IDENTITY]) {
       expect(declaration.signature.envelope).toBe('jws-compact');
       expect(declaration.signature.algorithm).toBe('ES256');
@@ -283,12 +293,26 @@ describe('the declaration of the Intel retrieval path', () => {
       expect(declaration.window.signedMember).toBe('issueDate');
       expect(declaration.window.nextUpdateMember).toBe('nextUpdate');
       expect(declaration.identity.statusMember).toBe('tcbStatus');
+      expect(declaration.identity.levelsMember).toBe('tcbLevels');
+      expect(declaration.identity.levelDateMember).toBe('tcbDate');
+      expect(declaration.identity.levelCompositionMember).toBe('tcb');
+      expect(declaration.identity.levelCompositionStatedAs).toBe('component-numbers');
       expect(declaration.maxResponseBytes).toBe(65536);
       expect(declaration.timeoutMs).toBe(5000);
     }
-    expect(INTEL_TCB_INFO.identity.levelsMember).toBe('tcb');
     expect(INTEL_TCB_INFO.window.documentMember).toBe('tcbInfo');
-    expect(INTEL_QE_IDENTITY.identity.levelsMember).toBeNull();
-    expect(INTEL_QE_IDENTITY.window.documentMember).toBeNull();
+    expect(INTEL_QE_IDENTITY.window.documentMember).toBe('enclaveIdentity');
+    // The vendor spells the CPU type one name in both positions, so the declaration does too: the
+    // address this path asks and the identity the signed document declares are the same member.
+    expect(INTEL_TCB_INFO.cpuTypeMember).toBe('fmspc');
+    expect(INTEL_TCB_INFO.identity.cpuTypeMember).toBe(INTEL_TCB_INFO.cpuTypeMember);
+    expect(INTEL_QE_IDENTITY.identity.cpuTypeMember).toBeNull();
+    // A kept QE Identity blob answers about one rung of the ladder the served body states, so its key
+    // names the rung. A served answer states one status per level on both documents, never one per body.
+    expect(INTEL_QE_IDENTITY.cache.keyMembers).toEqual(['origin', 'platform', 'level']);
+    expect(INTEL_TCB_INFO.cache.keyMembers).toEqual(['origin', 'platform', 'cpuType', 'level']);
+    expect(INTEL_TCB_INFO.status.trusted).toEqual(['UpToDate']);
+    expect(INTEL_TCB_INFO.status.revoked).toContain('OutOfDate');
+    expect(INTEL_TCB_INFO.status.revoked).not.toContain('UpToDate');
   });
 });

@@ -28,7 +28,7 @@ export interface AshaveriClientOptions {
    */
   readonly credential?: AshaveriCredential;
   /** Wall clock in milliseconds since the epoch; defaults to Date.now. */
-  readonly now?: () => number;
+  readonly nowMillis?: () => number;
 }
 
 export interface ChatCompletionMessageParam {
@@ -153,7 +153,7 @@ export class AshaveriClient {
   private readonly mode: VerifyMode;
   private readonly session: GatewaySession;
   private readonly fetchImpl: typeof fetch;
-  private readonly now?: () => number;
+  private readonly nowMillis?: () => number;
   readonly chat: {
     readonly completions: {
       readonly create: (params: ChatCompletionParams) => Promise<CompletionResult>;
@@ -167,9 +167,9 @@ export class AshaveriClient {
     if (this.mode === 'strict' && options.policy === undefined) {
       throw new SdkError('NO_POLICY', "verify: 'strict' requires a policy pinning keys and measurements");
     }
-    this.now = options.now;
+    this.nowMillis = options.nowMillis;
     const transport = options.fetch ?? globalThis.fetch;
-    this.fetchImpl = authorizedFetch(options.credential, transport, { now: this.now });
+    this.fetchImpl = authorizedFetch(options.credential, transport, { nowMillis: this.nowMillis });
     this.session = new GatewaySession(baseUrl, { fetchImpl: this.fetchImpl, policy: options.policy });
     this.chat = {
       completions: {
@@ -222,7 +222,7 @@ export class AshaveriClient {
       responseHash,
       responseBytes,
       verifyEvidence: this.mode === 'strict',
-      now: this.now?.(),
+      nowMillis: this.nowMillis?.(),
     });
   }
 

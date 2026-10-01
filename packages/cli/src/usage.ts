@@ -55,6 +55,32 @@ export function escapeInvisible(text: string): string {
 }
 
 /**
+ * One outside token inside a row this program composes: quoted when it carries anything that would end
+ * the row, reorder it, or let it be mistaken for two rows, and escaped inside that quote.
+ *
+ * Three rules in this estate answer for a token that did not come from here, and they differ by what
+ * the reader is owed. A refusal quotes a short clean token and prints a digest for anything else,
+ * because the point of a refusal is the code and a copy of an unbounded vendor string would be a
+ * second line to read (`@ashaveri/collateral` keeps that in `quoteOrDigest`). An inventory refuses the
+ * value outright, because a label is written beside a run and a run with an unprintable name is a
+ * record nobody can cite (`@ashaveri/receipt` keeps that in `requireLabel`). A report row is owed
+ * neither: the reader of a verification report has to see the words the document signed and the reason
+ * the collector gave, so hiding them behind a digest would cost the one thing the row is for, and
+ * refusing them would make an unreadable document unreportable. So the token is kept, put in quotes
+ * when it is not a clean short run of text, and escaped so that the quotes are the only ones the row
+ * carries and no character inside them can move a cursor or start a line the program never wrote.
+ *
+ * `NEEDS_QUOTING` decides when to quote, and it is the same test `credential` keeps for its label
+ * column: the invisible class plus the two characters a quoted value has to survive being copied back
+ * into an editor. Quoting alone is not enough, for the reason that comment gives: the platform's
+ * stringifier leaves the C1 range, the two line separators and every format character exactly as raw
+ * as they were.
+ */
+export function printedToken(text: string): string {
+  return NEEDS_QUOTING.test(text) ? escapeInvisible(JSON.stringify(text)) : text;
+}
+
+/**
  * The same escaping over an already-serialized document, where it has to be narrower. An indented
  * object carries newlines of its own between its fields, and those are structure rather than data,
  * so only the quoted spans are rewritten. A `\uXXXX` escape is the other spelling of the same

@@ -13,7 +13,9 @@ const deviceRoot = fixture('nvidia-device-identity-ca.pem');
 
 // Pinned inside every certificate window in the chain: the leaf starts 2020-10-17
 // and the device root 2021-11-05, both expiring in the year 9999.
-const now = Date.UTC(2024, 0, 15);
+// nowMillis is milliseconds since the epoch: `Date.UTC` returns milliseconds, and the GPU chain
+// verifier reads its clock in milliseconds, so this value enters with no divide.
+const nowMillis = Date.UTC(2024, 0, 15);
 
 /** The challenge this sample's GPU signed. */
 const CHALLENGE = new Uint8Array([
@@ -38,7 +40,7 @@ function nonceOffset(bytes: Uint8Array): number {
 
 describe('NVIDIA GPU evidence', () => {
   it('verifies a real Hopper report offline against the pinned device root', () => {
-    const result = verifyNvidiaRats({ report, certChain }, { now, trustedRoots: [deviceRoot] });
+    const result = verifyNvidiaRats({ report, certChain }, { nowMillis, trustedRoots: [deviceRoot] });
 
     expect(result.signatureVerified).toBe(true);
     // The nonce the GPU was challenged with, taken from the signed region of the
@@ -47,7 +49,7 @@ describe('NVIDIA GPU evidence', () => {
   });
 
   it('accepts a report that answers the challenge it is checked against', () => {
-    const result = verifyNvidiaRats({ report, certChain }, { now, trustedRoots: [deviceRoot], expectedNonce: CHALLENGE });
+    const result = verifyNvidiaRats({ report, certChain }, { nowMillis, trustedRoots: [deviceRoot], expectedNonce: CHALLENGE });
     expect(result.signatureVerified).toBe(true);
   });
 
@@ -55,14 +57,14 @@ describe('NVIDIA GPU evidence', () => {
     const other = Uint8Array.from(CHALLENGE);
     other[31] = byteAt(other, 31) ^ 0x01;
     expectErrorCode(
-      () => verifyNvidiaRats({ report, certChain }, { now, trustedRoots: [deviceRoot], expectedNonce: other }),
+      () => verifyNvidiaRats({ report, certChain }, { nowMillis, trustedRoots: [deviceRoot], expectedNonce: other }),
       'CHALLENGE_MISMATCH',
     );
   });
 
   it('rejects a report whose signature does not match the bytes', () => {
     expectErrorCode(
-      () => verifyNvidiaRats({ report: fixture('nvidia-hopper-report-bad-signature.bin'), certChain }, { now, trustedRoots: [deviceRoot] }),
+      () => verifyNvidiaRats({ report: fixture('nvidia-hopper-report-bad-signature.bin'), certChain }, { nowMillis, trustedRoots: [deviceRoot] }),
       'BAD_SIGNATURE',
     );
   });
@@ -71,14 +73,14 @@ describe('NVIDIA GPU evidence', () => {
     // The chain is well formed and self-consistent; only the anchor makes it a
     // hardware claim, so pinning some other vendor's root must not satisfy it.
     expectErrorCode(
-      () => verifyNvidiaRats({ report, certChain }, { now, trustedRoots: [fixture('amd-ark-milan.pem')] }),
+      () => verifyNvidiaRats({ report, certChain }, { nowMillis, trustedRoots: [fixture('amd-ark-milan.pem')] }),
       'MISSING_TRUST_ROOT',
     );
   });
 
   it('refuses to verify before the pinned root was valid', () => {
     expectErrorCode(
-      () => verifyNvidiaRats({ report, certChain }, { now: Date.UTC(2019, 0, 1), trustedRoots: [deviceRoot] }),
+      () => verifyNvidiaRats({ report, certChain }, { nowMillis: Date.UTC(2019, 0, 1), trustedRoots: [deviceRoot] }),
       'CERT_EXPIRED',
     );
   });
@@ -89,7 +91,7 @@ describe('NVIDIA GPU evidence', () => {
     tampered[offset] = byteAt(tampered, offset) ^ 0x01;
     expect(offset + 32).toBeLessThan(tampered.length);
     expectErrorCode(
-      () => verifyNvidiaRats({ report: tampered, certChain }, { now, trustedRoots: [deviceRoot] }),
+      () => verifyNvidiaRats({ report: tampered, certChain }, { nowMillis, trustedRoots: [deviceRoot] }),
       'BAD_SIGNATURE',
     );
   });

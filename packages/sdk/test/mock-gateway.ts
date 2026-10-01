@@ -1,6 +1,7 @@
 import {
   MARKING_MEMBER_NAME,
   emptyRegion,
+  frameResponse,
   generateSigningKey,
   hashRequest,
   issueReceipt,
@@ -9,7 +10,6 @@ import {
   type Marking,
   type MarkingScheme,
   type ReceiptPayload,
-  type ReceiptPayloadV1,
   type SigningKey,
 } from '@ashaveri/receipt';
 import { sha256 } from '@noble/hashes/sha2.js';
@@ -302,7 +302,7 @@ export function createFakeGateway(options: FakeGatewayOptions = {}): FakeGateway
           ? undefined
           : applyMarking(options.marking, responseBody, requestModel, isStream, options.markAfterSentinel === true);
       const attestedBody = marked?.body ?? responseBody;
-      const fields: Omit<ReceiptPayloadV1, 'v'> = {
+      const fields: Omit<ReceiptPayload, 'v' | 'mk' | 'sd' | 'cva' | 'itm'> = {
         iss: issuer,
         ins: instance,
         iat: FIXED_IAT,
@@ -316,10 +316,26 @@ export function createFakeGateway(options: FakeGatewayOptions = {}): FakeGateway
         epk: 0,
         tok: { p: FAKE_PROMPT_TOKENS, c: FAKE_COMPLETION_TOKENS },
       };
-      let payload: ReceiptPayload =
-        marked === undefined
-          ? { v: 1, ...fields }
-          : { v: 2, ...fields, mk: marked.marking };
+      // The item list, framed out of the bytes this double is about to hand over, by the shipped rule and
+      // not by a copy of it: the mock gateway states the same digests a real gateway would state over the
+      // same body, because `itm` is a required member of the one version and a list of nothing is refused
+      // by the reader. A body that frames no item at all is attested as the one item it is.
+      const framed = frameResponse(isStream ? 'text/event-stream' : 'application/json', utf8(attestedBody));
+      let payload: ReceiptPayload = {
+        v: 1,
+        ...fields,
+        // `mk` is required, so the answer to "was this response marked?" is a value in the signed document
+        // rather than the absence of one: an unmarked body carries `sch: none` over the empty region.
+        mk: marked?.marking ?? { sch: 'none', d: sha256(emptyRegion()) },
+        sd: { name: 'host clock', uncertaintySeconds: null },
+        cva: {
+          collateral: { presence: 'not-taken-in', reason: 'this test gateway takes no collateral in' },
+          validity: { presence: 'not-taken-in', reason: 'this test gateway records no validity context' },
+        },
+        itm: framed.framed
+          ? framed.items.map((one) => ({ t: FIXED_IAT, d: one.d }))
+          : [{ t: FIXED_IAT, d: sha256(utf8(attestedBody)) }],
+      };
       payload = options.mutatePayload?.(payload) ?? payload;
       receipts.set(FAKE_RECEIPT_ID, issueReceipt(payload, key));
       const finalBody = options.mutateResponseBody?.(attestedBody) ?? attestedBody;

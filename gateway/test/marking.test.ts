@@ -11,10 +11,10 @@ import {
   sha256Hex,
   toHex,
   type MarkingScheme,
-  type ReceiptPayloadV2,
+  type ReceiptPayload,
 } from '@ashaveri/receipt';
 import { MarkedStreamTail, type BackendResponse, type CompletionBackend, type CompletionUsage, type TimeSource } from '../src/index.js';
-import { MARKING_CHUNK_ID } from '../src/marking.js';
+import { MARKING_CHUNK_ID, markingFrame } from '../src/marking.js';
 import { sha256 } from '../src/digest.js';
 import { CLOCK_SECONDS, fixedClock, generated, harness, type Generated, type Harness } from './helpers.js';
 
@@ -152,14 +152,12 @@ async function send(h: Harness, target: string, body: string) {
   });
 }
 
-/** The receipt this response's id points at, decoded, narrowed to the version it always is. */
-async function receiptFor(h: Harness, id: string): Promise<ReceiptPayloadV2> {
+/** The receipt this response's id points at, decoded. Every payload this format reads names a marking. */
+async function receiptFor(h: Harness, id: string): Promise<ReceiptPayload> {
   const url = `/v1/receipts/${id}`;
   const res = await h.app.inject({ method: 'GET', url, headers: h.signFor('marking', 'GET', url, null) });
   expect(res.statusCode).toBe(200);
-  const payload = decodeReceipt(new Uint8Array(res.rawPayload)).payload;
-  if (payload.v !== 2) throw new Error(`expected a v2 payload, got version ${String(payload.v)}`);
-  return payload;
+  return decodeReceipt(new Uint8Array(res.rawPayload)).payload;
 }
 
 function refusal(error: unknown): string {
@@ -183,16 +181,21 @@ describe('the marking flag', () => {
     expect(extractMarkedRegion('none', new Uint8Array(res.rawPayload))).toEqual(emptyRegion());
   });
 
-  it('issues a v2 receipt whichever way the flag is set', async () => {
+  it('issues a receipt naming a marking whichever way the flag is set', async () => {
     for (const marking of [undefined, 'none', 'provenance-v1'] as const) {
       const h = await open({ backend: bodyBackend(UPSTREAM_BUFFERED, 'application/json'), marking });
       const res = await send(h, '/v1/chat/completions', REQUEST_BODY);
       const payload = await receiptFor(h, res.headers['x-ashaveri-receipt-id'] as string);
       expect([marking, payload.v, payload.mk.sch]).toEqual([
         marking,
-        2,
+        // A body the framing reads as one item is the one version this format declares, whatever the
+        // marking says: the number states the members the document carries, and every receipt a gateway
+        // writes carries all seventeen of them. `emission.test.ts` holds the whole account of what the
+        // number carries.
+        1,
         marking === 'provenance-v1' ? 'provenance-v1' : 'none',
       ]);
+      expect(res.statusCode).toBe(200);
     }
   });
 
@@ -386,6 +389,60 @@ describe('a marked streamed completion', () => {
     expect(toHex(hashRequest(utf8(stream)))).toBe(toHex(payload.res));
   });
 
+  it('writes the mark as a frame of its own when the upstream stopped mid-line', async () => {
+    // The upstream's last frame reaches this gateway with no terminator at all, and no sentinel either: a
+    // completion cut short. Writing the mark straight behind those bytes puts two `data:` prefixes on one
+    // line, which is a line no client's parser produces a frame from, and the receipt would then honestly
+    // attest bytes its own published rule refuses under the scheme the same payload names. So the frame end
+    // the upstream owed is written first, and what the client holds parses.
+    const h = await open({ backend: bodyBackend('data: {"a":1}\n\ndata: {"b":2}', 'text/event-stream'), marking: 'provenance-v1' });
+    const res = await send(h, '/v1/chat/completions', STREAM_REQUEST_BODY);
+    expect(res.statusCode).toBe(200);
+    const stream = res.rawPayload.toString('utf8');
+    const body = new Uint8Array(res.rawPayload);
+    const payload = await receiptFor(h, res.headers['x-ashaveri-receipt-id'] as string);
+
+    // The upstream's bytes are untouched and in front, and the mark begins the frame after them.
+    expect(stream.startsWith('data: {"a":1}\n\ndata: {"b":2}\n\n')).toBe(true);
+    for (const line of stream.split(/[\r\n]/)) {
+      expect(line, `one line holding two data: prefixes: ${JSON.stringify(line)}`).not.toMatch(/data:.*data:/u);
+    }
+    const frames = stream.split('\n\n').filter((each) => each.length > 0);
+    expect(frames).toHaveLength(3);
+    const mark = JSON.parse((frames.at(-1) ?? '').slice('data: '.length)) as Record<string, unknown>;
+    expect(mark['id']).toBe(MARKING_CHUNK_ID);
+    expect(mark['choices']).toEqual([]);
+
+    // Attested over the bytes this client holds, and readable out of them by the rule the payload names.
+    expect(toHex(hashRequest(body))).toBe(toHex(payload.res));
+    expect(payload.mk.sch).toBe('provenance-v1');
+    expect(toHex(sha256(extractMarkedRegion(payload.mk.sch, body)))).toBe(toHex(payload.mk.d));
+  });
+
+  it('writes the mark as a frame of its own when the sentinel arrives behind an unterminated line', async () => {
+    // The sibling of the case above, and the tail's other answer: these bytes end on a sentinel, so the mark
+    // goes ahead of it, and the line it is ahead of is the one the upstream left unterminated.
+    const h = await open({
+      backend: bodyBackend('data: {"a":1}data: [DONE]\n\n', 'text/event-stream'),
+      marking: 'provenance-v1',
+      time: fixedClock(() => MARKED_AT_SECONDS),
+    });
+    const res = await send(h, '/v1/chat/completions', STREAM_REQUEST_BODY);
+    expect(res.statusCode).toBe(200);
+    const stream = res.rawPayload.toString('utf8');
+    const payload = await receiptFor(h, res.headers['x-ashaveri-receipt-id'] as string);
+
+    // The mark frame the module writes, verbatim, and a frame end ahead of it: the upstream's own line is
+    // closed rather than continued, and the sentinel still arrives last.
+    expect(stream).toBe(`data: {"a":1}\n\n${text(markingFrame(MODEL, MARKED_AT_SECONDS).frame)}data: [DONE]\n\n`);
+    for (const line of stream.split(/[\r\n]/)) {
+      expect(line, `one line holding two data: prefixes: ${JSON.stringify(line)}`).not.toMatch(/data:.*data:/u);
+    }
+    const body = new Uint8Array(res.rawPayload);
+    expect(toHex(hashRequest(body))).toBe(toHex(payload.res));
+    expect(toHex(sha256(extractMarkedRegion(payload.mk.sch, body)))).toBe(toHex(payload.mk.d));
+  });
+
   it('adds nothing to a stream when the flag is off', async () => {
     const h = await open({ backend: streamBackend([37, 91]) });
     const res = await send(h, '/v1/chat/completions', STREAM_REQUEST_BODY);
@@ -414,9 +471,11 @@ describe('the tail a marked stream holds', () => {
     const tail = new MarkedStreamTail();
     tail.writable(utf8('data: {"a":1}\n\ndata: [DO'));
     const out = tail.finishing(utf8('X')).map(text).join('');
-    // Half a sentinel is not a sentinel, and splicing a chunk into the middle of a frame already on
-    // its way is the worse error: the held bytes go out as they arrived, with the mark behind them.
-    expect(out).toBe('data: [DOX');
+    // Half a sentinel is not a sentinel, and splicing a chunk into the middle of a frame that was already
+    // on its way is the worse error: the held bytes go out as they arrived. They arrive mid-frame, though,
+    // and a mark is a frame, so the frame end the upstream owed goes out between them and the mark begins
+    // its own line rather than continuing one no client's parser produces a frame from.
+    expect(out).toBe('data: [DO\n\nX');
   });
 
   it('holds nothing when there is no sentinel to wait for', () => {

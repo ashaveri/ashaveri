@@ -23,7 +23,14 @@ export interface ReadCollateral {
 
 export type ReadOutcome = { readonly read: ReadCollateral } | { readonly refusal: CollateralRefusal };
 
-interface Reading {
+/**
+ * What a reader needs beside the bytes: the question asked, the declaration that states where the answer's
+ * members are, and the instant the chain is read against.
+ *
+ * Both envelope arms take this, because which member holds the window, which holds the identity and which
+ * holds the level list is the same reading whichever envelope the answer arrived in.
+ */
+export interface Reading {
   readonly query: CollateralQuery;
   readonly declaration: OriginDeclaration;
   /** The instant the chain is read against, in seconds, which the caller has already settled on. */
@@ -34,9 +41,19 @@ interface Reading {
  * Reads the document and believes it, in that order.
  *
  * The signature and the chain are established before one field of the payload is looked at, because a
- * reader that parsed what it did not yet trust would be taking instructions from the answer. The
- * envelope is the vendor's own: three dot-separated base64url parts, ES256 over the first two spelled
- * as ASCII, with the certificates in the header member the declaration names.
+ * reader that parsed what it did not yet trust would be taking instructions from the answer. The envelope
+ * decoded here is the one the declaration's `signature.envelope` names: three dot-separated base64url parts,
+ * ES256 over the first two spelled as ASCII, with the certificates in the header member the declaration
+ * names. That rule is this path's and not the vendor's. What Intel serves is a JSON body with a hex
+ * `signature` member and its issuer chain in a response header, cited at each declaration in
+ * `intel-origin.ts`, so an answer from that address is refused at the envelope before any member of it is
+ * read, and a case in `test/read.test.ts` pins that refusal: this file reads no header of a response, and the
+ * chain is read from inside the document, which is what material that arrives in a pack can offer and what a
+ * served answer does not put there. `served.ts` is the arm that weighs the body beside its header.
+ *
+ * The chain walk, the pinned set and the read of what the document states are exported for that arm, so both
+ * envelopes settle the same questions the same way and only where the certificates come from differs. They
+ * are not part of the package's exports: the two readers are.
  */
 export function readSignedCollateral(bytes: Uint8Array, reading: Reading): ReadOutcome {
   const { declaration } = reading;
@@ -82,17 +99,32 @@ export function readSignedCollateral(bytes: Uint8Array, reading: Reading): ReadO
   if (payload === null) {
     return refused(declaration, 'the signed payload is not a JSON object');
   }
-  const body = bodyOf(payload, bytes, reading, anchor.digest, chain.encoded);
-  return 'refusal' in body ? body : { read: body };
+  const stated = readStatement(payload, reading);
+  if ('refusal' in stated) {
+    return stated;
+  }
+  return { read: { ...stated, anchorDigest: anchor.digest, blobs: [bytes, ...chain.encoded] } };
 }
 
-function bodyOf(
+/** What one document's own text states, before any of it is attached to an anchor or a set of bytes. */
+export interface DocumentStatement {
+  readonly signedAt: number;
+  readonly validUntil: number;
+  readonly declaredCpuType: string | null;
+  readonly vendorStatus: string;
+}
+
+/**
+ * Reads the window, the identity and the vendor's word at the positions the declaration names.
+ *
+ * Both envelope arms come by here the same way and only once their own belief is settled, which is why this
+ * returns no anchor and no blob: what established these words, and which bytes a caller keeps beside them, are
+ * the reading arm's facts rather than the document's.
+ */
+export function readStatement(
   payload: Record<string, unknown>,
-  bytes: Uint8Array,
   reading: Reading,
-  anchorDigest: string,
-  presented: readonly Uint8Array[],
-): ReadCollateral | { readonly refusal: CollateralRefusal } {
+): DocumentStatement | { readonly refusal: CollateralRefusal } {
   const { declaration, query } = reading;
   const document = declaration.window.documentMember === null
     ? payload
@@ -121,8 +153,6 @@ function bodyOf(
     validUntil,
     declaredCpuType: declared.cpuType,
     vendorStatus: status.status,
-    anchorDigest,
-    blobs: [bytes, ...presented],
   };
 }
 
@@ -185,7 +215,7 @@ function statusOf(
     };
   }
   for (const entry of levels) {
-    const fields = typeof entry === 'object' && entry !== null && !Array.isArray(entry) ? entry as Record<string, unknown> : null;
+    const fields = fieldsOf(entry);
     if (fields === null) {
       continue;
     }
@@ -197,6 +227,41 @@ function statusOf(
       ? refused(declaration, `the matched level states no ${statusMember}`)
       : { status: stated };
   }
+  return unlistedLevel(declaration, level, levels);
+}
+
+/**
+ * The answer to a level the read found nothing to compare.
+ *
+ * Two different documents fail this check and a caller learns something different from each. A list that
+ * carries no rung spelled like the one asked is what the code's own sentence names. A list whose rungs
+ * state their composition as the component numbers of an object is not that: it carries rungs, and this
+ * path compares no hex text with a composition stated that way, which is what the declaration says out
+ * loud. Blaming the document for the second would send a reader back to the wrong one.
+ */
+function unlistedLevel(
+  declaration: OriginDeclaration,
+  level: IntelTcbLevel,
+  levels: readonly unknown[],
+): { readonly refusal: CollateralRefusal } {
+  const compositionMember = declaration.identity.levelCompositionMember;
+  if (
+    level.by === 'tcb-composition'
+    && declaration.identity.levelCompositionStatedAs === 'component-numbers'
+    && compositionMember !== null
+    && levels.some((entry) => {
+      const fields = fieldsOf(entry);
+      return fields !== null && objectMember(fields, compositionMember) !== null;
+    })
+  ) {
+    return {
+      refusal: collateralRefusal(
+        declaration.refusals.levels,
+        `a ${level.by} question has nothing to compare: ${compositionMember} states each level's composition as component numbers`,
+        ['level'],
+      ),
+    };
+  }
   return {
     refusal: collateralRefusal(
       declaration.refusals.levels,
@@ -206,14 +271,23 @@ function statusOf(
   };
 }
 
+function fieldsOf(entry: unknown): Record<string, unknown> | null {
+  return typeof entry === 'object' && entry !== null && !Array.isArray(entry) ? entry as Record<string, unknown> : null;
+}
+
 function levelMatches(entry: Record<string, unknown>, level: IntelTcbLevel, declaration: OriginDeclaration): boolean {
-  const dateMember = declaration.identity.levelDateMember;
-  const compositionMember = declaration.identity.levelCompositionMember;
   if (level.by === 'tcb-date') {
+    const dateMember = declaration.identity.levelDateMember;
     const stated = dateMember === null ? null : stringMember(entry, dateMember);
     return stated !== null && sameInstant(stated, level.value);
   }
-  const stated = compositionMember === null ? null : stringMember(entry, compositionMember);
+  const compositionMember = declaration.identity.levelCompositionMember;
+  if (compositionMember === null || declaration.identity.levelCompositionStatedAs !== 'hex-text') {
+    // Either no member states a composition where this path reads one, or it states component numbers,
+    // and which numbers a caller's hex text stands for is a rule the vendor's body states nowhere.
+    return false;
+  }
+  const stated = stringMember(entry, compositionMember);
   return stated !== null && sameHex(stated, level.value);
 }
 
@@ -258,7 +332,7 @@ function parsePresented(texts: readonly string[], declaration: OriginDeclaration
   return { certificates, encoded };
 }
 
-function parsePinned(roots: readonly Uint8Array[], declaration: OriginDeclaration): readonly ParsedCertificate[] | { readonly refusal: CollateralRefusal } {
+export function parsePinned(roots: readonly Uint8Array[], declaration: OriginDeclaration): readonly ParsedCertificate[] | { readonly refusal: CollateralRefusal } {
   const certificates: ParsedCertificate[] = [];
   for (const blob of roots) {
     const parsed = parseCertificates(blob);
@@ -275,7 +349,7 @@ function parsePinned(roots: readonly Uint8Array[], declaration: OriginDeclaratio
   return certificates;
 }
 
-function parseCertificates(blob: Uint8Array): ParsedCertificate[] | null {
+export function parseCertificates(blob: Uint8Array): ParsedCertificate[] | null {
   try {
     return parseCertificateChain(blob);
   } catch {
@@ -293,7 +367,7 @@ function parseCertificates(blob: Uint8Array): ParsedCertificate[] | null {
  * which is how these documents are published, and a chain that reaches no root is refused rather than
  * read as merely unsigned.
  */
-function reachAnchor(
+export function reachAnchor(
   presented: readonly ParsedCertificate[],
   pinned: readonly ParsedCertificate[],
   reading: Reading,
@@ -404,12 +478,37 @@ interface Envelope {
   readonly signatureBytes: Uint8Array;
 }
 
-function splitEnvelope(bytes: Uint8Array, declaration: OriginDeclaration): Envelope | { readonly refusal: CollateralRefusal } {
-  let text: string;
+/**
+ * The answer's bytes read as UTF-8 text, or the refusal that they are not text at all.
+ *
+ * Shared by both arms because neither of them can read a member of a document out of bytes it cannot spell as
+ * text, and because what each one weighs is a span of this text rather than a re-serialization of it.
+ */
+export function decodeText(bytes: Uint8Array, declaration: OriginDeclaration): string | { readonly refusal: CollateralRefusal } {
   try {
-    text = new TextDecoder('utf-8', { fatal: true }).decode(bytes);
+    return new TextDecoder('utf-8', { fatal: true }).decode(bytes);
   } catch {
     return refused(declaration, 'the answer is not UTF-8 text');
+  }
+}
+
+/** A signature over these bytes, checked under the leaf the chain ended its way up from. */
+export function verifiesUnderLeaf(leaf: ParsedCertificate, message: Uint8Array, signatureDer: Uint8Array): boolean {
+  const point = p256Point(leaf);
+  if (point === null) {
+    return false;
+  }
+  try {
+    return p256.verify(signatureDer, sha256(message), point, { format: 'der' });
+  } catch {
+    return false;
+  }
+}
+
+function splitEnvelope(bytes: Uint8Array, declaration: OriginDeclaration): Envelope | { readonly refusal: CollateralRefusal } {
+  const text = decodeText(bytes, declaration);
+  if (typeof text !== 'string') {
+    return text;
   }
   const parts = text.split('.');
   if (parts.length !== 3) {

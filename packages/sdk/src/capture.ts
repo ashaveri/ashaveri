@@ -51,6 +51,29 @@ const IMPLEMENTED_CAPTURE_VERSIONS: readonly number[] = [CAPTURE_FORMAT_VERSION]
 const IMPLEMENTED_POLICY_VERSIONS: readonly number[] = [1];
 
 /**
+ * Which receipt format versions a capture record may name, the one place that set is written for this
+ * package. It is the format's own list and it carries exactly that set, which today is one version: a
+ * gateway emits `v: 1` for every completion whose bytes frame into items, so a record of a check over a
+ * v1 receipt is the ordinary document a collector hands over, and a reader that refused it would leave
+ * every client of every emitting deployment unable to record what it verified. The list and
+ * `packages/sdk/schemas/capture-v1.schema.json`'s `enum` for `check.receiptFormatVersion` are one rule
+ * written twice on purpose, because the schema is what a collector outside this repository builds against
+ * and the reader is what a stranger runs; `test/capture.test.ts` holds the two to each other at the
+ * boundary of the list, where only a disagreement between them can be seen.
+ *
+ * `as const` is what makes the list and the type of the member below one fact instead of two that can
+ * disagree. Widening this list is answered at the schema half of that walk, and a version the format gains
+ * without a reader for it fails the same way: `receipt.cddl` and `packages/receipt/src/receipt.ts` own what
+ * can be parsed, and this list only says which of those a record may claim it checked. A record naming
+ * `2` or `3` is refused at that boundary, because the numbers retired with the versions they named and a
+ * collector that hands one over is describing a document no reader in this estate can open.
+ */
+const IMPLEMENTED_RECEIPT_FORMAT_VERSIONS = [1] as const;
+
+/** The versions above as a type, so no caller of the reader has to name them again. */
+type CaptureReceiptFormatVersion = (typeof IMPLEMENTED_RECEIPT_FORMAT_VERSIONS)[number];
+
+/**
  * What became of one piece of context. Three states because two are not enough: a record that says
  * nothing about its collateral cannot be told apart from one whose collateral never existed, and the
  * difference is between a deployment that had nothing to show and a collector that looked away.
@@ -76,13 +99,26 @@ export interface CaptureAbsent {
 export type CaptureSlot = CaptureHeld | CaptureAbsent;
 
 /**
- * What the stored bytes are. The set is closed, and a new source arrives as a new capture version rather
- * than as a new string: a reader that let an unknown kind fall through to its default handling would
- * assess a document it holds no rules for.
+ * What the stored bytes are, the whole closed set written once as a list. A new source arrives as a new
+ * capture version rather than as a new string: a reader that let an unknown kind fall through to its
+ * default handling would assess a document it holds no rules for, which is what the test against this
+ * list below refuses.
+ *
+ * Exported because the list is one of two statements of this set and the other is a published document:
+ * `original.sourceKind`'s `enum` in `packages/sdk/schemas/capture-v1.schema.json` is what a collector
+ * outside this repository builds a writer against, and a kind added to one side alone is a document the
+ * schema refuses while the type and the reader accept it. `test/capture.test.ts` reads both spellings and
+ * refuses the disagreement in either direction, so the list and the enum are one set with two spellings.
  */
-export type CaptureSourceKind = 'platform-evidence' | 'device-evidence' | 'deployment-manifest' | 'receipt';
+export const SOURCE_KINDS = ['platform-evidence', 'device-evidence', 'deployment-manifest', 'receipt'] as const;
 
-const SOURCE_KINDS: readonly string[] = ['platform-evidence', 'device-evidence', 'deployment-manifest', 'receipt'];
+/** The kinds above as a type, so the set is named in one place and read in two. */
+export type CaptureSourceKind = (typeof SOURCE_KINDS)[number];
+
+/** Whether a string the document named itself with is one of the kinds above. */
+function isCaptureSourceKind(value: unknown): value is CaptureSourceKind {
+  return typeof value === 'string' && (SOURCE_KINDS as readonly string[]).includes(value);
+}
 
 export interface CaptureRecord {
   readonly v: number;
@@ -119,7 +155,7 @@ export interface CaptureRecord {
     readonly policyVersion: number;
     readonly policyDigest: string | null;
     /** Which receipt format version the check read, and which verifier build ran it. Versions, not a verdict. */
-    readonly receiptFormatVersion: ReceiptVersion;
+    readonly receiptFormatVersion: CaptureReceiptFormatVersion;
     readonly verifierVersion: string;
     /** Unix seconds on our clock when the appraisal of this context ran. */
     readonly appraisedAt: number;
@@ -207,7 +243,7 @@ export interface AssessCaptureParams {
    */
   readonly anchors?: EvidenceTrustAnchors;
   /** Wall clock in milliseconds since the epoch; defaults to Date.now. */
-  readonly now?: number;
+  readonly nowMillis?: number;
 }
 
 const SLOT_MEMBERS: readonly string[] = ['presence', 'bytes', 'sha256', 'byteCount', 'reason'];
@@ -291,24 +327,34 @@ function requireDigestOrNull(raw: Record<string, unknown>, key: string, where: s
   return requireDigest(raw, key, where);
 }
 
-function requireImplementedVersion(value: unknown, what: string, implemented: readonly number[]): number {
+function requireImplementedVersion<T extends number>(value: unknown, what: string, implemented: readonly T[]): T {
   if (typeof value !== 'number' || !Number.isSafeInteger(value)) {
     throw new ReceiptError('UNSUPPORTED_VERSION', `${what} names ${describe(value)} where a version number belongs`);
   }
-  if (!implemented.includes(value)) {
+  // The element of the list, and not the number the document named: the lookup is at once the refusal
+  // test and the witness that what comes back is one of the versions this reader implements, which is
+  // why no caller of it has to narrow a returned number against the list a second time.
+  const stated = implemented.find((each): each is T => each === value);
+  if (stated === undefined) {
     throw new ReceiptError(
       'UNSUPPORTED_VERSION',
       `${what} names version ${value}, and this reader implements ${implemented.join(', ')} and does not read it as one of them`,
     );
   }
-  return value;
+  return stated;
 }
 
-function requireReceiptVersion(value: unknown, where: string): ReceiptVersion {
-  const version = requireImplementedVersion(value, `${where}.receiptFormatVersion`, [1, 2]);
-  // `[1, 2]` above is the whole of what comes back, and it is the list `receipt.cddl` declares. The
-  // narrowing states that fact to the type checker rather than deciding anything about the document.
-  return version === 1 ? 1 : 2;
+/**
+ * Which receipt format version the record says the check read, against the version this package reads it
+ * as. `receipt.cddl` declares one payload version and this reader names it, because a gateway emits
+ * that version on the bytes of the response rather than on a capability the deployment was asked about, so
+ * a record of a check is a record a collector writes. A version outside the list is still refused by
+ * design and never read as one inside it: `requireImplementedVersion` answers with an `UNSUPPORTED_VERSION`
+ * naming the version the record states and the versions this reader implements, which is the same rule the
+ * capture and policy versions beside it run under.
+ */
+function requireReceiptVersion(value: unknown, where: string): CaptureReceiptFormatVersion {
+  return requireImplementedVersion(value, `${where}.receiptFormatVersion`, IMPLEMENTED_RECEIPT_FORMAT_VERSIONS);
 }
 
 function readSlot(value: unknown, where: string): CaptureSlot {
@@ -403,7 +449,7 @@ export function parseCaptureRecord(value: unknown): CaptureRecord {
     'original',
   );
   const sourceKind = requireText(original, 'sourceKind', 'original');
-  if (!SOURCE_KINDS.includes(sourceKind)) {
+  if (!isCaptureSourceKind(sourceKind)) {
     refused('NOT_CAPTURE_RECORD', `original.sourceKind '${sourceKind}' is none of the sources this record can describe`);
   }
   const signedBySource = requireBoolean(original, 'signedBySource', 'original');
@@ -462,7 +508,7 @@ export function parseCaptureRecord(value: unknown): CaptureRecord {
   const record: CaptureRecord = {
     v: version,
     original: {
-      sourceKind: sourceKind as CaptureSourceKind,
+      sourceKind,
       sourceId: requireText(original, 'sourceId', 'original'),
       bytes: requireText(original, 'bytes', 'original'),
       sha256: requireDigest(original, 'sha256', 'original'),
@@ -641,7 +687,7 @@ function repeatSignatureLeg(
   verifyReceipt(originalBytes, {
     publicKey,
     acceptedVersions,
-    now: nowSeconds,
+    nowSeconds,
     freshnessSeconds: policy?.maxReceiptAgeSeconds ?? DEFAULT_MAX_RECEIPT_AGE_SECONDS,
     evidenceFreshnessSeconds: policy?.maxEvidenceAgeSeconds ?? DEFAULT_MAX_EVIDENCE_AGE_SECONDS,
   });
@@ -690,7 +736,7 @@ function matchRoots(
 export function assessCapture(params: AssessCaptureParams): CaptureVerdict {
   const record = parseCaptureRecord(params.record);
   const originalBytes = decodeStated(record.original, 'original');
-  const nowSeconds = Math.floor((params.now ?? Date.now()) / 1000);
+  const nowSeconds = Math.floor((params.nowMillis ?? Date.now()) / 1000);
   const policy = params.policy;
   const anchors = params.anchors ?? policy?.trustAnchors ?? {};
 
@@ -741,19 +787,19 @@ export function assessCapture(params: AssessCaptureParams): CaptureVerdict {
     );
   }
 
-  // The limits the record was checked under sit beside the ones this reader ran. A disagreement is never
-  // a pass and never a refusal either: the record's looser window is a somebody-else reached, and what
-  // this caller has is the verdict computed under its own.
+  // The limits the record states sit beside the ones this reader ran. A difference is never a pass and
+  // never a refusal either: the record's looser window is a somebody-else reached, and what this caller
+  // has is the verdict computed under its own.
   const appliedReceipt = policy?.maxReceiptAgeSeconds ?? DEFAULT_MAX_RECEIPT_AGE_SECONDS;
   const appliedEvidence = policy?.maxEvidenceAgeSeconds ?? DEFAULT_MAX_EVIDENCE_AGE_SECONDS;
   if (record.trust.limits.maxReceiptAgeSeconds !== appliedReceipt) {
     qualifications.push(
-      `the record was checked under a receipt window of ${stateWindow(record.trust.limits.maxReceiptAgeSeconds)} while this reader applied ${stateWindow(appliedReceipt)}`,
+      `the record states ${stateWindow(record.trust.limits.maxReceiptAgeSeconds)} for the receipt window while this reader applied ${stateWindow(appliedReceipt)}`,
     );
   }
   if (record.trust.limits.maxEvidenceAgeSeconds !== appliedEvidence) {
     qualifications.push(
-      `the record was checked under an evidence window of ${stateWindow(record.trust.limits.maxEvidenceAgeSeconds)} while this reader applied ${stateWindow(appliedEvidence)}`,
+      `the record states ${stateWindow(record.trust.limits.maxEvidenceAgeSeconds)} for the evidence window while this reader applied ${stateWindow(appliedEvidence)}`,
     );
   }
 
@@ -786,8 +832,14 @@ export function assessCapture(params: AssessCaptureParams): CaptureVerdict {
   };
 }
 
+/**
+ * One window in the words a qualification carries. A record states a whole number of seconds or names
+ * none, and a null says only the latter: it is not a window that stayed open, which this reader can meet
+ * only in the policy object its own caller handed it, because `parseCaptureRecord` admits no other
+ * spelling on a record's side.
+ */
 function stateWindow(value: number | null): string {
-  if (value === null) return 'no window';
+  if (value === null) return 'no window of its own';
   if (!Number.isFinite(value)) return 'a window that never closes';
   return `${value}s`;
 }

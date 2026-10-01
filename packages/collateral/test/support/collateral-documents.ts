@@ -5,9 +5,27 @@ import { sha256 } from '@noble/hashes/sha2.js';
  * Certificates and signed documents for these tests, written here rather than captured.
  *
  * No answer of the vendor's is stored in this repository, so every document a test hands to the reader is
- * built to the shape `intel-origin.ts` declares and signed by a key generated in the test. That keeps the
- * assertions about this path honest: they show the reader honours the declaration written beside it, and they
- * show nothing about whether that declaration matches what the vendor publishes, which no offline fixture can.
+ * built here and signed by a key generated in the test. What it is built to is the layout the vendor
+ * publishes, member for member and word for word, as cited at each declaration in `intel-origin.ts`: the
+ * levels under `tcbLevels`, each entry stating its composition as the component numbers of an object under
+ * `tcb`, the status in `tcbStatus` with the vendor's own words, the window in `issueDate` and `nextUpdate`
+ * inside `tcbInfo`, and the QE Identity's members inside `enclaveIdentity`. The member naming the CPU type
+ * is the vendor's `fmspc`, so a test cannot make the identity guard fire by writing a name here that the
+ * reader looks for there.
+ *
+ * Two envelopes are written here, because this package reads two. `signedDocument` writes three base64url
+ * parts with the certificates in the header, which is the envelope `readSignedCollateral` decodes and the
+ * shape Intel does not answer in. `servedAnswer` writes the answer that address returns, the document member
+ * and a hex `signature` member, beside the issuer chain a response header carries, which is what
+ * `readServedCollateral` weighs. Material that arrived inside a pack arrives alone, with no response header
+ * beside it, so the two are kept apart rather than reconciled from here, and `servedJsonBody` hands a test
+ * the vendor's own body with no chain anywhere, precisely so a case can pin the refusal the JWS arm owes it
+ * rather than pretend the gap away.
+ *
+ * Builders here state only the members this path reads, spelled as the vendor spells them. The members a
+ * served body states and nothing here reads (`id`, `version`, `pceId`, `tcbType`,
+ * `tcbEvaluationDataNumber`, `tdxModule`, `tdxModuleIdentities`) are left out rather than guessed at, and
+ * a case that needs one of them is a case about a member this path does not read.
  */
 
 const OID_ECDSA_SHA256 = '1.2.840.10045.4.3.2';
@@ -137,11 +155,61 @@ export function signedDocument(
   return utf8(`${first}.${second}.${toBase64Url(signature)}`);
 }
 
-export interface TcbInfoBody {
-  readonly fmspcid: string;
-  readonly issueDate: string;
-  readonly nextUpdate: string;
-  readonly tcb: readonly { readonly tcbDate: string; readonly tcbStatus: string }[];
+/** The number of components a served TCB Info level lists. */
+const COMPONENT_COUNT = 16;
+
+/**
+ * One level as the vendor's body spells it: `tcb` stating its composition as component numbers, then
+ * `tcbDate`, then the word in `tcbStatus`, then `advisoryIDs` where the vendor has one to name.
+ */
+export interface ServedLevel {
+  readonly tcbDate: string;
+  readonly tcbStatus: string;
+  /** The `svn` of each component, in the order the vendor lists them. Sixteen zeros where a case omits them. */
+  readonly svns?: readonly number[];
+  /** The `svn` of each TDX component, which a TDX document lists beside the SGX ones. */
+  readonly tdxSvns?: readonly number[];
+  /** The vendor's PCE SVN, stated beside the component numbers. */
+  readonly pceSvn?: number;
+  /** The one number a QE Identity level's composition is, spelled `isvsvn`. */
+  readonly isvSvn?: number;
+  readonly advisoryIDs?: readonly string[];
+}
+
+/** Whose component arrays a level states: the SGX document lists one, the TDX document lists two. */
+export type ServedComposition = 'sgx' | 'tdx' | 'isvsvn';
+
+function componentNodes(svns: readonly number[]): readonly Record<string, unknown>[] {
+  return svns.map((svn) => ({ svn }));
+}
+
+function zeros(): number[] {
+  return new Array<number>(COMPONENT_COUNT).fill(0);
+}
+
+/** The composition member of one level entry, spelled the way the served body spells it. */
+export function servedTcb(level: ServedLevel, composition: ServedComposition): Record<string, unknown> {
+  if (composition === 'isvsvn') {
+    return { isvsvn: level.isvSvn ?? 0 };
+  }
+  const stated: Record<string, unknown> = {
+    sgxtcbcomponents: componentNodes(level.svns ?? zeros()),
+    pcesvn: level.pceSvn ?? 0,
+  };
+  if (composition === 'tdx') {
+    stated['tdxtcbcomponents'] = componentNodes(level.tdxSvns ?? zeros());
+  }
+  return stated;
+}
+
+/** One entry of `tcbLevels`, in the member order the vendor's bodies write. */
+export function servedLevel(level: ServedLevel, composition: ServedComposition): Record<string, unknown> {
+  return {
+    tcb: servedTcb(level, composition),
+    tcbDate: level.tcbDate,
+    tcbStatus: level.tcbStatus,
+    ...(level.advisoryIDs === undefined ? {} : { advisoryIDs: [...level.advisoryIDs] }),
+  };
 }
 
 /** What the vendor writes inside the member its declaration names for the document. */
@@ -149,13 +217,14 @@ export function tcbInfoBody(input: {
   readonly fmspc: string;
   readonly issueDate: string;
   readonly nextUpdate: string;
-  readonly levels: readonly { readonly tcbDate: string; readonly tcbStatus: string }[];
-}): TcbInfoBody {
+  readonly composition?: ServedComposition;
+  readonly levels: readonly ServedLevel[];
+}): Record<string, unknown> {
   return {
-    fmspcid: input.fmspc,
     issueDate: input.issueDate,
     nextUpdate: input.nextUpdate,
-    tcb: input.levels.map((level) => ({ tcbDate: level.tcbDate, tcbStatus: level.tcbStatus })),
+    fmspc: input.fmspc,
+    tcbLevels: input.levels.map((level) => servedLevel(level, input.composition ?? 'sgx')),
   };
 }
 
@@ -163,17 +232,114 @@ export function tcbInfo(input: {
   readonly fmspc: string;
   readonly issueDate: string;
   readonly nextUpdate: string;
-  readonly levels: readonly { readonly tcbDate: string; readonly tcbStatus: string }[];
+  readonly composition?: ServedComposition;
+  readonly levels: readonly ServedLevel[];
 }): Record<string, unknown> {
   return { tcbInfo: tcbInfoBody(input) };
 }
 
+/** The QE Identity document, whose every named member sits inside `enclaveIdentity`. */
 export function qeIdentity(input: {
   readonly issueDate: string;
   readonly nextUpdate: string;
-  readonly tcbStatus: string;
+  readonly levels: readonly ServedLevel[];
 }): Record<string, unknown> {
-  return { issueDate: input.issueDate, nextUpdate: input.nextUpdate, tcbStatus: input.tcbStatus };
+  return {
+    enclaveIdentity: {
+      issueDate: input.issueDate,
+      nextUpdate: input.nextUpdate,
+      tcbLevels: input.levels.map((level) => servedLevel(level, 'isvsvn')),
+    },
+  };
+}
+
+/**
+ * The answer that address actually returns: the document object and a hex `signature` member, as UTF-8, with
+ * no chain anywhere beside it.
+ *
+ * This is the body shape a real Intel document arrives in, and the JWS arm refuses it, because the certificates
+ * a chain walk needs are not inside it. A case in `test/read.test.ts` hands that reader these bytes and reads
+ * the refusal, so the gap stays measured rather than remembered. `servedAnswer` below is the same body with the
+ * chain the answer actually carries.
+ */
+export function servedJsonBody(document: Record<string, unknown>): Uint8Array {
+  return utf8(JSON.stringify({ ...document, signature: 'ab'.repeat(64) }));
+}
+
+/**
+ * One served answer, in the two halves it arrives in: the body the origin sent, and the chain that arrived
+ * beside it in the response header the document's declaration names.
+ */
+export interface ServedAnswer {
+  readonly body: Uint8Array;
+  readonly chain: Uint8Array;
+}
+
+/**
+ * The text a served body holds for one wrapper member, compact and in the key order the builders above write.
+ *
+ * These are the bytes a served signature covers, and they are written from the object rather than re-made at
+ * the reader's end, because the measured rule is that the signature holds over the span the vendor wrote and
+ * not over a sorted one. A writer that reordered these keys would then be signing something other than the
+ * text it put in the body, which is the mistake the sorted-key case in `test/served-envelope.test.ts` keeps.
+ */
+export function servedMemberText(document: Record<string, unknown>, member: string): string {
+  const value = document[member];
+  if (value === undefined) {
+    throw new Error(`the wrapper holds no ${member} member to serve`);
+  }
+  return JSON.stringify(value);
+}
+
+/**
+ * The `signature` member of a served answer: the raw `r` and `s` of a P-256 signature over exactly these bytes,
+ * as the 128 lowercase hex characters the vendor sends them in. This is the member named by
+ * `declaration.signature.served.signatureMember`, which the first case in that test reads against it.
+ */
+export function servedSignatureMember(text: string, vendor: TestVendor): string {
+  return toHex(p256.sign(sha256(utf8(text)), vendor.signingKey).toCompactRawBytes());
+}
+
+/** The wrapper the origin answers: the document member's own text, and a hex signature member beside it. */
+export function servedWrapperBody(member: string, memberText: string, signature: string): Uint8Array {
+  return utf8(`{"${member}":${memberText},"signature":"${signature}"}`);
+}
+
+/**
+ * The chain header's value, built the way the vendor builds one: two PEM blocks, leaf first and then the root,
+ * joined with newlines and URL-encoded so the value holds no literal newline.
+ */
+export function servedChain(vendor: TestVendor): Uint8Array {
+  return servedChainOf([vendor.issuerDer, vendor.rootDer]);
+}
+
+/**
+ * The same header spelling over blocks a case names itself, in the order it names them: a chain built from one
+ * vendor's leaf and another's certificate of the same name is what a walk meets on the way to a borrowed root.
+ */
+export function servedChainOf(blocks: readonly Uint8Array[]): Uint8Array {
+  return utf8(encodeURIComponent(blocks.map((one) => pemBlock(one)).join('')));
+}
+
+/**
+ * A whole served answer, built from the two pieces above: the wrapper over the document member's own text,
+ * signed over exactly that text, and the chain that arrives in the header beside it.
+ */
+export function servedAnswer(document: Record<string, unknown>, member: string, vendor: TestVendor): ServedAnswer {
+  const text = servedMemberText(document, member);
+  return {
+    body: servedWrapperBody(member, text, servedSignatureMember(text, vendor)),
+    chain: servedChain(vendor),
+  };
+}
+
+function pemBlock(der: Uint8Array): string {
+  const body = toBase64(der);
+  const lines: string[] = [];
+  for (let offset = 0; offset < body.length; offset += 64) {
+    lines.push(body.slice(offset, offset + 64));
+  }
+  return `-----BEGIN CERTIFICATE-----\n${lines.join('\n')}\n-----END CERTIFICATE-----\n`;
 }
 
 function certificate(spec: CertificateSpec): Uint8Array {

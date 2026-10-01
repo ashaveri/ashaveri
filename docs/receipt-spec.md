@@ -1,12 +1,12 @@
 # Ashaveri Receipt Specification
 
-Status: Draft, payload versions 1 and 2. The binary format is normatively defined by
+Status: Draft, payload version 1. The binary format is normatively defined by
 [`packages/receipt/receipt.cddl`](../packages/receipt/receipt.cddl) and the golden conformance
 vectors in `@ashaveri/fixtures`. Which suites and fixtures are published, and which payload version
 each of the receipt fixtures carries, is stated once in the inventory in
 [vectors.md](vectors.md) rather than restated file by file here. This document specifies the format
 together with the HTTP protocol used to deliver receipts, and the algorithm clients follow to
-verify them. Section 6 says which payload versions a verifier reads.
+verify them. Section 6 says which payload version a verifier reads.
 
 ## 1. Overview
 
@@ -23,6 +23,18 @@ response. It binds, under a single Ed25519 signature:
 A client that holds the gateway's public key can verify, offline, that the bytes it saw are
 the bytes the gateway vouches for, and can pin which keys, deployments, and measurements it
 is willing to accept.
+
+**Four documents are called a manifest, and the word means none of them on its own.** The
+*deployment manifest* (`packages/receipt/manifest.cddl`, one version) states which keys sign a
+deployment's receipts and is fetched over HTTP. The *pack manifest* (`packages/receipt/pack.cddl`,
+one version) is the signed body inside an evidence pack and states a span, a chain and a duty; its
+own specification is [pack-v1.md](pack-v1.md). The *retention manifest* (section 5.3 and section 5.4,
+two versions) is an unsigned JSON file a deployment writes about its own store. A *redaction
+manifest* is the excision amendment over a pack, and its rows are in [error-codes.md](error-codes.md).
+Each section below uses the bare word for the document that section is about, and a reference that
+crosses between them is qualified. The four share nothing but the name: their `v` members are
+independent numbers, their signed content types differ, and a reader that guessed which one a bare
+"manifest" meant would be weighing a document it was never handed.
 
 ## 2. Envelope
 
@@ -84,10 +96,10 @@ countersignature variants (RFC 9338), if ever needed, would be a new format vers
 
 | Field | Type | Meaning |
 |---|---|---|
-| `v` | int | Payload version, and the member that says which shape the rest of the map is: `1` is the thirteen fields of this table, `2` is those same thirteen plus a required `mk`, the marking attestation [`receipt.cddl`](../packages/receipt/receipt.cddl) defines. Which of the two a verifier reads is section 6's rule, and the map is closed, so a member a document carries that its own version does not define is a malformed payload rather than one the reader leaves out. |
+| `v` | int | Payload version, and the member that says which shape the rest of the map is. The format declares one payload version, `1`, and it states the seventeen members of this table: the twelve fields every receipt carries beside `v`, then a required `mk`, `sd`, `cva` and `itm`, as [`receipt.cddl`](../packages/receipt/receipt.cddl) defines. Which numbers a call reads is section 6's rule, and the map is closed, so a member a document carries that the version it names does not define is a malformed payload rather than one the reader leaves out. |
 | `iss` | tstr | Issuing deployment identity. |
 | `ins` | tstr | Issuing instance identity. |
-| `iat` | int | Issuance time, Unix seconds: the instant this deployment's declared time source read when it signed, and the instant a verifier's receipt window is measured from. What it proves is bounded by what it is: the moment a signing process believed, and the source it believed it from, and nothing about how far that source can stand from the truth. Absent a source a deployment wired, that is the host's own clock at an uncertainty nobody measured, so an unstamped deployment signs a host claim and a verifier reads it as one. The bound travels with the deployment's declaration, and with the store's own statement about what it served, never inside this payload: the map is closed, every version of it, and the bytes at one instant are the same bytes whatever the clock of the host that wrote them turned out to be. |
+| `iat` | int | Issuance time, Unix seconds: the instant this deployment's declared time source read when it signed, and the instant a verifier's receipt window is measured from. What it proves is bounded by what it is: the moment a signing process believed, and the source it believed it from, and nothing about how far that source can stand from the truth. Absent a source a deployment wired, that is the host's own clock at an uncertainty nobody measured, so an unstamped deployment signs a host claim and a verifier reads it as one. The payload carries the source and its bound beside the instant in `sd`, so a verifier never has to go outside the document for that pair and never reads the instant as a claim about a clock the receipt does not name. Where no source was wired the disclosure states that rather than omitting itself, and `unc: null` is the sentence "nobody measured how far this stands from the truth". The map is closed, and the bytes at one instant are the same bytes whatever the clock of the host that wrote them turned out to be. |
 | `nce` | bstr (16) | The client nonce echoed back. See section 4. |
 | `req` | bstr (32) | sha256 of the exact raw request body bytes. |
 | `res` | bstr (32) | sha256 of the exact raw response body bytes, including SSE framing. |
@@ -97,32 +109,107 @@ countersignature variants (RFC 9338), if ever needed, would be a new format vers
 | `att` | map | `{ d, ts, url }`: digest of the attestation evidence document; its timestamp in Unix seconds, which is the moment the evidence was collected, the instant a verifier's evidence window is measured from, and earlier than `iat` on a deployment that quotes per request; and a URL where the evidence can be fetched and re-verified. |
 | `epk` | int | Signing-key epoch, for key rotation. A gateway publishes the value it was started with (`--epk` on signerd) and never changes it, so rotating a key means a new process with a higher epoch. What a reader checks a receipt's epoch against is the window its deployment manifest declares for that epoch (section 4.4), and section 5's step 2 is the rule that says so. |
 | `tok` | map | `{ p, c }`: prompt and completion token counts for the call, as the serving stack reported them. A receipt proves who claimed a count, not that the count is right. |
-| `mk` | map | `{ sch, d }`: the marking attestation, and the only member `v: 2` adds to the thirteen above, where `v: 1` carries no `mk` at all because the closed map named in the row above refuses a v1 document that does. It is required in v2, so an absent `mk` is a malformed payload (`BAD_PAYLOAD`) rather than a reading of "unmarked": unmarked is a declared value of `sch`, never an omitted member. `d` is sha256 of the marked region exactly as the response bytes carry it, not of the whole response. The shape is `Marking` in [`receipt.cddl`](../packages/receipt/receipt.cddl), and which labels `sch` draws on, with the bytes each one marks, is section 3.3. |
+| `mk` | map | `{ sch, d }`: the marking attestation, required of every receipt this format states. An absent `mk` is a malformed payload (`BAD_PAYLOAD`) rather than a reading of "unmarked": unmarked is a declared value of `sch`, never an omitted member. `d` is sha256 of the marked region exactly as the response bytes carry it, not of the whole response. The shape is `Marking` in [`receipt.cddl`](../packages/receipt/receipt.cddl), and which labels `sch` draws on, with the bytes each one marks, is section 3.3. |
+| `sd` | map | `{ name, unc }`: where the issuance instant came from, and what that source declares about itself. `name` is what the source's owner calls the thing this process reads, and `unc` is the number of seconds it admits a reading can be away from the instant it names, or `null` where nobody measured. The two are one field with two values and not one field with an escape: zero is a source claiming it is right, `null` is a source saying nothing here knows whether it is, and a policy that demands a bound refuses the second rather than trusting it, which is the same pair `maxTimeUncertaintySeconds` and its refusal already treat. Both members are required, because a disclosure that could be left out is a silence and this version exists to refuse one. Nothing here carries a second timestamp: the instant is `iat`, and two owners of one signed fact is one too many. The shape is `StampDisclosure` in `packages/receipt/src/disclosure.ts`, and which label holds which field is the `StampDisclosure` block of [`receipt.cddl`](../packages/receipt/receipt.cddl) and nothing else. |
+| `cva` | map | `{ col, val }`: the collateral and the validity context the appraisal of the evidence ran on, captured as they were taken in and read offline ever after. Each half is one of two shapes, told apart by the label in its `p`, and the three labels are the capture record's `CapturePresence`: `held`, `absent-at-source`, `not-taken-in`. A held slot carries `d`, sha256 of those bytes exactly as they arrived; either absence carries `r`, the collector's own sentence for why there are no bytes, and no digest, because a digest of bytes nobody held is a statement about nothing. The two absences are two labels because one is a statement about the world and the other about this collector, and a record that could not tell them apart could not be read as either. Both halves are required and neither defaults: an anchor that reads a missing half as a pass is not an anchor. No arm of either carries a verdict of any kind, because whether the collateral verifies is a question a reader asks with its own pins, and a signed document that printed the conclusion would turn custody of bytes into verification of them. The shape is `CollateralValidityAnchor` in the same file, and its mapping to these labels is that block of the CDDL and nothing else. A verifier's standards reach both counts here: `minAnchorSlotsHeld` on the client's policy names how many of the two slots must state that their material was taken in, and a document stating fewer is refused with `ANCHOR_SLOT_NOT_HELD` beside its own reasons. `minAnchorSlotsWeighed` on the same policy names how many a reader must reach and find standing as their own signed statement at the instant the record claims, and the two ways that goes unanswered keep their own codes: `ANCHOR_MATERIAL_UNREACHED` for a digest nothing reached, and `ANCHOR_MATERIAL_NOT_STANDING` for material reached that does not answer for that instant. Both weighings happen where a deployment hands the receipt over, and not in this reader, which weighs nothing a policy asked for and has to keep answering the same way for an auditor holding no policy and no date. Whether a slot stating `held` still resolves is the second question, answered by the reader and by nothing in these bytes: a payload states a digest and no bytes, and what answers for the digest depends on the container it travelled in. A pack seals the answer inside itself, in the `carried` list whose rule and refusals are below, so a reader holding one pack and reaching no vendor endpoint resolves each held slot out of the bytes the pack carries; a receipt fetched from a deployment on its own arrives with no such list beside it, and there the material is whatever the verifier holds. |
+| `itm` | array | `{ t, d }` once per response item, in the order the response put its items in, and never empty. `d` is sha256 of exactly one item's bytes and of none of the framing around them; `t` is the whole number of Unix seconds the source named by `sd` read when those bytes were framed, the same source that read `iat` and the same unit. The reading is one per item and taken in the order the items were framed, so a stamp states something about an item and a source and nothing about how the bytes reached a socket: an implementation that hands a body over in one write and one that hands the same body over a frame at a time are to state the same list, because the number of readings a response consumes is fixed by its items. What the two values say about the passage of time is bounded by that source's declared uncertainty and by the second, and a reader that wants the order of the items has the array, not the difference between two of them. What an item is, where its bytes end, and which of the payload's digests covers which span is section 3.1. Chain order is this array's order and stamp order is `t`, and a reader refuses a receipt where the two disagree (`ITEM_STAMP_OUT_OF_ORDER`), which is section 5's last paragraph. `t` is never above `iat`: an item of a response cannot be dated after the document attesting that response, and a codec checking the order of a list cannot see that bound, so it is a rule a producer keeps. Where the source steps back inside one response, a producer holding its list readable has to hold the stepped-back stamp at that ceiling too, and what the reader then meets is an item dated at `iat`, or a run of items dated at the same instant, which is the reading the step back leaves behind and not a claim about the ordering of the bytes. A response that was not streamed is one entry holding the whole body, which may be no bytes at all; a stream that sent no data frame is a refusal at issuance rather than a list of none, because a run of nothing states nothing and makes the walk over it vacuous. |
+
+**There is no shorter receipt to fall back to.** A gateway signs `v: 1` and nothing else, and the condition
+that decides whether it signs at all is one test of the response's bytes rather than of the deployment that
+served it: the framing of section 3.1 reads at least one item out of what the client was handed, which is true
+of every buffered body and of every stream that said anything in a `data:` frame. A stream that sent no data
+frame is not served, because `itm` would have to be the empty list this table says the format refuses and
+there is no version left that states such a response truthfully: the issuance stops, and the response is
+destroyed rather than terminated. A reader that learned a deployment's wiring, its collector or its tier from
+a `v` would still be reading a statement the document never made.
+
+What the three added members state is what the issuance knew, including that it knew nothing. `sd` names the
+source this process read `iat` from, which is a thing every process has, and the bound that source declares
+about itself, which for a host clock is the sentence that nobody measured it; each item's `t` is a reading of
+that same source, taken as that item's bytes were handed over. `cva` says what became of the collateral and
+the validity context the appraisal of the evidence ran on, and on a gateway that captures nothing it says so:
+`not-taken-in` in both slots, with the reason naming the site that took nothing in. That value is one the
+member was designed to hold, and it is not a placeholder: withholding the version, or leaving the member out
+until something is wired that could fill it, returns the gap to silence, which is the reading every required
+member of this payload exists to refuse. An anchor's `held` digest is no better on its own, since material
+that cannot be resolved when the retention duty still runs attests a claim nobody can weigh. Whether either
+state is acceptable is a verifier's policy, reached beside the bound on the stamp source and stated in the
+refusal it gives, and the payload carries no field for it because a producer that decides the standard is
+grading its own work.
 
 All integers are non-negative. Every one of them is a CBOR integer as well: the payload is decoded
 where no floating-point number may appear, at any depth, so a `tok.p` written as the float `128.0` and
 an `iat` written as the half-precision negative zero `f9 80 00` are malformed payloads (`BAD_PAYLOAD`)
-rather than 128 and 0 read loosely. The positions are `v`, `iat`, `att.ts`, `epk`, `tok.p` and `tok.c`:
-five the normative CDDL writes `int`, and the version it writes as the integer literals `1` and `2`,
-which a `1.0` does not become. The writer that issues a receipt keeps the same rule from its own side,
-and `encodeCanonical` in this repository is where it does so: negative zero has one canonical integer
-spelling, the one `0` gets, so a float standing at one of these positions is a document another
-implementation wrote and never one this package signed and could not read back. The width of the rule
-is the table above and no more: it names every member of the payload and of the maps inside it, and
-none of those positions is written as a float. A bignum is refused too, and twice over: the canonical
-encoding this format requires rejects the bignum spelling of any value a plain integer can hold, and
-one it cannot is outside the range the six positions above are read in, so it arrives as a value no
-position here takes. Maps use bytewise canonical key ordering per RFC 8949 CDE.
+rather than 128 and 0 read loosely. The positions are `v`, `iat`, `att.ts`, `epk`, `tok.p`, `tok.c` and
+`itm.t`: six the normative CDDL writes `int`, and the version it writes as the integer literal `1`,
+which a `1.0` does not become. The one position that also takes `null` is `sd.unc`, and
+the decode reaches it the same way it reaches every other value of a map whose every member the file
+names: a float there is refused, and no reading of "or nothing" is offered in its place. The writer
+that issues a receipt keeps the same rule from its own side, and `encodeCanonical` in this repository
+is where it does so: negative zero has one canonical integer spelling, the one `0` gets, so a float
+standing at one of these positions is a document another implementation wrote and never one this
+package signed and could not read back. The width of the rule is the table above and no more: it
+names every member of the payload and of the maps inside it, and none of those positions is written
+as a float. A bignum is refused too, and twice over: the canonical encoding this format requires
+rejects the bignum spelling of any value a plain integer can hold, and one it cannot is outside the
+range the seven positions above are read in, so it arrives as a value no position here takes. Maps use
+bytewise canonical key ordering per RFC 8949 CDE.
 
 ### 3.1 Hash definitions
 
-Both hashes are computed over raw bytes on the wire, before any decoding:
+Three spans of one response are digested, and a reader has to know which member is which:
+
+| Member | The bytes it is the sha256 of | Carried by |
+|---|---|---|
+| `res` | the whole response body exactly as transmitted, framing included | every receipt |
+| an item's `d` | one item's bytes, and none of the framing around them | every receipt |
+| `mk.d` | the marked region, wherever the response carries one; under `sch: "none"` the empty input | every receipt |
+
+All three are computed over raw bytes on the wire, before any decoding:
 
 - `req` = sha256 of the request body exactly as transmitted. Two JSON bodies that parse to
   the same object but differ by a byte produce different `req` values.
 - `res` = sha256 of the response body exactly as transmitted. For streaming responses this
   includes every SSE frame, separator, and terminator, not only the concatenated `data:`
   payloads.
+
+A line ending in a framed response is a line feed, a carriage return, or that pair together. `res`
+covers whichever the response used, and the item list is read at those same endings, so a verifier
+holding the bytes a client received rebuilds the items the gateway attested rather than a different
+set. A verifier that guesses the rule instead, by splitting only at line feeds, decodes one item from
+a response whose client decoded two and finds digests it cannot reproduce over bytes nobody edited.
+
+A frame is one `data:` line and the blank line after it, and a marked response writes its mark as a
+frame of its own: the bytes ahead of it close the frame they are in, whether the response's own
+framing did that or the mark had to. No line of a marked stream therefore carries two `data:`
+prefixes, and the line a mark sits on holds one frame's payload. The frame end is framing in the
+sense this section uses the word: inside `res`, outside every item, and dispatching an event whose
+line the upstream had already written. Where a completion reached its end with the last line of a
+frame open, what the client holds is the upstream's bytes, the frame end that closes them, the mark
+frame, and nothing else this gateway added.
+
+An item is a protocol item and not a transport accident: one `data:` frame of a streamed response,
+which is the bytes after that field name and after the one space it writes, up to the line ending
+that closes the frame as defined just above. The `data: [DONE]` frame ends a stream instead of being
+said by one, so it contributes no item. A response whose content type is not `text/event-stream` is
+one item holding the whole body, which may be no bytes at all. A line that is not a `data:` line, an
+`event:` or `id:` field, a comment, the blank line that closes a frame, contributes no item either.
+The sentinel ends the stream wherever it sits rather than only at the end of the body, and what
+follows it is still a response: a `data:` frame after a sentinel is one more item, and its bytes are
+inside `res` exactly as the frames before it are. One client stops at the terminator and never reads
+what follows and another reads the whole body, so a receipt that attested per-item instants has to
+attest the frames the bytes hold rather than guess which of the two a particular reader became.
+`extractMarkedRegion` in `@ashaveri/receipt` is the executable form of the marking rule and
+`frameResponse` in the same package is the executable form of this one; the framing is stated there
+rather than written out twice, and `packages/fixtures/data/res-v1.json` publishes the bytes for both
+shapes of response.
+
+That last pair is the fact a port most easily gets backwards, so it is stated plainly: `res` and each
+item's `d` are two hashes over one transmitted byte string, both recomputable by a reader holding the
+response, and neither recomputable from the item list alone. The framing bytes are outside every item
+by definition, which is what the published `streamed-payloads-without-framing` vector exists to show:
+concatenating the item payloads and hashing the result is a different digest from `res` over the same
+response. A verifier handed an item list and no response can check nothing about it.
 
 This is why the gateway signs the bytes it forwarded, and the client hashes the bytes it
 received: any difference, including a transport-level re-encoding, breaks verification.
@@ -171,6 +258,11 @@ published rule and the running one are one rule.
 |---|---|---|
 | `"none"` | No region of this response carries a marking, which is a claim about the bytes rather than an absence of a field | No `provenance-v1` region in the response at all. The marked region is the empty input, and `d` is sha256 of zero bytes. A response that does carry a marked region is refused over a `"none"` receipt, so a backend that marks its own output bites a deployment that marks nothing. |
 | `"provenance-v1"` | The response carries one machine-readable marking, and that marking says the content it accompanies was generated | Exactly one region, and `d` is sha256 of exactly its bytes and of nothing beside them. In a buffered completion the region is one top-level member: its name, its colon and its value, spelled as the body carries them. In a stream the region is one `data:` field line, its terminator excluded, whose payload is a completion chunk carrying an empty `choices` beside that same member. |
+
+The region is found structurally, and the writer keeps it findable: a mark on a stream is written as a
+frame of its own, with the frame the upstream left open closed ahead of it, so the line the rule names
+holds one `data:` prefix and one payload. A line that two frames share is not a region, is not what any
+client's parser produces a frame from, and is not a shape a marked response is written in.
 
 The marked region of a `provenance-v1` response is this member:
 
@@ -538,11 +630,17 @@ steps are one receipt.
    policy that names `Number.POSITIVE_INFINITY` switches that one window off, which is the way to
    say so out loud when verifying an archived receipt. A verifier handed no policy at all, which is
    what `@ashaveri/receipt` gives an offline auditor working on last year's receipt, checks no
-   clock: the format never assumes one.
+   clock: the format never assumes one. The checking moment a caller does hand is asked one question
+   before either window runs: it has to be a whole number of Unix seconds inside the span these stamps
+   are weighed in, so a caller who handed the milliseconds figure of the same instant is refused by
+   name (`VERIFICATION_TIME_OUT_OF_RANGE`, in `docs/error-codes.md`) rather than being handed
+   `STALE_RECEIPT` for a document that aged nothing.
 6. **Check the request hash.** `req` must equal sha256 of the exact bytes the client sent.
 7. **Check the response hash.** `res` must equal sha256 of the exact bytes the client
    received.
-8. **Check the marked region.** A `v: 2` payload names one marking scheme and one digest of a region
+8. **Check the marked region.** Every payload this format states names a marking, so every receipt
+   that reaches this step names one
+   marking scheme and one digest of a region
    inside the response, so a reader holding those bytes extracts the region by the rule the label
    names, section 3.3, whose rows are executable in `extractMarkedRegion` in `@ashaveri/receipt`,
    and requires `sha256(region)` to equal `mk.d`. A region that fails to be exactly one answers
@@ -552,7 +650,8 @@ steps are one receipt.
    response that does carry a marked region is refused over that receipt too. The other two failures
    keep their own codes: a mark deleted from bytes a reader stored moves `res` and stops at step 7,
    and `INVALID_SIGNATURE` stays the answer about a receipt that is not authentic. A reader handed no
-   response bytes performs no marking check, and a `v: 1` payload makes no marking claim to check.
+   response bytes performs no marking check, because every payload this format states names a marking and
+   the bytes `mk.d` is a digest of sit in the response rather than in the document.
 9. **Check policy pins.** Issuer, instance, and measurement must each be pinned by the
    policy when the client pins that dimension.
 10. **Verify the evidence the receipt commits to.** Strict mode only. The client asks the
@@ -575,6 +674,33 @@ steps are one receipt.
 Steps 6 and 7 are what make the receipt a statement about *this* exchange rather than a
 generic artifact: a receipt whose hashes do not match the observed bytes is rejected even
 when its signature is perfectly valid.
+
+**The one order a reader checks, and what it cannot see.** The payload states when each item of
+its response was stamped, and the array states the order the response put those items in. Chain order
+is the array's order; stamp order is `t`. The two are two statements inside one signature, so a
+receipt where a later item carries an earlier instant contradicts itself, and it is refused rather
+than read in whichever order a reader reached for: `ITEM_STAMP_OUT_OF_ORDER`, at the point the payload
+is read, which `decodeReceipt` reaches with no key at all and `verifyReceipt` reaches only after the
+signature check it runs first. Two items stamped inside the same second are not that refusal
+and never were: the stamps are whole seconds, two frames of one completion routinely fall inside one
+of them, and a reader that demanded strictly increasing instants would refuse ordinary traffic. A `t`
+above its own `iat` is not that refusal either, and it is the second thing this check cannot reach: an
+order rule over a list has nothing outside the list to compare it against, so the bound that no item of a
+response may be dated after the document attesting it is one a producer keeps, and a reader that wants it
+enforced is the one that refuses for it. Where the source named by `sd` steps back inside a single
+response, the producer keeps both rules by holding the stepped-back stamp at the instant the payload
+states, which is why such a receipt can carry items dated at exactly `iat`: that equality is what the step
+back leaves behind rather than a claim that the frames were handed over at the moment of signing, the
+source and its declared bound travel in `sd` beside it, and the document claims no resolution finer than
+the second it is written in. What
+this check cannot reach is stated with it because it is inherent rather than waiting to be fixed: a
+source standing uniformly away from the truth moves every stamp together, leaves the chain tidy, and
+passes. A store that cannot see outside the clock it reads cannot bound its own error from inside a
+document, which is why the version discloses the source and its declared bound beside the numbers
+rather than instead of them: what a reader gets is the means to weigh a stamp, and not a promise that
+nothing has to be weighed. A reader holding the response bytes can take the check further and compare
+each `d` with the frame it recomputes by section 3.1; a reader handed the receipt alone cannot, and
+nothing here pretends that it can.
 
 ### 5.1 Verification modes
 
@@ -606,7 +732,7 @@ against it exactly as before.
 Which payload versions a call reads is none of these three choices to make. Section 6's
 `acceptedVersions` is an option on `@ashaveri/receipt`'s own `verifyReceipt` and `decodeReceipt`, and
 no mode above passes it, so an integrator verifying through the SDK gets the default set, which
-today admits both versions, and has no flag to refuse a `v: 2` receipt with.
+admits every version the package parses, and has no flag to refuse a receipt by its number.
 
 ### 5.2 Record framing and chain recomputation
 
@@ -622,8 +748,11 @@ and those two disagree, the vector file and the store are the authority, not thi
 That file is the chain's only authority and every image below is a `receipts.log` image. A default store
 keeps a second file beside it, `receipts.log.index` (`RECEIPT_SIDECAR_FILE` in the same module), holding
 each record's position and digest with a checkpoint naming how much of the log it speaks for, so that an
-opening reads the tail it has not seen instead of re-walking the bytes it has. That second file is an
-accelerator and nothing more: it is accepted only where it ties back to the log, which the opening checks
+opening reads the tail it has not seen instead of re-walking the bytes it has. Its header also names which
+receipt kind the records under it are, because an entry states a payload's width and nothing about the
+kind that width belongs to, and an index taken for records of the other kind would shave four bytes off
+every receipt served from it. That second file is an accelerator and nothing more: it is accepted only
+where it ties back to the log, which the opening checks
 by reading the prefix's trim records from the log and hashing the record the checkpoint ends on as though
 it were about to serve it, and it is discarded and rewritten from the log at any disagreement. It can be
 declined outright by `sidecarIndex: false`, and no byte of it enters the framing below.
@@ -656,8 +785,8 @@ widths are what they are. `id` starts at byte 47, one past `idLen`, and runs for
 to the byte before the digest, and `digest` is always the frame's final 32 bytes. `len` counts from
 `kind` through `digest` inclusive, which is the whole frame minus the 4 bytes of `len` itself, so a
 reader locates the end of a record by adding `len` to the offset `len` starts at rather than by reading
-the payload. Every integer in a frame (`len`, `kind`, `iat`, `idLen`, and the trim counters below) is
-unsigned and stored big-endian.
+the payload. Every integer in a frame (`len`, `kind`, `iat`, `idLen`, and the counters inside the two
+payload layouts below) is unsigned and stored big-endian.
 
 **Why the digest covers less than the frame.** `digest` is `sha256` over every byte between the length
 prefix and the digest: `kind` through `payload`, bytes 4 through 158 of the record above, 155 bytes, or
@@ -669,17 +798,41 @@ and the 36-byte gap between the frame and the hashed input is the 4 length bytes
 bytes. A reader who hashed the whole frame, length prefix and digest included, would recompute a value
 no record carries and refuse a file the store wrote correctly.
 
-**Kinds.** `kind` takes one of two values, and they decide how the rest of the frame reads:
+**Kinds.** `kind` takes one of three values, and they decide how the rest of the frame reads:
 
 | Record kind | Byte value |
 |---|---|
 | `receipt` | 0 |
 | `trim` | 1 |
+| `bounded` | 2 |
 
 A receipt's `payload` is the signed receipt bytes, stored whole and opaque to the chain; nothing in a
-record digest depends on what they hold. A trim is the record the store writes at the very front of the
-file when retention reclaims a retired prefix. It carries no receipt, so its `id` is empty, and its
-payload is a second fixed layout:
+record digest depends on what they hold. A `bounded` record's `payload` is the same receipt bytes with
+one field in front of them, so a reader holding one record can say how long that record is kept without
+asking the deployment:
+
+```text
+boundSeconds:u32 || receipt
+```
+
+within the bounded payload, counting from that payload's first byte:
+
+| Field | Byte offset in the bounded payload | Width |
+|---|---|---|
+| `boundSeconds` | 0-3 | 4 |
+
+`boundSeconds` is the period the record states, an unsigned whole number of seconds between 1 and
+4294967295, and `receipt` runs from byte 4 of the payload to its last byte: the receipt itself, stored
+whole and opaque exactly as in a kind 0 record. A store refuses to open with a period at or above its own
+durability window, because that window is what retires the record, so the file drops the record no later
+than the instant its own period says it should still be kept and a bound stated that way could never be
+seen to bind; and the period is a statement the record carries about the deployment that wrote it, not a
+rule the store acts on, because retirement drops a prefix at the durability bound and reads no period off a
+record. Which records a deployment writes as `bounded`, and which as `receipt`, is its own configuration,
+which a `signerd` run states with `--receipts-record-kind`, and `DEFAULT_RECEIPT_RECORD_KIND` in
+[configured-values.md](configured-values.md) names the kind a deployment that named none writes. A trim is
+the record the store writes at the very front of the file when retention reclaims a retired prefix. It
+carries no receipt, so its `id` is empty, and its payload is a second fixed layout:
 
 ```text
 seam:32 || byAge:u32 || byCount:u32 || maxAgeSeconds:u32 || maxCount:u32
@@ -699,6 +852,24 @@ A bound of zero in a trim states that no such bound was configured, which a read
 from a bound of one. A trim is not a link in the receipt chain: it precedes every receipt in the file
 and nowhere else, and a reader folding one into a recomputation as if it were a receipt has misread the
 frame, not found a broken chain.
+
+**One kind of receipt record per log.** The two receipt kinds put the receipt at different places in the
+same frame: a `bounded` record's receipt begins four bytes behind where a `receipt` record's begins, and
+those four bytes are inside the digest the chain folds. One file holding both therefore has no single
+reading: which offset a record's receipt sits at, and how long that record says it is kept, would depend
+on which record a reader picked up. So a store's log holds receipt records of one kind, chosen when the
+store opens and stated in every record it appends, and an opening that meets a receipt record of the
+other kind refuses with `STORE_RECEIPT_KIND_MISMATCH`, naming that record's id and the byte its frame
+starts at, which is where the disagreement first shows. The kind is settled before the predecessor link
+is checked, because a record of the kind this store does not run has no predecessor anything can
+interpret, and an operator told the file is broken would hunt for an edit that never happened. A `trim`
+is not one of the two receipt kinds and never makes a mixture, and no rule about kinds turns on the
+order a scan met its records: a store reading a run of trims ahead of its receipts is reading one kind of
+receipt record, because a trim is this store's own bookkeeping about a prefix it retired and it addresses
+no receipt. A `kind` byte outside the three values above is refused the same way, since nothing in this
+layout states what such a record's payload holds. A record's own digest is read before its kind, so a
+kind byte edited into a record stops at that record's digest, and an unreadable kind is
+refused only where the frame tells the truth about itself.
 
 **Walking from an anchor to a head.** Recomputation runs forward, from an anchor to a head, and the
 per-record digest is what makes each step checkable:
@@ -726,8 +897,16 @@ container `packages/receipt/pack.cddl` describes. It refuses a document whose pr
 floating-point number may appear, in a value and in a key alike, bounds every item's stamp by the half-open
 span, walks the `prev` links from the signed anchor to the signed head and counts what that walk reached against
 the array it was handed, and verifies each item's receipt as a receipt, under the key that item's own header
-names and with its chained stamp equal to the `iat` the receipt attests. The keys arrive from the caller in
-either of the two shapes the receipt verifier already takes: a single pinned key answers the envelope and every
+names and with its chained stamp equal to the `iat` the receipt attests. The same structural parse weighs the
+`carried` list against the slots those sealed receipts name, which is the half a reader of a pack cannot settle
+anywhere else: each entry's digest is recomputed from the bytes beside it, the two ceilings the format takes from
+its own contents are enforced before any hashing, and the list and the slots have to speak of one set of material,
+so an entry misstating its own bytes, one digest carried at two positions, an entry no held slot names and a slot
+no entry hashes to are each refused with the position that contradicted the other. A slot stating an absence names
+no digest and owes no bytes, so a pack carrying nothing beside receipts that took nothing in is whole, and
+`signPack` runs this same parse before it signs, which is why none of those four shapes is a document a deployment
+seals by accident. The keys arrive from the caller in either of the two shapes the receipt verifier
+already takes: a single pinned key answers the envelope and every
 receipt inside the container, and a resolver is asked once for each kid the documents name, so the envelope can
 verify under the epoch that signs it while a receipt from before a rotation verifies under the epoch that signed
 it. What that changes is one thing, and it is worth saying which: a pack whose span crosses a key rotation is
@@ -784,9 +963,10 @@ unfinished record (the walk's stop in `gateway/src/store.ts`, and the `partial-t
 `chain-v1.json`). A short read behind a length that does not lie about its own size is the different
 case: that is a refusal, not a short file.
 
-**The refusals a reader reproduces.** A chain that cannot be read raises one code, `STORE_CHAIN_BROKEN`,
-and names the byte offset it stopped at (`StoreErrorCode` in `gateway/src/store.ts`). Four images in
-`chain-v1.json` show four distinct ways that happens, and a reader is expected to reproduce all four:
+**The refusals a reader reproduces.** Two refusals come off the bytes, and each names the byte offset it
+stopped at (`StoreErrorCode` in `gateway/src/store.ts`). A chain that cannot be read raises
+`STORE_CHAIN_BROKEN`. Four images in `chain-v1.json` show four distinct ways that happens, and a reader is
+expected to reproduce all four:
 
 - `tampered-record-byte`: one bit flipped inside a receipt's payload. The frame still states its own
   length and names the right predecessor; only its digest over its own bytes stops matching, and that
@@ -797,6 +977,19 @@ and names the byte offset it stopped at (`StoreErrorCode` in `gateway/src/store.
   if it were intended, refused on that alone.
 - `frame-length-too-short`: a `len` claiming fewer bytes than the header needs, so the reader stops at
   the size and never reaches the digest.
+
+A log holding a receipt record of the kind the store does not write raises the second of the two codes,
+`STORE_RECEIPT_KIND_MISMATCH`, and names the record's id beside its byte, because the mixture is a fact
+about one record and an operator has to be told which one the file does not run. Two images in
+`chain-v1.json` show the two ways a reading can disagree with a file, each row stating the receipt kind
+its opening writes: `bounded-record-in-a-receipt-log` is an unbounded file with one bounded record
+appended behind it, refused for that appended record, and `receipt-log-opened-as-bounded` is a published
+unbounded file, byte for byte as the store that wrote it left it, read by an opening configured for the
+bounded kind and refused at its first record. The first is two files' bytes concatenated, so the record it
+names also carries a `prev` slot pointing at a chain it is not part of: the kind is answered first, and a
+reader that checked the predecessor link first would report a broken chain for a file nothing edited. The
+second states that the refusal is about the reading rather than the bytes, because nothing in it was
+touched.
 
 ### 5.3 Retention manifest layout
 
@@ -811,21 +1004,33 @@ that schema disagree, the schema is the authority and this prose is wrong.
 
 The identity that schema answers to carries its version, `https://ashaveri.com/schemas/retention-v1.json`,
 and the receipt and pack twins beside it now do the same. An identity that names no version has to mean two
-documents the moment a second one is defined, and the receipt family already is two documents: section 6
-defines `v: 1` as section 3's thirteen fields and `v: 2` as those same thirteen plus a required `mk`. `packages/fixtures/test/schema-identity.test.ts` holds every
-published schema to that rule, in both directories, so the convention is a checked property of the tree
-rather than a habit this sentence asks a reader to trust.
+documents the moment a second one is defined, which is the state the retention family is in: it carries a
+`v: 1` and a `v: 2` document with real bytes behind both, and a reader refuses a version its own set does
+not name. The receipt family is one document, section 6's `v: 1`, and its identity names that, as the pack
+family is one document at [`pack.cddl`](../packages/receipt/pack.cddl)'s own `v: 1`.
+`packages/fixtures/test/schema-identity.test.ts` holds every published schema to that rule, in both
+directories, so the convention is a checked property of the tree rather than a habit this sentence asks a
+reader to trust.
 
-The generator that fills these fields is not part of this repository, and nothing here writes or reads the
-document today. It is published anyway because the check a reader owes is public even when the program that
-produced the bytes is not, and because a shape that lives only in a writer cannot be recomputed by
-somebody handed the output. One consequence is worth stating before any field: this manifest carries no
-signature. A receipt and a pack are both `COSE_Sign1` over the bytes they attest, and a retention manifest
-is a JSON file a deployment writes about its own store, so every value in it is the deployment's say-so
-until a reader recomputes it against something signed. The writer serializes the document with two-space
-indentation, a trailing newline, and its members in the order the table lists them, so the same store state
-produces the same bytes twice; a JSON Schema states no member order, which is the only reason the order
-below is this section's to carry.
+The generator that fills these fields is not part of this repository, and nothing in this repository's shipped
+deployment path writes the document: a gateway that closes a window hands the store's state to a tool on the paid
+side, and that tool is not here. What is here is the reader and the writer of these bytes,
+`packages/receipt/src/retention.ts`, which reads this layout and the version after it alike, publishes the member
+lists the two layouts close, and refuses at the point of writing a manifest its own reader would refuse. The
+layout is published anyway because the check a reader owes is public even when the program that produced the
+bytes is not, and because a shape that lives only in a writer cannot be recomputed by somebody handed the
+output. One consequence is worth stating before any field: this manifest carries no signature. A receipt and a
+pack are both `COSE_Sign1` over the bytes they attest, and a retention manifest is a JSON file a deployment
+writes about its own store, so every value in it is the deployment's say-so until a reader recomputes it against
+something signed. What signs it is the epoch inventory: `packages/receipt/epoch-inventory.cddl` names this file's
+location in the run and carries sha256 over its bytes as `packs[].retentionSha256`, inside that inventory's own
+signature, which is why a manifest handed over on its own is a report and a manifest handed over beside the
+inventory that seals it is evidence. The pack format itself carries neither this document nor a digest of it, and
+the reason the block below repeats the chain endpoints rather than deferring to a pack is the same fact. The
+writer serializes the document with two-space indentation, a trailing newline, and its members in the order the
+table lists them, so the same store state produces the same bytes twice, which matters because those bytes are
+what gets hashed; a JSON Schema states no member order, which is the only reason the order below is this
+section's to carry.
 
 | Member | Type | Required | What it states |
 |---|---|---|---|
@@ -880,8 +1085,8 @@ nothing.
 
 **The two endpoints, and why they are repeated here.** A pack carries an anchor and a head inside its
 signature, and this manifest names the same two values again from the same store. It does not defer to a
-pack, because there is nothing to defer to: the published pack manifest names six members, `v`, `at`,
-`span`, `chain`, `duty` and `items`, and none of them is this document or a digest of it, so a reader
+pack, because there is nothing to defer to: the published pack manifest names seven members, `v`, `at`,
+`span`, `chain`, `duty`, `items` and `carried`, and none of them is this document or a digest of it, so a reader
 holding a pack has no endpoint to inherit. Repeating them is also what the artifact's own bytes do, and a
 layout that referred a reader elsewhere to find them would be publishing a shape nothing produces. Where
 both artifacts describe one store at one instant the pairs have to agree, and a pair here that disagrees
@@ -928,39 +1133,166 @@ reader can only check event by event because the bounds move. A document that sa
 contradicts one of these is a malformed manifest read as a whole, not a deployment that failed to hold what
 it promised, and keeping those two answers apart is the reason the layout is public.
 
+### 5.4 Retention manifest layout, version 2
+
+Version two of the layout above adds one member, `presence`, and changes nothing else: `v`, `at`, `policy`,
+`retained`, `retired`, `chain` and `duty` are version one's members, unchanged in name, order, width and
+meaning, and a version one document stays whole under its own layout rather than being read as a store that
+held nothing. The normative statement of the second layout is
+[`packages/receipt/schemas/retention-v2.schema.json`](../packages/receipt/schemas/retention-v2.schema.json),
+whose identity carries the version, `https://ashaveri.com/schemas/retention-v2.json`, and
+`packages/fixtures/test/retention-doc.test.ts` reads both sections' tables out of this document and holds every
+member name, type and required-ness against the schema of its own version in both directions. Where a sentence
+here and one of those two files disagree, the schemas are the authority and this prose is wrong. As in section
+5.3, the generator that fills these fields is not part of this repository; what is here is the reader and the
+writer of these bytes, `packages/receipt/src/retention.ts`, which reads both layouts, refuses at the point of
+writing a manifest its own reader would refuse, and is held to the two schemas member for member by
+`packages/receipt/test/retention-presence.test.ts`.
+
+**Why a member arrives as a version and not as an option.** Every map in this artifact is closed, so a member
+the layout does not define makes a document malformed rather than a member a reader agreed to forget. That rule
+has one door out and it is a version number: a `presence` member made optional would let a manifest say nothing
+about the appraisal context and be read as a manifest that said it held nothing, which is the pair of findings
+this artifact keeps apart everywhere else, and it would leave a reader unable to tell a store that held no
+collateral from a deployment that had not been asked. `packages/receipt/src/retention.ts` asks a document's `v`
+of `RETENTION_FORMAT_VERSIONS`, the set, rather than comparing it to a literal, because a literal is the
+defect this class of change produces: a reader that answered a second version by falling through to the branch
+written for the first reports a document it never read as one it did, and every gate stays green while it does.
+The same list is what the epoch inventory's fold and the published vectors are built against.
+
+**What the two documents attest, and which half each one carries.** This manifest states what one store held at
+one instant: the receipts it kept, the ones it retired and on which bound, and from this version the collateral
+and validity documents it had beside them. The epoch inventory states what a run of sealed packs adds up to
+across those instants, and it is the only place the folded interval lives:
+`packages/receipt/epoch-inventory.cddl`, its reader, and the section "What a run states about itself" of
+[epoch-inventory-v1.md](epoch-inventory-v1.md). Neither statement replaces
+the other and neither is readable as the other. A manifest cannot say that any of the material it names is
+reachable, is still on the volume, or will be there when a reader arrives, because it holds no bytes and no
+clock outside the instant it stamped; an inventory cannot say what a store held, because it carries no presence
+observation of its own and folds only the ones the retention manifests it seals state. So a reader that wants to know
+whether material named by one receipt's anchor was there across a period asks the retention manifest which documents the
+store held at each sealing instant, asks the inventory which of those retention manifests the run seals and what
+interval their observations add up to, and holds neither answer as the other. The artifact that states an observation is
+not the artifact that states a reach, and the reason both say so in their own words is that a reader holding one
+of them alone cannot see the half the other carries.
+
+| Member | Type | Required | What it states |
+|---|---|---|---|
+| `v` | `2` | yes | Format version, one constant per layout rather than a discriminant. A reader refuses a version its set does not name rather than reading the bytes under rules written for another version. |
+| `at` | `integer` | yes | Unix seconds, the instant generation began, stamped before the store is read so a slow store cannot date the window later than it was. `presence` states what was held at this same instant and at no other. |
+| `policy` | `object` | yes | The bounds the deployment asked the store to enforce, as intention. |
+| `policy.maxAgeSeconds` | `integer` | no | A receipt is served while its stamp is at or after `at` less this. Absent means no age bound; zero is a bound that keeps almost nothing. |
+| `policy.maxCount` | `integer` | no | How many receipts are served. Absent means no count bound. |
+| `retained` | `object` | yes | What the store holds right now, copied from the store itself. |
+| `retained.from` | `integer` | yes | Unix seconds, inclusive: the oldest stamp still held, and zero with a count of zero for an empty store. |
+| `retained.to` | `integer` | yes | Unix seconds, inclusive: the newest stamp still held. Both edges are inclusive, which is not the half-open interval a pack answers for. |
+| `retained.count` | `integer` | yes | How many receipts sit between them. The member that decides whether `from` means anything. |
+| `retired` | `object` | yes | What left, in total and event by event. |
+| `retired.byAge` | `integer` | yes | Receipts retired for falling past the age bound, including any dropped since the last compaction wrote. |
+| `retired.byCount` | `integer` | yes | Receipts retired because the count bound evicted them, on the same basis. |
+| `retired.trims` | `array` | yes | One entry per compaction, oldest first. Empty means nothing has been compacted, which is not the same as nothing having been retired. |
+| `retired.trims[*].at` | `integer` | yes | Unix seconds, the stamp that compaction wrote. |
+| `retired.trims[*].byAge` | `integer` | yes | How many it removed for age. |
+| `retired.trims[*].byCount` | `integer` | yes | How many it removed for count. |
+| `retired.trims[*].under` | `object` | yes | The bounds in force then, read off that trim record's own payload rather than out of memory. |
+| `retired.trims[*].under.maxAgeSeconds` | `integer` | no | The age bound at that moment, absent if none was configured. |
+| `retired.trims[*].under.maxCount` | `integer` | no | The count bound at that moment, absent if none was configured. |
+| `chain` | `object` | yes | The two endpoints a reader walks between, stated here as the store reports them. |
+| `chain.anchor` | `string` | yes | Sixty-four lowercase hex characters: the digest the oldest retained receipt was chained from. |
+| `chain.head` | `string` | yes | Sixty-four lowercase hex characters: the digest of the last receipt in the chain. |
+| `duty` | `object` | yes | The article the manifest is written against, the period taken from it, the time held, and the comparison. |
+| `duty.article` | `string` | yes | Which obligation: `19(1)`, `19(2)` or `26(6)`. |
+| `duty.requiredSeconds` | `integer` | yes | Seconds the deployment takes that article to require, never below one. |
+| `duty.heldSeconds` | `integer` | yes | Seconds the store has held the oldest receipt it retains, measured at `at`, and zero for a store holding nothing. |
+| `duty.met` | `boolean` | yes | Whether `heldSeconds` is at least `requiredSeconds`, computed by the writer. |
+| `presence` | `object` | yes | The appraisal context this store held at `at`, in the two families it arrives in. Required, and never read as optional: a manifest that said nothing about a family would be a malformed document rather than a store that held nothing. |
+| `presence.collateral` | `object` | yes | The vendor-signed material held at `at`: the count the store gave and one entry per document. |
+| `presence.collateral.count` | `integer` | yes | How many collateral documents the store held. The reader recomputes it against `presence.collateral.held` and a manifest whose two disagree is malformed. |
+| `presence.collateral.held` | `array` | yes | One entry per held document, in no order that bears anything, matched by the digest each names. The list carries no floor: an empty one beside a count of zero states that nothing was held of this family. |
+| `presence.collateral.held[*].sha256` | `string` | yes | Sixty-four lowercase hex characters: sha256 over the document's bytes as they sat on the volume. One digest named twice inside one family is a refusal, because a fold that met it twice cannot tell one document stated twice from two documents. |
+| `presence.collateral.held[*].under` | `object` | yes | What that document was believed under, as a label and a digest. |
+| `presence.collateral.held[*].under.kind` | `string` | yes | `root` for the self-signed end the material is read under, `chain` for the sequence the document was presented by. |
+| `presence.collateral.held[*].under.value` | `string` | yes | Sixty-four lowercase hex characters: the digest of the bytes carrying that root or that chain end. |
+| `presence.validity` | `object` | yes | The validity material held at `at`: the window and the appraisal the same evidence was read in, stated the same two ways as the collateral family. |
+| `presence.validity.count` | `integer` | yes | How many validity documents the store held, recomputed against the list beside it. |
+| `presence.validity.held` | `array` | yes | One entry per held document, matched by the digest it names, with no floor for the same reason the collateral family has none. |
+| `presence.validity.held[*].sha256` | `string` | yes | Sixty-four lowercase hex characters: sha256 over that document's bytes as they sat on the volume. |
+| `presence.validity.held[*].under` | `object` | yes | What that document was believed under, as a label and a digest. |
+| `presence.validity.held[*].under.kind` | `string` | yes | `root` or `chain`, the two ways a held document is believed. |
+| `presence.validity.held[*].under.value` | `string` | yes | Sixty-four lowercase hex characters: the digest of the bytes carrying that root or that chain end. |
+
+Every block is closed here exactly as it is in section 5.3, and it reaches the two policy blocks, the window,
+the retirement history, each trim event, the chain, the duty, the presence block, each family, each held
+document and each root or chain value alike. `presence` beside a `v: 1` document is that rule's most important
+case: the reader refuses the combination rather than reading it as a manifest that held nothing, and a reader
+that dropped the member instead would fold a run whose store had said something the layout it was reading says
+nothing about.
+
+**What a presence block states, and what it cannot.** It states one thing: at the instant in `at`, this store
+held these documents, this many of them, each under this value. That statement stays true whatever happens to
+those bytes afterwards, which is the property the whole shape is built on and the reason no member here is
+forward-looking. What it does not state is that the material is reachable, that the bytes are still anywhere,
+that a reader could fetch them, or that the belief recorded in `under` was well founded: this artifact carries
+no copy of any of those bytes, no verifier for any of those signatures, and no clock outside its own instant.
+Whether a root signs what it claims to, and whether a chain runs to it, are a reader's own checks with its own
+pins. The block is what makes a retired document visible rather than merely absent: a digest named at one sealing
+instant and not named at the next is a document that left, and only the fold across a run can see the pair.
+
+**The fold, and the three refusals it owes.** The observations above are per instant. The interval a reviewer
+actually asks for, the period across which the material a run names was present, is assembled by
+`verifyEpochInventory` in `packages/receipt/src/epoch-inventory.ts` from the retention manifests the run's own entries
+seal, and three disagreements are refused there rather than footnoted: a digest named at two instants and not
+between them, which is a gap inside the period the run states it attests
+(`EPOCH_INVENTORY_PRESENCE_GAP`); an observation arriving under a digest no entry of the run seals, which is a
+bare retention manifest handed to a reader rather than evidence, and is refused on the digest rather than read as the
+run's own statement (`EPOCH_INVENTORY_PRESENCE_UNSEALED`); and a `window` the inventory states that reaches
+further than the observations reach (`EPOCH_INVENTORY_PRESENCE_WINDOW_TOO_WIDE`). Those three belong to the
+inventory and its rows are in [error-codes.md](error-codes.md) beside the rest of that container's family; they
+are named here because a reader of this artifact is the one handed both halves and is the party the confusion is
+possible for. Nothing in this layout refuses any of them, and nothing in it can: a retention manifest states one instant
+and has no neighbours to compare it with.
+
 ## 6. Versioning
 
-Two payload versions are defined. `v: 1` is section 3's thirteen fields, and `v: 2` is those same
-thirteen plus a required `mk`. A payload map is closed at either version, so a member the version a
-document names does not define is a malformed payload (`BAD_PAYLOAD`) rather than a member the reader
-agrees to leave out: that is what makes "`v: 1` carries no `mk`" a fact of the format rather than an
-expectation about it. The rule is not the payload map's alone: the four maps nested inside it,
-`meas`, `att`, `tok` and `mk`, carry no `...` in the normative CDDL either, and `@ashaveri/receipt`
+The payload has one version, `v: 1`, and it states seventeen members: section 3's twelve fields beside
+`v`, then a required `mk`, `sd`, `cva` and `itm`. A version says what a receipt attests rather than
+which software wrote it, so each of those four names is required rather than optional: a reader that
+left one out would verify a receipt missing that claim and read its own silence as the deployment's. A
+payload map is closed, so a member the format does not define is a malformed payload (`BAD_PAYLOAD`)
+rather than a member the reader
+agrees to leave out: that is what makes "every receipt names an `mk`" a fact of the format rather than an
+expectation about it, and the same fact about `sd`, `cva` and `itm`. The rule
+is not the payload map's alone: the six maps nested inside it, `meas`, `att`, `tok`, `mk`, `sd` and
+`cva`, carry no `...` in the normative CDDL either, and `@ashaveri/receipt`
 refuses an undefined member of any of them with `BAD_PAYLOAD` rather than reading what it names there
-and dropping the rest; the signed `Ashaveri-Protected-Header` closes with them, and a label its three
+and dropping the rest. The element of `itm` is closed by the reader that walks it and a collateral
+slot's arm by the reader that resolves the label in it, because no single member list answers for both
+arms of a choice or reaches inside an array, and each refusal names the position it reached: `cva.col`,
+or `itm[2]`. The signed `Ashaveri-Protected-Header` closes with them, and a label its three
 do not name is refused there with `BAD_PROTECTED_HEADER`, before any of the three is read. A reader
 that rebuilt a nested value from only the members it knows would
 leave its holder no way to tell a receipt that attested one thing from one that attested that thing
-and something more, which is the same silence `mk` was given a version to refuse. The mark is why the
-number moved rather than the field arriving as an optional member of v1: a reader of a v1 payload
-looks at thirteen fields, finds nothing about a mark, and verifies a receipt over an unmarked response
-exactly as readily as over a marked one. The deployment manifest is a different document, and it still
+and something more, which is the same silence `mk` exists to refuse: a reader of a payload naming none
+would find nothing about a mark, and verify a receipt over an unmarked response exactly as readily as
+over a marked one. `sd`, `cva` and `itm` are required for the same reason each on its own would: a
+receipt whose stamp names no source, whose appraisal recorded no context, and whose response holds no
+items is three silences a verifier cannot see from inside the document. The deployment manifest is a different document, and it still
 carries the one version, `v: 1`, for a reason that is not the receipt's.
 
-A manifest's parser reads the members it names and leaves the rest, at the top level and inside each entry
+A deployment manifest's parser reads the members it names and leaves the rest, at the top level and inside each entry
 of `keys[]`, which is the opposite trade to the closed payload map above and is made for the opposite
-need: a manifest is a deployment's current statement about itself, and the only way it can grow while
+need: a deployment manifest is a deployment's current statement about itself, and the only way it can grow while
 clients update at their own pace is for a reader to be permitted to leave what it does not know alone.
 That is why the epoch and validity start of section 4.4 arrived as two optional members of a `keys[]`
-entry rather than as `v: 2`. Every manifest published today carries neither and stays valid; a member is
+entry rather than as `v: 2`. Every deployment manifest published today carries neither and stays valid; a member is
 refused by nothing that accepts it now. And a version move would have cost exactly what a version move
-costs here: `parseManifest` refuses a `v` it does not implement, a client fetches the manifest inside
+costs here: `parseManifest` refuses a `v` it does not implement, a client fetches the deployment manifest inside
 every receipt verification rather than only when it wants the deployment's identity, so a deployment that
 published `v: 2` would have left every un-updated client of its own able to verify no receipt at all,
 including the receipts no epoch rule touches.
 
 What an un-updated client does with the richer document is the other half of that judgement, and it is
-refusal in the direction that matters and silence in the direction that does not. It parses a windowed
+refusal in the direction that matters and silence in the direction that does not. It parses a windowed deployment
 manifest, leaves `epk` and `validFrom` inside `keys[]` where they are, resolves a receipt key by kid as it
 always did, and enforces no epoch, which is precisely what it enforced before the members existed. It
 cannot be talked into accepting a key the deployment withdrew, because a withdrawn entry is a key it no
@@ -972,23 +1304,25 @@ document instead of being upgraded into it.
 
 Which versions a call reads is a setting rather than a fact about the format. `acceptedVersions`
 names them on both `verifyReceipt` and `decodeReceipt`, and its default is every version the
-package parses, which today is `[1, 2]`. Narrowing it to `[1]` is how a verifier refuses a marked
-receipt on purpose, and it is not the setting a caller gets for free. A version outside the
-accepted set and a version no format has ever used get one answer, `UNSUPPORTED_VERSION`, because
+package parses, which is `[1]`. An empty list is how a caller says it reads no receipt at all; a
+document naming a number outside the set this package parses is refused under either setting. A version
+outside the accepted set and a version no format has ever used get one answer, `UNSUPPORTED_VERSION`, because
 which of the two it was is a fact about the reader rather than about the bytes, and two codes would
 let a caller probe where a release's knowledge ends. A `v` that is not an integer at all is a
 malformed payload and gets `BAD_PAYLOAD`, the same answer as any other mis-typed member, and "not an
 integer" is meant of the CBOR major type: the float `1.0` is not an integer written in a second way,
 it is another type, and it reaches a reader as the number 1. That is why the refusal is made while the
-payload is decoded rather than where its version is read, and why `1.0` gets `BAD_PAYLOAD` while `3`,
-an integer no format has used, gets `UNSUPPORTED_VERSION`.
+payload is decoded rather than where its version is read, and why `1.0` gets `BAD_PAYLOAD` while `2`, `3` or `4`,
+an integer this format does not name, gets `UNSUPPORTED_VERSION` naming the number it read.
 
-The compatibility contract itself is unchanged, and it is the reason a version is the right place
-for an addition: software released before payload version 2 existed refuses a `v` that is not 1
-with `BAD_PAYLOAD`, which is a fact about the verifiers already in customers' hands and not
-something any verifier can alter. A marked receipt therefore reaches an un-updated verifier as a
-refusal rather than as a misreading, and a future format version must still change `v`, which
-existing verifiers will refuse rather than misinterpret.
+What the version is for is unchanged, and it is a promise about the next change rather than a debt to
+an earlier one: a verifier refuses a `v` it does not implement before it reads one member of a payload,
+so a format that gains a name has to move `v` rather than make the name optional. An optional member is
+a claim a reader can be silent about; a refused version is not, and it is refused with the number it
+read named in the message. That is the whole of why the four members above sit inside one number rather
+than beside it. Nothing outside this repository holds bytes under another number: `@ashaveri/receipt` is
+unpublished, so there is no installed base to stay readable to, and a number retired before its first
+release would be a demand on readers who never existed.
 
 The `"software"` kind and the rule that ties `m` to its kind were added without a version bump,
 because the contract above covers the direction that matters: a verifier from before the change

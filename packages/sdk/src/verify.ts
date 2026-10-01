@@ -4,12 +4,14 @@ import {
   hashRequest,
   ReceiptError,
   verifyReceipt,
-  type ReceiptPayloadV2,
+  type Marking,
+  type ReceiptPayload,
   type VerifiedReceipt,
 } from '@ashaveri/receipt';
 import { toHex } from './b64.js';
 import { SdkError } from './errors.js';
-import type { AshaveriPolicy } from './policy.js';
+import type { AnchorSlotReading, AshaveriPolicy, AttestedTextMember } from './policy.js';
+import { assertAnchorHeldUnderPolicy, assertAnchorWeighedUnderPolicy, assertAttestedTextShapes } from './policy.js';
 import { DEFAULT_MAX_EVIDENCE_AGE_SECONDS, DEFAULT_MAX_RECEIPT_AGE_SECONDS } from './policy.js';
 
 export interface VerifyCompletionParams {
@@ -19,9 +21,10 @@ export interface VerifyCompletionParams {
   readonly responseHash: Uint8Array;
   /**
    * The response bytes themselves, not only their digest. Required rather than optional so that a
-   * live verification cannot be run in a shape that quietly skips the marking check: a v2 receipt
-   * attests a region inside these bytes, and the only way to honour that claim is to read it off the
-   * bytes the caller received.
+   * live verification cannot be run in a shape that quietly skips the marking check: a receipt whose
+   * payload names a marking attests a region inside these bytes, and the only way to honour that
+   * claim is to read it off the bytes the caller received. Which payloads name one is a fact about the
+   * `mk` member, not about a version number: `v: 1` names none, and every version that does is checked.
    *
    * The caller has to hand the same bytes it hashed into `responseHash`. That is checked rather than
    * assumed for a receipt that carries a marking claim, because a region lifted out of bytes the
@@ -30,8 +33,68 @@ export interface VerifyCompletionParams {
   readonly responseBytes: Uint8Array;
   readonly verifyKey: Uint8Array;
   readonly policy?: AshaveriPolicy;
-  /** Wall clock in milliseconds since the epoch; defaults to Date.now. */
-  readonly now?: number;
+  /**
+   * The instant the client read its answer, in whole milliseconds since the Unix epoch; defaults to
+   * `Date.now`. It is the client's own clock, and the format's two windows are closed against it after
+   * it has been turned into the seconds the stamps are counted in.
+   *
+   * A reading is refused by `CLIENT_CLOCK_OUT_OF_RANGE` when it is not a whole number of milliseconds
+   * in the span this estate's instants are counted in. That is the argument's fault and not the
+   * receipt's: a seconds figure in this parameter answers `STALE_RECEIPT` about an honest document,
+   * which is a verdict nobody earned.
+   */
+  readonly nowMillis?: number;
+  /**
+   * What the reader established about the material this receipt's `held` anchor slots digest, one reading per slot it
+   * reached anything about, in the shapes `AnchorSlotReading` states.
+   *
+   * Handed rather than looked up, because nothing here can reach it: the payload names digests and no bytes, and the
+   * bytes are in whatever container the reader holds. The format package answers one digest with the bytes beside it
+   * (`resolveCarried`), and the collateral package answers those bytes with a signature and the window the vendor
+   * signed (`appraiseCarriedCollateral`); a caller that has run either hands the answer here, and this is where a
+   * policy's demand of it is weighed.
+   *
+   * A policy demanding weighed material and handed nothing refuses, which is the reading of "the reader reached
+   * nothing" that an auditor and an operator both act on. A policy naming no such demand never reads this field, so a
+   * caller that hands readings to a policy that asks nothing of them is handed the same verdict it always was.
+   */
+  readonly anchorReadings?: readonly AnchorSlotReading[];
+}
+
+/**
+ * The two ends of the span a handed client clock is weighed in, in whole milliseconds. They are the
+ * same two instants the format's reader states for its own seconds parameter, spelled in the unit this
+ * one names: the first ten-digit Unix second times a thousand, and the last second a four-byte Unix
+ * counter states before it rolls over, times a thousand.
+ *
+ * The lower end is what catches the mistake this refuses. A seconds figure handed into a milliseconds
+ * parameter reads here as a day in 1970, and the divide below turns it into a stamp no receipt of this
+ * estate is near, so every honest document would come back stale. A reading above the upper end is the
+ * same class of misspelling at the other scale.
+ */
+const EARLIEST_CLOCK_MILLIS = 1_000_000_000_000;
+const LATEST_CLOCK_MILLIS = 4_294_967_295_000;
+
+/**
+ * The one question asked of a handed clock, before a byte of the receipt is read.
+ *
+ * Nothing here decides which scale the number came from; the band does that by excluding the other
+ * scale's magnitude for every instant this format can be asked about, so a caller handing a plausible
+ * reading never meets a guess about what they meant to write.
+ */
+function assertClockMillis(handed: number): void {
+  if (
+    !Number.isSafeInteger(handed) ||
+    handed < EARLIEST_CLOCK_MILLIS ||
+    handed > LATEST_CLOCK_MILLIS
+  ) {
+    throw new SdkError(
+      'CLIENT_CLOCK_OUT_OF_RANGE',
+      `params.nowMillis of ${String(handed)} is not a whole number of milliseconds between ${String(
+        EARLIEST_CLOCK_MILLIS,
+      )} and ${String(LATEST_CLOCK_MILLIS)}: hand the instant in whole milliseconds, as Date.now spells it, or hand nothing and this client reads its own host clock`,
+    );
+  }
 }
 
 /**
@@ -39,16 +102,22 @@ export interface VerifyCompletionParams {
  * the signing key, the nonce it sent, and the exact request/response body
  * bytes it sent and received. Throws SdkError or ReceiptError on failure.
  *
- * The response bytes are checked twice, and the second check is the marking claim: a v2 receipt
- * carries `mk.d`, the digest of one region inside the response, and it is verified here rather than
- * left to someone who kept the bytes and thought to look. The signature and the payload checks come
- * first, so this only ever runs over a document that is authentic.
+ * The response bytes are checked twice, and the second check is the marking claim: a payload that
+ * names a marking carries `mk.d`, the digest of one region inside the response, and it is verified
+ * here rather than left to someone who kept the bytes and thought to look. The signature and the
+ * payload checks come first, so this only ever runs over a document that is authentic.
  *
  * With a policy, this is where the two freshness windows close: the policy's own numbers if it
  * names them, the defaults in `policy.ts` if it does not. With no policy, no window runs.
  */
 export function verifyCompletionReceipt(params: VerifyCompletionParams): VerifiedReceipt {
-  const now = Math.floor((params.now ?? Date.now()) / 1000);
+  // The client's clock is asked its question before a byte of the document is read, because a reading
+  // that is not a count of milliseconds in this estate's span is the caller's argument to fix. Refusing
+  // it here is what keeps the two windows below measuring the receipt rather than measuring the caller's
+  // scale against the format's, which is the wrong verdict this entry met once already.
+  const handed = params.nowMillis;
+  if (handed !== undefined) assertClockMillis(handed);
+  const nowSeconds = Math.floor((handed ?? Date.now()) / 1000);
   const policy = params.policy;
   // A policy carries these two windows whether its owner set them or not, and a policy is what
   // strict mode requires: a caller who pinned keys and measurements and never thought about the
@@ -59,9 +128,12 @@ export function verifyCompletionReceipt(params: VerifyCompletionParams): Verifie
   // The rule is deliberately not pushed down into `verifyReceipt`. That package is the format
   // verifier an auditor runs on a receipt from last year with no policy in sight, and it refuses a
   // clock it was not handed; a default there would break the archiving promise the receipt spec
-  // makes. The only off switch on this side of that line is a policy that says
-  // `Number.POSITIVE_INFINITY` for one of the two, which is a decision written down rather than
-  // one left out.
+  // makes. The off switch beside that line is in this object, and it is a number: naming
+  // `Number.POSITIVE_INFINITY` for one of the two leaves that one window open, which is a decision
+  // written down rather than one left out. The document form spells no such reading, because a
+  // version 1 document carries each window as a whole number of seconds or as `null`, and `null` on
+  // either of those keys is the absent field above with the shipped default running.
+  // `policyFileFromPolicy` refuses a non-finite window rather than writing one out as `null`.
   const receiptWindow =
     policy === undefined ? undefined : (policy.maxReceiptAgeSeconds ?? DEFAULT_MAX_RECEIPT_AGE_SECONDS);
   const evidenceWindow =
@@ -69,7 +141,7 @@ export function verifyCompletionReceipt(params: VerifyCompletionParams): Verifie
   const verified = verifyReceipt(params.receiptBytes, {
     publicKey: params.verifyKey,
     expectedNonce: params.nonce,
-    now,
+    nowSeconds,
     freshnessSeconds: receiptWindow,
     evidenceFreshnessSeconds: evidenceWindow,
   });
@@ -86,9 +158,11 @@ export function verifyCompletionReceipt(params: VerifyCompletionParams): Verifie
       `receipt response hash ${toHex(payload.res)} does not match the response that was received (${toHex(params.responseHash)})`,
     );
   }
-  if (payload.v === 2) {
-    verifyMarkedRegion(payload, params.responseBytes);
-  }
+  // Every payload this format reads names `mk`, so the marking check is owed by every receipt that gets
+  // this far rather than gated on which number a document claims. A condition spelled as
+  // `payload.v === N` is a list of the versions someone thought of, and the gate that goes quiet about
+  // the one document it was written for answers nothing wrong about the receipt it skipped.
+  verifyMarkedRegion(payload, params.responseBytes);
   if (policy?.issuers !== undefined && !policy.issuers.includes(payload.iss)) {
     throw new SdkError('ISSUER_NOT_ALLOWED', `receipt issuer '${payload.iss}' is not pinned by the policy`);
   }
@@ -102,11 +176,61 @@ export function verifyCompletionReceipt(params: VerifyCompletionParams): Verifie
       `receipt measurement ${toHex(payload.meas.m)} (tee ${payload.meas.tee}) is not pinned by the policy`,
     );
   }
+  // What the policy demands of an anchor, weighed last among the policy's own questions. The order is the
+  // same one the pins keep: a receipt this policy would not trust an issuer or a measurement from is
+  // refused for that reason before anybody reads its claims about what it took in, and a caller that
+  // failed two of them is told the earlier one.
+  //
+  // Every payload this format reads names an anchor, so the demand is owed by every receipt that gets this
+  // far, which is how the marking check above is owed, for the same reason: what makes this demand owed is
+  // an anchor in the payload, and a condition spelled as a list of versions would be missing the next one
+  // that carries the member while every gate stayed green. `policy.ts` says what the demand reaches at
+  // `assertAnchorHeldUnderPolicy`, and the row this code earns in `docs/error-codes.md` is where a reader
+  // learns which states it reaches and which it does not.
+  assertAnchorHeldUnderPolicy(policy, payload.cva);
+  // The material behind the slots that stated they were taken in, weighed only for a policy that demands it, and
+  // against the instant this document itself claims rather than against this process's clock. The order is dependence:
+  // the presence demand reads the artifact and is answered by it, so a receipt whose anchor states an absence where the
+  // policy counts held slots is refused for that before anybody is asked what it managed to reach.
+  //
+  // The readings are handed rather than looked up because the answer is not in the document: `cva` names digests, and
+  // the bytes are wherever the reader holds them. A caller that ran the format's own lookup and the collateral
+  // package's appraisal over them hands the result here, which is where the client's standard is applied and not the
+  // format reader's, for the same reason the count above is: an auditor with a receipt and no policy has to keep
+  // getting the same answer this reader has always given them.
+  assertAnchorWeighedUnderPolicy(policy, payload.cva, params.anchorReadings ?? [], payload.iat);
+  // Every text member of a payload that a deployment authored, against the shapes this policy names for them. This is
+  // the reader's half of the rule the writer keeps at the seal: what a producer refuses to sign is that producer's own
+  // standard, and what a particular auditor will accept from any producer is a decision only the auditor can make.
+  assertAttestedTextShapes(policy, deploymentAuthoredText(payload));
   return verified;
 }
 
 /**
- * The marking claim of a v2 receipt, read off the bytes this call was handed.
+ * The text a deployment authored inside this payload, keyed by the member names the format gives them.
+ *
+ * The eight positions are every `tstr` a payload document carries, read off `packages/receipt/receipt.cddl`, and the
+ * test that pins this function's table derives the list from that file rather than from this comment. Two of them are
+ * the anchor's absence reasons, and a slot stating it holds the bytes states no reason at all: those two arrive as
+ * `null`, which is the one shape a demanded rule skips rather than passes, because the rule is about a text that is not
+ * there. `v` is absent from the record on purpose, because a version number is what this reader was built to parse and
+ * no operator writes a shape for it.
+ */
+function deploymentAuthoredText(payload: ReceiptPayload): Partial<Record<AttestedTextMember, string | null>> {
+  return {
+    iss: payload.iss,
+    ins: payload.ins,
+    mdl: payload.mdl,
+    'att.url': payload.att.url,
+    'mk.sch': payload.mk.sch,
+    'sd.name': payload.sd.name,
+    'cva.col.r': payload.cva.collateral.presence === 'held' ? null : payload.cva.collateral.reason,
+    'cva.val.r': payload.cva.validity.presence === 'held' ? null : payload.cva.validity.reason,
+  };
+}
+
+/**
+ * The marking claim of a receipt that names one, read off the bytes this call was handed.
  *
  * Three checks in this order, and the order carries the meaning. The response digest is recomputed
  * over the bytes first, so a region taken from a document the receipt does not attest cannot become a
@@ -117,8 +241,11 @@ export function verifyCompletionReceipt(params: VerifyCompletionParams): Verifie
  * duplicated here, which is what makes the client's verdict and a third party's detector verdict
  * about the same bytes. Finally the region's digest is compared.
  *
- * A v1 receipt never reaches this function, because it carries no `mk` and so makes no claim to
- * check. That asymmetry is the format's, not a relaxation added here.
+ * The argument is the two members this check reads rather than the whole payload, so the check says what
+ * it weighs and nothing else: a step typed against a version's payload shape is the list-of-versions
+ * failure in another place, and the compiler would not catch it either.
+ *
+ * Every payload this reader opens names a marking, so there is no receipt for which this is not owed.
  *
  * The codes are the format package's. `MARK_MISMATCH` is what a reader needs in order to tell "the
  * marking does not match" apart from "the receipt is not authentic", which stays
@@ -126,7 +253,7 @@ export function verifyCompletionReceipt(params: VerifyCompletionParams): Verifie
  * `UNSUPPORTED_SCHEME`, already raised by the parser before a payload reaches this point. Nothing
  * here adds to `SdkError`'s vocabulary beyond the response-digest refusal it already had.
  */
-function verifyMarkedRegion(payload: ReceiptPayloadV2, responseBytes: Uint8Array): void {
+function verifyMarkedRegion(payload: { readonly res: Uint8Array; readonly mk: Marking }, responseBytes: Uint8Array): void {
   if (!equalBytes(hashRequest(responseBytes), payload.res)) {
     throw new SdkError(
       'RESPONSE_HASH_MISMATCH',

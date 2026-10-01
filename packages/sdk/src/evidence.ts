@@ -43,7 +43,7 @@ export interface VerifyEvidenceParams {
   readonly gpuEvidence?: readonly NvidiaEvidence[];
   readonly anchors?: EvidenceTrustAnchors;
   /** Wall clock in milliseconds since the epoch; defaults to Date.now. */
-  readonly now?: number;
+  readonly nowMillis?: number;
 }
 
 export interface VerifiedEvidence {
@@ -179,7 +179,7 @@ export function verifyCompletionEvidence(params: VerifyEvidenceParams): Verified
       gpuEvidence,
       trustedNvidiaRoots,
       gpuNonce: expectedReportData,
-      now: params.now,
+      nowMillis: params.nowMillis,
     });
   } catch (err) {
     throw asAttestationFailure(err);

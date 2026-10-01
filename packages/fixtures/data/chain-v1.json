@@ -1,6 +1,6 @@
 {
   "version": 1,
-  "description": "The receipt store record format, published as file images a gateway store wrote and the state a reader derives from them. Each scenario names the writes it performed and states what the file held afterwards byte for byte, alongside the head, the served set and the retention state a reader reports for it. Every image here came out of the store rather than out of a description of it, and a scenario is one directory whose chain lives in one file named receipts.log. A default store also writes a disposable receipts.log.index beside that file, holding record positions and a checkpoint so an opening need not re-walk bytes it has already verified; it is rebuilt from the log at any disagreement, it carries no byte of the chain, and no scenario publishes it.",
+  "description": "The receipt store record format, published as file images a gateway store wrote and the state a reader derives from them. Each scenario names the writes it performed and states what the file held afterwards byte for byte, alongside the head, the served set and the retention state a reader reports for it. Every image here came out of the store rather than out of a description of it, and a scenario is one directory whose chain lives in one file named receipts.log. A store appends receipt records of one kind per file, the receipt kind or the bounded kind, and a refusal row states the kind its image is read under wherever that is not the receipt kind. A default store also writes a disposable receipts.log.index beside that file, holding record positions and a checkpoint so an opening need not re-walk bytes it has already verified; it is rebuilt from the log at any disagreement, it carries no byte of the chain, and no scenario publishes it.",
   "layout": {
     "file": "receipts.log",
     "record": "len:u32 || kind:u8 || prev:32 || iat:u64 || idLen:u16 || id || payload || digest:32",
@@ -10,9 +10,11 @@
     "integers": "unsigned, big-endian",
     "kinds": {
       "receipt": 0,
-      "trim": 1
+      "trim": 1,
+      "bounded": 2
     },
     "receiptPayload": "the receipt bytes, stored unaltered and opaque to the chain. These vectors carry a 64 byte stand-in rather than a signed receipt, because nothing in a record digest depends on what the payload holds.",
+    "boundedPayload": "boundSeconds:u32 || receipt",
     "trimPayload": "seam:32 || byAge:u32 || byCount:u32 || maxAgeSeconds:u32 || maxCount:u32",
     "notes": [
       "A receipt record names the digest of the record before it in the chain, and the first record of an empty file names thirty-two zero bytes.",
@@ -21,7 +23,9 @@
       "A bound of zero in a trim states that no such bound was configured, which a reader has to tell apart from a bound of one.",
       "A partial record at the tail is an append that never finished: a reader takes it back off the file and opens the rest, and nothing can sit behind it because it was never written.",
       "Deleting a record from the middle of a chain, or editing one, is refused rather than worked around, and the refusal names the byte offset it stopped at.",
-      "Each record states the offset its frame starts at, counted in bytes from the first byte of the file image, beside the frame, so a difference localizes to a record without adding up the lengths of everything ahead of it."
+      "Each record states the offset its frame starts at, counted in bytes from the first byte of the file image, beside the frame, so a difference localizes to a record without adding up the lengths of everything ahead of it.",
+      "A store writes receipt records of one kind per file, and one kind per opening: the receipt kind, whose payload is the receipt bytes, or the bounded kind, whose payload states a retention period ahead of them inside the digest the chain folds. A log holding both has no single reading, because the receipt sits four bytes further back in a bounded record than it does in an unbounded one.",
+      "A bounded log and a receipt log differ only in what sits between the id and the receipt bytes, so a file of the kind an opening does not write is refused for the first record it meets, named by id and byte, and the refusal arrives before any predecessor link is read. Trim records are neither kind: they are the store bookkeeping a retired prefix, they address no receipt, and a run of them ahead of the receipts of either kind is one kind of receipt record."
     ]
   },
   "scenarios": [
@@ -380,6 +384,35 @@
       "imageByteLength": 191,
       "code": "STORE_CHAIN_BROKEN",
       "message": "STORE_CHAIN_BROKEN: receipt store chain is broken at byte 0: a record claims a frame 40 bytes long, which is too short to hold its own header"
+    },
+    {
+      "name": "bounded-record-in-a-receipt-log",
+      "note": "The one-record image of a store that writes the receipt kind, with one bounded record appended behind it: a log holding receipt records of both kinds. The record the store writes is of the kind the opening runs, so the refusal is given for the record appended behind it, named by its id and by the byte its frame starts at. The appended record is whole and self-verifying by its own digest, and its predecessor slot names a chain it is not part of: the kind is answered before the link, because a record of a kind this store does not write has no predecessor anything can interpret, and a reader that checked the link first would report a broken chain for a file nothing edited.",
+      "tamper": {
+        "of": "first-record",
+        "appendedBoundedFrameSealedFor": "aa109053384a845734c4d5a2a80f47d7e8e17a5cd7db639e",
+        "boundSeconds": 300
+      },
+      "imageBase64Url": "AAAAuwAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAABpnpMAADA1NDY5ODBmYWFkODY4YTBhODA5NzZjNmNkZTQ0ZDVmYTAzYTcwNTIxMjliMzc0MGb4zmk1EtPUtswv5ZGTv6vT63qNWxtUIE2CPIS-7mI-z-4WB3F3OILt8a7oQEEELo0TscLq7aBXd2Qe5wW4qB-X4Fr5p-SMLo4PrnXw8vydHLXBQ2eKO_jkOiNn5KHLOMYAAAC_AgAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAGmekwAAMGFhMTA5MDUzMzg0YTg0NTczNGM0ZDVhMmE4MGY0N2Q3ZThlMTdhNWNkN2RiNjM5ZQAAASyemMXNCDWITWEhImvm609T04sZFiWnBsvSuo01d8acgJ49YiO8LRON7O_MvW6ityyEViONCaRl7ZfV3qQopEy07c35QjhKA0o4GGemEWEZLHTet6xJNNH2yKXHH1R3NmI",
+      "imageByteLength": 386,
+      "code": "STORE_RECEIPT_KIND_MISMATCH",
+      "message": "STORE_RECEIPT_KIND_MISMATCH: receipt store refuses record aa109053384a845734c4d5a2a80f47d7e8e17a5cd7db639e at byte 191: it is the bounded kind, stating a 300 second period ahead of its receipt bytes, and this store writes the receipt kind, which states no period. A store's log holds receipt records of one kind, because what the deployment keeps has to be readable off the file it keeps it in; trim records are the store's own bookkeeping and are not one of the two kinds"
+    },
+    {
+      "name": "receipt-log-opened-as-bounded",
+      "note": "The two-record image of a store that writes the receipt kind, byte for byte as that store wrote it, read by an opening configured for the bounded kind. Nothing is appended, edited or missing: the disagreement is between the file and the configuration, and it shows at the first record the reader meets, so the id the refusal names is the oldest receipt in the file. One log holds receipt records of one kind, so a store cannot serve a bounded record it did not write any more than it can serve an unbounded one it did.",
+      "tamper": {
+        "of": "two-records",
+        "openedUnderTheBoundedKind": true
+      },
+      "imageBase64Url": "AAAAuwAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAABpnpMAADA3YWM3YTk4N2Q1OGZkNDY5NGJjMTFjYjJmNGJjMWQ5OTllZTU3ZTJhZTU3NDBiYzPfoTIi1leJE68A1EFIHKSLHA0uO1fCjivbJXt0sT-deuF7cQWovMnodHGdKBuCK39v5h5Nwo2Ie7oPLwahfWUOpHsXr4D0NVoEghJU_6ov7eG8QNg734K3klVzp0sEbG0AAAC7AKR7F6-A9DVaBIISVP-qL-3hvEDYO9-Ct5JVc6dLBGxtAAAAAGmekwEAMDgxODQ2Mjk3NTg3NDVjYzM0NWM3M2Y4M2Y3ZjUwMDUzYmQwNWIyYzEyMmJiNGM1NUgT9G_p721I3yNTShJFjfbBnaB7wbj-yv9ldyHiXqrc9mKtCjeQLccCRdA0L81I8RQXT9xU5bJXu9kN9xr-phkIfhWqj7yVsWUFY8OmJuGYMhE2s5Uy1wo1rsFpNxxEsw",
+      "imageByteLength": 382,
+      "openedWith": {
+        "kind": "bounded",
+        "boundSeconds": 300
+      },
+      "code": "STORE_RECEIPT_KIND_MISMATCH",
+      "message": "STORE_RECEIPT_KIND_MISMATCH: receipt store refuses record 7ac7a987d58fd4694bc11cb2f4bc1d999ee57e2ae5740bc3 at byte 0: it is the receipt kind, which states no period, and this store writes the bounded kind, stating a 300 second period ahead of its receipt bytes. A store's log holds receipt records of one kind, because what the deployment keeps has to be readable off the file it keeps it in; trim records are the store's own bookkeeping and are not one of the two kinds"
     }
   ]
 }

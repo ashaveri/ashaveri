@@ -420,9 +420,9 @@ export function parseCertificateChain(data: Uint8Array): ParsedCertificate[] {
   return certs;
 }
 
-/** Rejects a certificate whose validity window does not contain `now`. */
-export function checkCertificateValidity(cert: ParsedCertificate, now: number, name: string): void {
-  if (now < cert.notBefore || now > cert.notAfter) {
+/** Rejects a certificate whose validity window does not contain `nowMillis`. */
+export function checkCertificateValidity(cert: ParsedCertificate, nowMillis: number, name: string): void {
+  if (nowMillis < cert.notBefore || nowMillis > cert.notAfter) {
     fail('CERT_EXPIRED', `${name} certificate is not valid at the verification time`);
   }
 }

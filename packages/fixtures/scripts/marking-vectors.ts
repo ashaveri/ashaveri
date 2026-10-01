@@ -11,7 +11,7 @@ import {
   toBase64Url,
   toHex,
   type MarkingScheme,
-  type ReceiptPayloadV2,
+  type ReceiptPayload,
 } from '@ashaveri/receipt';
 import {
   MARKING_AT,
@@ -45,17 +45,16 @@ const encoded = (text: string): Uint8Array => new TextEncoder().encode(text);
  * document is byte for byte the committed marked fixture.
  */
 function clientReceipt(one: MarkingCase): { receiptBase64Url: string; receiptSha256Hex: string } {
-  const payload: ReceiptPayloadV2 = {
+  const payload: ReceiptPayload = {
     ...fixturePayload({ res: hashRequest(encoded(one.response)) }),
-    v: 2,
     mk: { sch: one.sch, d: hashRequest(encoded(one.attested)) },
   };
   const bytes = issueReceipt(payload, fixtureKey());
   const decoded = decodeReceipt(bytes);
   // Read the document back with the parser rather than trusting what was handed to it: a row that
   // stated a mark its own bytes did not carry would refuse for a reason this file does not name.
-  if (decoded.payload.v !== 2) {
-    throw new Error(`${one.name}: the issued receipt did not decode as a v2 document`);
+  if (decoded.payload.v !== 1) {
+    throw new Error(`${one.name}: the issued receipt did not decode as a v1 document`);
   }
   if (toHex(decoded.payload.res) !== toHex(payload.res) || toHex(decoded.payload.mk.d) !== toHex(payload.mk.d)) {
     throw new Error(`${one.name}: the issued receipt does not carry the digests this case states`);

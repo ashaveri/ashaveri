@@ -100,8 +100,8 @@
           "description": "SHA-256 of the policy document the check actually loaded, in its canonical re-encoding, or null when the check ran with no policy file at all. A reader may conclude which pins were in force and no more."
         },
         "receiptFormatVersion": {
-          "enum": [1, 2],
-          "description": "Which receipt format version the check read. The version decides which members exist, so a verdict about a v1 document is not a verdict about a v2 one and a record has to say which it answered for."
+          "enum": [1],
+          "description": "Which receipt format version the check read. The version decides which members exist, so a verdict about one version is not a verdict about another and a record has to say which it answered for. The format declares one payload version, `1`, and it carries the marking, the stamp disclosure, the collateral anchor and the item list: a record naming 1 is the ordinary output of a check run against an emitting deployment. A version outside this list is refused by the reader rather than read as the nearest one inside it, and the integers the payload retired name documents no reader of this build can open."
         },
         "verifierVersion": {
           "type": "string",
@@ -161,7 +161,7 @@
           "type": "object",
           "required": ["maxReceiptAgeSeconds", "maxEvidenceAgeSeconds"],
           "additionalProperties": false,
-          "description": "The binding limits the verdict was reached under, with the policy document's two readings: a number, or null for the window nobody set. The reader runs its own windows and reports a disagreement rather than inheriting this one.",
+          "description": "The binding limits the verdict was reached under, spelled the two ways a policy document spells a window: a whole number of seconds, or null where the check named none of its own. A null is not a window that stayed open. The reader runs its own windows and reports a difference rather than inheriting this one.",
           "properties": {
             "maxReceiptAgeSeconds": {
               "type": ["integer", "null"],

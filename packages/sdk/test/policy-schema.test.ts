@@ -73,6 +73,9 @@ describe('policy-v1 JSON Schema and the loader decide the same documents', () =>
       ['every family null', full({ trustAnchors: { amdArks: null, intelSgxRoots: null, nvidiaRoots: null } })],
       ['a family pinned to nothing', full({ trustAnchors: { amdArks: [] } })],
       ['an age window written as null', full({ maxReceiptAgeSeconds: null })],
+      ['a time bound', full({ maxTimeUncertaintySeconds: 5 })],
+      ['a time bound of zero, which is a demand', full({ maxTimeUncertaintySeconds: 0 })],
+      ['a time bound written as null', full({ maxTimeUncertaintySeconds: null })],
       ['every software kind', full({ measurements: { software: ['11'.repeat(32)] } })],
       ['every composite kind', full({ measurements: { 'tdx+gpucc': [SNP], 'snp+gpucc': [SNP] } })],
       ['a repeated value in a set', { v: 1, issuers: ['a', 'a'] }],
@@ -114,6 +117,10 @@ describe('policy-v1 JSON Schema and the loader decide the same documents', () =>
       ['an age window as a string', full({ maxReceiptAgeSeconds: '60' })],
       ['an age window of zero', full({ maxReceiptAgeSeconds: 0 })],
       ['an age window that is not whole', full({ maxReceiptAgeSeconds: 1.5 })],
+      ['a time bound as a string', full({ maxTimeUncertaintySeconds: '5' })],
+      ['a time bound that is negative', full({ maxTimeUncertaintySeconds: -1 })],
+      ['a time bound that is not whole', full({ maxTimeUncertaintySeconds: 1.5 })],
+      ['a time bound that is a boolean', full({ maxTimeUncertaintySeconds: true })],
       ['trustAnchors as an array', full({ trustAnchors: [] })],
       ['an anchor family as a string', full({ trustAnchors: { amdArks: 'ark.pem' } })],
       ['an anchor entry that is a number', full({ trustAnchors: { amdArks: [4] } })],
@@ -130,7 +137,7 @@ describe('policy-v1 JSON Schema and the loader decide the same documents', () =>
     }
   });
 
-  it('holds the loader to a stricter reading of four things a schema cannot say', () => {
+  it('holds the loader to a stricter reading of five things a schema cannot say', () => {
     // Each of these is a document the schema waves through and the loader refuses, and each is a
     // silent-drop hazard rather than a shape the contract could carry:
     const loaderOnly: Array<[label: string, inMessage: string, document: string]> = [
@@ -153,6 +160,11 @@ describe('policy-v1 JSON Schema and the loader decide the same documents', () =>
         'an age window past the point an integer stops being exact',
         'whole number',
         JSON.stringify(full({ maxReceiptAgeSeconds: Number.MAX_SAFE_INTEGER + 2 })),
+      ],
+      [
+        'a time bound past the point an integer stops being exact',
+        'whole number',
+        JSON.stringify(full({ maxTimeUncertaintySeconds: Number.MAX_SAFE_INTEGER + 2 })),
       ],
     ];
     for (const [label, inMessage, text] of loaderOnly) {

@@ -240,9 +240,9 @@ interface Digests {
   readonly responseHash: Uint8Array;
   readonly responseFrom: string;
   /**
-   * The response bytes themselves, or null when the caller supplied only their digest. A v1 receipt
-   * needs nothing more than the digest; a v2 one is refused before this is reached, because its
-   * marking claim is read off the bytes and no digest can stand in for them.
+   * The response bytes themselves, or null when the caller supplied only their digest. A payload
+   * naming a marking needs the bytes themselves; a caller handing over only a digest is refused before this
+   * is reached, because its marking claim is read off the bytes and no digest can stand in for them.
    */
   readonly responseBytes: Uint8Array | null;
 }
@@ -438,9 +438,10 @@ function humanVerdict(verdict: Verdict): string {
     `  measurement:      ${toHex(payload.meas.m)} (${payload.meas.tee})`,
     `  request digest:   ${toHex(payload.req)}, ${verdict.digests.requestFrom}`,
     `  response digest:  ${toHex(payload.res)}, ${verdict.digests.responseFrom}`,
-    ...(payload.v === 2
-      ? [`  marked region:    ${toHex(payload.mk.d)} (${payload.mk.sch}), read off the response bytes above`]
-      : []),
+    // Every payload this format reads names a marking, so the line is printed for every verdict this
+    // function renders: what the sentence reports is the member, and this run read it off the bytes
+    // printed above because naming a marking is what made those bytes a precondition of the run.
+    `  marked region:    ${toHex(payload.mk.d)} (${payload.mk.sch}), read off the response bytes above`,
     `  evidence ref:     ${toHex(payload.att.d)} at ${payload.att.ts} (${isoOf(payload.att.ts)})`,
     `  policy:           ${verdict.policyDigest} from ${verdict.policyPath}`,
     ...designationLines(verdict.keyDesignation),
@@ -491,7 +492,7 @@ function jsonVerdict(verdict: Verdict): Record<string, unknown> {
     measurement: { tee: payload.meas.tee, m: toHex(payload.meas.m) },
     requestDigest: { sha256: toHex(payload.req), takenFrom: verdict.digests.requestFrom },
     responseDigest: { sha256: toHex(payload.res), takenFrom: verdict.digests.responseFrom },
-    markedRegion: payload.v === 2 ? { scheme: payload.mk.sch, sha256: toHex(payload.mk.d) } : null,
+    markedRegion: { scheme: payload.mk.sch, sha256: toHex(payload.mk.d) },
     evidence: { digest: toHex(payload.att.d), timestamp: payload.att.ts, documentChecked: false },
     policy: { digest: verdict.policyDigest, file: verdict.policyPath },
     // Where every manifest signing key this run checked a seal against came from, printed beside the
@@ -558,23 +559,25 @@ export async function runVerifyReceipt(positionals: string[], values: VerifyRece
   const receiptBytes = await readBytes(receiptPath, 'receipt');
   const manifestBytes = await readBytes(manifestPath, '--manifest');
   const digests = await digestsOf(values);
-  let now: number | undefined;
+  let nowMillis: number | undefined;
   if (values.now !== undefined) {
-    now = Date.parse(values.now);
-    if (Number.isNaN(now)) {
+    nowMillis = Date.parse(values.now);
+    if (Number.isNaN(nowMillis)) {
       throw new UsageError(`--now is not a valid date: ${values.now}`);
     }
   }
 
   // The payload is read before it is verified, which is what `GatewaySession.verifyReceipted` does
   // of its own accord, so this opens no second window onto unverified bytes. It settles one input
-  // question: a v2 receipt attests a region inside the response, and the only thing that can answer
-  // whether the mark is the attested one is the response itself. Taking a digest in its place would
-  // answer "was this the marked response?" with "the caller says so".
+  // question: every payload this format reads names a marking attesting one region inside the
+  // response, and the only thing that can answer whether the mark is the attested one is the response
+  // itself. Taking a digest in its place would answer "was this the marked response?" with "the caller
+  // says so", and no version of this document is allowed to be silent about a mark.
   try {
-    if (decodeReceipt(receiptBytes).payload.v === 2 && digests.responseBytes === null) {
+    decodeReceipt(receiptBytes);
+    if (digests.responseBytes === null) {
       throw new UsageError(
-        'this is a v2 receipt, which attests one region inside the response bytes, so --response-body is required and --response-hash cannot carry that check',
+        'this receipt names a marking attesting one region inside the response bytes, so --response-body is required and --response-hash cannot carry that check',
       );
     }
   } catch (err) {
@@ -597,8 +600,8 @@ export async function runVerifyReceipt(positionals: string[], values: VerifyRece
       nonce,
       requestHash: digests.requestHash,
       responseHash: digests.responseHash,
-      responseBytes: digests.responseBytes ?? new Uint8Array(0),
-      now,
+      responseBytes: digests.responseBytes,
+      nowMillis,
     });
     const manifest = await session.manifest();
     const authentication = await session.manifestAuthentication();
@@ -631,7 +634,7 @@ export async function runVerifyReceipt(positionals: string[], values: VerifyRece
       manifestPath,
       nonce,
       digests,
-      verificationSeconds: Math.floor((now ?? Date.now()) / 1000),
+      verificationSeconds: Math.floor((nowMillis ?? Date.now()) / 1000),
       receiptWindow: loaded.policy.maxReceiptAgeSeconds ?? DEFAULT_MAX_RECEIPT_AGE_SECONDS,
       evidenceWindow: loaded.policy.maxEvidenceAgeSeconds ?? DEFAULT_MAX_EVIDENCE_AGE_SECONDS,
       pinned: families.pinned,

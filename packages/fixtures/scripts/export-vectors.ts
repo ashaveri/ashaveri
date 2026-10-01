@@ -187,7 +187,7 @@ function withPayloadFlipped(bytes: Uint8Array, at: number): Uint8Array {
   return sealExport(header as Uint8Array, edited, signature as Uint8Array);
 }
 
-/** A pack v1 manifest, member for member as `pack.cddl` names them, over the same key. */
+/** A pack manifest, member for member as `pack.cddl` names them, over the same key. */
 function packManifest(): Uint8Array {
   const receipt = signCoseSign1(encodeCanonical(new Map<string, unknown>([['v', 1], ['iss', 'ashaveri-pack-fixture']])), KEY);
   return encodeCanonical(
@@ -216,6 +216,7 @@ function packManifest(): Uint8Array {
           ]),
         ],
       ],
+      ['carried', []],
     ]),
   );
 }
@@ -391,7 +392,7 @@ const CASES: readonly Case[] = [
   },
   {
     name: 'pack-read-as-export',
-    note: 'A pack v1 document, signed by the same key and handed to this reader. Its typ is the pack and its manifest names six members this format does not, so it is refused at the header before one member is read.',
+    note: 'A pack document, signed by the same key and handed to this reader. Its typ is the pack and its manifest names seven members this format does not, so it is refused at the header before one member is read.',
     bytes: underContentType('ashaveri/pack', packManifest()),
     expected: 'EXPORT_BAD_HEADER',
   },
@@ -660,13 +661,13 @@ function main() {
           cases: [
             {
               name: 'export-as-pack',
-              note: 'A whole export manifest, projected to JSON as its own twin describes it, given to the pack projection: the pack map is closed at six members and names none of the three an export states, so a pack reader of any shape refuses it before it looks at an item.',
+              note: 'A whole export manifest, projected to JSON as its own twin describes it, given to the pack projection: the pack map is closed at seven members and names none of the three an export states, so a pack reader of any shape refuses it before it looks at an item.',
               manifest: projectedExport(manifestFor(HONEST_RUN.collection)),
               expected: 'refused',
             },
             {
               name: 'pack-as-export',
-              note: 'A pack v1 document signed by the same key, given to the export reader: the content type answers it before a member of the manifest is read.',
+              note: 'A pack document signed by the same key, given to the export reader: the content type answers it before a member of the manifest is read.',
               documentBase64Url: toBase64Url(underContentType('ashaveri/pack', packManifest())),
               expected: 'EXPORT_BAD_HEADER',
             },

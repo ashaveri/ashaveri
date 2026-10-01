@@ -6,6 +6,8 @@ import { sha256 } from '@noble/hashes/sha2.js';
 import { MEASUREMENT_BYTES } from '@ashaveri/receipt';
 import {
   SdkError,
+  DEFAULT_MAX_EVIDENCE_AGE_SECONDS,
+  DEFAULT_MAX_RECEIPT_AGE_SECONDS,
   fromBase64Url,
   loadPolicyFromText,
   parsePolicyFile,
@@ -67,12 +69,17 @@ function refuseWith(document: unknown, code: SdkErrorCode): string {
   throw new Error(`expected ${code}, but the document was accepted`);
 }
 
-function codeOf(build: () => unknown): SdkErrorCode {
+/**
+ * The refusal a writer throws, whole, so one call serves the code a log line carries and the words the
+ * operator reads. Both halves are checked below: a message no test reads is a message a later edit can
+ * silently empty.
+ */
+function refusalOf(build: () => unknown): SdkError {
   try {
     build();
   } catch (err) {
     expect(err).toBeInstanceOf(SdkError);
-    return (err as SdkError).code;
+    return err as SdkError;
   }
   throw new Error('expected a refusal, but the value was accepted');
 }
@@ -101,6 +108,7 @@ describe('parsePolicyFile', () => {
         measurements: { snp: [SNP_MEASUREMENT], software: [SOFTWARE_MEASUREMENT] },
         maxReceiptAgeSeconds: 60,
         maxEvidenceAgeSeconds: 120,
+        maxTimeUncertaintySeconds: 5,
         trustAnchors: { amdArks: [anchor('ark.pem')] },
       }),
       dir,
@@ -112,10 +120,28 @@ describe('parsePolicyFile', () => {
     expect(policy.measurements).toEqual({ snp: [SNP_MEASUREMENT], software: [SOFTWARE_MEASUREMENT] });
     expect(policy.maxReceiptAgeSeconds).toBe(60);
     expect(policy.maxEvidenceAgeSeconds).toBe(120);
+    expect(policy.maxTimeUncertaintySeconds).toBe(5);
     expect(policy.trustAnchors?.amdArks).toEqual([ANCHOR_BYTES]);
     expect(policy.trustAnchors?.intelSgxRoots).toBeUndefined();
     expect(loaded.anchors).toEqual([{ family: 'amdArks', path: 'ark.pem', sha256: ANCHOR_DIGEST }]);
     expect(fromBase64Url(PUBKEY)).toHaveLength(32);
+  });
+
+  it('reads a bound of zero as a demand and a field left out as no demand at all', () => {
+    const zero = parse(minimal({ maxTimeUncertaintySeconds: 0 }));
+    expect(zero.maxTimeUncertaintySeconds).toBe(0);
+    // A demand of zero survives the form worth putting in a repository, which is the difference
+    // between a demand and the absence of one.
+    expect(parsePolicyFile(policyFileToJson(zero)).maxTimeUncertaintySeconds).toBe(0);
+    expect(parse(minimal()).maxTimeUncertaintySeconds).toBeNull();
+    expect(parse(minimal({ maxTimeUncertaintySeconds: null })).maxTimeUncertaintySeconds).toBeNull();
+    const message = refuseWith(minimal({ maxTimeUncertaintySeconds: -1 }), 'POLICY_FILE_INVALID');
+    expect(message).toContain("'maxTimeUncertaintySeconds'");
+    expect(message).toContain('whole number of seconds of at least 0');
+    // The two windows keep the floor they were read by, so a field arriving did not loosen them.
+    expect(refuseWith(minimal({ maxReceiptAgeSeconds: 0 }), 'POLICY_FILE_INVALID')).toContain(
+      'whole number of seconds of at least 1',
+    );
   });
 
   it('refuses a key this format does not define, and names both keys', () => {
@@ -169,6 +195,11 @@ describe('parsePolicyFile', () => {
       ['maxReceiptAgeSeconds', -1],
       ['maxReceiptAgeSeconds', Number.MAX_SAFE_INTEGER + 1],
       ['maxEvidenceAgeSeconds', true],
+      ['maxTimeUncertaintySeconds', '5'],
+      ['maxTimeUncertaintySeconds', 1.5],
+      ['maxTimeUncertaintySeconds', -1],
+      ['maxTimeUncertaintySeconds', Number.MAX_SAFE_INTEGER + 1],
+      ['maxTimeUncertaintySeconds', []],
       ['trustAnchors', []],
       ['trustAnchors', 0],
       ['trustAnchors', { amdArks: 'ark.pem' }],
@@ -371,6 +402,10 @@ describe('policyFileDigest', () => {
     // over the loaded policy rather than over the bytes of the file.
     expect(digestOf({ v: 1, issuers: ['a'], maxReceiptAgeSeconds: null })).toBe(digestOf({ v: 1, issuers: ['a'] }));
     expect(digestOf({ v: 1, issuers: ['a'], trustAnchors: null })).toBe(digestOf({ v: 1, issuers: ['a'] }));
+    // The demand the same document may make about a stamp's source is normalised the same way on the
+    // reading it carries: null and absent are one policy, while the bound itself is inside the digest
+    // whenever it is stated, which is the case the next test adds.
+    expect(digestOf({ v: 1, issuers: ['a'], maxTimeUncertaintySeconds: null })).toBe(digestOf({ v: 1, issuers: ['a'] }));
     expect(
       digestOf({ v: 1, issuers: ['a'], trustAnchors: { amdArks: null, intelSgxRoots: null, nvidiaRoots: null } }),
     ).toBe(digestOf({ v: 1, issuers: ['a'] }));
@@ -395,6 +430,9 @@ describe('policyFileDigest', () => {
       ['a dropped measurement kind', { ...full(), measurements: { snp: [SNP_MEASUREMENT] } }],
       ['receipt age', { ...full(), maxReceiptAgeSeconds: 61 }],
       ['evidence age', { ...full(), maxEvidenceAgeSeconds: null }],
+      ['a time bound stated where none was', { ...full(), maxTimeUncertaintySeconds: 5 }],
+      ['a time bound of zero stated where none was', { ...full(), maxTimeUncertaintySeconds: 0 }],
+      ['a time bound widened by one second', { ...full(), maxTimeUncertaintySeconds: 6 }],
       [
         'anchor path',
         { ...full(), trustAnchors: anchorsWith([anchor('roots/other-ark.pem', 'ab'.repeat(32))]) },
@@ -430,6 +468,28 @@ describe('policyFileDigest', () => {
       digestOf({ v: 1, issuers: ['a', 'b'], measurements: { snp: [SNP_MEASUREMENT] } }),
     );
   });
+
+  it('digests a hand-built document that never names the time bound as the document naming none', () => {
+    // `canonicalOf` demands the two windows and the anchor block of a hand-built document and demands
+    // this key of no one, because absent and `null` are one demand here. A document written before the
+    // field existed is exactly that shape, and the digest an evidence pack cites has to be the one it
+    // published then.
+    const beforeTheField = {
+      v: 1,
+      issuers: ['a'],
+      maxReceiptAgeSeconds: null,
+      maxEvidenceAgeSeconds: null,
+      trustAnchors: { amdArks: null, intelSgxRoots: null, nvidiaRoots: null },
+    };
+    // Read back as text rather than written out as an object literal: the interface names the key, so a
+    // document from before it existed can only arrive as bytes somebody else parsed.
+    const handBuilt = JSON.parse(JSON.stringify(beforeTheField)) as PolicyFile;
+    expect(policyFileDigest(handBuilt)).toBe(digestOf({ v: 1, issuers: ['a'] }));
+    expect(() => policyFileDigest({ ...handBuilt, maxTimeUncertaintySeconds: 5 })).not.toThrow();
+    expect(policyFileDigest({ ...handBuilt, maxTimeUncertaintySeconds: 5 })).not.toBe(
+      policyFileDigest(handBuilt),
+    );
+  });
 });
 
 describe('policyFileFromPolicy', () => {
@@ -447,6 +507,36 @@ describe('policyFileFromPolicy', () => {
     expect(file.maxReceiptAgeSeconds).toBeNull();
     expect(file.trustAnchors).toEqual({ amdArks: null, intelSgxRoots: null, nvidiaRoots: null });
     expect(parsePolicyFile(policyFileToJson(file))).toEqual(file);
+  });
+
+  it('writes a demand about a stamp source, and writes nothing where none was made', () => {
+    const demanded = policyFileFromPolicy({ issuers: ['a'], maxTimeUncertaintySeconds: 5 });
+    expect(demanded.maxTimeUncertaintySeconds).toBe(5);
+    expect(policyFileToJson(demanded)).toContain('"maxTimeUncertaintySeconds": 5');
+    expect(policyFileDigest(parsePolicyFile(policyFileToJson(demanded)))).toBe(policyFileDigest(demanded));
+    expect(policyFileDigest(demanded)).not.toBe(policyFileDigest(policyFileFromPolicy({ issuers: ['a'] })));
+    // A policy that demands nothing, however it spells that nothing, is the policy this field had not
+    // arrived for: the same document, and the same digest anyone already cited it by.
+    expect(
+      policyFileDigest(policyFileFromPolicy({ issuers: ['a'], maxTimeUncertaintySeconds: undefined })),
+    ).toBe(policyFileDigest(policyFileFromPolicy({ issuers: ['a'] })));
+  });
+
+  it('refuses a demand no document can spell, rather than writing it out as nothing', () => {
+    // The text form of a non-finite number is `null`, and `null` is what this format reads as a policy
+    // that asks nothing of a stamp's source. Left alone, a demand an operator wrote would reach an
+    // auditor as the absence of one, which is the reading no other part of this field allows.
+    for (const spelled of [Number.POSITIVE_INFINITY, Number.NEGATIVE_INFINITY, Number.NaN]) {
+      const refused = refusalOf(() => policyFileFromPolicy({ issuers: ['a'], maxTimeUncertaintySeconds: spelled }));
+      expect(refused.code, String(spelled)).toBe('POLICY_FILE_INVALID');
+      expect(refused.message, String(spelled)).toContain("'maxTimeUncertaintySeconds'");
+      expect(refused.message, String(spelled)).toContain(String(spelled));
+      expect(refused.message, String(spelled)).toContain('the written form of it is null');
+      expect(refused.message, String(spelled)).toContain('no policy document can carry as a demand');
+    }
+    // A whole number, including the demand of zero, still reaches the document, so the three above are
+    // refused for their spelling and not for being a demand.
+    expect(policyFileFromPolicy({ issuers: ['a'], maxTimeUncertaintySeconds: 0 }).maxTimeUncertaintySeconds).toBe(0);
   });
 
   it('carries the anchor bytes the object pins as their path and digest', () => {
@@ -467,7 +557,78 @@ describe('policyFileFromPolicy', () => {
   });
 
   it('refuses an object that pins nothing, on the same rule the file form is held to', () => {
-    expect(codeOf(() => policyFileFromPolicy({}))).toBe('POLICY_NOTHING_PINNED');
+    expect(refusalOf(() => policyFileFromPolicy({})).code).toBe('POLICY_NOTHING_PINNED');
+  });
+
+  it('refuses a receipt window no document can carry, rather than writing it out as none named', () => {
+    // The text form of a non-finite number is `null`, and `null` on this key is this format's spelling of
+    // a window the policy never named, which every verifier then runs as the shipped default. A caller
+    // that means the clock not to vote means it on the object, so the attempt is a refusal here rather
+    // than a published document that pins a window nobody asked for.
+    for (const spelled of [Number.POSITIVE_INFINITY, Number.NEGATIVE_INFINITY, Number.NaN]) {
+      const refused = refusalOf(() => policyFileFromPolicy({ issuers: ['a'], maxReceiptAgeSeconds: spelled }));
+      expect(refused.code, String(spelled)).toBe('POLICY_FILE_INVALID');
+      const message = refused.message;
+      expect(message, String(spelled)).toContain("'maxReceiptAgeSeconds'");
+      expect(message, String(spelled)).toContain(String(spelled));
+      expect(message, String(spelled)).toContain('the written form of it is null');
+      expect(message, String(spelled)).toContain('no policy document can carry as a window');
+      // The fourth element of the message: the number that would have run in the field's place. Without
+      // this line a later edit can drop it and every case here still passes.
+      expect(message, String(spelled)).toContain(`the shipped ${DEFAULT_MAX_RECEIPT_AGE_SECONDS}-second default`);
+      // What the operator is told to do instead, both roads: a number the document can carry, or the
+      // object this process hands a verifier. Leaving the field out is neither, and says so.
+      expect(message, String(spelled)).toContain('Name a whole number of seconds at or above 1');
+      expect(message, String(spelled)).toContain('keep the open window on the policy object');
+      expect(message, String(spelled)).toContain("'maxReceiptAgeSeconds' out of the document is that same default");
+    }
+    // And the document route is no wider: a hand-written number past what a reader can state exactly is
+    // refused there too, so there is no spelling this refusal is withholding.
+    expect(refuseWith('{"v":1,"issuers":["a"],"maxReceiptAgeSeconds":1e400}', 'POLICY_FILE_INVALID')).toContain(
+      'whole number',
+    );
+  });
+
+  it('refuses an evidence window no document can carry, rather than writing it out as none named', () => {
+    for (const spelled of [Number.POSITIVE_INFINITY, Number.NEGATIVE_INFINITY, Number.NaN]) {
+      const refused = refusalOf(() => policyFileFromPolicy({ issuers: ['a'], maxEvidenceAgeSeconds: spelled }));
+      expect(refused.code, String(spelled)).toBe('POLICY_FILE_INVALID');
+      const message = refused.message;
+      expect(message, String(spelled)).toContain("'maxEvidenceAgeSeconds'");
+      expect(message, String(spelled)).toContain(String(spelled));
+      expect(message, String(spelled)).toContain('the written form of it is null');
+      expect(message, String(spelled)).toContain('no policy document can carry as a window');
+      // The fourth element of the message, for this field: 900 seconds, not an open window.
+      expect(message, String(spelled)).toContain(`the shipped ${DEFAULT_MAX_EVIDENCE_AGE_SECONDS}-second default`);
+      expect(message, String(spelled)).toContain('Name a whole number of seconds at or above 1');
+      expect(message, String(spelled)).toContain('keep the open window on the policy object');
+      expect(message, String(spelled)).toContain("'maxEvidenceAgeSeconds' out of the document is that same default");
+    }
+    expect(refuseWith('{"v":1,"issuers":["a"],"maxEvidenceAgeSeconds":1e400}', 'POLICY_FILE_INVALID')).toContain(
+      'whole number',
+    );
+  });
+
+  it('round-trips a finite receipt window byte for byte, so no cited digest of one can move', async () => {
+    const file = policyFileFromPolicy({ issuers: ['a'], maxReceiptAgeSeconds: 60 });
+    expect(file.maxReceiptAgeSeconds).toBe(60);
+    const text = policyFileToJson(file);
+    expect(text).toContain('"maxReceiptAgeSeconds": 60');
+    expect(policyFileToJson(parsePolicyFile(text)), 'the same text after one read').toBe(text);
+    const loaded = await loadPolicyFromText(text, TEMP);
+    expect(loaded.policy.maxReceiptAgeSeconds, 'a window a document names loads as that number').toBe(60);
+    expect(loaded.digest).toBe(policyFileDigest(file));
+  });
+
+  it('round-trips a finite evidence window byte for byte, so no cited digest of one can move', async () => {
+    const file = policyFileFromPolicy({ issuers: ['a'], maxEvidenceAgeSeconds: 120 });
+    expect(file.maxEvidenceAgeSeconds).toBe(120);
+    const text = policyFileToJson(file);
+    expect(text).toContain('"maxEvidenceAgeSeconds": 120');
+    expect(policyFileToJson(parsePolicyFile(text)), 'the same text after one read').toBe(text);
+    const loaded = await loadPolicyFromText(text, TEMP);
+    expect(loaded.policy.maxEvidenceAgeSeconds, 'a window a document names loads as that number').toBe(120);
+    expect(loaded.digest).toBe(policyFileDigest(file));
   });
 });
 

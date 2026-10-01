@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import {
+  frameResponse,
   fromBase64Url,
   hashRequest,
   signingKeyFromSeed,
@@ -29,6 +30,8 @@ const file = loadResVectors();
 const requests = loadReqVectors();
 
 const MODEL_ID = 'mock-model-1';
+// CLOCK is whole seconds since the Unix epoch: it is the `createdAt` stamped on the caller credential
+// and the issuance instant the receipts are read against, both of which the gateway holds in seconds.
 const CLOCK = 1_772_000_000;
 /** The lead byte of the three-byte symbol character one of these responses carries. */
 const MULTIBYTE_LEAD = 0xe2;
@@ -96,7 +99,7 @@ async function completion(vector: ResponseVector): Promise<{ receipt: VerifiedRe
       };
     },
   };
-  const caller = newBearerCredential({ id: 'digest-vector-caller', scopes: ['complete', 'read'], now: CLOCK });
+  const caller = newBearerCredential({ id: 'digest-vector-caller', scopes: ['complete', 'read'], nowSeconds: CLOCK });
   const receipts = openMemoryReceiptStore();
   const deployment = mockDeployment({ key: HOST_KEY });
   const app = buildGateway({
@@ -163,11 +166,24 @@ describe('data/res-v1.json', () => {
     }
   });
 
-  it.each(file.vectors)('a running gateway signs $name as the file states', async (vector) => {
+  // A response that said nothing in any `data:` frame has no item list to attest, and the format requires
+  // a non-empty one, so the gateway keeps no receipt for those bytes. The split is read off the shipped
+  // framer rather than from a list of names, so a vector that starts or stops framing moves with it.
+  const framable = file.vectors.filter((vector) => frameResponse(vector.contentType, asBytes(vector)).framed);
+  const unframable = file.vectors.filter((vector) => !framable.includes(vector));
+
+  it.each(framable)('a running gateway signs $name as the file states', async (vector) => {
     const { receipt, wire } = await completion(vector);
     expect(wire).toEqual(asBytes(vector));
     expect(toHex(receipt.payload.res)).toBe(vector.resHex);
     expect(toHex(receipt.payload.req)).toBe(requestOf(vector).reqHex);
+  });
+
+  it('keeps no receipt for a response whose bytes frame no item', async () => {
+    expect(unframable.map((vector) => vector.name)).toContain('streamed-payloads-without-framing');
+    for (const vector of unframable) {
+      await expect(completion(vector)).rejects.toThrow('no item list to attest');
+    }
   });
 
   it('hashes the framing a streamed completion arrives in', async () => {

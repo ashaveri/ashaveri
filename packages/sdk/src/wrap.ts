@@ -15,7 +15,7 @@ export interface WrapOptions {
   /** Proof of possession or bearer credential. Omit to talk to a gateway that requires none. */
   readonly credential?: AshaveriCredential;
   /** Wall clock in milliseconds since the epoch; defaults to Date.now. */
-  readonly now?: () => number;
+  readonly nowMillis?: () => number;
   readonly onReceipt?: (receipt: VerifiedReceipt, id: string) => void;
 }
 
@@ -46,7 +46,7 @@ export function wrapOpenAI<T extends object>(client: T, options: WrapOptions = {
     throw new SdkError('NO_POLICY', "verify: 'strict' requires a policy pinning keys and measurements");
   }
   const original = holder.fetch.bind(undefined);
-  const authed = authorizedFetch(options.credential, original, { now: options.now });
+  const authed = authorizedFetch(options.credential, original, { nowMillis: options.nowMillis });
   const sessions = new Map<string, GatewaySession>();
   const tracked = new Map<string, Promise<VerifiedReceipt>>();
 
@@ -97,7 +97,7 @@ export function wrapOpenAI<T extends object>(client: T, options: WrapOptions = {
         responseHash,
         responseBytes,
         verifyEvidence: mode === 'strict',
-        now: options.now?.(),
+        nowMillis: options.nowMillis?.(),
       });
       options.onReceipt?.(receipt, receiptId);
       return receipt;

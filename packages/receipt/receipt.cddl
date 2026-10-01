@@ -15,19 +15,32 @@ Ashaveri-Protected-Header = {
     3: "ashaveri/receipt",    ; typ
 }
 
-; A receipt's version says what its fields attest, not which software wrote them. v2 is v1's
-; thirteen fields plus `mk`, and a v1 reader that ignored the addition would verify a receipt
-; whose response carries no mark while its holder believed it carried one. Silence must not read
-; as compliance, so the mark is a new version rather than an optional member of v1.
+; A receipt's version says what its fields attest, not which software wrote them. This format declares
+; one version, `v: 1`, and it carries the seventeen members the three numbers it replaced used to spell
+; out: the twelve a document has always carried, then `mk` so a mark is attested rather than passed over,
+; then `sd` (the source the issuance stamp was read from and the bound that source declares on itself),
+; `cva` (what became of the two pieces of context the appraisal of the evidence ran on) and `itm` (one
+; entry per response item). No member changed name, order, width or meaning in the collapse, and none was
+; added.
 ;
-; A payload map is closed at both versions, and the absence of `...` in the two blocks below is
-; that rule rather than an oversight: a member the version a document names does not define,
-; including one the other version defines, makes the document invalid. It is not read with the
-; unexpected member dropped.
-Ashaveri-Receipt-Payload = Ashaveri-Receipt-Payload-v1 / Ashaveri-Receipt-Payload-v2
+; A version number moves when bytes carrying the old number exist that a reader must refuse, and not
+; otherwise. Nothing outside this repository has ever held a receipt: `@ashaveri/receipt` is unpublished,
+; the package version is `0.1.0`, and no party was handed a document bearing `1`, `2` or `3`. So the
+; history those three numbers told was internal, and the members stayed while the number that named them
+; was settled on the one a reader of these bytes has to be able to open. Silence is still what each of the
+; five added members refuses: a reader that took a mark, a stamp's source, an appraisal's context and a
+; response's items and dropped them would verify a receipt that states nothing about any of them, and a
+; receipt is a document that states. That is why all five are required rather than optional members of
+; the number that has always been read.
+;
+; A payload map is closed, and the absence of `...` below is that rule rather than an oversight: a member
+; this file does not define, including one a retired number used to name, makes the document invalid. It
+; is not read with the unexpected member dropped. A document naming any number but `1` is refused as a
+; version, with the number named back to the reader, before one member of it is read.
+Ashaveri-Receipt-Payload = Ashaveri-Receipt-Payload-v1
 
 Ashaveri-Receipt-Payload-v1 = {
-    v: 1,                     ; format version
+    v: 1,                     ; the one version this format declares
     iss: tstr,                ; deployment id (dStack compose-hash prefix)
     ins: tstr,                ; CVM instance id
     iat: int,                 ; unix seconds, issuance time
@@ -40,23 +53,24 @@ Ashaveri-Receipt-Payload-v1 = {
     att: EvidenceRef,
     epk: int,                 ; signing-key epoch
     tok: TokenMetering,
+    mk: Marking,              ; required: a receipt attests that marking was considered
+    sd: StampDisclosure,      ; what source read the issuance stamp, and what it admits
+    cva: CollateralValidityAnchor, ; what became of the context the appraisal ran on
+    itm: [+ ItemStamp],       ; one entry per response item, and never an empty list
 }
 
-Ashaveri-Receipt-Payload-v2 = {
-    v: 2,                     ; format version
-    ; every v: 1 field, unchanged in name, order, width and meaning:
-    iss: tstr, ins: tstr, iat: int, nce: bstr .size 16,
-    req: bstr .size 32, res: bstr .size 32, mdl: tstr, wts: bstr .size 32,
-    meas: Measurement, att: EvidenceRef, epk: int, tok: TokenMetering,
-    mk: Marking,              ; required: v2 attests that marking was considered
-}
-
-; That rule is the format's, not one map's. `Marking`, `Measurement`, `EvidenceRef` and
-; `TokenMetering` below carry no `...` either, and the absence means there what it means here: a
-; member one of these maps does not define makes the document invalid rather than a document read
-; with the unexpected member dropped. The parser and the JSON twin refuse it at that level exactly as
-; they refuse one at the payload level, so the payload map and every map nested inside it close, at
-; both versions. `Ashaveri-Protected-Header` closes with them, and its reason is stronger than the
+; That rule is the format's, not one map's. `Marking`, `Measurement`, `EvidenceRef`,
+; `TokenMetering`, `StampDisclosure`, `CollateralValidityAnchor`, `CollateralHeld`,
+; `CollateralAbsent` and `ItemStamp` below carry no `...` either, and the absence means there what
+; it means here: a member one of these maps does not define makes the document invalid rather than
+; a document read with the unexpected member dropped. The parser and the JSON twin refuse it at that
+; level exactly as they refuse one at the payload level, so the payload map and every map nested
+; inside it close at every level. The one position the walk cannot close by itself is `itm`,
+; whose value is an array rather than a map: its elements are closed one at a time by the reader
+; that reads them, at the position each one sits at, which is what `ItemStamp` names. `p` closes the
+; two slot maps the same way, because which member list stands behind `cva.col` is decided by the
+; label that member carries and no single list can answer for both arms.
+; `Ashaveri-Protected-Header` closes with them, and its reason is stronger than the
 ; payload's: its bytes are the ones hashed into the `Sig_structure`, so a label that block does not
 ; name is an authenticated parameter, and a reader that took the three labels above out of it and
 ; returned those handed on a document other than the one the issuer signed. The parser refuses the
@@ -119,4 +133,80 @@ EvidenceRef = {
 TokenMetering = {
     p: int,                   ; prompt tokens
     c: int,                   ; completion tokens
+}
+
+; Where the issuance instant came from, in the source's own words. This block, and nothing else in
+; the estate, is where the two wire labels are tied to the shape in `src/disclosure.ts`: `name` is
+; `StampDisclosure.name`, the name the source's owner gives what this process reads, and `unc` is
+; `StampDisclosure.uncertaintySeconds`, the seconds that source declares it can be away from the
+; instant it names. The instant is not here: it stays where it already is, and a second copy of one
+; signed fact in one document would be two owners of it with only one of them signed.
+;
+; `unc` is `null` where nobody measured how far this source can stand from the truth, and `null` is
+; written rather than left out because an absent bound has two readings and a document cannot say
+; which one it meant. Zero is a source claiming it is right; `null` is a source saying nothing here
+; knows. Those are two states, not two spellings of one: a policy that demands a bound refuses the
+; second and can accept the first, which is exactly how the policy's own uncertainty figure and its
+; refusal already treat the pair. A floating-point number is refused at this position as it is at
+; every other one in a map whose every member this file names, by the decode rather than by a check
+; placed after it.
+StampDisclosure = {
+    name: tstr,               ; what the source's owner calls it
+    unc: int / null,          ; seconds it admits it can be away by, or null that nobody measured
+}
+
+; What became of the two pieces of appraisal context the evidence was read against, captured when
+; they were taken in and read offline ever after. The mapping from `src/disclosure.ts` is stated
+; here and nowhere else: `col` is `CollateralValidityAnchor.collateral`, the signed collateral those
+; bytes were appraised against, and `val` is `CollateralValidityAnchor.validity`, the validity
+; context they were appraised in. Both are required, because an anchor that defaults a missing half
+; to a pass is not an anchor, and a half this document does not mention would be a hole wearing the
+; shape of a state.
+CollateralValidityAnchor = {
+    col: CollateralSlot,      ; the collateral the appraisal ran against
+    val: CollateralSlot,      ; the validity context it ran in
+}
+
+; Which of the two shapes a slot has is its `p`, and the reader that resolves `p` is what closes the
+; map, because a choice between two member sets is not one member list. The three labels are the
+; capture record's `CapturePresence`, restated as this format's own bytes and held to that source by
+; a test that reads it: `held`, `absent-at-source`, and `not-taken-in`. The last two are not one
+; label and neither is the first: one absence is a statement about the world, the other a statement
+; about this collector, and a record that could not tell them apart could not be read as either. An
+; absent slot carries a reason and no digest, because a digest of bytes nobody held is not a
+; statement about anything; a held slot carries a digest and no reason, and it carries no byte count
+; either, because a count of bytes this document does not hold is a number nothing can check. No arm
+; of either carries a verdict: whether the collateral verifies is a question a reader asks with its
+; own pins, and a signed record that printed the conclusion would turn custody of bytes into
+; verification of them.
+CollateralSlot = CollateralHeld / CollateralAbsent
+CollateralHeld = {
+    p: "held",                ; these bytes were taken in, and this digest is of them
+    d: bstr .size 32,         ; sha256 of the bytes exactly as they arrived, and of no bytes with them
+}
+CollateralAbsent = {
+    p: "absent-at-source" / "not-taken-in",   ; which of the two absences this is
+    r: tstr,                  ; in one line, the collector's own words for why there are no bytes
+}
+
+; One entry per response item, in the order the response put its items in. `d` is `ResponseItem.d`
+; from `src/response-items.ts`: sha256 of exactly one item's bytes and of none of the framing around
+; them. The instant has no shape to map from, because nothing in this tree stamps one yet: it is what
+; the source `sd` names read when those bytes were framed, in the same whole Unix seconds as the
+; issuance stamp and from the same source that read that one. An item is a protocol item, one `data:`
+; frame of a streamed response or the whole body of one that was not streamed, and section 3.1 of
+; `docs/receipt-spec.md` states both the framing and which digests cover which bytes.
+;
+; Chain order is the array's order. An item has no identity beside its digest for a chain to name a
+; predecessor by, so the list itself is the chain, and the order is the one the response wrote. Stamp
+; order is `t`. Where the two disagree a reader refuses the receipt, under a code of its own and not
+; under the payload's, because the members are all well-formed and it is the pair of signed
+; statements inside them that cannot both stand. What that check cannot reach is stated in the same
+; document as what it can: a source standing uniformly away from the truth moves every one of these
+; instants together, leaves the list tidy, and passes. That is inherent to a store that cannot see
+; outside the clock it reads, and it is why this member discloses the source rather than only the
+; numbers.
+ItemStamp = {
+    t: int,                   ; unix seconds, the instant this item's bytes were stamped
+    d: bstr .size 32,         ; sha256 of exactly those bytes
 }

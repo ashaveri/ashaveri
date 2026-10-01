@@ -32,6 +32,13 @@ const PAYLOAD: ReceiptPayload = {
   att: { d: sha256(TEXT('the evidence document')), ts: NOW - 25, url: 'https://gateway.test/evidence' },
   epk: 1,
   tok: { p: 11, c: 22 },
+  mk: { sch: 'none', d: sha256(TEXT('')) },
+  sd: { name: 'host clock', uncertaintySeconds: null },
+  cva: {
+    collateral: { presence: 'not-taken-in', reason: 'this store takes no collateral in' },
+    validity: { presence: 'not-taken-in', reason: 'this store records no validity context' },
+  },
+  itm: [{ t: NOW - 20, d: sha256(TEXT('the full response bytes')) }],
 };
 
 const receipt = issueReceipt(PAYLOAD, KEY);

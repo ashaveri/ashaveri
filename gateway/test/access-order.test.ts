@@ -234,9 +234,9 @@ function scopesFor(target: Target): Scope[] {
 
 function recordsFor(c: PopCase): CredentialRecord[] {
   if (c.identity === 'other-kind') {
-    return [newBearerCredential({ id: PROBE_ID, scopes: scopesFor(c.target), now: NOW_SECONDS }).record];
+    return [newBearerCredential({ id: PROBE_ID, scopes: scopesFor(c.target), nowSeconds: NOW_SECONDS }).record];
   }
-  const generated = newPopCredential({ id: PROBE_ID, scopes: scopesFor(c.target), now: NOW_SECONDS });
+  const generated = newPopCredential({ id: PROBE_ID, scopes: scopesFor(c.target), nowSeconds: NOW_SECONDS });
   const record: CredentialRecord = {
     ...generated.record,
     ...(c.identity === 'unknown' ? { id: 'someone-else' } : {}),
@@ -290,7 +290,7 @@ interface PopRun {
  * exactly what the probe took and the assertion does not depend on arithmetic about the priming.
  */
 function runPopCase(c: PopCase, withProbe: boolean): PopRun {
-  const store = new CredentialStore({ file: { version: 1, credentials: recordsFor(c) }, now: () => CLOCK_MS });
+  const store = new CredentialStore({ file: { version: 1, credentials: recordsFor(c) }, nowMillis: () => CLOCK_MS });
   const present = (input: AdmissionInput): string => observe(() => store.admit(input));
   const atWork = (nonce: Uint8Array): AdmissionInput =>
     popRequest({ id: PROBE_ID, key: RECORD_SEED, ...WORK_ROUTE, nonce, stamp: 'fresh', withNonceHeader: true });
@@ -368,7 +368,7 @@ function expectedBearerCode(c: BearerCase): string {
 }
 
 function runBearerCase(c: BearerCase, withProbe: boolean): PopRun {
-  const enrolled = newBearerCredential({ id: 'ops-1', scopes: scopesFor(c.target), now: NOW_SECONDS });
+  const enrolled = newBearerCredential({ id: 'ops-1', scopes: scopesFor(c.target), nowSeconds: NOW_SECONDS });
   const record: CredentialRecord = {
     ...enrolled.record,
     ...(c.revoked ? { revokedAt: NOW_SECONDS - 1 } : {}),
@@ -377,13 +377,13 @@ function runBearerCase(c: BearerCase, withProbe: boolean): PopRun {
   // A proof-of-possession record sits beside the bearer one so the digest loop has to walk past a
   // record that carries no digest at all, which is the case that would otherwise read as a match.
   const intruder: CredentialRecord = {
-    ...newPopCredential({ id: PROBE_ID, scopes: ['read', 'complete'], now: NOW_SECONDS }).record,
+    ...newPopCredential({ id: PROBE_ID, scopes: ['read', 'complete'], nowSeconds: NOW_SECONDS }).record,
     publicKey: RECORD_PUBLIC_KEY,
   };
   const store = new CredentialStore({
     file: { version: 1, credentials: [intruder, record] },
     allowBearer: c.allowBearer,
-    now: () => CLOCK_MS,
+    nowMillis: () => CLOCK_MS,
   });
   const secret = c.match ? enrolled.secret : c.strangerSecret;
   const present = (): string => observe(() => store.admit(bearerInput(TARGET_ROUTE[c.target], secret)));
@@ -551,13 +551,13 @@ describe('the order admit runs the five checks in', () => {
           version: 1,
           credentials: [
             {
-              ...newPopCredential({ id: PROBE_ID, scopes: ['read', 'complete'], now: NOW_SECONDS }).record,
+              ...newPopCredential({ id: PROBE_ID, scopes: ['read', 'complete'], nowSeconds: NOW_SECONDS }).record,
               publicKey: RECORD_PUBLIC_KEY,
               rate: { perMinute: 60, burst: 1 },
             },
           ],
         },
-        now: () => CLOCK_MS,
+        nowMillis: () => CLOCK_MS,
       });
       const answer = observe(() => store.admit({ method: 'GET', url: WORK_ROUTE.url, headers: { authorization: text }, body: null, nowSeconds: NOW_SECONDS }));
       if (answer !== expected) return false;
@@ -595,11 +595,11 @@ describe('the order admit runs the five checks in', () => {
   });
 
   it('answers the same way twice for a bearer scope miss, because a bearer request carries no nonce', () => {
-    const enrolled = newBearerCredential({ id: 'ops-1', scopes: ['read'], now: NOW_SECONDS });
+    const enrolled = newBearerCredential({ id: 'ops-1', scopes: ['read'], nowSeconds: NOW_SECONDS });
     const store = new CredentialStore({
       file: { version: 1, credentials: [{ ...enrolled.record, rate: { perMinute: 60, burst: 1 } }] },
       allowBearer: true,
-      now: () => CLOCK_MS,
+      nowMillis: () => CLOCK_MS,
     });
     const denied = (): string => observe(() => store.admit(bearerInput(TARGET_ROUTE['lacks-scope'], enrolled.secret)));
     // A proof of possession refused for its route is refused for its nonce the second time, because the
@@ -686,13 +686,13 @@ interface Cost {
  */
 function unlistedPopCost(c: UnlistedPopCase): Cost {
   const record: CredentialRecord = {
-    ...newPopCredential({ id: c.credential, scopes: c.scopes, now: NOW_SECONDS }).record,
+    ...newPopCredential({ id: c.credential, scopes: c.scopes, nowSeconds: NOW_SECONDS }).record,
     publicKey: signingKeyFromSeed(c.keySeed).publicKey,
     rate: { perMinute: 60, burst: c.burst },
   };
   const who: PresentationIdentity = { id: record.id, key: c.keySeed };
   const run = (withControl: boolean): { refusal: string; control: string; left: number } => {
-    const store = new CredentialStore({ file: { version: 1, credentials: [record] }, now: () => CLOCK_MS });
+    const store = new CredentialStore({ file: { version: 1, credentials: [record] }, nowMillis: () => CLOCK_MS });
     const ask = (route: HttpRoute, nonce: Uint8Array): string =>
       observe(() => store.admit(popRequest({ ...who, ...route, nonce, stamp: 'fresh', withNonceHeader: true })));
     const refusal = ask(c.route, c.nonce);
@@ -706,19 +706,19 @@ function unlistedPopCost(c: UnlistedPopCase): Cost {
 
 /** The same two stores for the bearer branch, with the refusal presented a drawn number of times. */
 function unlistedBearerCost(c: UnlistedBearerCase): Cost {
-  const enrolled = newBearerCredential({ id: c.credential, scopes: c.scopes, now: NOW_SECONDS });
+  const enrolled = newBearerCredential({ id: c.credential, scopes: c.scopes, nowSeconds: NOW_SECONDS });
   const record: CredentialRecord = { ...enrolled.record, rate: { perMinute: 60, burst: c.burst } };
   // The proof-of-possession record beside it carries no digest, so the loop that looks for the secret
   // has to read past a record that cannot answer before it reaches the one that does.
   const intruder: CredentialRecord = {
-    ...newPopCredential({ id: PROBE_ID, scopes: ALL_GRANTS, now: NOW_SECONDS }).record,
+    ...newPopCredential({ id: PROBE_ID, scopes: ALL_GRANTS, nowSeconds: NOW_SECONDS }).record,
     publicKey: RECORD_PUBLIC_KEY,
   };
   const run = (withControl: boolean): { refusal: string; control: string; left: number } => {
     const store = new CredentialStore({
       file: { version: 1, credentials: [intruder, record] },
       allowBearer: true,
-      now: () => CLOCK_MS,
+      nowMillis: () => CLOCK_MS,
     });
     const ask = (route: HttpRoute): string => observe(() => store.admit(bearerInput(route, enrolled.secret)));
     const codes: string[] = [];
@@ -791,7 +791,7 @@ describe('what a target the route table does not name costs', () => {
 
   it('keeps the nonce of a proof-of-possession request it refused for its target', () => {
     const record: CredentialRecord = {
-      ...newPopCredential({ id: PROBE_ID, scopes: ['read', 'complete'], now: NOW_SECONDS }).record,
+      ...newPopCredential({ id: PROBE_ID, scopes: ['read', 'complete'], nowSeconds: NOW_SECONDS }).record,
       publicKey: RECORD_PUBLIC_KEY,
       rate: { perMinute: 60, burst: 10 },
     };
@@ -802,14 +802,14 @@ describe('what a target the route table does not name costs', () => {
     // and its second presentation is refused for the nonce rather than for the route. The route table
     // is not consulted first, which is the point: reading it first would let anyone enumerate which
     // paths this gateway has scoped.
-    const outside = new CredentialStore({ file: { version: 1, credentials: [record] }, now: () => CLOCK_MS });
+    const outside = new CredentialStore({ file: { version: 1, credentials: [record] }, nowMillis: () => CLOCK_MS });
     expect(ask(outside, UNLISTED_ROUTE, 11)).toBe('SCOPE_DENIED');
     expect(ask(outside, UNLISTED_ROUTE, 11)).toBe('NONCE_SEEN');
     expect(ask(outside, UNLISTED_ROUTE, 12)).toBe('SCOPE_DENIED');
 
     // Same shape on a listed route the record has no grant for, so the kept nonce is the order of the
     // checks and not something about a target with no row.
-    const ungranted = new CredentialStore({ file: { version: 1, credentials: [{ ...record, scopes: READ_ONLY }] }, now: () => CLOCK_MS });
+    const ungranted = new CredentialStore({ file: { version: 1, credentials: [{ ...record, scopes: READ_ONLY }] }, nowMillis: () => CLOCK_MS });
     expect(ask(ungranted, COMPLETE_ROUTE, 13)).toBe('SCOPE_DENIED');
     expect(ask(ungranted, COMPLETE_ROUTE, 13)).toBe('NONCE_SEEN');
     expect(ask(ungranted, COMPLETE_ROUTE, 14)).toBe('SCOPE_DENIED');
@@ -926,11 +926,11 @@ const refusalCaseArbitrary: fc.Arbitrary<RefusalCase> = fc.record({
  */
 function refusalCode(c: RefusalCase): string {
   const record: CredentialRecord = {
-    ...newPopCredential({ id: PROBE_ID, scopes: ALL_GRANTS, now: NOW_SECONDS }).record,
+    ...newPopCredential({ id: PROBE_ID, scopes: ALL_GRANTS, nowSeconds: NOW_SECONDS }).record,
     publicKey: c.signedByRecord ? signingKeyFromSeed(c.signerSeed).publicKey : c.recordKey,
     rate: { perMinute: 60, burst: 1 },
   };
-  const store = new CredentialStore({ file: { version: 1, credentials: [record] }, now: () => CLOCK_MS });
+  const store = new CredentialStore({ file: { version: 1, credentials: [record] }, nowMillis: () => CLOCK_MS });
   return observe(() =>
     store.admit(
       popRequest({ id: PROBE_ID, key: c.signerSeed, ...WORK_ROUTE, nonce: nonceAt(41, NONCE_MARKER), stamp: 'fresh', withNonceHeader: true }),
@@ -1025,7 +1025,7 @@ describe('what the signature check answers when it cannot check', () => {
     const keyWidthArbitrary: fc.Arbitrary<number> = fc.oneof(fc.integer({ min: 0, max: 31 }), fc.integer({ min: 33, max: 96 }));
     check(keyWidthArbitrary, [0, 1, 31, 33, 64, 96], (width) => {
       const record: CredentialRecord = {
-        ...newPopCredential({ id: PROBE_ID, scopes: ALL_GRANTS, now: NOW_SECONDS }).record,
+        ...newPopCredential({ id: PROBE_ID, scopes: ALL_GRANTS, nowSeconds: NOW_SECONDS }).record,
         publicKey: new Uint8Array(width).fill(0xed),
         rate: { perMinute: 60, burst: 1 },
       };
@@ -1036,7 +1036,7 @@ describe('what the signature check answers when it cannot check', () => {
       // giving one id a 500 and another a 401 is to refuse the record before any request names it.
       // `admission.test.ts` pins the same refusal through the parser, which is where this rule came
       // from: the bytes above are the file a deployment cannot load, handed in as an object.
-      return observe(() => new CredentialStore({ file: { version: 1, credentials: [record] }, now: () => CLOCK_MS })) === 'BAD_CREDENTIAL_RECORD';
+      return observe(() => new CredentialStore({ file: { version: 1, credentials: [record] }, nowMillis: () => CLOCK_MS })) === 'BAD_CREDENTIAL_RECORD';
     });
   });
 
@@ -1129,7 +1129,7 @@ interface Probed {
 
 function probedAs(state: ProbedState): Probed {
   if (state === 'bearer') {
-    const enrolled = newBearerCredential({ id: PROBE_ID, scopes: ALL_GRANTS, now: NOW_SECONDS });
+    const enrolled = newBearerCredential({ id: PROBE_ID, scopes: ALL_GRANTS, nowSeconds: NOW_SECONDS });
     return {
       state,
       record: { ...enrolled.record, rate: { perMinute: 60, burst: 8 } },
@@ -1137,7 +1137,7 @@ function probedAs(state: ProbedState): Probed {
       bearerSecret: enrolled.secret,
     };
   }
-  const generated = newPopCredential({ id: PROBE_ID, scopes: ALL_GRANTS, now: NOW_SECONDS });
+  const generated = newPopCredential({ id: PROBE_ID, scopes: ALL_GRANTS, nowSeconds: NOW_SECONDS });
   const record: CredentialRecord = {
     ...generated.record,
     publicKey: RECORD_PUBLIC_KEY,
@@ -1154,11 +1154,11 @@ function probedAs(state: ProbedState): Probed {
 /** The records that are not the probe: one proof of possession and one bearer key, present in both stores. */
 function sharedRecords(): CredentialRecord[] {
   const pop: CredentialRecord = {
-    ...newPopCredential({ id: SHARED_NAME, scopes: ALL_GRANTS, now: NOW_SECONDS }).record,
+    ...newPopCredential({ id: SHARED_NAME, scopes: ALL_GRANTS, nowSeconds: NOW_SECONDS }).record,
     publicKey: SHARED_PUBLIC_KEY,
     rate: { perMinute: 60, burst: 8 },
   };
-  const bearer = newBearerCredential({ id: 'ops-shared', scopes: ALL_GRANTS, now: NOW_SECONDS });
+  const bearer = newBearerCredential({ id: 'ops-shared', scopes: ALL_GRANTS, nowSeconds: NOW_SECONDS });
   return [pop, { ...bearer.record, rate: { perMinute: 60, burst: 8 } }];
 }
 
@@ -1178,18 +1178,18 @@ const WALK_PEER_RATE: CredentialRate = { perMinute: 1_000_000, burst: 1_000_000 
 /** Two files that differ by one record, rebuilt per cell so no cell inherits another's replay set or bucket. */
 function storesFor(probed: Probed): { holds: CredentialStore; lacks: CredentialStore } {
   const shared = sharedRecords();
-  const now = () => CLOCK_MS;
+  const nowMillis = () => CLOCK_MS;
   return {
     holds: new CredentialStore({
       file: { version: 1, credentials: [...shared, probed.record] },
       allowBearer: true,
-      now,
+      nowMillis,
       peerRate: WALK_PEER_RATE,
     }),
     lacks: new CredentialStore({
       file: { version: 1, credentials: [...shared] },
       allowBearer: true,
-      now,
+      nowMillis,
       peerRate: WALK_PEER_RATE,
     }),
   };

@@ -2,7 +2,7 @@
 
 Every value a deployment can point this gateway at, and every value the code holds when the
 deployment named nothing. Three tables sort them by class, and the counts below are the counts the
-tables carry: 30 flag rows, 14 shipped defaults, and 8 environment variables, of which 7 are
+tables carry: 31 flag rows, 15 shipped defaults, and 8 environment variables, of which 7 are
 settings and 1 carries credential material. 3 flags name their default in the block that declares
 them. Coverage is the gateway's operator surface only: the values a client verifies against, pinned
 in `packages/sdk/src/policy.ts`, and the record constants in `packages/cli/src/records.ts` are out
@@ -27,7 +27,7 @@ files, so a row that stops being true fails a run rather than aging quietly.
 
 ## 1. Flags this gateway accepts
 
-Class: the operator's to declare. All 30 are declared together in `gateway/src/cli.ts`, in the block
+Class: the operator's to declare. All 31 are declared together in `gateway/src/cli.ts`, in the block
 `parseArgs` is handed, and are spelled here as an operator types them, with the leading dashes. The
 Bound column is what the code refuses outside; where a period or a duty is the deployment's own, the
 row says so rather than inventing a number for it.
@@ -58,6 +58,7 @@ row says so rather than inventing a number for it.
 | `--receipts-per-query` | The serving bound: how many receipts one range query holds at once | a positive whole number, bounding a walk and retiring nothing | `SHIPPED_SERVED_RECEIPTS`, and a walk over a longer window is answered in batches | the operator's to declare | `gateway/src/cli.ts` |
 | `--receipts-guard-at` | When the durability guard is read while serving, rather than only when the store opens | a whole percentage from 1 to 100 of the durability bound, where a value that is not one stops the start rather than falling back; once the store holds that share of `--receipts-keep`, a completion is refused with `RECEIPT_WINDOW_UNHOLDABLE` before any inference runs if the period configured beside the bound cannot be held at the rate the store's own retained stamps measure | `DEFAULT_INTAKE_GUARD_FRACTION`, which is the whole of the durability bound, so a run naming no percentage refuses only where the store would also refuse to open | the operator's to declare | `gateway/src/cli.ts` |
 | `--receipts-grow-past-guard` | Keep issuing past the durability guard instead of refusing | boolean, it takes no argument, and it overrides `--receipts-guard-at`; with it the volume grows, the bound keeps retiring the oldest prefix, and the window served is the shorter one that bound reaches rather than the period configured beside it | none: off, which is the posture that leaves a receipt the configured period still covers in the file | the operator's to declare | `gateway/src/cli.ts` |
+| `--receipts-record-kind` | Which kind of receipt record this process appends | `receipt`, or `bounded=<seconds>`, where the seconds are the retention period written at the front of every record this run appends; a spelling that names neither kind stops the start rather than falling back, and a volume whose records were written under the other kind is refused by `STORE_RECEIPT_KIND_MISMATCH` rather than converted. What the period itself may say is the store's rule and not this one: `RECORD_BOUND_OUT_OF_RANGE` for a number its 4 byte field cannot state, `RECORD_BOUND_REDUNDANT` for one its own durability window reaches first | `DEFAULT_RECEIPT_RECORD_KIND`, which is the receipt kind stating no period and the layout every store file this repository has published is made of | the operator's to declare | `gateway/src/cli.ts` |
 | `--credentials-path` | The records every request has to present one from | a readable file of public keys and hashes, which is why mounting it through a platform is safe in a way a secret file never is | none: required in live mode, and a mock run makes one dev credential and prints it | the operator's to declare | `gateway/src/cli.ts` |
 | `--access-log-path` | Where the per-request access log is written | an existing directory, so a volume you forgot to mount is a refusal | none: required in live mode, and a mock run keeps the log in memory | the operator's to declare | `gateway/src/cli.ts` |
 | `--access-log-days` | How long access log files are kept | a positive whole number of days; shorter than the default is allowed and the start-up report says so; the period a deployment owes is its own to declare and nothing in this repository validates it | `MINIMUM_RETENTION_DAYS` | the operator's to declare | `gateway/src/cli.ts` |
@@ -87,13 +88,16 @@ change to it is a change here too.
 | `DEFAULT_MOCK_MODEL` | `'mock-model-1'` | The model id a mock completion is answered with when none was named | shipped default | `gateway/src/mock.ts` |
 | `SHIPPED_RETAINED_RECEIPTS` | `10_000` | The durability bound a receipt volume is opened with when no flag named one | shipped default | `gateway/src/cli.ts` |
 | `SHIPPED_SERVED_RECEIPTS` | `10_000` | The serving bound a query is walked with when no flag named one | shipped default | `gateway/src/cli.ts` |
-| `HOST_CLOCK_SOURCE` | `{ name: 'host clock', uncertaintySeconds: null, now: () => Math.floor(Date.now() / 1000) }` | The source every whole-second stamp this process signs is read from when the deployment wired none, and the bound nobody measured on it | shipped default | `gateway/src/store.ts` |
+| `DEFAULT_RECEIPT_RECORD_KIND` | `{ kind: 'receipt' }` | Which kind of receipt record a store appends when the deployment named none: the layout that states no period, which is what every store file this repository has published is made of. The other kind puts a per-record retention period, `boundSeconds:u32`, ahead of the receipt bytes inside the digest the chain folds, and a store's log holds records of one kind or the other: a file holding both is refused at the opening by `STORE_RECEIPT_KIND_MISMATCH`, because "what does this deployment keep" would then depend on which record a reader picked up. The period a bounded record states is a statement about that record: retirement drops a prefix at the durability bound and the retention manifest reports that bound, so nothing in this repository reads a record's own period as a bound. `--receipts-record-kind` is the flag a run states the choice with | shipped default | `gateway/src/store.ts` |
+| `HOST_CLOCK_SOURCE` | `{ name: 'host clock', uncertaintySeconds: null, nowSeconds: () => Math.floor(Date.now() / 1000) }` | The source every whole-second stamp this process signs is read from when the deployment wired none, and the bound nobody measured on it. This null is what the process states about itself, on the store through `timeSource()` and beside every record a range walk hands back, and no flag here hides it or widens it. What a client makes of that answer is a client question and not a row of this inventory: the demand a policy may state of a stamp's source under `maxTimeUncertaintySeconds`, what that demand does to this null, and where a verifier can weigh it at all, are written once in [error-codes.md](error-codes.md); the field itself is a member of the client's policy document and of nothing this gateway reads | shipped default | `gateway/src/store.ts` |
 
 Bounds shipped in the same source, and holding whatever the operator named, are not fallbacks and so
 are not rows above: `MAX_CREDENTIALS`, `MAX_TRACKED_PEERS`, `MAX_BUFFERED_BODY`,
 `MAX_CACHED_EVIDENCE`, `MAX_REPORT_DATA_BYTES`, `FIRST_EVENT_TIMEOUT_MS` and
 `MINIMUM_RETENTION_SECONDS` each bound one behaviour, no flag reaches any of them, and the receipt
-store's period is the last of those rather than a duration a deployment chooses per run.
+store's own retention period is the last of those rather than a duration a deployment chooses per run.
+The period a bounded record states is chosen per run, by `--receipts-record-kind`, and it is a statement
+inside the record rather than a bound this process enforces.
 
 ## 3. Environment settings the operator declares
 

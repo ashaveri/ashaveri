@@ -35,12 +35,25 @@ export type { EpochAccepted, EpochRefused, EpochVerdict, ReceiptEpochClaim } fro
 export { readDeploymentManifest } from './manifest-auth.js';
 export type { ManifestAuthentication, ReadManifestResult } from './manifest-auth.js';
 export {
+  assertAnchorHeldUnderPolicy,
+  assertAnchorWeighedUnderPolicy,
+  assertAttestedTextShapes,
+  attestedTextShape,
+  ATTESTED_TEXT_MEMBERS,
   DEFAULT_MAX_EVIDENCE_AGE_SECONDS,
   DEFAULT_MAX_RECEIPT_AGE_SECONDS,
+  assertStampSourceWithinPolicy,
+  MAX_ANCHOR_SLOTS_DEMANDABLE,
   policyFromManifest,
   policyKeyByKid,
 } from './policy.js';
-export type { AshaveriPolicy } from './policy.js';
+export type {
+  AnchorSlotLabel,
+  AnchorSlotReading,
+  AshaveriPolicy,
+  AttestedTextMember,
+  StampSourceDeclaration,
+} from './policy.js';
 export {
   ANCHOR_FAMILIES,
   loadPolicyFile,

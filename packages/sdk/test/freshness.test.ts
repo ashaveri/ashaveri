@@ -1,3 +1,4 @@
+import { tmpdir } from 'node:os';
 import { describe, expect, it } from 'vitest';
 import { hashRequest, randomNonce, ReceiptError, type ReceiptPayload, type VerifiedReceipt } from '@ashaveri/receipt';
 import {
@@ -5,7 +6,10 @@ import {
   DEFAULT_MAX_EVIDENCE_AGE_SECONDS,
   DEFAULT_MAX_RECEIPT_AGE_SECONDS,
   GatewaySession,
+  loadPolicyFromText,
   parseManifest,
+  policyFileFromPolicy,
+  policyFileToJson,
   policyFromManifest,
   toBase64Url,
   type AshaveriPolicy,
@@ -82,7 +86,7 @@ async function checkedReceiptStep(
     requestHash: hashRequest(new TextEncoder().encode(body)),
     responseHash: hashRequest(responseBytes),
     responseBytes,
-    now: NOW_MS,
+    nowMillis: NOW_MS,
   });
 }
 
@@ -90,6 +94,14 @@ async function checkedReceiptStep(
 async function receiptStepCode(ages: Ages, override?: Partial<AshaveriPolicy>): Promise<string> {
   const gateway = gatewayStamping(ages);
   const policy: AshaveriPolicy = { ...manifestPolicy(gateway), ...override };
+  return codeFor(gateway, policy);
+}
+
+/**
+ * The same step for a policy built somewhere else than the manifest, which is what lets one be read
+ * out of a published document and handed over unchanged.
+ */
+async function codeFor(gateway: FakeGateway, policy: AshaveriPolicy): Promise<string> {
   try {
     await checkedReceiptStep(gateway, policy);
     return 'verified';
@@ -97,6 +109,19 @@ async function receiptStepCode(ages: Ages, override?: Partial<AshaveriPolicy>): 
     expect(err, 'a refused receipt step throws an error').toBeInstanceOf(Error);
     return (err as { code?: string }).code ?? 'no code';
   }
+}
+
+/**
+ * One deployment's own manifest policy, published as a policy document and read back by a verifier. A
+ * deployment signs with a key of its own, so the document and the stamps it is checked against have to
+ * come from the same gateway: this is the whole route an operator takes, from object to file to verdict.
+ */
+async function throughDocument(
+  gateway: FakeGateway,
+  override?: Partial<AshaveriPolicy>,
+): Promise<{ readonly written: string; readonly policy: AshaveriPolicy }> {
+  const written = policyFileToJson(policyFileFromPolicy({ ...manifestPolicy(gateway), ...override }));
+  return { written, policy: (await loadPolicyFromText(written, tmpdir())).policy };
 }
 
 /** One whole strict completion, reported as the code it failed with or `verified`. */
@@ -107,7 +132,7 @@ async function strictCompletionCode(ages: Ages, override?: Partial<AshaveriPolic
     fetch: gateway.fetch,
     verify: 'strict',
     policy: { ...manifestPolicy(gateway), ...override },
-    now: () => NOW_MS,
+    nowMillis: () => NOW_MS,
   });
   try {
     await client.chat.completions.create({ messages: MESSAGES });
@@ -265,5 +290,57 @@ describe('where the defaults do and do not reach', () => {
     await expect(checkedReceiptStep(gateway, undefined)).resolves.toMatchObject({
       payload: { iat: NOW_SECONDS - ARCHIVE },
     });
+  });
+});
+
+describe('a published document and the windows it runs', () => {
+  it('runs the shipped defaults on the reader that loads it, which is all its null says', async () => {
+    // A policy object that names no window publishes both of them as `null`, and the schema says `null`
+    // names no window of the document's own. What that is worth is the question, because a window nobody
+    // named and a window nobody ran are two different policies. Each deployment below signs with a key of
+    // its own, so its stamps are checked against a document written from its own manifest policy, and the
+    // shipped defaults decide all three. A `null` read as "no window" would let both stale stamps
+    // through, which is the sentence this case keeps true.
+    const inside = gatewayStamping({
+      receipt: DEFAULT_MAX_RECEIPT_AGE_SECONDS - 1,
+      evidence: DEFAULT_MAX_EVIDENCE_AGE_SECONDS - 1,
+    });
+    const neither = await throughDocument(inside);
+    expect(neither.written, 'a policy naming neither window publishes both as null').toContain(
+      '"maxReceiptAgeSeconds": null',
+    );
+    expect(neither.written).toContain('"maxEvidenceAgeSeconds": null');
+    expect(neither.policy.maxReceiptAgeSeconds, 'a window written as null loads as no number named').toBeUndefined();
+    expect(neither.policy.maxEvidenceAgeSeconds).toBeUndefined();
+    expect(
+      await codeFor(inside, neither.policy),
+      'one second inside each shipped window, so both clocks ran and both were satisfied',
+    ).toBe('verified');
+
+    const pastReceipt = gatewayStamping({ receipt: PAST_RECEIPT_WINDOW, evidence: RECENT });
+    expect(
+      await codeFor(pastReceipt, (await throughDocument(pastReceipt)).policy),
+      'past the shipped receipt window, so that clock is on',
+    ).toBe('STALE_RECEIPT');
+
+    const pastEvidence = gatewayStamping({ receipt: RECENT, evidence: PAST_EVIDENCE_WINDOW });
+    expect(
+      await codeFor(pastEvidence, (await throughDocument(pastEvidence)).policy),
+      'past the shipped evidence window, so the other clock is on too',
+    ).toBe('STALE_EVIDENCE');
+  });
+
+  it('carries the window an operator named, and runs the shipped default beside it', async () => {
+    // Six minutes old is inside the 1200 seconds this document names, and sixteen minutes is past the
+    // 900 it left unnamed: one stamp set that answers for both readings at once.
+    const gateway = gatewayStamping({ receipt: PAST_RECEIPT_WINDOW, evidence: PAST_EVIDENCE_WINDOW });
+    const named = await throughDocument(gateway, { maxReceiptAgeSeconds: 1_200 });
+    expect(named.written).toContain('"maxReceiptAgeSeconds": 1200');
+    expect(named.written).toContain('"maxEvidenceAgeSeconds": null');
+    expect(named.policy.maxReceiptAgeSeconds).toBe(1_200);
+    expect(
+      await codeFor(gateway, named.policy),
+      'the named window let the receipt past and the unnamed one refused the evidence',
+    ).toBe('STALE_EVIDENCE');
   });
 });

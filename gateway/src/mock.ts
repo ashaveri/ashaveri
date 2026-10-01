@@ -1,4 +1,5 @@
 import { randomNonce } from '@ashaveri/receipt';
+import { HOST_CLOCK_SOURCE, type TimeSource } from './store.js';
 
 export const DEFAULT_MOCK_MODEL = 'mock-model-1';
 
@@ -73,7 +74,19 @@ function b64Id(bytes: Uint8Array): string {
   return btoa(binary).replaceAll('+', '-').replaceAll('/', '_').replace(/=+$/, '');
 }
 
-export function mockCompletion(request: ChatCompletionRequest): MockCompletion {
+export function mockCompletion(
+  request: ChatCompletionRequest,
+  options: {
+    /**
+     * Where this completion's creation instant comes from, named. Absent means `HOST_CLOCK_SOURCE`: the
+     * mock backend has no platform to read a time from, so the honest answer is this host's own clock at
+     * the bound nobody measured, and a deployment that wired a source of its own should hand that same
+     * source here rather than let the body carry an unlabelled reading.
+     */
+    readonly time?: TimeSource;
+  } = {},
+): MockCompletion {
+  const time = options.time ?? HOST_CLOCK_SOURCE;
   const last = request.messages[request.messages.length - 1] as ChatMessage;
   const totalChars = request.messages.reduce((sum, message) => sum + message.content.length, 0);
   const content =
@@ -82,7 +95,7 @@ export function mockCompletion(request: ChatCompletionRequest): MockCompletion {
     `the last message role was "${last.role}" with ${last.content.length} characters.`;
   return {
     id: responseId(),
-    created: Math.floor(Date.now() / 1000),
+    created: Math.floor(time.nowSeconds()),
     model: request.model,
     content,
     promptTokens: Math.ceil(totalChars / 4),

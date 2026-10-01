@@ -4,6 +4,8 @@ import { describe, expect, it } from 'vitest';
 import { sha256 } from '@noble/hashes/sha2.js';
 import {
   PACK_CONTENT_TYPE,
+  CARRIED_MAX_BYTES,
+  CARRIED_SLOTS_PER_ITEM,
   ReceiptError,
   decodePack,
   packRecordDigest,
@@ -14,7 +16,7 @@ import {
   type VerifiedPack,
 } from '@ashaveri/receipt';
 import { loadPackVectors, type PackVector } from '../src/index.js';
-import { unionMembers } from './doc-contract.js';
+import { assertRowRoster, ROW_NAMING_FIELDS, unionMembers } from './doc-contract.js';
 
 /**
  * The published pack vectors, replayed the way a port replays them: take the document out of the file, hand
@@ -24,12 +26,12 @@ import { unionMembers } from './doc-contract.js';
  * code is whether it answers as the file says it does.
  *
  * Three more things are checked on the way, because a suite of chained documents is only as good as the chain.
- * The record table the file publishes beside its honest run is recomputed from the document's own items, so a
- * framing that only this implementation's writer produces shows up as a disagreement rather than as a silent
- * convention. Every code of the pack family in the registry is required to be reached by a committed document,
- * which is the only way a refusal added to `errors.ts` without a case cannot pass unnoticed. And the two
- * columns are required to disagree where they are said to, because the pair is the substance of a reader that
- * keeps "these bytes are whole" apart from "this caller can attribute them".
+ * The record tables the file publishes beside its two framed runs are recomputed from those documents' own
+ * items, so a framing that only this implementation's writer produces shows up as a disagreement rather than as
+ * a silent convention. Every code of the pack family in the registry is required to be reached by a committed
+ * document, which is the only way a refusal added to `errors.ts` without a case cannot pass unnoticed. And the
+ * two columns are required to disagree where they are said to, because the pair is the substance of a reader
+ * that keeps "these bytes are whole" apart from "this caller can attribute them".
  *
  * The client half of this reading lives in `packages/cli/test/vector-conformance.test.ts`, which drives the
  * same rows through the paths a shipped verifier takes; what is here is the format package's own reader, the
@@ -76,7 +78,6 @@ function structural(one: PackVector): string {
 }
 
 const publishedIds = new Set(file.layout.keyMaterial.map((one) => one.kidHex));
-const honest = file.vectors.find((one) => one.name === 'well-formed-three-items');
 
 describe('the evidence pack vectors', () => {
   it('are a suite the format, its twin and its writer all still describe', () => {
@@ -86,7 +87,12 @@ describe('the evidence pack vectors', () => {
     expect(file.layout.headerLabels).toEqual({ alg: 1, typ: 3, kid: 4 });
     // Every path the file names is a file, and the format and the twin still carry the content type this
     // suite is about: a port pointed at a document that no longer states the type would compare the wrong pair.
-    for (const path of [file.layout.format, file.layout.twin, file.layout.prose.split(' ')[0] ?? '']) {
+    for (const path of [
+      file.layout.format,
+      file.layout.twin,
+      file.layout.document,
+      file.layout.prose.split(' ')[0] ?? '',
+    ]) {
       expect(existsSync(fileURLToPath(new URL(`../../../${path}`, import.meta.url))), `${path} is named by the suite and is not there`).toBe(true);
     }
     const cddl = readFileSync(fileURLToPath(new URL(`../../../${file.layout.format}`, import.meta.url)), 'utf8');
@@ -103,25 +109,66 @@ describe('the evidence pack vectors', () => {
   });
 
   it('publishes a record framing that comes back out of the document it sits beside', () => {
-    expect(honest, 'the suite publishes no honest run').toBeDefined();
-    if (honest === undefined) return;
-    const manifest = decodePack(bytes(honest.documentBase64Url)).manifest;
-    expect(file.layout.records.map((one) => one.id)).toEqual(manifest.items.map((one) => one.id));
-    for (const [index, row] of file.layout.records.entries()) {
-      const item = manifest.items[index]!;
-      expect(row.position, `record ${row.id}`).toBe(index);
-      expect(row.id).toBe(item.id);
-      expect(row.iat).toBe(item.iat);
-      expect(row.prevHex).toBe(toHex(item.prev));
-      expect(row.receiptByteLength).toBe(item.receipt.length);
-      // The digest is recomputed from the bytes the item carries, which is what a reader does to walk: a
-      // framing that moved in the writer and not here would show up as this disagreement.
-      expect(toHex(packRecordDigest(item)), `${row.id} digest`).toBe(row.digestHex);
+    // Two runs are framed here, and both tables are read the same way: out of the sealed bytes of the row each
+    // one sits beside. The pair is what the framing rule states, so the rule and the two table members are held
+    // to the same two rows rather than to a name written into this file.
+    const tables = [
+      { rows: file.layout.records, vector: 'well-formed-three-items' },
+      { rows: file.layout.carriedRecords, vector: 'collateral-carried-inside-the-pack' },
+    ] as const;
+    const rule = file.layout.framingRule;
+    expect(typeof rule, 'the suite publishes no framing rule').toBe('string');
+    if (typeof rule === 'string') {
+      for (const one of tables) {
+        expect(rule, `the framing rule stopped naming the table of ${one.vector}`).toContain(one.vector);
+      }
     }
-    // And the table describes a run that closes: the first predecessor is the signed anchor and the last
-    // digest is the signed head, which is the pair the walk is between.
-    expect(file.layout.records[0]!.prevHex).toBe(toHex(manifest.chain.anchor));
-    expect(file.layout.records[file.layout.records.length - 1]!.digestHex).toBe(toHex(manifest.chain.head));
+    for (const one of tables) {
+      const row = file.vectors.find((each) => each.name === one.vector);
+      expect(row, `the suite frames a run no published row carries: ${one.vector}`).toBeDefined();
+      if (row === undefined) continue;
+      const manifest = decodePack(bytes(row.documentBase64Url)).manifest;
+      expect(one.rows.map((each) => each.id), one.vector).toEqual(manifest.items.map((each) => each.id));
+      for (const [index, record] of one.rows.entries()) {
+        const item = manifest.items[index]!;
+        expect(record.position, `${one.vector} record ${record.id}`).toBe(index);
+        expect(record.id, one.vector).toBe(item.id);
+        expect(record.iat, one.vector).toBe(item.iat);
+        expect(record.prevHex, one.vector).toBe(toHex(item.prev));
+        expect(record.receiptByteLength, one.vector).toBe(item.receipt.length);
+        // The digest is recomputed from the bytes the item carries, which is what a reader does to walk: a
+        // framing that moved in the writer and not here would show up as this disagreement.
+        expect(toHex(packRecordDigest(item)), `${one.vector} ${record.id} digest`).toBe(record.digestHex);
+      }
+      // And each table describes a run that closes: the first predecessor is the signed anchor and the last
+      // digest is the signed head, which is the pair the walk is between.
+      expect(one.rows[0]!.prevHex, one.vector).toBe(toHex(manifest.chain.anchor));
+      expect(one.rows[one.rows.length - 1]!.digestHex, one.vector).toBe(toHex(manifest.chain.head));
+    }
+    // The two runs are the same three names and stamps, and their receipts differ: the carried one seals
+    // receipts whose anchor slots state `held`, so its frames are wider. A table that had been copied from the
+    // other run would agree on ids and stamps and fail here.
+    expect(file.layout.records.map((one) => one.id)).toEqual(file.layout.carriedRecords.map((one) => one.id));
+    expect(
+      file.layout.carriedRecords.some((one, index) => one.receiptByteLength !== file.layout.records[index]?.receiptByteLength),
+      'the framed runs hold the same receipt bytes, so one table was copied from the other',
+    ).toBe(true);
+  });
+
+  it('states the two carried ceilings as the figures the reader enforces', () => {
+    // Both ceilings used to appear in this sentence as words, which is a claim that stays true when the number
+    // under it moves. The generator reads the two figures out of `packages/receipt/src/pack.ts`, so what the
+    // published rule prints is the figure the reader refuses on, and this case is what notices if the prose and
+    // the constants part again.
+    const rule = file.layout.carriedRule;
+    expect(typeof rule, 'the suite publishes no carried rule').toBe('string');
+    if (typeof rule !== 'string') return;
+    expect(rule, 'the byte ceiling the rule states is not the one the reader enforces').toContain(
+      `${String(CARRIED_MAX_BYTES)} bytes`,
+    );
+    expect(rule, 'the slot ceiling the rule states is not the one the reader counts against').toContain(
+      `${String(CARRIED_SLOTS_PER_ITEM)} slots`,
+    );
   });
 
   it('designates only keys it publishes, and publishes keys that resolve', () => {
@@ -156,12 +203,10 @@ describe('the evidence pack vectors', () => {
   });
 
   it('carries no field a row is not told about and no code no registry declares', () => {
-    const allowed = new Set(['name', 'note', 'documentBase64Url', 'documentByteLength', 'read', 'verdict', 'structural', ...file.layout.verdictFields]);
-    for (const one of file.vectors) {
-      for (const field of Object.keys(one)) {
-        expect(allowed.has(field), `${one.name} carries ${field}, which the suite describes no field of`).toBe(true);
-      }
-    }
+    // The published roster is the whole set of columns a row may carry, so it is held as an equality over the
+    // columns the rows actually carry, in the one check every suite with a roster is wired to. Reading it as a
+    // list of allowances, as this case did, cannot see a column a row carries and the file never declares.
+    assertRowRoster(file, ROW_NAMING_FIELDS);
     const declared = new Set(unionMembers('ReceiptErrorCode', ERRORS));
     for (const one of file.vectors) {
       if (one.verdict === 'verify-ok') continue;

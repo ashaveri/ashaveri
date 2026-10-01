@@ -56,15 +56,16 @@ the mechanism described below is a mark plus the evidence of a mark, not a certi
   in isolation. The mark is not the evidence; the receipt is. A mark is bytes anyone holding the
   response can delete, and the signed statement about those bytes is the part that cannot be edited
   without the edit showing. Three pieces, and this tree holds all three. The payload:
-  `@ashaveri/receipt` reads a `v: 2` document that carries `mk` and refuses a `v: 1` one that carries
-  it, because a payload map is closed at either version ([receipt-spec.md](receipt-spec.md) section 6),
+  `@ashaveri/receipt` requires `mk` of every document it reads and refuses one that carries
+  none, because a payload map is closed ([receipt-spec.md](receipt-spec.md) section 6),
   so the marking attestation cannot arrive on a document that has agreed to say nothing about it. The
   rule: `extractMarkedRegion` in `packages/receipt/src/marking.ts` locates a region inside response
   bytes and answers `MARK_MISMATCH` when those bytes hold none or hold the shape twice, and the live
   client compares the digest of whatever it locates against `mk.d`, because
   `verifyCompletionReceipt` in `packages/sdk/src/verify.ts` is handed those bytes beside their digest
-  (T18, T20). The bytes: `gateway/src/server.ts` signs a `v: 2` payload
-  for every completion it issues, and whether any byte is added to a customer's response is the
+  (T18, T20). The bytes: `gateway/src/server.ts` signs a payload naming `mk` for every completion it
+  issues that one document wherever the response frames into items, and serves nothing where a
+  stream sent no data frame at all, and whether any byte is added to a customer's response is the
   deployment's own setting, `--marking`, whose shipped value is `none`. Section 6 says what none of the
   three amounts to proving.
 - **A8 The marking-scheme registry.** The table that binds every scheme label to exactly one byte
@@ -186,8 +187,36 @@ What is still true, in both modes:
   freshness needs network access and is deliberately outside the offline verification path. The
   residual risk in T12 is the whole of this limitation, and it is not scheduled away: a service
   publishing this collateral for deployments that want it is the position, described in
-  the README's attestation-collateral section, and nothing of it is in this code or is a precondition of
-  any verdict a third party can reach. This document describes the offline path as it is built.
+  the README's attestation-collateral section, and no service, endpoint or fetch is in this code or is a
+  precondition of any verdict a third party can reach. What is in this code is the other half of the same
+  question and closes none of it: `@ashaveri/collateral` reads and classifies a vendor document it is handed,
+  and a pack carries the material its sealed receipts' anchors name, so `ashaveri verify-pack` weighs those
+  bytes against the roots its caller names and prints each slot it could not weigh beside the flag that would
+  have supplied the question. Weighing reaches an answer only for bytes of the envelope that document's
+  declaration decodes. Intel answers its two document addresses with the issuer chain in a response header
+  beside the body, so an entry of that material is a pack's held bytes that no root a caller names reaches a
+  verdict on, and [pack-v1.md](pack-v1.md) states that limit and what a carried entry answers for. That weighing
+  asks no origin anything, reaches no network, feeds no attestation
+  verdict, and changes what T12 says about a platform the vendor has since deprecated. This document describes
+  the offline path as it is built.
+- **The origins that hold those answers are gated, and one of them is not.** NVIDIA's RIM service and NRAS
+  both require an NVIDIA attestation account, so a golden driver or VBIOS measurement, or a revocation
+  verdict from NRAS, is an external dependency to be agreed with NVIDIA rather than a stance this code chose
+  to take. Intel's balance is the other way and belongs beside that: its PCK CRL is published for anonymous
+  retrieval and carries a month of freshness, so a fetch and compare has material to work with and an answer
+  to state.
+- **The vendor certificates state where revocation is published.** Certificate by certificate, over the ten
+  certificates the six tracked `.pem` fixtures hold and the three the tracked TDX quote carries: the AMD Milan
+  ARK and ASK
+  each hold a CRL distribution point at `https://kdsintf.amd.com/vcek/v1/Milan/crl`; Intel's SGX Root CA and
+  the PCK Platform CA inside that quote each hold one at
+  `https://certificates.trustedservices.intel.com/IntelSGXRootCA.der`, and the quote's PCK leaf holds one at
+  the published CRL route itself; two of the five Hopper chain certificates, NVIDIA GH100 Identity and NVIDIA
+  GH100 Provisioner ICA 1, hold both an OCSP pointer to `http://ocsp.ndis.nvidia.com` and a CRL point under
+  `http://crl.ndis.nvidia.com`. The per-chip VCEK, the GPU device leaf, that leaf's BROM certificate and the
+  pinned NVIDIA Device Identity CA root hold neither. So revocation being out of scope describes what this
+  code reads and not a silence in the material: the pointers are in the bytes a verifier already holds, and
+  none of them is followed.
 - **The client's clock is a stranger's, and its two windows are chosen numbers.** In strict mode the
   client refuses a receipt whose `iat` is more than 300 seconds from its own clock, and evidence
   whose `att.ts` is more than 900 seconds from it. Those bound how much skew between two
@@ -197,6 +226,50 @@ What is still true, in both modes:
   content, and a client pointed at a long-streaming deployment has to widen
   `maxEvidenceAgeSeconds` or switch it off. Both numbers are the client's to set, and neither is
   read from the wire.
+- **A clock reading is refused before it can vote on a receipt.** `nowMillis` on the client's entry
+  counts milliseconds while every instant it is weighed against, `iat` and `att.ts`, counts seconds,
+  and the format reader's own `nowSeconds` counts seconds too. A reading handed outside the span these
+  stamps are counted in is refused at the entry, `CLIENT_CLOCK_OUT_OF_RANGE` on the client and
+  `VERIFICATION_TIME_OUT_OF_RANGE` on the format reader, and neither is a verdict about a document: the
+  fault bounded is one caller handing the same instant spelled the other way, which used to answer
+  `STALE_RECEIPT` for a receipt that had aged nothing. What the refusal does not do is vouch for the
+  reading it accepted: a clock inside the span can still stand an hour from the truth, which is the
+  limitation above, and a stamp's own source is what states that.
+- **The client also decides what it will accept about an anchor.** A third standard is a count rather
+  than a duration: `minAnchorSlotsHeld` on the same policy names how many of a receipt's two anchor
+  slots must state that their material was taken in, and a document stating fewer is refused with
+  `ANCHOR_SLOT_NOT_HELD` at the point the artifact is handed over. It is a demand about the anchor and
+  names no unit of time, and like the two windows it is not read from the wire, because a deployment
+  cannot choose what a client asks of it. A policy naming nothing asks nothing, which is what keeps
+  every verdict taken under an earlier policy the verdict it was. The second question about an anchor is
+  a client demand too: whether a slot stating `held` still resolves. `minAnchorSlotsWeighed` names how
+  many of the two slots the reader must reach and find standing as their own signed statement at the
+  instant the record claims. It is answered by the availability of the material a verifier holds and by
+  nothing inside a signed document, and the pack moved the first half of that sentence: the
+  container that seals a receipt naming material carries that material in `carried`, and its reader
+  recomputes every stated digest and refuses a slot the list does not answer as the pack's own failure, at
+  the position that names it. A held slot inside a pack is therefore a claim the container is answerable
+  for, while a held slot in a receipt fetched on its own is still a promise about somebody else's archive.
+  The two ways that demand goes unanswered keep two codes, because an operator told only that an anchor
+  failed cannot act: a digest nothing reached answers `ANCHOR_MATERIAL_UNREACHED`, and reached material
+  whose signature nobody establishes, whose own statement names no window, whose window misses the
+  record's `iat`, or which the vendor itself withdraws answers `ANCHOR_MATERIAL_NOT_STANDING`. What is
+  weighed is the window the material states for itself against the instant the record claims, never the
+  state an appraisal settled on, because material read out of a container states no instant at which
+  anybody watched an origin answer, so such a reading is never a current one and never arrives with a
+  closed window beside it. Whether the vendor stands behind a level is the collateral package's own
+  question, under `COLLATERAL_REVOKED_BY_VENDOR`, reported here as the reading that failed in its own
+  words; how recently that standing was watched stays T12's limitation rather than this bullet's.
+- **A client can demand a shape of the text a deployment authors.** The writer refuses to sign any text
+  member carrying a character that could end or reorder the line a report is read off, and that refusal is
+  one producer's standard, stated where bytes are made. What a particular auditor accepts from any
+  producer at all is a reader's decision, so `attestedTextShapes` on the policy names a shape for each text
+  member a deployment authors, keyed by the payload's own member names, and a receipt whose text is outside
+  it answers `ATTESTED_TEXT_OUTSIDE_SHAPE`. The refusal names the position, the shape it did not match and
+  the length of what was found, and never the value, because the class this rule runs over is the class that
+  forges a printed line and a refusal that pasted it in would carry the forgery into the tool reporting it.
+  A policy naming no shape demands nothing of any member, so no document that verified before this field
+  exists verifies differently now.
 - **The gateway does not deep-verify its own evidence.** It reads the measurement and the
   report-data binding; the certificate chain, TCB and event-log replay are the client's job,
   through `@ashaveri/sdk` in strict mode or `@ashaveri/cli`. That is deliberate, but it means a
@@ -292,9 +365,12 @@ What is still true, in both modes:
 - **Nothing here measures model behaviour.** A receipt proves who served which bytes; it says
   nothing about quality, alignment, or the prompt template behind the completion.
 - **Marking is issued, read and refused in this code, and none of that reaches past the bytes.** The
-  gateway signs a `v: 2` payload for every completion it issues (`issue()` in `gateway/src/server.ts`),
-  which is the version that has to carry `mk`, and it writes a marking into the response only under
-  `--marking provenance-v1`: started with the shipped `none`, or with nothing, it adds no byte to anyone's
+  gateway signs a payload naming `mk` for every completion it issues (`issue()` in `gateway/src/server.ts`),
+  which is the member that has to travel with a marking, and it is stated wherever the
+  response frames into items; a stream that sent no data frame is not served at all, because `itm` would
+  have to be the empty list the format refuses. It writes a marking
+  into the response only under `--marking provenance-v1`: started with the shipped `none`, or with nothing,
+  it adds no byte to anyone's
   response and signs `sch: none` beside the digest of an empty region to declare that (`gateway/src/cli.ts`
   and `unmarked()` in `gateway/src/marking.ts`). A verifier holding response bytes does carve the region
   out of them and compare its digest against the signed `d`, by the published rule made executable in
@@ -303,18 +379,19 @@ What is still true, in both modes:
   `verifyReceipt` and `decodeReceipt` still never reach that code, and cannot: neither is handed a
   response, so a reader holding the receipt alone performs no marking check. What a receipt carrying `mk`
   establishes is one pairing and no more: the holder of a deployment's signing key matched one labelled
-  extraction rule and one 32-byte digest with the bytes of one response. The published artifacts are no
-  longer all v1 either: a marked-region suite (`packages/fixtures/data/marking-v1.json`) measures the
-  extraction rule, and one of the five receipt fixtures is a `v: 2` document, which is as far as version 2
-  reaches in published coverage, as [vectors.md](vectors.md) states. That a marked receipt verifies
+  extraction rule and one 32-byte digest with the bytes of one response. Every published receipt names `mk`:
+  a marked-region suite (`packages/fixtures/data/marking-v1.json`) measures the extraction rule, and the
+  receipt fixtures carry a marking on every document, as [vectors.md](vectors.md) states. That a marked receipt verifies
   wherever the accepted version set is left at its default, which is every version the package parses and
   which no client in this estate narrows, is a fact about readers rather than a guard for them. Whether a
   deployment marks at all is now a start-up setting rather than an unmade decision, and T17 through T20
-  are written to hold under either setting. Why a mark took a new version rather than arriving as an optional member of the old one is
-  section 6 of [receipt-spec.md](receipt-spec.md), and it holds: a v1 reader checks the thirteen fields
-  it knows, finds nothing about a mark, and would verify a receipt over an unmarked response exactly
-  as readily as over a marked one, which is silence read as a claim. The closedness that refusal rests
-  on is not the payload map's alone: `meas`, `att`, `tok` and `mk` are closed the same way, and an
+  are written to hold under either setting. Why a mark is a required member rather than an optional one is
+  section 6 of [receipt-spec.md](receipt-spec.md), and it holds: a reader that found no `mk` would verify a
+  receipt over an unmarked response exactly as readily as over a marked one, which is silence read as a
+  claim. The closedness that refusal rests
+  on is not the payload map's alone: `meas`, `att`, `tok`, `mk`, `sd` and `cva` are closed the same
+  way, and so are the element of `itm` and the two arms a collateral slot's label selects, each by the
+  reader that reaches it, and an
   undefined member of any of them is `BAD_PAYLOAD` rather than a member a reader takes no account of,
   and the signed `Ashaveri-Protected-Header` closes against the three labels `receipt.cddl` names and
   answers any other with `BAD_PROTECTED_HEADER` before it reads one of them. Closing by number is not
@@ -331,7 +408,8 @@ What is still true, in both modes:
   `decodeClosedDocument` is also how an export's header and manifest and a sealed deployment manifest's
   header are read, so a float standing where a label belongs is a malformed document in any of them.
   It reaches the payload's numbers as well,
-  and the format says which ones. The positions are `v`, `iat`, `att.ts`, `epk`, `tok.p` and `tok.c`,
+  and the format says which ones. The positions are `v`, `iat`, `att.ts`, `epk`, `tok.p`, `tok.c` and
+  `itm.t`,
   each read as the integer `receipt.cddl` types it, so a `128.0` written as a float is a malformed
   payload rather than 128 taken on trust. The writer that issues a receipt holds the same line from its
   own side and spells negative zero as the integer zero, so a float standing at one of these positions
@@ -379,7 +457,15 @@ What is still true, in both modes:
   `parseChunk` in `packages/sdk/src/client.ts` requires a string `id` and an array `choices` on every
   frame and raises `GATEWAY_ERROR` with `stream chunk is not a chat completion chunk`. Clients other
   than these two, and any intermediary between them and the gateway, are unmeasured: what a receipt
-  attests is the bytes the gateway wrote, not what a reader kept of them.
+  attests is the bytes the gateway wrote, not what a reader kept of them. The separation that keeps a
+  mark readable is a frame's, not a line's: a mark is written as one `data:` line and the blank line
+  after it, with the frame ahead of it closed, because a client parsing the response as
+  server-sent events concatenates the `data:` fields of one open event and a mark appended to an
+  event the upstream never dispatched arrives inside a payload that parses as neither chunk. A
+  line two `data:` prefixes share is therefore not a frame a receipt is issued over, and where
+  an upstream stopped mid-line the gateway writes the frame end it owed before its mark
+  (`gateway/src/marking.ts`, `MarkedStreamTail`; section 3.1 of [receipt-spec.md](receipt-spec.md)
+  states the framing as a fact about the format).
 
 The SDK's `strict` mode verifies receipts and the manifest against pins and then fetches and
 deep-verifies the evidence each receipt commits to. What remains unproven is the end-to-end run:

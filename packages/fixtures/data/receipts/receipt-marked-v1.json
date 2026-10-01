@@ -5,7 +5,7 @@
     "typ": "ashaveri/receipt"
   },
   "payload": {
-    "v": 2,
+    "v": 1,
     "iss": "dpl-9f2a41c3",
     "ins": "cvm-i-047f2a",
     "iat": 1772000000,
@@ -31,8 +31,28 @@
     "mk": {
       "sch": "provenance-v1",
       "d": "35702fda276f3d0a81742cd54079eeb7031aebf06205993cfed1051e2de282de"
-    }
+    },
+    "sd": {
+      "name": "host clock",
+      "unc": null
+    },
+    "cva": {
+      "col": {
+        "p": "not-taken-in",
+        "r": "this corpus takes no collateral in"
+      },
+      "val": {
+        "p": "not-taken-in",
+        "r": "this corpus records no validity context"
+      }
+    },
+    "itm": [
+      {
+        "t": 1771999999,
+        "d": "53a4609b8d89672cb20f1679943d556f195f3bf0fe5743913529661952ff0fef"
+      }
+    ]
   },
-  "signature": "b768695b5520461848cf68cc6c4eba7834af2cf613d79e9046d22df5b3227f9bad67b09fd055d5a521a55fe7c184d6886beee75f0fedda2007e509ad67013a0e",
-  "digestSha256": "da3e3f7614059a500b0234201bec71f349d5dc83b92e3d003d5ba40e1f9a6e07"
+  "signature": "7dcbcf6313bfb0bd7d04b771e7c57eb41ffb5087b92cd7d35aab1237b374592a8bab2a24feba85582655a2cbe17092fe68b810d16402fd679c75994c251e7407",
+  "digestSha256": "7a38ada3815c2005c4b07a00a6c8b1312f4a9277b26c3ecc1a707b3bcffdf727"
 }

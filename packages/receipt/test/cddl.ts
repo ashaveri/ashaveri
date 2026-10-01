@@ -40,17 +40,21 @@ export function required<T>(value: T | undefined, detail: string): T {
  * block reads as a format that stopped declaring any members.
  */
 export function cddlRule(cddl: string, rule: string): string {
+  // The text is named rather than the path this reader was handed it from, because callers pass several
+  // CDDL files through this one helper and a missing epoch inventory block reported as missing from the
+  // receipt format sends a reader to the wrong document.
   const start = cddl.indexOf(`${rule} = {`);
-  if (start < 0) throw new Error(`${rule} is not declared in ${cddlPath}`);
+  if (start < 0) throw new Error(`${rule} is not declared in the CDDL text it was handed`);
   const end = cddl.indexOf('\n}', start);
-  if (end < 0) throw new Error(`${rule} in ${cddlPath} never closes`);
+  if (end < 0) throw new Error(`${rule} never closes in the CDDL text it was handed`);
   return cddl.slice(start, end);
 }
 
 /**
  * The members one CDDL block declares, each with the type expression written beside it, in the order
  * the block declares them: comments stripped, then every `name:` read off the commas that separate the
- * members. The order is not decoration: v2's block puts `mk` after the thirteen, and the twin and the
+ * members. The order is not decoration: the payload block puts `mk` after the twelve every document
+ * shares, and the twin and the
  * parser both claim that list as theirs. The type rides along for the same reason the name does: which
  * of these positions the format makes an integer is the CDDL's answer, and a test that asks for it has
  * to read it here rather than remember it.
@@ -86,8 +90,9 @@ export function labeledMembers(block: string): string[] {
  * behind. A block that never closes throws rather than reading as an empty one.
  */
 export function cddlRuleArms(cddl: string, rule: string): string[] {
+  // Named by the rule, not by a path: see `cddlRule`.
   const start = cddl.indexOf(`${rule} = {`);
-  if (start < 0) throw new Error(`${rule} is not declared in ${cddlPath}`);
+  if (start < 0) throw new Error(`${rule} is not declared in the CDDL text it was handed`);
   const arms: string[] = [];
   let current: string[] = [];
   for (const line of cddl.slice(start).split('\n')) {
@@ -102,45 +107,74 @@ export function cddlRuleArms(cddl: string, rule: string): string[] {
     }
     current.push(line);
   }
-  throw new Error(`${rule} in ${cddlPath} never closes`);
+  throw new Error(`${rule} never closes in the CDDL text it was handed`);
 }
 
-/** One map the CDDL defines, the list that stands behind it, and what the rule adds to that list. */
+/** One map the CDDL defines and the list that stands behind it. */
 export interface ListBinding {
   readonly map: string;
   readonly list: string;
-  readonly adds?: readonly string[];
 }
 
 /**
- * Which list stands behind which map. There is one `adds` in this format: v2 is v1's members plus
- * `mk`, so both payload blocks bind to the one shared list and the version pair stays a row rather
- * than becoming a second copy of every assertion below. `MARKING_MEMBERS` stands behind the map `mk`'s
- * value is, which is why it appears once and not inside the payload's list.
+ * Which list stands behind which map. There is one payload block in this format and it binds to the
+ * one list that names all seventeen of its members.
+ * `MARKING_MEMBERS` stands behind the map `mk`'s value is, which is why it appears once and not
+ * inside the payload's list. The two collateral slot lists and the item list's element list stand
+ * behind maps the closure walk reaches through a reader rather than through a member name, because a
+ * slot's shape is decided by the label inside it and an array has no member to point at, so the
+ * binding below is the only place the format's side of those three maps is written down.
  */
 export const LIST_FOR_MAP: readonly ListBinding[] = [
-  { map: 'Ashaveri-Receipt-Payload-v1', list: 'SHARED_MEMBERS' },
-  { map: 'Ashaveri-Receipt-Payload-v2', list: 'SHARED_MEMBERS', adds: ['mk'] },
+  { map: 'Ashaveri-Receipt-Payload-v1', list: 'PAYLOAD_MEMBERS' },
   { map: 'Marking', list: 'MARKING_MEMBERS' },
   { map: 'Measurement', list: 'MEASUREMENT_MEMBERS' },
   { map: 'EvidenceRef', list: 'EVIDENCE_REF_MEMBERS' },
   { map: 'TokenMetering', list: 'TOKEN_METERING_MEMBERS' },
+  { map: 'StampDisclosure', list: 'STAMP_DISCLOSURE_MEMBERS' },
+  { map: 'CollateralValidityAnchor', list: 'COLLATERAL_ANCHOR_MEMBERS' },
+  { map: 'CollateralHeld', list: 'COLLATERAL_HELD_MEMBERS' },
+  { map: 'CollateralAbsent', list: 'COLLATERAL_ABSENT_MEMBERS' },
+  { map: 'ItemStamp', list: 'ITEM_STAMP_MEMBERS' },
 ];
 
 /**
+ * The payload versions one CDDL file declares, read off the alternatives of the rule that names them.
+ * This is the format's own answer to "which versions exist", and the tie between it and the versions a
+ * reader parses is what keeps that set stated once: `receipt.cddl` names them, `receipt.ts` reads them,
+ * and a version that arrived in one of the two and not the other would otherwise be a document the
+ * format defines and no reader can open, or a reader that accepts a document no version of the format
+ * grants. Today the rule has one alternative, and that is the whole of what this format declares.
+ */
+export function cddlPayloadVersions(cddl: string): number[] {
+  const found = /^Ashaveri-Receipt-Payload = (.+)$/mu.exec(cddl);
+  if (found === null) throw new Error(`no Ashaveri-Receipt-Payload choice rule is declared in ${cddlPath}`);
+  const versions = [...found[1]!.matchAll(/Ashaveri-Receipt-Payload-v(\d+)\b/gu)].map((digits) => Number(digits[1]));
+  if (versions.length === 0) throw new Error(`${cddlPath} declares a payload with no version as one of its alternatives`);
+  return versions;
+}
+
+/**
  * The payload members whose value is another map the file defines, each bound to the rule it is:
- * `meas` is a `Measurement`. Derived rather than written out beside the member, because adding a member
- * to a payload block is the only way a new map reaches this format, and a table of rule names kept by
- * hand here would let that map arrive in the CDDL and in the parser while the twin-side assertions
- * went on sweeping the maps before it. Two payload blocks naming one member two different rules is the
- * format describing one member as two maps, so it stops the run rather than settling for one.
+ * `meas` is a `Measurement`, and `itm` is a list of `ItemStamp`. Derived rather than written out
+ * beside the member, because adding a member to a payload block is the only way a new map reaches
+ * this format, and a table of rule names kept by hand here would let that map arrive in the CDDL and
+ * in the parser while the twin-side assertions went on sweeping the maps before it. Two payload
+ * blocks naming one member two different rules is the format describing one member as two maps, so
+ * it stops the run rather than settling for one, and the walk stays written for more than one block
+ * because a later version that joins this format arrives as one.
+ *
+ * The array form is read as well as the map form, because which positions a format types as
+ * integers is a question the whole document answers: `itm`'s elements carry one, and a list of them
+ * is as much a declaration of that position as a map of it. Which of the two the closure walk enters
+ * by member name is a different question, and `receipt.cddl` says so beside the block.
  */
 export function nestedRuleNames(cddl: string): Map<string, string> {
   const rules = new Map<string, string>();
   for (const binding of LIST_FOR_MAP.filter((row) => row.map.startsWith('Ashaveri-Receipt-Payload-v'))) {
     for (const line of cddlRule(cddl, binding.map).split('\n').slice(1)) {
       for (const piece of line.split(';')[0]!.split(',')) {
-        const found = /^\s*([a-z][a-z0-9_]*)\s*:\s*([A-Z][A-Za-z0-9_-]*)\s*$/u.exec(piece);
+        const found = /^\s*([a-z][a-z0-9_]*)\s*:\s*(?:\[\+[ \t]*)?([A-Z][A-Za-z0-9_-]*)(?:[ \t]*\])?\s*$/u.exec(piece);
         if (!found) continue;
         const known = rules.get(found[1]!);
         if (known !== undefined && known !== found[2]) {
@@ -172,8 +206,8 @@ const INTEGER_TYPE = /^(?:int|-?\d+)$/u;
  * is expanded even when the rule holds no integer, so a position gaining one in the CDDL arrives in
  * this list with no edit here.
  *
- * Both payload blocks are read, which is how a position that only one version carries would still be
- * found; a name the two blocks list twice is reported once.
+ * Every payload block the file declares is read, which is how a position a later version would carry
+ * is still found; a name the blocks list twice is reported once.
  */
 export function cddlIntegerPositions(cddl: string): string[] {
   const rules = nestedRuleNames(cddl);
@@ -196,5 +230,68 @@ export function cddlIntegerPositions(cddl: string): string[] {
     }
   }
   if (positions.length === 0) throw new Error(`no position of ${cddlPath} is typed as an integer`);
+  return positions;
+}
+
+/**
+ * The type `receipt.cddl` writes for a text position whose content nobody bounds: a bare `tstr`, and
+ * `tstr` spelled as one alternative of a choice with a literal. `"none" / tstr` is the second of those,
+ * and the literal says nothing about what may be written there: it names the value one scheme takes, and
+ * the alternative beside it admits any text at all. A position typed only as literals, the way `tee` and
+ * `p` are, is not in the class: those are closed sets, and a value outside one is a malformed member
+ * rather than a well-formed one carrying text nothing asked about.
+ */
+function isTextType(type: string): boolean {
+  return type.split('/').some((arm) => /^tstr\b/u.test(arm.trim()));
+}
+
+/**
+ * The positions a slot is reached at, with the maps standing behind each. Both legs of the anchor hold a
+ * `CollateralSlot`, which is a choice between two maps and not one of them, so the walk over a payload's
+ * `nested` member names never enters one and `nestedRuleNames` binds no payload member to either arm.
+ * This is the exception `DEFINED_MAPS` states beside its own entry for `cva`, restated for the reader of
+ * the CDDL so a text member arriving in either arm is a position this file answers for.
+ */
+const SLOT_ARMS_AT_POSITION: ReadonlyArray<readonly [position: string, arms: readonly string[]]> = [
+  ['cva.col', ['CollateralHeld', 'CollateralAbsent']],
+  ['cva.val', ['CollateralHeld', 'CollateralAbsent']],
+];
+
+/**
+ * Every position a payload document carries whose type the format leaves open to a `tstr`, named the way a
+ * reader of the document names it: `iss` at the payload level and `att.url` one map down.
+ *
+ * Read off the CDDL rather than written down beside the writer's own list, for the reason the integer
+ * sweep above states: a roster typed out in a test keeps passing the day the format gains a member, and
+ * the whole point of the sweep is to be asked about every position the format has. Every payload block is
+ * read, which is how a text member a later version carries is still found, and a name the blocks list
+ * twice is reported once.
+ */
+export function cddlTextPositions(cddl: string): string[] {
+  const rules = nestedRuleNames(cddl);
+  const positions: string[] = [];
+  const push = (name: string): void => {
+    if (!positions.includes(name)) positions.push(name);
+  };
+  const scanBlock = (block: string, prefix: string): void => {
+    for (const member of memberDeclarations(block)) {
+      if (isTextType(member.type)) push(`${prefix}${member.name}`);
+    }
+  };
+  for (const binding of LIST_FOR_MAP.filter((row) => row.map.startsWith('Ashaveri-Receipt-Payload-v'))) {
+    const block = cddlRule(cddl, binding.map);
+    scanBlock(block, '');
+    for (const member of memberDeclarations(block)) {
+      const rule = rules.get(member.name);
+      if (rule === undefined) continue;
+      for (const arm of cddlRuleArms(cddl, rule)) scanBlock(arm, `${member.name}.`);
+    }
+  }
+  for (const [position, arms] of SLOT_ARMS_AT_POSITION) {
+    for (const arm of arms) {
+      for (const block of cddlRuleArms(cddl, arm)) scanBlock(block, `${position}.`);
+    }
+  }
+  if (positions.length === 0) throw new Error(`no position of ${cddlPath} is typed as a text string`);
   return positions;
 }

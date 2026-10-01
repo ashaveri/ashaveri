@@ -42,7 +42,7 @@ export type {
   VerificationResult,
   VerifyOptions,
 } from './verify.js';
-export { parseCertificate, parseCertificateChain } from './der.js';
+export { derEcdsaSignature, parseCertificate, parseCertificateChain } from './der.js';
 export type { CertificatePublicKey, ParsedCertificate, SignatureAlgorithm } from './der.js';
 export { DSTACK_RUNTIME_EVENT_TYPE, tcbFromU64 } from './types.js';
 export type {

@@ -13,7 +13,7 @@ import {
   type PopFields,
 } from '@ashaveri/receipt';
 import { newBearerCredential, newPopCredential, serializeCredentialFile } from '../src/access.js';
-import { MINIMUM_RETENTION_SECONDS, RECEIPT_STORE_FILE } from '../src/store.js';
+import { MINIMUM_RETENTION_SECONDS, openFileReceiptStore, RECEIPT_STORE_FILE } from '../src/store.js';
 
 const CLI = fileURLToPath(new URL('../dist/cli.js', import.meta.url));
 const tempDir = mkdtempSync(join(tmpdir(), 'ashaveri-signerd-'));
@@ -47,7 +47,7 @@ function run(...args: string[]) {
   const result = spawnSync(process.execPath, [CLI, ...args], {
     encoding: 'utf8',
     env,
-    timeout: 8000,
+    timeout: SPAWN_DEADLINE_MS,
     killSignal: 'SIGKILL',
   });
   // Without this a process that never started leaves `status` null, which reads as the CLI
@@ -57,25 +57,75 @@ function run(...args: string[]) {
 }
 
 /**
- * Start a gateway that serves, read what it printed, and stop it. Every other case in this file is an
- * exit path, so the command returns by itself; a booted gateway has no such ending, which is why the
- * spawn timeout here is the way the test finishes rather than a symptom of one failing.
+ * Start a gateway that serves, read the banner it printed, and stop it.
+ *
+ * `gateway/src/cli.ts:763` writes the whole banner in one call, measured here as a single 1746 byte
+ * chunk whose last byte is the newline that ends it, so the chunk carrying the listening line carries
+ * every line behind it too. This resolves on that line once the write has ended, rather than on a
+ * deadline expiring: a case asks for the banner and gets it as soon as it is printed, a gateway that
+ * never prints fails with what stdout held, and a slow machine slows the case instead of redding it.
+ *
+ * It returns `stdout.split('\n')`, the same lines the cases were written against, and leaves no child
+ * behind: the kill runs on every road out, including the refused ones, and waits for the exit event.
+ * A case that has to make a request over the same boot uses `bootServing` below instead.
  */
-function runStopped(...args: string[]) {
+async function readBanner(...args: string[]): Promise<string[]> {
   const env = { ...process.env };
   delete env['DSTACK_SIMULATOR_ENDPOINT'];
-  const result = spawnSync(process.execPath, [CLI, ...args], {
-    encoding: 'utf8',
+  const child = spawn(process.execPath, [CLI, ...args], {
     env,
-    timeout: 4000,
-    killSignal: 'SIGKILL',
+    stdio: ['ignore', 'pipe', 'pipe'],
   });
-  // The only acceptable error is the stop itself: anything else means the process died on its own,
-  // and its stdout would then be a refusal message rather than the banner under test. A CLI that
-  // grows an exit path of its own must not pass that check by printing a line about a timeout.
-  const stopped = result.error as (Error & { code?: string }) | undefined;
-  expect(stopped?.code, `the spawn ended with: ${JSON.stringify(result.error)}`).toBe('ETIMEDOUT');
-  return result.stdout.split('\n');
+  let out = '';
+  const stopped = new Promise<void>((resolve) => child.once('exit', () => resolve()));
+  const kill = async (): Promise<void> => {
+    child.kill('SIGKILL');
+    await stopped;
+  };
+  try {
+    child.stdout.setEncoding('utf8');
+    child.stderr.resume();
+    return await new Promise<string[]>((resolve, reject) => {
+      let done = false;
+      // Both windows live on one object so the road out can clear whichever is armed without either
+      // timer being read before it is set.
+      const timers: { deadline?: NodeJS.Timeout; quiet?: NodeJS.Timeout } = {};
+      const stop = (): void => {
+        done = true;
+        if (timers.deadline !== undefined) clearTimeout(timers.deadline);
+        if (timers.quiet !== undefined) clearTimeout(timers.quiet);
+      };
+      const giveUp = (message: string): void => {
+        stop();
+        reject(new Error(`${message}; stdout held ${JSON.stringify(out)}`));
+      };
+      // 10s is the same allowance `bootServing` spends on the same question, and it is what turns a
+      // listener that never reports in a named failure rather than a case that hangs the runner.
+      timers.deadline = setTimeout(
+        () => giveUp(`no listening line within ${String(BOOT_DEADLINE_MS / 1_000)}s`),
+        BOOT_DEADLINE_MS,
+      );
+      child.once('error', (error) => giveUp(`the gateway failed to spawn: ${error.message}`));
+      child.once('exit', (code) =>
+        giveUp(`the gateway exited with ${String(code)} before it printed its listening line`),
+      );
+      child.stdout.on('data', (chunk: string) => {
+        out += chunk;
+        if (done) return;
+        if (timers.quiet !== undefined) clearTimeout(timers.quiet);
+        const listed = out.split('\n').some((line) => /^signerd \(\w+\) listening on http:\/\//u.test(line));
+        if (!listed || !out.endsWith('\n')) return;
+        // The end of the write, not just its first line: a chunk that arrives inside this window means
+        // the banner split on the way here, and the resolve waits for the rest of it.
+        timers.quiet = setTimeout(() => {
+          stop();
+          resolve(out.split('\n'));
+        }, 0);
+      });
+    });
+  } finally {
+    await kill();
+  }
 }
 
 /**
@@ -101,6 +151,22 @@ function liveArgs(...args: string[]): string[] {
 /** The durability bound and the serving bound `gateway/src/cli.ts` opens a volume store with. Both are
  * shipped at ten thousand receipts, which is a capacity decision and not a figure either count owes
  * the other. */
+/**
+ * The two waits a case can spend, named once because a case's ceiling has to be read off them.
+ *
+ * `SPAWN_DEADLINE_MS` bounds one command that is expected to exit by itself; `BOOT_DEADLINE_MS` bounds one
+ * gateway that is expected to print its banner. A ceiling below the sum of a case's calls and their own
+ * deadlines is a ceiling that fires first, and what it reports is the runner's timeout rather than the named
+ * failure the deadline exists to produce. So `budgetFor` states the arithmetic, and every case that spawns
+ * or boots passes its count through it: the worst case is what a hang costs, and a hang is a defect worth
+ * waiting for once rather than misreading.
+ */
+const SPAWN_DEADLINE_MS = 8_000;
+const BOOT_DEADLINE_MS = 10_000;
+const budgetFor = (calls: number, deadline: number): number => calls * deadline + 2_000;
+const spawnBudget = (calls: number): number => budgetFor(calls, SPAWN_DEADLINE_MS);
+const bootBudget = (boots: number): number => budgetFor(boots, BOOT_DEADLINE_MS);
+
 const SHIPPED_RECEIPT_BOUND = 10_000;
 
 /**
@@ -124,6 +190,20 @@ function receiptFrame(prev: Uint8Array, iat: number, id: string, payload: Buffer
   const prefix = Buffer.alloc(4);
   prefix.writeUInt32BE(body.length + digest.length);
   return Buffer.concat([prefix, body, digest]);
+}
+
+/**
+ * The first record of a store file, read out of the framing rather than through the store that wrote it,
+ * so a case can name the kind byte and the payload a run actually put on the volume.
+ */
+function firstRecordOf(file: Buffer): { kind: number; id: string; payload: Buffer } {
+  const idLength = file.readUInt16BE(45);
+  const payloadAt = 47 + idLength;
+  return {
+    kind: file.readUInt8(4),
+    id: file.subarray(47, payloadAt).toString('utf8'),
+    payload: file.subarray(payloadAt, 4 + file.readUInt32BE(0) - 32),
+  };
 }
 
 /**
@@ -157,14 +237,40 @@ function writeHeldStore(dir: string, count: number, seconds: number): Buffer {
   return bytes;
 }
 
+/** How long a request that got no answer waits for the exit event before it describes the child. */
+const DEPARTURE_SETTLE_MS = 250;
+
 /**
- * Start a gateway that serves, and stop it. `runStopped` cannot carry a case about a request: its
- * `spawnSync` blocks until the spawn timeout fires, and by then the process is gone. This resolves on
- * the listening line, which is why `--port 0` prints the port the operating system bound rather than
- * the zero it was asked for, and hands back a `kill` that waits for the exit event, so a case cannot
- * leave a child or its socket behind.
+ * A gateway `bootServing` booted and left listening, and the two things a case can do to it.
+ *
+ * `reached` is for the question a request that got no answer cannot answer for itself: whether the
+ * process that printed the listening line still holds that port, and if it does not, how it went away
+ * and what it printed on the way out. A `TypeError: fetch failed` carries none of that, and the two
+ * readings a case would otherwise have to guess between, a start that went away behind its own banner
+ * and a port the client refuses before it opens a socket, look alike without it.
  */
-async function bootServing(args: string[]): Promise<{ readonly port: number; readonly kill: () => Promise<void> }> {
+interface ServedGateway {
+  readonly port: number;
+  readonly kill: () => Promise<void>;
+  readonly reached: () => Promise<string>;
+}
+
+/**
+ * Start a gateway that serves, and stop it. `readBanner` above answers with the printed lines once the
+ * write that carries them has ended, and stops the child before it returns, so it cannot carry a case
+ * about a request: by the time it does return the process is gone. This resolves on the listening line,
+ * which is why `--port 0` prints the port the operating system bound rather than the zero it was asked
+ * for, and hands back a `kill` that waits for the exit event, so a case cannot leave a child or its
+ * socket behind.
+ *
+ * Resolving on that line leaves one window the helper does not police: a child that printed it can still
+ * go away before the case asks it for anything, and the case then reads a fetch error about a port nobody
+ * holds. So the child's state is kept here instead of inferred downstream. `kill` fails a case whose child
+ * left of its own accord after it said it was listening, `reached` says where that child got to, and `ask`
+ * below puts both into the request that got no answer. The stderr that used to be drained and thrown away
+ * is kept, because it is where a gateway that is about to stop says why.
+ */
+async function bootServing(args: string[]): Promise<ServedGateway> {
   const env = { ...process.env };
   delete env['DSTACK_SIMULATOR_ENDPOINT'];
   const child = spawn(process.execPath, [CLI, '--mock', '--port', '0', ...args], {
@@ -172,18 +278,57 @@ async function bootServing(args: string[]): Promise<{ readonly port: number; rea
     stdio: ['ignore', 'pipe', 'pipe'],
   });
   let out = '';
-  const stopped = new Promise<void>((resolve) => child.once('exit', () => resolve()));
+  let err = '';
+  // The two facts a departure is made of: how the child went, and whether this helper was the one that
+  // asked. `undefined` while it is listening.
+  let departed: { readonly exit: string; readonly asked: boolean } | undefined;
+  let asking = false;
+  // The port the listening line named. It stands for whether the child ever said it was listening, which
+  // is the difference between an exit to name as a start that never served and an exit to name as a
+  // gateway that left after it promised a port, and it is the number a request was aimed at.
+  let bound: number | undefined;
+  const stopped = new Promise<void>((resolve) => {
+    child.once('exit', (code, signal) => {
+      departed = { exit: signal === null ? `exit code ${String(code)}` : `signal ${signal}`, asked: asking };
+      resolve();
+    });
+  });
+
+  /** The child, as far as this helper can tell it: whether it is there, and what it printed. */
+  async function reached(): Promise<string> {
+    // A refused connection and the exit event are in flight together at the moment a child goes away, so
+    // this waits for whichever of the two arrives first, up to a short settle. The sentence then says the
+    // child had gone, rather than that this helper had not yet been told of it.
+    await Promise.race([stopped, new Promise((resolve) => setTimeout(resolve, DEPARTURE_SETTLE_MS))]);
+    const where =
+      departed === undefined
+        ? 'was still running when this was read'
+        : `had gone with ${departed.exit}${departed.asked ? ', after this helper asked for the kill' : ', of its own accord'}`;
+    return (
+      `the gateway this helper started as pid ${String(child.pid)} with [--mock --port 0 ${args.join(' ')}] ` +
+      `${where}. The port its listening line named, and the one this request was aimed at, is ${String(bound)}. ` +
+      `Its stderr held ${JSON.stringify(err)} and the first line of its stdout held ${JSON.stringify(out.split('\n')[0] ?? '')}`
+    );
+  }
+
   const kill = async (): Promise<void> => {
+    asking = true;
     child.kill('SIGKILL');
     await stopped;
+    if (bound !== undefined && departed !== undefined && !departed.asked) {
+      throw new Error(`the gateway exited after it printed its listening line and before this helper stopped it; ${await reached()}`);
+    }
   };
   try {
     child.stdout.setEncoding('utf8');
-    child.stderr.resume();
+    child.stderr.setEncoding('utf8');
+    child.stderr.on('data', (chunk: string) => {
+      err += chunk;
+    });
     const port = await new Promise<number>((resolve, reject) => {
       const timer = setTimeout(
-        () => reject(new Error(`no listening line within 10s; stdout held ${JSON.stringify(out)}`)),
-        10_000,
+        () => reject(new Error(`no listening line within ${String(BOOT_DEADLINE_MS / 1_000)}s; stdout held ${JSON.stringify(out)}`)),
+        BOOT_DEADLINE_MS,
       );
       const giveUp = (message: string): void => {
         clearTimeout(timer);
@@ -195,20 +340,84 @@ async function bootServing(args: string[]): Promise<{ readonly port: number; rea
         out += chunk;
         const line = out.split('\n').find((each) => each.startsWith('signerd (mock) listening on '));
         if (line === undefined) return;
-        const bound = /^signerd \(mock\) listening on http:\/\/127\.0\.0\.1:([1-9]\d*)\s*$/u.exec(line);
-        if (bound?.[1] === undefined) {
+        const named = /^signerd \(mock\) listening on http:\/\/127\.0\.0\.1:([1-9]\d*)\s*$/u.exec(line);
+        if (named?.[1] === undefined) {
           giveUp(`the listening line names no bound port: ${line}`);
           return;
         }
+        bound = Number(named[1]);
         clearTimeout(timer);
-        resolve(Number(bound[1]));
+        resolve(bound);
       });
     });
-    return { port, kill };
+    return { port, kill, reached };
   } catch (error) {
     await kill();
     throw error;
   }
+}
+
+/**
+ * One request to a gateway `bootServing` booted, and a failure that names the child it aimed at.
+ *
+ * A connection that reaches nothing arrives as `TypeError: fetch failed`, which says neither the port it
+ * was aimed at nor the reason the stack gave, and a case read on a runner cannot go and ask the child. The
+ * three facts that tell a start which left after it printed its listening line apart from a port the
+ * client refuses before it opens a socket are the port, the reason the connection carried, and whether the
+ * process is still there to be carried by, so the failure is rebuilt out of those. The original error
+ * stays as the cause, which is what keeps the fetch's own stack in the report.
+ */
+async function ask(served: ServedGateway, target: string, init: RequestInit): Promise<Response> {
+  try {
+    return await fetch(`http://127.0.0.1:${String(served.port)}${target}`, init);
+  } catch (error) {
+    throw new Error(`no answer at ${target}: ${connectionReason(error)}; ${await served.reached()}`, { cause: error });
+  }
+}
+
+/** The reason a connection failed, as the layer under `fetch` spelled it, since `fetch failed` never does. */
+function connectionReason(error: unknown): string {
+  const cause = error instanceof Error ? error.cause : undefined;
+  if (!(cause instanceof Error)) return String(error);
+  const code = (cause as NodeJS.ErrnoException).code;
+  return `${cause.message}${code === undefined ? '' : ` (${code})`}`;
+}
+
+/**
+ * One completion, and the two things a caller can branch on, against a booted process. Two describes
+ * below ask what a flag does to a served completion, which is why this sits at module scope rather than
+ * beside the first of them.
+ */
+const COMPLETION = '{"model":"mock-model-1","messages":[{"role":"user","content":"guard"}]}';
+
+async function complete(
+  served: ServedGateway,
+  pop: { record: { id: string }; privateKey: Uint8Array },
+): Promise<{ status: number; code: string | undefined; receiptId: string | null; text: string }> {
+  const nonce = randomNonce();
+  const fields: PopFields = {
+    ts: Math.floor(Date.now() / 1000),
+    nonce,
+    method: 'POST',
+    target: '/v1/chat/completions',
+    bodyDigestHex: createHash('sha256').update(COMPLETION).digest('hex'),
+  };
+  const response = await ask(served, '/v1/chat/completions', {
+    method: 'POST',
+    headers: {
+      'content-type': 'application/json',
+      authorization: signPopAuthorization(fields, pop.record.id, pop.privateKey),
+      'x-ashaveri-nonce': toBase64Url(nonce),
+    },
+    body: COMPLETION,
+  });
+  const text = await response.text();
+  return {
+    status: response.status,
+    code: (JSON.parse(text) as { error?: { code?: string } }).error?.code,
+    receiptId: response.headers.get('x-ashaveri-receipt-id'),
+    text,
+  };
 }
 
 describe('signerd cli', () => {
@@ -309,23 +518,18 @@ describe('signerd cli', () => {
 describe('the banner a booted gateway prints', () => {
   // A live run cannot boot here: it stops at the guest agent, so only the mock half of the mode
   // label can be seen from a test. The two lines are still pinned to each other, because the first
-  // one is what the second one claims to match. The timeout is the stop plus room to reach it,
-  // since this case spends most of its life waiting to be interrupted.
-  it(
-    'names the mode the printed dev credential belongs to',
-    () => {
-      const banner = runStopped('--mock', '--port', '0');
-      const printed = banner.join('\n');
-      expect(banner[0], `no listening line; stdout held ${JSON.stringify(printed)}`).toMatch(
-        /^signerd \(mock\) listening on http:\/\/127\.0\.0\.1:\d+$/u,
-      );
-      const credential = banner.find((line) => line.includes('id=dev privateKeyHex='));
-      expect(credential, `no dev credential line; stdout held ${JSON.stringify(printed)}`).toMatch(
-        /^ {2}dev credential for this mock run: id=dev privateKeyHex=[0-9a-f]{64}$/u,
-      );
-    },
-    12_000,
-  );
+  // one is what the second one claims to match, and both are in the one write `readBanner` waits for.
+  it('names the mode the printed dev credential belongs to', async () => {
+    const banner = await readBanner('--mock', '--port', '0');
+    const printed = banner.join('\n');
+    expect(banner[0], `no listening line; stdout held ${JSON.stringify(printed)}`).toMatch(
+      /^signerd \(mock\) listening on http:\/\/127\.0\.0\.1:\d+$/u,
+    );
+    const credential = banner.find((line) => line.includes('id=dev privateKeyHex='));
+    expect(credential, `no dev credential line; stdout held ${JSON.stringify(printed)}`).toMatch(
+      /^ {2}dev credential for this mock run: id=dev privateKeyHex=[0-9a-f]{64}$/u,
+    );
+  });
 });
 
 describe('the flags that make the access floor real', () => {
@@ -430,8 +634,8 @@ describe('the flags that make the access floor real', () => {
     expect(result.stderr).toContain("--pop-tolerance must be a positive whole number of seconds, got '12.5'");
   });
 
-  it('reports the posture a flagless mock run boots into', () => {
-    const banner = runStopped('--mock', '--port', '0');
+  it('reports the posture a flagless mock run boots into', async () => {
+    const banner = await readBanner('--mock', '--port', '0');
     const printed = banner.join('\n');
     // `--port 0` is the operating system choosing, so a report that echoed the flag would print a
     // port nothing can connect to. The nonzero requirement is the whole point of this pattern.
@@ -456,8 +660,8 @@ describe('the flags that make the access floor real', () => {
     expect(banner.some((line) => line.includes('bearer credentials also accepted')), printed).toBe(false);
   });
 
-  it('says what bearer mode costs when it is turned on', () => {
-    const banner = runStopped('--mock', '--port', '0', '--allow-bearer');
+  it('says what bearer mode costs when it is turned on', async () => {
+    const banner = await readBanner('--mock', '--port', '0', '--allow-bearer');
     const printed = banner.join('\n');
     const line = banner.find((each) => each.includes('bearer credentials also accepted'));
     expect(line, `no bearer line; stdout held ${JSON.stringify(printed)}`).toContain(
@@ -465,8 +669,8 @@ describe('the flags that make the access floor real', () => {
     );
   });
 
-  it('names a shortened window as the choice it is', () => {
-    const banner = runStopped('--mock', '--port', '0', '--access-log-days', '30');
+  it('names a shortened window as the choice it is', async () => {
+    const banner = await readBanner('--mock', '--port', '0', '--access-log-days', '30');
     const printed = banner.join('\n');
     expect(banner, printed).toContain('  access log: this process only, kept for 30 days and gone on restart');
     const note = banner.find((each) => each.startsWith('  note: '));
@@ -482,13 +686,13 @@ describe('the flags that make the access floor real', () => {
     expect(note, printed).not.toContain('Annex III');
   });
 
-  it('reports the directory and what was already in it', () => {
+  it('reports the directory and what was already in it', async () => {
     const dir = join(tempDir, 'already-held');
     mkdirSync(dir);
     // A name the log's own pattern produces, so the count is of files this tool recognises and not of
     // whatever a stray on the volume happens to be called.
     writeFileSync(join(dir, 'access-2026-09-16-000.jsonl'), '');
-    const banner = runStopped('--mock', '--port', '0', '--access-log-path', dir);
+    const banner = await readBanner('--mock', '--port', '0', '--access-log-path', dir);
     const printed = banner.join('\n');
     const line = banner.find((each) => each.startsWith('  access log: '));
     expect(line, `no access log line; stdout held ${JSON.stringify(printed)}`).toContain(dir);
@@ -498,14 +702,14 @@ describe('the flags that make the access floor real', () => {
   });
 
   // Two boots, because the claim is about a difference between them: one run has no credential file and
-  // one has. Each boot is stopped by the spawn timeout, so this case spends about twice what a
-  // single-boot case does and needs the runner's allowance raised the same way.
+  // one has. Two boots of a gateway that serves, so this case spends twice what a single-boot case
+  // does, and the allowance beside it is read off that count.
   it(
     'keeps the dev credential to the run that has no credential file',
-    () => {
-      const banner = runStopped('--mock', '--port', '0');
+    async () => {
+      const banner = await readBanner('--mock', '--port', '0');
       expect(banner.some((each) => each.includes('id=dev privateKeyHex=')), banner.join('\n')).toBe(true);
-      const held = runStopped('--mock', '--port', '0', '--credentials-path', CREDENTIALS);
+      const held = await readBanner('--mock', '--port', '0', '--credentials-path', CREDENTIALS);
       expect(held.some((each) => each.includes('id=dev')), held.join('\n')).toBe(false);
       // An empty file parses, so nothing else about this gateway says that it will refuse everything.
       expect(
@@ -515,7 +719,8 @@ describe('the flags that make the access floor real', () => {
         `  credentials: 0 records read from ${CREDENTIALS} at start-up, which leaves every request refused`,
       );
     },
-    12_000,
+    // Two boots of an empty volume, measured here at 0.9s together: the runner's default covers that
+    // with room, so no ceiling of its own is set beside the case.
   );
 
   // The count that line prints is the store's own, so this is the half that says where it came from:
@@ -525,11 +730,11 @@ describe('the flags that make the access floor real', () => {
   // cannot be a constant, a flag's presence, or a count of what survived.
   it(
     'reports the records the store installed, and refuses to boot on a file it cannot take',
-    () => {
+    async () => {
       const pop = newPopCredential({ id: 'banner-pop', scopes: ['read', 'complete'] });
       const bearer = newBearerCredential({ id: 'banner-bearer', scopes: ['read'] });
       const path = credentialFile(serializeCredentialFile({ version: 1, credentials: [pop.record, bearer.record] }));
-      const banner = runStopped('--mock', '--port', '0', '--credentials-path', path);
+      const banner = await readBanner('--mock', '--port', '0', '--credentials-path', path);
       expect(
         banner.some((each) => each.startsWith(`  credentials: 2 records read from ${path} at start-up`)),
         banner.join('\n'),
@@ -552,7 +757,8 @@ describe('the flags that make the access floor real', () => {
       expect(refused.stderr).toMatch(/3 bytes, not 32/u);
       expect(refused.stdout, 'a process that refused to boot printed a banner').not.toContain('listening on');
     },
-    12_000,
+    // One boot over a two-record credential file and one exit-path refusal, measured here at 0.8s
+    // together, which the runner's default covers: no ceiling of its own is set beside the case.
   );
 });
 
@@ -578,26 +784,34 @@ describe('the bound one connection address is held to', () => {
     expect(noValue.stderr).toContain('--peer-rate');
   });
 
-  it('refuses a peer rate whose numbers are not counts of requests', () => {
-    for (const bad of ['perMinute=0,burst=300', 'perMinute=6000,burst=0']) {
-      const result = run('--mock', '--peer-rate', bad);
-      expect(result.status, bad).toBe(2);
-      expect(result.stderr, bad).toContain('must be a positive whole number');
-      expect(result.stderr, bad).toContain("got '0'");
-      // A bound of nothing at all is the way to disable a control through a flag that looks like it only
-      // sets a size, so it is refused rather than clamped.
-      expect(result.stdout, bad).not.toContain('listening on');
-    }
-    const fractional = run('--mock', '--peer-rate', 'perMinute=12.5,burst=300');
-    expect(fractional.status).toBe(2);
-    expect(fractional.stderr).toContain("--peer-rate perMinute must be a positive whole number of requests a minute, got '12.5'");
-    // A spelling `Number` would accept and no operator wrote: the digits-only rule is what refuses them.
-    for (const exotic of ['perMinute=0x10,burst=300', 'perMinute=1e3,burst=300', 'perMinute=-60,burst=300']) {
-      const result = run('--mock', '--peer-rate', exotic);
-      expect(result.status, exotic).toBe(2);
-      expect(result.stderr, exotic).toContain('must be a positive whole number');
-    }
-  });
+  it(
+    'refuses a peer rate whose numbers are not counts of requests',
+    () => {
+      for (const bad of ['perMinute=0,burst=300', 'perMinute=6000,burst=0']) {
+        const result = run('--mock', '--peer-rate', bad);
+        expect(result.status, bad).toBe(2);
+        expect(result.stderr, bad).toContain('must be a positive whole number');
+        expect(result.stderr, bad).toContain("got '0'");
+        // A bound of nothing at all is the way to disable a control through a flag that looks like it only
+        // sets a size, so it is refused rather than clamped.
+        expect(result.stdout, bad).not.toContain('listening on');
+      }
+      const fractional = run('--mock', '--peer-rate', 'perMinute=12.5,burst=300');
+      expect(fractional.status).toBe(2);
+      expect(fractional.stderr).toContain(
+        "--peer-rate perMinute must be a positive whole number of requests a minute, got '12.5'",
+      );
+      // A spelling `Number` would accept and no operator wrote: the digits-only rule is what refuses them.
+      for (const exotic of ['perMinute=0x10,burst=300', 'perMinute=1e3,burst=300', 'perMinute=-60,burst=300']) {
+        const result = run('--mock', '--peer-rate', exotic);
+        expect(result.status, exotic).toBe(2);
+        expect(result.stderr, exotic).toContain('must be a positive whole number');
+      }
+    },
+    // Six refusals, each its own exit-path spawn: measured here at 2.0s together, about 330 ms a
+    // refusal, so the ceiling is a second a refusal rather than a figure carried over from another case.
+    spawnBudget(6),
+  );
 
   it('refuses a peer rate field it does not have, and one given twice', () => {
     const unknown = run('--mock', '--peer-rate', 'perMinute=6000,bursts=300');
@@ -611,8 +825,8 @@ describe('the bound one connection address is held to', () => {
     expect(bare.stderr).toContain("'6000' is not one of those two fields");
   });
 
-  it('prints the bound it was given, and says that it was given', () => {
-    const banner = runStopped('--mock', '--port', '0', '--peer-rate', 'perMinute=1234,burst=56');
+  it('prints the bound it was given, and says that it was given', async () => {
+    const banner = await readBanner('--mock', '--port', '0', '--peer-rate', 'perMinute=1234,burst=56');
     const printed = banner.join('\n');
     const line = banner.find((each) => each.startsWith('  rate limits: '));
     expect(line, `no rate limits line; stdout held ${JSON.stringify(printed)}`).toContain(
@@ -622,32 +836,38 @@ describe('the bound one connection address is held to', () => {
     expect(line, printed).not.toContain('the default');
   });
 
-  it('has no spelling that takes the bound off, and one that amounts to it', () => {
-    // `0` and a bare word are the two shapes a reader reaches for when they want the control out of the
-    // way, and both are refused: a bound of nothing would shed every request this process serves, and a
-    // flag that accepted "off" would be a way to remove a security control from a deployment that thinks
-    // it has one.
-    for (const value of ['off', 'none', '0', 'perMinute=0,burst=0', 'perMinute=0']) {
-      const result = run('--mock', '--peer-rate', value);
-      expect(result.status, value).toBe(2);
-      expect(result.stderr, value).toContain('--peer-rate');
-      expect(result.stdout, value).not.toContain('listening on');
-    }
-    // The way out is a number big enough never to be reached, and it stays a number the banner reports:
-    // a run that is effectively unbounded reads as one with a large limit, not as one with none. This
-    // case stops at the credential file, which the rate is parsed before, so it says the value was taken
-    // without booting a listener.
-    const huge = run(
-      '--mock',
-      '--peer-rate',
-      'perMinute=999999999,burst=999999999',
-      '--credentials-path',
-      join(tempDir, 'not-mounted.json'),
-    );
-    expect(huge.stderr).not.toContain('--peer-rate wants');
-    expect(huge.stderr).not.toContain('must be a positive whole number');
-    expect(huge.stderr).toContain('--credentials-path');
-  });
+  it(
+    'has no spelling that takes the bound off, and one that amounts to it',
+    () => {
+      // `0` and a bare word are the two shapes a reader reaches for when they want the control out of the
+      // way, and both are refused: a bound of nothing would shed every request this process serves, and a
+      // flag that accepted "off" would be a way to remove a security control from a deployment that thinks
+      // it has one.
+      for (const value of ['off', 'none', '0', 'perMinute=0,burst=0', 'perMinute=0']) {
+        const result = run('--mock', '--peer-rate', value);
+        expect(result.status, value).toBe(2);
+        expect(result.stderr, value).toContain('--peer-rate');
+        expect(result.stdout, value).not.toContain('listening on');
+      }
+      // The way out is a number big enough never to be reached, and it stays a number the banner reports:
+      // a run that is effectively unbounded reads as one with a large limit, not as one with none. This
+      // case stops at the credential file, which the rate is parsed before, so it says the value was taken
+      // without booting a listener.
+      const huge = run(
+        '--mock',
+        '--peer-rate',
+        'perMinute=999999999,burst=999999999',
+        '--credentials-path',
+        join(tempDir, 'not-mounted.json'),
+      );
+      expect(huge.stderr).not.toContain('--peer-rate wants');
+      expect(huge.stderr).not.toContain('must be a positive whole number');
+      expect(huge.stderr).toContain('--credentials-path');
+    },
+    // Five spellings refused at the flag and one taken past it, six exit-path spawns: measured here at
+    // 2.0s together, about 330 ms a spawn, so the ceiling is a second a spawn.
+    spawnBudget(6),
+  );
 });
 
 /**
@@ -656,8 +876,8 @@ describe('the bound one connection address is held to', () => {
  * at the other end of the deployment, and the difference comes from one flag handed to one process.
  */
 describe('the banner names the manifest posture', () => {
-  it('says a deployment with no manifest key serves the plain document', () => {
-    const banner = runStopped('--mock', '--port', '0');
+  it('says a deployment with no manifest key serves the plain document', async () => {
+    const banner = await readBanner('--mock', '--port', '0');
     const printed = banner.join('\n');
     const line = banner.find((each) => each.startsWith('  manifest: '));
     expect(line, `no manifest line; stdout held ${JSON.stringify(printed)}`).toContain('served as plain JSON');
@@ -677,7 +897,7 @@ describe('the banner names the manifest posture', () => {
  * process that holds the store: nothing in this file up to here has shown a request outcome move.
  */
 describe('a gateway that serves answers the way its banner says', () => {
-  const url = (port: number): string => `http://127.0.0.1:${String(port)}/v1/deployment-manifest`;
+  const manifestTarget = '/v1/deployment-manifest';
 
   // The pair is the assertion. A banner that promises bearer is accepted beside a store that was
   // never told about it is the failure this file exists to prevent, and neither half catches it
@@ -691,7 +911,7 @@ describe('a gateway that serves answers the way its banner says', () => {
 
       const allowed = await bootServing(['--allow-bearer', '--credentials-path', path]);
       try {
-        const response = await fetch(url(allowed.port), { headers });
+        const response = await ask(allowed, manifestTarget, { headers });
         const body = await response.text();
         expect(response.status, body).toBe(200);
         expect(JSON.parse(body) as { v?: unknown }).toHaveProperty('v', 1);
@@ -701,7 +921,7 @@ describe('a gateway that serves answers the way its banner says', () => {
 
       const refused = await bootServing(['--credentials-path', path]);
       try {
-        const response = await fetch(url(refused.port), { headers });
+        const response = await ask(refused, manifestTarget, { headers });
         const body = await response.text();
         expect(response.status, body).toBe(401);
         expect(body).toContain('AUTH_SCHEME');
@@ -744,7 +964,7 @@ describe('a gateway that serves answers the way its banner says', () => {
             target,
             bodyDigestHex: EMPTY_BODY_SHA256_HEX,
           };
-          const response = await fetch(url(served.port), {
+          const response = await ask(served, target, {
             headers: {
               authorization: signPopAuthorization(fields, pop.record.id, pop.privateKey),
               'x-ashaveri-nonce': toBase64Url(nonce),
@@ -795,7 +1015,7 @@ describe('a gateway that serves answers the way its banner says', () => {
           target,
           bodyDigestHex: EMPTY_BODY_SHA256_HEX,
         };
-        const refused = await fetch(url(served.port), {
+        const refused = await ask(served, target, {
           headers: {
             authorization: signPopAuthorization(stale, pop.record.id, pop.privateKey),
             'x-ashaveri-nonce': toBase64Url(staleNonce),
@@ -814,7 +1034,7 @@ describe('a gateway that serves answers the way its banner says', () => {
           target,
           bodyDigestHex: EMPTY_BODY_SHA256_HEX,
         };
-        const answered = await fetch(url(served.port), {
+        const answered = await ask(served, target, {
           headers: {
             authorization: signPopAuthorization(fresh, pop.record.id, pop.privateKey),
             'x-ashaveri-nonce': toBase64Url(freshNonce),
@@ -884,17 +1104,20 @@ describe('a volume whose receipts have to outlive the start', () => {
     },
     // The volume is written in one go and read back by a start that refuses it: measured here at
     // 3.1s, which is past what the runner's five-second default leaves room for on a slower machine, so
-    // the case carries its own stop rather than the one that has bitten this estate before.
-    20_000,
+    // The volume is written in one go and read back by a start that refuses it, and framing
+    // SHIPPED_RECEIPT_BOUND receipts is the whole of the work: measured here at 3.1s, about a third of a
+    // millisecond a receipt, so the ceiling is three times that, a millisecond a receipt, with a five
+    // second floor for the spawn rather than a figure carried over from another case.
+    bootBudget(1) + SHIPPED_RECEIPT_BOUND,
   );
 
   it(
-    'starts the same volume once its durability bound can hold the period', () => {
+    'starts the same volume once its durability bound can hold the period', async () => {
       const dir = join(tempDir, 'window-raised');
       mkdirSync(dir);
       writeHeldStore(dir, SHIPPED_RECEIPT_BOUND, 100);
 
-      const banner = runStopped(
+      const banner = await readBanner(
         '--mock',
         '--port',
         '0',
@@ -911,32 +1134,32 @@ describe('a volume whose receipts have to outlive the start', () => {
       // that takes a sixth of a billion receipts and a query still holds ten thousand of them.
       expect(line, printed).toContain(`a serving bound of ${String(SHIPPED_RECEIPT_BOUND)} receipts to a query`);
     },
-    // The same ten thousand receipts on disk, read by a start that was told a durability bound big
-    // enough to hold 184 days of them with a serving bound nobody raised: measured here at 4.1s, four
-    // of which are the spawn waiting for its listening line.
-    20_000,
+    // The same ten thousand receipts on disk, framed and written in one go, read back by a start that
+    // was told a durability bound big enough to hold 184 days of them with a serving bound nobody
+    // raised: measured here at 0.6s against the 3.1s the refusing start takes on the same volume, so the
+    // ceiling is read off the receipt count the case writes, one millisecond a receipt.
+    bootBudget(1) + SHIPPED_RECEIPT_BOUND,
   );
 
-  it(
-    'starts the same pairing on a volume that has not reached its bound', () => {
-      const dir = join(tempDir, 'window-held');
-      mkdirSync(dir);
-      // The same window and the same bound, and traffic nowhere near the bound. Nothing is being shed
-      // here, so nothing is asked: a store that has issued less than it can serve is a quiet
-      // deployment, and refusing it would refuse it for being quiet.
-      writeHeldStore(dir, 200, 100);
+  // Two hundred receipts and one boot that prints its banner, measured here at 0.44s: the runner's
+  // default covers that with room, so the case carries no ceiling of its own.
+  it('starts the same pairing on a volume that has not reached its bound', async () => {
+    const dir = join(tempDir, 'window-held');
+    mkdirSync(dir);
+    // The same window and the same bound, and traffic nowhere near the bound. Nothing is being shed
+    // here, so nothing is asked: a store that has issued less than it can serve is a quiet
+    // deployment, and refusing it would refuse it for being quiet.
+    writeHeldStore(dir, 200, 100);
 
-      const banner = runStopped('--mock', '--port', '0', '--receipts-dir', dir);
-      const printed = banner.join('\n');
-      const line = banner.find((each) => each.startsWith('  receipts kept in '));
-      expect(line, `no receipts line; stdout held ${JSON.stringify(printed)}`).toContain(dir);
-      // The start-up report states the pair as configuration, not as a period kept: a store that opens
-      // has compared its two bounds against its own traffic and nothing more.
-      expect(line, printed).toContain('as configured');
-      expect(line, printed).toContain('a durability bound of 10000 receipts');
-    },
-    12_000,
-  );
+    const banner = await readBanner('--mock', '--port', '0', '--receipts-dir', dir);
+    const printed = banner.join('\n');
+    const line = banner.find((each) => each.startsWith('  receipts kept in '));
+    expect(line, `no receipts line; stdout held ${JSON.stringify(printed)}`).toContain(dir);
+    // The start-up report states the pair as configuration, not as a period kept: a store that opens
+    // has compared its two bounds against its own traffic and nothing more.
+    expect(line, printed).toContain('as configured');
+    expect(line, printed).toContain('a durability bound of 10000 receipts');
+  });
 
   it('refuses a bound that is not a count of receipts', () => {
     for (const flag of ['--receipts-keep', '--receipts-per-query']) {
@@ -949,13 +1172,12 @@ describe('a volume whose receipts have to outlive the start', () => {
 
 describe('the durability guard read while serving', () => {
 
-  const COMPLETION = '{"model":"mock-model-1","messages":[{"role":"user","content":"guard"}]}';
   /**
    * A signed GET. Every route this gateway serves is behind the pipeline, so the read that has to keep
    * serving while intake refuses is a read a credential asked for, not an anonymous fetch.
    */
   async function readStatus(
-    port: number,
+    served: ServedGateway,
     pop: { record: { id: string }; privateKey: Uint8Array },
     target: string,
   ): Promise<number> {
@@ -968,44 +1190,13 @@ describe('the durability guard read while serving', () => {
       bodyDigestHex: EMPTY_BODY_SHA256_HEX,
     };
     return await (
-      await fetch(`http://127.0.0.1:${String(port)}${target}`, {
+      await ask(served, target, {
         headers: {
           authorization: signPopAuthorization(fields, pop.record.id, pop.privateKey),
           'x-ashaveri-nonce': toBase64Url(nonce),
         },
       })
     ).status;
-  }
-
-  /** A signed completion against a booted process, with the two things a caller can branch on. */
-  async function complete(
-    port: number,
-    pop: { record: { id: string }; privateKey: Uint8Array },
-  ): Promise<{ status: number; code: string | undefined; receiptId: string | null; text: string }> {
-    const nonce = randomNonce();
-    const fields: PopFields = {
-      ts: Math.floor(Date.now() / 1000),
-      nonce,
-      method: 'POST',
-      target: '/v1/chat/completions',
-      bodyDigestHex: createHash('sha256').update(COMPLETION).digest('hex'),
-    };
-    const response = await fetch(`http://127.0.0.1:${String(port)}/v1/chat/completions`, {
-      method: 'POST',
-      headers: {
-        'content-type': 'application/json',
-        authorization: signPopAuthorization(fields, pop.record.id, pop.privateKey),
-        'x-ashaveri-nonce': toBase64Url(nonce),
-      },
-      body: COMPLETION,
-    });
-    const text = await response.text();
-    return {
-      status: response.status,
-      code: (JSON.parse(text) as { error?: { code?: string } }).error?.code,
-      receiptId: response.headers.get('x-ashaveri-receipt-id'),
-      text,
-    };
   }
 
   it('documents the threshold and the opt-in, each with what it is settled by', () => {
@@ -1025,32 +1216,41 @@ describe('the durability guard read while serving', () => {
     expect(help).toContain('stops this volume opening at the next restart');
   });
 
-  it('refuses a threshold that is not a whole percentage of the bound', () => {
-    for (const given of ['0', '101', '12.5', 'not-a-number']) {
-      const result = run('--mock', '--port', '0', '--receipts-guard-at', given);
-      expect(result.status, `${given}: ${result.stderr}`).toBe(2);
-      expect(result.stderr, given).toContain('--receipts-guard-at must be a whole percentage from 1 to 100');
-    }
-  });
+  // The four spellings a guard threshold refuses, named so the ceiling is read off their count rather
+  // than guessed at: each one is a command that has to exit, and the deadline each carries is the same.
+  const guardThresholdRefusals = ['0', '101', '12.5', 'not-a-number'];
+  it(
+    'refuses a threshold that is not a whole percentage of the bound',
+    () => {
+      for (const given of guardThresholdRefusals) {
+        const result = run('--mock', '--port', '0', '--receipts-guard-at', given);
+        expect(result.status, `${given}: ${result.stderr}`).toBe(2);
+        expect(result.stderr, given).toContain('--receipts-guard-at must be a whole percentage from 1 to 100');
+      }
+    },
+    spawnBudget(guardThresholdRefusals.length),
+  );
 
   it(
     'prints the guard as this process installed it, in both settings',
-    () => {
-      const printed = runStopped('--mock', '--port', '0').join('\n');
-      const armed = runStopped('--mock', '--port', '0').find((line) => line.startsWith('  receipt intake guard:'));
+    async () => {
+      const printed = (await readBanner('--mock', '--port', '0')).join('\n');
+      const armed = (await readBanner('--mock', '--port', '0')).find((line) =>
+        line.startsWith('  receipt intake guard:'),
+      );
       expect(armed, `no guard line; stdout held ${printed}`).toContain('armed at 100% of the durability bound');
       expect(armed, printed).toContain('RECEIPT_WINDOW_UNHOLDABLE');
       expect(armed, printed).toContain('184 days');
       expect(armed, printed).toContain('--receipts-grow-past-guard turns this off');
 
-      const half = runStopped('--mock', '--port', '0', '--receipts-guard-at', '50').find((line) =>
+      const half = (await readBanner('--mock', '--port', '0', '--receipts-guard-at', '50')).find((line) =>
         line.startsWith('  receipt intake guard:'),
       );
       expect(half, `a threshold the flag set is not on the banner; stdout held ${printed}`).toContain(
         'armed at 50% of the durability bound',
       );
 
-      const off = runStopped('--mock', '--port', '0', '--receipts-grow-past-guard').find((line) =>
+      const off = (await readBanner('--mock', '--port', '0', '--receipts-grow-past-guard')).find((line) =>
         line.startsWith('  receipt intake guard:'),
       );
       expect(off, `no guard line for the opt-in; stdout held ${printed}`).toContain('off, as configured with');
@@ -1059,10 +1259,9 @@ describe('the durability guard read while serving', () => {
       expect(off, printed).not.toContain('armed at');
       expect(off, printed).toContain('the window served is the shorter one that bound reaches');
     },
-    // Three boots, each stopped by the spawn timeout rather than by its own ending, so this case is
-    // three times a single boot: measured here at 16.1s for the three, which is past the runner's
-    // five-second default on one boot let alone three.
-    25_000,
+    // Four boots of an empty volume, one per posture the case reads: measured here at 1.9s together,
+    // about 470 ms a boot, so the ceiling is a second a boot and not a figure carried from elsewhere.
+    bootBudget(4),
   );
 
   /**
@@ -1106,7 +1305,7 @@ describe('the durability guard read while serving', () => {
       const volume = guardedVolume('guard-at-half-the-bound');
       const served = await bootServing(volume.args);
       try {
-        const refused = await complete(served.port, volume.pop);
+        const refused = await complete(served, volume.pop);
         expect(refused.status, refused.text).toBe(429);
         expect(refused.code).toBe('RECEIPT_WINDOW_UNHOLDABLE');
         expect(refused.receiptId, 'a refusal mints no id').toBeNull();
@@ -1114,7 +1313,7 @@ describe('the durability guard read while serving', () => {
         expect(refused.text).toContain('refusing from 10000 of them');
         expect(refused.text).not.toContain('retry-after');
         expect(
-          await readStatus(served.port, volume.pop, '/v1/deployment-manifest'),
+          await readStatus(served, volume.pop, '/v1/deployment-manifest'),
           'a read is served while intake refuses',
         ).toBe(200);
       } finally {
@@ -1137,11 +1336,11 @@ describe('the durability guard read while serving', () => {
       const volume = guardedVolume('opt-in-past-the-guard');
       const served = await bootServing([...volume.args, '--receipts-grow-past-guard']);
       try {
-        const answered = await complete(served.port, volume.pop);
+        const answered = await complete(served, volume.pop);
         expect(answered.status, answered.text).toBe(200);
         expect(answered.receiptId, 'the opt-in issues, and says so in a receipt id').not.toBeNull();
         expect(
-          await readStatus(served.port, volume.pop, '/v1/deployment-manifest'),
+          await readStatus(served, volume.pop, '/v1/deployment-manifest'),
           'and keeps serving everything the guarded run serves',
         ).toBe(200);
       } finally {
@@ -1150,5 +1349,185 @@ describe('the durability guard read while serving', () => {
     },
     // The same shape as the case above it, measured at 0.65s here.
     15_000,
+  );
+});
+
+/**
+ * Which kind of receipt record a store appends is a fact about the volume rather than about a request,
+ * and a run that cannot name it cannot choose it: `--receipts-record-kind` is the only road from a
+ * command line to the bounded layout, and these are the cases for the whole of it. The value's two
+ * spellings, the bytes a run that named one then appends, the answer a run gets when it points at a
+ * volume made of the other kind, and the line that says which of the three this process installed.
+ */
+describe('the record kind a volume is written under', () => {
+  /** Receipt bytes, opaque to the store, and 64 of them so a period in front is visible. */
+  const RECEIPT_BYTES = Buffer.alloc(64, 9);
+  /** The bounded kind's own spelling on a command line, and the period it states. */
+  const BOUNDED_VALUE = 'bounded=300';
+
+  it('documents the flag, both of its spellings and what it refuses to do', () => {
+    const result = run('--help');
+    expect(result.status).toBe(0);
+    expect(result.stdout).toContain('--receipts-record-kind <receipt | bounded=<seconds>>');
+    // Read with the folds closed, as the other usage claims in this file are.
+    const help = result.stdout.replace(/\s+/gu, ' ');
+    expect(help).toContain('A volume whose records were written under the other kind is refused');
+    expect(help).toContain('never converted');
+    // The period is written and not enforced, and the first text an operator reads has to say so rather
+    // than leave a number in a record reading like a bound the volume keeps.
+    expect(help).toContain('Nothing enforces the period yet');
+    expect(help).toContain('Default: receipt');
+  });
+
+  it(
+    'refuses a value that names neither record kind',
+    () => {
+      // `bounded` without its number, a number that is not one, and the kind that takes none given one:
+      // each is a spelling with no record to write, so the start stops rather than a default stepping in.
+      for (const given of ['bounded', 'bounded=', 'bounded=abc', 'bounded= 300', 'receipt=300', 'both']) {
+        const result = run('--mock', '--port', '0', '--receipts-record-kind', given);
+        expect(result.status, `${given}: ${result.stderr}`).toBe(2);
+        expect(result.stderr, given).toContain(
+          `--receipts-record-kind must be 'receipt' or 'bounded=<seconds>', got '${given}'`,
+        );
+        expect(result.stdout, given).not.toContain('listening on');
+      }
+    },
+    // Six spellings, each its own exit-path spawn: measured here at 1.9s together, about 310 ms a
+    // refusal, so the ceiling is a second a refusal, read off the count the loop walks.
+    spawnBudget(6),
+  );
+
+  it(
+    'appends the kind the flag names, and the kind it does not when the flag is absent',
+    async () => {
+      // The pair is the assertion: one run names the bounded kind and one names nothing, on volumes of
+      // their own, and the bytes each leaves behind differ by the kind byte and by the four period bytes
+      // in front of a receipt. A flag that reached only the banner would leave both files the same.
+      const bounded = join(tempDir, 'kind-bounded');
+      mkdirSync(bounded);
+      const boundedPop = newPopCredential({ id: 'kind-bounded-pop', scopes: ['read', 'complete'] });
+      const boundedCreds = credentialFile(
+        serializeCredentialFile({ version: 1, credentials: [boundedPop.record] }),
+      );
+      const boundedRun = await bootServing([
+        '--receipts-dir',
+        bounded,
+        '--credentials-path',
+        boundedCreds,
+        '--receipts-record-kind',
+        BOUNDED_VALUE,
+      ]);
+      let boundedReceipt: string | null = null;
+      try {
+        const answered = await complete(boundedRun, boundedPop);
+        expect(answered.status, answered.text).toBe(200);
+        boundedReceipt = answered.receiptId;
+      } finally {
+        await boundedRun.kill();
+      }
+      expect(boundedReceipt, 'the completion minted no id to file').not.toBeNull();
+
+      const plain = join(tempDir, 'kind-plain');
+      mkdirSync(plain);
+      const plainPop = newPopCredential({ id: 'kind-plain-pop', scopes: ['read', 'complete'] });
+      const plainCreds = credentialFile(serializeCredentialFile({ version: 1, credentials: [plainPop.record] }));
+      const plainRun = await bootServing(['--receipts-dir', plain, '--credentials-path', plainCreds]);
+      let plainReceipt: string | null = null;
+      try {
+        const answered = await complete(plainRun, plainPop);
+        expect(answered.status, answered.text).toBe(200);
+        plainReceipt = answered.receiptId;
+        expect(plainReceipt).not.toBeNull();
+      } finally {
+        await plainRun.kill();
+      }
+
+      // What each run left on its volume, read out of the framing: the kind byte, and behind it the
+      // bytes the record carries. The bounded record opens with the period it states; the unflagged run
+      // writes the layout every store file this repository has published is made of, receipt first.
+      const boundedRecord = firstRecordOf(readFileSync(join(bounded, RECEIPT_STORE_FILE)));
+      expect(boundedRecord.kind).toBe(2);
+      expect(boundedRecord.payload.readUInt32BE(0)).toBe(300);
+      const plainRecord = firstRecordOf(readFileSync(join(plain, RECEIPT_STORE_FILE)));
+      expect(plainRecord.kind).toBe(0);
+
+      // And the id the completion handed the client is the record behind that period, whole: the four
+      // bytes in front of it stay in front of it, which is the difference between a record the run wrote
+      // and a receipt the caller can no longer read.
+      const boundedStore = await openFileReceiptStore({ dir: bounded, receiptKind: { kind: 'bounded', boundSeconds: 300 } });
+      expect(Array.from((await boundedStore.get(boundedReceipt!))!)).toEqual(
+        Array.from(boundedRecord.payload.subarray(4)),
+      );
+      const plainStore = await openFileReceiptStore({ dir: plain });
+      expect(Array.from((await plainStore.get(plainReceipt!))!)).toEqual(Array.from(plainRecord.payload));
+    },
+    // Two boots over two volumes, each with a signed completion behind it and a reopening after it.
+    25_000,
+  );
+
+  it(
+    'refuses a bounded run pointed at a volume of records that state no period, with the store sentence',
+    async () => {
+      const dir = join(tempDir, 'volume-of-the-other-kind');
+      mkdirSync(dir);
+      const writer = await openFileReceiptStore({ dir });
+      await writer.put('rcpt_01', RECEIPT_BYTES, Math.floor(Date.now() / 1000));
+      const volume = readFileSync(join(dir, RECEIPT_STORE_FILE));
+
+      // The store's own answer when this volume is opened under the kind it is not made of. The case
+      // below compares a process refusal against it, because the flag adds a road to that refusal and
+      // not a sentence of its own: one message for one state, from either side.
+      const refusal = await openFileReceiptStore({
+        dir,
+        receiptKind: { kind: 'bounded', boundSeconds: 300 },
+      }).then(
+        () => null,
+        (error: unknown) => (error as Error).message,
+      );
+      expect(refusal).not.toBeNull();
+      expect(refusal).toContain('STORE_RECEIPT_KIND_MISMATCH');
+      expect(refusal).toContain('rcpt_01');
+
+      const result = run('--mock', '--port', '0', '--receipts-dir', dir, '--receipts-record-kind', BOUNDED_VALUE);
+      expect(result.status, result.stderr).toBe(1);
+      expect(result.stderr.trim(), result.stderr).toBe(`signerd: ${refusal}`);
+      expect(result.stdout, 'a process that refused to boot printed a banner').not.toContain('listening on');
+      // Nothing was converted, and nothing was rewritten: the records are the evidence the refusal is
+      // read from, and the volume still belongs to the kind that wrote it.
+      expect(readFileSync(join(dir, RECEIPT_STORE_FILE))).toEqual(volume);
+
+      // The other half of the pair, which the refusal above cannot say alone: the same volume boots on a
+      // run that names the kind it holds, and the flag is the only thing that moved.
+      const banner = await readBanner('--mock', '--port', '0', '--receipts-dir', dir, '--receipts-record-kind', 'receipt');
+      const printed = banner.join('\n');
+      const line = banner.find((each) => each.startsWith('  receipts kept in '));
+      expect(line, `no receipts line; stdout held ${printed}`).toContain(dir);
+      expect(line, printed).toContain('every record stating no retention period of its own');
+    },
+    // A boot that refuses, a boot that answers, and two openings of the volume between them: measured
+    // here at 0.7s, which the runner's default covers, so the case carries no ceiling of its own.
+  );
+
+  it(
+    'prints the kind this process was told to write, in both settings',
+    async () => {
+      // The receipts line is where a start-up report says what a volume is made of, and which kind that
+      // is cannot be read off a flag's presence alone: a bounded run states the period it stamps into
+      // every record, and a run that named nothing states that its records say nothing.
+      const bounded = await readBanner('--mock', '--port', '0', '--receipts-record-kind', BOUNDED_VALUE);
+      const boundedLine = bounded.find((each) => each.startsWith('  receipts kept in '));
+      expect(boundedLine, `no receipts line; stdout held ${bounded.join('\n')}`).toContain(
+        'every record stating a retention period of 300 seconds ahead of its receipt bytes, from --receipts-record-kind',
+      );
+
+      const plain = await readBanner('--mock', '--port', '0');
+      const plainLine = plain.find((each) => each.startsWith('  receipts kept in '));
+      expect(plainLine, `no receipts line; stdout held ${plain.join('\n')}`).toContain(
+        'every record stating no retention period of its own, the receipt kind a run without --receipts-record-kind writes',
+      );
+    },
+    // Two boots of a gateway that serves, one per kind: measured here at 0.8s together, which the
+    // runner's default covers, so the case carries no ceiling of its own.
   );
 });

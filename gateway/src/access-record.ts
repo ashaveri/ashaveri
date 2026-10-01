@@ -5,7 +5,11 @@
  * addresses and user agents have no field to be written into.
  */
 export interface AccessRecord {
-  /** Epoch milliseconds at the request's arrival. */
+  /**
+   * Epoch milliseconds at the request's arrival, read through the time source this process was given:
+   * a whole second scaled to milliseconds, so the cutoff that ages this line and the stamp it is aged
+   * against come off one clock. Section 7 of `docs/access-control.md` states that to a log reader.
+   */
   readonly t: number;
   /** Server-generated request id, the join key between a line and a support ticket. */
   readonly rid: string;

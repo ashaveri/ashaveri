@@ -5,8 +5,9 @@
 ; of our code establish that for themselves.
 ;
 ; `packages/receipt/src/pack.ts` writes these bytes as well as reading them, and its `signPack` will not sign a
-; manifest its own reader refuses. What decides which receipts a span holds is not here: the items, the two
-; endpoints and the duty block arrive from the deployment, which is the part that takes maintenance. That order
+; manifest its own reader refuses. What decides which receipts a span holds, and which pieces of the appraisal
+; context those receipts' anchors name, is not here: the items, the two endpoints, the duty block and the carried
+; material arrive from the deployment, which is the part that takes maintenance. That order
 ; is deliberate. A third party's verdict is read out of this container, so the container is public whether or
 ; not the tool that fills it is.
 ;
@@ -45,17 +46,20 @@ Ashaveri-Pack-Protected-Header = {
 ; state, which a retention artifact states and this container carries nothing of. A second copy of a
 ; number the deployment already publishes elsewhere is the thing that drifts.
 ;
-; Two of the six pass in a way the sentence does not fit, and it is worth saying which so that a reader
-; looking for one shape finds what is actually there. `items` is the body the other five make statements
-; about, so the test says little of it. `v` is the one member no walk consumes: a version states which
+; Two of the seven pass in a way the sentence does not fit, and it is worth saying which so that a reader
+; looking for one shape finds what is actually there. `items` is the body the other six make statements about,
+; so the test says little of it. `v` is the one member no walk consumes: a version states which
 ; rules the bytes are read under, so a reader needs it before it can read a member of anything, and
 ; needing it ahead of the walk is as strong a claim on the manifest as needing it during one.
 ;
-; `v: 1` is one version, and a version here says what the fields attest rather than which software
-; wrote them, as it does in `receipt.cddl`. A second version arrives the day a reader would draw a
-; different conclusion from the same bytes: an added member a verifier may ignore is that day, and an
-; added member a verifier must not miss is that day too, because silence must not read as compliance.
-; Nothing about the duty mapping, the framing or the envelope is expected to change without one.
+; `v: 1` is the only version this file states, and a version here says what the fields attest rather than
+; which software wrote them, as it does in `receipt.cddl`. The manifest names seven members and `carried` is
+; among them: a pack that carries nothing of what its receipts' anchors name leaves every `held` slot weighable
+; only against an endpoint the reader has to reach somewhere else, which is a different document from the one
+; the auditor holds, so the member is required and an empty list is a statement rather than an omission. An
+; earlier shape of this container named six and not the seventh; it was never delivered outside this estate and
+; no bytes carrying it exist to be read, so it is not a version this file has to refuse and the number starts at
+; one. Nothing about the duty mapping, the framing or the envelope is expected to change without one.
 Ashaveri-Pack-Manifest = {
     v: 1,                     ; format version
     at: int,                  ; unix seconds, the instant assembly began
@@ -63,6 +67,7 @@ Ashaveri-Pack-Manifest = {
     chain: PackChain,
     duty: PackDuty,
     items: [+ PackItem],      ; at least one; the reason is below
+    carried: [* PackCarried], ; the material the slots inside the sealed receipts name, which may be nothing
 }
 
 ; Stamped before the reads rather than after them, because a slow store must not be able to date a
@@ -146,6 +151,50 @@ PackDuty = {
     held: int,                ; seconds the store has held the oldest receipt it retains, at `at`
 }
 
+; One piece of the appraisal context that a receipt inside this container names and a reader cannot otherwise
+; reach: vendor-signed collateral, a validity window's material, revocation data. The entry states its bytes and
+; the sha256 of exactly those bytes, and the reader recomputes the digest and refuses a disagreement. The entry
+; states, the reader recomputes, and a statement that disagrees with the bytes beside it is a refusal rather
+; than a second opinion, which is how `held` is weighed against the items and how an inventory's summaries are
+; weighed against the files it names.
+;
+; Resolution is by content hash and by nothing else. The pack does not name which object answers which receipt,
+; because the digest a slot states is the only name a reader needs: it hashes each entry, matches that against
+; the `cva.col.d` or `cva.val.d` inside the receipts this pack already seals, and either resolves the slot or
+; reports that the pack attests a digest it does not carry. Deduplication is inside the pack, so one object
+; appears once however many sealed receipts name it, and a digest carried twice is a refusal rather than a list
+; that happens to be shorter than it looks. A map keyed by anything the issuer chose would be a second name for
+; one thing, and a second name is the thing that drifts.
+;
+; The list may be empty. Every sealed receipt states an anchor with both of its halves, so the pack that carries
+; no material is the one whose every slot states an absence; the member is still there and still says so, because
+; an absent member and an empty list are two different claims and a closed map that let the first pass would make
+; the reader guess which one it was holding.
+;
+; Two ceilings, each taken from a number this container already states rather than one this block invented. An
+; entry's bytes are capped at 65535, which is the largest byte count a pack already bounds: `PackItem.id` is
+; capped there because the framing spends two bytes writing its length, so this is the one figure the format
+; states for a run of bytes and inheriting it is the only way the ceiling stays the format's rather than the
+; issuer's. The number of entries is capped at two per item, which is the count of slots the receipts this pack
+; seals can name, `cva.col` and `cva.val`; a longer list cannot be all answers, and an entry named by nothing
+; is already a refusal, so the bound the pack's own contents state is the bound a reader can check without a
+; second source. Both are computable from members a reader has already read, which is the point: a container
+; whose size is bounded only by its issuer's patience is not an evidence document, it is a storage and parse
+; surface that somebody signed.
+;
+; What a reader refuses here, in the order it is reached, and each refusal names its position. A stated digest
+; that disagrees with its bytes. The same digest carried twice. An entry no slot of any sealed receipt names. A
+; list longer than the two slots per item allows, or an entry longer than the byte ceiling. And a slot of a
+; sealed receipt that states `held` while the pack carries no entry hashing to the digest it names: that is the
+; pack attesting material it does not have, which is the failure this member exists to make impossible, and it
+; is the pack's own failure and never an absence in the world. A receipt that does not decode at all is not this
+; refusal: the container reads the originals under their own signatures, and an anchor nobody authenticated
+; states nothing the pack has to answer for.
+PackCarried = {
+    bytes: bstr .size (1..65535), ; the material exactly as it arrived, and the whole of it
+    sha256: bstr .size 32,        ; sha256 of those bytes, which the reader recomputes and refuses
+}
+
 ; One receipt, with the three values its record was hashed with and nothing else. These four are the
 ; whole of what it takes to rebuild the frame: `kind` is 0 for every item, because a trim record
 ; carries no receipt and is never an item; `idLen` and `len` are counts of the bytes that follow them;
@@ -209,7 +258,7 @@ PackItem = {
 ; states it and why this file may. No block above carries a `...`, and the absence means there what it
 ; means there: a member the version named by `v` does not define makes the document invalid rather
 ; than a document read with the unexpected member dropped. That reaches the manifest, the span, the
-; chain, the duty, the item and the signed header alike. The header closes under the stronger of the
+; chain, the duty, the item, the carried entry and the signed header alike. The header closes under the stronger of the
 ; two reasons. Its bytes are hashed into the `Sig_structure`, so a label that block does not name is
 ; an authenticated parameter, and a reader that took its three labels out of a header carrying a fourth
 ; would hand on a document other than the one the issuer signed. Its members are also the COSE

@@ -4,22 +4,23 @@ import { fileURLToPath } from 'node:url';
 import { Ajv2020, type ValidateFunction } from 'ajv/dist/2020.js';
 
 /**
- * Holds the published retention manifest layout to itself.
+ * Holds the published version one retention manifest layout to itself.
  *
- * The layout is public and the program that writes it is not, so nothing here can be derived from a
- * writer in this repository: what this file can do is refuse a silent widening. Every member the
- * artifact names, whether each is required, and how each nested block closes are asserted as written
- * lists rather than read back out of the schema and compared with itself, because a test that derives
- * both sides passes whatever the schema says and notices nothing.
+ * The layout is public and the generator that fills it is not, so the member lists below are asserted as written
+ * lists rather than read back out of a schema and compared with itself, because a test that derives both sides
+ * passes whatever the schema says and notices nothing. Version two of the same artifact, the reader and writer
+ * that read and write both layouts, and the pair of lists held against each other are
+ * `retention-presence.test.ts`; this file holds the layout that exists today and the two sentences its own
+ * description now owes a reader: that the generator is outside this repository, and that a second layout differs
+ * from this one by one member rather than by an optional one.
  *
- * Two claims are executable rather than merely structural, and they are the two that matter to a
- * reader. The document compiles as a schema, so the published layout is a statement a verifier can
- * run rather than prose with braces in it. And the line the layout draws between a shape and a legal
- * reading is enforced in the permissive direction: a stated period has to be a period, while no
- * article's value is bounded, because Article 19(1) yields to other Union or national law and a
- * refusal here would overrule a reading this estate does not own. The conditional floor that once sat
- * on the duty block is therefore asserted absent, which is a claim a test can hold rather than a
- * sentence a reader has to trust.
+ * Two claims are executable rather than merely structural, and they are the two that matter to a reader. The
+ * document compiles as a schema, so the published layout is a statement a verifier can run rather than prose with
+ * braces in it. And the line the layout draws between a shape and a legal reading is enforced in the permissive
+ * direction: a stated period has to be a period, while no article's value is bounded, because Article 19(1)
+ * yields to other Union or national law and a refusal here would overrule a reading this estate does not own. The
+ * conditional floor that once sat on the duty block is therefore asserted absent, which is a claim a test can
+ * hold rather than a sentence a reader has to trust.
  */
 
 const schemaPath = fileURLToPath(new URL('../schemas/retention-v1.schema.json', import.meta.url));
@@ -197,8 +198,11 @@ describe('retention-v1.schema.json published layout', () => {
     expect(prop('duty', 'met').type, 'the comparison is a stated value a reader recomputes').toBe('boolean');
     expect(descriptionOf('duty')).not.toContain('compliance');
     expect(descriptionOf('root'), 'the artifact says it is not signed').toContain('this document is not signed');
-    expect(descriptionOf('root'), 'and that nothing here writes it').toContain(
-      'Nothing in this repository writes or reads this document today',
+    expect(descriptionOf('root'), 'and that the generator lives outside this repository').toContain(
+      'the generator that fills these fields is not part of this repository',
+    );
+    expect(descriptionOf('root'), 'and that a second layout exists and adds one member').toContain(
+      'it differs from this one by one member, `presence`',
     );
   });
 

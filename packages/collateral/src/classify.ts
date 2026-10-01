@@ -2,8 +2,10 @@ import { CollateralError, collateralRefusal, quoteOrDigest, type CollateralRefus
 import { fetchFromOrigin, wallClock } from './fetch.js';
 import { collateralCacheKey, declarationFor, requestUrl, type OriginDeclaration } from './intel-origin.js';
 import { readSignedCollateral, type ReadCollateral } from './read.js';
+import { readServedCollateral } from './served.js';
 import { sha256Hex } from './bytes.js';
 import type {
+  CarriedCollateral,
   CollateralAppraisalOptions,
   CollateralClaim,
   CollateralOutcome,
@@ -32,6 +34,48 @@ export async function appraiseCollateral(
   return outcome;
 }
 
+/**
+ * Material that arrived inside a sealed container rather than from an origin, weighed by the same rules.
+ *
+ * This is the one honest way to appraise bytes the caller did not fetch. The retained path already reads bytes it
+ * is handed, and it refuses any set it cannot stamp, because the instant an answer was observed is the only thing
+ * that separates a retained answer from a fresh one. A container states no such instant: nothing inside one
+ * watched an origin answer, so no observation is recorded anywhere in it. The number a caller hands here is
+ * therefore the instant the record holding the material states it held it, which for a sealed receipt is its own
+ * `iat`, and the receipt states beside that stamp which source it reads and how far that source admits to being
+ * from the instants it names. What the stamp is worth is the receipt's disclosure rather than a claim of this
+ * path, and the alternative, minting an instant nobody recorded, is what the retained path already refuses.
+ *
+ * What this path appraises is material of the envelope the declaration names, and Intel answers its documents in
+ * another one: a JSON body whose issuer chain arrives in a response header, cited at each declaration in
+ * `intel-origin.ts`. That pair is weighed, when both halves are in hand, by `readServedCollateral`. A container
+ * holds the body and no header, so bytes taken in as that address actually answers them are refused here at the
+ * envelope rather than weighed, and no stamp changes that: the half that carries the path to a root is the one a
+ * container has nowhere to keep. The honesty of this path is about where an instant comes from; which arm reads
+ * the bytes is the envelope's question, answered by the declaration and by whether the chain arrived beside the
+ * body it signs.
+ *
+ * The consequence is narrow and it is the design working rather than a gap. The instant feeds one sentence, the
+ * one a stale answer carries about when the bytes were seen, and it moves no comparison of its own: the window
+ * the vendor signed is read against `appraisalAt`, which stays the caller's own statement of the moment being
+ * asked about. So a carried answer never reaches `current-knowledge`, which is the reach that requires this run
+ * to have asked the origin, and `claim.observedAt` stays `null`, because this run saw no origin. Those are one
+ * fact from two ends: no document sealed in a container becomes an observation by being read. What the window
+ * check settled is left where a reader can weigh it, in `collateral.classification.window` beside
+ * `claim.appraisalAt`, and a reader asking whether the context stood at the record's own instant hands that
+ * instant as both numbers and reads the pair back.
+ */
+export async function appraiseCarriedCollateral(
+  query: Omit<CollateralQuery, 'retained'>,
+  carried: CarriedCollateral,
+  options: CollateralAppraisalOptions = {},
+): Promise<CollateralOutcome> {
+  // The container's material is the only material this appraises, which is why the query type omits the field and
+  // why it is written here rather than merged: a caller holding both a fetch and a container has to say which one
+  // this answer is about, and the answer it gets is the one it handed in the `carried` argument.
+  return appraiseCollateral({ ...query, retained: { bytes: carried.bytes, observedAt: carried.heldAt } }, options);
+}
+
 async function appraise(
   query: CollateralQuery,
   options: CollateralAppraisalOptions,
@@ -57,7 +101,7 @@ async function appraise(
   if (typeof url !== 'string') {
     return missingContext(url.refusal);
   }
-  let observed: { readonly bytes: Uint8Array; readonly observedAt: number } | { readonly refusal: CollateralRefusal };
+  let observed: { readonly bytes: Uint8Array; readonly chain: Uint8Array | null; readonly observedAt: number } | { readonly refusal: CollateralRefusal };
   if (query.retained === null) {
     const asked = await fetchFromOrigin(url, declaration, { transport: options.transport, clock: options.clock ?? wallClock });
     if ('refusal' in asked) {
@@ -70,9 +114,20 @@ async function appraise(
         collateralRefusal('COLLATERAL_INPUT_MISSING', 'the retained bytes carry no stamp for when they were seen', ['retained.observedAt']),
       );
     }
-    observed = { bytes: query.retained.bytes, observedAt: query.retained.observedAt };
+    // A header is not a member of a body, so bytes kept from an earlier run, or sealed inside a container,
+    // reach this reading with no chain beside them. The absence is carried rather than invented.
+    observed = { bytes: query.retained.bytes, chain: null, observedAt: query.retained.observedAt };
   }
-  const read = readSignedCollateral(observed.bytes, { query, declaration, appraisalAt });
+  const reading = { query, declaration, appraisalAt };
+  // Which arm weighs the answer is a fact of the declaration and of the answer, never a guess from the bytes.
+  // A declaration that states a served envelope is weighed from the pair, body and chain together, because that
+  // is the shape its origin answers in; a body that arrived without its header is a body alone, and the arm
+  // that reads a body alone is the one whose certificates sit inside it. Retained and carried bytes always
+  // arrive alone, since a header is no member of a body, so they reach that arm whichever envelope the origin
+  // answers in, and a served shape handed to it is refused at the envelope rather than weighed.
+  const read = declaration.signature.served !== null && observed.chain !== null
+    ? readServedCollateral(observed.bytes, observed.chain, reading)
+    : readSignedCollateral(observed.bytes, reading);
   if ('refusal' in read) {
     return unavailable(read.refusal);
   }

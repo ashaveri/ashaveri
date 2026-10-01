@@ -70,7 +70,7 @@ describe('authorizedFetch, proof of possession', () => {
     // The digest is of the bytes, so every form that carries these same bytes signs the same way.
     for (const body of [text, encoded, encoded.buffer as ArrayBuffer]) {
       const { inner, call } = transport();
-      const fetchImpl = authorizedFetch(CREDENTIAL, inner, { now: () => NOW_MS });
+      const fetchImpl = authorizedFetch(CREDENTIAL, inner, { nowMillis: () => NOW_MS });
       await fetchImpl(`${BASE}/chat/completions`, { method: 'POST', body });
       const presented = call();
       const authorization = header(presented, 'authorization');
@@ -95,7 +95,7 @@ describe('authorizedFetch, proof of possession', () => {
 
   it('keeps the nonce the caller already set, so the receipt still echoes the signed value', async () => {
     const { inner, call } = transport();
-    const fetchImpl = authorizedFetch(CREDENTIAL, inner, { now: () => NOW_MS });
+    const fetchImpl = authorizedFetch(CREDENTIAL, inner, { nowMillis: () => NOW_MS });
     const nonce = new Uint8Array(POP_NONCE_BYTES).fill(0x5a);
     await fetchImpl(`${BASE}/chat/completions`, {
       method: 'POST',
@@ -117,7 +117,7 @@ describe('authorizedFetch, proof of possession', () => {
 
   it('signs a bodyless GET against the empty-body digest, query included', async () => {
     const { inner, call } = transport();
-    const fetchImpl = authorizedFetch(CREDENTIAL, inner, { now: () => NOW_MS });
+    const fetchImpl = authorizedFetch(CREDENTIAL, inner, { nowMillis: () => NOW_MS });
     await fetchImpl(`${BASE}/attestation?report_data=${'ab'.repeat(32)}`);
     const presented = call();
     const parsed = parsePopAuthorization(header(presented, 'authorization') as string);
@@ -133,7 +133,7 @@ describe('authorizedFetch, proof of possession', () => {
 
   it('generates a fresh nonce per request when the caller set none', async () => {
     const { inner, seen } = transport();
-    const fetchImpl = authorizedFetch(CREDENTIAL, inner, { now: () => NOW_MS });
+    const fetchImpl = authorizedFetch(CREDENTIAL, inner, { nowMillis: () => NOW_MS });
     await fetchImpl(`${BASE}/deployment-manifest`);
     await fetchImpl(`${BASE}/deployment-manifest`);
     const nonces = seen.map((entry) => new Headers(entry.init.headers).get('x-ashaveri-nonce'));
@@ -142,14 +142,14 @@ describe('authorizedFetch, proof of possession', () => {
 
   it('leaves a caller-set Authorization header alone', async () => {
     const { inner, call } = transport();
-    const fetchImpl = authorizedFetch(CREDENTIAL, inner, { now: () => NOW_MS });
+    const fetchImpl = authorizedFetch(CREDENTIAL, inner, { nowMillis: () => NOW_MS });
     await fetchImpl(`${BASE}/deployment-manifest`, { headers: { authorization: 'Bearer theirs' } });
     expect(header(call(), 'authorization')).toBe('Bearer theirs');
   });
 
   it('refuses a body form it cannot hash instead of signing the wrong bytes', async () => {
     const { inner } = transport();
-    const fetchImpl = authorizedFetch(CREDENTIAL, inner, { now: () => NOW_MS });
+    const fetchImpl = authorizedFetch(CREDENTIAL, inner, { nowMillis: () => NOW_MS });
     await expect(
       fetchImpl(`${BASE}/chat/completions`, { method: 'POST', body: new ReadableStream<Uint8Array>() }),
     ).rejects.toMatchObject({ code: 'AUTH_CONFIG' });
@@ -158,7 +158,7 @@ describe('authorizedFetch, proof of possession', () => {
   it('signs with the nonce the options supply, so a fixed vector is reproducible', async () => {
     const { inner, call } = transport();
     const nonce = new Uint8Array(POP_NONCE_BYTES).fill(0x33);
-    const fetchImpl = authorizedFetch(CREDENTIAL, inner, { now: () => NOW_MS, nonce: () => nonce });
+    const fetchImpl = authorizedFetch(CREDENTIAL, inner, { nowMillis: () => NOW_MS, nonce: () => nonce });
     await fetchImpl(`${BASE}/deployment-manifest`);
     const presented = call();
     expect(nonceOf(presented)).toEqual(nonce);
@@ -174,7 +174,7 @@ describe('authorizedFetch, proof of possession', () => {
 
   it('refuses a caller-set nonce of the wrong width', async () => {
     const { inner } = transport();
-    const fetchImpl = authorizedFetch(CREDENTIAL, inner, { now: () => NOW_MS });
+    const fetchImpl = authorizedFetch(CREDENTIAL, inner, { nowMillis: () => NOW_MS });
     const short = Buffer.from(new Uint8Array(POP_NONCE_BYTES - 1)).toString('base64url');
     await expect(
       fetchImpl(`${BASE}/chat/completions`, { method: 'POST', body: '{}', headers: { 'x-ashaveri-nonce': short } }),
@@ -183,7 +183,7 @@ describe('authorizedFetch, proof of possession', () => {
 
   it('refuses a caller-set nonce that is not base64url as a configuration error', async () => {
     const { inner } = transport();
-    const fetchImpl = authorizedFetch(CREDENTIAL, inner, { now: () => NOW_MS });
+    const fetchImpl = authorizedFetch(CREDENTIAL, inner, { nowMillis: () => NOW_MS });
     await expect(
       fetchImpl(`${BASE}/chat/completions`, { method: 'POST', body: '{}', headers: { 'x-ashaveri-nonce': 'not base64url!' } }),
     ).rejects.toMatchObject({ code: 'AUTH_CONFIG' });
@@ -191,7 +191,7 @@ describe('authorizedFetch, proof of possession', () => {
 
   it('signs the method a Request input carries, not the GET an empty init would give', async () => {
     const { inner, call } = transport();
-    const fetchImpl = authorizedFetch(CREDENTIAL, inner, { now: () => NOW_MS });
+    const fetchImpl = authorizedFetch(CREDENTIAL, inner, { nowMillis: () => NOW_MS });
     await fetchImpl(new Request(`${BASE}/chat/completions`, { method: 'POST' }));
     const presented = call();
     expect(presented.init.method).toBe('POST');
@@ -207,7 +207,7 @@ describe('authorizedFetch, proof of possession', () => {
 
   it('keeps the headers a Request input carries, and its caller-set authorization still wins', async () => {
     const { inner, call } = transport();
-    const fetchImpl = authorizedFetch(CREDENTIAL, inner, { now: () => NOW_MS });
+    const fetchImpl = authorizedFetch(CREDENTIAL, inner, { nowMillis: () => NOW_MS });
     await fetchImpl(new Request(`${BASE}/deployment-manifest`, { headers: { 'x-keep-me': 'kept', 'content-type': 'application/json' } }));
     expect(header(call(), 'x-keep-me')).toBe('kept');
     expect(header(call(), 'content-type')).toBe('application/json');
@@ -220,7 +220,7 @@ describe('authorizedFetch, proof of possession', () => {
 
   it('refuses a Request input whose body is a stream it cannot hash', async () => {
     const { inner } = transport();
-    const fetchImpl = authorizedFetch(CREDENTIAL, inner, { now: () => NOW_MS });
+    const fetchImpl = authorizedFetch(CREDENTIAL, inner, { nowMillis: () => NOW_MS });
     await expect(fetchImpl(new Request(`${BASE}/chat/completions`, { method: 'POST', body: '{}' }))).rejects.toMatchObject({
       code: 'AUTH_CONFIG',
     });

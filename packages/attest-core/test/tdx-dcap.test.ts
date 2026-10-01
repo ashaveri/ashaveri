@@ -78,7 +78,8 @@ describe('TDX QE report certification data', () => {
 
 describe('TDX DCAP verification', () => {
   const trustedRoots = [fixture('intel-sgx-root-ca.pem')];
-  // Any moment inside this quote's PCK chain validity windows.
+  // Any moment inside this quote's PCK chain validity windows. NOW is milliseconds since the epoch:
+  // `Date.UTC` returns milliseconds, and the DCAP chain verifier reads its clock in milliseconds.
   const NOW = Date.UTC(2026, 0, 15);
 
   function flip(bytes: Uint8Array, offset: number): Uint8Array {
@@ -87,12 +88,12 @@ describe('TDX DCAP verification', () => {
     return copy;
   }
 
-  function verify(bytes: Uint8Array, now: number = NOW): unknown {
-    return verifyTdxQuote(bytes, { trustedRoots, now });
+  function verify(bytes: Uint8Array, nowMillis: number = NOW): unknown {
+    return verifyTdxQuote(bytes, { trustedRoots, nowMillis });
   }
 
   it('accepts an Intel-signed quote anchored at the pinned Intel root CA', () => {
-    const result = verifyTdxQuote(quote, { trustedRoots, now: NOW });
+    const result = verifyTdxQuote(quote, { trustedRoots, nowMillis: NOW });
     expect(result.attestationKey).toEqual(quote.slice(700, 764));
     expect(result.pckChain.map((cert) => cert.isCa)).toEqual([false, true, true]);
     expect(result.trustedRoot).toBe(result.pckChain[2]);
@@ -119,7 +120,7 @@ describe('TDX DCAP verification', () => {
 
   it('rejects a chain that does not lead to a pinned root', () => {
     expectErrorCode(
-      () => verifyTdxQuote(quote, { trustedRoots: [fixture('amd-ark-milan.pem')], now: NOW }),
+      () => verifyTdxQuote(quote, { trustedRoots: [fixture('amd-ark-milan.pem')], nowMillis: NOW }),
       'MISSING_TRUST_ROOT',
     );
   });
@@ -142,7 +143,7 @@ describe('TDX end to end with a real Intel quote', () => {
     reportData: parsed.reportData,
     config: 'tdx-dcap-e2e',
   });
-  const options = { trustedIntelRoots: [fixture('intel-sgx-root-ca.pem')], now: Date.UTC(2026, 0, 15) };
+  const options = { trustedIntelRoots: [fixture('intel-sgx-root-ca.pem')], nowMillis: Date.UTC(2026, 0, 15) };
 
   it('reports the quote signature verified through the envelope path', () => {
     const result = verifyAttestation(envelope, options);

@@ -1,3 +1,4 @@
+import { tmpdir } from 'node:os';
 import { describe, expect, it } from 'vitest';
 import {
   ReceiptError,
@@ -9,7 +10,15 @@ import {
 } from '@ashaveri/receipt';
 import { sha256 } from '@noble/hashes/sha2.js';
 import { assessCapture } from '../src/capture.js';
-import { SdkError, type AshaveriPolicy } from '../src/index.js';
+import {
+  DEFAULT_MAX_EVIDENCE_AGE_SECONDS,
+  DEFAULT_MAX_RECEIPT_AGE_SECONDS,
+  loadPolicyFromText,
+  policyFileFromPolicy,
+  policyFileToJson,
+  SdkError,
+  type AshaveriPolicy,
+} from '../src/index.js';
 import { equalBytes } from '@ashaveri/receipt';
 
 /**
@@ -28,7 +37,7 @@ const TEXT = (value: string): Uint8Array => new TextEncoder().encode(value);
 const ROOT = TEXT('a pinned vendor root');
 const ROOT_DIGEST = toHex(sha256(ROOT));
 
-function payload(version: 1 | 2, at: number): ReceiptPayload {
+function payload(at: number): ReceiptPayload {
   const shared = {
     iss: 'ashaveri-test',
     ins: 'cvm-test-1',
@@ -43,11 +52,21 @@ function payload(version: 1 | 2, at: number): ReceiptPayload {
     epk: 1,
     tok: { p: 11, c: 22 },
   };
-  return version === 2 ? { v: 2, ...shared, mk: { sch: 'none' as const, d: sha256(TEXT('')) } } : { v: 1, ...shared };
+  return {
+    v: 1,
+    ...shared,
+    mk: { sch: 'none' as const, d: sha256(TEXT('')) },
+    sd: { name: 'host clock', uncertaintySeconds: null },
+    cva: {
+      collateral: { presence: 'not-taken-in', reason: 'the collector did not read the chain route' },
+      validity: { presence: 'not-taken-in', reason: 'the collector read no window' },
+    },
+    itm: [{ t: at, d: sha256(TEXT('the full response bytes')) }],
+  };
 }
 
-const receiptV1 = issueReceipt(payload(1, NOW - 20), KEY);
-const receiptV2 = issueReceipt(payload(2, NOW - 20), KEY);
+const receiptV1 = issueReceipt(payload(NOW - 20), KEY);
+const secondReceipt = issueReceipt(payload(NOW - 19), KEY);
 
 const held = (bytes: Uint8Array): Record<string, unknown> => ({
   presence: 'held',
@@ -62,7 +81,7 @@ const NOT_TAKEN_IN = { presence: 'not-taken-in', reason: 'the collector did not 
 function record(
   original: Uint8Array,
   over: Record<string, unknown> = {},
-  block: { readonly receiptFormatVersion?: 1 | 2; readonly context?: unknown; readonly originalBlock?: Record<string, unknown> } = {},
+  block: { readonly receiptFormatVersion?: number; readonly context?: unknown; readonly originalBlock?: Record<string, unknown> } = {},
 ): Record<string, unknown> {
   return {
     v: 1,
@@ -99,7 +118,7 @@ const PINNED: AshaveriPolicy = {
   issuers: ['ashaveri-test'],
   trustAnchors: { amdArks: [ROOT] },
 };
-const AT_NOW = { now: NOW * 1000 };
+const AT_NOW = { nowMillis: NOW * 1000 };
 
 function statusOf(original: Uint8Array, params: { policy?: AshaveriPolicy } = {}): string {
   return assessCapture({ record: record(original), policy: params.policy, ...AT_NOW }).status;
@@ -226,20 +245,24 @@ describe('missing context is never upgraded into a pass', () => {
   it('refuses a record whose stated digest does not describe its own bytes', () => {
     const whole = record(receiptV1);
     const original = { ...(whole['original'] as Record<string, unknown>) };
-    original['bytes'] = toBase64Url(receiptV2);
+    original['bytes'] = toBase64Url(secondReceipt);
     expect(codes(() => assessCapture({ record: { ...whole, original }, policy: PINNED, ...AT_NOW }))).toBe(
       'EVIDENCE_DIGEST_MISMATCH',
     );
   });
 
-  it('refuses a record that names a receipt version the bytes are not', () => {
-    // The bytes are v2 and the record says it was checked against v1. The reader reads at the version the
-    // record names, so the document the record cannot describe is refused rather than quietly re-read.
+  it('refuses a record that names a receipt version this build has no reader for', () => {
+    // One version is read, so a record naming any other number describes a document no reader of these
+    // bytes can open. The reader answers the number the record named rather than re-reading the bytes at
+    // a version the format does not declare, and the refusal says which number it would not take.
+    for (const named of [0, 2, 3] as const) {
+      expect(
+        codes(() => assessCapture({ record: record(receiptV1, {}, { receiptFormatVersion: named }), policy: PINNED, ...AT_NOW })),
+        `a record naming ${named}`,
+      ).toBe('UNSUPPORTED_VERSION');
+    }
     expect(
-      codes(() => assessCapture({ record: record(receiptV2), policy: PINNED, ...AT_NOW })),
-    ).toBe('UNSUPPORTED_VERSION');
-    expect(
-      assessCapture({ record: record(receiptV2, {}, { receiptFormatVersion: 2 }), policy: PINNED, ...AT_NOW }).status,
+      assessCapture({ record: record(receiptV1, {}, { receiptFormatVersion: 1 }), policy: PINNED, ...AT_NOW }).status,
     ).toBe('repeated');
   });
 });
@@ -247,7 +270,7 @@ describe('missing context is never upgraded into a pass', () => {
 describe('the limits and the clock a verdict was reached under', () => {
   it('runs its own windows, and says when they differ from the record', () => {
     const stale = codes(() =>
-      assessCapture({ record: record(receiptV1), policy: PINNED, now: (NOW + 10_000) * 1000 }),
+      assessCapture({ record: record(receiptV1), policy: PINNED, nowMillis: (NOW + 10_000) * 1000 }),
     );
     expect(stale).toBe('STALE_RECEIPT');
     const archive: AshaveriPolicy = {
@@ -255,10 +278,66 @@ describe('the limits and the clock a verdict was reached under', () => {
       maxReceiptAgeSeconds: Number.POSITIVE_INFINITY,
       maxEvidenceAgeSeconds: Number.POSITIVE_INFINITY,
     };
-    const verdict = assessCapture({ record: record(receiptV1), policy: archive, now: (NOW + 10_000) * 1000 });
+    const verdict = assessCapture({ record: record(receiptV1), policy: archive, nowMillis: (NOW + 10_000) * 1000 });
     expect(verdict.status).toBe('qualified');
     expect(verdict.qualifications.join(' ')).toContain('never closes');
     expect(verdict.repeated.signatureVerifiedWithOwnPins).toBe(true);
+  });
+
+  it('applies the shipped windows to a reader whose document named neither of them', async () => {
+    // A published document spells a window the policy never named as `null`, and the schema says that
+    // names no window of the document's own. What a reader then runs is the shipped default beside each
+    // number the record states, which is the sentence these two qualifications carry.
+    const written = policyFileToJson(policyFileFromPolicy({ keys: PINNED.keys, issuers: PINNED.issuers }));
+    expect(written).toContain('"maxReceiptAgeSeconds": null');
+    expect(written).toContain('"maxEvidenceAgeSeconds": null');
+    const loaded = await loadPolicyFromText(written, tmpdir());
+    expect(loaded.policy.maxReceiptAgeSeconds, 'a window written as null loads as no number named').toBeUndefined();
+    expect(loaded.policy.maxEvidenceAgeSeconds).toBeUndefined();
+    const verdict = assessCapture({
+      record: record(receiptV1, {
+        trust: {
+          roots: [{ family: 'amdArks', digest: ROOT_DIGEST }],
+          limits: { maxReceiptAgeSeconds: 3_600, maxEvidenceAgeSeconds: 3_600 },
+        },
+      }),
+      policy: loaded.policy,
+      anchors: { amdArks: [ROOT] },
+      ...AT_NOW,
+    });
+    const said = verdict.qualifications.join(' ');
+    expect(said, 'the reader runs the receipt default, not no window').toContain(
+      `this reader applied ${DEFAULT_MAX_RECEIPT_AGE_SECONDS}s`,
+    );
+    expect(said, 'and the evidence default beside it').toContain(
+      `this reader applied ${DEFAULT_MAX_EVIDENCE_AGE_SECONDS}s`,
+    );
+  });
+
+  it('says a record that names neither window named none, and not that its clock stayed open', () => {
+    // The words this case pins are the whole point: a null in `trust.limits` is the record stating no
+    // window of its own, which is one spelling short of a claim that the check ran with the clock
+    // switched off. What the record left unnamed, this reader cannot recover, so the qualification says
+    // what the record states and what this reader ran, and asserts no disagreement between them.
+    const verdict = assessCapture({
+      record: record(receiptV1, {
+        trust: {
+          roots: [{ family: 'amdArks', digest: ROOT_DIGEST }],
+          limits: { maxReceiptAgeSeconds: null, maxEvidenceAgeSeconds: null },
+        },
+      }),
+      policy: PINNED,
+      anchors: { amdArks: [ROOT] },
+      ...AT_NOW,
+    });
+    const said = verdict.qualifications.join(' ');
+    expect(said).toContain(
+      `the record states no window of its own for the receipt window while this reader applied ${DEFAULT_MAX_RECEIPT_AGE_SECONDS}s`,
+    );
+    expect(said).toContain(
+      `the record states no window of its own for the evidence window while this reader applied ${DEFAULT_MAX_EVIDENCE_AGE_SECONDS}s`,
+    );
+    expect(said).not.toContain('no window while this reader applied');
   });
 
   it('refuses a record whose appraisal precedes its acquisition', () => {

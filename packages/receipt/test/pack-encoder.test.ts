@@ -20,7 +20,7 @@ import {
   type PackItem,
   type PackManifest,
   type PackOrderingFindingKind,
-  type ReceiptPayloadV1,
+  type ReceiptPayload,
   type SigningKey,
 } from '../src/index.js';
 import { PACK_MANIFEST_MEMBERS } from '../src/pack.js';
@@ -85,7 +85,7 @@ function compareBytes(a: Uint8Array, b: Uint8Array): number {
 }
 
 /** A receipt payload whose every field is the width its kind needs, moving only by stamp and nonce. */
-function receiptPayload(iat: number, nonce: number): ReceiptPayloadV1 {
+function receiptPayload(iat: number, nonce: number): ReceiptPayload {
   const digest = sha256(new Uint8Array([nonce]));
   return {
     v: 1,
@@ -101,6 +101,13 @@ function receiptPayload(iat: number, nonce: number): ReceiptPayloadV1 {
     att: { d: digest, ts: iat - 60, url: 'https://inference.ashaveri.example/v1/attestation' },
     epk: 0,
     tok: { p: 1, c: 1 },
+    mk: { sch: 'none', d: sha256(new Uint8Array(0)) },
+    sd: { name: 'host clock', uncertaintySeconds: null },
+    cva: {
+      collateral: { presence: 'not-taken-in', reason: 'this test took no collateral in' },
+      validity: { presence: 'not-taken-in', reason: 'this test recorded no validity context' },
+    },
+    itm: [{ t: iat, d: digest }],
   };
 }
 
@@ -151,6 +158,7 @@ function manifestFor(run: { items: PackItem[]; anchor: Uint8Array; head: Uint8Ar
     chain: { anchor: run.anchor, head: run.head },
     duty: { art: '19(1)', rev: SPAN_TO - 30, required: 3_600, held: SPAN_TO - BASE },
     items: run.items,
+    carried: [],
     ...over,
   };
 }
@@ -204,6 +212,15 @@ function handManifestMap(manifest: PackManifest): Map<string, unknown> {
           ['iat', one.iat],
           ['prev', one.prev],
           ['receipt', one.receipt],
+        ]),
+      ),
+    ],
+    [
+      'carried',
+      manifest.carried.map((one) =>
+        new Map<string, unknown>([
+          ['bytes', one.bytes],
+          ['sha256', one.sha256],
         ]),
       ),
     ],
@@ -273,6 +290,7 @@ describe('the pack writer', () => {
     const honest = manifestOf();
     const payloadBytes = encodePackManifest(honest);
     const scrambled = new Map<string, unknown>([
+      ['carried', honest.carried.map((one) => new Map<string, unknown>([['sha256', one.sha256], ['bytes', one.bytes]]))],
       ['items', honest.items.map((one) => new Map<string, unknown>([['receipt', one.receipt], ['prev', one.prev], ['iat', one.iat], ['id', one.id]]))],
       ['duty', new Map<string, unknown>([['held', honest.duty.held], ['required', honest.duty.required], ['rev', honest.duty.rev], ['art', honest.duty.art]])],
       ['chain', new Map<string, unknown>([['head', honest.chain.head], ['anchor', honest.chain.anchor]])],
@@ -323,7 +341,7 @@ describe('the pack writer', () => {
       ['an id of no bytes', manifestFor(run, { items: run.items.map((one, index) => (index === 0 ? { ...one, id: '' } : one)) }), 'PACK_BAD_MANIFEST'],
       ['a chain endpoint of another width', manifestFor(run, { chain: { anchor: run.anchor, head: new Uint8Array(33) } }), 'PACK_BAD_MANIFEST'],
       ['an item carrying something other than bytes', manifestFor(run, { items: run.items.map((one, index) => (index === 0 ? { ...one, receipt: 'not a receipt' as unknown as Uint8Array } : one)) }), 'PACK_BAD_MANIFEST'],
-      ['a version no format has used', { ...honest, v: 2 as unknown as 1 }, 'PACK_UNSUPPORTED_VERSION'],
+      ['the number the undelivered earlier shape wore', { ...honest, v: 2 as unknown as 1 }, 'PACK_UNSUPPORTED_VERSION'],
     ];
     const headerBytes = encodePackProtectedHeader(KEY.kid);
     for (const [name, manifest, code] of faults) {
@@ -336,6 +354,50 @@ describe('the pack writer', () => {
       const payloadBytes = encodePackManifest(manifest);
       const sealed = sealPack(headerBytes, payloadBytes, ed25519.sign(packSigStructure(headerBytes, payloadBytes), KEY.privateKey));
       expect(codeOf(() => decodePack(sealed)), `${name} answered differently once it was made anyway`).toBe(code);
+    }
+    expect(codeOf(() => signPack(honest, KEY))).toBe('accepted');
+  });
+
+  it('refuses a manifest carrying no map it has to copy, in the sentence its reader uses', () => {
+    // A `chain` that is not there at all is an absent member of the class this container's row names, and the
+    // encoder reached through it for the map it builds: `TypeError: Cannot read properties of undefined (reading
+    // 'anchor')`, which carries no code a caller can branch on. Each row hands the writer one manifest missing
+    // one member and asks the reader about the same document with that member deleted past the writer, so the
+    // two answers are held to be one sentence rather than two written to agree. The rows run in the order the
+    // reader asks its own questions in, which is the order the writer now asks them in.
+    const honest = manifestOf();
+    const headerBytes = encodePackProtectedHeader(KEY.kid);
+    const readBack = (edit: (root: Map<string, unknown>) => void): ReceiptError => {
+      const root = handManifestMap(honest);
+      edit(root);
+      const payloadBytes = encodeCanonical(root);
+      const sealed = sealPack(headerBytes, payloadBytes, ed25519.sign(packSigStructure(headerBytes, payloadBytes), KEY.privateKey));
+      const thrown = thrownBy(() => decodePack(sealed));
+      if (!(thrown instanceof ReceiptError)) throw new Error('the reader took a document with a member deleted from it');
+      return thrown;
+    };
+    const holes: Array<[string, PackManifest, (root: Map<string, unknown>) => void]> = [
+      ['no span', { ...honest, span: undefined } as unknown as PackManifest, (root) => root.delete('span')],
+      ['no chain', { ...honest, chain: undefined } as unknown as PackManifest, (root) => root.delete('chain')],
+      ['no duty', { ...honest, duty: undefined } as unknown as PackManifest, (root) => root.delete('duty')],
+      ['no items', { ...honest, items: undefined } as unknown as PackManifest, (root) => root.delete('items')],
+      ['no carried', { ...honest, carried: undefined } as unknown as PackManifest, (root) => root.delete('carried')],
+      [
+        'an item that is not there',
+        { ...honest, items: [undefined as unknown as PackItem] },
+        (root) => {
+          const items = root.get('items');
+          if (Array.isArray(items)) items[0] = null;
+        },
+      ],
+    ];
+    for (const [name, value, edit] of holes) {
+      const written = thrownBy(() => encodePackManifest(value));
+      expect(written, `${name} was encoded`).toBeInstanceOf(ReceiptError);
+      expect((written as ReceiptError).code, name).toBe('PACK_BAD_MANIFEST');
+      // Neither does a signature land on a manifest the writer cannot state in full.
+      expect(codeOf(() => signPack(value, KEY)), `${name} was signed`).toBe('PACK_BAD_MANIFEST');
+      expect((written as ReceiptError).message, `${name} answered beside its own reader`).toBe(readBack(edit).message);
     }
     expect(codeOf(() => signPack(honest, KEY))).toBe('accepted');
   });

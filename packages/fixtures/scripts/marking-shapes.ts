@@ -119,6 +119,25 @@ export function streamedWithTwoMarkingFrames(): AmbiguousShape {
   return { response: `${streamChunks()}${first}${SEPARATOR}${second}${SEPARATOR}${TERMINATOR}`, region: null };
 }
 
+/**
+ * The stream that says nothing in a `data:` frame of its own: the closing sentinel and no chunk ahead of
+ * it. The bytes are the terminator the response suite publishes as its own framing, which is why they
+ * arrive here through the same constant and not as a third spelling of one.
+ */
+export function sentinelOnlyStream(): string {
+  return TERMINATOR;
+}
+
+/**
+ * That same stream as a marking deployment writes it: one marking frame, and then the sentinel. Nothing
+ * was dropped and nothing was added to what the upstream said, because the upstream said nothing in a
+ * frame at all, so the only item these bytes frame is the mark.
+ */
+export function markedSentinelOnly(member: string = memberText()): MarkedShape {
+  const line = markingLine(member);
+  return { response: `${line}${SEPARATOR}${TERMINATOR}`, region: line };
+}
+
 /** The completion of the buffered shape with no marking in it at all. */
 export function unmarkedResponse(): string {
   return completionBody();

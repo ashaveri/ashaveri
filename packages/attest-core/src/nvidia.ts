@@ -19,7 +19,17 @@ import { fail } from './errors.js';
  * signed document: the host's request is prepended to the GPU's response, and the
  * signature covers both. Nothing here reaches out to NVIDIA's attestation service,
  * the same posture the TDX and SNP legs keep, so certificate revocation and the
- * golden driver and VBIOS measurements are out of scope by design.
+ * golden driver and VBIOS measurements are out of scope.
+ *
+ * That limit is not only a preference. NVIDIA's RIM service and NRAS each sit behind an
+ * NVIDIA attestation account, so a golden measurement or an NRAS verdict is an external
+ * dependency to be agreed with NVIDIA rather than a call this package could simply make.
+ *
+ * Nor do the certificates hide the revocation question. Of the five in
+ * `test/fixtures/nvidia-hopper-cert-chain.pem`, NVIDIA GH100 Identity and NVIDIA GH100
+ * Provisioner ICA 1 each carry an OCSP pointer and a CRL distribution point, and the
+ * device leaf, its BROM certificate and the pinned root carry neither. Nothing above is
+ * consulted here.
  */
 
 /**
@@ -89,7 +99,8 @@ function bundleField(fields: Record<string, unknown> | null, index: number, name
 }
 
 export interface NvidiaOptions {
-  readonly now?: number;
+  /** Verification time in milliseconds since the Unix epoch, used for certificate validity. */
+  readonly nowMillis?: number;
   /** DER or PEM trust anchors. Verification fails closed when none are supplied. */
   readonly trustedRoots?: readonly Uint8Array[];
   /**
@@ -151,7 +162,7 @@ function parseSpdmMeasurements(report: Uint8Array): SpdmMeasurements {
 }
 
 /** Walks from the leaf until an entry a pinned root signs, checking every link. */
-function verifyDeviceChain(chain: readonly ParsedCertificate[], roots: readonly ParsedCertificate[], now: number): ParsedCertificate {
+function verifyDeviceChain(chain: readonly ParsedCertificate[], roots: readonly ParsedCertificate[], nowMillis: number): ParsedCertificate {
   let anchor = -1;
   for (let i = chain.length - 1; i >= 0; i--) {
     if (roots.some((root) => equalBytes(root.subject, (chain[i] as ParsedCertificate).subject))) {
@@ -172,10 +183,10 @@ function verifyDeviceChain(chain: readonly ParsedCertificate[], roots: readonly 
     if (!equalBytes(cert.issuer, issuer.subject)) {
       fail('CERT_CHAIN_INVALID', `${name} was not issued by entry ${i + 1}`);
     }
-    checkCertificateValidity(cert, now, name);
+    checkCertificateValidity(cert, nowMillis, name);
     verifyCertificateSignature(issuer, cert, name);
   }
-  checkCertificateValidity(chain[anchor] as ParsedCertificate, now, `GPU chain entry ${anchor}`);
+  checkCertificateValidity(chain[anchor] as ParsedCertificate, nowMillis, `GPU chain entry ${anchor}`);
   return chain[0] as ParsedCertificate;
 }
 
@@ -192,7 +203,7 @@ export function readNvidiaChallenge(report: Uint8Array): Uint8Array {
 }
 
 export function verifyNvidiaRats(evidence: NvidiaEvidence, options: NvidiaOptions): NvidiaVerification {
-  const now = options.now ?? Date.now();
+  const nowMillis = options.nowMillis ?? Date.now();
   const expectedNonce = options.expectedNonce;
   const rawRoots = options.trustedRoots ?? [];
   if (rawRoots.length === 0) {
@@ -207,7 +218,7 @@ export function verifyNvidiaRats(evidence: NvidiaEvidence, options: NvidiaOption
     fail('MALFORMED_CERTIFICATE', 'GPU certificate chain holds no certificates');
   }
   const roots = rawRoots.flatMap((blob) => parseCertificateChain(blob));
-  const leaf = verifyDeviceChain(chain, roots, now);
+  const leaf = verifyDeviceChain(chain, roots, nowMillis);
   if (leaf.publicKey.kind !== 'ec-p384') {
     fail('UNSUPPORTED_CERT_ALGORITHM', `GPU leaf certificate carries a ${leaf.publicKey.kind} key, not the ec-p384 key the report signature is made with`);
   }

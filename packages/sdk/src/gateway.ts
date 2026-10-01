@@ -28,12 +28,13 @@ export interface VerifyReceiptedParams {
   readonly requestHash: Uint8Array;
   readonly responseHash: Uint8Array;
   /**
-   * The response bytes themselves, which a v2 receipt's marking claim is read off. Required, because
-   * an optional member is a route by which a live verification skips the mark without saying so: see
-   * `VerifyCompletionParams.responseBytes`.
+   * The response bytes themselves, from which the region a payload naming a marking attests is read.
+   * Required, because an optional member is a route by which a live verification skips the mark
+   * without saying so: see `VerifyCompletionParams.responseBytes`.
    */
   readonly responseBytes: Uint8Array;
-  readonly now?: number;
+  /** Wall clock in milliseconds since the epoch; defaults to Date.now. */
+  readonly nowMillis?: number;
 }
 
 export interface VerifyCompletionOptions extends VerifyReceiptedParams {
@@ -165,7 +166,7 @@ export class GatewaySession {
       responseBytes: params.responseBytes,
       verifyKey,
       policy: this.options.policy,
-      now: params.now,
+      nowMillis: params.nowMillis,
     });
   }
 
@@ -206,7 +207,7 @@ export class GatewaySession {
         gpuEvidence,
         payload: receipt.payload,
         anchors: params.anchors ?? this.options.policy?.trustAnchors,
-        now: params.now,
+        nowMillis: params.nowMillis,
       }),
     };
   }

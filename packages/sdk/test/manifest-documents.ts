@@ -6,7 +6,6 @@ import {
   signingKeyFromSeed,
   toHex,
   type ReceiptPayload,
-  type ReceiptPayloadV1,
   type SigningKey,
 } from '@ashaveri/receipt';
 import { toBase64Url } from '../src/b64.js';
@@ -115,7 +114,7 @@ export function receiptFor(args: {
   readonly issuedAt: number;
   readonly nonce: Uint8Array;
 }): Uint8Array {
-  const fields: Omit<ReceiptPayloadV1, 'v'> = {
+  const fields: Omit<ReceiptPayload, 'v'> = {
     iss: ISSUER,
     ins: INSTANCE,
     iat: args.issuedAt,
@@ -132,6 +131,13 @@ export function receiptFor(args: {
     },
     epk: args.epoch,
     tok: { p: 3, c: 4 },
+    mk: { sch: 'none', d: hashRequest(new TextEncoder().encode('')) },
+    sd: { name: 'host clock', uncertaintySeconds: null },
+    cva: {
+      collateral: { presence: 'not-taken-in', reason: 'this corpus takes no collateral in' },
+      validity: { presence: 'not-taken-in', reason: 'this corpus records no validity context' },
+    },
+    itm: [{ t: args.issuedAt, d: hashRequest(new TextEncoder().encode('manifest-seal-response')) }],
   };
   const payload: ReceiptPayload = { v: 1, ...fields };
   return issueReceipt(payload, args.key);

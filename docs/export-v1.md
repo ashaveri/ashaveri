@@ -18,16 +18,19 @@ whether any legal assessment was made of it and a claim about where it came from
 hands to a customer who is going to pass evidence to somebody else, or to an auditor who is carrying
 originals out of a deployment, and it is deliberately not an answer for a period of time.
 
-The estate has four signed documents. One key signs the three that speak about evidence: a request, a
-window of them, and a handover of originals. The fourth is a deployment's statement about itself, and a
-client designates a key for that duty separately, because a key trusted to attest responses is not a key
-trusted to name the deployment's own parameters:
+The estate has six signed documents. One key signs the five that speak about evidence: a request, a window of
+them, a removal from a window already sealed, a handover of originals, and the statement a closed run of those
+windows leaves beside them. The sixth is a deployment's statement about itself, and a client designates a key
+for that duty separately, because a key trusted to attest responses is not a key trusted to name the
+deployment's own parameters:
 
 | Document | Content type at COSE label 3 | What it establishes |
 |---|---|---|
 | Receipt | `ashaveri/receipt` | That the holder of the key vouches for one request and one response, bound by digests |
 | Pack | `ashaveri/pack` | That the receipts inside one window are all of them, with the two chain endpoints a reader walks between |
+| Redaction | `ashaveri/redaction` | That the holder of the key took these named receipts out of a pack already sealed, and what the chain over what survives hashes to |
 | Export | `ashaveri/export` | That the holder of the key assembled these originals at one instant, and states this about assessment and this about provenance |
+| Epoch inventory | `ashaveri/epoch-inventory` | That a closed run of packs covers this window and chains this way, with each pack's own figures restated beside it |
 | Deployment manifest | `ashaveri/deployment-manifest` | That the deployment published these issuers, keys, epochs and measurements as its own statement, signed byte for byte |
 
 A pack cannot do an export's job, and that is why this is a second contract rather than a pack version two.
@@ -36,7 +39,7 @@ absence there would be indistinguishable from a writer that forgot the block, an
 statement lies in a reader being able to tell the two apart. Its items are receipts, so it cannot carry the
 contract, the ticket screenshot or the exported spreadsheet a handover is often about. Those are two
 differences in kind, and a reader must never be able to mistake one document for the other, which is what
-the three content types are for.
+the content types are for.
 
 An export states no window, and no item's stamp is bounded by one. It carries no period, no revision of a
 mapping and no retention figure, and it never states whether any duty was met, because it makes no claim that
@@ -191,6 +194,53 @@ What a completed walk does not establish is the part a reimplementer is most lik
   That is a second check the reader makes, and this container did not perform it.
 - It is not a statement that the material is what any law, contract or proceeding requires. That is what the
   assessment block above is for, and this container states that it made no such claim.
+
+## The instants an export carries beside the instants an original carries
+
+Three kinds of instant meet at an export's boundary: a receipt's issuance stamp, that receipt's per-item
+stamps, and the stamps this container writes for its own items and for its assembly. They are all whole
+seconds and none of them is the others, so the orders a reader may assume across the boundary are stated
+here rather than left to be inferred from the fact that the numbers share a unit.
+
+**Inside one receipt.** A payload states `iat`, the instant its issuer's declared time source read when it
+signed, and a payload that names an item list states for each item a `t`, a reading of that same source, in
+that source's own declared uncertainty, taken as that item's bytes were framed. The two are one clock and one
+signature: `t` never stands above `iat`, and the stamps do not run backwards along the array's order. A reader
+may therefore order every item stamp of a receipt against that receipt's issuance instant and against every
+other item stamp of it, and may assume nothing further from the gaps between them, because the spacing of a
+delivery is stated by none of these numbers. Both bounds are [`receipt-spec.md`](receipt-spec.md) section 3's
+`itm` row, and they are kept by different parties: the ordering is a reader's refusal,
+`ITEM_STAMP_OUT_OF_ORDER`, and the ceiling over each item stamp is one a producer holds its own list under,
+which a reader enforces only by asking for it.
+
+**Across the boundary, an unchained item.** Nothing in this container ties `item.iat` to the `iat` inside the
+bytes the item names. The walk hashes an anchored item's original without opening it, so a conforming reader
+holds no payload instant to compare against, and the two numbers are the word of two signers. A reader that
+wants them tied asks for it itself: verify the original as a receipt, read its `iat`, and compare. Where the
+original is a contract or a screenshot there is no issuance instant inside it at all, and the item's stamp is
+the only time this document says about that material; that is a shape of the material rather than a gap in
+the record. The same holds of `t`: an item stamp of a receipt can be ordered against `item.iat` only once the
+reader has opened the receipt, because the ordering it would rest on, `iat` at or below `item.iat`, is a
+statement this container never makes.
+
+**Across the boundary, a chained item.** `chainedItem.iat` is a term of the digest the run folds, so an item
+restamped into a run it was never chained in breaks a link rather than slipping through, and one completed
+walk states one stamped sequence within this container. That is a bound inside the document and not a bridge
+across it. A pack's reader does build the bridge: it verifies each item's receipt and refuses a chained stamp
+that differs from the `iat` that receipt attests, under `PACK_RECEIPT_STAMP_MISMATCH` in
+`packages/receipt/src/pack.ts`. An export's reader has no such rule, and cannot have one that costs nothing,
+because opening every original is the verification this container declines.
+
+**Against the assembly instant.** `at` bounds exactly one other member of this document, `claim.made`. It
+orders nothing against an original: material whose receipt was issued after the export was assembled is not
+refused here, and that is the same limit that makes a completed walk no proof of freshness. A reader that
+cares compares `at` with its own clock, and compares `at` with the issuance instants of the originals it has
+opened for itself.
+
+**What the numbers are worth.** The instants inside a receipt travel with the source they were read from and
+the uncertainty that source declares, and a reader can weigh a stamp against both. This container carries no
+source and declares no bound for any stamp it holds, its own included: every export instant is a writer's
+word about a clock nobody named, and the pairwise orders above are all a reader gets from reading it.
 
 ## The claim block
 

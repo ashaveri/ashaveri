@@ -15,7 +15,7 @@ import { sha256 } from '@noble/hashes/sha2.js';
 import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { Ajv2020, type ValidateFunction } from 'ajv/dist/2020.js';
-import { captureRecordKey, parseCaptureRecord } from '../src/capture.js';
+import { captureRecordKey, parseCaptureRecord, SOURCE_KINDS } from '../src/capture.js';
 import { fromBase64Url } from '../src/b64.js';
 import { SdkError } from '../src/errors.js';
 import { parseManifest } from '../src/manifest.js';
@@ -35,8 +35,9 @@ const NOW = 1_800_000_000;
 const TEXT = (value: string): Uint8Array => new TextEncoder().encode(value);
 const ROOT = TEXT('a pinned vendor root');
 
-function receiptPayload(version: 1 | 2, at: number): ReceiptPayload {
-  const shared = {
+function receiptPayload(at: number): ReceiptPayload {
+  return {
+    v: 1,
     iss: 'ashaveri-test',
     ins: 'cvm-test-1',
     iat: at,
@@ -53,14 +54,21 @@ function receiptPayload(version: 1 | 2, at: number): ReceiptPayload {
     },
     epk: 1,
     tok: { p: 11, c: 22 },
+    mk: { sch: 'none' as const, d: sha256(emptyRegion()) },
+    sd: { name: 'fixture clock', uncertaintySeconds: 2 },
+    cva: {
+      collateral: { presence: 'not-taken-in', reason: 'the issuance took no collateral in' },
+      validity: { presence: 'not-taken-in', reason: 'the issuance recorded no validity window' },
+    },
+    itm: [
+      { t: at, d: sha256(TEXT('the first item of the response')) },
+      { t: at + 1, d: sha256(TEXT('the second item of the response')) },
+    ],
   };
-  return version === 2
-    ? { v: 2, ...shared, mk: { sch: 'none' as const, d: sha256(emptyRegion()) } }
-    : { v: 1, ...shared };
 }
 
-const receiptV1 = issueReceipt(receiptPayload(1, NOW - 20), KEY);
-const receiptV2 = issueReceipt(receiptPayload(2, NOW - 20), KEY);
+const receiptV1 = issueReceipt(receiptPayload(NOW - 20), KEY);
+const secondReceipt = issueReceipt(receiptPayload(NOW - 19), KEY);
 
 const manifestDocument = {
   v: 1,
@@ -84,7 +92,7 @@ const held = (bytes: Uint8Array): Record<string, unknown> => ({
 function recordFor(
   original: Uint8Array,
   over: Record<string, unknown> = {},
-  block: { readonly receiptFormatVersion?: 1 | 2 } = {},
+  block: { readonly receiptFormatVersion?: number } = {},
 ): Record<string, unknown> {
   return {
     v: 1,
@@ -138,7 +146,7 @@ describe('a capture record holds the bytes a source produced', () => {
     expect(equalBytes(stored, receiptV1)).toBe(true);
     // The bytes a stranger gets out of the record are the bytes that were signed: the format's own
     // verifier accepts them under the key that issued them.
-    expect(() => verifyReceipt(stored, { publicKey: KEY.publicKey, now: NOW })).not.toThrow();
+    expect(() => verifyReceipt(stored, { publicKey: KEY.publicKey, nowSeconds: NOW })).not.toThrow();
   });
 
   it('refuses a record whose original does not hash to the digest it states', () => {
@@ -159,7 +167,7 @@ describe('a capture record holds the bytes a source produced', () => {
     // The estate's own reader takes only preferred serializations, so an equivalence between the two can
     // never be shown to it. That is the format's rule, and it is why the byte check has to be the
     // capture's own and has to run before anything decodes.
-    expect(codeOf(() => verifyReceipt(equivalent, { publicKey: KEY.publicKey, now: NOW }))).toBe('MALFORMED_CBOR');
+    expect(codeOf(() => verifyReceipt(equivalent, { publicKey: KEY.publicKey, nowSeconds: NOW }))).toBe('MALFORMED_CBOR');
     // A record stating the digest of what the source produced and carrying what a second encoder wrote
     // is refused rather than read as equal.
     expect(codeOf(() => parseCaptureRecord(swapBytes(recordFor(receiptV1), equivalent)))).toBe(
@@ -359,15 +367,32 @@ describe('a version the reader does not implement is refused, not read as its ow
     expect(
       codeOf(() => parseCaptureRecord({ ...recordFor(receiptV1), check: { ...check, policyVersion: 2 } })),
     ).toBe('UNSUPPORTED_VERSION');
+    // What this case holds is the boundary above the set the format defines. The payload version the
+    // format declares is one, so every integer above it is a version no build of this reader names, and
+    // each meets a refusal rather than a reading as the nearest version inside the set. The case below
+    // that reads a v1 original is the other half: the number a record names is refused or taken, and no
+    // record is ever read at a version it did not name.
     expect(
-      codeOf(() => parseCaptureRecord({ ...recordFor(receiptV1), check: { ...check, receiptFormatVersion: 3 } })),
+      codeOf(() => parseCaptureRecord({ ...recordFor(receiptV1), check: { ...check, receiptFormatVersion: 4 } })),
     ).toBe('UNSUPPORTED_VERSION');
   });
 
-  it('reads a v2 original only for a record that says it was checked against v2', () => {
-    expect(parseCaptureRecord(recordFor(receiptV2, {}, { receiptFormatVersion: 2 })).check.receiptFormatVersion).toBe(2);
-    const parsed = parseCaptureRecord(recordFor(receiptV2, {}, { receiptFormatVersion: 2 }));
-    expect(parsed.check.receiptFormatVersion).toBe(2);
+  it('refuses a record naming a receipt version this build has no reader for', () => {
+    // The format declares one payload version, so a record naming any other number describes a document
+    // no reader of these bytes can open. The refusal is the same whichever number above the one is named:
+    // the reader answers the version the record claims to have checked rather than re-reading the original
+    // at the nearest version it does implement.
+    for (const named of [2, 3, 4] as const) {
+      expect(
+        codeOf(() => parseCaptureRecord(recordFor(receiptV1, {}, { receiptFormatVersion: named }))),
+        `a record naming receipt version ${named}`,
+      ).toBe('UNSUPPORTED_VERSION');
+    }
+  });
+
+  it('reads a v1 original for the record that says it was checked against v1', () => {
+    const parsed = parseCaptureRecord(recordFor(receiptV1, {}, { receiptFormatVersion: 1 }));
+    expect(parsed.check.receiptFormatVersion).toBe(1);
   });
 
   it('refuses a member capture v1 does not define', () => {
@@ -389,11 +414,18 @@ describe('a version the reader does not implement is refused, not read as its ow
 describe('the published schema and the reader decide the same documents', () => {
   const schemaPath = fileURLToPath(new URL('../schemas/capture-v1.schema.json', import.meta.url));
   const ajv = new Ajv2020({ strict: true });
-  const validate = ajv.compile(JSON.parse(readFileSync(schemaPath, 'utf8')) as object) as ValidateFunction<unknown>;
+  // The document read with the two members this walk compares named in its type, so a schema that loses
+  // either is a compile failure in this file rather than an `undefined` sailing through an assertion.
+  const schemaDocument = JSON.parse(readFileSync(schemaPath, 'utf8')) as {
+    readonly properties: {
+      readonly original: { readonly properties: { readonly sourceKind: { readonly enum: string[] } } };
+    };
+  };
+  const validate = ajv.compile(schemaDocument) as ValidateFunction<unknown>;
+  const declaredSourceKinds = schemaDocument.properties.original.properties.sourceKind.enum;
 
   const accepted: Array<[string, Record<string, unknown>]> = [
     ['a whole record', recordFor(receiptV1)],
-    ['a v2 original', recordFor(receiptV2, {}, { receiptFormatVersion: 2 })],
     ['no collateral at the source', recordFor(receiptV1, { context: { collateral: { presence: 'absent-at-source', reason: 'none served' }, validity: { presence: 'not-taken-in', reason: 'not read' } } })],
     ['no policy digest', recordFor(receiptV1, { check: { ...(recordFor(receiptV1).check as object), policyDigest: null } })],
     ['an unnamed root', recordFor(receiptV1, { trust: { roots: [{ family: 'amdArks', digest: null }], limits: { maxReceiptAgeSeconds: null, maxEvidenceAgeSeconds: null } } })],
@@ -415,6 +447,15 @@ describe('the published schema and the reader decide the same documents', () => 
     ['a second manifest role', recordFor(receiptV1, { manifests: { deployment: held(manifestBytes), models: held(manifestBytes) } })],
     ['a negative acquisition time', recordFor(receiptV1, { acquired: { at: -1, sourceStatedAt: null } })],
     ['an unimplementable version', { ...recordFor(receiptV1), v: 3 }],
+    // The boundary of the two lists that have to stay in step: `check.receiptFormatVersion` is
+    // `enum: [1]` in the published schema and `IMPLEMENTED_RECEIPT_FORMAT_VERSIONS` in the reader, and
+    // every integer above that one element is a version `receipt.cddl` no longer defines. Widening one
+    // side without the other fails the assertion belonging to the side that moved: a reader list that
+    // gains `2` stops throwing on the case below, and a schema enum that gains it stops refusing the same
+    // document.
+    ['a receipt version no format defines', recordFor(receiptV1, { check: { ...(recordFor(receiptV1).check as object), receiptFormatVersion: 4 } })],
+    ['the retired receipt version 2', recordFor(receiptV1, { check: { ...(recordFor(receiptV1).check as object), receiptFormatVersion: 2 } })],
+    ['the retired receipt version 3', recordFor(receiptV1, { check: { ...(recordFor(receiptV1).check as object), receiptFormatVersion: 3 } })],
   ];
 
   for (const [name, record] of refused) {
@@ -423,6 +464,36 @@ describe('the published schema and the reader decide the same documents', () => 
       expect(() => parseCaptureRecord(record)).toThrow();
     });
   }
+
+  it('says what a null window in these limits is, in the words the reader can hold to', () => {
+    // A null in one of these two fields names no window; it is not a window that stayed open, which is
+    // the reading `assessCapture` carries into its qualification beside its own number. The sentence is
+    // part of the published contract: an auditor meets it before meeting the code.
+    const schema = JSON.parse(readFileSync(schemaPath, 'utf8')) as {
+      properties: { trust: { properties: { limits: { description: string } } } };
+    };
+    const said = schema.properties.trust.properties.limits.description;
+    expect(said).toContain('or null where the check named none of its own');
+    expect(said).toContain('A null is not a window that stayed open');
+    expect(said, 'the reading this format no longer carries').not.toContain('the window nobody set');
+  });
+
+  it('names the same source kinds in the published document as the reader reads', () => {
+    // The coupling `check.receiptFormatVersion` has had since its list was written and `sourceKind` never
+    // had: the enum above is what a collector outside this repository builds a writer against, and
+    // `SOURCE_KINDS` is what the reader and the type are made of. A fifth kind added to the list alone
+    // agreed with the type, agreed with the reader, and disagreed with the published document in silence,
+    // which is the direction this assertion closes. The order is neither set's business, so both are read
+    // sorted.
+    expect([...declaredSourceKinds].sort()).toEqual([...SOURCE_KINDS].sort());
+    // And the document is the one that refuses, not this test's copy of it: a kind the reader's list does
+    // not hold is refused by the schema too, so the two sets can only disagree by one of them moving.
+    const unclaimed = recordFor(receiptV1, {
+      original: { ...(recordFor(receiptV1).original as object), sourceKind: 'http-response' },
+    });
+    expect(validate(unclaimed)).toBe(false);
+    expect(codeOf(() => parseCaptureRecord(unclaimed))).toBe('NOT_CAPTURE_RECORD');
+  });
 
   it('keeps the manifest a manifest, so a held slot is a document and not a blob', () => {
     expect(parseManifest(JSON.parse(new TextDecoder().decode(manifestBytes)) as unknown).keys[0]?.kid).toBe(KID);
@@ -435,7 +506,7 @@ describe('the published schema and the reader decide the same documents', () => 
     // A document that says the same thing with its members written in the other order is the same
     // capture, so a collector may retry one as many times as it likes.
     expect(captureRecordKey(parseCaptureRecord(reverseKeyOrder(recordFor(receiptV1))))).toBe(captureRecordKey(honest));
-    expect(captureRecordKey(parseCaptureRecord(recordFor(receiptV2, {}, { receiptFormatVersion: 2 })))).not.toBe(
+    expect(captureRecordKey(parseCaptureRecord(recordFor(secondReceipt)))).not.toBe(
       captureRecordKey(honest),
     );
     // The instant the bytes were taken in is part of the record, so a second capture of the same

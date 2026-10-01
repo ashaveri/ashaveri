@@ -16,6 +16,7 @@ import {
   type SigningKey,
 } from '@ashaveri/receipt';
 import { fromHex, sha256, toHex } from './digest.js';
+import { HOST_CLOCK_SOURCE, type TimeSource } from './store.js';
 
 /**
  * Who may ask the gateway for what. A credential file lists the identities the gateway knows,
@@ -441,16 +442,23 @@ export function newPopCredential(input: {
   id?: string;
   label?: string;
   scopes?: Scope[];
-  now?: number;
+  /** The instant to file this record under, in whole Unix seconds, when the caller has one. */
+  nowSeconds?: number;
+  /**
+   * Where the instant comes from when `nowSeconds` names none. Absent means `HOST_CLOCK_SOURCE`, so
+   * an enrolled credential's `createdAt` says which clock said so rather than arriving unlabelled.
+   */
+  time?: TimeSource;
 }): { record: CredentialRecord; privateKey: Uint8Array } {
   const key = signingKeyFromSeed(randomBytes(32));
+  const time = input.time ?? HOST_CLOCK_SOURCE;
   const record: CredentialRecord = {
     id: credentialId('pop', input.id),
     kind: 'pop',
     publicKey: key.publicKey,
     scopes: input.scopes ?? ['read', 'complete'],
     ...(input.label === undefined ? {} : { label: input.label }),
-    createdAt: input.now ?? Math.floor(Date.now() / 1000),
+    createdAt: input.nowSeconds ?? Math.floor(time.nowSeconds()),
   };
   return { record, privateKey: key.privateKey };
 }
@@ -459,16 +467,23 @@ export function newBearerCredential(input: {
   id?: string;
   label?: string;
   scopes?: Scope[];
-  now?: number;
+  /** The instant to file this record under, in whole Unix seconds, when the caller has one. */
+  nowSeconds?: number;
+  /**
+   * Where the instant comes from when `nowSeconds` names none. Absent means `HOST_CLOCK_SOURCE`, so
+   * an enrolled credential's `createdAt` says which clock said so rather than arriving unlabelled.
+   */
+  time?: TimeSource;
 }): { record: CredentialRecord; secret: Uint8Array } {
   const secret = randomBytes(32);
+  const time = input.time ?? HOST_CLOCK_SOURCE;
   const record: CredentialRecord = {
     id: credentialId('bearer', input.id),
     kind: 'bearer',
     secretHash: hashSecret(secret),
     scopes: input.scopes ?? ['read', 'complete'],
     ...(input.label === undefined ? {} : { label: input.label }),
-    createdAt: input.now ?? Math.floor(Date.now() / 1000),
+    createdAt: input.nowSeconds ?? Math.floor(time.nowSeconds()),
   };
   return { record, secret };
 }
@@ -735,12 +750,12 @@ export class ReplaySet {
   constructor(
     private readonly windowSeconds: number = REPLAY_WINDOW_SECONDS,
     private readonly maxEntries: number = REPLAY_MAX_ENTRIES,
-    private readonly now: () => number = () => Date.now(),
+    private readonly nowMillis: () => number = () => Date.now(),
   ) {}
 
   /** True when this key was already presented inside the window. */
   see(key: string): boolean {
-    const at = this.now();
+    const at = this.nowMillis();
     const expiry = this.seen.get(key);
     if (expiry !== undefined) {
       if (expiry > at) return true;
@@ -878,7 +893,7 @@ export interface CredentialStoreOptions {
   allowBearer?: boolean;
   toleranceSeconds?: number;
   /** Milliseconds since the epoch: one clock for the tolerance, the replay window and the buckets. */
-  now?: () => number;
+  nowMillis?: () => number;
   /**
    * What a connection address is held to before this store spends any crypto on it;
    * `DEFAULT_PEER_RATE` when unset, which is what the gateway's `--peer-rate` flag sets. Injectable for
@@ -1091,7 +1106,7 @@ export class CredentialStore {
   private readonly toleranceSeconds: number;
   private readonly peerRate: CredentialRate;
   private readonly countVerification: (() => void) | undefined;
-  private readonly now: () => number;
+  private readonly nowMillis: () => number;
   private watchedMtimeMs = 0;
   private reloading: Promise<void> | undefined;
 
@@ -1110,8 +1125,8 @@ export class CredentialStore {
     this.toleranceSeconds = options.toleranceSeconds ?? POP_TIMESTAMP_TOLERANCE_SECONDS;
     this.peerRate = options.peerRate ?? DEFAULT_PEER_RATE;
     this.countVerification = options.countVerification;
-    this.now = options.now ?? (() => Date.now());
-    this.replay = new ReplaySet(REPLAY_WINDOW_SECONDS, REPLAY_MAX_ENTRIES, this.now);
+    this.nowMillis = options.nowMillis ?? (() => Date.now());
+    this.replay = new ReplaySet(REPLAY_WINDOW_SECONDS, REPLAY_MAX_ENTRIES, this.nowMillis);
   }
 
   /**
@@ -1208,7 +1223,7 @@ export class CredentialStore {
     // - so both are a statement about the request rather than about the file, and both are owed to
     // every proof-of-possession request whoever it names. The nonce has to be read before the
     // signature is checked anyway, because it is a term of the signing string.
-    const nowSeconds = input.nowSeconds ?? Math.floor(this.now() / 1000);
+    const nowSeconds = input.nowSeconds ?? Math.floor(this.nowMillis() / 1000);
     const skew = Math.abs(nowSeconds - presented.ts);
     if (skew > this.toleranceSeconds) {
       throw new AccessError('AUTH_STALE', {
@@ -1336,7 +1351,7 @@ export class CredentialStore {
     // gateway's own transport fills this from the socket on every request, so the only stores that see
     // an absent address are the ones handed requests directly, which are tests and `--mock`.
     if (peerAddress === undefined) return;
-    const taken = this.peerBuckets.take(peerAddress, this.peerRate, this.now());
+    const taken = this.peerBuckets.take(peerAddress, this.peerRate, this.nowMillis());
     if (!taken.allowed) {
       // The detail says which bucket fired, because the retry differs: waiting refills this one, and a
       // different credential would not. It names no credential, since the caller has proved nothing,
@@ -1385,7 +1400,7 @@ export class CredentialStore {
     auth: Admission['auth'],
     nonce: Uint8Array | null,
   ): Admission {
-    const taken = this.buckets.take(id, record.rate ?? DEFAULT_RATE, this.now());
+    const taken = this.buckets.take(id, record.rate ?? DEFAULT_RATE, this.nowMillis());
     if (!taken.allowed) {
       throw new AccessError('RATE_LIMITED', {
         detail: id,

@@ -24,6 +24,8 @@ const SECTION = '### 5.2 Record framing and chain recomputation';
 const FRAME_TABLE = '| Field | Byte offset in one frame | Width |';
 /** Header of the trim-payload table: one row per field inside a trim record's payload. */
 const TRIM_TABLE = '| Field | Byte offset in the trim payload | Width |';
+/** Header of the bounded-payload table: one row per field inside a bounded record's payload. */
+const BOUNDED_TABLE = '| Field | Byte offset in the bounded payload | Width |';
 /** Header of the kind-value table: one row per `kind` byte value the layout defines. */
 const KIND_TABLE = '| Record kind | Byte value |';
 /** The scenario whose first record the frame table is spelled against; named so a reorder is visible. */
@@ -138,12 +140,13 @@ function section(): string {
 }
 
 describe('docs/receipt-spec.md record framing (5.2)', () => {
-  it('quotes the frame and trim layouts the vector states, and names the file it lays out', () => {
+  it('quotes the frame and payload layouts the vector states, and names the file it lays out', () => {
     const body = section();
     // The fenced layout strings are the vector's own, so a rewrite that restates them in other words
     // still has to carry the same tokens or it will not be a quotation of them.
     expect(body).toContain(file.layout.record);
     expect(body).toContain(file.layout.trimPayload);
+    expect(body).toContain(file.layout.boundedPayload);
     expect(body).toContain(file.layout.file);
     for (const word of file.layout.integers.split(',').map((each) => each.trim())) {
       expect(body, `the section states integers are ${word}`).toContain(word);
@@ -224,7 +227,32 @@ describe('docs/receipt-spec.md record framing (5.2)', () => {
     );
   });
 
-  it('gives the two kind values the vector defines, and no other', () => {
+  it('states the bounded payload offset the layout in the vector implies', () => {
+    // `receipt` has no width of its own, so it is the row `boundSeconds` leaves the rest of the payload
+    // for, and only the fields the layout states a width for can be checked against a number here. The
+    // widths come out of `layout.boundedPayload`, so a rewrite that moved the period or restated it as
+    // another width is caught by the vector rather than by a figure copied into this file.
+    const fields = layoutFields(file.layout.boundedPayload).filter((field) => field.width !== undefined);
+    expect(fields.length, 'the bounded payload layout states at least one fixed-width field').toBeGreaterThan(0);
+    const rows = new Map(readOffsetsTable(section(), BOUNDED_TABLE).map((row) => [row.name, row]));
+    let cursor = 0;
+    for (const field of fields) {
+      const row = rows.get(field.name);
+      expect(row, `the bounded payload table omits the layout field ${field.name}`).toBeDefined();
+      if (row === undefined) continue;
+      expect(row.start, `${field.name} starts where the widths before it end`).toBe(cursor);
+      expect(row.width, `${field.name} is as wide as its declared integer`).toBe(field.width);
+      expect(row.end, `${field.name}'s range agrees with its own start and width`).toBe(row.start + row.width - 1);
+      cursor += row.width;
+    }
+    const named = new Set(fields.map((field) => field.name));
+    expect(
+      [...rows.keys()].filter((name) => !named.has(name)),
+      'the bounded payload table names a field the vector layout does not carry',
+    ).toEqual([]);
+  });
+
+  it('gives every kind value the vector defines, and no other', () => {
     const rows = tableRows(section(), KIND_TABLE).map((cells) => ({
       name: cells[1]?.replace(/`/gu, '').trim() ?? '',
       value: Number(cells[2]),

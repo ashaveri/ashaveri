@@ -215,9 +215,9 @@ chain reached the root you named, not that the platform is still current.
 | Verb | Inputs, all files or the command line |
 | --- | --- |
 | `verify <attestation>` | The attestation, `--ask` and `--vcek` when the document carries no chain, and a root: `--ark`, `--intel-root` or `--gpu-root`. With no policy and no root flag it trusts nothing you did not name, and says so with `MISSING_TRUST_ROOT`. |
-| `verify-receipt <receipt>` | The receipt, `--policy`, `--manifest`, `--nonce`, one of `--request-body` or `--request-hash`, and one of `--response-body` or `--response-hash`. A v2 receipt needs the response bytes, not only their digest, because its claim is a region inside them. |
-| `verify-handover <document>` | One signed document and `--key` for a receipt, pack or export, or `--manifest-key` for a deployment manifest. It classifies the document by the content type inside its own signature and reads it with the reader for that type. |
-| `verify-pack <document>` | The pack and at least one `--key`: every key whose receipts a span crosses, since a pack over a rotation carries signatures from the epochs current then. |
+| `verify-receipt <receipt>` | The receipt, `--policy`, `--manifest`, `--nonce`, one of `--request-body` or `--request-hash`, and one of `--response-body` or `--response-hash`. A receipt whose payload names a marking needs the response bytes, not only their digest, because its claim is a region inside them. |
+| `verify-handover <document>` | One signed document and `--key` for a receipt, pack, redaction or export, or `--manifest-key` for a deployment manifest. A redaction is the one shape that arrives as a pair: the pack its own signature designates travels in `--companion`. It classifies the document by the content type inside its own signature and reads it with the reader for that type. |
+| `verify-pack <document>` | The pack and at least one `--key`: every key whose receipts a span crosses, since a pack over a rotation carries signatures from the epochs current then. `--intel-root` beside `--collateral-origin`, `--collateral-platform`, `--collateral-cpu-type` and `--collateral-level`, each keyed `<slot>=<value>`, ask what the material this pack carries says about a platform; the rule for the roots is below. |
 | `verify-export <document>` | The export, its `--key`, and one `--companion` per signed item: the original whose digest is recomputed, given by its own name or by a path to it. |
 
 A policy document and a deployment manifest are inputs, and this repository publishes no runnable
@@ -237,21 +237,31 @@ does not authenticate a deployment manifest, so a manifest read without `--manif
 pass. `--manifest-key` designates a signer for one run and sits outside the policy digest the report
 cites, and the report says that too. A pack's two duty figures are printed as the deployment states
 them and judged by nothing here, because whether a duty was owed turns on the mapping revision the
-pack names and on the law behind it. Whether a pack is all the deployment still holds, and whether it
-agrees with the copy a reader held before, are stated as not checked. `--now` is the clock, and it is
-how an archived receipt is read at all: the windows close against it, so last year's receipt judged by
+pack names and on the law behind it. What a pack carries is weighed against the roots `--intel-root`
+names and against nothing else: no root bundled with the verifier is consulted on this path, the
+instant an answer is read at is the stamp the record naming the material was chained at rather than a
+clock this run reads, and a run that named no origin and no platform prints every held slot as not
+weighed beside the flag that would have supplied one. Whether a pack is all the deployment still holds,
+and whether it agrees with the copy a reader held before, are stated as not checked. `--now` is the
+clock, and it is how an archived receipt is read at all: the windows close against it, so last year's
+receipt judged by
 today's clock is a refusal with a code, and a verdict reached at a stated instant is a historical
-appraisal of that instant rather than a current one.
+appraisal of that instant rather than a current one. A date the verifier cannot weigh as a reading of
+its own clock, because it is counted in the scale the stamps are not, is refused by name at that entry
+before it closes a window on anything, so a caller who mixed the two is told about the clock.
 
-**What it does not do.** It reads one document per run: a directory is refused with the reason, and
-there is no bundle mode that decides which files stand in a handover, which are omitted or which are
-extra. The rules that come closest are per document and were all seen to fire: an export original
-missing, substituted at the right name, or named by a path that climbs out of its directory is refused
-as `EXPORT_ORIGINAL_UNAVAILABLE`, `EXPORT_DIGEST_MISMATCH` and `EXPORT_BAD_MANIFEST`, a pack whose
-span crosses an epoch nobody retained is refused as `PACK_UNKNOWN_KEY`, and a receipt outside its
-window as `STALE_RECEIPT`. It reads no redaction manifest: `ashaveri/redaction` is a published
-content type and `verifyRedaction` in `@ashaveri/receipt` reads one, but no command in this CLI does,
-so each of the four verbs refuses it by name. And it never reads the evidence document behind a
+**What it does not do.** It reads the one document you name, plus the files that document designates:
+a directory is refused with the reason, and there is no bundle mode that decides which files stand in a
+handover, which are omitted or which are extra. An export is read with the originals its items name,
+and an amendment with the one pack whose whole bytes its own signature designates, and those are the
+pairs the option carries rather than a pile it chooses from. The rules that come closest are per
+document and were all seen to fire: an export original missing, substituted at the right name, or named
+by a path that climbs out of its directory is refused as `EXPORT_ORIGINAL_UNAVAILABLE`,
+`EXPORT_DIGEST_MISMATCH` and `EXPORT_BAD_MANIFEST`, a pack whose span crosses an epoch nobody retained
+is refused as `PACK_UNKNOWN_KEY`, a pack whose carried list contradicts the slots its sealed receipts
+name is refused for the one position that contradicts them, under `PACK_CARRIED_DIGEST_MISMATCH`,
+`PACK_CARRIED_DUPLICATE`, `PACK_CARRIED_UNNAMED` or `PACK_CARRIED_UNRESOLVED`, and a receipt outside
+its window as `STALE_RECEIPT`. And it never reads the evidence document behind a
 receipt's `att.d`: the timestamp is windowed and the document itself is fetched by a client talking to
 a deployment.
 
@@ -284,15 +294,23 @@ us.
 the collateral named above: the TCB info, the QE identity and the revocation status, and the reference
 measurements a device verdict needs, all fetched from Intel's, AMD's and NVIDIA's own endpoints and
 republished, offered as a convenience and as a second source. Nothing of it exists yet: no endpoint
-runs, no package in this repository reads one, and the paragraph above is the whole of present
-behaviour. Three things accompany it. A deployer who declines the service gives up nothing,
-because a feed is a second source and not a precondition, and no verdict a third party can reach
-depends on our service existing; the fetching code and the defaults it fetches under are published
-here in source, because fetching collateral that can change a verdict is itself something a verdict
-reads; and an unreachable or unanswered feed has to be reported as freshness unknown and refused rather
-than pass a check it did not perform. That refusal is not in this code today either, and the refusals
-that do exist, tabulated in [docs/error-codes.md](docs/error-codes.md), include none that consults a
-vendor's revocation information or TCB info.
+runs, and nothing a shipped command does asks one, because the fetching code is a call a caller makes
+rather than a step any path here takes. Three things accompany it. A deployer who declines the service
+gives up nothing, because a feed is a second source and not a precondition, and no verdict a third party
+can reach depends on our service existing; the fetching code and the defaults it fetches under are
+published here in source, because fetching collateral that can change a verdict is itself something a
+verdict reads; and an unreachable or unanswered feed has to be reported as freshness unknown and refused
+rather than pass a check it did not perform. That refusal, and every other answer the collateral package
+gives, is tabulated under `CollateralErrorCode` in [docs/error-codes.md](docs/error-codes.md), including
+the ones naming a status the vendor no longer stands behind and a window that had closed. The answers a
+shipped command gives are reached by weighing material a caller hands over rather than by asking an
+origin, and weighing answers only for material of the envelope the origin's declaration decodes: Intel's
+documents present their certificates outside the body, so the collateral a pack carries from that address
+is held and refused at the envelope rather than weighed, and
+[docs/pack-v1.md](docs/pack-v1.md) states what a carried entry answers for. None of it reaches an
+attestation verdict. `ashaveri verify`
+consults no vendor endpoint and no carried entry, so a quote verified under a pinned root still says
+nothing about whether that vendor stands behind the platform.
 
 **What stays the deployer's if the service is declined.** The freshness judgement, entirely, exactly
 as it is today. Either source the collateral directly, from Intel's provisioning certification

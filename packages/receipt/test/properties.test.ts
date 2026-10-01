@@ -13,6 +13,7 @@ import {
   signPopAuthorization,
   signingKeyFromSeed,
   verifyPopSignature,
+  type CollateralSlot,
   type PopFields,
   type ReceiptPayload,
   type TeeKind,
@@ -39,6 +40,13 @@ const payload: ReceiptPayload = {
   att: { d: new Uint8Array(32).fill(5), ts: 1_772_000_000 - 60, url: 'https://inference.ashaveri.test/v1/attestation' },
   epk: 3,
   tok: { p: 128, c: 64 },
+  mk: { sch: 'none', d: new Uint8Array(32) },
+  sd: { name: 'host clock', uncertaintySeconds: null },
+  cva: {
+    collateral: { presence: 'not-taken-in', reason: 'the property corpus takes no collateral in' },
+    validity: { presence: 'not-taken-in', reason: 'the property corpus records no validity context' },
+  },
+  itm: [{ t: 1_772_000_000, d: new Uint8Array(32) }],
 };
 
 const signed = issueReceipt(payload, key);
@@ -104,15 +112,38 @@ const headerBoundary = acceptanceBoundary(parsePopAuthorization, header, (source
 
 const TEE_KINDS = Object.keys(MEASUREMENT_BYTES) as TeeKind[];
 
+/**
+ * Text a payload's attested members may hold, which is what this generator's payloads are made of.
+ *
+ * The writer refuses a member of that class carrying anything that would end, hide or reorder the line it
+ * is printed on, so a payload holding one is not a document that reaches a signature at all and the
+ * re-encoding claim below would be about bytes no caller can ask for. What the refusal does not reach stays
+ * in the generator: the whole of the rest of Unicode, astral included, so the fidelity property is tested
+ * over text a deployment in another script really signs rather than over a 95 character ASCII set.
+ */
+const LINE_FORGED = /[\p{Cc}\p{Cf}\u{2028}\u{2029}\u{e0000}-\u{e007f}]/u;
+
+function attestedText(maxLength: number): fc.Arbitrary<string> {
+  return fc
+    .string({ minLength: 1, maxLength })
+    .filter((value) => !LINE_FORGED.test(value) && value === value.trim());
+}
+
+/** One anchor slot: either arm, each carrying what its own label says it carries. */
+const slotArbitrary: fc.Arbitrary<CollateralSlot> = fc.oneof(
+  fc.uint8Array({ minLength: 32, maxLength: 32 }).map((sha256) => ({ presence: 'held' as const, sha256 })),
+  attestedText(60).map((reason) => ({ presence: 'not-taken-in' as const, reason })),
+);
+
 const payloadArbitrary: fc.Arbitrary<ReceiptPayload> = fc
   .record({
-    iss: fc.string({ minLength: 1, maxLength: 24 }),
-    ins: fc.string({ minLength: 1, maxLength: 24 }),
+    iss: attestedText(24),
+    ins: attestedText(24),
     iat: fc.integer({ min: 0, max: 2_000_000_000 }),
     nce: fc.uint8Array({ minLength: 16, maxLength: 16 }),
     req: fc.uint8Array({ minLength: 32, maxLength: 32 }),
     res: fc.uint8Array({ minLength: 32, maxLength: 32 }),
-    mdl: fc.string({ minLength: 1, maxLength: 40 }),
+    mdl: attestedText(40),
     wts: fc.uint8Array({ minLength: 32, maxLength: 32 }),
     meas: fc
       .constantFrom(...TEE_KINDS)
@@ -124,12 +155,36 @@ const payloadArbitrary: fc.Arbitrary<ReceiptPayload> = fc
     att: fc.record({
       d: fc.uint8Array({ minLength: 32, maxLength: 32 }),
       ts: fc.integer({ min: 0, max: 2_000_000_000 }),
-      url: fc.string({ minLength: 1, maxLength: 60 }),
+      url: attestedText(60),
     }),
     epk: fc.integer({ min: 0, max: 1_000_000 }),
     tok: fc.record({ p: fc.integer({ min: 0, max: 1_000_000 }), c: fc.integer({ min: 0, max: 1_000_000 }) }),
+    mk: fc.record({
+      sch: fc.constantFrom('none' as const, 'provenance-v1' as const),
+      d: fc.uint8Array({ minLength: 32, maxLength: 32 }),
+    }),
+    sd: fc.record({
+      name: attestedText(40),
+      uncertaintySeconds: fc.oneof(fc.integer({ min: 0, max: 60 }), fc.constant(null)),
+    }),
+    cva: fc.record({ collateral: slotArbitrary, validity: slotArbitrary }),
+    itm: fc.array(
+      fc.record({
+        t: fc.integer({ min: 0, max: 2_000_000_000 }),
+        d: fc.uint8Array({ minLength: 32, maxLength: 32 }),
+      }),
+      { minLength: 1, maxLength: 3 },
+    ),
   })
-  .map((each) => ({ v: 1 as const, ...each }));
+  .map((each) => {
+    // `itm` is ordered by the format: the list states chain order and `t` states the instant each item
+    // was framed, and a reader refuses a list whose stamps run backwards with `ITEM_STAMP_OUT_OF_ORDER`.
+    // A round-trip property over such a list would be answering its own refusal, so the arbitrary states
+    // what a gateway that reads one instant per item in framing order produces. Two items in the same
+    // second stay in the sample: those are not the refusal.
+    const items = [...each.itm].sort((a, b) => a.t - b.t);
+    return { v: 1 as const, ...each, itm: items };
+  });
 
 const popFieldsArbitrary: fc.Arbitrary<PopFields> = fc.record({
   ts: fc.integer({ min: 0, max: 2_000_000_000 }),

@@ -1,6 +1,7 @@
 import { mkdir, readdir, readFile, unlink, writeFile, appendFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import type { AccessRecord } from './access-record.js';
+import { HOST_CLOCK_SOURCE, type TimeSource } from './store.js';
 
 export type { AccessRecord } from './access-record.js';
 export const ACCESS_RECORD_FIELDS: readonly (keyof AccessRecord)[] = [
@@ -74,7 +75,23 @@ export interface AccessLogOptions {
    */
   days?: number;
   maxBytesPerFile?: number;
-  now?: () => number;
+  /**
+   * The clock this log ages by, in milliseconds, for a caller that has one to hand. It draws the
+   * retention cutoff and nothing else: which day a line is written under comes from the record's own
+   * stamp, so this stays a millisecond read whatever the source below declares.
+   */
+  nowMillis?: () => number;
+  /**
+   * Where `nowMillis` comes from when it names nothing: the same named source the rest of this process
+   * stamps with, read at whole-second resolution. Absent means `HOST_CLOCK_SOURCE`, so how long a line
+   * is kept, and when a day's files are collected, answer to a source the deployment named rather than
+   * to one it was never told about. A source reads seconds and this log compares milliseconds, so one
+   * multiply at the fallback below is the whole of the reconciliation; a caller needing sub-second
+   * resolution passes `nowMillis` and stays in milliseconds. The `t` on the records this bound ages is
+   * read through that same source where the line is written, in `server.ts`, so a cutoff and the stamp
+   * it ages never come from two clocks that have not met.
+   */
+  time?: TimeSource;
 }
 
 function dayOf(millis: number): string {
@@ -157,7 +174,8 @@ export interface MemoryAccessLog extends AccessLog {
 
 export function openMemoryAccessLog(options: AccessLogOptions = {}): MemoryAccessLog {
   const days = options.days ?? MINIMUM_RETENTION_DAYS;
-  const now = options.now ?? (() => Date.now());
+  const time = options.time ?? HOST_CLOCK_SOURCE;
+  const nowMillis = options.nowMillis ?? ((): number => Math.floor(time.nowSeconds()) * 1000);
   let kept: AccessRecord[] = [];
   let closed = false;
   async function pruneLocked(at: number): Promise<void> {
@@ -167,7 +185,7 @@ export function openMemoryAccessLog(options: AccessLogOptions = {}): MemoryAcces
     async record(entry) {
       if (closed) throw new Error('the access log is closed');
       kept.push(entry);
-      await pruneLocked(now());
+      await pruneLocked(nowMillis());
     },
     async drain() {},
     async prune(at) {
@@ -236,7 +254,8 @@ function whenNotFound<T>(fallback: T): (err: unknown) => T {
 export async function openFileAccessLog(options: AccessLogOptions & { dir: string }): Promise<AccessLog> {
   const days = options.days ?? MINIMUM_RETENTION_DAYS;
   const maxBytes = options.maxBytesPerFile ?? MAX_ACCESS_FILE_BYTES;
-  const now = options.now ?? (() => Date.now());
+  const time = options.time ?? HOST_CLOCK_SOURCE;
+  const nowMillis = options.nowMillis ?? ((): number => Math.floor(time.nowSeconds()) * 1000);
   const dir = options.dir;
   await mkdir(dir, { recursive: true });
 
@@ -275,7 +294,7 @@ export async function openFileAccessLog(options: AccessLogOptions & { dir: strin
    * delete the newest data on an operator's bad `cp -a`.
    */
   async function pruneLocked(): Promise<void> {
-    const cutoff = dayOf(now() - days * DAY_MS);
+    const cutoff = dayOf(nowMillis() - days * DAY_MS);
     for (const candidate of await listNamed(RETENTION_SWEEP_NAME)) {
       if (candidate.day < cutoff) {
         // Only a file that vanished between the listing and this call is forgiven. Swallowing every

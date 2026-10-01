@@ -665,3 +665,97 @@ describe('ashaveri verify --policy', () => {
     expect(runCli(['--help']).stdout).toContain('--policy');
   });
 });
+
+/**
+ * The sentences an operator reads about the response bytes a marking check owes.
+ *
+ * `verify-receipt` settles that question from the member a payload names, at
+ * `src/commands/verify-receipt.ts`, and not from a version number. Five sentences elsewhere are copies
+ * of that one fact: two in this command's own flag help, one in the paragraph that introduces the verb,
+ * one in the README's table of verbs, and one on a public SDK surface in `packages/sdk/src/gateway.ts`.
+ * A copy is how a document comes to state something the code stopped doing, and the stale shape this guards
+ * against is a requirement credited to one payload version. This reads each copy as data and holds it to
+ * the refusal the code actually raises, so wording that keys the requirement to a version, or that drifts
+ * from the phrase the refusal uses, fails here rather than quietly outliving the rule it describes.
+ */
+describe('the marking requirement, as an operator meets it in prose', () => {
+  /** The phrase that makes the check owed: a payload naming a marking, in either polarity. */
+  const MARKING_KEYED = /(names|naming) (a |no )?marking/u;
+  /** The shape that made the hole writable: the requirement credited to one version number. */
+  const VERSION_KEYED = /\bv[123] receipt\b/u;
+
+  function textOf(path: string): string {
+    return readFileSync(new URL(path, import.meta.url), 'utf8');
+  }
+
+  /** One option's help entry: its flag line up to the next one, which is where its prose ends. */
+  function optionEntry(help: string, flag: string): string {
+    const start = help.indexOf(`\n  ${flag}`);
+    if (start < 0) throw new Error(`the help text has no '${flag}' entry to check`);
+    const rest = help.slice(start + 1);
+    const next = rest.slice(3).search(/^\s{2}--/mu);
+    return next < 0 ? rest : rest.slice(0, next + 3);
+  }
+
+  /** The paragraph that introduces the verb, up to the blank line that ends it. */
+  function verbParagraph(help: string): string {
+    const start = help.indexOf('verify-receipt reaches a verdict');
+    if (start < 0) throw new Error('the help text no longer introduces verify-receipt where this looks');
+    const end = help.indexOf('\n\n', start);
+    return help.slice(start, end < 0 ? help.length : end);
+  }
+
+  /** The verb's row in the README's table, which is one line. */
+  function readmeRow(): string {
+    const row = textOf('../../../README.md')
+      .split('\n')
+      .find((line) => line.startsWith('| `verify-receipt <receipt>` |'));
+    if (row === undefined) throw new Error("the README's table has no verify-receipt row to check");
+    return row;
+  }
+
+  /** The doc comment on the SDK's `responseBytes`, from its first word to the closer. */
+  function gatewayComment(): string {
+    const source = textOf('../../sdk/src/gateway.ts');
+    const start = source.indexOf('The response bytes themselves');
+    if (start < 0) throw new Error('the SDK surface no longer describes responseBytes where this looks');
+    const end = source.indexOf('*/', start);
+    return source.slice(start, end < 0 ? source.length : end);
+  }
+
+  /**
+   * The trigger clause of the refusal the code raises, read out of the template literal that carries it
+   * rather than written a second time here: this is the sentence the prose copies.
+   */
+  function refusalTrigger(): string {
+    const source = textOf('../src/commands/verify-receipt.ts');
+    const at = source.indexOf('--response-body is required');
+    if (at < 0) throw new Error('verify-receipt no longer refuses a marked receipt for the response bytes');
+    const start = source.lastIndexOf('`', at);
+    const end = source.indexOf('`', at);
+    return source.slice(start + 1, end);
+  }
+
+  it('raises a refusal that names the marking rather than a version', () => {
+    // The anchor for the four copies below. A refusal re-worded away from the member has to bring the
+    // help, the README and the SDK comment along with it, which is the point of pinning them together.
+    expect(refusalTrigger()).toMatch(MARKING_KEYED);
+    expect(refusalTrigger()).not.toMatch(VERSION_KEYED);
+  });
+
+  const sites: Array<[string, () => string]> = [
+    ['the --response-body help entry', () => optionEntry(runCli(['--help']).stdout, '--response-body')],
+    ['the --response-hash help entry', () => optionEntry(runCli(['--help']).stdout, '--response-hash')],
+    ['the paragraph introducing verify-receipt', () => verbParagraph(runCli(['--help']).stdout)],
+    ["the README's row for the verb", readmeRow],
+    ['the SDK doc comment on responseBytes', gatewayComment],
+  ];
+
+  for (const [name, read] of sites) {
+    it(`keys ${name} on the marking and not on a version`, () => {
+      const stated = read().replace(/\n\s*/gu, ' ');
+      expect(stated).toMatch(MARKING_KEYED);
+      expect(stated).not.toMatch(VERSION_KEYED);
+    });
+  }
+});

@@ -26,8 +26,16 @@ Arguments:
                          [--request-body <file> | --request-hash <hex>]
                          [--response-body <file> | --response-hash <hex>] [options]
   ashaveri verify-handover <document> [--key <b64url>]... [--manifest-key <b64url>]...
-                         [--companion <file>]... [--json]
-  ashaveri verify-pack <document> --key <b64url>... [--json]
+                         [--companion <file>]... [--intel-root <file>]...
+                         [--collateral-origin <slot>=<origin>]...
+                         [--collateral-platform <slot>=<sgx|tdx>]...
+                         [--collateral-cpu-type <slot>=<hex>]...
+                         [--collateral-level <slot>=<arm>=<value>]... [--json]
+  ashaveri verify-pack <document> --key <b64url>... [--intel-root <file>]...
+                         [--collateral-origin <slot>=<origin>]...
+                         [--collateral-platform <slot>=<sgx|tdx>]...
+                         [--collateral-cpu-type <slot>=<hex>]...
+                         [--collateral-level <slot>=<arm>=<value>]... [--json]
   ashaveri verify-export <document> --key <b64url>... [--companion <file>]... [--json]
   ashaveri keygen [--id <id>] [--json]
   ashaveri credential add --credentials <file> [--id <id>] [--kind pop|bearer]
@@ -66,6 +74,20 @@ and those are the questions ashaveri verify-receipt answers about one request. A
 the reason, because a bundle's rules over which files stand in a substituted root and which are omitted or
 extra are not what decides a document's type, and a pack reads as soon as its file is named.
 
+A pack carries the material its sealed receipts' anchors state they took in, and a held slot can be weighed
+there rather than promised where those bytes carry the chain their signature stands on: --intel-root hands the
+roots, --collateral-origin and --collateral-platform say which path one slot's bytes were published by and for
+which platform, and --collateral-cpu-type and --collateral-level name the identity and the rung the vendor's
+ladder is read at. The material and the instant it is read against come out of the container, from the record
+whose slot names the digest, and no clock of this run's is consulted. What those flags do not name is reported
+as not weighed with the reason, and an entry whose bytes do not carry that chain prints the refusal it earned
+rather than a verdict, because a held slot states custody of bytes and not an appraisal. An appraisal never
+moves the exit code: a pack that verifies exits 0 whatever the collateral says, because the
+material being stale, revoked, unreadable or unasked about is a finding about an archive and not a fault in
+the signature over it. The two places a reader looks for a verdict stay apart in the report: the signature
+line answers the container, and each weighed slot prints the appraisal's own state, its refusal detail where
+it carries one, and the window the vendor signed beside the instant it was read against.
+
 verify-pack and verify-export are that command with the answer in label 3 fixed to one value, for a
 caller that already knows which file it holds. Ask the free verb about a pile and not knowing is the
 question; tell a script which shape it came for and the shape stops being a question, so a step written
@@ -90,9 +112,10 @@ verification rules, in the same order, from the same package, over a receipt tak
 header and put on a disk. What it does not do is read
 the evidence document behind att.d, which no file here stands in for; the receipt's own att.ts still
 has to sit inside the policy's evidence window, and the report says in terms that the document was not
-fetched. A v1 receipt attests the digest of a response, which --response-hash can carry. A v2 receipt
-attests one region inside those bytes, which needs --response-body, because the digest of a region
-nobody handed over is not a check. --now is the verification time, and it is how an archived receipt
+fetched. Every receipt this format states names a marking, and a marking attests one region inside
+the response bytes, which needs --response-body: the digest of a region nobody handed over is not a
+check, and no receipt can be verified from --response-hash alone. --now is
+the verification time, and it is how an archived receipt
 is read at all: the policy's windows close against it, so judging last year's receipt by today's
 clock is a refusal with a code rather than a verdict, which is the honest answer to a question about
 a replay.
@@ -151,6 +174,11 @@ Verification options:
                      Trusted Intel SGX root CA, PEM or DER. Repeatable. With it,
                      a TDX quote must also verify through Intel DCAP, so a quote
                      that is not signed by an authorized Intel key is rejected.
+                     Without a policy document these files are the only Intel
+                     roots the run trusts; with one, a family the document leaves
+                     out falls back to the roots bundled with the verifier, which
+                     is the rule the handover verbs refuse: see the handover
+                     entry for the same flag, where nothing is bundled.
   --gpu-report <file>
                      NVIDIA SPDM measurements report to verify beside the
                      attestation. Repeatable; each report pairs with a --gpu-chain.
@@ -217,11 +245,11 @@ Receipt verification options:
                      That digest itself, 64 hex, where the bytes are gone and the digest was kept.
   --response-body <file>
                      The response bytes as they were received, framing included for a streamed
-                     answer. Required for a v2 receipt, whose marking claim is a digest of one region
-                     read out of exactly these bytes.
+                     answer. Required: every receipt this format states names a marking, whose claim
+                     is a digest of one region read out of exactly these bytes.
   --response-hash <hex>
-                     The digest of those bytes, 64 hex, which carries a v1 receipt's check but not a
-                     v2 one's.
+                     The digest of those bytes, 64 hex. It cannot carry the check of a payload naming a
+                     marking on its own, because no payload this format states is silent about a mark.
 
 Handover options, the same for verify-handover, verify-pack and verify-export:
   --key <b64url>      A public key this run accepts a signature from, as the base64url of its 32
@@ -247,6 +275,44 @@ Handover options, the same for verify-handover, verify-pack and verify-export:
                      pack's whole bytes and never by a name, so the file handed is the file whose digest is
                      recomputed and compared, none handed is refused as the missing pack it is, and two handed is
                      refused as a call that designates no pack.
+  --intel-root <file> A root certificate this run stands behind, PEM or DER. Repeatable, one file per flag. On
+                     verify it is one family of anchors, and a policy document may leave that family to the roots
+                     bundled with the library. On these verbs it is the whole of what the material a pack carries
+                     is weighed under, and nothing bundled is consulted at all: a library default is not this
+                     caller's pin, and an appraisal that inherited one would report a verdict reached on a trust
+                     decision nobody made at this command line. A run that hands none weighs no anchor and says so
+                     beside each slot it could not weigh. The flag name is shared because the bytes are the same
+                     kind of thing; the rule around them is not, and that is what these two entries say.
+  --collateral-origin <slot>=<origin>
+                     Which path one anchor slot's material was published by, where the slot is col, the signed
+                     collateral, or val, the validity context, as a sealed receipt's anchor names them. Repeatable,
+                     one slot per flag. A pack states a digest and no path, so an appraisal has no origin until
+                     this flag gives one, and a slot no flag names is reported as not weighed with that reason
+                     rather than guessed at. An origin this path does not read answers with the sentence naming
+                     the two it serves, which is the answer and not a type error.
+  --collateral-platform <slot>=<sgx|tdx>
+                     Which Intel platform that slot's collateral is published for, and owed beside an origin
+                     because a path is a platform's path. A sealed receipt's own measurement names the environment
+                     it was taken on, which is a different register: a record saying snp+gpucc states nothing
+                     about whose TCB info it digested. Both numbers are printed, apart, in every row.
+  --collateral-cpu-type <slot>=<hex>
+                     The FMSPC that slot's collateral is indexed by, as twelve hex characters, for the one path
+                     that is indexed at all. The identity a signed document declares for itself is weighed against
+                     this and never taken from it: a document covering another machine is refused rather than read
+                     as an answer about the one in front of the reader.
+  --collateral-level <slot>=<arm>=<value>
+                     Which rung of the vendor's ladder the appraisal is asked about, as tcb-date=<instant> or
+                     tcb-composition=<hex>. The status the vendor signed beside exactly that rung is what comes
+                     back, because a ladder read at no rung is how an archived document becomes an answer about a
+                     platform nobody checked. A rung named by its composition is answered only where the document
+                     states that composition as hex text: Intel states it as the component numbers of an object,
+                     and no caller's text is compared with numbers this package has no rule to fold.
+                     None of these four flags demands an answer: what a pack carries is weighed when the
+                     caller says what it is and the bytes carry the chain the reading walks, and every
+                     slot the run could not ask about is printed as unweighed with the name of the flag
+                     that would have asked it. An appraisal never moves the exit code, which
+                     stays what the format said about the document: a stale, revoked, unreadable or unaskable
+                     answer is a row in the report and a run that exited 0.
 
 Credential and log options:
   --credentials <file>
@@ -279,7 +345,9 @@ Options for every command:
   --now <iso>        The clock the command reads instead of the wall clock: the
                      verification time for verify and verify-receipt, the whole-second createdAt or revokedAt of
                      a credential record for credential add and revoke, and the day a scrub
-                     marker is named for in accesslog scrub.
+                     marker is named for in accesslog scrub. For the two verify verbs a date
+                     outside the span the verifier weighs stamps in is refused by name, so a
+                     reading counted in the wrong scale never answers for the receipt.
   --json             Machine-readable output for every command: the verification result, a
                      credential listing or the record just touched, a scrub's counts and its
                      marker name. On keygen and credential add the object carries the one-time
@@ -353,6 +421,10 @@ async function main(argv: string[]): Promise<number> {
         'manifest-key': { type: 'string', multiple: true },
         key: { type: 'string', multiple: true },
         companion: { type: 'string', multiple: true },
+        'collateral-origin': { type: 'string', multiple: true },
+        'collateral-platform': { type: 'string', multiple: true },
+        'collateral-cpu-type': { type: 'string', multiple: true },
+        'collateral-level': { type: 'string', multiple: true },
         nonce: { type: 'string' },
         'request-body': { type: 'string' },
         'request-hash': { type: 'string' },

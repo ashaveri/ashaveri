@@ -27,8 +27,32 @@
     "tok": {
       "p": 128,
       "c": 64
-    }
+    },
+    "mk": {
+      "sch": "none",
+      "d": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    "sd": {
+      "name": "host clock",
+      "unc": null
+    },
+    "cva": {
+      "col": {
+        "p": "not-taken-in",
+        "r": "this corpus takes no collateral in"
+      },
+      "val": {
+        "p": "not-taken-in",
+        "r": "this corpus records no validity context"
+      }
+    },
+    "itm": [
+      {
+        "t": 1771999999,
+        "d": "470e120587587d63caaf8444582134ce765f471a7393d90a47a2ee06b1338862"
+      }
+    ]
   },
-  "signature": "46656a2c5903ac0e89ebd22b5aa41031886652dfddd31bc9288329e04d8c759be45036c26dd737bd22a26583519185e39871a241c76e5f41e73569dc70a01404",
-  "digestSha256": "a4d02bed1490ab17bd06da59e5bba2bb38da4c28e2e23244d6026dfc973d7f4e"
+  "signature": "69051fd4bccc09546207cd3dc00cfac57eb2b0c212665534cbb54ad6590681aef39442de542146d9f347623f93875cdd1c2bf15e6bab4fde89cb5b29110a070e",
+  "digestSha256": "264a97676964aacf056637bdc7e795a30b363b6e78d6b9295bf733254af91216"
 }

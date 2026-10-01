@@ -8,13 +8,13 @@
 ; different container: its own content type, its own version, its own refusals.
 ;
 ; Two differences make a new pack version the wrong instrument, and they are the whole reason this
-; file exists beside `pack.cddl` rather than as a `v: 2` inside it. The first is that an export has to
-; be able to say "no legal assessment was made" as a fact about itself, which pack v1 cannot express
+; file exists beside `pack.cddl` rather than as a second version of it. The first is that an export has
+; to be able to say "no legal assessment was made" as a fact about itself, which the pack cannot express
 ; because its duty block is mandatory and every one of its members states a period, a revision and a
 ; span. Absence is not a value a pack can hold, and a pack that carried no duty would be a pack whose
 ; reader could not tell "no duty applies" from "the writer forgot the block". The second is that an
-; export carries arbitrary originals: a contract, a screenshot, an export of a ticket, a receipt. Pack
-; v1 carries receipts and nothing else, because its walk hashes the exact receipt bytes of every item
+; export carries arbitrary originals: a contract, a screenshot, an export of a ticket, a receipt. A pack
+; carries receipts and nothing else, because its walk hashes the exact receipt bytes of every item
 ; and its span bounds every one of their stamps. Those are two different jobs done by two different
 ; documents, and a reader must never be able to confuse them, which is what the content type is for.
 ;
@@ -126,7 +126,7 @@ ExportAssessment = {
 ; export promise a chain it may not have; collapsing the third into the second would make emptiness a
 ; silence, which is what this container exists to refuse.
 ;
-; An empty collection has an explicit outcome, and that decision is the opposite of pack v1's on
+; An empty collection has an explicit outcome, and that decision is the opposite of the pack's on
 ; purpose. A pack of nothing has no first node, so its walk is vacuous and its span would read as a
 ; window that held nothing, which is a statement about retention and belongs to a retention artifact. An
 ; export of nothing is a real and useful answer to a real request: an auditor asks for everything held

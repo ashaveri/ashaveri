@@ -21,13 +21,43 @@ export interface OriginDeclaration {
   readonly documentPath: string;
   /** The query member carrying the CPU type, or null when the document is not indexed by one. */
   readonly cpuTypeMember: string | null;
-  /** What the signature has to look like: three dot-separated base64url parts, ES256 over the first two. */
+  /**
+   * Which envelope this path decodes, and which envelope the origin answers in.
+   *
+   * `envelope` is what `readSignedCollateral` walks: three dot-separated base64url parts whose certificates sit
+   * inside them, which is this path's rule and not the vendor's. `served` is the envelope the answer that this
+   * address returns is actually written in, or null where no served answer recorded below arrives in an
+   * envelope this package can weigh: a JSON wrapper whose signature sits in a hex member and whose issuer chain
+   * arrives beside the body, in the header `chainHeader` names. That is the pair `readServedCollateral` weighs,
+   * and it is what the gap between the two looked like from this file before there was a reader for the second
+   * half. The suite is the one on both sides, ES256 over P-256, spelled raw rather than as a JWS signature.
+   *
+   * Both are stated here rather than read off the bytes because which arm weighs an answer cannot be guessed
+   * from a body: a wrapper that starts with a brace and a token that starts with base64url are the same text to
+   * anything that looks, and a document is served in one envelope or the other because of who serves it.
+   */
   readonly signature: {
     readonly envelope: 'jws-compact';
+    readonly served: {
+      readonly envelope: 'json-hex-signature';
+      /** The wrapper member the hex `r` and `s` of the signature over the document member's own span arrive in. */
+      readonly signatureMember: string;
+    } | null;
     readonly algorithm: 'ES256';
     readonly mediaType: string;
     readonly certificateMember: 'x5c';
   };
+  /**
+   * The response header that carries this document's issuer chain, or null where no served answer recorded here
+   * names one. A signature is only as good as the path from it to a name a reader pinned, and that path arrives
+   * beside the body rather than inside it, so the bytes are kept as the vendor sent them and nothing here
+   * decodes, reorders or drops one.
+   *
+   * The spelling belongs to one document at one version, so it is read off that document's own cited answer,
+   * quoted in the note above each declaration below: a name remembered from a neighbouring document, or from
+   * the same document at another version, asks for a header no answer carries.
+   */
+  readonly chainHeader: string | null;
   /** Where the signed window is written, and inside which member of the payload it is written. */
   readonly window: {
     readonly documentMember: string | null;
@@ -40,6 +70,18 @@ export interface OriginDeclaration {
     readonly levelsMember: string | null;
     readonly levelDateMember: string | null;
     readonly levelCompositionMember: string | null;
+    /**
+     * How the member named by `levelCompositionMember` states a level's composition: as hex text this
+     * path could compare with a caller's, or as the component numbers the vendor lists inside an object.
+     *
+     * A composition stated as component numbers is read for nothing here. No served document spells a
+     * composition as hex text, and which numbers a caller's hex would stand for, in what order, and
+     * whether the PCE SVN is one of them, is a rule the vendor states nowhere in a body. Inventing one to
+     * make an arm of a query answerable would be this package deciding what a platform reports rather
+     * than reading what the vendor signed, so such a question is refused and the refusal says what the
+     * document actually states.
+     */
+    readonly levelCompositionStatedAs: 'hex-text' | 'component-numbers';
     readonly statusMember: string;
   };
   readonly timeoutMs: number;
@@ -90,21 +132,38 @@ const REFUSALS = {
   anchor: 'COLLATERAL_ANCHOR_NOT_PINNED',
 } as const satisfies OriginDeclaration['refusals'];
 
-/** The rule a kept blob is held under, which is the same for both documents of this path. */
+/**
+ * The rule a kept blob is held under, which is the same for both documents of this path.
+ *
+ * A level is read out of a list the document states per level, so a kept blob answers about one rung of
+ * that ladder and its key has to name the rung, for both documents.
+ */
 const CACHE_RULE = {
   answersCurrentQuestions: false,
   retainUntil: 'vendor-next-update',
 } as const;
 
 /**
- * Intel's own words about a platform level. `OK` is the only one that says nothing is owed, and the
- * out-of-date spellings are the ones that say the vendor no longer stands behind the level. The
- * `OutOfDate:ConfigurationNeeded` colon form is kept beside its underscore twin because the two
- * documents of this path have spelled the same statement both ways, and reading one as the other would
- * turn a revoked platform into an unclassified one.
+ * Intel's own words about a platform level, taken from the levels the vendor has published.
+ *
+ * `UpToDate` and `OutOfDate` are the only two words a published level carries, on either platform, at
+ * either version, on either document: the first is the vendor standing
+ * behind a level and the second is the vendor no longer standing behind it. `OK`, the word this list used
+ * to hold as the only trusted one, is no word the vendor publishes, so the trusted side of this vocabulary
+ * is the one
+ * word the vendor writes and nothing this repository remembered.
+ *
+ * The two compound spellings stay on the revoked side. They are no words a published level carries; a word
+ * that says the vendor no longer stands behind a level belongs on that side on any spelling of it, while
+ * dropping one would answer a revocation with the refusal for a word this package has no rule for.
+ *
+ * A word outside both lists is refused with the document's text quoted rather than sorted into the nearer
+ * list: a status naming a mitigation is a claim about something other than "trusted" or "revoked", and
+ * deciding what an appraisal should make of a word this package has not read from the vendor is a
+ * decision, not a reading.
  */
 const STATUS_VOCABULARY = {
-  trusted: ['OK'],
+  trusted: ['UpToDate'],
   revoked: ['OutOfDate', 'OutOfDateConfigurationNeeded', 'OutOfDate:ConfigurationNeeded', 'Revoked'],
 } as const;
 
@@ -115,6 +174,14 @@ const INTEL_PATH = {
   maxResponseBytes: 65536,
   signature: {
     envelope: 'jws-compact',
+    /**
+     * Both documents of this host are answered in the one served envelope, so it is stated once here rather than
+     * per declaration: the body is `{tcbInfo, signature}` or `{enclaveIdentity, signature}`, and the signature is
+     * 128 lowercase hex characters, the raw `r` and `s` of a P-256 signature over the document member's own span
+     * inside that body. What differs between the two documents is where the chain arrives, which is the header
+     * each declaration names for itself below.
+     */
+    served: { envelope: 'json-hex-signature', signatureMember: 'signature' },
     algorithm: 'ES256',
     mediaType: 'application/jose',
     certificateMember: 'x5c',
@@ -124,43 +191,123 @@ const INTEL_PATH = {
 } as const;
 
 /**
- * Intel's TCB Info for one CPU type: the levels the vendor has published, each with the status it
- * signed beside it and the window the whole statement stands for.
+ * Intel's TCB Info for one CPU type: the levels the vendor has published, each with the status it signed
+ * beside it and the window the whole statement stands for.
+ *
+ * Every member name and status word below is settled against the vendor's own served answer. Fetched from
+ * `https://api.trustedservices.intel.com/sgx/certification/v4/tcb?fmspc=00806F050000` and
+ * `https://api.trustedservices.intel.com/tdx/certification/v4/tcb?fmspc=00806F050000`, each of which
+ * answered 200 with `content-type: application/json`, and from the same path at `v3`, which answered the
+ * same document one version back. That FMSPC is not guessed: it is the six bytes of the SGX TCB extension
+ * (OID `1.2.840.113741.1.13.1`) of the Intel-signed PCK leaf certificate in
+ * `packages/attest-core/test/fixtures/tdx-quote-v4.bin`, so it is a type Intel attested for a machine this
+ * repository carries evidence from.
+ *
+ * The route names the query member it takes. The same path with that member absent, spelled `xyz`, or
+ * holding text that is not twelve hex characters answers 400 with an empty body, and one holding
+ * a well-formed type the service has no document for answers 404 with an empty body, while an unknown path
+ * on that host answers a JSON body naming a status code instead, so those empty answers belong to the `tcb`
+ * route. `pceid` is answered 400 on this route in either case, so the one identity this document is
+ * indexed by is `fmspc`, and the request member and the member naming the identity the signed body
+ * declares are the one name, and no published request or answer carries a member named `fmspcid`.
+ *
+ * What the served body states, member by member, against what this declaration reads:
+ * - the body holds `tcbInfo` and `signature`. `tcbInfo` holds `id`, `version`, `issueDate`, `nextUpdate`,
+ *   `fmspc`, `pceId`, `tcbType`, `tcbEvaluationDataNumber` and `tcbLevels`, and the TDX body holds
+ *   `tdxModule` and `tdxModuleIdentities` beside them, the entries of the latter carrying their own
+ *   `tcbLevels`. Of those, `id`, `version`, `pceId`, `tcbType`, `tcbEvaluationDataNumber`, `tdxModule`,
+ *   `tdxModuleIdentities` and `advisoryIDs` are read by nothing here.
+ * - `window` reads `tcbInfo` and, inside it, `issueDate` and `nextUpdate`. Both are spelled as UTC
+ *   instants with no fraction, which is a shape `read.ts` accepts.
+ * - `identity.cpuTypeMember` reads `fmspc`, the member named above.
+ * - the levels list is `tcbLevels`, and its entries hold `tcb`, `tcbDate`, `tcbStatus` and, where the
+ *   vendor has an advisory to name, `advisoryIDs`. That is `levelsMember`, `levelDateMember` and
+ *   `statusMember`.
+ * - a level's composition is `tcb`, and the vendor states it as an object of component numbers:
+ *   `sgxtcbcomponents`, sixteen entries each holding `svn` and, where the component is one the vendor
+ *   classifies, `category` and `type`, together with `pcesvn`, and the TDX body states
+ *   `tdxtcbcomponents` beside them. The `v3` body spells the same sixteen numbers flat, as
+ *   `sgxtcbcomp01svn` through `sgxtcbcomp16svn` with `pcesvn`. No published document spells a composition
+ *   in hex, which is what `levelCompositionStatedAs` records and what
+ *   makes a `tcb-composition` question unanswerable on this path rather than unanswered.
+ * - the two status words a served level carries are `UpToDate` and `OutOfDate`, and the
+ *   vocabulary above reads exactly those.
+ * - the envelope is not the one `readSignedCollateral` walks. The served body is a JSON object carrying a
+ *   `signature` member of 128 hex characters, which is 64 bytes and the raw `r` and `s` of an ECDSA P-256
+ *   signature taken over the span of `tcbInfo` inside that body text, and the issuer chain arrives beside it in
+ *   the response's `TCB-Info-Issuer-Chain` header as URL-encoded PEM. No `x5c`, no three-part envelope and no
+ *   JWS is in the answer, so the JWS arm refuses a document of the served shape before any
+ *   member of it is read, and a case in `test/read.test.ts` pins that refusal rather than smoothing it over.
+ *   The signed-bytes rule is a fact about the shape the answer arrives in: the signature holds over the
+ *   span as it arrived, and it does not hold over a sorted-key re-serialization of
+ *   the parsed member, which is why `readServedCollateral` takes the span out of the text rather than re-making
+ *   it. The two envelopes are weighed apart rather than reconciled into one, because the chain a reader walks
+ *   has to arrive with the bytes it signs: the pair is this host's answer, and a body that arrived without its
+ *   header is a body alone, which is all material that arrives inside a pack can be. What a served answer
+ *   *states* is nobody's claim here: these rules are about the shape the answer arrives in.
  */
 export const INTEL_TCB_INFO: OriginDeclaration = {
   ...INTEL_PATH,
   name: 'intel-tcb-info',
   documentPath: 'tcb',
   cpuTypeMember: 'fmspc',
+  /** The header the citation above records this document's chain arriving in, at the v4 address this path asks. */
+  chainHeader: 'TCB-Info-Issuer-Chain',
   window: { documentMember: 'tcbInfo', signedMember: 'issueDate', nextUpdateMember: 'nextUpdate' },
   identity: {
-    cpuTypeMember: 'fmspcid',
-    levelsMember: 'tcb',
+    /** The vendor's own member, the same name the request is built with. See the citation above. */
+    cpuTypeMember: 'fmspc',
+    levelsMember: 'tcbLevels',
     levelDateMember: 'tcbDate',
     levelCompositionMember: 'tcb',
+    levelCompositionStatedAs: 'component-numbers',
     statusMember: 'tcbStatus',
   },
   cache: { keyMembers: ['origin', 'platform', 'cpuType', 'level'], ...CACHE_RULE },
 };
 
 /**
- * Intel's QE Identity: the vendor's statement about the quoting enclave, which carries one status for
- * the whole document rather than a ladder of levels.
+ * Intel's QE Identity: the vendor's statement about the quoting enclave.
+ *
+ * Settled the same way, against `https://api.trustedservices.intel.com/sgx/certification/v4/qe/identity`,
+ * which answers 200 with `content-type: application/json`, no query member on the request and no CPU type
+ * named anywhere in the answer, which is what confirms both `cpuTypeMember` slots as null.
+ *
+ * The served body holds `enclaveIdentity` and a hex `signature`, and every member this document names
+ * lives inside `enclaveIdentity`: `id`, `version`, `issueDate`, `nextUpdate`, `tcbEvaluationDataNumber`,
+ * `miscselect`, `miscselectMask`, `attributes`, `attributesMask`, `mrsigner`, `isvprodid` and `tcbLevels`.
+ * The window is therefore read inside `enclaveIdentity`, which is the wrapper `window.documentMember`
+ * names, and not at the top of the payload, where the served body states nothing of the kind. The status
+ * is not one statement for the whole document either: the vendor writes `tcbStatus` per entry of
+ * `tcbLevels`, each entry holding `tcb`, `tcbDate` and `tcbStatus`, and `tcb` is `{isvsvn}` there, a
+ * component number rather than the array of them this document's twin states. The two words a level carries
+ * are the `UpToDate` and `OutOfDate` of the vocabulary above. A kept QE Identity blob
+ * answers about one rung of that ladder, so its key names the rung.
+ *
+ * The envelope is the same one the TCB Info document is answered in, one name wider: this document's issuer
+ * chain arrives in the response's `SGX-Enclave-Identity-Issuer-Chain` header, named for the enclave identity
+ * rather than for the TCB Info, so a reader holding only this body walks no chain to a pinned root and the pair
+ * is what `readServedCollateral` takes. Its signature covers the span of `enclaveIdentity` inside that body
+ * text, the same rule the TCB Info document is answered by, and a rule about the shape the answer arrives
+ * in rather than about what any of it states.
  */
 export const INTEL_QE_IDENTITY: OriginDeclaration = {
   ...INTEL_PATH,
   name: 'intel-qe-identity',
   documentPath: 'qe/identity',
   cpuTypeMember: null,
-  window: { documentMember: null, signedMember: 'issueDate', nextUpdateMember: 'nextUpdate' },
+  /** The header the note above records this document's chain arriving in, spelled after the enclave identity. */
+  chainHeader: 'SGX-Enclave-Identity-Issuer-Chain',
+  window: { documentMember: 'enclaveIdentity', signedMember: 'issueDate', nextUpdateMember: 'nextUpdate' },
   identity: {
     cpuTypeMember: null,
-    levelsMember: null,
-    levelDateMember: null,
-    levelCompositionMember: null,
+    levelsMember: 'tcbLevels',
+    levelDateMember: 'tcbDate',
+    levelCompositionMember: 'tcb',
+    levelCompositionStatedAs: 'component-numbers',
     statusMember: 'tcbStatus',
   },
-  cache: { keyMembers: ['origin', 'platform'], ...CACHE_RULE },
+  cache: { keyMembers: ['origin', 'platform', 'level'], ...CACHE_RULE },
 };
 
 export const SERVED_ORIGINS: readonly ServedCollateralOrigin[] = ['intel-tcb-info', 'intel-qe-identity'];

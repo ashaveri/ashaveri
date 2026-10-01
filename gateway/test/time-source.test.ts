@@ -17,6 +17,7 @@ import {
   type TimeSource,
   type WindowClaim,
 } from '../src/store.js';
+import { mockDeployment } from '../src/deployment.js';
 import { fixedClock } from './helpers.js';
 
 /**
@@ -31,6 +32,10 @@ import { fixedClock } from './helpers.js';
  * issued under comes back with the record: it comes back through the store that reads it, and the last
  * group states where that stops short, which is a finding about the record layout rather than a detail
  * of this file.
+ *
+ * The fourth group below is the one part of this suite that does read a gateway, because the promise
+ * it holds is about a stamp taken outside the store: an evidence bundle carries the name of the source
+ * that read it, and a bundle stamped from a source nobody handed it has no such name to carry.
  */
 
 /** Set from the environment so a red run replays exactly: `FC_SEED=1234` on the package's test run. */
@@ -281,5 +286,44 @@ describe('the rate a window is derived at', () => {
     expect(unmeasured).toContain('as read from the source named fixture clock');
     expect(unmeasured).toContain('on which nobody measured an uncertainty');
     expect(unmeasured).not.toContain('resolve no distance above');
+  });
+});
+
+describe('the source a guest stamps its evidence with', () => {
+  /** An instant no platform clock is near, so a stamp that matches it was not read off one. */
+  const COLLECTED_AT = 1_500_000_000;
+
+  it('stamps an attestation at the instant the source it was built with reads', async () => {
+    const deployment = mockDeployment({ time: fixedClock(() => COLLECTED_AT) });
+    const bundle = await deployment.attestation(null);
+    // Had this bundle fallen back to `HOST_CLOCK_SOURCE`, `timestamp` would be the current wall second,
+    // years on either side of the instant above, so this equality is the one that goes red. What it
+    // would miss is the whole of the next case: a source that reads the right instant and is not the
+    // source the operator named still passes a number check, and only the name it reports can show the
+    // difference between a bounded clock and an unmeasured one wearing its reading.
+    expect(bundle.timestamp).toBe(COLLECTED_AT);
+    expect(bundle.stamped).toEqual({ name: 'fixture clock', uncertaintySeconds: null });
+  });
+
+  it('reports the name the guest was given when two sources read one instant', async () => {
+    // One reading, one declared bound, two names: nothing but the name tells these two guests apart,
+    // which is the whole reason the assertions below are about a name and not about an instant.
+    const read = (): number => COLLECTED_AT;
+    const bound = 3;
+    const named = (name: string): TimeSource => ({ name, uncertaintySeconds: bound, nowSeconds: read });
+    const disciplined = mockDeployment({ time: named('disciplined clock') });
+    const ratcheted = mockDeployment({ time: named('ratcheted clock') });
+    const first = await disciplined.attestation(null);
+    const second = await ratcheted.attestation(null);
+    expect(first.timestamp).toBe(second.timestamp);
+    expect(first.stamped).toEqual({ name: 'disciplined clock', uncertaintySeconds: bound });
+    expect(second.stamped).toEqual({ name: 'ratcheted clock', uncertaintySeconds: bound });
+    // And the shipped fallback stays a named source rather than a bare reading, so a deployment that
+    // wires nothing is served the label saying nobody measured this host's own claim.
+    const defaulted = await mockDeployment().attestation(null);
+    expect(defaulted.stamped).toEqual({
+      name: HOST_CLOCK_SOURCE.name,
+      uncertaintySeconds: HOST_CLOCK_SOURCE.uncertaintySeconds,
+    });
   });
 });

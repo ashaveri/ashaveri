@@ -9,8 +9,8 @@ import {
   signingKeyFromSeed,
   type Marking,
   type ReceiptPayload,
-  type ReceiptPayloadV1,
   type SigningKey,
+  type VerifiedReceipt,
 } from '@ashaveri/receipt';
 import { AshaveriClient, verifyCompletionReceipt, wrapOpenAI, type ChatCompletionChunk } from '../src/index.js';
 import {
@@ -26,13 +26,18 @@ import {
  * kept the bytes and thought to look.
  *
  * Most of what is below goes through a live verification: the fake gateway writes a marked response
- * and the v2 receipt that attests it, and the client reads both and decides. Three things get pinned
+ * and the receipt that attests it, and the client reads both and decides. Three things get pinned
  * together. The region the client checks is the one the published rule names, so the client's verdict
  * and a third party's detector verdict are about the same bytes. The failure a marking produces is
  * `MARK_MISMATCH`, and `INVALID_SIGNATURE` stays the code for a receipt that is not authentic: a
  * reader told "the mark does not match" needs to know the document itself verified. And the bytes the
  * mark is read out of have to be the bytes the receipt attests, which is checked rather than assumed,
  * because a region lifted out of a document nobody signed is a verdict about the wrong response.
+ *
+ * The claim belongs to the member, not to a number: every receipt this format writes names `mk` and
+ * attests one region, so the step is taken because the member is there and every case below is
+ * answered by that. A deployment that was never asked to mark names the empty region rather than
+ * saying nothing about a mark, which is the other half of what the cases hold.
  */
 
 const MESSAGES = [{ role: 'user' as const, content: 'hi' }];
@@ -80,9 +85,9 @@ function markedBody(...members: string[]): string {
     .join('')}}`;
 }
 
-/** A v2 receipt over `responseBytes`, attesting `mk`, signed by `by`. */
-function receiptOver(responseBytes: Uint8Array, mk: Marking, by: SigningKey = KEY): Uint8Array {
-  const fields: Omit<ReceiptPayloadV1, 'v'> = {
+/** The twelve fields every receipt carries, over `responseBytes`, named apart from the five it states about itself. */
+function fieldsOver(responseBytes: Uint8Array): Omit<ReceiptPayload, 'v' | 'mk' | 'sd' | 'cva' | 'itm'> {
+  return {
     iss: 'handbuilt-issuer',
     ins: 'handbuilt-instance',
     iat: FAKE_IAT,
@@ -96,24 +101,46 @@ function receiptOver(responseBytes: Uint8Array, mk: Marking, by: SigningKey = KE
     epk: 0,
     tok: { p: 1, c: 1 },
   };
-  const payload: ReceiptPayload = { v: 2, ...fields, mk };
+}
+
+/**
+ * The one receipt this format writes over `responseBytes`: the twelve shared fields, the marking the case
+ * names, and the four members a receipt states about itself. The disclosure, the anchor and the item list
+ * are filled the way an issuing gateway fills them, because the claim under test is `mk`'s and the rest of
+ * the document has to be a document a reader of this build can open.
+ */
+function receiptOver(responseBytes: Uint8Array, mk: Marking, by: SigningKey = KEY): Uint8Array {
+  const fields = fieldsOver(responseBytes);
+  const payload: ReceiptPayload = {
+    ...fields,
+    v: 1,
+    mk,
+    sd: { name: 'host clock', uncertaintySeconds: null },
+    cva: {
+      collateral: { presence: 'held', sha256: hashRequest(utf8('the collateral the appraisal ran on')) },
+      validity: { presence: 'not-taken-in', reason: 'the collector read no window' },
+    },
+    itm: [{ t: fields.iat, d: hashRequest(utf8('the first item of the response')) }],
+  };
   return issueReceipt(payload, by);
 }
 
 /**
  * One live verification on hand-built bytes. `responseHash` defaults to the digest of the bytes,
  * which is what a client that read them straight would hand over; a case that means to lie about one
- * of the two names the other itself.
+ * of the two names the other itself. The receipt that comes back is returned rather than discarded,
+ * because the cases that expect a refusal and the cases that expect to get through are answered by
+ * the same call and only the second one has an outcome to state.
  */
-function checkLive(receiptBytes: Uint8Array, responseBytes: Uint8Array, verifyKey: Uint8Array, responseHash?: Uint8Array) {
-  verifyCompletionReceipt({
+function checkLive(receiptBytes: Uint8Array, responseBytes: Uint8Array, verifyKey: Uint8Array, responseHash?: Uint8Array): VerifiedReceipt {
+  return verifyCompletionReceipt({
     receiptBytes,
     nonce: new Uint8Array(16).fill(3),
     requestHash: hashRequest(utf8('the request')),
     responseHash: responseHash ?? hashRequest(responseBytes),
     responseBytes,
     verifyKey,
-    now: FAKE_IAT * 1000,
+    nowMillis: FAKE_IAT * 1000,
   });
 }
 
@@ -123,7 +150,7 @@ describe('a live client checking the mark it was sent', () => {
       model: MODEL,
       messages: MESSAGES,
     });
-    expect(result.receipt?.payload.v).toBe(2);
+    expect(result.receipt?.payload.v).toBe(1);
     const member = (result.completion as unknown as Record<string, unknown>)[MARKING_MEMBER_NAME];
     expect(JSON.stringify(member)).toContain(PROVENANCE_V1_MEMBER_SCHEME);
   });
@@ -137,7 +164,7 @@ describe('a live client checking the mark it was sent', () => {
     for await (const chunk of stream) {
       chunks.push(chunk);
     }
-    expect((await stream.receipt)?.payload.v).toBe(2);
+    expect((await stream.receipt)?.payload.v).toBe(1);
     // The mark rode inside a well-formed chunk, so the consumer of the stream saw it as one, and it
     // is the last chunk: the frame goes ahead of the sentinel, not after the stream has closed.
     expect(chunks[chunks.length - 1]).toMatchObject({ choices: [] });
@@ -152,19 +179,22 @@ describe('a live client checking the mark it was sent', () => {
       model: MODEL,
       messages: MESSAGES,
     });
-    expect(buffered.receipt?.payload).toMatchObject({ v: 2, mk: { sch: 'none' } });
+    expect(buffered.receipt?.payload).toMatchObject({ v: 1, mk: { sch: 'none' } });
     expect((buffered.completion as unknown as Record<string, unknown>)[MARKING_MEMBER_NAME]).toBeUndefined();
 
     const stream = await clientFor({ marking: 'none' }).chat.completions.stream({ model: MODEL, messages: MESSAGES });
     for await (const chunk of stream) {
       expect((chunk as unknown as Record<string, unknown>)[MARKING_MEMBER_NAME]).toBeUndefined();
     }
-    expect((await stream.receipt)?.payload.v).toBe(2);
+    expect((await stream.receipt)?.payload.v).toBe(1);
   });
 
-  it('still accepts a v1 receipt, which carries no marking claim to check', async () => {
+  it('accepts a completion from a deployment that was never asked to mark, and reads its declared absence', async () => {
+    // No marking option at all is the same document as the one that declares none: the member is
+    // required, so this receipt states the empty region rather than leaving the question open.
     const result = await clientFor({}).chat.completions.create({ model: MODEL, messages: MESSAGES });
     expect(result.receipt?.payload.v).toBe(1);
+    expect(result.receipt?.payload.mk).toEqual({ sch: 'none', d: hashRequest(emptyRegion()) });
   });
 
   it('checks the mark on the wrapper path too, where the bytes arrive through a tee', async () => {
@@ -176,14 +206,16 @@ describe('a live client checking the mark it was sent', () => {
       body: JSON.stringify({ model: MODEL, messages: MESSAGES, stream: true }),
     });
     expect(await response.text()).toContain('"choices":[]');
-    expect((await wrapped.ashaveri.getReceipt(FAKE_RECEIPT_ID)).payload.v).toBe(2);
+    expect((await wrapped.ashaveri.getReceipt(FAKE_RECEIPT_ID)).payload.v).toBe(1);
   });
 });
 
 describe('what a live client refuses', () => {
   it('refuses a marked response whose digest does not cover its region', async () => {
-    const misattested = (payload: ReceiptPayload): ReceiptPayload =>
-      payload.v === 2 ? { ...payload, mk: { ...payload.mk, d: hashRequest(utf8(memberText(FAKE_IAT + 1))) } } : payload;
+    const misattested = (payload: ReceiptPayload): ReceiptPayload => ({
+      ...payload,
+      mk: { ...payload.mk, d: hashRequest(utf8(memberText(FAKE_IAT + 1))) },
+    });
     const failure = await failureFrom(() =>
       clientFor({ marking: 'provenance-v1', mutatePayload: misattested }).chat.completions.create({
         model: MODEL,
@@ -196,8 +228,10 @@ describe('what a live client refuses', () => {
   });
 
   it('refuses the same on a stream, where a whole frame is the region', async () => {
-    const misattested = (payload: ReceiptPayload): ReceiptPayload =>
-      payload.v === 2 ? { ...payload, mk: { ...payload.mk, d: new Uint8Array(32).fill(4) } } : payload;
+    const misattested = (payload: ReceiptPayload): ReceiptPayload => ({
+      ...payload,
+      mk: { ...payload.mk, d: new Uint8Array(32).fill(4) },
+    });
     const failure = await streamedFailure({ marking: 'provenance-v1', mutatePayload: misattested });
     expect(failure.name).toBe('ReceiptError');
     expect(failure.code).toBe('MARK_MISMATCH');
@@ -244,7 +278,7 @@ describe('what a live client refuses', () => {
     for await (const chunk of stream) {
       chunks.push(chunk);
     }
-    expect((await stream.receipt)?.payload.v).toBe(2);
+    expect((await stream.receipt)?.payload.v).toBe(1);
     expect(chunks[chunks.length - 1]).toMatchObject({ choices: [] });
   });
 
@@ -282,6 +316,32 @@ describe('what a live client refuses', () => {
   it('accepts the empty region over a response that carries no mark', () => {
     const responseBytes = utf8('{"id":"chatcmpl-handbuilt","object":"chat.completion","choices":[]}');
     checkLive(receiptOver(responseBytes, { sch: 'none', d: hashRequest(emptyRegion()) }), responseBytes, KEY.publicKey);
+  });
+
+  it('checks the marking claim of a receipt that states its disclosures as well as its mark', async () => {
+    // The step that decides this is taken because the payload names `mk`, and not because of the number
+    // the document wears. The half below that refuses is the reason: a receipt signed over a response
+    // whose marked region digests elsewhere passes the signature, the nonce, both digests, the clock and
+    // the pins, and answers verified with the required step never run. Skip the step for a document that
+    // also carries `sd`, `cva` and `itm` and this case stops refusing, because nothing else about the
+    // bytes moves.
+    const responseBytes = utf8(markedBody(memberText(FAKE_IAT)));
+    const attested: Marking = { sch: 'provenance-v1', d: hashRequest(utf8(memberText(FAKE_IAT))) };
+    const mismatched: Marking = { sch: 'provenance-v1', d: hashRequest(utf8(memberText(FAKE_IAT + 60))) };
+
+    const failure = await failureFrom(async () =>
+      checkLive(receiptOver(responseBytes, mismatched), responseBytes, KEY.publicKey),
+    );
+    expect(failure.name).toBe('ReceiptError');
+    expect(failure.code).toBe('MARK_MISMATCH');
+    expect(failure.message).toContain('mk.d');
+
+    // The same document with the region it does attest: the step runs, the region matches, and the
+    // receipt verifies. A case that only showed the refusal would not tell a widened check that
+    // refused everything apart from a correct one.
+    const verified = checkLive(receiptOver(responseBytes, attested), responseBytes, KEY.publicKey);
+    expect(verified.payload.v).toBe(1);
+    expect(verified.payload).toMatchObject({ mk: { sch: 'provenance-v1' } });
   });
 
   it('refuses bytes handed for the marking check that the receipt does not attest, even when a region in them digests right', async () => {

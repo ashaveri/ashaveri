@@ -63,13 +63,35 @@ Each row says what the member states, what a reader may conclude from it, and wh
 | `acquired.sourceStatedAt` | the timestamp the source claimed, or none | that the two stamps agree, or that the record says how they do not | that either is right |
 | `manifests.deployment` | the manifest the source served, as served | which pins were in force at that instant, from a document rather than a summary | that the manifest was this deployment's: the record authenticates nothing, and a sealed manifest is only attributed by a reader that holds the key that signed it |
 | `check.policyVersion`, `policyDigest` | which policy rules, and the digest of the document used | which pins the check read, given the document | that the check was right to read them |
-| `check.receiptFormatVersion` | which receipt version the check read | that a reader reads the bytes at the version named and refuses one it does not | that the version was current, which it need not be |
+| `check.receiptFormatVersion` | which receipt version the check read, of the one version the format defines | that a reader reads the bytes at the version named and refuses one it does not | that the version was current, which it need not be |
 | `check.verifierVersion` | which verifier build ran | which procedure produced the context | that the procedure was correct |
 | `check.appraisedAt` | when the appraisal ran, on our clock | that the appraisal could have seen these bytes | anything about validity, which lives in `context.validity` |
 | `context.collateral` | the vendor chain the bytes were appraised against | that a verdict about the signature has something to stand on | that the chain was this platform's |
 | `context.validity` | the window and the appraisal recorded | that the verdict is about a window rather than forever | that the window was open when it says it was, which a reader cannot re-run |
 | `trust.roots` | which references the check believed | that a caller who pinned the same bytes can agree, and one who pinned others is refused | that an unnamed or unpinned root was any root in particular |
 | `trust.limits` | how far the check let a clock sit from the bytes | that the verdict was reached under a window this caller would accept | a pass. The reader runs its own windows and reports a difference |
+
+## Which receipt version a record may name
+
+`check.receiptFormatVersion` carries `1`, which is every payload version
+[`receipt.cddl`](../packages/receipt/receipt.cddl) defines and every version `@ashaveri/receipt` parses.
+The list is the same on both sides of the reader: `enum: [1]` in the published schema and
+`IMPLEMENTED_RECEIPT_FORMAT_VERSIONS` in `capture.ts`, held to each other by
+`packages/sdk/test/capture.test.ts` at the boundary of the list, so a version gained on one side without the
+other fails the assertion belonging to the side that moved rather than passing in silence.
+
+That set is the format's and not a narrowing of it, and the reason is the gateway's: a deployment signs the
+one receipt version for every response whose bytes frame into items, and serves no completion at all for a
+stream that sent no `data:` frame. A record naming `1` is therefore the ordinary output of a check a
+collector will be written against, and refusing one would leave a client unable to record what it verified.
+A version outside the one the format declares is still refused, by the schema and by the reader alike, with `UNSUPPORTED_VERSION` naming what
+the record stated and what the reader implements; the refusal is of a number no format has used, measured
+against the set the format owns, and not of a set this reader chose to keep narrow.
+
+The same walk reads `original.sourceKind` against the `SOURCE_KINDS` list the reader and its type are made
+of, which is the coupling that holds `check.receiptFormatVersion` to its enum: a kind added to one side
+alone is a document the published schema refuses and the accepted type admits, and that is the disagreement
+a collector outside this repository would only meet in production.
 
 ## What the reader refuses
 
@@ -85,6 +107,9 @@ Each row says what the member states, what a reader may conclude from it, and wh
 - a signature that does not hold over the stored bytes: `INVALID_SIGNATURE` or `KID_MISMATCH`
 - a root the record relied on that is none of the caller's: `EVIDENCE_VERIFICATION_FAILED`
 - a receipt or evidence stamp outside the caller's own window: `STALE_RECEIPT`, `STALE_EVIDENCE`
+- a clock the caller handed that is not a whole number of seconds inside the span the reader weighs
+  stamps in: `VERIFICATION_TIME_OUT_OF_RANGE`, a `ReceiptError`, raised before either window runs, so a
+  caller who mixed the two scales is told about their reading rather than about the document
 
 Two codes were added to `SdkErrorCode` for this record rather than borrowing `NOT_RECEIPTED`, which is
 the client's word for a gateway that answered without a receipt header and says nothing about a file a
@@ -113,7 +138,9 @@ thing are one record and a re-encoded original is a different one.
 
 It states no retention duty period, no compliance result, no count of retained documents, and no verdict
 of any kind. It cannot show that bytes were produced by a genuine device: the vendor chain walk belongs to
-`verifyCompletionEvidence`, and this record hands that walk the bytes and the collateral it is about. It
+`verifyCompletionEvidence`, which runs on the evidence document and the caller's own anchors and takes no
+collateral input, and this record stores the bytes and the collateral slot beside them without handing either
+to that walk; its own reader repeats the receipt leg and names the vendor leg as one it did not run. It
 cannot show that the source was honest, only that one party said what it saw and when. It cannot make
 custody into verification, and the reader is written so that a caller who wants that must notice the
 difference in the verdict's own two halves.

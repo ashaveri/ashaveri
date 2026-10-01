@@ -81,7 +81,7 @@ async function verifyThrough(
     responseBytes: RESPONSE_BYTES,
     // Read at the instant it was issued: these cases are about which key held which epoch, and a clock
     // that ran ahead of the receipt would answer a different question with a different code.
-    now: payload.iat * 1000,
+    nowMillis: payload.iat * 1000,
   });
   const verdict = await session.adjudicateEpoch({
     kid: toHex(verified.header.kid),

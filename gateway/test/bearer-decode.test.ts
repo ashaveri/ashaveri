@@ -129,7 +129,7 @@ function makeStore(credentials: readonly CredentialRecord[]): CredentialStore {
   return new CredentialStore({
     file: { version: 1, credentials: [...credentials] },
     allowBearer: true,
-    now: () => CLOCK_MS,
+    nowMillis: () => CLOCK_MS,
   });
 }
 
@@ -390,7 +390,7 @@ describe('the digest of nothing: refused as a file, and a secret anyone can pres
   });
 
   it('cannot be enrolled by the generator, which draws 32 random bytes', () => {
-    const made = newBearerCredential({ id: 'generated', now: CLOCK_SECONDS });
+    const made = newBearerCredential({ id: 'generated', nowSeconds: CLOCK_SECONDS });
     expect(made.secret.length).toBe(32);
     expect(toHex(made.record.secretHash ?? new Uint8Array(0))).not.toBe(NOTHING_DIGEST_HEX);
   });

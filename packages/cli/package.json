@@ -20,6 +20,7 @@
   },
   "dependencies": {
     "@ashaveri/attest-core": "workspace:*",
+    "@ashaveri/collateral": "workspace:*",
     "@ashaveri/receipt": "workspace:*",
     "@ashaveri/sdk": "workspace:*",
     "@noble/hashes": "^2.4.0"

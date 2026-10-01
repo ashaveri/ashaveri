@@ -1,10 +1,21 @@
 import { collateralRefusal, quoteOrDigest, type CollateralRefusal } from './errors.js';
+import { utf8 } from './bytes.js';
 import type { OriginDeclaration } from './intel-origin.js';
 import type { CollateralTransport } from './types.js';
 
-/** The bytes an answer arrived with, and the instant they were seen. */
+/** The bytes an answer arrived with, the issuer chain that arrived beside them, and the instant they were seen. */
 export interface FetchedCollateral {
   readonly bytes: Uint8Array;
+  /**
+   * The issuer chain header exactly as it arrived, or null where the declaration names no header or the answer
+   * carried none. Nothing here decodes the spelling the origin used, splits one certificate from the next or
+   * reorders them: a signature is weighed against the bytes that came beside it, and a copy this path had
+   * rewritten is no longer those bytes. A reader that wants the text inside decodes it where it decides to.
+   *
+   * An absent header answers with no chain rather than with a refusal: the body is the document the origin
+   * answered with, and this path reads no less of it because one header was left out.
+   */
+  readonly chain: Uint8Array | null;
   /**
    * Unix seconds at the instant the last byte landed, on the clock this run was given. It is the only
    * thing that separates an answer from an archive, which is why it travels beside the bytes.
@@ -75,7 +86,9 @@ export async function fetchFromOrigin(
   if (bytes.byteLength === 0) {
     return { refusal: collateralRefusal(declaration.refusals.envelope, `${url} answered with an empty body`) };
   }
-  return { fetched: { bytes, observedAt: (context.clock ?? wallClock)() } };
+  const named = declaration.chainHeader === null ? null : response.headers.get(declaration.chainHeader);
+  const chain = named === null || named.length === 0 ? null : utf8(named);
+  return { fetched: { bytes, chain, observedAt: (context.clock ?? wallClock)() } };
 }
 
 /** Unix seconds, which is the unit every instant in this package is stated in. */

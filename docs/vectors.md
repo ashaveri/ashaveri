@@ -1,9 +1,11 @@
 # Conformance vectors
 
-Status: current for format versions 1 and 2. Version 1 is what four of the receipt fixtures carry and
-what every other suite here measures; version 2 arrives with the marking member, and what these files
-hold of it is the one v2 receipt fixture plus the v2 document each marked-region case publishes beside
-its bytes, which is still no v2 field beyond `mk`. The files named here are the contract a
+Status: current for format versions 1. The payload carries one version, and it states seventeen members:
+the twelve every receipt has always carried, the marking member, the disclosure of a stamped instant, the
+anchor of an appraisal context, and the item list of a response. The receipt fixtures under
+`data/receipts/` all carry that document, and `data/manifest.json` states beside each row the answer a
+reader owes it. The files named here are the
+contract a
 reimplementation is measured against, and this document says what each one states, how to consume it,
 and what a disagreement means. The formats themselves are specified in
 [receipt-spec.md](receipt-spec.md), [access-control.md](access-control.md) and the CDDL; a vector
@@ -19,7 +21,7 @@ each shape.
 
 | Suite | File | What it pins | Version field |
 |---|---|---|---|
-| Receipt fixtures | `packages/fixtures/data/manifest.json` and `data/receipts/` | The COSE_Sign1 envelope, the payload field set, and the verdict a decoder owes each file | `version` in `manifest.json`, which is the manifest's own format version |
+| Receipt fixtures | `packages/fixtures/data/manifest.json` and `data/receipts/` | The COSE_Sign1 envelope, the payload field set of each version a row states, the response bytes and items a document attests, and the verdict a decoder owes each file | `version` in `manifest.json`, which is the manifest's own format version |
 | Proof of possession | `packages/fixtures/data/pop-v1.json` | The signing string, the `Authorization` header built over it, and the signature that header carries | `version: 1` |
 | Request digest | `packages/fixtures/data/req-v1.json` | The `req` a receipt claims, over exact request bytes | `version: 1` |
 | Response digest | `packages/fixtures/data/res-v1.json` | The `res` a receipt claims, over exact response bytes including framing | `version: 1` |
@@ -27,17 +29,19 @@ each shape.
 | Receipt store chain | `packages/fixtures/data/chain-v1.json` | The record frames a gateway writes to `receipts.log`, the state a reader derives from them, and what it refuses | `version: 1` |
 | Technical export | `packages/fixtures/data/export-v1.json` | Whole export documents, the arguments a reader is handed beside each one, and the verdict a conforming reader owes it | `version: 1` |
 | Sealed deployment manifest | `packages/fixtures/data/manifest-v1.json` | One deployment manifest in both shapes it is served in, the signing keys a reader designates beside it, and the verdict the client path owes each | `version: 1` |
-| Evidence pack | `packages/fixtures/data/pack-v1.json` | Whole packs in the shapes a deployment hands them over in, the keys a reader designates beside each one, and the verdict the shipped pack reader owes: run and window reported apart, and an honest pack whose stamps run against its links accepted with a finding | `version: 1` |
-| Redaction manifest | `packages/fixtures/data/redaction-v1.json` | Redaction manifests each beside the pack they are checked against, and the verdict the shipped redaction reader owes the pair: the chain over the survivors published apart from the pack's own head, a redaction pointed at a pack the reader lacks refused, and the three wrong constructions of a survivor chain refused by recomputation | `version: 1` |
+| Evidence pack | `packages/fixtures/data/pack-v1.json` | Whole packs in the shapes a deployment hands them over in, the keys a reader designates beside each one, and the verdict the shipped pack reader owes: run and window reported apart, the collateral a pack carries for the material its sealed receipts name, and an honest pack whose stamps run against its links accepted with a finding | `version: 1` |
+| Redaction manifest | `packages/fixtures/data/redaction-v1.json` | Redaction manifests each beside the pack they are checked against, the verdict the shipped redaction reader owes the pair, and what `ashaveri verify-handover` answers for the same pair on every row: the chain over the survivors published apart from the pack's own head, a redaction pointed at a pack the reader lacks refused, and the three wrong constructions of a survivor chain refused by recomputation | `version: 1` |
+| Epoch inventory | `packages/fixtures/data/epoch-inventory-v1.json` | Whole sealed inventories and the verdict the two shipped inventory readers owe each one: the envelope, the header, the key, the reading of a JSON payload, the arithmetic a reader recomputes over a run of packs, and the names each row of the two folded lists points at, with a refusal for every claim the reader recomputes over the run and answers from it, which is the windows meeting end to start, including one entry whose own two figures do not run forwards, the window, the two chain endpoints beside the run that begins and ends them, the claim each folded list states beside it, and every guard of both lists, and with the acceptances a reviewer would otherwise read as faults | `version: 1` |
 
 `pop-v1.json`, `req-v1.json`, `res-v1.json`, `marking-v1.json`, `chain-v1.json`, `export-v1.json`,
-`manifest-v1.json`, `pack-v1.json` and `redaction-v1.json` each carry a `description` stating their rule in
-prose, and the digest, marked-region, chain, export, sealed-manifest, pack and redaction suites carry a `rule`
-or `layout` block naming the fields, and the widths and the byte order where a suite pins a byte layout, so a
-reader never has to guess what an array of hex is standing for. The manifest
-carries no `description`, because it lists the receipt fixtures rather than stating a rule of its
-own; what they are for is written in
-[receipt-spec.md](receipt-spec.md).
+`manifest-v1.json`, `pack-v1.json`, `redaction-v1.json` and `epoch-inventory-v1.json` each carry a
+`description` stating their rule in prose, and the digest, marked-region, chain, export,
+sealed-manifest, pack, redaction and inventory suites carry a `rule` or `layout` block naming the fields,
+and the widths and the byte order where a suite pins a byte layout, so a reader never has to guess what an
+array of hex is standing for. The manifest carries no `description`, because it lists the receipt fixtures
+rather than stating a rule of its own, and it does carry a `layout` block naming the columns its rows
+state, the reader each of its two verdicts belongs to, and the encodings the columns are spelled in; what
+the fixtures themselves are for is written in [receipt-spec.md](receipt-spec.md).
 
 ## How to consume a suite
 
@@ -51,15 +55,27 @@ specific to that case.
 
 - **Receipt fixtures.** Read `manifest.json`, and for each entry take the `.cbor` bytes, check their
   sha256 against `digestSha256`, decode them, and give the decoder the published key from
-  `data/keys/receipt-key-v1.json` at the timestamp the entry's own payload carries. The `expected`
-  field states the verdict: `verify-ok`, or the error code a refusal has to answer with. Four entries
-  are v1 documents and the fifth is a v2 carrying a marking member. Its `res` and `mk.d` are digests
+  `data/keys/receipt-key-v1.json` at the timestamp the entry's own payload carries. `expected` states the
+  verdict that reading owes: `verify-ok`, or the error code a refusal has to answer with, and `keyless`
+  states what the same bytes answer for a reader holding no key at all. The five entries this suite began
+  with state no column beyond `expected` and the response bytes their documents digest; every row added
+  since names the payload version its bytes
+  claim in `v`, the marking setting its response came off in `marking`, the response bytes themselves, and
+  the item list as the shipped reader of a response body gives them. Which versions those rows name, and
+  how many of them state none, is the `layout` block's business and the tests' arithmetic, not this
+  sentence's. Every row states its response bytes because every payload this format reads names a
+  marking, and the region a marking attests is read out of the response rather than out of the document:
+  a row that published no body would be a row no client path could be run over. The marked entry's `res` and `mk.d` are digests
   of the same bytes the marked-region suite publishes as `buffered-member`, so one response is read
   out of two files and a generator that drifted on either side disagrees here. Decoding that entry
   does not check its mark (no `.cbor` file carries the response), which is what the marked-region
-  suite is for. Two entries are deliberately not valid: one signature is broken, one payload carries
-  a measurement of a width its `tee` kind cannot hold, and a decoder that accepts either has not
-  implemented the rule the other three test.
+  suite is for; a row that states its response bytes states the mark check too, because those bytes are
+  published beside the document that digests them. An entry whose verdict is a refusal names in
+  `fault.at` the position the shipped reader quotes when it answers those bytes, which is what makes the
+  row about one member rather than about a document nobody could read. Two entries are deliberately not
+  valid and predate the column: one signature is broken, one payload carries a measurement of a width its
+  `tee` kind cannot hold, and a decoder that accepts either has not implemented the rule the accepted
+  rows test.
 - **Proof of possession.** Rebuild the signing string from the published fields, verify the signature
   in `authorization` against `key.publicKeyHex`, and check the header parses to the same three
   components. The private half is published too, so a port can produce the signatures itself rather
@@ -100,24 +116,30 @@ specific to that case.
   suite is where the `exactly one` half of the rule is checkable: a port that resolves a response
   carrying the shape twice by taking the first match, or the last, or the longest, fails here and cannot
   fail anywhere else, because no other artifact in this repository states which it should have done.
-  Each row also carries `client.receiptBase64Url`: a v2 document issued under the published fixture key
+  Each row also carries `client.receiptBase64Url`: a document issued under the published fixture key
   over exactly that response, with `res` the digest of the whole bytes and `mk.d` the digest of the
   span the row attests. That makes `expected` a verdict a client owes rather than only a reading of the
   rule, and it is how `MARK_MISMATCH` is reached at all. The marking check runs after the response
   digest is recomputed, so a row whose bytes do not hash to the digest its document claims cannot be
   refused for its mark; every refusing row here is bytes that do, holding a span that does not. The
-  `buffered-member` document is byte for byte the committed `receipt-marked-v2.cbor`.
+  `buffered-member` document is byte for byte the committed `receipt-marked-v1.cbor`.
 - **Store chain.** Each scenario states the writes it performed and the file they produced. Either
   reproduce it with your writer and compare the image byte for byte, or read the published image with
   your reader and compare what you derive (the head, the served set, the retention window and the
   chain state) against what the file states. The `records` table beside each image decomposes it
   into fields with their offsets. Each row states the byte its frame starts at and that frame's
   whole length, so a difference localizes to a width, an endianness or a coverage rule rather than
-  to a whole file. `refusals` are images no writer produced: one bit flipped in a payload, a record
+  to a whole file. `refusals` are images a reader objects to: one bit flipped in a payload, a record
   lifted out of the middle, a retirement written behind a receipt, and a frame lying about its
-  length. Each carries the refusal the reader gave, and your reader has to refuse them too. Its
-  sentence may differ; the fact that it stops may not. `tails` states an append that never finished,
-  which is the one case a reader repairs rather than refuses.
+  length, which are bytes no writer produced. Two more show the rule that one log holds receipt
+  records of one kind, and both are bytes a store did seal: an unbounded file with one bounded record
+  appended behind it, refused for that appended record, and a published unbounded file untouched and
+  read whole by a store configured for the bounded kind, refused for its first record. A refusal row
+  states the receipt kind its opening writes wherever that is not the receipt kind, because a
+  disagreement between a file and a configuration is not reproducible without the configuration. Each
+  carries the refusal the reader gave, and your reader has to refuse them too. Its sentence may
+  differ; the fact that it stops may not. `tails` states an append that never finished, which is the
+  one case a reader repairs rather than refuses.
 - **Technical export.** Decode the base64url document, hand your reader the arguments the case's `read`
   block states, which are the companion bytes it was given, the endpoints it already holds, and the key it
   used, and compare the answer with `verdict`: `verify-ok`, or the code the refusal has to answer with. Where
@@ -148,8 +170,19 @@ specific to that case.
   not about a manifest that contradicts itself. Where a row states `walk`, your reader has to reach that run, in
   the order the `prev` links fix it and not the order the array carried it; where it states `ordering`, those are
   the steps where the stamps disagree with the links, and a conforming reader reports them and accepts the pack.
-  `records` in the `layout` block gives the predecessor and the record digest of each item of the honest run, which
-  is the pack's own reading of the framing `chain-v1.json` publishes for a store file.
+  `records` and `carriedRecords` in the `layout` block give the predecessor and the record digest of each item of
+  the two runs the suite frames, the honest run whose every slot of every sealed receipt states an absence and the
+  run whose held slots name material the pack carries, and `framingRule` states which row each table sits beside and
+  that both are read out of the sealed bytes of that row. A table is the pack's own reading of the framing `chain-v1.json` publishes for
+  a store file, published for the runs a reader is handed whole so that an `itm` entry's digest has a stated answer
+  beside it rather than only the bytes in the row. `carried` is the material a
+  pack holds for the collateral its sealed receipts name: recompute every stated digest from the bytes beside it,
+  and resolve each `held` slot of each receipt inside the container against that list, so a reader holding a pack
+  answers a slot without reaching a vendor endpoint. `carriedRule` in the `layout` block states the whole of it,
+  including the two ceilings and the requirement that the list and the slots speak of the same material: an entry
+  misstating its own bytes, one digest at two positions, an entry no held slot names and a slot no entry hashes to
+  are each refused, and each refusal names the position it found. A slot that states an absence names no digest and
+  owes no bytes, so a pack carrying nothing beside receipts that took nothing in is accepted rather than short.
 - **Redaction manifest.** Decode `documentBase64Url`, hand your reader the pack in `packBase64Url` beside the
   designation the row's `read` block states, and compare the answer with `verdict`. A row stating no pack is the
   reader that was handed one document of the pair and has to refuse it rather than accept the statement on its own
@@ -162,12 +195,67 @@ specific to that case.
   the other belongs has merged two findings this suite publishes apart. `run` and `records` in the `layout` block
   give each record's predecessor in the pack, the predecessor the reduced chain used instead, and the digest that
   came out, so the construction is checkable against the pack's bytes rather than restated from a writer.
+  Each row states its fact at two entry points and the file gives both answers. `verdict` and `structural` are the
+  library's, and `verdict` carries the code the format names for the fault, because the reader is where the
+  format's rules live. `command` is what `ashaveri verify-handover` answers over the same bytes and the same pack,
+  and it is published because a command line and a library call do not always meet a fault at the same step. This
+  tool files every `--key` under the id its own bytes hash to, which is the only designation a command line can
+  make: it cannot hand a reader one key to answer for every document in the pair, so a document naming another kid
+  meets a set holding nothing for it, and it reads label 3 and chooses a reader before a redaction reader is
+  consulted, so it can state the same fact one step earlier with the code the classification already uses.
+  `command: null` says the command says what `verdict` says, exiting 0 on an accepted row and 1 on a refusal.
+  Seven rows carry an object instead, counting them out of the published `command` member, and none of them is
+  the tool disagreeing with the library.
+  `rotation-read-with-one-pinned-key` and `sealed-under-another-deployment-key` are the two where the row pins one
+  key for the whole pair while a document inside that pair names a different kid, which a set matched on each kid
+  answers as a kid nothing designates rather than as the receipt's or the envelope's own refusal.
+  `no-designation-at-all` is the call that handed no key, which this tool refuses as the gap in the call with exit
+  2, naming it `usage`. That word is the name this tool gives the exit a refused call leaves, and not a member of
+  any `*ErrorCode` union that `docs/error-codes.md` lists. `protected-content-type-of-a-pack` and
+  `protected-content-type-of-a-receipt` are documents wearing
+  another container's type, which the dispatch answers by running that container's reader, so `PACK_BAD_MANIFEST`
+  and `BAD_PAYLOAD` rather than the header refusal the redaction reader would give. And
+  `protected-kid-of-another-width` and `document-truncated-mid-envelope` are refused by the classification on the
+  envelope, `BAD_PROTECTED_HEADER` and `MALFORMED_CBOR`, before a reader of either kind is chosen. The 43 rows
+  `redaction-v1.json` publishes are replayed through this path by `packages/cli/test/verify-handover.test.ts`,
+  which reads the expected answers out of this member rather than keeping a table of its own. That count, and
+  the seven above it, are counts of the published rows which
+  `packages/fixtures/test/redaction-vectors.test.ts` takes out of them rather than restating them here.
+
+- **Epoch inventory.** Decode `documentBase64Url` and hand it to your reader with the designation the row's
+  `read` block states: `pinned` is the one key a caller holds, which answers whatever kid the header names,
+  `retained` is the set a resolver answers from, one public half per kid, and a row stating neither is the call
+  that designated nothing. A row may also state `read.presence`, which is not about a key: the run's retention
+  artifacts as the bytes that sit on the volume, in the order the call hands them, and the reader folds from them
+  the interval across which the store reported holding the appraisal context. Hand them and you get that reading;
+  hand nothing and you get the reading of the document alone, which is what makes a row
+  that is `verify-ok` under one call and a refusal under the other a statement about the pair of inputs rather
+  than about the bytes. Compare the answer with `verdict`, and compare `structural` with what your reader
+  says about the same bytes before it has accepted a signature: a row that is `verify-ok` there and a refusal
+  here is refusing about a key, a signature or the arithmetic over a run, and not about a document that
+  contradicts itself. Where a row states `readback`, those are the figures a reader has to hand back as well:
+  `runFiles` is the run in the order the entries' own figures put them, which is not necessarily the order
+  `statedFiles` arrived in, because position in `packs` carries no claim. Two rows state an `edit` block: the
+  same span of the honest document's text replaced with a longer run label, which is the pair differing by one
+  byte at one position, one accepted and one refused. Every refusing row carries the sentence this reader gave,
+  and a conforming port owes the same code while its wording may differ.
+- **Epoch inventory refusals are near misses at two sites.** The two lists a run folds, `chain.breaks` and
+  `duty.short`, are guarded apart rather than by one routine, so each fault a list can carry is stated at both
+  sites and a refusing row names its site and the guard of that site it reaches: a claim of continuity or of
+  carrying contradicted by the list beside it, a list longer than the arithmetic, a list shorter than it, two
+  rows naming one pack while another is named nowhere, a row about a pack the run does not hold, a row naming
+  a pack the run holds whose own figures carry no such finding, and a row of the right name whose own two
+  digests or four figures are not the pair's or the pack's. The lists are keyed by the pack each row names,
+  which is why the two rows stating a reversed list are acceptances, and the refusal rows beside them are
+  what prove the keying is live rather than absent.
 
 ## Every suite refuses something
 
-Each of the ten suites published here carries at least one case whose stated verdict is a refusal, and
-every code those cases name is one [error-codes.md](error-codes.md) lists. That is the half a second
-implementation cannot agree with by accident: an accepted case and a refused one, drawn from the same
+Each of the eleven suites the table above lists carries at least one case whose stated verdict is a refusal,
+and every code those cases name is one [error-codes.md](error-codes.md) lists. The eleven are that table's
+rows, which `packages/fixtures/test/vectors-doc.test.ts` counts and compares with this sentence rather than
+trusting it. That is the half a second implementation cannot agree with by accident: an accepted case and
+a refused one, drawn from the same
 bytes, differ in exactly the rule under test, and a port wrong in the same direction as this one still
 has to answer the refusal with the code the row names. A case that fails for some other reason than the
 one stated is a wrong vector, and the row's note says which fact it turns on.
@@ -176,12 +264,20 @@ The refusals are near misses rather than garbage on purpose. A digest is off by 
 two characters, a nonce by a single byte width, a marked span by one field of one member, a store record
 by one bit inside its own bytes or by its length prefix lying about its size, a protected header by the one
 label it added or the one integer it spelled as a float, a redaction by the one record it did not name or by
-the chain head it took from the pack rather than recomputed. Each is one small edit to
+the chain head it took from the pack rather than recomputed, an inventory by the one byte at the end of its run
+label or by the one row a folded list left out. Each is one small edit to
 bytes this repository already publishes, so reproducing it is reading a row and not guessing at what the
 author meant. The client path over them is in `packages/cli/test/vector-conformance.test.ts`, which
-drives each suite through the shipped verification code rather than through a copy of the rule it is
-checking, and asserts the verdict in both directions: the accepted rows accepted, the refusing ones
-refused for the reason stated.
+drives every suite in this table but the technical export through the shipped verification code rather than
+through a copy of the rule it is checking, and asserts the verdict in both directions: the accepted rows
+accepted, the refusing ones refused for the reason stated. The export suite travels the client path
+through `packages/cli/test/verify-handover.test.ts` instead, beside the command's own cases. The inventory
+rows are read there by the two exported inventory readers, `verifyEpochInventory` and
+`decodeEpochInventory`, rather than through a command, because this package ships no verb that reads an
+epoch inventory, and the block states which verbs it ships in a comment a reviewer can check. Those rows are
+therefore witnessed twice over the same published bytes: by
+`packages/fixtures/test/epoch-inventory-vectors.test.ts`, which reads the format package's own reader, and
+by the consumer's path named above.
 
 ## Regenerating
 
@@ -196,6 +292,7 @@ pnpm --filter @ashaveri/fixtures generate:export
 pnpm --filter @ashaveri/fixtures generate:manifest
 pnpm --filter @ashaveri/fixtures generate:pack
 pnpm --filter @ashaveri/fixtures generate:redaction
+pnpm --filter @ashaveri/fixtures generate:epoch-inventory
 ```
 
 The generators live beside the loaders in `packages/fixtures`, and running all of them after a change
@@ -240,7 +337,7 @@ These vectors check bytes. They say nothing about trust:
 
 - Nothing here establishes that a key belongs to anybody. The signing keys published in
   `data/keys/receipt-key-v1.json`, in `pop-v1.json`, in `export-v1.json`, in `manifest-v1.json`, in
-  `pack-v1.json` and in `redaction-v1.json`
+  `pack-v1.json`, in `redaction-v1.json` and in `epoch-inventory-v1.json`
   are test-only, labelled as such in the files themselves, and protect nothing. A port that verifies
   against them has exercised its verifier, not appraised a deployment.
 - Nothing here touches attestation. Evidence documents, platform roots, device certificate chains and
@@ -248,8 +345,12 @@ These vectors check bytes. They say nothing about trust:
   a byte-exact reimplementation of every suite in `data/` is compatible with a deployment that should
   not be trusted at all.
 - A passing port is not a certified port. It is a reimplementation that agrees with this one on the
-  cases chosen here, which for payload version 1 are the field set, the digests and the framing, and
-  for version 2 are the marking member and nothing else. Those cases are examples of where
+  cases chosen here, which for the one payload version are the field set, the digests and the framing,
+  the marking member, the disclosure of the source
+  an instant came from, the anchor of the context an appraisal ran on, the list of items a response
+  was made of, and the count of those anchor slots a client's policy demands be stated as taken in,
+  which the receipt suite publishes as the verdict its reader gives under each posture rather than as a
+  rule about bytes. Those cases are examples of where
   implementations have been known to differ rather than an exhaustive sweep of the format's state
   space. Conformance to bytes and soundness of judgement are different claims, and only the first is
   testable this way.

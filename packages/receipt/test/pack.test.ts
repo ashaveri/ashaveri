@@ -159,7 +159,7 @@ function manifestNestedRules(cddl: string): NestedRule[] {
       nested.push({ member: member.name, rule: one[1]!, array: false });
       continue;
     }
-    const many = /^\[\+\s+([A-Z][A-Za-z0-9_-]*)\]$/u.exec(member.type);
+    const many = /^\[\+\s+([A-Z][A-Za-z0-9_-]*)\]$/u.exec(member.type) ?? /^\[\*\s+([A-Z][A-Za-z0-9_-]*)\]$/u.exec(member.type);
     if (many) {
       nested.push({ member: member.name, rule: many[1]!, array: true });
       continue;
@@ -234,13 +234,14 @@ function valueForType(cddl: string, type: string): unknown {
   const literal = /^(-?\d+)$/u.exec(type);
   if (literal) return Number(literal[1]);
   if (type === 'int') return AN_INT;
-  const many = /^\[\+\s+([A-Z][A-Za-z0-9_-]*)\]$/u.exec(type);
+  const many = /^\[\+\s+([A-Z][A-Za-z0-9_-]*)\]$/u.exec(type) ?? /^\[\*\s+([A-Z][A-Za-z0-9_-]*)\]$/u.exec(type);
   if (many) return [instanceOfRule(cddl, many[1]!)];
   const one = /^([A-Z][A-Za-z0-9_-]*)$/u.exec(type);
   if (one) return instanceOfRule(cddl, one[1]!);
   const sized = /^bstr \.size (\d+)$/u.exec(type);
   if (sized) return hexOf(Number(sized[1]));
   if (/^bstr \.cbor [A-Z][A-Za-z0-9_-]*$/u.test(type)) return hexOf(4);
+  if (/^bstr \.size \(\d+\.\.\d+\)$/u.test(type)) return hexOf(4);
   if (/^tstr \.size \(\d+\.\.\d+\)$/u.test(type)) return 'an-id';
   if (type === 'tstr') return 'a-label';
   throw new Error(`this builder fills no value of the type expression "${type}"`);
@@ -377,7 +378,7 @@ describe('the pack CDDL and its JSON twin', () => {
     // map whose members are spelled some other way and a sweep that quietly passed over it.
     expect(unlabeled, 'rules whose members this reader does not read as labels').toEqual(['Ashaveri-Pack-Protected-Header']);
     expect(labeled.sort(), 'the maps the format closes').toEqual(
-      ['Ashaveri-Pack-Manifest', 'PackChain', 'PackDuty', 'PackItem', 'PackSpan'].sort(),
+      ['Ashaveri-Pack-Manifest', 'PackCarried', 'PackChain', 'PackDuty', 'PackItem', 'PackSpan'].sort(),
     );
 
     // The header closes against labels rather than against members, and one map of the container a

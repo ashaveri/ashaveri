@@ -24,6 +24,11 @@ export type CollateralOriginName =
  * this package reads the status the vendor signed beside exactly that one. A query that cannot name
  * its level answers as missing context, because an unanchored level is how an archived document gets
  * read as an answer about a platform nobody checked.
+ *
+ * A rung named by its composition is answered only where the document states that composition as the
+ * hex text the value is. Intel's bodies state a level's composition as the component numbers of an
+ * object, which no hex text compares with and which this package will not fold into one by guessing
+ * which numbers a caller meant; see `levelCompositionStatedAs` in `intel-origin.ts`.
  */
 export type IntelTcbLevel =
   | { readonly by: 'tcb-date'; readonly value: string }
@@ -31,7 +36,14 @@ export type IntelTcbLevel =
 
 /** Collateral the caller kept from an earlier run, with the stamp that says when. */
 export interface RetainedCollateral {
-  /** The signed document exactly as it was served, which is what gets read again and not a re-encoding. */
+  /**
+   * The signed document exactly as it was taken in, which is what gets read again and not a re-encoding.
+   *
+   * It is read again only if it is of the envelope the origin's declaration names. Intel serves its
+   * documents as a JSON body whose issuer chain arrives in a response header, cited at each declaration in
+   * `intel-origin.ts`, so bytes taken in as that address answers them arrive here with no chain beside them
+   * and are refused rather than read.
+   */
   readonly bytes: Uint8Array;
   /**
    * Unix seconds, from the caller's own record of the run that asked the origin. It is the only thing
@@ -39,6 +51,26 @@ export interface RetainedCollateral {
    * and gets a refusal rather than a guess.
    */
   readonly observedAt: number | null;
+}
+
+/**
+ * Material that arrived inside a sealed container rather than from an origin, with the instant the container's
+ * own record states it held it.
+ */
+export interface CarriedCollateral {
+  /** The whole of the material, byte for byte as the container carries it, which is what gets read again. */
+  readonly bytes: Uint8Array;
+  /**
+   * Unix seconds. A container states no observation instant because nothing inside one watched an origin
+   * answer, so the number a caller hands is the instant the record holding this material states it held it: the
+   * `iat` of the sealed receipt whose anchor named these bytes. It is an instant and not the `held` figure of a
+   * pack's duty block, which counts seconds and names no moment.
+   *
+   * It is required rather than defaulted: an appraisal that stamped carried material with the instant it was
+   * asked would be reporting that an archive had just arrived, and that is the one sentence this path refuses to
+   * state about bytes it never watched land.
+   */
+  readonly heldAt: number;
 }
 
 /** What an appraisal asks for, and with what it was supplied. */
@@ -59,7 +91,11 @@ export interface CollateralQuery {
    * quietly inherited one would report a verdict reached on a decision the caller never made.
    */
   readonly roots: readonly Uint8Array[];
-  /** Collateral from the caller's own store, or `null` to ask the origin now. */
+  /**
+   * Collateral from the caller's own store, or `null` to ask the origin now. Material that arrived inside a
+   * sealed container instead of a store is appraised by `appraiseCarriedCollateral`, which states where the
+   * instant beside it comes from rather than leaving a caller to invent one.
+   */
   readonly retained: RetainedCollateral | null;
   /** What an absent answer does: reported as unassessed, or refused because this appraisal requires it. */
   readonly onAbsent: 'unassessed' | 'refuse';
@@ -93,7 +129,7 @@ export interface CollateralClassification {
 export interface SignedCollateral {
   readonly origin: CollateralOriginName;
   readonly platform: IntelPlatform;
-  /** The signed document first, then every certificate the answer presented with it, as served. */
+  /** The signed document first, then every certificate the document itself presented, in the order it presented them. */
   readonly blobs: readonly Uint8Array[];
   /** sha256 of `blobs[0]` as hex: what a caller retains and reads back. */
   readonly digest: string;

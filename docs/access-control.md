@@ -451,7 +451,7 @@ The twelve fields, in the order the writer emits them:
 
 | Field | Purpose |
 |---|---|
-| `t` | Epoch milliseconds at the request's arrival |
+| `t` | Epoch milliseconds at the request's arrival, read through the time source this process was given rather than off an unlabelled host call, so it is a whole number of seconds scaled to milliseconds and two requests inside one second share it and are told apart by `rid` |
 | `rid` | Server-generated request id, the join key between a line and a support ticket |
 | `cred` | Which credential made the request. A refusal that got as far as reading an id records the id the header carried, known to the file or not, including a name the file does not carry whose response said only that the signature failed; `null` covers the rest, which is a request that named none, a refusal raised before the header's id could be read, and the bearer scan's `AUTH_UNKNOWN` |
 | `auth` | `pop`, `bearer`, or `null`. What this request was verified as, so the two postures read differently even in one bearer-capable deployment; `null` on a refusal, since what was verified is the thing the refusal says did not happen |
@@ -536,11 +536,27 @@ the receipt it touched. The record cannot be separated from its context: a line 
 was refused is meaningless without the credential that made it. Retention and erasure therefore
 apply at the line level, and the line's subject is the credential named in `cred`.
 
-Receipts are a separate artifact. The chain is append-only and carries no `Authorization` data, no
-credential id, and no field that could be made to carry one. Read attribution lives here, in the
-erasable log, and that split is the reason an erasure request is answerable at all: the log is the
-artifact an erasure can empty, and the chain is the artifact a verifier must be able to hold
-independently. Section 8.3 states the one link that survives erasure.
+Receipts are a separate artifact. The chain is append-only and carries no `Authorization` data,
+no credential id, and what is checkable of those two absences is provenance rather than capacity:
+an operator can name a model after a person, and a handle and an ordinary word are the same
+bytes to a reader, so no list of fields settles what one of them could be made to say. What
+settles it is who wrote each member. Every text member of a payload but one is written by this
+gateway out of what its deployment was configured with and what its own code states: `iss` and
+`ins` from the deployment's configuration, `mdl` from the model ids the operator declares and
+not the spelling a request asked for, `mk.sch` from the marking scheme this process started
+with, `sd.name` from the clock source named at construction, and the two reasons of `cva`
+from literals at `issuance-disclosure.ts`, the one site that builds an anchor. The request
+and the response travel into the document only as digests, at the widths the format states,
+and the one member a caller may write is `nce`, the sixteen nonce bytes it names in
+`x-ashaveri-nonce`, which this gateway draws at random for itself when that header is absent.
+The exception is `att.url`, which nothing in this repository
+authors: its value is what the deployment's attestation provider hands back beside the evidence
+it collected. `gateway/test/receipt-provenance.test.ts` holds that list against a document
+a running gateway issued, member by member, and fails if a text member arrives that the case
+never read. Read attribution lives here, in the erasable log, and that split is the reason an
+erasure request is answerable at all: the log is the artifact an erasure can empty, and the
+chain is the artifact a verifier must be able to hold independently. Section 8.3 states the
+one link that survives erasure.
 
 ### 8.2 Retention, and where the number comes from
 

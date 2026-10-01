@@ -6,6 +6,7 @@ import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import {
   POP_SCHEME,
   decodeCoseSign1,
+  decodeEpochInventory,
   decodePack,
   decodeRedaction,
   decodeSealedDeploymentManifest,
@@ -16,11 +17,13 @@ import {
   popSigningString,
   ReceiptError,
   signPopAuthorization,
+  verifyEpochInventory,
   verifyExport,
   verifyPack,
   verifyPopSignature,
   verifyRedaction,
   verifySealedDeploymentManifest,
+  type EpochInventoryVerifyOptions,
   type MarkingScheme,
 } from '@ashaveri/receipt';
 import {
@@ -34,7 +37,7 @@ import {
   type ReadManifestResult,
 } from '@ashaveri/sdk';
 import { sha256 } from '@noble/hashes/sha2.js';
-import { openFileReceiptStore, RECEIPT_STORE_FILE, StoreError } from '@ashaveri/signerd';
+import { openFileReceiptStore, RECEIPT_STORE_FILE, StoreError, type ReceiptRecordKind } from '@ashaveri/signerd';
 
 /**
  * The published vector suites, replayed through the paths a shipped client takes.
@@ -44,9 +47,11 @@ import { openFileReceiptStore, RECEIPT_STORE_FILE, StoreError } from '@ashaveri/
  * implementation that is shipped what it answers for each row: `verifyCompletionReceipt` for anything a
  * receipt decides, the proof-of-possession signer and parser for the wire-format rows, the store reader
  * for the chain images, `readDeploymentManifest` beside its `adjudicateReceiptEpoch` for the sealed
- * deployment manifest, `verifyPack` with `decodePack` underneath it for the evidence pack, and
+ * deployment manifest, `verifyPack` with `decodePack` underneath it for the evidence pack,
+ * `verifyEpochInventory` with `decodeEpochInventory` underneath it for the inventory of a run of packs, and
  * `verifyRedaction`, which reads the pack through `verifyPack` and answers with `decodeRedaction` alone
- * for the structural half, for a redaction manifest and the pack it names. Where a row states a refusal, the code it names is the code that has to
+ * for the structural half, for a redaction manifest and the pack it names. Where a row states a refusal, the
+ * code it names is the code that has to
  * come back; where a row states acceptance, the same call has to accept it. A suite that only ever
  * passed would satisfy the first half and say nothing, so the near misses published here are what make
  * the second half mean something, and each of those rows is a small edit to bytes this repository
@@ -68,8 +73,15 @@ import { openFileReceiptStore, RECEIPT_STORE_FILE, StoreError } from '@ashaveri/
 
 const DATA = fileURLToPath(new URL('../../fixtures/data/', import.meta.url));
 
-/** The instant the published fixtures are issued at, so no run reads a clock. */
+/** The instant the published receipts are issued at, in whole seconds, matching their `iat`. */
 const CLOCK = 1_772_000_000;
+/**
+ * The same instant in milliseconds. `verifyCompletionReceipt` reads its clock in milliseconds and
+ * divides it to seconds before the freshness windows run, so a caller that hands it `CLOCK` would be
+ * handing it a 1970 reading and every policy-governed row would answer `STALE_RECEIPT`. The client
+ * verifications below take this figure, never the seconds one.
+ */
+const CLOCK_MILLIS = CLOCK * 1_000;
 
 interface ManifestEntry {
   readonly name: string;
@@ -77,6 +89,25 @@ interface ManifestEntry {
   readonly digestSha256: string;
   readonly expected: string;
   readonly note?: string;
+  /**
+   * The columns a row states about its own bytes. Every document this format states names a marking, and a marking can
+   * only be checked against the response it was read out of, so the client path has to be handed the
+   * bytes the row itself states rather than a guess from the document's version.
+   */
+  readonly keyless?: string;
+  readonly v?: 1 | 2 | 3;
+  readonly marking?: string;
+  readonly contentType?: string;
+  readonly response?: string;
+  readonly responseBase64Url?: string;
+  readonly responseByteLength?: number;
+  /** The anchor the document carries, each slot one presence label with what that label selects. */
+  readonly cva?: { col: { p: string; d?: string; r?: string }; val: { p: string; d?: string; r?: string } };
+  /**
+   * The verdict the client path gives this document under each posture `minAnchorSlotsHeld` can take, in
+   * the order the suite publishes: no demand named, a demand of one held slot, a demand of both.
+   */
+  readonly handover?: { minAnchorSlotsHeld: number | null; verdict: string }[];
 }
 
 interface MarkingCase {
@@ -130,6 +161,13 @@ interface ChainRefusal {
   readonly name: string;
   readonly imageBase64Url: string;
   readonly imageByteLength: number;
+  /**
+   * The receipt kind the opening that gives this refusal writes. Absent means the receipt kind, which is
+   * the layout every other image in this file is read under. A row states it wherever the refusal it
+   * publishes is a disagreement between a file and a configuration rather than a fact about bytes, and
+   * this replay has to open the image under the kind the row names or it is reading a different file.
+   */
+  readonly openedWith?: ReceiptRecordKind;
   readonly code: string;
   readonly message: string;
 }
@@ -260,6 +298,46 @@ interface RedactionVectorFile {
   readonly crossReading: { readonly cases: { name: string; documentBase64Url: string; expected: string }[] };
 }
 
+/**
+ * One case of the epoch inventory suite: a whole sealed inventory, the designation the caller hands beside
+ * it, what each of the two shipped inventory readers answers for those bytes, the refusal sentence the
+ * reader gave where there is one, and what it handed back where it accepted. A row stating no designation is
+ * the call that named no key.
+ */
+interface EpochInventoryCase {
+  readonly name: string;
+  readonly note: string;
+  readonly documentBase64Url: string;
+  readonly documentByteLength: number;
+  readonly read: { pinned?: string; retained?: Record<string, string>; presence?: string[] };
+  readonly verdict: string;
+  readonly structural: string;
+  readonly message?: string;
+  readonly readback?: {
+    readonly runFiles: readonly string[];
+    readonly statedFiles: readonly string[];
+    readonly window: { from: number; to: number };
+    readonly continuous: boolean;
+    readonly breakFiles: readonly string[];
+    readonly carried: boolean;
+    readonly shortFiles: readonly string[];
+  };
+  readonly site?: string;
+  readonly guard?: string;
+  readonly edited?: string;
+}
+
+interface EpochInventoryVectorFile {
+  readonly version: number;
+  readonly description: string;
+  readonly layout: {
+    readonly contentType: string;
+    readonly codes: readonly string[];
+    readonly keyMaterial: { kidHex: string; publicKeyHex: string; publicKeyBase64Url: string; role: string }[];
+  };
+  readonly vectors: EpochInventoryCase[];
+}
+
 function json<T>(path: string): T {
   return JSON.parse(readFileSync(join(DATA, path), 'utf8')) as T;
 }
@@ -287,6 +365,7 @@ const chain = json<{ refusals: ChainRefusal[] }>('chain-v1.json');
 const sealedManifests = json<ManifestVectorFile>('manifest-v1.json');
 const packVectors = json<PackVectorFile>('pack-v1.json');
 const redactionVectors = json<RedactionVectorFile>('redaction-v1.json');
+const epochInventories = json<EpochInventoryVectorFile>('epoch-inventory-v1.json');
 
 /** The receipt signing key the fixtures are issued under, as the published key file states it. */
 const PUBLIC_KEY = new Uint8Array(Buffer.from(json<{ publicKey: string }>('keys/receipt-key-v1.json').publicKey, 'hex'));
@@ -325,23 +404,57 @@ function claimsOf(receiptBytes: Uint8Array): { nonce: Uint8Array; req: Uint8Arra
   }
 }
 
-/** The response bytes one marked case publishes, which is what a client holding a mark has to have. */
-function markingBytes(name: string): Uint8Array {
-  const found = marking.vectors.find((each) => each.name === name);
-  if (found === undefined) throw new Error(`marking-v1.json states no ${name} case`);
-  return bytes(found.responseBase64Url);
+/**
+ * The response bytes one receipt row states its document attests, or `undefined` where the row names
+ * none. A row naming its response is a row the client path can be run over as a client runs it, with the
+ * bytes it holds in hand, and a refusal row whose bytes are not the document's subject is read as before.
+ */
+function responseBytesOf(entry: ManifestEntry): Uint8Array | undefined {
+  return entry.responseBase64Url === undefined ? undefined : bytes(entry.responseBase64Url);
 }
 
 /**
  * One receipt handed to the shipped client path the way a client hands it: the challenge it was asked to
- * answer, the two bodies it attests, and the response bytes themselves.
+ * answer, the two bodies it attests, the response bytes themselves, and the policy the row names beside
+ * them. With no policy the two freshness windows do not run at all, which is how every row here has always
+ * been read; a policy named for the anchor postures below pins the document's own issuer and nothing else,
+ * so the windows run at their shipped defaults and the only question left open is the anchor's.
  */
+/**
+ * The manifest row a receipt's bytes are published under, found by the digest the row states. A client
+ * holds a receipt and nothing else, so this is the only way from the document back to the response it
+ * names, and the row is where that response is published.
+ */
+function manifestEntryFor(receiptBytes: Uint8Array): ManifestEntry | undefined {
+  const digest = hex(sha256(receiptBytes));
+  return manifest.fixtures.find((each) => each.digestSha256 === digest);
+}
+
+/**
+ * The body the fixture envelope signs by default, read off the published row rather than restated here.
+ * A receipt built by overriding one member and nothing else attests this response.
+ */
+const FIXTURE_RESPONSE_BYTES = bytes(
+  manifest.fixtures.find((each) => each.name === 'receipt-valid-v1')?.responseBase64Url ?? '',
+);
+
 function clientVerdict(
   receiptBytes: Uint8Array,
-  over: { requestHash?: Uint8Array; responseHash?: Uint8Array; responseBytes?: Uint8Array } = {},
+  over: {
+    requestHash?: Uint8Array;
+    responseHash?: Uint8Array;
+    responseBytes?: Uint8Array;
+    policy?: AshaveriPolicy;
+    nowMillis?: number;
+  } = {},
 ): string {
   const claims = claimsOf(receiptBytes);
-  const responseBytes = over.responseBytes ?? (claims.version === 2 ? markingBytes('buffered-member') : new Uint8Array(0));
+  // The response bytes are the row's own, not a guess keyed to which version the document claims: every
+  // payload this format reads names a marking, and the client hashes what it was handed against both
+  // `res` and `mk.d`. A row publishing no response is read with none, which is the case that owes a
+  // refusal rather than an acceptance.
+  const entry = manifestEntryFor(receiptBytes);
+  const responseBytes = over.responseBytes ?? (entry === undefined ? new Uint8Array(0) : responseBytesOf(entry) ?? new Uint8Array(0));
   return verdictOf(() =>
     verifyCompletionReceipt({
       receiptBytes,
@@ -350,7 +463,8 @@ function clientVerdict(
       responseHash: over.responseHash ?? claims.res,
       responseBytes,
       verifyKey: PUBLIC_KEY,
-      now: CLOCK,
+      ...(over.policy === undefined ? {} : { policy: over.policy }),
+      nowMillis: over.nowMillis ?? CLOCK_MILLIS,
     }),
   );
 }
@@ -382,9 +496,21 @@ describe('the published receipt fixtures through the client path', () => {
     const observed = manifest.fixtures.map((entry) => {
       expect(entry.expected, `${entry.name} states no verdict`).toMatch(/^[A-Za-z0-9_-]+$/u);
       const receiptBytes = new Uint8Array(readFileSync(join(DATA, entry.path)));
-      return `${entry.name}: ${clientVerdict(receiptBytes)}`;
+      return `${entry.name}: ${clientVerdict(receiptBytes, { responseBytes: responseBytesOf(entry) })}`;
     });
     expect(observed).toEqual(manifest.fixtures.map((entry) => `${entry.name}: ${entry.expected}`));
+  });
+
+  it('reads every row that states its own answer without a key', () => {
+    // The same bytes, the same shipped parser, no key in the call: a row whose refusal needs a signature
+    // checked first would be a refusal about authenticity and not about the document.
+    const stated = manifest.fixtures.filter((entry) => entry.keyless !== undefined);
+    expect(stated.length).toBeGreaterThan(0);
+    for (const entry of stated) {
+      const receiptBytes = new Uint8Array(readFileSync(join(DATA, entry.path)));
+      const observed = verdictOf(() => decodeReceipt(receiptBytes));
+      expect(`${entry.name}: ${observed}`).toBe(`${entry.name}: ${entry.keyless}`);
+    }
   });
 
   it('refuses the two broken documents for the two reasons their rows name', () => {
@@ -405,18 +531,164 @@ describe('the published receipt fixtures through the client path', () => {
   });
 
   it('accepts the marked fixture over the response bytes its own row states', () => {
-    const marked = manifest.fixtures.find((entry) => entry.name === 'receipt-marked-v2');
+    const marked = manifest.fixtures.find((entry) => entry.name === 'receipt-marked-v1');
     expect(marked?.expected).toBe('verify-ok');
-    expect(clientVerdict(new Uint8Array(readFileSync(join(DATA, 'receipts/receipt-marked-v2.cbor'))))).toBe('verify-ok');
+    expect(clientVerdict(new Uint8Array(readFileSync(join(DATA, 'receipts/receipt-marked-v1.cbor'))))).toBe('verify-ok');
+  });
+});
+
+/**
+ * The demand a policy states about an anchor, weighed over the published receipts.
+ *
+ * Each row that carries an anchor the client reaches states what the shipped client answers for it under
+ * each posture `minAnchorSlotsHeld` can take, and this runs those answers rather than reading them: the
+ * posture is spelled as the policy field's own name beside the number an operator would write, pinned to
+ * the issuer the document itself carries, and the verdict is the code the client threw or `verify-ok`.
+ * Reading the column without this would leave it a claim about this repository's arithmetic, which is the
+ * one thing a published column cannot be.
+ *
+ * The property the rows are arranged to show is the field's own: the posture naming no demand answers
+ * what the row already states with no policy in the call at all. A policy that pins an issuer is not that
+ * absence, and the rows say which is which beside it.
+ */
+describe('the anchor demand a policy states, through the client path', () => {
+  /**
+   * One posture, spelled as an operator spells it: the document's own issuer pinned, the demand named or
+   * left out, and nothing else, so the only thing the three readings differ in is the anchor.
+   */
+  function policyOver(issuer: string, demand: number | null): AshaveriPolicy {
+    return demand === null ? { issuers: [issuer] } : { issuers: [issuer], minAnchorSlotsHeld: demand };
+  }
+
+  // A policy runs the two freshness windows and no policy runs neither, so every reading below is
+  // taken at the instant the published receipts are issued at, in milliseconds, which is the unit
+  // `verifyCompletionReceipt` reads its clock in. That figure is `CLOCK_MILLIS` at module scope; the
+  // seconds figure `CLOCK` is those receipts' `iat` and reaches the verifier only through it.
+  const postureOrder = [null, 1, 2];
+
+  it('gives every row that states its readings the verdict it states under each posture', () => {
+    const stated = manifest.fixtures.filter((entry) => entry.handover !== undefined);
+    expect(stated.length).toBeGreaterThanOrEqual(6);
+    for (const entry of stated) {
+      const readings = entry.handover ?? [];
+      expect(readings.map((one) => one.minAnchorSlotsHeld), entry.name).toEqual(postureOrder);
+      const receiptBytes = new Uint8Array(readFileSync(join(DATA, entry.path)));
+      const issuer = decodeReceipt(receiptBytes).payload.iss;
+      for (const reading of readings) {
+        expect(
+          clientVerdict(receiptBytes, {
+            responseBytes: responseBytesOf(entry),
+            policy: policyOver(issuer, reading.minAnchorSlotsHeld),
+            nowMillis: CLOCK_MILLIS,
+          }),
+          `${entry.name} under demand ${String(reading.minAnchorSlotsHeld)}`,
+        ).toBe(reading.verdict);
+      }
+      // The reading beside `null` is the row's own answer, stated twice on purpose: once with no policy in
+      // the call at all, which is how this suite has always read these bytes, and once under a policy that
+      // pins the issuer and names nothing about the anchor. Those two agreeing is what the field promises.
+      expect(readings[0]?.verdict, entry.name).toBe(entry.expected);
+    }
+  });
+
+  it('refuses with the code its row names, and weighs each presence label in each of the two slots', () => {
+    const stated = manifest.fixtures.filter((entry) => entry.handover !== undefined);
+    // Three published documents refuse at least one posture, so the column is not a suite of acceptances
+    // with one number attached, and the refusal it states is the code the register carries a row for.
+    const refusing = stated.filter((entry) => entry.handover?.some((one) => one.verdict === 'ANCHOR_SLOT_NOT_HELD'));
+    expect(refusing.length).toBeGreaterThanOrEqual(3);
+    for (const entry of refusing) {
+      const receiptBytes = new Uint8Array(readFileSync(join(DATA, entry.path)));
+      const issuer = decodeReceipt(receiptBytes).payload.iss;
+      for (const reading of entry.handover ?? []) {
+        if (reading.verdict !== 'ANCHOR_SLOT_NOT_HELD') continue;
+        expect(
+          clientVerdict(receiptBytes, {
+            responseBytes: responseBytesOf(entry),
+            policy: policyOver(issuer, reading.minAnchorSlotsHeld),
+            nowMillis: CLOCK_MILLIS,
+          }),
+          `${entry.name} under demand ${String(reading.minAnchorSlotsHeld)}`,
+        ).toBe('ANCHOR_SLOT_NOT_HELD');
+      }
+    }
+    // Both absences answer a demand alike, and which of the two slots carried them answers the same: the
+    // count is what decides, and the three labels each state themselves in both halves of an anchor here.
+    const labels = (slot: 'col' | 'val'): string[] => [
+      ...new Set(stated.map((entry) => entry.cva?.[slot]?.p).filter((one): one is string => one !== undefined)),
+    ].sort();
+    expect(labels('col'), 'presence labels published in the collateral slot').toEqual([
+      'absent-at-source',
+      'held',
+      'not-taken-in',
+    ]);
+    expect(labels('val'), 'presence labels published in the validity slot').toEqual([
+      'absent-at-source',
+      'held',
+      'not-taken-in',
+    ]);
+    // And the message a refusal carries names which label reached it, off the bytes rather than off this
+    // file, since a sentence that cannot say which half of the anchor was missing says nothing an operator
+    // can act on. Same call as the one above, read for its sentence instead of its code.
+    const gapRow = stated.find((entry) => entry.name === 'receipt-buffered-v1');
+    expect(gapRow, 'the published anchor with one slot absent at its source is not in the suite').toBeDefined();
+    if (gapRow === undefined) return;
+    const receiptBytes = new Uint8Array(readFileSync(join(DATA, gapRow.path)));
+    const payload = decodeReceipt(receiptBytes).payload;
+    let message = '';
+    let code = 'verify-ok';
+    try {
+      verifyCompletionReceipt({
+        receiptBytes,
+        nonce: payload.nce,
+        requestHash: payload.req,
+        responseHash: payload.res,
+        responseBytes: responseBytesOf(gapRow) ?? new Uint8Array(0),
+        verifyKey: PUBLIC_KEY,
+        policy: policyOver(payload.iss, 2),
+        nowMillis: CLOCK_MILLIS,
+      });
+    } catch (err) {
+      message = err instanceof Error ? err.message : String(err);
+      code = err instanceof SdkError || err instanceof ReceiptError ? String(err.code) : 'uncoded';
+    }
+    expect(code, gapRow.name).toBe('ANCHOR_SLOT_NOT_HELD');
+    expect(message).toContain('absent-at-source');
+    expect(message).toContain('the validity slot');
+    // The held half is not swept into the gap list, which is the one way this sentence could state a count
+    // and a list that disagree, and the count and the demand are both in it.
+    expect(message).not.toContain('the collateral slot');
+    expect(message).toContain('1 of 2 slots held');
+    expect(message).toContain('demands 2');
+  });
+
+  it('states its readings on every row whose anchor the client reaches', () => {
+    // The roster and the rows, read off the rows: a document this suite publishes an accepted answer for
+    // carries an anchor the policy stage reads, so a row added without its three readings is caught here
+    // rather than published as a hole nobody noticed in the column.
+    const owed = manifest.fixtures.filter((entry) => entry.cva !== undefined && entry.expected === 'verify-ok');
+    expect(owed.length).toBeGreaterThanOrEqual(7);
+    for (const entry of owed) {
+      expect(entry.handover, `${entry.name} carries an anchor the client accepts and states no reading`).toEqual(
+        expect.arrayContaining(postureOrder.map((one) => expect.objectContaining({ minAnchorSlotsHeld: one }))),
+      );
+    }
+    // And a row stating none of the three is a row the demand cannot reach for one of two stated reasons:
+    // the format reader answers it before any policy is weighed, or the row publishes no per-member column at
+    // all, which is the shape of the entries this suite began with. Both excuses are read off the row, not
+    // from a list kept here.
+    for (const entry of manifest.fixtures.filter((each) => each.handover === undefined)) {
+      const unreachable = entry.expected !== 'verify-ok' || entry.cva === undefined;
+      expect(unreachable, `${entry.name} carries an anchor the client accepts and states no readings`).toBe(true);
+    }
   });
 });
 
 describe('the marked-region vectors through the marking check', () => {
-  it('carries a signed v2 document per case, issued under the published key', () => {
+  it('carries a signed receipt per case, issued under the published key', () => {
     for (const one of marking.vectors) {
       const decoded = decodeReceipt(bytes(one.client.receiptBase64Url));
-      expect(decoded.payload.v, `${one.name} is not a v2 document`).toBe(2);
-      if (decoded.payload.v !== 2) continue;
+      expect(decoded.payload.v, `${one.name} is not a v1 document`).toBe(1);
       expect(hex(hashRequest(bytes(one.responseBase64Url))), `${one.name} response digest`).toBe(
         hex(decoded.payload.res),
       );
@@ -433,7 +705,7 @@ describe('the marked-region vectors through the marking check', () => {
     const embedded = bytes(
       marking.vectors.find((each) => each.name === 'buffered-member')?.client.receiptBase64Url ?? '',
     );
-    const committed = new Uint8Array(readFileSync(join(DATA, 'receipts/receipt-marked-v2.cbor')));
+    const committed = new Uint8Array(readFileSync(join(DATA, 'receipts/receipt-marked-v1.cbor')));
     expect(hex(hashRequest(embedded))).toBe(hex(hashRequest(committed)));
     expect(embedded).toEqual(committed);
   });
@@ -503,12 +775,17 @@ describe('the request and response digest refusals through the client path', () 
     for (const refusal of requests.refusals) {
       const receipt = bytes(refusal.receiptBase64Url);
       expect(hex(hashRequest(receipt))).toBe(refusal.receiptSha256Hex);
+      // These receipts move `req` and nothing else, so the response they attest is the one the envelope
+      // signs by default, which is published as `receipt-valid-v1`'s row. A client of a receipt has to
+      // hold the body the document digests, and the marking check reads the region out of it.
       const held = vectorsByName.get(refusal.heldVector);
-      expect(clientVerdict(receipt, { requestHash: hashRequest(bytes(held?.bodyBase64Url ?? '')) })).toBe(refusal.code);
+      expect(
+        clientVerdict(receipt, { requestHash: hashRequest(bytes(held?.bodyBase64Url ?? '')), responseBytes: FIXTURE_RESPONSE_BYTES }),
+      ).toBe(refusal.code);
       const claimed = vectorsByName.get(refusal.claimedVector);
-      expect(clientVerdict(receipt, { requestHash: hashRequest(bytes(claimed?.bodyBase64Url ?? '')) })).toBe(
-        'verify-ok',
-      );
+      expect(
+        clientVerdict(receipt, { requestHash: hashRequest(bytes(claimed?.bodyBase64Url ?? '')), responseBytes: FIXTURE_RESPONSE_BYTES }),
+      ).toBe('verify-ok');
     }
   });
 
@@ -609,11 +886,28 @@ describe('the proof-of-possession refusals through the shipped signer and parser
 describe('the receipt store chain refusals through the store reader', () => {
   it('refuses every published image with the code its row states', async () => {
     expect(chain.refusals.length).toBeGreaterThanOrEqual(4);
+    // A refusal between a file and a configuration is not reproducible without the configuration, and a
+    // row states `openedWith` wherever its image is read under a kind other than the receipt kind. The
+    // rows that state none are read under the default, which is what every published image is made of.
+    expect(
+      chain.refusals.filter((refusal) => refusal.openedWith !== undefined).length,
+      'no published refusal is given by a store configured for the kind its image is not',
+    ).toBeGreaterThanOrEqual(1);
+    // And the other half, which the first half cannot say on its own: a suite that grew a configuration
+    // for every row would stop reading any image as the default store reads it, and the published files
+    // every one of them is made of would be replayed under a configuration none of them was written by.
+    expect(
+      chain.refusals.filter((refusal) => refusal.openedWith === undefined).length,
+      'every published refusal now names a configuration, so no image is read the way a deployment that configured nothing reads it',
+    ).toBeGreaterThanOrEqual(1);
     for (const [index, refusal] of chain.refusals.entries()) {
       const dir = mkdtempSync(join(tempDir, `chain-${String(index)}-`));
       writeFileSync(join(dir, RECEIPT_STORE_FILE), bytes(refusal.imageBase64Url));
       expect(bytes(refusal.imageBase64Url)).toHaveLength(refusal.imageByteLength);
-      const opened = await openFileReceiptStore({ dir }).then(
+      const opened = await openFileReceiptStore({
+        dir,
+        ...(refusal.openedWith === undefined ? {} : { receiptKind: refusal.openedWith }),
+      }).then(
         () => null,
         (error: unknown) => error,
       );
@@ -1044,6 +1338,204 @@ describe('the redaction manifest vectors through the shipped reader', () => {
     ]);
     for (const code of new Set(declared)) {
       expect(reached.has(code), `${code} is declared and no published row reaches it`).toBe(true);
+    }
+  });
+});
+
+/**
+ * The public halves this suite publishes, joined both ways: by the kid a protected header names, which is how
+ * a resolver answers, and by the half itself, which is how a row stating one key says which it means. A
+ * designation that appears in neither column of this table is a fault this block reports rather than bytes it
+ * hands a reader.
+ */
+const PUBLISHED_INVENTORY_KEYS = new Map(
+  epochInventories.layout.keyMaterial.map((one) => [one.kidHex, one.publicKeyBase64Url]),
+);
+
+/** The published material for a designated public half, named by the kid its own seal carries. */
+function publishedInventoryKey(publicKeyBase64Url: string): { kidHex: string; publicKeyBase64Url: string } {
+  const found = epochInventories.layout.keyMaterial.find((one) => one.publicKeyBase64Url === publicKeyBase64Url);
+  if (found === undefined) throw new Error('a published row designates a half this suite holds no key material for');
+  return found;
+}
+
+/**
+ * What a row hands the inventory reader: the designation it states, read out of the row and resolved through
+ * the published key material rather than as a byte string written into this file. `pinned` is the one half a
+ * caller means, which answers whatever kid the header names, `retained` is the set a resolver answers from,
+ * one half per kid, and a row stating neither is the call that designated nothing, which this reader answers
+ * before it reads a byte. `presence` is beside either of those rather than instead of them: the run's retention
+ * artifacts, handed with the document, which is the fold's input, and a row stating none is the call that handed
+ * nothing and owes the reading of the document alone.
+ */
+function inventoryOptionsFor(one: EpochInventoryCase): EpochInventoryVerifyOptions {
+  const presence = one.read.presence?.map((one) => bytes(one));
+  const key: EpochInventoryVerifyOptions = (() => {
+    if (one.read.pinned !== undefined) {
+      return { publicKey: bytes(publishedInventoryKey(one.read.pinned).publicKeyBase64Url) };
+    }
+    if (one.read.retained !== undefined) {
+      const held = one.read.retained;
+      return {
+        resolveKey: (kid) => {
+          const found = held[hex(kid)];
+          return found === undefined ? undefined : bytes(found);
+        },
+      };
+    }
+    return {};
+  })();
+  return presence === undefined ? key : { ...key, presence };
+}
+
+/** What the key-bearing reader answered: the code, and the sentence it gave beside a refusal. */
+function inventoryAnswer(one: EpochInventoryCase): { code: string; message: string } {
+  try {
+    verifyEpochInventory(bytes(one.documentBase64Url), inventoryOptionsFor(one));
+    return { code: 'verify-ok', message: '' };
+  } catch (err) {
+    if (err instanceof ReceiptError) return { code: err.code, message: err.message };
+    throw err;
+  }
+}
+
+/**
+ * The epoch inventory suite replayed through the two readers a consumer links against.
+ *
+ * This goes through `verifyEpochInventory` and `decodeEpochInventory` rather than through a command because
+ * there is no command to go through. `packages/cli/src/cli.ts` states the verbs this package ships in one
+ * declaration, `COMMANDS`, and dispatches on it in `run`; they are `verify`, `verify-receipt`,
+ * `verify-handover`, `verify-pack`, `verify-export`, `keygen`, `credential` and `accesslog`, and no verb of
+ * this package reads an epoch inventory, which the absence of the word from every source file under
+ * `packages/cli/src` states outright. Writing a verb for this container would settle what an operator gets to
+ * run, which is a decision about the format's surface rather than about this replay, and a file that replays
+ * published rows does not settle it. What this block does prove is the claim a port has to satisfy: the
+ * readers exported from `@ashaveri/receipt` answer these verdicts from bytes a consumer can hold, under the
+ * key material the same file publishes and nothing else. The redaction block above is the near relation, since
+ * an inventory and a redaction manifest are both summaries over a run of packs and both are read by a
+ * key-bearing and a keyless reader.
+ */
+describe('the epoch inventory vectors through the shipped readers', () => {
+  it('states a verdict for every row and gives every row that verdict', () => {
+    expect(epochInventories.vectors.length).toBeGreaterThanOrEqual(20);
+    const observed = epochInventories.vectors.map((one) => {
+      expect(one.verdict, `${one.name} states no verdict`).toMatch(/^[A-Za-z0-9_-]+$/u);
+      expect(bytes(one.documentBase64Url)).toHaveLength(one.documentByteLength);
+      return `${one.name}: ${verdictOf(() => verifyEpochInventory(bytes(one.documentBase64Url), inventoryOptionsFor(one)))}`;
+    });
+    expect(observed).toEqual(epochInventories.vectors.map((one) => `${one.name}: ${one.verdict}`));
+  });
+
+  it('separates what the bytes say before a key from what the reader decides after one', () => {
+    // `decodeEpochInventory` is handed no key and no arithmetic over a run, so a row that is `verify-ok` there
+    // and a refusal in `verdict` is refused about a key, a signature or the figures the run folds, and a port
+    // that answered both questions at one door would send an operator to the inventory for what is a fact about
+    // their own key set. The two directions are read off the rows rather than stated as numbers here.
+    const observed = epochInventories.vectors.map(
+      (one) => `${one.name}: ${verdictOf(() => decodeEpochInventory(bytes(one.documentBase64Url)))}`,
+    );
+    expect(observed).toEqual(epochInventories.vectors.map((one) => `${one.name}: ${one.structural}`));
+    const wholeButRefused = epochInventories.vectors.filter(
+      (one) => one.structural === 'verify-ok' && one.verdict !== 'verify-ok',
+    );
+    expect(wholeButRefused.length).toBeGreaterThanOrEqual(8);
+    const atTheShape = epochInventories.vectors.filter((one) => one.structural !== 'verify-ok');
+    expect(atTheShape.length).toBeGreaterThanOrEqual(8);
+    for (const one of atTheShape) {
+      expect(one.verdict, `${one.name} is refused at the shape and answered something else at the key`).toBe(
+        one.structural,
+      );
+    }
+  });
+
+  it('answers a refusal in the sentence the row publishes beside it and none an acceptance', () => {
+    // The published sentence is this reader's own wording, and it names the guard it stopped on, so comparing
+    // it is what tells a folded-list refusal reached at one branch from the same code reached at another.
+    const refused = epochInventories.vectors.filter((one) => one.verdict !== 'verify-ok');
+    // The sentence column exists on refusals only, so the half that carries it has to stay a real share of the
+    // suite for this comparison to measure anything: a suite that lost its negatives would leave two empty
+    // arrays to compare and still report green.
+    expect(refused.length).toBeGreaterThanOrEqual(epochInventories.vectors.length - refused.length);
+    const observed = refused.map((one) => {
+      expect(one.message, `${one.name} is refused and the file publishes no sentence for it`).toBeDefined();
+      const answered = inventoryAnswer(one);
+      return `${one.name}: ${answered.code}: ${answered.message}`;
+    });
+    expect(observed).toEqual(refused.map((one) => `${one.name}: ${one.verdict}: ${one.message ?? ''}`));
+    for (const one of epochInventories.vectors) {
+      if (one.verdict !== 'verify-ok') continue;
+      expect(one.message, `${one.name} is accepted and carries a refusal sentence`).toBeUndefined();
+    }
+  });
+
+  it('hands back the run and both claims exactly as each accepted row states them', () => {
+    const accepted = epochInventories.vectors.filter((one) => one.verdict === 'verify-ok');
+    expect(accepted.length).toBeGreaterThanOrEqual(8);
+    for (const one of accepted) {
+      const stated = one.readback;
+      expect(stated, `${one.name} is accepted and states no readback`).toBeDefined();
+      if (stated === undefined) continue;
+      const read = verifyEpochInventory(bytes(one.documentBase64Url), inventoryOptionsFor(one));
+      // `runFiles` is the reader's own recomputation and `statedFiles` the array as the document wrote it, so
+      // one object holds both orders and a row whose readback went missing reports which side of it was lost.
+      expect(
+        {
+          runFiles: read.outcome.packs.map((each) => each.file),
+          statedFiles: read.manifest.packs.map((each) => each.file),
+          window: read.manifest.window,
+          continuous: read.manifest.chain.continuous,
+          breakFiles: read.manifest.chain.breaks.map((each) => each.file),
+          carried: read.manifest.duty.carried,
+          shortFiles: read.manifest.duty.short.map((each) => each.file),
+        },
+        one.name,
+      ).toEqual(stated);
+      // Position in the array carries no claim, so the run handed over is the listed members reordered rather
+      // than a different set: the same packs, each keyed by the digest it is filed under, either way.
+      expect([...read.outcome.packs.map((each) => each.sha256)].sort(), one.name).toEqual(
+        [...read.manifest.packs.map((each) => each.sha256)].sort(),
+      );
+      expect(read.header.contentType, one.name).toBe(epochInventories.layout.contentType);
+    }
+  });
+
+  it('reaches every code the published roster states, through a row it replayed', () => {
+    // The roster is a column of the file and the rows answering each code are read out of the file too, both
+    // ways round, so a row that left this suite is reported here as a gap rather than still being spoken of as
+    // covered, and a row answering a code the file does not roster reports itself the same way.
+    const roster = epochInventories.layout.codes;
+    expect(roster.length, 'the published roster states one code twice').toBe(new Set(roster).size);
+    expect(roster.length).toBeGreaterThanOrEqual(12);
+    for (const code of roster) {
+      const rows = epochInventories.vectors.filter((one) => one.verdict === code || one.structural === code);
+      expect(rows.length, `${code} is on the published roster and no replayed row answers it`).toBeGreaterThanOrEqual(1);
+    }
+    for (const one of epochInventories.vectors) {
+      expect(roster, `${one.name} answers ${one.verdict}, which the file rosters nowhere`).toContain(one.verdict);
+      expect(roster, `${one.name} is ${one.structural} at the shape, which the file rosters nowhere`).toContain(
+        one.structural,
+      );
+    }
+  });
+
+  it('designates only the key material this suite publishes, joined by the kid a header names', () => {
+    // The accepted rows are read from the kid in their own protected header against the published material, so
+    // a row accepted under a key its header does not name, or a retained set holding a kid this suite
+    // publishes no half for, is reported rather than verified under some other key this file reached for.
+    for (const one of epochInventories.vectors) {
+      if (one.read.pinned !== undefined) {
+        if (one.verdict !== 'verify-ok') continue;
+        const headerKid = hex(decodeEpochInventory(bytes(one.documentBase64Url)).header.kid);
+        expect(PUBLISHED_INVENTORY_KEYS.get(headerKid), `${one.name} is accepted under a key its own header does not name`).toBe(
+          one.read.pinned,
+        );
+        continue;
+      }
+      for (const [kid, half] of Object.entries(one.read.retained ?? {})) {
+        expect(PUBLISHED_INVENTORY_KEYS.get(kid), `${one.name} retains a kid this suite publishes no half for`).toBe(
+          half,
+        );
+      }
     }
   });
 });

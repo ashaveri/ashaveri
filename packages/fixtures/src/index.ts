@@ -6,11 +6,77 @@ import type { SigningKey, ReceiptJson } from '@ashaveri/receipt';
 
 const DATA = join(dirname(fileURLToPath(import.meta.url)), '..', 'data');
 
+/** One item of a receipt's `itm`, as its row states it: the instant, the digest, and the bytes. */
+export interface ReceiptItemColumn {
+  t: number;
+  d: string;
+  bytesBase64Url: string;
+  byteLength: number;
+}
+
+/** One slot of an anchor, in the spelling the row states it in: a label, then a digest or a reason. */
+export interface ReceiptAnchorSlotColumn {
+  p: string;
+  d?: string;
+  r?: string;
+}
+
+/** The position a refusal row states, the member it quotes where the reader quotes one, and the claim. */
+export interface ReceiptFaultColumn {
+  at: string;
+  member?: string;
+  states: string;
+}
+
+/**
+ * One published receipt and everything its row states about it.
+ *
+ * The columns past `expected` are stated on a row exactly where the document carries what they describe,
+ * which is why a row can state no `items`: the payload it publishes names no item list. `expected` is the
+ * verdict the key-bearing reader owes the bytes and `keyless` the verdict the reader with no key in hand
+ * owes them, which are two answers a port has to get right separately.
+ */
+export interface ReceiptFixtureRow {
+  name: string;
+  path: string;
+  digestSha256: string;
+  expected: string;
+  keyless?: string;
+  v?: 1 | 2 | 3;
+  marking?: string;
+  contentType?: string;
+  response?: string;
+  assembledFrom?: string[];
+  responseBase64Url?: string;
+  responseByteLength?: number;
+  items?: ReceiptItemColumn[];
+  sd?: { name: string; unc?: number | null };
+  cva?: { col: ReceiptAnchorSlotColumn; val: ReceiptAnchorSlotColumn };
+  /**
+   * The verdict the shipped client path gives this document under each posture the policy field
+   * `minAnchorSlotsHeld` can take, stated in the order `null`, `1`, `2`: no demand named, a demand of one
+   * held slot, a demand of both. Present on a row exactly where the client reaches the anchor its document
+   * carries, which is every row this suite publishes an accepted answer for.
+   */
+  handover?: { minAnchorSlotsHeld: number | null; verdict: string }[];
+  fault?: ReceiptFaultColumn;
+  note?: string;
+}
+
+/** What the suite says its own columns mean, published beside the rows rather than only in prose. */
+export interface ReceiptFixtureLayout {
+  verdictFields: string[];
+  readers: { keyless: string; keyBearing: string };
+  columns: Record<string, string>;
+  encodings: string;
+}
+
 export interface FixtureManifest {
   version: number;
   generatedBy: string;
   cddl: string;
-  fixtures: Array<{ name: string; path: string; digestSha256: string; expected: string; note?: string }>;
+  fixtures: ReceiptFixtureRow[];
+  layout?: ReceiptFixtureLayout;
 }
 
 export interface ReceiptFixture {
@@ -219,6 +285,12 @@ export interface ChainRefusal {
   tamper: Record<string, unknown>;
   imageBase64Url: string;
   imageByteLength: number;
+  /**
+   * The receipt kind the opening that gives this refusal writes. Absent means the receipt kind, which is
+   * the layout every other image in this file is read under, and which no row states twice: a refusal
+   * between a file and a configuration is only reproducible with the configuration named.
+   */
+  openedWith?: { kind: 'receipt' } | { kind: 'bounded'; boundSeconds: number };
   code: string;
   message: string;
 }
@@ -250,8 +322,9 @@ export interface ChainVectorFile {
     digestInput: string;
     digest: string;
     integers: string;
-    kinds: { receipt: number; trim: number };
+    kinds: { receipt: number; trim: number; bounded: number };
     receiptPayload: string;
+    boundedPayload: string;
     trimPayload: string;
     notes: string[];
   };
@@ -339,7 +412,7 @@ export interface ExportCrossReadingCase {
   note: string;
   /** The export manifest projected as its own twin describes it, for the pack side of the pair. */
   manifest?: Record<string, unknown>;
-  /** A pack v1 document, sealed, for the export side of the pair. */
+  /** A pack document, sealed, for the export side of the pair. */
   documentBase64Url?: string;
   expected: string;
 }
@@ -476,7 +549,7 @@ export interface PackDesignation {
   retained?: DesignatedManifestKey[];
 }
 
-/** One record of the honest run: the predecessor it names and the digest the framing gave back. */
+/** One record of a run this suite frames: the predecessor it names and the digest the framing gave back. */
 export interface PackRecordRow {
   position: number;
   id: string;
@@ -528,6 +601,8 @@ export interface PackVectorFile {
   layout: {
     format: string;
     twin: string;
+    /** The standalone statement of this container, which its own document test holds to the twin. */
+    document: string;
     prose: string;
     contentType: string;
     writer: string;
@@ -536,6 +611,9 @@ export interface PackVectorFile {
     codes: string[];
     verdictFields: string[];
     records: PackRecordRow[];
+    /** The framing of the run whose held slots name carried material, in the same rows as `records`. */
+    carriedRecords: PackRecordRow[];
+    framingRule: string;
     keyMaterial: Array<{
       id: string;
       seed: string;
@@ -583,10 +661,16 @@ export interface RedactionRecordRow {
   namedForRemoval: boolean;
 }
 
+/** What the command path answers for one row's pair: the code it prints, and the exit it leaves beside it. */
+export interface RedactionCommandAnswer {
+  code: string;
+  exit: number;
+}
+
 /**
- * One case: the redaction bytes, the pack handed beside them, the designation the caller makes, and what each
- * of the reader's two entry points answers. A row with no `packOf` is the reader that was handed one document
- * of the pair and is refused for that and nothing else.
+ * One case: the redaction bytes, the pack handed beside them, the designation the caller makes, and what the
+ * reader's two entry points and the command answer over them. A row with no `packOf` is the reader that was
+ * handed one document of the pair and is refused for that and nothing else.
  */
 export interface RedactionVector {
   name: string;
@@ -605,6 +689,12 @@ export interface RedactionVector {
   verdict: string;
   /** `verify-ok`, or the code `decodeRedaction` answers with before any key or pack is consulted. */
   structural: string;
+  /**
+   * What `ashaveri verify-handover` answers for the same pair: `null` where it answers exactly what `verdict`
+   * states, which is an exit of 0 on an accepted row and of 1 on a refusal, and the code and the exit beside it
+   * where the command meets this fact one step earlier than the reader does.
+   */
+  command: RedactionCommandAnswer | null;
   /** The records that remain, in the order the pack's links reach them. */
   survivors?: string[];
   /** The head of the chain over the survivors, and the pack's own signed head, never equal on one row. */
@@ -647,4 +737,82 @@ export interface RedactionVectorFile {
 /** The redaction manifest: each pair of documents, both reader answers, and the chain over the survivors. */
 export function loadRedactionVectors(): RedactionVectorFile {
   return JSON.parse(readFileSync(join(DATA, 'redaction-v1.json'), 'utf8')) as RedactionVectorFile;
+}
+
+/** How a row designates a key to the inventory reader: one pinned key, a kid-indexed set, or neither. */
+export interface EpochInventoryDesignation {
+  pinned?: string;
+  retained?: Record<string, string>;
+  /**
+   * The run's retention artifacts, unpadded base64url, in the order the call hands them. A row stating none is the
+   * call that handed no manifest, which reads the document alone and claims nothing about held material.
+   */
+  presence?: string[];
+}
+
+export interface EpochInventoryVector {
+  name: string;
+  note: string;
+  /** The sealed inventory document, unpadded base64url. */
+  documentBase64Url: string;
+  documentByteLength: number;
+  read: EpochInventoryDesignation;
+  /** `verify-ok`, or the code `verifyEpochInventory` answers with. */
+  verdict: string;
+  /** `verify-ok`, or the code `decodeEpochInventory` answers with before any key is consulted. */
+  structural: string;
+  /** The refusal sentence the shipped reader gave, published on every refusing row. */
+  message?: string;
+  /** What the reader reported back for a row it accepted: the run it put together and the summaries it read. */
+  readback?: {
+    runFiles: string[];
+    statedFiles: string[];
+    window: { from: number; to: number };
+    continuous: boolean;
+    breakFiles: string[];
+    carried: boolean;
+    shortFiles: string[];
+  };
+  /** Which of the two folded lists a row guards, on the rows that vector one of the twin guards. */
+  site?: 'chain.breaks' | 'duty.short';
+  /** Which guard of its site a refusing folded-list row reaches, named so the two sites can be compared guard for guard. */
+  guard?: string;
+  /** The one position a fault row moved. */
+  edited?: string;
+  /** The text edit a row was built by, beside the row whose text it edited. */
+  edit?: { of: string; from: string; to: string };
+  /** The honest document taken apart into the four pieces the format publishes. */
+  reveal?: Record<string, unknown>;
+}
+
+export interface EpochInventoryVectorFile {
+  version: number;
+  description: string;
+  layout: {
+    format: string;
+    twin: string;
+    prose: string;
+    contentType: string;
+    reader: string;
+    headerLabels: { alg: number; typ: number; kid: number };
+    codes: string[];
+    verdictFields: string[];
+    /** The columns every row carries because they say which row and which document it is. */
+    rowNamingFields: string[];
+    keyMaterial: Array<{
+      id: string;
+      seed: string;
+      kidHex: string;
+      publicKeyHex: string;
+      publicKeyBase64Url: string;
+      role: string;
+    }>;
+    [key: string]: unknown;
+  };
+  vectors: EpochInventoryVector[];
+}
+
+/** The epoch inventory: each sealed document, both reader answers, and the run the reader put together. */
+export function loadEpochInventoryVectors(): EpochInventoryVectorFile {
+  return JSON.parse(readFileSync(join(DATA, 'epoch-inventory-v1.json'), 'utf8')) as EpochInventoryVectorFile;
 }

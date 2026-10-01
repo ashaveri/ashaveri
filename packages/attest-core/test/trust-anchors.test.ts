@@ -9,7 +9,8 @@ import {
 } from '../src/index.js';
 import { fixture, pemToDer } from './helpers.js';
 
-// Any moment inside the PCK chain's validity windows.
+// Any moment inside the PCK chain's validity windows. NOW is milliseconds since the epoch: `Date.UTC`
+// returns milliseconds, and the chain verifiers read their clock in milliseconds.
 const NOW = Date.UTC(2026, 0, 15);
 
 // The bundled constants are what makes offline verification meaningful for
@@ -38,7 +39,7 @@ describe('bundled trust anchors', () => {
   });
 
   it('verifies a real Intel-signed quote with nothing but the defaults', () => {
-    const result = verifyTdxQuote(fixture('tdx-quote-v4.bin'), { trustedRoots: DEFAULT_INTEL_SGX_ROOTS, now: NOW });
+    const result = verifyTdxQuote(fixture('tdx-quote-v4.bin'), { trustedRoots: DEFAULT_INTEL_SGX_ROOTS, nowMillis: NOW });
     expect(result.pckChain).toHaveLength(3);
     expect(result.trustedRoot.isCa).toBe(true);
   });
@@ -46,7 +47,7 @@ describe('bundled trust anchors', () => {
   it('verifies a real NVIDIA-signed report with nothing but the defaults', () => {
     const result = verifyNvidiaRats(
       { report: fixture('nvidia-hopper-report.bin'), certChain: fixture('nvidia-hopper-cert-chain.pem') },
-      { trustedRoots: DEFAULT_NVIDIA_DEVICE_ROOTS, now: NOW },
+      { trustedRoots: DEFAULT_NVIDIA_DEVICE_ROOTS, nowMillis: NOW },
     );
     expect(result.signatureVerified).toBe(true);
   });

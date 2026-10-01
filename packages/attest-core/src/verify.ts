@@ -42,7 +42,7 @@ export function mrConfigDocumentDigest(document: string): Uint8Array {
 
 export interface VerifyOptions {
   /** Verification time in milliseconds since the Unix epoch. Defaults to now. */
-  readonly now?: number;
+  readonly nowMillis?: number;
   /** Trusted AMD root (ARK) certificates as PEM or DER bytes. Each blob may hold several certificates. */
   readonly trustedArks?: readonly Uint8Array[];
   /** ASK certificate for attestations whose cert_chain is empty (PEM or DER). */
@@ -138,10 +138,10 @@ export function verifyAttestation(bytes: Uint8Array, options: VerifyOptions = {}
  * or the run throws: a composite claim gains nothing from an unverifiable device.
  */
 function verifyGpuEvidence(options: VerifyOptions): readonly NvidiaVerification[] {
-  const now = options.now ?? Date.now();
+  const nowMillis = options.nowMillis ?? Date.now();
   const roots = options.trustedNvidiaRoots ?? [];
   const expectedNonce = options.gpuNonce;
-  return (options.gpuEvidence ?? []).map((evidence) => verifyNvidiaRats(evidence, { now, trustedRoots: roots, expectedNonce }));
+  return (options.gpuEvidence ?? []).map((evidence) => verifyNvidiaRats(evidence, { nowMillis, trustedRoots: roots, expectedNonce }));
 }
 
 type PlatformResult = Omit<VerificationResult, 'gpus'>;
@@ -169,8 +169,8 @@ function verifySevSnp(attestation: Attestation, options: VerifyOptions): Platfor
   const candidates = (options.trustedArks ?? []).flatMap((blob) => parseTrustCandidates(blob));
   const ark = findMatchingArk(candidates, ask);
 
-  const now = options.now ?? Date.now();
-  verifyAmdCertificateChain(ark, ask, vcek, now);
+  const nowMillis = options.nowMillis ?? Date.now();
+  verifyAmdCertificateChain(ark, ask, vcek, nowMillis);
   verifyVcekMatchesReport(vcek, report);
   verifySnpReportSignature(report, vcek);
   validateSnpPolicy(report, options.allowDebug ?? false);
@@ -302,7 +302,7 @@ function verifyTdx(attestation: Attestation, options: VerifyOptions): PlatformRe
   const trustedIntelRoots = options.trustedIntelRoots ?? [];
   let quoteSignatureVerified = false;
   if (trustedIntelRoots.length > 0) {
-    verifyTdxQuote(platform.quote, { trustedRoots: trustedIntelRoots, now: options.now ?? Date.now() });
+    verifyTdxQuote(platform.quote, { trustedRoots: trustedIntelRoots, nowMillis: options.nowMillis ?? Date.now() });
     quoteSignatureVerified = true;
   }
   validateEventLog(platform.eventLog, attestation.stack.runtimeEvents);

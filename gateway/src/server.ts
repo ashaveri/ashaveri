@@ -2,6 +2,7 @@ import Fastify, { type FastifyInstance, type FastifyReply, type FastifyRequest }
 import { createHash, randomUUID } from 'node:crypto';
 import {
   hashRequest,
+  isEventStream,
   issueReceipt,
   randomNonce,
   sealDeploymentManifest,
@@ -17,6 +18,8 @@ import { fromBase64Url, toBase64Url } from './b64.js';
 import { mockBackend, type BackendResponse, type CompletionBackend, type CompletionUsage } from './backend.js';
 import { mockDeployment, type AttestationBundle, type Deployment } from './deployment.js';
 import { fromHex, sha256, toHex } from './digest.js';
+import { notTakenInAnchor, stampDisclosureOf } from './issuance-disclosure.js';
+import { StreamedItemStamps, boundStampsAt, stampedBufferedItem, type FramedItemStamps } from './item-stamps.js';
 import { MarkedStreamTail, markBufferedBody, markingFrame, unmarked } from './marking.js';
 import { parseChatCompletionRequest, RequestError } from './mock.js';
 import {
@@ -72,17 +75,18 @@ export interface GatewayOptions {
    * response shapes and signs its digest. Which of the two a deployment runs is the operator's
    * decision, and so is any duty a marking is meant to discharge.
    *
-   * There is no spelling of this option that leaves the marking field out of a receipt. A v2 payload
-   * always carries one, because an absent `mk` would read to a verifier as "unmarked" and as "this
-   * build predates marking" at once, which is the silence the version exists to refuse.
+   * There is no spelling of this option that leaves the marking field out of a receipt. Every payload
+   * this format writes carries one, because an absent `mk` would read to a verifier as "unmarked" and as
+   * "this build predates marking" at once, which is the silence the member exists to refuse.
    */
   readonly marking?: MarkingScheme;
   /**
    * This process's one time source: a name, the bound that source can be wrong by, and the reading
    * every whole-second stamp in this file is taken from. The issuance instant a receipt claims, the
-   * stamp the store files the record under, and the instant a marking frame carries all come from here,
-   * so the moment a receipt claims cannot be moved apart from the moment the filing cabinet says it
-   * arrived by taking them at two moments, and neither is decided by a call the deployment cannot reach.
+   * stamp the store files the record under, the instant a marking frame carries, and the arrival stamp
+   * on every access log line all come from here, so the moment a receipt claims cannot be moved apart
+   * from the moment the filing cabinet says it arrived by taking them at two moments, and neither is
+   * decided by a call the deployment cannot reach.
    *
    * Absent means `HOST_CLOCK_SOURCE`: this host's own clock, at the uncertainty nobody measured. That is
    * a stated default rather than an implied one, because a deployment that wires nothing should be read
@@ -130,7 +134,36 @@ export type GatewayInstance = FastifyInstance & {
  * a request line or a header name is refused 400 before a route runs, and a target quoted back by
  * admission therefore only ever holds the percent-encoded spelling; a credential id passes a character rule
  * on the way in and on the way out; and the parser packages escape these two where they build a message.
- * `asOneLine` in `packages/receipt/src/errors.ts` is the same rule for the same reason.
+ *
+ * This is a fourth copy of the printed-line ranges rather than the same rule as the others. The owner of the
+ * class inside the receipt package is `packages/receipt/src/line-text.ts`, the CLI and `attest-core` state
+ * their own copies beside their own boundaries, and this one differs from all three in two ways, both
+ * deliberate here. It is narrower: the tag block `U+E0000..U+E007F` is not spelled out, so those code points
+ * are caught only for as long as the runtime's tables classify them as format characters, which is the
+ * reliance the owner refuses about its own class. And it rewrites instead of refusing or escaping: a
+ * character it removes leaves a space behind, so a value carrying a line separator and a value carrying a
+ * space leave this gateway as one visible string.
+ *
+ * The question that copy answers is whether a gateway input owes the estate's printed-line rule, and the answer
+ * is that this one does not. A reply body naming a model the caller typed is not evidence: it is not signed, not
+ * inventoried, and not printed beside an attestation, and the request-chosen spelling is answered by a rule of
+ * its own before this line is reached, because admission compares it whole against the ids the deployment
+ * declares and answers 400 when nothing matches, which a name carrying an invisible member of the class does
+ * not. What travels into a receipt is the declared id rather than the requested spelling, so the unprintable
+ * request stays a line of the error that refused it and becomes no row of any signed document. Where the class
+ * does reach this path is the deployment's own list: a declared model id is what `mdl` carries, and
+ * `assertLineSafeText` (`packages/receipt/src/receipt.ts`) refuses a payload whose `mdl` carries one of those
+ * characters at the step that signs, so an unprintable id is a boot-time or issuance refusal on this side of
+ * the wire and not a silence.
+ *
+ * What the narrower copy leaves, and what a reader of this note should weigh rather than fix in passing, is the
+ * rewrite's own lossiness. A removed character leaves a space behind, so two request names differing by one
+ * member of the class print as one sentence, and anything a deployment copies out of that sentence carries a
+ * string whose extent nobody can recover from it. Two changes would close that: building this copy from
+ * `FORGES_A_LINE_RANGES`, which the class owner publishes inside its own package and no other package imports,
+ * or escaping what is removed the way `packages/receipt/src/errors.ts` escapes it, so a message states the
+ * character it cut instead of hiding it. Neither is taken here, because this site answers for one line of a
+ * client's log and not for a document a reviewer cites, and the exposure is the copying, not the rewriting.
  */
 function asOneLine(text: string): string {
   return text.replace(/[\p{Cc}\p{Cf}\u2028\u2029]/gu, ' ');
@@ -337,18 +370,37 @@ function sourcePhrase(figures: IntakeGuardFigures): string {
 
 export function buildGateway(options: GatewayOptions): GatewayInstance {
   const { access, accessLog } = options;
-  const deployment =
-    options.deployment ?? mockDeployment({ issuer: options.issuer, instance: options.instance, key: options.key });
-  const backend = options.backend ?? mockBackend();
-  // Read once, where every other operator switch on this process is read: a completion is marked the
-  // same way whichever route served it, and the value is reported on the start-up banner.
-  const markingScheme = options.marking ?? DEFAULT_MARKING;
   // The record stamp of this process: whole Unix seconds off the one source it was given, or off the
   // host clock when it was given none. `issue` below stamps the signed payload and the store's chain key
   // from the same reading, and the store retirement clock reads the very same source object, so a span
   // this file derives from its own stamps and a span an operator is quoted are the one number.
+  //
+  // Read ahead of the two lines below that build a guest and a backend, because a deployment this
+  // function builds has to be built with it: evidence collected off one clock and filed against another
+  // puts two instants that never met inside one signed payload, as `att.ts` beside `iat`.
+  //
+  // That is a promise about this wiring rather than about the option shapes. A caller can build
+  // `dstackDeployment({ time: A })` outside this repository and hand the result to
+  // `buildGateway({ deployment, time: B })`, and the two stamps are read off two clocks again with
+  // nothing in the types refusing it; what closes that gap is whoever starts the process naming one
+  // source once, which is what `gateway/src/cli.ts` does for every builder it calls.
   const time = options.time ?? HOST_CLOCK_SOURCE;
-  const stamp = (): number => Math.floor(time.now());
+  const stamp = (): number => Math.floor(time.nowSeconds());
+  // The access record's `t` is epoch milliseconds and a source reads whole seconds, so the line's stamp
+  // is the same reading scaled once, which is the one reconciliation `aclog.ts` applies to the clock its
+  // retention cutoff is drawn from. A line and the bound that ages it therefore answer to one source at
+  // one resolution, and `t` resolves nothing finer than a second: two requests inside one second carry
+  // the same `t` and are told apart by their `rid`, exactly as the day name drawn from it cannot split
+  // them across two days. The duration beside it is an elapsed time inside this process and stays a
+  // pair of host millisecond readings, because a one-second clock would price every fast request at zero.
+  const stampMillis = (): number => stamp() * 1000;
+  const deployment =
+    options.deployment ??
+    mockDeployment({ issuer: options.issuer, instance: options.instance, key: options.key, time });
+  const backend = options.backend ?? mockBackend({ time });
+  // Read once, where every other operator switch on this process is read: a completion is marked the
+  // same way whichever route served it, and the value is reported on the start-up banner.
+  const markingScheme = options.marking ?? DEFAULT_MARKING;
   // A store handed over by a deployment brings its own source, because the retention it was configured
   // with is that deployment's decision. The in-process default has no bounds at all, so the only thing its
   // clock can be asked is which instant a retirement is written under, and that reads the same source as
@@ -385,6 +437,9 @@ export function buildGateway(options: GatewayOptions): GatewayInstance {
   });
 
   interface RequestState {
+    /** The request's arrival as this process's named source reads it, in epoch milliseconds: `t`. */
+    arrivedAt: number;
+    /** The host millisecond the request began, which the duration alone is measured from. */
     startedAt: number;
     rid: string;
     credential: string | null;
@@ -411,7 +466,7 @@ export function buildGateway(options: GatewayOptions): GatewayInstance {
     // alternative is a retry that can land a second line for one request once both listeners fire.
     state.logged = true;
     const record: AccessRecord = {
-      t: state.startedAt,
+      t: state.arrivedAt,
       rid: state.rid,
       cred: state.credential,
       auth: state.auth,
@@ -435,6 +490,10 @@ export function buildGateway(options: GatewayOptions): GatewayInstance {
 
   app.addHook('onRequest', async (request, reply) => {
     states.set(request, {
+      // Two readings, on purpose: the arrival the line reports and the base the duration is measured
+      // from. The first is this process's named source, so the stamp a retention bound ages is the same
+      // clock that bound is drawn from; the second is the host's, and reaches nothing but `dur`.
+      arrivedAt: stampMillis(),
       startedAt: Date.now(),
       rid: randomUUID(),
       credential: null,
@@ -542,6 +601,7 @@ export function buildGateway(options: GatewayOptions): GatewayInstance {
     nonce: Uint8Array;
     requestBody: Buffer;
     responseHash: Uint8Array;
+    framing: FramedItemStamps;
     modelId: string;
     weights: Uint8Array;
     evidence: AttestationBundle;
@@ -549,12 +609,37 @@ export function buildGateway(options: GatewayOptions): GatewayInstance {
     marking: Marking;
   }): Promise<void> {
     const iat = stamp();
-    // A v2 payload, always, whatever the marking says. `mk` is a required member of it, so the
-    // answer to "was this response marked?" is a value in a signed document rather than the absence
-    // of one, which is the reading a v1 receipt cannot carry and section 6 of the specification says
-    // is why the version moved.
+    // The instant this payload states bounds every item stamp it carries. Each frame passed before this
+    // reading was taken, so under a source that does not step back the bound holds of itself; a source
+    // that does can read this instant below the stamps the list already carries, because the clamp keeping
+    // the list in its own order is a floor and not a ceiling. `boundStampsAt` reconciles the two at the
+    // one place the payload's instant exists.
+    const framing = boundStampsAt(args.framing, iat);
+    // One version, and every member it names is filled from what this issuance actually holds. `mk` is
+    // required, so the answer to "was this response marked?" is a value in a signed document rather than
+    // the absence of one. `sd` is the source `iat` was read from, which every process has, and `cva` is the
+    // appraisal context this gateway never took in, which is a state the member was designed to hold. Both
+    // are answered beside the payload rather than by a policy field beside this gateway, because what a
+    // receipt states is not the same as what a reader agrees to accept. A verifier weighing the anchor is
+    // the one that refuses `not-taken-in`, and that refusal is not this document's to write.
+    //
+    // `itm` is the member with a demand this gateway cannot always meet: it is required and it is never
+    // empty, because a run of nothing states nothing and `readItemStamps` refuses one on bytes that are
+    // otherwise well-formed. `ResponseItemFramer` answers `framed: false` for a response that said nothing
+    // in any `data:` frame, and there is no shorter document left to fall back to: a receipt over those
+    // bytes would have to be a document this package's own reader rejects. So the issuance stops there,
+    // which is the second ending `gateway/src/item-stamps.ts` states for a response whose items this
+    // gateway cannot state, and it says it by destroying the body rather than terminating it. The destroy
+    // takes the response head with it: measured on a loopback socket, the client's read returns nothing at
+    // all, so no id reaches anyone and the completion is simply not served. Minting one records nothing,
+    // because only issuance writes a document. The retired versions said less about such a response and
+    // said it truthfully; one version says everything, so it says nothing about a response that has
+    // nothing to be said, and the whole cost of that is one completion per stream that framed no item.
+    if (!framing.framed) {
+      throw new Error(`no item list to attest: ${framing.why}`);
+    }
     const payload: ReceiptPayload = {
-      v: 2,
+      v: 1,
       iss: deployment.issuer,
       ins: deployment.instance,
       iat,
@@ -568,6 +653,9 @@ export function buildGateway(options: GatewayOptions): GatewayInstance {
       epk: deployment.epk,
       tok: { p: args.usage.promptTokens, c: args.usage.completionTokens },
       mk: args.marking,
+      sd: stampDisclosureOf(time),
+      cva: notTakenInAnchor(),
+      itm: framing.stamps,
     };
     // How long this stays fetchable is the store's decision, so the gateway hands over the
     // timestamp the decision is made from rather than making it here.
@@ -717,7 +805,12 @@ export function buildGateway(options: GatewayOptions): GatewayInstance {
     evidencePromise.catch(() => undefined);
     const failed = response.status >= 400;
 
-    if (failed || !response.contentType.includes('text/event-stream')) {
+    // The one question that decides which of the two arms below runs is `isEventStream`'s, and this route
+    // asks it of the shipped reader rather than of a literal, because the same predicate is what tells
+    // the item framing whether it is walking frames or holding one whole body. Two spellings of the test
+    // would let a body be forwarded as a stream and attested as a single item, or the other way round,
+    // and both readings would be internally consistent.
+    if (failed || !isEventStream(response.contentType)) {
       // A buffered body can be hashed and signed before a single byte reaches
       // the client, so an unreceipted response is never observable.
       let body: Buffer;
@@ -761,11 +854,15 @@ export function buildGateway(options: GatewayOptions): GatewayInstance {
         return;
       }
       const sent = marked === null ? body : Buffer.from(marked.body);
+      // Framed out of the bytes about to be handed over, after the mark went in and before anything is
+      // signed, which is the same span `res` digests and the same span `mk.d` cuts a region out of.
+      const framing = stampedBufferedItem(stamp, response.contentType, sent);
       await issue({
         id: receiptId,
         nonce,
         requestBody: raw,
         responseHash: sha256(sent),
+        framing,
         modelId: declared.id,
         weights: declared.wts,
         evidence: await evidencePromise,
@@ -801,6 +898,12 @@ export function buildGateway(options: GatewayOptions): GatewayInstance {
     }
     const id = receiptIds.mint(receiptTag);
     const hasher = createHash('sha256');
+    // The item stamps of this stream, fed from the one closure that puts bytes on the socket. Every
+    // digest the payload states is taken at the write: `res` over the whole sequence this hasher sees,
+    // each item's `d` over the frames that sequence holds, and `mk.d` over the region of the frame this
+    // gateway writes itself. Nothing upstream of `write` can state any of the three, because on a
+    // marking deployment the bytes a client receives are not the bytes the upstream sent.
+    const items = new StreamedItemStamps(stamp);
     // Only a gateway that marks holds back any part of a stream, and only its last frames: see
     // `MarkedStreamTail`.
     const tail = markingScheme === 'none' ? null : new MarkedStreamTail();
@@ -822,8 +925,13 @@ export function buildGateway(options: GatewayOptions): GatewayInstance {
       client.aborted = true;
     });
 
+    // The one place a byte of this response is handed to the client. The hash, the item framing and the
+    // socket see one sequence, in one order, with nothing in between them: a digest stated over bytes
+    // that were not written, or an instant attached to a frame that never passed, both start by a write
+    // reaching one of the three and not the others.
     const write = async (chunk: Uint8Array): Promise<void> => {
       hasher.update(chunk);
+      items.written(chunk);
       if (res.write(chunk)) {
         return;
       }
@@ -889,6 +997,9 @@ export function buildGateway(options: GatewayOptions): GatewayInstance {
         nonce,
         requestBody: raw,
         responseHash: new Uint8Array(hasher.digest()),
+        // Read after the last frame was written, mark frame included, and before the digest is taken,
+        // so the list states the frames the bytes a client holds contain and none that arrived after.
+        framing: items.answer(),
         modelId: declared.id,
         weights: declared.wts,
         evidence: await evidencePromise,

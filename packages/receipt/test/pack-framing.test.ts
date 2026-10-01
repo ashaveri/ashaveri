@@ -159,6 +159,13 @@ function samplePayload(iat: number, nonce: number): ReceiptPayload {
     att: { d: digest, ts: iat - 60, url: 'https://inference.ashaveri.com/v1/attestation' },
     epk: 0,
     tok: { p: 1, c: 1 },
+    mk: { sch: 'none', d: sha256(new Uint8Array(0)) },
+    sd: { name: 'host clock', uncertaintySeconds: null },
+    cva: {
+      collateral: { presence: 'not-taken-in', reason: 'this test took no collateral in' },
+      validity: { presence: 'not-taken-in', reason: 'this test recorded no validity context' },
+    },
+    itm: [{ t: iat, d: digest }],
   };
 }
 
