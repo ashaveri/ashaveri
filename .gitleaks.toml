@@ -64,3 +64,27 @@ regexes = [
 paths = [
   '''^README\.md$''',
 ]
+
+# A fourth block, and it exempts a key identifier rather than a key. The epoch inventory suite publishes a
+# refusal message verbatim, and that message's shape is `header kid=<hex> key kid=<hex>` (the four readers
+# that answer a kid mismatch spell it that way, so the fixture quotes what the product prints). The built-in
+# generic-api-key rule reads the `key kid=` prefix and the 64 hex characters behind it as a credential
+# candidate. Both hexes are sha256 of a public half, printed beside that same public half in the file's own
+# `keyMaterial` rows, so nothing secret is named. The same value sits in two places in this one file, the
+# row and the message that quotes it, which is what a path-scoped value block covers.
+#
+# Measured on 8.30.1 against the history of this branch: the scan reports this file with no block below and
+# reports nothing with it. A different 64-hex value planted after the same `key kid=` prefix in this same
+# file is still reported, and this value copied into another file is still reported, because the exemption
+# is the intersection of the two lines below and not either one alone. The file is generated, so a hand
+# pasted over its slot also fails the job that regenerates it.
+[[allowlists]]
+description = "The epoch inventory fixture's key identifier, in the file that publishes it"
+condition = "AND"
+regexTarget = "secret"
+regexes = [
+  '''^acfdc127e917bc235da5153b4c65cb7c45fc755ab3c6aa2b299869925be19803$''',
+]
+paths = [
+  '''^packages/fixtures/data/epoch-inventory-v1\.json$''',
+]
