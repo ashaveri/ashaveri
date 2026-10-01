@@ -4,10 +4,10 @@ import { sha256 } from '@noble/hashes/sha2.js';
 import { MEASUREMENT_BYTES, isTeeKind, type TeeKind } from '@ashaveri/receipt';
 import { fromBase64Url, toBase64Url, toHex } from './b64.js';
 import { SdkError } from './errors.js';
-import { MAX_ANCHOR_SLOTS_DEMANDABLE } from './policy.js';
+import { ATTESTED_TEXT_MEMBERS, attestedTextShape, MAX_ANCHOR_SLOTS_DEMANDABLE } from './policy.js';
+import type { AshaveriPolicy, AttestedTextMember } from './policy.js';
 import type { EvidenceTrustAnchors } from './evidence.js';
 import { DEFAULT_MAX_EVIDENCE_AGE_SECONDS, DEFAULT_MAX_RECEIPT_AGE_SECONDS } from './policy.js';
-import type { AshaveriPolicy } from './policy.js';
 
 /**
  * A verification policy as a file.
@@ -58,6 +58,8 @@ const FIELDS = [
   'maxEvidenceAgeSeconds',
   'maxTimeUncertaintySeconds',
   'minAnchorSlotsHeld',
+  'minAnchorSlotsWeighed',
+  'attestedTextShapes',
   'trustAnchors',
 ] as const;
 
@@ -181,6 +183,26 @@ export interface PolicyFile {
    */
   readonly maxTimeUncertaintySeconds: number | null;
   readonly minAnchorSlotsHeld: number | null;
+  /**
+   * How many of a receipt's anchor slots this verifier requires its reader to have reached, and to have found
+   * standing as their own signed statement at the instant the receipt states, or `null` where the document demands
+   * nothing about it. The same whole number of slots, from 1 to `MAX_ANCHOR_SLOTS_DEMANDABLE`, on the same grounds.
+   *
+   * What the field above reads out of the artifact, this one reads out of the material the artifact digests, so the
+   * two may be stated together or apart. A document naming only this one demands weighed material of whichever slots
+   * state they were taken in and asks nothing beside that count.
+   */
+  readonly minAnchorSlotsWeighed: number | null;
+  /**
+   * The shape each text member a deployment authors has to match, keyed by the payload's own member names, or `null`
+   * where the document names none. Each value is a regular expression source, and this loader compiles it before it
+   * keeps the policy: a source that compiles to nothing and one the empty text matches are both refused, because each
+   * spells a demand that asks nothing of the member it is named for.
+   *
+   * A key this format names no position for is refused as an unknown one rather than read and dropped, which is what
+   * keeps a demand an operator wrote inside the identity of the file stating it.
+   */
+  readonly attestedTextShapes: Readonly<Partial<Record<AttestedTextMember, string>>> | null;
   readonly trustAnchors: PolicyFileTrustAnchors;
 }
 
@@ -461,8 +483,9 @@ function seconds(label: string, value: unknown, least: number): number {
 }
 
 /**
- * A count of an anchor's slots at `minAnchorSlotsHeld`, whole, at least one, and no more than the slots an
- * anchor has.
+ * A count of an anchor's slots at `minAnchorSlotsHeld` or `minAnchorSlotsWeighed`, whole, at least one, and no more
+ * than the slots an anchor has. The `says` argument is what the count demands of them, taken in or weighed, because
+ * the two counts bound the same two slots and answer to different sentences.
  *
  * This is a deliberate neighbour of `seconds` and not that function with a different name attached: the
  * quantity is a count of members of a signed map rather than a duration, so a non-finite value is refused
@@ -478,7 +501,7 @@ function seconds(label: string, value: unknown, least: number): number {
  * it to the count the anchor holds or to leave it out, and never to leave a policy standing that has
  * already refused everything it will ever be shown.
  */
-function anchorSlots(label: string, value: unknown): number {
+function anchorSlots(label: string, value: unknown, says: string): number {
   if (typeof value !== 'number' || !Number.isSafeInteger(value)) {
     throw invalid(
       `${label} must be a whole number of slots from 1 to ${MAX_ANCHOR_SLOTS_DEMANDABLE}, not ${spelled(value)}: a demand stated as a fraction or as no number at all is weighed against nothing, so either name that many of the anchor's slots or leave the field out, which is what this format's spelling of demanding nothing about an anchor is`,
@@ -486,10 +509,49 @@ function anchorSlots(label: string, value: unknown): number {
   }
   if (value < 1 || value > MAX_ANCHOR_SLOTS_DEMANDABLE) {
     throw invalid(
-      `${label} is ${String(value)}, which no document can answer: an anchor states ${MAX_ANCHOR_SLOTS_DEMANDABLE} slots, so a demand is a whole number from 1 to ${MAX_ANCHOR_SLOTS_DEMANDABLE} naming how many of them must have been taken in, and either name that many or leave the field out, which is what this format's spelling of demanding nothing about an anchor is`,
+      `${label} is ${String(value)}, which no document can answer: an anchor states ${MAX_ANCHOR_SLOTS_DEMANDABLE} slots, so a demand is a whole number from 1 to ${MAX_ANCHOR_SLOTS_DEMANDABLE} naming ${says}, and either name that many or leave the field out, which is what this format's spelling of demanding nothing about an anchor is`,
     );
   }
   return value;
+}
+
+/**
+ * The shapes a document demands of the text members a deployment authors, keyed by the payload's own member names.
+ *
+ * Two refusals and both are about a demand that cannot be met rather than a demand that is hard to meet. A key
+ * outside `ATTESTED_TEXT_MEMBERS` names no text this reader can run a rule over, so it is refused as the unknown keys
+ * this format refuses everywhere else: a demand dropped on the way to a verdict is a demand an auditor believes they
+ * made. A value that is not a regular expression, or one the empty text matches, is refused by `attestedTextShape`,
+ * the same function the check itself compiles with, so the shape that reaches a verdict is the shape that was written
+ * into the digest.
+ *
+ * Keys are kept in code-unit order, because this map rides in the canonical form and a document's formatting is not
+ * allowed to choose its own digest.
+ */
+function textShapes(value: unknown): Partial<Record<AttestedTextMember, string>> {
+  if (typeof value !== 'object' || value === null || Array.isArray(value)) {
+    throw invalid(`'attestedTextShapes' must be an object keyed by payload member, not ${spelled(value)}`);
+  }
+  const raw = value as Record<string, unknown>;
+  if (Object.keys(raw).length === 0) {
+    throw new SdkError(
+      'POLICY_EMPTY_PIN',
+      'policy file \'attestedTextShapes\' is an empty map, which demands nothing of any member: name a shape for at least one text member, or leave the field out, which is what this format\'s spelling of demanding nothing about a deployment\'s text is',
+    );
+  }
+  const shapes: Partial<Record<AttestedTextMember, string>> = {};
+  for (const member of Object.keys(raw).sort()) {
+    const named = ATTESTED_TEXT_MEMBERS.find((one) => one === member);
+    if (named === undefined) {
+      throw invalid(
+        `'attestedTextShapes' names '${member}', which is no text member a receipt of this format carries: the positions a shape can be demanded of are ${ATTESTED_TEXT_MEMBERS.join(', ')}, and a demand this reader cannot run is not one it keeps`,
+      );
+    }
+    const stated = pinnedText(`'attestedTextShapes.${member}'`, raw[member]);
+    attestedTextShape(stated);
+    shapes[named] = stated;
+  }
+  return shapes;
 }
 
 function pinList(field: string, value: unknown): string[] {
@@ -675,7 +737,15 @@ export function parsePolicyFile(text: string): PolicyFile {
     minAnchorSlotsHeld:
       raw['minAnchorSlotsHeld'] === undefined || raw['minAnchorSlotsHeld'] === null
         ? null
-        : anchorSlots("'minAnchorSlotsHeld'", raw['minAnchorSlotsHeld']),
+        : anchorSlots("'minAnchorSlotsHeld'", raw['minAnchorSlotsHeld'], 'how many of them must have been taken in'),
+    minAnchorSlotsWeighed:
+      raw['minAnchorSlotsWeighed'] === undefined || raw['minAnchorSlotsWeighed'] === null
+        ? null
+        : anchorSlots("'minAnchorSlotsWeighed'", raw['minAnchorSlotsWeighed'], 'how many of them a reader must reach and find standing'),
+    attestedTextShapes:
+      raw['attestedTextShapes'] === undefined || raw['attestedTextShapes'] === null
+        ? null
+        : textShapes(raw['attestedTextShapes']),
     trustAnchors: readTrustAnchors(raw['trustAnchors']),
   };
   requireSomePinning(file);
@@ -813,6 +883,17 @@ function canonicalOf(file: PolicyFile): Record<string, unknown> {
   if (demanded !== undefined && demanded !== null) canonical['maxTimeUncertaintySeconds'] = demanded;
   const demandedSlots = given['minAnchorSlotsHeld'];
   if (demandedSlots !== undefined && demandedSlots !== null) canonical['minAnchorSlotsHeld'] = demandedSlots;
+  // Both of the fields below take the same conditional spelling as the count above, on the same grounds: what an
+  // operator states is inside the identity, and what nobody stated leaves the canonical form exactly as it was before
+  // the field existed, so no digest anyone has cited moves because a demand became possible to write.
+  const weighedSlots = given['minAnchorSlotsWeighed'];
+  if (weighedSlots !== undefined && weighedSlots !== null) canonical['minAnchorSlotsWeighed'] = weighedSlots;
+  const shapes = given['attestedTextShapes'] as Record<string, string> | null | undefined;
+  if (shapes !== undefined && shapes !== null) {
+    canonical['attestedTextShapes'] = Object.fromEntries(
+      Object.keys(shapes).sort().map((member) => [member, shapes[member] as string]),
+    );
+  }
   return canonical;
 }
 
@@ -934,6 +1015,33 @@ export function policyFileFromPolicy(
     }
     document['minAnchorSlotsHeld'] = policy.minAnchorSlotsHeld;
   }
+
+  // The weighed count takes the same reading as the count above, for the same reason and with the same two
+  // roads open: a demand a document cannot spell reaches an auditor as the absence of one.
+  if (policy.minAnchorSlotsWeighed !== undefined) {
+    if (!Number.isFinite(policy.minAnchorSlotsWeighed)) {
+      throw invalid(
+        `'minAnchorSlotsWeighed' is ${String(policy.minAnchorSlotsWeighed)}, which no policy document can carry as a demand: the written form of it is null, and null is this format's spelling of a policy that asks nothing of an anchor's material, so either state a whole number of the anchor's ${String(MAX_ANCHOR_SLOTS_DEMANDABLE)} slots or name no demand at all`,
+      );
+    }
+    document['minAnchorSlotsWeighed'] = policy.minAnchorSlotsWeighed;
+  }
+
+  // The shapes ride out only where the policy names at least one, which is the reading the canonical form
+  // takes of both anchor counts: a policy that demanded nothing about a deployment's text is the policy that
+  // existed before this field did, and its digest says so by carrying no key for it. Each source is compiled
+  // here, on the way out as on the way in, because a policy built in code reaches a verifier without ever
+  // passing through the loader, and a shape that compiles to nothing would arrive as a demand met by nothing.
+  const shapes = policy.attestedTextShapes;
+  if (shapes !== undefined && Object.keys(shapes).length > 0) {
+    document['attestedTextShapes'] = Object.fromEntries(
+      Object.keys(shapes).sort().map((member) => {
+        const source = shapes[member as AttestedTextMember] as string;
+        attestedTextShape(source);
+        return [member, source];
+      }),
+    );
+  }
   return parsePolicyFile(JSON.stringify(document));
 }
 
@@ -957,6 +1065,12 @@ export function policyFileToJson(file: PolicyFile): string {
   // the identity, so the text worth putting in a repository reads the same as the digest does.
   if (canonical['minAnchorSlotsHeld'] !== undefined) {
     write['minAnchorSlotsHeld'] = canonical['minAnchorSlotsHeld'];
+  }
+  if (canonical['minAnchorSlotsWeighed'] !== undefined) {
+    write['minAnchorSlotsWeighed'] = canonical['minAnchorSlotsWeighed'];
+  }
+  if (canonical['attestedTextShapes'] !== undefined) {
+    write['attestedTextShapes'] = canonical['attestedTextShapes'];
   }
   write['trustAnchors'] = canonical['trustAnchors'];
   write['v'] = canonical['v'];
@@ -1043,6 +1157,8 @@ function toPolicy(file: PolicyFile, anchors: EvidenceTrustAnchors | undefined): 
     maxEvidenceAgeSeconds: file.maxEvidenceAgeSeconds ?? undefined,
     maxTimeUncertaintySeconds: file.maxTimeUncertaintySeconds ?? undefined,
     minAnchorSlotsHeld: file.minAnchorSlotsHeld ?? undefined,
+    minAnchorSlotsWeighed: file.minAnchorSlotsWeighed ?? undefined,
+    attestedTextShapes: file.attestedTextShapes ?? undefined,
   };
   return anchors === undefined ? policy : { ...policy, trustAnchors: anchors };
 }

@@ -36,6 +36,10 @@ export { readDeploymentManifest } from './manifest-auth.js';
 export type { ManifestAuthentication, ReadManifestResult } from './manifest-auth.js';
 export {
   assertAnchorHeldUnderPolicy,
+  assertAnchorWeighedUnderPolicy,
+  assertAttestedTextShapes,
+  attestedTextShape,
+  ATTESTED_TEXT_MEMBERS,
   DEFAULT_MAX_EVIDENCE_AGE_SECONDS,
   DEFAULT_MAX_RECEIPT_AGE_SECONDS,
   assertStampSourceWithinPolicy,
@@ -43,7 +47,13 @@ export {
   policyFromManifest,
   policyKeyByKid,
 } from './policy.js';
-export type { AshaveriPolicy, StampSourceDeclaration } from './policy.js';
+export type {
+  AnchorSlotLabel,
+  AnchorSlotReading,
+  AshaveriPolicy,
+  AttestedTextMember,
+  StampSourceDeclaration,
+} from './policy.js';
 export {
   ANCHOR_FAMILIES,
   loadPolicyFile,

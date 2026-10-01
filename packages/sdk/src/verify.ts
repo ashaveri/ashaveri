@@ -5,12 +5,13 @@ import {
   ReceiptError,
   verifyReceipt,
   type Marking,
+  type ReceiptPayload,
   type VerifiedReceipt,
 } from '@ashaveri/receipt';
 import { toHex } from './b64.js';
 import { SdkError } from './errors.js';
-import type { AshaveriPolicy } from './policy.js';
-import { assertAnchorHeldUnderPolicy } from './policy.js';
+import type { AnchorSlotReading, AshaveriPolicy, AttestedTextMember } from './policy.js';
+import { assertAnchorHeldUnderPolicy, assertAnchorWeighedUnderPolicy, assertAttestedTextShapes } from './policy.js';
 import { DEFAULT_MAX_EVIDENCE_AGE_SECONDS, DEFAULT_MAX_RECEIPT_AGE_SECONDS } from './policy.js';
 
 export interface VerifyCompletionParams {
@@ -43,6 +44,21 @@ export interface VerifyCompletionParams {
    * which is a verdict nobody earned.
    */
   readonly nowMillis?: number;
+  /**
+   * What the reader established about the material this receipt's `held` anchor slots digest, one reading per slot it
+   * reached anything about, in the shapes `AnchorSlotReading` states.
+   *
+   * Handed rather than looked up, because nothing here can reach it: the payload names digests and no bytes, and the
+   * bytes are in whatever container the reader holds. The format package answers one digest with the bytes beside it
+   * (`resolveCarried`), and the collateral package answers those bytes with a signature and the window the vendor
+   * signed (`appraiseCarriedCollateral`); a caller that has run either hands the answer here, and this is where a
+   * policy's demand of it is weighed.
+   *
+   * A policy demanding weighed material and handed nothing refuses, which is the reading of "the reader reached
+   * nothing" that an auditor and an operator both act on. A policy naming no such demand never reads this field, so a
+   * caller that hands readings to a policy that asks nothing of them is handed the same verdict it always was.
+   */
+  readonly anchorReadings?: readonly AnchorSlotReading[];
 }
 
 /**
@@ -172,7 +188,45 @@ export function verifyCompletionReceipt(params: VerifyCompletionParams): Verifie
   // `assertAnchorHeldUnderPolicy`, and the row this code earns in `docs/error-codes.md` is where a reader
   // learns which states it reaches and which it does not.
   assertAnchorHeldUnderPolicy(policy, payload.cva);
+  // The material behind the slots that stated they were taken in, weighed only for a policy that demands it, and
+  // against the instant this document itself claims rather than against this process's clock. The order is dependence:
+  // the presence demand reads the artifact and is answered by it, so a receipt whose anchor states an absence where the
+  // policy counts held slots is refused for that before anybody is asked what it managed to reach.
+  //
+  // The readings are handed rather than looked up because the answer is not in the document: `cva` names digests, and
+  // the bytes are wherever the reader holds them. A caller that ran the format's own lookup and the collateral
+  // package's appraisal over them hands the result here, which is where the client's standard is applied and not the
+  // format reader's, for the same reason the count above is: an auditor with a receipt and no policy has to keep
+  // getting the same answer this reader has always given them.
+  assertAnchorWeighedUnderPolicy(policy, payload.cva, params.anchorReadings ?? [], payload.iat);
+  // Every text member of a payload that a deployment authored, against the shapes this policy names for them. This is
+  // the reader's half of the rule the writer keeps at the seal: what a producer refuses to sign is that producer's own
+  // standard, and what a particular auditor will accept from any producer is a decision only the auditor can make.
+  assertAttestedTextShapes(policy, deploymentAuthoredText(payload));
   return verified;
+}
+
+/**
+ * The text a deployment authored inside this payload, keyed by the member names the format gives them.
+ *
+ * The eight positions are every `tstr` a payload document carries, read off `packages/receipt/receipt.cddl`, and the
+ * test that pins this function's table derives the list from that file rather than from this comment. Two of them are
+ * the anchor's absence reasons, and a slot stating it holds the bytes states no reason at all: those two arrive as
+ * `null`, which is the one shape a demanded rule skips rather than passes, because the rule is about a text that is not
+ * there. `v` is absent from the record on purpose, because a version number is what this reader was built to parse and
+ * no operator writes a shape for it.
+ */
+function deploymentAuthoredText(payload: ReceiptPayload): Partial<Record<AttestedTextMember, string | null>> {
+  return {
+    iss: payload.iss,
+    ins: payload.ins,
+    mdl: payload.mdl,
+    'att.url': payload.att.url,
+    'mk.sch': payload.mk.sch,
+    'sd.name': payload.sd.name,
+    'cva.col.r': payload.cva.collateral.presence === 'held' ? null : payload.cva.collateral.reason,
+    'cva.val.r': payload.cva.validity.presence === 'held' ? null : payload.cva.validity.reason,
+  };
 }
 
 /**

@@ -45,6 +45,22 @@ export type SdkErrorCode =
   // One code for the two absences, because what a caller does with either is one act and the message names
   // which of the two it met.
   | 'ANCHOR_SLOT_NOT_HELD'
+  // The two gaps a policy can find in the material an anchor's `held` slots digest, weighed where a reader hands a
+  // receipt over with the readings it reached. They are two codes because the gaps are two and the acts around them
+  // differ: an unreached digest is fixed by the container the reader holds, while reached material that does not stand
+  // is fixed by the deployment's choice of collateral or by the reader's roots, and a reader told "the anchor failed"
+  // about either would have to open the document to find out which one to go and get. A third state, a slot stating an
+  // absence where the demand counts weighed material, is the code above rather than a new one, because the gap is the
+  // presence the artifact stated.
+  | 'ANCHOR_MATERIAL_UNREACHED'
+  | 'ANCHOR_MATERIAL_NOT_STANDING'
+  // A text member a deployment authored inside a receipt, holding something other than the shape the policy names for
+  // it. Beside the pin codes above rather than under them: those compare one name against a list the operator pinned,
+  // and this compares whatever a member states against a rule the auditor wrote. Not the writer's `BAD_PAYLOAD`, which
+  // refuses to sign text that could forge a line, while this refuses signed text that is not the shape this reader
+  // accepts. The value is named by its position and its length and never printed, because the class this runs over is
+  // the class that forges the line a refusal is read off.
+  | 'ATTESTED_TEXT_OUTSIDE_SHAPE'
   | 'GATEWAY_ERROR'
   | 'NOT_RECEIPTED'
   // A capture record. Both answer the question of what a reader was told to read and did not

@@ -1,7 +1,7 @@
 import { toHex } from './b64.js';
 import { fromBase64Url } from './b64.js';
 import { SdkError } from './errors.js';
-import type { CollateralAbsent, CollateralSlot, CollateralValidityAnchor } from '@ashaveri/receipt';
+import type { CollateralAbsent, CollateralHeld, CollateralSlot, CollateralValidityAnchor } from '@ashaveri/receipt';
 import type { EvidenceTrustAnchors } from './evidence.js';
 import type { DeploymentManifest } from './manifest.js';
 
@@ -197,11 +197,72 @@ export interface AshaveriPolicy {
    * One state this demand does not reach, stated because it looks like a hole from here and is not: whether a
    * slot stating `held` still resolves. A digest of material nobody retained weighs nothing, and answering that
    * takes the availability of the material the reader holds, which is a question this field deliberately leaves
-   * open and its documentation says so rather than half-answers it. Every document a reader of this format opens
+   * open and `minAnchorSlotsWeighed` beside it asks. Every document a reader of this format opens
    * states an anchor with both of its halves, since the format declares one payload version and the `cva` row of
    * `docs/receipt-spec.md` section 3 requires it, so a demand that is stated always finds two slots to weigh.
    */
   readonly minAnchorSlotsHeld?: number;
+  /**
+   * How many of a receipt's anchor slots this verifier requires the reader to have reached, and to have found
+   * standing as their own signed statement at the instant that receipt states.
+   *
+   * This is the second thing an anchor can be weighed for, and it is a different question from the count above
+   * rather than a stronger form of it. That count asks what the artifact stated about issuance, which is a fact
+   * inside the bytes and is answered by reading them. This one asks what a reader can still do with the material
+   * those bytes digest, which no member of the receipt states and cannot: a payload names a digest and no bytes, and
+   * whether the bytes behind that digest are reachable depends on the container the reader holds. A slot stating
+   * `held` whose material resolves to nothing is a claim that looks like proof, which is why a verifier that wants
+   * proof asks this of it and not only the count.
+   *
+   * Three facts make a slot weighed here, and they are the three a reader can establish without trusting anything
+   * this estate said. The digest the slot states resolves to bytes inside the scope the reader already holds,
+   * addressed by that digest rather than by a naming convention someone has to keep honouring. Those bytes carry a
+   * signature that stands under the roots this reader names, so the statement is the vendor's own and not a body of
+   * data shaped like one. And the window that signature states covers the receipt's own `iat`, which is the instant
+   * the appraisal ran on this material, so the statement reaches the moment the record claims. The comparison is the
+   * format's own arithmetic: a window covers an instant from its first second up to but not including its last.
+   *
+   * A demand of `1` is not a weaker version of a demand of `2`; it is a different sentence, for a verifier that will
+   * weigh what it can reach and report the rest. Naming nothing asks nothing, which is what keeps every verdict taken
+   * under a policy that never named this field the verdict it was, at the digest as at the answer. `0` is refused at
+   * the loader as the count above is, because a demand every artifact meets is a silence written as a decision, and
+   * the ceiling is the same `MAX_ANCHOR_SLOTS_DEMANDABLE` because it is the same two slots being counted.
+   *
+   * Two states this demand does not reach, stated because both read like holes from here. Whether the vendor still
+   * stands behind the level the material states is its own question, answered by the collateral package under
+   * `COLLATERAL_REVOKED_BY_VENDOR`; a weighing that reports a withdrawn level is reported here as withdrawn, in its own
+   * words, and never as a window that missed. And a statement that the material was reachable at some past sealing
+   * instant is not this demand either: reach is weighed at the reader, over the containers the reader holds, and a
+   * container states no instant at which anyone watched an origin answer.
+   *
+   * What is handed to this demand decides how honest it can be. The readings arrive as `AnchorSlotReading` values,
+   * produced by whoever holds the material out of the container carrying it, and a held slot with no reading beside
+   * it is refused rather than passed: a verifier that was handed nothing reached nothing, and treating an unread
+   * anchor as a compliant one is how an absence of evidence becomes a pass.
+   */
+  readonly minAnchorSlotsWeighed?: number;
+  /**
+   * The shape each text member a deployment authors has to match, keyed by the payload's own member names. Every
+   * value is a regular expression source read without flags, matched against the whole value, and the source is
+   * compiled where the policy is made rather than where a document is judged.
+   *
+   * This is the reader's half of a rule the writer already keeps. `packages/receipt/src/receipt.ts` refuses to sign
+   * any of these members carrying a character that could end or reorder the line it is later printed on, and a
+   * producer's refusal is the deployment's own standard: what the deployment decided not to sign says nothing about
+   * what a particular auditor will accept from it. A document that clears the writer can still arrive with a model id
+   * out of a routing table, a URL on an origin nobody pinned or a collector's sentence where an operator expected a
+   * label, and only a verifier can decide whether that is acceptable. So the verifier says so here, and an auditor
+   * runs a rule over their own receipts instead of reading a promise in a document.
+   *
+   * Naming nothing asks nothing, as the three fields above do: a key left out demands nothing of that member, an empty
+   * map demands nothing of any, and no verdict taken under a policy that named no shape moves. A demand that a member
+   * hold nothing at all is written the same way, by leaving that key out; a shape of `^$` is a demand no artifact meets
+   * and the loader refuses it beside a source that will not compile, because both are a silence spelled as a decision.
+   *
+   * `v` is deliberately not one of the positions. It is the version this reader was built to parse rather than a
+   * statement the deployment authored, and a shape refusing it would answer with a code about somebody's text.
+   */
+  readonly attestedTextShapes?: Readonly<Partial<Record<AttestedTextMember, string>>>;
   /**
    * Vendor roots hardware evidence must chain to. Omit to accept the roots
    * bundled with `@ashaveri/attest-core`; set it to pin your own.
@@ -278,8 +339,10 @@ export function assertStampSourceWithinPolicy(
 }
 
 /**
- * The largest demand `minAnchorSlotsHeld` can state and a document can still answer: the number of slots
- * one anchor holds.
+ * The largest demand either anchor count can state and a document can still answer: the number of slots
+ * one anchor holds. `minAnchorSlotsHeld` counts the slots stating they were taken in, and
+ * `minAnchorSlotsWeighed` counts how many of those a reader reached and found standing; both are bounded
+ * here because both count the same two slots.
  *
  * The format owns that number, as the member list `COLLATERAL_ANCHOR_MEMBERS` declares in
  * `packages/receipt/src/receipt.ts`, and this is a restatement of it in the same way
@@ -344,6 +407,267 @@ export function assertAnchorHeldUnderPolicy(
       'Neither absence is an anchor a verifier can weigh, so either the deployment issues from a collector that took the appraisal context in, ' +
       'or this policy lowers its demand to the count these artifacts carry or names no demand at all',
   );
+}
+
+/**
+ * Which of an anchor's two slots a reading is about, spelled as the container carrying the material spells it:
+ * `col` for the collateral an appraisal ran against, `val` for the validity context it ran in.
+ *
+ * The receipt's own members are `collateral` and `validity`, and the pack's carried lookup answers with these two
+ * labels, so this is the seam's spelling rather than a third name for the same half. A reading about the wrong slot
+ * is not a reading about the anchor, which is why the label is a field of it and not an assumption about order.
+ */
+export type AnchorSlotLabel = 'col' | 'val';
+
+/**
+ * What one anchor slot's material amounts to where the reader reached it, as the reader that reached it states it.
+ *
+ * This is the shape the demand below weighs, and it is handed rather than looked up on purpose: the SDK verifies a
+ * document a caller handed it, and the material a `held` digest names lives in whatever container that caller holds,
+ * which the format package reads through `resolveCarried` and the collateral package appraises through
+ * `appraiseCarriedCollateral`. Neither of those two answers is a number this package can reach without the container,
+ * so the reader hands what it established and this package asks whether it is enough.
+ *
+ * `reached` says the digest resolved to bytes inside the scope the reader holds, and the digest it resolved *to* is
+ * restated because a lookup that returned other bytes is a finding about the container rather than an anchor weighed.
+ * `signature` is the vendor's own statement as the reader established it: `established` under the roots that reader
+ * named, `withdrawn` where those roots stand behind the document and the document withdraws the level it states, and
+ * `not-established` where nothing reached was a signature this reader can stand behind, which is the honest spelling
+ * of an unreadable envelope, an unknown vendor status and a chain that reaches no named root alike. `window` is the
+ * validity window that signed statement states for itself, or `null` where none was readable.
+ */
+export interface AnchorSlotReading {
+  readonly slot: AnchorSlotLabel;
+  /** The digest the slot states, lowercase hex, which is the only name the anchor gives this material. */
+  readonly digest: string;
+  readonly reached: boolean;
+  /** The digest the reached bytes actually hash to, when `reached` is true. */
+  readonly resolvedDigest?: string;
+  readonly signature: 'established' | 'not-established' | 'withdrawn';
+  readonly window: { readonly from: number; readonly until: number } | null;
+}
+
+/** Whether a reading names this digest, whether it reached it, and whether the reached bytes are that digest. */
+function reachedOf(reading: AnchorSlotReading | undefined): 'no-reading' | 'not-reached' | 'wrong-bytes' | 'reached' {
+  if (reading === undefined) return 'no-reading';
+  if (!reading.reached) return 'not-reached';
+  if (reading.resolvedDigest !== undefined && reading.resolvedDigest !== reading.digest) return 'wrong-bytes';
+  return 'reached';
+}
+
+/** Whether the reading's own signed window states the instant, in the arithmetic the format uses. */
+function coversInstant(window: { readonly from: number; readonly until: number } | null, at: number): boolean {
+  return window !== null && at >= window.from && at < window.until;
+}
+
+/**
+ * Refuse an anchor whose material the reader reached fewer slots of than the policy demands, and name the reading
+ * that failed rather than a single word for all of them.
+ *
+ * Two refusals, and they are two because the gaps are two. `ANCHOR_MATERIAL_UNREACHED` is the material: no reading
+ * at all for a digest the anchor states, a reading that reached nothing, or bytes that do not hash to the digest
+ * asked for. `ANCHOR_MATERIAL_NOT_STANDING` is the statement behind the material: bytes reached that establish no
+ * signature under these roots, that state no window anyone can weigh, that state a window not reaching the instant
+ * asked, or that the vendor itself withdraws. A verifier told only that "the anchor failed" cannot act on either, and
+ * a material retired on schedule is not a signature that failed, so the codes stay apart and each message names which
+ * slot, which digest, and which reading inside the code it reached.
+ *
+ * The ordering is the order of dependence, not of severity: a slot with nothing reached has no signature to weigh and
+ * no window to compare, so the unreached refusal is given whenever any demanded slot falls that way, even when
+ * another slot fell the other way. The count that answered is stated either way, beside the count demanded.
+ *
+ * One state is refused under a code that already exists rather than a new one: an anchor stating fewer `held` slots
+ * than this demand names cannot have that many weighed at all, and the gap is the presence the artifact stated, which
+ * is `ANCHOR_SLOT_NOT_HELD`'s own question. One state reaches nothing: a policy naming no demand returns before any of
+ * it, which is what keeps every verdict taken under such a policy the verdict it was, and what
+ * `test/anchor-weighing.test.ts` pins beside digests.
+ *
+ * Whether the appraisal that produced a reading watched an origin answer is not one of these questions and cannot be,
+ * on the path that has material to weigh: a container states no observation instant, so material read out of one is
+ * never a current answer and never arrives with the window refusal beside it. That is why this weighs the window the
+ * material states for itself against the instant the record claims, rather than the state the appraisal settled on.
+ */
+export function assertAnchorWeighedUnderPolicy(
+  policy: AshaveriPolicy | undefined,
+  anchor: CollateralValidityAnchor,
+  readings: readonly AnchorSlotReading[],
+  atSeconds: number,
+): void {
+  const demanded = policy?.minAnchorSlotsWeighed;
+  if (demanded === undefined) return;
+  const slots: readonly (readonly [name: string, label: AnchorSlotLabel, slot: CollateralSlot])[] = [
+    ['collateral', 'col', anchor.collateral],
+    ['validity', 'val', anchor.validity],
+  ];
+  const held = slots
+    .filter((entry): entry is readonly [string, AnchorSlotLabel, CollateralHeld] => entry[2].presence === 'held')
+    .map(([name, label, slot]) => ({ name, label, digest: toHex(slot.sha256) }));
+  if (held.length < demanded) {
+    throw new SdkError(
+      'ANCHOR_SLOT_NOT_HELD',
+      `an anchor stating ${String(held.length)} of ${String(slots.length)} slots held is refused: this policy demands ${String(demanded)} ` +
+        'weighed, and a slot stating an absence names no material to weigh, so no reader could ever answer this demand out of these bytes. ' +
+        'Either the deployment issues from a collector that took the appraisal context in, or this policy lowers the count it demands to the ' +
+        'slots these artifacts state held, or it names no demand at all',
+    );
+  }
+  const read = (label: AnchorSlotLabel, digest: string): AnchorSlotReading | undefined =>
+    readings.find((one) => one.slot === label && one.digest === digest);
+  const states = held.map((one) => ({ ...one, reading: read(one.label, one.digest), reached: reachedOf(read(one.label, one.digest)) }));
+  const stood = (one: (typeof states)[number]): boolean =>
+    one.reached === 'reached' &&
+    one.reading !== undefined &&
+    one.reading.signature === 'established' &&
+    coversInstant(one.reading.window, atSeconds);
+  const weighed = states.filter(stood).length;
+  if (weighed >= demanded) return;
+
+  const unreached = states.filter((one) => one.reached !== 'reached');
+  if (unreached.length > 0) {
+    const gaps = unreached
+      .map((one) =>
+        one.reached === 'no-reading'
+          ? `the ${one.name} slot states the digest ${one.digest} and this run was handed no reading for it, so nothing in scope was reached at all`
+          : one.reached === 'not-reached'
+            ? `the ${one.name} slot states the digest ${one.digest} and the reading handed for it reached no bytes`
+            : `the ${one.name} slot states the digest ${one.digest} and the bytes reached for it hash to ${String(one.reading?.resolvedDigest)}, which is a different object than the one the anchor names`,
+      )
+      .join(' and ');
+    throw new SdkError(
+      'ANCHOR_MATERIAL_UNREACHED',
+      `an anchor with ${String(weighed)} of ${String(held.length)} held slots weighed is refused: this policy demands ${String(demanded)}, and ${gaps}. ` +
+        'A held digest nobody can reach is a claim that looks like proof rather than a piece of it, so either the reader holds the container carrying ' +
+        'these bytes, or this policy lowers its demand to what it can reach, or it names no demand at all',
+    );
+  }
+
+  const standing = states
+    .filter((one) => !stood(one))
+    .map((one) => {
+      const reading = one.reading as AnchorSlotReading;
+      if (reading.signature === 'not-established') {
+        return `the ${one.name} slot's material (${one.digest}) states no signature the roots this run stands behind establish, which covers a document this reader cannot decode as well as one whose chain reaches no named root`;
+      }
+      if (reading.signature === 'withdrawn') {
+        return `the ${one.name} slot's material (${one.digest}) is the vendor's own signed statement and that statement withdraws the level it states, which no window reading covers and no later document un-says`;
+      }
+      const window = reading.window;
+      if (window === null) {
+        return `the ${one.name} slot's material (${one.digest}) is signed and reached but states no validity window at all, so nothing here can be weighed against the instant ${String(atSeconds)}`;
+      }
+      return `the ${one.name} slot's material (${one.digest}) stands from ${String(window.from)} up to but not including ${String(window.until)} and the instant asked is ${String(atSeconds)}, which is outside it`;
+    })
+    .join(' and ');
+  throw new SdkError(
+    'ANCHOR_MATERIAL_NOT_STANDING',
+    `an anchor with ${String(weighed)} of ${String(held.length)} held slots weighed is refused: this policy demands ${String(demanded)}, and ${standing}. ` +
+      'Each of these is reached material that does not answer for the moment the record claims, so either the reader appraises it against the roots and the ' +
+      'level it is actually about, or the deployment seals the collateral whose window reaches its own stamps, or this policy lowers its demand to what stands ' +
+      'here or names no demand at all',
+  );
+}
+
+/**
+ * The text members a deployment authors inside a receipt, named as the payload names them.
+ *
+ * This is the class the writer already refuses to sign: every `tstr` a payload document carries, read off
+ * `packages/receipt/receipt.cddl`, minus `v`, which is the version this reader was built to parse rather than text a
+ * deployment authored. `test/anchor-weighing.test.ts` derives the list from that file's own declarations and
+ * holds the two together, so a ninth text member joins this union by a failing test rather than by a rule an auditor
+ * was never handed.
+ */
+export type AttestedTextMember =
+  | 'iss'
+  | 'ins'
+  | 'mdl'
+  | 'att.url'
+  | 'mk.sch'
+  | 'sd.name'
+  | 'cva.col.r'
+  | 'cva.val.r';
+
+/** Every position a policy can name a shape for, in the order the payload declares them. */
+export const ATTESTED_TEXT_MEMBERS: readonly AttestedTextMember[] = [
+  'iss',
+  'ins',
+  'mdl',
+  'att.url',
+  'mk.sch',
+  'sd.name',
+  'cva.col.r',
+  'cva.val.r',
+];
+
+/**
+ * One shape as this package reads it: compiled, whole-value anchored, and refused before it reaches a verdict.
+ *
+ * A demand an operator wrote that does not compile is not a demand that matches nothing, which is what reading a bad
+ * source as a literal would amount to, and a source that matches the empty string demands a member no receipt can hold
+ * empty. Both are refused here, and the loader for a policy document calls this on the way in, so a policy built in
+ * code and a policy read from a file are held to one rule by one implementation.
+ */
+export function attestedTextShape(source: string): RegExp {
+  let bare: RegExp;
+  try {
+    bare = new RegExp(source, 'u');
+  } catch {
+    throw new SdkError(
+      'POLICY_FILE_INVALID',
+      `'attestedTextShapes' states ${JSON.stringify(source)}, which compiles to no regular expression at all: a shape ` +
+        'a verifier cannot run asks nothing of the member it is named for, and this loader refuses it rather than read it ' +
+        'as a pattern that matches nothing',
+    );
+  }
+  // Wrapped rather than trusted to spell its own anchors, so `dpl-.*` and `^dpl-.*$` are one demand. An operator who
+  // writes the anchors keeps them: an assertion inside a group that is already pinned at both ends says the same thing
+  // twice and changes nothing about what the shape matches.
+  const whole = new RegExp(`^(?:${bare.source})$`, 'u');
+  if (whole.test('')) {
+    throw new SdkError(
+      'POLICY_FILE_INVALID',
+      `'attestedTextShapes' states ${JSON.stringify(source)}, which the empty text matches: a shape every value meets ` +
+        'demands nothing of the member it is named for, and a rule that asks nothing is written by leaving that member out',
+    );
+  }
+  return whole;
+}
+
+/**
+ * Refuse a receipt whose deployment-authored text is outside a shape the policy names for it.
+ *
+ * The positions are the payload's own, and a position this argument states as `null` carries no text at all, which is
+ * the anchor's held arm: a shape named for `cva.col.r` is a rule about the sentence a collector writes when it has no
+ * bytes, and a slot stating it holds the bytes states no sentence to run the rule over. Such a position is skipped
+ * rather than passed with a note, because the demand was about a text that is not there.
+ *
+ * The refusal names the position, the shape it did not match and the length of what was found, and never prints the
+ * value. That is the one place this differs from the refusals above, and it is on purpose: the class this rule runs
+ * over is text a foreign signer could put in a receipt to forge the line a report prints beside its label, and a
+ * refusal that pasted it in would carry the forgery into the tool that reports it. The reader who wants the value has
+ * the document.
+ */
+export function assertAttestedTextShapes(
+  policy: AshaveriPolicy | undefined,
+  text: Readonly<Partial<Record<AttestedTextMember, string | null>>>,
+): void {
+  const shapes = policy?.attestedTextShapes;
+  if (shapes === undefined) return;
+  for (const member of ATTESTED_TEXT_MEMBERS) {
+    const source = shapes[member];
+    if (source === undefined) continue;
+    const value = text[member];
+    if (value === null || value === undefined) continue;
+    if (!attestedTextShape(source).test(value)) {
+      throw new SdkError(
+        'ATTESTED_TEXT_OUTSIDE_SHAPE',
+        `the receipt's ${member} is ${String(value.length)} characters and matches no shape this policy names for it: ` +
+          `the demand is ${JSON.stringify(source)}, and what the document states is not printed here because this class of ` +
+          'text is the class that forges a printed line, so the reader who wants it has the document. Either the deployment ' +
+          'authors that member inside the shape, or this policy widens the shape to the text it actually accepts, or it names ' +
+          'no shape for that member',
+      );
+    }
+  }
 }
 
 /**
