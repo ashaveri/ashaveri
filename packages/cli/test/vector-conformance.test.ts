@@ -674,8 +674,9 @@ describe('the anchor demand a policy states, through the client path', () => {
       );
     }
     // And a row stating none of the three is a row the demand cannot reach for one of two stated reasons:
-    // the format reader answers it before any policy is weighed, or its document names no anchor at all and
-    // so makes no presence claim to weigh. Both excuses are read off the row, not from a list kept here.
+    // the format reader answers it before any policy is weighed, or the row publishes no per-member column at
+    // all, which is the shape of the entries this suite began with. Both excuses are read off the row, not
+    // from a list kept here.
     for (const entry of manifest.fixtures.filter((each) => each.handover === undefined)) {
       const unreachable = entry.expected !== 'verify-ok' || entry.cva === undefined;
       expect(unreachable, `${entry.name} carries an anchor the client accepts and states no readings`).toBe(true);
