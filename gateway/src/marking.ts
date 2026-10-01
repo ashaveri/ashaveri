@@ -233,9 +233,9 @@ function closesFrame(bytes: Uint8Array): boolean {
  * sentinel, so its mark goes last.
  *
  * A mark is written as a frame: one field line and the blank line after it, with a closed frame ahead of
- * it. Where the upstream stopped mid-frame — its last line carrying no terminator at all, or carrying a
- * line ending but never the blank line that dispatches it — the terminator the upstream owed is written
- * before the mark, and the mark begins a frame of its own. Without that the client is handed one line
+ * it. The upstream can stop mid-frame, with its last line carrying no terminator at all, or carrying a
+ * line ending but never the blank line that dispatches it. Either way the terminator the upstream owed
+ * is written before the mark, and the mark begins a frame of its own. Without that the client is handed one line
  * holding two `data:` prefixes, which is a line no conforming parser produces a frame from: the receipt
  * would then honestly attest bytes whose marked region the published rule refuses under the scheme the same
  * payload names. The bytes a completion is attested over are the bytes the upstream sent plus the frame end
