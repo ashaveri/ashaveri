@@ -194,13 +194,12 @@ export interface AshaveriPolicy {
    * points at leaving the field out. A number above the slots an anchor has is refused on the same ground
    * from the other side, and the ceiling is `MAX_ANCHOR_SLOTS_DEMANDABLE` beside this declaration.
    *
-   * Two states this demand does not reach, stated because both look like holes from here and neither is.
-   * The first is a document of a version that names no anchor at all: it makes no statement about presence
-   * either way, and refusing it would be a rule about version numbers rather than about an anchor, which is
-   * what `docs/receipt-spec.md` section 3's rows already settle. The second is whether a slot stating
-   * `held` still resolves: a digest of material nobody retained weighs nothing, and answering that takes the
-   * availability of the material the reader holds, which is a question this field deliberately leaves open
-   * and its documentation says so rather than half-answers it.
+   * One state this demand does not reach, stated because it looks like a hole from here and is not: whether a
+   * slot stating `held` still resolves. A digest of material nobody retained weighs nothing, and answering that
+   * takes the availability of the material the reader holds, which is a question this field deliberately leaves
+   * open and its documentation says so rather than half-answers it. Every document a reader of this format opens
+   * states an anchor with both of its halves, since the format declares one payload version and the `cva` row of
+   * `docs/receipt-spec.md` section 3 requires it, so a demand that is stated always finds two slots to weigh.
    */
   readonly minAnchorSlotsHeld?: number;
   /**
@@ -311,14 +310,13 @@ export const MAX_ANCHOR_SLOTS_DEMANDABLE = 2;
  * at a collector that looked away. The message names the slot, its state, the reason the slot itself
  * states, the count that answered and the count demanded, so the finding is readable off one line.
  *
- * Three states reach nothing here, and each is a decision rather than an omission. A slot stating `held`
+ * Two states reach nothing here, and each is a decision rather than an omission. A slot stating `held`
  * passes this test and only this one: whether its material still resolves is a second question, answered
  * by an availability interval a verifier reaches outside the artifact, and a held digest that turns out to
- * name nothing retained is not a hole in this check. A document of a version that names no anchor makes no
- * statement about presence at all, so there is nothing here to weigh, and refusing it would be a rule about
- * version numbers. And a policy that named no demand returns before any of it, which is the property
- * `test/anchor-slot-demand.test.ts` pins as numbers: no verdict taken under a policy that asked nothing of
- * an anchor moves.
+ * name nothing retained is not a hole in this check. And a policy that named no demand returns before any of
+ * it, which is the property `test/anchor-slot-demand.test.ts` pins as numbers: no verdict taken under a policy
+ * that asked nothing of an anchor moves. Every document this reader opens states an anchor with both of its
+ * halves, so a stated demand always has two slots to weigh.
  */
 export function assertAnchorHeldUnderPolicy(
   policy: AshaveriPolicy | undefined,
