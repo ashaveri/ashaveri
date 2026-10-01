@@ -205,6 +205,10 @@ alone is the chain beside the body, and this container states no member holding 
 entry, the list bounded at the two slots a sealed receipt names, and no name an entry carries besides its
 digest.
 
+A carried entry is the vendor's own signed statement about a platform's firmware, which no deployment
+writes, and this container states no way of taking one out on its own: an entry leaves when the pack
+carrying it leaves, which is the deployment's expiry of that window and not a subject's request.
+
 ## Refusals
 
 Every fault is refused by a code, and a caller branches on the code and not on the sentence. The rows are in
