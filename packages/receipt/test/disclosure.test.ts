@@ -12,7 +12,8 @@ import {
 /**
  * The two disclosures a receipt states about itself, checked as declarations.
  *
- * Both are carried by `v: 3` now, as required members, and the bytes that carry them are driven in
+ * Both are carried by the one payload version this format declares, as required members, and the bytes that
+ * carry them are driven in
  * `receipt.test.ts`. What this file holds is the vocabulary, which has to agree with code in two other
  * packages, and the requiredness, which is the half a reader of a signed document can never recover once
  * a field has gone optional.

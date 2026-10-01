@@ -345,10 +345,10 @@ function requireImplementedVersion<T extends number>(value: unknown, what: strin
 }
 
 /**
- * Which receipt format version the record says the check read, against every version this package reads it
- * as. `receipt.cddl` declares three payload versions and this reader names all three, because a gateway
- * emits `v: 3` on the bytes of the response rather than on a capability the deployment was asked about, so
- * a record of a v3 check is a record a collector will write. A version outside the list is still refused by
+ * Which receipt format version the record says the check read, against the version this package reads it
+ * as. `receipt.cddl` declares one payload version and this reader names it, because a gateway emits
+ * that version on the bytes of the response rather than on a capability the deployment was asked about, so
+ * a record of a check is a record a collector writes. A version outside the list is still refused by
  * design and never read as one inside it: `requireImplementedVersion` answers with an `UNSUPPORTED_VERSION`
  * naming the version the record states and the versions this reader implements, which is the same rule the
  * capture and policy versions beside it run under.

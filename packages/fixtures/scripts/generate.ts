@@ -363,7 +363,7 @@ function asMapOf(payload: Map<unknown, unknown>, member: string): Map<unknown, u
   return value;
 }
 
-/** The map a named position of a `v: 3` payload holds, read off the document the writer just made. */
+/** The map a named position of a receipt payload holds, read off the document the writer just made. */
 function mapAt(payload: Map<unknown, unknown>, at: string): Map<unknown, unknown> {
   if (at === 'payload') return payload;
   if (at === 'itm[0]') {
@@ -378,7 +378,7 @@ function mapAt(payload: Map<unknown, unknown>, at: string): Map<unknown, unknown
   return inner === undefined ? holder : asMapOf(holder, inner);
 }
 
-/** Every closed map a `v: 3` document puts a member inside, by the position its reader names. */
+/** Every closed map a receipt puts a member inside, by the position its reader names. */
 const CLOSED_MAPS = ['payload', 'meas', 'att', 'tok', 'mk', 'sd', 'cva', 'cva.col', 'cva.val', 'itm[0]'] as const;
 
 /** The name every unknown-member row carries, which is the name the refusal quotes back. */

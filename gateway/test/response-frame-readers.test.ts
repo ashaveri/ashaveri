@@ -9,7 +9,7 @@ import { MarkedStreamTail, SSE_FRAME_END, markingFrame } from '../src/marking.js
  *
  * Four modules walk the bytes of a streamed completion and each reaches a conclusion. The item framing in
  * `packages/receipt/src/response-items.ts` decides which spans are items and which frame is the sentinel,
- * because a `v: 3` payload digests them. The usage scan in `gateway/src/upstream.ts` decides which frames
+ * because the payload digests them. The usage scan in `gateway/src/upstream.ts` decides which frames
  * carry a completion it has to meter. The extraction rule in `packages/receipt/src/marking.ts` decides
  * which span `mk.d` is the digest of. And `gateway/src/marking.ts` decides at which byte of the stream a
  * mark may go. They read one byte string, so on any body they have to agree about where its frames are: a

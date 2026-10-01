@@ -567,8 +567,8 @@ describe('docs/vectors.md suite inventory', () => {
  * suite moves the document instead of leaving it to fall out of step: the versions the opening sentence
  * calls current are read off the bytes a shipped reader will open, and the two counts are the rows that
  * state no column and the rows that state a refusal without a position. A number that is derived from
- * nothing is a number nothing keeps true, which is the state these two sentences were in before the
- * first `v: 3` byte was published beside them.
+ * nothing is a number nothing keeps true, which is why both are read out of the bytes a shipped reader
+ * opens rather than written down beside them.
  */
 interface ManifestRow {
   readonly name: string;

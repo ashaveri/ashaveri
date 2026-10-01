@@ -487,9 +487,9 @@ describe('an anchor weighed against the demand', () => {
 
 describe('what the demand does not reach', () => {
   it('weighs every receipt this format reads, and moves none of them when nobody states a demand', () => {
-    // Every payload this reader opens names an anchor, so the demand reaches all of them: the documents
-    // that stated none retired with the versions that named none, and a `not-taken-in` pair is now the
-    // shortest statement a receipt can make about presence. What the rule still does not reach is a
+    // Every payload this reader opens names an anchor, so the demand reaches all of them, and a
+    // `not-taken-in` pair is the shortest statement a receipt can make about presence. What the rule still
+    // does not reach is a
     // policy that names no demand, which is the same posture the table above pins as `none`, and the
     // refusal below is reached through what the anchor states rather than through a member that is not
     // there. The row in docs/error-codes.md says which states it reaches in the words a caller reads.

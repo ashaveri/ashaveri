@@ -46,7 +46,7 @@ function refusal(fn: () => unknown): { code: string; message: string } {
 const bytesOf = (base64url: string): Uint8Array => new Uint8Array(Buffer.from(base64url, 'base64url'));
 const encode = (value: string): Uint8Array => new TextEncoder().encode(value);
 
-/** The rows that state the columns this suite's v3 and v2-over-framed-bytes rows carry. */
+/** The rows stating a version, which is the population each per-column check below selects from. */
 const columned = (): ReceiptFixtureRow[] => loadManifest().fixtures.filter((entry) => entry.v !== undefined);
 
 /** One row by name, with the receipt its own entry points at read beside it. */

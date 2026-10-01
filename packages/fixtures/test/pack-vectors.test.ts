@@ -145,9 +145,9 @@ describe('the evidence pack vectors', () => {
       expect(one.rows[0]!.prevHex, one.vector).toBe(toHex(manifest.chain.anchor));
       expect(one.rows[one.rows.length - 1]!.digestHex, one.vector).toBe(toHex(manifest.chain.head));
     }
-    // The two runs are the same three names and stamps, and their receipts differ: the carried one seals the
-    // version that names an anchor, so its frames are wider. A table that had been copied from the other run
-    // would agree on ids and stamps and fail here.
+    // The two runs are the same three names and stamps, and their receipts differ: the carried one seals
+    // receipts whose anchor slots state `held`, so its frames are wider. A table that had been copied from the
+    // other run would agree on ids and stamps and fail here.
     expect(file.layout.records.map((one) => one.id)).toEqual(file.layout.carriedRecords.map((one) => one.id));
     expect(
       file.layout.carriedRecords.some((one, index) => one.receiptByteLength !== file.layout.records[index]?.receiptByteLength),

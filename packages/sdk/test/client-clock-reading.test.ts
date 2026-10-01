@@ -14,7 +14,7 @@ import { createFakeGateway, FAKE_BASE_URL, FAKE_RECEIPT_ID, type FakeGateway } f
  * The clock a caller hands the client verifier, and the two answers its two spellings get.
  *
  * `nowMillis` is the one client parameter that reads the caller's wall clock in milliseconds while every
- * instant it is weighed against, `iat` and a `v: 3` item's `t`, is counted in seconds. That is the whole
+ * instant it is weighed against, `iat` and an item's `t`, is counted in seconds. That is the whole
  * distance a wrong reading has to travel to become a wrong verdict: hand the seconds figure, the entry
  * divides it, and an honest receipt comes back refused for an age of fifty-seven years. The pair of cases
  * below is arranged so the refusal cannot be a blanket. One instant, the same bytes under the same policy,

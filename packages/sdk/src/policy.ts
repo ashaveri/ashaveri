@@ -297,7 +297,7 @@ export const MAX_ANCHOR_SLOTS_DEMANDABLE = 2;
  * Refuse an anchor whose slots state less than the policy demands, and say which state did it.
  *
  * One refusal, in one place, reached only by a policy that named a demand: `verifyCompletionReceipt`
- * calls this over the anchor a `v: 3` payload carries, which is where a deployment hands a receipt over
+ * calls this over the anchor every sealed receipt states, which is where a deployment hands a receipt over
  * and where the client's own standards are applied, and not the format reader, which weighs nothing a
  * policy asked for and has to keep working for an auditor holding no policy.
  *
