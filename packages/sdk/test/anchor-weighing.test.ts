@@ -331,7 +331,8 @@ describe('the shapes a document demands of a deployment\'s text', () => {
       if (line.length === 0) continue;
       const defined = /^([A-Za-z0-9_-]+)\s*=\s*(.+)$/u.exec(line);
       if (defined !== null) {
-        const [, name, rest] = defined;
+        const name = defined[1]!;
+        const rest = defined[2]!;
         if (rest === '{') {
           open = maps.get(name) ?? [];
           maps.set(name, open);
