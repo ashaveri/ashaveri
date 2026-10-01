@@ -21,14 +21,28 @@ export interface OriginDeclaration {
   readonly documentPath: string;
   /** The query member carrying the CPU type, or null when the document is not indexed by one. */
   readonly cpuTypeMember: string | null;
-  /** What the signature has to look like for this path to decode it, which is not what the vendor serves.
+  /**
+   * Which envelope this path decodes, and which envelope the origin answers in.
    *
-   * The served answer is a JSON body carrying a hex `signature` member, with its issuer chain in a
-   * response header named after the document. This envelope is what `readSignedCollateral` walks, and the
-   * gap between the two is stated at each declaration below and pinned by a case in `test/read.test.ts`.
+   * `envelope` is what `readSignedCollateral` walks: three dot-separated base64url parts whose certificates sit
+   * inside them, which is this path's rule and not the vendor's. `served` is the envelope the answer that this
+   * address returns is actually written in, or null where no served answer recorded below arrives in an
+   * envelope this package can weigh: a JSON wrapper whose signature sits in a hex member and whose issuer chain
+   * arrives beside the body, in the header `chainHeader` names. That is the pair `readServedCollateral` weighs,
+   * and it is what the gap between the two looked like from this file before there was a reader for the second
+   * half. The suite is the one on both sides, ES256 over P-256, spelled raw rather than as a JWS signature.
+   *
+   * Both are stated here rather than read off the bytes because which arm weighs an answer cannot be guessed
+   * from a body: a wrapper that starts with a brace and a token that starts with base64url are the same text to
+   * anything that looks, and a document is served in one envelope or the other because of who serves it.
    */
   readonly signature: {
     readonly envelope: 'jws-compact';
+    readonly served: {
+      readonly envelope: 'json-hex-signature';
+      /** The wrapper member the hex `r` and `s` of the signature over the document member's own span arrive in. */
+      readonly signatureMember: string;
+    } | null;
     readonly algorithm: 'ES256';
     readonly mediaType: string;
     readonly certificateMember: 'x5c';
@@ -159,6 +173,14 @@ const INTEL_PATH = {
   maxResponseBytes: 65536,
   signature: {
     envelope: 'jws-compact',
+    /**
+     * Both documents of this host are answered in the one served envelope, so it is stated once here rather than
+     * per declaration: the body is `{tcbInfo, signature}` or `{enclaveIdentity, signature}`, and the signature is
+     * 128 lowercase hex characters, the raw `r` and `s` of a P-256 signature over the document member's own span
+     * inside that body. What differs between the two documents is where the chain arrives, which is the header
+     * each declaration names for itself below.
+     */
+    served: { envelope: 'json-hex-signature', signatureMember: 'signature' },
     algorithm: 'ES256',
     mediaType: 'application/jose',
     certificateMember: 'x5c',
@@ -210,15 +232,19 @@ const INTEL_PATH = {
  *   makes a `tcb-composition` question unanswerable on this path rather than unanswered.
  * - the status words met on the levels of every body fetched here are `UpToDate` and `OutOfDate`, and the
  *   vocabulary above reads exactly those.
- * - the envelope is not the one this path decodes. The served body is a JSON object carrying a `signature`
- *   member of 128 hex characters, which is 64 bytes and the raw `r` and `s` of an ECDSA P-256 signature,
- *   and the issuer chain arrives beside it in the response's `TCB-Info-Issuer-Chain` header as URL-encoded
- *   PEM. No `x5c`, no three-part envelope and no JWS was met in any body fetched here, so a document of
- *   the served shape is refused before any member of it is read, and a case in `test/read.test.ts` pins
- *   that refusal rather than smoothing it over. Reconciling the two envelopes is not a naming change: the
- *   chain a reader walks has to arrive with the bytes it signs, and material that arrives inside a pack
- *   arrives alone. That is left as an open question here because answering it reaches the container's
- *   format, which this path does not decide.
+ * - the envelope is not the one `readSignedCollateral` walks. The served body is a JSON object carrying a
+ *   `signature` member of 128 hex characters, which is 64 bytes and the raw `r` and `s` of an ECDSA P-256
+ *   signature taken over the span of `tcbInfo` inside that body text, and the issuer chain arrives beside it in
+ *   the response's `TCB-Info-Issuer-Chain` header as URL-encoded PEM. No `x5c`, no three-part envelope and no
+ *   JWS was met in any body fetched here, so the JWS arm refuses a document of the served shape before any
+ *   member of it is read, and a case in `test/read.test.ts` pins that refusal rather than smoothing it over.
+ *   The signed-bytes rule is a fact about the shape the answer arrives in: the signature holds over the
+ *   span as it arrived, and it does not hold over a sorted-key re-serialization of
+ *   the parsed member, which is why `readServedCollateral` takes the span out of the text rather than re-making
+ *   it. The two envelopes are weighed apart rather than reconciled into one, because the chain a reader walks
+ *   has to arrive with the bytes it signs: the pair is this host's answer, and a body that arrived without its
+ *   header is a body alone, which is all material that arrives inside a pack can be. What a served answer
+ *   *states* is nobody's claim here: these rules are about the shape the answer arrives in.
  */
 export const INTEL_TCB_INFO: OriginDeclaration = {
   ...INTEL_PATH,
@@ -258,9 +284,12 @@ export const INTEL_TCB_INFO: OriginDeclaration = {
  * those levels are the `UpToDate` and `OutOfDate` of the vocabulary above. A kept QE Identity blob
  * answers about one rung of that ladder, so its key names the rung.
  *
- * The envelope is the same gap as the TCB Info document's, one step wider: this document's issuer chain
- * arrives in the response's `SGX-Enclave-Identity-Issuer-Chain` header, named for the enclave identity
- * rather than for the TCB Info, so no reader holding only this body walks a chain to a pinned root.
+ * The envelope is the same one the TCB Info document is answered in, one name wider: this document's issuer
+ * chain arrives in the response's `SGX-Enclave-Identity-Issuer-Chain` header, named for the enclave identity
+ * rather than for the TCB Info, so a reader holding only this body walks no chain to a pinned root and the pair
+ * is what `readServedCollateral` takes. Its signature covers the span of `enclaveIdentity` inside that body
+ * text, the same rule the TCB Info document is answered by, and a rule about the shape the answer arrives
+ * in rather than about what any of it states.
  */
 export const INTEL_QE_IDENTITY: OriginDeclaration = {
   ...INTEL_PATH,

@@ -13,12 +13,14 @@ import { sha256 } from '@noble/hashes/sha2.js';
  * is the vendor's `fmspc`, so a test cannot make the identity guard fire by writing a name here that the
  * reader looks for there.
  *
- * One shape is deliberately not the vendor's: the envelope. `signedDocument` writes three base64url parts
- * with the certificates in the header, because that is the envelope `read.ts` decodes, while Intel answers
- * a JSON body with a hex `signature` member and its issuer chain in a response header. Material that
- * arrives inside a pack arrives alone, with no response header beside it, so the two cannot be reconciled
- * from this file, and `servedJsonBody` below hands a test the vendor's own shape precisely so a case can
- * pin the refusal it earns rather than pretend the gap away.
+ * Two envelopes are written here, because this package reads two. `signedDocument` writes three base64url
+ * parts with the certificates in the header, which is the envelope `readSignedCollateral` decodes and the
+ * shape Intel does not answer in. `servedAnswer` writes the answer that address returns, the document member
+ * and a hex `signature` member, beside the issuer chain a response header carries, which is what
+ * `readServedCollateral` weighs. Material that arrived inside a pack arrives alone, with no response header
+ * beside it, so the two are kept apart rather than reconciled from here, and `servedJsonBody` hands a test
+ * the vendor's own body with no chain anywhere, precisely so a case can pin the refusal the JWS arm owes it
+ * rather than pretend the gap away.
  *
  * Builders here state only the members this path reads, spelled as the vendor spells them. The members a
  * served body states and nothing here reads (`id`, `version`, `pceId`, `tcbType`,
@@ -252,14 +254,92 @@ export function qeIdentity(input: {
 }
 
 /**
- * The answer that address actually returns: the document object and a hex `signature` member, as UTF-8.
+ * The answer that address actually returns: the document object and a hex `signature` member, as UTF-8, with
+ * no chain anywhere beside it.
  *
- * This is the shape a real Intel document arrives in, and this path refuses it, because the certificates a
- * chain walk needs are not inside it. A case in `test/read.test.ts` hands the reader these bytes and reads
- * the refusal, so the gap stays measured rather than remembered.
+ * This is the body shape a real Intel document arrives in, and the JWS arm refuses it, because the certificates
+ * a chain walk needs are not inside it. A case in `test/read.test.ts` hands that reader these bytes and reads
+ * the refusal, so the gap stays measured rather than remembered. `servedAnswer` below is the same body with the
+ * chain the answer actually carries.
  */
 export function servedJsonBody(document: Record<string, unknown>): Uint8Array {
   return utf8(JSON.stringify({ ...document, signature: 'ab'.repeat(64) }));
+}
+
+/**
+ * One served answer, in the two halves it arrives in: the body the origin sent, and the chain that arrived
+ * beside it in the response header the document's declaration names.
+ */
+export interface ServedAnswer {
+  readonly body: Uint8Array;
+  readonly chain: Uint8Array;
+}
+
+/**
+ * The text a served body holds for one wrapper member, compact and in the key order the builders above write.
+ *
+ * These are the bytes a served signature covers, and they are written from the object rather than re-made at
+ * the reader's end, because the measured rule is that the signature holds over the span the vendor wrote and
+ * not over a sorted one. A writer that reordered these keys would then be signing something other than the
+ * text it put in the body, which is the mistake the sorted-key case in `test/served-envelope.test.ts` keeps.
+ */
+export function servedMemberText(document: Record<string, unknown>, member: string): string {
+  const value = document[member];
+  if (value === undefined) {
+    throw new Error(`the wrapper holds no ${member} member to serve`);
+  }
+  return JSON.stringify(value);
+}
+
+/**
+ * The `signature` member of a served answer: the raw `r` and `s` of a P-256 signature over exactly these bytes,
+ * as the 128 lowercase hex characters the vendor sends them in. This is the member named by
+ * `declaration.signature.served.signatureMember`, which the first case in that test reads against it.
+ */
+export function servedSignatureMember(text: string, vendor: TestVendor): string {
+  return toHex(p256.sign(sha256(utf8(text)), vendor.signingKey).toCompactRawBytes());
+}
+
+/** The wrapper the origin answers: the document member's own text, and a hex signature member beside it. */
+export function servedWrapperBody(member: string, memberText: string, signature: string): Uint8Array {
+  return utf8(`{"${member}":${memberText},"signature":"${signature}"}`);
+}
+
+/**
+ * The chain header's value, built the way the vendor builds one: two PEM blocks, leaf first and then the root,
+ * joined with newlines and URL-encoded so the value holds no literal newline.
+ */
+export function servedChain(vendor: TestVendor): Uint8Array {
+  return servedChainOf([vendor.issuerDer, vendor.rootDer]);
+}
+
+/**
+ * The same header spelling over blocks a case names itself, in the order it names them: a chain built from one
+ * vendor's leaf and another's certificate of the same name is what a walk meets on the way to a borrowed root.
+ */
+export function servedChainOf(blocks: readonly Uint8Array[]): Uint8Array {
+  return utf8(encodeURIComponent(blocks.map((one) => pemBlock(one)).join('')));
+}
+
+/**
+ * A whole served answer, built from the two pieces above: the wrapper over the document member's own text,
+ * signed over exactly that text, and the chain that arrives in the header beside it.
+ */
+export function servedAnswer(document: Record<string, unknown>, member: string, vendor: TestVendor): ServedAnswer {
+  const text = servedMemberText(document, member);
+  return {
+    body: servedWrapperBody(member, text, servedSignatureMember(text, vendor)),
+    chain: servedChain(vendor),
+  };
+}
+
+function pemBlock(der: Uint8Array): string {
+  const body = toBase64(der);
+  const lines: string[] = [];
+  for (let offset = 0; offset < body.length; offset += 64) {
+    lines.push(body.slice(offset, offset + 64));
+  }
+  return `-----BEGIN CERTIFICATE-----\n${lines.join('\n')}\n-----END CERTIFICATE-----\n`;
 }
 
 function certificate(spec: CertificateSpec): Uint8Array {
