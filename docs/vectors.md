@@ -171,9 +171,9 @@ specific to that case.
   the order the `prev` links fix it and not the order the array carried it; where it states `ordering`, those are
   the steps where the stamps disagree with the links, and a conforming reader reports them and accepts the pack.
   `records` and `carriedRecords` in the `layout` block give the predecessor and the record digest of each item of
-  the two runs the suite frames, the honest run whose receipts state no anchor and the run whose held slots name
-  material the pack carries, and `framingRule` states which row each table sits beside and that both are read out
-  of the sealed bytes of that row. A table is the pack's own reading of the framing `chain-v1.json` publishes for
+  the two runs the suite frames, the honest run whose every slot of every sealed receipt states an absence and the
+  run whose held slots name material the pack carries, and `framingRule` states which row each table sits beside and
+  that both are read out of the sealed bytes of that row. A table is the pack's own reading of the framing `chain-v1.json` publishes for
   a store file, published for the runs a reader is handed whole so that an `itm` entry's digest has a stated answer
   beside it rather than only the bytes in the row. `carried` is the material a
   pack holds for the collateral its sealed receipts name: recompute every stated digest from the bytes beside it,

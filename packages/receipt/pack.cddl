@@ -166,10 +166,10 @@ PackDuty = {
 ; that happens to be shorter than it looks. A map keyed by anything the issuer chose would be a second name for
 ; one thing, and a second name is the thing that drifts.
 ;
-; The list may be empty. A pack whose receipts state no anchor, and one whose every slot states an absence,
-; carries no material; the member is still there and still says so, because an absent member and an empty list
-; are two different claims and a closed map that let the first pass would make the reader guess which one it
-; was holding.
+; The list may be empty. Every sealed receipt states an anchor with both of its halves, so the pack that carries
+; no material is the one whose every slot states an absence; the member is still there and still says so, because
+; an absent member and an empty list are two different claims and a closed map that let the first pass would make
+; the reader guess which one it was holding.
 ;
 ; Two ceilings, each taken from a number this container already states rather than one this block invented. An
 ; entry's bytes are capped at 65535, which is the largest byte count a pack already bounds: `PackItem.id` is

@@ -164,8 +164,9 @@ Resolution is by content hash and by nothing else. The pack does not key an obje
 digest a slot states is the only name a reader needs, and a second name for one thing is the thing that drifts.
 Deduplication is inside the list, so one object appears once however many sealed receipts name it, and the count
 of the list is the count of the material the pack holds rather than the count of the slots naming it. The list is
-required and may be empty: a pack whose receipts state no anchor and a pack whose every slot states an absence
-both write the member and both write it empty, and an empty list is a statement rather than a silence.
+required and may be empty: every sealed receipt states an anchor with both of its halves, so the pack that writes
+the member empty is the one whose every slot states an absence, and an empty list is a statement rather than a
+silence.
 
 Two ceilings bind it, each taken from a number this container already states rather than one this block
 invented. An entry's bytes are capped at 65535 bytes, which is the largest byte count a pack already bounds,

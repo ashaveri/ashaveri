@@ -86,7 +86,7 @@
         "digestHex": "48f33254d912d919de272c8db394fff3e83ebef39c764715d442eeb514029a37"
       }
     ],
-    "framingRule": "records frames the run of `well-formed-three-items` and carriedRecords frames the run of `collateral-carried-inside-the-pack`, and those are the two runs this suite publishes a framing for: the canonical run, whose receipts state no anchor, and the run whose held slots name material the container carries. A row beside them is read the same way and framed by the same rule, so what the two tables give a port is two published answers to recompute against rather than one. Each row of a table is derived from the sealed bytes of the document it sits beside rather than from the manifest its writer was handed, so a table cannot describe a run the published document does not hold",
+    "framingRule": "records frames the run of `well-formed-three-items` and carriedRecords frames the run of `collateral-carried-inside-the-pack`, and those are the two runs this suite publishes a framing for: the canonical run, whose every slot of every sealed receipt states an absence, and the run whose held slots name material the container carries. A row beside them is read the same way and framed by the same rule, so what the two tables give a port is two published answers to recompute against rather than one. Each row of a table is derived from the sealed bytes of the document it sits beside rather than from the manifest its writer was handed, so a table cannot describe a run the published document does not hold",
     "codes": [
       "INVALID_SIGNATURE",
       "NOT_COSE_SIGN1",

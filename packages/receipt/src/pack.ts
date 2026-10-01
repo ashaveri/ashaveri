@@ -691,11 +691,11 @@ function readItem(raw: unknown, position: string): PackItem {
 /**
  * The material the pack carries, read as far as its own shape goes.
  *
- * `[* …]` allows an empty list, and emptiness is read as what it says rather than as a shortage: a pack whose
- * receipts state no anchor and a pack whose every slot states an absence both carry nothing, and the member
- * they both write is the pack saying so. What the shape does not answer is what a digest is a digest *of*, and
- * the recomputation, the duplicates, the two ceilings and the resolution of a slot against this list are the
- * reader's next questions rather than this function's.
+ * `[* …]` allows an empty list, and emptiness is read as what it says rather than as a shortage: every sealed
+ * receipt states an anchor with both of its halves, so the pack that carries nothing is the one whose every slot
+ * states an absence, and the member it writes is the pack saying so. What the shape does not answer is what a
+ * digest is a digest *of*, and the recomputation, the duplicates, the two ceilings and the resolution of a slot
+ * against this list are the reader's next questions rather than this function's.
  *
  * An element is closed at its own members, the way an item is: the array has no member to point at, so the
  * closure walk reaches this map through the reader of its elements and not through the manifest.
