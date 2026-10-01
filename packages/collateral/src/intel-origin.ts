@@ -146,13 +146,14 @@ const CACHE_RULE = {
 /**
  * Intel's own words about a platform level, taken from the levels the vendor has published.
  *
- * `UpToDate` and `OutOfDate` are the only two words met on a level of any body named in the citations
- * below, on either platform, at either version, on either document: the first is the vendor standing
+ * `UpToDate` and `OutOfDate` are the only two words a published level carries, on either platform, at
+ * either version, on either document: the first is the vendor standing
  * behind a level and the second is the vendor no longer standing behind it. `OK`, the word this list used
- * to hold as the only trusted one, was met nowhere, so the trusted side of this vocabulary is the one
+ * to hold as the only trusted one, is no word the vendor publishes, so the trusted side of this vocabulary
+ * is the one
  * word the vendor writes and nothing this repository remembered.
  *
- * The two compound spellings stay on the revoked side. They were not met in any body named below; a word
+ * The two compound spellings stay on the revoked side. They are no words a published level carries; a word
  * that says the vendor no longer stands behind a level belongs on that side on any spelling of it, while
  * dropping one would answer a revocation with the refusal for a word this package has no rule for.
  *
@@ -208,8 +209,7 @@ const INTEL_PATH = {
  * on that host answers a JSON body naming a status code instead, so those empty answers belong to the `tcb`
  * route. `pceid` is answered 400 on this route in either case, so the one identity this document is
  * indexed by is `fmspc`, and the request member and the member naming the identity the signed body
- * declares are the one name. No member named `fmspcid` was met in any position of any body fetched for
- * these citations.
+ * declares are the one name, and no published request or answer carries a member named `fmspcid`.
  *
  * What the served body states, member by member, against what this declaration reads:
  * - the body holds `tcbInfo` and `signature`. `tcbInfo` holds `id`, `version`, `issueDate`, `nextUpdate`,
@@ -227,16 +227,16 @@ const INTEL_PATH = {
  *   `sgxtcbcomponents`, sixteen entries each holding `svn` and, where the component is one the vendor
  *   classifies, `category` and `type`, together with `pcesvn`, and the TDX body states
  *   `tdxtcbcomponents` beside them. The `v3` body spells the same sixteen numbers flat, as
- *   `sgxtcbcomp01svn` through `sgxtcbcomp16svn` with `pcesvn`. No hex spelling of a composition was met on
- *   any document fetched for these citations, which is what `levelCompositionStatedAs` records and what
+ *   `sgxtcbcomp01svn` through `sgxtcbcomp16svn` with `pcesvn`. No published document spells a composition
+ *   in hex, which is what `levelCompositionStatedAs` records and what
  *   makes a `tcb-composition` question unanswerable on this path rather than unanswered.
- * - the status words met on the levels of every body fetched here are `UpToDate` and `OutOfDate`, and the
+ * - the two status words a served level carries are `UpToDate` and `OutOfDate`, and the
  *   vocabulary above reads exactly those.
  * - the envelope is not the one `readSignedCollateral` walks. The served body is a JSON object carrying a
  *   `signature` member of 128 hex characters, which is 64 bytes and the raw `r` and `s` of an ECDSA P-256
  *   signature taken over the span of `tcbInfo` inside that body text, and the issuer chain arrives beside it in
  *   the response's `TCB-Info-Issuer-Chain` header as URL-encoded PEM. No `x5c`, no three-part envelope and no
- *   JWS was met in any body fetched here, so the JWS arm refuses a document of the served shape before any
+ *   JWS is in the answer, so the JWS arm refuses a document of the served shape before any
  *   member of it is read, and a case in `test/read.test.ts` pins that refusal rather than smoothing it over.
  *   The signed-bytes rule is a fact about the shape the answer arrives in: the signature holds over the
  *   span as it arrived, and it does not hold over a sorted-key re-serialization of
@@ -280,8 +280,8 @@ export const INTEL_TCB_INFO: OriginDeclaration = {
  * names, and not at the top of the payload, where the served body states nothing of the kind. The status
  * is not one statement for the whole document either: the vendor writes `tcbStatus` per entry of
  * `tcbLevels`, each entry holding `tcb`, `tcbDate` and `tcbStatus`, and `tcb` is `{isvsvn}` there, a
- * component number rather than the array of them this document's twin states. The two words met across
- * those levels are the `UpToDate` and `OutOfDate` of the vocabulary above. A kept QE Identity blob
+ * component number rather than the array of them this document's twin states. The two words a level carries
+ * are the `UpToDate` and `OutOfDate` of the vocabulary above. A kept QE Identity blob
  * answers about one rung of that ladder, so its key names the rung.
  *
  * The envelope is the same one the TCB Info document is answered in, one name wider: this document's issuer
