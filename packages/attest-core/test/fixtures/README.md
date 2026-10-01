@@ -14,7 +14,7 @@ Nothing is fetched from AMD KDS, Intel PCS or NVIDIA while the tests run.
 | File | Description |
 | --- | --- |
 | `sev-snp-attestation.bin` | dstack `VersionedAttestation` (SCALE V0): 1184-byte SNP report, empty `cert_chain`, `mr_config` document, runtime events, `report_data`, `config`. |
-| `sev-snp-ask.pem` | AMD intermediate certificate (ASK, `CN=ASK-Milan`). |
+| `sev-snp-ask.pem` | AMD attestation signing key (ASK), the intermediate between the Milan ARK and the per-chip VCEK. Its certificate names itself `CN=SEV-Milan`. |
 | `sev-snp-vcek.pem` | Per-chip VCEK (`CN=SEV-VCEK`) for the report's `chip_id` and reported TCB. |
 | `amd-ark-milan.pem` | AMD root key (ARK, `CN=ARK-Milan`), extracted from the go-sev-guest `snp-milan.cer` test certificate bundle. |
 | `tdx-quote-v4.bin` | 4936-byte Intel TD quote (version 4, TDX) carrying the ECDSA P-256 attestation key and signature, a 384-byte QE report with its signature, 32 bytes of QE auth data, and the 3-certificate PCK chain. |
@@ -23,6 +23,10 @@ Nothing is fetched from AMD KDS, Intel PCS or NVIDIA while the tests run.
 | `nvidia-hopper-report-bad-signature.bin` | Second Hopper report, well-formed but carrying a signature NVIDIA marks as invalid. |
 | `nvidia-hopper-cert-chain.pem` | Five-certificate device chain, leaf first (`CN=GH100 A01 GSP FMC LF`) down to the device identity root. |
 | `nvidia-device-identity-ca.pem` | Pinned NVIDIA device identity root (`CN=NVIDIA Device Identity CA`), the anchor that chain must reach. |
+
+AMD's published `ask_ark_<product>.cert` files on its download CDN are the legacy SEV RSA key bundle rather than
+X.509, so they are not a source for the three AMD certificates above; the note below names where each of them
+came from.
 
 ## Provenance and attribution
 
