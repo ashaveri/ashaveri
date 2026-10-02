@@ -1,0 +1,78 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://ashaveri.com/schemas/anchor-provenance-v1.json",
+  "title": "Ashaveri Anchor Provenance Ledger (JSON twin of the CBOR/COSE wire format)",
+  "description": "Display-only projection of the signed COSE_Sign1 anchor provenance ledger: the document that states, for every trust anchor embedded in `packages/attest-core/src/trust-anchors.ts` and every certificate tracked under `packages/attest-core/test/fixtures/`, where those bytes came from, when they were taken, and under which licence class the source stated them. The signature is over the CBOR payload, so this projection is a statement of the layout and not a document any reader verifies: a reviewer who has the bytes runs `verifyAnchorLedger` on them, and a reviewer who has only this object has a rendering of them. Byte strings appear as lowercase hex throughout, which is how a ledger digest, a key id and a serial are quoted in review, and a hex length here is half a byte length: `hex32` is the sixty-four characters of a thirty-two byte digest, and `hexBytes` bounds only that a byte string holds something. The maps close. `payload`, `row` and `validity` each name their members in one object, which is where `additionalProperties: false` applies, so a member the format does not define is refused at that level rather than read and dropped on the way to a reader, and the same holds of the signed header above. The envelope itself is projected more loosely than the format writes it, and that is a decision rather than a gap: this document requires `protectedHeader` and `payload`, names `signature` without demanding it, and leaves its own root unclosed, so a ledger shown before it is sealed still shows, while `anchor-provenance.cddl` requires all four elements of the `COSE_Sign1` and sixty-four bytes in the fourth of them. The CBOR tag that wraps the four elements on the wire, tag 18, is stated in the CDDL and cannot be stated here at all, because a JSON object has no tag to carry. Four rules of the reading are not keywords this projection can carry, and are stated here because the reader enforces them. First, the encoding: the payload is CBOR written under Core Deterministic Encoding, and a number written as a floating-point one, in a value and in a key alike, is refused at the decode rather than coerced to the integer it imitates, which no keyword of a JSON projection can see because parsing is what loses the difference. Second, the text: `file`, `origin` and `licenceNote`, and the three labels `family` and `licence` are drawn from, are refused when they carry a character that ends, hides or reorders the printed row they belong to, which is the C0 and C1 control ranges, every Unicode format character, the two line separators and the tag block; a pattern spelling that class here would be a second and weaker statement of a membership the reader walks code point by code point. Third, the co-presence: the four members a certificate answers for are present together or absent together, which the `oneOf` below states and a reader enforces by name, because a row carrying `spki` without the `serial` it belongs to is a row about two different certificates. Fourth, the window: `validity.to` is later than `validity.from`, which is arithmetic between two members and not a bound on either. What no projection can state is the load-bearing rule of this document, and it is not a shape rule at all: the key that sealed a ledger is decided by the reader's caller, and a document that named its own verifying key would vouch for its own signer. `keys` below is the issuer's own statement about which keys may stand behind these rows; it is checked against the sealed header and it never replaces the caller's pin, and a reader handed no pin refuses rather than passing.",
+  "type": "object",
+  "required": ["protectedHeader", "payload"],
+  "properties": {
+    "protectedHeader": {
+      "type": "object",
+      "required": ["alg", "kid", "typ"],
+      "properties": {
+        "alg": { "const": "EdDSA", "description": "COSE algorithm -8, Ed25519" },
+        "kid": { "$ref": "#/$defs/hex32", "description": "sha256 of the Ed25519 public key that sealed this ledger, hex. This is the value a caller's pin is compared with, and it is not the pin: the reader is handed the key or its id by whoever asked the question" },
+        "typ": { "const": "ashaveri/anchor-provenance", "description": "the content type that tells a ledger apart from the receipt, the pack, the export, the redaction and the epoch inventory, every one of which arrives as the same tag 18 over four elements and passes its own framing checks" }
+      }
+    },
+    "payload": { "$ref": "#/$defs/document" },
+    "signature": { "type": "string", "pattern": "^[0-9a-f]{128}$", "description": "Ed25519 signature over the Sig_structure, hex, taken as the payload bytes were written rather than as this projection renders them" }
+  },
+  "$defs": {
+    "document": {
+      "type": "object",
+      "required": ["v", "generatedAt", "keys", "rows"],
+      "additionalProperties": false,
+      "properties": {
+        "v": { "const": 1, "description": "format version. One value is defined, so a document naming another is not this one and is refused rather than read as the nearest number inside" },
+        "generatedAt": { "$ref": "#/$defs/unixSeconds", "description": "The instant the row set was assembled. It is data inside the ledger because there the instant is the claim's subject, and it says nothing about when any source page answered" },
+        "keys": {
+          "type": "array",
+          "minItems": 1,
+          "items": { "$ref": "#/$defs/hex32" },
+          "description": "The key ids the issuer states may stand behind these rows, hex, at least one. Rotation adds a row set and a pin and leaves the old id here for the documents that carry it; a ledger naming no key cannot be pinned by anybody, and a ledger that names a key the reader was not handed is refused whatever this list says"
+        },
+        "rows": { "type": "array", "minItems": 1, "items": { "$ref": "#/$defs/row" }, "description": "One claim per shipped file, never empty: an empty list would state that nothing ships while the package beside this document ships thirteen things" }
+      },
+      "description": "The signed body: the version, the instant it was assembled, the keys the issuer names, and the rows. Closed, so a member this layout does not name is a malformed ledger rather than a ledger read without it."
+    },
+    "row": {
+      "type": "object",
+      "required": ["family", "file", "digest", "origin", "takenAt", "licence"],
+      "additionalProperties": false,
+      "properties": {
+        "family": { "$ref": "#/$defs/anchorFamily", "description": "Which platform's evidence these bytes anchor. Three values, because three platforms' evidence this package verifies" },
+        "file": { "type": "string", "minLength": 1, "description": "The shipped bytes this row speaks of, named inside the package that ships them and relative to that package's root: a tracked fixture as its path under `test/fixtures/`, an embedded anchor as `src/trust-anchors.ts` joined by `#` to the constant that holds it, because those bytes travel as text in a source file rather than as a file a reader opens. Outside the set that package declares for itself, this is the refusal a swapped or renamed anchor arrives as" },
+        "digest": { "$ref": "#/$defs/hex32", "description": "sha256 of the named bytes exactly as they ship, hex. A reader holding the file recomputes it, which is what makes the row checkable rather than merely stated" },
+        "subject": { "$ref": "#/$defs/hexBytes", "description": "The certificate's subject as the DER holds it, the RDN sequence content, hex. Spelled as bytes rather than as a rendering, because a name this package printed would be a name a reader would have to trust, and the same bytes a stranger takes from the certificate are what a stranger can compare" },
+        "serial": { "$ref": "#/$defs/hexBytes", "description": "The TBSCertificate serialNumber as the DER INTEGER content bytes it holds, leading sign byte included, hex, which is the form a published certificate's serial is quoted in" },
+        "spki": { "$ref": "#/$defs/hex32", "description": "sha256 of the whole SubjectPublicKeyInfo element, tag and length included, hex: the digest a reviewer reproduces from the published certificate, and the one a reader recomputes from the named bytes" },
+        "validity": { "$ref": "#/$defs/validity", "description": "The window the certificate itself states, in the same seconds as every other instant here" },
+        "origin": { "type": "string", "minLength": 1, "description": "The source that published the bytes, as a URL. A statement about an instant, not a promise that the route still answers: nothing in this document re-fetches it" },
+        "takenAt": { "$ref": "#/$defs/unixSeconds", "description": "The instant the bytes were taken from that source. The dated half of the claim, and the reason the row is evidence about a page rather than about a repository" },
+        "licence": { "$ref": "#/$defs/licenceClass", "description": "The licence class the source stated. `none-stated` is a finding, not a grant, and it is not the same class as a named licence" },
+        "licenceNote": { "type": "string", "minLength": 1, "description": "One line beside a class that would mislead on its own, which today is the data-only case and nothing else. Absent wherever the class says the whole of what is known; never empty, because an empty note reads as a decision and only one of the two is true" }
+      },
+      "oneOf": [
+        { "required": ["subject", "serial", "spki", "validity"] },
+        { "not": { "anyOf": [{ "required": ["subject"] }, { "required": ["serial"] }, { "required": ["spki"] }, { "required": ["validity"] }] } }
+      ],
+      "description": "One claim about one shipped file. The four members a certificate answers for, `subject`, `serial`, `spki` and `validity`, are present together or absent together, and they are absent for tracked bytes that hold no certificate: a captured platform report has no subject, no serial and no window of its own, so a row stating one would be a row inventing one. The map is closed."
+    },
+    "validity": {
+      "type": "object",
+      "required": ["from", "to"],
+      "additionalProperties": false,
+      "properties": {
+        "from": { "type": "integer", "minimum": 0, "maximum": 4294967295, "description": "notBefore, seconds since the epoch" },
+        "to": { "type": "integer", "minimum": 0, "maximum": 4294967295, "description": "notAfter, seconds since the epoch. Later than `from`, which is arithmetic between the two and not a bound on either. Outside the band `unixSeconds` states, this value is one the certificate wrote: the NVIDIA device root names a `to` in the year 9999" }
+      },
+      "description": "The validity window the certificate states for itself. Not the band an instant is held to, because a window is not a reading anybody weighed."
+    },
+    "anchorFamily": { "enum": ["amd", "intel", "nvidia"], "description": "Which vendor class a row's bytes belong to" },
+    "licenceClass": { "enum": ["apache-2.0", "bsd-3-clause", "agpl-3.0", "none-stated"], "description": "The closed set of licence classes this repository's documents record a source stating. A value outside it is a claim no row here can support" },
+    "unixSeconds": { "type": "integer", "minimum": 1000000000, "maximum": 4294967295, "description": "A whole number of seconds since the Unix epoch, inside the band the receipt format states for an instant it weighs. The two ends exclude a reading counted in milliseconds or microseconds without asking a reader to guess which arrived" },
+    "hex32": { "type": "string", "pattern": "^[0-9a-f]{64}$", "description": "A thirty-two byte digest or key id, lowercase hex" },
+    "hexBytes": { "type": "string", "pattern": "^(?:[0-9a-f]{2})+$", "description": "Any non-empty byte string, lowercase hex. No ceiling is stated here because none belongs to this layout: the length of a DER name or serial is whatever the certificate holds" }
+  }
+}

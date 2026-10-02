@@ -10,6 +10,18 @@ export const COSE_HEADER_ALG = 1;
 export const COSE_HEADER_CONTENT_TYPE = 3;
 export const COSE_HEADER_KID = 4;
 export const RECEIPT_CONTENT_TYPE = 'ashaveri/receipt';
+/**
+ * The content type of the anchor provenance ledger, the sixth document that travels in the framing this
+ * module writes. It is named here because it belongs to the family, whose members are all a `COSE_Sign1`
+ * over the same three labels sealed by the same key family, and so a reader that is told which of them it
+ * holds is told by label 3 and by nothing else in the envelope.
+ *
+ * The ledger's own reader lives in `@ashaveri/attest-core`, which ships the bytes the ledger speaks of and
+ * shares no module with this package, so the string is stated there a second time and
+ * `packages/attest-core/test/anchor-ledger.test.ts` holds the two against this declaration and against the
+ * block `anchor-provenance.cddl` writes. Which label names which document stays this package's answer.
+ */
+export const ANCHOR_PROVENANCE_CONTENT_TYPE = 'ashaveri/anchor-provenance';
 
 export interface ProtectedHeader {
   alg: number;
