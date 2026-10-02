@@ -34,17 +34,34 @@ export type IntelTcbLevel =
   | { readonly by: 'tcb-date'; readonly value: string }
   | { readonly by: 'tcb-composition'; readonly value: string };
 
-/** Collateral the caller kept from an earlier run, with the stamp that says when. */
+/** Collateral the caller kept from an earlier run, with the chain that arrived beside it and the stamp that says when. */
 export interface RetainedCollateral {
   /**
    * The signed document exactly as it was taken in, which is what gets read again and not a re-encoding.
    *
    * It is read again only if it is of the envelope the origin's declaration names. Intel serves its
    * documents as a JSON body whose issuer chain arrives in a response header, cited at each declaration in
-   * `intel-origin.ts`, so bytes taken in as that address answers them arrive here with no chain beside them
-   * and are refused rather than read.
+   * `intel-origin.ts`, so a body taken in as that address answers is weighed only when the header's bytes
+   * were kept beside it; kept alone, it is a body alone, and the arm that reads a body alone is the one
+   * whose certificates sit inside it.
    */
   readonly bytes: Uint8Array;
+  /**
+   * The issuer chain that arrived beside those bytes, exactly as it arrived, or null where the caller holds no
+   * chain. A signature is weighed against the bytes that came beside it, so a chain this path had rewritten is
+   * no longer the one the answer sent: the caller hands the header's own bytes, and this package neither decodes
+   * them nor splits one certificate from the next.
+   *
+   * The null is a reading rather than a gap. A body kept from an earlier run without its header is a body alone,
+   * and the arm that reads a body alone is the one whose certificates sit inside it.
+   */
+  readonly chain: Uint8Array | null;
+  /**
+   * sha256 of the chain the caller means, or null where the caller states none. Where it is stated, a chain that
+   * hashes to something else is refused: the caller is asking what was seen, and a header swapped under the
+   * question would answer a different one.
+   */
+  readonly chainSha256: Uint8Array | null;
   /**
    * Unix seconds, from the caller's own record of the run that asked the origin. It is the only thing
    * that separates a retained answer from a fresh one, so a caller that cannot state it passes `null`
@@ -60,6 +77,22 @@ export interface RetainedCollateral {
 export interface CarriedCollateral {
   /** The whole of the material, byte for byte as the container carries it, which is what gets read again. */
   readonly bytes: Uint8Array;
+  /**
+   * The issuer chain the container holds beside those bytes, in the shape it holds it, or null where it holds none.
+   *
+   * Which arm weighs the material is settled by the declaration and by this member, so a container that states a
+   * header gets the pair weighed exactly as a live answer's pair is weighed, and a container stating none hands a
+   * body alone to the arm whose certificates sit inside it. The bytes are handed on as the container kept them:
+   * this path decodes nothing and re-encodes nothing, because a header rewritten here is no longer the one the
+   * answer sent.
+   */
+  readonly chain: Uint8Array | null;
+  /**
+   * sha256 of that header where the container states one, or null. Where it is stated, the header handed beside it
+   * is checked against it before the pair is weighed, so a record asking what was seen gets an answer about the
+   * bytes it named rather than about a header swapped under the question.
+   */
+  readonly chainSha256: Uint8Array | null;
   /**
    * Unix seconds. A container states no observation instant because nothing inside one watched an origin
    * answer, so the number a caller hands is the instant the record holding this material states it held it: the

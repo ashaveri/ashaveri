@@ -1,9 +1,9 @@
 import { describe, expect, it } from 'vitest';
 import { sha256 } from '@noble/hashes/sha2.js';
 import { DEFAULT_INTEL_SGX_ROOTS, INTEL_SGX_ROOT_CA_PEM, parseCertificateChain } from '@ashaveri/attest-core';
+import { secondsOf, signedDocument, tcbInfo, testVendor } from '@ashaveri/fixtures';
 import { appraiseCollateral, type CollateralOutcome, type CollateralTransport } from '../src/index.js';
 import type { CollateralQuery } from '../src/types.js';
-import { secondsOf, signedDocument, tcbInfo, testVendor } from './support/collateral-documents.js';
 
 const FMSPC = '00906EA00000';
 const LEVEL_DATE = '2026-09-01T00:00:00Z';

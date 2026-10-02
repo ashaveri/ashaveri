@@ -7,6 +7,9 @@ import { fileURLToPath } from 'node:url';
 import { afterAll, describe, expect, it } from 'vitest';
 import { ACCESS_PART_NAME, openFileAccessLog, parseAccessLine, renderAccessLine, RETENTION_SWEEP_NAME, type AccessRecord } from '@ashaveri/signerd';
 import { ACCESS_FILE, accesslogScrub, chooseScrubName, modeOf, type ScrubMarker, type ScrubPartRecord } from '../src/commands/accesslog.js';
+import { noteSpawn } from './support/spawn-budget.js';
+/** How long one child of the built CLI may live before this file calls it a bug rather than a slow machine. */
+const SPAWN_DEADLINE_MS = 8_000;
 
 const CLI = fileURLToPath(new URL('../dist/cli.js', import.meta.url));
 const tempDir = mkdtempSync(join(tmpdir(), 'ashaveri-scrub-'));
@@ -63,9 +66,10 @@ function dirWith(lines: Map<string, AccessRecord[]>): string {
 function run(args: string[]) {
   // Every case here is an exit path, so the deadline is what turns a handle that never closes into
   // the named failure below rather than a CI job that waits forever.
+  noteSpawn(SPAWN_DEADLINE_MS);
   const result = spawnSync(process.execPath, [CLI, ...args], {
     encoding: 'utf8',
-    timeout: 8000,
+    timeout: SPAWN_DEADLINE_MS,
     killSignal: 'SIGKILL',
   });
   expect(result.error).toBeUndefined();

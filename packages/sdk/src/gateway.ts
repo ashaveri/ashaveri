@@ -12,7 +12,7 @@ import { SdkError, type SdkErrorCode } from './errors.js';
 import { adjudicateReceiptEpoch, type EpochVerdict, type ReceiptEpochClaim } from './epoch.js';
 import { readDeploymentManifest, type ManifestAuthentication, type ReadManifestResult } from './manifest-auth.js';
 import type { DeploymentManifest } from './manifest.js';
-import type { AshaveriPolicy } from './policy.js';
+import type { AnchorSlotReading, AshaveriPolicy } from './policy.js';
 import { verifyCompletionReceipt } from './verify.js';
 
 const GATEWAY_FETCH_ATTEMPTS = 3;
@@ -35,6 +35,16 @@ export interface VerifyReceiptedParams {
   readonly responseBytes: Uint8Array;
   /** Wall clock in milliseconds since the epoch; defaults to Date.now. */
   readonly nowMillis?: number;
+  /**
+   * What the reader established about the material this receipt's `held` anchor slots digest, one reading per slot
+   * it reached anything about, in the shapes `AnchorSlotReading` states.
+   *
+   * Forwarded untouched to `verifyCompletionReceipt`, which is the one place a policy demanding weighed slots is
+   * answered, and never read here: a session that is handed none is handed the same verdict it always gave, and so
+   * is a session whose policy names no demand. The client path is where the demand lives, and a command line that
+   * runs this client is the one place the material can arrive from a file.
+   */
+  readonly anchorReadings?: readonly AnchorSlotReading[];
 }
 
 export interface VerifyCompletionOptions extends VerifyReceiptedParams {
@@ -167,6 +177,7 @@ export class GatewaySession {
       verifyKey,
       policy: this.options.policy,
       nowMillis: params.nowMillis,
+      anchorReadings: params.anchorReadings,
     });
   }
 

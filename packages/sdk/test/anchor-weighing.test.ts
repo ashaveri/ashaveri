@@ -28,7 +28,7 @@ import {
  * `minAnchorSlotsHeld` asks the artifact what it stated at issuance and is answered by reading it. This one asks what
  * a reader can still weigh: whether the digest a slot names resolves inside the scope that reader holds, and whether
  * the material behind it stands as its own signed statement at the instant the record claims. The readings arrive from
- * wherever the material does, which for a pack is the format package's own `resolveCarried` and for a vendor document
+ * wherever the material does, which for a pack is the format package's own `resolveAttached` and for a vendor document
  * the collateral package's appraisal, so every verdict below is reached through `verifyCompletionReceipt` with those
  * readings handed to it, and not through the comparison function beside it, which a caller could call wrongly and this
  * file would never notice.

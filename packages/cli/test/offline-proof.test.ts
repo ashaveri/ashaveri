@@ -4,6 +4,9 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { afterAll, describe, expect, it } from 'vitest';
+import { noteSpawn } from './support/spawn-budget.js';
+/** How long one child of the built CLI may live before this file calls it a bug rather than a slow machine. */
+const SPAWN_DEADLINE_MS = 60_000;
 
 /**
  * The proof script is run as the workflow runs it, by `node` with its own type stripping, because the
@@ -25,10 +28,11 @@ function runProof(args: string[]) {
   // One start of a script that reads a few files and runs a built artifact: the ceiling is what turns a
   // run that hangs into a named failure rather than a job that waits, and it is far past the measured
   // cost of the refusal this case asks for.
+  noteSpawn(SPAWN_DEADLINE_MS);
   const result = spawnSync(process.execPath, ['--experimental-strip-types', SCRIPT, ...args], {
     cwd: startDir,
     encoding: 'utf8',
-    timeout: 60_000,
+    timeout: SPAWN_DEADLINE_MS,
     killSignal: 'SIGKILL',
   });
   expect(result.error).toBeUndefined();

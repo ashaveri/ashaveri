@@ -29,7 +29,7 @@ each shape.
 | Receipt store chain | `packages/fixtures/data/chain-v1.json` | The record frames a gateway writes to `receipts.log`, the state a reader derives from them, and what it refuses | `version: 1` |
 | Technical export | `packages/fixtures/data/export-v1.json` | Whole export documents, the arguments a reader is handed beside each one, and the verdict a conforming reader owes it | `version: 1` |
 | Sealed deployment manifest | `packages/fixtures/data/manifest-v1.json` | One deployment manifest in both shapes it is served in, the signing keys a reader designates beside it, and the verdict the client path owes each | `version: 1` |
-| Evidence pack | `packages/fixtures/data/pack-v1.json` | Whole packs in the shapes a deployment hands them over in, the keys a reader designates beside each one, and the verdict the shipped pack reader owes: run and window reported apart, the collateral a pack carries for the material its sealed receipts name, and an honest pack whose stamps run against its links accepted with a finding | `version: 1` |
+| Evidence pack | `packages/fixtures/data/pack-v1.json` | Whole packs in the shapes a deployment hands them over in, the keys a reader designates beside each one, and the verdict the shipped pack reader owes: run and window reported apart, the references a pack signs for the material its sealed receipts name and one accepted pack carrying a served body beside the header that arrived with it, and an honest pack whose stamps run against its links accepted with a finding | `version: 1` |
 | Redaction manifest | `packages/fixtures/data/redaction-v1.json` | Redaction manifests each beside the pack they are checked against, the verdict the shipped redaction reader owes the pair, and what `ashaveri verify-handover` answers for the same pair on every row: the chain over the survivors published apart from the pack's own head, a redaction pointed at a pack the reader lacks refused, and the three wrong constructions of a survivor chain refused by recomputation | `version: 1` |
 | Epoch inventory | `packages/fixtures/data/epoch-inventory-v1.json` | Whole sealed inventories and the verdict the two shipped inventory readers owe each one: the envelope, the header, the key, the reading of a JSON payload, the arithmetic a reader recomputes over a run of packs, and the names each row of the two folded lists points at, with a refusal for every claim the reader recomputes over the run and answers from it, which is the windows meeting end to start, including one entry whose own two figures do not run forwards, the window, the two chain endpoints beside the run that begins and ends them, the claim each folded list states beside it, and every guard of both lists, and with the acceptances a reviewer would otherwise read as faults | `version: 1` |
 
@@ -170,15 +170,20 @@ specific to that case.
   not about a manifest that contradicts itself. Where a row states `walk`, your reader has to reach that run, in
   the order the `prev` links fix it and not the order the array carried it; where it states `ordering`, those are
   the steps where the stamps disagree with the links, and a conforming reader reports them and accepts the pack.
-  `records` and `carriedRecords` in the `layout` block give the predecessor and the record digest of each item of
+  `records` and `attachedRecords` in the `layout` block give the predecessor and the record digest of each item of
   the two runs the suite frames, the honest run whose every slot of every sealed receipt states an absence and the
   run whose held slots name material the pack carries, and `framingRule` states which row each table sits beside and
   that both are read out of the sealed bytes of that row. A table is the pack's own reading of the framing `chain-v1.json` publishes for
   a store file, published for the runs a reader is handed whole so that an `itm` entry's digest has a stated answer
-  beside it rather than only the bytes in the row. `carried` is the material a
-  pack holds for the collateral its sealed receipts name: recompute every stated digest from the bytes beside it,
-  and resolve each `held` slot of each receipt inside the container against that list, so a reader holding a pack
-  answers a slot without reaching a vendor endpoint. `carriedRule` in the `layout` block states the whole of it,
+  beside it rather than only the bytes in the row. `attached` is the material a pack holds beside the
+  references its sealed receipts name: recompute every stated digest from the bytes beside it, and resolve each
+  `held` slot of each receipt inside the container against the reference that names it, so a reader holding a pack
+  answers a slot without reaching a vendor endpoint. One accepted row fills that arm: `custody-served-weighed` attaches
+  a served body beside the issuer-chain header that arrived with it, both made by the fixture vendor this repository
+  generates and signed by keys read off labels, so a port that writes that vendor's root to a file can weigh the pair
+  its reference names rather than only check a structure wrapped around bytes nothing can open. Every other accepted
+  row attaches nothing and is whole, which is the shape no path a deployment runs departs from.
+  `custodyRule` in the `layout` block states the whole of it,
   including the two ceilings and the requirement that the list and the slots speak of the same material: an entry
   misstating its own bytes, one digest at two positions, an entry no held slot names and a slot no entry hashes to
   are each refused, and each refusal names the position it found. A slot that states an absence names no digest and

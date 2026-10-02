@@ -14,6 +14,15 @@ import { fromBase64Url } from '../src/b64.js';
 import { fixedClock, generated, harness, type Harness } from './helpers.js';
 import { GuestError, type GpuEvidenceBundle, type GuestApi, type GuestKey } from '../src/guest.js';
 
+import { noteSpawn } from './support/spawn-budget.js';
+
+/**
+ * The child this file starts used to carry no deadline at all, so a verify that never returned waited
+ * forever rather than failing as itself. Eight seconds is the patience the sibling files give the same
+ * command, and it is far past the measured cost of the refusal and the acceptance each case asks for.
+ */
+const VERIFY_DEADLINE_MS = 8_000;
+
 /**
  * Evidence comes from a real SEV-SNP attestation captured from a live dstack CVM
  * (the fixture @ashaveri/attest-core verifies offline against pinned AMD keys).
@@ -874,10 +883,11 @@ async function servedEvidence(): Promise<Uint8Array> {
 function verifyWithCli(document: Uint8Array, pins: readonly string[]): { status: number | null; stdout: string; stderr: string } {
   const path = join(evidenceDir, 'evidence.bin');
   writeFileSync(path, document);
+  noteSpawn(VERIFY_DEADLINE_MS);
   const result = spawnSync(
     process.execPath,
     [CLI, 'verify', path, ...AMD_KEYS, '--now', VERIFY_NOW, ...pins],
-    { encoding: 'utf8' },
+    { encoding: 'utf8', timeout: VERIFY_DEADLINE_MS, killSignal: 'SIGKILL' },
   );
   expect(result.error).toBeUndefined();
   return { status: result.status, stdout: result.stdout ?? '', stderr: result.stderr ?? '' };

@@ -949,9 +949,13 @@ export function decodeReceipt(bytes: Uint8Array, options?: VerifyOptions): Verif
  * answered with a verdict about the receipt when the only thing wrong was the unit of the argument.
  * Refusing the reading is what makes that visible at the entry rather than downstream, and it is why
  * the ends are stated in the message rather than left for the caller to guess.
+ *
+ * Published because the band is the format's and not this file's: `pack.ts` weighs the instants a
+ * custody reference states against these same two ends, and a second pair written beside the second
+ * reader is a band that can disagree with the one the receipts are read under.
  */
-const EARLIEST_VERIFICATION_SECONDS = 1_000_000_000;
-const LATEST_VERIFICATION_SECONDS = 4_294_967_295;
+export const EARLIEST_VERIFICATION_SECONDS = 1_000_000_000;
+export const LATEST_VERIFICATION_SECONDS = 4_294_967_295;
 
 /**
  * The one question asked of a handed `nowSeconds`, answered before either window runs.

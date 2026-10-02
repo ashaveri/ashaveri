@@ -22,6 +22,7 @@ export type CollateralErrorCode =
   | 'COLLATERAL_STATUS_UNSUPPORTED'
   | 'COLLATERAL_WINDOW_CLOSED'
   | 'COLLATERAL_NOT_OBSERVED'
+  | 'COLLATERAL_RETAINED_CHAIN_MISMATCH'
   | 'COLLATERAL_REVOKED_BY_VENDOR';
 
 /** Whether the same inputs can ever answer differently, which is the verdict column's rule. */
@@ -37,6 +38,8 @@ export type CollateralInputName =
   | 'roots'
   | 'retained'
   | 'retained.bytes'
+  | 'retained.chain'
+  | 'retained.chainSha256'
   | 'retained.observedAt';
 
 /** The refusal a caller reads, whether it arrives as a returned state or as a thrown error. */
@@ -101,6 +104,10 @@ const REFUSAL: Record<CollateralErrorCode, RefusalEntry> = {
   },
   COLLATERAL_NOT_OBSERVED: {
     message: 'the collateral was retained from an earlier run and this run did not ask the origin',
+    verdict: 'terminal',
+  },
+  COLLATERAL_RETAINED_CHAIN_MISMATCH: {
+    message: 'the retained chain does not hash to the digest the caller named beside it',
     verdict: 'terminal',
   },
   COLLATERAL_REVOKED_BY_VENDOR: {

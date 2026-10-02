@@ -424,7 +424,7 @@ export type AnchorSlotLabel = 'col' | 'val';
  *
  * This is the shape the demand below weighs, and it is handed rather than looked up on purpose: the SDK verifies a
  * document a caller handed it, and the material a `held` digest names lives in whatever container that caller holds,
- * which the format package reads through `resolveCarried` and the collateral package appraises through
+ * which the format package reads through `resolveAttached` and the collateral package appraises through
  * `appraiseCarriedCollateral`. Neither of those two answers is a number this package can reach without the container,
  * so the reader hands what it established and this package asks whether it is enough.
  *
