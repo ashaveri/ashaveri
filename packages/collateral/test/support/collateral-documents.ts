@@ -5,7 +5,8 @@ import { sha256 } from '@noble/hashes/sha2.js';
  * Certificates and signed documents for these tests, written here rather than captured.
  *
  * No answer of the vendor's is stored in this repository, so every document a test hands to the reader is
- * built here and signed by a key generated in the test. What it is built to is the layout the vendor
+ * built here and signed by a key generated in the test, from a label in the one case whose bytes are published
+ * and so has to come out the same every time its generator runs. What it is built to is the layout the vendor
  * publishes, member for member and word for word, as cited at each declaration in `intel-origin.ts`: the
  * levels under `tcbLevels`, each entry stating its composition as the component numbers of an object under
  * `tcb`, the status in `tcbStatus` with the vendor's own words, the window in `issueDate` and `nextUpdate`
@@ -94,9 +95,47 @@ export function secondsOf(text: string): number {
 }
 
 /**
- * A root and an issuing CA, both P-256 and both CA certificates, because this path reads the vendor's
- * statement as signed by an authority rather than by a leaf. Two calls with the same names hand back the
- * same distinguished names over different keys, which is what a chain borrowing a trusted name looks like.
+ * A root and an issuing CA over two keys the caller names, both P-256 and both CA certificates.
+ *
+ * The two vendors below are this and nothing else: one hands its keys to the random source, one names them.
+ */
+function vendorWithKeys(input: {
+  readonly rootKey: Uint8Array;
+  readonly issuerKey: Uint8Array;
+  readonly rootName: string;
+  readonly issuerName: string;
+  readonly notBefore: number;
+  readonly notAfter: number;
+}): TestVendor {
+  const rootDer = certificate({
+    commonName: input.rootName,
+    issuerCommonName: input.rootName,
+    serial: 1,
+    notBefore: input.notBefore,
+    notAfter: input.notAfter,
+    key: input.rootKey,
+    issuerKey: input.rootKey,
+    isCa: true,
+  });
+  const issuerDer = certificate({
+    commonName: input.issuerName,
+    issuerCommonName: input.rootName,
+    serial: 2,
+    notBefore: input.notBefore,
+    notAfter: input.notAfter,
+    key: input.issuerKey,
+    issuerKey: input.rootKey,
+    isCa: true,
+  });
+  return { rootDer, issuerDer, signingKey: input.issuerKey, rootDigest: toHex(sha256(rootDer)) };
+}
+
+/**
+ * A vendor drawn fresh from the random source, for a case that signs and reads inside one run.
+ *
+ * Two calls with the same names hand back the same distinguished names over different keys, which is what a
+ * chain borrowing a trusted name looks like, and that is the point of drawing again: nothing a case trusts may
+ * be inferred from the issuer the last case happened to make.
  */
 export function testVendor(input: {
   readonly rootName?: string;
@@ -104,33 +143,40 @@ export function testVendor(input: {
   readonly notBefore?: number;
   readonly notAfter?: number;
 } = {}): TestVendor {
-  const notBefore = input.notBefore ?? secondsOf('2026-01-01T00:00:00.000Z');
-  const notAfter = input.notAfter ?? secondsOf('2036-01-01T00:00:00.000Z');
-  const rootName = input.rootName ?? 'Test Vendor Root CA';
-  const issuerName = input.issuerName ?? 'Test Vendor Platform CA';
-  const rootKey = p256.utils.randomPrivateKey();
-  const issuerKey = p256.utils.randomPrivateKey();
-  const rootDer = certificate({
-    commonName: rootName,
-    issuerCommonName: rootName,
-    serial: 1,
-    notBefore,
-    notAfter,
-    key: rootKey,
-    issuerKey: rootKey,
-    isCa: true,
+  return vendorWithKeys({
+    rootKey: p256.utils.randomPrivateKey(),
+    issuerKey: p256.utils.randomPrivateKey(),
+    rootName: input.rootName ?? 'Test Vendor Root CA',
+    issuerName: input.issuerName ?? 'Test Vendor Platform CA',
+    notBefore: input.notBefore ?? secondsOf('2026-01-01T00:00:00.000Z'),
+    notAfter: input.notAfter ?? secondsOf('2036-01-01T00:00:00.000Z'),
   });
-  const issuerDer = certificate({
-    commonName: issuerName,
-    issuerCommonName: rootName,
-    serial: 2,
-    notBefore,
-    notAfter,
-    key: issuerKey,
-    issuerKey: rootKey,
-    isCa: true,
+}
+
+/** A P-256 private key read off a label, which is the same key every run that label is written again. */
+function keyOfLabel(label: string): Uint8Array {
+  return sha256(new TextEncoder().encode(label));
+}
+
+/**
+ * The vendor a published document is issued by: the same two certificates as `testVendor`, over two keys read
+ * off labels rather than off the random source.
+ *
+ * A document that leaves this repository as data has to come out byte for byte again every time its generator
+ * runs, and a random issuer hands every run a different signature to publish. These keys are fixed, so the
+ * served answer they sign is the same bytes in the committed vectors and in a reader's hands, and a port that
+ * writes `rootDer` to a file can pin it and weigh those bytes for itself. Nothing published by a real vendor is
+ * anywhere in them, and nothing here reaches an endpoint to make them.
+ */
+export function fixtureVendor(): TestVendor {
+  return vendorWithKeys({
+    rootKey: keyOfLabel('ashaveri-fixture-vendor/root'),
+    issuerKey: keyOfLabel('ashaveri-fixture-vendor/issuer'),
+    rootName: 'Ashaveri Fixture Vendor Root CA',
+    issuerName: 'Ashaveri Fixture Vendor Platform CA',
+    notBefore: secondsOf('2020-01-01T00:00:00.000Z'),
+    notAfter: secondsOf('2040-01-01T00:00:00.000Z'),
   });
-  return { rootDer, issuerDer, signingKey: issuerKey, rootDigest: toHex(sha256(rootDer)) };
 }
 
 /** The certificates a header would present for this vendor, leaf first, as the answer spells them. */

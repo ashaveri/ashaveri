@@ -172,18 +172,40 @@ describe('the evidence pack vectors', () => {
     );
   });
 
-  it('attaches no material in any pack it publishes as whole, and answers the lookup that reaches for one', () => {
-    // The byte arm is permitted by the layout and written by no document of this suite, which is the posture the
-    // published pack takes: a reader holding a whole pack of this estate holds references and no vendor bytes.
-    // The refusal a caller meets at the lookup is therefore no document's answer, and this case is where the
-    // suite reaches it, out of the same bytes the file publishes rather than from a manifest invented for it.
+  it('fills the arm of one accepted pack and the references beside it answer for it', () => {
+    // The byte arm is permitted by the layout and filled by one published document, whose every attached object
+    // resolves to a reference the same pack signs for. The pack that refers to material and attaches no copy of it
+    // is still the ordinary case, and the refusal a caller meets at the lookup is no document's answer, so this case
+    // is where the suite reaches it, out of the same bytes the file publishes rather than from a manifest invented
+    // for it.
     const accepted = file.vectors.filter((one) => one.verdict === 'verify-ok');
     expect(accepted.length).toBeGreaterThanOrEqual(6);
+    const attaching = accepted.filter((one) => decodePack(bytes(one.documentBase64Url)).manifest.attached.length > 0);
+    expect(attaching.length, 'no accepted pack of this suite attaches the material its references name').toBe(1);
+    for (const one of attaching) {
+      const manifest = decodePack(bytes(one.documentBase64Url)).manifest;
+      for (const [index, entry] of manifest.attached.entries()) {
+        const reached = resolveAttached(manifest, entry.sha256);
+        expect(toHex(reached.custody.b), `${one.name} attached[${String(index)}]`).toBe(toHex(entry.sha256));
+        const carried = entry.chain === null ? null : toHex(sha256(entry.chain));
+        expect(
+          entry.chainSha256 === null ? null : toHex(entry.chainSha256),
+          `${one.name} attached[${String(index)}] states a header digest its own bytes disagree with`,
+        ).toBe(carried);
+      }
+      // The served half, asked of the published bytes and not of a manifest this file invented: the header the arm
+      // carries is the one the reference for that body states, which is the pair the row exists to publish.
+      const served = manifest.attached[0]!;
+      expect(served.chain, `${one.name} attaches a body with no header beside it`).not.toBeNull();
+      const servedReference = manifest.custody.find((each) => toHex(each.b) === toHex(served.sha256));
+      expect(servedReference, `${one.name} attaches an object no reference of this pack states`).toBeDefined();
+      expect(toHex(servedReference!.c!)).toBe(toHex(served.chainSha256!));
+    }
     const referring = accepted.find((one) => one.name === 'held-slots-referred-to-by-name');
     expect(referring, 'the suite publishes no accepted pack whose held slots are answered by name').toBeDefined();
     if (referring === undefined) return;
     const manifest = decodePack(bytes(referring.documentBase64Url)).manifest;
-    expect(manifest.attached, 'an accepted pack of this suite attaches material').toEqual([]);
+    expect(manifest.attached, 'the pack that refers to material by name attaches something after all').toEqual([]);
     expect(manifest.custody.length, 'the accepted pack signs a reference for every held slot it seals').toBeGreaterThanOrEqual(1);
     const first = manifest.custody[0]!;
     const thrown = (() => {

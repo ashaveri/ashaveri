@@ -273,7 +273,8 @@ const ERROR_MESSAGE: Record<ReceiptErrorCode, string> = {
   PACK_CUSTODY_UNIT_OUTSIDE_BAND: 'a custody entry states an instant that is not a whole number of Unix seconds inside the band the format states',
   // The four the byte arm answers to. They were named for the list this member replaced and were renamed
   // with it, so their conditions state the arm: the material a deployment attaches beside the references, which
-  // no path a deployment runs fills. They are four codes and not one because the four facts send a reader to
+  // no path a deployment runs fills and one accepted pack of the published suite does, with a served pair its own
+  // fixture vendor signed. They are four codes and not one because the four facts send a reader to
   // four different places: to the entry, to the pack's own construction, to the issuer's choice of what to
   // attach, and to the caller reaching for material the pack never undertook to hand over. Each detail names a
   // position. An entry that does not hash to what it states is the pack contradicting itself about bytes it

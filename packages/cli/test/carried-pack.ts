@@ -26,11 +26,13 @@ import {
  * Packs that refer to material, and the sealed receipts whose anchors name it.
  *
  * `verify-handover` weighs what a pack refers to, so the cases that exercise that path need a container whose
- * `held` slot digests an object the same container either attaches or leaves a deployment to reach for itself, and
- * neither document can be one of the published fixtures: every pack vector attaches an empty arm and refers to
- * nothing, because every receipt vector states an absence in both of its anchor slots. These builders make the
- * shape the fixtures do not hold, out of the pieces the format package publishes and under the key the fixtures
- * publish their receipts under, so the only hand-written thing is which digest a slot states.
+ * `held` slot digests an object the same container either attaches or leaves a deployment to reach for itself.
+ * Neither published fixture serves: the row that refers to material by name attaches nothing beside its
+ * references, and the row that attaches a served pair is signed by a vendor whose root its file does not publish,
+ * while a case that weighs anything has to hand `--intel-root` a certificate it holds. These builders make both
+ * shapes out of the pieces the format package publishes and under the key the fixtures publish their receipts
+ * under, and the vendor beside them is generated in the run that pins it, so the only hand-written thing is which
+ * digest a slot states.
  *
  * A pack that seals a receipt stating a `held` slot owes that slot a reference, whether or not it attaches the
  * material the slot digests, so `packManifestOf` writes one per held slot rather than taking them as an argument:
@@ -152,8 +154,9 @@ function withPlaceholder(slot: CollateralSlot): CollateralSlot {
  * pairs the two: an entry carrying a header while stating no digest for it, or the reverse, is a document
  * contradicting itself about a member of its own arm. Both are null here because the material these builders
  * attach arrives as a body alone, which is also what the reference below states; a case that wants the pair hands
- * the header as the second argument. No writer in this repository fills the arm, so a pack assembled by one
- * attaches nothing and the arm's shape matters to a reader only through what a case here refuses.
+ * the header as the second argument, and `servedCarriedPack` below is the one that does. No path a deployment runs
+ * fills the arm, so a pack a deployment assembles attaches nothing, and the arm reaches a reader through the
+ * published row that hands a pair, the cases that fill it here, and the refusals it owes.
  */
 export function attachedObject(bytes: Uint8Array, chain: Uint8Array | null = null): PackAttachedObject {
   return { bytes, sha256: digestOf(bytes), chain, chainSha256: chain === null ? null : digestOf(chain) };
@@ -318,4 +321,41 @@ function privateKeyFromSeed(seedHex: string): ReturnType<typeof createPrivateKey
 export function packAttaching(bytes: Uint8Array, iat: number, id = 'receipt-0'): { readonly pack: Uint8Array; readonly digest: string } {
   const receipt = anchorReceiptOf({ col: held(bytes), val: absent('the collector read no window') }, iat);
   return { pack: packOf([{ id, iat, receipt }], [attachedObject(bytes)]), digest: digestHexOf(bytes) };
+}
+
+/**
+ * The shortest pack that reaches a weighing through a chain: one record whose `col` slot names a served body, whose
+ * `val` slot states an absence, and whose arm carries that body beside the header that arrived with it.
+ *
+ * This is the served half of the arm, the one `packages/fixtures/data/pack-v1.json` now publishes as
+ * `custody-served-weighed` and the one an embedded body can never reach: the material arrives as the wrapper a
+ * service answers in, with no certificates inside it, so a reader weighing it needs the header the reference
+ * states a digest for and cannot get anywhere without it. The bytes come in as arguments rather than being made
+ * here because the vendor that signed them belongs to the caller, which is the half that has to be generated in
+ * the run that pins its root; everything after them is the sealing the format package does.
+ *
+ * `referenceOver` is what says so: `a` is the arm the capture weighed with and `c` is the digest of the header
+ * beside the body, and the format refuses an entry carrying a header the reference beside it states no digest
+ * for, which is why the two travel together and not as an argument a case can forget. `entries` comes back beside
+ * the sealed pack because a case that wants the same container with one position of its arm moved has to move a
+ * manifest built from the very record this pack seals, and a second receipt of its own invention would be a
+ * different document rather than a disagreement inside this one.
+ */
+export function servedCarriedPack(body: Uint8Array, chain: Uint8Array, iat: number, id = 'receipt-0'): {
+  readonly pack: Uint8Array;
+  readonly entries: readonly PackEntry[];
+  readonly digest: string;
+  readonly chainDigest: string;
+  readonly bodyBytes: number;
+} {
+  const object = attachedObject(body, chain);
+  const receipt = anchorReceiptOf({ col: held(body), val: absent('the collector read no window') }, iat);
+  const entries: readonly PackEntry[] = [{ id, iat, receipt }];
+  return {
+    pack: packOf(entries, [object], { a: 'served', c: object.chainSha256 }),
+    entries,
+    digest: digestHexOf(body),
+    chainDigest: digestHexOf(chain),
+    bodyBytes: body.byteLength,
+  };
 }

@@ -16,6 +16,7 @@ import {
   parsePopAuthorization,
   popSigningString,
   ReceiptError,
+  resolveAttached,
   signPopAuthorization,
   verifyEpochInventory,
   verifyExport,
@@ -1161,6 +1162,37 @@ describe('the evidence pack vectors through the shipped reader', () => {
     }
   });
 
+  it('weighs the arm of the one accepted row that attaches material, out of the bytes in the row', () => {
+    // A reference resolving to material a reader can weigh is the case every other implementation is supposed to
+    // reach, and the suite now publishes it. This recomputes both digests from the published document and asks the
+    // format's own lookup each of them, so the row cannot be accepted on a claim about its arm that these bytes do
+    // not carry, and so an accepted pack that attached nothing at all would fail here rather than pass quietly.
+    const attaching = packVectors.vectors.filter((one) => one.verdict === 'verify-ok' && decodePack(bytes(one.documentBase64Url)).manifest.attached.length > 0);
+    expect(attaching.length, 'the published suite accepts a pack attaching material, and this replay reads none').toBe(1);
+    for (const one of attaching) {
+      const manifest = decodePack(bytes(one.documentBase64Url)).manifest;
+      for (const [index, entry] of manifest.attached.entries()) {
+        const position = `${one.name} attached[${String(index)}]`;
+        expect(hex(sha256(entry.bytes)), `${position} states a digest its own bytes disagree with`).toBe(hex(entry.sha256));
+        const reached = resolveAttached(manifest, entry.sha256);
+        expect(hex(reached.custody.b), `${position} resolves to a reference stating another body`).toBe(hex(entry.sha256));
+        const carried = entry.chain === null ? null : hex(sha256(entry.chain));
+        expect(entry.chainSha256 === null ? null : hex(entry.chainSha256), `${position} lies about its own header`).toBe(carried);
+        expect(reached.custody.c === null ? null : hex(reached.custody.c), `${position} carries a header its reference states no digest for`).toBe(carried);
+      }
+      // The served half, named out of the published arm rather than out of a builder: a body with a header beside
+      // it, weighed by the served arm, and every reference for that body stating the same header digest.
+      const served = manifest.attached[0]!;
+      expect(served.chain, `${one.name} attaches a body with no header beside it`).not.toBeNull();
+      const naming = manifest.custody.filter((each) => hex(each.b) === hex(served.sha256));
+      expect(naming.length, `${one.name} attaches a body more than once, or names it from one slot alone`).toBeGreaterThanOrEqual(2);
+      for (const reference of naming) {
+        expect(reference.a, `${one.name} weighs a served pair through the other arm`).toBe('served');
+        expect(hex(reference.c!), `${one.name} states no digest for the header it names`).toBe(hex(served.chainSha256!));
+      }
+    }
+  });
+
   it('accepts the pack whose stamps run against its links and reports the step', () => {
     // The row exists so that a port cannot turn the finding into a refusal without this case failing: an honest
     // deployment that corrected its clock signs this document, and the format states no rule a backwards stamp
@@ -1181,8 +1213,7 @@ describe('the evidence pack vectors through the shipped reader', () => {
     expect(agreeing?.ordering).toEqual([]);
   });
 
-  it('publishes both halves of the chain rule as refusals, the walk and the count', () => {
-    // `pack.cddl` says a conforming reader enforces both and that implementing one is implementing half a rule.
+  it('publishes both halves of the chain rule as refusals, the walk and the count', () => {    // `pack.cddl` says a conforming reader enforces both and that implementing one is implementing half a rule.
     // The two refusals are separate codes, so a port that only walked would accept the parked row and fail here.
     for (const code of ['PACK_CHAIN_BROKEN', 'PACK_ITEM_UNREACHED']) {
       const rows = packVectors.vectors.filter((one) => one.verdict === code);

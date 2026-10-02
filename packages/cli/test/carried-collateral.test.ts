@@ -5,7 +5,7 @@ import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { afterAll, describe, expect, it } from 'vitest';
 import { generateSigningKey, sealDeploymentManifest, toHex } from '@ashaveri/receipt';
-import { secondsOf, signedDocument, tcbInfo, testVendor } from '../../collateral/test/support/collateral-documents.js';
+import { secondsOf, servedAnswer, servedChainOf, signedDocument, tcbInfo, testVendor } from '../../collateral/test/support/collateral-documents.js';
 import {
   PUBLISHED_PAYLOAD,
   RECEIPT_PUBLIC_B64URL,
@@ -18,6 +18,7 @@ import {
   packManifestOf,
   packOf,
   sealPackManifest,
+  servedCarriedPack,
   type PackEntry,
 } from './carried-pack.js';
 
@@ -244,11 +245,14 @@ describe('the rows a pack, a receipt or a command line writes', () => {
  * because a fault case on its own says only that something was refused: the accepted neighbour is what says the
  * refusal is about the position and not about the document.
  *
- * The material weighed in the accepted runs is of two kinds. Where a case is about the container, the bytes are a
+ * The material weighed in the accepted runs is of three kinds. Where a case is about the container, the bytes are a
  * sentence no vendor signed, and the answer the row prints is the reader's refusal to read it. Where a case is
- * about the answer, the bytes are a TCB Info document signed by a test vendor whose root the run pins through
- * `--intel-root`, built by the same support the collateral package's own cases use, because a window and a status
- * can only be printed by an appraisal that believed a signature. No case here reaches a network.
+ * about an envelope that carries its own certificates, the bytes are a TCB Info document signed by a test vendor
+ * whose root the run pins through `--intel-root`, built by the same support the collateral package's own cases
+ * use, because a window and a status can only be printed by an appraisal that believed a signature. Where a case is
+ * about the answer a service actually returns, the bytes are that same statement's served wrapper beside the
+ * issuer-chain header the same support spells for it, because the half that reaches a root sits outside the body
+ * and only the arm can hand it over. No case here reaches a network.
  */
 
 /** The identity the document covers and the run asks by, as Intel's own documents spell both. */
@@ -266,13 +270,24 @@ const VENDOR = testVendor({
   notAfter: secondsOf('2035-01-01T00:00:00.000Z'),
 });
 
-/** The signed statement the pack attaches, and the root this run pins beside it. */
-const TCB_DOCUMENT = signedDocument(tcbInfo({
+/** The statement the vendor signs, spelled once because two envelopes are written out of it below. */
+const TCB_STATEMENT = tcbInfo({
   fmspc: FMSPC,
   issueDate: ISSUE_DATE,
   nextUpdate: NEXT_UPDATE,
   levels: [{ tcbDate: TCB_DATE, tcbStatus: 'UpToDate' }],
-}), VENDOR);
+});
+
+/** The signed statement the pack attaches, and the root this run pins beside it. */
+const TCB_DOCUMENT = signedDocument(TCB_STATEMENT, VENDOR);
+
+/**
+ * The same statement as this vendor's service answers it: a wrapper body holding the document member and a hex
+ * `signature` member with no certificate inside it, beside the issuer-chain header that arrived with the response.
+ * That pair is what the arm's chain half and a reference's `c` exist for, and the case below is where a shipped
+ * command weighs it.
+ */
+const SERVED_TCB = servedAnswer(TCB_STATEMENT, 'tcbInfo', VENDOR);
 const ROOT_PATH = written('intel-root.der', VENDOR.rootDer);
 
 /** The five flags that make one slot weighable, as a customer spells them. */
@@ -448,6 +463,55 @@ describe('a pack whose attached material is weighed', () => {
     // The seal line answers the container and nothing else: an appraisal that came back stale moves it not at all.
     expect(json.ok).toBe(true);
     expect((json.document as { signature: unknown }).signature).toBe(true);
+  });
+
+  it('weighs a served body beside the header that arrived with it, and refuses the pair whose header is another answer\'s', () => {
+    // The embedded case above can be weighed from the body alone, because its certificates travel inside it. This
+    // one cannot: the served body is the wrapper a service answers with, a document member and a hex signature and
+    // no certificate anywhere, so the only half that reaches a root is the header the arm carries beside it and the
+    // only thing tying them together is the digest the reference states for that header. The pair is therefore
+    // asserted twice: once as the weighing it answers with, and once as the refusal a wrong header brings, because
+    // a reader that never looked at the header would pass the first half and miss the second.
+    const served = servedCarriedPack(SERVED_TCB.body, SERVED_TCB.chain, IAT);
+    const path = written('served-pair.cbor', served.pack);
+    const human = runCli(['verify-handover', path, `--key=${RECEIPT_PUBLIC_B64URL}`, ...designation('col')]);
+    expect(human.stderr).toBe('');
+    expect(human.status).toBe(0);
+    expect(human.stdout).toContain(`digest ${served.digest}, attached as ${String(SERVED_TCB.body.byteLength)} byte(s), named by receipt-0 at col`);
+    expect(human.stdout).toContain('answered stale');
+    expect(human.stdout).toContain(`under the pinned anchor ${VENDOR.rootDigest}`);
+
+    const json = verdictOf(runCli(['verify-handover', path, `--key=${RECEIPT_PUBLIC_B64URL}`, ...designation('col'), '--json']));
+    const row = (json.document as Record<string, Record<string, unknown>>)[`attached-${served.digest}`] ?? {};
+    expect(row).toMatchObject({
+      digest: served.digest,
+      item: 'receipt-0',
+      slot: 'col',
+      attached: true,
+      attachedBytes: served.bodyBytes,
+      weighed: true,
+      notWeighed: null,
+      state: 'stale',
+      readAs: 'trusted',
+      vendorStatus: 'UpToDate',
+      anchorDigest: VENDOR.rootDigest,
+      window: { from: WINDOW_FROM, until: WINDOW_UNTIL },
+    });
+    // The absence beside it stays an absence: this record states no validity material, so no second row appears and
+    // the served half is weighed once.
+    expect(Object.keys(json.document as Record<string, unknown>).filter((key) => key.startsWith('attached-'))).toHaveLength(1);
+
+    const otherChain = servedChainOf([VENDOR.rootDer, VENDOR.issuerDer]);
+    const swapped = sealPackManifest(packManifestOf(
+      served.entries,
+      [attachedObject(SERVED_TCB.body, otherChain)],
+      { a: 'served', c: new Uint8Array(Buffer.from(served.chainDigest, 'hex')) },
+    ));
+    const refused = runCli(['verify-handover', written('arm-chain-other-answer.cbor', swapped), `--key=${RECEIPT_PUBLIC_B64URL}`, ...designation('col'), '--json']);
+    expect(refused.status).toBe(1);
+    expect(verdictOf(refused)).toMatchObject({ ok: false, contentType: 'ashaveri/pack', code: 'PACK_ATTACHED_DIGEST_MISMATCH' });
+    expect(String(verdictOf(refused).message)).toContain('attached[0] carries a header digesting to');
+    expect(String(verdictOf(refused).message)).toContain('receipt-0 at col');
   });
 
   it('weighs one object once however many sealed records name it', () => {

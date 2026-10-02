@@ -18,6 +18,7 @@ import {
   issueReceipt,
   packRecordDigest,
   packSigStructure,
+  resolveAttached,
   sealPack,
   signPack,
   signingKeyFromSeed,
@@ -26,6 +27,7 @@ import {
   verifyExport,
   verifyPack,
   type PackAttachedObject,
+  type PackAttachedResolution,
   type PackCustodyEntry,
   type PackItem,
   type PackManifest,
@@ -36,6 +38,7 @@ import {
 } from '@ashaveri/receipt';
 import { labeled } from './seed.ts';
 import { FIXED_IAT, fixtureKey, fixturePayload } from './receipt-envelope.ts';
+import { fixtureVendor, servedAnswer, servedChainOf, tcbInfo } from '../../collateral/test/support/collateral-documents.ts';
 
 const DATA = join(dirname(fileURLToPath(import.meta.url)), '..', 'data');
 
@@ -55,9 +58,12 @@ const DATA = join(dirname(fileURLToPath(import.meta.url)), '..', 'data');
  * slot this pack seals no receipt for, a sealed slot no entry answers for, an instant that is no whole number of
  * Unix seconds, an attached object misstating its own bytes, one digest attached twice, an object no reference
  * names and a header beside material no reference states a digest for are each offered to `signPack` before they
- * are published, and the writer refuses every one of them with the code the row states. No accepted row here
- * attaches a byte: the layout permits the arm, the references answer for what the sealed receipts took in, and
- * nothing in this repository fills the arm of a pack a reader accepts.
+ * are published, and the writer refuses every one of them with the code the row states. One accepted row here
+ * attaches a byte, and it is the reason the arm exists: `custody-served-weighed` seals a served body beside the
+ * issuer-chain header that arrived with it, both made by the estate's own fixture vendor, so a published reference
+ * resolves to material a reader can weigh against a root it pinned. Every other accepted row states its references
+ * and attaches nothing beside them, which is what every pack a deployment of this estate assembles is: the layout
+ * permits the arm and no path a deployment runs fills it.
  *
  * Two verdicts are published per row because the pack reader has two entry points and they answer different
  * questions. `structural` is what `decodePack` says about the bytes with no key in hand, and `verdict` is what
@@ -389,9 +395,9 @@ const SEAM = chained(ENTRIES, digest(text('the seam a trim record carried')));
  * Material a `held` slot names, spelled the way the byte arm spells it: the bytes a deployment might attach beside
  * the record, the digest of exactly those bytes, and the header that arrived with them where one did. Every object
  * here is a distinct sentence, so no two of them can collide at a digest and a row that wants a collision has to
- * make one on purpose. No accepted row of this suite attaches any of them: the layout permits the arm, nothing in
- * this repository fills it, and these objects appear in the published bytes only in the documents the reader
- * refuses, which is how a port gets an answer for a filled arm without this file writing one for a deployment.
+ * make one on purpose. These three are what the refusals are built from, and they appear in the published bytes
+ * only inside the documents the reader refuses: the one accepted row that fills its arm attaches the served pair
+ * made below instead of a sentence, because a body nothing could weigh is no answer for a reader that pinned a root.
  */
 function collateral(label: string, header: Uint8Array | null = null): PackAttachedObject {
   const held = text(label);
@@ -504,6 +510,21 @@ function slotNamed(id: string): PackItem {
   return found;
 }
 
+/**
+ * The lookup's answer for one position of an accepted row's arm.
+ *
+ * A row published as whole is read by a port as a document that holds together, so a refusal from the published
+ * lookup is a fault in this file rather than a verdict to publish, and it has to name the row and the position
+ * it stopped on instead of arriving as an uncoded throw.
+ */
+function resolvedAt(one: Case, manifest: PackManifest, entry: PackAttachedObject, index: number): PackAttachedResolution {
+  try {
+    return resolveAttached(manifest, entry.sha256);
+  } catch (err) {
+    throw new Error(`${one.name}: attached[${String(index)}] of a pack this suite publishes as whole is refused by the lookup the format publishes (${String(err)})`);
+  }
+}
+
 /** The references that run owes, one per held slot, and the whole pack that signs them and attaches nothing. */
 const REFERENCES: readonly PackCustodyEntry[] = ANCHORED_SLOTS.map(([id, slot, read]) => reference(slotNamed(id), slot, read));
 const referringManifest = manifestFor(ANCHORED, { custody: REFERENCES });
@@ -511,6 +532,103 @@ const referringManifest = manifestFor(ANCHORED, { custody: REFERENCES });
 /** The arm those references answer for, held here so the faults below have a whole arm to move one position of. */
 const ATTACHED: readonly PackAttachedObject[] = [TCB, VAL, RIM];
 const armManifest = (): PackManifest => ({ ...referringManifest, attached: [...ATTACHED] });
+
+/**
+ * A served answer, both halves of it, made by the estate's own fixture vendor.
+ *
+ * The body is the wrapper that address actually returns, the document member's own text and a hex `signature`
+ * member beside it, and the chain is the issuer header that arrived with it: two PEM blocks, leaf first, joined
+ * and URL-encoded the way the vendor spells one. Both are signed by `fixtureVendor`, whose two keys are read off
+ * labels rather than drawn from a random source, so these bytes come out again byte for byte every time this
+ * generator runs and a reader holding them can write that vendor's root to a file and weigh the pair against it.
+ * Nothing here is a byte from a real vendor's service and nothing here reaches one.
+ */
+const SERVED_VENDOR = fixtureVendor();
+const SERVED_FMSPC = '00906e1b0d00';
+const SERVED_ISSUE_DATE = '2025-01-01T00:00:00Z';
+const SERVED_NEXT_UPDATE = '2027-01-01T00:00:00Z';
+const SERVED_TCB_DATE = '2025-06-01T00:00:00Z';
+const SERVED = servedAnswer(tcbInfo({
+  fmspc: SERVED_FMSPC,
+  issueDate: SERVED_ISSUE_DATE,
+  nextUpdate: SERVED_NEXT_UPDATE,
+  levels: [{ tcbDate: SERVED_TCB_DATE, tcbStatus: 'UpToDate' }],
+}), 'tcbInfo', SERVED_VENDOR);
+
+/** The pair as the arm spells it: the body, its digest, and the header that arrived beside them both. */
+const SERVED_OBJECT: PackAttachedObject = {
+  bytes: SERVED.body,
+  sha256: digest(SERVED.body),
+  chain: SERVED.chain,
+  chainSha256: digest(SERVED.chain),
+};
+
+/**
+ * The reading that produced it, stated the way a capture that read a served answer states one.
+ *
+ * `u` names an address of this file's own invention and `o` the declaration it is asked of, because the request is
+ * part of what a reference records and the bytes it records were never fetched from anywhere: a port reading the
+ * row learns the shape of the statement, not a route to an origin.
+ */
+const SERVED_READ: Reading = {
+  o: 'intel-tcb-info',
+  u: 'https://vendor.invalid/tdx/certification/v4/tcb?fmspc=00906e1b0d00',
+  i: SERVED_FMSPC,
+  n: 60,
+  a: 'served',
+  y: 'intel-tcb-info/tdx/00906e1b0d00/tcb',
+  arm: SERVED_OBJECT,
+};
+
+/**
+ * A run whose `col` slot is the same served body on all three records and whose `val` slots name the two embedded
+ * readings, which is the shape the arm is for: one object attached once however many references name it, beside
+ * material that arrived with no header at all.
+ */
+const SERVED_RUN = chained([
+  { id: 'receipt-0', iat: BASE, slots: { col: SERVED_OBJECT.sha256, val: VAL.sha256 } },
+  { id: 'receipt-1', iat: BASE + 1, slots: { col: SERVED_OBJECT.sha256, val: RIM.sha256 } },
+  { id: 'receipt-2', iat: BASE + 2, slots: { col: SERVED_OBJECT.sha256, val: VAL.sha256 } },
+]);
+
+/** The six slots that run states, the served one three times and each of the other readings twice. */
+const SERVED_RUN_SLOTS: readonly (readonly [string, 'col' | 'val', Reading])[] = [
+  ['receipt-0', 'col', SERVED_READ],
+  ['receipt-0', 'val', VAL_READ],
+  ['receipt-1', 'col', SERVED_READ],
+  ['receipt-1', 'val', RIM_READ],
+  ['receipt-2', 'col', SERVED_READ],
+  ['receipt-2', 'val', VAL_READ],
+];
+
+function servedSlotNamed(id: string): PackItem {
+  const found = SERVED_RUN.items.find((one) => one.id === id);
+  if (found === undefined) throw new Error(`this file builds a served run with no ${id}`);
+  return found;
+}
+
+/** The pack that signs those references and hands over the material beside them, sealed by the shipped writer. */
+const SERVED_REFERENCES: readonly PackCustodyEntry[] = SERVED_RUN_SLOTS.map(
+  ([id, slot, read]) => reference(servedSlotNamed(id), slot, read),
+);
+const SERVED_ARM: readonly PackAttachedObject[] = [SERVED_OBJECT, VAL, RIM];
+const servedManifest = manifestFor(SERVED_RUN, { custody: SERVED_REFERENCES, attached: [...SERVED_ARM] });
+
+/**
+ * attached[0]'s header is the fixture vendor's own two blocks in the other order, so the entry is honest about
+ * the bytes it holds and about the header beside them, and what disagrees is the pair: the body still hashes to
+ * what three references state, its header still hashes to what it states, and the digest those same references
+ * state for the header that arrived is a different one. A reader cannot find this by weighing either half alone.
+ */
+const ANOTHER_HEADER = servedChainOf([SERVED_VENDOR.rootDer, SERVED_VENDOR.issuerDer]);
+const ARM_CHAIN_NOT_NAMED: PackManifest = {
+  ...servedManifest,
+  attached: [
+    { bytes: SERVED_OBJECT.bytes, sha256: SERVED_OBJECT.sha256, chain: ANOTHER_HEADER, chainSha256: digest(ANOTHER_HEADER) },
+    VAL,
+    RIM,
+  ],
+};
 
 /**
  * The ways the reference list, the byte arm and the sealed slots can disagree, each moved in the one position its
@@ -574,6 +692,7 @@ const ARM_FAULTS: readonly { readonly at: string; readonly manifest: PackManifes
   { at: 'attached[3], an object the body digest of no reference names', manifest: SURPLUS, code: 'PACK_ATTACHED_UNNAMED' },
   { at: 'attached[0].chain_sha256, nulled beside a header that is still there', manifest: UNPAIRED, code: 'PACK_BAD_MANIFEST' },
   { at: 'attached[2].chain, a header the reference it resolves to states no digest for', manifest: UNSUMMONED_HEADER, code: 'PACK_ATTACHED_DIGEST_MISMATCH' },
+  { at: 'attached[0].chain, the header of another answer attached beside this body', manifest: ARM_CHAIN_NOT_NAMED, code: 'PACK_ATTACHED_DIGEST_MISMATCH' },
 ];
 
 /** Every fault this suite publishes as a manifest, in the order the layout reads them: references first, then the arm. */
@@ -670,6 +789,16 @@ const CASES: readonly Case[] = [
     name: 'held-slots-referred-to-by-name',
     note: 'Three receipts whose anchors name material, and the pack that answers each held slot with a reference and attaches nothing. The `col` digest all three records name is three references rather than one, because a reference answers for the slot it names and not for the digest it shares, and each states the declaration it read, the request as asked, the instant the last byte landed, the body digest its slot digests and the digest of the header that arrived beside it where the weighing read one. A reader holding this pack learns what was seen, by which arm, and when, and reaches no endpoint to learn it. The pack states no verdict about those bytes and hands on none of them.',
     bytes: signPack(referringManifest, CURRENT),
+    read: PINNED_CURRENT,
+    verdict: 'verify-ok',
+    structural: 'verify-ok',
+    walk: ['receipt-0', 'receipt-1', 'receipt-2'],
+    ordering: [],
+  },
+  {
+    name: 'custody-served-weighed',
+    note: 'The run whose `col` slot all three records name is a served answer, and this pack attaches it: the body as the origin sent it, a wrapper holding the document member and a hex signature member, beside the issuer-chain header that arrived with it, plus the two embedded readings the `val` slots name and no header for. Six references answer six held slots, three of them stating the same body digest and the same digest of the header that arrived beside it, and the arm holds that object once. The reader recomputes every digest in the container, so this row is the answer for the case every port is meant to reach: a reference resolving to material the reader can weigh, at the instant the naming record was chained at, with no endpoint consulted. Both halves of the pair were made by this repository\'s own fixture vendor, so a reader may pin its root and read a window and a status out of them; the pack itself states no verdict either way.',
+    bytes: signPack(servedManifest, CURRENT),
     read: PINNED_CURRENT,
     verdict: 'verify-ok',
     structural: 'verify-ok',
@@ -1026,6 +1155,15 @@ const CASES: readonly Case[] = [
     edited: 'attached[2].chain, a header the reference it resolves to states no digest for',
   },
   {
+    name: 'custody-arm-chain-mismatch',
+    note: 'The served pack above with attached[0].chain swapped for another answer\'s header: the body still hashes to the digest three references state, the header still hashes to the digest the entry states for it, and what disagrees is that header against the digest those references state for the header that arrived beside the body. The reader recomputes both halves, weighs them against the reference each resolves to, and refuses the pair naming the position, the header the arm carried in full and the reference it weighed it against, whose own digest reaches the head of it before the bound the format puts on every quoted detail stops the sentence. An arm mistaken about which chain came with a document is not evidence about the document either, and nothing short of recomputing both halves and comparing the pair says so.',
+    bytes: despiteGuard(ARM_CHAIN_NOT_NAMED),
+    read: PINNED_CURRENT,
+    verdict: 'PACK_ATTACHED_DIGEST_MISMATCH',
+    structural: 'PACK_ATTACHED_DIGEST_MISMATCH',
+    edited: 'attached[0].chain, the header of another answer attached beside this body',
+  },
+  {
     name: 'envelope-without-its-tag',
     note: 'The four elements of a `COSE_Sign1` with the tag around them missing, which is a shape a reader cannot recover by being tolerant: tag 18 is what says these bytes are an envelope at all.',
     bytes: encodeCanonical(elementsOf(honestBytes)),
@@ -1250,14 +1388,60 @@ function main() {
       throw new Error(`this suite publishes no pack refused as ${one.code} at ${one.at}`);
     }
   }
-  // The byte arm is permitted by the layout and filled by no path a deployment runs, so no document this suite
-  // publishes as whole carries one. The arm appears in these bytes only inside the manifests the reader refuses,
-  // which is the only way a port can be given an answer for a filled arm without this file attaching material to
-  // an accepted pack.
+  // The byte arm is permitted by the layout and filled by no path a deployment runs, and this suite publishes both
+  // sides of that sentence: one accepted pack whose arm hands over the material its references name, and a refused
+  // row for every way an arm can fail to. So what holds of the accepted rows is no longer that the arm is empty,
+  // which one of them now answers, but the relation the arm owes at every position of it: each attached object
+  // resolves, keyed by the digest recomputed from the bytes beside it, to a reference this same pack signs for, and
+  // a header attached with those bytes hashes to the digest that reference states for one. Material attached with no
+  // reference behind it is not the shape of an accepted row and stays where it belongs, in the refused ones, which
+  // the sweep over FAULT_MANIFESTS above already requires a published answer for by name.
+  if (accepted.every((one) => decodePack(one.bytes).manifest.attached.length === 0)) {
+    throw new Error('this suite publishes no accepted pack attaching the material its references name, so the arm is a claim nothing weighs');
+  }
   for (const one of accepted) {
     const manifest = decodePack(one.bytes).manifest;
-    if (manifest.attached.length > 0) {
-      throw new Error(`${one.name}: an accepted pack of this suite attaches ${String(manifest.attached.length)} objects, and nothing here writes the arm`);
+    for (const [index, entry] of manifest.attached.entries()) {
+      const reached = resolvedAt(one, manifest, entry, index);
+      if (toHex(reached.custody.b) !== toHex(entry.sha256)) {
+        throw new Error(`${one.name}: attached[${String(index)}] resolves to a reference stating ${toHex(reached.custody.b)}, not the digest of the bytes beside it`);
+      }
+      const carried = entry.chain === null ? null : toHex(digest(entry.chain));
+      const stated = reached.custody.c === null ? null : toHex(reached.custody.c);
+      if (carried !== stated) {
+        throw new Error(`${one.name}: attached[${String(index)}] carries a header hashing to ${String(carried)} beside the reference for ${reached.item} at ${reached.slot}, which states ${String(stated)}`);
+      }
+    }
+  }
+  // The refusal the mismatch row publishes is the weighing of one half against the other, and the sentence has to
+  // say which position it stopped on, which header the arm carried, and which reference it contradicted. All three
+  // are read off the bytes this file wrote, so a refusal that lost one of them stops the run rather than publishing
+  // a row that claims a sentence the reader does not give. The second digest reaches thirty-seven of its
+  // sixty-four characters and no further, because `errors.ts` bounds every detail at two hundred of them and this
+  // sentence needs two hundred and twenty-seven to carry both whole: the head of it is what is checked, and the
+  // bound is the format's own rather than a fact this suite could widen.
+  const chainFault = CASES.find((one) => one.name === 'custody-arm-chain-mismatch');
+  if (chainFault === undefined) throw new Error('this file publishes no custody-arm-chain-mismatch row to read a refusal out of');
+  const carriedHex = toHex(digest(ANOTHER_HEADER));
+  const statedHex = toHex(digest(SERVED.chain));
+  if (carriedHex === statedHex) throw new Error('this file builds a mismatch out of one header, which is no disagreement at all');
+  const chainRefusal = (() => {
+    try {
+      decodePack(chainFault.bytes);
+      return null;
+    } catch (err) {
+      return err instanceof ReceiptError ? err : null;
+    }
+  })();
+  if (chainRefusal === null) {
+    throw new Error('custody-arm-chain-mismatch: the structural reader answered these bytes with no refusal, so the row states a fault nothing raises');
+  }
+  if (chainRefusal.code !== 'PACK_ATTACHED_DIGEST_MISMATCH') {
+    throw new Error(`custody-arm-chain-mismatch: the reader answers ${chainRefusal.code}, not the PACK_ATTACHED_DIGEST_MISMATCH this row states`);
+  }
+  for (const quoted of ['attached[0]', 'receipt-0 at col', carriedHex, statedHex.slice(0, 32)]) {
+    if (!chainRefusal.message.includes(quoted)) {
+      throw new Error(`custody-arm-chain-mismatch: the refusal quotes ${chainRefusal.message}, which never names ${quoted}`);
     }
   }
 
@@ -1307,7 +1491,7 @@ function main() {
             'records frames the run of `well-formed-three-items` and attachedRecords frames the run of `held-slots-referred-to-by-name`, and those are the two runs this suite publishes a framing for: the canonical run, whose every slot of every sealed receipt states an absence, and the run whose every held slot is answered by a reference the pack signs. A row beside them is read the same way and framed by the same rule, so what the two tables give a port is two published answers to recompute against rather than one. Each row of a table is derived from the sealed bytes of the document it sits beside rather than from the manifest its writer was handed, so a table cannot describe a run the published document does not hold',
           codes: [...new Set(CASES.map((one) => one.verdict))].sort(),
           assembled:
-            'every honest pack is `signPack` and no hand-built bytes. Where a row needs something that writer refuses to sign, the manifest is encoded, one position of its map is changed, and the result is signed over the published `Sig_structure` and sealed by `sealPack` under the key its header names; the generator stops unless that path reproduces `signPack` byte for byte on the canonical header, so each fault below is the one position its `edited` field names and nothing else. The writer is also asked to sign a manifest that contradicts its own span, a pack under a key whose kid is not sha256 of its public half, and each position the reference list and the byte arm can disagree with the slots their sealed receipts name, and refuses all of them with the code the row publishes, which is why this suite carries no row that a deployment could have produced by accident. No accepted row attaches a byte: the generator decodes every accepted document and stops if the arm of one is not empty, because the layout permits the arm and this repository writes none of it.',
+            'every honest pack is `signPack` and no hand-built bytes. Where a row needs something that writer refuses to sign, the manifest is encoded, one position of its map is changed, and the result is signed over the published `Sig_structure` and sealed by `sealPack` under the key its header names; the generator stops unless that path reproduces `signPack` byte for byte on the canonical header, so each fault below is the one position its `edited` field names and nothing else. The writer is also asked to sign a manifest that contradicts its own span, a pack under a key whose kid is not sha256 of its public half, and each position the reference list and the byte arm can disagree with the slots their sealed receipts name, and refuses all of them with the code the row publishes, which is why this suite carries no row that a deployment could have produced by accident. One accepted row does attach material: `custody-served-weighed` hands over a served body and the issuer-chain header that arrived beside it, both made here by the fixture vendor this repository generates, because a reference resolving to nothing is a claim no port can be weighed against. The generator decodes every accepted document, resolves each object of its arm by the digest recomputed from the bytes beside it, and stops unless a reference of that same pack names that digest and states the same digest for any header attached with it; an object no reference names appears only in a row the reader refuses.',
           keyMaterial: KEY_MATERIAL.map((one) => ({
             id: toHex(one.key.kid).slice(0, 8),
             seed: one.seed,

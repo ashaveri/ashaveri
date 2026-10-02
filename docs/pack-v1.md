@@ -209,10 +209,14 @@ written beside the rule they bound.
 
 The byte arm is the other half of this member and the layout permits it: `attached` holds material whole, beside
 the digest of those bytes and, where one arrived, the header and its digest, so an entry can be weighed by a
-reader that has the bytes in hand. Nothing in this repository fills it, and no pack published by this estate
-attaches a byte. Whether a given deployment may hand a particular service's bytes on is a question of its own
-agreement with that service; this container neither grants such a right nor judges one, and a reference is what
-this estate distributes.
+reader that has the bytes in hand. No path a deployment runs fills it, and no pack a deployment of this estate
+assembles carries a byte; one pack this estate *publishes* does, because a reader's handling of a body beside the
+header that arrived with it cannot be handed over any other way: `custody-served-weighed` in
+`packages/fixtures/data/pack-v1.json` attaches a served answer and its issuer-chain header, both signed by the
+fixture vendor whose keys that generator reads off labels, and a port that writes that vendor's root to a file can
+weigh the pair it is handed. Whether a given deployment may hand a particular service's bytes on is a question of
+its own agreement with that service; this container neither grants such a right nor judges one, and a reference is
+what this estate distributes.
 
 What a reader enforces before it trusts a statement of the arm, each refusal naming the position it found:
 

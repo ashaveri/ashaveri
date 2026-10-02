@@ -15,7 +15,7 @@ import {
   PUBLISHED_PAYLOAD,
   type PackEntry,
 } from '../test/carried-pack.ts';
-import { secondsOf, servedAnswer, signedDocument, tcbInfo, testVendor } from '../../collateral/test/support/collateral-documents.ts';
+import { fixtureVendor, secondsOf, servedAnswer, signedDocument, tcbInfo, testVendor } from '../../collateral/test/support/collateral-documents.ts';
 
 /**
  * The inputs the single-file verifier is proved against, written into a directory that holds nothing
@@ -53,17 +53,18 @@ import { secondsOf, servedAnswer, signedDocument, tcbInfo, testVendor } from '..
  * below is read out of the report the artifact printed rather than out of its exit status, because a status
  * says that a command stopped and only the report says which document it stopped about and what it found.
  *
- * The material a pack refers to is proved over a container built here rather than over a published vector, and
- * the reason is stated in the published bytes: `pack-v1.json` does carry a run whose held slots are each answered
- * by a reference (`held-slots-referred-to-by-name`), but the digests those references name are the sentences
- * `pack-vectors.ts` writes and it attaches no copy of any of them, so an appraisal of them can only answer that it
- * met something it cannot read. A window, a vendor status and a reached anchor are printed by an appraisal that
- * believed a signature, and no published fixture holds a signature this repository publishes the root of. The
- * containers below are therefore assembled the way the generator assembles its own: the receipts by
- * `issueReceipt`, the pack by `signPack`, a manifest the writer would not seal by the same piecewise seal the
- * published fault rows are made of, and the collateral documents by the vendor support the collateral package's
- * cases use. Their root is generated at run time, so what is asserted is the reading of one signature by the run
- * that pinned it and nothing about what any real vendor publishes.
+ * The material a pack refers to is proved over containers built here and over one published vector. The published
+ * suite carries two runs whose held slots are each answered by a reference: `held-slots-referred-to-by-name` names
+ * the sentences `pack-vectors.ts` writes and attaches no copy of any of them, so an appraisal of those digests can
+ * only answer that it met something it cannot read, and `custody-served-weighed` attaches a served body beside the
+ * header that arrived with it, signed by the fixture vendor whose keys that file reads off labels. A window, a
+ * vendor status and a reached anchor are printed by an appraisal that believed a signature, and the root of the
+ * signature the published row carries is derivable here, so one of the runs below weighs a published document
+ * rather than only a locally built one. The containers built here are assembled the way the generator assembles its
+ * own: the receipts by `issueReceipt`, the pack by `signPack`, a manifest the writer would not seal by the same
+ * piecewise seal the published fault rows are made of, and the collateral documents by the vendor support the
+ * collateral package's cases use. Their roots are generated at run time, so what is asserted is the reading of one
+ * signature by the run that pinned it and nothing about what any real vendor publishes.
  *
  * Two promises of the layout are what the section is built to answer. The first is that a served pair weighs:
  * material whose issuer chain arrived beside it, attached in the arm with the header, is weighed as the pair the
@@ -71,7 +72,9 @@ import { secondsOf, servedAnswer, signedDocument, tcbInfo, testVendor } from '..
  * empty in every pack a deployment assembles, so such a pack is read with the arm holding
  * nothing, and what the reading prints for those slots is the row that says so rather than a refusal of a document
  * the format takes. This section fills an arm itself, with documents its own fixture vendor generated, because the
- * first promise cannot be shown any other way.
+ * first promise cannot be shown any other way, and reads back the one published pack that fills its arm, so the
+ * promise is measured against the bytes this estate distributes rather than only against a container made for the
+ * run that weighs them.
  */
 
 /** The committed signing key material a fixture receipt was issued under. */
@@ -956,6 +959,8 @@ const CARRIED_IAT = 1_750_000_000;
 const BODY_ALONE_PACK = 'arm-body-alone.cbor';
 const SHORT_ARM_PACK = 'arm-one-reference-unfilled.cbor';
 const SERVED_PAIR_PACK = 'arm-served-pair.cbor';
+const PUBLISHED_SERVED_PACK = 'published-served-pair.cbor';
+const PUBLISHED_ROOT_FILE = 'fixture-vendor-root.der';
 const EMPTY_ARM_PACK = 'published-arm-holds-nothing.cbor';
 const ROOT_FILE = 'intel-root.der';
 
@@ -981,11 +986,12 @@ function rootsRowOf(run: BundleRun): CollateralRootsRow {
 /**
  * The material a pack refers to, weighed by the artifact in a directory that holds no checkout.
  *
- * Five runs, and the one variable each moves: the container whose arm hands a body with no header beside it,
+ * Six runs, and the one variable each moves: the container whose arm hands a body with no header beside it,
  * weighed under a named root and a named question; the same container with the object one reference names taken
  * out of the arm; the same question asked under no root; a container whose arm hands the served pair, body and the
- * header that arrived beside it, with the reference stating that header's digest; and one published pack read
- * whole with its arm holding nothing at all.
+ * header that arrived beside it, with the reference stating that header's digest; the published row that hands the
+ * same pair, read under the root of the vendor its own generator signs with; and one published pack read whole with
+ * its arm holding nothing at all.
  *
  * The first is the half this proof existed to cover, the second is the reason it is a proof rather than a
  * demonstration, and the last is the promise the layout makes about it: a weighing that ran over whatever a
@@ -994,13 +1000,15 @@ function rootsRowOf(run: BundleRun): CollateralRootsRow {
  * deployment that holds no copy to hand on. The fourth is what the arm's chain member and a reference's `c` are
  * for: a served answer weighed as a body alone is refused at the envelope, so a run that prints a window, a
  * vendor status and a reached anchor over a pair is the artifact walking the chain the pack attached beside it.
- * The third is what makes the root rule observable: an appraisal that had inherited the roots bundled with the
- * verifier would have read the bytes and answered with a state about them, and what it answers instead is the
- * refusal that names the field this run left empty.
+ * The fifth is the same claim about the bytes this estate distributes rather than about a container made for the
+ * run, which is the half a stranger can only check against a published file. The third is what makes the root rule
+ * observable: an appraisal that had inherited the roots bundled with the verifier would have read the bytes and
+ * answered with a state about them, and what it answers instead is the refusal that names the field this run left
+ * empty.
  *
- * `verify-pack` carries the first, the fourth and the third because a step that knows it is reading a pack is the
- * step this path is built for, and `verify-handover` carries the second and the fifth because the free verb is the
- * one a reader of a pile reaches for, and both verbs weigh through the same rows.
+ * `verify-pack` carries the first, the fourth, the fifth and the third because a step that knows it is reading a
+ * pack is the step this path is built for, and `verify-handover` carries the second and the sixth because the free
+ * verb is the one a reader of a pile reaches for, and both verbs weigh through the same rows.
  */
 function proveCustody(workDir: string, dataDir: string): void {
   // A vendor generated here, and documents signed by it, so the only signature this run believes is the one it
@@ -1024,6 +1032,7 @@ function proveCustody(workDir: string, dataDir: string): void {
   const digestOfTcb = digestHexOf(tcbDocument);
   const digestOfContext = digestHexOf(validityContext);
   const digestOfServed = digestHexOf(served.body);
+  const publishedRows = (JSON.parse(readFileSync(join(dataDir, 'pack-v1.json'), 'utf8')) as PackVectorFile).vectors;
 
   // One record whose two anchor slots both state a digest, so the held half of the path is what runs.
   const entries: readonly PackEntry[] = [{
@@ -1195,6 +1204,55 @@ function proveCustody(workDir: string, dataDir: string): void {
       `which is the chain half of a served answer reaching a reader that holds the pack and no endpoint`,
   );
 
+  // The same pair as the published suite hands it, weighed under the root of the vendor that generator signs with.
+  // The bytes are read out of `pack-v1.json` rather than built here, and the root is re-made from the two labels
+  // that vendor's keys are read off, so what this run proves is that a stranger holding only what this estate
+  // distributes reaches the same window, the same vendor's words and the same anchor as the container above.
+  const publishedVendor = fixtureVendor();
+  const publishedServed = servedAnswer(tcbInfo({
+    fmspc: FMSPC,
+    issueDate: ISSUE_DATE,
+    nextUpdate: NEXT_UPDATE,
+    levels: [{ tcbDate: TCB_DATE, tcbStatus: 'UpToDate' }],
+  }), 'tcbInfo', publishedVendor);
+  const publishedServedRow = rowNamed('pack-v1.json', publishedRows, 'custody-served-weighed');
+  const publishedRootPath = join(workDir, PUBLISHED_ROOT_FILE);
+  writeFileSync(publishedRootPath, publishedVendor.rootDer);
+  writeFileSync(join(workDir, PUBLISHED_SERVED_PACK), Buffer.from(publishedServedRow.documentBase64Url, 'base64url'));
+  const publishedRun = runBundle(workDir, [
+    'verify-pack', PUBLISHED_SERVED_PACK,
+    `--key=${stated(publishedServedRow.read.pinned, 'the key the published served pack names')}`,
+    `--intel-root=${publishedRootPath}`, ...questionArgs, '--json',
+  ]);
+  expect(publishedRun.status === 0, publishedRun, 'accept the published pack whose arm hands a served pair');
+  const publishedRow = carriedRowOf(publishedRun, digestHexOf(publishedServed.body));
+  expect(
+    publishedRow.attached === true && publishedRow.attachedBytes === publishedServed.body.byteLength,
+    publishedRun,
+    `read the published arm as the bytes it hands, saw ${String(publishedRow.attachedBytes)}`,
+  );
+  expect(
+    publishedRow.weighed === true && publishedRow.state === 'stale' && publishedRow.reach === 'historical-knowledge',
+    publishedRun,
+    `weigh the published pair rather than refuse the envelope, saw ${String(publishedRow.state)}/${String(publishedRow.reach)} and ${JSON.stringify(publishedRow.refusal)}`,
+  );
+  expect(
+    publishedRow.readAs === 'trusted' && publishedRow.vendorStatus === 'UpToDate'
+      && publishedRow.anchorDigest === publishedVendor.rootDigest,
+    publishedRun,
+    `reach the fixture root re-made from this estate's own labels through the chain the published pack carries, saw ${String(publishedRow.readAs)} ${String(publishedRow.vendorStatus)} ${String(publishedRow.anchorDigest)}`,
+  );
+  expect(
+    publishedRow.window?.from === WINDOW_FROM && publishedRow.window?.until === WINDOW_UNTIL,
+    publishedRun,
+    `print the window the published document signed, saw ${JSON.stringify(publishedRow.window)}`,
+  );
+  say(
+    `verify-pack ${PUBLISHED_SERVED_PACK}: exit 0, the published row custody-served-weighed weighed at digest ${digestHexOf(publishedServed.body)}, ` +
+      `read ${String(publishedRow.readAs)} ${String(publishedRow.vendorStatus)} under the root the fixture vendor's own labels hand back, which is a distributed ` +
+      'document reaching the same answer as the container built for the occasion',
+  );
+
   const unpinnedRun = runBundle(workDir, ['verify-pack', BODY_ALONE_PACK, keyFlag, ...questionArgs, '--json']);
   expect(unpinnedRun.status === 0, unpinnedRun, 'still accept the pack when the question is asked under no root');
   const unpinned = reportOf(unpinnedRun);
@@ -1221,7 +1279,6 @@ function proveCustody(workDir: string, dataDir: string): void {
     `verify-pack ${BODY_ALONE_PACK} under no --intel-root: exit 0, refused ${String(unpinnedCol.refusal?.code)} naming roots, ` +
       'read as no state about the vendor, which is the answer an appraisal that had consulted a bundled root would not give',
   );
-  const publishedRows = (JSON.parse(readFileSync(join(dataDir, 'pack-v1.json'), 'utf8')) as PackVectorFile).vectors;
   const referring = rowNamed('pack-v1.json', publishedRows, 'held-slots-referred-to-by-name');
   writeFileSync(join(workDir, EMPTY_ARM_PACK), Buffer.from(referring.documentBase64Url, 'base64url'));
   const emptyArmRun = runBundle(workDir, [
@@ -1241,12 +1298,12 @@ function proveCustody(workDir: string, dataDir: string): void {
   }
   say(
     `verify-handover ${EMPTY_ARM_PACK}: exit 0 over the published pack whose every held slot a reference answers for, ${String(armRows.length)} digests printed as 'attached by nothing in this pack', ` +
-      'which is the arm this repository never fills read as the ordinary case rather than refused as a shortage',
+      'which is the arm no path a deployment runs fills read as the ordinary case rather than refused as a shortage',
   );
   say(
-    'the bundle answered five runs over containers built here and one published pack: a held slot resolved to the vendor-signed bytes the arm carries and weighed under the root this run named, ' +
+    'the bundle answered four runs over containers built here and two published packs: a held slot resolved to the vendor-signed bytes the arm carries and weighed under the root this run named, ' +
       'the same pack with one reference left unfilled and printed as an arm holding nothing, the same weighing asked again under no root and answered by the refusal naming the field it left empty, ' +
-      'a served body weighed beside the header that arrived with it, and a published pack read whole with its arm empty',
+      'a served body weighed beside the header that arrived with it, that same pair weighed out of the row this estate distributes, and a second published pack read whole with its arm empty',
   );
 }
 

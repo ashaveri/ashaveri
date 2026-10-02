@@ -2,7 +2,12 @@
   "extends": "./tsconfig.json",
   "compilerOptions": {
     "noEmit": true,
-    "rootDir": ".",
+    // scripts/pack-vectors.ts reaches the collateral package's own test support for the fixture vendor its
+    // served pair is signed by, exactly as packages/cli/scripts/offline-proof.ts and
+    // packages/cli/test/carried-collateral.test.ts already do, so the root has to span the workspace rather
+    // than this package. Nothing here is emitted, which is why widening it settles the check rather than
+    // moving an output.
+    "rootDir": "../..",
     "types": ["node"],
     // The generators are run from source by `node --experimental-strip-types`, which resolves
     // specifiers as written and so requires `./seed.ts`; the checked path has to accept the one

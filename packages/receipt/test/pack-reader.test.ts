@@ -1604,6 +1604,18 @@ describe('the pack reader and the format it reads', () => {
       spec,
       'the specification still claims nothing in this repository writes a pack, which the writer refutes',
     ).not.toMatch(/nothing in this repository assembles a pack/iu);
+    // Two more sentences the published vectors refute rather than this file's own code: one accepted pack of this
+    // estate attaches a served body beside the header that arrived with it, so the arm is filled by something this
+    // repository generates even though no path a deployment runs ever fills it. The posture stays narrower than
+    // "nothing attaches a byte" and has to stay that way, or the document would be refuting its own suite.
+    expect(
+      spec,
+      'the specification still claims no pack this estate publishes attaches material, which the published served pair refutes',
+    ).not.toMatch(/no pack (?:published by this estate|of this estate|here)[^.]*attaches/iu);
+    expect(
+      spec,
+      'the specification still claims nothing of this repository fills the byte arm, which its own generator refutes',
+    ).not.toMatch(/nothing (?:in this repository|here) (?:fills|writes)[^.]*arm/iu);
     expect(
       readerSource,
       'the verified pack no longer carries the ordering finding beside the run and the window',
