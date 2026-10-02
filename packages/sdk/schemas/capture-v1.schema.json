@@ -2,7 +2,7 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "https://ashaveri.com/schemas/capture-v1.json",
   "title": "Ashaveri Evidence Capture (v1)",
-  "description": "One piece of evidence's exact original bytes, held as they arrived, beside the context that made them verifiable at the instant they were taken in: the source they came from, our own acquisition time, the manifests the source served, the policy, verifier and format versions the check ran under, the signed collateral and validity context the bytes were appraised in, the trust references relied on, and the binding limits the verdict was reached under. A receipt points at its evidence with a digest, a timestamp and a URL, and a digest of a document nobody retained proves a hash existed rather than that the evidence survived; this document is what has to be handed over so that claim can be checked by somebody who does not trust the party that made it. Nothing writes one yet: this is the layout a collector has to be written against and the reading `readCaptureRecord` and `assessCapture` in `packages/sdk/src/capture.ts` refuse. The shape is strict in both directions on purpose, as the policy document beside it is. Every block closes: a member the version names makes the document invalid rather than a document read with the unexpected member dropped, because a collector that wrote a field no reader knows was answering a question this record cannot ask. Absence is carried as a state, never as an omission: every context member says whether it is held, whether the source never produced it, or whether the collector failed to take it in, and those three are different outcomes that a reader must not merge. There is deliberately no verdict field anywhere in this document, and none is defined for a future version to add: custody of bytes and their digest is what the writer asserts, and whether the signature over them holds is a check a reader repeats with its own pinned roots. A record that stated its own verification would let that assertion be read as the check.",
+  "description": "One piece of evidence's exact original bytes, held as they arrived, beside the context that made them verifiable at the instant they were taken in: the source they came from, our own acquisition time, the manifests the source served, the policy, verifier and format versions the check ran under, the signed collateral and validity context the bytes were appraised in, the trust references relied on, and the binding limits the verdict was reached under. A receipt points at its evidence with a digest, a timestamp and a URL, and a digest of a document nobody retained proves a hash existed rather than that the evidence survived; this document is what has to be handed over so that claim can be checked by somebody who does not trust the party that made it. Nothing writes one yet: this is the layout a collector has to be written against and the reading `parseCaptureRecord` and `assessCapture` in `packages/sdk/src/capture.ts` refuse. The shape is strict in both directions on purpose, as the policy document beside it is. Every block closes: a member the version names makes the document invalid rather than a document read with the unexpected member dropped, because a collector that wrote a field no reader knows was answering a question this record cannot ask. Absence is carried as a state, never as an omission: every context member says whether it is held, whether the source never produced it, or whether the collector failed to take it in, and those three are different outcomes that a reader must not merge. A held collateral slot owes ten members no other slot is asked for, because an answer is not a blob: it names the source it came under, the address it was asked at, the identity it claims, the instant it landed, that instant's own bound, the reading that weighed it, the span it reaches and the key it was kept under, and the header its issuer chain arrived in beside the digest of that header. Those are the parts a pack's custody entry is made of, member by member at `#/$defs/collateralObservation`, and a held slot in any other role may state them and owes none. There is deliberately no verdict field anywhere in this document, and none is defined for a future version to add: the keeping of bytes and their digest is what the writer asserts, and whether the signature over them holds is a check a reader repeats with its own pinned roots. A record that stated its own verification would let that assertion be read as the check.",
   "type": "object",
   "required": ["v", "original", "acquired", "manifests", "check", "context", "trust"],
   "additionalProperties": false,
@@ -122,8 +122,8 @@
       "description": "What the bytes were appraised against. Both members are required and both carry a presence state, because a reader's verdict is only as good as what it can see was left out, and silence is not a state.",
       "properties": {
         "collateral": {
-          "$ref": "#/$defs/slot",
-          "description": "The signed collateral: the vendor certificate chain the platform report was chained to, as the source served it. A record holding none, or saying the source never produced one, reads as qualified or unassessed, and never as a pass."
+          "$ref": "#/$defs/collateralSlot",
+          "description": "The signed collateral: the vendor certificate chain the platform report was chained to, as the source served it. A record holding none, or saying the source never produced one, reads as qualified or unassessed, and never as a pass. A held one is the answer to a question somebody asked somewhere: the eight members `#/$defs/collateralSlot` names state where, when, under whose name and over what span, and they are what a stranger can weigh or re-ask."
         },
         "validity": {
           "$ref": "#/$defs/slot",
@@ -184,11 +184,97 @@
       "pattern": "^[0-9a-f]{64}$",
       "description": "A SHA-256 digest, lowercase hex, 64 characters."
     },
+    "origin": {
+      "type": "string",
+      "minLength": 1,
+      "description": "Which source declaration an answer came under, named the way that declaration names itself. Required of a held collateral slot: bytes that name no source are a blob, and a reader has nothing to go and re-ask."
+    },
+    "request": {
+      "type": "string",
+      "minLength": 1,
+      "description": "The address the answer was asked at, the request as it was framed rather than as an answer redirects to it, which is the member a reference names so a stranger can go and ask again. Bounded at 2,048 bytes of UTF-8, the ceiling the reference layout carries for an address, because a stated address past that ceiling is a record whose bytes can be kept and never pointed at: the bound is the reference's own and not a number this layout invented. It is a count of bytes and no JSON Schema keyword counts bytes, so the reader holds the rule and `docs/capture-v1.md` names which authority binds which rule."
+    },
+    "identity": {
+      "description": "The identity the signed answer names for itself, or null where the answer names none. Both are statements, and an empty object is neither.",
+      "oneOf": [{ "$ref": "#/$defs/collateralIdentity" }, { "type": "null" }]
+    },
+    "observedAt": {
+      "type": "integer",
+      "minimum": 0,
+      "description": "Unix seconds, whole, the instant the last byte of this answer landed on the clock of the process that took it in. Not `acquired.at`, which is this collector's own clock and a different event, and not a fraction: an instant stated in no unit is a bound nobody can weigh against a window."
+    },
+    "sourceUncertaintySeconds": {
+      "type": ["integer", "null"],
+      "minimum": 0,
+      "description": "How far the clock behind `observedAt` may stand from the instant it names, in whole seconds, or null where nobody measured it. A bound and not an instant. A null is a statement that no number was ever established, which is not the same reading as zero and is not a window that stayed open."
+    },
+    "chainSha256": {
+      "$ref": "#/$defs/digest",
+      "description": "SHA-256 of the response header that carried an answer's issuer chain, as that header arrived. A reader recomputes it over `chainBytes` and refuses the two when they disagree, which is the same rule the bytes of an original are read by."
+    },
+    "chainBytes": {
+      "type": "string",
+      "minLength": 1,
+      "pattern": "^[A-Za-z0-9_-]*$",
+      "description": "That header itself, unpadded base64url, as it arrived. The two halves of a chain come together or not at all: bytes no one can name a digest of are bytes no later reader can be shown, and a digest of a header nobody kept is a statement about nothing but a hash. An empty spelling is refused as one header would be, because a header of no bytes carried no chain."
+    },
+    "weighedBy": {
+      "enum": ["served", "embedded"],
+      "description": "Which reading weighed an answer: `served` where the signature and the issuer chain arrive apart from the body, `embedded` where the signature travels inside the bytes it signs. The source's own declaration settles this and a body does not, because a wrapper that starts with a brace and a token that starts with base64url are the same text to anything that looks."
+    },
+    "window": {
+      "$ref": "#/$defs/signedWindow",
+      "description": "How far an answer's own signed statement reaches: from included, to excluded. A statement about time, read off the bytes the slot holds, and not a claim that the span is still open."
+    },
+    "cacheKey": {
+      "type": "string",
+      "minLength": 1,
+      "description": "The key an answer was kept under, spelled from the members that decide which question a kept blob answers, so a reader can tell which entry of a store a record is describing. An appraisal instant is deliberately absent from it: the same bytes are the same answer whichever moment they are read against."
+    },
+    "collateralObservation": {
+      "type": "object",
+      "required": [
+        "origin",
+        "request",
+        "identity",
+        "observedAt",
+        "sourceUncertaintySeconds",
+        "weighedBy",
+        "window",
+        "cacheKey"
+      ],
+      "properties": {
+        "origin": { "$ref": "#/$defs/origin" },
+        "request": { "$ref": "#/$defs/request" },
+        "identity": { "$ref": "#/$defs/identity" },
+        "observedAt": { "$ref": "#/$defs/observedAt" },
+        "sourceUncertaintySeconds": { "$ref": "#/$defs/sourceUncertaintySeconds" },
+        "weighedBy": { "$ref": "#/$defs/weighedBy" },
+        "window": { "$ref": "#/$defs/window" },
+        "cacheKey": { "$ref": "#/$defs/cacheKey" }
+      },
+      "description": "The eight facts a held collateral slot states about the answer its bytes are: where it came from, where it was asked, what it names itself, when it landed, how far that instant may stand, which reading weighed it, how far it reaches and which key it was kept under. A held slot outside the collateral role owes none of them. These are the parts of a custody reference, and the entry a pack makes from a held collateral slot takes them in order: `origin` becomes its `o`, `request` its `u`, `identity` its `i`, `observedAt` its `s`, `sourceUncertaintySeconds` its `n`, `weighedBy` its `a`, `window` its `w` and `cacheKey` its `y`, while the slot's own `sha256` is the entry's `b` and the chain's two halves together are its `c`. Which anchor slot of which receipt an entry answers is the entry's own statement and is named by no member of this record."
+    },
+    "chainPair": {
+      "type": "object",
+      "allOf": [
+        {
+          "if": { "type": "object", "required": ["chainBytes"], "properties": { "chainBytes": { "$ref": "#/$defs/chainBytes" } } },
+          "then": { "type": "object", "required": ["chainSha256"], "properties": { "chainSha256": { "$ref": "#/$defs/chainSha256" } } }
+        },
+        {
+          "if": { "type": "object", "required": ["chainSha256"], "properties": { "chainSha256": { "$ref": "#/$defs/chainSha256" } } },
+          "then": { "type": "object", "required": ["chainBytes"], "properties": { "chainBytes": { "$ref": "#/$defs/chainBytes" } } }
+        }
+      ],
+      "description": "The issuer chain's header and its digest, which arrive together or not at all. Stated as a rule of its own because it binds two members and no keyword that closes a block can say that."
+    },
     "held": {
       "type": "object",
       "required": ["presence", "bytes", "sha256", "byteCount"],
       "additionalProperties": false,
-      "description": "A context member this record holds, as the bytes that arrived and the digest of exactly those bytes.",
+      "description": "A context member this record holds, as the bytes that arrived and the digest of exactly those bytes. Beside those four, a held slot may state what its bytes are an answer to: the ten members this definition names, which belong to a collateral slot and to no other, because a deployment manifest and a detached signature are not answers a source gave. Which slot owes them is a rule about a role, and this definition serves four roles, so the eight are required at `#/$defs/collateralObservation`, applied by `#/$defs/collateralSlot`, and an absent slot that borrows one of them is refused by `#/$defs/absent` closing at two members. Two rules in this family are ones no JSON Schema states, so the reader holds them: the digest a chain states has to be the digest of the chain bytes beside it, and unpadded base64url has one spelling a reader reproduces rather than any that decodes. A third is a count of bytes, which no keyword of this document version makes: the address a held slot states is bounded at what a reference can carry.",
+      "allOf": [{ "$ref": "#/$defs/chainPair" }],
       "properties": {
         "presence": {
           "const": "held",
@@ -207,6 +293,52 @@
           "type": "integer",
           "minimum": 0,
           "description": "How many bytes `bytes` decodes to."
+        },
+        "origin": { "$ref": "#/$defs/origin" },
+        "request": { "$ref": "#/$defs/request" },
+        "identity": { "$ref": "#/$defs/identity" },
+        "observedAt": { "$ref": "#/$defs/observedAt" },
+        "sourceUncertaintySeconds": { "$ref": "#/$defs/sourceUncertaintySeconds" },
+        "chainSha256": { "$ref": "#/$defs/chainSha256" },
+        "chainBytes": { "$ref": "#/$defs/chainBytes" },
+        "weighedBy": { "$ref": "#/$defs/weighedBy" },
+        "window": { "$ref": "#/$defs/window" },
+        "cacheKey": { "$ref": "#/$defs/cacheKey" }
+      }
+    },
+    "collateralIdentity": {
+      "type": "object",
+      "required": ["cpuType", "vendorStatus"],
+      "additionalProperties": false,
+      "description": "The identity a signed answer names for itself, copied out of the answer rather than sorted into a label this record would prefer.",
+      "properties": {
+        "cpuType": {
+          "type": ["string", "null"],
+          "minLength": 1,
+          "description": "The CPU type the answer claims to cover, in the answer's own words, or null where the document indexes nothing by one."
+        },
+        "vendorStatus": {
+          "type": "string",
+          "minLength": 1,
+          "description": "The vendor's own status text beside what was asked. A word the source wrote, and the only reading of it this record states is the one the bytes carry."
+        }
+      }
+    },
+    "signedWindow": {
+      "type": "object",
+      "required": ["from", "to"],
+      "additionalProperties": false,
+      "description": "The span a signed statement reaches, in whole unix seconds, from included and to excluded, which is how this estate's windows are read everywhere else.",
+      "properties": {
+        "from": {
+          "type": "integer",
+          "minimum": 0,
+          "description": "The instant the statement begins to reach."
+        },
+        "to": {
+          "type": "integer",
+          "minimum": 0,
+          "description": "The instant it stops reaching."
         }
       }
     },
@@ -230,6 +362,16 @@
     "slot": {
       "oneOf": [{ "$ref": "#/$defs/held" }, { "$ref": "#/$defs/absent" }],
       "description": "One piece of context and its presence state. The three states are exhaustive and closed, so every absence in a capture record is one somebody wrote down."
+    },
+    "collateralSlot": {
+      "allOf": [
+        { "$ref": "#/$defs/slot" },
+        {
+          "if": { "type": "object", "required": ["presence"], "properties": { "presence": { "const": "held" } } },
+          "then": { "$ref": "#/$defs/collateralObservation" }
+        }
+      ],
+      "description": "The slot that holds the signed collateral the bytes were appraised against. A held one owes the eight facts a reader needs in order to go and re-ask the answer it holds; an absent one owes the reason and nothing else. This is the one place in the layout where a role decides a requirement, and the reader refuses a held collateral slot missing any of them, member by member, naming the one that is absent. A held one is also the whole of what a pack's custody entry is made from, member by member in the sentence at `#/$defs/collateralObservation`."
     }
   }
 }

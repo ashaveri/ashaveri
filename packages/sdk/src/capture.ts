@@ -81,12 +81,83 @@ type CaptureReceiptFormatVersion = (typeof IMPLEMENTED_RECEIPT_FORMAT_VERSIONS)[
 export type CapturePresence = 'held' | 'absent-at-source' | 'not-taken-in';
 
 /** A piece of context this record holds: the bytes as they arrived, and the digest of exactly those bytes. */
-export interface CaptureHeld {
+export interface CaptureHeld extends Partial<CaptureCollateralObservation> {
   readonly presence: 'held';
   /** Unpadded base64url, in the one spelling that decodes back to these bytes. */
   readonly bytes: string;
   readonly sha256: string;
   readonly byteCount: number;
+}
+
+/**
+ * Which reading weighed the answer a collateral slot holds.
+ *
+ * `served` is a signature and an issuer chain arriving apart from the body, `embedded` a signature
+ * travelling inside the bytes it signs. The source's own declaration decides this and a body does not: a
+ * wrapper that starts with a brace and a token that starts with base64url are the same text to anything
+ * that looks, and which of the two a reader stands behind is a claim about the path, not about the bytes.
+ *
+ * Exported, and held to the published schema's `enum` for `weighedBy` by `test/capture.test.ts`, for the
+ * one reason `SOURCE_KINDS` is exported: the schema is what a collector outside this repository builds a
+ * writer against, and a third word added on one side alone is a record one authority refuses and the
+ * other reads.
+ */
+export const COLLATERAL_WEIGHED_BY = ['served', 'embedded'] as const;
+
+/** The two readings above as a type. */
+export type CaptureCollateralWeighing = (typeof COLLATERAL_WEIGHED_BY)[number];
+
+/** The identity a signed answer names for itself, read off the bytes the slot holds. */
+export interface CaptureCollateralIdentity {
+  /** The CPU type the answer claims to cover, in the answer's own words, or null where it names none. */
+  readonly cpuType: string | null;
+  /** The vendor's own status text beside what was asked, copied rather than paraphrased. */
+  readonly vendorStatus: string;
+}
+
+/** How far an answer's own signed statement reaches: `from` included, `to` excluded, unix seconds. */
+export interface CaptureSignedWindow {
+  readonly from: number;
+  readonly to: number;
+}
+
+/**
+ * What a held collateral slot states about the answer its bytes are.
+ *
+ * These are the eight facts a collector watched when it took the answer in, beside the bytes themselves,
+ * and they are what turns "we hold something of this length and this digest" into a statement a stranger
+ * can go and re-ask: which source declaration the bytes came under, at what address, on whose clock and
+ * with what bound on that clock, naming which identity, reached by which reading, standing for which
+ * span, and kept under which key.
+ *
+ * A held slot outside `context.collateral` owes none of them, and no reader is asked to weigh a
+ * manifest or a detached signature as a vendor's answer. The schema says so the way it can, which is to
+ * make these members legal in any held slot and require them of a held collateral one; the reader refuses
+ * a slot that states part of an observation while declaring an absence, and refuses a chain stated on one
+ * side only. `docs/capture-v1.md` names which authority binds which rule, and which member of a pack's
+ * custody entry each of these becomes.
+ */
+export interface CaptureCollateralObservation {
+  /** Which source declaration this answer came under, named the way that declaration names itself. */
+  readonly origin: string;
+  /** The address the answer was asked at, as it was spelled on the way out, within the bytes a reference carries. */
+  readonly request: string;
+  /** The identity the signed answer names for itself, or null where the answer names none. */
+  readonly identity: CaptureCollateralIdentity | null;
+  /** Unix seconds, whole, the instant the last byte of the answer landed. */
+  readonly observedAt: number;
+  /** How far the clock behind `observedAt` may stand from the instant it names, or null where nobody measured. */
+  readonly sourceUncertaintySeconds: number | null;
+  /** The digest of the header that carried the answer's issuer chain, when a chain arrived in a header. */
+  readonly chainSha256?: string;
+  /** That header itself, unpadded base64url, as it arrived, beside the digest of it. */
+  readonly chainBytes?: string;
+  /** Which reading weighed this answer. */
+  readonly weighedBy: CaptureCollateralWeighing;
+  /** The span the answer's own signed statement reaches. */
+  readonly window: CaptureSignedWindow;
+  /** The key this answer was kept under, spelled from the members that decide which question it answers. */
+  readonly cacheKey: string;
 }
 
 /** A piece of context this record does not hold, and which of the two reasons it names. */
@@ -97,6 +168,9 @@ export interface CaptureAbsent {
 }
 
 export type CaptureSlot = CaptureHeld | CaptureAbsent;
+
+/** A held collateral slot, which owes every one of the eight facts beside its bytes. */
+export type CaptureCollateralSlot = (CaptureHeld & CaptureCollateralObservation) | CaptureAbsent;
 
 /**
  * What the stored bytes are, the whole closed set written once as a list. A new source arrives as a new
@@ -161,8 +235,12 @@ export interface CaptureRecord {
     readonly appraisedAt: number;
   };
   readonly context: {
-    /** The signed collateral the bytes were appraised against: the vendor certificate chain, as served. */
-    readonly collateral: CaptureSlot;
+    /**
+     * The signed collateral the bytes were appraised against: the vendor certificate chain, as served.
+     * A held one states the eight facts beside its bytes, because an answer nobody can say where it came
+     * from is a blob and not a reference.
+     */
+    readonly collateral: CaptureCollateralSlot;
     /** The validity context they were appraised in: the window and the appraisal a verifier recorded. */
     readonly validity: CaptureSlot;
   };
@@ -209,6 +287,12 @@ export interface CaptureVerdict {
     readonly sha256: string;
     readonly byteCount: number;
     readonly assertsSignature: boolean;
+    /**
+     * What the record states its collateral slot holds, or null when that slot states an absence. The
+     * collector watched these eight facts and this reader did not: a bound a source states for its own
+     * clock is not a bound this reader measured, and `repeated` says nothing about any of them.
+     */
+    readonly collateral: CaptureCollateralObservation | null;
   };
   readonly repeated: {
     /** The stored bytes, handed back exactly as the record holds them. Never re-encoded, never re-framed. */
@@ -246,7 +330,48 @@ export interface AssessCaptureParams {
   readonly nowMillis?: number;
 }
 
-const SLOT_MEMBERS: readonly string[] = ['presence', 'bytes', 'sha256', 'byteCount', 'reason'];
+/** The eight facts a held collateral slot owes, in the order a reader states them. */
+const OBSERVATION_MEMBERS = [
+  'origin',
+  'request',
+  'identity',
+  'observedAt',
+  'sourceUncertaintySeconds',
+  'weighedBy',
+  'window',
+  'cacheKey',
+] as const;
+
+/** Everything a held collateral slot may state beside the bytes: the eight, and the chain's two halves. */
+const COLLATERAL_SLOT_MEMBERS: readonly string[] = [...OBSERVATION_MEMBERS, 'chainBytes', 'chainSha256'];
+
+/**
+ * Everything any slot may carry: the four of a held one, the two of an absent one, and the ten a held
+ * collateral slot states about its answer.
+ *
+ * This list is `#/$defs/held`'s and `#/$defs/absent`'s member names in
+ * `packages/sdk/schemas/capture-v1.schema.json` restated, which is the one reason a drift between the two
+ * is a bug rather than a choice: `test/capture.test.ts` reads one document through both and refuses the
+ * disagreement in either direction.
+ */
+const SLOT_MEMBERS: readonly string[] = ['presence', 'bytes', 'sha256', 'byteCount', 'reason', ...COLLATERAL_SLOT_MEMBERS];
+
+/** The members only a holding slot can state, so an absence that carries one is refused rather than dropped. */
+const HELD_MEMBERS: readonly string[] = ['bytes', 'sha256', 'byteCount', ...COLLATERAL_SLOT_MEMBERS];
+
+/**
+ * The longest address a slot may state its answer was asked at, counted in UTF-8 bytes.
+ *
+ * The address a held collateral slot states is the address the reference made from it names, and that
+ * reference travels in a container which bounds the member: a stated address past the bound is a slot
+ * whose bytes can be kept and never pointed at, which is the one outcome this record exists to refuse. So
+ * the bound is read here, at the record's own edge, rather than left for a later step to discover. The
+ * figure is the container's and not a new one, and it is a byte count rather than a character count, which
+ * is why the reader holds it and the published schema names it in prose: a keyword that counts characters
+ * would let a multibyte address through this edge and refuse it at none.
+ */
+const REQUEST_MAX_BYTES = 2_048;
+
 const HEX64 = /^[0-9a-f]{64}$/;
 
 function refused(code: SdkErrorCode, message: string): never {
@@ -373,6 +498,17 @@ function readSlot(value: unknown, where: string): CaptureSlot {
     if (typeof reason !== 'string' || reason.length === 0) {
       refused('NOT_CAPTURE_RECORD', `${where} is ${presence} and gives no reason, so the absence is silent`);
     }
+    // The published schema closes an absent slot at `presence` and `reason`, so a reader that read the rest
+    // of a holding slot's members and dropped them would be accepting documents the layout refuses, and
+    // keying them as if the statement had never been made.
+    for (const member of HELD_MEMBERS) {
+      if (raw[member] !== undefined) {
+        refused(
+          'NOT_CAPTURE_RECORD',
+          `${where} is ${presence} and carries '${member}', which only bytes this record holds can state`,
+        );
+      }
+    }
     return { presence, reason };
   }
   const bytes = raw['bytes'];
@@ -384,6 +520,176 @@ function readSlot(value: unknown, where: string): CaptureSlot {
     bytes,
     sha256: requireDigest(raw, 'sha256', where),
     byteCount: requireWhole(raw, 'byteCount', where, 'a byte count'),
+    ...readCollateralMembers(raw, where),
+  };
+}
+
+/**
+ * The collateral slot: a held one owes the whole observation.
+ *
+ * Which answer these bytes are is not a detail a collector may leave out and a reader may fill in. Bytes
+ * of the right length and the right digest, with nothing naming the source they came from, are a blob:
+ * a stranger cannot re-ask them, cannot say which span they stand for, and cannot tell one vendor's
+ * statement about a platform from another's. So the eight are required here, one refusal each, and the
+ * message names the member that is missing rather than the slot in general.
+ */
+function readCollateralSlot(value: unknown, where: string): CaptureCollateralSlot {
+  const slot = readSlot(value, where);
+  if (slot.presence !== 'held') return slot;
+  for (const member of OBSERVATION_MEMBERS) {
+    if (slot[member] === undefined) {
+      refused(
+        'NOT_CAPTURE_RECORD',
+        `${where}.${member} is absent, and a slot that holds bytes without stating ${member} is a blob no reader can say anything about`,
+      );
+    }
+  }
+  // The loop above is what makes this total: it refuses every spelling in which one of the eight is
+  // missing, and `readCollateralMembers` is the only other writer of these keys.
+  return slot as CaptureHeld & CaptureCollateralObservation;
+}
+
+/**
+ * The ten members a held slot may state about its answer, read only when the document states them.
+ *
+ * Each is read by the same rule its shape calls for and each refusal names the member: an absent one is
+ * not this function's business, which is `readCollateralSlot`'s, and a member that arrived is either the
+ * shape the layout defines or a refusal. The chain pair is the one rule here that spans two members, and
+ * it is stated in `readChainPair`; the one rule here that is a count rather than a shape is stated in
+ * `requireAddress`.
+ */
+function readCollateralMembers(raw: Record<string, unknown>, where: string): Partial<CaptureCollateralObservation> {
+  return {
+    ...(raw['origin'] === undefined ? {} : { origin: requireText(raw, 'origin', where) }),
+    ...(raw['request'] === undefined ? {} : { request: requireAddress(raw, 'request', where) }),
+    ...(raw['identity'] === undefined ? {} : { identity: readIdentity(raw['identity'], where) }),
+    ...(raw['observedAt'] === undefined
+      ? {}
+      : { observedAt: requireWhole(raw, 'observedAt', where, 'an instant in whole unix seconds') }),
+    ...(raw['sourceUncertaintySeconds'] === undefined
+      ? {}
+      : {
+          sourceUncertaintySeconds: requireOrNullWhole(
+            raw,
+            'sourceUncertaintySeconds',
+            where,
+            'a bound in whole seconds',
+          ),
+        }),
+    ...readChainPair(raw, where),
+    ...(raw['weighedBy'] === undefined ? {} : { weighedBy: readWeighing(raw['weighedBy'], where) }),
+    ...(raw['window'] === undefined ? {} : { window: readSignedWindow(raw['window'], where) }),
+    ...(raw['cacheKey'] === undefined ? {} : { cacheKey: requireText(raw, 'cacheKey', where) }),
+  };
+}
+
+/**
+ * The address an answer was asked at, bounded by the reference this slot becomes.
+ *
+ * Named like every other text member first, because an address that is not there at all is the smaller
+ * problem, and then counted in bytes: `REQUEST_MAX_BYTES` says why the count is this reader's to make.
+ */
+function requireAddress(raw: Record<string, unknown>, key: string, where: string): string {
+  const value = requireText(raw, key, where);
+  const stated = new TextEncoder().encode(value).length;
+  if (stated > REQUEST_MAX_BYTES) {
+    refused(
+      'NOT_CAPTURE_RECORD',
+      `${where}.${key} states an address of ${stated} bytes and a reference carries at most ${REQUEST_MAX_BYTES}, so these bytes have a record and no pointer`,
+    );
+  }
+  return value;
+}
+
+/** The identity a signed answer names for itself, or null where the answer names none. */
+function readIdentity(value: unknown, where: string): CaptureCollateralIdentity | null {
+  if (value === null) return null;
+  const block = requireObject(value, `${where}.identity`);
+  requireKnownMembers(block, ['cpuType', 'vendorStatus'], `${where}.identity`);
+  return {
+    cpuType: block['cpuType'] === null ? null : requireText(block, 'cpuType', `${where}.identity`),
+    vendorStatus: requireText(block, 'vendorStatus', `${where}.identity`),
+  };
+}
+
+/** The span an answer's own signed statement reaches, both ends whole seconds and both ends named. */
+function readSignedWindow(value: unknown, where: string): CaptureSignedWindow {
+  const block = requireObject(value, `${where}.window`);
+  requireKnownMembers(block, ['from', 'to'], `${where}.window`);
+  return {
+    from: requireWhole(block, 'from', `${where}.window`, 'the instant a statement begins to reach, in whole unix seconds'),
+    to: requireWhole(block, 'to', `${where}.window`, 'the instant a statement stops reaching, in whole unix seconds'),
+  };
+}
+
+/** Which reading weighed the answer, from the two this layout can state. */
+function readWeighing(value: unknown, where: string): CaptureCollateralWeighing {
+  if (typeof value !== 'string' || !(COLLATERAL_WEIGHED_BY as readonly string[]).includes(value)) {
+    refused(
+      'NOT_CAPTURE_RECORD',
+      `${where}.weighedBy is ${describe(value)}, and an answer is weighed by a source served apart from its bytes or by one embedded inside them`,
+    );
+  }
+  return value as CaptureCollateralWeighing;
+}
+
+/**
+ * The issuer chain's header and its digest, which arrive together or not at all.
+ *
+ * One without the other is the hole this record exists to close: bytes with no digest beside them cannot
+ * be named by a later reader that holds no copy, and a digest of a header nobody kept is a statement about
+ * nothing but a hash. Both halves are then read by the rules any byte of this record is read by, so the
+ * spelling is this reader's own and the digest is recomputed over what decoded.
+ */
+function readChainPair(raw: Record<string, unknown>, where: string): Partial<CaptureCollateralObservation> {
+  if (raw['chainBytes'] !== undefined && raw['chainSha256'] === undefined) {
+    refused(
+      'NOT_CAPTURE_RECORD',
+      `${where}.chainSha256 is absent beside the chainBytes the slot states, and a header nobody can name a digest of is bytes no later reader can be shown`,
+    );
+  }
+  if (raw['chainSha256'] !== undefined && raw['chainBytes'] === undefined) {
+    refused(
+      'NOT_CAPTURE_RECORD',
+      `${where}.chainBytes is absent beside the chainSha256 the slot states, and a digest of a header nobody kept is a statement about nothing but a hash`,
+    );
+  }
+  if (raw['chainBytes'] === undefined) return {};
+  const sha256Hex = requireDigest(raw, 'chainSha256', where);
+  const statedBytes = requireText(raw, 'chainBytes', where);
+  let bytes: Uint8Array;
+  try {
+    bytes = fromBase64Url(statedBytes);
+  } catch (err) {
+    return refused('NOT_CAPTURE_RECORD', `${where}.chainBytes holds ${err instanceof Error ? err.message : String(err)} where bytes belong`);
+  }
+  if (toBase64Url(bytes) !== statedBytes) {
+    refused(
+      'NOT_CAPTURE_RECORD',
+      `${where}.chainBytes is spelled in a base64url form this reader does not write, so somebody wrote the header with another encoder`,
+    );
+  }
+  const computed = toHex(sha256(bytes));
+  if (computed !== sha256Hex) {
+    refused('EVIDENCE_DIGEST_MISMATCH', `${where}.chainSha256 states ${sha256Hex} and the header beside it hashes to ${computed}`);
+  }
+  return { chainBytes: statedBytes, chainSha256: sha256Hex };
+}
+
+/** The eight facts and the chain pair, read off a slot the reader already refused for having any of them missing. */
+function collateralObservationOf(slot: CaptureHeld & CaptureCollateralObservation): CaptureCollateralObservation {
+  return {
+    origin: slot.origin,
+    request: slot.request,
+    identity: slot.identity,
+    observedAt: slot.observedAt,
+    sourceUncertaintySeconds: slot.sourceUncertaintySeconds,
+    weighedBy: slot.weighedBy,
+    window: slot.window,
+    cacheKey: slot.cacheKey,
+    ...(slot.chainBytes === undefined || slot.chainSha256 === undefined
+      ? {}
+      : { chainBytes: slot.chainBytes, chainSha256: slot.chainSha256 }),
   };
 }
 
@@ -534,7 +840,7 @@ export function parseCaptureRecord(value: unknown): CaptureRecord {
       appraisedAt: requireWhole(check, 'appraisedAt', 'check', 'a unix time'),
     },
     context: {
-      collateral: readSlot(context['collateral'], 'context.collateral'),
+      collateral: readCollateralSlot(context['collateral'], 'context.collateral'),
       validity: readSlot(context['validity'], 'context.validity'),
     },
     trust: { roots: readRoots(trust['roots']), limits: readLimits(limits) },
@@ -820,6 +1126,10 @@ export function assessCapture(params: AssessCaptureParams): CaptureVerdict {
       sha256: toHex(sha256(originalBytes)),
       byteCount: originalBytes.length,
       assertsSignature: record.original.signedBySource,
+      collateral:
+        record.context.collateral.presence === 'held'
+          ? collateralObservationOf(record.context.collateral)
+          : null,
     },
     repeated: {
       originalBytes,
