@@ -146,6 +146,9 @@ importers:
 
   packages/attest-core:
     dependencies:
+      '@ashaveri/receipt':
+        specifier: workspace:*
+        version: link:../receipt
       '@noble/curves':
         specifier: ^1.9.7
         version: 1.9.7

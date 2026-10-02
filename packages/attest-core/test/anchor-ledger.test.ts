@@ -235,6 +235,96 @@ function singleRowBody(file: string = EMBEDDED_INTEL): Uint8Array {
   return encodeAnchorLedger(ledgerOf([rowFor(file)]));
 }
 
+/**
+ * The honest ledger sealed by the previous revision, captured from this file's own helpers at `225f140` before
+ * the CBOR writer, the `COSE_Sign1` seal and the seal's reader moved to `@ashaveri/receipt`.
+ *
+ * It is here because it is the only thing that tells a refactor from a format change wearing a refactor's
+ * clothes: the document the shared codec seals today has to come out byte for byte the same as what the
+ * private one sealed, and the bytes the private one sealed have to stay readable by this reader. The body,
+ * the protected header and the signature all travel inside these bytes, so one comparison holds all three.
+ * Chunked for width and not because anything is concatenated: joined, this is one document of 2,161 bytes.
+ */
+const PRECHANGE_SEALED_HEX =
+  'd2845843a3012703781a61736861766572692f616e63686f722d70726f76656e' +
+  '616e6365045820fe812c12f3ab4ce6ac5db69ac352f906cb1b11ef43fb33e252' +
+  'ef7ff552263889a05907e4a4617601646b657973815820fe812c12f3ab4ce6ac' +
+  '5db69ac352f906cb1b11ef43fb33e252ef7ff55226388964726f777386aa6466' +
+  '696c65782a7372632f74727573742d616e63686f72732e747323494e54454c5f' +
+  '5347585f524f4f545f43415f50454d6473706b695820a0af031289f5d5d4132f' +
+  '9186068a7fc13628633ba235777472e29b6b6c67a49e6664696765737458207d' +
+  '4e649fc0951bdd240240b83f59a41cd53015b331dc6264dfc0d07af3fcdfea66' +
+  '66616d696c7965696e74656c666f726967696e782768747470733a2f2f636572' +
+  '7469666963617465732e6578616d706c652f526f6f7443412e70656d66736572' +
+  '69616c5422650cd65a9d3489f383b49552bf501b392706ac676c6963656e6365' +
+  '6b6e6f6e652d737461746564677375626a6563745868311a301806035504030c' +
+  '11496e74656c2053475820526f6f74204341311a3018060355040a0c11496e74' +
+  '656c20436f72706f726174696f6e3114301206035504070c0b53616e74612043' +
+  '6c617261310b300906035504080c024341310b30090603550406130255536774' +
+  '616b656e41741a699e93006876616c6964697479a262746f1a967a75ff646672' +
+  '6f6d1a5b02a336aa6466696c6578267372632f74727573742d616e63686f7273' +
+  '2e747323414d445f41524b5f4d494c414e5f50454d6473706b6958209f056bee' +
+  '44377e29308cb5ffa895bdfb62d18881fa6bed8d6f075b0204089cb966646967' +
+  '65737458208c109952166431ffad8cb9a3d54f3d20ffbbb58164f0d54be3457b' +
+  'f0ece9e0d86666616d696c7963616d64666f726967696e782468747470733a2f' +
+  '2f736f757263652e6578616d706c652f736e702d6d696c616e2e636572667365' +
+  '7269616c43010000676c6963656e63656a6170616368652d322e30677375626a' +
+  '656374587b31143012060355040b0c0b456e67696e656572696e67310b300906' +
+  '03550406130255533114301206035504070c0b53616e746120436c617261310b' +
+  '300906035504080c024341311f301d060355040a0c16416476616e636564204d' +
+  '6963726f20446576696365733112301006035504030c0941524b2d4d696c616e' +
+  '6774616b656e41741a699e93006876616c6964697479a262746f1a8e97b07964' +
+  '66726f6d1a5f91bff9aa6466696c6578327372632f74727573742d616e63686f' +
+  '72732e7473234e56494449415f4445564943455f4944454e544954595f43415f' +
+  '50454d6473706b695820a90c4eb5acfd3e3d03a25db6a26b84f720ad0503196c' +
+  '627c21ddd48dd85b06a46664696765737458205f6ce25ce0374fff3d28b85812' +
+  'd1d902a0c2680e2e3c2aa36e67f7d83f1a543d6666616d696c79666e76696469' +
+  '61666f726967696e782f68747470733a2f2f736f757263652e6578616d706c65' +
+  '2f76657269666965725f6465766963655f726f6f742e70656d6673657269616c' +
+  '502d3670b1ca100411c1fec0e82a065b54676c6963656e63656c6273642d332d' +
+  '636c61757365677375626a65637458353122302006035504030c194e56494449' +
+  '4120446576696365204964656e74697479204341310f300d060355040a0c064e' +
+  '56494449416774616b656e41741a699e93006876616c6964697479a262746f1b' +
+  '0000003afff4417f6466726f6d1a61847400aa6466696c65781f746573742f66' +
+  '697874757265732f616d642d61726b2d6d696c616e2e70656d6473706b695820' +
+  '9f056bee44377e29308cb5ffa895bdfb62d18881fa6bed8d6f075b0204089cb9' +
+  '66646967657374582048a8e2917bbafe67ce6c08a49aa4536677b659432ae010' +
+  '6c3e4141031491b07a6666616d696c7963616d64666f726967696e7824687474' +
+  '70733a2f2f736f757263652e6578616d706c652f736e702d6d696c616e2e6365' +
+  '726673657269616c43010000676c6963656e63656a6170616368652d322e3067' +
+  '7375626a656374587b31143012060355040b0c0b456e67696e656572696e6731' +
+  '0b30090603550406130255533114301206035504070c0b53616e746120436c61' +
+  '7261310b300906035504080c024341311f301d060355040a0c16416476616e63' +
+  '6564204d6963726f20446576696365733112301006035504030c0941524b2d4d' +
+  '696c616e6774616b656e41741a699e93006876616c6964697479a262746f1a8e' +
+  '97b0796466726f6d1a5f91bff9a76466696c65781e746573742f666978747572' +
+  '65732f7464782d71756f74652d76342e62696e6664696765737458203c51eae6' +
+  '215718a71b2c98ee17831b03f0ac7405e6e3454e2d796d1593c8f23d6666616d' +
+  '696c7965696e74656c666f726967696e781f68747470733a2f2f736f75726365' +
+  '2e6578616d706c652f626c6f62732e676f676c6963656e6365686167706c2d33' +
+  '2e306774616b656e41741a699e93006b6c6963656e63654e6f7465784571756f' +
+  '7465206279746573206f6e6c792c20616e64206e6f20636f64652066726f6d20' +
+  '746865207265706f7369746f72792074686174207075626c6973686564207468' +
+  '656da66466696c65782a746573742f66697874757265732f6e76696469612d68' +
+  '6f707065722d636572742d636861696e2e70656d666469676573745820a9073b' +
+  '181991e32accb2283f51e567a7b7ee4a532c3ebcc26fc5bdf6b5bdff07666661' +
+  '6d696c79666e7669646961666f726967696e782a68747470733a2f2f736f7572' +
+  '63652e6578616d706c652f686f7070657243657274436861696e2e747874676c' +
+  '6963656e63656a6170616368652d322e306774616b656e41741a699e93006b67' +
+  '656e65726174656441741a699e930158405575c362cda6298495ac27d0955d71' +
+  '483d8c220fdb92ce0456a18149b44626b5ee2f82a92c6aef5493e4c02e36451c' +
+  '75e06e97229b36b5ef98c16d1a5eff0408';
+
+/** The captured fixture as bytes, refused by name if the literal above ever stops being whole bytes. */
+function prechangeSealed(): Uint8Array {
+  if (!/^(?:[0-9a-f]{2})+$/u.test(PRECHANGE_SEALED_HEX)) {
+    throw new Error('the captured sealed ledger is not lowercase hex of whole bytes');
+  }
+  return Uint8Array.from(
+    [...PRECHANGE_SEALED_HEX.matchAll(/[0-9a-f]{2}/gu)].map((one) => Number.parseInt(one[0] as string, 16)),
+  );
+}
+
 describe('the anchor provenance ledger', () => {
   it('reads a sealed document and hands back the rows it names', () => {
     const verified = read(sealRows(honestRows()));
@@ -285,6 +375,23 @@ describe('the anchor provenance ledger', () => {
     // The artifact this package commits beside the bytes it describes is the unsigned body, and a reader of it
     // is being shown a statement nobody signed. Refused by name, so nobody reads a draft as evidence.
     expectErrorCode(() => read(encodeAnchorLedger(ledgerOf(honestRows()))), 'ANCHOR_LEDGER_NOT_SEALED');
+  });
+});
+
+describe('the codec the previous revision wrote beside its own layout', () => {
+  it('seals the same document to the same bytes the private codec sealed', () => {
+    // The byte-for-byte half of the swap. Every member this file reads out of the fixture is inside these
+    // bytes, so this one comparison holds the header, the body and the signature, and a layout that encoded
+    // differently under the shared codec arrives here as a failure rather than as a quiet format change.
+    expect(sealRows(honestRows())).toEqual(prechangeSealed());
+  });
+
+  it('reads the bytes the private codec sealed under the codec this package now shares', () => {
+    const verified = read(prechangeSealed());
+    expect(verified.kid).toEqual(PROVENANCE_KID);
+    expect(verified.document.rows).toHaveLength(FILES.length);
+    expect(verified.document.generatedAt).toBe(GENERATED_AT);
+    expect(verified.payloadBytes).toEqual(encodeAnchorLedger(ledgerOf(honestRows())));
   });
 });
 
@@ -538,9 +645,10 @@ describe('the layout stated three times', () => {
   });
 
   it('names the content type once in the family, once in the format and once in the reader', () => {
-    // Three statements of one string, because the ledger's reader lives in the package that ships the anchors
-    // and shares no module with the package that declares the family's content types. Tied here rather than
-    // trusted: a fourth spelling, or one of these three moved, is a document no reader opens.
+    // The reader takes the family's constant, so this ties what `packages/receipt/src/cose.ts` declares to
+    // what the format's own two other voices state: the name at label 3 in `anchor-provenance.cddl` and the
+    // const in the schema twin. Tied here rather than trusted: a fourth spelling, or one of these three
+    // moved, is a document no reader opens.
     const declared = /export const ANCHOR_PROVENANCE_CONTENT_TYPE = '([^']+)';/u.exec(coseSource);
     expect(declared?.[1], 'what packages/receipt/src/cose.ts declares').toBe(ANCHOR_LEDGER_CONTENT_TYPE);
     const header = cddlRule('Ashaveri-Anchor-Provenance-Protected-Header');

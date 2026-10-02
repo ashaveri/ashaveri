@@ -1,8 +1,24 @@
-import { ed25519 } from '@noble/curves/ed25519.js';
 import { sha256 } from '@noble/hashes/sha2.js';
+import {
+  ANCHOR_PROVENANCE_CONTENT_TYPE,
+  DECLARED_PROTECTED_LABELS,
+  FORGES_A_LINE_RANGES,
+  ReceiptError,
+  decodeClosedDocument,
+  decodeCoseSign1,
+  decodedMap,
+  encodeCanonical,
+  equalBytes,
+  keyId,
+  signCoseSign1,
+  signingKeyFromSeed,
+  verifyCoseSign1,
+  type CoseSign1,
+  type ProtectedHeader,
+} from '@ashaveri/receipt';
 import { AMD_ARK_MILAN_PEM, INTEL_SGX_ROOT_CA_PEM, NVIDIA_DEVICE_IDENTITY_CA_PEM } from './trust-anchors.js';
 import { parseCertificateChain, type ParsedCertificate } from './der.js';
-import { fail } from './errors.js';
+import { fail, type AttestationErrorCode } from './errors.js';
 
 /**
  * The anchor provenance ledger: one signed statement of where every trust anchor this package embeds and
@@ -25,19 +41,18 @@ import { fail } from './errors.js';
  * which keys may stand behind these rows: it is weighed against the sealed header after the signature that
  * covers it, and it never replaces the caller's pin.
  *
- * The body is CBOR and the envelope is `COSE_Sign1`, the same framing the receipt family seals its five
- * documents with, and the ledger's content type is declared in `packages/receipt/src/cose.ts` beside theirs.
- * The two packages share no module, so the framing rules are restated here against that declaration rather
- * than imported: the kid is `sha256` of the public key as `keyId` computes it, the protected header carries
- * the COSE registry's three labels and no other, the `Sig_structure` is RFC 9052 section 4.4 in that order,
- * and numbers go out in the shortest spelling with map keys in Core Deterministic Encoding order, which is
- * what lets a reader rebuild the signed bytes instead of guessing which of several equivalent spellings
- * produced them. `test/anchor-ledger.test.ts` holds each of those against the declaration the receipt
- * package makes, so a restatement that drifts fails rather than diverges.
+ * The body is CBOR and the envelope is `COSE_Sign1`, and both are written and read by the module that owns
+ * them. `@ashaveri/receipt` supplies the canonical encoder this body is written with, the seal and reader
+ * that make and open this envelope, the kid rule that names a key by the digest of its public key, and the
+ * printed-line class every text member is walked with before it is kept. What this file holds is the layout
+ * the members name below, the roster the rows are checked against, and the code each finding arrives under:
+ * the framing rules are stated once, in the package that owns them, and imported here rather than restated
+ * beside them. `test/anchor-ledger.test.ts` holds this file's member lists and content type against the
+ * declarations `packages/receipt` makes, so a layout that drifts from the format fails rather than diverges.
  */
 
-/** The protected content type that names this document, the sixth in the family `ashaveri/receipt` starts. */
-export const ANCHOR_LEDGER_CONTENT_TYPE = 'ashaveri/anchor-provenance';
+/** The protected content type that names this document, taken from the family that declares it. */
+export const ANCHOR_LEDGER_CONTENT_TYPE = ANCHOR_PROVENANCE_CONTENT_TYPE;
 
 /** The one version of this layout this package reads. */
 export const ANCHOR_LEDGER_FORMAT_VERSION = 1;
@@ -53,8 +68,8 @@ export const ANCHOR_LEDGER_FORMAT_VERSION = 1;
 export const ANCHOR_LEDGER_EARLIEST_SECONDS = 1_000_000_000;
 export const ANCHOR_LEDGER_LATEST_SECONDS = 4_294_967_295;
 
-/** The three COSE header labels this document's protected header closes against, as the registry fixes them. */
-export const ANCHOR_LEDGER_DECLARED_PROTECTED_LABELS: readonly number[] = [1, 3, 4];
+/** The COSE header labels this document's protected header closes against, as the framing owner fixes them. */
+export const ANCHOR_LEDGER_DECLARED_PROTECTED_LABELS: readonly number[] = DECLARED_PROTECTED_LABELS;
 
 /** The members the document map names, in the order the layout declares them. */
 export const ANCHOR_LEDGER_DOCUMENT_MEMBERS = ['v', 'generatedAt', 'keys', 'rows'] as const;
@@ -192,12 +207,14 @@ function asShippedBytes(text: string): Uint8Array {
 }
 
 /**
- * The printed-line class, restated here for this boundary the way `errors.ts` restates it for a message: the
- * control and format characters, the two line separators and the tag block. A value that ends, hides or
- * reorders the row it is printed on cannot be quoted into a review of a ledger, which is the only thing a
- * provenance document is for, so every text member is walked code point by code point before it is kept.
+ * The printed-line class, built from the ranges `packages/receipt/src/line-text.ts` owns: the control and
+ * format characters, the two line separators and the tag block. A value that ends, hides or reorders the row
+ * it is printed on cannot be quoted into a review of a ledger, which is the only thing a provenance document
+ * is for, so every text member is walked code point by code point before it is kept. Which positions are
+ * walked and what the refusal says about the character it stopped on are this file's; the class itself has
+ * one owner, and this is a consumer of it rather than a second statement of it.
  */
-const FORGES_A_LINE = /[\p{Cc}\p{Cf}\u{2028}\u{2029}\u{e0000}-\u{e007f}]/u;
+const FORGES_A_LINE = new RegExp(`[${FORGES_A_LINE_RANGES}]`, 'u');
 
 /** Whether `value` is one of the three platform classes a row may name. */
 function isAnchorFamily(value: string): value is AnchorFamily {
@@ -210,303 +227,118 @@ function isAnchorLicenceClass(value: string): value is AnchorLicenceClass {
 }
 
 // ---------------------------------------------------------------------------
-// The CBOR writer, for the layouts this file names and nothing else.
+// The body, written.
 //
-// Values are written in the shortest spelling that holds them and map keys are ordered by the bytes of the
-// encoded key, which together are Core Deterministic Encoding as RFC 8949 states it and as the receipt
-// family writes its five documents. The two rules matter only together: a signature covers bytes, so the
-// writer that produces them has to produce the same ones every time, and a reader that rebuilds the signed
-// structure to check it has to rebuild the same bytes the issuer signed.
+// The bytes come from `@ashaveri/receipt`'s canonical encoder, the one place this estate decides how a number
+// and a map key are spelled: every value in the shortest spelling that holds it, every map key ordered by the
+// bytes of the encoded key. Those two rules are Core Deterministic Encoding as RFC 8949 states it, and they
+// matter only together: a signature covers bytes, so the writer that produces them has to produce the same
+// ones every time, and a reader that rebuilds the signed structure to check it has to rebuild the same bytes
+// the issuer signed. Which members a document and a row name, and which of them are absent rather than empty,
+// is the layout below, and that part stays this file's.
 // ---------------------------------------------------------------------------
 
-/** One CBOR head: a major type and an argument, in the shortest of the spellings that holds it. */
-function head(majorType: number, argument: number): number[] {
-  const shifted = majorType << 5;
-  if (argument < 24) return [shifted | argument];
-  if (argument <= 0xff) return [shifted | 24, argument];
-  if (argument <= 0xffff) return [shifted | 25, (argument >> 8) & 0xff, argument & 0xff];
-  if (argument <= 0xffffffff) {
-    return [shifted | 26, (argument >> 24) & 0xff, (argument >> 16) & 0xff, (argument >> 8) & 0xff, argument & 0xff];
-  }
-  const wide = BigInt(argument);
-  return [shifted | 27, ...[7, 6, 5, 4, 3, 2, 1, 0].map((shift) => Number((wide >> BigInt(shift * 8)) & 0xffn))];
-}
-
-function writeInteger(value: number): number[] {
-  if (!Number.isSafeInteger(value)) throw new Error(`a ledger number past what a reader holds exact cannot be written: ${String(value)}`);
-  return value >= 0 ? head(0, value) : head(1, -value - 1);
-}
-
-function writeBytes(bytes: Uint8Array): number[] {
-  return [...head(2, bytes.length), ...bytes];
-}
-
-function writeText(value: string): number[] {
-  const encoded = asShippedBytes(value);
-  return [...head(3, encoded.length), ...encoded];
-}
-
-function writeArray(items: readonly (readonly number[])[]): number[] {
-  return [...head(4, items.length), ...items.flat()];
-}
-
-function writeMap(entries: readonly (readonly [readonly number[], readonly number[]])[]): number[] {
-  const ordered = [...entries].sort((a, b) => compareEncodedKeys(a[0], b[0]));
-  return [...head(5, ordered.length), ...ordered.flatMap(([key, value]) => [...key, ...value])];
-}
-
-/** Bytewise lexicographic order, a shorter prefix first, which is the ordering Core Deterministic Encoding names. */
-function compareEncodedKeys(a: readonly number[], b: readonly number[]): number {
-  const shared = Math.min(a.length, b.length);
-  for (let index = 0; index < shared; index += 1) {
-    const difference = (a[index] ?? 0) - (b[index] ?? 0);
-    if (difference !== 0) return difference;
-  }
-  return a.length - b.length;
-}
-
-function toBytes(parts: readonly number[]): Uint8Array {
-  return Uint8Array.from(parts);
-}
-
-/** The body map: the members a row names, in the order the layout declares them, and only those present. */
-function encodeRow(row: AnchorLedgerRow): number[] {
-  const entries: (readonly [readonly number[], readonly number[]])[] = [
-    [writeText('family'), writeText(row.family)],
-    [writeText('file'), writeText(row.file)],
-    [writeText('digest'), writeBytes(row.digest)],
+/** The body map of one row: the members the layout declares, and only those this row carries. */
+function rowToCbor(row: AnchorLedgerRow): Map<string, unknown> {
+  const entries: (readonly [string, unknown])[] = [
+    ['family', row.family],
+    ['file', row.file],
+    ['digest', row.digest],
   ];
-  if (row.subject !== undefined) entries.push([writeText('subject'), writeBytes(row.subject)]);
-  if (row.serial !== undefined) entries.push([writeText('serial'), writeBytes(row.serial)]);
-  if (row.spki !== undefined) entries.push([writeText('spki'), writeBytes(row.spki)]);
+  if (row.subject !== undefined) entries.push(['subject', row.subject]);
+  if (row.serial !== undefined) entries.push(['serial', row.serial]);
+  if (row.spki !== undefined) entries.push(['spki', row.spki]);
   if (row.validity !== undefined) {
-    entries.push([
-      writeText('validity'),
-      writeMap([
-        [writeText('from'), writeInteger(row.validity.from)],
-        [writeText('to'), writeInteger(row.validity.to)],
-      ]),
-    ]);
+    entries.push(['validity', new Map<string, unknown>([
+      ['from', row.validity.from],
+      ['to', row.validity.to],
+    ])]);
   }
-  entries.push(
-    [writeText('origin'), writeText(row.origin)],
-    [writeText('takenAt'), writeInteger(row.takenAt)],
-    [writeText('licence'), writeText(row.licence)],
-  );
-  if (row.licenceNote !== undefined) entries.push([writeText('licenceNote'), writeText(row.licenceNote)]);
-  return writeMap(entries);
+  entries.push(['origin', row.origin], ['takenAt', row.takenAt], ['licence', row.licence]);
+  if (row.licenceNote !== undefined) entries.push(['licenceNote', row.licenceNote]);
+  return new Map(entries);
 }
 
 /** The CBOR body of a ledger, canonical and deterministic: the same document always writes the same bytes. */
 export function encodeAnchorLedger(document: AnchorLedgerDocument): Uint8Array {
-  return toBytes(
-    writeMap([
-      [writeText('v'), writeInteger(document.v)],
-      [writeText('generatedAt'), writeInteger(document.generatedAt)],
-      [writeText('keys'), writeArray(document.keys.map((kid) => writeBytes(kid)))],
-      [writeText('rows'), writeArray(document.rows.map((row) => encodeRow(row)))],
+  return encodeCanonical(
+    new Map<string, unknown>([
+      ['v', document.v],
+      ['generatedAt', document.generatedAt],
+      ['keys', document.keys],
+      ['rows', document.rows.map((row) => rowToCbor(row))],
     ]),
   );
 }
 
 // ---------------------------------------------------------------------------
-// The CBOR reader.
+// The body, read.
 //
-// One walker, two readings of it. The strict one is what a signed document is read under: definite lengths
-// only, integers only in their shortest spelling, no tag, no floating-point number and no simple value, no
-// key written twice, nothing past the value it was handed, and a depth bound at four levels, which is slack
-// above the deepest position this layout writes. Each of those is refused where it is still distinguishable,
-// because a float wearing an integer and a member written twice are both invisible to anything placed after
-// the decode: the two arrive as one map entry, and which of them the bytes carried stops having an answer.
+// The decode is the receipt package's closed-document rule, the one it reads a signed payload and a protected
+// header under: definite lengths only, integers only in their shortest spelling, no floating-point number and
+// no simple value at any depth and in a key as much as in a value, no key written twice or out of the
+// deterministic order, and nothing past the value it was handed. Each of those is refused where it is still
+// distinguishable, because a float wearing an integer and a member written twice are both invisible to
+// anything placed after the decode: the two arrive as one map entry, and which of them the bytes carried
+// stops having an answer.
 //
-// The permissive reading has exactly one customer, the `unprotected` map of the envelope, which the format
-// declares a writer may fill and which sits outside the signature. Nothing read under it is a claim about an
-// anchor, so a reader that refused a document for what somebody put there would be refusing bytes no
-// signature covers.
+// What no decoder can answer is which members a layout names, and that stays this file's question. Every
+// position below is read, weighed and refused here, under the sentence this layout writes for it; a value the
+// family's decoder hands back as something other than what a position declares is refused as that position.
 // ---------------------------------------------------------------------------
-
-const MAX_DEPTH = 4;
-const MAJOR_TAG = 6;
-const MAJOR_SIMPLE = 7;
-const CBOR_BREAK = 0xff;
-const COSE_SIGN1_TAG = 18;
-
-/** One decoded CBOR value, named by what it is, so nothing downstream reads a value as `any`. */
-type CborValue =
-  | { readonly kind: 'integer'; readonly value: number }
-  | { readonly kind: 'bytes'; readonly value: Uint8Array }
-  | { readonly kind: 'text'; readonly value: string }
-  | { readonly kind: 'array'; readonly value: readonly CborValue[] }
-  | { readonly kind: 'map'; readonly value: ReadonlyMap<string | number, CborValue> }
-  | { readonly kind: 'other'; readonly value: null };
 
 type Refuse = (detail: string) => never;
 
-interface CborItem {
-  readonly node: CborValue;
-  readonly offset: number;
-}
-
-function readArgument(
-  bytes: Uint8Array,
-  offset: number,
-  info: number,
-  strict: boolean,
-  refuse: Refuse,
-): { readonly argument: number; readonly offset: number } {
-  if (info < 24) return { argument: info, offset };
-  if (info === 31) {
-    if (strict) refuse('an indefinite-length item, which a canonical writer never produces');
-    return { argument: -1, offset };
-  }
-  if (info > 27) refuse(`the reserved additional information value ${info}`);
-  const width = info === 24 ? 1 : info === 25 ? 2 : info === 26 ? 4 : 8;
-  const end = offset + width;
-  if (end > bytes.length) refuse('the item ends inside its own length');
-  let argument = 0;
-  for (let index = offset; index < end; index += 1) argument = argument * 256 + (bytes[index] ?? 0);
-  if (strict) {
-    const smallest = info === 24 ? 24 : info === 25 ? 0x100 : info === 26 ? 0x10000 : 0x100000000;
-    if (argument < smallest) refuse(`a length of ${String(argument)} written in ${String(width)} bytes, which is not its shortest spelling`);
-    if (width === 8 && argument > Number.MAX_SAFE_INTEGER) refuse('a number past what a reader holds exactly');
-  }
-  return { argument, offset: end };
-}
-
-function readValue(bytes: Uint8Array, start: number, depth: number, strict: boolean, refuse: Refuse): CborItem {
-  const first = bytes[start];
-  if (first === undefined) refuse('the value ends before its head');
-  const major = first >> 5;
-  const info = first & 0x1f;
-  const argument = readArgument(bytes, start + 1, info, strict, refuse);
-  let offset = argument.offset;
-
-  if (major === MAJOR_SIMPLE) {
-    if (strict) refuse('a floating-point number or a simple value, and no position of this layout may be written as one');
-    // The permissive reading keeps the shape of the free map without pretending to name its values: which
-    // simple value sat here is nobody's claim, and nothing downstream reads it as one.
-    return { node: { kind: 'other', value: null }, offset };
-  }
-  if (major === MAJOR_TAG) {
-    if (strict) refuse('a CBOR tag inside a document whose layout names none');
-    return readValue(bytes, offset, depth, strict, refuse);
-  }
-
-  switch (major) {
-    case 0:
-      if (!Number.isSafeInteger(argument.argument)) refuse('an unsigned integer past what a reader holds exactly');
-      return { node: { kind: 'integer', value: argument.argument }, offset };
-    case 1: {
-      const negative = -argument.argument - 1;
-      if (!Number.isSafeInteger(negative)) refuse('a negative integer past what a reader holds exactly');
-      return { node: { kind: 'integer', value: negative }, offset };
-    }
-    case 2:
-    case 3: {
-      const end = stringEnd(bytes, offset, argument.argument, refuse);
-      const slice = bytes.slice(offset, end);
-      if (major === 2) return { node: { kind: 'bytes', value: slice }, offset: end };
-      let text: string;
-      try {
-        text = new TextDecoder('utf-8', { fatal: true }).decode(slice);
-      } catch {
-        return refuse(`a text string that is not valid UTF-8 at offset ${String(start)}`);
-      }
-      return { node: { kind: 'text', value: text }, offset: end };
-    }
-    case 4: {
-      if (depth >= MAX_DEPTH) refuse(`a document nested past ${String(MAX_DEPTH)} levels, which is deeper than this layout writes`);
-      const items: CborValue[] = [];
-      if (argument.argument === -1) {
-        for (;;) {
-          if (bytes[offset] === CBOR_BREAK) return { node: { kind: 'array', value: items }, offset: offset + 1 };
-          const item = readValue(bytes, offset, depth + 1, strict, refuse);
-          items.push(item.node);
-          offset = item.offset;
-        }
-      }
-      for (let index = 0; index < argument.argument; index += 1) {
-        const item = readValue(bytes, offset, depth + 1, strict, refuse);
-        items.push(item.node);
-        offset = item.offset;
-      }
-      return { node: { kind: 'array', value: items }, offset };
-    }
-    default: {
-      if (depth >= MAX_DEPTH) refuse(`a document nested past ${String(MAX_DEPTH)} levels, which is deeper than this layout writes`);
-      if (major !== 5) refuse(`the CBOR major type ${String(major)}, which this layout never writes`);
-      const entries = new Map<string | number, CborValue>();
-      const count = argument.argument === -1 ? Number.MAX_SAFE_INTEGER : argument.argument;
-      for (let index = 0; index < count; index += 1) {
-        if (argument.argument === -1 && bytes[offset] === CBOR_BREAK) return { node: { kind: 'map', value: entries }, offset: offset + 1 };
-        const key = readValue(bytes, offset, depth + 1, strict, refuse);
-        if (key.node.kind !== 'text' && key.node.kind !== 'integer') {
-          refuse(`a map key that is neither text nor an integer at offset ${String(key.offset)}`);
-        }
-        if (strict && entries.has(key.node.value)) refuse(`a map that writes the key ${String(key.node.value)} twice`);
-        const value = readValue(bytes, key.offset, depth + 1, strict, refuse);
-        entries.set(key.node.value, value.node);
-        offset = value.offset;
-      }
-      return { node: { kind: 'map', value: entries }, offset };
-    }
+/** The body under the closed-document rule, refused as this format's own finding when it is not CBOR at all. */
+function decodeBody(bytes: Uint8Array): unknown {
+  try {
+    return decodeClosedDocument(bytes, 'MALFORMED_CBOR');
+  } catch (err) {
+    return fail('ANCHOR_LEDGER_BAD_DOCUMENT', framingDetail(err, 'the body is not canonical CBOR as this format writes it'));
   }
 }
 
-/** The end of a byte string or text string. An indefinite length only reaches here from the free map. */
-function stringEnd(bytes: Uint8Array, offset: number, argument: number, refuse: Refuse): number {
-  if (argument === -1) {
-    let scan = offset;
-    while (scan < bytes.length && bytes[scan] !== CBOR_BREAK) scan += 1;
-    if (scan >= bytes.length) refuse('an indefinite-length string that never breaks');
-    return scan;
-  }
-  const end = offset + argument;
-  if (end > bytes.length) refuse(`a length of ${String(argument)} bytes past the end of the document`);
-  return end;
-}
-
-// ---------------------------------------------------------------------------
-// The layout, read member by member.
-// ---------------------------------------------------------------------------
-
-function memberAt(map: ReadonlyMap<string | number, CborValue>, member: string, position: string, refuse: Refuse): CborValue {
+function memberAt(map: Map<unknown, unknown>, member: string, position: string, refuse: Refuse): unknown {
   const value = map.get(member);
   if (value === undefined) refuse(`${position}.${member} is absent`);
   return value;
 }
 
-function bytesAt(map: ReadonlyMap<string | number, CborValue>, member: string, position: string, refuse: Refuse): Uint8Array {
+function bytesAt(map: Map<unknown, unknown>, member: string, position: string, refuse: Refuse): Uint8Array {
   const node = memberAt(map, member, position, refuse);
-  if (node.kind !== 'bytes') refuse(`${position}.${member} is not a byte string`);
-  return node.value;
+  if (!(node instanceof Uint8Array)) refuse(`${position}.${member} is not a byte string`);
+  return node;
 }
 
-function textAt(map: ReadonlyMap<string | number, CborValue>, member: string, position: string, refuse: Refuse): string {
+function textAt(map: Map<unknown, unknown>, member: string, position: string, refuse: Refuse): string {
   const node = memberAt(map, member, position, refuse);
-  if (node.kind !== 'text') refuse(`${position}.${member} is not a text string`);
-  return node.value;
+  if (typeof node !== 'string') refuse(`${position}.${member} is not a text string`);
+  return node;
 }
 
-function integerAt(map: ReadonlyMap<string | number, CborValue>, member: string, position: string, refuse: Refuse): number {
+function integerAt(map: Map<unknown, unknown>, member: string, position: string, refuse: Refuse): number {
   const node = memberAt(map, member, position, refuse);
-  if (node.kind !== 'integer') refuse(`${position}.${member} is not an integer`);
-  return node.value;
+  // An integer the decoder cannot hold as a `number` is one outside the range this layout writes, and it
+  // arrives as a `bigint`: refused by the same sentence as a text string or a byte string standing in its
+  // place, which is what a closed layout owes a position whose type the bytes did not state.
+  if (typeof node !== 'number') refuse(`${position}.${member} is not an integer`);
+  return node;
 }
 
-function mapAt(node: CborValue, position: string, refuse: Refuse): ReadonlyMap<string | number, CborValue> {
-  if (node.kind !== 'map') refuse(`${position} is not a map`);
-  return node.value;
+function mapAt(node: unknown, position: string, refuse: Refuse): Map<unknown, unknown> {
+  const map = decodedMap(node);
+  if (map === null) refuse(`${position} is not a map`);
+  return map;
 }
 
-function arrayAt(node: CborValue, position: string, refuse: Refuse): readonly CborValue[] {
-  if (node.kind !== 'array') refuse(`${position} is not an array`);
-  return node.value;
+function arrayAt(node: unknown, position: string, refuse: Refuse): readonly unknown[] {
+  if (!Array.isArray(node)) refuse(`${position} is not an array`);
+  return node as unknown[];
 }
 
 /** Every member of a closed map is one the layout names, and not one of the members it requires is absent. */
 function assertClosedMembers(
-  map: ReadonlyMap<string | number, CborValue>,
+  map: Map<unknown, unknown>,
   declared: readonly string[],
   required: readonly string[],
   position: string,
@@ -531,7 +363,7 @@ function assertPrintsClean(text: string, position: string, refuse: Refuse): void
   }
 }
 
-function readInstant(map: ReadonlyMap<string | number, CborValue>, member: string, position: string, refuse: Refuse): number {
+function readInstant(map: Map<unknown, unknown>, member: string, position: string, refuse: Refuse): number {
   const value = integerAt(map, member, position, refuse);
   if (value < ANCHOR_LEDGER_EARLIEST_SECONDS || value > ANCHOR_LEDGER_LATEST_SECONDS) {
     fail(
@@ -545,7 +377,7 @@ function readInstant(map: ReadonlyMap<string | number, CborValue>, member: strin
 }
 
 function readRow(
-  map: ReadonlyMap<string | number, CborValue>,
+  map: Map<unknown, unknown>,
   index: number,
   shipped: ReadonlyMap<string, Uint8Array>,
   refuse: Refuse,
@@ -606,7 +438,7 @@ function readRow(
 
   const bytes = resolveShippedBytes(file, shipped, position);
   const recomputed = sha256(bytes);
-  if (!sameBytes(recomputed, digest)) {
+  if (!equalBytes(recomputed, digest)) {
     fail('ANCHOR_LEDGER_DIGEST_MISMATCH', `${position}: the named bytes hash to ${hex(recomputed)} and the row states ${hex(digest)}`);
   }
 
@@ -630,7 +462,7 @@ function readRow(
 
   const certificate = singleCertificate(bytes, position);
   const derived = sha256(certificate.subjectPublicKeyInfo);
-  if (!sameBytes(derived, spki)) {
+  if (!equalBytes(derived, spki)) {
     fail(
       'ANCHOR_LEDGER_SPKI_MISMATCH',
       `${position}: the named bytes carry the SubjectPublicKeyInfo digest ${hex(derived)} and the row states ${hex(spki)}`,
@@ -696,13 +528,6 @@ function singleCertificate(bytes: Uint8Array, position: string): ParsedCertifica
   return only;
 }
 
-function sameBytes(a: Uint8Array, b: Uint8Array): boolean {
-  if (a.length !== b.length) return false;
-  let difference = 0;
-  for (const [index, byte] of a.entries()) difference |= byte ^ (b[index] ?? 0);
-  return difference === 0;
-}
-
 function hex(bytes: Uint8Array): string {
   let out = '';
   for (const byte of bytes) out += byte.toString(16).padStart(2, '0');
@@ -722,9 +547,7 @@ export function parseAnchorLedger(
   options: { readonly shipped?: ReadonlyMap<string, Uint8Array> } = {},
 ): AnchorLedgerDocument {
   const refuse: Refuse = (detail) => fail('ANCHOR_LEDGER_BAD_DOCUMENT', detail);
-  const item = readValue(body, 0, 0, true, refuse);
-  if (item.offset !== body.length) refuse('bytes past the encoded document');
-  const document = mapAt(item.node, 'the ledger', refuse);
+  const document = mapAt(decodeBody(body), 'the ledger', refuse);
   assertClosedMembers(document, ANCHOR_LEDGER_DOCUMENT_MEMBERS, ['v', 'generatedAt', 'keys', 'rows'], 'the ledger', refuse);
 
   const version = integerAt(document, 'v', 'the ledger', refuse);
@@ -741,8 +564,8 @@ export function parseAnchorLedger(
     refuse('the ledger names no verifying key, and a ledger nobody can pin is nothing to verify');
   }
   const keys = declaredKeys.map((entry, index) => {
-    if (entry.kind !== 'bytes' || entry.value.length !== 32) refuse(`keys[${String(index)}] is not a thirty-two byte key id`);
-    return entry.value;
+    if (!(entry instanceof Uint8Array) || entry.length !== 32) refuse(`keys[${String(index)}] is not a thirty-two byte key id`);
+    return entry;
   });
 
   const listedRows = arrayAt(memberAt(document, 'rows', 'the ledger', refuse), 'the ledger.rows', refuse);
@@ -755,132 +578,93 @@ export function parseAnchorLedger(
 
 // ---------------------------------------------------------------------------
 // The envelope.
+//
+// The tag, the four elements, the header's three labels, the kid rule, the `Sig_structure` of RFC 9052
+// section 4.4 and the strict RFC 8032 check are `packages/receipt/src/cose.ts`, which writes and reads them
+// for the whole family and is the one place they are stated. What this file keeps is the answer a reader of a
+// ledger is owed: which refusal of the framing arrives under which code of this union, and the pin sentence
+// that names every key the caller handed rather than the one the codec was asked about.
 // ---------------------------------------------------------------------------
 
-const ALG_EDDSA = -8;
-const HEADER_ALG = 1;
-const HEADER_CONTENT_TYPE = 3;
-const HEADER_KID = 4;
+/**
+ * Which refusal of the framing owner arrives under which code of this union.
+ *
+ * A document that is not a `COSE_Sign1` at all, and one whose structure stops short of or runs past the four
+ * elements the format writes, are the same finding to whoever holds the bytes: nothing here was sealed. An
+ * algorithm other than EdDSA is answered by the header's code rather than by a second one: the receipt family
+ * keeps `UNSUPPORTED_ALG` apart from its header refusal because that package names both, and this union has no
+ * counterpart to keep apart, so a reader that added one would be giving two voices to the same finding, which
+ * is a header that does not hold what the layout declares. A signature that does not verify is `BAD_SIGNATURE`
+ * whichever document carried it, exactly as the receipt family shares that one sentence.
+ */
+const LEDGER_CODE_FOR_FRAMING_REFUSAL: ReadonlyMap<string, AttestationErrorCode> = new Map<string, AttestationErrorCode>([
+  ['MALFORMED_CBOR', 'ANCHOR_LEDGER_NOT_SEALED'],
+  ['NOT_COSE_SIGN1', 'ANCHOR_LEDGER_NOT_SEALED'],
+  ['BAD_PROTECTED_HEADER', 'ANCHOR_LEDGER_BAD_HEADER'],
+  ['UNSUPPORTED_ALG', 'ANCHOR_LEDGER_BAD_HEADER'],
+  ['KID_MISMATCH', 'ANCHOR_LEDGER_PIN_MISMATCH'],
+  ['INVALID_SIGNATURE', 'BAD_SIGNATURE'],
+]);
 
-/** The `Sig_structure` of RFC 9052 section 4.4, in the order the receipt family builds it. */
-function sigStructure(protectedBytes: Uint8Array, externalAad: Uint8Array, payloadBytes: Uint8Array): Uint8Array {
-  return toBytes(
-    writeArray([writeText('Signature1'), writeBytes(protectedBytes), writeBytes(externalAad), writeBytes(payloadBytes)]),
-  );
+/** The one line the framing owner's refusal carries, or the sentence this file names for a failure of its own. */
+function framingDetail(err: unknown, fallback: string): string {
+  return err instanceof ReceiptError ? err.message : fallback;
 }
 
-function protectedHeaderFor(kid: Uint8Array): Uint8Array {
-  return toBytes(
-    writeMap([
-      [writeInteger(HEADER_ALG), writeInteger(ALG_EDDSA)],
-      [writeInteger(HEADER_CONTENT_TYPE), writeText(ANCHOR_LEDGER_CONTENT_TYPE)],
-      [writeInteger(HEADER_KID), writeBytes(kid)],
-    ]),
-  );
+/** The framing owner's refusal, answered under this union's code, and anything else rethrown as it arrived. */
+function framingRefusal(err: unknown): never {
+  if (err instanceof ReceiptError) {
+    const code = LEDGER_CODE_FOR_FRAMING_REFUSAL.get(err.code);
+    if (code !== undefined) fail(code, err.message);
+  }
+  throw err;
 }
 
 /**
  * The CBOR body and a 32-byte Ed25519 seed in, a sealed ledger and its kid out.
  *
  * The seed is a parameter and never a default, and the kid written into the protected header is `sha256` of
- * the public key the seed derives, which is the lookup rule every signed document of this estate follows
- * rather than one this format restates. A ledger that found its own signing key would be a document that
- * signed itself, and the signature would say no more than the file already did.
+ * the public key the seed derives, which is the lookup rule every signed document of this estate follows and
+ * which `keyId` decides rather than this format stating it again. A ledger that found its own signing key
+ * would be a document that signed itself, and the signature would say no more than the file already did. A
+ * seed of another width is refused by the framing owner's own key rule, `BAD_SIGNING_KEY`, before any byte is
+ * signed.
  */
 export function sealAnchorLedger(
   body: Uint8Array,
   seed: Uint8Array,
   externalAad: Uint8Array = new Uint8Array(0),
 ): { readonly bytes: Uint8Array; readonly kid: Uint8Array } {
-  if (seed.length !== 32) throw new Error('an anchor provenance ledger is sealed with a 32-byte Ed25519 seed');
-  const kid = sha256(ed25519.getPublicKey(seed));
-  const protectedBytes = protectedHeaderFor(kid);
-  const signature = ed25519.sign(sigStructure(protectedBytes, externalAad, body), seed);
-  const fourElements = writeArray([
-    writeBytes(protectedBytes),
-    writeMap([]),
-    writeBytes(body),
-    writeBytes(signature),
-  ]);
-  return { bytes: toBytes([...head(MAJOR_TAG, COSE_SIGN1_TAG), ...fourElements]), kid };
+  const key = signingKeyFromSeed(seed);
+  return { bytes: signCoseSign1(body, key, externalAad, ANCHOR_LEDGER_CONTENT_TYPE), kid: key.kid };
 }
 
 /**
- * The four elements of a `COSE_Sign1`, with nothing inside them decided.
+ * The sealed envelope, opened by the framing owner's reader and answered under this document's codes.
  *
- * The shell is walked permissively and its parts are then read on their own terms: the protected header and
- * the payload go back through the strict rule, because each is a document this layout declares member by
- * member, while the `unprotected` element is only checked to be a map, because the format says a writer may
- * fill it and no signature covers what it holds. A reader that refused a ledger over a value sitting in that
- * map would be refusing bytes that carry no claim about any anchor.
+ * The protected header is read under the closed rule inside that reader, because these bytes are inside the
+ * signature and a label the layout does not declare is an authenticated parameter. The payload travels as
+ * bytes to `parseAnchorLedger`, which reads it under the same closed rule and then answers for every member.
+ * The `unprotected` element is only checked to be a map, because the format says a writer may fill it and no
+ * signature covers what it holds. An empty document is refused here, by this file's sentence, because there
+ * is no structure for a reader to name otherwise.
  */
-function decodeCoseSign1(bytes: Uint8Array): {
-  readonly protectedBytes: Uint8Array;
-  readonly payloadBytes: Uint8Array;
-  readonly signature: Uint8Array;
-  readonly kid: Uint8Array;
-} {
-  const notSealed: Refuse = (detail) => fail('ANCHOR_LEDGER_NOT_SEALED', detail);
-  if (bytes.length === 0) notSealed('the document holds nothing');
-  if (bytes[0] !== ((MAJOR_TAG << 5) | COSE_SIGN1_TAG)) {
-    notSealed('it does not begin with CBOR tag 18, which is what makes a COSE_Sign1 one');
+function readSealed(bytes: Uint8Array): CoseSign1 & { header: ProtectedHeader } {
+  if (bytes.length === 0) fail('ANCHOR_LEDGER_NOT_SEALED', 'the document holds nothing');
+  try {
+    return decodeCoseSign1(bytes, ANCHOR_LEDGER_CONTENT_TYPE);
+  } catch (err) {
+    return framingRefusal(err);
   }
-  const item = readValue(bytes, 1, 1, false, notSealed);
-  if (item.offset !== bytes.length) notSealed('bytes past the COSE_Sign1');
-  const elements = arrayAt(item.node, 'the COSE_Sign1', notSealed);
-  if (elements.length !== 4) notSealed(`it is an array of ${String(elements.length)} elements, not the four a COSE_Sign1 writes`);
-  const protectedBytes = elementBytes(elements[0], 'the protected header is not a byte string', notSealed);
-  const unprotected = elements[1];
-  if (unprotected === undefined || unprotected.kind !== 'map') notSealed('the unprotected map is not a map');
-  const payloadBytes = elementBytes(elements[2], 'the payload is not a byte string', notSealed);
-  const signature = elementBytes(elements[3], 'the signature is not a byte string', notSealed);
-  if (signature.length !== 64) notSealed(`the signature is ${String(signature.length)} bytes, and an Ed25519 one is sixty-four`);
-  return { protectedBytes, payloadBytes, signature, kid: parseProtectedHeader(protectedBytes) };
 }
 
-function elementBytes(node: CborValue | undefined, detail: string, refuse: Refuse): Uint8Array {
-  if (node === undefined || node.kind !== 'bytes') refuse(detail);
-  return node.value;
-}
-
-/** The `kind` a header refusal names, for a label that may hold nothing at all. */
-function kindOf(node: CborValue | undefined): string {
-  return node === undefined ? 'nothing' : node.kind;
-}
-
-/**
- * The signed header, which closes against the three labels the COSE registry fixes.
- *
- * Closed before any declared label is read, because these bytes are inside the signature: the `Sig_structure`
- * hashes the protected string itself, so a label the layout does not declare is an authenticated parameter,
- * and a reader that walked past one would be holding a different document from the one the issuer signed.
- * An algorithm other than EdDSA is answered by this code too, where the receipt family keeps a separate one
- * for it: a header that carries another suite is not holding what this layout declares, and this union has no
- * algorithm code to say it with.
- */
-function parseProtectedHeader(bytes: Uint8Array): Uint8Array {
-  const refuse: Refuse = (detail) => fail('ANCHOR_LEDGER_BAD_HEADER', detail);
-  const item = readValue(bytes, 0, 0, true, refuse);
-  if (item.offset !== bytes.length) refuse('bytes past the encoded header');
-  const header = mapAt(item.node, 'the protected header', refuse);
-  for (const label of header.keys()) {
-    if (typeof label !== 'number' || !ANCHOR_LEDGER_DECLARED_PROTECTED_LABELS.includes(label)) {
-      refuse(`it carries a label the format does not define: ${String(label)}`);
-    }
+/** The signature, checked by the reader that owns the framing, under the key the caller pinned. */
+function verifySealed(bytes: Uint8Array, publicKey: Uint8Array): CoseSign1 & { header: ProtectedHeader } {
+  try {
+    return verifyCoseSign1(bytes, publicKey, new Uint8Array(0), ANCHOR_LEDGER_CONTENT_TYPE);
+  } catch (err) {
+    return framingRefusal(err);
   }
-  const alg = header.get(HEADER_ALG);
-  if (alg === undefined || alg.kind !== 'integer') refuse(`alg must be an integer, got ${kindOf(alg)}`);
-  // An algorithm this format does not sign with is answered by the header's own code rather than by a second
-  // one: the receipt family keeps `UNSUPPORTED_ALG` apart from its header refusal because that package names
-  // both, and this union has no counterpart to keep apart. A reader that added one would be giving two
-  // voices to the same finding, which is a header that does not hold what the layout declares.
-  if (alg.value !== ALG_EDDSA) refuse(`alg=${String(alg.value)}, and this layout signs with EdDSA only`);
-  const kid = header.get(HEADER_KID);
-  if (kid === undefined || kid.kind !== 'bytes' || kid.value.length !== 32) refuse('kid must be a 32-byte bstr');
-  const contentType = header.get(HEADER_CONTENT_TYPE);
-  if (contentType === undefined || contentType.kind !== 'text') refuse(`typ must be a tstr, got ${kindOf(contentType)}`);
-  if (contentType.value !== ANCHOR_LEDGER_CONTENT_TYPE) refuse(`typ=${contentType.value}`);
-  return kid.value;
 }
 
 /**
@@ -892,6 +676,11 @@ function parseProtectedHeader(bytes: Uint8Array): Uint8Array {
  * signature, and only then the body: a document nobody signed gets no answer about its rows at all, so nobody
  * can learn what an unverified ledger claims by watching it be parsed. The ledger's own `keys` list is weighed
  * last, after the signature that covers it, because before that it is text somebody could have written.
+ *
+ * The kid is weighed against the pin before the signature is, by this file and not by the framing's reader,
+ * because the refusal a caller of a ledger has to read names every key it pinned beside the kid the document
+ * carries, which is the sentence that tells an operator a rotation happened, and the framing's own answer is
+ * about the one key it was handed.
  */
 export function verifyAnchorLedger(bytes: Uint8Array, options: AnchorLedgerReadOptions): VerifiedAnchorLedger {
   const pins = options.trustedKeys ?? [];
@@ -901,29 +690,27 @@ export function verifyAnchorLedger(bytes: Uint8Array, options: AnchorLedgerReadO
       'a ledger is verified against a key its caller names, and none was handed: pin the provenance key where the anchors are pinned, in policy.trustAnchors or an equivalent the caller owns',
     );
   }
-  const cose = decodeCoseSign1(bytes);
-  const pinned = pins.find((candidate) => candidate.length === 32 && sameBytes(sha256(candidate), cose.kid));
+  const sealed = readSealed(bytes);
+  const pinned = pins.find((candidate) => candidate.length === 32 && equalBytes(keyId(candidate), sealed.header.kid));
   if (pinned === undefined) {
     fail(
       'ANCHOR_LEDGER_PIN_MISMATCH',
-      `the document names the kid ${hex(cose.kid)} and the caller pinned ${pins.map((candidate) => hex(sha256(candidate))).join(', ')}`,
+      `the document names the kid ${hex(sealed.header.kid)} and the caller pinned ${pins.map((candidate) => hex(keyId(candidate))).join(', ')}`,
     );
   }
-  if (!ed25519.verify(cose.signature, sigStructure(cose.protectedBytes, new Uint8Array(0), cose.payloadBytes), pinned, { zip215: false })) {
-    fail('BAD_SIGNATURE', 'the anchor provenance ledger signature does not verify under the key pinned for it');
-  }
-  const document = parseAnchorLedger(cose.payloadBytes, { shipped: options.shipped });
-  if (!document.keys.some((declared) => sameBytes(declared, cose.kid))) {
+  const verified = verifySealed(bytes, pinned);
+  const document = parseAnchorLedger(verified.payloadBytes, { shipped: options.shipped });
+  if (!document.keys.some((declared) => equalBytes(declared, verified.header.kid))) {
     fail(
       'ANCHOR_LEDGER_KEY_UNDECLARED',
-      `the kid that sealed this ledger, ${hex(cose.kid)}, is not one of the ids the ledger names: ${document.keys.map((declared) => hex(declared)).join(', ')}`,
+      `the kid that sealed this ledger, ${hex(verified.header.kid)}, is not one of the ids the ledger names: ${document.keys.map((declared) => hex(declared)).join(', ')}`,
     );
   }
   return {
     document,
-    kid: cose.kid,
-    protectedBytes: cose.protectedBytes,
-    payloadBytes: cose.payloadBytes,
-    signature: cose.signature,
+    kid: verified.header.kid,
+    protectedBytes: verified.protectedBytes,
+    payloadBytes: verified.payloadBytes,
+    signature: verified.signature,
   };
 }
