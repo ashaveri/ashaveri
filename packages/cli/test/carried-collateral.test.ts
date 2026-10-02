@@ -21,6 +21,9 @@ import {
   servedCarriedPack,
   type PackEntry,
 } from './carried-pack.js';
+import { noteSpawn, spawnCeilingForCalls } from './support/spawn-budget.js';
+/** How long one child of the built CLI may live before this file calls it a bug rather than a slow machine. */
+const SPAWN_DEADLINE_MS = 15_000;
 
 /**
  * What `verify-handover` prints when a document, a receipt or a command line hands it text it did not write.
@@ -58,9 +61,10 @@ interface CliResult {
 }
 
 function runCli(args: string[]): CliResult {
+  noteSpawn(SPAWN_DEADLINE_MS);
   const result = spawnSync(process.execPath, [CLI, ...args], {
     encoding: 'utf8',
-    timeout: 15_000,
+    timeout: SPAWN_DEADLINE_MS,
     killSignal: 'SIGKILL',
   });
   expect(result.error).toBeUndefined();
@@ -689,7 +693,10 @@ describe('the designations refused before the document is opened', () => {
     );
   });
 
-  it('refuses one slot named twice for one field, and accepts the same slot named by all four fields', () => {
+  it(
+    'refuses one slot named twice for one field, and accepts the same slot named by all four fields',
+    { timeout: spawnCeilingForCalls(5, SPAWN_DEADLINE_MS) },
+    () => {
     expectUsageRefusal(
       ['--collateral-origin=col=intel-tcb-info', '--collateral-origin=col=intel-qe-identity', '--collateral-platform=col=tdx'],
       "--collateral-origin names the 'col' slot twice, and a slot has one origin, which is the path the bytes were published by per run",

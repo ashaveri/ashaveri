@@ -6,6 +6,9 @@ import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { afterAll, describe, expect, it } from 'vitest';
 import { parsePolicyFile, policyFileDigest } from '@ashaveri/sdk';
+import { noteSpawn } from './support/spawn-budget.js';
+/** How long one child of the built CLI may live before this file calls it a bug rather than a slow machine. */
+const SPAWN_DEADLINE_MS = 8_000;
 
 const CLI = fileURLToPath(new URL('../dist/cli.js', import.meta.url));
 const FIXTURES = fileURLToPath(new URL('../../attest-core/test/fixtures/', import.meta.url));
@@ -62,10 +65,11 @@ function countLines(text: string): number {
 }
 
 function runCli(args: string[], input?: Uint8Array): CliResult {
+  noteSpawn(SPAWN_DEADLINE_MS);
   const result = spawnSync(process.execPath, [CLI, ...args], {
     input: input === undefined ? undefined : Buffer.from(input),
     encoding: 'utf8',
-    timeout: 8000,
+    timeout: SPAWN_DEADLINE_MS,
     killSignal: 'SIGKILL',
   });
   expect(result.error).toBeUndefined();
