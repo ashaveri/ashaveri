@@ -1,6 +1,7 @@
 import { createHash } from 'node:crypto';
 import { spawn, spawnSync } from 'node:child_process';
 import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { connect, createServer } from 'node:net';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -160,12 +161,32 @@ function liveArgs(...args: string[]): string[] {
  * failure the deadline exists to produce. So `budgetFor` states the arithmetic, and every case that spawns
  * or boots passes its count through it: the worst case is what a hang costs, and a hang is a defect worth
  * waiting for once rather than misreading.
+ *
+ * A boot also picks its port before it starts a child, and `readPortState` below asks its two questions
+ * of the port the boot printed, so `bootBudget` carries `PREFLIGHT_BUDGET_MS` beside the boots it is
+ * named for: a boot that spends that preflight is a boot the case is still waiting on, and the ceiling
+ * has to be read off the arithmetic rather than guessed at.
  */
 const SPAWN_DEADLINE_MS = 8_000;
 const BOOT_DEADLINE_MS = 10_000;
+/**
+ * How many candidates `walkToAddressablePort` will look at before it names them as its own failure. The
+ * road this bounds is a machine whose HTTP client turns down a run of neighbouring ports; it is not a
+ * count of how often the helper asks the same question again, because nothing here does that.
+ */
+const PORT_CANDIDATES = 8;
+/** How long either preflight question waits. A loopback answer arrives in milliseconds on any machine, so
+ *  this is slack for a machine that is not answering, not an estimate of how long answering takes. */
+const PROBE_DEADLINE_MS = 1_000;
+/** What one boot can spend on its preflight: the walk, two bounded questions per candidate, and the two
+ *  questions `readPortState` asks of the port the boot printed. */
+const PREFLIGHT_BUDGET_MS = (PORT_CANDIDATES + 1) * 2 * PROBE_DEADLINE_MS;
 const budgetFor = (calls: number, deadline: number): number => calls * deadline + 2_000;
 const spawnBudget = (calls: number): number => budgetFor(calls, SPAWN_DEADLINE_MS);
-const bootBudget = (boots: number): number => budgetFor(boots, BOOT_DEADLINE_MS);
+const bootBudget = (boots: number): number => budgetFor(boots, BOOT_DEADLINE_MS) + boots * PREFLIGHT_BUDGET_MS;
+/** The ceiling for a case that runs the walk without booting anything: every candidate with its two
+ *  questions, plus `extra` further bounded questions the case asks around the walk. */
+const pickBudget = (extra: number): number => budgetFor(PORT_CANDIDATES * 2 + extra, PROBE_DEADLINE_MS);
 
 const SHIPPED_RECEIPT_BOUND = 10_000;
 
@@ -255,25 +276,229 @@ interface ServedGateway {
   readonly reached: () => Promise<string>;
 }
 
+/** What the HTTP client of a process that will not address a port answers with, in its own words. */
+const CLIENT_REFUSAL = /bad port/iu;
+
+/**
+ * What a port a listening line named can be, as the two questions that can tell the states apart name
+ * them.
+ *
+ * `usable` is the state every case has always taken: a port this client will address. `gateway gone` is
+ * the child that printed the listening line and then left the port it named, which is the reading a case
+ * already gets from `ask` and `kill`, so nothing here stops it and nothing here says it first.
+ * `client refuses` is the third: the port is bound, still held, and turned down by the HTTP client in
+ * this very process before that client opens a socket, so no request the case makes over it can reach
+ * anything. That state is somebody's port choice, and it is the only one a boot stops on.
+ */
+type PortState =
+  | { readonly state: 'usable' }
+  | { readonly state: 'gateway gone' }
+  | { readonly state: 'client refuses'; readonly answer: string };
+
+/**
+ * Whether the HTTP client in this process can address `port` at all, with its own words for the answer.
+ *
+ * Asked at `127.0.0.2`, which no gateway in this file binds: each one is started on the address its
+ * banner names, and that banner line is what the boot matches before it asks anything. A refusal is a
+ * decision about the port alone, measured as the same `bad port` at 127.0.0.1, at 127.0.0.2 and at ::1
+ * for one refused port, so asking away from the gateway loses nothing. Asking at it would cost something:
+ * a request that reaches a running gateway is answered by the same pipeline a case's request goes
+ * through, measured here as one line written to the access log the case points at and one token taken
+ * off the `--peer-rate` burst that `holds one connection to the bound the flag set it` pins at three.
+ */
+async function askClientAboutPort(port: number): Promise<{ readonly refuses: boolean; readonly answer: string }> {
+  try {
+    const response = await fetch(`http://127.0.0.2:${String(port)}/`, { signal: AbortSignal.timeout(PROBE_DEADLINE_MS) });
+    await response.body?.cancel();
+    return { refuses: false, answer: `answered ${String(response.status)}` };
+  } catch (error) {
+    const answer = connectionReason(error);
+    return { refuses: CLIENT_REFUSAL.test(answer), answer };
+  }
+}
+
+/**
+ * Whether the address the listening line named still answers a connection, asked of the socket layer and
+ * not of the HTTP client. The client is the thing under question above, so it cannot answer whether the
+ * gateway is there; a raw connection is answered by a gateway that is standing without handing it a
+ * request to parse, which is measured above as writing nothing and spending nothing.
+ */
+function askSocketAboutPort(port: number): Promise<string> {
+  return new Promise((resolve) => {
+    const socket = connect({ host: '127.0.0.1', port }, () => {
+      socket.destroy();
+      resolve('connected');
+    });
+    const settle = (answer: string): void => {
+      socket.destroy();
+      resolve(answer);
+    };
+    socket.once('error', (error) => settle(errnoReason(error)));
+    socket.setTimeout(PROBE_DEADLINE_MS, () => settle(`no answer within ${String(PROBE_DEADLINE_MS)}ms`));
+  });
+}
+
+/**
+ * The state of a port a boot printed, read by asking each of the two layers the one question it can
+ * answer, in the order that costs the gateway nothing.
+ */
+async function readPortState(port: number): Promise<PortState> {
+  const asked = await askClientAboutPort(port);
+  if (!asked.refuses) return { state: 'usable' };
+  // A port the client turns down is somebody's port choice only while there is still a gateway standing
+  // on it. Without that second answer the road is a start that left behind its listening line, and
+  // stopping on the refusal would hide it: the case reads that from `ask` and `kill`, as it does today.
+  return (await askSocketAboutPort(port)) === 'connected'
+    ? { state: 'client refuses', answer: asked.answer }
+    : { state: 'gateway gone' };
+}
+
+/**
+ * Whether this process can have `port` on `127.0.0.1` for the length of a moment, asked by binding it
+ * with a listener that never accepts a connection and letting go again before this answers.
+ *
+ * Asked with `0` this is the operating system's own question, and the port the listener reports back is
+ * the lowest one the machine allows, which is the number `--port 0` would have printed. Asked with a
+ * number it is a check that the walk is not about to hand the gateway a port another process already
+ * holds. Nothing ever connects to either listener, so the road out leaves no socket behind, and the port
+ * is whoever wants it next as soon as the caller is told.
+ */
+function bindPortBriefly(port: number): Promise<{ readonly bound: boolean; readonly port: number; readonly answer: string }> {
+  return new Promise((resolve) => {
+    const listener = createServer();
+    // On one object rather than a bare `const`, so `settle` can clear the deadline whichever road it is
+    // called from without either side reading a binding that is not there yet.
+    const held: { deadline?: NodeJS.Timeout } = {};
+    const settle = (bound: boolean, at: number, answer: string): void => {
+      if (held.deadline !== undefined) clearTimeout(held.deadline);
+      // The close is what hands the port back. A listener that failed to open has no error to be left
+      // sitting on, and `close` on one is answered by this handler rather than by a callback.
+      listener.removeAllListeners('error');
+      listener.close();
+      resolve({ bound, port: at, answer });
+    };
+    held.deadline = setTimeout(() => settle(false, port, `no bind within ${String(PROBE_DEADLINE_MS)}ms`), PROBE_DEADLINE_MS);
+    listener.once('error', (error) => settle(false, port, errnoReason(error)));
+    listener.listen({ host: '127.0.0.1', port }, () => {
+      const address = listener.address();
+      settle(true, typeof address === 'object' && address !== null ? address.port : port, 'bound');
+    });
+  });
+}
+
+/**
+ * The walk the port pick runs, from `start`, and the arm the case below puts in front of a port it can
+ * measure.
+ *
+ * Each candidate answers two questions, in the order that costs a gateway no request: whether this
+ * process's HTTP client will address the port at all, and whether the socket layer will hand that port
+ * to this process for a moment. A client that refuses the number does it as a decision about the number
+ * alone, measured as the same `bad port` at every loopback address, so the walk turns a refused
+ * candidate down without binding it and never holds a port it means to give back. The bind is asked only
+ * of a candidate the client will address, because that is the moment the port is about to be chosen, and
+ * a candidate that will not bind is turned down for the same reason: the gateway has to be able to take
+ * it after this helper lets go.
+ *
+ * The step is `start + 1` and not a second ask of the operating system, because a second ask is the same
+ * ask: the machine hands out the lowest port it allows, and letting go of that port leaves it the lowest
+ * port it allows, so asking again answers with the number that was just turned down. A walk that re-asked
+ * would be a retry standing in for the one thing it cannot retry, which is which number the machine
+ * allows, and the step is what makes the question answerable at all.
+ */
+async function walkToAddressablePort(start: number): Promise<number> {
+  const tried: string[] = [];
+  for (let step = 0; step < PORT_CANDIDATES; step += 1) {
+    const candidate = start + step;
+    const asked = await askClientAboutPort(candidate);
+    if (asked.refuses) {
+      tried.push(`port ${String(candidate)}: the client answered ${asked.answer}`);
+      continue;
+    }
+    const held = await bindPortBriefly(candidate);
+    if (!held.bound) {
+      tried.push(`port ${String(candidate)}: the client answered ${asked.answer}, then the bind answered ${held.answer}`);
+      continue;
+    }
+    return candidate;
+  }
+  throw new Error(
+    `none of the ${String(PORT_CANDIDATES)} ports from ${String(start)} is a port this test process can boot a gateway on, ` +
+      `which is two questions about one number: its HTTP client has to address the port and its socket layer has to hand it over. ` +
+      `This tried ${tried.join('; ')}`,
+  );
+}
+
+/**
+ * The port the next boot binds, chosen and proved addressable before any child starts.
+ *
+ * Every case in this file speaks HTTP to the port the gateway's banner names, so a boot on a port this
+ * process's own HTTP client refuses is a boot no case can read: the request dies with the client's
+ * refusal before it opens a socket while the gateway stands there serving it. Choosing before starting
+ * is what keeps that state out of the suite, and it costs one bound-and-released port and one client
+ * question, both of which answer in milliseconds on a machine that is answering at all.
+ */
+async function pickAddressablePort(): Promise<number> {
+  const handed = await bindPortBriefly(0);
+  if (!handed.bound) {
+    throw new Error(`the operating system would not hand this process a port to ask about (it answered ${handed.answer})`);
+  }
+  return await walkToAddressablePort(handed.port);
+}
+
 /**
  * Start a gateway that serves, and stop it. `readBanner` above answers with the printed lines once the
  * write that carries them has ended, and stops the child before it returns, so it cannot carry a case
  * about a request: by the time it does return the process is gone. This resolves on the listening line,
- * which is why `--port 0` prints the port the operating system bound rather than the zero it was asked
- * for, and hands back a `kill` that waits for the exit event, so a case cannot leave a child or its
- * socket behind.
+ * which names the port the gateway bound, and hands back a `kill` that waits for the exit event, so a
+ * case cannot leave a child or its socket behind.
  *
- * Resolving on that line leaves one window the helper does not police: a child that printed it can still
- * go away before the case asks it for anything, and the case then reads a fetch error about a port nobody
- * holds. So the child's state is kept here instead of inferred downstream. `kill` fails a case whose child
- * left of its own accord after it said it was listening, `reached` says where that child got to, and `ask`
- * below puts both into the request that got no answer. The stderr that used to be drained and thrown away
- * is kept, because it is where a gateway that is about to stop says why.
+ * The port comes from `pickAddressablePort` rather than from leaving the choice to the child, and it is
+ * the second question's answer that gets it there: a port the client of this process will not address is
+ * turned down before a gateway is asked to stand on it. A case that names its own `--port` still wins,
+ * because the later of the two flags a boot carries is the one the gateway reads, and what such a case
+ * names is its own business: `readPortState` asks its two questions of the port the banner printed, and
+ * the one state that is a port choice rather than a child that went away stops the boot.
+ *
+ * Every other reading keeps what it has today, so no exit and no timeout is turned into anything else.
+ *
+ * Resolving on that line leaves one window a boot does not police: a child that printed it can still go
+ * away before the case asks it for anything, and the case then reads a fetch error about a port nobody
+ * holds. So the child's state is kept in `bootToListeningLine` instead of inferred downstream. `kill`
+ * fails a case whose child left of its own accord after it said it was listening, `reached` says where
+ * that child got to, and `ask` below puts both into the request that got no answer. The stderr that used
+ * to be drained and thrown away is kept, because it is where a gateway that is about to stop says why.
  */
 async function bootServing(args: string[]): Promise<ServedGateway> {
+  const picked = await pickAddressablePort();
+  const served = await bootToListeningLine(picked, args);
+  const state = await readPortState(served.port);
+  if (state.state !== 'client refuses') return served;
+  const refusal =
+    `the gateway listened on port ${String(served.port)} and this test process's HTTP client refuses that port before it opens a socket ` +
+    `(${state.answer}); ${served.port === picked ? 'this helper picked that port' : 'the case named that port after this helper picked one'}, ` +
+    `and this helper refuses to boot on a port its own client will not address, because no request this suite makes over such a port ` +
+    `ever opens a socket. The boot carried [--mock --port ${String(picked)} ${args.join(' ')}]`;
+  try {
+    await served.kill();
+  } catch (departure) {
+    // A child that left while this was being read is a second fact about the same boot, and the refusal
+    // is the one the case is about, so the refusal is named and the departure rides as its cause.
+    throw new Error(refusal, { cause: departure });
+  }
+  throw new Error(refusal);
+}
+
+/**
+ * One boot: start the gateway on `port`, read the listening line that names the port it bound, and hand
+ * back that child with the two things a case can do to it. The port the banner named is what the case
+ * aims at, not the one this was asked for, so a start that bound something else is read as the port it
+ * says it bound. Every road out of here that does not hand a child back stops it first, so a start that
+ * never printed, or printed a line naming no port, leaves no process and no socket behind.
+ */
+async function bootToListeningLine(port: number, args: string[]): Promise<ServedGateway> {
   const env = { ...process.env };
   delete env['DSTACK_SIMULATOR_ENDPOINT'];
-  const child = spawn(process.execPath, [CLI, '--mock', '--port', '0', ...args], {
+  const child = spawn(process.execPath, [CLI, '--mock', '--port', String(port), ...args], {
     env,
     stdio: ['ignore', 'pipe', 'pipe'],
   });
@@ -305,7 +530,7 @@ async function bootServing(args: string[]): Promise<ServedGateway> {
         ? 'was still running when this was read'
         : `had gone with ${departed.exit}${departed.asked ? ', after this helper asked for the kill' : ', of its own accord'}`;
     return (
-      `the gateway this helper started as pid ${String(child.pid)} with [--mock --port 0 ${args.join(' ')}] ` +
+      `the gateway this helper started as pid ${String(child.pid)} with [--mock --port ${String(port)} ${args.join(' ')}] ` +
       `${where}. The port its listening line named, and the one this request was aimed at, is ${String(bound)}. ` +
       `Its stderr held ${JSON.stringify(err)} and the first line of its stdout held ${JSON.stringify(out.split('\n')[0] ?? '')}`
     );
@@ -325,7 +550,7 @@ async function bootServing(args: string[]): Promise<ServedGateway> {
     child.stderr.on('data', (chunk: string) => {
       err += chunk;
     });
-    const port = await new Promise<number>((resolve, reject) => {
+    const printed = await new Promise<number>((resolve, reject) => {
       const timer = setTimeout(
         () => reject(new Error(`no listening line within ${String(BOOT_DEADLINE_MS / 1_000)}s; stdout held ${JSON.stringify(out)}`)),
         BOOT_DEADLINE_MS,
@@ -350,7 +575,7 @@ async function bootServing(args: string[]): Promise<ServedGateway> {
         resolve(bound);
       });
     });
-    return { port, kill, reached };
+    return { port: printed, kill, reached };
   } catch (error) {
     await kill();
     throw error;
@@ -379,8 +604,14 @@ async function ask(served: ServedGateway, target: string, init: RequestInit): Pr
 function connectionReason(error: unknown): string {
   const cause = error instanceof Error ? error.cause : undefined;
   if (!(cause instanceof Error)) return String(error);
-  const code = (cause as NodeJS.ErrnoException).code;
-  return `${cause.message}${code === undefined ? '' : ` (${code})`}`;
+  return errnoReason(cause);
+}
+
+/** An errno's own sentence, then its code, because the sentence alone is spelled differently on every
+ *  platform while the code is not. */
+function errnoReason(error: Error): string {
+  const code = (error as NodeJS.ErrnoException).code;
+  return `${error.message}${code === undefined ? '' : ` (${code})`}`;
 }
 
 /**
@@ -1047,6 +1278,76 @@ describe('a gateway that serves answers the way its banner says', () => {
       }
     },
     20_000,
+  );
+});
+
+/**
+ * A port on the blocked-port list the HTTP client in this process carries, and above 1024 so a process
+ * with no privileges can bind it. Which ports a client refuses is that client's decision, so the cases
+ * below ask it rather than trusting the name, and `askClientAboutPort` is the asking: a runtime that
+ * addresses this port hands them a premise to report rather than a road to read.
+ */
+const CLIENT_REFUSED_PORT = 6566;
+
+describe('the port a boot is given', () => {
+  it(
+    'walks off a port its own client refuses and hands back one it will address',
+    async () => {
+      const premise = await askClientAboutPort(CLIENT_REFUSED_PORT);
+      expect(
+        premise.refuses,
+        `port ${String(CLIENT_REFUSED_PORT)} is not one this client refuses; it answered ${premise.answer}`,
+      ).toBe(true);
+
+      // The walk is started at the refused port rather than at whatever the machine happens to be handing
+      // out, because stepping off a refused candidate is the arm this case is about: a pick that began
+      // somewhere the client addresses would pass this case without ever taking that step.
+      const picked = await walkToAddressablePort(CLIENT_REFUSED_PORT);
+      const answered = await askClientAboutPort(picked);
+      expect(
+        answered.refuses,
+        `the walk from port ${String(CLIENT_REFUSED_PORT)} handed back port ${String(picked)}, which this client also refuses (${answered.answer})`,
+      ).toBe(false);
+      expect(picked).toBeGreaterThan(CLIENT_REFUSED_PORT);
+    },
+    pickBudget(2),
+  );
+
+  it(
+    'names a port its own client refuses as that refusal, not as a departure and not as a timeout',
+    async () => {
+      // The premise is the client's own answer and not this file's opinion about a number: a runtime that
+      // addresses this port hands the case a boot it has no refusal to read.
+      const premise = await askClientAboutPort(CLIENT_REFUSED_PORT);
+      expect(
+        premise.refuses,
+        `port ${String(CLIENT_REFUSED_PORT)} is not one this client refuses; it answered ${premise.answer}`,
+      ).toBe(true);
+
+      // The boot is asked for that port by name, which is the only way a case can put a gateway on a port
+      // the helper would not have picked: `bootServing` carries the port it picked first and this case's
+      // own flags after it, and of the two `--port` flags the later one is the one the gateway reads.
+      let failure: string | undefined;
+      try {
+        const served = await bootServing(['--port', String(CLIENT_REFUSED_PORT)]);
+        await served.kill();
+      } catch (error) {
+        failure = error instanceof Error ? error.message : String(error);
+      }
+
+      expect(failure, 'a boot on a port this client refuses was handed to the case as usable').toBeDefined();
+      expect(failure).toContain(`port ${String(CLIENT_REFUSED_PORT)}`);
+      expect(failure).toMatch(/client refuses that port/u);
+      // The client's answer in its own words, and not this file's reading of them: what the case is told
+      // has to carry what the asking returned, or the failure names a state nobody measured.
+      expect(failure).toContain(premise.answer);
+      // The two readings a refused port must not be filed under: a start that left behind its own
+      // listening line, and a start that never reported one. Both are named elsewhere in this file, and
+      // neither is what happened here, so the refusal has to reach the case as itself.
+      expect(failure).not.toContain('exited after it printed its listening line');
+      expect(failure).not.toContain('no listening line within');
+    },
+    bootBudget(1),
   );
 });
 
