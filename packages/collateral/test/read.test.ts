@@ -1,15 +1,5 @@
 import { describe, expect, it } from 'vitest';
 import {
-  INTEL_QE_IDENTITY,
-  INTEL_TCB_INFO,
-  readSignedCollateral,
-  type CollateralRefusal,
-  type OriginDeclaration,
-  type ReadCollateral,
-  type ReadOutcome,
-} from '../src/index.js';
-import type { CollateralQuery } from '../src/types.js';
-import {
   foreignKey,
   mismatchedVendor,
   qeIdentity,
@@ -20,7 +10,17 @@ import {
   tcbInfoBody,
   testVendor,
   type TestVendor,
-} from './support/collateral-documents.js';
+} from '@ashaveri/fixtures';
+import {
+  INTEL_QE_IDENTITY,
+  INTEL_TCB_INFO,
+  readSignedCollateral,
+  type CollateralRefusal,
+  type OriginDeclaration,
+  type ReadCollateral,
+  type ReadOutcome,
+} from '../src/index.js';
+import type { CollateralQuery } from '../src/types.js';
 
 const FMSPC = '00906EA00000';
 const CPU_TYPE = FMSPC.toLowerCase();

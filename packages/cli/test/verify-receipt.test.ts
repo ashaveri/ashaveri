@@ -7,10 +7,12 @@ import { afterAll, describe, expect, it } from 'vitest';
 import {
   decodeSealedDeploymentManifest,
   generateSigningKey,
+  hashRequest,
   sealDeploymentManifest,
   toHex,
   type SigningKey,
 } from '@ashaveri/receipt';
+import { secondsOf, signedDocument, tcbInfo, testVendor } from '@ashaveri/fixtures';
 import { ATTESTED_MARKING, stampedReceiptBytes, wrongMarking } from './stamped-receipt.js';
 
 /**
@@ -263,6 +265,8 @@ interface RunOptions {
   readonly responseDigest?: string;
   readonly now?: string;
   readonly json?: boolean;
+  /** Flags this suite passes through to the command untouched, one token each, already spelled as typed. */
+  readonly extra?: readonly string[];
 }
 
 /**
@@ -300,6 +304,7 @@ function argsFor(options: RunOptions): string[] {
       args.push(`${flag}=${one}`);
     }
   }
+  for (const one of options.extra ?? []) args.push(one);
   if (options.json ?? true) {
     args.push('--json');
   }
@@ -972,5 +977,183 @@ describe('ashaveri verify-receipt', () => {
     const unknown = runCli(['frobnicate']);
     expect(unknown.status).toBe(2);
     expect(unknown.stderr).toContain('verify-receipt');
+  });
+
+  /**
+   * The material a policy's anchor demand is answered out of.
+   *
+   * `verify-receipt` is the one command line that runs the client, so it is the one place a policy stating
+   * `minAnchorSlotsWeighed` can be handed what it asks about. Two documents are signed here by a generated vendor
+   * whose root the run pins: one whose own window reaches the instant the receipt claims, and one whose window
+   * closed before it. The receipt states both as `held`, at `col` and at `val`, so the three readings of the
+   * demand are three command lines over one document rather than three documents whose other claims a reader would
+   * have to compare. Nothing here reaches a network, and no published fixture row carries a `held` slot: the
+   * corpus states `not-taken-in` on both, which is the posture the byte-arm rows of `docs/pack-v1.md` state.
+   */
+  describe('the anchor material a policy demands', () => {
+    const FMSPC = '00906e1b0d00';
+    const TCB_DATE = '2025-06-01T00:00:00Z';
+    const VENDOR = testVendor({
+      notBefore: secondsOf('2020-01-01T00:00:00.000Z'),
+      notAfter: secondsOf('2035-01-01T00:00:00.000Z'),
+    });
+
+    /** One TCB Info statement, signed, standing from `issueDate` up to `nextUpdate`. */
+    function signedStatement(issueDate: string, nextUpdate: string): Uint8Array {
+      return signedDocument(
+        tcbInfo({
+          fmspc: FMSPC,
+          issueDate,
+          nextUpdate,
+          levels: [{ tcbDate: TCB_DATE, tcbStatus: 'UpToDate' }],
+        }),
+        VENDOR,
+      );
+    }
+
+    /** The same spelling of an instant the report prints, so a row and a case read one number the same way. */
+    const isoOf = (seconds: number): string => new Date(seconds * 1000).toISOString();
+
+    /** The instant the receipt claims is `iat`, so the standing document is built around it. */
+    const IAT = MARKED.payload.iat;
+    const STANDING = signedStatement('2025-01-01T00:00:00Z', '2027-01-01T00:00:00Z');
+    const RETIRED = signedStatement('2024-01-01T00:00:00Z', '2026-01-01T00:00:00Z');
+    const STANDING_PATH = written('standing-tcb-info.jws', Buffer.from(STANDING));
+    const RETIRED_PATH = written('retired-tcb-info.jws', Buffer.from(RETIRED));
+    const ROOT_PATH = written('anchor-intel-root.der', Buffer.from(VENDOR.rootDer));
+    const STANDING_DIGEST = toHex(hashRequest(STANDING));
+    const RETIRED_DIGEST = toHex(hashRequest(RETIRED));
+    const STANDING_FROM = Math.floor(Date.parse('2025-01-01T00:00:00Z') / 1000);
+    const STANDING_UNTIL = Math.floor(Date.parse('2027-01-01T00:00:00Z') / 1000);
+    const RETIRED_FROM = Math.floor(Date.parse('2024-01-01T00:00:00Z') / 1000);
+    const RETIRED_UNTIL = Math.floor(Date.parse('2026-01-01T00:00:00Z') / 1000);
+
+    /** The receipt whose two anchor slots state those two documents, and the body its marking attests. */
+    const heldReceipt = written(
+      'held-anchor.cbor',
+      Buffer.from(stampedReceiptBytes(ATTESTED_MARKING, { collateral: STANDING, validity: RETIRED })),
+    );
+    const responseBytes = markingBody('buffered-member');
+
+    /** The four flags that say what one slot's bytes are, as a customer spells them, plus the root. */
+    function designation(slot: string): string[] {
+      return [
+        `--collateral-origin=${slot}=intel-tcb-info`,
+        `--collateral-platform=${slot}=tdx`,
+        `--collateral-cpu-type=${slot}=${FMSPC}`,
+        `--collateral-level=${slot}=tcb-date=${TCB_DATE}`,
+      ];
+    }
+
+    const demandedOne = policyFile({ minAnchorSlotsWeighed: 1 });
+    const demandedTwo = policyFile({ minAnchorSlotsWeighed: 2 });
+
+    it('answers a policy demanding weighed anchor material out of the file it is handed', () => {
+      const result = runCli(argsFor({
+        receipt: heldReceipt,
+        policy: demandedOne,
+        responseBody: responseBytes,
+        extra: [`--anchor-file=col=${STANDING_PATH}`, `--intel-root=${ROOT_PATH}`, ...designation('col')],
+      }));
+      expect(result.stderr).toBe('');
+      expect(result.status, String(result.stderr)).toBe(0);
+      const out = verdictOf(result);
+      expect(out.ok).toBe(true);
+      expect(out.anchorMaterialNamed).toBe(true);
+      expect(out.anchorMaterial).toEqual([
+        {
+          flag: '--anchor-file',
+          slot: 'col',
+          file: STANDING_PATH,
+          chain: null,
+          statedDigest: STANDING_DIGEST,
+          resolvedDigest: STANDING_DIGEST,
+          reached: true,
+          signature: 'established',
+          window: { from: STANDING_FROM, until: STANDING_UNTIL },
+          rootDigest: VENDOR.rootDigest,
+          state: 'stale',
+          refusalCode: 'COLLATERAL_NOT_OBSERVED',
+          appraisalAt: IAT,
+          question: { origin: 'intel-tcb-info', platform: 'tdx', cpuType: FMSPC, level: `tcb-date=${TCB_DATE}` },
+        },
+      ]);
+      // The same verdict in words, naming the flag, the slot, both digests, the root and the instant.
+      const human = runCli(argsFor({
+        receipt: heldReceipt,
+        policy: demandedOne,
+        responseBody: responseBytes,
+        json: false,
+        extra: [`--anchor-file=col=${STANDING_PATH}`, `--intel-root=${ROOT_PATH}`, ...designation('col')],
+      }));
+      expect(human.status).toBe(0);
+      expect(human.stdout).toContain(`  anchor file:      --anchor-file col=${STANDING_PATH} for the 'col' slot, and --anchor-chain named no header for it`);
+      expect(human.stdout).toContain(`  anchor digests:   the 'col' slot states ${STANDING_DIGEST} and these bytes hash to ${STANDING_DIGEST}, the same object`);
+      expect(human.stdout).toContain(`  anchor standing:  established (the appraisal answered stale, COLLATERAL_NOT_OBSERVED) under the pinned root ${VENDOR.rootDigest}, standing ${String(STANDING_FROM)} (${isoOf(STANDING_FROM)}) up to ${String(STANDING_UNTIL)} (${isoOf(STANDING_UNTIL)}), weighed at ${String(IAT)} (${isoOf(IAT)})`);
+      expect(human.stdout).toContain(`  anchor question:  col: origin intel-tcb-info, platform tdx, cpu type ${FMSPC}, level tcb-date=${TCB_DATE}, roots 1 handed`);
+      expect(human.stdout).toContain('  anchor roots:     ');
+    });
+
+    it('answers the same demand as unreached when no flag names a slot', () => {
+      const result = runCli(argsFor({ receipt: heldReceipt, policy: demandedOne, responseBody: responseBytes }));
+      expect(result.status).toBe(1);
+      const out = verdictOf(result);
+      expect(out.code).toBe('ANCHOR_MATERIAL_UNREACHED');
+      expect(out.message).toContain(`the collateral slot states the digest ${STANDING_DIGEST} and this run was handed no reading for it`);
+      // The absence is reported where a run handed roots and no slot to use them on, rather than left for the
+      // reader to work out that the trust they named decided nothing.
+      const rootsOnly = runCli(argsFor({
+        receipt: heldReceipt,
+        responseBody: responseBytes,
+        json: false,
+        extra: [`--intel-root=${ROOT_PATH}`, ...designation('col')],
+      }));
+      expect(rootsOnly.status).toBe(0);
+      expect(rootsOnly.stdout).toContain(`no --anchor-file was handed, so no held slot's material was reached and no appraisal ran`);
+      expect(rootsOnly.stdout).toContain('1 --intel-root file(s) named here were consulted by nothing');
+      expect(rootsOnly.stdout).toContain('  anchor material:  ');
+    });
+
+    it('refuses the demand when the handed document no longer stands at the instant the receipt claims', () => {
+      const result = runCli(argsFor({
+        receipt: heldReceipt,
+        policy: demandedTwo,
+        responseBody: responseBytes,
+        extra: [
+          `--anchor-file=col=${STANDING_PATH}`,
+          `--anchor-file=val=${RETIRED_PATH}`,
+          `--intel-root=${ROOT_PATH}`,
+          ...designation('col'),
+          ...designation('val'),
+        ],
+      }));
+      expect(result.status).toBe(1);
+      const out = verdictOf(result);
+      expect(out.code).toBe('ANCHOR_MATERIAL_NOT_STANDING');
+      // Both slots were reached and both hash to what their slot states, so the refusal cannot be about material
+      // nobody can resolve: it is the retired document's own window that does not hold at the claimed instant.
+      expect(out.message).not.toContain('no reading for it');
+      expect(out.message).toContain(`the validity slot's material (${RETIRED_DIGEST}) stands from ${String(RETIRED_FROM)} up to but not including ${String(RETIRED_UNTIL)} and the instant asked is ${String(IAT)}, which is outside it`);
+    });
+
+    it('refuses a chain named for a slot no file was named for, and a slot the receipt states no material about', () => {
+      const chainAlone = runCli(argsFor({
+        receipt: heldReceipt,
+        policy: demandedOne,
+        responseBody: responseBytes,
+        json: false,
+        extra: [`--anchor-chain=val=${RETIRED_PATH}`],
+      }));
+      expect(chainAlone.status).toBe(2);
+      expect(chainAlone.stderr).toContain("--anchor-chain names the 'val' slot and --anchor-file names no document for it");
+
+      const unaskedSlot = runCli(argsFor({
+        receipt: receiptPath('receipt-valid-v1'),
+        policy: policyFile({ minAnchorSlotsWeighed: 1 }),
+        extra: [`--anchor-file=col=${STANDING_PATH}`, `--intel-root=${ROOT_PATH}`, ...designation('col')],
+      }));
+      expect(unaskedSlot.status).toBe(2);
+      expect(unaskedSlot.stderr).toContain("--anchor-file names the 'col' slot, which this receipt states as an absence (not-taken-in:");
+    });
   });
 });

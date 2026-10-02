@@ -611,8 +611,14 @@ export interface PackVectorFile {
     codes: string[];
     verdictFields: string[];
     records: PackRecordRow[];
-    /** The framing of the run whose held slots name carried material, in the same rows as `records`. */
-    carriedRecords: PackRecordRow[];
+    /**
+     * The framing of the run whose every held slot is answered by a reference, in the same rows as `records`. The
+     * key keeps the name the run was published under while that pack carried the material itself; the member of
+     * the file that names the row this table frames is `framingRule`, and the row is named there.
+     */
+    attachedRecords: PackRecordRow[];
+    /** The whole rule the reader enforces over the reference list and the byte arm, with both ceilings as figures. */
+    custodyRule: string;
     framingRule: string;
     keyMaterial: Array<{
       id: string;
@@ -816,3 +822,35 @@ export interface EpochInventoryVectorFile {
 export function loadEpochInventoryVectors(): EpochInventoryVectorFile {
   return JSON.parse(readFileSync(join(DATA, 'epoch-inventory-v1.json'), 'utf8')) as EpochInventoryVectorFile;
 }
+
+/**
+ * The estate's synthetic vendor: the certificates, the signed documents and the served answer its suites build
+ * rather than capture. It is exported from this entry rather than left inside one package's test directory,
+ * because the collateral cases, this package's own pack generator and the CLI's offline proof each reach it from
+ * a different package, and the bytes it signs for the published rows are published here.
+ */
+export {
+  fixtureVendor,
+  foreignKey,
+  mismatchedVendor,
+  qeIdentity,
+  secondsOf,
+  servedAnswer,
+  servedChain,
+  servedChainOf,
+  servedJsonBody,
+  servedLevel,
+  servedMemberText,
+  servedSignatureMember,
+  servedTcb,
+  servedWrapperBody,
+  signedDocument,
+  tcbInfo,
+  tcbInfoBody,
+  testVendor,
+  x5cOf,
+  type ServedAnswer,
+  type ServedComposition,
+  type ServedLevel,
+  type TestVendor,
+} from './fixture-vendor.js';

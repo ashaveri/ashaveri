@@ -2,11 +2,7 @@
   "extends": "./tsconfig.json",
   "compilerOptions": {
     "noEmit": true,
-    // scripts/offline-proof.ts reaches the collateral package's own test support for a vendor and a signed
-    // document, exactly as test/carried-collateral.test.ts does, so the root has to span the workspace
-    // rather than this package. Nothing here is emitted, which is why widening it settles the check rather
-    // than moving an output.
-    "rootDir": "../..",
+    "rootDir": ".",
     "types": ["node"],
     // The measurement is run from source by `node`, which resolves specifiers as written and so has to
     // be pointed at `./metrics.ts`; the checked path has to accept the one spelling the running path

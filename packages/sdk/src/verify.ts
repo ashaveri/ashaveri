@@ -50,7 +50,7 @@ export interface VerifyCompletionParams {
    *
    * Handed rather than looked up, because nothing here can reach it: the payload names digests and no bytes, and the
    * bytes are in whatever container the reader holds. The format package answers one digest with the bytes beside it
-   * (`resolveCarried`), and the collateral package answers those bytes with a signature and the window the vendor
+   * (`resolveAttached`), and the collateral package answers those bytes with a signature and the window the vendor
    * signed (`appraiseCarriedCollateral`); a caller that has run either hands the answer here, and this is where a
    * policy's demand of it is weighed.
    *

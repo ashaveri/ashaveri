@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { existsSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
-import { CARRIED_MAX_BYTES, CARRIED_SLOTS_PER_ITEM, PACK_CONTENT_TYPE } from '@ashaveri/receipt';
+import { CARRIED_MAX_BYTES, CUSTODY_SLOTS_PER_ITEM, PACK_CONTENT_TYPE } from '@ashaveri/receipt';
 import { loadPackVectors } from '../src/index.js';
 import { readSourceFile, spelledNumber, tableRows, unionMembers } from './doc-contract.js';
 
@@ -99,10 +99,27 @@ function definition(name: string): JsonSchema {
   return found;
 }
 
-/** The type token the table spells for a node: its declared type, or its constant value. */
+/**
+ * The type token the table spells for a node: its declared type, or its constant value. A projection states a
+ * nullable member as a list of two types, which is how JSON Schema says it and how the receipt's own twin says
+ * `sd.unc`, so the token names the value type and then says the absence is allowed: the row is read by a person,
+ * and `null or string` would read as two alternatives of one kind rather than a type plus its one exception.
+ */
 function typeToken(node: JsonSchema, path: string): string {
   if ('const' in node) return String(node.const);
-  switch (node.type) {
+  if (Array.isArray(node.type)) {
+    const kinds = node.type.filter((one) => one !== 'null');
+    if (kinds.length !== 1 || node.type.length !== 2) {
+      throw new Error(`${path} declares the type list ${JSON.stringify(node.type)}, which is neither one type nor a type with null`);
+    }
+    return `${scalarToken(kinds[0] ?? '', path)} or null`;
+  }
+  return scalarToken(node.type ?? '', path);
+}
+
+/** The one-word cell a single declared type earns. */
+function scalarToken(type: unknown, path: string): string {
+  switch (type) {
     case 'array':
       return 'array';
     case 'object':
@@ -112,7 +129,7 @@ function typeToken(node: JsonSchema, path: string): string {
     case 'integer':
       return 'integer';
     default:
-      throw new Error(`${path} carries a type ${String(node.type)} this reader has no table cell for`);
+      throw new Error(`${path} carries a type ${String(type)} this reader has no table cell for`);
   }
 }
 
@@ -307,8 +324,8 @@ describe('docs/pack-v1.md layout', () => {
 
   it('states the floors the layout states, and claims no ceiling it does not carry', () => {
     // A floor is a fact a reader enforces, so the row beside it has to say it, and a row that promises a floor
-    // the layout never gave is the same defect pointed the other way. The carried list carries no floor because
-    // an empty one is a statement the pack makes about what it holds, and the row says so.
+    // the layout never gave is the same defect pointed the other way. Neither list carries a floor, because an
+    // empty one is a statement the pack makes about what it refers to and what it attaches, and the row says so.
     for (const one of declared) {
       if (one.node.type !== 'array') continue;
       const row = rows().find((each) => each.path === one.path);
@@ -323,26 +340,26 @@ describe('docs/pack-v1.md layout', () => {
     expect(prose()).toContain('A byte ceiling belongs to the CDDL');
   });
 
-  it('states the two carried ceilings as the figures the format enforces', () => {
+  it('states the ceilings the format enforces, in the published rule and in the prose', () => {
     // The byte ceiling and the slot ceiling are read out of `pack.ts` by the vectors' generator, so the document,
     // the published rule and the code that refuses all carry the same two numbers or this case says which parted.
     const body = prose();
     expect(body, 'the document stopped stating the byte ceiling').toContain(`${String(CARRIED_MAX_BYTES)} bytes`);
     expect(body, 'the document stopped stating the slot ceiling beside the list it bounds').toContain(
-      `capped at ${String(CARRIED_SLOTS_PER_ITEM)} entries per item`,
+      `capped at ${String(CUSTODY_SLOTS_PER_ITEM)} entries per item`,
     );
-    const rule = vectors.layout.carriedRule;
-    expect(typeof rule, 'the published suite states no carried rule').toBe('string');
+    const rule = vectors.layout.custodyRule;
+    expect(typeof rule, 'the published suite states no custody rule').toBe('string');
     if (typeof rule === 'string') {
-      expect(rule, 'the published carried rule and the document state different byte ceilings').toContain(
+      expect(rule, 'the published custody rule and the document state different byte ceilings').toContain(
         `${String(CARRIED_MAX_BYTES)} bytes`,
       );
-      expect(rule, 'the published carried rule and the document state different slot ceilings').toContain(
-        `${String(CARRIED_SLOTS_PER_ITEM)} slots`,
+      expect(rule, 'the published custody rule and the document state different slot ceilings').toContain(
+        `${String(CUSTODY_SLOTS_PER_ITEM)} slots`,
       );
     }
     // And the twin says where the ceilings live, because it carries neither of them.
-    expect(readSourceFile(CDDL), 'the format file names no byte ceiling for a carried entry').toContain('65535');
+    expect(readSourceFile(CDDL), 'the format file names no byte ceiling for an attached entry').toContain('65535');
   });
 
   it('names every refusal the published suite answers with, and no refusal it never answers', () => {
@@ -355,9 +372,20 @@ describe('docs/pack-v1.md layout', () => {
     for (const code of named) {
       expect(registry, `${code} is named by the document and declared nowhere`).toContain(code);
     }
-    for (const code of registry.filter((one) => one.startsWith(PREFIX))) {
+    // One declared code is no document's answer, and the layout is the reason: the byte arm may be empty, so a
+    // held slot the arm attaches nothing for is a caller reaching past what the pack undertook rather than a
+    // manifest contradicting itself. `decodePack` and `verifyPack` never resolve a slot for a caller, so no
+    // published row can answer with it and no row of this table can carry it. The repository's own suite reaches
+    // it at the lookup, and the document states it in prose for the same reason the writer's refusal is prose.
+    const reachableByADocument = registry.filter(
+      (one) => one.startsWith(PREFIX) && one !== 'PACK_ATTACHED_UNRESOLVED',
+    );
+    for (const code of reachableByADocument) {
       expect(named, `${code} is declared for this container and named by no row`).toContain(code);
     }
+    expect(named, 'a refusal no reader ever answers is in the table anyway').not.toContain('PACK_ATTACHED_UNRESOLVED');
+    expect(prose(), 'the document stopped stating the lookup-only refusal').toContain('PACK_ATTACHED_UNRESOLVED');
+    expect(readSourceFile(READER), 'and the pack module no longer raises it at the lookup').toContain("'PACK_ATTACHED_UNRESOLVED'");
     // The writer's own refusal is prose rather than a row, because no document can carry it: a signing key whose
     // kid is not its own digest is refused where the bytes are made, and a reader is never handed one.
     const writer = prose();
@@ -437,7 +465,7 @@ describe('docs/pack-v1.md layout', () => {
     expect(body, 'a line number is a fact about a file that edits itself').not.toMatch(/line \d+/u);
   });
 
-  it('says what a verified pack does not establish, and what the carried list answers', () => {
+  it('says what a verified pack does not establish, and what the reference list answers', () => {
     const body = prose();
     for (const phrase of [
       'It is not proof that the source is complete',
