@@ -17,8 +17,13 @@
  * So a ceiling here is arithmetic over the deadlines, exactly as `gateway/test/cli.test.ts` already does
  * for the gateways it boots: the worst case is what a hang costs, and a hang is a defect worth waiting
  * for once rather than misreading. `spawn-guard.ts` refuses the suite when a case's children ask for more
- * patience than the ceiling it was given grants, which is what keeps this true after somebody adds a
- * loop rather than only today, when the sums happen to fit.
+ * patience than the ceiling it was given grants, which is what keeps this true after somebody adds a loop
+ * rather than only today, when the sums happen to fit.
+ *
+ * `gateway/test/support/spawn-budget.ts` carries the same three functions for its own deadlines. They are
+ * not shared in one module because `@ashaveri/fixtures`, the one package both suites could reach,
+ * generates its vectors with the gateway's store, so depending on it from there is the build cycle pnpm
+ * refuses. Two files that say the same thing about patience, each next to the deadlines it counts.
  */
 
 /** The children a case may start before it has to say so, at the deadline the ordinary commands carry. */

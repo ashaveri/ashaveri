@@ -1,4 +1,5 @@
 import { createHash } from 'node:crypto';
+import { noteSpawn } from './support/spawn-budget.js';
 import { spawn, spawnSync } from 'node:child_process';
 import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
@@ -39,6 +40,7 @@ afterAll(() => {
 });
 
 function run(...args: string[]) {
+  noteSpawn(SPAWN_DEADLINE_MS);
   const env = { ...process.env };
   delete env['DSTACK_SIMULATOR_ENDPOINT'];
   // Every case below is an exit path, so a process still alive after eight seconds is a bug rather
@@ -70,6 +72,7 @@ function run(...args: string[]) {
  * A case that has to make a request over the same boot uses `bootServing` below instead.
  */
 async function readBanner(...args: string[]): Promise<string[]> {
+  noteSpawn(BOOT_DEADLINE_MS);
   const env = { ...process.env };
   delete env['DSTACK_SIMULATOR_ENDPOINT'];
   const child = spawn(process.execPath, [CLI, ...args], {
@@ -271,6 +274,7 @@ interface ServedGateway {
  * is kept, because it is where a gateway that is about to stop says why.
  */
 async function bootServing(args: string[]): Promise<ServedGateway> {
+  noteSpawn(BOOT_DEADLINE_MS);
   const env = { ...process.env };
   delete env['DSTACK_SIMULATOR_ENDPOINT'];
   const child = spawn(process.execPath, [CLI, '--mock', '--port', '0', ...args], {
@@ -768,7 +772,7 @@ describe('the flags that make the access floor real', () => {
  * the process reports and the number a request is refused by.
  */
 describe('the bound one connection address is held to', () => {
-  it('refuses a peer rate with one of its two fields missing', () => {
+  it('refuses a peer rate with one of its two fields missing', { timeout: spawnBudget(3) }, () => {
     const noBurst = run('--mock', '--peer-rate', 'perMinute=6000');
     expect(noBurst.status).toBe(2);
     expect(noBurst.stderr).toContain("--peer-rate wants perMinute=<n>,burst=<n>, got 'perMinute=6000': burst is missing");
@@ -813,7 +817,7 @@ describe('the bound one connection address is held to', () => {
     spawnBudget(6),
   );
 
-  it('refuses a peer rate field it does not have, and one given twice', () => {
+  it('refuses a peer rate field it does not have, and one given twice', { timeout: spawnBudget(3) }, () => {
     const unknown = run('--mock', '--peer-rate', 'perMinute=6000,bursts=300');
     expect(unknown.status).toBe(2);
     expect(unknown.stderr).toContain("'bursts=300' is not one of those two fields");
