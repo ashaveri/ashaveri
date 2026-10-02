@@ -2,18 +2,19 @@ import { p256 } from '@noble/curves/nist.js';
 import { sha256 } from '@noble/hashes/sha2.js';
 
 /**
- * Certificates and signed documents for these tests, written here rather than captured.
+ * Certificates and signed documents for the estate's suites, written here rather than captured.
  *
  * No answer of the vendor's is stored in this repository, so every document a test hands to the reader is
- * built here and signed by a key generated in the test. What it is built to is the layout the vendor
- * publishes, member for member and word for word, as cited at each declaration in `intel-origin.ts`: the
- * levels under `tcbLevels`, each entry stating its composition as the component numbers of an object under
- * `tcb`, the status in `tcbStatus` with the vendor's own words, the window in `issueDate` and `nextUpdate`
- * inside `tcbInfo`, and the QE Identity's members inside `enclaveIdentity`. The member naming the CPU type
- * is the vendor's `fmspc`, so a test cannot make the identity guard fire by writing a name here that the
- * reader looks for there.
+ * built here and signed by a key generated in the test, from a label in the one case whose bytes are published
+ * and so has to come out the same every time its generator runs. What it is built to is the layout the vendor
+ * publishes, member for member and word for word, as cited at each declaration of the collateral package's
+ * `intel-origin.ts`: the levels under `tcbLevels`, each entry stating its composition as the component numbers
+ * of an object under `tcb`, the status in `tcbStatus` with the vendor's own words, the window in `issueDate`
+ * and `nextUpdate` inside `tcbInfo`, and the QE Identity's members inside `enclaveIdentity`. The member naming
+ * the CPU type is the vendor's `fmspc`, so a test cannot make the identity guard fire by writing a name here
+ * that the reader looks for there.
  *
- * Two envelopes are written here, because this package reads two. `signedDocument` writes three base64url
+ * Two envelopes are written here, because `@ashaveri/collateral` reads two. `signedDocument` writes three base64url
  * parts with the certificates in the header, which is the envelope `readSignedCollateral` decodes and the
  * shape Intel does not answer in. `servedAnswer` writes the answer that address returns, the document member
  * and a hex `signature` member, beside the issuer chain a response header carries, which is what
@@ -22,10 +23,10 @@ import { sha256 } from '@noble/hashes/sha2.js';
  * the vendor's own body with no chain anywhere, precisely so a case can pin the refusal the JWS arm owes it
  * rather than pretend the gap away.
  *
- * Builders here state only the members this path reads, spelled as the vendor spells them. The members a
+ * Builders here state only the members the collateral reader reads, spelled as the vendor spells them. The members a
  * served body states and nothing here reads (`id`, `version`, `pceId`, `tcbType`,
  * `tcbEvaluationDataNumber`, `tdxModule`, `tdxModuleIdentities`) are left out rather than guessed at, and
- * a case that needs one of them is a case about a member this path does not read.
+ * a case that needs one of them is a case about a member that reader does not read.
  */
 
 const OID_ECDSA_SHA256 = '1.2.840.10045.4.3.2';
@@ -48,8 +49,8 @@ export interface TestVendor {
 
 /** A vendor whose signing certificate names a suite its key does not carry, which is a substitution. */
 export function mismatchedVendor(): TestVendor {
-  const rootKey = p256.utils.randomPrivateKey();
-  const signingKey = p256.utils.randomPrivateKey();
+  const rootKey = p256.utils.randomSecretKey();
+  const signingKey = p256.utils.randomSecretKey();
   const notBefore = secondsOf('2026-01-01T00:00:00.000Z');
   const notAfter = secondsOf('2036-01-01T00:00:00.000Z');
   const rootDer = certificate({
@@ -94,9 +95,47 @@ export function secondsOf(text: string): number {
 }
 
 /**
- * A root and an issuing CA, both P-256 and both CA certificates, because this path reads the vendor's
- * statement as signed by an authority rather than by a leaf. Two calls with the same names hand back the
- * same distinguished names over different keys, which is what a chain borrowing a trusted name looks like.
+ * A root and an issuing CA over two keys the caller names, both P-256 and both CA certificates.
+ *
+ * The two vendors below are this and nothing else: one hands its keys to the random source, one names them.
+ */
+function vendorWithKeys(input: {
+  readonly rootKey: Uint8Array;
+  readonly issuerKey: Uint8Array;
+  readonly rootName: string;
+  readonly issuerName: string;
+  readonly notBefore: number;
+  readonly notAfter: number;
+}): TestVendor {
+  const rootDer = certificate({
+    commonName: input.rootName,
+    issuerCommonName: input.rootName,
+    serial: 1,
+    notBefore: input.notBefore,
+    notAfter: input.notAfter,
+    key: input.rootKey,
+    issuerKey: input.rootKey,
+    isCa: true,
+  });
+  const issuerDer = certificate({
+    commonName: input.issuerName,
+    issuerCommonName: input.rootName,
+    serial: 2,
+    notBefore: input.notBefore,
+    notAfter: input.notAfter,
+    key: input.issuerKey,
+    issuerKey: input.rootKey,
+    isCa: true,
+  });
+  return { rootDer, issuerDer, signingKey: input.issuerKey, rootDigest: toHex(sha256(rootDer)) };
+}
+
+/**
+ * A vendor drawn fresh from the random source, for a case that signs and reads inside one run.
+ *
+ * Two calls with the same names hand back the same distinguished names over different keys, which is what a
+ * chain borrowing a trusted name looks like, and that is the point of drawing again: nothing a case trusts may
+ * be inferred from the issuer the last case happened to make.
  */
 export function testVendor(input: {
   readonly rootName?: string;
@@ -104,33 +143,40 @@ export function testVendor(input: {
   readonly notBefore?: number;
   readonly notAfter?: number;
 } = {}): TestVendor {
-  const notBefore = input.notBefore ?? secondsOf('2026-01-01T00:00:00.000Z');
-  const notAfter = input.notAfter ?? secondsOf('2036-01-01T00:00:00.000Z');
-  const rootName = input.rootName ?? 'Test Vendor Root CA';
-  const issuerName = input.issuerName ?? 'Test Vendor Platform CA';
-  const rootKey = p256.utils.randomPrivateKey();
-  const issuerKey = p256.utils.randomPrivateKey();
-  const rootDer = certificate({
-    commonName: rootName,
-    issuerCommonName: rootName,
-    serial: 1,
-    notBefore,
-    notAfter,
-    key: rootKey,
-    issuerKey: rootKey,
-    isCa: true,
+  return vendorWithKeys({
+    rootKey: p256.utils.randomSecretKey(),
+    issuerKey: p256.utils.randomSecretKey(),
+    rootName: input.rootName ?? 'Test Vendor Root CA',
+    issuerName: input.issuerName ?? 'Test Vendor Platform CA',
+    notBefore: input.notBefore ?? secondsOf('2026-01-01T00:00:00.000Z'),
+    notAfter: input.notAfter ?? secondsOf('2036-01-01T00:00:00.000Z'),
   });
-  const issuerDer = certificate({
-    commonName: issuerName,
-    issuerCommonName: rootName,
-    serial: 2,
-    notBefore,
-    notAfter,
-    key: issuerKey,
-    issuerKey: rootKey,
-    isCa: true,
+}
+
+/** A P-256 private key read off a label, which is the same key every run that label is written again. */
+function keyOfLabel(label: string): Uint8Array {
+  return sha256(new TextEncoder().encode(label));
+}
+
+/**
+ * The vendor a published document is issued by: the same two certificates as `testVendor`, over two keys read
+ * off labels rather than off the random source.
+ *
+ * A document that leaves this repository as data has to come out byte for byte again every time its generator
+ * runs, and a random issuer hands every run a different signature to publish. These keys are fixed, so the
+ * served answer they sign is the same bytes in the committed vectors and in a reader's hands, and a port that
+ * writes `rootDer` to a file can pin it and weigh those bytes for itself. Nothing published by a real vendor is
+ * anywhere in them, and nothing here reaches an endpoint to make them.
+ */
+export function fixtureVendor(): TestVendor {
+  return vendorWithKeys({
+    rootKey: keyOfLabel('ashaveri-fixture-vendor/root'),
+    issuerKey: keyOfLabel('ashaveri-fixture-vendor/issuer'),
+    rootName: 'Ashaveri Fixture Vendor Root CA',
+    issuerName: 'Ashaveri Fixture Vendor Platform CA',
+    notBefore: secondsOf('2020-01-01T00:00:00.000Z'),
+    notAfter: secondsOf('2040-01-01T00:00:00.000Z'),
   });
-  return { rootDer, issuerDer, signingKey: issuerKey, rootDigest: toHex(sha256(rootDer)) };
 }
 
 /** The certificates a header would present for this vendor, leaf first, as the answer spells them. */
@@ -140,7 +186,7 @@ export function x5cOf(vendor: TestVendor): readonly string[] {
 
 /** A key the vendor never issued a certificate for, so a document signed with it is not the vendor's. */
 export function foreignKey(): Uint8Array {
-  return p256.utils.randomPrivateKey();
+  return p256.utils.randomSecretKey();
 }
 
 /** The document as the origin serves it: three dot-separated base64url parts, certificates in the header. */
@@ -151,7 +197,7 @@ export function signedDocument(
 ): Uint8Array {
   const first = toBase64Url(utf8(JSON.stringify(header)));
   const second = toBase64Url(utf8(JSON.stringify(payload)));
-  const signature = p256.sign(sha256(utf8(`${first}.${second}`)), vendor.signingKey).toCompactRawBytes();
+  const signature = p256.sign(sha256(utf8(`${first}.${second}`)), vendor.signingKey).toBytes('compact');
   return utf8(`${first}.${second}.${toBase64Url(signature)}`);
 }
 
@@ -297,7 +343,7 @@ export function servedMemberText(document: Record<string, unknown>, member: stri
  * `declaration.signature.served.signatureMember`, which the first case in that test reads against it.
  */
 export function servedSignatureMember(text: string, vendor: TestVendor): string {
-  return toHex(p256.sign(sha256(utf8(text)), vendor.signingKey).toCompactRawBytes());
+  return toHex(p256.sign(sha256(utf8(text)), vendor.signingKey).toBytes('compact'));
 }
 
 /** The wrapper the origin answers: the document member's own text, and a hex signature member beside it. */
@@ -357,7 +403,7 @@ function certificate(spec: CertificateSpec): Uint8Array {
     ),
     tlv(0xa3, sequence(sequence(oidNode(OID_BASIC_CONSTRAINTS), booleanNode(true), octetNode(sequence(booleanNode(spec.isCa)))))),
   );
-  const signature = p256.sign(sha256(body), spec.issuerKey).toDERRawBytes();
+  const signature = p256.sign(sha256(body), spec.issuerKey).toBytes('der');
   return sequence(body, algorithm, bitStringNode(signature));
 }
 

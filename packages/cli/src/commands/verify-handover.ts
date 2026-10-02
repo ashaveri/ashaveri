@@ -426,15 +426,16 @@ async function readPack(bytes: Uint8Array, inputs: Inputs, kid: Uint8Array): Pro
  * that is the only name the container gives the material, and a final row for the slots that state an absence,
  * which are owed no material and so weigh nothing at all.
  *
- * `carried` is always true of a printed row, and the reason is worth stating rather than leaving to inference:
- * the format refuses a pack that names a held slot it carries nothing for, at the position that names it, so no
- * report of a pack this command accepted can hold a slot whose material is absent. The absence is a refusal with
- * an exit code, not a row, and `carriedNotChecked` says so beside the rows.
+ * `carried` says whether this pack's arm handed over a copy of the bytes the digest names, and it is stated rather
+ * than assumed because it can be false: a pack that refers to a held slot and attaches nothing for it is a whole
+ * document, and the row for its digest is printed with that figure false: nothing is weighed against it, and the
+ * reason stands beside the row. An empty arm moves no exit code, which answers the container and not the arm, and
+ * `carriedNotChecked` says what such a row leaves open.
  *
  * Four figures in these rows are text this command did not write and has not validated, and each of them enters
  * the printed shape through `printedToken`: a record's id as the pack spells it, which the format bounds in bytes
  * and in nothing else, an absent slot's reason, which is the collector's own sentence inside a sealed receipt and
- * is read as a tstr and no more, the vendor's words beside the level asked about, out of the carried bytes
+ * is read as a tstr and no more, the vendor's words beside the level asked about, out of the attached bytes
  * themselves, and the caller's spellings of the origin, the identity and the rung, echoed back as asked. Quoting
  * rather than digesting is the choice a report row makes for its reader, who is owed the words and the reason
  * rather than their sha256, and the escaping inside the quotes is what keeps a document from ending the row it is
@@ -466,7 +467,7 @@ function carriedFacts(weighing: CarriedReading): readonly Fact[] {
   ];
   for (const one of weighing.weighings) {
     facts.push({
-      key: `carried-${one.digest}`,
+      key: `attached-${one.digest}`,
       label: `weighed ${one.slot} ${printedToken(one.item)}`,
       value: weighingLine(one),
       json: weighingJson(one),
@@ -474,8 +475,8 @@ function carriedFacts(weighing: CarriedReading): readonly Fact[] {
   }
   if (weighing.weighings.length === 0) {
     facts.push({
-      key: 'carried',
-      label: 'carried material',
+      key: 'attached',
+      label: 'attached material',
       value:
         weighing.absences.length === 0
           ? 'no sealed receipt in this pack names an anchor, so no held slot asked for material and nothing was weighed'
@@ -505,7 +506,8 @@ function carriedFacts(weighing: CarriedReading): readonly Fact[] {
  */
 function weighingLine(one: CarriedWeighing): string {
   const named = one.namedBy.map((each) => `${printedToken(each.item)} at ${each.slot}`).join(', ');
-  const found = `digest ${one.digest}, carried as ${String(one.bytes)} byte(s), named by ${named}`;
+  const arm = one.bytes === null ? 'attached by nothing in this pack' : `attached as ${String(one.bytes)} byte(s)`;
+  const found = `digest ${one.digest}, ${arm}, named by ${named}`;
   const outcome = one.outcome;
   if (outcome === null) return `${found}: not weighed, ${one.notWeighed}`;
   const read = outcome.collateral;
@@ -533,8 +535,8 @@ function weighingJson(one: CarriedWeighing): Record<string, unknown> {
     item: one.item,
     slot: one.slot,
     namedBy: one.namedBy,
-    carried: true,
-    carriedBytes: one.bytes,
+    attached: one.bytes !== null,
+    attachedBytes: one.bytes,
     appraisalAt: one.iat,
     heldAt: one.iat,
     environment: one.environment,
@@ -558,8 +560,8 @@ function weighingJson(one: CarriedWeighing): Record<string, unknown> {
  *
  * These are disclosures about the reading rather than demands on the material: the command states what it did
  * not compare and stops there. The first is the reach, which is the distinction an archive blurs; the second is
- * the register the platform was taken from, which the row prints both halves of; the third is why no row can
- * say that a slot went uncarried.
+ * the register the platform was taken from, which the row prints both halves of; the third is what an arm leaving
+ * a digest unattached settles for this run, which is nothing.
  */
 function carriedNotChecked(weighing: CarriedReading): readonly string[] {
   if (weighing.weighings.length === 0) {
@@ -570,7 +572,7 @@ function carriedNotChecked(weighing: CarriedReading): readonly string[] {
   return [
     'whether the material this pack carries says the platform is trusted at this moment: each answer above was read against the stamp of the record that names it, and this run asked no origin anything, so no answer here reaches current-knowledge',
     `whether the platform this run asked about is the environment the sealed receipts measured: ${[...weighing.designations.bySlot].map(([slot, one]) => `the ${slot} slot was weighed as ${one.platform}`).join(', ')}, while the receipts name ${[...new Set(weighing.weighings.map((one) => one.environment))].join(' and ')} for their own measurements, and the two are printed apart because a record states the machine it ran on rather than the path its collateral was published by`,
-    'whether a held slot of this pack went uncarried: no row here can say so, because the weighing runs over a document the format accepted, and the format refuses a pack that names a held slot it carries no object for at the position that names it',
+    'whether the bytes a held slot digests are the bytes its reference names: a digest is recomputed by a reader holding the copy beside it, and where this pack attaches none there is nothing here to recompute it against',
     `whether ${COLLATERAL_ORIGIN_FLAG} named the origin these bytes were published by: the answer is read under the name this run gave, and a document covering another machine is refused as an identity mismatch rather than reported as an answer about this one`,
   ];
 }
@@ -941,7 +943,7 @@ function designationFacts(contentType: string, inputs: Inputs): readonly Fact[] 
       ? []
       : [
           {
-            key: 'carriedNotConsulted',
+            key: 'attachedNotConsulted',
             label: 'not consulted',
             value: `${[COLLATERAL_ORIGIN_FLAG, COLLATERAL_PLATFORM_FLAG, COLLATERAL_CPU_TYPE_FLAG, COLLATERAL_LEVEL_FLAG, INTEL_ROOT_FLAG].join(', ')} name the material a pack carries and what it says, and ${contentType} carries none`,
             json: { consulted: false, contentType, roots: inputs.carried.rootPaths.length },

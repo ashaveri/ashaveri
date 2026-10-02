@@ -47,10 +47,13 @@ export type ReceiptErrorCode =
   | 'PACK_RECEIPT_STAMP_MISMATCH'
   | 'PACK_CHAIN_BROKEN'
   | 'PACK_ITEM_UNREACHED'
-  | 'PACK_CARRIED_DIGEST_MISMATCH'
-  | 'PACK_CARRIED_DUPLICATE'
-  | 'PACK_CARRIED_UNNAMED'
-  | 'PACK_CARRIED_UNRESOLVED'
+  | 'PACK_CUSTODY_UNNAMED'
+  | 'PACK_CUSTODY_UNRESOLVED'
+  | 'PACK_CUSTODY_UNIT_OUTSIDE_BAND'
+  | 'PACK_ATTACHED_DIGEST_MISMATCH'
+  | 'PACK_ATTACHED_DUPLICATE'
+  | 'PACK_ATTACHED_UNNAMED'
+  | 'PACK_ATTACHED_UNRESOLVED'
   | 'PACK_KID_MISMATCH'
   | 'PACK_UNKNOWN_KEY'
   | 'REDACTION_MALFORMED_CBOR'
@@ -247,26 +250,50 @@ const ERROR_MESSAGE: Record<ReceiptErrorCode, string> = {
   // is the half of the rule the endpoints cannot see, and it is why a conforming reader counts what it walked
   // against the array it was handed.
   PACK_ITEM_UNREACHED: 'a pack item lies outside the run from the anchor to the head',
-  // The four the carried list answers to. They are four codes and not one because the four facts send a
-  // reader to four different places: to the entry, to the pack's own construction, to the issuer's choice of
-  // what to include, and to the pack for attesting material it does not hold. Each detail names a position.
-  // An entry that does not hash to what it states is the pack contradicting itself about bytes it carries, and
-  // the reader recomputes rather than adjudicating between two claims.
-  PACK_CARRIED_DIGEST_MISMATCH: 'a carried object does not hash to the digest the pack states beside it',
-  // Deduplication is inside the pack, so one object appears once however many sealed receipts name it. A
-  // digest carried at two positions is the same object twice under two entries, which makes the count of what
-  // a pack carries mean something other than the material it holds.
-  PACK_CARRIED_DUPLICATE: 'the pack carries the same digest at two positions of its carried list',
-  // The list is a statement about the slots the sealed receipts name, so an entry no slot names is the pack
-  // carrying bytes it attests nothing about. This is the other direction from an unresolved slot and the two
-  // are separate codes because one is a pack that holds too little and this one is a pack that holds more than
-  // it speaks of, which is a different construction to fix.
-  PACK_CARRIED_UNNAMED: 'a carried object is named by no slot of any receipt the pack seals',
-  // The failure the carried member exists to make impossible: a sealed receipt states material it took in, and
-  // the pack that seals that receipt does not carry it. This is the pack's own failure and never a statement
-  // about the world, which is why it is not an absence and why a reader reports it as a defect of the document
-  // rather than as collateral nobody holds.
-  PACK_CARRIED_UNRESOLVED: 'a receipt the pack seals states held collateral the pack does not carry',
+  // The three the reference list answers to. They are three codes and not one because the three facts send a
+  // reader to three different places: to the entry, to the pack's own construction, and to the unit of a number
+  // the pack states. Each detail names a position. There is no fourth: an origin name this build has no
+  // declaration for is refused where a declaration is looked up, in `packages/collateral`, and `@ashaveri/receipt`
+  // never sees the declarations, so a code written where no path of this package can throw it would be a row
+  // documenting a fault nobody meets.
+  // A reference that names no held slot is a record of an observation nobody asked this pack to stand behind,
+  // which is the other direction from a slot nothing answers for and a different construction to fix: one is a
+  // pack that speaks of more than it sealed, this one a pack that sealed a slot and said nothing about it.
+  PACK_CUSTODY_UNNAMED: 'a custody entry answers for no held slot of any receipt the pack seals',
+  // The failure the custody member exists to make impossible: a sealed receipt states material it took in, and
+  // the pack that seals that receipt signs for nothing about it. This is the pack's own failure and never a
+  // statement about the world, which is why it is not an absence and why a reader reports it as a defect of the
+  // document rather than as collateral nobody holds.
+  PACK_CUSTODY_UNRESOLVED: 'a receipt the pack seals states a held slot no custody entry answers for',
+  // The clock-unit decision read at the entry rather than downstream. A millisecond spelling of an instant is a
+  // whole number no earlier than the epoch, so the value alone cannot tell the two units apart and the band can:
+  // the refusal lands before any member of the material a reference names is weighed, and both ends ride in the
+  // message for the reason the receipt's own windows give, because the reading is the caller's and a number
+  // inside the two ends is accepted whichever way it was counted.
+  PACK_CUSTODY_UNIT_OUTSIDE_BAND: 'a custody entry states an instant that is not a whole number of Unix seconds inside the band the format states',
+  // The four the byte arm answers to. They were named for the list this member replaced and were renamed
+  // with it, so their conditions state the arm: the material a deployment attaches beside the references, which
+  // no path a deployment runs fills and one accepted pack of the published suite does, with a served pair its own
+  // fixture vendor signed. They are four codes and not one because the four facts send a reader to
+  // four different places: to the entry, to the pack's own construction, to the issuer's choice of what to
+  // attach, and to the caller reaching for material the pack never undertook to hand over. Each detail names a
+  // position. An entry that does not hash to what it states is the pack contradicting itself about bytes it
+  // carries, and the reader recomputes rather than adjudicating between two claims.
+  PACK_ATTACHED_DIGEST_MISMATCH: 'an attached object does not hash to the digest the pack states beside it',
+  // Deduplication is inside the pack, so one object appears once however many references name it. A digest
+  // attached at two positions is the same object twice under two entries, which makes the count of what a pack
+  // attaches mean something other than the material it holds.
+  PACK_ATTACHED_DUPLICATE: 'the pack attaches the same digest at two positions of its byte arm',
+  // The arm is a statement about the references the pack signs for, so an entry no reference names is the pack
+  // attaching bytes it attests nothing about. This is the other direction from a caller reaching for material
+  // that is not attached and the two are separate codes because one is a pack that holds more than it speaks of
+  // and this one is a pack that speaks of material it holds nowhere.
+  PACK_ATTACHED_UNNAMED: 'an attached object is named by the body digest of no reference the pack signs for',
+  // Not a defect of the document: the pack that attaches nothing is whole, and each reference states what was
+  // seen, by which arm, and when. This is the lookup's answer, reached where a caller asks for the material
+  // beside a reference and the container holds none of it, which is the same action the export's unread original
+  // sends a caller to: go and get what the deployment holds, then read again.
+  PACK_ATTACHED_UNRESOLVED: 'a held slot of a pack states a digest the pack attaches no object for',
   // The key the reader reached for, by whichever of the two designations the caller used, hashes to something
   // other than the kid the pack's header names. This is not a lookup failure: the lookup answered, and what it
   // answered with disagrees with the document, which is a wrong key rather than an edited document. The two

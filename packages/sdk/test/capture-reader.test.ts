@@ -78,6 +78,35 @@ const held = (bytes: Uint8Array): Record<string, unknown> => ({
 const ABSENT_AT_SOURCE = { presence: 'absent-at-source', reason: 'the platform served no chain' };
 const NOT_TAKEN_IN = { presence: 'not-taken-in', reason: 'the collector did not read the chain route' };
 
+/**
+ * A held collateral slot and everything it states about the answer: which source declaration the bytes
+ * came under, where they were asked, what the answer names itself, when the last byte landed, how far the
+ * clock behind that instant admits it can stand, which reading weighed the answer, the span the answer's
+ * own signed statement reaches, and the key the answer was kept under. The header that carried the chain
+ * arrives beside its digest.
+ *
+ * The address, the header it is asked at and the key's member names and order are what
+ * `packages/collateral/src/intel-origin.ts` declares for this source, so the fixture states a route this
+ * repository has named rather than one it invented, and no vendor byte is in it.
+ */
+function collateral(bytes: Uint8Array, over: Record<string, unknown> = {}): Record<string, unknown> {
+  const header = TEXT('TCB-Info-Issuer-Chain: -----BEGIN CERTIFICATE-----');
+  return {
+    ...held(bytes),
+    origin: 'intel-tcb-info',
+    request: 'https://api.trustedservices.intel.com/sgx/certification/v4/tcb?fmspc=00906f000200',
+    identity: { cpuType: '00906f000200', vendorStatus: 'UpToDate' },
+    observedAt: NOW - 30,
+    sourceUncertaintySeconds: 2,
+    chainSha256: toHex(sha256(header)),
+    chainBytes: toBase64Url(header),
+    weighedBy: 'served',
+    window: { from: 1_735_689_600, to: 1_798_761_600 },
+    cacheKey: 'origin=intel-tcb-info|platform=sgx|cpuType=00906f000200|level=tcb-date=2024-05-15T00:00:00Z',
+    ...over,
+  };
+}
+
 function record(
   original: Uint8Array,
   over: Record<string, unknown> = {},
@@ -104,7 +133,7 @@ function record(
       verifierVersion: '0.1.0',
       appraisedAt: NOW,
     },
-    context: block.context ?? { collateral: held(TEXT('the vendor chain')), validity: held(TEXT('the appraisal')) },
+    context: block.context ?? { collateral: collateral(TEXT('the vendor chain')), validity: held(TEXT('the appraisal')) },
     trust: {
       roots: [{ family: 'amdArks', digest: ROOT_DIGEST }],
       limits: { maxReceiptAgeSeconds: 300, maxEvidenceAgeSeconds: 900 },
@@ -142,12 +171,23 @@ describe('a verdict keeps custody and verification apart', () => {
     expect(verdict.qualifications).toEqual([]);
   });
 
+  it('names the record\'s own claim `stated`, and carries no verdict field named for the keeping of bytes', () => {
+    // The verdict's two halves are what the record says it held and what this reader established. The
+    // first was spelled with the same word the format spells the keeping of material itself, which left
+    // a caller to work out from a log line which of the two a line named. `stated` pairs with `repeated`
+    // and says whose claim it is, and the old spelling is refused here rather than left as a second name
+    // for the same half.
+    const verdict = assessCapture({ record: record(receiptV1), policy: PINNED, ...AT_NOW });
+    expect(verdict).not.toHaveProperty('custody');
+    expect(verdict.stated.sourceKind).toBe('receipt');
+  });
+
   it('returns the stored bytes, exactly, and recomputes the digest it reports', () => {
     const verdict = assessCapture({ record: record(receiptV1), policy: PINNED, ...AT_NOW });
     expect(equalBytes(verdict.repeated.originalBytes, receiptV1)).toBe(true);
     expect(verdict.repeated.sha256).toBe(toHex(sha256(receiptV1)));
-    expect(verdict.custody.sha256).toBe(verdict.repeated.sha256);
-    expect(verdict.custody.byteCount).toBe(receiptV1.length);
+    expect(verdict.stated.sha256).toBe(verdict.repeated.sha256);
+    expect(verdict.stated.byteCount).toBe(receiptV1.length);
     expect(verdict.repeated.signatureVerifiedWithOwnPins).toBe(true);
     expect(verdict.repeated.signingKid).toBe(KID);
     expect(verdict.repeated.rootsMatched).toEqual(['amdArks']);
@@ -157,8 +197,9 @@ describe('a verdict keeps custody and verification apart', () => {
     const verdict = assessCapture({ record: record(receiptV1), ...AT_NOW });
     expect(verdict.status).toBe('unassessed');
     expect(verdict.repeated.signatureVerifiedWithOwnPins).toBe(false);
-    // The claim of custody is still the record's, and the reader hands it back as a claim.
-    expect(verdict.custody.assertsSignature).toBe(true);
+    // The record's own claim about the bytes it held is still the record's, and the reader hands it
+    // back as a claim.
+    expect(verdict.stated.assertsSignature).toBe(true);
     expect(verdict.qualifications.join(' ')).toContain(KID);
   });
 
@@ -188,7 +229,7 @@ describe('a verdict keeps custody and verification apart', () => {
       policy: PINNED,
       ...AT_NOW,
     });
-    expect(verdict.custody.assertsSignature).toBe(false);
+    expect(verdict.stated.assertsSignature).toBe(false);
     expect(verdict.status).toBe('qualified');
     expect(verdict.qualifications.join(' ')).toContain('nothing to repeat');
   });
@@ -264,6 +305,78 @@ describe('missing context is never upgraded into a pass', () => {
     expect(
       assessCapture({ record: record(receiptV1, {}, { receiptFormatVersion: 1 }), policy: PINNED, ...AT_NOW }).status,
     ).toBe('repeated');
+  });
+});
+
+describe('the observation a verdict hands back as the record\'s own claim', () => {
+  it('accepts a slot stating every member, and hands the eight back on the verdict', () => {
+    const header = TEXT('TCB-Info-Issuer-Chain: -----BEGIN CERTIFICATE-----');
+    const verdict = assessCapture({ record: record(receiptV1), policy: PINNED, ...AT_NOW });
+    expect(verdict.status).toBe('repeated');
+    expect(verdict.stated.collateral).toEqual({
+      origin: 'intel-tcb-info',
+      request: 'https://api.trustedservices.intel.com/sgx/certification/v4/tcb?fmspc=00906f000200',
+      identity: { cpuType: '00906f000200', vendorStatus: 'UpToDate' },
+      observedAt: NOW - 30,
+      sourceUncertaintySeconds: 2,
+      chainSha256: toHex(sha256(header)),
+      chainBytes: toBase64Url(header),
+      weighedBy: 'served',
+      window: { from: 1_735_689_600, to: 1_798_761_600 },
+      cacheKey: 'origin=intel-tcb-info|platform=sgx|cpuType=00906f000200|level=tcb-date=2024-05-15T00:00:00Z',
+    });
+    // A chain the source served apart from the body is a pair, and a slot that states neither says so by
+    // carrying neither: an empty string or a guess is not how this record writes "no header".
+    const bare = collateral(TEXT('the vendor chain'));
+    delete bare['chainSha256'];
+    delete bare['chainBytes'];
+    bare['weighedBy'] = 'embedded';
+    const noChain = assessCapture({
+      record: record(receiptV1, {}, {
+        context: { collateral: bare, validity: held(TEXT('the appraisal')) },
+      }),
+      policy: PINNED,
+      ...AT_NOW,
+    });
+    expect(noChain.stated.collateral).not.toHaveProperty('chainBytes');
+    expect(noChain.stated.collateral).not.toHaveProperty('chainSha256');
+    expect(noChain.stated.collateral?.weighedBy).toBe('embedded');
+  });
+
+  it('weighs the collateral slot\'s statement and no other slot\'s, whoever else states one', () => {
+    // The role rule where it matters: the ten members are legal in any held slot, so a validity slot that
+    // states a whole observation is a document this reader takes, assesses, and reports as nothing. Which
+    // answer the record holds is the collateral slot's claim and the verdict carries that claim alone.
+    const other = collateral(TEXT('the appraisal'), { origin: 'intel-qe-identity', cacheKey: 'origin=intel-qe-identity|platform=sgx|level=tcb-date=2024-05-15T00:00:00Z' });
+    const verdict = assessCapture({
+      record: record(receiptV1, {}, { context: { collateral: collateral(TEXT('the vendor chain')), validity: other } }),
+      policy: PINNED,
+      ...AT_NOW,
+    });
+    expect(verdict.status).toBe('repeated');
+    expect(verdict.stated.collateral?.origin).toBe('intel-tcb-info');
+    expect(verdict.stated.collateral?.cacheKey).toBe('origin=intel-tcb-info|platform=sgx|cpuType=00906f000200|level=tcb-date=2024-05-15T00:00:00Z');
+    expect(JSON.stringify(verdict), 'a validity slot\'s observation reaching the verdict').not.toContain('intel-qe-identity');
+  });
+
+  it('keeps a record whose collateral slot is absent-at-source readable at every old member', () => {
+    // The F2 witness at the verdict: capture-v1 widened under its own number, and what that buys is that a
+    // record stating an absence keeps every member it ever had, gains no obligation, and hands back no
+    // observation it never made. The absence is still reported as the record's own state of the world.
+    const verdict = assessCapture({
+      record: record(receiptV1, {}, { context: { collateral: ABSENT_AT_SOURCE, validity: held(TEXT('the appraisal')) } }),
+      policy: PINNED,
+      ...AT_NOW,
+    });
+    expect(verdict.stated.collateral).toBeNull();
+    expect(verdict.stated.sourceKind).toBe('receipt');
+    expect(verdict.stated.sourceId).toBe('cvm-test-1');
+    expect(verdict.stated.sha256).toBe(verdict.repeated.sha256);
+    expect(verdict.stated.acquiredAt).toBe(NOW);
+    expect(verdict.absences).toEqual([
+      { slot: 'context.collateral', presence: 'absent-at-source', reason: 'the platform served no chain' },
+    ]);
+    expect(verdict.status).toBe('qualified');
   });
 });
 
@@ -357,8 +470,8 @@ describe('the limits and the clock a verdict was reached under', () => {
       ...AT_NOW,
     });
     expect(verdict.status).toBe('qualified');
-    expect(verdict.custody.sourceStatedAt).toBe(NOW + 30);
-    expect(verdict.custody.acquiredAt).toBe(NOW);
+    expect(verdict.stated.sourceStatedAt).toBe(NOW + 30);
+    expect(verdict.stated.acquiredAt).toBe(NOW);
     expect(verdict.qualifications.join(' ')).toContain('the two clocks disagree');
   });
 

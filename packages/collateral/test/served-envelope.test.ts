@@ -2,6 +2,19 @@ import { describe, expect, it } from 'vitest';
 import { p256 } from '@noble/curves/nist.js';
 import { sha256 } from '@noble/hashes/sha2.js';
 import {
+  qeIdentity,
+  secondsOf,
+  servedAnswer,
+  servedChain,
+  servedChainOf,
+  servedMemberText,
+  servedSignatureMember,
+  servedWrapperBody,
+  tcbInfo,
+  tcbInfoBody,
+  testVendor,
+} from '@ashaveri/fixtures';
+import {
   INTEL_QE_IDENTITY,
   INTEL_TCB_INFO,
   appraiseCollateral,
@@ -14,19 +27,6 @@ import {
   type ReadCollateral,
   type ReadOutcome,
 } from '../src/index.js';
-import {
-  qeIdentity,
-  secondsOf,
-  servedAnswer,
-  servedChain,
-  servedChainOf,
-  servedMemberText,
-  servedSignatureMember,
-  servedWrapperBody,
-  tcbInfo,
-  tcbInfoBody,
-  testVendor,
-} from './support/collateral-documents.js';
 
 const FMSPC = '00906EA00000';
 const CPU_TYPE = FMSPC.toLowerCase();
@@ -92,16 +92,25 @@ function readOf(result: ReadOutcome): ReadCollateral {
   throw new Error(`the answer was refused: ${result.refusal.code} ${result.refusal.detail}`);
 }
 
-function refusalOf(result: ReadOutcome): CollateralRefusal {
+/** The refusal either answer carries: a reader weighing an envelope, or the appraise path weighing an outcome. */
+function refusalOf(result: ReadOutcome | CollateralOutcome): CollateralRefusal {
   if ('refusal' in result) {
     return result.refusal;
   }
-  throw new Error(`the answer was weighed as ${result.read.vendorStatus}, but a refusal was expected`);
+  const weighed = 'read' in result ? result.read.vendorStatus : 'current, which carries no refusal';
+  throw new Error(`the answer was weighed as ${weighed}, but a refusal was expected`);
 }
 
 /** The origin answering the one caller that asks it, with the halves this case hands it. */
 function answering(body: Uint8Array, chain: Uint8Array | null): CollateralTransport {
   return async () => new Response(body, chain === null ? {} : { headers: { [TCB_HEADER]: new TextDecoder().decode(chain) } });
+}
+
+/** The transport a retained answer must never reach: asked here, it fails the case loudly. */
+function neverAsked(): CollateralTransport {
+  return async () => {
+    throw new Error('a retained answer was weighed by asking the origin');
+  };
 }
 
 async function ask(transport: CollateralTransport, over: Partial<CollateralQuery> = {}): Promise<CollateralOutcome> {
@@ -338,6 +347,60 @@ describe('the envelope the origin actually serves', () => {
     expect(refusal.code).toBe('COLLATERAL_BLOB_UNREADABLE');
     expect(refusal.detail).toContain('names no served envelope');
   });
+
+  /**
+   * A body kept beside the header that arrived with it is the pair the origin answered, so this arm weighs it out
+   * of a caller's store as readily as off the wire: the two cases above hand it the same bytes from a fetch.
+   * `neverAsked()` is the witness that nothing was addressed, and `onAbsent: 'refuse'` is what makes a body read
+   * by the wrong arm throw rather than arrive as a state this case would have to name.
+   *
+   * The reach is the half that stays honest: no run watched an origin answer, so the claim is historical and
+   * reports no observation of its own, which is the answer the fetched path owes and this one cannot.
+   */
+  it('weighs a retained body beside a retained chain, and reaches no origin to do it', async () => {
+    const answer = servedAnswer(servedDocument(), TCB_MEMBER, vendor);
+    const outcome = await ask(neverAsked(), {
+      retained: { bytes: answer.body, chain: answer.chain, chainSha256: null, observedAt: OBSERVED },
+      onAbsent: 'refuse',
+    });
+    expect(outcome.state).toBe('stale');
+    if (outcome.state !== 'stale') {
+      throw new Error(`the retained pair answered ${outcome.state}, which was not weighed as one`);
+    }
+    expect(outcome.claim.reach).toBe('historical-knowledge');
+    expect(outcome.claim.observedAt, 'the retained reading watched no origin').toBeNull();
+    expect(outcome.collateral.digest).toBe(hex(sha256(answer.body)));
+    expect(outcome.collateral.anchorDigest).toBe(vendor.rootDigest);
+    expect(outcome.collateral.blobs).toHaveLength(3);
+    expect(refusalOf(outcome).code).toBe('COLLATERAL_NOT_OBSERVED');
+  });
+
+  /**
+   * A digest stated beside a retained chain is a promise about which header arrived, and it is checked before the
+   * dispatch, so no member of a body is believed while the pair disagrees: a caller asking what was seen gets an
+   * answer about the bytes it named, not about a header swapped under the question. Both hexes ride in the detail
+   * and both fields are named, which is what tells the caller which half drifted. The transport is the same one the
+   * case above refuses to reach, because a reading that addressed an origin here would be answering a different
+   * question than the one it was asked.
+   */
+  it('refuses a retained chain that does not hash to the digest the caller named', async () => {
+    const answer = servedAnswer(servedDocument(), TCB_MEMBER, vendor);
+    const borrowedChain = servedChainOf([vendor.rootDer, vendor.rootDer]);
+    const outcome = await ask(neverAsked(), {
+      retained: {
+        bytes: answer.body,
+        chain: borrowedChain,
+        chainSha256: sha256(answer.chain),
+        observedAt: OBSERVED,
+      },
+    });
+    expect(outcome.state).toBe('unavailable');
+    expect(refusalOf(outcome).code).toBe('COLLATERAL_RETAINED_CHAIN_MISMATCH');
+    expect(refusalOf(outcome).missing).toEqual(['retained.chain', 'retained.chainSha256']);
+    expect(refusalOf(outcome).verdict).toBe('terminal');
+    expect(refusalOf(outcome).detail).toContain(hex(sha256(borrowedChain)));
+    expect(refusalOf(outcome).detail).toContain(hex(sha256(answer.chain)));
+  });
 });
 
 describe('the one caller that asks the origin', () => {
@@ -369,7 +432,7 @@ describe('the one caller that asks the origin', () => {
     const answer = servedAnswer(servedDocument(), TCB_MEMBER, vendor);
     for (const outcome of [
       await ask(answering(answer.body, null)),
-      await ask(async () => new Response('bytes'), { retained: { bytes: answer.body, observedAt: OBSERVED } }),
+      await ask(async () => new Response('bytes'), { retained: { bytes: answer.body, chain: null, chainSha256: null, observedAt: OBSERVED } }),
     ]) {
       expect(outcome.state).toBe('unavailable');
       if ('refusal' in outcome) {

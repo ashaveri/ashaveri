@@ -898,12 +898,12 @@ floating-point number may appear, in a value and in a key alike, bounds every it
 span, walks the `prev` links from the signed anchor to the signed head and counts what that walk reached against
 the array it was handed, and verifies each item's receipt as a receipt, under the key that item's own header
 names and with its chained stamp equal to the `iat` the receipt attests. The same structural parse weighs the
-`carried` list against the slots those sealed receipts name, which is the half a reader of a pack cannot settle
+`attached` material against the `custody` references those sealed receipts name, which is the half a reader of a pack cannot settle
 anywhere else: each entry's digest is recomputed from the bytes beside it, the two ceilings the format takes from
-its own contents are enforced before any hashing, and the list and the slots have to speak of one set of material,
-so an entry misstating its own bytes, one digest carried at two positions, an entry no held slot names and a slot
+its own contents are enforced before any hashing, and the arm and the references have to speak of one set of material,
+so an entry misstating its own bytes, one digest attached at two positions, an entry no held slot names and a slot
 no entry hashes to are each refused with the position that contradicted the other. A slot stating an absence names
-no digest and owes no bytes, so a pack carrying nothing beside receipts that took nothing in is whole, and
+no digest and owes no bytes, so a pack attaching nothing beside receipts that took nothing in is whole, and
 `signPack` runs this same parse before it signs, which is why none of those four shapes is a document a deployment
 seals by accident. The keys arrive from the caller in either of the two shapes the receipt verifier
 already takes: a single pinned key answers the envelope and every
@@ -1085,8 +1085,8 @@ nothing.
 
 **The two endpoints, and why they are repeated here.** A pack carries an anchor and a head inside its
 signature, and this manifest names the same two values again from the same store. It does not defer to a
-pack, because there is nothing to defer to: the published pack manifest names seven members, `v`, `at`,
-`span`, `chain`, `duty`, `items` and `carried`, and none of them is this document or a digest of it, so a reader
+pack, because there is nothing to defer to: the published pack manifest names eight members, `v`, `at`,
+`span`, `chain`, `duty`, `items`, `custody` and `attached`, and none of them is this document or a digest of it, so a reader
 holding a pack has no endpoint to inherit. Repeating them is also what the artifact's own bytes do, and a
 layout that referred a reader elsewhere to find them would be publishing a shape nothing produces. Where
 both artifacts describe one store at one instant the pairs have to agree, and a pair here that disagrees

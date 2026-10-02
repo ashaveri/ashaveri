@@ -15,7 +15,7 @@ import { sha256 } from '@noble/hashes/sha2.js';
 import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { Ajv2020, type ValidateFunction } from 'ajv/dist/2020.js';
-import { captureRecordKey, parseCaptureRecord, SOURCE_KINDS } from '../src/capture.js';
+import { captureRecordKey, COLLATERAL_WEIGHED_BY, parseCaptureRecord, SOURCE_KINDS } from '../src/capture.js';
 import { fromBase64Url } from '../src/b64.js';
 import { SdkError } from '../src/errors.js';
 import { parseManifest } from '../src/manifest.js';
@@ -81,12 +81,44 @@ const manifestDocument = {
 };
 const manifestBytes = TEXT(JSON.stringify(manifestDocument));
 
+const chainHeader = TEXT('TCB-Info-Issuer-Chain: -----BEGIN CERTIFICATE-----');
+
 const held = (bytes: Uint8Array): Record<string, unknown> => ({
   presence: 'held',
   bytes: toBase64Url(bytes),
   sha256: toHex(sha256(bytes)),
   byteCount: bytes.length,
 });
+
+/**
+ * The whole statement a held collateral slot makes about the answer it took in, beside the bytes.
+ *
+ * The address and the key are the spellings this estate's own declaration for that source produces, so a
+ * fixture cannot state a route or a member name the repository has never named; the values inside them are
+ * this test's, and no vendor byte is here.
+ */
+function collateralObservation(over: Record<string, unknown> = {}): Record<string, unknown> {
+  return {
+    ...held(TEXT('the vendor certificate chain as served')),
+    origin: 'intel-tcb-info',
+    request: 'https://api.trustedservices.intel.com/sgx/certification/v4/tcb?fmspc=00906f000200',
+    identity: { cpuType: '00906f000200', vendorStatus: 'UpToDate' },
+    observedAt: NOW - 30,
+    sourceUncertaintySeconds: 2,
+    chainSha256: toHex(sha256(chainHeader)),
+    chainBytes: toBase64Url(chainHeader),
+    weighedBy: 'served',
+    window: { from: 1_735_689_600, to: 1_798_761_600 },
+    cacheKey: 'origin=intel-tcb-info|platform=sgx|cpuType=00906f000200|level=tcb-date=2024-05-15T00:00:00Z',
+    ...over,
+  };
+}
+
+/** The same record with one collateral slot in it, however shaped. */
+function withCollateral(slot: Record<string, unknown>): Record<string, unknown> {
+  const record = recordFor(receiptV1);
+  return { ...record, context: { ...(record['context'] as Record<string, unknown>), collateral: slot } };
+}
 
 /** A whole record that assesses clean, with the top-level blocks a test can replace one at a time. */
 function recordFor(
@@ -114,7 +146,7 @@ function recordFor(
       verifierVersion: '0.1.0',
       appraisedAt: NOW,
     },
-    context: { collateral: held(TEXT('the vendor certificate chain as served')), validity: held(TEXT('the appraisal record')) },
+    context: { collateral: collateralObservation(), validity: held(TEXT('the appraisal record')) },
     trust: {
       roots: [{ family: 'amdArks', digest: toHex(sha256(ROOT)) }],
       limits: { maxReceiptAgeSeconds: 300, maxEvidenceAgeSeconds: 900 },
@@ -299,6 +331,269 @@ describe('absence is stated, never invented', () => {
   });
 });
 
+/**
+ * The code and the sentence a refusal answers with, both read off the throw.
+ *
+ * The message is the half that carries the member's name, and a caller who is told only that a code was
+ * raised cannot find out which of a slot's ten statements it left out.
+ */
+function refusalOf(fn: () => unknown): { readonly code: string; readonly message: string } {
+  try {
+    fn();
+  } catch (err) {
+    if (err instanceof SdkError || err instanceof ReceiptError) return { code: err.code, message: err.message };
+    throw err;
+  }
+  throw new Error('the reader took the record, and nothing refused it');
+}
+
+/** Every member a held collateral slot owes, the eight that decide what the bytes are an answer to. */
+const OBSERVATION_MEMBERS = [
+  'origin',
+  'request',
+  'identity',
+  'observedAt',
+  'sourceUncertaintySeconds',
+  'weighedBy',
+  'window',
+  'cacheKey',
+] as const;
+
+describe('a held collateral slot states the answer its bytes are', () => {
+  for (const member of OBSERVATION_MEMBERS) {
+    it(`refuses a held collateral slot that holds bytes and states no ${member}`, () => {
+      // One deletion at a time off a slot the writer accepts, so each case tests a reader's rule rather
+      // than the shape of a fixture. The message names the member that is missing, not the slot.
+      const slot = collateralObservation();
+      delete slot[member];
+      const refusal = refusalOf(() => parseCaptureRecord(withCollateral(slot)));
+      expect(refusal.code, `a collateral slot with no ${member}`).toBe('NOT_CAPTURE_RECORD');
+      expect(refusal.message).toContain(`context.collateral.${member}`);
+    });
+  }
+
+  it('refuses chain bytes with no digest beside them, and the reverse', () => {
+    for (const missing of ['chainSha256', 'chainBytes'] as const) {
+      const slot = collateralObservation();
+      delete slot[missing];
+      const refusal = refusalOf(() => parseCaptureRecord(withCollateral(slot)));
+      expect(refusal.code, `a chain stated with its ${missing} left out`).toBe('NOT_CAPTURE_RECORD');
+      expect(refusal.message).toContain(`context.collateral.${missing}`);
+    }
+    // Neither of the two is a statement about a chain at all, and that is a reading, not a hole.
+    const noChain = collateralObservation();
+    delete noChain['chainSha256'];
+    delete noChain['chainBytes'];
+    expect(codeOf(() => parseCaptureRecord(withCollateral(noChain)))).toBeUndefined();
+  });
+
+  it('refuses an observed instant that is not a whole number of seconds', () => {
+    for (const stated of [NOW - 30.5, -1, `${NOW - 30}`, null, Number.NaN]) {
+      expect(
+        refusalOf(() => parseCaptureRecord(withCollateral(collateralObservation({ observedAt: stated })))).code,
+        `observedAt spelled ${String(stated)}`,
+      ).toBe('NOT_CAPTURE_RECORD');
+    }
+    expect(codeOf(() => parseCaptureRecord(withCollateral(collateralObservation({ observedAt: 0 })))))
+      .toBeUndefined();
+  });
+
+  it('recomputes the digest a chain states, and refuses a second spelling of one header', () => {
+    expect(
+      refusalOf(() =>
+        parseCaptureRecord(withCollateral(collateralObservation({ chainSha256: 'f'.repeat(64) }))),
+      ).code,
+      'a chain digest that names no bytes beside it',
+    ).toBe('EVIDENCE_DIGEST_MISMATCH');
+    // One byte, two unpadded base64url spellings, both decoding to it: the reader holds the same rule for
+    // a chain as for an original, because a chain written by a second encoder is a chain nobody watched.
+    const oneByte = new Uint8Array([0xff]);
+    const canonical = toBase64Url(oneByte);
+    const reSpelled = `${canonical.slice(0, canonical.length - 1)}x`;
+    expect(equalBytes(fromBase64Url(canonical), fromBase64Url(reSpelled))).toBe(true);
+    const refusal = refusalOf(() =>
+      parseCaptureRecord(
+        withCollateral(collateralObservation({ chainBytes: reSpelled, chainSha256: toHex(sha256(oneByte)) })),
+      ),
+    );
+    expect(refusal.code).toBe('NOT_CAPTURE_RECORD');
+    expect(refusal.message).toContain('chainBytes');
+  });
+
+  it('refuses an absence that states part of an observation, or bytes at all', () => {
+    // Every member only a holding slot can state: the three that describe its bytes, the eight that say
+    // what answer those bytes are, and the chain's two halves. The reader's loop runs over all thirteen,
+    // and an absence borrowing any of them is the same lie however it is spelled.
+    for (const member of [
+      ...OBSERVATION_MEMBERS,
+      'chainBytes',
+      'chainSha256',
+      'bytes',
+      'sha256',
+      'byteCount',
+    ] as const) {
+      const stated: Record<string, unknown> = {
+        presence: 'absent-at-source',
+        reason: 'the source served no answer at all',
+      };
+      stated[member] = collateralObservation()[member];
+      const refusal = refusalOf(() => parseCaptureRecord(withCollateral(stated)));
+      expect(refusal.code, `an absent slot carrying '${member}'`).toBe('NOT_CAPTURE_RECORD');
+      expect(refusal.message).toContain(member);
+    }
+  });
+
+  it('refuses a weighing outside the two, an identity with a member it does not define, and a window with no end', () => {
+    const refusals: Array<[string, Record<string, unknown>]> = [
+      ['a weighing nobody uses', collateralObservation({ weighedBy: 'guessed' })],
+      ['an identity stating a member no record defines', collateralObservation({ identity: { cpuType: 'a', vendorStatus: 'UpToDate', tcbDate: 'now' } })],
+      ['an identity with no status in it', collateralObservation({ identity: { cpuType: 'a' } })],
+      ['an identity whose cpu type is an empty name', collateralObservation({ identity: { cpuType: '', vendorStatus: 'UpToDate' } })],
+      ['a window stating a member it does not define', collateralObservation({ window: { from: 1, to: 2, until: 3 } })],
+      ['a window with no end', collateralObservation({ window: { from: 1 } })],
+      ['a window whose half is not whole', collateralObservation({ window: { from: 1.5, to: 2 } })],
+      ['a bound that is not a count of seconds', collateralObservation({ sourceUncertaintySeconds: 'wide' })],
+      ['an origin named as nothing at all', collateralObservation({ origin: '' })],
+      ['a cache key nobody spelled', collateralObservation({ cacheKey: null })],
+    ];
+    for (const [name, slot] of refusals) {
+      expect(refusalOf(() => parseCaptureRecord(withCollateral(slot))).code, name).toBe('NOT_CAPTURE_RECORD');
+    }
+  });
+
+  it('refuses a bound below zero in every member that carries one', () => {
+    // The published document bounds all three of these at zero and the reader refuses each of them there,
+    // member by member: an instant, a bound on an instant, and either end of a span.
+    for (const [name, slot] of [
+      ['a bound of negative seconds', collateralObservation({ sourceUncertaintySeconds: -1 })],
+      ['a window beginning before the epoch', collateralObservation({ window: { from: -1, to: 2 } })],
+      ['a window ending before the epoch', collateralObservation({ window: { from: 1, to: -1 } })],
+    ] as Array<[string, Record<string, unknown>]>) {
+      const refusal = refusalOf(() => parseCaptureRecord(withCollateral(slot)));
+      expect(refusal.code, name).toBe('NOT_CAPTURE_RECORD');
+      expect(refusal.message, name).toContain('non-negative');
+    }
+    // Zero is a number and not an absence: a bound the source states as none, and a span that begins at
+    // the epoch, are both readings, and both are taken.
+    expect(
+      codeOf(() => parseCaptureRecord(withCollateral(collateralObservation({ sourceUncertaintySeconds: 0 })))),
+    ).toBeUndefined();
+    expect(codeOf(() => parseCaptureRecord(withCollateral(collateralObservation({ window: { from: 0, to: 1 } })))))
+      .toBeUndefined();
+  });
+
+  it('refuses a statement block that is not a block, and a chain digest that is not a digest', () => {
+    for (const [name, slot] of [
+      ['an identity spelled as text', collateralObservation({ identity: 'fmspc 00906F000200' })],
+      ['an identity spelled as a list', collateralObservation({ identity: ['cpuType', '00906F000200'] })],
+      ['a window spelled as text', collateralObservation({ window: '1735689600' })],
+      ['a window whose end is a list', collateralObservation({ window: { from: 1, to: [2] } })],
+    ] as Array<[string, Record<string, unknown>]>) {
+      expect(refusalOf(() => parseCaptureRecord(withCollateral(slot))).code, name).toBe('NOT_CAPTURE_RECORD');
+    }
+    // A digest that is not sixty-four lowercase hex characters is refused by the code the record's own
+    // bytes are refused by, and named by member: the reader is telling the caller that this document does
+    // not account for the material it speaks of, which is the same claim however the hash was mis-stated.
+    const malformed = refusalOf(() => parseCaptureRecord(withCollateral(collateralObservation({ chainSha256: 'XYZ' }))));
+    expect(malformed.code).toBe('EVIDENCE_DIGEST_MISMATCH');
+    expect(malformed.message).toContain('context.collateral.chainSha256');
+    // And a header of no bytes is no header, whatever digest stands beside it. The published document
+    // refuses the same document for the same reason.
+    const empty = refusalOf(() =>
+      parseCaptureRecord(
+        withCollateral(
+          collateralObservation({ chainBytes: '', chainSha256: toHex(sha256(new Uint8Array(0))) }),
+        ),
+      ),
+    );
+    expect(empty.code).toBe('NOT_CAPTURE_RECORD');
+    expect(empty.message).toContain('context.collateral.chainBytes');
+  });
+
+  it('bounds the address a slot states by the bytes a reference carries, not by its characters', () => {
+    const base = 'https://api.trustedservices.intel.com/sgx/certification/v4/tcb?fmspc=';
+    const atTheCeiling = `${base}${'0'.repeat(2_048 - base.length)}`;
+    expect(new TextEncoder().encode(atTheCeiling).length, 'the ceiling is read at its own boundary').toBe(2_048);
+    expect(codeOf(() => parseCaptureRecord(withCollateral(collateralObservation({ request: atTheCeiling })))))
+      .toBeUndefined();
+    const over = refusalOf(() =>
+      parseCaptureRecord(withCollateral(collateralObservation({ request: `${atTheCeiling}0` }))),
+    );
+    expect(over.code).toBe('NOT_CAPTURE_RECORD');
+    expect(over.message).toContain('context.collateral.request');
+    // The count is of bytes, which is what the container holding an address counts, so an address of a
+    // thousand and twenty-five two-byte characters is a record no reference can name even though it is
+    // well inside the ceiling spelled as a count of characters. No keyword of the published document
+    // counts bytes, so this is one of the rules the reader holds alone.
+    const multibyte = `https://x/?a=${'é'.repeat(1_025)}`;
+    expect(multibyte.length, 'the address is inside the ceiling as characters').toBeLessThanOrEqual(2_048);
+    expect(refusalOf(() => parseCaptureRecord(withCollateral(collateralObservation({ request: multibyte })))).code)
+      .toBe('NOT_CAPTURE_RECORD');
+  });
+
+  it('asks the eight of the collateral role alone, and binds a held slot\'s shape to every role', () => {
+    // Both directions of the rule the published document states as much as it can state it. A slot in any
+    // other role is complete at its four members, so the widening costs the validity slot, the signature
+    // slot and the deployment manifest nothing; and the rules a held slot's shape is read by bind it
+    // wherever it sits, because a chain stated on one side of itself is the same hole in a validity slot
+    // that it is in a collateral one.
+    const record = recordFor(receiptV1) as Record<string, unknown>;
+    const context = (record['context'] as Record<string, unknown>);
+    expect(Object.keys(context['validity'] as Record<string, unknown>).sort()).toEqual([
+      'byteCount',
+      'bytes',
+      'presence',
+      'sha256',
+    ]);
+    expect(codeOf(() => parseCaptureRecord(record))).toBeUndefined();
+    const oneSided = refusalOf(() =>
+      parseCaptureRecord({
+        ...record,
+        context: { ...context, validity: { ...(context['validity'] as Record<string, unknown>), chainBytes: toBase64Url(chainHeader) } },
+      }),
+    );
+    expect(oneSided.code).toBe('NOT_CAPTURE_RECORD');
+    expect(oneSided.message).toContain('context.validity.chainSha256');
+    // A validity slot that states the whole observation is taken rather than dropped: the layout makes the
+    // ten legal in any held slot and owes them of one role, and only that role's statement reaches a
+    // verdict, which the reader's own test in `capture-reader.test.ts` is what pins.
+    expect(
+      codeOf(() => parseCaptureRecord({ ...record, context: { ...context, validity: collateralObservation() } })),
+    ).toBeUndefined();
+  });
+
+  it('reads every member a slot states, and hands the eight back as the record\'s own claim', () => {
+    const parsed = parseCaptureRecord(withCollateral(collateralObservation()));
+    const collateral = parsed.context.collateral;
+    expect(collateral.presence).toBe('held');
+    if (collateral.presence !== 'held') throw new Error('the slot read as an absence');
+    for (const member of OBSERVATION_MEMBERS) {
+      expect(collateral[member], `the parsed slot keeps '${member}'`).toBeDefined();
+    }
+    expect(collateral.origin).toBe('intel-tcb-info');
+    expect(collateral.window).toEqual({ from: 1_735_689_600, to: 1_798_761_600 });
+    expect(collateral.identity).toEqual({ cpuType: '00906f000200', vendorStatus: 'UpToDate' });
+    // The two nulls are statements, not holes: an answer that names no identity and a source nobody
+    // measured are both readings a collector is entitled to write down.
+    expect(parseCaptureRecord(withCollateral(collateralObservation({ identity: null, sourceUncertaintySeconds: null }))))
+      .toBeTruthy();
+  });
+
+  it('keeps a record whose collateral slot is absent-at-source readable at every old member', () => {
+    // The F2 witness, in code: capture-v1 widened under its own number, so a record that states an absence
+    // keeps every member it ever had and gains no obligation. Nothing here reads as a v2 document.
+    const absent = { presence: 'absent-at-source', reason: 'the platform served no certificate chain' };
+    const parsed = parseCaptureRecord(withCollateral(absent));
+    expect(parsed.context.collateral).toEqual(absent);
+    expect(parsed.original.sourceKind).toBe('receipt');
+    expect(parsed.original.byteCount).toBe(receiptV1.length);
+    expect(parsed.acquired).toEqual({ at: NOW, sourceStatedAt: NOW - 25 });
+    expect(parsed.manifests.deployment.presence).toBe('held');
+    expect(parsed.check.verifierVersion).toBe('0.1.0');
+    expect(parsed.trust.limits).toEqual({ maxReceiptAgeSeconds: 300, maxEvidenceAgeSeconds: 900 });
+  });
+});
+
 describe('what a capture record never claims', () => {
   it('refuses a record that states its own verification', () => {
     const record = { ...recordFor(receiptV1), verified: true };
@@ -429,6 +724,14 @@ describe('the published schema and the reader decide the same documents', () => 
     ['no collateral at the source', recordFor(receiptV1, { context: { collateral: { presence: 'absent-at-source', reason: 'none served' }, validity: { presence: 'not-taken-in', reason: 'not read' } } })],
     ['no policy digest', recordFor(receiptV1, { check: { ...(recordFor(receiptV1).check as object), policyDigest: null } })],
     ['an unnamed root', recordFor(receiptV1, { trust: { roots: [{ family: 'amdArks', digest: null }], limits: { maxReceiptAgeSeconds: null, maxEvidenceAgeSeconds: null } } })],
+    // The two nulls the widening makes meaningful: an answer that names no identity, and a source nobody
+    // ever measured. Neither is a hole a reader has to guess at, and both are states a collector writes.
+    ['an answer naming no identity and a source nobody measured', withCollateral(collateralObservation({ identity: null, sourceUncertaintySeconds: null }))],
+    ['a held collateral slot with no chain beside it', (() => { const slot = collateralObservation(); delete slot['chainSha256']; delete slot['chainBytes']; return withCollateral(slot); })()],
+    // The role rule as the published document can state it: the eight are legal in any held slot, so a
+    // validity slot stating them is a document both authorities take, and owed by one role alone, which is
+    // the half only the reader can enforce.
+    ['a validity slot stating the whole observation', (() => { const r = recordFor(receiptV1) as Record<string, unknown>; const c = r['context'] as Record<string, unknown>; return { ...r, context: { ...c, validity: collateralObservation() } }; })()],
   ];
 
   for (const [name, record] of accepted) {
@@ -456,6 +759,23 @@ describe('the published schema and the reader decide the same documents', () => 
     ['a receipt version no format defines', recordFor(receiptV1, { check: { ...(recordFor(receiptV1).check as object), receiptFormatVersion: 4 } })],
     ['the retired receipt version 2', recordFor(receiptV1, { check: { ...(recordFor(receiptV1).check as object), receiptFormatVersion: 2 } })],
     ['the retired receipt version 3', recordFor(receiptV1, { check: { ...(recordFor(receiptV1).check as object), receiptFormatVersion: 3 } })],
+    // The widening, both authorities at once: the eight a held collateral slot owes, the chain that arrives
+    // in pairs, and the states an absence may not borrow from a holding slot.
+    ['a held collateral slot that names no origin', (() => { const slot = collateralObservation(); delete slot['origin']; return withCollateral(slot); })()],
+    ['a held collateral slot that spells no address', (() => { const slot = collateralObservation(); delete slot['request']; return withCollateral(slot); })()],
+    ['chain bytes with no digest beside them', (() => { const slot = collateralObservation(); delete slot['chainSha256']; return withCollateral(slot); })()],
+    ['a digest with no bytes beside it', (() => { const slot = collateralObservation(); delete slot['chainBytes']; return withCollateral(slot); })()],
+    ['an observed instant that is not whole', withCollateral(collateralObservation({ observedAt: NOW - 30.5 }))],
+    ['an identity block with a member no record defines', withCollateral(collateralObservation({ identity: { cpuType: 'a', vendorStatus: 'UpToDate', tcbDate: 'now' } }))],
+    ['a window with no end stated', withCollateral(collateralObservation({ window: { from: 1 } }))],
+    ['a weighing outside the two words', withCollateral(collateralObservation({ weighedBy: 'guessed' }))],
+    ['an absence that states an origin', withCollateral({ presence: 'absent-at-source', reason: 'the source served nothing', origin: 'intel-tcb-info' })],
+    ['an absence that still holds bytes', withCollateral({ presence: 'not-taken-in', reason: 'the collector read no header', bytes: toBase64Url(chainHeader) })],
+    // Three more the widening made documents rather than readings: a bound the published document floors at
+    // zero, a header stated as no bytes at all, and the chain pair applied to a slot in another role.
+    ['a bound of negative seconds', withCollateral(collateralObservation({ sourceUncertaintySeconds: -1 }))],
+    ['a chain header stated as no bytes at all', withCollateral(collateralObservation({ chainBytes: '', chainSha256: toHex(sha256(new Uint8Array(0))) }))],
+    ['a validity slot stating half a chain', (() => { const r = recordFor(receiptV1) as Record<string, unknown>; const c = r['context'] as Record<string, unknown>; const v = c['validity'] as Record<string, unknown>; return { ...r, context: { ...c, validity: { ...v, chainSha256: toHex(sha256(chainHeader)) } } }; })()],
   ];
 
   for (const [name, record] of refused) {
@@ -495,6 +815,23 @@ describe('the published schema and the reader decide the same documents', () => 
     expect(codeOf(() => parseCaptureRecord(unclaimed))).toBe('NOT_CAPTURE_RECORD');
   });
 
+  it('names the same readings of an answer in the published document as the reader reads', () => {
+    // The coupling `sourceKind` gained and nothing else in this layout had: `weighedBy` is a closed set of
+    // two words in the schema a collector outside this repository writes against, and a list the reader
+    // and its types are made of. A third word added on one side alone is a document one of the two refuses
+    // in silence.
+    const schema = JSON.parse(readFileSync(schemaPath, 'utf8')) as {
+      $defs: { weighedBy: { enum: string[] }; collateralObservation: { required: string[] } };
+    };
+    expect([...schema.$defs.weighedBy.enum].sort()).toEqual([...COLLATERAL_WEIGHED_BY].sort());
+    // The same coupling for the set of members a held collateral slot owes, so a ninth fact added to the
+    // reader's list alone shows up here rather than in a deployment.
+    expect([...schema.$defs.collateralObservation.required].sort()).toEqual([...OBSERVATION_MEMBERS].sort());
+    const third = withCollateral(collateralObservation({ weighedBy: 'assumed' }));
+    expect(validate(third)).toBe(false);
+    expect(codeOf(() => parseCaptureRecord(third))).toBe('NOT_CAPTURE_RECORD');
+  });
+
   it('keeps the manifest a manifest, so a held slot is a document and not a blob', () => {
     expect(parseManifest(JSON.parse(new TextDecoder().decode(manifestBytes)) as unknown).keys[0]?.kid).toBe(KID);
     const record = recordFor(receiptV1);
@@ -514,6 +851,19 @@ describe('the published schema and the reader decide the same documents', () => 
     expect(
       captureRecordKey(parseCaptureRecord(recordFor(receiptV1, { acquired: { at: NOW + 1, sourceStatedAt: NOW - 25 } }))),
     ).not.toBe(captureRecordKey(honest));
+    // And what a collateral slot states about the answer it holds is part of the record too: two documents
+    // that agree about every byte and disagree about when the last one landed, or about which address they
+    // were asked at, are two captures of two events and no store may merge them.
+    const oneAnswer = captureRecordKey(parseCaptureRecord(withCollateral(collateralObservation())));
+    expect(captureRecordKey(parseCaptureRecord(withCollateral(collateralObservation({ observedAt: NOW - 31 }))))).not.toBe(
+      oneAnswer,
+    );
+    expect(
+      captureRecordKey(
+        parseCaptureRecord(withCollateral(collateralObservation({ request: 'https://api.trustedservices.intel.com/sgx/certification/v4/tcb' }))),
+      ),
+    ).not.toBe(oneAnswer);
+    expect(captureRecordKey(parseCaptureRecord(withCollateral(collateralObservation())))).toBe(oneAnswer);
   });
 });
 

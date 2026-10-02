@@ -43,15 +43,33 @@ export function wrongMarking(): Marking {
   return { sch: ATTESTED_MARKING.sch, d: hashRequest(new TextEncoder().encode('a region these bytes do not carry')) };
 }
 
+/**
+ * The material two `held` anchor slots name, one per slot.
+ *
+ * A case that hands a command line the bytes a held slot digests has to state a digest for them before it reads
+ * them back, so the document and the material are built by the same call rather than by two spellings of one
+ * digest. Where a case is about something other than the anchor this is left out, and the receipt carries the
+ * single held slot and the stated absence it always did.
+ */
+export interface HeldAnchor {
+  readonly collateral: Uint8Array;
+  readonly validity: Uint8Array;
+}
+
 /** A receipt over the published vector's response, attesting `mk`, signed under the fixture key. */
-export function stampedReceiptBytes(mk: Marking): Uint8Array {
+export function stampedReceiptBytes(mk: Marking, held?: HeldAnchor): Uint8Array {
   const payload: ReceiptPayload = {
     ...published,
     mk,
-    cva: {
-      collateral: { presence: 'held', sha256: hashRequest(new TextEncoder().encode('the collateral the appraisal ran on')) },
-      validity: { presence: 'not-taken-in', reason: 'the collector read no window' },
-    },
+    cva: held === undefined
+      ? {
+        collateral: { presence: 'held', sha256: hashRequest(new TextEncoder().encode('the collateral the appraisal ran on')) },
+        validity: { presence: 'not-taken-in', reason: 'the collector read no window' },
+      }
+      : {
+        collateral: { presence: 'held', sha256: hashRequest(held.collateral) },
+        validity: { presence: 'held', sha256: hashRequest(held.validity) },
+      },
     itm: [{ t: published.iat, d: hashRequest(new TextEncoder().encode('the first item of the response')) }],
   };
   return issueReceipt(payload, signingKeyFromSeed(new Uint8Array(Buffer.from(RECEIPT_SEED, 'hex'))));

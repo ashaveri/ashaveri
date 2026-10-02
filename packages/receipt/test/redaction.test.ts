@@ -159,7 +159,8 @@ function packManifest(
       held: SPAN_TO - Math.min(...run.items.map((one) => one.iat)),
     },
     items: run.items,
-    carried: [],
+    custody: [],
+    attached: [],
     ...over,
   };
 }

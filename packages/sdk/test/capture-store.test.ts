@@ -47,6 +47,24 @@ function held(bytes: Uint8Array): Record<string, unknown> {
   return { presence: 'held', bytes: toBase64Url(bytes), sha256: toHex(sha256(bytes)), byteCount: bytes.length };
 }
 
+/** A held collateral slot and the statement it makes about the answer it holds. */
+function collateralHeld(bytes: Uint8Array): Record<string, unknown> {
+  const header = TEXT('TCB-Info-Issuer-Chain: -----BEGIN CERTIFICATE-----');
+  return {
+    ...held(bytes),
+    origin: 'intel-tcb-info',
+    request: 'https://api.trustedservices.intel.com/sgx/certification/v4/tcb?fmspc=00906f000200',
+    identity: { cpuType: '00906f000200', vendorStatus: 'UpToDate' },
+    observedAt: NOW - 30,
+    sourceUncertaintySeconds: 2,
+    chainSha256: toHex(sha256(header)),
+    chainBytes: toBase64Url(header),
+    weighedBy: 'served',
+    window: { from: 1_735_689_600, to: 1_798_761_600 },
+    cacheKey: 'origin=intel-tcb-info|platform=sgx|cpuType=00906f000200|level=tcb-date=2024-05-15T00:00:00Z',
+  };
+}
+
 function recordFor(original: Uint8Array, acquiredAt: number): Record<string, unknown> {
   return {
     v: 1,
@@ -70,7 +88,7 @@ function recordFor(original: Uint8Array, acquiredAt: number): Record<string, unk
       verifierVersion: '0.1.0',
       appraisedAt: acquiredAt,
     },
-    context: { collateral: held(TEXT('the vendor chain')), validity: held(TEXT('the appraisal')) },
+    context: { collateral: collateralHeld(TEXT('the vendor chain')), validity: held(TEXT('the appraisal')) },
     trust: {
       roots: [{ family: 'amdArks', digest: toHex(sha256(TEXT('a pinned vendor root'))) }],
       limits: { maxReceiptAgeSeconds: 300, maxEvidenceAgeSeconds: 900 },

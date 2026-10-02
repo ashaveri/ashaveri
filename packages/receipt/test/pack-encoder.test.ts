@@ -17,6 +17,8 @@ import {
   signingKeyFromSeed,
   toHex,
   verifyPack,
+  type PackAttachedObject,
+  type PackCustodyEntry,
   type PackItem,
   type PackManifest,
   type PackOrderingFindingKind,
@@ -158,7 +160,8 @@ function manifestFor(run: { items: PackItem[]; anchor: Uint8Array; head: Uint8Ar
     chain: { anchor: run.anchor, head: run.head },
     duty: { art: '19(1)', rev: SPAN_TO - 30, required: 3_600, held: SPAN_TO - BASE },
     items: run.items,
-    carried: [],
+    custody: [],
+    attached: [],
     ...over,
   };
 }
@@ -188,6 +191,33 @@ function digestOf(bytes: Uint8Array): string {
   return toHex(sha256(bytes));
 }
 
+/** The CBOR map one reference is, spelled here rather than by the writer. */
+function custodyMap(one: PackCustodyEntry): Map<string, unknown> {
+  return new Map<string, unknown>([
+    ['k', new Map<string, unknown>([['item', one.k.item], ['slot', one.k.slot]])],
+    ['o', one.o],
+    ['u', one.u],
+    ['i', one.i],
+    ['s', one.s],
+    ['n', one.n],
+    ['b', one.b],
+    ['c', one.c],
+    ['a', one.a],
+    ['w', new Map<string, unknown>([['from', one.w.from], ['to', one.w.to]])],
+    ['y', one.y],
+  ]);
+}
+
+/** The CBOR map one attached object is, spelled here rather than by the writer. */
+function attachedMap(one: PackAttachedObject): Map<string, unknown> {
+  return new Map<string, unknown>([
+    ['bytes', one.bytes],
+    ['sha256', one.sha256],
+    ['chain', one.chain],
+    ['chain_sha256', one.chainSha256],
+  ]);
+}
+
 /** The CBOR map the writer is held to, spelled here rather than by the writer. */
 function handManifestMap(manifest: PackManifest): Map<string, unknown> {
   return new Map<string, unknown>([
@@ -215,15 +245,8 @@ function handManifestMap(manifest: PackManifest): Map<string, unknown> {
         ]),
       ),
     ],
-    [
-      'carried',
-      manifest.carried.map((one) =>
-        new Map<string, unknown>([
-          ['bytes', one.bytes],
-          ['sha256', one.sha256],
-        ]),
-      ),
-    ],
+    ['custody', manifest.custody.map(custodyMap)],
+    ['attached', manifest.attached.map(attachedMap)],
   ]);
 }
 
@@ -290,7 +313,8 @@ describe('the pack writer', () => {
     const honest = manifestOf();
     const payloadBytes = encodePackManifest(honest);
     const scrambled = new Map<string, unknown>([
-      ['carried', honest.carried.map((one) => new Map<string, unknown>([['sha256', one.sha256], ['bytes', one.bytes]]))],
+      ['attached', honest.attached.map(attachedMap)],
+      ['custody', honest.custody.map(custodyMap)],
       ['items', honest.items.map((one) => new Map<string, unknown>([['receipt', one.receipt], ['prev', one.prev], ['iat', one.iat], ['id', one.id]]))],
       ['duty', new Map<string, unknown>([['held', honest.duty.held], ['required', honest.duty.required], ['rev', honest.duty.rev], ['art', honest.duty.art]])],
       ['chain', new Map<string, unknown>([['head', honest.chain.head], ['anchor', honest.chain.anchor]])],
@@ -381,7 +405,8 @@ describe('the pack writer', () => {
       ['no chain', { ...honest, chain: undefined } as unknown as PackManifest, (root) => root.delete('chain')],
       ['no duty', { ...honest, duty: undefined } as unknown as PackManifest, (root) => root.delete('duty')],
       ['no items', { ...honest, items: undefined } as unknown as PackManifest, (root) => root.delete('items')],
-      ['no carried', { ...honest, carried: undefined } as unknown as PackManifest, (root) => root.delete('carried')],
+      ['no custody', { ...honest, custody: undefined } as unknown as PackManifest, (root) => root.delete('custody')],
+      ['no attached', { ...honest, attached: undefined } as unknown as PackManifest, (root) => root.delete('attached')],
       [
         'an item that is not there',
         { ...honest, items: [undefined as unknown as PackItem] },
