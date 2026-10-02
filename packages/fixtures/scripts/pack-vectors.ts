@@ -57,7 +57,7 @@ const DATA = join(dirname(fileURLToPath(import.meta.url)), '..', 'data');
  * names and a header beside material no reference states a digest for are each offered to `signPack` before they
  * are published, and the writer refuses every one of them with the code the row states. No accepted row here
  * attaches a byte: the layout permits the arm, the references answer for what the sealed receipts took in, and
- * nothing in this repository fills the arm.
+ * nothing in this repository fills the arm of a pack a reader accepts.
  *
  * Two verdicts are published per row because the pack reader has two entry points and they answer different
  * questions. `structural` is what `decodePack` says about the bytes with no key in hand, and `verdict` is what
@@ -1250,7 +1250,7 @@ function main() {
       throw new Error(`this suite publishes no pack refused as ${one.code} at ${one.at}`);
     }
   }
-  // The byte arm is permitted by the layout and filled by no writer in this repository, so no document this suite
+  // The byte arm is permitted by the layout and filled by no path a deployment runs, so no document this suite
   // publishes as whole carries one. The arm appears in these bytes only inside the manifests the reader refuses,
   // which is the only way a port can be given an answer for a filled arm without this file attaching material to
   // an accepted pack.

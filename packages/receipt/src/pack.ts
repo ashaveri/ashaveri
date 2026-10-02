@@ -202,7 +202,7 @@ export interface PackCustodyEntry {
 /**
  * One entry of the byte arm: the material itself, whole, where a deployment attaches it.
  *
- * The layout permits the arm and no writer in this repository fills it, because what decides whether a deployment may
+ * The layout permits the arm and no path a deployment runs fills it, because what decides whether a deployment may
  * hand a service's bytes on is its own agreement with that service and not a question this container answers. `chain`
  * is present exactly when `chainSha256` is; each digest is recomputed by the reader rather than believed, and an entry
  * resolves to exactly one reference's `b`.
@@ -916,7 +916,7 @@ function readCustody(raw: unknown): readonly PackCustodyEntry[] {
 /**
  * The byte arm, read as far as its own shape goes.
  *
- * The arm may be empty and usually is: nothing in this repository writes it, and an empty list is the pack attaching
+ * The arm may be empty and usually is: no assembly a deployment runs writes it, and an empty list is the pack attaching
  * nothing beside the references it signs for. What the shape does not answer is whether the digests are digests *of*
  * the bytes beside them, whether either half of the header pair is stated alone, and which reference each entry
  * resolves to, which are the reader's next questions rather than this function's.

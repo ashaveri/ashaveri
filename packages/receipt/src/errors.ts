@@ -271,9 +271,9 @@ const ERROR_MESSAGE: Record<ReceiptErrorCode, string> = {
   // message for the reason the receipt's own windows give, because the reading is the caller's and a number
   // inside the two ends is accepted whichever way it was counted.
   PACK_CUSTODY_UNIT_OUTSIDE_BAND: 'a custody entry states an instant that is not a whole number of Unix seconds inside the band the format states',
-  // The four the byte arm answers to. They keep the names the carried list had and their conditions have moved
-  // from the pack's material to the arm, which is the material a deployment attaches beside the references and
-  // nothing in this repository writes. They are four codes and not one because the four facts send a reader to
+  // The four the byte arm answers to. They were named for the list this member replaced and were renamed
+  // with it, so their conditions state the arm: the material a deployment attaches beside the references, which
+  // no path a deployment runs fills. They are four codes and not one because the four facts send a reader to
   // four different places: to the entry, to the pack's own construction, to the issuer's choice of what to
   // attach, and to the caller reaching for material the pack never undertook to hand over. Each detail names a
   // position. An entry that does not hash to what it states is the pack contradicting itself about bytes it

@@ -68,9 +68,10 @@ import { secondsOf, servedAnswer, signedDocument, tcbInfo, testVendor } from '..
  * Two promises of the layout are what the section is built to answer. The first is that a served pair weighs:
  * material whose issuer chain arrived beside it, attached in the arm with the header, is weighed as the pair the
  * reference states a digest for, and not as a body an envelope cannot open. The second is that the byte arm stays
- * empty: no writer in this repository fills it, so every pack this estate publishes is read with the arm holding
+ * empty in every pack a deployment assembles, so such a pack is read with the arm holding
  * nothing, and what the reading prints for those slots is the row that says so rather than a refusal of a document
- * the format takes.
+ * the format takes. This section fills an arm itself, with documents its own fixture vendor generated, because the
+ * first promise cannot be shown any other way.
  */
 
 /** The committed signing key material a fixture receipt was issued under. */
