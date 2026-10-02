@@ -190,7 +190,7 @@ export interface CaptureAppliedLimits {
 /**
  * What a reader concluded, in the two halves that must never be merged.
  *
- * `custody` is the record's claim about bytes it held. `repeated` is what the reader established for
+ * `stated` is the record's claim about bytes it held. `repeated` is what the reader established for
  * itself, out of those bytes and the caller's own pins. A verdict carrying only a pass or a fail would
  * let the first be read as the second, which is the mistake this record exists to make impossible.
  */
@@ -201,7 +201,7 @@ export interface CaptureVerdict {
    * `unassessed`: a leg this reader cannot repeat. A refusal to pass, never a soft pass.
    */
   readonly status: 'repeated' | 'qualified' | 'unassessed';
-  readonly custody: {
+  readonly stated: {
     readonly sourceKind: CaptureSourceKind;
     readonly sourceId: string;
     readonly acquiredAt: number;
@@ -642,12 +642,13 @@ interface SignatureLeg {
 /**
  * The signature leg, which is the half of this record a stranger can repeat alone.
  *
- * Custody is the collector's claim: that it held these bytes from this source at this instant. Nothing
- * in the record can be believed about the signature over them, and nothing in it is. What runs here is
- * the format's own verifier, over the stored bytes, under a key resolved out of the caller's pins and no
- * other source, inside the caller's own freshness windows, and at the receipt version the record names
- * rather than the reader's default. A caller that pinned nothing reaches no verdict and is told so,
- * which is the difference between this and a log line that prints `verified: true`.
+ * What the record states is the collector's claim: that it held these bytes from this source at this
+ * instant. Nothing in the record can be believed about the signature over them, and nothing in it is.
+ * What runs here is the format's own verifier, over the stored bytes, under a key resolved out of the
+ * caller's pins and no other source, inside the caller's own freshness windows, and at the receipt
+ * version the record names rather than the reader's default. A caller that pinned nothing reaches no
+ * verdict and is told so, which is the difference between this and a log line that prints
+ * `verified: true`.
  */
 function repeatSignatureLeg(
   record: CaptureRecord,
@@ -811,7 +812,7 @@ export function assessCapture(params: AssessCaptureParams): CaptureVerdict {
 
   return {
     status,
-    custody: {
+    stated: {
       sourceKind: record.original.sourceKind,
       sourceId: record.original.sourceId,
       acquiredAt: record.acquired.at,

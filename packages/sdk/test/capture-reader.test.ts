@@ -142,12 +142,23 @@ describe('a verdict keeps custody and verification apart', () => {
     expect(verdict.qualifications).toEqual([]);
   });
 
+  it('names the record\'s own claim `stated`, and carries no verdict field named for the keeping of bytes', () => {
+    // The verdict's two halves are what the record says it held and what this reader established. The
+    // first was spelled with the same word the format spells the keeping of material itself, which left
+    // a caller to work out from a log line which of the two a line named. `stated` pairs with `repeated`
+    // and says whose claim it is, and the old spelling is refused here rather than left as a second name
+    // for the same half.
+    const verdict = assessCapture({ record: record(receiptV1), policy: PINNED, ...AT_NOW });
+    expect(verdict).not.toHaveProperty('custody');
+    expect(verdict.stated.sourceKind).toBe('receipt');
+  });
+
   it('returns the stored bytes, exactly, and recomputes the digest it reports', () => {
     const verdict = assessCapture({ record: record(receiptV1), policy: PINNED, ...AT_NOW });
     expect(equalBytes(verdict.repeated.originalBytes, receiptV1)).toBe(true);
     expect(verdict.repeated.sha256).toBe(toHex(sha256(receiptV1)));
-    expect(verdict.custody.sha256).toBe(verdict.repeated.sha256);
-    expect(verdict.custody.byteCount).toBe(receiptV1.length);
+    expect(verdict.stated.sha256).toBe(verdict.repeated.sha256);
+    expect(verdict.stated.byteCount).toBe(receiptV1.length);
     expect(verdict.repeated.signatureVerifiedWithOwnPins).toBe(true);
     expect(verdict.repeated.signingKid).toBe(KID);
     expect(verdict.repeated.rootsMatched).toEqual(['amdArks']);
@@ -157,8 +168,9 @@ describe('a verdict keeps custody and verification apart', () => {
     const verdict = assessCapture({ record: record(receiptV1), ...AT_NOW });
     expect(verdict.status).toBe('unassessed');
     expect(verdict.repeated.signatureVerifiedWithOwnPins).toBe(false);
-    // The claim of custody is still the record's, and the reader hands it back as a claim.
-    expect(verdict.custody.assertsSignature).toBe(true);
+    // The record's own claim about the bytes it held is still the record's, and the reader hands it
+    // back as a claim.
+    expect(verdict.stated.assertsSignature).toBe(true);
     expect(verdict.qualifications.join(' ')).toContain(KID);
   });
 
@@ -188,7 +200,7 @@ describe('a verdict keeps custody and verification apart', () => {
       policy: PINNED,
       ...AT_NOW,
     });
-    expect(verdict.custody.assertsSignature).toBe(false);
+    expect(verdict.stated.assertsSignature).toBe(false);
     expect(verdict.status).toBe('qualified');
     expect(verdict.qualifications.join(' ')).toContain('nothing to repeat');
   });
@@ -357,8 +369,8 @@ describe('the limits and the clock a verdict was reached under', () => {
       ...AT_NOW,
     });
     expect(verdict.status).toBe('qualified');
-    expect(verdict.custody.sourceStatedAt).toBe(NOW + 30);
-    expect(verdict.custody.acquiredAt).toBe(NOW);
+    expect(verdict.stated.sourceStatedAt).toBe(NOW + 30);
+    expect(verdict.stated.acquiredAt).toBe(NOW);
     expect(verdict.qualifications.join(' ')).toContain('the two clocks disagree');
   });
 
