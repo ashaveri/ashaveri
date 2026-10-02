@@ -538,7 +538,8 @@ describe('the envelope and the header', () => {
       chain: { anchor: new Uint8Array(32), head: new Uint8Array(32) },
       duty: { art: '19(1)', rev: RUN_START - DAY, required: 100, held: 200 },
       items: [],
-      carried: [],
+      custody: [],
+      attached: [],
     };
     expect(thrownCode(() => decodeEpochInventory(sealPayload(encodePackManifest(packManifest))))).toBe(
       'EPOCH_INVENTORY_MALFORMED_JSON',

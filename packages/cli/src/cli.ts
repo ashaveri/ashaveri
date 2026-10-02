@@ -24,7 +24,12 @@ Arguments:
   ashaveri verify-receipt <receipt> --policy <file> --manifest <file> --nonce <hex>
                          [--manifest-key <b64url>]...
                          [--request-body <file> | --request-hash <hex>]
-                         [--response-body <file> | --response-hash <hex>] [options]
+                         [--response-body <file> | --response-hash <hex>]
+                         [--anchor-file <slot>=<file>] [--anchor-chain <slot>=<file>]
+                         [--intel-root <file>]... [--collateral-origin <slot>=<origin>]...
+                         [--collateral-platform <slot>=<sgx|tdx>]...
+                         [--collateral-cpu-type <slot>=<hex>]...
+                         [--collateral-level <slot>=<arm>=<value>]... [options]
   ashaveri verify-handover <document> [--key <b64url>]... [--manifest-key <b64url>]...
                          [--companion <file>]... [--intel-root <file>]...
                          [--collateral-origin <slot>=<origin>]...
@@ -250,6 +255,26 @@ Receipt verification options:
   --response-hash <hex>
                      The digest of those bytes, 64 hex. It cannot carry the check of a payload naming a
                      marking on its own, because no payload this format states is silent about a mark.
+  --anchor-file <slot>=<file>
+                     The document one anchor slot of this receipt digests, where the slot is col, the signed
+                     collateral, or val, the validity context. This is where a policy's demand of weighed anchor
+                     material gets its answer, and the only place on the command line that runs the client can give
+                     it: these bytes are hashed, and the digest the slot states is printed beside the digest they
+                     reach, so a file answering another digest is reported as a different object rather than weighed
+                     as the one the receipt names. Repeatable, one slot per flag. The appraisal weighing them is the
+                     one the pack verbs run, so --intel-root, --collateral-origin, --collateral-platform,
+                     --collateral-cpu-type and --collateral-level mean what they mean there, and a slot those flags
+                     leave undescribed is refused as a call that names material and asks nothing of it. The instant
+                     the answer is read at is the receipt's own stamp, never this run's clock, and a run naming no
+                     file here keeps the answer it always gave: ANCHOR_MATERIAL_UNREACHED under a demanding policy,
+                     because a slot stating held is not a claim that some reader can resolve it.
+  --anchor-chain <slot>=<file>
+                     The issuer header that arrived beside that document, in the shape the answer sent it. Which half
+                     a reader weighs is settled by the origin's declaration and by whether a header came at all, so a
+                     body named alone is weighed alone and says so in the report. A header named for a slot no file
+                     was named for is refused, because a header stands beside the body it signs and never in place of
+                     it. Nothing on a command line states a digest of that header, so none is checked against it, and
+                     the report prints that too rather than letting a pair look named.
 
 Handover options, the same for verify-handover, verify-pack and verify-export:
   --key <b64url>      A public key this run accepts a signature from, as the base64url of its 32
@@ -430,6 +455,8 @@ async function main(argv: string[]): Promise<number> {
         'request-hash': { type: 'string' },
         'response-body': { type: 'string' },
         'response-hash': { type: 'string' },
+        'anchor-file': { type: 'string', multiple: true },
+        'anchor-chain': { type: 'string', multiple: true },
         now: { type: 'string' },
         'allow-debug': { type: 'boolean' },
         json: { type: 'boolean' },

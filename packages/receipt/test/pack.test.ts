@@ -146,14 +146,14 @@ interface NestedRule {
 }
 
 /**
- * Which rules the manifest opens, read off its own member declarations: a bare `PackChain` is one
+ * Which rules one rule of this format opens, read off its own member declarations: a bare `PackChain` is one
  * value of that rule, and `[+ PackItem]` is an array of them. Anything else about a member (a choice
  * between two rules, a type expression this reader does not read) stops the run, because a member
  * quietly skipped would be a map the twin could drift away from with nothing asked of it.
  */
-function manifestNestedRules(cddl: string): NestedRule[] {
+function ruleNestedRules(cddl: string, rule: string): NestedRule[] {
   const nested: NestedRule[] = [];
-  for (const member of memberDeclarations(packRule(cddl, 'Ashaveri-Pack-Manifest'))) {
+  for (const member of memberDeclarations(packRule(cddl, rule))) {
     const one = /^([A-Z][A-Za-z0-9_-]*)$/u.exec(member.type);
     if (one) {
       nested.push({ member: member.name, rule: one[1]!, array: false });
@@ -164,9 +164,15 @@ function manifestNestedRules(cddl: string): NestedRule[] {
       nested.push({ member: member.name, rule: many[1]!, array: true });
       continue;
     }
-    if (/^(?:int|tstr|bstr\b|-?\d+)/u.test(member.type)) continue;
-    throw new Error(`${member.name} is declared as "${member.type}", which this reader does not read as one rule`);
+    if (/^(?:int|tstr|bstr|null |"|-?\d+)/u.test(member.type)) continue;
+    throw new Error(`${rule}.${member.name} is declared as "${member.type}", which this reader does not read as one rule`);
   }
+  return nested;
+}
+
+/** The rules the manifest opens, which is where the sweeps below start from. */
+function manifestNestedRules(cddl: string): NestedRule[] {
+  const nested = ruleNestedRules(cddl, 'Ashaveri-Pack-Manifest');
   if (nested.length === 0) throw new Error(`the manifest of ${packCddlPath} opens no map`);
   return nested;
 }
@@ -182,24 +188,54 @@ function referenced(schema: ObjectSchema, where: string): { name: string; def: O
 /** The manifest's own definition, which every other one is reached through. */
 const manifestDef = referenced(shape.properties.payload, 'the pack payload').def;
 
-/** The twin side of one manifest member: the definition it points at, and under which name. */
-function memberDefinition(nested: NestedRule): { name: string; def: ObjectSchema } {
+/** The twin side of one member of one rule: the definition it points at, and under which name. */
+function memberDefinition(parent: ObjectSchema, nested: NestedRule, where: string): { name: string; def: ObjectSchema } {
   const property = required(
-    manifestDef.properties?.[nested.member],
-    `the twin declares no ${nested.member} beside the manifest's ${nested.rule}`,
+    parent.properties?.[nested.member],
+    `the twin declares no ${nested.member} beside the ${where}'s ${nested.rule}`,
   );
   const target = nested.array
-    ? required(property.items, `the CDDL makes ${nested.member} an array of ${nested.rule} and the twin gives it no element schema`)
+    ? required(property.items, `the CDDL makes ${where}.${nested.member} an array of ${nested.rule} and the twin gives it no element schema`)
     : property;
-  return referenced(target, `the manifest member ${nested.member}`);
+  return referenced(target, `the ${where} member ${nested.member}`);
 }
 
-/** The manifest definition and each one the manifest opens, with the CDDL rule behind it. */
-function definitionsByRule(cddl: string): Array<{ rule: string; name: string; def: ObjectSchema }> {
-  return [
-    { rule: 'Ashaveri-Pack-Manifest', name: 'manifest', def: manifestDef },
-    ...manifestNestedRules(cddl).map((nested) => ({ rule: nested.rule, ...memberDefinition(nested) })),
-  ];
+/** One rule of the format, the definition of the twin that stands behind it, and the path that reaches it. */
+interface RuleDefinition {
+  readonly rule: string;
+  readonly name: string;
+  readonly def: ObjectSchema;
+  readonly path: readonly (string | number)[];
+}
+
+/**
+ * The manifest's definition and every map the format opens, walking down as far as the format goes. The walk is
+ * by rule rather than one level deep because a reference carries a key and a window of its own: a map two levels
+ * down that stopped being swept would be a map the twin could drift away from silently, and `PackCustodyKey` is
+ * exactly such a map.
+ */
+function definitionsByRule(cddl: string): RuleDefinition[] {
+  const out: RuleDefinition[] = [{ rule: 'Ashaveri-Pack-Manifest', name: 'manifest', def: manifestDef, path: ['payload'] }];
+  for (let index = 0; index < out.length; index += 1) {
+    const parent = out[index] as RuleDefinition;
+    for (const nested of ruleNestedRules(cddl, parent.rule)) {
+      const found = memberDefinition(parent.def, nested, parent.rule);
+      const twice = out.find((one) => one.rule === nested.rule);
+      if (twice !== undefined) {
+        if (twice.rule !== nested.rule || twice.name !== found.name) {
+          throw new Error(`${nested.rule} is reached twice, under ${twice.name} and ${found.name}`);
+        }
+        continue;
+      }
+      out.push({
+        rule: nested.rule,
+        name: found.name,
+        def: found.def,
+        path: [...parent.path, nested.member, ...(nested.array ? [0] : [])],
+      });
+    }
+  }
+  return out;
 }
 
 /** A number of bytes, as this estate's projections write a byte string: lowercase hex. */
@@ -234,6 +270,16 @@ function valueForType(cddl: string, type: string): unknown {
   const literal = /^(-?\d+)$/u.exec(type);
   if (literal) return Number(literal[1]);
   if (type === 'int') return AN_INT;
+  // A position the format lets state nothing is built as that absence: the null is what the format writes
+  // beside the type a value arrives under, and a builder that invented a value for it would be testing the
+  // non-null arm of a choice while the projection's `required` list speaks about the member either way.
+  const nullable = /^null \/ (.+)$/u.exec(type);
+  if (nullable) return null;
+  // A closed set of quoted values is the format naming its own alternatives, and the document this builder
+  // writes takes the first of them. Nothing here reads the set as text, which is the mistake a projection
+  // that wrote `tstr` for an enum would make.
+  const choice = /^"([^"]+)"(?:\s*\/\s*"[^"]+")+$/u.exec(type);
+  if (choice) return choice[1];
   const many = /^\[\+\s+([A-Z][A-Za-z0-9_-]*)\]$/u.exec(type) ?? /^\[\*\s+([A-Z][A-Za-z0-9_-]*)\]$/u.exec(type);
   if (many) return [instanceOfRule(cddl, many[1]!)];
   const one = /^([A-Z][A-Za-z0-9_-]*)$/u.exec(type);
@@ -318,16 +364,7 @@ function mapAt(root: unknown, path: readonly (string | number)[]): Record<string
 
 /** Where each closed map sits in the document this file builds, read off the CDDL's own nesting. */
 function closedLevels(cddl: string): Array<{ rule: string; path: (string | number)[] }> {
-  const levels: Array<{ rule: string; path: (string | number)[] }> = [
-    { rule: 'Ashaveri-Pack-Manifest', path: ['payload'] },
-  ];
-  for (const nested of manifestNestedRules(cddl)) {
-    levels.push({
-      rule: nested.rule,
-      path: nested.array ? ['payload', nested.member, 0] : ['payload', nested.member],
-    });
-  }
-  return levels;
+  return definitionsByRule(cddl).map((one) => ({ rule: one.rule, path: [...one.path] }));
 }
 
 /** The type expression the format writes for a position that is not left to a reader's judgement. */
@@ -378,7 +415,17 @@ describe('the pack CDDL and its JSON twin', () => {
     // map whose members are spelled some other way and a sweep that quietly passed over it.
     expect(unlabeled, 'rules whose members this reader does not read as labels').toEqual(['Ashaveri-Pack-Protected-Header']);
     expect(labeled.sort(), 'the maps the format closes').toEqual(
-      ['Ashaveri-Pack-Manifest', 'PackCarried', 'PackChain', 'PackDuty', 'PackItem', 'PackSpan'].sort(),
+      [
+        'Ashaveri-Pack-Manifest',
+        'PackAttached',
+        'PackChain',
+        'PackCustody',
+        'PackCustodyKey',
+        'PackDuty',
+        'PackItem',
+        'PackSpan',
+        'PackWindow',
+      ].sort(),
     );
 
     // The header closes against labels rather than against members, and one map of the container a
@@ -510,7 +557,7 @@ describe('the pack CDDL and its JSON twin', () => {
     saidOnce('the CDDL', prose, 'where no floating-point number may appear, in a value and in a key alike');
     // The roster is derived above and pinned here as a fact about the file, because a format that
     // gained a position either way has to make somebody look at it: two at the manifest level, three
-    // below the duty map, two below the span, and one inside an item.
+    // below the duty map, two below the span, one inside an item and one inside a reference.
     expect(INTEGER_POSITIONS).toEqual([
       'v',
       'at',
@@ -520,6 +567,7 @@ describe('the pack CDDL and its JSON twin', () => {
       'duty.required',
       'duty.held',
       'items.iat',
+      'custody.s',
     ]);
     // The declarations and nothing else: the word "float" belongs in this file's prose, where it
     // explains what a reader must not accept, and would not belong in a type expression. CDDL gives a

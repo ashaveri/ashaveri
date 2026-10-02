@@ -3,7 +3,7 @@ import { fetchFromOrigin, wallClock } from './fetch.js';
 import { collateralCacheKey, declarationFor, requestUrl, type OriginDeclaration } from './intel-origin.js';
 import { readSignedCollateral, type ReadCollateral } from './read.js';
 import { readServedCollateral } from './served.js';
-import { sha256Hex } from './bytes.js';
+import { sha256Hex, toHex } from './bytes.js';
 import type {
   CarriedCollateral,
   CollateralAppraisalOptions,
@@ -48,12 +48,12 @@ export async function appraiseCollateral(
  *
  * What this path appraises is material of the envelope the declaration names, and Intel answers its documents in
  * another one: a JSON body whose issuer chain arrives in a response header, cited at each declaration in
- * `intel-origin.ts`. That pair is weighed, when both halves are in hand, by `readServedCollateral`. A container
- * holds the body and no header, so bytes taken in as that address actually answers them are refused here at the
- * envelope rather than weighed, and no stamp changes that: the half that carries the path to a root is the one a
- * container has nowhere to keep. The honesty of this path is about where an instant comes from; which arm reads
- * the bytes is the envelope's question, answered by the declaration and by whether the chain arrived beside the
- * body it signs.
+ * `intel-origin.ts`. That pair is weighed, when both halves are in hand, by `readServedCollateral`, and a container
+ * hands the halves through the same two members a store hands them in. What a container states is what this weighs:
+ * one that holds a body and no header hands a body alone, and the arm that reads a body alone is the one whose
+ * certificates sit inside it, so such bytes are refused at the envelope rather than weighed and no stamp changes
+ * that. The honesty of this path is about where an instant comes from; which arm reads the bytes is the envelope's
+ * question, answered by the declaration and by whether the chain arrived beside the body it signs.
  *
  * The consequence is narrow and it is the design working rather than a gap. The instant feeds one sentence, the
  * one a stale answer carries about when the bytes were seen, and it moves no comparison of its own: the window
@@ -72,8 +72,21 @@ export async function appraiseCarriedCollateral(
 ): Promise<CollateralOutcome> {
   // The container's material is the only material this appraises, which is why the query type omits the field and
   // why it is written here rather than merged: a caller holding both a fetch and a container has to say which one
-  // this answer is about, and the answer it gets is the one it handed in the `carried` argument.
-  return appraiseCollateral({ ...query, retained: { bytes: carried.bytes, observedAt: carried.heldAt } }, options);
+  // this answer is about, and the answer it gets is the one it handed in the `carried` argument. The chain beside
+  // that material travels with it, so a container stating a header reaches the reader that weighs a pair and a
+  // container stating none reaches the reader that weighs a body alone.
+  return appraiseCollateral(
+    {
+      ...query,
+      retained: {
+        bytes: carried.bytes,
+        chain: carried.chain ?? null,
+        chainSha256: carried.chainSha256 ?? null,
+        observedAt: carried.heldAt,
+      },
+    },
+    options,
+  );
 }
 
 async function appraise(
@@ -114,17 +127,38 @@ async function appraise(
         collateralRefusal('COLLATERAL_INPUT_MISSING', 'the retained bytes carry no stamp for when they were seen', ['retained.observedAt']),
       );
     }
-    // A header is not a member of a body, so bytes kept from an earlier run, or sealed inside a container,
-    // reach this reading with no chain beside them. The absence is carried rather than invented.
-    observed = { bytes: query.retained.bytes, chain: null, observedAt: query.retained.observedAt };
+    // A caller that states a digest for the chain beside its bytes is asking what was seen, so the pair is checked
+    // against that promise before anything of the body is believed: a header swapped under the question would
+    // otherwise answer a different one and report the digest the caller named.
+    if (query.retained.chain !== null && query.retained.chainSha256 !== null) {
+      const actual = sha256Hex(query.retained.chain);
+      const stated = toHex(query.retained.chainSha256);
+      if (actual !== stated) {
+        return unavailable(
+          collateralRefusal(
+            'COLLATERAL_RETAINED_CHAIN_MISMATCH',
+            `the retained chain hashes to ${actual} and the caller named ${stated}`,
+            ['retained.chain', 'retained.chainSha256'],
+          ),
+        );
+      }
+    }
+    // A header is not a member of a body, so what arrives beside retained bytes is whatever the caller kept. A
+    // chain kept with them is carried, and its absence is carried rather than invented: nothing here reads a
+    // header off the wire to complete a pair that was kept as one half.
+    observed = {
+      bytes: query.retained.bytes,
+      chain: query.retained.chain ?? null,
+      observedAt: query.retained.observedAt,
+    };
   }
   const reading = { query, declaration, appraisalAt };
   // Which arm weighs the answer is a fact of the declaration and of the answer, never a guess from the bytes.
-  // A declaration that states a served envelope is weighed from the pair, body and chain together, because that
-  // is the shape its origin answers in; a body that arrived without its header is a body alone, and the arm
-  // that reads a body alone is the one whose certificates sit inside it. Retained and carried bytes always
-  // arrive alone, since a header is no member of a body, so they reach that arm whichever envelope the origin
-  // answers in, and a served shape handed to it is refused at the envelope rather than weighed.
+  // A declaration that states a served envelope is weighed from the pair, body and chain together, whether the pair
+  // arrived from the origin in this run or was handed in as bytes the caller kept; that is the shape its origin
+  // answers in. A body that arrived without its header is a body alone, and the arm that reads a body alone is the
+  // one whose certificates sit inside it, so a served shape handed over alone is refused at the envelope rather
+  // than weighed.
   const read = declaration.signature.served !== null && observed.chain !== null
     ? readServedCollateral(observed.bytes, observed.chain, reading)
     : readSignedCollateral(observed.bytes, reading);

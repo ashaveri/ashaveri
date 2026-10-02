@@ -33,7 +33,7 @@ import {
 } from '@ashaveri/receipt';
 import { labeled } from './seed.ts';
 import { fixtureKey } from './receipt-envelope.ts';
-import { loadPackVectors } from '../src/index.ts';
+import { loadPackVectors } from '@ashaveri/fixtures';
 
 const DATA = join(dirname(fileURLToPath(import.meta.url)), '..', 'data');
 

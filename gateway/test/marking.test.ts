@@ -1,3 +1,4 @@
+import { noteSpawn, spawnCeilingForCalls } from './support/spawn-budget.js';
 import { afterEach, describe, expect, it } from 'vitest';
 import { spawnSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
@@ -17,6 +18,10 @@ import { MarkedStreamTail, type BackendResponse, type CompletionBackend, type Co
 import { MARKING_CHUNK_ID, markingFrame } from '../src/marking.js';
 import { sha256 } from '../src/digest.js';
 import { CLOCK_SECONDS, fixedClock, generated, harness, type Generated, type Harness } from './helpers.js';
+
+/** The patience the two helpers below hand a process: one ordinary run, and one meant to be stopped. */
+const CLI_DEADLINE_MS = 8_000;
+const STOPPED_CLI_DEADLINE_MS = 4_000;
 
 /**
  * The mark, seen from the side that writes it. Each cell below asks the same question of a response
@@ -199,7 +204,7 @@ describe('the marking flag', () => {
     }
   });
 
-  it('refuses to start on a label the registry does not name', () => {
+  it('refuses to start on a label the registry does not name', { timeout: spawnCeilingForCalls(3, CLI_DEADLINE_MS) }, () => {
     // `provenance-v2` is the shape of a label a future registry row would add; the empty string is
     // what `--marking=` writes; `NONE` is the one a reader would not match. None of them is
     // startable, because a mark no extractor can read would be attested by a receipt and missed by
@@ -486,21 +491,23 @@ describe('the tail a marked stream holds', () => {
 });
 
 function runCli(args: string[]): { status: number | null; stderr: string } {
+  noteSpawn(CLI_DEADLINE_MS);
   const env = { ...process.env };
   delete env['DSTACK_SIMULATOR_ENDPOINT'];
-  const result = spawnSync(process.execPath, [CLI, ...args], { encoding: 'utf8', env, timeout: 8000 });
+  const result = spawnSync(process.execPath, [CLI, ...args], { encoding: 'utf8', env, timeout: CLI_DEADLINE_MS });
   expect(result.error).toBeUndefined();
   return { status: result.status, stderr: result.stderr };
 }
 
 /** Boot, read the banner, and be stopped by the timeout: a serving process has no other ending. */
 function runStoppedCli(args: string[]): string[] {
+  noteSpawn(STOPPED_CLI_DEADLINE_MS);
   const env = { ...process.env };
   delete env['DSTACK_SIMULATOR_ENDPOINT'];
   const result = spawnSync(process.execPath, [CLI, ...args, '--port', '0'], {
     encoding: 'utf8',
     env,
-    timeout: 4000,
+    timeout: STOPPED_CLI_DEADLINE_MS,
     killSignal: 'SIGKILL',
   });
   expect((result.error as (Error & { code?: string }) | undefined)?.code).toBe('ETIMEDOUT');

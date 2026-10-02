@@ -392,7 +392,7 @@ const CASES: readonly Case[] = [
   },
   {
     name: 'pack-read-as-export',
-    note: 'A pack document, signed by the same key and handed to this reader. Its typ is the pack and its manifest names seven members this format does not, so it is refused at the header before one member is read.',
+    note: 'A pack document, signed by the same key and handed to this reader. Its typ is the pack and its manifest names eight members this format does not, so it is refused at the header before one member is read.',
     bytes: underContentType('ashaveri/pack', packManifest()),
     expected: 'EXPORT_BAD_HEADER',
   },
