@@ -1,5 +1,6 @@
 import { readFile } from 'node:fs/promises';
-import { keyId } from '@ashaveri/receipt';
+import { keyId, type CollateralValidityAnchor } from '@ashaveri/receipt';
+import { appraiseCarriedCollateral, type CollateralOutcome } from '@ashaveri/collateral';
 import {
   DEFAULT_MAX_EVIDENCE_AGE_SECONDS,
   DEFAULT_MAX_RECEIPT_AGE_SECONDS,
@@ -12,12 +13,27 @@ import {
   SdkError,
   toBase64Url,
   toHex,
+  type AnchorSlotLabel,
+  type AnchorSlotReading,
   type AshaveriPolicy,
   type EpochVerdict,
   type ManifestAuthentication,
   type VerifiedReceipt,
 } from '@ashaveri/sdk';
-import { escapeInvisible, UsageError, writeJson } from '../usage.js';
+import { escapeInvisible, printedToken, UsageError, writeJson } from '../usage.js';
+import {
+  carriedDesignations,
+  COLLATERAL_ORIGIN_FLAG,
+  COLLATERAL_PLATFORM_FLAG,
+  INTEL_ROOT_FLAG,
+  once,
+  questionText,
+  refusalOf,
+  rootRule,
+  slotValue,
+  type CarriedDesignations,
+  type CarriedQuestion,
+} from './carried-collateral.js';
 import { readPolicyFile } from './verify.js';
 
 /**
@@ -52,6 +68,18 @@ import { readPolicyFile } from './verify.js';
  * on such a key did it with something the digest it prints does not describe, and the report says so
  * rather than leaving it to be inferred: the pin lines name where a designation came from, and both
  * renderings carry the designated keys beside the policy digest.
+ *
+ * The one thing this command could not answer, until now, is what a policy's anchor demand asks about. A sealed
+ * receipt's `held` slot digests material, and the demand weighs what a reader established about those bytes, so
+ * the demand was answerable only inside a client that had the material in hand. Two flags bring it to a command
+ * line: `--anchor-file col=<path>` names the document one slot digests and `--anchor-chain col=<path>` the issuer
+ * header that arrived beside it, and each pair is appraised exactly the way the pack reader appraises the bytes a
+ * container carries. What the pair was checked against is printed with the verdict: the flag and slot that named
+ * it, the digest the receipt states, the digest these bytes hash to, the root the answer reached, the window the
+ * vendor signed, and the instant the receipt claims, which is the instant the appraisal is asked at because no
+ * clock of this run's belongs in that answer. A run handed neither flag keeps the answer it always had, which is
+ * `ANCHOR_MATERIAL_UNREACHED` under a policy that demands weighed slots: a slot stating `held` is not a claim that
+ * some reader can resolve it, and nothing here fetches the bytes to find out.
  */
 
 /**
@@ -73,6 +101,16 @@ export interface VerifyReceiptFlags {
   'request-hash'?: string;
   'response-body'?: string;
   'response-hash'?: string;
+  /** One anchor slot's document, as `<slot>=<path>`, repeatable. See `anchorPairs`. */
+  'anchor-file'?: string[];
+  /** The issuer header that arrived beside one anchor slot's document, as `<slot>=<path>`, repeatable. */
+  'anchor-chain'?: string[];
+  /** The roots the appraisal stands behind, shared with the pack verbs, and never defaulted to a bundle. */
+  'intel-root'?: string[];
+  'collateral-origin'?: string[];
+  'collateral-platform'?: string[];
+  'collateral-cpu-type'?: string[];
+  'collateral-level'?: string[];
   now?: string;
   json?: boolean;
 }
@@ -292,6 +330,161 @@ async function digestsOf(values: VerifyReceiptFlags): Promise<Digests> {
   return { requestHash, requestFrom, responseHash, responseFrom, responseBytes };
 }
 
+/** The flag that names the document one anchor slot digests, as `<slot>=<path>`. */
+export const ANCHOR_FILE_FLAG = '--anchor-file';
+
+/** The flag that names the issuer header that arrived beside that document, as `<slot>=<path>`. */
+export const ANCHOR_CHAIN_FLAG = '--anchor-chain';
+
+/** One anchor slot's material, as the two flags name it. */
+interface AnchorPair {
+  readonly slot: AnchorSlotLabel;
+  readonly filePath: string;
+  readonly chainPath: string | null;
+}
+
+/**
+ * The pairs this run was handed, one per slot `--anchor-file` names.
+ *
+ * `slotValue` and `once` are the sibling command's own parser, because two verbs read the same two slot labels and a
+ * mistyped slot is one mistake rather than two. A header named without its body is refused here instead of being
+ * handed to the appraisal: which arm weighs a document is settled by whether a header arrived beside the body it
+ * signs, so a lone header is a question about bytes nobody handed over, and a body alone is a question this run
+ * answers and says the shape of.
+ */
+export function anchorPairs(values: VerifyReceiptFlags): readonly AnchorPair[] {
+  const pairs = new Map<AnchorSlotLabel, AnchorPair>();
+  for (const value of values['anchor-file'] ?? []) {
+    const { slot, rest } = slotValue(value, ANCHOR_FILE_FLAG);
+    once(ANCHOR_FILE_FLAG, slot, 'document, which is the body a slot digests', pairs.get(slot)?.filePath);
+    pairs.set(slot, { slot, filePath: rest, chainPath: null });
+  }
+  for (const value of values['anchor-chain'] ?? []) {
+    const { slot, rest } = slotValue(value, ANCHOR_CHAIN_FLAG);
+    const pair = pairs.get(slot);
+    if (pair === undefined) {
+      throw new UsageError(`${ANCHOR_CHAIN_FLAG} names the '${slot}' slot and ${ANCHOR_FILE_FLAG} names no document for it: a header is weighed beside the body it signs and never in place of it`);
+    }
+    once(ANCHOR_CHAIN_FLAG, slot, 'header, which is the half that reaches a root', pair.chainPath);
+    pairs.set(slot, { ...pair, chainPath: rest });
+  }
+  return [...pairs.values()];
+}
+
+/** One pair, weighed, with every figure the report prints about it. */
+export interface AnchorWeighing {
+  readonly slot: AnchorSlotLabel;
+  readonly filePath: string;
+  readonly chainPath: string | null;
+  /** The digest the receipt's held slot states, which is the name the reading is filed under. */
+  readonly stated: string;
+  /** What the bytes handed for that slot hash to, recomputed here rather than copied off a label. */
+  readonly resolved: string;
+  /** The reading the demand weighs: reached material, both digests, and what the signature stands as. */
+  readonly reading: AnchorSlotReading;
+  readonly state: CollateralOutcome['state'];
+  readonly refusalCode: string | null;
+  /** The pinned certificate the chain reached, which is the root this answer stood behind. */
+  readonly root: string | null;
+  /** Unix seconds: the instant the receipt claims, which is both the held instant and the moment weighed. */
+  readonly instant: number;
+  readonly question: CarriedQuestion;
+}
+
+/**
+ * Each pair the flags named, weighed against the roots this run stands behind.
+ *
+ * The instant is the receipt's own `iat`, which is the rule the sibling command keeps for a container's material:
+ * what a record claims it took in is read at the moment that record states, and a clock of this run's would answer
+ * a question about today. The digest the slot states is what the reading is filed under and the digest these bytes
+ * hash to travels beside it, because bytes answering another digest are a finding about the caller's folder rather
+ * than an anchor weighed, and `policy.ts` says that in its own refusal.
+ *
+ * Two refusals belong to this command line rather than to the appraisal, and both are an operator's typing: a slot
+ * the receipt states as an absence names no material for a file to answer to, and a slot no origin and platform flag
+ * describes leaves the appraisal no question it could answer. Neither is met by a default here: the sibling command
+ * refuses a substituted anchor for the same reason, that a value this file invented is not this caller's pin.
+ */
+export async function weighAnchorSlots(
+  pairs: readonly AnchorPair[],
+  anchor: CollateralValidityAnchor,
+  designations: CarriedDesignations,
+  instant: number,
+): Promise<readonly AnchorWeighing[]> {
+  const weighed: AnchorWeighing[] = [];
+  for (const pair of pairs) {
+    const slot = pair.slot === 'col' ? anchor.collateral : anchor.validity;
+    if (slot.presence !== 'held') {
+      throw new UsageError(`${ANCHOR_FILE_FLAG} names the '${pair.slot}' slot, which this receipt states as an absence (${slot.presence}: ${slot.reason}), so no digest is stated there for these bytes to answer to`);
+    }
+    const designation = designations.bySlot.get(pair.slot);
+    if (designation === undefined) {
+      throw new UsageError(`${ANCHOR_FILE_FLAG} names the '${pair.slot}' slot and ${COLLATERAL_ORIGIN_FLAG} and ${COLLATERAL_PLATFORM_FLAG} name no question for it, so nothing can be asked of the bytes handed for it`);
+    }
+    const bytes = await readBytes(pair.filePath, ANCHOR_FILE_FLAG);
+    const chain = pair.chainPath === null ? null : await readBytes(pair.chainPath, ANCHOR_CHAIN_FLAG);
+    const stated = toHex(slot.sha256);
+    const resolved = toHex(hashRequest(bytes));
+    const outcome = await appraiseCarriedCollateral(
+      {
+        origin: designation.origin,
+        platform: designation.platform,
+        cpuType: designation.cpuType,
+        level: designation.level,
+        appraisalAt: instant,
+        roots: designations.roots,
+        // Never `refuse`, which is the sibling command's rule too: an answer that cannot be reached is a row the
+        // reader weighs, and the demand below is the one place a shortage earns a verdict.
+        onAbsent: 'unassessed',
+      },
+      // `chainSha256` is null because nothing states one. A pack's reference carries the digest of the header it
+      // attached beside a body; a file named at a command line carries only its own name, so the header travels as
+      // it was handed and the report says which file it came from.
+      { bytes, chain, chainSha256: null, heldAt: instant },
+    );
+    const standing = outcome.collateral;
+    const refusal = refusalOf(outcome);
+    const signature: AnchorSlotReading['signature'] = standing === null
+      ? 'not-established'
+      : outcome.state === 'revoked'
+        ? 'withdrawn'
+        : 'established';
+    weighed.push({
+      slot: pair.slot,
+      filePath: pair.filePath,
+      chainPath: pair.chainPath,
+      stated,
+      resolved,
+      reading: {
+        slot: pair.slot,
+        digest: stated,
+        reached: true,
+        resolvedDigest: resolved,
+        signature,
+        window: standing === null ? null : standing.classification.window,
+      },
+      state: outcome.state,
+      refusalCode: refusal === null ? null : refusal.code,
+      root: standing?.anchorDigest ?? null,
+      instant,
+      question: {
+        origin: designation.origin,
+        platform: designation.platform,
+        cpuType: designation.cpuType,
+        level: designation.level === null ? null : `${designation.level.by}=${designation.level.value}`,
+        roots: designations.roots.length,
+        from: {
+          ...designation.from,
+          roots: designations.rootPaths.length === 0
+            ? `${INTEL_ROOT_FLAG} named none, and no root bundled with the verifier was consulted`
+            : `${INTEL_ROOT_FLAG} ${designations.rootPaths.map((one) => printedToken(one)).join(' and ')}`,
+        },
+      },
+    });
+  }
+  return weighed;
+}
+
 /**
  * Which pin families the policy named, and which it left out.
  *
@@ -377,6 +570,47 @@ interface Verdict {
   readonly evidenceWindow: number;
   readonly pinned: readonly string[];
   readonly notPinned: readonly string[];
+  /** One row per pair `--anchor-file` named, with the reading the demand weighed and everything beside it. */
+  readonly anchor: readonly AnchorWeighing[];
+  /** The root rule of this run, in the sibling command's words, or null where no pair was named. */
+  readonly anchorRootRule: string | null;
+  /** Roots named at a run that named no slot for them to stand behind, which is a gap in the call, not a pass. */
+  readonly rootsNamedWithoutSlot: number;
+}
+
+/**
+ * The anchor rows: a line per figure a pair was weighed on, and one line naming the roots those weighings stood
+ * behind, or the absence where no pair was named. The absence is printed because the demand is answered by material
+ * this run reached, and a reader of a verdict has to see that none was rather than infer it from silence.
+ */
+function anchorLines(verdict: Verdict): readonly string[] {
+  if (verdict.anchor.length === 0) {
+    const lines = [
+      `  anchor material:  no ${ANCHOR_FILE_FLAG} was handed, so no held slot's material was reached and no appraisal ran; a policy demanding weighed slots answers ANCHOR_MATERIAL_UNREACHED rather than passing a slot nothing read`,
+    ];
+    if (verdict.rootsNamedWithoutSlot > 0) {
+      lines.push(`  anchor roots:       ${String(verdict.rootsNamedWithoutSlot)} ${INTEL_ROOT_FLAG} file(s) named here were consulted by nothing, because ${ANCHOR_FILE_FLAG} named no slot for them to stand behind`);
+    }
+    return lines;
+  }
+  const lines: string[] = [];
+  for (const one of verdict.anchor) {
+    lines.push(
+      `  anchor file:      ${ANCHOR_FILE_FLAG} ${one.slot}=${one.filePath} for the '${one.slot}' slot, and ${one.chainPath === null
+        ? `${ANCHOR_CHAIN_FLAG} named no header for it, so this body is weighed alone`
+        : `${ANCHOR_CHAIN_FLAG} ${one.slot}=${one.chainPath} handed beside it, with no digest of that header stated by anything this run reads`}`,
+    );
+    lines.push(`  anchor digests:   the '${one.slot}' slot states ${one.stated} and these bytes hash to ${one.resolved}${one.stated === one.resolved ? ', the same object' : ', which is not the object the slot names'}`);
+    const window = one.reading.window;
+    lines.push(
+      `  anchor standing:  ${one.reading.signature} (the appraisal answered ${one.state}${one.refusalCode === null ? '' : `, ${one.refusalCode}`}) under the pinned root ${one.root ?? 'none this run reached'}, ${window === null
+        ? 'stating no validity window of its own'
+        : `standing ${String(window.from)} (${isoOf(window.from)}) up to ${String(window.until)} (${isoOf(window.until)})`}, weighed at ${String(one.instant)} (${isoOf(one.instant)})`,
+    );
+    lines.push(`  anchor question:  ${one.slot}: ${questionText(one.question)}`);
+  }
+  lines.push(`  anchor roots:     ${verdict.anchorRootRule ?? 'none named'}`);
+  return lines;
 }
 
 /**
@@ -445,6 +679,7 @@ function humanVerdict(verdict: Verdict): string {
     `  evidence ref:     ${toHex(payload.att.d)} at ${payload.att.ts} (${isoOf(payload.att.ts)})`,
     `  policy:           ${verdict.policyDigest} from ${verdict.policyPath}`,
     ...designationLines(verdict.keyDesignation),
+    ...anchorLines(verdict),
     `  manifest:         ${verdict.manifestPath} (issuer ${verdict.manifestIss}, instance ${verdict.manifestIns})`,
     `  manifest seal:    ${sealLine(verdict.authentication, verdict.keyDesignation)}`,
     `  windows:          receipt within ${verdict.receiptWindow} s, evidence timestamp within ${verdict.evidenceWindow} s, both of the verification time`,
@@ -504,6 +739,33 @@ function jsonVerdict(verdict: Verdict): Record<string, unknown> {
       source: each.source,
     })),
     manifestKeyDesignationOutsidePolicyDigest: verdict.keyDesignation.length > 0,
+    // One object per pair this run weighed, each naming the flag that handed it, the digest the receipt states, the
+    // digest these bytes hash to, the root the answer reached and the instant it was read at. An empty list is the
+    // absence the human rendering prints, and a demanding policy refuses it, so it is never read as a pass.
+    anchorMaterialNamed: verdict.anchor.length > 0,
+    anchorMaterial: verdict.anchor.map((one) => ({
+      flag: ANCHOR_FILE_FLAG,
+      slot: one.slot,
+      file: one.filePath,
+      chain: one.chainPath === null ? null : { flag: ANCHOR_CHAIN_FLAG, file: one.chainPath },
+      statedDigest: one.stated,
+      resolvedDigest: one.resolved,
+      reached: one.reading.reached,
+      signature: one.reading.signature,
+      window: one.reading.window,
+      rootDigest: one.root,
+      state: one.state,
+      refusalCode: one.refusalCode,
+      appraisalAt: one.instant,
+      question: {
+        origin: one.question.origin,
+        platform: one.question.platform,
+        cpuType: one.question.cpuType,
+        level: one.question.level,
+      },
+    })),
+    anchorRootRule: verdict.anchorRootRule,
+    anchorRootsNamedWithoutSlot: verdict.rootsNamedWithoutSlot,
     manifest: {
       file: verdict.manifestPath,
       issuer: verdict.manifestIss,
@@ -555,6 +817,11 @@ export async function runVerifyReceipt(positionals: string[], values: VerifyRece
   // Refused here rather than at the check itself: an argument that is not a key is a typing mistake,
   // and it is one before this run has read a byte of anybody's material.
   const designations = designatedKeys(values['manifest-key'], MANIFEST_KEY_FLAG);
+  // The anchor pairs are parsed, and their roots and designations read, before any document is opened: a slot that
+  // is not a slot, a header with no body beside it and an origin with no platform are the caller's typing to fix,
+  // and none of them becomes a verdict about a receipt.
+  const pairs = anchorPairs(values);
+  const carried = pairs.length === 0 ? null : await carriedDesignations(values);
   const loaded = await readPolicyFile(policyPath);
   const receiptBytes = await readBytes(receiptPath, 'receipt');
   const manifestBytes = await readBytes(manifestPath, '--manifest');
@@ -573,13 +840,21 @@ export async function runVerifyReceipt(positionals: string[], values: VerifyRece
   // response, and the only thing that can answer whether the mark is the attested one is the response
   // itself. Taking a digest in its place would answer "was this the marked response?" with "the caller
   // says so", and no version of this document is allowed to be silent about a mark.
+  let anchor: readonly AnchorWeighing[] = [];
+  let anchorReadings: readonly AnchorSlotReading[] = [];
   try {
-    decodeReceipt(receiptBytes);
+    const opened = decodeReceipt(receiptBytes);
     if (digests.responseBytes === null) {
       throw new UsageError(
         'this receipt names a marking attesting one region inside the response bytes, so --response-body is required and --response-hash cannot carry that check',
       );
     }
+    // Two figures of this payload file the readings: the digest each held slot states, and the stamp the document
+    // claims. Nothing is trusted from this read, because the client re-reads both off the bytes it verifies, and a
+    // reading that does not line up with what the verified payload states is answered as unreached or as the wrong
+    // bytes. What is weighed here is a file this command line named, so no byte of the receipt reaches the appraisal.
+    anchor = carried === null ? [] : await weighAnchorSlots(pairs, opened.payload.cva, carried, opened.payload.iat);
+    anchorReadings = anchor.map((one) => one.reading);
   } catch (err) {
     if (err instanceof ReceiptError) {
       return refuse(err, values.json === true);
@@ -602,6 +877,9 @@ export async function runVerifyReceipt(positionals: string[], values: VerifyRece
       responseHash: digests.responseHash,
       responseBytes: digests.responseBytes,
       nowMillis,
+      // The client's own demand reads these, which is the only reason they are handed at all: a policy naming no
+      // demand never looks at them, and a run that named no pair hands an empty list and is answered as unreached.
+      anchorReadings,
     });
     const manifest = await session.manifest();
     const authentication = await session.manifestAuthentication();
@@ -639,6 +917,9 @@ export async function runVerifyReceipt(positionals: string[], values: VerifyRece
       evidenceWindow: loaded.policy.maxEvidenceAgeSeconds ?? DEFAULT_MAX_EVIDENCE_AGE_SECONDS,
       pinned: families.pinned,
       notPinned: families.notPinned,
+      anchor,
+      anchorRootRule: carried === null ? null : rootRule(carried),
+      rootsNamedWithoutSlot: carried === null ? (values['intel-root'] ?? []).length : 0,
     };
     if (values.json) {
       writeJson(jsonVerdict(verdict));

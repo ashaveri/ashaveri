@@ -188,8 +188,15 @@ export interface CarriedReading {
   readonly designations: CarriedDesignations;
 }
 
-/** `<slot>=<value>` read as a slot and the rest of it. */
-function slotValue(value: string, flag: string): { readonly slot: CarriedSlotLabel; readonly rest: string } {
+/**
+ * `<slot>=<value>` read as a slot and the rest of it.
+ *
+ * Exported because two verbs read the same two slots: this file names them for a pack's carried material, and
+ * `verify-receipt` names them for the document a policy's anchor demand asks about. A second parser would be a
+ * second answer to a mistyped slot, and the one here is the one whose refusal names both slots a sealed receipt
+ * can state.
+ */
+export function slotValue(value: string, flag: string): { readonly slot: CarriedSlotLabel; readonly rest: string } {
   const at = value.indexOf('=');
   if (at < 0) {
     throw new UsageError(
@@ -263,6 +270,19 @@ function levelValue(slot: CarriedSlotLabel, value: string): IntelTcbLevel {
 }
 
 /**
+ * A second value for one slot's one field, refused by the flag that repeated it.
+ *
+ * Hoisted out of `carriedDesignations` and exported because `verify-receipt` reads the same two slots and has to
+ * refuse a doubled origin, a doubled document or a doubled chain in the same words: two spellings of one refusal
+ * would give a caller two messages for one mistake, depending on which verb they happened to run.
+ */
+export function once(flag: string, slot: CarriedSlotLabel, says: string, already: unknown): void {
+  if (already !== undefined) {
+    throw new UsageError(`${flag} names the '${slot}' slot twice, and a slot has one ${says} per run`);
+  }
+}
+
+/**
  * The designations this run was handed, with the root files read.
  *
  * Refused before the document is opened, exactly as a key designation is: a slot that is not a slot, a level with
@@ -288,11 +308,6 @@ export async function carriedDesignations(values: CarriedFlagValues): Promise<Ca
   // A slot has one of each field, and which field a repeat fills is read off the draft rather than off whether
   // the slot has a draft at all: four flags name one slot in the ordinary run, an origin, a platform, an identity
   // and a rung, and a check on the slot would refuse the call this whole surface is for.
-  const once = (flag: string, slot: CarriedSlotLabel, says: string, already: unknown): void => {
-    if (already !== undefined) {
-      throw new UsageError(`${flag} names the '${slot}' slot twice, and a slot has one ${says} per run`);
-    }
-  };
 
   for (const value of values['collateral-origin'] ?? []) {
     const { slot, rest } = slotValue(value, COLLATERAL_ORIGIN_FLAG);
