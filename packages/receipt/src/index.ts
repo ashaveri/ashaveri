@@ -1,11 +1,15 @@
 export {
   encodeCanonical,
   decodeCanonical,
+  decodeClosedDocument,
+  decodedMap,
 } from './cbor.js';
 export {
   COSE_SIGN1_TAG,
   ALG_EDDSA,
   RECEIPT_CONTENT_TYPE,
+  ANCHOR_PROVENANCE_CONTENT_TYPE,
+  DECLARED_PROTECTED_LABELS,
   keyId,
   generateSigningKey,
   signingKeyFromSeed,
@@ -15,6 +19,7 @@ export {
   equalBytes,
 } from './cose.js';
 export type { SigningKey, ProtectedHeader, CoseSign1 } from './cose.js';
+export { FORGES_A_LINE_RANGES } from './line-text.js';
 export { DEPLOYMENT_MANIFEST_CONTENT_TYPE, isSealedDeploymentManifest, sealDeploymentManifest, decodeSealedDeploymentManifest, verifySealedDeploymentManifest, type ManifestSeal } from './manifest-seal.js';
 export { toBase64Url, fromBase64Url } from './b64.js';
 export {

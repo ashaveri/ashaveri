@@ -1,0 +1,167 @@
+; ---------------------------------------------------------------------------
+; The anchor provenance ledger: where every trust anchor embedded in
+; `@ashaveri/attest-core/src/trust-anchors.ts` and every certificate tracked under
+; `packages/attest-core/test/fixtures/` came from, when its bytes were taken, and under which licence
+; class the source stated them.
+;
+; A ledger is a list of rows, and a row is a claim about bytes this repository already ships. Half of
+; each row is computation a reader can redo: the digest of the bytes as shipped, the subject name, the
+; serial, the digest of the SubjectPublicKeyInfo, the validity window the certificate itself states.
+; The other half is provenance, which no computation produces: the source that published the bytes,
+; the instant they were taken from it, and the licence that source stated. This file states both halves
+; member by member, because a claim a stranger cannot check is not evidence.
+;
+; The document is signed, and the key that signs it is named by the reader's caller rather than by the
+; document. That is a decision, not a gap: the same package that ships these bytes also reads this
+; ledger, and a document that vouched for its own signer would vouch for anything. `keys` below is the
+; issuer's own statement about which keys may stand behind this row set; it is checked against the
+; sealed header and it does not replace the caller's pin. A reader handed no pin refuses, because a
+; silent default would turn "nobody decided" into "everybody agrees".
+;
+; `packages/attest-core/src/anchor-ledger.ts` reads this layout and refuses each shape it will not
+; accept by code, `packages/receipt/schemas/anchor-provenance-v1.schema.json` is its machine-readable
+; twin, `packages/attest-core/test/anchor-ledger.test.ts` holds the blocks this file declares, that twin
+; and the reader's own member lists against each other, and
+; `packages/attest-core/data/anchor-provenance-v1.cbor` is the sealed artifact this layout describes,
+; committed beside the bytes it speaks of. Where a sentence here and those files disagree about a
+; member, the reader is what a client actually runs and this file is wrong.
+; ---------------------------------------------------------------------------
+
+Ashaveri-Anchor-Provenance = #6.18(COSE_Sign1-Anchor-Provenance-COSE)
+
+; The envelope every signed document in this estate uses, unchanged but for the content type:
+; COSE_Sign1 per RFC 9052 section 4.4, encoded per RFC 8949 with Core Deterministic Encoding, so a
+; reader rebuilds the bytes that were signed rather than guessing which of several equivalent spellings
+; was used. The payload is CBOR, so the whole of the layout below is what the signature covers.
+COSE_Sign1-Anchor-Provenance-COSE = [
+    protected: bstr .cbor Ashaveri-Anchor-Provenance-Protected-Header,
+    unprotected: { * any => any }, ; the map that carries no claim; see the note below
+    payload: bstr .cbor Ashaveri-Anchor-Provenance-Document,
+    signature: bstr .size 64
+]
+
+; The same three labels a receipt, a pack, an export, a redaction and an epoch inventory sign with, and
+; a sixth content type. The field that tells a reader which claim it is holding has to be answered
+; before anything is read out of the payload, because a ledger and a receipt both arrive as tag 18 over
+; four elements, both pass their own framing checks, and only label 3 says which one the reader is
+; holding.
+Ashaveri-Anchor-Provenance-Protected-Header = {
+    1: -8,                                 ; alg: EdDSA (Ed25519)
+    4: bstr .size 32,                      ; kid: sha256(public_key)
+    3: "ashaveri/anchor-provenance"        ; typ
+}
+
+; ---------------------------------------------------------------------------
+; The document inside the payload.
+;
+; Every map this layout declares names its members and carries no `...`, which is the format saying out
+; loud that it closes: a member the block does not name is refused at the level it arrives at rather
+; than read and dropped on the way to a row. The rule is the estate's, not one map's, and it reaches the
+; protected header above it too, whose labels are inside the signature and so cannot be added to by
+; anybody who holds the bytes. The unprotected map is the one map a writer is free to fill, and what the
+; format declares of it is only that it carries no claim: it sits outside the Sig_structure, so nothing
+; written there travels as a statement about an anchor.
+;
+; An instant in this document is a whole number of seconds since the Unix epoch, inside the band the
+; receipt format states for an instant it weighs: not below 1000000000 and not above 4294967295, which
+; together exclude a reading counted in milliseconds or microseconds without asking the reader to guess
+; which one arrived. `takenAt` and `generatedAt` are held to it. The two edges of a certificate's own
+; validity window are not, because a window is not an instant anybody weighed: the NVIDIA device root
+; states a `to` in the year 9999, which is outside that band and is what the certificate says.
+; ---------------------------------------------------------------------------
+
+Ashaveri-Anchor-Provenance-Document = {
+    v: 1,                                ; format version, one value until this layout changes
+    generatedAt: Ashaveri-Unix-Seconds,  ; the instant the row set was assembled
+    keys: [+ Ashaveri-Key-Id],           ; the kids the issuer states may stand behind these rows
+    rows: [+ Ashaveri-Anchor-Row]        ; one claim per shipped file, never empty
+}
+
+; A key identifier: `sha256` of the Ed25519 public key, which is the rule `packages/receipt/src/cose.ts`
+; states as `keyId` and every signed document in this estate is looked up by. Non-empty, because a ledger
+; that names no key cannot be pinned by a caller.
+Ashaveri-Key-Id = bstr .size 32
+
+; The band, stated once so `generatedAt` and every row's `takenAt` are answered by the same rule. The
+; ends are the receipt's: `packages/receipt/src/receipt.ts` fixes them as the earliest and latest reading
+; a stamp can be weighed against.
+Ashaveri-Unix-Seconds = uint .ge 1000000000 .le 4294967295
+
+; One claim about one shipped file.
+;
+; `file` names the bytes inside the package that ships them, relative to that package's root: a tracked
+; fixture as its path under `test/fixtures/`, and an embedded anchor by the source file and the constant
+; it is, joined by `#`, because `packages/attest-core/src/trust-anchors.ts` ships those bytes as text in
+; a constant rather than as a file a reader can open. The reader refuses a name outside the set that
+; package declares for itself, which is the refusal this document exists to make loud: an anchor added
+; beside the ledger, or renamed, or swapped, arrives here as a row that no longer answers to anything.
+;
+; `digest` is `sha256` of the bytes as shipped, and `spki` is `sha256` of the whole SubjectPublicKeyInfo
+; element, tag and length included, of the one certificate those bytes hold. Both are recomputable by
+; anybody who has the file, which is the point: the ledger's reach is exactly as far as a reader can
+; check it.
+;
+; The four members a certificate answers for -- `subject`, `serial`, `spki`, `validity` -- are present
+; together or absent together, and the reader refuses a row that carries one without the others. They are
+; absent for the tracked bytes that hold no certificate at all, which are the captured platform reports:
+; a quote and an attestation report have no subject name, no serial and no validity window of their own,
+; so a row that stated one would be a row that invented one. Where they are present, `subject` is the
+; DER-encoded RDN sequence as the certificate holds it, spelled as bytes rather than as a rendering this
+; package would have to invent and a reader would have to trust, and `serial` is the DER INTEGER content
+; bytes with the sign byte intact, which is what `parseCertificate` returns as `serial`.
+;
+; `origin` is the source that published the bytes, as a URL, and `takenAt` the instant they were read from
+; it. Both are statements, not computations, and the ledger's purpose is that they are signed. `licence`
+; is the class the source stated; `licenceNote` is one line of the sentence that goes beside a class when
+; the class alone would mislead, which today is the data-only case below and nothing else. A note an
+; issuer left empty is not this member absent: the format requires text if it names the member at all,
+; because an empty note reads as a decision and absence reads as one too, and only one of them is true.
+Ashaveri-Anchor-Row = {
+    family: Ashaveri-Anchor-Family,
+    file: tstr .size 1..,
+    digest: bstr .size 32,
+    Certificate-Facts // No-Certificate-Facts,
+    origin: tstr .size 1..,
+    takenAt: Ashaveri-Unix-Seconds,
+    licence: Ashaveri-Licence-Class,
+    ? licenceNote: tstr .size 1..
+}
+
+Certificate-Facts = (
+    subject: bstr .size 1..,
+    serial: bstr .size 1..,
+    spki: bstr .size 32,
+    validity: Ashaveri-Anchor-Validity
+)
+
+No-Certificate-Facts = (
+    ; none of the four members above, which is what a row about bytes that hold no certificate states
+)
+
+; The window the certificate itself states, in the same seconds as every other instant here, and read
+; from the `notBefore` and `notAfter` the DER carries. `to` is later than `from`: a window the hardware
+; vendor wrote backwards is a malformed row rather than a window nobody can stand inside.
+Ashaveri-Anchor-Validity = {
+    from: uint .le 4294967295,
+    to: uint .le 4294967295
+}
+
+; Which platform's evidence these bytes anchor. Three values, because three platforms' evidence this
+; package verifies, and a row whose family is none of them names a platform no reader here weighs.
+Ashaveri-Anchor-Family = "amd" / "intel" / "nvidia"
+
+; The licence class the source stated, closed to the four this repository's documents actually record.
+; `none-stated` is a finding and not a grant: it says the source published the bytes without naming a
+; code licence behind them, which is the case for Intel's published SGX provisioning root. It is not the
+; same class as `apache-2.0` wearing a different name, and a reader that treated the two alike would be
+; turning an absence into a permission.
+Ashaveri-Licence-Class = "apache-2.0" / "bsd-3-clause" / "agpl-3.0" / "none-stated"
+
+; ---------------------------------------------------------------------------
+; What the data-only case is, because one row of a shipped ledger carries it and a port needs to know
+; which class that is. `packages/attest-core/test/fixtures/tdx-quote-v4.bin` is the quote bytes taken
+; from edgelesssys/go-tdx-qpl, a repository whose licence is AGPL-3.0. No code was taken, and the
+; licence class recorded beside that row is the source repository's, stated so a reviewer meets it in the
+; ledger rather than in a footnote: this ledger does not decide what the class means for the shipped
+; file, and it does not make an AGPL-classed byte anything else.
+; ---------------------------------------------------------------------------

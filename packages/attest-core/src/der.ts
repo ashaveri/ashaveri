@@ -122,6 +122,12 @@ export type SignatureAlgorithm =
 export interface ParsedCertificate {
   readonly raw: Uint8Array;
   readonly tbs: Uint8Array;
+  /**
+   * The TBSCertificate serialNumber as the DER INTEGER content bytes it holds,
+   * including a leading 0x00 when the value's high bit is set. A hex reading of
+   * these bytes is the serial a published certificate states.
+   */
+  readonly serial: Uint8Array;
   readonly signatureAlgorithm: SignatureAlgorithm;
   readonly signature: Uint8Array;
   readonly issuer: Uint8Array;
@@ -129,6 +135,13 @@ export interface ParsedCertificate {
   readonly notBefore: number;
   readonly notAfter: number;
   readonly publicKey: CertificatePublicKey;
+  /**
+   * The SubjectPublicKeyInfo element exactly as it appears in the certificate:
+   * SEQUENCE tag, length and content. Its SHA-256 is the digest a reader can
+   * reproduce from the published certificate, and it is the span the key above
+   * was taken from, so the two cannot be made to disagree.
+   */
+  readonly subjectPublicKeyInfo: Uint8Array;
   readonly productName: string | null;
   readonly hwid: Uint8Array | null;
   readonly isCa: boolean | null;
@@ -278,7 +291,8 @@ export function parseCertificate(der: Uint8Array): ParsedCertificate {
   if (versionTlv.tag === 0xa0) {
     tbsOffset += versionTlv.total;
   }
-  tbsOffset += expect('serialNumber', readTlv(tbs.content, tbsOffset, 'serialNumber'), 0x02).total;
+  const serialTlv = expect('serialNumber', readTlv(tbs.content, tbsOffset, 'serialNumber'), 0x02);
+  tbsOffset += serialTlv.total;
   const tbsSignature = expect('tbs signature', readTlv(tbs.content, tbsOffset, 'tbs signature'), 0x30);
   tbsOffset += tbsSignature.total;
   const issuer = expect('issuer', readTlv(tbs.content, tbsOffset, 'issuer'), 0x30);
@@ -287,8 +301,13 @@ export function parseCertificate(der: Uint8Array): ParsedCertificate {
   tbsOffset += validity.total;
   const subject = expect('subject', readTlv(tbs.content, tbsOffset, 'subject'), 0x30);
   tbsOffset += subject.total;
+  // The whole SubjectPublicKeyInfo element, tag and length included, is kept as
+  // the span of the TBSCertificate it was read from rather than reparsed into
+  // bytes of its own, so a digest over it matches the published certificate.
+  const spkiStart = tbsOffset;
   const spki = expect('subjectPublicKeyInfo', readTlv(tbs.content, tbsOffset, 'spki'), 0x30);
   tbsOffset += spki.total;
+  const subjectPublicKeyInfo = tbs.content.slice(spkiStart, tbsOffset);
   const publicKey = parseSubjectPublicKeyInfo(spki.content);
 
   // RFC 5280 requires the outer and TBS signature algorithms to match; a
@@ -377,6 +396,7 @@ export function parseCertificate(der: Uint8Array): ParsedCertificate {
   return {
     raw: der,
     tbs: tbsDer,
+    serial: serialTlv.content,
     signatureAlgorithm,
     signature: signatureContent.slice(1),
     issuer: issuer.content,
@@ -384,6 +404,7 @@ export function parseCertificate(der: Uint8Array): ParsedCertificate {
     notBefore,
     notAfter,
     publicKey,
+    subjectPublicKeyInfo,
     productName,
     hwid,
     isCa,

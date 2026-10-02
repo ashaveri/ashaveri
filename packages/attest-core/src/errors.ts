@@ -28,7 +28,29 @@ export type AttestationErrorCode =
   | 'MISSING_TRUST_ROOT'
   | 'BAD_SIGNATURE'
   | 'DEBUG_NOT_ALLOWED'
-  | 'POLICY_NOT_ALLOWED';
+  | 'POLICY_NOT_ALLOWED'
+  // The anchor provenance ledger family below. A row of that document is a claim about bytes this package
+  // ships, and the ledger is read by the same clients that read the evidence, so its refusals belong to
+  // this union rather than to a new one. They are prefixed and not folded into the codes above for the
+  // reason every other family in this workspace is: a log line carries only the code string, and the
+  // sentences fixed above name platform evidence. Reading a ledger's refusal under "certificate bytes are
+  // not valid X.509" would hand an operator a diagnosis of the wrong document, which is the same class of
+  // mistake the ledger's own content type exists to prevent. One envelope refusal is shared and stays
+  // shared: a signature that does not verify is `BAD_SIGNATURE` whichever document carried it, because that
+  // sentence names the cryptography and not a document, exactly as the receipt family shares its own.
+  | 'ANCHOR_LEDGER_NOT_SEALED'
+  | 'ANCHOR_LEDGER_BAD_HEADER'
+  | 'ANCHOR_LEDGER_PIN_MISSING'
+  | 'ANCHOR_LEDGER_PIN_MISMATCH'
+  | 'ANCHOR_LEDGER_KEY_UNDECLARED'
+  | 'ANCHOR_LEDGER_UNSUPPORTED_VERSION'
+  | 'ANCHOR_LEDGER_BAD_DOCUMENT'
+  | 'ANCHOR_LEDGER_FILE_UNNAMED'
+  | 'ANCHOR_LEDGER_BYTES_UNAVAILABLE'
+  | 'ANCHOR_LEDGER_DIGEST_MISMATCH'
+  | 'ANCHOR_LEDGER_SPKI_MISMATCH'
+  | 'ANCHOR_LEDGER_LICENCE_UNKNOWN'
+  | 'ANCHOR_LEDGER_INSTANT_OUT_OF_RANGE';
 
 const ERROR_MESSAGE: Record<AttestationErrorCode, string> = {
   MALFORMED_ATTESTATION: 'attestation bytes do not decode as a dStack VersionedAttestation',
@@ -61,6 +83,75 @@ const ERROR_MESSAGE: Record<AttestationErrorCode, string> = {
   BAD_SIGNATURE: 'cryptographic signature verification failed',
   DEBUG_NOT_ALLOWED: 'SEV-SNP policy enables debug mode',
   POLICY_NOT_ALLOWED: 'SEV-SNP report policy violates the verification profile',
+  // The anchor provenance ledger family, which refuses a signed statement about the bytes this package
+  // ships. The three envelope positions come first, because they are answered before one member of the
+  // body is read: the document is either a `COSE_Sign1` over this layout's payload or it is nothing, and a
+  // reader that went on parsing after the first refused would be reporting the shape of bytes nobody
+  // signed.
+  ANCHOR_LEDGER_NOT_SEALED: 'the anchor provenance ledger is not a COSE_Sign1 over the body it presents',
+  // One code for the shapes a signed header fails in, as the receipt family's `BAD_PROTECTED_HEADER` is: no
+  // map, a map that does not decode closed, a label outside the three the format declares, a `kid` of
+  // another width, an absent parameter, and a `typ` naming another container, which is how a receipt, a
+  // pack or an epoch inventory handed to this reader is refused before one row is read. An algorithm other
+  // than EdDSA answers here too: the receipt family keeps a separate code for it because that union already
+  // names one, this union has no algorithm position to keep apart from a header, and two codes for one
+  // finding would be two voices about the same signed bytes.
+  ANCHOR_LEDGER_BAD_HEADER: 'the anchor provenance ledger protected header does not hold exactly the parameters the format declares',
+  // Refused before a byte is read, because the fault is in the call and not in the document: the reader was
+  // handed no key to verify against. This is never a pass, and it is not `ANCHOR_LEDGER_PIN_MISMATCH`, which
+  // says a pin was named and disagrees. A ledger that verified under nobody's decision would be evidence
+  // about the estate's own bytes vouched for by those same bytes, which is the circular thing this document
+  // exists not to be.
+  ANCHOR_LEDGER_PIN_MISSING: 'no verifying key was pinned for this anchor provenance ledger',
+  // The caller named a key and the document names another. Either may be whole; what is refused is reading
+  // this ledger under that key, and the action sends an operator to their own configuration rather than to
+  // the file.
+  ANCHOR_LEDGER_PIN_MISMATCH: 'the key pinned by the caller does not match the kid the anchor provenance ledger names',
+  // The reader's pin and the signature are answered, and then the ledger contradicts itself about who signs
+  // it: the kid that sealed the body is not one of the ids the body lists. This is not the pin's question and
+  // not a signature failure, because the bytes the two keys made are both intact, and it is a named refusal
+  // rather than a pass because a ledger whose own `keys` list is decoration states nothing about rotation.
+  ANCHOR_LEDGER_KEY_UNDECLARED: 'the kid that sealed the anchor provenance ledger is not one the ledger names in its own keys list',
+  // One code for the two readings of a `v` this package cannot use, as every other family here has it: a
+  // version this package parses and one the caller accepts are not two facts about the bytes. A `v` that is
+  // not an integer at all is a malformed document, so it answers `ANCHOR_LEDGER_BAD_DOCUMENT`.
+  ANCHOR_LEDGER_UNSUPPORTED_VERSION: 'the anchor provenance ledger declares a version this package cannot parse',
+  // Every structural refusal of the body and of the rows inside it: an absent member, a member this version
+  // does not define, a digest or a key id of another width, a text member that is empty or carries a
+  // character that ends, hides or reorders the printed row it belongs to, a family outside the three the
+  // layout enumerates, an empty row list or key list, and the four certificate members arriving apart
+  // instead of together. It is also the answer of a number that is not a whole integer, which reaches this code from the
+  // decode rather than from a field read: a floating-point spelling of an integer, in a value and in a key
+  // alike, becomes the one map entry a check could not tell apart afterwards, so the refusal happens where the
+  // bytes are still distinguishable. The one refusal of this family that is not layout is
+  // `ANCHOR_LEDGER_FILE_UNNAMED`, because a name the package does not ship is not a malformed document.
+  ANCHOR_LEDGER_BAD_DOCUMENT: 'the anchor provenance ledger does not match the layout its declared version defines',
+  // A row that speaks of bytes no file or constant of this package is. This is the refusal the ledger exists
+  // to make loud: an anchor added beside the ledger, renamed, or swapped out leaves a row that answers to
+  // nothing, and a reader that walked past it would be recording provenance for bytes it never looked at.
+  ANCHOR_LEDGER_FILE_UNNAMED: 'an anchor provenance row names a file this package does not ship',
+  // Not a fault of the document: the row names a file this package does ship, and the bytes of it were not
+  // handed to the reader. The embedded anchors resolve from source, so this is the tracked fixture case, and
+  // the action is the caller's: open the file and read again. It is a refusal rather than a skip because a
+  // reader that passed an unchecked digest would report material it never looked at.
+  ANCHOR_LEDGER_BYTES_UNAVAILABLE: 'the bytes an anchor provenance row names were not handed to the reader',
+  // The row states the digest of the bytes as shipped and the shipped bytes hash to something else. The
+  // document is internally whole and the signature covers it, so this is the one refusal here that says the
+  // ledger is true and the repository has moved since, which is what a provenance ledger is for.
+  ANCHOR_LEDGER_DIGEST_MISMATCH: 'an anchor provenance row states a digest the bytes it names do not hash to',
+  // The row states the digest of the certificate's SubjectPublicKeyInfo and the named bytes carry another
+  // key, or carry no single certificate at all. Reached by recomputing over the bytes the row names, so a
+  // reader is never adjudicating between two claims about the same file.
+  ANCHOR_LEDGER_SPKI_MISMATCH: 'an anchor provenance row states a public-key digest the bytes it names do not carry',
+  // A licence class outside the four the format declares, which is a claim no row of this ledger can support
+  // and not a class the reader has never heard of. `none-stated` is one of the four and is not this refusal:
+  // it is the finding that a source named no code licence behind the bytes it published.
+  ANCHOR_LEDGER_LICENCE_UNKNOWN: 'an anchor provenance row states a licence class outside the four the format declares',
+  // One code for both instant positions, `generatedAt` and a row's `takenAt`, because the fault is one fault
+  // met at two places and the action never changes: the reading is not a second since the epoch this reader
+  // could weigh anything against. The band is the receipt format's, stated in the detail, because which unit
+  // the number arrived in is the caller's answer and not this reader's guess.
+  ANCHOR_LEDGER_INSTANT_OUT_OF_RANGE: 'an anchor provenance ledger states an instant that is not a whole number of Unix seconds inside the band the receipt format states',
 };
 
 /**

@@ -10,6 +10,20 @@ export const COSE_HEADER_ALG = 1;
 export const COSE_HEADER_CONTENT_TYPE = 3;
 export const COSE_HEADER_KID = 4;
 export const RECEIPT_CONTENT_TYPE = 'ashaveri/receipt';
+/**
+ * The content type of the anchor provenance ledger, the sixth document that travels in the framing this
+ * module writes. It is named here because it belongs to the family, whose members are all a `COSE_Sign1`
+ * over the same three labels sealed by the same key family, and so a reader that is told which of them it
+ * holds is told by label 3 and by nothing else in the envelope.
+ *
+ * The ledger's own reader lives in `@ashaveri/attest-core`, which ships the bytes the ledger speaks of, and
+ * that package takes this constant from here rather than spelling the name again: `packages/receipt` is the
+ * one owner of the family's content types, and
+ * `packages/attest-core/test/anchor-ledger.test.ts` holds the reader's own name for the document against
+ * this declaration and against the block `anchor-provenance.cddl` writes. Which label names which document
+ * stays this package's answer.
+ */
+export const ANCHOR_PROVENANCE_CONTENT_TYPE = 'ashaveri/anchor-provenance';
 
 export interface ProtectedHeader {
   alg: number;
@@ -77,7 +91,16 @@ function labelName(label: unknown): string {
   return 'a label that is not an integer';
 }
 
-function parseProtectedHeader(bytes: Uint8Array): ProtectedHeader {
+/**
+ * The signed header as the framing reads it back, closed against the three labels and answered for the one
+ * content type the caller's format names.
+ *
+ * The content type is an argument for the same reason `buildProtectedHeader` takes one: the three labels,
+ * their order and their encodings are the family's answer, and which document a reader is holding is the
+ * caller's. It defaults to this package's own name because the framing belongs to the receipt format, and
+ * every other member of the family borrows the framing rather than the answer in label 3.
+ */
+function parseProtectedHeader(bytes: Uint8Array, declaredContentType: string = RECEIPT_CONTENT_TYPE): ProtectedHeader {
   // Read under the closed-document rule, which is what closes this map's labels as well as its
   // values: a label written as the float `1.0` decodes to the same map key as the integer label `1`
   // and takes its slot, so a check placed after the decode would be reading one merged entry and
@@ -107,7 +130,7 @@ function parseProtectedHeader(bytes: Uint8Array): ProtectedHeader {
   if (typeof contentType !== 'string') {
     throw new ReceiptError('BAD_PROTECTED_HEADER', `typ must be a tstr, got ${typeof contentType}`);
   }
-  if (contentType !== RECEIPT_CONTENT_TYPE) {
+  if (contentType !== declaredContentType) {
     throw new ReceiptError('BAD_PROTECTED_HEADER', `typ=${contentType}`);
   }
   return { alg: ALG_EDDSA, kid, contentType };
@@ -160,18 +183,31 @@ export function sealCoseSign1(
   return encodeCanonical(new Tag(COSE_SIGN1_TAG, [protectedBytes, unprotected, payloadBytes, signature]));
 }
 
+/**
+ * A `COSE_Sign1` over a payload, sealed by the framing this module owns.
+ *
+ * The content type is the last argument and defaults to this package's own name, for the reason every
+ * other member of the family passes one: the header's three labels, the kid rule and the `Sig_structure`
+ * are the framing's answer, and which document these bytes are is the caller's. A format whose reader lives
+ * in another package, which is the anchor provenance ledger's case, seals through here rather than writing
+ * the framing a second time beside itself.
+ */
 export function signCoseSign1(
   payloadBytes: Uint8Array,
   key: SigningKey,
   externalAad: Uint8Array = new Uint8Array(0),
+  contentType: string = RECEIPT_CONTENT_TYPE,
 ): Uint8Array {
-  const protectedBytes = buildProtectedHeader(key.kid);
+  const protectedBytes = buildProtectedHeader(key.kid, contentType);
   const toSign = sigStructure(protectedBytes, externalAad, payloadBytes);
   const signature = ed25519.sign(toSign, key.privateKey);
   return sealCoseSign1(protectedBytes, payloadBytes, signature);
 }
 
-export function decodeCoseSign1(bytes: Uint8Array): CoseSign1 & { header: ProtectedHeader } {
+export function decodeCoseSign1(
+  bytes: Uint8Array,
+  contentType: string = RECEIPT_CONTENT_TYPE,
+): CoseSign1 & { header: ProtectedHeader } {
   const top = decodeCanonical(bytes);
   if (!(top instanceof Tag) || top.tag !== COSE_SIGN1_TAG) {
     throw new ReceiptError('NOT_COSE_SIGN1', 'missing CBOR tag 18');
@@ -186,12 +222,17 @@ export function decodeCoseSign1(bytes: Uint8Array): CoseSign1 & { header: Protec
   if (!(signature instanceof Uint8Array) || signature.length !== 64) {
     throw new ReceiptError('NOT_COSE_SIGN1', 'signature is not a 64-byte bstr');
   }
-  const header = parseProtectedHeader(protectedBytes);
+  const header = parseProtectedHeader(protectedBytes, contentType);
   return { protectedBytes, unprotected, payloadBytes, signature, header };
 }
 
-export function verifyCoseSign1(bytes: Uint8Array, publicKey: Uint8Array, externalAad: Uint8Array = new Uint8Array(0)): CoseSign1 & { header: ProtectedHeader } {
-  const cose = decodeCoseSign1(bytes);
+export function verifyCoseSign1(
+  bytes: Uint8Array,
+  publicKey: Uint8Array,
+  externalAad: Uint8Array = new Uint8Array(0),
+  contentType: string = RECEIPT_CONTENT_TYPE,
+): CoseSign1 & { header: ProtectedHeader } {
+  const cose = decodeCoseSign1(bytes, contentType);
   const expectedKid = keyId(publicKey);
   if (!equalBytes(cose.header.kid, expectedKid)) throw new ReceiptError('KID_MISMATCH');
   const toSign = sigStructure(cose.protectedBytes, externalAad, cose.payloadBytes);

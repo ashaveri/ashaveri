@@ -28,10 +28,15 @@
  * one and holds them to one membership (`test/line-text.test.ts`), so a class that drifts at one site fails a test
  * rather than a paragraph.
  *
- * Three packages outside this one state these ranges for their own boundary and share no module with this one:
- * the CLI before printing a value, `attest-core` before quoting one, and the gateway before rewriting a
- * request-chosen model name into a reply body, where the copy is narrower than this one for two stated reasons
- * (`gateway/src/server.ts`). Who owns a class inside a package is a different question from what a boundary
+ * The ranges below are exported, so a boundary outside this package that owes its caller the same class builds
+ * it from them rather than spelling them again: `@ashaveri/attest-core`'s anchor provenance ledger does that
+ * for the text members of a row (`packages/attest-core/src/anchor-ledger.ts`).
+ *
+ * Three sites still state these ranges beside themselves, and each does it for a boundary of its own: the CLI
+ * before printing a value (`packages/cli/src/usage.ts`), the gateway before rewriting a request-chosen model
+ * name into a reply body, where the copy is narrower than this one for two stated reasons
+ * (`gateway/src/server.ts`), and `packages/attest-core/src/errors.ts`, whose copy of the escaping class
+ * predates this module. Who owns a class inside a package is a different question from what a boundary
  * outside it states, and each of the three answers that beside itself.
  */
 

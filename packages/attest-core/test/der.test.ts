@@ -1,11 +1,59 @@
 import { describe, it, expect } from 'vitest';
-import { decodeAttestation, equalBytes, parseCertificateChain } from '../src/index.js';
+import { sha256 } from '@noble/hashes/sha2.js';
+import {
+  AMD_ARK_MILAN_PEM,
+  INTEL_SGX_ROOT_CA_PEM,
+  NVIDIA_DEVICE_IDENTITY_CA_PEM,
+  decodeAttestation,
+  equalBytes,
+  parseCertificate,
+  parseCertificateChain,
+} from '../src/index.js';
+import type { ParsedCertificate } from '../src/index.js';
 import { decodeBase64 } from '../src/der.js';
+import { toHex } from '../src/events.js';
 import { expectErrorCode, fixture, pemToDer } from './helpers.js';
 
 const ARK = fixture('amd-ark-milan.pem');
 const ASK = fixture('sev-snp-ask.pem');
 const VCEK = fixture('sev-snp-vcek.pem');
+
+// The serial and the SubjectPublicKeyInfo of each embedded root, stated here as
+// literals rather than recomputed, so the reader is checked against the
+// certificates themselves and not against itself. `serialHex` is the
+// TBSCertificate serialNumber as the DER INTEGER content bytes, leading sign
+// byte included; `spkiSha256Hex` is the digest of the whole
+// SubjectPublicKeyInfo element, tag and length included, which is the form a
+// third party reproduces from a published certificate.
+const EMBEDDED_ROOTS = [
+  {
+    name: 'Intel SGX root CA',
+    pem: INTEL_SGX_ROOT_CA_PEM,
+    serialHex: '22650cd65a9d3489f383b49552bf501b392706ac',
+    spkiSha256Hex: 'a0af031289f5d5d4132f9186068a7fc13628633ba235777472e29b6b6c67a49e',
+    spkiLength: 91,
+  },
+  {
+    name: 'AMD Milan ARK',
+    pem: AMD_ARK_MILAN_PEM,
+    serialHex: '010000',
+    spkiSha256Hex: '9f056bee44377e29308cb5ffa895bdfb62d18881fa6bed8d6f075b0204089cb9',
+    spkiLength: 550,
+  },
+  {
+    name: 'NVIDIA device identity CA',
+    pem: NVIDIA_DEVICE_IDENTITY_CA_PEM,
+    serialHex: '2d3670b1ca100411c1fec0e82a065b54',
+    spkiSha256Hex: 'a90c4eb5acfd3e3d03a25db6a26b84f720ad0503196c627c21ddd48dd85b06a4',
+    spkiLength: 120,
+  },
+] as const;
+
+// The bytes a deployment hands the reader are these constants encoded, so the
+// test parses what ships rather than a copy a test invents.
+function shippedRoot(pem: string): ParsedCertificate {
+  return parseCertificate(pemToDer(new TextEncoder().encode(pem)));
+}
 
 function fixtureReportChipId(): Uint8Array {
   const attestation = decodeAttestation(fixture('sev-snp-attestation.bin'));
@@ -66,6 +114,26 @@ describe('AMD KDS certificate parsing', () => {
     expect(certs.length).toBe(2);
     expect(equalBytes(certs[0]!.raw, ark)).toBe(true);
     expect(equalBytes(certs[1]!.raw, ask)).toBe(true);
+  });
+});
+
+describe('serial and public-key info of the embedded roots', () => {
+  it('returns each serialNumber as the DER INTEGER bytes the certificate holds', () => {
+    for (const root of EMBEDDED_ROOTS) {
+      expect(toHex(shippedRoot(root.pem).serial), root.name).toBe(root.serialHex);
+    }
+  });
+
+  it('returns each SubjectPublicKeyInfo as the DER span the walk steps over', () => {
+    for (const root of EMBEDDED_ROOTS) {
+      const cert = shippedRoot(root.pem);
+      expect(cert.subjectPublicKeyInfo[0], root.name).toBe(0x30);
+      expect(cert.subjectPublicKeyInfo.length, root.name).toBe(root.spkiLength);
+      expect(toHex(sha256(cert.subjectPublicKeyInfo)), root.name).toBe(root.spkiSha256Hex);
+      // A span of the input, not a re-encoding: the bytes appear verbatim in the
+      // certificate that was parsed.
+      expect(toHex(cert.raw), root.name).toContain(toHex(cert.subjectPublicKeyInfo));
+    }
   });
 });
 
