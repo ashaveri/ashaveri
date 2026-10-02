@@ -26,6 +26,7 @@
     "@noble/hashes": "^2.4.0"
   },
   "devDependencies": {
+    "@ashaveri/fixtures": "workspace:*",
     "@ashaveri/signerd": "workspace:*",
     "@types/node": "^22.20.1",
     "esbuild": "0.28.2",

@@ -2,6 +2,19 @@ import { describe, expect, it } from 'vitest';
 import { p256 } from '@noble/curves/nist.js';
 import { sha256 } from '@noble/hashes/sha2.js';
 import {
+  qeIdentity,
+  secondsOf,
+  servedAnswer,
+  servedChain,
+  servedChainOf,
+  servedMemberText,
+  servedSignatureMember,
+  servedWrapperBody,
+  tcbInfo,
+  tcbInfoBody,
+  testVendor,
+} from '@ashaveri/fixtures';
+import {
   INTEL_QE_IDENTITY,
   INTEL_TCB_INFO,
   appraiseCollateral,
@@ -14,19 +27,6 @@ import {
   type ReadCollateral,
   type ReadOutcome,
 } from '../src/index.js';
-import {
-  qeIdentity,
-  secondsOf,
-  servedAnswer,
-  servedChain,
-  servedChainOf,
-  servedMemberText,
-  servedSignatureMember,
-  servedWrapperBody,
-  tcbInfo,
-  tcbInfoBody,
-  testVendor,
-} from './support/collateral-documents.js';
 
 const FMSPC = '00906EA00000';
 const CPU_TYPE = FMSPC.toLowerCase();

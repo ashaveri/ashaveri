@@ -3,6 +3,7 @@ import { spawnSync } from 'node:child_process';
 import { copyFileSync, existsSync, readFileSync, writeFileSync } from 'node:fs';
 import { basename, isAbsolute, join, resolve, sep } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { fixtureVendor, secondsOf, servedAnswer, signedDocument, tcbInfo, testVendor } from '@ashaveri/fixtures';
 import {
   RECEIPT_PUBLIC_B64URL,
   absent,
@@ -15,7 +16,6 @@ import {
   PUBLISHED_PAYLOAD,
   type PackEntry,
 } from '../test/carried-pack.ts';
-import { fixtureVendor, secondsOf, servedAnswer, signedDocument, tcbInfo, testVendor } from '../../collateral/test/support/collateral-documents.ts';
 
 /**
  * The inputs the single-file verifier is proved against, written into a directory that holds nothing
@@ -62,8 +62,9 @@ import { fixtureVendor, secondsOf, servedAnswer, signedDocument, tcbInfo, testVe
  * signature the published row carries is derivable here, so one of the runs below weighs a published document
  * rather than only a locally built one. The containers built here are assembled the way the generator assembles its
  * own: the receipts by `issueReceipt`, the pack by `signPack`, a manifest the writer would not seal by the same
- * piecewise seal the published fault rows are made of, and the collateral documents by the vendor support the
- * collateral package's cases use. Their roots are generated at run time, so what is asserted is the reading of one
+ * piecewise seal the published fault rows are made of, and the collateral documents by the vendor
+ * `@ashaveri/fixtures` exports, which is what the collateral package's own cases build from. Their roots are
+ * generated at run time, so what is asserted is the reading of one
  * signature by the run that pinned it and nothing about what any real vendor publishes.
  *
  * Two promises of the layout are what the section is built to answer. The first is that a served pair weighs:

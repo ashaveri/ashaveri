@@ -1,5 +1,14 @@
 import { describe, expect, it } from 'vitest';
 import {
+  foreignKey,
+  secondsOf,
+  signedDocument,
+  tcbInfo,
+  tcbInfoBody,
+  testVendor,
+  type TestVendor,
+} from '@ashaveri/fixtures';
+import {
   INTEL_QE_IDENTITY,
   INTEL_TCB_INFO,
   appraiseCollateral,
@@ -13,15 +22,6 @@ import {
   type OriginDeclaration,
 } from '../src/index.js';
 import type { CollateralQuery } from '../src/types.js';
-import {
-  foreignKey,
-  secondsOf,
-  signedDocument,
-  tcbInfo,
-  tcbInfoBody,
-  testVendor,
-  type TestVendor,
-} from './support/collateral-documents.js';
 
 const FMSPC = '00906EA00000';
 const LEVEL_DATE = '2026-09-01T00:00:00Z';
@@ -281,8 +281,8 @@ describe('the declaration of the Intel retrieval path', () => {
   /**
    * The positions the vendor's served answers settle, read off the declaration that points at them. Each
    * name and each word here is copied from a body cited at `intel-origin.ts`, and a case in `read.test.ts`
-   * reads a document laid out this way, so neither the declaration nor the test support vouches for the
-   * other: the served shape is the third thing both are checked against.
+   * reads a document laid out this way, so neither the declaration nor the fixture vendor behind `@ashaveri/fixtures`
+   * vouches for the other: the served shape is the third thing both are checked against.
    */
   it('states the members and the words the vendor serves, for both documents', () => {
     for (const declaration of [INTEL_TCB_INFO, INTEL_QE_IDENTITY]) {

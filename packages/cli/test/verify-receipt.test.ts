@@ -12,7 +12,7 @@ import {
   toHex,
   type SigningKey,
 } from '@ashaveri/receipt';
-import { secondsOf, signedDocument, tcbInfo, testVendor } from '../../collateral/test/support/collateral-documents.js';
+import { secondsOf, signedDocument, tcbInfo, testVendor } from '@ashaveri/fixtures';
 import { ATTESTED_MARKING, stampedReceiptBytes, wrongMarking } from './stamped-receipt.js';
 
 /**

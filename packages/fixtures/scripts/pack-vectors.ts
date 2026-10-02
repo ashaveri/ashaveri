@@ -36,9 +36,9 @@ import {
   type SigningKey,
   type VerifiedPack,
 } from '@ashaveri/receipt';
+import { fixtureVendor, servedAnswer, servedChainOf, tcbInfo } from '@ashaveri/fixtures';
 import { labeled } from './seed.ts';
 import { FIXED_IAT, fixtureKey, fixturePayload } from './receipt-envelope.ts';
-import { fixtureVendor, servedAnswer, servedChainOf, tcbInfo } from '../../collateral/test/support/collateral-documents.ts';
 
 const DATA = join(dirname(fileURLToPath(import.meta.url)), '..', 'data');
 

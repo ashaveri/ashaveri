@@ -5,7 +5,7 @@ import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { afterAll, describe, expect, it } from 'vitest';
 import { generateSigningKey, sealDeploymentManifest, toHex } from '@ashaveri/receipt';
-import { secondsOf, servedAnswer, servedChainOf, signedDocument, tcbInfo, testVendor } from '../../collateral/test/support/collateral-documents.js';
+import { secondsOf, servedAnswer, servedChainOf, signedDocument, tcbInfo, testVendor } from '@ashaveri/fixtures';
 import {
   PUBLISHED_PAYLOAD,
   RECEIPT_PUBLIC_B64URL,
@@ -246,13 +246,13 @@ describe('the rows a pack, a receipt or a command line writes', () => {
  * refusal is about the position and not about the document.
  *
  * The material weighed in the accepted runs is of three kinds. Where a case is about the container, the bytes are a
- * sentence no vendor signed, and the answer the row prints is the reader's refusal to read it. Where a case is
- * about an envelope that carries its own certificates, the bytes are a TCB Info document signed by a test vendor
- * whose root the run pins through `--intel-root`, built by the same support the collateral package's own cases
- * use, because a window and a status can only be printed by an appraisal that believed a signature. Where a case is
- * about the answer a service actually returns, the bytes are that same statement's served wrapper beside the
- * issuer-chain header the same support spells for it, because the half that reaches a root sits outside the body
- * and only the arm can hand it over. No case here reaches a network.
+ * sentence no vendor signed, and the answer the row prints is the reader's refusal to read it. Where a case is about
+ * an envelope that carries its own certificates, the bytes are a TCB Info document signed by a test vendor whose root
+ * the run pins through `--intel-root`, built by the vendor module `@ashaveri/fixtures` exports and the collateral
+ * package's own cases import, because a window and a status can only be printed by an appraisal that believed a
+ * signature. Where a case is about the answer a service actually returns, the bytes are that same statement's served
+ * wrapper beside the issuer-chain header that module spells for it, because the half that reaches a root sits outside
+ * the body and only the arm can hand it over. No case here reaches a network.
  */
 
 /** The identity the document covers and the run asks by, as Intel's own documents spell both. */

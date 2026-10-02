@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { sha256 } from '@noble/hashes/sha2.js';
+import { qeIdentity, secondsOf, signedDocument, tcbInfo, testVendor, type TestVendor } from '@ashaveri/fixtures';
 import {
   CollateralError,
   appraiseCarriedCollateral,
@@ -9,7 +10,6 @@ import {
   type CollateralRefusal,
   type CollateralTransport,
 } from '../src/index.js';
-import { qeIdentity, secondsOf, signedDocument, tcbInfo, testVendor, type TestVendor } from './support/collateral-documents.js';
 
 const FMSPC = '00906EA00000';
 const CPU_TYPE = FMSPC.toLowerCase();

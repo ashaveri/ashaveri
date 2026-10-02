@@ -822,3 +822,35 @@ export interface EpochInventoryVectorFile {
 export function loadEpochInventoryVectors(): EpochInventoryVectorFile {
   return JSON.parse(readFileSync(join(DATA, 'epoch-inventory-v1.json'), 'utf8')) as EpochInventoryVectorFile;
 }
+
+/**
+ * The estate's synthetic vendor: the certificates, the signed documents and the served answer its suites build
+ * rather than capture. It is exported from this entry rather than left inside one package's test directory,
+ * because the collateral cases, this package's own pack generator and the CLI's offline proof each reach it from
+ * a different package, and the bytes it signs for the published rows are published here.
+ */
+export {
+  fixtureVendor,
+  foreignKey,
+  mismatchedVendor,
+  qeIdentity,
+  secondsOf,
+  servedAnswer,
+  servedChain,
+  servedChainOf,
+  servedJsonBody,
+  servedLevel,
+  servedMemberText,
+  servedSignatureMember,
+  servedTcb,
+  servedWrapperBody,
+  signedDocument,
+  tcbInfo,
+  tcbInfoBody,
+  testVendor,
+  x5cOf,
+  type ServedAnswer,
+  type ServedComposition,
+  type ServedLevel,
+  type TestVendor,
+} from './fixture-vendor.js';
