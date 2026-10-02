@@ -194,8 +194,9 @@ What is still true, in both modes:
   bytes against the roots its caller names and prints each slot it could not weigh beside the flag that would
   have supplied the question. Weighing reaches an answer only for bytes of the envelope that document's
   declaration decodes. Intel answers its two document addresses with the issuer chain in a response header
-  beside the body, so an entry of that material is a pack's held bytes that no root a caller names reaches a
-  verdict on, and [pack-v1.md](pack-v1.md) states that limit and what a carried entry answers for. That weighing
+  beside the body, so that material is weighed only when the header arrived beside it, and a body handed over
+  alone is read as a body alone, and [pack-v1.md](pack-v1.md) states that limit and what a custody reference
+  answers for. That weighing
   asks no origin anything, reaches no network, feeds no attestation
   verdict, and changes what T12 says about a platform the vendor has since deprecated. This document describes
   the offline path as it is built.
@@ -246,8 +247,9 @@ What is still true, in both modes:
   many of the two slots the reader must reach and find standing as their own signed statement at the
   instant the record claims. It is answered by the availability of the material a verifier holds and by
   nothing inside a signed document, and the pack moved the first half of that sentence: the
-  container that seals a receipt naming material carries that material in `carried`, and its reader
-  recomputes every stated digest and refuses a slot the list does not answer as the pack's own failure, at
+  container that seals a receipt naming material states, in `custody`, where each held slot's document was read
+  from and what its bytes hashed to, and its reader
+  recomputes every stated digest and refuses a slot no reference answers as the pack's own failure, at
   the position that names it. A held slot inside a pack is therefore a claim the container is answerable
   for, while a held slot in a receipt fetched on its own is still a promise about somebody else's archive.
   The two ways that demand goes unanswered keep two codes, because an operator told only that an anchor

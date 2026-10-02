@@ -5,17 +5,17 @@ import { basename, isAbsolute, join, resolve, sep } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import {
   RECEIPT_PUBLIC_B64URL,
+  absent,
   anchorReceiptOf,
-  carriedObject,
+  attachedObject,
   digestHexOf,
+  digestOf,
   held,
-  packManifestOf,
   packOf,
-  sealCarriedPack,
   PUBLISHED_PAYLOAD,
   type PackEntry,
 } from '../test/carried-pack.ts';
-import { secondsOf, signedDocument, tcbInfo, testVendor } from '../../collateral/test/support/collateral-documents.ts';
+import { secondsOf, servedAnswer, signedDocument, tcbInfo, testVendor } from '../../collateral/test/support/collateral-documents.ts';
 
 /**
  * The inputs the single-file verifier is proved against, written into a directory that holds nothing
@@ -53,17 +53,24 @@ import { secondsOf, signedDocument, tcbInfo, testVendor } from '../../collateral
  * below is read out of the report the artifact printed rather than out of its exit status, because a status
  * says that a command stopped and only the report says which document it stopped about and what it found.
  *
- * The material a pack carries is proved over a container built here rather than over a published vector,
- * and the reason is stated in the published bytes: `pack-v1.json` does carry a run whose held slots name
- * material (`collateral-carried-inside-the-pack`), but the objects it carries are the sentences
- * `pack-vectors.ts` writes, not a vendor's signed statement, so an appraisal of them can only answer that
- * it met something it cannot read. A window, a vendor status and a reached anchor are printed by an
- * appraisal that believed a signature, and no published fixture holds a signature this repository
- * publishes the root of. The container below is therefore assembled the way the generator assembles its
- * own: the receipts by `issueReceipt`, the pack by `signPack`, the mis-stated carried list by the same
- * piecewise seal the published fault rows are made of, and the collateral document by the vendor support
- * the collateral package's cases use. Its root is generated at run time, so what is asserted is the
- * reading of one signature by the run that pinned it and nothing about what any real vendor publishes.
+ * The material a pack refers to is proved over a container built here rather than over a published vector, and
+ * the reason is stated in the published bytes: `pack-v1.json` does carry a run whose held slots are each answered
+ * by a reference (`held-slots-referred-to-by-name`), but the digests those references name are the sentences
+ * `pack-vectors.ts` writes and it attaches no copy of any of them, so an appraisal of them can only answer that it
+ * met something it cannot read. A window, a vendor status and a reached anchor are printed by an appraisal that
+ * believed a signature, and no published fixture holds a signature this repository publishes the root of. The
+ * containers below are therefore assembled the way the generator assembles its own: the receipts by
+ * `issueReceipt`, the pack by `signPack`, a manifest the writer would not seal by the same piecewise seal the
+ * published fault rows are made of, and the collateral documents by the vendor support the collateral package's
+ * cases use. Their root is generated at run time, so what is asserted is the reading of one signature by the run
+ * that pinned it and nothing about what any real vendor publishes.
+ *
+ * Two promises of the layout are what the section is built to answer. The first is that a served pair weighs:
+ * material whose issuer chain arrived beside it, attached in the arm with the header, is weighed as the pair the
+ * reference states a digest for, and not as a body an envelope cannot open. The second is that the byte arm stays
+ * empty: no writer in this repository fills it, so every pack this estate publishes is read with the arm holding
+ * nothing, and what the reading prints for those slots is the row that says so rather than a refusal of a document
+ * the format takes.
  */
 
 /** The committed signing key material a fixture receipt was issued under. */
@@ -293,8 +300,8 @@ interface CarriedRow {
   readonly item: string;
   readonly slot: string;
   readonly namedBy: readonly { readonly item: string; readonly slot: string }[];
-  readonly carried: boolean;
-  readonly carriedBytes: number;
+  readonly attached: boolean;
+  readonly attachedBytes: number | null;
   readonly appraisalAt: number;
   readonly heldAt: number;
   readonly environment: string;
@@ -944,17 +951,19 @@ const WINDOW_UNTIL = Math.floor(Date.parse(NEXT_UPDATE) / 1000);
 /** The instant the naming record is chained at, which is both the held instant and the moment weighed. */
 const CARRIED_IAT = 1_750_000_000;
 
-/** The three names this proof gives the container it builds, in the directory it builds the run in. */
-const HONEST_PACK = 'carried-tcb-info.cbor';
-const WITHHELD_PACK = 'carried-tcb-info-object-withheld.cbor';
+/** The names this proof gives the containers it builds, and the published one it reads, in the run directory. */
+const BODY_ALONE_PACK = 'arm-body-alone.cbor';
+const SHORT_ARM_PACK = 'arm-one-reference-unfilled.cbor';
+const SERVED_PAIR_PACK = 'arm-served-pair.cbor';
+const EMPTY_ARM_PACK = 'published-arm-holds-nothing.cbor';
 const ROOT_FILE = 'intel-root.der';
 
 /** One held slot's row of a report, read out of the document by the digest that keys it. */
 function carriedRowOf(run: BundleRun, digest: string): CarriedRow {
   const row = (reportOf(run).document ?? {}) as Record<string, unknown>;
-  const found = row[`carried-${digest}`];
+  const found = row[`attached-${digest}`];
   if (found === undefined) {
-    throw new Error(`the report printed no carried row keyed 'carried-${digest}'\n${describeRun(run)}`);
+    throw new Error(`the report printed no attached row keyed 'attached-${digest}'\n${describeRun(run)}`);
   }
   return found as CarriedRow;
 }
@@ -969,40 +978,51 @@ function rootsRowOf(run: BundleRun): CollateralRootsRow {
 }
 
 /**
- * The material a pack carries, weighed by the artifact in a directory that holds no checkout.
+ * The material a pack refers to, weighed by the artifact in a directory that holds no checkout.
  *
- * Three runs, and the one variable each moves: the honest container weighed under a named root and a named
- * question, the same container with the object one held slot names taken out of the carried list, and the
- * honest container again with the question asked but no root named. The first is the half this proof existed
- * to cover and the second is the reason it is a proof rather than a demonstration, because a weighing that
- * ran over whatever a document claimed would answer the same question a pack stating more than it holds
- * cannot be refused for. The third is what makes the root rule observable: an appraisal that had inherited
- * the roots bundled with the verifier would have read the bytes and answered with a state about them, and
- * what it answers instead is the refusal that names the field this run left empty.
+ * Five runs, and the one variable each moves: the container whose arm hands a body with no header beside it,
+ * weighed under a named root and a named question; the same container with the object one reference names taken
+ * out of the arm; the same question asked under no root; a container whose arm hands the served pair, body and the
+ * header that arrived beside it, with the reference stating that header's digest; and one published pack read
+ * whole with its arm holding nothing at all.
  *
- * `verify-pack` carries the first and the third because a step that knows it is reading a pack is the step
- * this path is built for, and `verify-handover` carries the refusal because the free verb is the one a
- * reader of a pile reaches for, and both verbs weigh through the same rows.
+ * The first is the half this proof existed to cover, the second is the reason it is a proof rather than a
+ * demonstration, and the last is the promise the layout makes about it: a weighing that ran over whatever a
+ * document claimed would answer the same question a pack stating more than it holds cannot be refused for, and a
+ * reader that refused a pack for attaching less than it refers to would be refusing the ordinary output of a
+ * deployment that holds no copy to hand on. The fourth is what the arm's chain member and a reference's `c` are
+ * for: a served answer weighed as a body alone is refused at the envelope, so a run that prints a window, a
+ * vendor status and a reached anchor over a pair is the artifact walking the chain the pack attached beside it.
+ * The third is what makes the root rule observable: an appraisal that had inherited the roots bundled with the
+ * verifier would have read the bytes and answered with a state about them, and what it answers instead is the
+ * refusal that names the field this run left empty.
+ *
+ * `verify-pack` carries the first, the fourth and the third because a step that knows it is reading a pack is the
+ * step this path is built for, and `verify-handover` carries the second and the fifth because the free verb is the
+ * one a reader of a pile reaches for, and both verbs weigh through the same rows.
  */
-function proveCarried(workDir: string): void {
-  // A vendor generated here, and a document signed by it, so the only signature this run believes is the one
-  // it pinned: nothing published by a real vendor is reached, asserted about, or needed for the reading to hold.
+function proveCustody(workDir: string, dataDir: string): void {
+  // A vendor generated here, and documents signed by it, so the only signature this run believes is the one it
+  // pinned: nothing published by a real vendor is reached, asserted about, or needed for the reading to hold.
   const vendor = testVendor({
     notBefore: secondsOf('2020-01-01T00:00:00.000Z'),
     notAfter: secondsOf('2035-01-01T00:00:00.000Z'),
   });
-  const tcbDocument = signedDocument(
-    tcbInfo({
-      fmspc: FMSPC,
-      issueDate: ISSUE_DATE,
-      nextUpdate: NEXT_UPDATE,
-      levels: [{ tcbDate: TCB_DATE, tcbStatus: 'UpToDate' }],
-    }),
-    vendor,
-  );
+  const statement = tcbInfo({
+    fmspc: FMSPC,
+    issueDate: ISSUE_DATE,
+    nextUpdate: NEXT_UPDATE,
+    levels: [{ tcbDate: TCB_DATE, tcbStatus: 'UpToDate' }],
+  });
+  // The same document as one origin serves it and as one stores it: a body carrying its own signature over the
+  // member the declaration names, which is what the arm can hand beside the header that arrived with it, and the
+  // form the vendor's own service answers with, whose chain half lives in a response header rather than in a body.
+  const tcbDocument = signedDocument(statement, vendor);
+  const served = servedAnswer(statement, 'tcbInfo', vendor);
   const validityContext = new TextEncoder().encode('the validity window the appraisal above was published in');
   const digestOfTcb = digestHexOf(tcbDocument);
   const digestOfContext = digestHexOf(validityContext);
+  const digestOfServed = digestHexOf(served.body);
 
   // One record whose two anchor slots both state a digest, so the held half of the path is what runs.
   const entries: readonly PackEntry[] = [{
@@ -1010,13 +1030,24 @@ function proveCarried(workDir: string): void {
     iat: CARRIED_IAT,
     receipt: anchorReceiptOf({ col: held(tcbDocument), val: held(validityContext) }, CARRIED_IAT),
   }];
+  // One record whose collateral slot names the served body, and whose validity slot states an absence: the pair
+  // is the whole of what the arm hands, and the reference beside it states the header's digest.
+  const servedEntries: readonly PackEntry[] = [{
+    id: 'receipt-0',
+    iat: CARRIED_IAT,
+    receipt: anchorReceiptOf({ col: held(served.body), val: absent('the collector read no window') }, CARRIED_IAT),
+  }];
 
-  writeFileSync(join(workDir, HONEST_PACK), packOf(entries, [carriedObject(tcbDocument), carriedObject(validityContext)]));
-  // The same record, the same chain and the same key, with the object the `val` slot names left out of the
-  // carried list. `signPack` refuses to seal this manifest, exactly as it refuses the published fault rows,
-  // which is why the piecewise writer is the one that reaches it: nothing here hands the reader a document no
-  // deployment could have assembled, and nothing here hands it one the format would have accepted either.
-  writeFileSync(join(workDir, WITHHELD_PACK), sealCarriedPack(packManifestOf(entries, [carriedObject(tcbDocument)])));
+  writeFileSync(join(workDir, BODY_ALONE_PACK), packOf(entries, [attachedObject(tcbDocument), attachedObject(validityContext)]));
+  writeFileSync(join(workDir, SERVED_PAIR_PACK), packOf(
+    servedEntries,
+    [attachedObject(served.body, served.chain)],
+    { a: 'served', c: digestOf(served.chain) },
+  ));
+  // The same record, the same chain and the same key, with the object the `val` slot names left out of the arm.
+  // `signPack` seals this one gladly, because referring to material and attaching no copy of it is the ordinary
+  // container rather than a self-contradiction: the only writer this repository runs is the one that reaches it.
+  writeFileSync(join(workDir, SHORT_ARM_PACK), packOf(entries, [attachedObject(tcbDocument)]));
   const rootPath = join(workDir, ROOT_FILE);
   writeFileSync(rootPath, vendor.rootDer);
 
@@ -1029,7 +1060,7 @@ function proveCarried(workDir: string): void {
   ];
   const rootArgs = [`--intel-root=${rootPath}`];
 
-  const weighedRun = runBundle(workDir, ['verify-pack', HONEST_PACK, keyFlag, ...rootArgs, ...questionArgs, '--json']);
+  const weighedRun = runBundle(workDir, ['verify-pack', BODY_ALONE_PACK, keyFlag, ...rootArgs, ...questionArgs, '--json']);
   expect(weighedRun.status === 0, weighedRun, 'accept the pack whose held slots name the material it carries');
   const weighed = reportOf(weighedRun);
   expect(weighed.ok === true, weighedRun, 'report the carried pack as a document it read');
@@ -1052,7 +1083,7 @@ function proveCarried(workDir: string): void {
     weighedRun,
     `name every held slot stating this digest, saw ${JSON.stringify(col.namedBy)}`,
   );
-  expect(col.carried === true && col.carriedBytes === tcbDocument.byteLength, weighedRun, 'report the bytes the pack holds for that digest');
+  expect(col.attached === true && col.attachedBytes === tcbDocument.byteLength, weighedRun, 'report the bytes the pack holds for that digest');
   expect(
     col.appraisalAt === CARRIED_IAT && col.heldAt === CARRIED_IAT,
     weighedRun,
@@ -1096,28 +1127,74 @@ function proveCarried(workDir: string): void {
     `report the slot no flag named as not weighed with the reason, saw ${String(val.notWeighed)}`,
   );
   say(
-    `verify-pack ${HONEST_PACK}: exit 0, held col of receipt-0 resolved to ${String(tcbDocument.byteLength)} carried bytes at digest ${digestOfTcb}, ` +
+    `verify-pack ${BODY_ALONE_PACK}: exit 0, held col of receipt-0 resolved to ${String(tcbDocument.byteLength)} carried bytes at digest ${digestOfTcb}, ` +
       `weighed as ${col.state}/${String(col.reach)} reading ${String(col.readAs)} ${String(col.vendorStatus)} under the pinned anchor ${String(col.anchorDigest)}, ` +
       `window ${String(WINDOW_FROM)}..${String(WINDOW_UNTIL)} read against ${String(CARRIED_IAT)}, refusal ${String(col.refusal?.code)} moved nothing`,
   );
 
-  const withheldRun = runBundle(workDir, ['verify-handover', WITHHELD_PACK, keyFlag, ...rootArgs, ...questionArgs, '--json']);
-  expect(withheldRun.status === 1, withheldRun, 'refuse the pack that names a held digest it carries no object for');
-  const withheld = reportOf(withheldRun);
-  expect(withheld.ok === false, withheldRun, 'report the short carried list as a refusal');
-  expect(withheld.contentType === 'ashaveri/pack', withheldRun, 'name the type of the document it refused');
-  expect(withheld.code === 'PACK_CARRIED_UNRESOLVED', withheldRun, `refuse with the unresolved-carried code, gave ${String(withheld.code)}`);
+  const shortRun = runBundle(workDir, ['verify-handover', SHORT_ARM_PACK, keyFlag, ...rootArgs, ...questionArgs, '--json']);
+  expect(shortRun.status === 0, shortRun, 'read the pack that refers to a digest its arm leaves unfilled');
+  const short = reportOf(shortRun);
+  expect(short.ok === true, shortRun, 'report that pack as a document it read rather than as a refusal');
+  expect(short.contentType === 'ashaveri/pack', shortRun, 'name the type of the document it read');
   expect(
-    withheld.message?.includes(`receipt-0 states a held val digest ${digestOfContext} this pack carries no object for`) === true,
-    withheldRun,
-    'name the record, the slot and the digest the container left unanswered',
+    carriedRowOf(shortRun, digestOfTcb).attached === true && carriedRowOf(shortRun, digestOfTcb).weighed === true,
+    shortRun,
+    'weigh the digest the arm does hand over, beside the one it does not',
+  );
+  const unfilled = carriedRowOf(shortRun, digestOfContext);
+  expect(unfilled.attached === false && unfilled.attachedBytes === null, shortRun, `state that the arm attaches nothing for that digest, saw ${String(unfilled.attachedBytes)}`);
+  expect(
+    unfilled.weighed === false && unfilled.state === null && unfilled.question === null,
+    shortRun,
+    'weigh nothing against a digest the container hands no copy of, and ask no origin for one',
+  );
+  expect(
+    String(unfilled.notWeighed).includes('receipt-0 at val states this digest and the pack attaches no object hashing to it'),
+    shortRun,
+    `name the record, the slot and the fact on the row, saw ${String(unfilled.notWeighed)}`,
+  );
+  const shortHuman = runBundle(workDir, ['verify-handover', SHORT_ARM_PACK, keyFlag, ...rootArgs, ...questionArgs]);
+  expect(
+    shortHuman.stdout.includes(`digest ${digestOfContext}, attached by nothing in this pack, named by receipt-0 at val`),
+    shortHuman,
+    'print the empty arm in the human row as well, in the same words the machine shape states it',
   );
   say(
-    `verify-handover ${WITHHELD_PACK}: exit 1, refused ${String(withheld.code)} at receipt-0's held val digest ${digestOfContext}, ` +
-      'which is the weighing answering for a container the format accepted and not for what a document claims to hold',
+    `verify-handover ${SHORT_ARM_PACK}: exit 0, the col digest the arm carries weighed and the val digest it does not printed as 'attached by nothing in this pack', ` +
+      'which is the reading answering for a container the format takes rather than refusing what a document declines to copy out',
   );
 
-  const unpinnedRun = runBundle(workDir, ['verify-pack', HONEST_PACK, keyFlag, ...questionArgs, '--json']);
+  const servedRun = runBundle(workDir, ['verify-pack', SERVED_PAIR_PACK, keyFlag, ...rootArgs, ...questionArgs, '--json']);
+  expect(servedRun.status === 0, servedRun, 'accept the pack whose arm hands a body beside the header that arrived with it');
+  const servedRow = carriedRowOf(servedRun, digestOfServed);
+  expect(
+    servedRow.attached === true && servedRow.attachedBytes === served.body.byteLength,
+    servedRun,
+    `report the served body as the bytes the arm handed, saw ${String(servedRow.attachedBytes)}`,
+  );
+  expect(
+    servedRow.weighed === true && servedRow.state === 'stale' && servedRow.reach === 'historical-knowledge',
+    servedRun,
+    `weigh the pair rather than refuse the envelope, saw ${String(servedRow.state)}/${String(servedRow.reach)} and ${JSON.stringify(servedRow.refusal)}`,
+  );
+  expect(
+    servedRow.readAs === 'trusted' && servedRow.vendorStatus === 'UpToDate' && servedRow.anchorDigest === vendor.rootDigest,
+    servedRun,
+    `reach the anchor this run pinned through the chain the pack attached, saw ${String(servedRow.readAs)} ${String(servedRow.vendorStatus)} ${String(servedRow.anchorDigest)}`,
+  );
+  expect(
+    servedRow.window?.from === WINDOW_FROM && servedRow.window?.until === WINDOW_UNTIL,
+    servedRun,
+    `print the window the document signed beside the instant it was read against, saw ${JSON.stringify(servedRow.window)}`,
+  );
+  say(
+    `verify-pack ${SERVED_PAIR_PACK}: exit 0, the served body and the header that arrived beside it weighed as one pair at digest ${digestOfServed}, ` +
+      `${String(servedRow.readAs)} ${String(servedRow.vendorStatus)} under the pinned anchor ${String(servedRow.anchorDigest)}, ` +
+      `which is the chain half of a served answer reaching a reader that holds the pack and no endpoint`,
+  );
+
+  const unpinnedRun = runBundle(workDir, ['verify-pack', BODY_ALONE_PACK, keyFlag, ...questionArgs, '--json']);
   expect(unpinnedRun.status === 0, unpinnedRun, 'still accept the pack when the question is asked under no root');
   const unpinned = reportOf(unpinnedRun);
   expect(unpinned.ok === true, unpinnedRun, 'report the pack as read, which is the container question and not the appraisal one');
@@ -1140,12 +1217,35 @@ function proveCarried(workDir: string): void {
     'print no reading, no window and no anchor for bytes nothing pinned a root for',
   );
   say(
-    `verify-pack ${HONEST_PACK} under no --intel-root: exit 0, refused ${String(unpinnedCol.refusal?.code)} naming roots, ` +
+    `verify-pack ${BODY_ALONE_PACK} under no --intel-root: exit 0, refused ${String(unpinnedCol.refusal?.code)} naming roots, ` +
       'read as no state about the vendor, which is the answer an appraisal that had consulted a bundled root would not give',
   );
+  const publishedRows = (JSON.parse(readFileSync(join(dataDir, 'pack-v1.json'), 'utf8')) as PackVectorFile).vectors;
+  const referring = rowNamed('pack-v1.json', publishedRows, 'held-slots-referred-to-by-name');
+  writeFileSync(join(workDir, EMPTY_ARM_PACK), Buffer.from(referring.documentBase64Url, 'base64url'));
+  const emptyArmRun = runBundle(workDir, [
+    'verify-handover', EMPTY_ARM_PACK, `--key=${stated(referring.read.pinned, 'key for the pack that refers to its held slots')}`, '--json',
+  ]);
+  expect(emptyArmRun.status === 0, emptyArmRun, 'read the published pack that refers to material and attaches no copy of it');
+  expect(reportOf(emptyArmRun).ok === true, emptyArmRun, 'report it as a document the artifact read');
+  const armRows = Object.entries((reportOf(emptyArmRun).document ?? {}) as Record<string, Record<string, unknown>>)
+    .filter(([key]) => key.startsWith('attached-'));
+  expect(armRows.length >= 1, emptyArmRun, `the report printed no row for the digests that pack refers to, saw ${Object.keys(reportOf(emptyArmRun).document ?? {}).join(', ')}`);
+  for (const [key, row] of armRows) {
+    expect(
+      row.attached === false && row.attachedBytes === null && row.weighed === false,
+      emptyArmRun,
+      `${key}: a published pack of this estate answered as an arm holding something, saw ${JSON.stringify([row.attached, row.attachedBytes, row.weighed])}`,
+    );
+  }
   say(
-    'the bundle answered three runs over a container built here: one held slot resolved to the vendor-signed bytes the pack carries and weighed under the root this run named, ' +
-      'one refusal of the same pack with the object a held slot names left out of its carried list, and the same weighing asked again under no root and answered by the refusal naming the field it left empty',
+    `verify-handover ${EMPTY_ARM_PACK}: exit 0 over the published pack whose every held slot a reference answers for, ${String(armRows.length)} digests printed as 'attached by nothing in this pack', ` +
+      'which is the arm this repository never fills read as the ordinary case rather than refused as a shortage',
+  );
+  say(
+    'the bundle answered five runs over containers built here and one published pack: a held slot resolved to the vendor-signed bytes the arm carries and weighed under the root this run named, ' +
+      'the same pack with one reference left unfilled and printed as an arm holding nothing, the same weighing asked again under no root and answered by the refusal naming the field it left empty, ' +
+      'a served body weighed beside the header that arrived with it, and a published pack read whole with its arm empty',
   );
 }
 
@@ -1232,7 +1332,7 @@ function main(): void {
   prepareArtifact(workDir);
   proveReceiptVerbs(workDir, dataDir, inputs, payload);
   proveHandoverVerbs(workDir, dataDir);
-  proveCarried(workDir);
+  proveCustody(workDir, dataDir);
   say(
     `the offline proof started the artifact ${String(bundleRuns)} times from ${workDir}, a directory outside this checkout and holding no node_modules, after scanning that file for every import outside 'node:' and its own directory`,
   );

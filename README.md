@@ -258,9 +258,9 @@ pairs the option carries rather than a pile it chooses from. The rules that come
 document and were all seen to fire: an export original missing, substituted at the right name, or named
 by a path that climbs out of its directory is refused as `EXPORT_ORIGINAL_UNAVAILABLE`,
 `EXPORT_DIGEST_MISMATCH` and `EXPORT_BAD_MANIFEST`, a pack whose span crosses an epoch nobody retained
-is refused as `PACK_UNKNOWN_KEY`, a pack whose carried list contradicts the slots its sealed receipts
-name is refused for the one position that contradicts them, under `PACK_CARRIED_DIGEST_MISMATCH`,
-`PACK_CARRIED_DUPLICATE`, `PACK_CARRIED_UNNAMED` or `PACK_CARRIED_UNRESOLVED`, and a receipt outside
+is refused as `PACK_UNKNOWN_KEY`, a pack whose attached material contradicts the references its sealed
+receipts name is refused for the one position that contradicts them, under `PACK_ATTACHED_DIGEST_MISMATCH`,
+`PACK_ATTACHED_DUPLICATE`, `PACK_ATTACHED_UNNAMED` or `PACK_ATTACHED_UNRESOLVED`, and a receipt outside
 its window as `STALE_RECEIPT`. And it never reads the evidence document behind a
 receipt's `att.d`: the timestamp is windowed and the document itself is fetched by a client talking to
 a deployment.
@@ -304,12 +304,13 @@ rather than pass a check it did not perform. That refusal, and every other answe
 gives, is tabulated under `CollateralErrorCode` in [docs/error-codes.md](docs/error-codes.md), including
 the ones naming a status the vendor no longer stands behind and a window that had closed. The answers a
 shipped command gives are reached by weighing material a caller hands over rather than by asking an
-origin, and weighing answers only for material of the envelope the origin's declaration decodes: Intel's
-documents present their certificates outside the body, so the collateral a pack carries from that address
-is held and refused at the envelope rather than weighed, and
-[docs/pack-v1.md](docs/pack-v1.md) states what a carried entry answers for. None of it reaches an
+origin, and weighing answers only for material of the envelope the origin's declaration decodes. Intel's
+documents present their certificates in a header beside the body, so a pack states a signed reference per
+held slot and material handed in beside its chain digest is weighed rather than refused at the envelope;
+[docs/pack-v1.md](docs/pack-v1.md) states what a reference answers for, and what a reader that reaches
+nothing is told instead. None of it reaches an
 attestation verdict. `ashaveri verify`
-consults no vendor endpoint and no carried entry, so a quote verified under a pinned root still says
+consults no vendor endpoint and no attached material, so a quote verified under a pinned root still says
 nothing about whether that vendor stands behind the platform.
 
 **What stays the deployer's if the service is declined.** The freshness judgement, entirely, exactly

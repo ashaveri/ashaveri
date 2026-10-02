@@ -1212,9 +1212,17 @@ describe('the evidence pack vectors through the shipped reader', () => {
     const declared = [...source.matchAll(/'(PACK_[A-Z0-9_]+)'/gu)].map((found) => found[1]!);
     expect(new Set(declared).size).toBeGreaterThanOrEqual(11);
     const reached = new Set([...packVectors.vectors.map((one) => one.verdict), ...packVectors.vectors.map((one) => one.structural)]);
-    for (const code of new Set(declared)) {
+    // One declared code belongs to a lookup and to no document, and the sweep states which: `PACK_ATTACHED_UNRESOLVED`
+    // is what `resolveAttached` answers when an arm holds nothing for a digest a held slot names, and a pack that
+    // attaches nothing is whole, so neither `decodePack` nor `verifyPack` can be reached by it. Excluding it from
+    // the sweep without asserting the other half would hide a code that stopped being raised anywhere, so the
+    // absence is asserted as a fact of the published suite: no row answers with it. The three codes a reference
+    // raises stay in the sweep, because rows do reach them.
+    const byADocument = [...new Set(declared)].filter((one) => one !== 'PACK_ATTACHED_UNRESOLVED');
+    for (const code of byADocument) {
       expect(reached.has(code), `${code} is declared and no published row reaches it`).toBe(true);
     }
+    expect(reached.has('PACK_ATTACHED_UNRESOLVED'), 'a published document answered with the lookup-only code').toBe(false);
   });
 });
 

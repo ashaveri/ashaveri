@@ -5,10 +5,11 @@ import { sha256 } from '@noble/hashes/sha2.js';
 import {
   PACK_CONTENT_TYPE,
   CARRIED_MAX_BYTES,
-  CARRIED_SLOTS_PER_ITEM,
+  CUSTODY_SLOTS_PER_ITEM,
   ReceiptError,
   decodePack,
   packRecordDigest,
+  resolveAttached,
   toHex,
   verifyPack,
   type PackManifest,
@@ -114,7 +115,7 @@ describe('the evidence pack vectors', () => {
     // to the same two rows rather than to a name written into this file.
     const tables = [
       { rows: file.layout.records, vector: 'well-formed-three-items' },
-      { rows: file.layout.carriedRecords, vector: 'collateral-carried-inside-the-pack' },
+      { rows: file.layout.attachedRecords, vector: 'held-slots-referred-to-by-name' },
     ] as const;
     const rule = file.layout.framingRule;
     expect(typeof rule, 'the suite publishes no framing rule').toBe('string');
@@ -145,30 +146,57 @@ describe('the evidence pack vectors', () => {
       expect(one.rows[0]!.prevHex, one.vector).toBe(toHex(manifest.chain.anchor));
       expect(one.rows[one.rows.length - 1]!.digestHex, one.vector).toBe(toHex(manifest.chain.head));
     }
-    // The two runs are the same three names and stamps, and their receipts differ: the carried one seals
+    // The two runs are the same three names and stamps, and their receipts differ: the referred-to one seals
     // receipts whose anchor slots state `held`, so its frames are wider. A table that had been copied from the
     // other run would agree on ids and stamps and fail here.
-    expect(file.layout.records.map((one) => one.id)).toEqual(file.layout.carriedRecords.map((one) => one.id));
+    expect(file.layout.records.map((one) => one.id)).toEqual(file.layout.attachedRecords.map((one) => one.id));
     expect(
-      file.layout.carriedRecords.some((one, index) => one.receiptByteLength !== file.layout.records[index]?.receiptByteLength),
+      file.layout.attachedRecords.some((one, index) => one.receiptByteLength !== file.layout.records[index]?.receiptByteLength),
       'the framed runs hold the same receipt bytes, so one table was copied from the other',
     ).toBe(true);
   });
 
-  it('states the two carried ceilings as the figures the reader enforces', () => {
+  it('states the two ceilings as the figures the reader enforces', () => {
     // Both ceilings used to appear in this sentence as words, which is a claim that stays true when the number
     // under it moves. The generator reads the two figures out of `packages/receipt/src/pack.ts`, so what the
     // published rule prints is the figure the reader refuses on, and this case is what notices if the prose and
     // the constants part again.
-    const rule = file.layout.carriedRule;
-    expect(typeof rule, 'the suite publishes no carried rule').toBe('string');
+    const rule = file.layout.custodyRule;
+    expect(typeof rule, 'the suite publishes no custody rule').toBe('string');
     if (typeof rule !== 'string') return;
     expect(rule, 'the byte ceiling the rule states is not the one the reader enforces').toContain(
       `${String(CARRIED_MAX_BYTES)} bytes`,
     );
     expect(rule, 'the slot ceiling the rule states is not the one the reader counts against').toContain(
-      `${String(CARRIED_SLOTS_PER_ITEM)} slots`,
+      `${String(CUSTODY_SLOTS_PER_ITEM)} slots`,
     );
+  });
+
+  it('attaches no material in any pack it publishes as whole, and answers the lookup that reaches for one', () => {
+    // The byte arm is permitted by the layout and written by no document of this suite, which is the posture the
+    // published pack takes: a reader holding a whole pack of this estate holds references and no vendor bytes.
+    // The refusal a caller meets at the lookup is therefore no document's answer, and this case is where the
+    // suite reaches it, out of the same bytes the file publishes rather than from a manifest invented for it.
+    const accepted = file.vectors.filter((one) => one.verdict === 'verify-ok');
+    expect(accepted.length).toBeGreaterThanOrEqual(6);
+    const referring = accepted.find((one) => one.name === 'held-slots-referred-to-by-name');
+    expect(referring, 'the suite publishes no accepted pack whose held slots are answered by name').toBeDefined();
+    if (referring === undefined) return;
+    const manifest = decodePack(bytes(referring.documentBase64Url)).manifest;
+    expect(manifest.attached, 'an accepted pack of this suite attaches material').toEqual([]);
+    expect(manifest.custody.length, 'the accepted pack signs a reference for every held slot it seals').toBeGreaterThanOrEqual(1);
+    const first = manifest.custody[0]!;
+    const thrown = (() => {
+      try {
+        resolveAttached(manifest, first.b);
+        return null;
+      } catch (err) {
+        return err;
+      }
+    })();
+    expect(thrown, 'the lookup answered a digest this pack attaches nothing for with no refusal at all').toBeInstanceOf(ReceiptError);
+    expect((thrown as ReceiptError).code).toBe('PACK_ATTACHED_UNRESOLVED');
+    expect((thrown as ReceiptError).message).toContain(first.k.item);
   });
 
   it('designates only keys it publishes, and publishes keys that resolve', () => {
@@ -302,9 +330,15 @@ describe('the evidence pack vectors', () => {
     const declared = unionMembers('ReceiptErrorCode', ERRORS).filter((code) => code.startsWith('PACK_'));
     expect(declared.length).toBeGreaterThanOrEqual(11);
     const reached = new Set([...file.vectors.map((one) => one.verdict), ...file.vectors.map((one) => one.structural)]);
-    for (const code of declared) {
+    // One declared code is the lookup's and no document's, because the arm may be empty: a held slot the arm
+    // attaches nothing for is a caller reaching past what the pack undertook, and neither `decodePack` nor
+    // `verifyPack` resolves a slot for a caller. It is refused by name in the case above, out of the bytes this
+    // file publishes as whole, which is the only place a port can be shown both halves of that distinction.
+    const byADocument = declared.filter((one) => one !== 'PACK_ATTACHED_UNRESOLVED');
+    for (const code of byADocument) {
       expect(reached.has(code), `${code} is declared and no published row reaches it`).toBe(true);
     }
+    expect(reached.has('PACK_ATTACHED_UNRESOLVED'), 'a document answered with the lookup-only code').toBe(false);
   });
 
   it('refuses a pack document at the export reader it is handed to', () => {

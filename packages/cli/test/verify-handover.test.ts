@@ -200,7 +200,10 @@ function packDocument(key: SigningKey, ids: readonly string[], movedStamp?: numb
     ['chain', new Map([['anchor', anchor], ['head', previous]])],
     ['duty', new Map<string, unknown>([['art', 'retention-evidence'], ['rev', at - 10], ['required', 31_536_000], ['held', at - from]])],
     ['items', items],
-    ['carried', []],
+    // Both lists empty, and each emptiness is a statement of its own: the receipts published here state an absence
+    // in both anchor slots, so the pack refers to nothing, and a pack that attaches nothing is the ordinary one.
+    ['custody', []],
+    ['attached', []],
   ]);
   const payloadBytes = encodeCanonical(manifest);
   const protectedBytes = encodeExportProtectedHeader(key.kid, PACK_CONTENT_TYPE);

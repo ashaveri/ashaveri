@@ -611,8 +611,14 @@ export interface PackVectorFile {
     codes: string[];
     verdictFields: string[];
     records: PackRecordRow[];
-    /** The framing of the run whose held slots name carried material, in the same rows as `records`. */
-    carriedRecords: PackRecordRow[];
+    /**
+     * The framing of the run whose every held slot is answered by a reference, in the same rows as `records`. The
+     * key keeps the name the run was published under while that pack carried the material itself; the member of
+     * the file that names the row this table frames is `framingRule`, and the row is named there.
+     */
+    attachedRecords: PackRecordRow[];
+    /** The whole rule the reader enforces over the reference list and the byte arm, with both ceilings as figures. */
+    custodyRule: string;
     framingRule: string;
     keyMaterial: Array<{
       id: string;

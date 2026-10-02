@@ -352,7 +352,8 @@ const FOREIGN_PACK: Uint8Array = encodePackManifest({
   chain: { anchor: new Uint8Array(32), head: new Uint8Array(32) },
   duty: { art: '19(1)', rev: RUN_START - DAY, required: 100, held: 200 },
   items: [],
-  carried: [],
+  custody: [],
+  attached: [],
 });
 
 /** A pack position of the honest run filed nowhere in it, for the rows naming a pack the run lacks. */

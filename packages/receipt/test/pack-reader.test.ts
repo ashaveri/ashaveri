@@ -9,20 +9,26 @@ import { cddlRule, memberDeclarations, required } from './cddl.js';
 import { ALG_EDDSA, COSE_HEADER_ALG, COSE_HEADER_CONTENT_TYPE, COSE_HEADER_KID } from '../src/cose.js';
 import {
   DECLARED_PACK_PROTECTED_LABELS,
+  PACK_ATTACHED_MEMBERS,
   PACK_CHAIN_MEMBERS,
   PACK_CONTENT_TYPE,
+  PACK_CUSTODY_KEY_MEMBERS,
+  PACK_CUSTODY_MEMBERS,
   PACK_DUTY_MEMBERS,
   PACK_ITEM_MEMBERS,
   PACK_MANIFEST_MEMBERS,
-  PACK_CARRIED_MEMBERS,
   PACK_SPAN_MEMBERS,
+  PACK_WINDOW_MEMBERS,
+  custodyForSlot,
   decodePack,
+  encodePackManifest,
   packRecordDigest,
   packSigStructure,
-  resolveCarried,
+  resolveAttached,
   signPack as issuerSignsPack,
   verifyPack,
-  type PackCarriedObject,
+  type PackAttachedObject,
+  type PackCustodyEntry,
   type PackVerifyOptions,
 } from '../src/pack.js';
 import { EXPORT_CONTENT_TYPE } from '../src/export.js';
@@ -78,7 +84,10 @@ const CLOSED_MAPS: Array<{ rule: string; members: readonly string[]; name: strin
   { rule: 'PackChain', members: PACK_CHAIN_MEMBERS, name: 'PACK_CHAIN_MEMBERS' },
   { rule: 'PackDuty', members: PACK_DUTY_MEMBERS, name: 'PACK_DUTY_MEMBERS' },
   { rule: 'PackItem', members: PACK_ITEM_MEMBERS, name: 'PACK_ITEM_MEMBERS' },
-  { rule: 'PackCarried', members: PACK_CARRIED_MEMBERS, name: 'PACK_CARRIED_MEMBERS' },
+  { rule: 'PackCustody', members: PACK_CUSTODY_MEMBERS, name: 'PACK_CUSTODY_MEMBERS' },
+  { rule: 'PackCustodyKey', members: PACK_CUSTODY_KEY_MEMBERS, name: 'PACK_CUSTODY_KEY_MEMBERS' },
+  { rule: 'PackWindow', members: PACK_WINDOW_MEMBERS, name: 'PACK_WINDOW_MEMBERS' },
+  { rule: 'PackAttached', members: PACK_ATTACHED_MEMBERS, name: 'PACK_ATTACHED_MEMBERS' },
 ];
 
 /** The text of one map block of `pack.cddl`, with this file named when the rule is not there. */
@@ -125,7 +134,7 @@ function nestedRules(): Array<{ member: string; rule: string }> {
       nested.push({ member: member.name, rule: many[1]! });
       continue;
     }
-    if (/^(?:int|tstr|bstr\b|-?\d+)/u.test(member.type)) continue;
+    if (/^(?:int|tstr|bstr|null |"|-?\d+)/u.test(member.type)) continue;
     throw new Error(`${member.name} is declared as "${member.type}", which this reader does not read as one rule`);
   }
   if (nested.length === 0) throw new Error(`the manifest of ${packCddlPath} opens no map`);
@@ -204,18 +213,33 @@ const ID_RANGE = (() => {
   if (!found) throw new Error(`PackItem.id is typed "${type}", which states no byte range`);
   return { min: Number(found[1]), max: Number(found[2]) };
 })();
+/**
+ * The ceiling one reference's request text carries, read off the layout rather than written beside it: the format
+ * states this figure once, in the type expression, and a refusal that bounds a request is only worth what it quotes
+ * if the quote came from the file that owns the number.
+ */
+const REQUEST_RANGE = (() => {
+  const type = memberType('PackCustody', 'u');
+  const found = /^tstr \.size \((\d+)\.\.(\d+)\)$/u.exec(type);
+  if (!found) throw new Error(`PackCustody.u is typed "${type}", which states no byte range`);
+  return { min: Number(found[1]), max: Number(found[2]) };
+})();
 const DIGEST_BYTES = declaredWidth('PackItem', 'prev');
 const KID_BYTES = Number(required(/4:\s*bstr \.size (\d+)/u.exec(HEADER_BLOCK)?.[1], 'the signed header declares no kid width'));
 const SIGNATURE_BYTES = Number(required(/signature: bstr \.size (\d+)/u.exec(CDDL)?.[1], 'the pack states no signature width'));
 
 /** The positions the manifest fixes at a width, at every level a reader closes. */
 const WIDTH_POSITIONS: string[] = [];
+/** The name a reader of a document uses for one rule's members, which is the member the manifest calls it by. */
+const RULE_AT_POSITION: Record<string, string> = {
+  PackItem: 'items.',
+  PackCustody: 'custody.',
+  PackAttached: 'attached.',
+};
 for (const rule of packMapRuleNames()) {
   for (const member of memberDeclarations(packRule(rule))) {
     if (!/^bstr \.size \d+$/u.test(member.type)) continue;
-    WIDTH_POSITIONS.push(
-      rule === 'PackItem' ? `items.${member.name}` : rule === 'PackCarried' ? `carried.${member.name}` : member.name,
-    );
+    WIDTH_POSITIONS.push(`${RULE_AT_POSITION[rule] ?? ''}${member.name}`);
   }
 }
 
@@ -268,15 +292,40 @@ function receiptPayload(iat: number, nonce: number): ReceiptPayload {
 }
 
 /**
- * A piece of appraisal context a slot can name: bytes, and the digest of exactly those bytes, stated the way a
- * deployment that read the material would state it.
+ * A piece of appraisal context a slot can name: the material, a header that may have arrived beside it, and the
+ * digests of both, stated the way a deployment that attached the material would state it.
  */
-function material(label: string, size = label.length): PackCarriedObject {
+function material(label: string, size = label.length, header: Uint8Array | null = null): PackAttachedObject {
   const bytes = new Uint8Array(size);
   for (let index = 0; index < bytes.length; index += 1) {
     bytes[index] = (label.charCodeAt(index % label.length) + index) % 256;
   }
-  return { bytes, sha256: sha256(bytes) };
+  return { bytes, sha256: sha256(bytes), chain: header, chainSha256: header === null ? null : sha256(header) };
+}
+
+/**
+ * One reference, stated the way a capture that read the document would state it.
+ *
+ * Every figure here is one a case can recompute: `b` is the digest of the body handed in, `s` and both ends of `w`
+ * are read off the stamp the naming record was chained at, and the origin, the request, the identity and the cache
+ * key are the facts a declared origin answers for. A case that wants a reference whose digest disagrees with the
+ * slot it names, or whose instant lies outside the band the format states, moves the one member it names.
+ */
+function reference(item: string, slot: 'col' | 'val', body: Uint8Array, at: number, over: Partial<PackCustodyEntry> = {}): PackCustodyEntry {
+  return {
+    k: { item, slot },
+    o: 'intel-tcb-info',
+    u: 'https://api.trustedservices.intel.com/tdx/certification/v4/tcb?fmspc=00806f050000',
+    i: '00806F050000',
+    s: at,
+    n: null,
+    b: sha256(body),
+    c: null,
+    a: 'embedded',
+    w: { from: at - 60, to: at + 60 },
+    y: 'intel-tcb-info/tdx/00806F050000/tcb-date=2026-09-01T00:00:00Z',
+    ...over,
+  };
 }
 
 /**
@@ -365,7 +414,8 @@ function manifestValue(over: Partial<PackManifest> = {}): PackManifest {
     chain: { anchor: run.anchor, head: run.head },
     duty: { art: '19(1)', rev: SPAN_TO - 30, required: 3_600, held: SPAN_TO - BASE },
     items: run.items,
-    carried: [],
+    custody: [],
+    attached: [],
     ...over,
   };
 }
@@ -378,6 +428,27 @@ function manifestMap(manifest: PackManifest): Map<string, unknown> {
       ['iat', one.iat],
       ['prev', one.prev],
       ['receipt', one.receipt],
+    ]);
+  const custody = (one: PackCustodyEntry): Map<string, unknown> =>
+    new Map<string, unknown>([
+      ['k', new Map<string, unknown>([['item', one.k.item], ['slot', one.k.slot]])],
+      ['o', one.o],
+      ['u', one.u],
+      ['i', one.i],
+      ['s', one.s],
+      ['n', one.n],
+      ['b', one.b],
+      ['c', one.c],
+      ['a', one.a],
+      ['w', new Map<string, unknown>([['from', one.w.from], ['to', one.w.to]])],
+      ['y', one.y],
+    ]);
+  const attached = (one: PackAttachedObject): Map<string, unknown> =>
+    new Map<string, unknown>([
+      ['bytes', one.bytes],
+      ['sha256', one.sha256],
+      ['chain', one.chain],
+      ['chain_sha256', one.chainSha256],
     ]);
   return new Map<string, unknown>([
     ['v', manifest.v],
@@ -394,15 +465,8 @@ function manifestMap(manifest: PackManifest): Map<string, unknown> {
       ]),
     ],
     ['items', manifest.items.map(item)],
-    [
-      'carried',
-      manifest.carried.map((one) =>
-        new Map<string, unknown>([
-          ['bytes', one.bytes],
-          ['sha256', one.sha256],
-        ]),
-      ),
-    ],
+    ['custody', manifest.custody.map(custody)],
+    ['attached', manifest.attached.map(attached)],
   ]);
 }
 
@@ -520,6 +584,20 @@ function itemOf(root: Map<unknown, unknown>, index: number): Map<unknown, unknow
   return one;
 }
 
+function custodyOf(root: Map<unknown, unknown>, index: number): Map<unknown, unknown> {
+  const custody = child(root, 'custody');
+  const one = Array.isArray(custody) ? custody[index] : undefined;
+  if (!(one instanceof Map)) throw new Error(`the built document carries no custody entry at ${String(index)}`);
+  return one;
+}
+
+function attachedOf(root: Map<unknown, unknown>, index: number): Map<unknown, unknown> {
+  const arm = child(root, 'attached');
+  const one = Array.isArray(arm) ? arm[index] : undefined;
+  if (!(one instanceof Map)) throw new Error(`the built document carries no attached object at ${String(index)}`);
+  return one;
+}
+
 function spanOf(root: Map<unknown, unknown>): Map<unknown, unknown> {
   return mapOf(child(root, 'span'), 'span');
 }
@@ -537,6 +615,12 @@ function holderOf(root: Map<unknown, unknown>, position: string): { map: Map<unk
   const parts = position.split('.');
   if (parts[0] === 'items') {
     return { map: itemOf(root, 0), member: required(parts[1], `the position ${position} names no member of an item`) };
+  }
+  if (parts[0] === 'custody') {
+    return { map: custodyOf(root, 0), member: required(parts[1], `the position ${position} names no member of a reference`) };
+  }
+  if (parts[0] === 'attached') {
+    return { map: attachedOf(root, 0), member: required(parts[1], `the position ${position} names no member of an attached object`) };
   }
   if (parts.length === 1) return { map: root, member: parts[0]! };
   return { map: mapOf(child(root, parts[0]!), parts[0]!), member: required(parts[1], `the position ${position} names no member`) };
@@ -593,15 +677,29 @@ describe('the pack reader and the format it reads', () => {
     expect(SIGNATURE_BYTES).toBe(64);
     expect(KID_BYTES).toBe(32);
     expect(ID_RANGE).toEqual({ min: 1, max: 65_535 });
-    expect(WIDTH_POSITIONS.sort()).toEqual(['anchor', 'carried.sha256', 'head', 'items.prev']);
+    expect(WIDTH_POSITIONS.sort()).toEqual(['anchor', 'attached.sha256', 'custody.b', 'head', 'items.prev']);
     // What the format leaves unclosed, in its own words: the one map a signer fills at will.
     expect(CDDL).toContain('unprotected: { * any => any }');
     expect(cddlProse()).toContain('they are the authority and this file is wrong');
   });
 
   it('refuses a float at every position the format types as an integer, in a value and in a key alike', () => {
-    expect(INTEGER_POSITIONS).toEqual(['v', 'at', 'span.from', 'span.to', 'duty.rev', 'duty.required', 'duty.held', 'items.iat']);
-    const good = signPack(manifestValue());
+    expect(INTEGER_POSITIONS).toEqual(['v', 'at', 'span.from', 'span.to', 'duty.rev', 'duty.required', 'duty.held', 'items.iat', 'custody.s']);
+    // A document with one of every map the sweep reaches: a sealed receipt naming a held slot, the reference that
+    // answers for it and the material attached beside it. A sweep over an empty list would report the position the
+    // format gained as refused for no reason at all, which is not the fact the case is about. Every held slot of
+    // every sealed receipt owes its own reference, so the three receipts that anchor on this material carry three
+    // entries and the pack is one the reader accepts before any edit is made to it.
+    const swept = material('tcb-info', 24);
+    const sweptRun = chained(ENTRIES, new Uint8Array(DIGEST_BYTES), KEY, (iat, nonce) => anchored(iat, nonce, { col: swept.sha256 }));
+    const good = signPack(
+      manifestValue({
+        chain: { anchor: sweptRun.anchor, head: sweptRun.head },
+        items: sweptRun.items,
+        custody: sweptRun.items.map((one) => reference(one.id, 'col', swept.bytes, one.iat)),
+        attached: [swept],
+      }),
+    );
     for (const position of INTEGER_POSITIONS) {
       for (const [width, floated] of [
         ['half-precision', encodedNumber(2, 'f16')],
@@ -654,18 +752,40 @@ describe('the pack reader and the format it reads', () => {
 
   it('refuses a member no map of this version defines, at every level including the signed header', () => {
     const good = signPack(manifestValue());
-    const levels: Array<[string, (root: Map<unknown, unknown>) => void, string]> = [
-      ['the manifest', (root) => root.set('surprise', 'x'), "manifest carries a member the format does not define: 'surprise'"],
-      ['the span', (root) => spanOf(root).set('surprise', 'x'), "span carries a member the format does not define: 'surprise'"],
-      ['the chain', (root) => chainOf(root).set('surprise', 'x'), "chain carries a member the format does not define: 'surprise'"],
-      ['the duty', (root) => dutyOf(root).set('met', true), "duty carries a member the format does not define: 'met'"],
-      ['an item', (root) => itemOf(root, 0).set('surprise', 'x'), "items\\[0\\] carries a member the format does not define: 'surprise'"],
+    // The maps below the manifest's own list are only reached by a document that carries one of each, so the sweep
+    // that closes them is run over a pack that has a reference, its key, its window and an attached object. Each of
+    // the three sealed receipts anchors on this material, so each owes a reference of its own and the base document
+    // is one this reader accepts before any member is added to it.
+    const body = material('the material one sealed slot names', 24);
+    const entryRun = chained(ENTRIES, new Uint8Array(DIGEST_BYTES), KEY, (iat, nonce) => anchored(iat, nonce, { col: body.sha256 }));
+    const withEntry = signPack(
+      manifestValue({
+        chain: { anchor: entryRun.anchor, head: entryRun.head },
+        items: entryRun.items,
+        custody: entryRun.items.map((one) => reference(one.id, 'col', body.bytes, one.iat)),
+        attached: [body],
+      }),
+    );
+    // Every phrase below is literal text: the reader's message names the position it stopped on and the label it
+    // could not read, and this assertion compares that text as it stands.
+    const levels: Array<[string, Uint8Array, (root: Map<unknown, unknown>) => void, string]> = [
+      ['the manifest', good, (root) => root.set('surprise', 'x'), "manifest carries a member the format does not define: 'surprise'"],
+      ['the manifest, carrying the member this version retired', good, (root) => root.set('carried', []), "manifest carries a member the format does not define: 'carried'"],
+      ['the span', good, (root) => spanOf(root).set('surprise', 'x'), "span carries a member the format does not define: 'surprise'"],
+      ['the chain', good, (root) => chainOf(root).set('surprise', 'x'), "chain carries a member the format does not define: 'surprise'"],
+      ['the duty', good, (root) => dutyOf(root).set('met', true), "duty carries a member the format does not define: 'met'"],
+      ['an item', good, (root) => itemOf(root, 0).set('surprise', 'x'), "items[0] carries a member the format does not define: 'surprise'"],
+      ['a reference', withEntry, (root) => custodyOf(root, 0).set('z', 'x'), "custody[0] carries a member the format does not define: 'z'"],
+      ['a reference naming a chain as a member', withEntry, (root) => custodyOf(root, 0).set('chain', bytesOf('the header, whole')), "custody[0] carries a member the format does not define: 'chain'"],
+      ['a reference key', withEntry, (root) => mapOf(child(custodyOf(root, 0), 'k'), 'custody[0].k').set('iat', BASE), "custody[0].k carries a member the format does not define: 'iat'"],
+      ['a reference window', withEntry, (root) => mapOf(child(custodyOf(root, 0), 'w'), 'custody[0].w').set('met', true), "custody[0].w carries a member the format does not define: 'met'"],
+      ['an attached object', withEntry, (root) => attachedOf(root, 0).set('surprise', 'x'), "attached[0] carries a member the format does not define: 'surprise'"],
     ];
-    for (const [name, mutate, phrase] of levels) {
-      const bytes = reSealed(good, mutate);
+    for (const [name, sealed, mutate, phrase] of levels) {
+      const bytes = reSealed(sealed, mutate);
       const thrown = thrownBy(() => decodePack(bytes)) as ReceiptError;
       expect(thrown, `an undefined member of ${name} was accepted`).toBeInstanceOf(ReceiptError);
-      expect(thrown.message, name).toContain(phrase.replace(/\\\[/gu, '[').replace(/\\\]/gu, ']'));
+      expect(thrown.message, name).toContain(phrase);
       expect(thrown.code, `${name} answered another code`).toBe('PACK_BAD_MANIFEST');
       expect(answered(() => verifyPack(bytes, { publicKey: KEY.publicKey })), `${name} answered differently once verified`).toBe('PACK_BAD_MANIFEST');
     }
@@ -1052,178 +1172,361 @@ describe('the pack reader and the format it reads', () => {
     expect(codeOf(() => verifyPack(signPack(collided), { publicKey: KEY.publicKey }))).toBe('PACK_DUPLICATE_ID');
   });
 
-  it('carries what its sealed slots name, and refuses each way the two can disagree', () => {
-    const tcb = material('tcb-info');
+  it('refers to what its sealed slots name, and refuses each way the two can disagree', () => {
+    const tcbHeader = bytesOf('the issuer chain that arrived beside the tcb info');
+    const tcb = material('tcb-info', 24, tcbHeader);
     const rim = material('rim-bytes');
     const run = chained(ENTRIES, new Uint8Array(DIGEST_BYTES), KEY, (iat, nonce) => anchored(iat, nonce, { col: tcb.sha256, val: rim.sha256 }));
-    const over = (carried: readonly PackCarriedObject[]): PackManifest =>
-      manifestValue({ chain: { anchor: run.anchor, head: run.head }, items: run.items, carried });
-    const sealedOver = (carried: readonly PackCarriedObject[]): Uint8Array => signPack(over(carried));
+    // The references one run owes: every held slot of every sealed receipt, answered in the order the items are.
+    const referencesFor = (items: readonly PackItem[]): PackCustodyEntry[] =>
+      items.flatMap((one) => [
+        reference(one.id, 'col', tcb.bytes, one.iat, { c: tcb.chainSha256, a: 'served' }),
+        reference(one.id, 'val', rim.bytes, one.iat),
+      ]);
+    const references = referencesFor(run.items);
+    const over = (custody: readonly PackCustodyEntry[], attached: readonly PackAttachedObject[]): PackManifest =>
+      manifestValue({ chain: { anchor: run.anchor, head: run.head }, items: run.items, custody, attached });
+    const honest = over(references, [tcb, rim]);
 
-    // The acceptance, both directions and through the writer: a slot answered from inside the pack is not a
-    // question a reader has to leave the container for, and the two objects a run names are carried once however
-    // many sealed receipts name them.
-    expect(answered(() => issuerSignsPack(over([tcb, rim]), KEY)), 'the writer signed what it should not have').toBe('accepted');
-    expect(answered(() => decodePack(sealedOver([tcb, rim])))).toBe('accepted');
-    expect(() => verifyPack(sealedOver([tcb, rim]), { publicKey: KEY.publicKey })).not.toThrow();
+    // The acceptance, both directions and through the writer: a slot answered by a reference inside the pack is not
+    // a question a reader has to leave the container for, the two objects a run names are attached once however many
+    // sealed receipts name them, and the reference that states a header arrived beside one of them is what makes the
+    // pair weighable by a reader that holds both halves.
+    expect(answered(() => issuerSignsPack(honest, KEY)), 'the writer signed what it should not have').toBe('accepted');
+    expect(answered(() => decodePack(signPack(honest)))).toBe('accepted');
+    expect(() => verifyPack(signPack(honest), { publicKey: KEY.publicKey })).not.toThrow();
+    const read = decodePack(signPack(honest)).manifest;
+    expect(read.custody.map((one) => [one.k.item, one.k.slot])).toEqual([
+      ['receipt-0', 'col'],
+      ['receipt-0', 'val'],
+      ['receipt-1', 'col'],
+      ['receipt-1', 'val'],
+      ['receipt-2', 'col'],
+      ['receipt-2', 'val'],
+    ]);
+    expect(custodyForSlot(read, 'receipt-1', 'col').b).toEqual(tcb.sha256);
+    expect(custodyForSlot(read, 'receipt-1', 'col').a).toBe('served');
 
-    // A run whose slots all state an absence owes the pack nothing, and an empty carried list is that
-    // statement rather than a shortage: this is the acceptance that keeps the resolution rule from reading an
-    // absent slot as a missing object.
+    // A run whose slots all state an absence owes the pack nothing, and an empty reference list is that statement
+    // rather than a shortage: this is the acceptance that keeps the resolution rule from reading an absent slot as a
+    // missing entry, and it is the shape every published pack of this estate is sealed in.
     const nowhere = chained(ENTRIES, new Uint8Array(DIGEST_BYTES), KEY, (iat, nonce) => anchored(iat, nonce, {}));
     const emptySealed = signPack(manifestValue({ chain: { anchor: nowhere.anchor, head: nowhere.head }, items: nowhere.items }));
-    expect(answered(() => decodePack(emptySealed)), 'a pack carrying nothing for slots that state nothing was refused').toBe('accepted');
+    expect(answered(() => decodePack(emptySealed)), 'a pack referring to nothing for slots that state nothing was refused').toBe('accepted');
 
-    const faults: Array<[string, readonly PackCarriedObject[], string, RegExp]> = [
+    const faults: Array<[string, readonly PackCustodyEntry[], readonly PackAttachedObject[], string, RegExp]> = [
       [
-        'a held slot the pack carries no object for',
-        [tcb],
-        'PACK_CARRIED_UNRESOLVED',
-        /receipt-0 states a held val digest [0-9a-f]{64} this pack carries no object for/u,
+        'a held slot no reference answers for',
+        references.slice(1),
+        [tcb, rim],
+        'PACK_CUSTODY_UNRESOLVED',
+        /receipt-0 states a held col digest [0-9a-f]{64} no custody entry of this pack answers for/u,
       ],
       [
-        'a stated digest that disagrees with its bytes',
-        [tcb, { bytes: rim.bytes, sha256: sha256(tcb.bytes) }],
-        'PACK_CARRIED_DIGEST_MISMATCH',
-        /carried\[1\] states [0-9a-f]{64} and its bytes hash to [0-9a-f]{64}/u,
+        'a reference naming no held slot',
+        [...references.slice(1), reference('receipt-9', 'col', tcb.bytes, BASE)],
+        [tcb, rim],
+        'PACK_CUSTODY_UNNAMED',
+        /custody\[5\] answers for receipt-9 at col stating [0-9a-f]{64}, which is no held slot of any receipt this pack seals/u,
       ],
       [
-        'an object named by nothing in the pack',
-        [tcb, rim, material('a document no slot names')],
-        'PACK_CARRIED_UNNAMED',
-        /carried\[2\] holds [0-9a-f]{64}, which no slot of any receipt this pack seals names/u,
+        'a reference stating a digest its slot does not state',
+        references.map((one, index) => (index === 0 ? { ...one, b: sha256(bytesOf('a different document')) } : one)),
+        [tcb, rim],
+        'PACK_CUSTODY_UNNAMED',
+        /custody\[0\] answers for receipt-0 at col stating [0-9a-f]{64}, which is no held slot of any receipt this pack seals/u,
       ],
       [
-        'one digest carried twice',
-        [tcb, { bytes: tcb.bytes, sha256: tcb.sha256 }],
-        'PACK_CARRIED_DUPLICATE',
-        /carried\[1\] repeats the digest [0-9a-f]{64} already carried at carried\[0\]/u,
+        'an instant spelled in milliseconds',
+        references.map((one, index) => (index === 0 ? { ...one, s: BASE * 1_000 } : one)),
+        [tcb, rim],
+        'PACK_CUSTODY_UNIT_OUTSIDE_BAND',
+        /custody\[0\]\.s states 1772000000000, which is not a whole number of Unix seconds between 1000000000 and 4294967295/u,
+      ],
+      [
+        'a window whose end lies past the band',
+        references.map((one, index) => (index === 1 ? { ...one, w: { from: one.w.from, to: 5_000_000_000 } } : one)),
+        [tcb, rim],
+        'PACK_CUSTODY_UNIT_OUTSIDE_BAND',
+        /custody\[1\]\.w\.to states 5000000000, which is not a whole number of Unix seconds/u,
+      ],
+      [
+        'a reference whose window states no end the format can read',
+        references.map((one, index) => (index === 2 ? { ...one, w: { from: 999_999_999, to: one.w.to } } : one)),
+        [tcb, rim],
+        'PACK_CUSTODY_UNIT_OUTSIDE_BAND',
+        /custody\[2\]\.w\.from states 999999999, which is not a whole number of Unix seconds/u,
+      ],
+      [
+        'more references than the sealed receipts can name',
+        [...references, reference('receipt-3', 'col', tcb.bytes, BASE)],
+        [tcb, rim],
+        'PACK_BAD_MANIFEST',
+        /custody holds 7 references, past the 6 slots 3 sealed receipts can name/u,
+      ],
+      [
+        'an attached object that misstates its own bytes',
+        references,
+        [tcb, { bytes: rim.bytes, sha256: tcb.sha256, chain: null, chainSha256: null }],
+        'PACK_ATTACHED_DIGEST_MISMATCH',
+        /attached\[1\] states [0-9a-f]{64} and its bytes hash to [0-9a-f]{64}/u,
+      ],
+      [
+        'one digest attached twice',
+        references,
+        [tcb, { bytes: tcb.bytes, sha256: tcb.sha256, chain: tcb.chain, chainSha256: tcb.chainSha256 }],
+        'PACK_ATTACHED_DUPLICATE',
+        /attached\[1\] repeats the digest [0-9a-f]{64} already attached at attached\[0\]/u,
+      ],
+      [
+        'an attached object no reference names',
+        references,
+        [tcb, rim, material('a document no reference names')],
+        'PACK_ATTACHED_UNNAMED',
+        /attached\[2\] holds [0-9a-f]{64}, which is the body digest of no reference this pack signs for/u,
+      ],
+      [
+        'a header that does not hash to the digest stated beside it',
+        references,
+        [{ ...tcb, chain: bytesOf('a chain nothing signed for') }, rim],
+        'PACK_ATTACHED_DIGEST_MISMATCH',
+        /attached\[0\] states [0-9a-f]{64} for its header and that header hashes to [0-9a-f]{64}/u,
+      ],
+      [
+        'a header carried with no digest stated for it',
+        references,
+        [{ ...tcb, chainSha256: null }, rim],
+        'PACK_BAD_MANIFEST',
+        /attached\[0\] carries a header and states no digest for it, where the format pairs the two/u,
+      ],
+      [
+        'a header carried beside a reference that states none',
+        references,
+        [tcb, { ...rim, chain: bytesOf('a header no reference states a digest for'), chainSha256: sha256(bytesOf('a header no reference states a digest for')) }],
+        'PACK_ATTACHED_DIGEST_MISMATCH',
+        /attached\[1\] carries a header digesting to [0-9a-f]{64} beside the reference for receipt-0 at val, which states nothing/u,
+      ],
+      [
+        'a request past the length the layout states for it',
+        references.map((one, index) => (index === 0 ? { ...one, u: 'x'.repeat(REQUEST_RANGE.max + 1) } : one)),
+        [tcb, rim],
+        'PACK_BAD_MANIFEST',
+        new RegExp(
+          `custody\\[0\\]\\.u must be between ${String(REQUEST_RANGE.min)} and ${String(REQUEST_RANGE.max)} bytes, got ${String(REQUEST_RANGE.max + 1)}`,
+          'u',
+        ),
       ],
       [
         'an object past the byte ceiling the format states',
-        [tcb, rim, material('oversized', ID_RANGE.max + 1)],
+        references,
+        [tcb, material('oversized', ID_RANGE.max + 1)],
         'PACK_BAD_MANIFEST',
-        /carried\[2\] holds 65536 bytes, past the 65535 a pack already bounds/u,
+        /attached\[1\] holds 65536 bytes, past the 65535 a pack already bounds/u,
       ],
       [
         'more objects than the sealed receipts can name',
+        references,
         [tcb, rim, material('third'), material('fourth'), material('fifth'), material('sixth'), material('seventh')],
         'PACK_BAD_MANIFEST',
-        /carried holds 7 objects, past the 6 slots 3 sealed receipts can name/u,
+        /attached holds 7 objects, past the 6 slots 3 sealed receipts can name/u,
       ],
     ];
-    for (const [name, carried, code, pattern] of faults) {
+    for (const [name, custody, attached, code, pattern] of faults) {
       // The writer refuses to sign what its own reader refuses, and the same document made past the writer is
       // answered by both readings of the reader, keyless and verified, with the code and the position named.
-      const manifest = over(carried);
+      const manifest = over(custody, attached);
       const written = thrownBy(() => issuerSignsPack(manifest, KEY)) as ReceiptError;
       expect(written, `${name} was signed`).toBeInstanceOf(ReceiptError);
       expect(written.code, `${name} was refused by the writer under another code`).toBe(code);
-      const bytes = sealedOver(carried);
-      const read = thrownBy(() => decodePack(bytes)) as ReceiptError;
-      expect(read.code, `${name} answered another code structurally`).toBe(code);
-      expect(read.message, `${name} named no position`).toMatch(pattern);
+      const bytes = signPack(manifest);
+      const readThrown = thrownBy(() => decodePack(bytes)) as ReceiptError;
+      expect(readThrown.code, `${name} answered another code structurally`).toBe(code);
+      expect(readThrown.message, `${name} named no position`).toMatch(pattern);
       expect(answered(() => verifyPack(bytes, { publicKey: KEY.publicKey })), `${name} answered differently once verified`).toBe(code);
     }
 
-    // Neither ceiling is tightened past what the format states: an object of exactly the byte ceiling, and a
-    // list of exactly the slots the run names, are both lawful and both resolve.
+    // Neither ceiling is tightened past what the format states: an object of exactly the byte ceiling, and a list of
+    // exactly the slots the run names, are both lawful and both resolve.
     const edge = material('at the byte ceiling', ID_RANGE.max);
     const cols = [material('col-1'), material('col-2'), material('col-3')];
     const vals = [material('val-1'), material('val-2'), material('val-3')];
     const full = chained(ENTRIES, new Uint8Array(DIGEST_BYTES), KEY, (iat, nonce) =>
       anchored(iat, nonce, { col: cols[nonce - 1]?.sha256, val: vals[nonce - 1]?.sha256 }),
     );
-    const atBothCeilings = (carried: readonly PackCarriedObject[]): Uint8Array =>
-      signPack(manifestValue({ chain: { anchor: full.anchor, head: full.head }, items: full.items, carried }));
+    const fullReferences = full.items.flatMap((one, index) => [
+      reference(one.id, 'col', (cols[index] as PackAttachedObject).bytes, one.iat),
+      reference(one.id, 'val', (vals[index] as PackAttachedObject).bytes, one.iat),
+    ]);
+    const atBothCeilings = (attached: readonly PackAttachedObject[]): Uint8Array =>
+      signPack(manifestValue({ chain: { anchor: full.anchor, head: full.head }, items: full.items, custody: fullReferences, attached }));
     expect(answered(() => decodePack(atBothCeilings([...cols, ...vals]))), 'a list exactly as long as the slots was refused').toBe('accepted');
     const single = chained([ENTRIES[0]!], new Uint8Array(DIGEST_BYTES), KEY, (iat, nonce) => anchored(iat, nonce, { col: edge.sha256 }));
     const atByteCeiling = signPack(
-      manifestValue({ chain: { anchor: single.anchor, head: single.head }, items: single.items, carried: [edge] }),
+      manifestValue({
+        chain: { anchor: single.anchor, head: single.head },
+        items: single.items,
+        custody: [reference(single.items[0]!.id, 'col', edge.bytes, single.items[0]!.iat)],
+        attached: [edge],
+      }),
     );
     expect(answered(() => decodePack(atByteCeiling)), 'an object at the byte ceiling was refused').toBe('accepted');
+    // The request's own ceiling is read the same way: the layout states the figure once, in `PackCustody.u`, and a
+    // reference at exactly that length is lawful rather than a shape this reader tightens on its own account.
+    const atRequestCeiling = over(
+      references.map((one, index) => (index === 0 ? { ...one, u: 'x'.repeat(REQUEST_RANGE.max) } : one)),
+      [tcb, rim],
+    );
+    expect(answered(() => decodePack(signPack(atRequestCeiling))), 'a request at the ceiling the layout states was refused').toBe('accepted');
+    expect(answered(() => issuerSignsPack(atRequestCeiling, KEY)), 'the writer refused a pack its own reader accepts').toBe('accepted');
   });
 
-  it('resolves a held slot digest to the material it names, and refuses the digests it does not', () => {
-    const tcb = material('tcb-info');
+  it('refuses the member this version retired, and names which half it met', () => {
+    const honest = signPack(manifestValue({ custody: [], attached: [] }));
+
+    // Two faults, one retired member. A manifest that names `carried` and nothing else is what every pack published
+    // before the reference list carries, and the closed map refuses it by that name: the member this version replaced
+    // is not read with it dropped, which is the reading that would verify old bytes against new semantics while the
+    // version number said nothing about either. The refusal reaches the same document whether or not `custody` rides
+    // beside it, because a member the format does not define is a defect whoever else the document gets right.
+    const oldBytes = reSealed(honest, (root) => {
+      root.delete('custody');
+      root.delete('attached');
+      root.set('carried', [
+        new Map<string, unknown>([
+          ['bytes', bytesOf('the body an earlier v1 held')],
+          ['sha256', sha256(bytesOf('the body an earlier v1 held'))],
+        ]),
+      ]);
+    });
+    const retired = thrownBy(() => verifyPack(oldBytes, { publicKey: KEY.publicKey })) as ReceiptError;
+    expect(retired.code).toBe('PACK_BAD_MANIFEST');
+    expect(retired.message).toMatch(/manifest carries a member the format does not define: 'carried'/u);
+    const bothNamed = reSealed(honest, (root) => root.set('carried', []));
+    expect((thrownBy(() => decodePack(bothNamed)) as ReceiptError).message).toMatch(
+      /manifest carries a member the format does not define: 'carried'/u,
+    );
+
+    // The other half: a manifest that simply leaves the reference list out is refused as the member it is missing,
+    // and the message names `custody`. Without this second assertion the pair of rules that keep an old pack from
+    // reading as a new one would be pinned by one of them alone, and a reader that softened the closed-map rule
+    // would then verify old bytes against new semantics with nothing in the version number to say so.
+    const missing = reSealed(honest, (root) => root.delete('custody'));
+    const absent = thrownBy(() => decodePack(missing)) as ReceiptError;
+    expect(absent.code).toBe('PACK_BAD_MANIFEST');
+    expect(absent.message).toContain('custody must be an array');
+    // And the writer is asked the same question before any bytes exist, which is where a deployment holding an
+    // object of the retired shape learns the member it owes rather than shipping a pack that names nothing.
+    const shapeRetired = { ...manifestValue(), custody: undefined, carried: [] } as unknown as PackManifest;
+    expect((thrownBy(() => encodePackManifest(shapeRetired)) as ReceiptError).message).toContain('custody must be an array');
+    expect((thrownBy(() => issuerSignsPack(shapeRetired, KEY)) as ReceiptError).code).toBe('PACK_BAD_MANIFEST');
+  });
+
+  it('resolves a held slot digest to the material it names, and hands the reference beside it', () => {
+    const tcbHeader = bytesOf('the issuer chain that arrived beside the tcb info');
+    const tcb = material('tcb-info', 24, tcbHeader);
     const rim = material('rim-bytes');
     const run = chained(ENTRIES, new Uint8Array(DIGEST_BYTES), KEY, (iat, nonce) => anchored(iat, nonce, { col: tcb.sha256, val: rim.sha256 }));
-    const honest = manifestValue({ chain: { anchor: run.anchor, head: run.head }, items: run.items, carried: [tcb, rim] });
+    const references = run.items.flatMap((one) => [
+      reference(one.id, 'col', tcb.bytes, one.iat, { c: tcb.chainSha256, a: 'served' }),
+      reference(one.id, 'val', rim.bytes, one.iat),
+    ]);
+    const over = (custody: readonly PackCustodyEntry[], attached: readonly PackAttachedObject[]): PackManifest =>
+      manifestValue({ chain: { anchor: run.anchor, head: run.head }, items: run.items, custody, attached });
+    const honest = over(references, [tcb, rim]);
 
-    // One digest per half of the anchor, asked of a manifest read out of a signed pack, out of a verified one,
-    // and out of an object assembled in memory that no reader has ever run the format's check over. The three
-    // answer alike because the lookup keys on the digest alone, and the bytes come back as the entry's own and
-    // not as a copy: whoever weighs carried material weighs what the pack held, and a re-encoding of it would
-    // put a third set of bytes in the story. The record named is the first in item order, since all three
-    // receipts name these two digests and the pack carries each of them once.
+    // One digest per half of the anchor, asked of a manifest read out of a signed pack, out of a verified one, and
+    // out of an object assembled in memory that no reader has ever run the format's check over. The three answer
+    // alike because the lookup keys on the digest alone, and the bytes come back as the entry's own and not as a
+    // copy: whoever weighs attached material weighs what the pack held, and a re-encoding of it would put a third
+    // set of bytes in the story. The record named is the first in item order, since all three receipts name these
+    // two digests and the pack attaches each of them once. The reference rides along beside the material because
+    // the pair is one statement: the entry says where the bytes came from and when, and the material is nothing to
+    // a reader that cannot say which observation it answers for.
     for (const one of [decodePack(signPack(honest)).manifest, verifyPack(signPack(honest), { publicKey: KEY.publicKey }).manifest, honest]) {
-      const col = resolveCarried(one, tcb.sha256);
+      const col = resolveAttached(one, tcb.sha256);
       expect([col.item, col.slot, col.iat]).toEqual(['receipt-0', 'col', BASE]);
-      expect(col.bytes).toBe(required(one.carried[0], 'the honest pack states no first object').bytes);
-      const val = resolveCarried(one, rim.sha256);
+      expect(col.bytes).toBe(required(one.attached[0], 'the honest pack states no first object').bytes);
+      expect(col.chain).toEqual(tcbHeader);
+      expect(col.chainSha256).toEqual(tcb.chainSha256);
+      expect(col.custody.k).toEqual({ item: 'receipt-0', slot: 'col' });
+      expect(col.custody.a).toBe('served');
+      const val = resolveAttached(one, rim.sha256);
       expect([val.item, val.slot, val.iat]).toEqual(['receipt-0', 'val', BASE]);
       expect(toHex(sha256(val.bytes))).toBe(toHex(rim.sha256));
       // The answer states no second copy of the digest it was keyed by, so the slot stays its one owner.
-      expect(Object.keys(val).sort()).toEqual(['bytes', 'iat', 'item', 'slot']);
+      expect(Object.keys(val).sort()).toEqual(['bytes', 'chain', 'chainSha256', 'custody', 'iat', 'item', 'slot']);
+      expect(val.chain).toBeNull();
+      expect(val.chainSha256).toBeNull();
     }
 
-    // A held slot the pack carries nothing for, refused at the position that would have named it: the failure the
-    // member exists to make impossible, and the code and the sentence are the ones the format's own check uses
-    // for the same document, so a caller holding an object in hand is refused as a caller holding a pack is.
-    const short = manifestValue({ chain: { anchor: run.anchor, head: run.head }, items: run.items, carried: [tcb] });
-    const unresolved = thrownBy(() => resolveCarried(short, rim.sha256));
-    expect(unresolved).toBeInstanceOf(ReceiptError);
-    expect((unresolved as ReceiptError).code).toBe('PACK_CARRIED_UNRESOLVED');
-    expect((unresolved as ReceiptError).message).toContain(`receipt-0 states a held val digest ${toHex(rim.sha256)} this pack carries no object for`);
-    expect(answered(() => decodePack(signPack(short)))).toBe('PACK_CARRIED_UNRESOLVED');
+    // A pack that attaches nothing is whole: the references answer for every slot and the arm is the material a
+    // deployment holds rights to hand on. The lookup's answer is the refusal it has always carried, and the detail
+    // says which of the two absences the caller met, because reaching past what the container undertook is the
+    // caller's action and not a defect of the document.
+    const unattached = over(references, []);
+    expect(answered(() => decodePack(signPack(unattached)))).toBe('accepted');
+    const short = thrownBy(() => resolveAttached(unattached, rim.sha256)) as ReceiptError;
+    expect(short.code).toBe('PACK_ATTACHED_UNRESOLVED');
+    expect(short.message).toContain(`receipt-0 states a held val digest ${toHex(rim.sha256)} this pack attaches no object for`);
     // The lookup answers the one digest it was handed and adjudicates nothing about the rest of the list, so the
-    // object this pack does carry still resolves beside the one it does not.
-    expect(resolveCarried(short, tcb.sha256).item).toBe('receipt-0');
+    // object this pack does attach still resolves beside the one it does not.
+    const half = over(references, [tcb]);
+    expect(resolveAttached(half, tcb.sha256).item).toBe('receipt-0');
 
     // An entry whose bytes do not hash to the digest it states, reached through that digest. The recompute is the
-    // lookup's own rather than borrowed from a check the caller may never have run, which is what makes the
-    // answer safe for a manifest built in memory: a stated digest buys nothing unless the bytes behind it agree.
-    const lying = manifestValue({
-      chain: { anchor: run.anchor, head: run.head },
-      items: run.items,
-      carried: [{ bytes: rim.bytes, sha256: tcb.sha256 }],
-    });
-    const mismatched = thrownBy(() => resolveCarried(lying, tcb.sha256));
-    expect((mismatched as ReceiptError).code).toBe('PACK_CARRIED_DIGEST_MISMATCH');
-    expect((mismatched as ReceiptError).message).toContain(`carried[0] states ${toHex(tcb.sha256)} and its bytes hash to ${toHex(rim.sha256)}`);
-    expect(answered(() => decodePack(signPack(lying)))).toBe('PACK_CARRIED_DIGEST_MISMATCH');
-    // Asked by the digest those same bytes really hash to, the same document answers a different member of the
-    // same set, because the lookup travels from the key to the entry and finds nothing there: the list's own check
-    // names the mislabeled entry, and the question names the slot it cannot answer. Both refuse, in the codes the
-    // format already publishes, which is what the two readings have in common.
-    const askedTrueSide = thrownBy(() => resolveCarried(lying, rim.sha256));
-    expect((askedTrueSide as ReceiptError).code).toBe('PACK_CARRIED_UNRESOLVED');
-    expect((askedTrueSide as ReceiptError).message).toContain(`receipt-0 states a held val digest ${toHex(rim.sha256)} this pack carries no object for`);
+    // lookup's own rather than borrowed from a check the caller may never have run, which is what makes the answer
+    // safe for a manifest built in memory: a stated digest buys nothing unless the bytes behind it agree.
+    const lying = over(references, [{ bytes: rim.bytes, sha256: tcb.sha256, chain: null, chainSha256: null }]);
+    const mismatched = thrownBy(() => resolveAttached(lying, tcb.sha256)) as ReceiptError;
+    expect(mismatched.code).toBe('PACK_ATTACHED_DIGEST_MISMATCH');
+    expect(mismatched.message).toContain(`attached[0] states ${toHex(tcb.sha256)} and its bytes hash to ${toHex(rim.sha256)}`);
+    expect(answered(() => decodePack(signPack(lying)))).toBe('PACK_ATTACHED_DIGEST_MISMATCH');
+    // Asked by the digest those same bytes really hash to, the same document answers a different member of the same
+    // set, because the lookup travels from the key to the entry and finds nothing there: the list's own check names
+    // the mislabeled entry, and the question names the slot it cannot answer. Both refuse, in the codes the format
+    // already publishes, which is what the two readings have in common.
+    const askedTrueSide = thrownBy(() => resolveAttached(lying, rim.sha256)) as ReceiptError;
+    expect(askedTrueSide.code).toBe('PACK_ATTACHED_UNRESOLVED');
+    expect(askedTrueSide.message).toContain(`receipt-0 states a held val digest ${toHex(rim.sha256)} this pack attaches no object for`);
 
-    // Bytes the pack carries that no sealed slot names, asked by their own digest: the other direction of the
-    // same disagreement, holding its own code because the construction to fix is the other one.
+    // A header that does not hash to what the reference beside it states, asked of a manifest no reader has run the
+    // format's check over. The list-wide refusal is the same code and the same pair of figures, and the lookup owes
+    // the same answer to an in-memory object it was handed rather than decoded.
+    const movedHeader = over(references, [{ ...tcb, chain: bytesOf('a chain lifted from elsewhere') }, rim]);
+    expect(answered(() => decodePack(signPack(movedHeader)))).toBe('PACK_ATTACHED_DIGEST_MISMATCH');
+    expect((thrownBy(() => resolveAttached(movedHeader, tcb.sha256)) as ReceiptError).code).toBe('PACK_ATTACHED_DIGEST_MISMATCH');
+
+    // Bytes the pack attaches that no sealed slot names, asked by their own digest: the other direction of the same
+    // disagreement, holding its own code because the construction to fix is the other one.
     const extra = material('a document no slot names');
-    const overfull = manifestValue({ chain: { anchor: run.anchor, head: run.head }, items: run.items, carried: [tcb, rim, extra] });
-    expect(answered(() => resolveCarried(overfull, extra.sha256))).toBe('PACK_CARRIED_UNNAMED');
-    expect(answered(() => decodePack(signPack(overfull)))).toBe('PACK_CARRIED_UNNAMED');
+    const overfull = over(references, [tcb, rim, extra]);
+    expect(answered(() => resolveAttached(overfull, extra.sha256))).toBe('PACK_ATTACHED_UNNAMED');
+    expect(answered(() => decodePack(signPack(overfull)))).toBe('PACK_ATTACHED_UNNAMED');
 
-    // A digest nothing in the pack states and no slot names is a question this container never agreed to answer,
-    // and the detail says so on both halves rather than blaming a receipt that named nothing.
+    // A digest nothing in the pack states and no slot names is a question this container never agreed to answer, and
+    // the detail says so on both halves rather than blaming a receipt that named nothing.
     const unheard = sha256(bytesOf('material this pack never saw'));
-    const outside = thrownBy(() => resolveCarried(honest, unheard));
-    expect((outside as ReceiptError).code).toBe('PACK_CARRIED_UNRESOLVED');
-    expect((outside as ReceiptError).message).toContain(`no carried object of this pack states ${toHex(unheard)} and no held slot of any receipt it seals names it`);
+    const outside = thrownBy(() => resolveAttached(honest, unheard)) as ReceiptError;
+    expect(outside.code).toBe('PACK_ATTACHED_UNRESOLVED');
+    expect(outside.message).toContain(`no attached object of this pack states ${toHex(unheard)} and no held slot of any receipt it seals names it`);
 
-    // An anchor whose every slot states an absence names no digest, so nothing resolves out of it and no absence
-    // is ever read as a missing object.
+    // An anchor whose every slot states an absence names no digest, so nothing resolves out of it and no absence is
+    // ever read as a missing object.
     const nowhere = chained(ENTRIES, new Uint8Array(DIGEST_BYTES), KEY, (iat, nonce) => anchored(iat, nonce, {}));
     const silent = manifestValue({ chain: { anchor: nowhere.anchor, head: nowhere.head }, items: nowhere.items });
-    expect(answered(() => resolveCarried(silent, tcb.sha256))).toBe('PACK_CARRIED_UNRESOLVED');
+    expect(answered(() => resolveAttached(silent, tcb.sha256))).toBe('PACK_ATTACHED_UNRESOLVED');
 
-    // The width of the key is the format's own, asked before a byte is hashed or a receipt decoded, and answered
-    // as the call rather than as a hole in the pack: a digest no reader can name is a question with no answer.
-    expect(answered(() => resolveCarried(honest, new Uint8Array(DIGEST_BYTES - 1)))).toBe('PACK_BAD_MANIFEST');
-    expect(answered(() => resolveCarried(honest, new Uint8Array(DIGEST_BYTES + 1)))).toBe('PACK_BAD_MANIFEST');
+    // The width of the key is the format's own, asked before a byte is hashed or a receipt decoded, and answered as
+    // the call rather than as a hole in the pack: a digest no reader can name is a question with no answer.
+    expect(answered(() => resolveAttached(honest, new Uint8Array(DIGEST_BYTES - 1)))).toBe('PACK_BAD_MANIFEST');
+    expect(answered(() => resolveAttached(honest, new Uint8Array(DIGEST_BYTES + 1)))).toBe('PACK_BAD_MANIFEST');
+
+    // The reference a slot answers for is read on its own, and a slot the pack refers to nowhere is refused with the
+    // code the format's own check uses for the same absence, so a caller asking one question at a time hears the
+    // same refusal it would hear from a reader walking the whole manifest.
+    expect(custodyForSlot(honest, 'receipt-2', 'val').b).toEqual(rim.sha256);
+    expect(answered(() => custodyForSlot(honest, 'receipt-9', 'col'))).toBe('PACK_CUSTODY_UNRESOLVED');
+    expect(answered(() => custodyForSlot(silent, 'receipt-0', 'col'))).toBe('PACK_CUSTODY_UNRESOLVED');
   });
 
   it('is named by the section of the specification it implements, and says no more than it does', () => {

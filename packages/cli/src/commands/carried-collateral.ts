@@ -7,36 +7,50 @@ import {
   type IntelPlatform,
   type IntelTcbLevel,
 } from '@ashaveri/collateral';
-import { resolveCarried, toHex, type CollateralSlot, type PackManifest, type TeeKind, type VerifiedPackItem } from '@ashaveri/receipt';
+import {
+  ReceiptError,
+  resolveAttached,
+  toHex,
+  type CollateralSlot,
+  type PackAttachedResolution,
+  type PackManifest,
+  type TeeKind,
+  type VerifiedPackItem,
+} from '@ashaveri/receipt';
 import { UsageError, printedToken } from '../usage.js';
 import { readBytes } from './verify-receipt.js';
 
 /**
  * The material a pack carries, weighed against the roots the caller handed.
  *
- * A pack's `carried` list holds the bytes a sealed receipt's `held` anchor slot digests, and `resolveCarried`
- * answers one digest with the object that hashes to it. Those bytes are the vendor's own signed statement about a
- * platform, and such a statement is worth only what it says under the roots a reader stands behind and at the
- * moment it is read against. This file asks the collateral package that question for every slot a pack carries
- * material for, and hands the answer back as rows for the report rather than as a verdict: the command that runs
- * it applies no policy, demands no anchor and changes no exit code on anything it prints here.
+ * A sealed receipt's `held` anchor slot digests material, and the pack that seals it signs a reference for that
+ * digest: the reference states where the document was read from and what it hashed to, and the byte arm is where a
+ * deployment that holds the material hands it over. `resolveAttached` answers one digest with the arm entry that
+ * hashes to it, beside the reference that names it, and answers a digest the arm holds nothing for with the refusal
+ * that says so. Those bytes are the vendor's own signed statement about a platform, and such a statement is worth
+ * only what it says under the roots a reader stands behind and at the moment it is read against. This file asks the
+ * collateral package that question for every slot whose material the container hands over, and gives the answer back
+ * as rows for the report rather than as a verdict: the command that runs it applies no policy, demands no anchor
+ * and changes no exit code on anything it prints here.
  *
  * The question is answerable only for material of the envelope the origin's declaration decodes. Intel serves its
  * documents as a body with a hex signature member and its issuer chain in a response header, cited at each
- * declaration in `@ashaveri/collateral`'s `intel-origin.ts`, and a container holds the body with no header beside
- * it, so bytes taken in as that address actually answers them are refused here at the envelope. A `held` slot
- * states that the pack carries the bytes an anchor digests; it does not state that a reader holding the pack can
- * walk a chain out of them.
+ * declaration in `@ashaveri/collateral`'s `intel-origin.ts`, and the two halves arrive together or the answer is
+ * read as an envelope it cannot open: an arm entry carrying a header is handed beside its body, and the reference
+ * for that slot states the digest the header hashes to, which the format recomputes before this file is given the
+ * pair. A `held` slot states that the pack signed a reference for the bytes an anchor digests; it does not state
+ * that a reader holding the pack can walk a chain out of them, and where the arm carries no header this path hands
+ * none.
  *
  * Where each field of the question comes from is the first thing to settle, because the package settles all of
  * them before it reads a byte of the answer: `askedButNotGiven` refuses an unnamed root, instant or level, and
  * `requestUrl` refuses an unnamed or malformed CPU type, and no refusal of either can be met out of the bytes
  * being weighed. Measured against the two documents that hold this material:
  *
- * - the pack states, per carried entry, bytes and their digest, and `resolveCarried` hands back the bytes it
+ * - the pack states, per arm entry, bytes and their digest, and `resolveAttached` hands back the bytes it
  *   found by re-hashing them against the digest asked;
  * - the sealed receipt states, per anchor slot, `held` and a digest, and the stamp that record was chained at,
- *   which `resolveCarried` reports beside the material;
+ *   which `resolveAttached` reports beside the material;
  * - the receipt also states `meas.tee`, which is the environment kind its own measurement is of.
  *
  * So the material, the instant the pack states it held it, and the instant to read it against are all stated by
@@ -50,10 +64,13 @@ import { readBytes } from './verify-receipt.js';
  * while others of them name `tdx`, so a record's environment kind is a fact about the machine the measurement is
  * of rather than the path its collateral was published by. Reading a platform out of a `tee` would be this file's
  * guess written into somebody else's verdict, and it would make the collateral of every `snp` receipt unweighable.
- * No origin is stated either: the two halves of one anchor hold two different documents, and the format gives a
- * carried object no name but its digest. And the package refuses, on purpose, to let a signed document answer for
- * its own identity: it reads the `fmspc` the document declares and refuses one covering another machine than the
- * one asked about, which is the check that stops a misindexed answer passing.
+ * A reference does name the declaration one capture read, and carries the cache key that capture was filed under,
+ * but an arm entry beside it has no name but its digest, and the platform, the CPU type and the rung an appraisal
+ * asks by are no part of a reference at all. So the question stays the caller's: a reference answers for the
+ * capture it was written at and this report answers for the run in front of it. The package refuses, on purpose,
+ * to let a signed document answer for its own identity as well: it reads the `fmspc` the document declares and
+ * refuses one covering another machine than the one asked about, which is the check that stops a misindexed
+ * answer passing.
  *
  * So `--collateral-origin`, `--collateral-platform`, `--collateral-cpu-type` and `--collateral-level` are the
  * caller's designation, each keyed by the anchor slot the container itself names, and the report prints the naming
@@ -76,7 +93,7 @@ export const COLLATERAL_CPU_TYPE_FLAG = '--collateral-cpu-type';
 /** The flag that names which rung of the vendor's ladder the appraisal is asked about. */
 export const COLLATERAL_LEVEL_FLAG = '--collateral-level';
 
-/** The two anchor slots, spelled as the container and `resolveCarried` spell them. */
+/** The two anchor slots, spelled as the container and `resolveAttached` spell them. */
 export type CarriedSlotLabel = 'col' | 'val';
 
 const SLOT_LABELS: readonly CarriedSlotLabel[] = ['col', 'val'];
@@ -137,13 +154,13 @@ export interface CarriedQuestion {
 export interface CarriedWeighing {
   /** The digest the held slot states, which is the only name the pack gives this material. */
   readonly digest: string;
-  /** The record `resolveCarried` names, and which of its slots asked. */
+  /** The record the slot belongs to, and which of its slots asked. */
   readonly item: string;
   readonly slot: CarriedSlotLabel;
   /** Unix seconds: the stamp that record was chained at, which is both the held instant and the moment weighed. */
   readonly iat: number;
-  /** How many bytes the pack carries for this digest. */
-  readonly bytes: number;
+  /** How many bytes the pack attaches for this digest, or null where its arm attaches nothing. */
+  readonly bytes: number | null;
   /** Every held slot of every sealed receipt stating this digest, which is what the pack's deduplication means. */
   readonly namedBy: readonly { readonly item: string; readonly slot: CarriedSlotLabel }[];
   /** The environment kind the naming receipt states, printed beside the designated platform. */
@@ -320,6 +337,7 @@ export async function carriedDesignations(values: CarriedFlagValues): Promise<Ca
 function slotsOf(one: VerifiedPackItem): readonly {
   readonly item: string;
   readonly slot: CarriedSlotLabel;
+  readonly iat: number;
   readonly sha256: Uint8Array | null;
   readonly presence: string;
   readonly reason: string;
@@ -336,6 +354,7 @@ function slotsOf(one: VerifiedPackItem): readonly {
   return halves.map(([slot, value]) => ({
     item: one.item.id,
     slot,
+    iat: one.item.iat,
     sha256: value.presence === 'held' ? value.sha256 : null,
     presence: value.presence,
     reason: value.presence === 'held' ? '' : value.reason,
@@ -347,7 +366,7 @@ function slotsOf(one: VerifiedPackItem): readonly {
  * The material each held slot names, weighed.
  *
  * Slots are gathered by digest before anything is weighed, because the pack deduplicates its material and
- * `resolveCarried` keys on the digest alone: three records naming one collateral document is one object, and
+ * `resolveAttached` keys on the digest alone: three records naming one collateral document is one object, and
  * weighing it three times would report three verdicts on bytes the container states once. Every slot stating the
  * digest is printed beside the answer all the same, because the report answers for the slots the receipts state,
  * and the record the lookup names is the one whose stamp the answer is read against.
@@ -378,7 +397,31 @@ export async function weighCarried(
   const weighings: CarriedWeighing[] = [];
   for (const [hex, slots] of byDigest) {
     const first = slots[0] as (typeof stated)[number];
-    const resolution = resolveCarried(manifest, first.sha256 as Uint8Array);
+    // The arm may be shorter than the references: a pack that refers to a held slot and attaches no copy of it is
+    // whole, and `resolveAttached` answers that reach with the refusal naming the digest it was given. The empty arm
+    // is therefore read as a state of the document rather than as the end of the reading, and the slot is reported
+    // with the reason nothing was weighed against it. Every other refusal is this run's own fault and travels as one.
+    let resolution: PackAttachedResolution | null = null;
+    try {
+      resolution = resolveAttached(manifest, first.sha256 as Uint8Array);
+    } catch (err) {
+      if (!(err instanceof ReceiptError) || err.code !== 'PACK_ATTACHED_UNRESOLVED') throw err;
+    }
+    if (resolution === null) {
+      weighings.push({
+        digest: hex,
+        item: first.item,
+        slot: first.slot,
+        iat: first.iat,
+        bytes: null,
+        namedBy: slots.map((one) => ({ item: one.item, slot: one.slot })),
+        environment: first.environment,
+        question: null,
+        notWeighed: `${first.item} at ${first.slot} states this digest and the pack attaches no object hashing to it, so this run weighed a copy the container does not hand over`,
+        outcome: null,
+      });
+      continue;
+    }
     // The environment kind printed beside the designated platform is the naming record's own: the receipt the
     // lookup says asked for this material, rather than whichever slot of the pack was met first here.
     const naming = walked.find((one) => one.item.id === resolution.item);
@@ -426,13 +469,14 @@ export async function weighCarried(
       roots: designations.roots,
       onAbsent: 'unassessed',
     };
-    // The container states no header beside these bytes, so the pair is handed as a body alone: the appraisal
-    // reads the absence rather than inventing a header, and a pack that came to state one would hand its own
-    // bytes through the same two positions.
+    // The header an arm entry carries beside its body is handed with it, which is the pair the reference states a
+    // digest for and the format has already recomputed: a served answer weighed without the half that reaches a
+    // root is refused at the envelope, and a deployment that attached both halves is weighed on both. Where the arm
+    // carries no header the same two positions state that absence, and the appraisal reads a body alone.
     const outcome = await appraiseCarriedCollateral(query, {
       bytes: resolution.bytes,
-      chain: null,
-      chainSha256: null,
+      chain: resolution.chain,
+      chainSha256: resolution.chainSha256,
       heldAt: resolution.iat,
     });
     weighings.push({ ...base, question, outcome });
@@ -469,8 +513,8 @@ export function rootRule(designations: CarriedDesignations): string {
 export function fieldSources(designations: CarriedDesignations): readonly { readonly field: string; readonly from: string }[] {
   const designated = [...designations.bySlot].map(([slot, one]) => `${slot}: ${one.from.origin} and ${one.from.platform}`).join('; ');
   return [
-    { field: 'bytes', from: `the pack's carried entry, found by the digest the held slot states and re-hashed by resolveCarried` },
-    { field: 'heldAt', from: 'the stamp the naming record was chained at, which resolveCarried reports beside the material' },
+    { field: 'bytes', from: `the pack's byte arm, found by the digest the held slot states and re-hashed by resolveAttached` },
+    { field: 'heldAt', from: 'the stamp the naming record was chained at, which resolveAttached reports beside the material' },
     { field: 'appraisalAt', from: 'that same stamp: the moment asked about is the moment the seal states, and no clock of this run reads' },
     {
       field: 'platform',

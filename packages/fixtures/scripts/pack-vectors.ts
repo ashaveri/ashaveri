@@ -6,7 +6,7 @@ import { sha256 } from '@noble/hashes/sha2.js';
 import {
   ALG_EDDSA,
   CARRIED_MAX_BYTES,
-  CARRIED_SLOTS_PER_ITEM,
+  CUSTODY_SLOTS_PER_ITEM,
   EXPORT_CONTENT_TYPE,
   PACK_CONTENT_TYPE,
   ReceiptError,
@@ -25,7 +25,8 @@ import {
   toHex,
   verifyExport,
   verifyPack,
-  type PackCarriedObject,
+  type PackAttachedObject,
+  type PackCustodyEntry,
   type PackItem,
   type PackManifest,
   type PackOrderingFinding,
@@ -50,9 +51,13 @@ const DATA = join(dirname(fileURLToPath(import.meta.url)), '..', 'data');
  * document is assembled from the four pieces the package publishes and re-sealed under the key its header
  * names. `main` stops the run unless the piecewise path reproduces `signPack` byte for byte on the canonical
  * header, so a fault case differs from what a deployment signs only in the position its `edited` field names.
- * The carried list joins the class of manifest that contradicts itself: an entry misstating its own bytes, one
- * digest at two positions, an entry no sealed slot names and a slot no entry hashes to are each offered to
- * `signPack` before they are published, and the writer refuses every one of them with the code the row states.
+ * The reference list and the byte arm both join the class of manifest that contradicts itself: an entry naming a
+ * slot this pack seals no receipt for, a sealed slot no entry answers for, an instant that is no whole number of
+ * Unix seconds, an attached object misstating its own bytes, one digest attached twice, an object no reference
+ * names and a header beside material no reference states a digest for are each offered to `signPack` before they
+ * are published, and the writer refuses every one of them with the code the row states. No accepted row here
+ * attaches a byte: the layout permits the arm, the references answer for what the sealed receipts took in, and
+ * nothing in this repository fills the arm.
  *
  * Two verdicts are published per row because the pack reader has two entry points and they answer different
  * questions. `structural` is what `decodePack` says about the bytes with no key in hand, and `verdict` is what
@@ -122,8 +127,8 @@ const text = (value: string): Uint8Array => new TextEncoder().encode(value);
 
 /**
  * One record's receipt, under the key that epoch held, attesting the stamp it is chained with. Given `slots` it
- * is the document whose anchors name carried material; given none it is the field set the suite started from,
- * whose two slots each state that this collector took nothing in.
+ * is the document whose anchors name material a reference answers for; given none it is the field set the suite
+ * started from, whose two slots each state that this collector took nothing in.
  */
 function receiptFor(id: string, iat: number, key: SigningKey = CURRENT, slots?: AnchorSlots): Uint8Array {
   const fields: ReceiptPayload = {
@@ -134,10 +139,11 @@ function receiptFor(id: string, iat: number, key: SigningKey = CURRENT, slots?: 
 }
 
 /**
- * The two anchor slots a receipt states. A slot given a digest is a demand on the container: the pack
- * that seals this receipt has to carry an object hashing to it. A slot left out states that the collector never
- * took that material in, which is the receipt's own statement about its own appraisal and owes the pack no bytes,
- * so an absent slot is not a shortage and a pack carrying nothing for a run of absent slots is whole.
+ * The two anchor slots a receipt states. A slot given a digest is a demand on the container: the pack that seals
+ * this receipt has to answer it with a reference whose stated body digest is that digest. A slot left out states
+ * that the collector never took that material in, which is the receipt's own statement about its own appraisal and
+ * owes the pack no reference and no bytes, so an absent slot is not a shortage and a pack referring to nothing for
+ * a run of absent slots is whole.
  */
 interface AnchorSlots {
   readonly col?: Uint8Array;
@@ -204,7 +210,8 @@ function manifestFor(run: { items: PackItem[]; anchor: Uint8Array; head: Uint8Ar
     chain: { anchor: run.anchor, head: run.head },
     duty: { ...HONEST_DUTY, held: Math.max(HONEST_DUTY.held, SPAN_TO - Math.min(...run.items.map((one) => one.iat))) },
     items: run.items,
-    carried: [],
+    custody: [],
+    attached: [],
     ...over,
   };
 }
@@ -379,24 +386,76 @@ const SINGLE = chained([ENTRIES[0]!]);
 const SEAM = chained(ENTRIES, digest(text('the seam a trim record carried')));
 
 /**
- * Material a `held` slot can name, as an entry of the carried list: the bytes a deployment would hold beside the
- * record, and the digest of exactly those bytes. Every object here is a distinct sentence, so no two of them can
- * collide at a digest and a row that wants a collision has to make one on purpose.
+ * Material a `held` slot names, spelled the way the byte arm spells it: the bytes a deployment might attach beside
+ * the record, the digest of exactly those bytes, and the header that arrived with them where one did. Every object
+ * here is a distinct sentence, so no two of them can collide at a digest and a row that wants a collision has to
+ * make one on purpose. No accepted row of this suite attaches any of them: the layout permits the arm, nothing in
+ * this repository fills it, and these objects appear in the published bytes only in the documents the reader
+ * refuses, which is how a port gets an answer for a filled arm without this file writing one for a deployment.
  */
-function collateral(label: string): PackCarriedObject {
+function collateral(label: string, header: Uint8Array | null = null): PackAttachedObject {
   const held = text(label);
-  return { bytes: held, sha256: digest(held) };
+  return { bytes: held, sha256: digest(held), chain: header, chainSha256: header === null ? null : digest(header) };
 }
 
-const TCB = collateral('the signed TCB info this span was appraised against');
-const VAL = collateral('the validity window the appraisal above was published in');
+const TCB_HEADER = text('the issuer chain header that arrived beside the TCB info');
+const VAL_HEADER = text('the issuer chain header that arrived beside the validity window');
+const RIM_HEADER = text('the issuer chain header this document carries no digest for');
+
+const TCB = collateral('the signed TCB info this span was appraised against', TCB_HEADER);
+const VAL = collateral('the validity window the appraisal above was published in', VAL_HEADER);
 const RIM = collateral('the signed firmware measurements of the host that served the third record');
 
 /**
- * A run whose receipts name carried material in their anchors. Two records name the same pair and
- * the third names the same `col` beside a different `val`, which is the shape the deduplication rule is for:
- * the shared collateral is carried once however many sealed receipts name it, and the count of the list is the
- * count of the material the pack holds rather than the count of the slots naming it.
+ * What one capture read: the declaration it read, the request as asked, the identity the answer named for itself,
+ * what that source declares about itself, the arm that weighed it, the cache key the declaration spells, and the
+ * material the reading produced. The two arms of `a` both appear here because the format states both, and the
+ * header half of a served reading travels as a digest and never as bytes.
+ */
+interface Reading {
+  readonly o: string;
+  readonly u: string;
+  readonly i: string | null;
+  readonly n: number | null;
+  readonly a: 'served' | 'embedded';
+  readonly y: string;
+  readonly arm: PackAttachedObject;
+}
+
+const TCB_READ: Reading = {
+  o: 'intel-tcb-info',
+  u: 'https://api.trustedservices.intel.com/tdx/certification/v4/tcb?fmspc=00806f050000',
+  i: '00806F050000',
+  n: 60,
+  a: 'served',
+  y: 'intel-tcb-info/tdx/00806f050000/tcb',
+  arm: TCB,
+};
+
+const VAL_READ: Reading = {
+  o: 'intel-tcb-info',
+  u: 'https://api.trustedservices.intel.com/tdx/certification/v4/tcb?fmspc=00806f050000&extended=tcb',
+  i: '00806F050000',
+  n: null,
+  a: 'served',
+  y: 'intel-tcb-info/tdx/00806f050000/tcb-extended',
+  arm: VAL,
+};
+
+const RIM_READ: Reading = {
+  o: 'intel-platform-rim',
+  u: 'https://api.trustedservices.intel.com/sgx/certification/v4/pfm/rim?id=ASUS-PIME-X470-CFM',
+  i: 'ASUS-PIME-X470-CFM',
+  n: null,
+  a: 'embedded',
+  y: 'intel-platform-rim/sgx/ASUS-PIME-X470-CFM',
+  arm: RIM,
+};
+
+/**
+ * A run whose receipts name material in their anchors. Two records name the same pair and the third names the same
+ * `col` beside a different `val`, which is the shape the reference list is for: the sealed receipts' slots are
+ * answered one by one, and the material those readings produced is named by its digest and not handed on.
  */
 const ANCHORED = chained([
   { id: 'receipt-0', iat: BASE, slots: { col: TCB.sha256, val: VAL.sha256 } },
@@ -404,34 +463,123 @@ const ANCHORED = chained([
   { id: 'receipt-2', iat: BASE + 2, slots: { col: TCB.sha256, val: RIM.sha256 } },
 ]);
 
-/** The honest carried list for that run, and the whole pack that carries it. */
-const CARRIED: readonly PackCarriedObject[] = [TCB, VAL, RIM];
-const carriedManifest = manifestFor(ANCHORED, { carried: CARRIED });
+/**
+ * One reference, stated the way a capture that read the document would state it. Every figure comes out of the
+ * reading it answers for and the stamp the naming record was chained at: the body digest is the digest that slot
+ * states, the header digest is the digest of the header that arrived beside it where the weighing read one, the
+ * instant is thirty seconds before the record was chained, and the window is the document's own statement, an hour
+ * of standing behind the read and a day ahead of it. A case that wants a reference disagreeing with the slot it
+ * names, or stating an instant outside the band the receipt format draws, moves the one member its row names.
+ */
+function reference(named: PackItem, slot: 'col' | 'val', read: Reading, over: Partial<PackCustodyEntry> = {}): PackCustodyEntry {
+  return {
+    k: { item: named.id, slot },
+    o: read.o,
+    u: read.u,
+    i: read.i,
+    s: named.iat - 30,
+    n: read.n,
+    b: read.arm.sha256,
+    c: read.arm.chainSha256,
+    a: read.a,
+    w: { from: named.iat - 3_600, to: named.iat + 86_400 },
+    y: read.y,
+    ...over,
+  };
+}
+
+/** The six slots that run states, each answered by the reading that produced its material. */
+const ANCHORED_SLOTS: readonly (readonly [string, 'col' | 'val', Reading])[] = [
+  ['receipt-0', 'col', TCB_READ],
+  ['receipt-0', 'val', VAL_READ],
+  ['receipt-1', 'col', TCB_READ],
+  ['receipt-1', 'val', VAL_READ],
+  ['receipt-2', 'col', TCB_READ],
+  ['receipt-2', 'val', RIM_READ],
+];
+
+function slotNamed(id: string): PackItem {
+  const found = ANCHORED.items.find((one) => one.id === id);
+  if (found === undefined) throw new Error(`this file builds a run with no ${id}`);
+  return found;
+}
+
+/** The references that run owes, one per held slot, and the whole pack that signs them and attaches nothing. */
+const REFERENCES: readonly PackCustodyEntry[] = ANCHORED_SLOTS.map(([id, slot, read]) => reference(slotNamed(id), slot, read));
+const referringManifest = manifestFor(ANCHORED, { custody: REFERENCES });
+
+/** The arm those references answer for, held here so the faults below have a whole arm to move one position of. */
+const ATTACHED: readonly PackAttachedObject[] = [TCB, VAL, RIM];
+const armManifest = (): PackManifest => ({ ...referringManifest, attached: [...ATTACHED] });
 
 /**
- * The four ways the carried list and the sealed slots can disagree, each moved in the one position its row
- * names. Every one of them is a manifest `signPack` refuses, so the writer is asked to sign each below and the
+ * The ways the reference list, the byte arm and the sealed slots can disagree, each moved in the one position its
+ * row names. Every one of them is a manifest `signPack` refuses, so the writer is asked to sign each below and the
  * run stops if it signs any: these are documents no deployment produces by accident, published only because a
  * reader has to answer them.
  */
 
-/** carried[1] keeps its own bytes and takes carried[0]'s digest, so the entry misstates the material inside it. */
-const MISSTATED: PackManifest = { ...carriedManifest, carried: [TCB, { bytes: VAL.bytes, sha256: TCB.sha256 }, RIM] };
+/** attached[1] keeps its own bytes and takes attached[0]'s digest, so the entry misstates the material inside it. */
+const MISSTATED: PackManifest = { ...armManifest(), attached: [TCB, { ...VAL, sha256: TCB.sha256 }, RIM] };
 
-/** carried[1] is a whole copy of carried[0], bytes and digest alike: one object at two positions. */
-const DOUBLED: PackManifest = { ...carriedManifest, carried: [TCB, { bytes: TCB.bytes, sha256: TCB.sha256 }, VAL, RIM] };
+/** attached[1] is a whole copy of attached[0], bytes and digest alike: one object at two positions. */
+const DOUBLED: PackManifest = { ...armManifest(), attached: [TCB, { ...TCB }, VAL, RIM] };
 
-/** carried[3] is named by no `held` slot of any receipt this pack seals, while the other three all resolve. */
-const SURPLUS: PackManifest = { ...carriedManifest, carried: [...CARRIED, collateral('a document no sealed receipt of this pack names')] };
+/** attached[3] is named by the body digest of no reference this pack signs for, while the other three all resolve. */
+const SURPLUS: PackManifest = { ...armManifest(), attached: [...ATTACHED, collateral('a document no reference of this pack names')] };
 
-/** The object receipt-2 names at `val` is gone, and the two entries left are both named by a slot. */
-const SHORT: PackManifest = { ...carriedManifest, carried: [TCB, VAL] };
+/** attached[0] carries a header and states no digest for it, which is one member of its own arm contradicting another. */
+const UNPAIRED: PackManifest = { ...armManifest(), attached: [{ ...TCB, chainSha256: null }, VAL, RIM] };
 
-const CARRIED_FAULTS: readonly { readonly at: string; readonly manifest: PackManifest; readonly code: string }[] = [
-  { at: 'carried[1].sha256', manifest: MISSTATED, code: 'PACK_CARRIED_DIGEST_MISMATCH' },
-  { at: 'carried[1], a repeat of the object already at carried[0]', manifest: DOUBLED, code: 'PACK_CARRIED_DUPLICATE' },
-  { at: 'carried[3], an entry no held slot names', manifest: SURPLUS, code: 'PACK_CARRIED_UNNAMED' },
-  { at: 'the carried list, with the object receipt-2 names at val removed', manifest: SHORT, code: 'PACK_CARRIED_UNRESOLVED' },
+/** attached[2] carries a header while the reference it resolves to states `c: null`, so the pair disagrees. */
+const UNSUMMONED_HEADER: PackManifest = {
+  ...armManifest(),
+  attached: [TCB, VAL, { bytes: RIM.bytes, sha256: RIM.sha256, chain: RIM_HEADER, chainSha256: digest(RIM_HEADER) }],
+};
+
+/** custody[1] answers for a record this pack does not seal, so it is a record of an observation nobody asked it to stand behind. */
+const ANSWERS_NOTHING: PackManifest = {
+  ...referringManifest,
+  custody: REFERENCES.map((one, index) => (index === 1 ? { ...one, k: { item: 'receipt-9', slot: one.k.slot } } : one)),
+};
+
+/** The slot receipt-2 states at `val` is answered by nothing, and every entry that is there answers a real slot. */
+const FALLS_SHORT: PackManifest = {
+  ...referringManifest,
+  custody: REFERENCES.filter((one) => !(one.k.item === 'receipt-2' && one.k.slot === 'val')),
+};
+
+/** custody[0].s is the same instant written in milliseconds, which is a whole number and no Unix seconds. */
+const INSTANT_IN_MILLISECONDS: PackManifest = {
+  ...referringManifest,
+  custody: REFERENCES.map((one, index) => (index === 0 ? { ...one, s: one.s * 1_000 } : one)),
+};
+
+/** custody[0].w.to is a millisecond spelling beside an honest `s`, which is the same fault at the window's own end. */
+const WINDOW_IN_MILLISECONDS: PackManifest = {
+  ...referringManifest,
+  custody: REFERENCES.map((one, index) => (index === 0 ? { ...one, w: { from: one.w.from, to: one.w.to * 1_000 } } : one)),
+};
+
+const CUSTODY_FAULTS: readonly { readonly at: string; readonly manifest: PackManifest; readonly code: string }[] = [
+  { at: 'custody[1].k.item, a record this pack does not seal', manifest: ANSWERS_NOTHING, code: 'PACK_CUSTODY_UNNAMED' },
+  { at: 'the custody list, with the entry receipt-2 names at val removed', manifest: FALLS_SHORT, code: 'PACK_CUSTODY_UNRESOLVED' },
+  { at: 'custody[0].s, the same instant a thousand times over', manifest: INSTANT_IN_MILLISECONDS, code: 'PACK_CUSTODY_UNIT_OUTSIDE_BAND' },
+  { at: 'custody[0].w.to, the window ended in milliseconds', manifest: WINDOW_IN_MILLISECONDS, code: 'PACK_CUSTODY_UNIT_OUTSIDE_BAND' },
+];
+
+const ARM_FAULTS: readonly { readonly at: string; readonly manifest: PackManifest; readonly code: string }[] = [
+  { at: 'attached[1].sha256, the digest of attached[0] bytes rather than of the bytes beside it', manifest: MISSTATED, code: 'PACK_ATTACHED_DIGEST_MISMATCH' },
+  { at: 'attached[1], a second entry for the object already at attached[0]', manifest: DOUBLED, code: 'PACK_ATTACHED_DUPLICATE' },
+  { at: 'attached[3], an object the body digest of no reference names', manifest: SURPLUS, code: 'PACK_ATTACHED_UNNAMED' },
+  { at: 'attached[0].chain_sha256, nulled beside a header that is still there', manifest: UNPAIRED, code: 'PACK_BAD_MANIFEST' },
+  { at: 'attached[2].chain, a header the reference it resolves to states no digest for', manifest: UNSUMMONED_HEADER, code: 'PACK_ATTACHED_DIGEST_MISMATCH' },
+];
+
+/** Every fault this suite publishes as a manifest, in the order the layout reads them: references first, then the arm. */
+const FAULT_MANIFESTS: readonly { readonly at: string; readonly manifest: PackManifest; readonly code: string }[] = [
+  ...CUSTODY_FAULTS,
+  ...ARM_FAULTS,
 ];
 
 /**
@@ -519,9 +667,9 @@ const CASES: readonly Case[] = [
     item: 'receipt-0',
   },
   {
-    name: 'collateral-carried-inside-the-pack',
-    note: 'Three receipts whose anchors name material, and the pack that carries it. The `col` digest all three records name is one entry rather than three, the third record names a different `val` beside that same `col`, and every stated digest hashes to the bytes beside it, so a reader holding this pack resolves each held slot without reaching a vendor endpoint. This is what the carried member is for: the sealed receipt states material it took in, and the container handed to an auditor carries it.',
-    bytes: signPack(carriedManifest, CURRENT),
+    name: 'held-slots-referred-to-by-name',
+    note: 'Three receipts whose anchors name material, and the pack that answers each held slot with a reference and attaches nothing. The `col` digest all three records name is three references rather than one, because a reference answers for the slot it names and not for the digest it shares, and each states the declaration it read, the request as asked, the instant the last byte landed, the body digest its slot digests and the digest of the header that arrived beside it where the weighing read one. A reader holding this pack learns what was seen, by which arm, and when, and reaches no endpoint to learn it. The pack states no verdict about those bytes and hands on none of them.',
+    bytes: signPack(referringManifest, CURRENT),
     read: PINNED_CURRENT,
     verdict: 'verify-ok',
     structural: 'verify-ok',
@@ -795,41 +943,87 @@ const CASES: readonly Case[] = [
     edited: 'a fourth item chained from a digest no item in this run carries',
   },
   {
-    name: 'carried-entry-misstates-its-own-bytes',
-    note: 'carried[1] holds the validity window and states the digest of the TCB info, which is the object at carried[0]. The reader recomputes rather than adjudicating between the two claims inside one entry, so the refusal lands on position 1 and quotes both digests: a pack that is wrong about the bytes it is holding is not evidence about anything else either.',
+    name: 'custody-entry-answers-for-no-held-slot',
+    note: 'custody[1] names `receipt-9` at `val`, and this pack seals no such record. The body digest it states is the digest a real slot of another record states, so the entry is a record of an observation nobody asked this pack to stand behind, which is the other direction from falling short and a different construction to fix. The refusal lands on the entry and quotes the slot it claims and the digest it states.',
+    bytes: despiteGuard(ANSWERS_NOTHING),
+    read: PINNED_CURRENT,
+    verdict: 'PACK_CUSTODY_UNNAMED',
+    structural: 'PACK_CUSTODY_UNNAMED',
+    item: 'receipt-9',
+    edited: 'custody[1].k.item, a record this pack does not seal',
+  },
+  {
+    name: 'held-slot-no-custody-entry-answers-for',
+    note: 'The same run and the same material, with the reference answering receipt-2 at `val` taken out. Every entry left answers a real slot, so nothing here is surplus: the pack seals a receipt that states material it took in and signs nothing about it, which is the pack\'s own defect and never a statement that the material is missing from the world. The refusal names the item, the slot and the digest it cannot answer for.',
+    bytes: despiteGuard(FALLS_SHORT),
+    read: PINNED_CURRENT,
+    verdict: 'PACK_CUSTODY_UNRESOLVED',
+    structural: 'PACK_CUSTODY_UNRESOLVED',
+    item: 'receipt-2',
+    edited: 'the custody list, with the entry receipt-2 names at val removed',
+  },
+  {
+    name: 'custody-instant-outside-the-band',
+    note: 'custody[0].s is the honest instant written in milliseconds, which is a whole number no earlier than the epoch and indistinguishable from a reading of seconds by its value alone. The band the receipt format draws for a Unix second is the only thing that can tell the two units apart, so the refusal lands on the reading before any member of the material is weighed and states both ends. `custody[0].w` is untouched, so this is the unit and nothing else.',
+    bytes: despiteGuard(INSTANT_IN_MILLISECONDS),
+    read: PINNED_CURRENT,
+    verdict: 'PACK_CUSTODY_UNIT_OUTSIDE_BAND',
+    structural: 'PACK_CUSTODY_UNIT_OUTSIDE_BAND',
+    edited: 'custody[0].s, the same instant a thousand times over',
+  },
+  {
+    name: 'custody-window-outside-the-band',
+    note: 'The same fault at the other member the rule reads: custody[0].w.to is a millisecond spelling beside an honest `s` and an honest window start. The window is the document\'s own signed statement, and a reader that weighed one end in seconds and the other in a thousandths of a second would be reporting a standing period it had not read.',
+    bytes: despiteGuard(WINDOW_IN_MILLISECONDS),
+    read: PINNED_CURRENT,
+    verdict: 'PACK_CUSTODY_UNIT_OUTSIDE_BAND',
+    structural: 'PACK_CUSTODY_UNIT_OUTSIDE_BAND',
+    edited: 'custody[0].w.to, the window ended in milliseconds',
+  },
+  {
+    name: 'attached-entry-misstates-its-own-bytes',
+    note: 'attached[1] holds the validity window and states the digest of the TCB info, which is the object at attached[0]. The reader recomputes rather than adjudicating between the two claims inside one entry, so the refusal lands on position 1 and quotes both digests: an arm that is wrong about the bytes it is holding is not evidence about anything else either.',
     bytes: despiteGuard(MISSTATED),
     read: PINNED_CURRENT,
-    verdict: 'PACK_CARRIED_DIGEST_MISMATCH',
-    structural: 'PACK_CARRIED_DIGEST_MISMATCH',
-    edited: 'carried[1].sha256, the digest of carried[0] bytes rather than of the bytes beside it',
+    verdict: 'PACK_ATTACHED_DIGEST_MISMATCH',
+    structural: 'PACK_ATTACHED_DIGEST_MISMATCH',
+    edited: 'attached[1].sha256, the digest of attached[0] bytes rather than of the bytes beside it',
   },
   {
-    name: 'carried-list-holds-one-object-twice',
-    note: 'carried[1] repeats carried[0] in full, bytes and digest, and the TCB info those two entries hold is named by the `col` slot of all three sealed receipts. Deduplication is inside the pack, so one object is carried once however many slots name it, and the second copy makes the length of the list stop meaning the material the pack holds. The refusal names both positions and the digest.',
+    name: 'attached-list-holds-one-object-twice',
+    note: 'attached[1] repeats attached[0] in full, bytes, header and digests, and the TCB info those two entries hold is the body digest of three references. Deduplication is inside the pack, so one object is attached once however many references name it, and the second copy makes the length of the arm stop meaning the material the pack holds. The refusal names both positions and the digest.',
     bytes: despiteGuard(DOUBLED),
     read: PINNED_CURRENT,
-    verdict: 'PACK_CARRIED_DUPLICATE',
-    structural: 'PACK_CARRIED_DUPLICATE',
-    edited: 'carried[1], a second entry for the object already at carried[0]',
+    verdict: 'PACK_ATTACHED_DUPLICATE',
+    structural: 'PACK_ATTACHED_DUPLICATE',
+    edited: 'attached[1], a second entry for the object already at attached[0]',
   },
   {
-    name: 'carried-entry-no-held-slot-names',
-    note: 'A fourth entry beside the three that resolve, holding material no receipt in this pack took in and therefore no `held` slot names. The three honest positions are untouched, so this is the pack carrying more than it attests rather than short of what it attests, which is why the refusal is a different code from the one that names a slot: it lands on carried[3] and the action is to drop that entry.',
+    name: 'attached-entry-no-reference-names',
+    note: 'A fourth object beside the three that resolve, holding material no reference of this pack states as its body digest. The three honest positions are untouched, so this is the pack attaching more than it speaks of rather than short of what it speaks of, which is why the refusal is a different code from the one that names a slot: it lands on attached[3] and the action is to drop that entry or sign the reference it belongs to.',
     bytes: despiteGuard(SURPLUS),
     read: PINNED_CURRENT,
-    verdict: 'PACK_CARRIED_UNNAMED',
-    structural: 'PACK_CARRIED_UNNAMED',
-    edited: 'carried[3], an object no held slot of any sealed receipt names',
+    verdict: 'PACK_ATTACHED_UNNAMED',
+    structural: 'PACK_ATTACHED_UNNAMED',
+    edited: 'attached[3], an object the body digest of no reference names',
   },
   {
-    name: 'held-slot-the-carried-list-does-not-answer',
-    note: 'The same run and the same two entries, with the object the third record names at `val` not carried. Every entry that is there is named, so nothing here is surplus: the pack attests material it does not hold, which is the pack\'s own defect and never a statement that the collateral is missing from the world. The refusal names the item, the slot and the digest it cannot answer for.',
-    bytes: despiteGuard(SHORT),
+    name: 'attached-header-states-no-digest',
+    note: 'attached[0] carries the issuer chain header and states no digest for it. The two halves of that pair are one statement, so a header arriving alone is the document contradicting itself about a member of its own arm, and no recomputation can settle which half the issuer meant; the refusal is the malformed-manifest code and it lands before anything is hashed.',
+    bytes: despiteGuard(UNPAIRED),
     read: PINNED_CURRENT,
-    verdict: 'PACK_CARRIED_UNRESOLVED',
-    structural: 'PACK_CARRIED_UNRESOLVED',
-    item: 'receipt-2',
-    edited: 'the carried list, with the object receipt-2 names at val taken out',
+    verdict: 'PACK_BAD_MANIFEST',
+    structural: 'PACK_BAD_MANIFEST',
+    edited: 'attached[0].chain_sha256, nulled beside a header that is still there',
+  },
+  {
+    name: 'attached-header-no-reference-states',
+    note: 'attached[2] carries a header and states its digest, and both are true of the bytes beside them, while the reference this object resolves to states `c: null`: the capture that read this document weighed it with the certificates inside it and no header arrived at all. An arm cannot add a chain to a reading that saw none, so the refusal names the position, the reference and what each of the two states.',
+    bytes: despiteGuard(UNSUMMONED_HEADER),
+    read: PINNED_CURRENT,
+    verdict: 'PACK_ATTACHED_DIGEST_MISMATCH',
+    structural: 'PACK_ATTACHED_DIGEST_MISMATCH',
+    edited: 'attached[2].chain, a header the reference it resolves to states no digest for',
   },
   {
     name: 'envelope-without-its-tag',
@@ -1006,11 +1200,11 @@ function main() {
   }
   if (!keyRefused) throw new Error('the pack writer accepted a signing key whose kid is not its digest');
 
-  // The carried list is asked the same question as the span: a manifest whose entries and its sealed slots
-  // disagree cannot come out of the writer. So each of the four positions below is offered to `signPack` and
-  // the run stops unless the writer refuses it with the very code the row publishes, which is what makes those
-  // four rows documents no deployment signed by accident rather than shapes this suite invented.
-  for (const one of CARRIED_FAULTS) {
+  // The references and the arm are asked the same question as the span: a manifest whose lists and its sealed
+  // slots disagree cannot come out of the writer. So each of the positions below is offered to `signPack` and the
+  // run stops unless the writer refuses it with the very code the row publishes, which is what makes those rows
+  // documents no deployment signed by accident rather than shapes this suite invented.
+  for (const one of FAULT_MANIFESTS) {
     let refusal: string | null = null;
     try {
       signPack(one.manifest, CURRENT);
@@ -1043,17 +1237,27 @@ function main() {
   if (reported.length < 1) throw new Error('this suite publishes no pack whose two orders disagree');
   const unreached = CASES.filter((one) => one.verdict === 'PACK_ITEM_UNREACHED');
   if (unreached.length < 1) throw new Error('this suite publishes no pack that reaches its head with an item left over');
-  // Resolution of a held slot out of the carried list is the reason the member exists, so the suite states both
-  // halves of it: one accepted pack whose slots come out of what it carries, and one row for each of the four
-  // ways the list and the slots can disagree, refused by both readings of the reader.
-  const resolving = CASES.filter((one) => one.name === 'collateral-carried-inside-the-pack');
+  // A reference answering a held slot is the reason the member exists, so the suite states both halves of it: one
+  // accepted pack whose slots are each answered by a reference and which attaches nothing, and one row for every
+  // way the references, the arm and the slots can disagree, refused by both readings of the reader.
+  const resolving = CASES.filter((one) => one.name === 'held-slots-referred-to-by-name');
   if (resolving.length !== 1 || resolving[0]?.verdict !== 'verify-ok') {
-    throw new Error('this suite publishes no pack whose held slots resolve to objects it carries');
+    throw new Error('this suite publishes no pack whose held slots are each answered by a reference');
   }
-  for (const one of CARRIED_FAULTS) {
-    const row = CASES.find((each) => each.verdict === one.code);
+  for (const one of FAULT_MANIFESTS) {
+    const row = CASES.find((each) => each.verdict === one.code && each.edited === one.at);
     if (row === undefined || row.structural !== one.code) {
       throw new Error(`this suite publishes no pack refused as ${one.code} at ${one.at}`);
+    }
+  }
+  // The byte arm is permitted by the layout and filled by no writer in this repository, so no document this suite
+  // publishes as whole carries one. The arm appears in these bytes only inside the manifests the reader refuses,
+  // which is the only way a port can be given an answer for a filled arm without this file attaching material to
+  // an accepted pack.
+  for (const one of accepted) {
+    const manifest = decodePack(one.bytes).manifest;
+    if (manifest.attached.length > 0) {
+      throw new Error(`${one.name}: an accepted pack of this suite attaches ${String(manifest.attached.length)} objects, and nothing here writes the arm`);
     }
   }
 
@@ -1063,7 +1267,7 @@ function main() {
       {
         version: 1,
         description:
-          'Evidence packs in the shapes a deployment hands them over in, the keys a reader designates beside each one, and the verdict the shipped pack reader owes: whole documents accepted with the run and the window reported apart, the collateral a pack carries for the slots its sealed receipts name, an honest pack whose stamps run against its links reported and not refused, and one refusal for every fault the format names.',
+          'Evidence packs in the shapes a deployment hands them over in, the keys a reader designates beside each one, and the verdict the shipped pack reader owes: whole documents accepted with the run and the window reported apart, the references a pack signs for each held slot its sealed receipts name, an honest pack whose stamps run against its links reported and not refused, and one refusal for every fault the format names.',
         layout: {
           format: 'packages/receipt/pack.cddl',
           twin: 'packages/receipt/schemas/pack-v1.schema.json',
@@ -1089,8 +1293,8 @@ function main() {
             'held is at least the age of the oldest receipt in this pack, measured at at. A held short of required is nothing of that kind: the document is whole and the reader states no verdict on the duty, because met is absent from the format on purpose',
           orderingRule:
             'the links fix the order of the run and an item iat is the stamp that record was chained under, and the two are free to disagree because the store chains under whatever stamp it was handed. A reader reports a disagreement on the result and never refuses it: the lawful output of a deployment that corrected its clock is a pack with the finding beside a clean walk',
-          carriedRule:
-            `carried holds one entry per object the pack carries, and an entry is the bytes and the sha256 of those bytes. The reader recomputes each digest instead of trusting the statement beside it, refuses an object past the ${String(CARRIED_MAX_BYTES)} bytes the format already states for a run of bytes and a list past the ${String(CARRIED_SLOTS_PER_ITEM)} slots every sealed receipt can name, and then requires the list and the slots to speak of the same material: no digest at two positions, no entry no held slot names, no held slot no entry hashes to. A slot that states an absence names no digest and owes no bytes, so a pack carrying nothing for a run of absences is whole. Each refusal names the position it found`,
+          custodyRule:
+            `custody holds one reference per named held slot of a sealed receipt, and a reference states where it was read from, what was asked, what the answer said it was, when its last byte landed and what that source declares about itself, the digest of the body, the digest of the header that arrived beside it, which arm weighed them and the window the document signed for itself. attached holds the material itself, whole, where a deployment attaches it: the bytes, their digest, and a header beside them exactly when the digest of that header is stated. The reader recomputes each digest instead of trusting the statement beside it, refuses a list of references past the ${String(CUSTODY_SLOTS_PER_ITEM)} slots every sealed receipt can name, an attached object past the ${String(CARRIED_MAX_BYTES)} bytes the format already states for a run of bytes, an attachment past that same count of slots, an instant that is no whole number of Unix seconds inside the band the receipt format draws, and the pair of lists and the slots failing to speak of the same material: no entry answering for a slot no sealed receipt states, no held slot no reference answers for, no digest attached at two positions, no object the body digest of no reference names, and no header carried beside a reference that states none. A slot that states an absence names no digest and owes no reference and no bytes, so a pack referring to nothing and attaching nothing for a run of absences is whole. Each refusal names the position it found`,
           encodings: 'documents and byte strings unpadded base64url, digests, kids, predecessors and signatures lowercase hex, instants unix seconds',
           verdictFields: ['verdict', 'structural', 'walk', 'ordering', 'span', 'item', 'edited'],
           verdictMeaning:
@@ -1098,12 +1302,12 @@ function main() {
           readFields:
             '`read.pinned` is the one key the caller holds, which designates the envelope and every receipt inside it. `read.retained` is the set a resolver answers from, one key per kid, which is how a span crossing a rotation is read. A row with neither is the call that designated nothing and is refused before a byte is read.',
           records: recordTable(honestBytes),
-          carriedRecords: recordTable(resolving[0]!.bytes),
+          attachedRecords: recordTable(resolving[0]!.bytes),
           framingRule:
-            'records frames the run of `well-formed-three-items` and carriedRecords frames the run of `collateral-carried-inside-the-pack`, and those are the two runs this suite publishes a framing for: the canonical run, whose every slot of every sealed receipt states an absence, and the run whose held slots name material the container carries. A row beside them is read the same way and framed by the same rule, so what the two tables give a port is two published answers to recompute against rather than one. Each row of a table is derived from the sealed bytes of the document it sits beside rather than from the manifest its writer was handed, so a table cannot describe a run the published document does not hold',
+            'records frames the run of `well-formed-three-items` and attachedRecords frames the run of `held-slots-referred-to-by-name`, and those are the two runs this suite publishes a framing for: the canonical run, whose every slot of every sealed receipt states an absence, and the run whose every held slot is answered by a reference the pack signs. A row beside them is read the same way and framed by the same rule, so what the two tables give a port is two published answers to recompute against rather than one. Each row of a table is derived from the sealed bytes of the document it sits beside rather than from the manifest its writer was handed, so a table cannot describe a run the published document does not hold',
           codes: [...new Set(CASES.map((one) => one.verdict))].sort(),
           assembled:
-            'every honest pack is `signPack` and no hand-built bytes. Where a row needs something that writer refuses to sign, the manifest is encoded, one position of its map is changed, and the result is signed over the published `Sig_structure` and sealed by `sealPack` under the key its header names; the generator stops unless that path reproduces `signPack` byte for byte on the canonical header, so each fault below is the one position its `edited` field names and nothing else. The writer is also asked to sign a manifest that contradicts its own span, a pack under a key whose kid is not sha256 of its public half, and each of the four positions the carried list can disagree with the slots its sealed receipts name, and refuses all of them with the code the row publishes, which is why this suite carries no row that a deployment could have produced by accident.',
+            'every honest pack is `signPack` and no hand-built bytes. Where a row needs something that writer refuses to sign, the manifest is encoded, one position of its map is changed, and the result is signed over the published `Sig_structure` and sealed by `sealPack` under the key its header names; the generator stops unless that path reproduces `signPack` byte for byte on the canonical header, so each fault below is the one position its `edited` field names and nothing else. The writer is also asked to sign a manifest that contradicts its own span, a pack under a key whose kid is not sha256 of its public half, and each position the reference list and the byte arm can disagree with the slots their sealed receipts name, and refuses all of them with the code the row publishes, which is why this suite carries no row that a deployment could have produced by accident. No accepted row attaches a byte: the generator decodes every accepted document and stops if the arm of one is not empty, because the layout permits the arm and this repository writes none of it.',
           keyMaterial: KEY_MATERIAL.map((one) => ({
             id: toHex(one.key.kid).slice(0, 8),
             seed: one.seed,

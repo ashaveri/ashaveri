@@ -15,21 +15,28 @@ import {
   signPack,
   signingKeyFromSeed,
   type CollateralSlot,
-  type PackCarriedObject,
+  type PackAttachedObject,
+  type PackCustodyEntry,
   type PackManifest,
   type ReceiptPayload,
   type SigningKey,
 } from '@ashaveri/receipt';
 
 /**
- * Packs that carry material, and the sealed receipts whose anchors name it.
+ * Packs that refer to material, and the sealed receipts whose anchors name it.
  *
- * `verify-handover` weighs what a pack carries, so the cases that exercise that path need a container whose
- * `held` slot digests an object the same container carries, and neither document can be one of the published
- * fixtures: every pack vector carries an empty list, and every receipt vector states an absence in both of its
- * anchor slots. These two builders make the shape the fixtures do not hold, out of the pieces the format package
- * publishes and under the key the fixtures publish their receipts under, so the only hand-written thing is which
- * digest a slot states.
+ * `verify-handover` weighs what a pack refers to, so the cases that exercise that path need a container whose
+ * `held` slot digests an object the same container either attaches or leaves a deployment to reach for itself, and
+ * neither document can be one of the published fixtures: every pack vector attaches an empty arm and refers to
+ * nothing, because every receipt vector states an absence in both of its anchor slots. These builders make the
+ * shape the fixtures do not hold, out of the pieces the format package publishes and under the key the fixtures
+ * publish their receipts under, so the only hand-written thing is which digest a slot states.
+ *
+ * A pack that seals a receipt stating a `held` slot owes that slot a reference, whether or not it attaches the
+ * material the slot digests, so `packManifestOf` writes one per held slot rather than taking them as an argument:
+ * a builder that left the list out would be unable to seal anything at all, and one that took it as an argument
+ * would let a case state a reference for a slot its own receipt does not name, which is a fault the cases below
+ * raise on purpose and by moving one position of a manifest they were handed.
  *
  * The pack goes through `signPack` rather than the piecewise framing `verify-handover.test.ts` needs for its
  * fault cases, because every container built here is one the writer signs: a pack the format refuses to seal
@@ -70,7 +77,7 @@ const published = decoded;
  */
 export const PUBLISHED_PAYLOAD = published;
 
-/** sha256 as bytes, for the digests a slot states and a carried object hashes to. */
+/** sha256 as bytes, for the digests a slot states and an attached object hashes to. */
 export function digestOf(bytes: Uint8Array): Uint8Array {
   return new Uint8Array(createHash('sha256').update(bytes).digest());
 }
@@ -80,7 +87,7 @@ export function digestHexOf(bytes: Uint8Array): string {
   return Array.from(digestOf(bytes), (one) => one.toString(16).padStart(2, '0')).join('');
 }
 
-/** One anchor slot holding the material, as the receipt states it and the pack carries it. */
+/** One anchor slot holding the material, as the receipt states it and the pack refers to it. */
 export interface HeldPair {
   readonly col: CollateralSlot;
   readonly val: CollateralSlot;
@@ -138,9 +145,80 @@ function withPlaceholder(slot: CollateralSlot): CollateralSlot {
   return slot.presence === 'held' ? slot : { presence: slot.presence, reason: PLACEHOLDER_REASON };
 }
 
-/** One carried object: the material and the digest the reader recomputes rather than trusts. */
-export function carriedObject(bytes: Uint8Array): PackCarriedObject {
-  return { bytes, sha256: digestOf(bytes) };
+/**
+ * One entry of the byte arm: the material and the digest the reader recomputes rather than trusts.
+ *
+ * `chain` is the issuer-chain header as it arrived beside that body and `chainSha256` its digest, and the format
+ * pairs the two: an entry carrying a header while stating no digest for it, or the reverse, is a document
+ * contradicting itself about a member of its own arm. Both are null here because the material these builders
+ * attach arrives as a body alone, which is also what the reference below states; a case that wants the pair hands
+ * the header as the second argument. No writer in this repository fills the arm, so a pack assembled by one
+ * attaches nothing and the arm's shape matters to a reader only through what a case here refuses.
+ */
+export function attachedObject(bytes: Uint8Array, chain: Uint8Array | null = null): PackAttachedObject {
+  return { bytes, sha256: digestOf(bytes), chain, chainSha256: chain === null ? null : digestOf(chain) };
+}
+
+/**
+ * The origin, the request and the cache key one reference states.
+ *
+ * A reference names the read it stands behind rather than performing it: nothing in the container looks an origin
+ * up, which is why `o` carries no check at this layer, and a deployment that attaches nothing still states the
+ * same three figures about a capture it made. These are the shape such a statement has, spelled once for every
+ * container built here, and a case that wants a reference disagreeing with the slot it answers for moves the one
+ * member it names through `referenceOf`'s `over`.
+ */
+const READ_ORIGIN = 'intel-tcb-info';
+const READ_REQUEST = 'https://api.trustedservices.intel.com/tdx/certification/v4/tcb';
+
+/**
+ * The reference one `held` slot of one sealed receipt owes the pack that seals it.
+ *
+ * Every figure is one a case can recompute from the document beside it: `b` is the digest the slot itself states,
+ * `s` and both ends of `w` are read off the stamp the naming record was chained at, and `c` is null beside an arm
+ * entry that carries no header, which is the pairing the format weighs. `i` and `n` are null because the material
+ * these builders hand is a sentence rather than a document naming an identity or a bound of its own, and an
+ * absence is what the format states for a document that states nothing.
+ */
+export function referenceOf(
+  item: string,
+  slot: 'col' | 'val',
+  digest: Uint8Array,
+  at: number,
+  over: Partial<PackCustodyEntry> = {},
+): PackCustodyEntry {
+  return {
+    k: { item, slot },
+    o: READ_ORIGIN,
+    u: READ_REQUEST,
+    i: null,
+    s: at,
+    n: null,
+    b: digest,
+    c: null,
+    a: 'embedded',
+    w: { from: at - 60, to: at + 60 },
+    y: `${READ_ORIGIN}/${item}/${slot}`,
+    ...over,
+  };
+}
+
+/** The slots one sealed receipt states a digest for, in the order the container names its two halves. */
+function heldSlotsOf(receipt: Uint8Array): readonly { readonly slot: 'col' | 'val'; readonly sha256: Uint8Array }[] {
+  // A receipt that does not decode states no slot to anything that reads it, and the format's own reader takes
+  // the same narrower reading: the document is refused for what it is, and no reference is owed against a digest
+  // nobody could read out of it. So the case that seals one gets the refusal it asks for rather than a builder
+  // that stops before the command is reached.
+  try {
+    const { cva } = decodeReceipt(receipt).payload;
+    const halves: readonly (readonly ['col' | 'val', CollateralSlot])[] = [
+      ['col', cva.collateral],
+      ['val', cva.validity],
+    ];
+    return halves.flatMap(([slot, value]) => (value.presence === 'held' ? [{ slot, sha256: value.sha256 }] : []));
+  } catch {
+    return [];
+  }
 }
 
 /** One sealed receipt, named as the pack names it and chained under `iat`. */
@@ -151,25 +229,35 @@ export interface PackEntry {
 }
 
 /**
- * A pack sealing these receipts and carrying exactly this material.
+ * A pack sealing these receipts, referring to every slot they state a digest for and attaching this material.
  *
  * The relations the reader checks are the ones `verify-pack` reports on: the span around the stamps, `at` after
  * the span closes, the duty revision behind the reads and `held` covering the oldest record. The figures are
- * computed from the entries handed in so a case states only which receipts it seals and which objects it carries.
+ * computed from the entries handed in so a case states only which receipts it seals and which objects it attaches.
+ * `referenceOver` moves a member of every reference the same way, which is how a container whose material arrived
+ * beside a chain header states that: the arm entry carries the header, and the reference beside it owes its digest.
  */
-export function packOf(entries: readonly PackEntry[], carried: readonly PackCarriedObject[]): Uint8Array {
-  return signPack(packManifestOf(entries, carried), RECEIPT_KEY);
+export function packOf(
+  entries: readonly PackEntry[],
+  attached: readonly PackAttachedObject[],
+  referenceOver: Partial<PackCustodyEntry> = {},
+): Uint8Array {
+  return signPack(packManifestOf(entries, attached, referenceOver), RECEIPT_KEY);
 }
 
 /**
  * The manifest these entries and this material amount to, before anything seals it.
  *
- * Published separately from `packOf` because a carried list that contradicts the slots it answers for is a
- * manifest `signPack` refuses, and the document a deployment would have to assemble by hand to publish one is
- * the document the reader exists to answer. The cases that need it take this object, move the one position their
- * row names, and seal the result below.
+ * Published separately from `packOf` because an arm that contradicts the slots it answers for is a manifest
+ * `signPack` refuses, and the document a deployment would have to assemble by hand to publish one is the document
+ * the reader exists to answer. The cases that need it take this object, move the one position their row names,
+ * and seal the result below.
  */
-export function packManifestOf(entries: readonly PackEntry[], carried: readonly PackCarriedObject[]): PackManifest {
+export function packManifestOf(
+  entries: readonly PackEntry[],
+  attached: readonly PackAttachedObject[],
+  referenceOver: Partial<PackCustodyEntry> = {},
+): PackManifest {
   const stamps = entries.map((one) => one.iat);
   const from = Math.min(...stamps);
   const to = Math.max(...stamps) + 1;
@@ -180,6 +268,9 @@ export function packManifestOf(entries: readonly PackEntry[], carried: readonly 
     previous = packRecordDigest(item);
     return item;
   });
+  const custody = entries.flatMap((one) =>
+    heldSlotsOf(one.receipt).map((slot) => referenceOf(one.id, slot.slot, slot.sha256, one.iat, referenceOver)),
+  );
   return {
     v: 1,
     at,
@@ -187,7 +278,8 @@ export function packManifestOf(entries: readonly PackEntry[], carried: readonly 
     chain: { anchor: new Uint8Array(32), head: previous },
     duty: { art: 'retention-evidence', rev: at - 10, required: 31_536_000, held: at - from },
     items,
-    carried,
+    custody,
+    attached,
   };
 }
 
@@ -195,12 +287,12 @@ export function packManifestOf(entries: readonly PackEntry[], carried: readonly 
  * A pack assembled from the pieces the format publishes, over a manifest the writer would not sign.
  *
  * This is the piecewise path `verify-handover.test.ts` takes for the same reason and the published pack suite
- * documents: a carried list misstating its own bytes, holding one digest twice, holding an entry no slot names,
- * or missing the entry a slot names is refused by `signPack` before it can be sealed, and only a reader can be
- * handed it. The framing is the writer's own, so the fault a row states is the only difference between these
- * bytes and a document a deployment signs.
+ * documents: an arm entry misstating its own bytes, holding one digest twice, or holding an entry no reference of
+ * this pack names is refused by `signPack` before it can be sealed, and only a reader can be handed it. The
+ * framing is the writer's own, so the fault a row states is the only difference between these bytes and a
+ * document a deployment signs.
  */
-export function sealCarriedPack(manifest: PackManifest): Uint8Array {
+export function sealPackManifest(manifest: PackManifest): Uint8Array {
   const payloadBytes = encodePackManifest(manifest);
   const protectedBytes = encodePackProtectedHeader(RECEIPT_KEY.kid);
   const signature = sign(null, packSigStructure(protectedBytes, payloadBytes), privateKeyFromSeed(RECEIPT_SEED));
@@ -219,10 +311,11 @@ function privateKeyFromSeed(seedHex: string): ReturnType<typeof createPrivateKey
 /**
  * A receipt naming held slots and the one pack that seals it, whose `col` slot names the bytes handed here.
  *
- * The shortest container that reaches the weighing: one record, one held slot naming one object, and the object
- * carried. A case that wants two slots or a stated absence builds the pair itself with `anchorReceiptOf`.
+ * The shortest container that reaches the weighing: one record, one held slot naming one object, that object
+ * attached, and the reference the slot owes beside it. A case that wants two slots or a stated absence builds the
+ * pair itself with `anchorReceiptOf`.
  */
-export function packCarrying(bytes: Uint8Array, iat: number, id = 'receipt-0'): { readonly pack: Uint8Array; readonly digest: string } {
+export function packAttaching(bytes: Uint8Array, iat: number, id = 'receipt-0'): { readonly pack: Uint8Array; readonly digest: string } {
   const receipt = anchorReceiptOf({ col: held(bytes), val: absent('the collector read no window') }, iat);
-  return { pack: packOf([{ id, iat, receipt }], [carriedObject(bytes)]), digest: digestHexOf(bytes) };
+  return { pack: packOf([{ id, iat, receipt }], [attachedObject(bytes)]), digest: digestHexOf(bytes) };
 }
