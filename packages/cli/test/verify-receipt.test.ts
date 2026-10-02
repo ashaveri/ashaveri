@@ -14,6 +14,9 @@ import {
 } from '@ashaveri/receipt';
 import { secondsOf, signedDocument, tcbInfo, testVendor } from '@ashaveri/fixtures';
 import { ATTESTED_MARKING, stampedReceiptBytes, wrongMarking } from './stamped-receipt.js';
+import { noteSpawn, spawnCeilingForCalls } from './support/spawn-budget.js';
+/** How long one child of the built CLI may live before this file calls it a bug rather than a slow machine. */
+const SPAWN_DEADLINE_MS = 10_000;
 
 /**
  * `ashaveri verify-receipt`, driven by the published receipt vectors.
@@ -131,10 +134,11 @@ interface CliResult {
 }
 
 function runCli(args: string[], input?: Uint8Array): CliResult {
+  noteSpawn(SPAWN_DEADLINE_MS);
   const result = spawnSync(process.execPath, [CLI, ...args], {
     input: input === undefined ? undefined : Buffer.from(input),
     encoding: 'utf8',
-    timeout: 10_000,
+    timeout: SPAWN_DEADLINE_MS,
     killSignal: 'SIGKILL',
   });
   expect(result.error).toBeUndefined();
@@ -769,7 +773,7 @@ describe('ashaveri verify-receipt', () => {
     expect(json.markedRegion).toEqual({ scheme: ATTESTED_MARKING.sch, sha256: MARKED.payload.mk?.d });
   });
 
-  it('drives every published vector to the verdict the fixtures manifest states', () => {
+  it('drives every published vector to the verdict the fixtures manifest states', { timeout: spawnCeilingForCalls(PUBLISHED_RECEIPTS.length, SPAWN_DEADLINE_MS) }, () => {
     const stated = new Map(PUBLISHED_RECEIPTS.map((each) => [each.name, each]));
     expect(stated.size).toBeGreaterThan(4);
     // The marked vector is covered by its own three cases above, because its check is carried by the
@@ -800,9 +804,9 @@ describe('ashaveri verify-receipt', () => {
         expect(verdictOf(result).code, name).toBe(fixture.expected);
       }
     }
-    // One command per published row, and the rows are the suite: the budget is the count of them, so it
-    // is read off the manifest rather than repeated as a number that drifts behind it.
-  }, Math.max(20_000, PUBLISHED_RECEIPTS.length * 2_000));
+    // One command per published row, and the rows are the suite: the window this case is given is read
+    // from their count in the header above, where the children's deadlines are added.
+  });
 
   it('refuses a receipt whose measurement is not the one the policy pins', () => {
     const policy = policyFile({ measurements: { [SOFTWARE.payload.meas.tee]: [WRONG_SOFTWARE] } });

@@ -18,6 +18,9 @@ import {
   serializeCredentialFile,
   type CredentialFile,
 } from '@ashaveri/signerd';
+import { noteSpawn, spawnCeilingForCalls } from './support/spawn-budget.js';
+/** How long one child of the built CLI may live before this file calls it a bug rather than a slow machine. */
+const SPAWN_DEADLINE_MS = 8_000;
 
 const CLI = fileURLToPath(new URL('../dist/cli.js', import.meta.url));
 const tempDir = mkdtempSync(join(tmpdir(), 'ashaveri-credential-'));
@@ -34,9 +37,10 @@ function runCli(args: string[]) {
   // Every case below is an exit path, so a process still alive after eight seconds is a bug rather
   // than a slow machine. The deadline is what turns a handle that never closes into the named
   // failure on the next line instead of a CI job that waits forever.
+  noteSpawn(SPAWN_DEADLINE_MS);
   const result = spawnSync(process.execPath, [CLI, ...args], {
     encoding: 'utf8',
-    timeout: 8000,
+    timeout: SPAWN_DEADLINE_MS,
     killSignal: 'SIGKILL',
   });
   expect(result.error).toBeUndefined();
@@ -669,7 +673,10 @@ describe('what the CLI is allowed to print', () => {
     expect(listed.stdout).not.toMatch(/[\u0080-\u009f\u2028\u2029\u202a-\u202e\u2060-\u2064]/u);
   });
 
-  it('escapes what a terminal hides or obeys, in the row and in the object', () => {
+  it('escapes what a terminal hides or obeys, in the row and in the object', {
+    /** Eight labels the case writes and the two listings it reads back, at the deadline one child is given. */
+    timeout: spawnCeilingForCalls(10, SPAWN_DEADLINE_MS),
+  }, () => {
     // The class the guard carries and the list an earlier version enumerated are not the same set. A
     // zero-width space and a right-to-left mark are format characters rather than control ones, so a
     // class built from the control ranges never saw them; DEL sits above the C0 range that class

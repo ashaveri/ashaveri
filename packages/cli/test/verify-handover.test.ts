@@ -24,6 +24,9 @@ import {
   type SigningKey,
 } from '@ashaveri/receipt';
 import { ATTESTED_MARKING, stampedReceiptBytes } from './stamped-receipt.js';
+import { noteSpawn, spawnCeilingForCalls } from './support/spawn-budget.js';
+/** How long one child of the built CLI may live before this file calls it a bug rather than a slow machine. */
+const SPAWN_DEADLINE_MS = 15_000;
 
 /**
  * `ashaveri verify-handover`, run over bytes of every signed shape it can meet.
@@ -76,9 +79,10 @@ interface CliResult {
 }
 
 function runCli(args: string[], cwd?: string): CliResult {
+  noteSpawn(SPAWN_DEADLINE_MS);
   const result = spawnSync(process.execPath, [CLI, ...args], {
     encoding: 'utf8',
-    timeout: 15_000,
+    timeout: SPAWN_DEADLINE_MS,
     killSignal: 'SIGKILL',
     ...(cwd === undefined ? {} : { cwd }),
   });
@@ -562,10 +566,11 @@ describe('ashaveri verify-handover', () => {
   });
 
   it('reads the document from stdin as readily as from a name', () => {
+    noteSpawn(SPAWN_DEADLINE_MS);
     const pipe = spawnSync(process.execPath, [CLI, 'verify-handover', '-', `--key=${RECEIPT_PUBLIC_B64URL}`, '--json'], {
       input: readFileSync(RECEIPT_PATH),
       encoding: 'utf8',
-      timeout: 15_000,
+      timeout: SPAWN_DEADLINE_MS,
     });
     expect(pipe.status).toBe(0);
     expect(JSON.parse(pipe.stdout).contentType).toBe('ashaveri/receipt');
@@ -605,8 +610,13 @@ function replayedVerdict(result: CliResult): string {
   }
 }
 
-/** The window for the 43-run case below: measured at 9,158 ms over 43 invocations on a warm host, and given eight times that room. */
-const WHOLE_SUITE_THROUGH_THE_COMMAND_PATH = { timeout: 80_000 };
+/**
+ * The window for the replay below, read off the rows it walks and the deadline each child is given rather
+ * than off one host's warmth. The figure it replaces was measured at 9,158ms over 43 invocations and
+ * multiplied by eight, which is a statement about the machine that ran it: the same case on the shared
+ * Windows runner needs more, and a ceiling that expires mid-loop reports the runner instead of the child.
+ */
+const WHOLE_SUITE_THROUGH_THE_COMMAND_PATH = { timeout: spawnCeilingForCalls(REDACTION_FIXTURE.vectors.length, SPAWN_DEADLINE_MS) };
 
 describe('an excision amendment at the command edge', () => {
   it('reads an amendment against the pack it names, and keeps the two chain heads apart', () => {
@@ -746,7 +756,8 @@ describe('the pinned verbs verify-pack and verify-export', () => {
    * seconds here a timeout risk there, and six times the slowest measurement leaves room without
    * hiding a case that genuinely hangs.
    */
-  const MANY_CLI_RUNS = { timeout: 20_000 };
+  /** The window for the three cases below: six children each, at this file's deadline, per the arithmetic in each loop. */
+  const MANY_CLI_RUNS = { timeout: spawnCeilingForCalls(6, SPAWN_DEADLINE_MS) };
 
   it('gives its own type the same report the free verb gives, field for field', MANY_CLI_RUNS, () => {
     for (const [verb, path, designation, contentType] of own) {
