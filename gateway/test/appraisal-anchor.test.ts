@@ -222,6 +222,11 @@ describe('the anchor a cached appraisal answers with', () => {
       expect(reason).toContain(String(CLOSED_UNTIL));
       expect(reason).toContain(String(JUDGED_AT));
       expect(reason).toContain('its own window had closed');
+      // The enumeration `docs/access-control.md` gives of what a wired reader contributes to a signed
+      // reason is complete in the direction that matters: an instant the seam carries and does not
+      // publish stays out of the document, so the roster the data-subject section states is the roster
+      // the bytes hold.
+      expect(reason).not.toContain(String(OBSERVED_AT));
     }
   });
 
