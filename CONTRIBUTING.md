@@ -195,10 +195,9 @@ contributor grants is exactly the grant the licence above carries, and no assign
 additional grant is asked for.
 
 The scope in those sentences is the whole of the scope intended, and it is stated twice because a position
-held by silence is a position nobody can check. This section speaks for the material this repository
-publishes. It makes no statement about components that live in another repository, and it takes nothing
-back: what is published here stays published under the licence above, so a reader who builds a verifier, a
-reimplementation, a marking detector or a deployment from this repository holds that licence and needs
+held by silence is a position nobody can check. Nothing here takes any of it back: what is published in
+this repository stays published under the licence above, so a reader who builds a verifier, a
+reimplementation, a marking detector or a deployment from these sources holds that licence and needs
 nothing further from us.
 
 ## Vulnerabilities are not bugs
