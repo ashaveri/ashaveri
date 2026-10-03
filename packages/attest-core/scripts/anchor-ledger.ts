@@ -115,7 +115,7 @@ const PROVENANCE: readonly ProvenanceStatement[] = [
     licence: 'none-stated',
     recordedIn: 'src/trust-anchors.ts',
     asRecorded:
-      'the comment beside the constant names the route it was downloaded from, the serial and the SHA-256 fingerprint, and the tracked fixture repeats them and names no code licence behind the published anchor, which is the class `none-stated`. The bytes of this row are the bytes of `test/fixtures/intel-sgx-root-ca.pem`.',
+      'the comment beside the constant names the route it was downloaded from, the serial and the SHA-256 fingerprint, and the tracked fixture repeats them and states that no licence is stated for these bytes at the route that published them, which is the class `none-stated`. The bytes of this row are the bytes of `test/fixtures/intel-sgx-root-ca.pem`.',
   },
   {
     file: 'src/trust-anchors.ts#AMD_ARK_MILAN_PEM',
@@ -155,7 +155,7 @@ const PROVENANCE: readonly ProvenanceStatement[] = [
     licence: 'none-stated',
     recordedIn: 'test/fixtures/README.md',
     asRecorded:
-      'the note says the ASK was fetched from AMD KDS for the report chip id and TCB and truncates its own route after the product line, so `origin` goes no further. The same note groups this file with the dstack capture under Apache-2.0 while naming AMD as the publisher of these bytes, and AMD states no code licence at that route: the row carries the class the publisher states and the grouping stays a finding against the note.',
+      'the note names AMD KDS as the source the ASK was fetched from for the report chip id and TCB, and truncates its own route after the product line, so `origin` goes no further. The same note states that no licence is stated for these bytes at the route that published them, and keeps its Apache-2.0 sentence with the dstack capture, so the absence is the class `none-stated`.',
   },
   {
     file: 'test/fixtures/sev-snp-vcek.pem',
@@ -165,7 +165,7 @@ const PROVENANCE: readonly ProvenanceStatement[] = [
     licence: 'none-stated',
     recordedIn: 'test/fixtures/README.md',
     asRecorded:
-      'the same fetch as the ASK, from AMD KDS for the report chip id and TCB, with the route truncated after the product line in the note itself. The note attributes the file to the dstack capture under Apache-2.0 and names AMD as the publisher; the row carries the class the publisher states.',
+      'the same fetch as the ASK, from AMD KDS for the report chip id and TCB, with the route truncated after the product line in the note itself. The note names AMD as the publisher of these bytes and states that no licence is stated for them at the route that published them, so the absence is the class `none-stated`.',
   },
   {
     file: 'test/fixtures/amd-ark-milan.pem',
@@ -196,7 +196,7 @@ const PROVENANCE: readonly ProvenanceStatement[] = [
     licence: 'none-stated',
     recordedIn: 'test/fixtures/README.md',
     asRecorded:
-      'the note names Intel as the publisher of this anchor, quotes the route it was downloaded from, and gives the serial, the SHA-256 fingerprint and the window the certificate states. It names no code licence, and Intel DCAP ships no SGX root CA at all, so the class is `none-stated`.',
+      'the note names Intel as the publisher of this anchor, quotes the route it was downloaded from, gives the serial, the SHA-256 fingerprint and the window the certificate states, and states that no licence is stated for these bytes at the route that published them, so the class is `none-stated`.',
   },
   {
     file: 'test/fixtures/nvidia-hopper-report.bin',

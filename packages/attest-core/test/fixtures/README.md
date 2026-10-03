@@ -30,14 +30,17 @@ came from.
 
 ## Provenance and attribution
 
-- `sev-snp-attestation.bin`, `sev-snp-ask.pem`, `sev-snp-vcek.pem` are from the
-  dstack project, Copyright © 2025 Phala Network, Apache-2.0. Captured
-  2026-06-17 from a dstack SEV-SNP CVM (app `attest-test`,
-  `dstack-nvidia-0.6.0.a2` image, AMD EPYC Milan host) via
+- `sev-snp-attestation.bin` is from the dstack project, Copyright © 2025 Phala
+  Network, Apache-2.0. Captured 2026-06-17 from a dstack SEV-SNP CVM (app
+  `attest-test`, `dstack-nvidia-0.6.0.a2` image, AMD EPYC Milan host) via
   `dstack-util quote-report --report-data 6174746573742d746573742d666978747572652d32303236`
-  (ASCII `attest-test-fixture-2026`). ASK/VCEK were fetched from AMD KDS
-  (`https://kdsintf.amd.com/vcek/v1/Milan/...`) for the report's `chip_id` and
-  TCB and pinned here so the tests stay offline and deterministic.
+  (ASCII `attest-test-fixture-2026`). That attribution names the captured report,
+  and the two certificates in the bullet below came from a different source.
+- `sev-snp-ask.pem` and `sev-snp-vcek.pem` are AMD's published keys, fetched from
+  AMD KDS (`https://kdsintf.amd.com/vcek/v1/Milan/...`) for the report's `chip_id`
+  and TCB and pinned here so the tests stay offline and deterministic. No licence
+  is stated for these bytes at the route that published them and none is stated
+  here, so the anchor ledger's row for each of them carries `none-stated`.
 - `amd-ark-milan.pem` is from go-sev-guest, Copyright Google LLC, Apache-2.0
   (test certificate `snp-milan.cer`). Its DER bytes are the production AMD
   Milan ARK that signs the ASK above.
@@ -58,7 +61,9 @@ came from.
   `44a0196b2b99f889b8e149e95b807a350e7424964399e885a7cbb8ccfab674d3`,
   valid 2018-05-21 to 2049-12-31). It is the third certificate of the quote's
   PCK chain, so pinning it is what makes the chain trustworthy rather than
-  merely well-formed.
+  merely well-formed. No licence is stated for these bytes at the route that
+  published them and none is stated here, so the anchor ledger's row for this
+  file carries `none-stated`.
 - `nvidia-hopper-report.bin`, `nvidia-hopper-report-bad-signature.bin` and
   `nvidia-hopper-cert-chain.pem` are NVIDIA's own golden samples, taken from
   `nv-attestation-sdk-cpp/unit-tests/testdata/sample_attestation_data/gpu/` in
