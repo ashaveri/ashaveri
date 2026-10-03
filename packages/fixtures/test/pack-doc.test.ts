@@ -1,7 +1,15 @@
 import { describe, expect, it } from 'vitest';
 import { existsSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
-import { CARRIED_MAX_BYTES, CUSTODY_SLOTS_PER_ITEM, PACK_CONTENT_TYPE } from '@ashaveri/receipt';
+import {
+  CARRIED_MAX_BYTES,
+  CUSTODY_SLOTS_PER_ITEM,
+  PACK_CONTENT_TYPE,
+  ReceiptError,
+  decodePack,
+  decodeReceipt,
+  toHex,
+} from '@ashaveri/receipt';
 import { loadPackVectors } from '../src/index.js';
 import { readSourceFile, spelledNumber, tableRows, unionMembers } from './doc-contract.js';
 
@@ -82,6 +90,22 @@ function section(): string {
 /** The document as one line, so a check pins a sentence rather than the place a paragraph was wrapped. */
 function prose(): string {
   return section().replace(/\s+/gu, ' ');
+}
+
+/** The bytes a published row carries, which is the only form a document test can hand the reader. */
+function bytes(base64url: string): Uint8Array {
+  return new Uint8Array(Buffer.from(base64url, 'base64url'));
+}
+
+/** The code and the sentence the keyless reader answers a published document with, or null if it answers neither. */
+function refusalOf(base64url: string): { code: string; message: string } | null {
+  try {
+    decodePack(bytes(base64url));
+    return null;
+  } catch (err) {
+    if (err instanceof ReceiptError) return { code: err.code, message: err.message };
+    throw new Error(`the reader raised something with no code (${String(err)})`);
+  }
 }
 
 /** A `$ref` becomes the definition it points at; anything else is already the node. */
@@ -360,6 +384,62 @@ describe('docs/pack-v1.md layout', () => {
     }
     // And the twin says where the ceilings live, because it carries neither of them.
     expect(readSourceFile(CDDL), 'the format file names no byte ceiling for an attached entry').toContain('65535');
+  });
+
+  it('states that one reading answering both anchor halves still owes two entries', () => {
+    // The claim is the format's, the prose has to make it, and the suite has to carry both halves of it: the pair
+    // answered at two entries stating one digest, and the same pack answered short. The row side is read out of the
+    // published bytes, because a document test that only quoted its own sentences would stay green without a vector.
+    const body = prose();
+    for (const phrase of [
+      'One reading answers both halves of one anchor, and the list still carries two entries',
+      'their `b` is equal and their `k` is not',
+      'what the list counts and what its ceiling bounds are slots and not digests',
+      'A pack that writes one entry for such a pair seals a receipt stating a held slot it signs no reference for',
+      'the refusal is `PACK_CUSTODY_UNRESOLVED`, naming the half it stopped on and the digest its answered half states alike',
+      'are those two answers, one accepted and one refused',
+    ]) {
+      expect(body, `the document stopped stating that ${phrase}`).toContain(phrase);
+    }
+    const paired = vectors.vectors.find((one) => one.name === 'one-observation-answers-both-held-slots');
+    expect(paired, 'the document states the pair rule and no published row answers it').toBeDefined();
+    const short = vectors.vectors.find((one) => one.name === 'one-custody-entry-for-two-held-slots');
+    expect(short, 'the document states the pair refusal and no published row answers with it').toBeDefined();
+    if (paired === undefined || short === undefined) return;
+    expect(paired.verdict, 'the pack answering both halves of one anchor is refused').toBe('verify-ok');
+
+    const manifest = decodePack(bytes(paired.documentBase64Url)).manifest;
+    const anchor = decodeReceipt(manifest.items[0]!.receipt).payload.cva;
+    if (anchor.collateral.presence !== 'held' || anchor.validity.presence !== 'held') {
+      throw new Error('the row the pair claim rests on seals no receipt stating both halves of its anchor');
+    }
+    const statedHex = toHex(anchor.collateral.sha256);
+    expect(statedHex, 'the two halves of that anchor digest different bodies, so the row states no pair').toBe(
+      toHex(anchor.validity.sha256),
+    );
+    expect(
+      manifest.custody.length,
+      `the pair is answered by ${String(manifest.custody.length)} entries and the ceiling is ${String(CUSTODY_SLOTS_PER_ITEM)}`,
+    ).toBe(CUSTODY_SLOTS_PER_ITEM);
+    expect(
+      manifest.custody.map((one) => `${one.k.item} at ${one.k.slot}`).sort(),
+      'two entries answer one slot rather than the pair',
+    ).toEqual(['receipt-0 at col', 'receipt-0 at val']);
+    for (const one of manifest.custody) {
+      expect(toHex(one.b), `the entry for ${one.k.item} at ${one.k.slot} states another digest than the pair's`).toBe(statedHex);
+    }
+
+    const refusal = refusalOf(short.documentBase64Url);
+    expect(refusal, 'the pack answering one pair with a single entry decoded as whole').not.toBeNull();
+    expect(refusal?.code, 'the pair refusal the document names is not the code the reader answers with').toBe('PACK_CUSTODY_UNRESOLVED');
+    expect(
+      [short.verdict, short.structural],
+      'the published row is not answered with that code by both readers, as the document says it is',
+    ).toEqual(['PACK_CUSTODY_UNRESOLVED', 'PACK_CUSTODY_UNRESOLVED']);
+    for (const named of ['val', statedHex]) {
+      expect(refusal?.message ?? '', `the refusal quotes ${refusal?.message}, which never names ${named}`).toContain(named);
+    }
+    expect(refusal?.message ?? '', 'the refusal names a slot other than the half it stopped on').not.toContain(' col');
   });
 
   it('names every refusal the published suite answers with, and no refusal it never answers', () => {
