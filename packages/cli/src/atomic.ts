@@ -35,10 +35,10 @@ function reasonOf(error: unknown): string {
  *   the scripted rename in `test/fs-calls.test.ts`, which stands for an `EEXIST` that reached this call
  *   from somewhere other than the create, a state no host has to cooperate to produce.
  * - The mode is read as the nine permission bits and nothing above them. Both callers pass either a
- *   literal or a masked `stat` value today, and an unmasked larger value would reach `chmod` exactly as
+ *   literal or a masked `stat` value, and an unmasked larger value would reach `chmod` exactly as
  *   it was handed over, so the ceiling is held here rather than repeated at every call site: a
  *   published command should not be able to put a set-user-id bit on a log part through a parameter
- *   named `mode`. Nothing in the product reaches it today. The arguments a write hands to its create
+ *   named `mode`. Nothing in the product reaches it. The arguments a write hands to its create
  *   and to `chmod` are captured in `test/fs-calls.test.ts`, which holds on any host. The landed fourth
  *   digit is read back in `test/atomic.test.ts` only where a file system reports it, and that case is
  *   gated to a POSIX host because Windows answers `0666` for every writable mode and `0444` once a file

@@ -1432,10 +1432,10 @@ function main() {
   }
   // The byte arm is permitted by the layout and filled by no path a deployment runs, and this suite publishes both
   // sides of that sentence: one accepted pack whose arm hands over the material its references name, and a refused
-  // row for every way an arm can fail to. So what holds of the accepted rows is no longer that the arm is empty,
-  // which one of them now answers, but the relation the arm owes at every position of it: each attached object
-  // resolves, keyed by the digest recomputed from the bytes beside it, to a reference this same pack signs for, and
-  // a header attached with those bytes hashes to the digest that reference states for one. Material attached with no
+  // row for every way an arm can fail to. So what holds of the accepted rows is not that the arm is empty, which
+  // one of them answers, but the relation the arm owes at every position of it: each attached object resolves,
+  // keyed by the digest recomputed from the bytes beside it, to a reference this same pack signs for, and a header
+  // attached with those bytes hashes to the digest that reference states for one. Material attached with no
   // reference behind it is not the shape of an accepted row and stays where it belongs, in the refused ones, which
   // the sweep over FAULT_MANIFESTS above already requires a published answer for by name.
   if (accepted.every((one) => decodePack(one.bytes).manifest.attached.length === 0)) {

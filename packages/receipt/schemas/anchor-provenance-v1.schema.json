@@ -51,7 +51,7 @@
         "origin": { "type": "string", "minLength": 1, "description": "The source that published the bytes, as a URL. A statement about an instant, not a promise that the route still answers: nothing in this document re-fetches it" },
         "takenAt": { "$ref": "#/$defs/unixSeconds", "description": "The instant the bytes were taken from that source. The dated half of the claim, and the reason the row is evidence about a page rather than about a repository" },
         "licence": { "$ref": "#/$defs/licenceClass", "description": "The licence class the source stated. `none-stated` is a finding, not a grant, and it is not the same class as a named licence" },
-        "licenceNote": { "type": "string", "minLength": 1, "description": "One line beside a class that would mislead on its own, which today is the data-only case and nothing else. Absent wherever the class says the whole of what is known; never empty, because an empty note reads as a decision and only one of the two is true" }
+        "licenceNote": { "type": "string", "minLength": 1, "description": "One line beside a class that would mislead on its own, which is the data-only case and nothing else. Absent wherever the class says the whole of what is known; never empty, because an empty note reads as a decision and only one of the two is true" }
       },
       "oneOf": [
         { "required": ["subject", "serial", "spki", "validity"] },

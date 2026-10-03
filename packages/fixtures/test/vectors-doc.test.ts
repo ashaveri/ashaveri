@@ -541,11 +541,10 @@ describe('docs/vectors.md suite inventory', () => {
   });
 
   it('names in its status line every version its entries are read as, and counts none in words', () => {
-    // The document used to state this split twice, once in the sentence a reader meets first and once in the
-    // bullet that explains the manifest. Two copies of one fact drift apart before either drifts from the
-    // data, and the joined suite showed exactly that: three versions and a marked majority made both
-    // sentences false at the same time. Neither states a fixture count now, so what remains to hold is the
-    // one claim the status line does make, that it is current for the versions the entries really carry.
+    // A document that states one split twice, once in the sentence a reader meets first and once in the
+    // bullet that explains the manifest, holds two copies of one fact, and two copies drift apart before
+    // either drifts from the data. Neither states a fixture count, so what remains to hold is the one
+    // claim the status line does make, that it is current for the versions the entries really carry.
     const status = statusParagraph();
     for (const states of [/Version 1 is what [a-z]+ of the receipt fixtures carry/u, /the [a-z]+ v2 receipt fixture/u]) {
       expect(states.test(status), `the status line counts fixtures in words: ${states.source}`).toBe(false);

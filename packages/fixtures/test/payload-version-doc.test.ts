@@ -10,8 +10,8 @@ import { readSourceFile, spelledNumber } from './doc-contract.js';
  * read off rather than restated.
  *
  * A published document naming a second payload version is not a typo to be fixed once: it is a promise a
- * reimplementer can be held to and that no reader here keeps. Nothing used to notice, because nothing read the
- * documents. So this file reads them.
+ * reimplementer can be held to and that no reader here keeps, and a promise no test reads is a promise
+ * nothing holds. So this file reads them.
  *
  * The version set is taken from the receipt package and the claims from the documents, and neither is written
  * twice here. The set is read out of the one declaration that holds it rather than imported, because

@@ -25,7 +25,7 @@ import {
  * beside the context that made them verifiable at the instant they were taken in.
  *
  * Nothing here collects, fetches or stores anything, and no program in this repository writes a capture
- * record today. What is published is the layout a collector has to be written against and the reading a
+ * record. What is published is the layout a collector has to be written against and the reading a
  * stranger can run against whatever they are handed, which is the order `packages/receipt/pack.cddl`
  * states for a container it does not fill either. The claim about continuity is only checkable by
  * somebody who does not trust us if the shape it travels in is public and a reader for it exists.
@@ -52,10 +52,10 @@ const IMPLEMENTED_POLICY_VERSIONS: readonly number[] = [1];
 
 /**
  * Which receipt format versions a capture record may name, the one place that set is written for this
- * package. It is the format's own list and it carries exactly that set, which today is one version: a
- * gateway emits `v: 1` for every completion whose bytes frame into items, so a record of a check over a
- * v1 receipt is the ordinary document a collector hands over, and a reader that refused it would leave
- * every client of every emitting deployment unable to record what it verified. The list and
+ * package. It is the format's own list and it carries exactly that set: a gateway emits `v: 1` for every
+ * completion whose bytes frame into items, so a record of a check over a v1 receipt is the ordinary
+ * document a collector hands over, and a reader that refused it would leave every client of every
+ * emitting deployment unable to record what it verified. The list and
  * `packages/sdk/schemas/capture-v1.schema.json`'s `enum` for `check.receiptFormatVersion` are one rule
  * written twice on purpose, because the schema is what a collector outside this repository builds against
  * and the reader is what a stranger runs; `test/capture.test.ts` holds the two to each other at the

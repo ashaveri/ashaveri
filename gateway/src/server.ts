@@ -59,7 +59,7 @@ export interface GatewayOptions {
   readonly store?: ReceiptStore;
   /**
    * The durability guard read at admission. Absent means nothing is refused on it, which is what a
-   * deployment that configures nothing runs today: `gateway/src/cli.ts` hands this option the same
+   * deployment that configures nothing runs: `gateway/src/cli.ts` hands this option the same
    * retention object it opened the store with, so a process serving traffic compares a period and a
    * count it did not have to state twice.
    */

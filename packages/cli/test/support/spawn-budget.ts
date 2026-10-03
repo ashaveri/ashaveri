@@ -18,7 +18,7 @@
  * for the gateways it boots: the worst case is what a hang costs, and a hang is a defect worth waiting
  * for once rather than misreading. `spawn-guard.ts` refuses the suite when a case's children ask for more
  * patience than the ceiling it was given grants, which is what keeps this true after somebody adds a loop
- * rather than only today, when the sums happen to fit.
+ * rather than only while the sums happen to fit.
  *
  * `gateway/test/support/spawn-budget.ts` carries the same three functions for its own deadlines. They are
  * not shared in one module because `@ashaveri/fixtures`, the one package both suites could reach,

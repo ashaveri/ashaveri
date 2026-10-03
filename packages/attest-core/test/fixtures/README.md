@@ -6,8 +6,11 @@ SPDX-License-Identifier: Apache-2.0
 # Platform attestation test fixtures
 
 Real platform attestation, used for offline end-to-end verification tests. Where each file's bytes
-came from is stated per file below, and the anchor ledger repeats that statement row by row.
-Nothing is fetched from AMD KDS, Intel PCS or NVIDIA while the tests run.
+came from is stated per file below, and the anchor provenance ledger at
+`packages/attest-core/data/anchor-provenance-v1.cbor` carries one row per file out of those
+statements, which makes it the artifact a reader checks a file's provenance against.
+[docs/trust-anchors.md](../../../../docs/trust-anchors.md) prints those rows and says what each
+licence class means. Nothing is fetched from AMD KDS, Intel PCS or NVIDIA while the tests run.
 
 ## Files
 
@@ -30,12 +33,17 @@ came from.
 
 ## Provenance and attribution
 
+Each bullet below is the record behind the ledger rows for the files it names, and two of them
+name more than one file: a row's source is the route the bullet names, its day is the day the
+bullet names, and its licence class is the one the same bullet states.
+
 - `sev-snp-attestation.bin` is from the dstack project, Copyright © 2025 Phala
   Network, Apache-2.0. Captured 2026-06-17 from a dstack SEV-SNP CVM (app
   `attest-test`, `dstack-nvidia-0.6.0.a2` image, AMD EPYC Milan host) via
   `dstack-util quote-report --report-data 6174746573742d746573742d666978747572652d32303236`
   (ASCII `attest-test-fixture-2026`). That attribution names the captured report,
-  and the two certificates in the bullet below came from a different source.
+  and the two certificates in the bullet below came from a different source. The
+  row carries `apache-2.0`, on the attribution this bullet names.
 - `sev-snp-ask.pem` and `sev-snp-vcek.pem` are AMD's published keys, fetched from
   AMD KDS (`https://kdsintf.amd.com/vcek/v1/Milan/...`) for the report's `chip_id`
   and TCB and pinned here so the tests stay offline and deterministic. No licence
@@ -43,15 +51,17 @@ came from.
   here, so the anchor ledger's row for each of them carries `none-stated`.
 - `amd-ark-milan.pem` is from go-sev-guest, Copyright Google LLC, Apache-2.0
   (test certificate `snp-milan.cer`). Its DER bytes are the production AMD
-  Milan ARK that signs the ASK above.
+  Milan ARK that signs the ASK above, and the row carries `apache-2.0` on that
+  attribution.
 - `tdx-quote-v4.bin` is the `rawQuoteBlob` from edgelesssys/go-tdx-qpl
   (`blobs/blobs.go`), Copyright © 2023 Edgeless Systems GmbH, described there as
   "an example quote generated on an Intel TDX development platform". It is
   therefore genuine Intel-signed evidence rather than a synthetic vector: its
   PCK chain reaches Intel's root CA and both ECDSA P-256 signatures verify. Only
-  the quote bytes were taken and no Go code. go-tdx-qpl is **AGPL-3.0**, so this repository does not
-  claim that its own Apache-2.0 grant reaches this file; it carries the bytes as vendor-signed
-  evidence and names where they came from. Edgeless's
+  the quote bytes were taken and no Go code, which is what the row's
+  `licenceNote` states beside the `agpl-3.0` class the source publishes under.
+  What that class means for this repository is stated once, in
+  [docs/trust-anchors.md](../../../../docs/trust-anchors.md). Edgeless's
   matching TCB Info collateral expired in 2023, which is one reason this package
   does not check TCB freshness.
 - `intel-sgx-root-ca.pem` is Intel's published SGX provisioning trust anchor,
@@ -76,14 +86,17 @@ came from.
   `ad1b89df4c26880b8877d549d3560947fdbe477f`) is copied verbatim. These are the vectors
   NVIDIA's verifier is tested against, and the second one is NVIDIA's own named
   bad-signature case, so the expected verdicts come from the vendor rather than from us.
+  All three rows carry `apache-2.0`, the licence that repository states.
 - `nvidia-device-identity-ca.pem` is `certs/verifier_device_root.pem` from
   NVIDIA/nvtrust (`guest_tools/gpu_verifiers/local_gpu_verifier/src/verifier/`),
   blob `00db2d93992ce2654b242ff140ca48997f9f674b`, taken at commit
   `858ada9a17f58c482f578414ea2455498fa51e17`. The nvtrust repository carries an
   Apache-2.0 `LICENSE` while the verifier package marks its files
-  `SPDX-License-Identifier: BSD-3-Clause`, so both notices are reproduced here.
-  `src/trust-anchors.ts` bundles these same bytes as `NVIDIA_DEVICE_IDENTITY_CA_PEM`,
-  and `test/trust-anchors.test.ts` asserts the two stay identical.
+  `SPDX-License-Identifier: BSD-3-Clause`, so both notices are reproduced here and
+  the row carries `bsd-3-clause`, the marking on the file these bytes were read
+  from. `src/trust-anchors.ts` bundles these same bytes as
+  `NVIDIA_DEVICE_IDENTITY_CA_PEM`, and `test/trust-anchors.test.ts` asserts the two
+  stay identical, which is why two rows state one take.
 
 ## Quote fields (informational)
 

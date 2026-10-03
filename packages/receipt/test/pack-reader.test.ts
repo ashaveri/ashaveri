@@ -1561,8 +1561,8 @@ describe('the pack reader and the format it reads', () => {
       /const publicKey = envelopeKey\(envelope\.header\.kid, options\);[\s\S]*?!ed25519\.verify/u,
     );
     // What the section must still refuse to claim. A key handed to this reader is not authenticated by it, the
-    // keys a rotation-spanning pack needs are the ones section 5's step 2 already names for a receipt, and the
-    // one-key sentence this pass retired must not come back as prose.
+    // keys a rotation-spanning pack needs are the ones section 5's step 2 already names for a receipt, and no
+    // sentence may describe one key answering every document.
     expect(body, 'the section overstates what resolution buys').toContain('It authenticates no key.');
     expect(body, 'the section does not say what a caller has to supply').toContain(
       'pinned in the policy AND declared by the deployment manifest',

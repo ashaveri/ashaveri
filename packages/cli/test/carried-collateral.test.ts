@@ -395,8 +395,8 @@ describe('the four ways an arm can disagree with the references beside it', () =
 
   it('answers for a held slot the arm leaves empty with a row that says so, and not with a refusal', () => {
     // The format takes this document: a pack that refers to a held slot and attaches no copy of it has stated less
-    // rather than contradicted itself, so the reading that was handed a refusal before the layout moved is now the
-    // row that names the digest, the slot, the record and the fact that nothing was weighed against it.
+    // rather than contradicted itself, so what such a pack gets is a row naming the digest, the slot, the record
+    // and the fact that nothing was weighed against it, and not a refusal.
     const path = written('arm-short.cbor', SHORT_BY_ONE_REFERENCE);
     const json = runCli(['verify-handover', path, `--key=${RECEIPT_PUBLIC_B64URL}`, '--json']);
     expect(json.status).toBe(0);

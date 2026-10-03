@@ -161,9 +161,10 @@ verify the event log and RTMR3 replay. With `--intel-root <pem>` they also verif
 DCAP quote signature: the quote's ECDSA P-256 signature under its attestation key, that key
 bound by the QE report, and the report bound by a PCK chain that must reach the pinned Intel
 root CA. Without it, `quoteSignatureVerified` is `false` on TDX and the CLI says so. Either
-way the MVP does not fetch Intel collateral, so a verified TDX signature does not yet tell you
-that the platform's TCB is unexpired, that its QE identity is valid, or that its PCK has not
-been revoked.
+way this command fetches nothing, so a verified TDX signature says the quote's chain reaches
+the pinned root and stops there: whether the platform's TCB is unexpired, whether its QE
+identity is valid and whether its PCK has been revoked are what the vendor's collateral
+answers, and `verify-receipt` weighs collateral a pack carries.
 
 A confidential-computing GPU attests on its own: the dStack envelope carries no device
 report, so `--gpu-report <bin> --gpu-chain <pem>` supplies a captured NVIDIA SPDM
@@ -173,9 +174,9 @@ ECDSA P-384 signature is verified offline under that root, and the challenge the
 signed is printed beside the report data above. With `--report-data` pinned, a device that
 answered a different challenge fails with `CHALLENGE_MISMATCH`, because it is evidence about
 some other request. What the check does not establish is that the device which signed the
-report is the one attached to the attesting VM. That needs TDISP, and no route purchasable
-today provides it, so a composite claim proves a genuine CPU TEE and a genuine device
-signature and stops there.
+report is the one attached to the attesting VM. That needs TDISP, and no purchasable route
+provides it, so a composite claim proves a genuine CPU TEE and a genuine device signature
+and stops there.
 
 Verification proves an attestation is genuine; pinning turns it into a decision about *this*
 deployment. `--expect-measurement` compares the platform launch digest, the SEV-SNP launch
@@ -276,7 +277,7 @@ names the kid it was sealed under, and the run reports which designation it cons
 
 ## Attestation collateral
 
-**What the verifier does today.** It checks signatures and certificate chains offline, against the
+**What the verifier does.** It checks signatures and certificate chains offline, against the
 roots bundled in `@ashaveri/attest-core` or the roots you pass it, and it consults no vendor endpoint
 for attestation collateral, and that includes our own. The consequence is written down rather than
 smoothed over: with a pinned Intel root, a TDX quote is verified under its attestation key, that key
@@ -286,14 +287,17 @@ queried; a confidential-computing GPU's chain is verified under the device root 
 revocation information and reference driver and VBIOS measurements go unread as well. So a platform
 that its vendor has since deprecated or revoked still verifies here, which is what
 [docs/threat-model.md](docs/threat-model.md) row T12 and section 6 say in the same terms. That is a
-property of an offline check and it is deliberate. The evidence document reaches a client from the
+property of an offline check and it is deliberate. Which source each bundled root was read from, on
+which day, and under which licence class that source published it, is one row each of the anchor
+provenance ledger, and [docs/trust-anchors.md](docs/trust-anchors.md) prints those rows beside the
+rows for every vendor file this repository tracks. The evidence document reaches a client from the
 deployment's own evidence URL, in `strict` mode, and that fetch is to the deployment rather than to
 us.
 
 **The planned collateral service.** This project will run a service publishing exactly
 the collateral named above: the TCB info, the QE identity and the revocation status, and the reference
 measurements a device verdict needs, all fetched from Intel's, AMD's and NVIDIA's own endpoints and
-republished, offered as a convenience and as a second source. Nothing of it exists yet: no endpoint
+republished, offered as a convenience and as a second source. Nothing of it exists: no endpoint
 runs, and nothing a shipped command does asks one, because the fetching code is a call a caller makes
 rather than a step any path here takes. Three things accompany it. A deployer who declines the service
 gives up nothing, because a feed is a second source and not a precondition, and no verdict a third party
@@ -308,16 +312,15 @@ origin, and weighing answers only for material of the envelope the origin's decl
 documents present their certificates in a header beside the body, so a pack states a signed reference per
 held slot and material handed in beside its chain digest is weighed rather than refused at the envelope;
 [docs/pack-v1.md](docs/pack-v1.md) states what a reference answers for, and what a reader that reaches
-nothing is told instead. None of it reaches an
-attestation verdict. `ashaveri verify`
-consults no vendor endpoint and no attached material, so a quote verified under a pinned root still says
-nothing about whether that vendor stands behind the platform.
+nothing is told instead. None of it reaches an attestation verdict. `ashaveri verify` consults no vendor
+endpoint and no attached material, so a quote verified under a pinned root still says nothing about
+whether that vendor stands behind the platform.
 
-**What stays the deployer's if the service is declined.** The freshness judgement, entirely, exactly
-as it is today. Either source the collateral directly, from Intel's provisioning certification
-endpoints, AMD's KDS and NVIDIA's revocation and reference measurements, and hand it to the verifier
-through its own options, or accept the documented residual risk in
-[docs/threat-model.md](docs/threat-model.md) and say so plainly in your own deployment's
+**What stays the deployer's if the service is declined.** The freshness judgement, entirely, and
+on the same terms whether or not the service exists. Either source the collateral directly, from
+Intel's provisioning certification endpoints, AMD's KDS and NVIDIA's revocation and reference
+measurements, and hand it to the verifier through its own options, or accept the documented residual
+risk in [docs/threat-model.md](docs/threat-model.md) and say so plainly in your own deployment's
 documentation. A pinned root answers who signed something. It answers nothing about whether the
 platform behind that signature is still trusted by its vendor, and this repository's documents are
 written so that a deployer finds that out by reading them rather than by being attacked.

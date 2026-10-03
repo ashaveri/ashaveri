@@ -572,7 +572,7 @@ property of the deployment, so it belongs to a verification result rather than t
 kind per tier would describe the serving platform twice, cross the enum with every tier a verifier
 might reach, cost a payload version for a judgement made on the far side of the wire, and make the
 receipt assert something its signer cannot know, which is whether the client holds the anchors the
-tier needs. No verifier in this repository reports a tier yet, so read every composite kind at the
+tier needs. No verifier in this repository reports a tier, so read every composite kind at the
 weaker of the two strengths: this challenge was answered by a genuine confidential-computing GPU
 and by a genuine VM, and the pairing of the two is the operator's claim.
 
@@ -675,6 +675,12 @@ steps are one receipt.
    `sha256(nce, req)`. The shared challenge is the only link between the two documents:
    neither vendor's signature covers the other's bytes, so a client holding no device
    report has not verified the accelerator half of the label and must reject it.
+
+   Where each root the verifiers in this repository ship was read from, on which day, and under
+   which licence class its source published it, is one row each of the anchor provenance ledger,
+   and [trust-anchors.md](trust-anchors.md) prints those rows. A client that pins its own roots
+   under `policy.trustAnchors` answers for their provenance itself, since this format names a
+   root by its bytes and nothing a signature over a receipt can say where those bytes came from.
 
 Steps 6 and 7 are what make the receipt a statement about *this* exchange rather than a
 generic artifact: a receipt whose hashes do not match the observed bytes is rejected even
@@ -1288,13 +1294,13 @@ A deployment manifest's parser reads the members it names and leaves the rest, a
 of `keys[]`, which is the opposite trade to the closed payload map above and is made for the opposite
 need: a deployment manifest is a deployment's current statement about itself, and the only way it can grow while
 clients update at their own pace is for a reader to be permitted to leave what it does not know alone.
-That is why the epoch and validity start of section 4.4 arrived as two optional members of a `keys[]`
-entry rather than as `v: 2`. Every deployment manifest published today carries neither and stays valid; a member is
-refused by nothing that accepts it now. And a version move would have cost exactly what a version move
-costs here: `parseManifest` refuses a `v` it does not implement, a client fetches the deployment manifest inside
-every receipt verification rather than only when it wants the deployment's identity, so a deployment that
-published `v: 2` would have left every un-updated client of its own able to verify no receipt at all,
-including the receipts no epoch rule touches.
+That is why the epoch and validity start of section 4.4 are two optional members of a `keys[]` entry
+rather than `v: 2`. A deployment manifest carrying neither stays valid, and a member is refused by
+nothing that accepts it. A version move is the expensive side of that trade: `parseManifest` refuses a
+`v` it does not implement, a client fetches the deployment manifest inside every receipt verification
+rather than only when it wants the deployment's identity, so a deployment that published `v: 2` would
+leave every un-updated client of its own able to verify no receipt at all, including the receipts no
+epoch rule touches.
 
 What an un-updated client does with the richer document is the other half of that judgement, and it is
 refusal in the direction that matters and silence in the direction that does not. It parses a windowed deployment
@@ -1320,21 +1326,20 @@ it is another type, and it reaches a reader as the number 1. That is why the ref
 payload is decoded rather than where its version is read, and why `1.0` gets `BAD_PAYLOAD` while `2`, `3` or `4`,
 an integer this format does not name, gets `UNSUPPORTED_VERSION` naming the number it read.
 
-What the version is for is unchanged, and it is a promise about the next change rather than a debt to
-an earlier one: a verifier refuses a `v` it does not implement before it reads one member of a payload,
-so a format that gains a name has to move `v` rather than make the name optional. An optional member is
+What the version is for is a rule about the next change rather than a debt to an earlier one: a
+verifier refuses a `v` it does not implement before it reads one member of a payload, so a format
+that gains a name has to move `v` rather than make the name optional. An optional member is
 a claim a reader can be silent about; a refused version is not, and it is refused with the number it
 read named in the message. That is the whole of why the four members above sit inside one number rather
-than beside it. Nothing outside this repository holds bytes under another number: `@ashaveri/receipt` is
-unpublished, so there is no installed base to stay readable to, and a number retired before its first
-release would be a demand on readers who never existed.
+than beside it. A number earns its place in the set where bytes exist under it, and a reader is owed
+no rule for a number no bytes were written under.
 
-The `"software"` kind and the rule that ties `m` to its kind were added without a version bump,
-because the contract above covers the direction that matters: a verifier from before the change
-refuses an unknown kind instead of reading it as a TEE it does not know, so it rejects a software
-receipt rather than misgrading it as a hardware claim. The other direction is a tightening rather
-than a break. An older verifier accepted either width for any kind, so it still waves through the
-mismatched pair that `receipt-meas-mismatch-v1` exists to catch.
+The `"software"` kind and the rule that ties `m` to its kind need no number of their own, because the
+contract above covers the direction that matters: a kind a reader does not implement is refused rather
+than read as a TEE it does not know, so a reader with no rule for `"software"` rejects a software
+receipt instead of misgrading it as a hardware claim. The other direction is a tightening rather than a
+break, and what a reader that does not apply it loses is a refusal: it reads the receipt and waves
+through the mismatched pair that `receipt-meas-mismatch-v1` exists to catch.
 
 ## 7. References
 

@@ -34,14 +34,14 @@ import { sha256 } from './digest.js';
  * retention statement that depends on which record a reader picked up. Trim records are not one of the
  * two kinds and never make a mixture: they are this store's own bookkeeping about a prefix it retired.
  *
- * An opening used to answer what it holds by reading every byte of `receipts.log` and hashing every
- * record in it, so the cost of starting a process grew with the file and never stopped. A store now
- * keeps a second file beside it, `receipts.log.index`, holding the positions and digests an opening
- * used to re-derive, and a checkpoint saying how much of the store file it speaks for. The store file
- * remains the only authority: the second file is written by the code that reads the first, is thrown
- * away at the first disagreement with it, and can be declined outright. What a checkpoint changes is
- * stated at `loadSidecar`, and it is the one thing an operator needs to know about these two files:
- * the receipts are in one of them, and the other only says where to look.
+ * Answering what a store holds means reading every byte of `receipts.log` and hashing every record in
+ * it, so without a second file the cost of starting a process grows with the store and never stops. A
+ * store keeps that second file beside it, `receipts.log.index`, holding the positions and digests an
+ * opening would otherwise re-derive, and a checkpoint saying how much of the store file it speaks for.
+ * The store file remains the only authority: the second file is written by the code that reads the
+ * first, is thrown away at the first disagreement with it, and can be declined outright. What a
+ * checkpoint changes is stated at `loadSidecar`, and it is the one thing an operator needs to know
+ * about these two files: the receipts are in one of them, and the other only says where to look.
  */
 
 /** The file a deployment backs up. Named because an operator needs to know which one it is. */
@@ -49,7 +49,7 @@ export const RECEIPT_STORE_FILE = 'receipts.log';
 
 /**
  * The index the same store keeps beside that file, and restores from it. Disposable: deleting it costs
- * an opening the walk it used to do, and changing nothing else about the answers.
+ * an opening the full walk over the store file, and changes nothing else about the answers.
  */
 export const RECEIPT_SIDECAR_FILE = 'receipts.log.index';
 
@@ -218,8 +218,8 @@ interface StoreState {
   /**
    * Which file the volume had open when this index was read, in the volume's own terms. A served read
    * compares its handle against this before it takes any bytes, which is what lets one handle stand
-   * where an open per record used to be, and what lets a walk follow the file a compaction moved into
-   * this path instead of refusing it. It is not a statement about the bytes: see `serialOf`.
+   * where an open per record would otherwise be, and what lets a walk follow the file a compaction
+   * moved into this path instead of refusing it. It is not a statement about the bytes: see `serialOf`.
    */
   identity: string;
   /** The position the next chained record takes, which is one past the last record ever written. */
@@ -417,7 +417,7 @@ export const MINIMUM_RETENTION_SECONDS = 184 * 24 * 60 * 60;
  * rather than a manifest. The field is a record's own width in the file, so a store cannot state a
  * period on one receipt and not another: the kind is a property of the log and is chosen once.
  *
- * What a bounded record's period says today is what the deployment that wrote the record states it is
+ * What a bounded record's period says is what the deployment that wrote the record states it is
  * kept for, written where whoever holds one record and no manifest can read it. Nothing acts on it:
  * retirement reads `ReceiptRetention` and no period off a record. Where a durability window is configured,
  * the pairing refused below additionally demands the record's period sit below it, so retirement by age
@@ -1745,8 +1745,8 @@ export function sourceSentence(declared: StampDeclaration): string {
  * names the shortfall as well so the number to set is readable off the line rather than worked out.
  *
  * The comparison is with the durability bound alone, which is the case a deployment that configures
- * both counts can now ask for and the one the split was for. A single number used to be both how much
- * the file keeps and how much one query holds, so one sentence covered two quantities and an operator
+ * both counts can ask for and the one the split is for. One number standing for both how much the file
+ * keeps and how much one query holds would let one sentence answer for two quantities, so an operator
  * could raise either and read the same message. A serving bound cannot shorten a window, because it
  * retires nothing and a walk over a wider window is simply answered in more batches, so it is refused
  * here never: the message says which of the two is short, and when a serving bound is configured it

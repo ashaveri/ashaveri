@@ -52,7 +52,7 @@ Ashaveri-Manifest-Protected-Header = {
 ; The `unprotected` map is the one map here a writer fills at will, and that is a decision rather
 ; than a gap: it sits outside the signature, so nothing written in it travels as a claim about the
 ; deployment, and enforcing that it is empty would buy strictness with no security content behind it.
-; `sealDeploymentManifest` writes an empty map, which is what a conforming writer produces today.
+; `sealDeploymentManifest` writes an empty map, which is what a conforming writer produces.
 ;
 ; What the document inside the payload is made of is stated twice over, and neither copy is this
 ; file's: `schemas/manifest-v1.schema.json` is its JSON twin, and section 4.4 of the specification is

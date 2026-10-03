@@ -1403,8 +1403,7 @@ describe('the serving bound', () => {
 });
 
 /**
- * A served read answers from the file its own index was read from, and from no other. The shape this
- * path used to have bought that by opening the file again for every record. The shape it has now
+ * A served read answers from the file its own index was read from, and from no other. This path
  * answers from one handle that a walk holds, and establishes two things before it hands a byte over:
  * which file the handle is on, and whether the bytes at the position the index names are the record
  * the index read there. What these cases have to show is that both establishing steps are real.

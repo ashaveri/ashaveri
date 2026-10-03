@@ -857,7 +857,7 @@ describe('the two disclosures a payload states', () => {
     // The two absences are two labels because one is a statement about the world and the other about the
     // collector, and a reason in the collector's slot that reported no window stood open would be an
     // appraisal this process never ran. What it may claim is what the record holds and what this gateway
-    // looked at, which is what the sentence is now refused for saying otherwise.
+    // looked at, which is what the sentence is refused for saying otherwise.
     expect(anchor.validity.presence === 'not-taken-in' ? anchor.validity.reason : '').not.toMatch(
       /no window (?:stood|stands) open/,
     );

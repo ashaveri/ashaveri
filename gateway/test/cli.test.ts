@@ -350,7 +350,7 @@ async function readPortState(port: number): Promise<PortState> {
   if (!asked.refuses) return { state: 'usable' };
   // A port the client turns down is somebody's port choice only while there is still a gateway standing
   // on it. Without that second answer the road is a start that left behind its listening line, and
-  // stopping on the refusal would hide it: the case reads that from `ask` and `kill`, as it does today.
+  // stopping on the refusal would hide it: the case reads that from `ask` and `kill`.
   return (await askSocketAboutPort(port)) === 'connected'
     ? { state: 'client refuses', answer: asked.answer }
     : { state: 'gateway gone' };
@@ -462,14 +462,15 @@ async function pickAddressablePort(): Promise<number> {
  * names is its own business: `readPortState` asks its two questions of the port the banner printed, and
  * the one state that is a port choice rather than a child that went away stops the boot.
  *
- * Every other reading keeps what it has today, so no exit and no timeout is turned into anything else.
+ * Every other reading keeps what it has, so no exit and no timeout is turned into anything else.
  *
  * Resolving on that line leaves one window a boot does not police: a child that printed it can still go
  * away before the case asks it for anything, and the case then reads a fetch error about a port nobody
  * holds. So the child's state is kept in `bootToListeningLine` instead of inferred downstream. `kill`
  * fails a case whose child left of its own accord after it said it was listening, `reached` says where
- * that child got to, and `ask` below puts both into the request that got no answer. The stderr that used
- * to be drained and thrown away is kept, because it is where a gateway that is about to stop says why.
+ * that child got to, and `ask` below puts both into the request that got no answer. The stderr a boot
+ * produces is kept rather than drained and thrown away, because it is where a gateway that is about to
+ * stop says why.
  */
 async function bootServing(args: string[]): Promise<ServedGateway> {
   const picked = await pickAddressablePort();
@@ -1757,7 +1758,7 @@ describe('the record kind a volume is written under', () => {
     expect(help).toContain('never converted');
     // The period is written and not enforced, and the first text an operator reads has to say so rather
     // than leave a number in a record reading like a bound the volume keeps.
-    expect(help).toContain('Nothing enforces the period yet');
+    expect(help).toContain('Nothing enforces the period:');
     expect(help).toContain('Default: receipt');
   });
 

@@ -11,8 +11,7 @@ import { cddlRule, cddlRuleArms, labeledMembers, memberDeclarations, readCddl, r
  * edited in one of the two places and stays plausible in the other. Which members each map of the
  * pack format declares is read out of `pack.cddl`; which definition of the twin stands behind each of
  * them is read out of the twin's own `$ref`s; and the document every negative case runs against is
- * built from those declarations rather than copied from a projection that does not exist yet. Nothing
- * assembles a pack today, so there is no writer here to agree with and no bytes to paste: what a pack
+ * built from those declarations rather than copied from a second written-down list. What a pack
  * must hold is the CDDL's business, and this file's business is to notice the day the two public
  * statements of it stop being one statement.
  *
@@ -501,7 +500,7 @@ describe('the pack CDDL and its JSON twin', () => {
     );
     // And every name under `$defs` is reached from the document: by the manifest, by one of its
     // members, or by a member of a map a member opens. A helper left behind is a second answer to a
-    // width the format no longer states, and it is invisible to an assertion that only walks down.
+    // width the format does not state, and it is invisible to an assertion that only walks down.
     const reached = new Set<string>(definitionsByRule(CDDL).map(({ name }) => name));
     for (const { def } of definitionsByRule(CDDL)) {
       for (const member of Object.values(required(def.properties, 'a definition with no properties'))) {
@@ -577,10 +576,10 @@ describe('the pack CDDL and its JSON twin', () => {
       .join('\n');
     expect(declarations).not.toMatch(/\b(?:uint\d*|nint|biguint|bigint|float\d*)\b/u);
     // The receipt's own test file keeps that file's prose from carrying a copy of its roster because
-    // two other documents enumerate it and are tied to the format. Nothing enumerates this format's
-    // list yet, so the pin here is the narrower one that is not vacuous: the prose explains single
-    // positions at length, which it does for `rev`, `required` and `held`, and carries no dotted name,
-    // which is the shape a second copy of the roster would take.
+    // two other documents enumerate it and are tied to the format. The pin here is the narrower one
+    // that is not vacuous: the prose explains single positions at length, which it does for `rev`,
+    // `required` and `held`, so what it forbids is a dotted name, which is the shape a second copy of
+    // the roster would take.
     expect(prose).not.toContain('The positions are');
     for (const position of INTEGER_POSITIONS.filter((each) => each.includes('.'))) {
       expect(prose, `the CDDL's prose carries ${position}, a copy of the roster the blocks already state`).not.toContain(
