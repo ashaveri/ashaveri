@@ -10,8 +10,10 @@ import {
   EXPORT_CONTENT_TYPE,
   PACK_CONTENT_TYPE,
   ReceiptError,
+  custodyForSlot,
   decodeCanonical,
   decodePack,
+  decodeReceipt,
   encodeCanonical,
   encodePackManifest,
   encodePackProtectedHeader,
@@ -534,6 +536,25 @@ const ATTACHED: readonly PackAttachedObject[] = [TCB, VAL, RIM];
 const armManifest = (): PackManifest => ({ ...referringManifest, attached: [...ATTACHED] });
 
 /**
+ * A record whose anchor answers both of its halves to one reading: `col` and `val` state the same body digest, because
+ * the document a collateral appraisal took in is commonly the document that states the window the validity half is
+ * about. The list is keyed by the slot and not by the digest, so this pair owes two entries.
+ */
+const PAIRED = chained([{ id: 'receipt-0', iat: BASE, slots: { col: TCB.sha256, val: TCB.sha256 } }]);
+
+/** Both halves answered by the one reading that produced them, in the order the anchor states its slots. */
+const PAIRED_REFERENCES: readonly PackCustodyEntry[] = (['col', 'val'] as const).map(
+  (slot) => reference(PAIRED.items[0]!, slot, TCB_READ),
+);
+const pairedManifest = manifestFor(PAIRED, { custody: PAIRED_REFERENCES });
+
+/** The same document with the `val` half unanswered, one entry standing for a pair of held slots. */
+const PAIRED_SHORT: PackManifest = {
+  ...pairedManifest,
+  custody: PAIRED_REFERENCES.filter((one) => one.k.slot === 'col'),
+};
+
+/**
  * A served answer, both halves of it, made by the estate's own fixture vendor.
  *
  * The body is the wrapper that address actually returns, the document member's own text and a hex `signature`
@@ -682,6 +703,7 @@ const WINDOW_IN_MILLISECONDS: PackManifest = {
 const CUSTODY_FAULTS: readonly { readonly at: string; readonly manifest: PackManifest; readonly code: string }[] = [
   { at: 'custody[1].k.item, a record this pack does not seal', manifest: ANSWERS_NOTHING, code: 'PACK_CUSTODY_UNNAMED' },
   { at: 'the custody list, with the entry receipt-2 names at val removed', manifest: FALLS_SHORT, code: 'PACK_CUSTODY_UNRESOLVED' },
+  { at: 'the custody list, answering one pair of held slots that state one digest with a single entry', manifest: PAIRED_SHORT, code: 'PACK_CUSTODY_UNRESOLVED' },
   { at: 'custody[0].s, the same instant a thousand times over', manifest: INSTANT_IN_MILLISECONDS, code: 'PACK_CUSTODY_UNIT_OUTSIDE_BAND' },
   { at: 'custody[0].w.to, the window ended in milliseconds', manifest: WINDOW_IN_MILLISECONDS, code: 'PACK_CUSTODY_UNIT_OUTSIDE_BAND' },
 ];
@@ -793,6 +815,16 @@ const CASES: readonly Case[] = [
     verdict: 'verify-ok',
     structural: 'verify-ok',
     walk: ['receipt-0', 'receipt-1', 'receipt-2'],
+    ordering: [],
+  },
+  {
+    name: 'one-observation-answers-both-held-slots',
+    note: 'One sealed receipt whose `col` and `val` slots digest the same body, because the document this appraisal took in as its collateral states the window its validity half names, and the pack that answers the pair with two references. Their stated body digests are equal and their keys are not, which is what it means for a reference to answer a slot rather than the material a slot digests: the list is read one held slot at a time, and two slots of one record are two positions in it even where one reading produced both. The pack attaches nothing beside them.',
+    bytes: signPack(pairedManifest, CURRENT),
+    read: PINNED_CURRENT,
+    verdict: 'verify-ok',
+    structural: 'verify-ok',
+    walk: ['receipt-0'],
     ordering: [],
   },
   {
@@ -1090,6 +1122,16 @@ const CASES: readonly Case[] = [
     structural: 'PACK_CUSTODY_UNRESOLVED',
     item: 'receipt-2',
     edited: 'the custody list, with the entry receipt-2 names at val removed',
+  },
+  {
+    name: 'one-custody-entry-for-two-held-slots',
+    note: 'The run whose two anchor slots digest one body, answered once: the list carries the entry for `col` and nothing for `val`, though both state the same digest. No entry here names a slot that is not held and none misstates a digest, so this is not the refusal for an entry answering to nothing; the pack seals a receipt stating a held slot and signs no reference for it, which is the pack falling short of a slot it did state. The sentence names the half it stopped on and the digest it cannot answer for, which is the very digest the answered half states, so a reader can see that the shortage is about the slot and not about the material.',
+    bytes: despiteGuard(PAIRED_SHORT),
+    read: PINNED_CURRENT,
+    verdict: 'PACK_CUSTODY_UNRESOLVED',
+    structural: 'PACK_CUSTODY_UNRESOLVED',
+    item: 'receipt-0',
+    edited: 'the custody list, answering one pair of held slots that state one digest with a single entry',
   },
   {
     name: 'custody-instant-outside-the-band',
@@ -1442,6 +1484,58 @@ function main() {
   for (const quoted of ['attached[0]', 'receipt-0 at col', carriedHex, statedHex.slice(0, 32)]) {
     if (!chainRefusal.message.includes(quoted)) {
       throw new Error(`custody-arm-chain-mismatch: the refusal quotes ${chainRefusal.message}, which never names ${quoted}`);
+    }
+  }
+
+  // The pair rule, read out of the published bytes rather than from this file's intention: a reference answers the
+  // slot its key names, so one reading standing for both halves of an anchor owes two entries and one entry is short.
+  const pairedRow = CASES.find((one) => one.name === 'one-observation-answers-both-held-slots');
+  if (pairedRow === undefined) throw new Error('this suite publishes no pack where one observation answers both anchor slots');
+  const paired = decodePack(pairedRow.bytes).manifest;
+  const pairedItem = paired.items[0]!;
+  const pairedAnchor = decodeReceipt(pairedItem.receipt).payload.cva;
+  const [colSlot, valSlot] = [pairedAnchor.collateral, pairedAnchor.validity] as const;
+  if (colSlot.presence !== 'held' || valSlot.presence !== 'held') {
+    throw new Error('one-observation-answers-both-held-slots: the sealed receipt states no two held anchor slots');
+  }
+  const pairedDigestHex = toHex(colSlot.sha256);
+  if (pairedDigestHex !== toHex(valSlot.sha256)) {
+    throw new Error('one-observation-answers-both-held-slots: the two slots digest different bodies, so the row states no pair');
+  }
+  if (paired.custody.length !== CUSTODY_SLOTS_PER_ITEM) {
+    throw new Error(`one-observation-answers-both-held-slots: the pair is answered by ${String(paired.custody.length)} entries`);
+  }
+  if (new Set(paired.custody.map((one) => toHex(one.b))).size !== 1) {
+    throw new Error('one-observation-answers-both-held-slots: the two entries state different body digests');
+  }
+  if (new Set(paired.custody.map((one) => `${one.k.item} at ${one.k.slot}`)).size !== paired.custody.length) {
+    throw new Error('one-observation-answers-both-held-slots: two of its entries answer one slot');
+  }
+  for (const slot of ['col', 'val'] as const) {
+    const answeredHex = toHex(custodyForSlot(paired, pairedItem.id, slot).b);
+    if (answeredHex !== pairedDigestHex) {
+      throw new Error(`one-observation-answers-both-held-slots: the entry answering ${slot} states ${answeredHex}, not ${pairedDigestHex}`);
+    }
+  }
+  const pairShortRow = CASES.find((one) => one.name === 'one-custody-entry-for-two-held-slots');
+  if (pairShortRow === undefined) throw new Error('this suite publishes no pack answering a pair of held slots with one entry');
+  const pairRefusal = (() => {
+    try {
+      decodePack(pairShortRow.bytes);
+      return null;
+    } catch (err) {
+      return err instanceof ReceiptError ? err : null;
+    }
+  })();
+  if (pairRefusal === null) {
+    throw new Error('one-custody-entry-for-two-held-slots: the structural reader answered these bytes with no refusal, so the row states a fault nothing raises');
+  }
+  if (pairRefusal.code !== 'PACK_CUSTODY_UNRESOLVED') {
+    throw new Error(`one-custody-entry-for-two-held-slots: the reader answers ${pairRefusal.code}, not the PACK_CUSTODY_UNRESOLVED this row states`);
+  }
+  for (const quoted of [pairedItem.id, 'val', pairedDigestHex]) {
+    if (!pairRefusal.message.includes(quoted)) {
+      throw new Error(`one-custody-entry-for-two-held-slots: the refusal quotes ${pairRefusal.message}, which never names ${quoted}`);
     }
   }
 
