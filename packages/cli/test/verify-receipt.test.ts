@@ -991,8 +991,9 @@ describe('ashaveri verify-receipt', () => {
    * whose root the run pins: one whose own window reaches the instant the receipt claims, and one whose window
    * closed before it. The receipt states both as `held`, at `col` and at `val`, so the three readings of the
    * demand are three command lines over one document rather than three documents whose other claims a reader would
-   * have to compare. Nothing here reaches a network, and no published fixture row carries a `held` slot: the
-   * corpus states `not-taken-in` on both, which is the posture the byte-arm rows of `docs/pack-v1.md` state.
+   * have to compare. Nothing here reaches a network, and both documents are generated rather than taken from a
+   * published corpus, because the case needs a vendor it controls, whose root the run pins, and two window edges
+   * it places on either side of the one instant the receipt claims.
    */
   describe('the anchor material a policy demands', () => {
     const FMSPC = '00906e1b0d00';
