@@ -198,6 +198,15 @@ whose every slot states an absence, and an empty list is a statement rather than
 absence names no digest and owes no bytes and owes no reference, so a pack referring to nothing beside receipts
 that took nothing in is whole.
 
+One reading answers both halves of one anchor, and the list still carries two entries. The document a collateral
+appraisal took in is commonly the document that states the window the validity half digests, and then both slots
+state one body digest while the reference list answers each slot beside it: their `b` is equal and their `k` is
+not, because what the list counts and what its ceiling bounds are slots and not digests. A pack that writes one
+entry for such a pair seals a receipt stating a held slot it signs no reference for, and the refusal is
+`PACK_CUSTODY_UNRESOLVED`, naming the half it stopped on and the digest its answered half states alike.
+`one-observation-answers-both-held-slots` and `one-custody-entry-for-two-held-slots` in
+`packages/fixtures/data/pack-v1.json` are those two answers, one accepted and one refused.
+
 Two ceilings bind the two lists, each taken from a number this container already states rather than one this
 block invented. The count of references, and the count of attached objects, is capped at 2 entries per item,
 which is the count of slots a sealed receipt can name, `col` and `val`; a longer list cannot be all answers, and
