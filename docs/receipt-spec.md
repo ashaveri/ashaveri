@@ -131,7 +131,12 @@ the validity context the appraisal of the evidence ran on, and on a gateway that
 `not-taken-in` in both slots, with the reason naming the site that took nothing in. That value is one the
 member was designed to hold, and it is not a placeholder: withholding the version, or leaving the member out
 until something is wired that could fill it, returns the gap to silence, which is the reading every required
-member of this payload exists to refuse. An anchor's `held` digest is no better on its own, since material
+member of this payload exists to refuse. A gateway whose deployment wired a reader of a cached appraisal
+answers out of what that read returned rather than out of this default: a digest the cache held inside the
+window the vendor document itself named becomes a `held` slot, and each way of not holding one names which
+way it is, quoting the instants the appraiser's clock read and never the issuance clock's. The appraisal
+that fills such a cache runs off the request path, which is what lets an issuance author a `held` slot
+without a request path reaching a vendor. An anchor's `held` digest is no better on its own, since material
 that cannot be resolved when the retention duty still runs attests a claim nobody can weigh. Whether either
 state is acceptable is a verifier's policy, reached beside the bound on the stamp source and stated in the
 refusal it gives, and the payload carries no field for it because a producer that decides the standard is

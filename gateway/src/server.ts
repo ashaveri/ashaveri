@@ -6,6 +6,7 @@ import {
   issueReceipt,
   randomNonce,
   sealDeploymentManifest,
+  type CollateralValidityAnchor,
   type Marking,
   type MarkingScheme,
   type ReceiptPayload,
@@ -14,11 +15,12 @@ import {
 } from '@ashaveri/receipt';
 import type { AccessLog, AccessRecord } from './aclog.js';
 import { AccessError, ReceiptNamespace, requireRouteScope, type CredentialStore } from './access.js';
+import { anchorFrom, readFailedAnchor, type AppraisalReader } from './appraisal-cache.js';
 import { fromBase64Url, toBase64Url } from './b64.js';
 import { mockBackend, type BackendResponse, type CompletionBackend, type CompletionUsage } from './backend.js';
 import { mockDeployment, type AttestationBundle, type Deployment } from './deployment.js';
 import { fromHex, sha256, toHex } from './digest.js';
-import { notTakenInAnchor, stampDisclosureOf } from './issuance-disclosure.js';
+import { stampDisclosureOf } from './issuance-disclosure.js';
 import { StreamedItemStamps, boundStampsAt, stampedBufferedItem, type FramedItemStamps } from './item-stamps.js';
 import { MarkedStreamTail, markBufferedBody, markingFrame, unmarked } from './marking.js';
 import { parseChatCompletionRequest, RequestError } from './mock.js';
@@ -100,6 +102,21 @@ export interface GatewayOptions {
    * of `docs/receipt-spec.md` states what an `iat` therefore proves and what it cannot.
    */
   readonly time?: TimeSource;
+  /**
+   * The reader of a cached appraisal, wired by a deployment whose appraiser runs on a schedule outside
+   * this process. Absent means no cache, and an issuance then signs the anchor of a gateway that took
+   * nothing in: `notTakenInAnchor`, byte for byte the anchor a deployment that configures nothing signs.
+   *
+   * Wiring one does not put a vendor on any request path, because the reader answers out of a cache
+   * something else filled and `issue` only converts what it answered. The two things a reading is weighed
+   * against are the two instants it carries: an entry whose own window had closed is answered as the
+   * absence its numbers state rather than signed as a digest of bytes nobody can weigh, and a reader that
+   * throws is logged at the site and answered the same way, so an issuance neither fails on a cache nor
+   * borrows a word from one. What the anchor states about the instants it quotes is whose clock they came
+   * from, and none of them is this process's: `iat` and `sd` stay the readings of `time` and are the only
+   * instants of an issuance this gateway takes itself.
+   */
+  readonly appraisal?: AppraisalReader;
 }
 
 export interface ManifestJson {
@@ -409,6 +426,10 @@ export function buildGateway(options: GatewayOptions): GatewayInstance {
   // The durability policy this deployment configured, read once like every other switch on this
   // process. An absent guard is no guard: see `ReceiptIntakeGuard`.
   const intakeGuard = options.receiptIntakeGuard ?? {};
+  // The cache an issuance reads its anchor from, read once like every other switch on this process.
+  // Absent is a state with its own answer rather than a default to fill in: an unwired gateway signs the
+  // anchor of a collector that took nothing in, and says so in the words that name the collector.
+  const appraisal = options.appraisal;
   // One HKDF over the deployment's own signing seed, for the whole process. The id a receipt is
   // fetched by is minted here rather than taken from the upstream, and nothing is written down to
   // make the fetch work: the id carries the tag of the credential that minted it.
@@ -596,6 +617,27 @@ export function buildGateway(options: GatewayOptions): GatewayInstance {
     meas: { tee: deployment.tee, m: toHex(deployment.measurement) },
   };
 
+  /**
+   * The anchor of one issuance, read out of the cache its deployment wired.
+   *
+   * A gateway wired with no reader answers the `no-cache` arm, which is `notTakenInAnchor` and nothing
+   * else, so an unwired deployment signs the anchor of a collector that took nothing in and consults no
+   * cache. A reader is awaited because a cache a deployment wires sits on disk, and it is caught because a
+   * cache that fails is a fact about the cache and not about the response: the completion is served, the
+   * receipt is signed, and both slots state the failed read rather than carrying a word of it into a
+   * document a reviewer cites. The message goes to the log beside the request that met it, which is where
+   * a stack belongs.
+   */
+  async function anchorForEvidence(evidence: AttestationBundle): Promise<CollateralValidityAnchor> {
+    if (appraisal === undefined) return anchorFrom({ state: 'no-cache' });
+    try {
+      return anchorFrom(await appraisal(evidence));
+    } catch (err) {
+      app.log.error({ err }, 'the wired appraisal reader failed, and the anchor states the failed read');
+      return readFailedAnchor();
+    }
+  }
+
   async function issue(args: {
     id: string;
     nonce: Uint8Array;
@@ -617,11 +659,14 @@ export function buildGateway(options: GatewayOptions): GatewayInstance {
     const framing = boundStampsAt(args.framing, iat);
     // One version, and every member it names is filled from what this issuance actually holds. `mk` is
     // required, so the answer to "was this response marked?" is a value in a signed document rather than
-    // the absence of one. `sd` is the source `iat` was read from, which every process has, and `cva` is the
-    // appraisal context this gateway never took in, which is a state the member was designed to hold. Both
-    // are answered beside the payload rather than by a policy field beside this gateway, because what a
-    // receipt states is not the same as what a reader agrees to accept. A verifier weighing the anchor is
-    // the one that refuses `not-taken-in`, and that refusal is not this document's to write.
+    // the absence of one. `sd` is the source `iat` was read from, which every process has, and `cva` is
+    // what became of the appraisal context of the evidence this payload digests: on a deployment that
+    // wired no reader it is the two absences of a collector that took nothing in, and on one that wired a
+    // cache it is the digests a scheduled appraisal observed, or the absence that appraisal's own instants
+    // state. Both members are answered beside the payload rather than by a policy field beside this
+    // gateway, because what a receipt states is not the same as what a reader agrees to accept. A verifier
+    // weighing the anchor is the one that refuses `not-taken-in`, and that refusal is not this document's
+    // to write.
     //
     // `itm` is the member with a demand this gateway cannot always meet: it is required and it is never
     // empty, because a run of nothing states nothing and `readItemStamps` refuses one on bytes that are
@@ -638,6 +683,9 @@ export function buildGateway(options: GatewayOptions): GatewayInstance {
     if (!framing.framed) {
       throw new Error(`no item list to attest: ${framing.why}`);
     }
+    // Read after that refusal rather than before it: a response this gateway can state nothing about earns
+    // no read of anything else, so an unframed stream never touches a deployment's cache.
+    const cva = await anchorForEvidence(args.evidence);
     const payload: ReceiptPayload = {
       v: 1,
       iss: deployment.issuer,
@@ -654,7 +702,7 @@ export function buildGateway(options: GatewayOptions): GatewayInstance {
       tok: { p: args.usage.promptTokens, c: args.usage.completionTokens },
       mk: args.marking,
       sd: stampDisclosureOf(time),
-      cva: notTakenInAnchor(),
+      cva,
       itm: framing.stamps,
     };
     // How long this stays fetchable is the store's decision, so the gateway hands over the
