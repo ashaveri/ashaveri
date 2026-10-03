@@ -536,7 +536,7 @@ function main(): void {
       row: {
         name: 'receipt-not-taken-in-v1',
         expected: 'verify-ok',
-        note: 'A receipt with both anchor slots saying `not-taken-in` beside their reasons, which is the state every artifact this repository issues today is in: an issuer that takes no collateral in and appraises nothing states both absences in the words that name the collector rather than the world, and a verifier weighing the anchor refuses a declared gap instead of an undeclared one. The response is the marked stream, so the list is the four upstream chunks and the marking frame, five items in the order the bytes put them in. The postures are the whole of what a demand reaches here: naming nothing leaves this document where it was, and asking for one slot or for both refuses it, because there is no held slot to count.',
+        note: 'A receipt with both anchor slots saying `not-taken-in` beside their reasons: an issuer that takes no collateral in and appraises nothing states both absences in the words that name the collector rather than the world, and a verifier weighing the anchor refuses a declared gap instead of an undeclared one. The response is the marked stream, so the list is the four upstream chunks and the marking frame, five items in the order the bytes put them in. The postures are the whole of what a demand reaches here: naming nothing leaves this document where it was, and asking for one slot or for both refuses it, because there is no held slot to count.',
         columns: {
           ...columnsOf(markedStream, { v: 1, sd: MEASURED_SOURCE, cva: ANCHOR_NOT_TAKEN_IN, stamps: markedStreamStamps }),
           handover: handoverFor(['verify-ok', 'ANCHOR_SLOT_NOT_HELD', 'ANCHOR_SLOT_NOT_HELD']),
