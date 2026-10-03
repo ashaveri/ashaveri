@@ -576,7 +576,7 @@ describe('the receipt JSON Schema', () => {
     }
 
     // The member the walk cannot enter by name, which is every payload member the CDDL binds to a
-    // rule through an array rather than a map. `itm` is the one today, and its elements are closed by
+    // rule through an array rather than a map. `itm` is that member, and its elements are closed by
     // the reader that walks them, so the twin-side pair to check is the array's own shape: it declares
     // a non-empty list, and the element definition names the two members and no more.
     const arrayKeys = [...new Set(versions.flatMap((version) => arrayMembers(cddl, version)))];

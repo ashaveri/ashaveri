@@ -1329,7 +1329,7 @@ interface ClosureCase {
 
 /**
  * The maps a payload version reaches that the closure walk cannot enter by member name, read out of
- * the block that declares them: a member bound to a rule through an array (`itm` today) is closed at
+ * the block that declares them: a member bound to a rule through an array (`itm`) is closed at
  * its element, and a member whose rule names members that are rules of their own (`cva.col` and
  * `cva.val`, the two arms the label inside a slot selects) is closed one level below the map the walk
  * enters. Neither kind is written out here, and neither is asked of the walk's own `nested`, because a

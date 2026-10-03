@@ -188,11 +188,11 @@ CollateralAbsent = {
 
 ; One entry per response item, in the order the response put its items in. `d` is `ResponseItem.d`
 ; from `src/response-items.ts`: sha256 of exactly one item's bytes and of none of the framing around
-; them. The instant has no shape to map from, because nothing in this tree stamps one yet: it is what
-; the source `sd` names read when those bytes were framed, in the same whole Unix seconds as the
-; issuance stamp and from the same source that read that one. An item is a protocol item, one `data:`
-; frame of a streamed response or the whole body of one that was not streamed, and section 3.1 of
-; `docs/receipt-spec.md` states both the framing and which digests cover which bytes.
+; them. The instant has no shape to map from: it is what the source `sd` names read when those bytes
+; were framed, in the same whole Unix seconds as the issuance stamp and from the same source that read
+; that one. An item is a protocol item, one `data:` frame of a streamed response or the whole body of
+; one that was not streamed, and section 3.1 of `docs/receipt-spec.md` states both the framing and
+; which digests cover which bytes.
 ;
 ; Chain order is the array's order. An item has no identity beside its digest for a chain to name a
 ; predecessor by, so the list itself is the chain, and the order is the one the response wrote. Stamp

@@ -350,7 +350,7 @@ async function readPortState(port: number): Promise<PortState> {
   if (!asked.refuses) return { state: 'usable' };
   // A port the client turns down is somebody's port choice only while there is still a gateway standing
   // on it. Without that second answer the road is a start that left behind its listening line, and
-  // stopping on the refusal would hide it: the case reads that from `ask` and `kill`, as it does today.
+  // stopping on the refusal would hide it: the case reads that from `ask` and `kill`.
   return (await askSocketAboutPort(port)) === 'connected'
     ? { state: 'client refuses', answer: asked.answer }
     : { state: 'gateway gone' };
@@ -1758,7 +1758,7 @@ describe('the record kind a volume is written under', () => {
     expect(help).toContain('never converted');
     // The period is written and not enforced, and the first text an operator reads has to say so rather
     // than leave a number in a record reading like a bound the volume keeps.
-    expect(help).toContain('Nothing enforces the period yet');
+    expect(help).toContain('Nothing enforces the period:');
     expect(help).toContain('Default: receipt');
   });
 

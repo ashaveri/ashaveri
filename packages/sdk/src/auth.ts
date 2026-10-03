@@ -120,7 +120,7 @@ function applyCredential(credential: AshaveriCredential, request: Outgoing, opti
  * layer makes four requests of its own (the manifest, a receipt, and the two evidence
  * documents) and a caller that wrapped the official client reaches the gateway
  * through a fetch this package never sees. One wrapper covers all three paths, and a
- * route added tomorrow is authenticated by the same line as the five that exist today.
+ * route added later is authenticated by the same line as the routes already there.
  */
 export function authorizedFetch(
   credential: AshaveriCredential | undefined,

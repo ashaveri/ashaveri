@@ -104,7 +104,7 @@ export function isReceiptVersion(value: unknown): value is ReceiptVersion {
 }
 
 /**
- * The labels this package can interpret, which is the whole registry today. A label outside them is
+ * The labels this package can interpret, which is the whole registry. A label outside them is
  * a refusal rather than a best guess, because reading a region under another scheme's rule is the
  * scheme-confusion failure and this is the code that answers it.
  *
@@ -266,9 +266,9 @@ export interface VerifyOptions {
   evidenceFreshnessSeconds?: number;
   /**
    * Which payload versions this call accepts, defaulting to every version this package parses.
-   * The default is deliberately the wide one, and today that set is one version wide. An empty list is
-   * how a caller says it reads no receipt at all; a document naming a number outside the set this
-   * package parses is refused under either setting, and the refusal names the number it read.
+   * The default is deliberately the wide one. An empty list is how a caller says it reads no receipt at
+   * all; a document naming a number outside the set this package parses is refused under either
+   * setting, and the refusal names the number it read.
    */
   acceptedVersions?: readonly ReceiptVersion[];
 }

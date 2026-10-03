@@ -460,8 +460,9 @@ describe('the published epoch inventory vectors', () => {
     const groups = family
       .map((code) => ({ code, rows: refused.filter((one) => one.verdict === code) }))
       .filter((group) => group.rows.length > 1);
-    // A guard over nothing is no guard at all: the family carries seven such codes today, and a reading that
-    // found fewer would be a suite that lost rows, not a family that grew out of needing this.
+    // A guard over nothing is no guard at all, so the bound below is a floor on how many codes the
+    // family answers more than one row with: a reading that found fewer would be a suite that lost
+    // rows, not a family that grew out of needing this.
     expect(groups.length).toBeGreaterThanOrEqual(5);
     for (const group of groups) {
       expect(collidingPairs(group.rows), `${group.code} is answered by rows that read as one another`).toEqual([]);

@@ -417,7 +417,7 @@ export const MINIMUM_RETENTION_SECONDS = 184 * 24 * 60 * 60;
  * rather than a manifest. The field is a record's own width in the file, so a store cannot state a
  * period on one receipt and not another: the kind is a property of the log and is chosen once.
  *
- * What a bounded record's period says today is what the deployment that wrote the record states it is
+ * What a bounded record's period says is what the deployment that wrote the record states it is
  * kept for, written where whoever holds one record and no manifest can read it. Nothing acts on it:
  * retirement reads `ReceiptRetention` and no period off a record. Where a durability window is configured,
  * the pairing refused below additionally demands the record's period sit below it, so retirement by age

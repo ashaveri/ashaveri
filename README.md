@@ -161,9 +161,10 @@ verify the event log and RTMR3 replay. With `--intel-root <pem>` they also verif
 DCAP quote signature: the quote's ECDSA P-256 signature under its attestation key, that key
 bound by the QE report, and the report bound by a PCK chain that must reach the pinned Intel
 root CA. Without it, `quoteSignatureVerified` is `false` on TDX and the CLI says so. Either
-way the MVP does not fetch Intel collateral, so a verified TDX signature does not yet tell you
-that the platform's TCB is unexpired, that its QE identity is valid, or that its PCK has not
-been revoked.
+way this command fetches nothing, so a verified TDX signature says the quote's chain reaches
+the pinned root and stops there: whether the platform's TCB is unexpired, whether its QE
+identity is valid and whether its PCK has been revoked are what the vendor's collateral
+answers, and `verify-receipt` weighs collateral a pack carries.
 
 A confidential-computing GPU attests on its own: the dStack envelope carries no device
 report, so `--gpu-report <bin> --gpu-chain <pem>` supplies a captured NVIDIA SPDM
@@ -173,9 +174,9 @@ ECDSA P-384 signature is verified offline under that root, and the challenge the
 signed is printed beside the report data above. With `--report-data` pinned, a device that
 answered a different challenge fails with `CHALLENGE_MISMATCH`, because it is evidence about
 some other request. What the check does not establish is that the device which signed the
-report is the one attached to the attesting VM. That needs TDISP, and no route purchasable
-today provides it, so a composite claim proves a genuine CPU TEE and a genuine device
-signature and stops there.
+report is the one attached to the attesting VM. That needs TDISP, and no purchasable route
+provides it, so a composite claim proves a genuine CPU TEE and a genuine device signature
+and stops there.
 
 Verification proves an attestation is genuine; pinning turns it into a decision about *this*
 deployment. `--expect-measurement` compares the platform launch digest, the SEV-SNP launch

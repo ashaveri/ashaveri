@@ -116,8 +116,8 @@ const PLACEHOLDER_REASON = 'the collector read no window';
  * (`assertLineSafeText`, `packages/receipt/src/receipt.ts`). A case that hands this file a reason carrying a
  * newline is not asking for a document this estate would issue; it is asking how a row reads a document it
  * was handed, which is the half that stays open: an older issuer, or software that never read that refusal,
- * signs such bytes today and a verifier has to report them rather than drop them. So the hostile reason
- * arrives below the writer, at the same position and in the same encoding the writer would have used for the
+ * signs such bytes and a verifier has to report them rather than drop them. So the hostile reason arrives
+ * below the writer, at the same position and in the same encoding the writer would have used for the
  * placeholder, and nothing about the layout, the ordering or the signature is hand-written here.
  */
 export function anchorReceiptOf(slots: HeldPair, iat: number): Uint8Array {
