@@ -491,15 +491,40 @@ async function bootServing(args: string[]): Promise<ServedGateway> {
   throw new Error(refusal);
 }
 
+/** The prefix the gateway's own banner gives its listening line, spelled as `gateway/src/cli.ts` writes it. */
+const LISTENING_PREFIX = 'signerd (mock) listening on ';
+
+/** The whole of what a boot reads off that line: the port the child says it bound. */
+const LISTENING_PORT = /^signerd \(mock\) listening on http:\/\/127\.0\.0\.1:([1-9]\d*)\s*$/u;
+
+/**
+ * The listening line in the stdout a boot has read so far, or `undefined` where that buffer carries no
+ * terminated one.
+ *
+ * The segment behind the last newline is a line still being written, so it is no candidate: `LISTENING_PORT`
+ * answers a prefix of a port's digits as a port, and a boot that resolved on one would aim its case at a
+ * number nothing holds and report a connection refused where the fault was in the reading.
+ */
+function listeningLine(out: string): string | undefined {
+  const lines = out.split('\n');
+  if (!out.endsWith('\n')) lines.pop();
+  return lines.find((each) => each.startsWith(LISTENING_PREFIX));
+}
+
 /**
  * One boot: start the gateway on `port`, read the listening line that names the port it bound, and hand
  * back that child with the two things a case can do to it. The port the banner named is what the case
- * aims at, not the one this was asked for, so a start that bound something else is read as the port it
- * says it bound. Every road out of here that does not hand a child back stops it first, so a start that
- * never printed, or printed a line naming no port, leaves no process and no socket behind.
+ * aims at, and a banner naming a port this boot never asked for is a banner this helper cannot aim
+ * anything at, so it is refused rather than read. Every road out of here that does not hand a child back
+ * stops it first, so a start that never printed, printed a line naming no port, or named a port it was
+ * not asked for leaves no process and no socket behind.
  */
 async function bootToListeningLine(port: number, args: string[]): Promise<ServedGateway> {
   noteSpawn(BOOT_DEADLINE_MS);
+  // The port this boot asked for, which is the later of two `--port` flags where a case names its own,
+  // because the later of the two is the one the gateway reads.
+  const askedFlag = args.lastIndexOf('--port');
+  const asked = askedFlag === -1 ? port : Number(args[askedFlag + 1]);
   const env = { ...process.env };
   delete env['DSTACK_SIMULATOR_ENDPOINT'];
   const child = spawn(process.execPath, [CLI, '--mock', '--port', String(port), ...args], {
@@ -567,14 +592,21 @@ async function bootToListeningLine(port: number, args: string[]): Promise<Served
       child.once('exit', (code) => giveUp(`the gateway exited with ${String(code)} before it listened`));
       child.stdout.on('data', (chunk: string) => {
         out += chunk;
-        const line = out.split('\n').find((each) => each.startsWith('signerd (mock) listening on '));
+        const line = listeningLine(out);
         if (line === undefined) return;
-        const named = /^signerd \(mock\) listening on http:\/\/127\.0\.0\.1:([1-9]\d*)\s*$/u.exec(line);
+        const named = LISTENING_PORT.exec(line);
         if (named?.[1] === undefined) {
           giveUp(`the listening line names no bound port: ${line}`);
           return;
         }
         bound = Number(named[1]);
+        if (bound !== asked) {
+          giveUp(
+            `the listening line names port ${String(bound)} and this boot asked the gateway for ${String(asked)} ` +
+              `with [--mock --port ${String(port)} ${args.join(' ')}]: ${line}`,
+          );
+          return;
+        }
         clearTimeout(timer);
         resolve(bound);
       });
@@ -1353,6 +1385,51 @@ describe('the port a boot is given', () => {
     },
     bootBudget(1),
   );
+});
+
+/**
+ * The line a boot resolves on, out of the stdout it has read so far.
+ *
+ * A banner arrives as one write on a machine that is not busy and as several on one that is, so the
+ * buffer a boot reads can end inside the line naming the port. A resolver that splits on the newline
+ * alone takes that trailing segment for a line, and the port pattern answers a prefix of the digits as
+ * a port, so the case is aimed at a number nothing holds and reads a connection refused where the fault
+ * was in the helper. Which cut the write happens to land on is the runner's, so this is asked of the
+ * reading rather than left to a boot that usually gets a whole banner.
+ */
+describe('the listening line a boot resolves on', () => {
+  const LINE = 'signerd (mock) listening on http://127.0.0.1:65660';
+  const BEHIND = 'the receipt store holds 0 receipts';
+
+  it('reads no line out of a buffer that ends inside one', () => {
+    // Every cut from the first byte of the prefix to the last byte short of the terminator: a cut
+    // inside the digits names a port nobody bound, and a cut before them names no port at all, so both
+    // are readings a boot has to wait out rather than answer with.
+    for (let width = LISTENING_PREFIX.length; width < LINE.length; width += 1) {
+      expect(listeningLine(LINE.slice(0, width)), `a buffer cut at ${String(width)} bytes read as a line`).toBeUndefined();
+    }
+  });
+
+  it('reads the whole line once its terminator arrives, and the port it names whole', () => {
+    expect(listeningLine(`${LINE}\n`)).toBe(LINE);
+    expect(LISTENING_PORT.exec(listeningLine(`${LINE}\n`) ?? '')?.[1]).toBe('65660');
+    // A banner behind the listening line does not move the answer, and a buffer ending inside that
+    // banner does not unmake it either, because the line the boot wants already holds its terminator.
+    expect(listeningLine(`${LINE}\n${BEHIND}\n`)).toBe(LINE);
+    expect(listeningLine(`${LINE}\n${BEHIND}`)).toBe(LINE);
+  });
+
+  it('reads the line out of cuts no resolver chooses, one chunk at a time', () => {
+    const cuts = [LINE.slice(0, 30), LINE.slice(30), '\n', `${BEHIND}\n`];
+    let out = '';
+    const read: Array<string | undefined> = [];
+    for (const chunk of cuts) {
+      out += chunk;
+      read.push(listeningLine(out));
+    }
+    // Nothing resolves until the terminator of the line arrives, and everything after it does.
+    expect(read).toEqual([undefined, undefined, LINE, LINE]);
+  });
 });
 
 /**
