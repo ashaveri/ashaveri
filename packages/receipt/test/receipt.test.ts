@@ -259,9 +259,9 @@ describe('COSE_Sign1 receipt codec', () => {
     expect(claimsConfidentialDevice('software')).toBe(false);
   });
 
-  it('refuses a receipt signed under the superseded card-named composite', () => {
+  it('refuses a receipt signed under a card-named composite label', () => {
     // Signed past issueReceipt rather than built through it: the point is that a
-    // verifier no longer recognises the label, so the bytes have to exist first.
+    // verifier does not recognise the label, so the bytes have to exist first.
     const key = generateSigningKey();
     const foreign = signCoseSign1(
       encodePayload(samplePayload({ meas: { tee: 'snp+h100cc' as never, m: new Uint8Array(48).fill(7) } })),
@@ -543,13 +543,13 @@ describe('the protected header closes and the unprotected one does not', () => {
     );
     expect(bstrLabel.message).toBe(`${UNDECLARED_LABEL_REFUSAL} a bstr label of length 3`);
 
-    // And the two keys that are integers, just not integers a label can be. This is the case where the
-    // message used to claim the opposite of the truth: a tag 2 bignum, and a CBOR integer the encoder
-    // wrote in major type 0 but too wide for the decoder to hand back as a `number`, both arrive as
-    // `bigint`, which is an integer outside the range a COSE label occupies. Calling either "not an
-    // integer" points whoever reads the log at a type bug rather than at the label space, which is the
-    // one place the document is wrong. The second is here because it is not a bignum on the wire at
-    // all, and a message that named it one would be the same defect wearing a different word.
+    // And the two keys that are integers, just not integers a label can be: a tag 2 bignum, and a CBOR
+    // integer the encoder writes in major type 0 but too wide for the decoder to hand back as a
+    // `number`, both arrive as `bigint`, which is an integer outside the range a COSE label occupies.
+    // Calling either "not an integer" points whoever reads the log at a type bug rather than at the
+    // label space, which is the one place the document is wrong. The second is here because it is not a
+    // bignum on the wire at all, and a message that named it one would be the same defect wearing a
+    // different word.
     const bignumLabel = expectFailure(
       () =>
         decodeReceipt(
@@ -2090,9 +2090,10 @@ describe('a position the CDDL writes `int` reads one CBOR major type', () => {
       expectFailure(() => decodeReceipt(bytes), 'BAD_PROTECTED_HEADER');
     }
 
-    // The shape that used to read as a well-formed header outright: the float label and no integer
-    // one beside it. The map held one key, that key was a number, and the number was one the format
-    // names, so a reader looking at the map could not tell it from the declared header above.
+    // The shape that reads as a well-formed header outright unless the major type is checked: the float
+    // label and no integer one beside it. The map holds one key, that key is a number, and the number is
+    // one the format names, so a reader looking at the map alone cannot tell it from the declared header
+    // above.
     const floatAlg = new Map<unknown, unknown>([
       [encodedNumber(COSE_HEADER_ALG, 'f16'), ALG_EDDSA],
       [COSE_HEADER_CONTENT_TYPE, RECEIPT_CONTENT_TYPE],
@@ -2112,8 +2113,8 @@ describe('a position the CDDL writes `int` reads one CBOR major type', () => {
       ).toContain('floating point');
     }
 
-    // And the one label whose value is an integer, carrying that value as a float. The reader used to
-    // compare -8.0 against -8, find them equal, and report EdDSA.
+    // And the one label whose value is an integer, carrying that value as a float. A reader that
+    // compares -8.0 against -8 finds them equal and reports EdDSA.
     const floatedAlg = new Map<unknown, unknown>([
       [COSE_HEADER_ALG, encodedNumber(ALG_EDDSA, 'f16')],
       [COSE_HEADER_CONTENT_TYPE, RECEIPT_CONTENT_TYPE],

@@ -276,7 +276,7 @@ names the kid it was sealed under, and the run reports which designation it cons
 
 ## Attestation collateral
 
-**What the verifier does today.** It checks signatures and certificate chains offline, against the
+**What the verifier does.** It checks signatures and certificate chains offline, against the
 roots bundled in `@ashaveri/attest-core` or the roots you pass it, and it consults no vendor endpoint
 for attestation collateral, and that includes our own. The consequence is written down rather than
 smoothed over: with a pinned Intel root, a TDX quote is verified under its attestation key, that key
@@ -296,7 +296,7 @@ us.
 **The planned collateral service.** This project will run a service publishing exactly
 the collateral named above: the TCB info, the QE identity and the revocation status, and the reference
 measurements a device verdict needs, all fetched from Intel's, AMD's and NVIDIA's own endpoints and
-republished, offered as a convenience and as a second source. Nothing of it exists yet: no endpoint
+republished, offered as a convenience and as a second source. Nothing of it exists: no endpoint
 runs, and nothing a shipped command does asks one, because the fetching code is a call a caller makes
 rather than a step any path here takes. Three things accompany it. A deployer who declines the service
 gives up nothing, because a feed is a second source and not a precondition, and no verdict a third party
@@ -311,16 +311,15 @@ origin, and weighing answers only for material of the envelope the origin's decl
 documents present their certificates in a header beside the body, so a pack states a signed reference per
 held slot and material handed in beside its chain digest is weighed rather than refused at the envelope;
 [docs/pack-v1.md](docs/pack-v1.md) states what a reference answers for, and what a reader that reaches
-nothing is told instead. None of it reaches an
-attestation verdict. `ashaveri verify`
-consults no vendor endpoint and no attached material, so a quote verified under a pinned root still says
-nothing about whether that vendor stands behind the platform.
+nothing is told instead. None of it reaches an attestation verdict. `ashaveri verify` consults no vendor
+endpoint and no attached material, so a quote verified under a pinned root still says nothing about
+whether that vendor stands behind the platform.
 
-**What stays the deployer's if the service is declined.** The freshness judgement, entirely, exactly
-as it is today. Either source the collateral directly, from Intel's provisioning certification
-endpoints, AMD's KDS and NVIDIA's revocation and reference measurements, and hand it to the verifier
-through its own options, or accept the documented residual risk in
-[docs/threat-model.md](docs/threat-model.md) and say so plainly in your own deployment's
+**What stays the deployer's if the service is declined.** The freshness judgement, entirely, and
+on the same terms whether or not the service exists. Either source the collateral directly, from
+Intel's provisioning certification endpoints, AMD's KDS and NVIDIA's revocation and reference
+measurements, and hand it to the verifier through its own options, or accept the documented residual
+risk in [docs/threat-model.md](docs/threat-model.md) and say so plainly in your own deployment's
 documentation. A pinned root answers who signed something. It answers nothing about whether the
 platform behind that signature is still trusted by its vendor, and this repository's documents are
 written so that a deployer finds that out by reading them rather than by being attacked.

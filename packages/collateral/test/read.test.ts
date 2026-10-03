@@ -109,8 +109,8 @@ describe('the signed collateral document', () => {
 
   /**
    * The QE Identity window and levels sit inside `enclaveIdentity`, which is the position the served body
-   * states. Here they sit at the top of the payload, which is where this path used to read them, and where
-   * the served answer states nothing at all but that wrapper and a signature.
+   * states. This case puts them at the top of the payload instead, a position the served answer states
+   * nothing about beyond that wrapper and a signature.
    */
   it('refuses a QE identity whose window sits at the top of the payload instead of inside the wrapper', () => {
     const bytes = signedDocument({ issueDate: LEVEL_DATE, nextUpdate: NEXT_UPDATE, tcbLevels: [] }, vendor);
@@ -156,9 +156,9 @@ describe('the signed collateral document', () => {
 
   /**
    * The levels hang under `tcbLevels` in every body fetched for the citation at `intel-origin.ts`. Spelled
-   * `tcb`, which is what this package read until the list member was settled, the list is not there at all.
+   * `tcb`, the list is not there at all.
    */
-  it('refuses a document that spells its level list the way this repository used to spell it', () => {
+  it('refuses a document that spells its level list `tcb` rather than `tcbLevels`', () => {
     const bytes = signedDocument(
       {
         tcbInfo: {

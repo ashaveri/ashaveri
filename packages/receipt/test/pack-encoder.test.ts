@@ -458,7 +458,7 @@ describe('the pack writer', () => {
  * from the anchor to the head is part of what that reader refuses over. These cases are the difference between
  * a document that contradicts itself, which the structural parse answers, and a document whose links do not
  * add up to the endpoints it names, which only a walk sees. The second is what a deployment reaches when its
- * window is not contiguous in chain order, and every one of these bytes used to leave the writer signed.
+ * window is not contiguous in chain order, and a seal that does not walk the run signs every one of these bytes.
  *
  * Both directions are pinned, and the accept side is pinned as a digest rather than as a shape: a guard that
  * moved a byte of arithmetic would show up here as surely as a missing guard shows up in the refusals.

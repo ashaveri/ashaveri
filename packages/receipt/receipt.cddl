@@ -16,27 +16,24 @@ Ashaveri-Protected-Header = {
 }
 
 ; A receipt's version says what its fields attest, not which software wrote them. This format declares
-; one version, `v: 1`, and it carries the seventeen members the three numbers it replaced used to spell
-; out: the twelve a document has always carried, then `mk` so a mark is attested rather than passed over,
-; then `sd` (the source the issuance stamp was read from and the bound that source declares on itself),
-; `cva` (what became of the two pieces of context the appraisal of the evidence ran on) and `itm` (one
-; entry per response item). No member changed name, order, width or meaning in the collapse, and none was
-; added.
+; one version, `v: 1`. The payload under it carries seventeen members, four of which exist so that a
+; silence cannot pass for a statement: `mk` so a mark is attested rather than passed over, `sd` for the
+; source the issuance stamp was read from and the bound that source declares on itself, `cva` for what
+; became of the two pieces of context the appraisal of the evidence ran on, and `itm` for one entry per
+; response item.
 ;
 ; A version number moves when bytes carrying the old number exist that a reader must refuse, and not
-; otherwise. Nothing outside this repository has ever held a receipt: `@ashaveri/receipt` is unpublished,
-; the package version is `0.1.0`, and no party was handed a document bearing `1`, `2` or `3`. So the
-; history those three numbers told was internal, and the members stayed while the number that named them
-; was settled on the one a reader of these bytes has to be able to open. Silence is still what each of the
-; five added members refuses: a reader that took a mark, a stamp's source, an appraisal's context and a
-; response's items and dropped them would verify a receipt that states nothing about any of them, and a
-; receipt is a document that states. That is why all five are required rather than optional members of
-; the number that has always been read.
+; otherwise: where no such bytes exist there is no document for a second number to be a rule about, so
+; one number names the shape a reader opens. Silence is what those four each refuse: a reader that took
+; a mark, a stamp's source, an appraisal's context and a response's items and dropped them would verify
+; a receipt that states nothing about any of them, and a receipt is a document that states. Every member
+; of the block is required rather than optional, because an optional member is a silence a reader has to
+; guess at.
 ;
-; A payload map is closed, and the absence of `...` below is that rule rather than an oversight: a member
-; this file does not define, including one a retired number used to name, makes the document invalid. It
-; is not read with the unexpected member dropped. A document naming any number but `1` is refused as a
-; version, with the number named back to the reader, before one member of it is read.
+; A payload map is closed, and the absence of `...` below is that rule rather than an oversight: a
+; member this file does not define makes the document invalid. It is not read with the unexpected
+; member dropped. A document naming any number but `1` is refused as a version, with the number named
+; back to the reader, before one member of it is read.
 Ashaveri-Receipt-Payload = Ashaveri-Receipt-Payload-v1
 
 Ashaveri-Receipt-Payload-v1 = {

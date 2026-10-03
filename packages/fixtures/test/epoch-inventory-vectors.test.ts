@@ -213,12 +213,12 @@ describe('the published epoch inventory vectors', () => {
     // the same published roster and a rule kept per file is a rule one file can quietly stop following. What is
     // specific to this one is where the naming columns come from: this file publishes them as
     // `layout.rowNamingFields`, so the generator's list is what is compared rather than a copy of it written
-    // here, which is where `site` and `guard` had been left undeclared.
+    // here.
     //
-    // The list this file publishes is also the list those four siblings are handed, one list written in two
-    // places with nothing reading one against the other until here: each test took one or the other, so a
-    // generator-side rename of a naming column left the shared list standing beside a file that no longer named
-    // it while every roster equality stayed true. Compared as sets, because the order is what the rows' own
+    // The list this file publishes is also the list those four siblings are handed: one list written in two
+    // places, and a test that reads only one of them proves that one. Each test takes one or the other, so a
+    // generator-side rename of a naming column would leave the shared list standing beside a file that does not
+    // name it while every roster equality stays true. Compared as sets, because the order is what the rows' own
     // bytes state and no reader depends on where a list of naming columns puts a name.
     expect(
       [...file.layout.rowNamingFields].sort(),

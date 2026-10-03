@@ -339,8 +339,8 @@ describe('ashaveri accesslog scrub', () => {
     // and un-caught it reaches the terminal as a multi-line stack beside a leftover `.tmp-` file no
     // retention sweep will ever match. Windows is excluded for a reason measured rather than assumed:
     // its obstacle is the part's own read-only attribute, and a part found at a mode with no owner write
-    // bit is now refused before this run writes anything at all, so a Windows fixture here gates the
-    // permission sentence of the next two cases and not the write failure this one names. That write
+    // bit is refused before this run writes anything at all, so a Windows fixture gates the permission
+    // sentence of the next two cases and not the write failure this one names. That write
     // failure is still reached on either system one level down, by the planted temporary in the block
     // below and by the writer's own case in `test/atomic.test.ts`. This obstacle holds only for a uid the
     // operating system lets be refused.

@@ -189,7 +189,7 @@ function popRequest(options: PopRequestOptions): AdmissionInput {
 /**
  * Which record the probe's name resolves to. There is no state here for a `pop` record with no key
  * of the width its kind needs: the store refuses one when it takes its records, so a case that
- * wanted to stand for it would have no store to run against, and the refusal it used to pin is
+ * wanted to stand for it would have no store to run against, and the refusal such a case would pin is
  * pinned at construction instead.
  */
 type Identity = 'known' | 'unknown' | 'revoked' | 'other-kind';

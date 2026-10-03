@@ -501,7 +501,7 @@ describe('the pack CDDL and its JSON twin', () => {
     );
     // And every name under `$defs` is reached from the document: by the manifest, by one of its
     // members, or by a member of a map a member opens. A helper left behind is a second answer to a
-    // width the format no longer states, and it is invisible to an assertion that only walks down.
+    // width the format does not state, and it is invisible to an assertion that only walks down.
     const reached = new Set<string>(definitionsByRule(CDDL).map(({ name }) => name));
     for (const { def } of definitionsByRule(CDDL)) {
       for (const member of Object.values(required(def.properties, 'a definition with no properties'))) {

@@ -76,19 +76,18 @@ export interface TokenMetering {
 }
 
 /**
- * The payload versions this package reads, the one place that set is written. It holds one version,
- * because nothing outside this repository holds bytes bearing another: `@ashaveri/receipt` is unpublished,
- * the package version is `0.1.0`, and no party outside this estate has ever been handed a receipt. A
- * version number is a demand on readers, and a number no reader outside these files was ever asked to
- * refuse earns its keep by nothing.
+ * The payload versions this package reads, the one place that set is written. It holds one version. A
+ * version number is a demand on readers, and a number no bytes were written under earns its keep by
+ * nothing, so a second number enters this list when a document bearing it exists and a reader has to
+ * refuse it.
  *
- * So this one version carries what the retired numbers used to: `mk`, because a reader that found nothing
- * about a mark would verify a receipt over an unmarked response as readily as over a marked one, which is
- * silence read as a claim. `sd`, `cva` and `itm` for the same reason three times over: a reader that took
- * a stamp's source, an appraisal's context and a response's items and dropped them would verify a receipt
- * whose stamp names no source, whose appraisal recorded no context, and whose response holds no items. No
- * member changed name, type, order or meaning in the collapse, and no member was added: the seventeen
- * names below are the ones the newest retired version already spelled, at the same seventeen positions.
+ * That one version carries all seventeen members. `mk`, because a reader that found nothing about a mark
+ * would verify a receipt over an unmarked response as readily as over a marked one, which is silence read
+ * as a claim. `sd`, `cva` and `itm` for the same reason three times over: a reader that took a stamp's
+ * source, an appraisal's context and a response's items and dropped them would verify a receipt whose
+ * stamp names no source, whose appraisal recorded no context, and whose response holds no items. All
+ * seventeen are required rather than optional, because an optional member is a silence a reader has to
+ * guess at.
  */
 const PARSED_VERSIONS = [1] as const;
 

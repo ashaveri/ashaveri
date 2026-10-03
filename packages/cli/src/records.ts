@@ -214,9 +214,9 @@ function normalizeFile(value: unknown, path: string): CredentialFile {
   if (raw.version !== CREDENTIALS_FILE_VERSION) {
     throw new UsageError(`${path} has version ${String(raw.version)}, this build writes ${String(CREDENTIALS_FILE_VERSION)}`);
   }
-  // The ceiling used to live only on the write path, which left `list` printing a table of records
-  // over a file no gateway will load and `revoke` reporting success against it. Checked here, before
-  // a row is built, because the refusal is about the whole file and not about a record in it.
+  // A ceiling checked only on the write path would leave `list` printing a table of records over a file
+  // no gateway will load and `revoke` reporting success against it. Checked here, before any row,
+  // because the refusal is about the whole file and not about a record in it.
   if (raw.credentials.length > MAX_CREDENTIALS) {
     throw new UsageError(
       `${path} holds ${String(raw.credentials.length)} records, which exceeds the ${String(MAX_CREDENTIALS)} a gateway will scan per request`,

@@ -157,10 +157,10 @@ describe('the evidence pack vectors', () => {
   });
 
   it('states the two ceilings as the figures the reader enforces', () => {
-    // Both ceilings used to appear in this sentence as words, which is a claim that stays true when the number
-    // under it moves. The generator reads the two figures out of `packages/receipt/src/pack.ts`, so what the
-    // published rule prints is the figure the reader refuses on, and this case is what notices if the prose and
-    // the constants part again.
+    // A ceiling spelled as a word in this sentence would be a claim that stays true when the number under it
+    // moves. The generator reads the two figures out of `packages/receipt/src/pack.ts`, so what the published
+    // rule prints is the figure the reader refuses on, and this case is what notices if the prose and the
+    // constants part.
     const rule = file.layout.custodyRule;
     expect(typeof rule, 'the suite publishes no custody rule').toBe('string');
     if (typeof rule !== 'string') return;

@@ -47,7 +47,7 @@ import {
  * inside the pack check is the shipped one and the anchor slots are read from signed bytes the same way the
  * command reads them. One member is written after that layout and before the signature: the writer refuses an
  * attested text member carrying text that would forge the line it is printed on, and a case whose point is that
- * a reader still has to report such a sentence is about a document this estate will no longer make but another
+ * a reader still has to report such a sentence is about a document this estate does not make and another
  * issuer can hand over. `anchorReceiptOf` says which member that is put in afterwards, and why a reader's corpus
  * is the one place it has to be.
  */

@@ -17,8 +17,8 @@ import { GuestError, type GpuEvidenceBundle, type GuestApi, type GuestKey } from
 import { noteSpawn } from './support/spawn-budget.js';
 
 /**
- * The child this file starts used to carry no deadline at all, so a verify that never returned waited
- * forever rather than failing as itself. Eight seconds is the patience the sibling files give the same
+ * A child this file starts carries a deadline: without one, a verify that never returns waits forever
+ * rather than failing as itself. Eight seconds is the patience the sibling files give the same
  * command, and it is far past the measured cost of the refusal and the acceptance each case asks for.
  */
 const VERIFY_DEADLINE_MS = 8_000;

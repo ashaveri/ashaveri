@@ -27,10 +27,10 @@ interoperable, robust and reliable "as far as this is technically feasible, taki
 specificities and limitations of various types of content, the costs of implementation and the
 generally acknowledged state of the art". What the marking work here is about is a mechanism and a
 signed record that the mechanism was applied to one particular response, and A7 says how much of
-either this repository contains today. Whether a given deployment is that provider, or is serving
+either this repository contains. Whether a given deployment is that provider, or is serving
 one, is a fact about the deployment and the system it runs, and this document does not decide it.
 Two dates from the consolidated text as amended by
-Regulation (EU) 2026/1744 are the ones the marking work is planned against. Article 50 sits in
+Regulation (EU) 2026/1744 are the two the marking mechanism below is read against. Article 50 sits in
 Chapter IV, which Article 113 does not carve out of the general date of application, so the
 transparency obligations run from 2 August 2026. Article 111(4) then gives providers of AI systems
 generating synthetic content that were on the market before 2 August 2026 until 2 December 2026 to
@@ -113,7 +113,7 @@ the mechanism described below is a mark plus the evidence of a mark, not a certi
 ## 4. Assumptions
 
 - Ed25519 is unforgeable and sha256 is collision and preimage resistant for the horizon that
-  matters. Both are generously conservative assumptions today.
+  matters. Both are generously conservative assumptions.
 - The client's policy is obtained and stored through a trusted path. A corrupted policy
   corrupts every guarantee in this document.
 - Nonces come from a cryptographic RNG. A predictable nonce weakens replay protection.
@@ -137,7 +137,7 @@ the mechanism described below is a mark plus the evidence of a mark, not a certi
 | T10 | DoS: gateway refuses to serve receipts | Receipt and evidence fetches retry with a short window, then fail closed as `RECEIPT_NOT_FOUND` or `EVIDENCE_NOT_FOUND` rather than falling back to unverified acceptance | Availability is out of scope |
 | T11 | Side channels on prompt content via receipts | Receipts contain hashes and counts only, never content | Hashes reveal content length implicitly (already visible in the response) |
 | T12 | Strict mode: gateway serves evidence from other work, another instance, or one not matching the receipt | The client recomputes the expected report data from its own nonce and request bytes, requires `sha256(document) == att.d`, requires the quote's platform to agree with the receipt's `tee` (a `software` receipt is refused before the fetch), and requires the measured launch digest to equal `meas.m` | Collateral freshness. The signature chain is checked against a pinned vendor root, but TCB Info, the QE identity and the CRL are not consulted, so a since-revoked platform still verifies |
-| T13 | Strict mode: a receipt bearing a composite `tee` claims a confidential GPU the deployment does not have, or quotes a device report captured for someone else | The label is only ever an operator's request, and the gateway will not start under it unless one of its accelerators signs that deployment's standing challenge. The platform's agent collects that report today; the settled direction is for the vendor's own tool to run inside the deployment's container instead, which emits the same bundle format, so the client's checks stay checks on the bytes rather than on who collected them. Strict mode then fetches the device document for the client's own challenge and requires a report whose signature chains to a pinned NVIDIA device root and whose signed challenge matches | Residual trust in one label choice: the operator picks the composite and the gateway confirms only that its platform quote and a device report answer the same challenge. See section 6 |
+| T13 | Strict mode: a receipt bearing a composite `tee` claims a confidential GPU the deployment does not have, or quotes a device report captured for someone else | The label is only ever an operator's request, and the gateway will not start under it unless one of its accelerators signs that deployment's standing challenge. The platform's agent collects that report on an image that offers the route; the settled direction is for the vendor's own tool to run inside the deployment's container instead, which emits the same bundle format, so the client's checks stay checks on the bytes rather than on who collected them. Strict mode then fetches the device document for the client's own challenge and requires a report whose signature chains to a pinned NVIDIA device root and whose signed challenge matches | Residual trust in one label choice: the operator picks the composite and the gateway confirms only that its platform quote and a device report answer the same challenge. See section 6 |
 | T14 | A bearer credential is stolen, and someone else presents it | `--allow-bearer` is off by default, and it is deployment-wide rather than per credential, so a process is bearer-capable or it is not and one convenience fallback cannot be introduced for a single record. A bearer secret is held only as its SHA-256 and every stored digest is compared in a loop that does not exit early on the first differing byte, so a wrong secret reveals nothing about which one was close. Each record a bearer secret admitted writes `auth=bearer` on its own line, so the log says which posture produced it rather than the widest thing the process tolerates | The start-up banner states this and this document does not soften it: a stolen bearer credential is undetectable, and a log record cannot tell its holder from a thief. The secret is the whole credential, it does not expire on its own, and it authorizes any request its scopes allow from any address. A bearer path also has no replay step at all, because it has no signed nonce to check |
 | T15 | Refusals used as an oracle to enumerate which credential ids a deployment has issued, or which paths it has scoped | On both paths the answers are collapsed. Bearer: a secret matching no stored digest and a revoked record both end as `AUTH_UNKNOWN`, because the digest scan passes over a revoked record as though it had never existed, and a distinct answer would tell a prober which ids the file holds and which were once live. Proof of possession: a `credential` this file does not carry, and a name whose record is a bearer one with no key to verify against, are refused through the same code path as a failed signature and with the same code, `AUTH_SIGNATURE`, after one Ed25519 verification against a key that is in no credential file and whose result is discarded rather than read. The timestamp window and the presented nonce are checked before the file is consulted, so they answer alike whoever the header names, and what the file says about a record it holds is told only to a request whose signature verified. An unlisted target is read off the route table first but answered only at the scope check, so a caller who presented nothing usable is refused for that (`AUTH_MALFORMED`, `AUTH_SCHEME`) and learns nothing about the path, whether or not the server registered it. Rate limiting cannot be turned into an oracle either: the credential's bucket is taken at the last check, after scope, so an id the file does not hold is refused before any credential budget is consulted, and the one budget taken ahead of that, the request bound held on the connection address, is taken from every request whoever it names and answers with the same words whether or not the file holds the id the header wrote. That answer is what the caller catches, and it is unchanged by the record's separation: a refusal of this bound writes `PEER_RATE_LIMITED` to the access log's `deny` field where a credential over its own rate writes `RATE_LIMITED`, and the line sits inside the trust boundary the response sits outside, so nothing a caller is handed distinguishes the two by a code it can branch on | What an unauthenticated guesser learns is closed; what a stopwatch and a key holder learn is not. A lookup that hits and a lookup that misses do not take the same time, and an unknown name costs one verification rather than a map read, which makes the two paths do the same work rather than the same number of nanoseconds: nothing here measures or bounds that difference, and no constant-time claim belongs in this row. Behind a valid signature the answers are specific by design, revoked, replayed, out of scope, over limit, because that caller is the one who can act on them. A `SCOPE_DENIED` refusal still says in its message whether the table has no row for the target or the credential lacks the row's scope, so paths remain enumerable from inside, by a credential this deployment issued. None of this makes the credential file invisible to the people who hold it: an operator, a reader of that volume, or anything that can write it knows every id in it, and the access log names the id a refused request presented even where the response never acknowledged it. The bearer digest scan's cost also grows with the size of the credential file rather than with how close a guess was |
 | T16 | A receipt id reaches someone it was not issued to, in a log line, a proxy access record, or a pasted URL, and that holder reads whose credential minted it, or walks the deployment's other receipts | This gateway mints every id itself: sixteen hex tag characters then thirty-two hex characters from a fresh draw, replacing the upstream-chosen id a counter or a timestamp could have made walkable. The tag is `HMAC-SHA256(namespaceKey, credentialId)` truncated to eight bytes, and the namespace key is an HKDF over the deployment's own Ed25519 signing seed, so a holder of an id cannot reverse the tag into a credential id and cannot compute the tag for one: neither is possible without the seed. The fetch route then asks whether the presenting credential's own tag heads the id and serves nothing when it does not, which is why no ownership state is kept that could drift out of step with the receipts it governs | Linkability, not identification, plus the operator's own reach, which is the reading [access-control.md](access-control.md) section 8.3 gives. Two ids carrying one tag came from one credential, so anyone who sees both knows they belong together; and the deployment holding the seed can compute each credential's tag and so name the credential behind any id shown to it. An erasure does not close either: the tag is not a log field, it is a prefix of the id, and the receipt chain is append-only, so scrubbing a credential's lines leaves every id it ever read in place. See section 6 |
@@ -348,8 +348,8 @@ What is still true, in both modes:
   open the file, while retiring an aged prefix is written down as a record saying how many it
   dropped. What it cannot do is resist an operator who holds every record and rebuilds the file
   from scratch. Catching that needs the chain head kept somewhere the operator does not control
-  and compared for continuity across windows, and no client does that yet. There is no runtime key
-  rotation either: `--epk` publishes the epoch of the key a process started with, so rotating
+  and compared for continuity across windows, which no client of this repository does. There is no
+  runtime key rotation either: `--epk` publishes the epoch of the key a process started with, so rotating
   means a new deployment with a new `--key-path` and a higher epoch.
 - **A sealed manifest is available to a deployment, not owed by one.** `signerd --live` wraps the
   manifest in a COSE_Sign1 only when an operator names a second guest key path with
@@ -475,13 +475,13 @@ What is still true, in both modes:
 
 The SDK's `strict` mode verifies receipts and the manifest against pins and then fetches and
 deep-verifies the evidence each receipt commits to. What remains unproven is the end-to-end run:
-strict mode has accepted captured vendor-signed evidence replayed into a locally issued receipt,
-but no client has yet completed one against a live CVM. The composite case has not even been
-replayed: the published NVIDIA fixture signs the challenge named in its own provenance, not one
-this suite controls, so no report a vendor signed can answer a challenge the tests invent, and
-both legs together are covered only by live hardware. Until that has happened, the honest
-summary is: receipts deliver byte-level integrity and provenance, the hardware gate is implemented
-and tested against captured evidence rather than demonstrated live.
+strict mode accepts captured vendor-signed evidence replayed into a locally issued receipt, and
+no client has completed one against a live CVM. The composite case is not replayed at all: the
+published NVIDIA fixture signs the challenge named in its own provenance, not one this suite
+controls, so no report a vendor signed can answer a challenge the tests invent, and both legs
+together are covered only by live hardware. The honest summary is: receipts deliver byte-level
+integrity and provenance, and the hardware gate is implemented and tested against captured
+evidence rather than demonstrated live.
 
 ## 7. Relationship to attest-core
 
@@ -490,11 +490,10 @@ AMD ARK, report signatures, TCB, runtime event logs, measurement values, and the
 device reports behind a composite claim. Where each anchor that package pins was read from, on
 which day, and under which licence class its source published it, is one row each of the anchor
 provenance ledger, printed in [trust-anchors.md](trust-anchors.md). The receipt's `att` field is
-the designed rendezvous point: once the gateway must present evidence whose digest matches `att.d`,
-freshness within
-`att.ts`, and a measurement consistent with `meas`, the T7 "consistent lying" residual shrinks
-from "trust the gateway's self-description" to "trust the hardware's measurement." The
-integration sequencing is deliberately staged: the
-receipt format and client verification shipped first, so the hardware gate changes the
-gateway, not the clients. Strict mode is where that rendezvous is consumed, and consuming it
-added one step inside an existing mode rather than a new client API.
+the designed rendezvous point: once the gateway must present evidence whose digest matches
+`att.d`, freshness within `att.ts`, and a measurement consistent with `meas`, the T7 "consistent
+lying" residual shrinks from "trust the gateway's self-description" to "trust the hardware's
+measurement." The integration is deliberately staged: the receipt format and client verification
+are the settled halves, so the hardware gate changes the gateway, not the clients. Strict mode is
+where that rendezvous is consumed, and it is consumed as one step inside an existing mode rather
+than as a new client API.
