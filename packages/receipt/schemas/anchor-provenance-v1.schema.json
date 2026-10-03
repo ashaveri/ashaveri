@@ -30,11 +30,11 @@
           "type": "array",
           "minItems": 1,
           "items": { "$ref": "#/$defs/hex32" },
-          "description": "The key ids the issuer states may stand behind these rows, hex, at least one. Rotation adds a row set and a pin and leaves the old id here for the documents that carry it; a ledger naming no key cannot be pinned by anybody, and a ledger that names a key the reader was not handed is refused whatever this list says"
+          "description": "The key ids the issuer states may stand behind these rows, hex, at least one. Rotation adds a row set and a pin and leaves the old id here for the documents that carry it; a ledger naming no key cannot be pinned by anybody, and a ledger that names a key the reader was not handed is refused whatever this list says. The artifact committed beside the bytes it names carries this member as thirty-two zero bytes, which is the layout saying that no key has sealed those rows, and the seal is made out of band by whoever holds the provenance key"
         },
         "rows": { "type": "array", "minItems": 1, "items": { "$ref": "#/$defs/row" }, "description": "One claim per shipped file, never empty: an empty list would state that nothing ships while the package beside this document ships thirteen things" }
       },
-      "description": "The signed body: the version, the instant it was assembled, the keys the issuer names, and the rows. Closed, so a member this layout does not name is a malformed ledger rather than a ledger read without it."
+      "description": "The body the signature covers: the version, the instant it was assembled, the keys the issuer names, and the rows. Closed, so a member this layout does not name is a malformed ledger rather than a ledger read without it."
     },
     "row": {
       "type": "object",

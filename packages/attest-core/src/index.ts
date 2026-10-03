@@ -9,6 +9,7 @@ export {
   runtimeEventDigest,
   runtimeEventPreimage,
   validateEventLog,
+  toHex,
 } from './events.js';
 export { parseTdxQuote } from './tdx.js';
 export { parseQeReportCertificationData, parseTdxQuoteSignature, verifyTdxQuote } from './tdx-dcap.js';
@@ -57,3 +58,29 @@ export type {
   TdxEvent,
   TdxQuote,
 } from './types.js';
+export {
+  ANCHOR_FAMILIES,
+  ANCHOR_LEDGER_CERTIFICATE_MEMBERS,
+  ANCHOR_LEDGER_CONTENT_TYPE,
+  ANCHOR_LEDGER_DECLARED_PROTECTED_LABELS,
+  ANCHOR_LEDGER_DOCUMENT_MEMBERS,
+  ANCHOR_LEDGER_EARLIEST_SECONDS,
+  ANCHOR_LEDGER_FILES,
+  ANCHOR_LEDGER_FORMAT_VERSION,
+  ANCHOR_LEDGER_LATEST_SECONDS,
+  ANCHOR_LEDGER_ROW_MEMBERS,
+  ANCHOR_LEDGER_VALIDITY_MEMBERS,
+  ANCHOR_LICENCE_CLASSES,
+  encodeAnchorLedger,
+  parseAnchorLedger,
+  sealAnchorLedger,
+  verifyAnchorLedger,
+} from './anchor-ledger.js';
+export type {
+  AnchorFamily,
+  AnchorLedgerDocument,
+  AnchorLedgerReadOptions,
+  AnchorLedgerRow,
+  AnchorLicenceClass,
+  VerifiedAnchorLedger,
+} from './anchor-ledger.js';

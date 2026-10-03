@@ -90,7 +90,14 @@ jobs:
       - run: pnpm -C packages/fixtures generate:pack
       - run: pnpm -C packages/fixtures generate:redaction
       - run: pnpm -C packages/fixtures generate:epoch-inventory
-      - run: git diff --exit-code packages/fixtures/data
+      # The anchor ledger is written by the attestation package rather than the vector package, and the same
+      # rule reaches it: the script is typechecked before it runs, because a generator that compiles wrong can
+      # still emit a document that reads as a plausible statement about the shipped anchors.
+      - run: pnpm --dir packages/attest-core typecheck
+      - run: pnpm --dir packages/attest-core generate:anchor-ledger
+      # Both committed artifacts are checked in one step: a regenerated vector set and a regenerated ledger
+      # are the same finding, that the bytes beside them were written by an earlier run.
+      - run: git diff --exit-code packages/fixtures/data packages/attest-core/data
 
   offline-verifier:
     name: The single-file verifier runs with no installed dependencies

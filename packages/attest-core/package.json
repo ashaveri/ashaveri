@@ -13,13 +13,15 @@
     }
   },
   "files": [
-    "dist"
+    "dist",
+    "data"
   ],
   "scripts": {
     "build": "tsc -p tsconfig.json",
     "test": "vitest run",
     "lint": "eslint .",
-    "typecheck": "tsc -p tsconfig.json --noEmit && tsc -p tsconfig.test.json"
+    "typecheck": "tsc -p tsconfig.json --noEmit && tsc -p tsconfig.test.json && tsc -p tsconfig.scripts.json",
+    "generate:anchor-ledger": "node --experimental-strip-types scripts/anchor-ledger.ts"
   },
   "dependencies": {
     "@ashaveri/receipt": "workspace:*",

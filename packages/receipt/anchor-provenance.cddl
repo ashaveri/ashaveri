@@ -11,10 +11,10 @@
 ; the instant they were taken from it, and the licence that source stated. This file states both halves
 ; member by member, because a claim a stranger cannot check is not evidence.
 ;
-; The document is signed, and the key that signs it is named by the reader's caller rather than by the
-; document. That is a decision, not a gap: the same package that ships these bytes also reads this
-; ledger, and a document that vouched for its own signer would vouch for anything. `keys` below is the
-; issuer's own statement about which keys may stand behind this row set; it is checked against the
+; A ledger travels as a signed document, and the key that signs it is named by the reader's caller rather
+; than by the document. That is a decision, not a gap: the same package that ships these bytes also reads
+; this ledger, and a document that vouched for its own signer would vouch for anything. `keys` below is
+; the issuer's own statement about which keys may stand behind this row set; it is checked against the
 ; sealed header and it does not replace the caller's pin. A reader handed no pin refuses, because a
 ; silent default would turn "nobody decided" into "everybody agrees".
 ;
@@ -22,9 +22,12 @@
 ; accept by code, `packages/receipt/schemas/anchor-provenance-v1.schema.json` is its machine-readable
 ; twin, `packages/attest-core/test/anchor-ledger.test.ts` holds the blocks this file declares, that twin
 ; and the reader's own member lists against each other, and
-; `packages/attest-core/data/anchor-provenance-v1.cbor` is the sealed artifact this layout describes,
-; committed beside the bytes it speaks of. Where a sentence here and those files disagree about a
-; member, the reader is what a client actually runs and this file is wrong.
+; `packages/attest-core/data/anchor-provenance-v1.cbor` is the ledger body this layout describes,
+; committed beside the bytes it speaks of. Those bytes are a payload and not an envelope: the rows are
+; laid out by this file, the seal is made out of band by whoever holds the provenance key, and until
+; that signature exists the body's `keys` member is thirty-two zero bytes, which is the layout saying
+; that no key has sealed these rows. Where a sentence here and those files disagree about a member,
+; the reader is what a client actually runs and this file is wrong.
 ; ---------------------------------------------------------------------------
 
 Ashaveri-Anchor-Provenance = #6.18(COSE_Sign1-Anchor-Provenance-COSE)
