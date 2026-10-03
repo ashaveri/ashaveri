@@ -346,6 +346,11 @@ function main(): void {
     if (!existsSync(join(PACKAGE_ROOT, one.recordedIn))) {
       throw new Error(`${one.file}: the table cites ${one.recordedIn}, which is not in this package`);
     }
+    // The layout calls `origin` a URL, and a source nobody can name as one is a statement a reader cannot
+    // follow. The check is stricter than the reader on purpose: this table is the only writer of these rows.
+    if (!/^https:\/\//u.test(one.origin)) {
+      throw new Error(`${one.file}: the table states an origin that is not an https URL: ${one.origin}`);
+    }
   }
 
   // An assembly instant that predates the newest statement in the row set would be a document claiming to have
