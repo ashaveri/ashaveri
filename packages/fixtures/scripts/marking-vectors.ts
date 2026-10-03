@@ -33,12 +33,11 @@ const encoded = (text: string): Uint8Array => new TextEncoder().encode(text);
 /**
  * The signed document this case is a claim in.
  *
- * Every row of this suite states a verdict, and until now the only reader that could answer it was one
- * holding the rule: the response digest was never checked against a receipt, because no published
- * receipt attested these bytes with a mark that disagreed with them. Signing one over exactly the
- * response and the attested span of each case closes that. `res` is the digest of the whole response the
- * case publishes, so the response check passes and the only thing left standing between a verdict and a
- * refusal is the mark, which is the check `MARK_MISMATCH` exists to name.
+ * Every row of this suite states a verdict, and every row carries beside it the receipt a reader answers
+ * that verdict with, signed over exactly the response and the attested span the row publishes. `res` is
+ * the digest of the whole response the case publishes, so the response check passes and the only thing
+ * left standing between a verdict and a refusal is the mark, which is the check `MARK_MISMATCH` exists to
+ * name.
  *
  * The payload is issued through the same envelope the receipt fixtures are issued under, so the key the
  * published `data/keys/` file names is the key these bytes are signed with, and the `buffered-member`
