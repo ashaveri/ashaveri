@@ -61,7 +61,11 @@ const PROVIDER_URL = 'https://evidence.invalid/provider-chosen-attestation';
 /** The name the shipped clock source gives itself, which is the literal at `HOST_CLOCK_SOURCE`. */
 const HOST_CLOCK_NAME = 'host clock';
 
-/** The clause each anchor reason opens with, at the one site that builds an anchor (`notTakenInAnchor`). */
+/**
+ * The clause each anchor reason opens with, at the site that builds the anchor of an issuance wired with no
+ * appraisal reader (`notTakenInAnchor`). A gateway wired with one authors its reasons at
+ * `gateway/src/appraisal-cache.ts`, and `gateway/test/appraisal-anchor.test.ts` holds those.
+ */
 const COLLATERAL_REASON_OPEN = 'this gateway takes no collateral into issuance';
 const VALIDITY_REASON_OPEN = 'this gateway records no validity context at issuance';
 
@@ -149,11 +153,11 @@ const ATTESTED_TEXT_POSITIONS: readonly {
   { path: 'att.url', source: "the deployment's attestation provider", holds: (_issued, value) => expect(value).toBe(PROVIDER_URL) },
   { path: 'mk.sch', source: 'the marking scheme this process started with', holds: (issued, value) => expect(value).toBe(issued.marking) },
   { path: 'sd.name', source: 'the clock source named at construction, or the shipped host claim', holds: (_issued, value) => expect(value).toBe(HOST_CLOCK_NAME) },
-  { path: 'cva.collateral.reason', source: 'a literal at the one site that builds an anchor', holds: (_issued, value) => expect(value).toContain(COLLATERAL_REASON_OPEN) },
-  { path: 'cva.validity.reason', source: 'a literal at the one site that builds an anchor', holds: (_issued, value) => expect(value).toContain(VALIDITY_REASON_OPEN) },
+  { path: 'cva.collateral.reason', source: 'a literal at the site that builds the anchor of an unwired issuance', holds: (_issued, value) => expect(value).toContain(COLLATERAL_REASON_OPEN) },
+  { path: 'cva.validity.reason', source: 'a literal at the site that builds the anchor of an unwired issuance', holds: (_issued, value) => expect(value).toContain(VALIDITY_REASON_OPEN) },
   { path: 'meas.tee', source: 'the deployment configuration, at a label the format enumerates', holds: (_issued, value) => expect(value).toBe(DECLARED_TEE) },
-  { path: 'cva.collateral.presence', source: 'a literal at the one site that builds an anchor, at a label the format enumerates', holds: (_issued, value) => expect(value).toBe('not-taken-in') },
-  { path: 'cva.validity.presence', source: 'a literal at the one site that builds an anchor, at a label the format enumerates', holds: (_issued, value) => expect(value).toBe('not-taken-in') },
+  { path: 'cva.collateral.presence', source: 'a literal at the site that builds the anchor of an unwired issuance, at a label the format enumerates', holds: (_issued, value) => expect(value).toBe('not-taken-in') },
+  { path: 'cva.validity.presence', source: 'a literal at the site that builds the anchor of an unwired issuance, at a label the format enumerates', holds: (_issued, value) => expect(value).toBe('not-taken-in') },
 ];
 
 /** The marking scheme each arm starts this gateway with, so `mk.sch` is a checked configuration value. */

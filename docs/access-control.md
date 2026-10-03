@@ -545,7 +545,13 @@ gateway out of what its deployment was configured with and what its own code sta
 `ins` from the deployment's configuration, `mdl` from the model ids the operator declares and
 not the spelling a request asked for, `mk.sch` from the marking scheme this process started
 with, `sd.name` from the clock source named at construction, and the two reasons of `cva`
-from literals at `issuance-disclosure.ts`, the one site that builds an anchor. The request
+from literals at whichever site builds an anchor for the wiring this gateway booted with:
+`issuance-disclosure.ts` where no appraisal reader was wired, and `appraisal-cache.ts` where one
+was, which is also the site that turns a digest such a reader held into a `held` slot. What a
+wired reader contributes to those reasons is the cache key it was asked about and, where the entry
+it handed over had closed its own window, the two instants that judgement was made from: the bound
+the vendor document names for itself and the instant the reader judged at. Every one of them is a
+value the deployment's own wiring names, and no request carries any of them. The request
 and the response travel into the document only as digests, at the widths the format states,
 and the one member a caller may write is `nce`, the sixteen nonce bytes it names in
 `x-ashaveri-nonce`, which this gateway draws at random for itself when that header is absent.

@@ -38,27 +38,30 @@ export function stampDisclosureOf(source: TimeSource): StampDisclosure {
 }
 
 /**
- * The anchor of an issuance that took in no appraisal context, which is the only state a gateway that
- * captures no collateral and reads no validity window can put in a payload.
+ * The anchor of an issuance that took in no appraisal context, which is the answer of a gateway wired with
+ * no reader and one of the states a wired gateway answers.
  *
  * The presence is `not-taken-in` in both slots, and that choice is a statement about this collector
  * rather than about the world, which is exactly what the third state exists to keep apart from the
- * second: signed collateral and a validity window are things that exist, and this gateway never puts
- * them in a record. Withholding the version until a collector is wired, or leaving the member out, would
- * return that fact to silence, and the silence is what the member was added to refuse. The reasons say
- * what happened, at the site it happened, so a reader who wants the material knows who to ask and a
- * verifier that refuses this state is refusing a stated gap rather than a malformed document.
+ * second: signed collateral and a validity window are things that exist, and a gateway answering this way
+ * puts neither of them in a record. Withholding the version until a collector is wired, or leaving the
+ * member out, would return that fact to silence, and the silence is what the member was added to refuse.
+ * The reasons say what happened, at the site it happened, so a reader who wants the material knows who to
+ * ask and a verifier that refuses this state is refusing a stated gap rather than a malformed document.
  *
  * Each reason is also bounded by what its site can know. `not-taken-in` is the collector's own sentence
  * and `absent-at-source` is the world's, which is the difference the two labels exist to keep readable,
  * so a reason here that stated that no window ever stood open would be reporting an appraisal this
  * process never ran and letting a reader weigh two different absences by one yardstick. The validity
- * reason says that no window was put into the record and that nothing here looked: the rest is the
- * verifier's to find out, from the evidence this document digests and the pins it holds itself.
+ * reason says that no window was put into the record and that nothing in this process looked: the rest is
+ * the verifier's to find out, from the evidence this document digests and the pins it holds itself.
  *
- * This is the whole of what a gateway that captures nothing can attest, and it stops being true the
- * moment something is wired that can do better: the caller that takes evidence in is the caller that has
- * to answer for what it held.
+ * What this function does not answer is an issuance whose deployment wired an appraisal reader. Such a
+ * gateway reads a cache a scheduled service of its own fills, and `gateway/src/appraisal-cache.ts` turns
+ * what that read answered into an anchor: a digest the cache held inside the window the document named
+ * becomes a `held` slot, and each way of not holding one becomes an absence naming the cache, the key and
+ * the instants the decision was made from. This is the arm of that conversion for a deployment that wired
+ * nothing, and the caller that takes evidence in is the caller that has to answer for what it held.
  */
 export function notTakenInAnchor(): CollateralValidityAnchor {
   return {
