@@ -328,5 +328,7 @@ Code is licensed under [Apache-2.0](LICENSE). The golden conformance vectors in 
 
 What this repository keeps public, and the one rule that decides it, is
 [CONTRIBUTING.md § What stays open, and what does not](CONTRIBUTING.md#what-stays-open-and-what-does-not).
-The same page states this project's patent and design position under the heading
-[Patents and designs](CONTRIBUTING.md#patents-and-designs); in short, it claims none.
+The same page states this repository's patent and design position under the heading
+[Patents and designs](CONTRIBUTING.md#patents-and-designs), and the scope it states is what this
+repository publishes: over that material it claims none, and it asks nothing of anybody who builds a
+verifier, a reimplementation, a marking detector or a deployment from these sources.

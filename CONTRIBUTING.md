@@ -175,23 +175,31 @@ project.
 
 ### Patents and designs
 
-The two sections above are the whole of this project's intellectual-property position, and holding no
-patent position is part of it rather than a gap in it. **No patent or design position is claimed on
-what this repository publishes.** That is stated explicitly rather than being
-left to drift: this project files no patent application on the receipt format, the verification path
-or the output marking, registers no design over any of them, and claims nothing by silence. Openness
-is the stated position, and it is a credible one here for a reason worth naming: receipts of this
-shape were published by others before this repository existed, so the field is already open and a
-position taken on it would be a position over disclosure that is no longer anyone's to keep.
+The two sections above are the whole of this repository's intellectual-property position about what it
+publishes, and holding no patent position is part of it rather than a gap in it. **No patent or design
+position is claimed on what this repository publishes.** That is stated explicitly rather than being
+left to drift: we file no patent application on the receipt format, the verification path or the output
+marking, register no design over any of them, and claim nothing by silence. Openness is the stated
+position, and it is a credible one here for a reason worth naming: receipts of this shape were published
+by others before this repository existed, so the field is already open and a position taken on it would
+be a position over disclosure that is no longer anyone's to keep.
 
-What follows from that is a statement about what this project asserts, not about anybody else's
-rights. This project will not assert a patent or design right against anyone who implements a
-verification path (a client that checks a receipt, a reimplementation of the published format, a
-detector reading the published marking schemes, or a deployment serving this protocol), and that
-includes a competitor. It does not license and cannot speak for a patent some third party may hold
-over the same ground, and nothing in this file warrants that implementing the specification infringes
-nothing. A contributor's position is untouched by this section: what a contributor grants is exactly
-the grant the licence above carries, and no assignment, waiver or additional grant is asked for.
+What follows from that is a statement about what we assert over this repository's material, not about
+anybody else's rights. We will not assert a patent or design right over what is published here against
+anyone who implements a verification path (a client that checks a receipt, a reimplementation of the
+published format, a detector reading the published marking schemes, or a deployment serving this
+protocol), and that includes a competitor. It does not license and cannot speak for a patent some third
+party may hold over the same ground, and nothing in this file warrants that implementing the
+specification infringes nothing. A contributor's position is untouched by this section: what a
+contributor grants is exactly the grant the licence above carries, and no assignment, waiver or
+additional grant is asked for.
+
+The scope in those sentences is the whole of the scope intended, and it is stated twice because a position
+held by silence is a position nobody can check. This section speaks for the material this repository
+publishes. It makes no statement about components that live in another repository, and it takes nothing
+back: what is published here stays published under the licence above, so a reader who builds a verifier, a
+reimplementation, a marking detector or a deployment from this repository holds that licence and needs
+nothing further from us.
 
 ## Vulnerabilities are not bugs
 
