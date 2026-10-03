@@ -1,4 +1,3 @@
-#!/usr/bin/env node
 // Records what a deployment's weights are, so the digest a receipt carries can be
 // traced back to the files the inference server actually loaded.
 import { createHash } from 'node:crypto';

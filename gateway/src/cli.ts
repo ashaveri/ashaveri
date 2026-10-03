@@ -1,4 +1,3 @@
-#!/usr/bin/env node
 import { readFileSync, statSync } from 'node:fs';
 import { parseArgs } from 'node:util';
 import {

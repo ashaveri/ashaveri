@@ -1,4 +1,3 @@
-#!/usr/bin/env node
 import { readFileSync } from 'node:fs';
 import { parseArgs } from 'node:util';
 import { escapeInvisible, UsageError } from './usage.js';
