@@ -378,6 +378,70 @@ describe('the anchor provenance ledger', () => {
   });
 });
 
+describe('the committed ledger, held against the bytes this package ships', () => {
+  const COMMITTED_PATH = new URL('../data/anchor-provenance-v1.cbor', import.meta.url);
+
+  /** Every tracked fixture, under the name a row gives it, since the embedded three resolve from source. */
+  const SHIPPED_BY_ROW_NAME: ReadonlyMap<string, Uint8Array> = new Map<string, Uint8Array>(
+    ANCHOR_LEDGER_FILES.filter((file) => file.startsWith('test/fixtures/')).map((file) => [file, shippedBytesFor(file)]),
+  );
+
+  /**
+   * The artifact read once, through this package's own reader over the bytes it names.
+   *
+   * A file whose bytes moved makes that reader refuse the whole body, and every case below then reports the
+   * refusal instead of comparing values nobody agreed on. That is the honest shape of the finding: the ledger
+   * and the repository disagree, and no row of the ledger stands until the bytes and the document are made to
+   * agree again.
+   */
+  const committed: { readonly document?: AnchorLedgerDocument; readonly refusal: string | null } = (() => {
+    const body = new Uint8Array(readFileSync(COMMITTED_PATH));
+    try {
+      return { document: parseAnchorLedger(body, { shipped: SHIPPED_BY_ROW_NAME }), refusal: null };
+    } catch (err) {
+      return { refusal: err instanceof Error ? err.message : String(err) };
+    }
+  })();
+
+  /** The committed row for one shipped file, or the reader's own refusal of the artifact that holds it. */
+  function committedRow(file: string): AnchorLedgerRow {
+    if (committed.refusal !== null) throw new Error(committed.refusal);
+    const row = committed.document?.rows.find((one) => one.file === file);
+    if (row === undefined) throw new Error(`the committed ledger names no row for ${file}`);
+    return row;
+  }
+
+  // One case per shipped anchor: the artifact's claim about one file, and that file read again here.
+  for (const file of ANCHOR_LEDGER_FILES) {
+    it(`holds the committed row for ${file} to the bytes it names`, () => {
+      const row = committedRow(file);
+      const derived = derivedMembers(shippedBytesFor(file));
+      expect(row.file).toBe(file);
+      expect(row.digest).toEqual(derived.digest);
+      expect(row.subject).toEqual(derived.subject);
+      expect(row.serial).toEqual(derived.serial);
+      expect(row.spki).toEqual(derived.spki);
+      expect(row.validity).toEqual(derived.validity);
+    });
+  }
+
+  it('is a ledger this package reads, over the bytes this package ships', () => {
+    expect(committed.refusal, 'the reader of the shipped artifact').toBeNull();
+    expect(committed.document?.rows).toHaveLength(ANCHOR_LEDGER_FILES.length);
+    expect(committed.document?.rows.map((row) => row.file).sort()).toEqual([...ANCHOR_LEDGER_FILES].sort());
+  });
+
+  it('states one licence class per row and never a class a reader cannot weigh', () => {
+    if (committed.refusal !== null) throw new Error(committed.refusal);
+    for (const row of committed.document?.rows ?? []) {
+      expect(ANCHOR_LICENCE_CLASSES, `${row.file} states a licence`).toContain(row.licence);
+      expect(row.origin.length, `${row.file} names a source`).toBeGreaterThan(0);
+      expect(row.takenAt, `${row.file} states an instant`).toBeGreaterThanOrEqual(ANCHOR_LEDGER_EARLIEST_SECONDS);
+      expect(row.takenAt, `${row.file} states an instant`).toBeLessThanOrEqual(ANCHOR_LEDGER_LATEST_SECONDS);
+    }
+  });
+});
+
 describe('the codec the previous revision wrote beside its own layout', () => {
   it('seals the same document to the same bytes the private codec sealed', () => {
     // The byte-for-byte half of the swap. Every member this file reads out of the fixture is inside these
