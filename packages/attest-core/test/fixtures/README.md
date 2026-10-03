@@ -5,8 +5,8 @@ SPDX-License-Identifier: Apache-2.0
 
 # Platform attestation test fixtures
 
-Real platform attestation, used for offline end-to-end verification tests. The SNP and TDX
-documents were captured from confidential VMs; the GPU report is NVIDIA's own published sample.
+Real platform attestation, used for offline end-to-end verification tests. Where each file's bytes
+came from is stated per file below, and the anchor ledger repeats that statement row by row.
 Nothing is fetched from AMD KDS, Intel PCS or NVIDIA while the tests run.
 
 ## Files
@@ -49,9 +49,9 @@ came from.
   "an example quote generated on an Intel TDX development platform". It is
   therefore genuine Intel-signed evidence rather than a synthetic vector: its
   PCK chain reaches Intel's root CA and both ECDSA P-256 signatures verify. Only
-  the quote bytes were taken, no Go code, but go-tdx-qpl is **AGPL-3.0**, so this
-  one data file is not covered by the repository's Apache-2.0 grant. Replace it
-  with a quote captured from our own CVM if that becomes a problem. Edgeless's
+  the quote bytes were taken and no Go code. go-tdx-qpl is **AGPL-3.0**, so this repository does not
+  claim that its own Apache-2.0 grant reaches this file; it carries the bytes as vendor-signed
+  evidence and names where they came from. Edgeless's
   matching TCB Info collateral expired in 2023, which is one reason this package
   does not check TCB freshness.
 - `intel-sgx-root-ca.pem` is Intel's published SGX provisioning trust anchor,
