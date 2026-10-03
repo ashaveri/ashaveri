@@ -174,13 +174,17 @@ serving side:
 
 What is still true, in both modes:
 
-- **No vendor attestation collateral is fetched by anything in this code today.** With a pinned Intel
+- **No vendor attestation collateral is fetched by anything in this code.** With a pinned Intel
   root, `@ashaveri/attest-core` verifies a TDX quote through Intel DCAP: the quote under its
   attestation key, that key inside the QE report, and the report under a PCK chain reaching the
-  pinned root. Intel's SGX root CA and the AMD Milan ARK are bundled with the package, so SDK
-  `strict` mode verifies against them unless `policy.trustAnchors` says otherwise. Without a root
-  for the platform the receipt claims, the leg is replay-only, so `quoteSignatureVerified` is
-  `false` and the client is checking self-consistency plus its own pins, not an Intel signature.
+  pinned root. Intel's SGX root CA, the AMD Milan ARK and NVIDIA's Device Identity CA are bundled
+  with the package, so SDK `strict` mode verifies against all three unless `policy.trustAnchors`
+  says otherwise. Which source each bundled root was read from, on which day, and under which
+  licence class that source published it, is one row each of the anchor provenance ledger, and
+  [trust-anchors.md](trust-anchors.md) prints those rows beside the rows for every tracked file
+  this repository ships vendor bytes in. Without a root for the platform the receipt claims, the
+  leg is replay-only, so `quoteSignatureVerified` is `false` and the client is checking
+  self-consistency plus its own pins, not an Intel signature.
   In neither mode does the verifier consult Intel TCB Info, the QE Identity or the PCK CRL, and on
   AMD it uses the ASK and VCEK files you supply rather than querying KDS. A platform that is
   genuinely signed but since deprecated or revoked by the vendor therefore still verifies. Checking
@@ -483,8 +487,11 @@ and tested against captured evidence rather than demonstrated live.
 
 `@ashaveri/attest-core` verifies attestation evidence: certificate chains against a pinned
 AMD ARK, report signatures, TCB, runtime event logs, measurement values, and the NVIDIA SPDM
-device reports behind a composite claim. The receipt's `att` field is the designed rendezvous
-point: once the gateway must present evidence whose digest matches `att.d`, freshness within
+device reports behind a composite claim. Where each anchor that package pins was read from, on
+which day, and under which licence class its source published it, is one row each of the anchor
+provenance ledger, printed in [trust-anchors.md](trust-anchors.md). The receipt's `att` field is
+the designed rendezvous point: once the gateway must present evidence whose digest matches `att.d`,
+freshness within
 `att.ts`, and a measurement consistent with `meas`, the T7 "consistent lying" residual shrinks
 from "trust the gateway's self-description" to "trust the hardware's measurement." The
 integration sequencing is deliberately staged: the

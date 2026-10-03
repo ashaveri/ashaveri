@@ -286,7 +286,10 @@ queried; a confidential-computing GPU's chain is verified under the device root 
 revocation information and reference driver and VBIOS measurements go unread as well. So a platform
 that its vendor has since deprecated or revoked still verifies here, which is what
 [docs/threat-model.md](docs/threat-model.md) row T12 and section 6 say in the same terms. That is a
-property of an offline check and it is deliberate. The evidence document reaches a client from the
+property of an offline check and it is deliberate. Which source each bundled root was read from, on
+which day, and under which licence class that source published it, is one row each of the anchor
+provenance ledger, and [docs/trust-anchors.md](docs/trust-anchors.md) prints those rows beside the
+rows for every vendor file this repository tracks. The evidence document reaches a client from the
 deployment's own evidence URL, in `strict` mode, and that fetch is to the deployment rather than to
 us.
 

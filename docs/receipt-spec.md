@@ -676,6 +676,12 @@ steps are one receipt.
    neither vendor's signature covers the other's bytes, so a client holding no device
    report has not verified the accelerator half of the label and must reject it.
 
+   Where each root the verifiers in this repository ship was read from, on which day, and under
+   which licence class its source published it, is one row each of the anchor provenance ledger,
+   and [trust-anchors.md](trust-anchors.md) prints those rows. A client that pins its own roots
+   under `policy.trustAnchors` answers for their provenance itself, since this format names a
+   root by its bytes and nothing a signature over a receipt can say where those bytes came from.
+
 Steps 6 and 7 are what make the receipt a statement about *this* exchange rather than a
 generic artifact: a receipt whose hashes do not match the observed bytes is rejected even
 when its signature is perfectly valid.
