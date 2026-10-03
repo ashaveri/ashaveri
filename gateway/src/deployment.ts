@@ -35,7 +35,7 @@ export interface AttestationBundle {
    * themselves carry: the instant, and nothing about whose it was.
    *
    * Nothing shipped reads it. The routes serve the bundle's `document`, and `issue` puts `d`, `ts` and
-   * `url` into a payload; the only reader today is the test suite that checks a bundle names the source
+   * `url` into a payload; the only reader is the test suite that checks a bundle names the source
    * it was built with. It stays required, because a bundle that cannot say where its instant came from
    * is the thing this field exists to make impossible, and a future reader is meant to find a label
    * rather than have to add one.

@@ -58,7 +58,7 @@ whatever there is to say: a reproduction, a question about yours, or a fix.
 
 `@ashaveri/signerd` is the workspace's private package and is not built to be installed from a
 registry; it is run from source, and its `--mock` mode is a development fixture rather than a
-deployment. That sentence is about where the package stands today, not about keeping its code back:
+deployment. That sentence is about where the package stands, not about keeping its code back:
 `CONTRIBUTING.md` states the rule that keeps the gateway in public view.
 
 ## What is not here

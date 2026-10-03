@@ -446,9 +446,9 @@ describe('an accepted inventory, read the way a reviewer reads it', () => {
   it('carries the copied text positions at the lengths their own formats state', () => {
     // The two ids and a duty label are copied out of a deployment manifest and a pack, and both of those
     // sources declare text with a floor and no ceiling, so a long issuer and a seventy-byte label make a
-    // document today's own writer emits. A ceiling on this side would refuse the inventory for a figure its
-    // writer was handed by a format that allows it, which no layout that describes artifacts already in the
-    // field may claim.
+    // document this inventory's own writer emits. A ceiling on this side would refuse the inventory for
+    // a figure its writer was handed by a format that allows it, which no layout that describes artifacts
+    // already in the field may claim.
     const iss = `dpl-${'x'.repeat(300)}`;
     const ins = `cvm-${'y'.repeat(300)}`;
     const art = `19(${('1'.repeat(66))})`;

@@ -750,15 +750,15 @@ describe('the published schema and the reader decide the same documents', () => 
     ['a second manifest role', recordFor(receiptV1, { manifests: { deployment: held(manifestBytes), models: held(manifestBytes) } })],
     ['a negative acquisition time', recordFor(receiptV1, { acquired: { at: -1, sourceStatedAt: null } })],
     ['an unimplementable version', { ...recordFor(receiptV1), v: 3 }],
-    // The boundary of the two lists that have to stay in step: `check.receiptFormatVersion` is
-    // `enum: [1]` in the published schema and `IMPLEMENTED_RECEIPT_FORMAT_VERSIONS` in the reader, and
-    // every integer above that one element is a version `receipt.cddl` no longer defines. Widening one
-    // side without the other fails the assertion belonging to the side that moved: a reader list that
-    // gains `2` stops throwing on the case below, and a schema enum that gains it stops refusing the same
+    // The boundary of the two lists that have to stay in step: `check.receiptFormatVersion` is `enum: [1]`
+    // in the published schema and `IMPLEMENTED_RECEIPT_FORMAT_VERSIONS` in the reader, and every integer
+    // above that one element is a version `receipt.cddl` does not define. Widening one side without the
+    // other fails the assertion belonging to the side that moved: a reader list that gains `2` stops
+    // throwing on the version-2 case below, and a schema enum that gains it stops refusing the same
     // document.
-    ['a receipt version no format defines', recordFor(receiptV1, { check: { ...(recordFor(receiptV1).check as object), receiptFormatVersion: 4 } })],
-    ['the retired receipt version 2', recordFor(receiptV1, { check: { ...(recordFor(receiptV1).check as object), receiptFormatVersion: 2 } })],
-    ['the retired receipt version 3', recordFor(receiptV1, { check: { ...(recordFor(receiptV1).check as object), receiptFormatVersion: 3 } })],
+    ['receipt version 4, which no format defines', recordFor(receiptV1, { check: { ...(recordFor(receiptV1).check as object), receiptFormatVersion: 4 } })],
+    ['receipt version 2, which no format defines', recordFor(receiptV1, { check: { ...(recordFor(receiptV1).check as object), receiptFormatVersion: 2 } })],
+    ['receipt version 3, which no format defines', recordFor(receiptV1, { check: { ...(recordFor(receiptV1).check as object), receiptFormatVersion: 3 } })],
     // The widening, both authorities at once: the eight a held collateral slot owes, the chain that arrives
     // in pairs, and the states an absence may not borrow from a holding slot.
     ['a held collateral slot that names no origin', (() => { const slot = collateralObservation(); delete slot['origin']; return withCollateral(slot); })()],

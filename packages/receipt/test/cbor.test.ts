@@ -207,8 +207,8 @@ describe('encodeCanonical, on the byte strings a caller can actually hand it', (
 
   it('writes a Buffer as the byte string it holds, wherever it sits', () => {
     // `Buffer` passes for `Uint8Array` to the type checker and to every `readFile` in the estate, and
-    // the writer used to take its generic object path on it: a two-entry map holding `type` and a
-    // `data` array of numbers. Same signature, different document, and the reader of the document the
+    // a writer on its generic object path would take it as a two-entry map holding `type` and a `data`
+    // array of numbers. Same signature, different document, and the reader of the document the
     // signature covers is the thing that would refuse it.
     const cases: Array<[string, unknown, unknown]> = [
       ['on its own', PLAIN, Buffer.from(PLAIN)],

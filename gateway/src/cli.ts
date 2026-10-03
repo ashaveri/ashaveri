@@ -176,7 +176,7 @@ Options:
                                    about how long they are kept. bounded=<seconds> writes the same frame
                                    with that period in front of the receipt bytes, so whoever holds one
                                    record can read the retention period this deployment stated for it
-                                   without a manifest beside it. Nothing enforces the period yet: retirement
+                                   without a manifest beside it. Nothing enforces the period: retirement
                                    drops a prefix at the durability bound and the age period configured
                                    beside it, and reads no period off a record. A volume whose records were
                                    written under the other kind is refused at the start and left exactly as

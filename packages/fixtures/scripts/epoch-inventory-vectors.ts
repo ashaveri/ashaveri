@@ -634,7 +634,7 @@ const CASES: readonly Case[] = [
   },
   {
     name: 'copied-text-positions-wider-than-any-ceiling',
-    note: 'An issuer and an instance id of three hundred and four characters each, and a duty label of seventy bytes: the three text positions copied out of a deployment manifest and a pack. This is an acceptance. Both of those sources declare text with a floor and no ceiling, so a wide figure is what today\'s writer emits, and a ceiling on this side would refuse an inventory for a value its own writer was handed by a format that allows it. What each of the three keeps is the floor those sources state, which is text that is not empty, and `issuer-id-stated-empty`, `instance-id-stated-empty` and `duty-label-stated-empty` are that floor.',
+    note: 'An issuer and an instance id of three hundred and four characters each, and a duty label of seventy bytes: the three text positions copied out of a deployment manifest and a pack. This is an acceptance. Both of those sources declare text with a floor and no ceiling, so a wide figure is what the writer emits, and a ceiling on this side would refuse an inventory for a value its own writer was handed by a format that allows it. What each of the three keeps is the floor those sources state, which is text that is not empty, and `issuer-id-stated-empty`, `instance-id-stated-empty` and `duty-label-stated-empty` are that floor.',
     bytes: (() => {
       const wide = runOf(2, (index, one) => ({
         ...one,

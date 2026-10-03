@@ -50,10 +50,10 @@ import {
  * pin, or quoted in a review of the bytes it describes. Two runs of this file write the same bytes, and the
  * drift cases in `test/anchor-ledger.test.ts` are what keep the rows equal to the certificate file they name.
  *
- * The artifact is the body and not a seal. The key that will sign these rows is held outside this repository, so
- * the committed bytes name no verifying key yet, and the ceremony that seals them is what fills `keys`; a reader
- * that reaches `ANCHOR_LEDGER_KEY_UNDECLARED` over the committed file is meeting the absence of that ceremony and
- * not a fault in a row.
+ * The artifact is the body and not a seal. The key that signs these rows is held outside this repository, so
+ * the committed bytes name no verifying key, and the ceremony that seals them is what fills `keys`; a reader
+ * that reaches `ANCHOR_LEDGER_KEY_UNDECLARED` over the committed file is meeting the absence of that ceremony
+ * and not a fault in a row.
  */
 
 const PACKAGE_ROOT = join(dirname(fileURLToPath(import.meta.url)), '..');

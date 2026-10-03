@@ -672,7 +672,7 @@
         "at": "mk",
         "states": "the member the format requires and these bytes never wrote"
       },
-      "note": "The shape a retired version used to state, wearing `v: 1`: the twelve shared members present, well-typed and in place, and the four a receipt states about itself not there at all. One version requires all seventeen, so what used to hold a document's number against its member set now holds one document's member set against the format, and the row states which member the reader names first, because which member a document left out is not something a reader can guess from what it finds."
+      "note": "A document wearing `v: 1` with its twelve shared members present, well-typed and in place, and the four a receipt states about itself not there at all. One version requires all seventeen, so the check holds one document's member set against the format rather than a document's number against a table of member sets, and the row states which member the reader names first, because which member a document left out is not something a reader can guess from what it finds."
     },
     {
       "name": "receipt-unknown-member-payload-v1",

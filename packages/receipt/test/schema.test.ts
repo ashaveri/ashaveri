@@ -322,8 +322,8 @@ const DIGEST = new Uint8Array(32).fill(2);
  * table the codec enforces, and the schema only constrains their shape.
  *
  * One document, because the format declares one version. Every case below moves a member of this payload
- * or its measurement, and the retired numbers are answered by `twinForVersion`, which has one branch to
- * name and no document to build for any other.
+ * or its measurement, and a document naming another number is answered by `twinForVersion`, which has one
+ * branch to name and no document to build for any other.
  */
 function payloadOf(tee: string, m: Uint8Array, mk: Marking = { sch: 'none', d: DIGEST }): ReceiptPayload {
   return {
@@ -472,7 +472,7 @@ describe('the receipt JSON Schema', () => {
 
   it('holds the payload to its seventeen members and refuses a document naming another version', () => {
     // Two halves of one closed map. A document that moves its `v` is not the document the branch
-    // describes, and the branch's `const: 1` answers it: the retired numbers get no branch, so a twin
+    // describes, and the branch's `const: 1` answers it: no other number has a branch, so a twin
     // reading `v: 2` or `v: 3` refuses it rather than reading it as the nearest one inside. A document
     // carrying a name the branch does not name is malformed rather than read with the extra member
     // dropped, which is what makes closure something the schema states rather than something a reader
@@ -481,8 +481,8 @@ describe('the receipt JSON Schema', () => {
     expect(outcome(rewritten(payloadOf('software', DIGEST), (members) => { members.v = 3; }))).not.toBeNull();
     expect(outcome(rewritten(payloadOf('software', DIGEST), (members) => { members.v = '1'; }))).not.toBeNull();
     expect(outcome(rewritten(payloadOf('software', DIGEST), (members) => { members.not_a_member = 'x'; }))).not.toBeNull();
-    // The member that only a retired number's document left out: every name the branch requires is
-    // present here, so the refusal this half answers for is the added name, not a missing one.
+    // `mk` is one of the names the branch requires, and every one of them is present here, so the
+    // refusal this half answers for is the added name, not a missing one.
     expect(
       outcome(rewritten(payloadOf('software', DIGEST), (members) => { members.mk = { sch: 'none', d: toHex(DIGEST), surprise: 'x' }; })),
       'a marking carrying a member Marking does not name',
@@ -576,7 +576,7 @@ describe('the receipt JSON Schema', () => {
     }
 
     // The member the walk cannot enter by name, which is every payload member the CDDL binds to a
-    // rule through an array rather than a map. `itm` is the one today, and its elements are closed by
+    // rule through an array rather than a map. `itm` is that member, and its elements are closed by
     // the reader that walks them, so the twin-side pair to check is the array's own shape: it declares
     // a non-empty list, and the element definition names the two members and no more.
     const arrayKeys = [...new Set(versions.flatMap((version) => arrayMembers(cddl, version)))];
@@ -596,28 +596,29 @@ describe('the receipt JSON Schema', () => {
     saidOnce('the CDDL closure note', prose, "That rule is the format's, not one map's");
     saidOnce('the CDDL closure note', prose, 'below carry no `...` either');
     saidOnce('the CDDL closure note', prose, 'The parser and the JSON twin refuse it at that level');
-    // The note that used to record the divergence now records the rule reaching the signed half of
-    // it, and each header is named for what the format says of it now. A reader of the format takes
-    // this boundary from the comment and not from the source: `Ashaveri-Protected-Header` closes under
-    // the same rule as the payload, for the stronger reason that its bytes are what the signature
-    // hashes, and the unprotected map is the single one a signer fills at will because no claim can
-    // travel through it. Either sentence sliding back into a claim about every map the file defines,
-    // or back into exempting the protected header, is one the parser contradicts on its first read.
+    // The note records the rule reaching the signed half of it, and each header is named for what the
+    // format says of it. A reader of the format takes this boundary from the comment and not from the
+    // source: `Ashaveri-Protected-Header` closes under the same rule as the payload, for the stronger
+    // reason that its bytes are what the signature hashes, and the unprotected map is the single one a
+    // signer fills at will because no claim can travel through it. Either sentence sliding back into a
+    // claim about every map the file defines, or back into exempting the protected header, is one the
+    // parser contradicts on its first read.
     saidOnce('the CDDL closure note', prose, 'so the payload map and every map nested inside it close at every level');
     saidOnce('the CDDL closure note', prose, '`Ashaveri-Protected-Header` closes with them');
     saidOnce('the CDDL closure note', prose, 'The parser refuses the unknown label by number');
     saidOnce('the CDDL closure note', prose, 'One map this file leaves a signer free to fill, and that is a decision rather than a gap');
     saidOnce('the CDDL closure note', prose, 'What the format declares of it is therefore only that it carries no claim');
-    // Two phrasings held out of the note by name. The first exempted the signed header from the closure
-    // rule, which is now the rule the parser refuses a label by; the second described the unprotected map
-    // as a divergence between what the format writes and what a reader takes, which the widened type on
-    // its own line says out loud instead. Either returning is the format file stating something the code
-    // no longer does, and a reader of the definition has nothing but the code to check it against.
+    // Two phrasings held out of the note by name. The first would exempt the signed header from the
+    // closure rule, which is the rule the parser refuses a label by; the second would describe the
+    // unprotected map as a divergence between what the format writes and what a reader takes, which the
+    // widened type on its own line says out loud instead. Either one in the note is the format file
+    // stating something the code does not do, and a reader of the definition has nothing but the code to
+    // check it against.
     expect(prose).not.toContain('sit outside that rule');
     expect(prose).not.toContain('takes any map at all where the format writes');
     // The header's closure is the absence of `...` in its block, as the payload's is, and the
-    // unprotected widening is the type on its line rather than a paragraph about it: `{}` declared an
-    // empty map no code required, so the format now names the map a verifier accepts.
+    // unprotected widening is the type on its line rather than a paragraph about it: `{}` would declare
+    // an empty map no code requires, so the format names the map a verifier accepts.
     expect(cddlRule(cddl, 'Ashaveri-Protected-Header').includes('...'), 'the protected header closes').toBe(false);
     expect(cddl).toContain('unprotected: { * any => any }');
     expect(cddl).not.toMatch(/unprotected: \{\}/u);
@@ -707,12 +708,11 @@ describe('the receipt JSON Schema', () => {
     saidOnce('the code table', flat(codes), 'Not decoding is the floating-point case');
     saidOnce('the twin', twin, 'the parser decodes that map where no floating-point number can appear');
 
-    // Two phrasings this round retired, held out by name. "the two token counts" is how both documents
-    // used to stand in for `tok.p` and `tok.c` while `epk` went unlisted, which is exactly the
-    // incompleteness the tie above exists to catch: a document that went back to counting instead of
-    // naming would drop a position and still read as a list. "a value CBOR can only write as a float"
-    // was the specification's parenthetical about negative zero, and it is false of this package's
-    // writer, which has an integer spelling for that value and takes it.
+    // Two phrasings held out by name. "the two token counts" would stand in for `tok.p` and `tok.c` and
+    // leave `epk` unlisted, which is exactly the incompleteness the tie above exists to catch: a document
+    // that counts instead of naming can drop a position and still read as a list. "a value CBOR can only
+    // write as a float" is false of this package's writer, which has an integer spelling for that value
+    // and takes it.
     expect(flat(threat), 'the threat model counts instead of naming').not.toContain('the two token counts');
     expect(flat(spec), 'the specification counts instead of naming').not.toContain('the two token counts');
     expect(flat(spec), 'the specification calls negative zero a float-only value').not.toContain(

@@ -240,7 +240,7 @@ function singleRowBody(file: string = EMBEDDED_INTEL): Uint8Array {
  * the CBOR writer, the `COSE_Sign1` seal and the seal's reader moved to `@ashaveri/receipt`.
  *
  * It is here because it is the only thing that tells a refactor from a format change wearing a refactor's
- * clothes: the document the shared codec seals today has to come out byte for byte the same as what the
+ * clothes: the document the shared codec seals has to come out byte for byte the same as what the
  * private one sealed, and the bytes the private one sealed have to stay readable by this reader. The body,
  * the protected header and the signature all travel inside these bytes, so one comparison holds all three.
  * Chunked for width and not because anything is concatenated: joined, this is one document of 2,161 bytes.

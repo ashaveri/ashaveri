@@ -47,7 +47,7 @@ import {
  * inside the pack check is the shipped one and the anchor slots are read from signed bytes the same way the
  * command reads them. One member is written after that layout and before the signature: the writer refuses an
  * attested text member carrying text that would forge the line it is printed on, and a case whose point is that
- * a reader still has to report such a sentence is about a document this estate will no longer make but another
+ * a reader still has to report such a sentence is about a document this estate does not make and another
  * issuer can hand over. `anchorReceiptOf` says which member that is put in afterwards, and why a reader's corpus
  * is the one place it has to be.
  */
@@ -116,8 +116,8 @@ const PLACEHOLDER_REASON = 'the collector read no window';
  * (`assertLineSafeText`, `packages/receipt/src/receipt.ts`). A case that hands this file a reason carrying a
  * newline is not asking for a document this estate would issue; it is asking how a row reads a document it
  * was handed, which is the half that stays open: an older issuer, or software that never read that refusal,
- * signs such bytes today and a verifier has to report them rather than drop them. So the hostile reason
- * arrives below the writer, at the same position and in the same encoding the writer would have used for the
+ * signs such bytes and a verifier has to report them rather than drop them. So the hostile reason arrives
+ * below the writer, at the same position and in the same encoding the writer would have used for the
  * placeholder, and nothing about the layout, the ordering or the signature is hand-written here.
  */
 export function anchorReceiptOf(slots: HeldPair, iat: number): Uint8Array {

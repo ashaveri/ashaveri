@@ -568,13 +568,13 @@ function thrownBy(run: () => unknown): AccessError {
 }
 
 /**
- * What the store does with a record whose shape is wrong, which is where the collapse's last
- * name-dependent 500 used to live. A record that offers no key its kind can be verified against was
- * answered `BAD_CREDENTIAL_RECORD` at the moment a request named it: 500 for one id and 401 for
- * another, which is a probe of the credential file wearing a server-fault face. Both routes into the
- * store now settle that before a request arrives, and they settle it the way the parser already did -
- * one field dropped because the parser never reads it, one record refused because the parser refuses
- * it - so this is two paths agreeing rather than a rule neither of them had.
+ * What the store does with a record whose shape is wrong. A record that offers no key its kind can be
+ * verified against is answered `BAD_CREDENTIAL_RECORD` where records enter rather than at the moment a
+ * request names it, because an answer that waits for a request turns a probe of the credential file
+ * into a server fault: 500 for one id and 401 for another. Both routes into the store settle that ahead
+ * of any request, and they settle it the way the parser does - one field dropped because the parser
+ * never reads it, one record refused because the parser refuses it - so this is two paths agreeing
+ * rather than a rule neither of them had.
  */
 describe('the shape of a record, checked where records enter', () => {
   it('serves a proof-of-possession record that arrived carrying a secret hash', () => {
@@ -588,8 +588,8 @@ describe('the shape of a record, checked where records enter', () => {
     const asParsed = parseCredentialFile(serializeCredentialFile({ version: 1, credentials: [handed] }));
     expect(s.credentials()).toEqual(asParsed.credentials);
     expect(s.credentials()[0]?.secretHash).toBeUndefined();
-    // Which is what took this state off the request path: the record has a key, so the request that
-    // proves it is served and the refusal that used to answer 500 for it is not on the way to anyone.
+    // Which is what keeps this state off the request path: the record has a key, so the request that
+    // proves it is served and no refusal for it is on the way to anyone.
     expect(code(() => s.admit(signed({ id: 'svc-1', privateKey: generated.privateKey })))).toBe('no-error');
     // The store's record is a copy. `--mock` and every harness here keep reading the records they
     // handed in, and a store that edited them would leave a caller holding something its own file

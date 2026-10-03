@@ -25,9 +25,9 @@ import { harness, nonceAt, observable } from './helpers.js';
 /**
  * The request bound a connection is held to before this gateway spends any crypto on it.
  *
- * It exists because of what the collapse bought: a name the credential file does not carry is now
- * answered by performing one Ed25519 verification against a key that is in no file, so an
- * unauthenticated guess costs a verification where it used to cost a map lookup. The per-credential
+ * It exists because of what answering a proof-of-possession record costs: a name the credential file
+ * does not carry is answered by performing one Ed25519 verification against a key that is in no file,
+ * so an unauthenticated guess costs a verification rather than a map lookup. The per-credential
  * bucket cannot bound that, because a guess holds no credential to charge, so the charge goes on the
  * address of the connection and is taken ahead of the header being read at all.
  *
@@ -187,10 +187,10 @@ describe('the request bound a connection meets ahead of the crypto', () => {
       if (reply.code === 'RATE_LIMITED') sheds.push(reply);
     }
 
-    // Ahead of the bound: the collapse's answer, one verification each. Behind it: the throttle, and the
-    // counter says the verifier was not asked again. Timing could show none of this, which is why the
-    // seam counts calls; and `burst` rather than `burst + 1`, because the token the request that opens a
-    // fresh bucket spends is charged to it.
+    // Ahead of the bound: the answer a proof-of-possession check gives, one verification each. Behind it:
+    // the throttle, and the counter says the verifier was not asked again. Timing could show none of this,
+    // which is why the seam counts calls; and `burst` rather than `burst + 1`, because the token the
+    // request that opens a fresh bucket spends is charged to it.
     expect(codes.slice(0, burst)).toEqual(fills(burst, 'AUTH_SIGNATURE'));
     expect(codes.slice(burst)).toEqual(fills(guesses - burst, 'RATE_LIMITED'));
     expect(verifications()).toBe(burst);
@@ -257,7 +257,7 @@ describe('the request bound a connection meets ahead of the crypto', () => {
 
     // Every shape here proves nothing, which is what makes it fair to demand the same answer from both
     // stores: the request that carries a valid proof of possession is legitimately answered out of the
-    // file, and that exception belongs to the collapse rather than to this bucket.
+    // file, and that exception belongs to the proof-of-possession check rather than to this bucket.
     const shapes: AdmissionInput[] = [
       guess(GUESSED_NAME, 11),
       guess(HELD_NAME, 12),

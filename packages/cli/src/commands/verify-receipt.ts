@@ -46,12 +46,11 @@ import { readPolicyFile } from './verify.js';
  * exists to prevent, because two copies drift and only one of them is the one an auditor is told
  * about. So this command calls them.
  *
- * The one thing `GatewaySession` was not written for is running with no gateway, and it turns out not
- * to need a change: its transport is an injected `fetchImpl`, and the only request this path makes is
- * one `GET` for a deployment manifest. The implementation below answers exactly that route out of a
- * file named on the command line and refuses every other route by name, so "never from a URL" is a
- * property of this file rather than a promise in a comment, and a receipt pointing its `att.url` at
- * a host does not make this command reach that host.
+ * `GatewaySession` needs no change to run with no gateway: its transport is an injected `fetchImpl`,
+ * and the only request this path makes is one `GET` for a deployment manifest. The implementation below
+ * answers exactly that route out of a file named on the command line and refuses every other route by
+ * name, so "never from a URL" is a property of this file rather than a promise in a comment, and a
+ * receipt pointing its `att.url` at a host does not make this command reach that host.
  *
  * What this command cannot do is stated in its own output rather than left implied: it reads no
  * evidence document, so the platform quote a receipt commits to through `att.d` is not checked here.
@@ -69,17 +68,18 @@ import { readPolicyFile } from './verify.js';
  * rather than leaving it to be inferred: the pin lines name where a designation came from, and both
  * renderings carry the designated keys beside the policy digest.
  *
- * The one thing this command could not answer, until now, is what a policy's anchor demand asks about. A sealed
- * receipt's `held` slot digests material, and the demand weighs what a reader established about those bytes, so
- * the demand was answerable only inside a client that had the material in hand. Two flags bring it to a command
- * line: `--anchor-file col=<path>` names the document one slot digests and `--anchor-chain col=<path>` the issuer
- * header that arrived beside it, and each pair is appraised exactly the way the pack reader appraises the bytes a
- * container carries. What the pair was checked against is printed with the verdict: the flag and slot that named
- * it, the digest the receipt states, the digest these bytes hash to, the root the answer reached, the window the
- * vendor signed, and the instant the receipt claims, which is the instant the appraisal is asked at because no
- * clock of this run's belongs in that answer. A run handed neither flag keeps the answer it always had, which is
- * `ANCHOR_MATERIAL_UNREACHED` under a policy that demands weighed slots: a slot stating `held` is not a claim that
- * some reader can resolve it, and nothing here fetches the bytes to find out.
+ * A policy's demand on the material a held slot digests is answerable from this command line. A sealed
+ * receipt's `held` slot digests material, and the demand weighs what a reader established about those
+ * bytes, so the demand is answerable only where the material is in hand, and two flags put it in hand:
+ * `--anchor-file col=<path>` names the document one slot digests and `--anchor-chain col=<path>` the
+ * issuer header that arrived beside it, and each pair is appraised exactly the way the pack reader
+ * appraises the bytes a container carries. What the pair was checked against is printed with the verdict:
+ * the flag and slot that named it, the digest the receipt states, the digest these bytes hash to, the
+ * root the answer reached, the window the vendor signed, and the instant the receipt claims, which is the
+ * instant the appraisal is asked at because no clock of this run's belongs in that answer. A run handed
+ * neither flag answers `ANCHOR_MATERIAL_UNREACHED` under a policy that demands weighed slots: a slot
+ * stating `held` is not a claim that some reader can resolve it, and nothing here fetches the bytes to
+ * find out.
  */
 
 /**

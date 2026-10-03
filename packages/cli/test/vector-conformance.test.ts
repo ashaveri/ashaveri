@@ -43,20 +43,20 @@ import { openFileReceiptStore, RECEIPT_STORE_FILE, StoreError, type ReceiptRecor
 /**
  * The published vector suites, replayed through the paths a shipped client takes.
  *
- * `data/` states a verdict for its cases, and until now the suites other than the receipt fixtures
- * were read back by tests that checked a file against its own rule. This walks every suite and asks the
- * implementation that is shipped what it answers for each row: `verifyCompletionReceipt` for anything a
- * receipt decides, the proof-of-possession signer and parser for the wire-format rows, the store reader
- * for the chain images, `readDeploymentManifest` beside its `adjudicateReceiptEpoch` for the sealed
- * deployment manifest, `verifyPack` with `decodePack` underneath it for the evidence pack,
- * `verifyEpochInventory` with `decodeEpochInventory` underneath it for the inventory of a run of packs, and
- * `verifyRedaction`, which reads the pack through `verifyPack` and answers with `decodeRedaction` alone
- * for the structural half, for a redaction manifest and the pack it names. Where a row states a refusal, the
- * code it names is the code that has to
- * come back; where a row states acceptance, the same call has to accept it. A suite that only ever
- * passed would satisfy the first half and say nothing, so the near misses published here are what make
- * the second half mean something, and each of those rows is a small edit to bytes this repository
- * already publishes rather than noise a reader could not reproduce.
+ * `data/` states a verdict for its cases, and a suite read back only by a test that checks a file
+ * against its own rule proves the file rather than the implementation. This walks every suite and asks
+ * the implementation that is shipped what it answers for each row: `verifyCompletionReceipt` for
+ * anything a receipt decides, the proof-of-possession signer and parser for the wire-format rows, the
+ * store reader for the chain images, `readDeploymentManifest` beside its `adjudicateReceiptEpoch` for
+ * the sealed deployment manifest, `verifyPack` with `decodePack` underneath it for the evidence pack,
+ * `verifyEpochInventory` with `decodeEpochInventory` underneath it for the inventory of a run of packs,
+ * and `verifyRedaction`, which reads the pack through `verifyPack` and answers with `decodeRedaction`
+ * alone for the structural half, for a redaction manifest and the pack it names. Where a row states a
+ * refusal, the code it names is the code that has to come back; where a row states acceptance, the same
+ * call has to accept it. A suite that only ever passed would satisfy the first half and say nothing, so
+ * the near misses published here are what make the second half mean something, and each of those rows
+ * is a small edit to bytes this repository already publishes rather than noise a reader could not
+ * reproduce.
  *
  * Three other files drive some of this data and are not duplicated here:
  * `packages/fixtures/test/fixtures.test.ts` gives the receipt fixtures to the format decoder with no

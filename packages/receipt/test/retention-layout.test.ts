@@ -10,8 +10,8 @@ import { Ajv2020, type ValidateFunction } from 'ajv/dist/2020.js';
  * lists rather than read back out of a schema and compared with itself, because a test that derives both sides
  * passes whatever the schema says and notices nothing. Version two of the same artifact, the reader and writer
  * that read and write both layouts, and the pair of lists held against each other are
- * `retention-presence.test.ts`; this file holds the layout that exists today and the two sentences its own
- * description now owes a reader: that the generator is outside this repository, and that a second layout differs
+ * `retention-presence.test.ts`; this file holds version one of the layout and the two sentences its own
+ * description owes a reader: that the generator is outside this repository, and that a second layout differs
  * from this one by one member rather than by an optional one.
  *
  * Two claims are executable rather than merely structural, and they are the two that matter to a reader. The

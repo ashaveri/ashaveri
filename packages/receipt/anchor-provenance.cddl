@@ -116,7 +116,7 @@ Ashaveri-Unix-Seconds = uint .ge 1000000000 .le 4294967295
 ; `origin` is the source that published the bytes, as a URL, and `takenAt` the instant they were read from
 ; it. Both are statements, not computations, and the ledger's purpose is that they are signed. `licence`
 ; is the class the source stated; `licenceNote` is one line of the sentence that goes beside a class when
-; the class alone would mislead, which today is the data-only case below and nothing else. A note an
+; the class alone would mislead, which is the data-only case below and nothing else. A note an
 ; issuer left empty is not this member absent: the format requires text if it names the member at all,
 ; because an empty note reads as a decision and absence reads as one too, and only one of them is true.
 Ashaveri-Anchor-Row = {

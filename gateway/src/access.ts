@@ -516,10 +516,10 @@ export const RECEIPT_ID = /^[A-Za-z0-9_-]{1,64}$/u;
  * unchanged and the prefix compare needs no case fold.
  *
  * The tag is `HMAC-SHA256(namespaceKey, credentialId)` truncated to eight bytes and printed as hex.
- * The value it replaced is not a tag and never was one: the gateway used to publish the id the
- * inference server chose, so a server that answers with a counter or a timestamp would have put
- * every receipt this deployment has signed behind numbers another tenant could walk, since the
- * route asked only whether the caller holds `read`. Unguessability is now this gateway's own job.
+ * Unguessability is this gateway's own job rather than something it trusts an upstream to supply: an
+ * id the inference server chose would put every receipt this deployment has signed behind numbers
+ * another tenant could walk, given a server that answers with a counter or a timestamp and a route
+ * that asks only whether the caller holds `read`.
  *
  * The namespace key is an HKDF over the deployment's Ed25519 seed, so it is derived at boot from a
  * secret the deployment already holds and rotates on redeploy, nothing new is written to disk, and
@@ -1019,8 +1019,8 @@ interface Ingested {
  * file a test or `--mock` hands the constructor, and the disk read `reloadIfNeeded` installs. The
  * shape of a record is therefore a fact about start-up rather than about a request, which is what
  * `admit` needs: a refusal that answers 500 because of what a file says about one id is the most
- * distinguishable answer in the whole set, and the collapse cannot keep it on the request path
- * without keeping the question a prober asks with it.
+ * distinguishable answer in the whole set, so it is answered where records enter rather than where a
+ * request names one, since keeping it on the request path keeps the question a prober asks with it.
  *
  * Both rules are taken from the parser rather than invented here, because an in-memory file never
  * passes through it:
@@ -1316,9 +1316,9 @@ export class CredentialStore {
   /**
    * The one place this store calls the verifier, so that "one Ed25519 verification performed" is a fact
    * that can be counted rather than inferred. Both paths reach it - a name the file carries is checked
-   * against its own key, a name it does not against the dummy one - which is the collapse. The counter
-   * is told only that a verification happened: it sees no verdict and can change none, so a measuring
-   * seam cannot become the branch the paragraph above refuses.
+   * against its own key, a name it does not against the dummy one - which is where the two become one.
+   * The counter is told only that a verification happened: it sees no verdict and can change none, so a
+   * measuring seam cannot become the branch the paragraph above refuses.
    */
   private verify(fields: PopFields, signature: Uint8Array, key: Uint8Array): boolean {
     this.countVerification?.();
