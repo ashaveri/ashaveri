@@ -4,12 +4,11 @@
     "noEmit": true,
     "rootDir": ".",
     "types": ["node"],
-    // The ledger is written by `node --experimental-strip-types`, which resolves specifiers as written and so
-    // reads `../src/anchor-ledger.ts`; the checked path has to accept the one spelling the running path allows.
-    "allowImportingTsExtensions": true,
-    // That loader refuses `enum`, a runtime `namespace` and a constructor parameter property outright, and the
-    // job that regenerates committed artifacts typechecks this config before it runs the script: without the
-    // option a script can pass every other check here and fail that run.
+    // The generator is run by `node --experimental-strip-types` and reaches this package through its own
+    // name, so no import here spells a `.ts` file and the option that would allow one has nothing to
+    // answer for. What that loader does refuse is `enum`, a runtime `namespace` and a constructor parameter
+    // property outright, and the job that regenerates committed artifacts typechecks this config before it
+    // runs the script: without the option below a script can pass every other check here and fail that run.
     "erasableSyntaxOnly": true
   },
   "include": ["scripts"]

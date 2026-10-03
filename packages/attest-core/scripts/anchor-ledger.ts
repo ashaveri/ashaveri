@@ -2,23 +2,30 @@ import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { sha256 } from '@noble/hashes/sha2.js';
-// The reader, the writer and the parser this file runs are the built ones, reached the way a client of this
-// package reaches them. The source modules name their siblings with `.js` specifiers, which `node
-// --experimental-strip-types` resolves as written and so cannot follow from `src/`, and every generator in this
-// workspace runs against a build for the same reason: `pnpm build` precedes every generate step.
+// The ledger API, the certificate parsers and the embedded anchors this file writes rows about arrive through
+// this package's own name, the way `packages/fixtures/scripts` reaches `@ashaveri/receipt`: one entry point, and
+// no module of a build named from the outside. The modules under `src/` name their siblings with `.js`
+// specifiers, which `node --experimental-strip-types` resolves as written and so cannot follow from `src/`, so
+// the entry point this reaches is the built one and `pnpm build` precedes every generate step, here as it does
+// for every other generator in this workspace.
 import {
+  AMD_ARK_MILAN_PEM,
   ANCHOR_LEDGER_FILES,
   ANCHOR_LEDGER_FORMAT_VERSION,
+  INTEL_SGX_ROOT_CA_PEM,
+  NVIDIA_DEVICE_IDENTITY_CA_PEM,
   encodeAnchorLedger,
+  equalBytes,
   parseAnchorLedger,
+  parseCertificate,
+  parseCertificateChain,
+  toHex,
   type AnchorFamily,
   type AnchorLedgerDocument,
   type AnchorLedgerRow,
   type AnchorLicenceClass,
-} from '../dist/anchor-ledger.js';
-import { parseCertificate, parseCertificateChain, type ParsedCertificate } from '../dist/der.js';
-import { equalBytes, toHex } from '../dist/events.js';
-import { AMD_ARK_MILAN_PEM, INTEL_SGX_ROOT_CA_PEM, NVIDIA_DEVICE_IDENTITY_CA_PEM } from '../dist/trust-anchors.js';
+  type ParsedCertificate,
+} from '@ashaveri/attest-core';
 
 /**
  * The ledger of where this package's trust anchors came from, written from the bytes it ships.
