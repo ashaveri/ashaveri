@@ -29,8 +29,8 @@ import { fail, type AttestationErrorCode } from './errors.js';
  * for itself: the digest of the bytes as shipped, and the digest of the SubjectPublicKeyInfo of the one
  * certificate those bytes hold. The claim is the part no computation produces, which is why the document is
  * signed: the source that published the bytes, the instant they were taken, and the licence that source
- * named. `anchor-provenance.cddl` is the normative statement of the layout and
- * `schemas/anchor-provenance-v1.schema.json` its machine-readable twin.
+ * named. `packages/receipt/anchor-provenance.cddl` is the normative statement of the layout and
+ * `packages/receipt/schemas/anchor-provenance-v1.schema.json` its machine-readable twin.
  *
  * The key that verifies a ledger belongs to the reader's caller and to nobody else. This document ships
  * beside the bytes it describes, so a reader that took its verifying key from wherever it liked would be
