@@ -172,11 +172,9 @@ describe('a verdict keeps custody and verification apart', () => {
   });
 
   it('names the record\'s own claim `stated`, and carries no verdict field named for the keeping of bytes', () => {
-    // The verdict's two halves are what the record says it held and what this reader established. The
-    // first was spelled with the same word the format spells the keeping of material itself, which left
-    // a caller to work out from a log line which of the two a line named. `stated` pairs with `repeated`
-    // and says whose claim it is, and the old spelling is refused here rather than left as a second name
-    // for the same half.
+    // The verdict's two halves are what the record says it held and what this reader established.
+    // `stated` pairs with `repeated` and says whose claim it is, and the old name is refused here
+    // rather than left as a second name for the same half.
     const verdict = assessCapture({ record: record(receiptV1), policy: PINNED, ...AT_NOW });
     expect(verdict).not.toHaveProperty('custody');
     expect(verdict.stated.sourceKind).toBe('receipt');
@@ -360,7 +358,7 @@ describe('the observation a verdict hands back as the record\'s own claim', () =
   });
 
   it('keeps a record whose collateral slot is absent-at-source readable at every old member', () => {
-    // The F2 witness at the verdict: capture-v1 widened under its own number, and what that buys is that a
+    // Capture-v1 widened under its own number, and what that buys is that a
     // record stating an absence keeps every member it ever had, gains no obligation, and hands back no
     // observation it never made. The absence is still reported as the record's own state of the world.
     const verdict = assessCapture({

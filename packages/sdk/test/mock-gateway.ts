@@ -205,7 +205,7 @@ export function createFakeGateway(options: FakeGatewayOptions = {}): FakeGateway
   /**
    * Whatever payload the caller handed the transport, as the text the receipt hashes. A `Request`
    * carries its body as a stream rather than as a field of an init, so this is where the double can
-   * drain it; a payload in another shape stays unrecorded, as it always did.
+   * drain it; a payload in another shape stays unrecorded.
    */
   const payloadOf = async (raw: RequestInit['body'] | undefined): Promise<string | undefined> => {
     if (typeof raw === 'string') {

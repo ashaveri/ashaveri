@@ -85,32 +85,23 @@ const PIN_FIELDS = ['issuers', 'instances', 'keys', 'measurements'] as const;
  */
 
 /**
- * `maxTimeUncertaintySeconds` is the one field of this document whose normalised spelling is
- * conditional, and it is the opposite trade to the one above, taken deliberately and in the open. A
+ * Two fields of this document have a conditional normalised spelling: `maxTimeUncertaintySeconds`
+ * and `minAnchorSlotsHeld` are written into the canonical form only where the document stated a
+ * number, and the trade is the opposite of the one above, taken deliberately and in the open. A
  * manifest signing key is a pin: reading it from the file while leaving it out of the canonical form
  * would set a trust decision outside the identity of the document that states it. A demand about how
- * far a stamp's source may stand from real time is not a pin and pins nothing on its own, so the only
- * case a canonical omission would lose is the case where nothing was demanded, which is every policy
- * already written and already cited by a digest. So a number an operator states is always inside the
- * canonical form and always inside the digest, and an absent demand leaves the canonical form exactly
- * as it was before this field existed. The rule as implemented is at `canonicalOf`.
+ * far a stamp's source may stand from real time, or about how many of an anchor's slots were taken
+ * in, is not a pin and pins nothing on its own, so the only case a canonical omission would lose is
+ * the case where nothing was demanded, which is every policy already written and already cited by a
+ * digest. So a number an operator states is always inside the canonical form and always inside the
+ * digest, and an absent demand is omitted from the canonical form rather than written as `null`. The
+ * rule as implemented is at `canonicalOf`.
  */
 
 /**
- * `minAnchorSlotsHeld` is a field of this document, and it is the one whose normalised spelling is
- * conditional: `canonicalOf` writes the key only where the document stated a number. The trade is the
- * opposite of the one above, taken on the same grounds and deliberately.
- *
- * A manifest signing key is a pin, so a document that carried one outside the canonical form would set a
- * trust decision outside the identity of the file stating it. A demand about how many of an anchor's slots
- * were taken in is not a pin and pins nothing on its own: it names no key, no issuer and no measurement,
- * and it decides no comparison of a receipt against a set. The only case its omission from the canonical
- * form would lose is the case where nothing was demanded, which is every policy already written, already
- * cited by a digest, and already answered by a verdict. So a demand an operator states is always inside the
- * canonical form and always inside the digest, and an unstated demand leaves the canonical form exactly as
- * it was before this field existed. `test/anchor-slot-demand.test.ts` holds that sentence to numbers: the
- * digests of documents that never named the field, pinned from before it existed, and the verdicts those
- * documents reach.
+ * `minAnchorSlotsHeld` is the second of the two conditional fields, and its trade is the note
+ * above's. `test/anchor-slot-demand.test.ts` holds that sentence to numbers: the digests of
+ * documents that never named the field, and the verdicts those documents reach.
  */
 
 const HEX_64 = /^[0-9a-f]{64}$/;
@@ -158,9 +149,9 @@ export interface PolicyFileTrustAnchors {
  * forward slashes. A pin collection is either present or absent, because `null`, `{}` and `[]` are
  * all one accident with different text; the two age windows and the three anchor families do accept
  * an explicit `null`, which is how a document says it considered them and took the default. The time
- * bound and the anchor demand both accept `null` on the same reading, and they are the two fields whose
- * canonical form rather than written into it: see the note above this interface on why one optional
- * field is normalised by omission and the two windows are not.
+ * bound and the anchor demand both accept `null` on the same reading, and they are the two fields the
+ * canonical form normalises by omission rather than writes: see the note above this interface on why a
+ * demand is normalised by omission and the two windows are not.
  */
 export interface PolicyFile {
   readonly v: number;
@@ -804,16 +795,11 @@ function canonicalValue(value: unknown): string {
  * named is a decision this policy carries, so it is inside the canonical form and inside the digest,
  * and whoever holds the document can see from it alone, without asking the deployment, whether a bound
  * on a stamp's source was asked for. A demand nobody stated is written as nothing at all rather than as
- * `null`, which is what keeps the digest of a policy that never made the demand the digest it carried
- * before this field existed, and `test/policy-replay.test.ts` pins that fact as numbers rather than as
- * this sentence.
+ * `null`, so the field's existence moves no digest that never named it, and `test/policy-replay.test.ts`
+ * pins that fact as numbers rather than as this sentence.
  *
- * `minAnchorSlotsHeld` is written only when the document states a demand. A number an operator named is
- * a decision this policy carries, so it is inside the canonical form and inside the digest, and whoever
- * holds the document can see from it alone, without asking the deployment, whether an anchor was demanded
- * of it. A demand nobody stated is written as nothing at all rather than as `null`, which is what keeps the
- * digest of a policy that never made the demand the digest it carried before this field existed. The trade
- * itself is argued at the note above `PolicyFile`.
+ * `minAnchorSlotsHeld` is written only when stated, under the same rule; the trade is argued at the
+ * note above `PolicyFile`.
  */
 function canonicalOf(file: PolicyFile): Record<string, unknown> {
   const shape: unknown = file;
@@ -839,10 +825,7 @@ function canonicalOf(file: PolicyFile): Record<string, unknown> {
       throw invalid(`'${field}' is missing, so the document was never normalised by the loader`);
     }
   }
-  // The anchor demand is absent from that list on purpose and not by oversight. `null` and no key at all
-  // are one policy here, as the note above `PolicyFile` argues, and a guard that asked a hand-built
-  // document to state the key would be one step from a canonical form that always carries it, which moves
-  // every digest anyone has cited.
+  // Same deliberate omission for the anchor demand, per the note above `PolicyFile`.
   const anchors = given['trustAnchors'] as Record<string, unknown>;
   for (const key of Object.keys(anchors)) {
     if (!(ANCHOR_FAMILIES as readonly string[]).includes(key)) {
@@ -1061,8 +1044,7 @@ export function policyFileToJson(file: PolicyFile): string {
     write['maxTimeUncertaintySeconds'] = canonical['maxTimeUncertaintySeconds'];
   }
 
-  // A demand that was never made is not written into the file, exactly as `canonicalOf` leaves it out of
-  // the identity, so the text worth putting in a repository reads the same as the digest does.
+  // Same omission for the anchor demand.
   if (canonical['minAnchorSlotsHeld'] !== undefined) {
     write['minAnchorSlotsHeld'] = canonical['minAnchorSlotsHeld'];
   }

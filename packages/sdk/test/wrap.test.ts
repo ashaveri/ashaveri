@@ -40,7 +40,6 @@ describe('wrapOpenAI', () => {
     expect(response.headers.get('x-ashaveri-receipt-id')).toBe(FAKE_RECEIPT_ID);
     const text = await response.text();
     expect(text).toContain(FAKE_CONTENT);
-    // the original headers survived and the nonce was injected
     const recorded = gateway.requests[0]!;
     expect(recorded.headers['authorization']).toBe('Bearer test-key');
     expect(recorded.nonceHeader).toMatch(/^[A-Za-z0-9_-]{22}$/);
