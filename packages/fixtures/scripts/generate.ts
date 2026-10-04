@@ -397,8 +397,8 @@ interface PublishedRow {
   readonly note?: string;
   /**
    * The columns a row states beside its verdict. `columnsOf` fills every one of them for a row built over a
-   * response shape; the four fixtures this suite began with state only the response bytes, which is what the
-   * shipped verifier now cannot do without, and no more of the column set than they need.
+   * response shape; the rows that state only the response bytes carry what the shipped verifier cannot do
+   * without, and no more of the column set than they need.
    */
   readonly columns?: Partial<RowColumns>;
 }
@@ -438,8 +438,8 @@ function main(): void {
   );
 
   // The verifier reads a receipt's marked region out of the response, so a row a reader is asked to verify
-  // owes that reader the bytes. The five fixtures this suite began with carried `res` alone, which was
-  // enough while a payload naming no marking could skip the region check; every payload names one now.
+  // owes that reader the bytes, and `res` alone is not enough for any of them: every payload this suite
+  // issues names a marking.
   const fixtureResponseB64 = toBase64Url(FIXTURE_RESPONSE);
   const rows: PublishedRow[] = [
     {

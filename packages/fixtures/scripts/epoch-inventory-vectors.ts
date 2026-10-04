@@ -499,18 +499,11 @@ interface Case {
  * `break(s)` or `shortfall(s)`, sits inside their fragment already.
  *
  * Placement near the head is not what makes them match, though, and it is not guaranteed. The reader bounds a
- * quoted detail at two hundred characters, `MAX_DETAIL` at `packages/receipt/src/errors.ts:382`, and measured
- * against the published rows eight of the twelve site and guard pairs sit at the head of their detail and four
- * do not. At the head: `claim`, `repeat`, `unheld` and `figures`, each of the eight at offset 0. Off the head:
- * `count` at 27 at both sites, and `without-finding` at 121 at `chain.breaks` and 119 at `duty.short`, the two
- * numbers of a pair being its `chain.breaks` row and its `duty.short` row. What carries the four off the head is
- * that the detail each fragment sits in is shorter than the bound, at 67 to 173 characters, so the whole sentence
- * publishes and the fragment lies inside what survives. The two `unheld` patterns need the same of a longer span,
- * since their match runs to the end of a detail of 141 and 139 characters. The four `figures` rows are the ones
- * the bound does bite: their details publish cut at 203 characters, the bound plus the three dots the reader
- * appends, and their fragments still match because they sit at 0, ahead of where the cut falls. So a fragment
- * belongs near the head of the reader's sentence, and a case with anything variable between the head and its
- * fragment has to check the detail length rather than assume the fragment is there.
+ * quoted detail at two hundred characters, `MAX_DETAIL`, and against the published rows every fragment lies
+ * inside what survives: a detail shorter than the bound publishes whole, and the `figures` rows, whose details
+ * the bound cuts, carry fragments that sit at the head, ahead of where the cut falls. So a fragment belongs
+ * near the head of the reader's sentence, and a case with anything variable between the head and its fragment
+ * has to check the detail length rather than assume the fragment is there.
  */
 const GUARD_SENTENCES: Record<'chain.breaks' | 'duty.short', Record<'claim' | 'count' | 'repeat' | 'unheld' | 'without-finding' | 'figures', RegExp>> = {
   'chain.breaks': {
