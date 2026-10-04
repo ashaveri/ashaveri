@@ -8,14 +8,14 @@ import { AshaveriClient, SdkError } from '../src/index.js';
 /**
  * Response shapes served by the local listener below. The names say what the response carries, not
  * what a caller asked for: `unseen-member` responses hold one top-level member that no chat
- * completion schema declares, and `unrecognised-frame` is a streamed data frame that is neither a
+ * completion schema declares, and `unrecognized-frame` is a streamed data frame that is neither a
  * completion chunk nor the `[DONE]` sentinel.
  */
-type Shape = 'buffered' | 'buffered-unseen-member' | 'stream-unseen-member' | 'stream-unrecognised-frame';
+type Shape = 'buffered' | 'buffered-unseen-member' | 'stream-unseen-member' | 'stream-unrecognized-frame';
 
 const PROBE_MEMBER = 'probe_extension';
 const PROBE_VALUE: Record<string, unknown> = { note: 'a member no chat completion declares', seq: 7 };
-const UNRECOGNISED_OBJECT = 'unrecognised.response';
+const UNRECOGNISED_OBJECT = 'unrecognized.response';
 const COMPLETION_ID = 'chatcmpl-response-shapes-1';
 const MODEL = 'response-shape-model';
 const CREATED = 1_700_000_000;
@@ -61,7 +61,7 @@ function streamFrames(shape: Shape): Record<string, unknown>[] {
     // The tail chunk carries content for nobody: `choices` is empty and the member is the payload.
     return [...chunks, { id: COMPLETION_ID, object: 'chat.completion.chunk', created: CREATED, model: MODEL, choices: [], [PROBE_MEMBER]: PROBE_VALUE }];
   }
-  if (shape === 'stream-unrecognised-frame') {
+  if (shape === 'stream-unrecognized-frame') {
     return [...chunks, { object: UNRECOGNISED_OBJECT, [PROBE_MEMBER]: PROBE_VALUE }];
   }
   return chunks;
@@ -74,7 +74,7 @@ function responseFrames(shape: Shape): string[] {
   return [...streamFrames(shape).map((frame) => `data: ${JSON.stringify(frame)}\n\n`), 'data: [DONE]\n\n'];
 }
 
-const SHAPES: readonly Shape[] = ['buffered', 'buffered-unseen-member', 'stream-unseen-member', 'stream-unrecognised-frame'];
+const SHAPES: readonly Shape[] = ['buffered', 'buffered-unseen-member', 'stream-unseen-member', 'stream-unrecognized-frame'];
 
 /**
  * A member read off a response object as plain data, because neither consumer's declared type names
@@ -256,7 +256,7 @@ describe('a streamed chat completion whose last chunk has no choices and carries
 
 describe('a streamed response carrying a frame that is neither a chunk nor the sentinel', () => {
   it('is delivered whole by the official client, which does not read the frame', async () => {
-    const chunks = await collectOfficialChunks(officialClient('stream-unrecognised-frame'));
+    const chunks = await collectOfficialChunks(officialClient('stream-unrecognized-frame'));
     expect(chunks).toHaveLength(5);
     expect(streamedText(chunks)).toBe(CONTENT);
     const odd = chunks[4];
@@ -268,7 +268,7 @@ describe('a streamed response carrying a frame that is neither a chunk nor the s
   });
 
   it('stops the official client once it has to add the frame up', async () => {
-    const stream = officialClient('stream-unrecognised-frame').chat.completions.stream({ model: MODEL, messages: MESSAGES });
+    const stream = officialClient('stream-unrecognized-frame').chat.completions.stream({ model: MODEL, messages: MESSAGES });
     const chunks: unknown[] = [];
     let error: unknown = null;
     try {
@@ -288,7 +288,7 @@ describe('a streamed response carrying a frame that is neither a chunk nor the s
   });
 
   it('is refused by the SDK parser, which names it a chunk that is not one', async () => {
-    const { chunks, error } = await collectSdkChunks(sdkClient('stream-unrecognised-frame'));
+    const { chunks, error } = await collectSdkChunks(sdkClient('stream-unrecognized-frame'));
     expect(chunks).toHaveLength(4);
     expect(streamedText(chunks)).toBe(CONTENT);
     expect(error).toBeInstanceOf(SdkError);

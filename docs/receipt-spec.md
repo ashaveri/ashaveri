@@ -62,7 +62,7 @@ The list is exhaustive, not illustrative. Those bytes are hashed into the `Sig_s
 the table does not name is a parameter the issuer authenticated, and a verifier that read the three
 it knows and returned those would hand its caller a document other than the one that was signed. A
 receipt whose protected header carries any other label is refused, and the refusal names the label. The
-rule closes by number rather than by names this document recognises, so it reaches the parameters RFC
+rule closes by number rather than by names this document recognizes, so it reaches the parameters RFC
 9052 registers as well: `crit`, label 2, a sender's way of asking that a recipient understand something
 about the message, is refused in the signed header like any label the table does not name. Nothing here
 answers such an ask, and not because the number is unknown to it: a sender may still write a label 2

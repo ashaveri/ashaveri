@@ -344,7 +344,7 @@ const ROWS: readonly ReaderCase[] = [
   },
   {
     name: 'three terminator spellings in one body',
-    note: 'a response may mix them frame by frame: a line feed and a carriage return, then the pair twice, then the pair again. A scan that reads line feeds alone and keeps a carriage return as content loses the frame written behind the ending it did not recognise.',
+    note: 'a response may mix them frame by frame: a line feed and a carriage return, then the pair twice, then the pair again. A scan that reads line feeds alone and keeps a carriage return as content loses the frame written behind the ending it did not recognize.',
     frames: [
       { payload: '{"a":1}', sep: `${LF}${CR}` },
       { payload: '{"b":2}', sep: `${CRLF}${CRLF}` },

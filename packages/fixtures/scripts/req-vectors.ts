@@ -121,7 +121,7 @@ const REFUSALS: readonly RefusalCase[] = [
   },
   {
     name: 'req-of-the-buffered-spelling',
-    note: 'A streamed request presented against a receipt digesting the same body without its `stream` member. The bodies differ by one JSON member and nothing else, so this is the near miss a client that normalised its own request before hashing would ship itself into.',
+    note: 'A streamed request presented against a receipt digesting the same body without its `stream` member. The bodies differ by one JSON member and nothing else, so this is the near miss a client that normalized its own request before hashing would ship itself into.',
     held: 'streaming-request',
     claimed: 'buffered-completion',
     code: 'REQUEST_HASH_MISMATCH',

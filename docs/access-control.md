@@ -656,7 +656,7 @@ freed blocks on an unencrypted volume can hold them too. Nothing in this documen
 no marker digest is evidence of byte destruction: the digests a marker carries are an account of what
 this run read and what it published, which is a claim about a file and not about a volume. Where a
 deployer needs the bytes to be unreachable rather than merely unreferenced, that is arranged below this
-software, at the volume, by encrypting what the log sits on or sanitising the media when it leaves. The
+software, at the volume, by encrypting what the log sits on or sanitizing the media when it leaves. The
 erasure duty itself belongs to whoever holds it: under Article 17(1) of the GDPR it is the controller's,
 and a deployer acting as processor discharges it on the controller's documented instruction. This tool is
 what a deployer has for the log, and it is not offered as settling that duty for anyone.

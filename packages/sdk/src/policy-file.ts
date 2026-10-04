@@ -822,7 +822,7 @@ function canonicalOf(file: PolicyFile): Record<string, unknown> {
   // anyone has cited.
   for (const field of ['maxReceiptAgeSeconds', 'maxEvidenceAgeSeconds', 'trustAnchors'] as const) {
     if (given[field] === undefined) {
-      throw invalid(`'${field}' is missing, so the document was never normalised by the loader`);
+      throw invalid(`'${field}' is missing, so the document was never normalized by the loader`);
     }
   }
   // Same deliberate omission for the anchor demand, per the note above `PolicyFile`.

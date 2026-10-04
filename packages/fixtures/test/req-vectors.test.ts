@@ -54,7 +54,7 @@ describe('data/req-v1.json', () => {
 
   it('agrees with the proof-of-possession vectors on the same bytes', () => {
     // Two files, one set of bytes: a proof-of-possession signing string carries the hex digest of
-    // the body it authorises, and a receipt carries sha256 of the same body in `req`. A port that
+    // the body it authorizes, and a receipt carries sha256 of the same body in `req`. A port that
     // implemented the two differently would notice only by holding both, which is why both exist.
     const byBody = new Map(file.vectors.map((vector) => [vector.bodyBase64Url, vector]));
     for (const pop of loadPopVectors().vectors) {
