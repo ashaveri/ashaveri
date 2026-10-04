@@ -90,6 +90,7 @@ jobs:
       - run: pnpm -C packages/fixtures generate:pack
       - run: pnpm -C packages/fixtures generate:redaction
       - run: pnpm -C packages/fixtures generate:epoch-inventory
+      - run: pnpm -C packages/fixtures generate:capture
       # The anchor ledger is written by the attestation package rather than the vector package, and the same
       # rule reaches it: the script is typechecked before it runs, because a generator that compiles wrong can
       # still emit a document that reads as a plausible statement about the shipped anchors.
