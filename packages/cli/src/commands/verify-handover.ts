@@ -838,10 +838,13 @@ function readRedaction(bytes: Uint8Array, inputs: Inputs, kid: Uint8Array): Read
  * forwards the designation whole exactly as the pack arm does, because an inventory seals a run whose packs were
  * sealed across a rotation and the key that sealed it is one the caller retained.
  *
- * What comes back is the document's agreement with itself, and the report keeps the register the pack report
- * keeps for `duty`: an entry's two digests, its item count, its span and its chain endpoints are restatements of
- * packs this run was not handed, so they are printed as what the entries say and judged by nothing here. The
- * presence fold is the one reading an inventory's reader can do and this command line cannot ask: the interval
+ * What comes back is the document's agreement with itself, in two registers. An entry's two digests and its item
+ * count are restatements of packs this run was not handed, so they are printed as what the entries say and met
+ * by no bytes here: a stated digest is met by the path the entry is filed under, which is a fact inside the
+ * container, and a stated item count by nothing at all. The spans, the chain endpoints and the two duty figures
+ * are the other half of the reading, walked across the run and refused where the document states a window, an
+ * endpoint, a break list or a shortfall list that is not that walk. The presence fold is the one reading an
+ * inventory's reader can do and this command line cannot ask: the interval
  * across which a store reported holding the appraisal context is folded from the run's retention artifacts, and
  * no option here carries them, so the fold answers nothing and the report says so rather than leaving it
  * implied. The run's rows are the entries in the order the reader's own rule puts them, which is the order the
@@ -909,7 +912,7 @@ function readInventory(bytes: Uint8Array, inputs: Inputs, kid: Uint8Array): Read
     ],
     notChecked: [
       'whether the two digests an entry names are digests of files that exist beside this document, whether the packs they name are sealed by the keys the entries give, and whether an item count beside an entry is the count of receipts inside that pack: an inventory restates a run rather than proving it, and `ashaveri verify-handover` over each pack file recomputes what an entry claims',
-      'whether a required period an entry states is met by the held period beside it, and whether either was owed: that comparison belongs to the duty mapping revision each entry names, and this command states both figures and judges neither, exactly as it does over a pack',
+      'whether either period an entry states was owed at all: this run compares each held figure with the required figure beside it and refuses a document whose stated shortfall rows are not that arithmetic, and owed-ness turns on the duty mapping revision each entry names and on the law behind it',
       'whether the store held the appraisal context across the period this run attests: the fold of that interval reads the run\'s retention artifacts, no option of this command line hands them, and so the two retention digests are printed as the document\'s own figures and compared by nothing in this run',
       'whether this run is all the epochs the deployment closed and whether it is the latest statement about them: no file in a bundle shows what else a store holds, the stamps these entries carry are each pack\'s own assembly stamp restated, and this run consulted no clock',
     ],

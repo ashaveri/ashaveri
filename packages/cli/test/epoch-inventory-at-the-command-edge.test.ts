@@ -407,6 +407,30 @@ describe('an epoch inventory at the command edge', () => {
     expect(observed.filter((one) => !one.endsWith('verify-ok')).length).toBeGreaterThanOrEqual(40);
   });
 
+  it('leaves open in its own English only what the published rows leave open', () => {
+    // Two registers, and the suite says which statements belong to which. A window, a chain endpoint or a duty
+    // summary that disagrees with the entries is refused by published rows naming that site, so those figures are
+    // judged by this reading. An item count is refused by no row at all, and a stated digest by the path the
+    // entry is filed under alone, because no bytes of a pack reach this call.
+    const refused = inventories.vectors.filter((one) => one.verdict !== 'verify-ok');
+    for (const site of ['window', 'chain.anchor', 'chain.head', 'duty.short', 'duty.carried']) {
+      expect(refused.some((one) => (one.message ?? '').includes(site)), `no published row refuses ${site}`).toBe(true);
+    }
+    expect(refused.every((one) => !/\bitems\b/u.test(one.message ?? '')), 'a published row refuses an item count').toBe(true);
+
+    // What that leaves of the duty question is owed-ness, and the honest row's own columns say it is left: a pack
+    // short of the period the same entry states it owed, published as `verify-ok` and named in its readback as
+    // short. So a report of these bytes may list owed-ness as unchecked and may not list the comparison.
+    const json = verdictOf(runCli(['verify-handover', HONEST_PATH, HONEST_KEY, '--json']));
+    const duty = (json.document as { duty: { carried: boolean; short: { file: string }[] } }).duty;
+    expect(duty.carried, 'the honest row states a shortfall this run carries').toBe(false);
+    expect(duty.short.map((one) => one.file), 'the shortfall rows are the published ones').toEqual(readbackOf(HONEST).shortFiles);
+    const notChecked = (json.notChecked as string[]).join(' ');
+    expect(notChecked, 'the unchecked list calls the duty figures unjudged').not.toContain('judges neither');
+    expect(notChecked, 'the unchecked list calls the duty figures unjudged').not.toContain('judged by nothing');
+    expect(notChecked, 'the unchecked list names no duty question').toContain('owed');
+  });
+
   it('answers an inventory refusal in the same breath as the type it met', () => {
     const row = inventoryRow('issuer-id-stated-empty');
     const path = written('refused-inventory.cbor', Buffer.from(row.documentBase64Url, 'base64url'));

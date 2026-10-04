@@ -438,7 +438,7 @@ describe('ashaveri verify', () => {
     expect(result.stdout).toContain('--expect-compose-hash');
     expect(result.stdout).toContain('--intel-root');
     expect(result.stdout).toContain("--public-key=<value>");
-    // The two pinned verbs are registered rather than merely parseable: this output is the command list a
+    // The three pinned verbs are registered rather than merely parseable: this output is the command list a
     // caller reads, so a verb that runs and is not named here is a verb nobody finds.
     expect(result.stdout).toContain('ashaveri verify-pack <document>');
     expect(result.stdout).toContain('ashaveri verify-export <document>');
