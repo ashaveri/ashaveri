@@ -12,7 +12,7 @@ import { sha256 } from './digest.js';
  *
  * The rule this module keeps is that the bytes marked are the bytes written: a member is added to a
  * buffered body before that body is hashed, and a frame goes through the same write closure the rest
- * of the stream took before the stream's digest is finalised. A receipt issued over bytes a client
+ * of the stream took before the stream's digest is finalized. A receipt issued over bytes a client
  * never received is the failure this file exists to make impossible. The streamed shape is written as a
  * frame, which is one field line and the blank line after it, and a frame is only a frame with the
  * frame before it closed: a mark set down on a line two `data:` prefixes share is a line no client's
@@ -152,7 +152,7 @@ function equalsAt(bytes: Uint8Array, at: number, token: Uint8Array): boolean {
 
 /**
  * How many of these bytes' last ones could still turn out to be the start of a sentinel. A write
- * boundary falls wherever the transport likes, including inside the eight letters of `[DONE]`, and
+ * boundary falls wherever the transport likes, including inside the six characters of `[DONE]`, and
  * the only bytes this gateway may hold back are ones whose meaning is not settled yet. A stream that
  * ends mid-word is a truncated stream, and holding its bytes says nothing about it that its digest
  * does not already say.

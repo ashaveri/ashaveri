@@ -239,9 +239,9 @@ describe('the rate a window is derived at', () => {
   const ends = (from: number, to: number, count: number): RetainedWindow => ({ from, to, count });
 
   it('takes more receipts for one period when the source declares a bound', () => {
-    // Five receipts over four seconds at a one-year period: exact readings give a quarter of a receipt
-    // per second, and a source that resolves nothing inside 20 seconds cannot claim four seconds of
-    // span at all, so it is read over the one second its floor allows.
+    // Five receipts over four seconds at a one-year period: exact readings give one receipt a second,
+    // and a source bound to three seconds of uncertainty cannot claim four seconds of span at all, so
+    // it is read over the one second its floor allows, which quadruples the count.
     const period = 31_536_000;
     expect(receiptsNeededForWindow(period, ends(1_000, 1_004, 5), fixedClock(() => 0, 0))).toBe(31_536_001);
     expect(receiptsNeededForWindow(period, ends(1_000, 1_004, 5), fixedClock(() => 0, 3))).toBe(126_144_001);

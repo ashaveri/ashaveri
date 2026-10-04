@@ -410,7 +410,7 @@ function isDirectory(path: string): boolean {
  * bounds a walk rather than a volume, and retires nothing: a walk over a window holding more receipts
  * than this is answered in batches and returns all of them. A deployment that keeps half a year of
  * traffic and answers a question about an hour of it therefore does not have to choose between the two,
- * which is the choice one number forced.
+ * which is the choice one number would force.
  *
  * Both are shipped defaults and nothing more. No value of either is checked against a period anyone
  * owes, and a store that opens has said what it keeps, which is a different claim from a duty
@@ -443,9 +443,8 @@ const serving: ReceiptServing = { maxServedReceipts: servedReceipts };
 /**
  * The guard's default threshold, in per cent of the durability bound: 100, the bound itself. That is
  * not a rounded number chosen for a banner, it is the one state the store already refuses to open at,
- * because a retained set never exceeds the count that retires it. So the default shipped here leaves a
- * deployment that configures nothing behaving exactly as it behaved before this flag existed, and the
- * fraction the gateway is handed is 1.
+ * because a retained set never exceeds the count that retires it. So the default shipped here changes
+ * nothing for a deployment that configures nothing, and the fraction the gateway is handed is 1.
  */
 const GUARD_AT_BOUND_ITSELF_PERCENT = 100;
 

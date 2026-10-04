@@ -1362,9 +1362,9 @@ describe('the serving bound', () => {
 
   it(
     'reads a receipt from where it lies after a compaction moved it under the walk',
-    // Nine durable appends and one open, four of them landing while a walk is parked between two
-    // yields, measured here at 26ms. The stop is the one the cases in the describe above carry for the
-    // same volume of appends, which is ten durable writes and an open at 15s.
+    // Eight durable appends and one open, the last of them landing while a walk is parked between two
+    // yields, measured here at 26ms. The stop is the one the cases in the describe above carry, which is
+    // ten durable writes and an open at 15s.
     { timeout: 15_000 },
     async () => {
       const dir = await emptyDir();
@@ -1614,7 +1614,7 @@ describe('a rewrite landing underneath a walk', () => {
 
   it(
     'serves a walk from the file a compaction moved it into, and the bytes each receipt has',
-    // Seven durable appends, one of them landing while a walk is parked, four openings and a restart
+    // Eight durable appends, one of them landing while a walk is parked, two openings and a restart
     // that re-reads the file: measured at 26ms here, against the 15s the cases above carry for ten
     // durable appends and an open.
     { timeout: 15_000 },

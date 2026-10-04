@@ -833,7 +833,6 @@ describe('the sidecar is maintained by an append, not rebuilt', () => {
   it(
     'writes an appended block without waiting for another opening',
     // Two hundred and fifty six durable appends, one per record a block carries, measured at 0.9s here.
-    // The stop is the one the cases above carry times the twenty six appends this one adds.
     { timeout: 60_000 },
     async () => {
       const dir = await emptyDir();

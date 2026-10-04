@@ -610,7 +610,6 @@ function rawRequest(port: number, bytes: string): Promise<string> {
   });
 }
 
-/** Both request-shaped inputs the plan called clean by rule, attacked from the wire side instead. */
 describe('what a refusal reaching a client looks like', () => {
   it('refuses a credential id the rule has no room for, and keeps the answer to one line', async () => {
     for (const [name, hostile] of [
