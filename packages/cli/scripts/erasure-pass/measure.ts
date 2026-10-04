@@ -485,7 +485,7 @@ async function runCell(
   };
 }
 
-/** The request rate this machine serves without the queue that would hide a tail. */
+/** The request rate the machine running this script serves without the queue that would hide a tail. */
 async function calibrate(serving: Serving, info: ServingInfo): Promise<number> {
   for (const rate of RATE_CANDIDATES) {
     const driver = drive(info, rate);

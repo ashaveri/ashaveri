@@ -677,13 +677,12 @@ describe('what the CLI is allowed to print', () => {
     /** Eight labels the case writes and the two listings it reads back, at the deadline one child is given. */
     timeout: spawnCeilingForCalls(10, SPAWN_DEADLINE_MS),
   }, () => {
-    // The class the guard carries and the list an earlier version enumerated are not the same set. A
-    // zero-width space and a right-to-left mark are format characters rather than control ones, so a
-    // class built from the control ranges never saw them; DEL sits above the C0 range that class
-    // stopped at; a tag character is astral, which is where an escape written per code point rather
-    // than per code unit hands back the high half alone; and a soft hyphen is invisible without being
-    // a control at all. The object form is in the same case because `JSON.stringify` is the step that
-    // left every one of them raw.
+    // The shapes this case writes are not the set a class built from the control ranges catches. A
+    // zero-width space and a right-to-left mark are format characters rather than control ones, so such
+    // a class never sees them; DEL sits above the C0 range it stops at; a tag character is astral, which
+    // is where an escape written per code point rather than per code unit hands back the high half
+    // alone; and a soft hyphen is invisible without being a control at all. The object form is in the
+    // same case because `JSON.stringify` is the step that leaves every one of them raw.
     const shapes = ['a\u200bb', 'a\u200fb', 'a\u061cb', 'a\u00adb', 'a\ufeffb', 'a\u007fb', `a\u{e0020}b`, 'a\u2066b'];
     const escapes = ['\\u200b', '\\u200f', '\\u061c', '\\u00ad', '\\ufeff', '\\u007f', '\\udb40\\udc20', '\\u2066'];
     const path = freshFile();

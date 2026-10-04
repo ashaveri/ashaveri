@@ -819,22 +819,17 @@ function readRedaction(bytes: Uint8Array, inputs: Inputs, kid: Uint8Array): Read
 }
 
 /**
- * The five types this command can meet, each with the reader that answers for it. The keys are the
- * constants the format package publishes, so a sixth type published beside them reaches this command as
- * an unknown `typ` and is refused by name rather than read as one of these five.
- *
- * The pack reader is the one that returns a promise, because weighing the material a pack carries runs the
- * collateral package's appraisal, which is an asynchronous signature for a path that fetches nothing: the
- * material is handed in rather than asked for. The other four readers are as they always were, and the one
- * call site awaits both shapes.
- */
-/**
  * One reader of this family. The pack's returns a promise, because weighing the material it carries awaits an
  * appraisal that fetches nothing; the call site awaits both shapes, so a narrower question about the same bytes
  * does not change what an answer is made of.
  */
 type DocumentReader = (bytes: Uint8Array, inputs: Inputs, kid: Uint8Array) => Reading | Promise<Reading>;
 
+/**
+ * The five types this command can meet, each with the reader that answers for it. The keys are the
+ * constants the format package publishes, so a sixth type published beside them reaches this command as
+ * an unknown `typ` and is refused by name rather than read as one of these five.
+ */
 const READERS: ReadonlyMap<string, DocumentReader> = new Map<string, DocumentReader>([
   [RECEIPT_CONTENT_TYPE, readReceipt],
   [PACK_CONTENT_TYPE, readPack],

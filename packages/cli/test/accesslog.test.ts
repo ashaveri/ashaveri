@@ -467,11 +467,10 @@ describe('ashaveri accesslog scrub', () => {
   });
 
   it('erases from one part while a backup holds a second name on another the subject never wrote to', () => {
-    // The guard's other edge, and the one the first version cut the wrong way. A backup of a whole log
-    // directory hard-links every part in it, including the parts holding everybody else's records, and a
-    // run that asked the link question before it knew whose lines were inside refused every credential in
-    // the file. The erasure asked for here is honest whether or not the other part is shared, because
-    // nothing is written at that name at all.
+    // The guard's other edge. A backup of a whole log directory hard-links every part in it, including
+    // the parts holding everybody else's records, so a guard that asked the link question before it knew
+    // whose lines were inside would refuse every credential in the file. The erasure asked for here is
+    // honest whether or not the other part is shared, because nothing is written at that name at all.
     const dir = dirWith(
       new Map([
         ['access-2026-02-24-000.jsonl', [record({ cred: 'svc-b', rid: 'rid-keep' })]],

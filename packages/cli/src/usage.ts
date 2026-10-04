@@ -17,9 +17,9 @@ export class UsageError extends Error {}
  * classify them otherwise the range is the only thing that catches them. A class like this one is the
  * boundary of what the program trusts, so it carries its own copy of the ranges that matter.
  *
- * Detection and replacement are built from this one string because an earlier version of this guard
- * had a class that noticed U+007F in a label and a second class that escaped everything except
- * U+007F. A character that is noticed but not escaped is a hole sitting next to a passing test.
+ * Detection and replacement are built from this one string, so no character can be noticed by one pass
+ * and missed by the other: a character that is noticed but not escaped is a hole sitting next to a
+ * passing test.
  *
  * The two line separators are spelled out because no property class here catches them: U+2028 and
  * U+2029 are category Zl and Zp, neither a control character nor a format character, and a reader

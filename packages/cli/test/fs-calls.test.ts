@@ -20,15 +20,10 @@ import { accesslogScrub } from '../src/commands/accesslog.js';
  * second process. What it cannot do is say what a real file system does with those arguments. Each of
  * the three mode rules has a partner case in `test/atomic.test.ts` or `test/accesslog.test.ts` that
  * reads bits off a volume, and every one of those partners is gated to a POSIX host: on Windows the
- * argument capture in this file is not one of a pair, it is the only witness there is. The rules below
- * have no volume partner for the shape they are asserted in here, which is the point of scripting them:
- * an `EEXIST` that reaches a rename, an append landing between two calls of one run, a name that is gone
- * or unopenable when it is read back, a net-zero rewrite followed by a part the open refuses, a part
- * whose name is shared with a second name or is a link, a link whose target is gone, a link planted
- * between two attempts at one part, a name that changes character or is gone between this run's read
- * and its next question, and a directory carrying the link count a Linux volume answers for one. Of
- * those, the ones about a name's own character are reachable on a volume before a run starts, and
- * `test/accesslog.test.ts` holds those cases; the rest need a second writer that arrives on a test's
+ * argument capture in this file is not one of a pair, it is the only witness there is. The rest of the
+ * rules have no volume partner for the shape they are asserted in here, which is the point of scripting
+ * them: the shapes a volume does reach before a run starts, the ones about a name's own character, are
+ * held in `test/accesslog.test.ts`; the shapes left over need a second writer that arrives on a test's
  * schedule, which no host is obliged to provide.
  */
 
@@ -662,11 +657,11 @@ describe('a part whose name is not the file itself', () => {
   });
 
   it('walks past a shared name the subject has never written to', async () => {
-    // The other half of the order above, and the one the first version of the check got wrong. A backup
-    // that hard-links a whole log leaves every part of every other customer sharing a name, and asking
-    // the link question of those parts refuses an erasure that is about to be honest, for a file this
-    // run would not have touched at all. This is the same discipline a read-only part earns two cases
-    // up: the checks a part owes are decided by whether this run has something to remove from it.
+    // The other half of the order above. A backup that hard-links a whole log leaves every part of every
+    // other customer sharing a name, and asking the link question of those parts refuses an erasure that
+    // is about to be honest, for a file this run would not have touched at all. This is the same
+    // discipline a read-only part earns two cases up: the checks a part owes are decided by whether this
+    // run has something to remove from it.
     const shared = scriptFile('access-2026-02-24-000.jsonl', lines(['rid-9', 'svc-b'], ['rid-10', 'svc-b']), 0o600);
     const subject = scriptFile('access-2026-02-25-000.jsonl', lines(['rid-1', 'svc-a'], ['rid-2', 'svc-b']), 0o600);
     host.sharedNames.set(shared, 2);
@@ -808,11 +803,12 @@ describe('a part whose name is not the file itself', () => {
     // A directory's `nlink` counts the entries inside it, not names holding it: 2 on an empty one and one
     // more per subdirectory, so asking the shared-name question of one answers with a number that means
     // something else. That is why the count is scripted here at the value a Linux volume gives a
-    // directory: this host answers 1, which is how a full suite stayed green on one machine and went red
-    // on the other. The guard's own `isFile` answer, for a name the read found as a file and the next
-    // question found as something else, is the case below. What this one holds is the order: the listing
-    // hands over a directory, the read refuses it in the operating system's words, and no link question
-    // is asked of it at all.
+    // directory with one subdirectory: the scripted host answers 1 for a name with no count planted, so
+    // a guard that wrongly asked the link question of this name would trip the shared-name check rather
+    // than pass through it. The guard's own `isFile` answer, for a name the read found as a file and the
+    // next question found as something else, is the case below. What this one holds is the order: the
+    // listing hands over a directory, the read refuses it in the operating system's words, and no link
+    // question is asked of it at all.
     const directory = scriptDir('access-2026-02-25-000.jsonl');
     host.sharedNames.set(directory, 3);
     const failure = await accesslogScrub(DIR, 'svc-a', clock).catch((error: unknown) => error);

@@ -343,7 +343,7 @@ async function primitiveSteps(dir: string, credential: string): Promise<Record<s
     const at = performance.now();
     await body();
     // Each of these is one synchronous call with no yield inside it, so the time it took is exactly the
-    // time nothing else ran. A loop-delay watch here would report this host's timer granularity, about
+    // time nothing else ran. A loop-delay watch here would report the host's timer granularity, about
     // 15ms, for every step including the ones that cost a millisecond, and that is a number about the
     // instrument rather than about the work.
     row[name] = performance.now() - at;
