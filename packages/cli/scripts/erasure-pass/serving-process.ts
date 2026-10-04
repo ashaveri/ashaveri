@@ -406,7 +406,7 @@ function sleep(ms: number): Promise<void> {
 }
 
 /**
- * One worker per run, so a thread's start-up is measured rather than amortised away and the number for a
+ * One worker per run, so a thread's start-up is measured rather than amortized away and the number for a
  * warm unit stays separable from the number for a cold one. A deployment would keep a pool of them, and
  * the difference between the two is the first unit of a run against the rest of it.
  */

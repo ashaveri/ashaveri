@@ -609,7 +609,7 @@ describe('ashaveri accesslog scrub', () => {
 
 /**
  * A day's whole allotment of marker names, filled. This is the obstacle that makes a marker write fail
- * on any host and for any reason the operator will recognise: a permission bit in the same directory
+ * on any host and for any reason the operator will recognize: a permission bit in the same directory
  * would stop the part rewrite first, which is the route the cases above already take, and a full day
  * stops only the marker.
  */

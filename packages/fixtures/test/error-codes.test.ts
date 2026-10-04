@@ -40,7 +40,7 @@ function documentedSections(markdown: string): Map<string, Row[]> {
   for (const line of markdown.split('\n')) {
     // A markdown table closes at the first blank line, and a cell wrapped onto a physical line of its
     // own closes it too while rendering as a paragraph outside the table. The reading below skips every
-    // line it does not recognise as a row, which is how a row lost to that wrap would pass unnoticed
+    // line it does not recognize as a row, which is how a row lost to that wrap would pass unnoticed
     // here and read as a missing code somewhere else, so a table broken anywhere but on a blank line is
     // refused rather than read short.
     if (tableOpen && line.trim().length > 0 && !line.startsWith('|')) {

@@ -122,7 +122,7 @@ describe('the envelope the origin actually serves', () => {
    * What the signature covers is the document member's own span inside the body text, so this case proves the
    * reader weighed the bytes that arrived and not a copy re-made from them: the certificates are the ones the
    * header carried, in the order the header carried them, and the anchor named is the root the caller holds
-   * rather than a name the reader recognised on the way.
+   * rather than a name the reader recognized on the way.
    */
   it('weighs a served document under the root the caller names, over the span the body holds', () => {
     expect(INTEL_TCB_INFO.signature.served?.envelope).toBe('json-hex-signature');

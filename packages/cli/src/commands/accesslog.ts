@@ -431,7 +431,7 @@ async function writeReceipt(
 ): Promise<string> {
   const receipt: ScrubMarker = { t: atMillis, credential, removed, files: parts.length, parts: [...parts], request };
   // `escapeInvisibleJson` says why the platform's own stringifier is not enough here. What is local to
-  // this call is that `--request` is operator text which nothing sanitises, only trims and measures, so
+  // this call is that `--request` is operator text which nothing sanitizes, only trims and measures, so
   // one line separator inside it would make this receipt a two-line document to anything that splits
   // lines that way, and a directional override would show a reader a sentence other than the bytes.
   const text = `${escapeInvisibleJson(JSON.stringify(receipt))}\n`;

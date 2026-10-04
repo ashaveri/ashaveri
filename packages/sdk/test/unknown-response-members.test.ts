@@ -204,7 +204,7 @@ describe('a buffered chat completion response', () => {
     expect(bufferedText(completion)).toBe(CONTENT);
     expect(ownMembersOf(completion)).toEqual([...COMPLETION_KEYS, PROBE_MEMBER]);
     expect(memberOf(completion, PROBE_MEMBER)).toEqual(PROBE_VALUE);
-    // Re-serialising the object the client returned still carries the member, so nothing was
+    // Re-serializing the object the client returned still carries the member, so nothing was
     // dropped on the way out of the transport either.
     expect(JSON.stringify(completion)).toContain(JSON.stringify(PROBE_VALUE));
   });

@@ -26,7 +26,7 @@ import { DEFAULT_MAX_EVIDENCE_AGE_SECONDS, DEFAULT_MAX_RECEIPT_AGE_SECONDS } fro
  * nothing to anyone comparing two copies.
  *
  * Vendor root material is the one field that does not fit a JSON string honestly, so it is
- * externalised: the file names a path and the SHA-256 of the bytes there, and the policy digest
+ * externalized: the file names a path and the SHA-256 of the bytes there, and the policy digest
  * covers that inner digest rather than any text. Both path and digest are pinned, because leaving
  * either out of the digest would leave a field the operator wrote outside its identity.
  */
@@ -72,7 +72,7 @@ const PIN_FIELDS = ['issuers', 'instances', 'keys', 'measurements'] as const;
  * read and dropped. That is a decision about an identity and not a piece of unfinished work.
  *
  * Every field of a policy is inside its digest, and the digest is how a capture record and an evidence
- * pack cite the policy a verdict was reached under. Writing the new field out normalised, which is what
+ * pack cite the policy a verdict was reached under. Writing the new field out normalized, which is what
  * this format does with every optional field, would move the digest of every policy already written,
  * including those nobody will ever add the field to, and would quietly invalidate the citations made
  * against them. Leaving it out of the canonical form while carrying it in the document would put a pin
@@ -85,7 +85,7 @@ const PIN_FIELDS = ['issuers', 'instances', 'keys', 'measurements'] as const;
  */
 
 /**
- * Two fields of this document have a conditional normalised spelling: `maxTimeUncertaintySeconds`
+ * Two fields of this document have a conditional normalized spelling: `maxTimeUncertaintySeconds`
  * and `minAnchorSlotsHeld` are written into the canonical form only where the document stated a
  * number, and the trade is the opposite of the one above, taken deliberately and in the open. A
  * manifest signing key is a pin: reading it from the file while leaving it out of the canonical form
@@ -125,7 +125,7 @@ export const PINNED_TEXT_PATTERN =
   '^[^\\u0000-\\u001F\\u007F-\\u009F\\u00AD\\u200B-\\u200F\\u2028\\u2029\\u202A-\\u202E\\u2060-\\u2064\\uFEFF\\uFFF9-\\uFFFB]+$';
 const PINNED_TEXT = new RegExp(PINNED_TEXT_PATTERN, 'u');
 
-/** One vendor root, externalised: where it is, and what is there. */
+/** One vendor root, externalized: where it is, and what is there. */
 export interface PolicyTrustAnchor {
   readonly path: string;
   readonly sha256: string;
@@ -145,13 +145,13 @@ export interface PolicyFileTrustAnchors {
 }
 
 /**
- * The document form in its normalised spelling: sets sorted, defaults written out, paths with
+ * The document form in its normalized spelling: sets sorted, defaults written out, paths with
  * forward slashes. A pin collection is either present or absent, because `null`, `{}` and `[]` are
  * all one accident with different text; the two age windows and the three anchor families do accept
  * an explicit `null`, which is how a document says it considered them and took the default. The time
  * bound and the anchor demand both accept `null` on the same reading, and they are the two fields the
- * canonical form normalises by omission rather than writes: see the note above this interface on why a
- * demand is normalised by omission and the two windows are not.
+ * canonical form normalizes by omission rather than writes: see the note above this interface on why a
+ * demand is normalized by omission and the two windows are not.
  */
 export interface PolicyFile {
   readonly v: number;
@@ -204,7 +204,7 @@ export interface LoadedPolicyAnchor {
 }
 
 export interface LoadedPolicy {
-  /** The document as read, in its normalised spelling. */
+  /** The document as read, in its normalized spelling. */
   readonly file: PolicyFile;
   /** The policy the document names, ready to hand to `verifyCompletionReceipt`. */
   readonly policy: AshaveriPolicy;
@@ -688,7 +688,7 @@ function readTrustAnchors(value: unknown): PolicyFileTrustAnchors {
 /**
  * Reads one policy document.
  *
- * The result is the document in its normalised spelling: sets sorted, every anchor family written
+ * The result is the document in its normalized spelling: sets sorted, every anchor family written
  * out, both age windows, the time bound and the anchor demand each present as a number or `null`.
  * `policyFileDigest` is defined on this form, so a digest is a fact about the policy and not about how a
  * copy happened to be laid out.
@@ -777,7 +777,7 @@ function canonicalValue(value: unknown): string {
  * The loaded policy with every default written out and every set in one order.
  *
  * The shape is checked again on the way in, so a digest can never be published for an object that
- * carries a field this format does not define or lacks one it always normalises. Without that, a
+ * carries a field this format does not define or lacks one it always normalizes. Without that, a
  * caller that built a `PolicyFile` by hand could attach a digest to a policy the loader would have
  * refused.
  *

@@ -402,7 +402,7 @@ describe('policyFileDigest', () => {
     // over the loaded policy rather than over the bytes of the file.
     expect(digestOf({ v: 1, issuers: ['a'], maxReceiptAgeSeconds: null })).toBe(digestOf({ v: 1, issuers: ['a'] }));
     expect(digestOf({ v: 1, issuers: ['a'], trustAnchors: null })).toBe(digestOf({ v: 1, issuers: ['a'] }));
-    // The demand the same document may make about a stamp's source is normalised the same way on the
+    // The demand the same document may make about a stamp's source is normalized the same way on the
     // reading it carries: null and absent are one policy, while the bound itself is inside the digest
     // whenever it is stated, which is the case the next test adds.
     expect(digestOf({ v: 1, issuers: ['a'], maxTimeUncertaintySeconds: null })).toBe(digestOf({ v: 1, issuers: ['a'] }));
