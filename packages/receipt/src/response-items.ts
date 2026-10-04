@@ -8,7 +8,7 @@ import { ReceiptError } from './errors.js';
  *
  * The unit is a protocol item and not a transport accident. `gateway/src/marking.ts` states the reason
  * in the estate's own words: "a write boundary falls wherever the transport likes, including inside the
- * eight letters of `[DONE]`". A rule that read items off write boundaries would therefore attest a
+ * six characters of `[DONE]`". A rule that read items off write boundaries would therefore attest a
  * different set of items for one response depending on how the socket chose to deliver it, and a
  * verifier holding the bytes it was handed could not reproduce the set. So the rule below is a function
  * of the response bytes alone: the same bytes give the same items and the same digests however they
