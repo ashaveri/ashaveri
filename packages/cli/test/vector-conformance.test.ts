@@ -1433,15 +1433,15 @@ function inventoryAnswer(one: EpochInventoryCase): { code: string; message: stri
 /**
  * The epoch inventory suite replayed through the two readers a consumer links against.
  *
- * This goes through `verifyEpochInventory` and `decodeEpochInventory` rather than through a command because
- * there is no command to go through. `packages/cli/src/cli.ts` states the verbs this package ships in one
- * declaration, `COMMANDS`, and dispatches on it in `run`, and no verb of this package reads an epoch
- * inventory. Writing a verb for this container would settle what an operator gets to run, which is a
- * decision about the format's surface rather than about this replay, and a file that replays published rows
- * does not settle it. What this block does prove is the claim a port has to satisfy: the
- * readers exported from `@ashaveri/receipt` answer these verdicts from bytes a consumer can hold, under the
- * key material the same file publishes and nothing else. The redaction block above is the near relation, since
- * an inventory and a redaction manifest are both summaries over a run of packs and both are read by a
+ * This goes through `verifyEpochInventory` and `decodeEpochInventory` rather than through a command because the
+ * claim a port has to satisfy is about the library surface: the readers exported from `@ashaveri/receipt` answer
+ * these verdicts from bytes a consumer can hold, under the key material the same file publishes and nothing
+ * else. `packages/cli/test/epoch-inventory-at-the-command-edge.test.ts` replays the same rows through
+ * `ashaveri verify-handover`, and the two paths answer differently exactly where a command line has no option
+ * carrying what a row states: the retention artifacts of the fold, and a call that pins one half rather than
+ * designating a set matched on kids. So this block is the library's answer and that file is the command's, each
+ * compared against the same published columns. The redaction block above is the near relation, since an
+ * inventory and a redaction manifest are both summaries over a run of packs and both are read by a
  * key-bearing and a keyless reader.
  */
 describe('the epoch inventory vectors through the shipped readers', () => {

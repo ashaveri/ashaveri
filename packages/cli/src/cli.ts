@@ -9,8 +9,9 @@ import { runVerifyReceipt } from './commands/verify-receipt.js';
 import { runVerifyHandover } from './commands/verify-handover.js';
 import { runVerifyPack } from './commands/verify-pack.js';
 import { runVerifyExport } from './commands/verify-export.js';
+import { runVerifyEpochInventory } from './commands/verify-epoch-inventory.js';
 
-const COMMANDS = ['verify', 'verify-receipt', 'verify-handover', 'verify-pack', 'verify-export', 'keygen', 'credential', 'accesslog'] as const;
+const COMMANDS = ['verify', 'verify-receipt', 'verify-handover', 'verify-pack', 'verify-export', 'verify-epoch-inventory', 'keygen', 'credential', 'accesslog'] as const;
 
 const USAGE = `ashaveri - offline verification of dStack confidential-VM attestations and of published
 receipts, and the operator commands for the gateway's credential file and access log
@@ -41,6 +42,7 @@ Arguments:
                          [--collateral-cpu-type <slot>=<hex>]...
                          [--collateral-level <slot>=<arm>=<value>]... [--json]
   ashaveri verify-export <document> --key <b64url>... [--companion <file>]... [--json]
+  ashaveri verify-epoch-inventory <document> --key <b64url>... [--json]
   ashaveri keygen [--id <id>] [--json]
   ashaveri credential add --credentials <file> [--id <id>] [--kind pop|bearer]
                           [--scopes read,complete] [--label <text>]
@@ -53,24 +55,29 @@ Arguments:
   <attestation>      Path to a dStack VersionedAttestation file, or - for stdin.
   <receipt>          Path to a COSE_Sign1 receipt file, or - for stdin.
   <document>         Path to one signed document from a handover, or - for stdin: a receipt, a pack,
-                     an export, a deployment manifest or an excision amendment, whichever the bytes say
-                     it is. For verify-pack and verify-export it is the file that says the one thing that
-                     verb reads, and any other document is refused before it is opened.
+                     an export, a deployment manifest, an excision amendment or an epoch inventory,
+                     whichever the bytes say it is. For verify-pack, verify-export and
+                     verify-epoch-inventory it is the file that says the one thing that verb reads, and any
+                     other document is refused before it is opened.
 
 verify-handover answers the question a pile of files leaves open: what is this, and what holds for it.
-Five signed shapes carry a published content type, in the COSE protected header, inside the signature,
+Six signed shapes carry a published content type, in the COSE protected header, inside the signature,
 so the answer for a pile is one command that reads the header rather than one that makes the caller
 declare the form before looking at it. The type found is printed before anything about validity, in
 both renderings, and the document is then read by the reader for that type: the receipt reader, the
-pack reader, the export reader, the redaction reader, or the manifest rule a client applies to a served
-document. Nothing is fetched and no policy is read. Keys are what the command line designates, by role:
---key names the keys whose signatures hold on a receipt, a pack, an export or an amendment, matched on
-the kid each document names, and --manifest-key names the keys whose seal authenticates a deployment
-manifest, which is a separate designation because a manifest decides which keys sign evidence and cannot
-be proved by one of them. An amendment states a removal from one pack and designates that pack by a
+pack reader, the export reader, the redaction reader, the inventory reader, or the manifest rule a
+client applies to a served document. Nothing is fetched and no policy is read. Keys are what the
+command line designates, by role: --key names the keys whose signatures hold on a receipt, a pack,
+an export, an amendment or an inventory, matched on the kid each document names, and --manifest-key
+names the keys whose seal authenticates a deployment manifest, which is a separate designation
+because a manifest decides which keys sign evidence and cannot be proved by one of them. An amendment states a
+removal from one pack and designates that pack by a
 digest of its whole bytes, so it is checked against the pack handed as --companion: the digest is
 recomputed from those bytes and compared, and the pair is refused by name when they disagree or when no
-pack was handed at all. Each key's id is computed from the key, so a designation cannot type an id its
+pack was handed at all. An inventory states what a run of packs adds up to, and it is read alone here:
+the fold its reader can do over the run's retention artifacts has no flag carrying those bytes, so the
+two digests an entry names print as the document's own figures and the report says in terms that the
+fold answered nothing. Each key's id is computed from the key, so a designation cannot type an id its
 own key contradicts, and a run prints which designations it was handed and whether the document in front
 of it consulted them. What this command leaves open is printed as open: it compares no nonce against a
 challenge, no digest against the bytes it claims, no pin against a policy and no stamp against a clock,
@@ -92,17 +99,18 @@ the signature over it. The two places a reader looks for a verdict stay apart in
 line answers the container, and each weighed slot prints the appraisal's own state, its refusal detail where
 it carries one, and the window the vendor signed beside the instant it was read against.
 
-verify-pack and verify-export are that command with the answer in label 3 fixed to one value, for a
-caller that already knows which file it holds. Ask the free verb about a pile and not knowing is the
-question; tell a script which shape it came for and the shape stops being a question, so a step written
-to check a pack that is handed an export should not come back reporting a verdict about the wrong
-material and exiting 0. A pinned verb refuses that before it opens the payload, with the refusal
-verify-handover already gives a content type it holds no reader for, BAD_PROTECTED_HEADER naming the typ
-the header carries, because which of the five shapes these bytes claim is one fact stated in one field
-and it wants one answer, not a code per verb. Neither verb adds an option, a refusal code or an exit
-code: --key designates the keys this run accepts a signature from, exactly as it does there, an export's
-originals and an amendment's pack still come in through --companion, and --manifest-key is accepted so one
-line can be run across a whole bundle and is printed as not consulted, since neither verb reads a manifest.
+verify-pack, verify-export and verify-epoch-inventory are that command with the answer in label 3 fixed
+to one value, for a caller that already knows which file it holds. Ask the free verb about a pile and
+not knowing is the question; tell a script which shape it came for and the shape stops being a question,
+so a step written to check a pack that is handed an export should not come back reporting a verdict
+about the wrong material and exiting 0. A pinned verb refuses that before it opens the payload, with the
+refusal verify-handover already gives a content type it holds no reader for, BAD_PROTECTED_HEADER naming
+the typ the header carries, because which of the six shapes these bytes claim is one fact stated in one
+field and it wants one answer, not a code per verb. None of the three verbs adds an option, a refusal
+code or an exit code: --key designates the keys this run accepts a signature from, exactly as it does
+there, an export's originals and an amendment's pack still come in through --companion, and
+--manifest-key is accepted so one line can be run across a whole bundle and is printed as not consulted,
+since none of the three reads a manifest.
 
 verify-receipt reaches a verdict about a receipt from the files in front of it: the receipt, the
 policy that names what is trusted, the deployment manifest that declares the signing key, and the
@@ -275,7 +283,7 @@ Receipt verification options:
                      it. Nothing on a command line states a digest of that header, so none is checked against it, and
                      the report prints that too rather than letting a pair look named.
 
-Handover options, the same for verify-handover, verify-pack and verify-export:
+Handover options, the same for verify-handover, verify-pack, verify-export and verify-epoch-inventory:
   --key <b64url>      A public key this run accepts a signature from, as the base64url of its 32
                      public bytes. Repeatable, one key per flag, and matched on the kid a document's
                      own protected header names: a pack whose span crosses a key rotation carries
@@ -283,8 +291,8 @@ Handover options, the same for verify-handover, verify-pack and verify-export:
                      those keys verifies the pack and every receipt inside it. A document naming a kid
                      none of these designates is refused as a gap in this call, not as a fault in the
                      document. A deployment manifest is not read by these keys: see --manifest-key.
-                     All three verbs read a signed document, so one of these is required by each of
-                     them, and a run over a bundle may hand --manifest-key to all three: it is printed
+                     All four verbs read a signed document, so one of these is required by each of
+                     them, and a run over a bundle may hand --manifest-key to all four: it is printed
                      as not consulted wherever the document in front of the run did not use it.
                      Base64url includes a dash in its alphabet, and an argument that starts with one
                      is not read as this option's value, so pass such a key as --key=<value>.
@@ -500,6 +508,8 @@ async function main(argv: string[]): Promise<number> {
       return runVerifyPack(positionals.slice(1), values);
     case 'verify-export':
       return runVerifyExport(positionals.slice(1), values);
+    case 'verify-epoch-inventory':
+      return runVerifyEpochInventory(positionals.slice(1), values);
     case 'keygen':
       return runKeygen(values.id, values.json === true);
     case 'credential':

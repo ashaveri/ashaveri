@@ -415,11 +415,11 @@ describe('ashaveri verify', () => {
   it('exits 2, naming the command list, for no command and for one that does not exist', () => {
     const none = runCli([]);
     expect(none.status).toBe(2);
-    expect(none.stderr).toContain('expected a command: verify, verify-receipt, verify-handover, verify-pack, verify-export, keygen, credential, accesslog');
+    expect(none.stderr).toContain('expected a command: verify, verify-receipt, verify-handover, verify-pack, verify-export, verify-epoch-inventory, keygen, credential, accesslog');
     const unknown = runCli(['frobnicate', 'anything']);
     expect(unknown.status).toBe(2);
     expect(unknown.stderr).toContain(
-      "unknown command 'frobnicate': expected one of verify, verify-receipt, verify-handover, verify-pack, verify-export, keygen, credential, accesslog",
+      "unknown command 'frobnicate': expected one of verify, verify-receipt, verify-handover, verify-pack, verify-export, verify-epoch-inventory, keygen, credential, accesslog",
     );
   });
 
@@ -442,6 +442,7 @@ describe('ashaveri verify', () => {
     // caller reads, so a verb that runs and is not named here is a verb nobody finds.
     expect(result.stdout).toContain('ashaveri verify-pack <document>');
     expect(result.stdout).toContain('ashaveri verify-export <document>');
+    expect(result.stdout).toContain('ashaveri verify-epoch-inventory <document>');
   });
 
   it('prints the version with --version', () => {
