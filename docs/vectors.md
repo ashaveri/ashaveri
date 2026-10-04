@@ -307,11 +307,15 @@ rows are read by the two published capture entry points themselves, `parseCaptur
 `@ashaveri/sdk`, in `packages/fixtures/test/capture-vectors.test.ts`, because those two are the shipped reading of
 this format and no command of this package reads a capture record. The inventory
 rows are read there by the two exported inventory readers, `verifyEpochInventory` and
-`decodeEpochInventory`, rather than through a command, because this package ships no verb that reads an
-epoch inventory, and the block states which verbs it ships in a comment a reviewer can check. Those rows are
-therefore witnessed twice over the same published bytes: by
-`packages/fixtures/test/epoch-inventory-vectors.test.ts`, which reads the format package's own reader, and
-by the consumer's path named above.
+`decodeEpochInventory`, rather than through a command, because the claim a port has to satisfy at those two
+doors is about the library surface, and that block names the file which answers the same rows at the command
+edge. Two verbs reach an epoch inventory at this command line: `ashaveri verify-handover`, which takes the type
+out of the document's own protected header, and `ashaveri verify-epoch-inventory`, which is that same dispatch
+with the type pinned to one value. Those rows are therefore witnessed three times over the same published
+bytes: by `packages/fixtures/test/epoch-inventory-vectors.test.ts`, which reads the format package's own
+reader, by the consumer's path named above, and by `packages/cli/test/epoch-inventory-at-the-command-edge.test.ts`,
+which replays every row through `ashaveri verify-handover` and holds the pinned verb's report against that one
+on the rows it names.
 
 ## Regenerating
 
@@ -372,9 +376,9 @@ These vectors check bytes. They say nothing about trust:
 
 - Nothing here establishes that a key belongs to anybody. The signing keys published in
   `data/keys/receipt-key-v1.json`, in `pop-v1.json`, in `export-v1.json`, in `manifest-v1.json`, in
-  `pack-v1.json`, in `redaction-v1.json` and in `epoch-inventory-v1.json`
-  are test-only, labelled as such in the files themselves, and protect nothing. A port that verifies
-  against them has exercised its verifier, not appraised a deployment.
+  `pack-v1.json`, in `redaction-v1.json`, in `epoch-inventory-v1.json` and in the `layout.keyMaterial` of
+  `capture-v1.json` are test-only, labelled as such in the files themselves, and protect nothing. A port that
+  verifies against them has exercised its verifier, not appraised a deployment.
 - Nothing here touches attestation. Evidence documents, platform roots, device certificate chains and
   the measurements they name are checked against vendor anchors no file in this directory holds, and
   a byte-exact reimplementation of every suite in `data/` is compatible with a deployment that should
