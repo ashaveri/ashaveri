@@ -57,9 +57,9 @@ export interface Deployment {
    * a wrapper verified that way, which is why this field names a second identity rather than an option
    * on the first.
    *
-   * Absent is a state a real deployment can be in, and a served document then stays what it has always
-   * been: plain JSON, which an honest client reads and reports as unauthenticated rather than
-   * believing. Nothing here generates a key, embeds one, or decides which identity a deployment signs
+   * Absent is a state a real deployment can be in, and a served document then stays plain JSON, which
+   * an honest client reads and reports as unauthenticated rather than believing. Nothing here generates
+   * a key, embeds one, or decides which identity a deployment signs
    * with: this field carries one that somebody else handed to the process.
    */
   readonly manifestKey?: SigningKey;

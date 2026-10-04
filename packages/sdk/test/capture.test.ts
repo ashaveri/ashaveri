@@ -556,7 +556,7 @@ describe('a held collateral slot states the answer its bytes are', () => {
     expect(oneSided.message).toContain('context.validity.chainSha256');
     // A validity slot that states the whole observation is taken rather than dropped: the layout makes the
     // ten legal in any held slot and owes them of one role, and only that role's statement reaches a
-    // verdict, which the reader's own test in `capture-reader.test.ts` is what pins.
+    // verdict, a reading the reader's own suite in `capture-reader.test.ts` pins.
     expect(
       codeOf(() => parseCaptureRecord({ ...record, context: { ...context, validity: collateralObservation() } })),
     ).toBeUndefined();
@@ -580,7 +580,7 @@ describe('a held collateral slot states the answer its bytes are', () => {
   });
 
   it('keeps a record whose collateral slot is absent-at-source readable at every old member', () => {
-    // The F2 witness, in code: capture-v1 widened under its own number, so a record that states an absence
+    // Capture-v1 widened under its own number: a record that states an absence
     // keeps every member it ever had and gains no obligation. Nothing here reads as a v2 document.
     const absent = { presence: 'absent-at-source', reason: 'the platform served no certificate chain' };
     const parsed = parseCaptureRecord(withCollateral(absent));

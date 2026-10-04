@@ -431,7 +431,7 @@ async function writeReceipt(
 ): Promise<string> {
   const receipt: ScrubMarker = { t: atMillis, credential, removed, files: parts.length, parts: [...parts], request };
   // `escapeInvisibleJson` says why the platform's own stringifier is not enough here. What is local to
-  // this call is that `--request` is operator text which nothing sanitises, only trims and measures, so
+  // this call is that `--request` is operator text which nothing sanitizes, only trims and measures, so
   // one line separator inside it would make this receipt a two-line document to anything that splits
   // lines that way, and a directional override would show a reader a sentence other than the bytes.
   const text = `${escapeInvisibleJson(JSON.stringify(receipt))}\n`;
@@ -652,9 +652,8 @@ async function refuseSharedName(path: string): Promise<void> {
   }
   // The link count is a fact about a regular file. A directory's `nlink` is `2` plus its subdirectories,
   // which counts entries inside it and not names holding it, so asking the question of one answers with a
-  // number that means something else entirely. Measured on Linux: a part name holding a directory came
-  // back `nlink` 2 and was refused as "2 names hold those bytes", while this host answers 1 for the same
-  // directory and the case that plants one fell through to the read. Anything that is not a regular file
+  // number that means something else entirely: a part name holding a directory came back `nlink` 2 on
+  // Linux and 1 on Windows, and the 1 would not even trip a count check. Anything that is not a regular file
   // this run cannot rewrite anyway, and the step that next asks about the name refuses it in its own words.
   if (!here.isFile()) return;
   // Once the name is known to be a regular file there is nothing left to look through, so `lstat` and

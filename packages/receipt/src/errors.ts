@@ -524,7 +524,7 @@ function bounded(detail: string): string {
 
 /**
  * Bounding the length does not close the second way a header can write itself into a message.
- * `parsePopAuthorization` quotes a parameter name it did not recognise, and a name is anything up
+ * `parsePopAuthorization` quotes a parameter name it did not recognize, and a name is anything up
  * to an `=` sign, which includes a line feed. A refusal that carries one is two lines to anything
  * that reads a log by lines. The characters are the printed-line class `src/line-text.ts` owns, which
  * the two refusal sites of this package refuse their text on, taken here with the global flag because

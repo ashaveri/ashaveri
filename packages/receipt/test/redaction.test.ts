@@ -358,9 +358,9 @@ describe('the redaction writer and its own reader', () => {
   });
 
   it('refuses a removal list that is not there, in the sentence its reader uses', () => {
-    // The copy of the ids into the encoder's map died on an absent `removed` with `TypeError: manifest.removed
-    // is not iterable`, which is no code a caller can branch on. The writer now answers the sentence
-    // `readRemoved` answers over the bytes for the same missing member, and this holds the two to one answer.
+    // An absent `removed` would kill a copy of the ids into the encoder's map with a bare `TypeError`, which
+    // is no code a caller can branch on. The writer answers the sentence `readRemoved` answers over the bytes
+    // for the same missing member, and this holds the two to one answer.
     const manifest = baseManifest(PACK, ['receipt-1']);
     const missing = { ...manifest, removed: undefined as unknown as readonly string[] };
     const thrownOf = (run: () => unknown): unknown => {

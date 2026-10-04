@@ -4,10 +4,10 @@ import { assessCapture, CAPTURE_FORMAT_VERSION, captureRecordKey, parseCaptureRe
 /**
  * The capture contract is a public statement, so it has to leave the package through its entry point.
  *
- * The reader and the record were first written as a module with tests that reached it by relative path,
- * which is green whether or not anything outside this package can import it. A consumer reading
- * `docs/capture-v1.md` is told to check a record with this code, so the only shape of that promise that
- * can be checked is an import from the entry every other public symbol leaves by.
+ * A test reaching the reader by relative path is green whether or not anything outside this package can
+ * import it. A consumer reading `docs/capture-v1.md` is told to check a record with this code, so the
+ * only shape of that promise that can be checked is an import from the entry every other public symbol
+ * leaves by.
  */
 describe('capture contract reachability from the package entry', () => {
   it('hands a consumer the four things a capture check needs', () => {

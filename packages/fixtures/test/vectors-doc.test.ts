@@ -104,7 +104,7 @@ function publishedSuites(): string[] {
  * from the prose. Each shape is written out because the eleven suites do not agree on where a verdict
  * lives: four keep the refusing cases in an array beside the accepted ones and name a code on each row,
  * and seven give every case one word that is either the accepted verdict or the code of the refusal. A
- * suite whose file gains a shape no one recognised has to be named here, which is what stops this
+ * suite whose file gains a shape no one recognized has to be named here, which is what stops this
  * reading an empty list as a suite with no refusals.
  */
 function verdictsOf(basename: string): { verdict: string; code: string | null }[] {

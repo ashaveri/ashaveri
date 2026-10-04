@@ -427,10 +427,10 @@ const CASES: readonly Case[] = [
     name: 'claim-kind-unknown',
     note: 'A claim whose kind is neither provenance nor custody, which are the two labels this version can mean.',
     bytes: mutant(HONEST_RUN.collection, (root) => {
-      blockOf(root, 'claim').set('kind', 'notarised');
+      blockOf(root, 'claim').set('kind', 'notarized');
     }),
     expected: 'EXPORT_UNSUPPORTED_LABEL',
-    edited: "claim.kind to 'notarised'",
+    edited: "claim.kind to 'notarized'",
   },
   {
     name: 'claim-after-assembly',

@@ -415,13 +415,6 @@ function responseBytesOf(entry: ManifestEntry): Uint8Array | undefined {
 }
 
 /**
- * One receipt handed to the shipped client path the way a client hands it: the challenge it was asked to
- * answer, the two bodies it attests, the response bytes themselves, and the policy the row names beside
- * them. With no policy the two freshness windows do not run at all, which is how every row here has always
- * been read; a policy named for the anchor postures below pins the document's own issuer and nothing else,
- * so the windows run at their shipped defaults and the only question left open is the anchor's.
- */
-/**
  * The manifest row a receipt's bytes are published under, found by the digest the row states. A client
  * holds a receipt and nothing else, so this is the only way from the document back to the response it
  * names, and the row is where that response is published.
@@ -1092,9 +1085,8 @@ describe('the sealed deployment manifest vectors through the client path', () =>
   });
 
   it('reaches every code the client registry declares for this document', () => {
-    // A fault code with no published case is a word nothing is measured against, and this suite is where
-    // the manifest half of the client registry is measured. Read off the declared union rather than from a
-    // list repeated here, which is the only way an addition cannot pass unnoticed.
+    // Read off the declared union rather than from a list repeated here, which is the only way an addition
+    // cannot pass unnoticed.
     const source = readFileSync(fileURLToPath(new URL('../../sdk/src/errors.ts', import.meta.url)), 'utf8');
     const declared = [...source.matchAll(/'(BAD_MANIFEST|MANIFEST_[A-Z0-9_]+)'/gu)].map((found) => found[1]!);
     expect(new Set(declared).size).toBeGreaterThanOrEqual(6);
@@ -1237,8 +1229,8 @@ describe('the evidence pack vectors through the shipped reader', () => {
   });
 
   it('reaches every code the format registry declares for this container', () => {
-    // A fault code with no published row is a word nothing is measured against. Read off the declared union
-    // rather than from a list repeated here, which is the only way an addition cannot pass unnoticed.
+    // Read off the declared union rather than from a list repeated here, which is the only way an addition
+    // cannot pass unnoticed.
     const source = readFileSync(fileURLToPath(new URL('../../receipt/src/errors.ts', import.meta.url)), 'utf8');
     const declared = [...source.matchAll(/'(PACK_[A-Z0-9_]+)'/gu)].map((found) => found[1]!);
     expect(new Set(declared).size).toBeGreaterThanOrEqual(11);
@@ -1443,12 +1435,10 @@ function inventoryAnswer(one: EpochInventoryCase): { code: string; message: stri
  *
  * This goes through `verifyEpochInventory` and `decodeEpochInventory` rather than through a command because
  * there is no command to go through. `packages/cli/src/cli.ts` states the verbs this package ships in one
- * declaration, `COMMANDS`, and dispatches on it in `run`; they are `verify`, `verify-receipt`,
- * `verify-handover`, `verify-pack`, `verify-export`, `keygen`, `credential` and `accesslog`, and no verb of
- * this package reads an epoch inventory, which the absence of the word from every source file under
- * `packages/cli/src` states outright. Writing a verb for this container would settle what an operator gets to
- * run, which is a decision about the format's surface rather than about this replay, and a file that replays
- * published rows does not settle it. What this block does prove is the claim a port has to satisfy: the
+ * declaration, `COMMANDS`, and dispatches on it in `run`, and no verb of this package reads an epoch
+ * inventory. Writing a verb for this container would settle what an operator gets to run, which is a
+ * decision about the format's surface rather than about this replay, and a file that replays published rows
+ * does not settle it. What this block does prove is the claim a port has to satisfy: the
  * readers exported from `@ashaveri/receipt` answer these verdicts from bytes a consumer can hold, under the
  * key material the same file publishes and nothing else. The redaction block above is the near relation, since
  * an inventory and a redaction manifest are both summaries over a run of packs and both are read by a

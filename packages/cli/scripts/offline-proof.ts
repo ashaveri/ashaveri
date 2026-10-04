@@ -22,11 +22,11 @@ import {
  * else, and the verbs proved by running the artifact over the published pack, export and amendment.
  *
  * The CI job that runs the bundle needs a policy and a deployment manifest whose pins match the committed
- * receipt it is about to check, and this started life as a script pasted into the workflow file. That shape
- * is the reason it is a file now: a heredoc inside a job is read by no `tsconfig`, so a wrong field name in
- * it fails on a runner, in a pull request, with nothing local able to reach it first. As a script it is
- * typechecked with the rest of this package and runnable from the repository root, which is the only way
- * the bundle's proof can be observed anywhere other than Actions.
+ * receipt it is about to check. The proof is a file rather than a heredoc inside the job because a heredoc
+ * is read by no `tsconfig`, so a wrong field name in it fails on a runner, in a pull request, with nothing
+ * local able to reach it first. As a script it is typechecked with the rest of this package and runnable
+ * from the repository root, which is the only way the bundle's proof can be observed anywhere other than
+ * Actions.
  *
  * The receipt runs live here for the same reason, and they are the reason that reason is written down: a
  * claim checked in two places is checked by whichever reader reaches both, and a workflow step is reached
@@ -815,7 +815,7 @@ interface ExportCase {
  * document refused without it, and the refusal of a pack.
  */
 function proveExport(workDir: string, testCase: ExportCase): void {
-  // Where the file sits on this disk. The option matches on the name at the end of the argument, which is
+  // Where the companion file sits. The option matches on the name at the end of the argument, which is
   // the name the signed item carries, so the directory in front of it is the caller's own arrangement.
   const companionPath = join(workDir, testCase.companion);
   const verdictRun = runBundle(workDir, [

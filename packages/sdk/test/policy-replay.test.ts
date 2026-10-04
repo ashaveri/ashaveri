@@ -21,7 +21,7 @@ import {
  *
  * `policyFileDigest` is defined over a canonical form, so "the field is additive" is a claim about
  * bytes, and a claim about bytes is worth only as much as the number attached to it. Every digest and
- * every verdict below was read off the policy reader of the commit this branch was cut from, by
+ * every verdict below was read off the policy reader as it shipped before the field existed, by
  * replaying each document through that reader and through this tree's side by side. They are therefore
  * the numbers a policy that never made the demand carried before the demand could be made, and the
  * reader shipped here has to reproduce all of them. When one stops matching, either the canonical form

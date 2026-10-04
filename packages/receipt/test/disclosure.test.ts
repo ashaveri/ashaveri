@@ -19,7 +19,7 @@ import {
  * a field has gone optional.
  *
  * The requiredness witnesses are `@ts-expect-error` lines on module-level declarations, so the gate that
- * reddens them is `pnpm typecheck`. That is the right gate for a fact a type carries: the day a field of
+ * reddens them is the type checker. That is the right gate for a fact a type carries: the day a field of
  * either shape turns optional or a name drifts, the expectation stops being an error and the build fails,
  * which is the same mechanism a test uses to pin a refusal and the only one that can pin a member that is
  * not there.

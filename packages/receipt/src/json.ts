@@ -93,16 +93,14 @@ export function receiptToJson(payload: ReceiptPayload, signature: Uint8Array, ki
   // One shape, spelling all seventeen members out rather than sharing one object built in two places,
   // because a projection whose keys arrived in another order would be a different document to anything
   // that compares these bytes, and a projection that dropped `mk`, `sd`, `cva` or `itm` would hand a
-  // reader of the JSON a receipt with nothing to show what it attests. The arms retired with the versions
-  // they belonged to: `parsePayload` answers a number this format does not read before it hands this file
-  // a payload, and `assertEncodable` answers it for a payload a caller built by hand, so a projection with
-  // a branch per number would be a second place a retired version gets a route through.
-  // The version is asked first, in the one form the question has now that the arms are gone: not which
-  // of several shapes to write, but whether this payload names a version this build has members for at
-  // all. No document read from bytes arrives here naming another number, because `parsePayload` answers
-  // it upstream; the caller with a route past that is the one holding a payload of its own making, and it
-  // is answered with the same code the reader and the writer use rather than with a projection of a
-  // version these members do not state.
+  // reader of the JSON a receipt with nothing to show what it attests. The version check is the whole
+  // of the branching, and it is a refusal rather than a choice of shapes: `parsePayload` answers a
+  // number this format does not read before it hands this file a payload, and `assertEncodable` answers
+  // it for a payload a caller built by hand, so a projection with a branch per number would be a second
+  // place a version this build does not read gets a route through. No document read from bytes arrives
+  // here naming another number, because `parsePayload` answers it upstream; the caller with a route
+  // past that is the one holding a payload of its own making, and it is answered with the same code the
+  // reader and the writer use rather than with a projection of a version these members do not state.
   if (!isReceiptVersion(payload.v)) {
     throw new ReceiptError(
       'UNSUPPORTED_VERSION',

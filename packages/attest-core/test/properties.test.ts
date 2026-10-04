@@ -392,7 +392,7 @@ describe('a length the document states about itself, in each width the format wr
     }
   });
 
-  it('passes an event name through as written, because nothing here sanitises one', () => {
+  it('passes an event name through as written, because nothing here sanitizes one', () => {
     // The limit a report route has to respect: a name is bounded in length only by the cap on the
     // whole document and in character by nothing at all, so an event this deployment never heard of
     // arrives at whoever prints it exactly as the sender wrote it.

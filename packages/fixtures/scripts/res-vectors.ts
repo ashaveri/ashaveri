@@ -71,8 +71,8 @@ function wholeFrames(): readonly Uint8Array[] {
 /** The same bytes broken at a write boundary that falls inside a multi-byte character. */
 function brokenMidCharacter(): readonly Uint8Array[] {
   const bytes = encoded(streamedBody());
-  // The first byte of the symbol character, so the first write ends with half of it and the next
-  // begins with the rest. No character boundary falls here, which is the whole point.
+  // One byte of the three-byte symbol character, so the first write ends inside a character and the
+  // next begins with the rest of it. No character boundary falls here, which is the whole point.
   const at = bytes.indexOf(0xe2) + 1;
   return [bytes.slice(0, at), bytes.slice(at)];
 }

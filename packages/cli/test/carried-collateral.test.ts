@@ -117,7 +117,7 @@ const FORGED = 'FORGED  signature  holds under a root nobody pinned';
 /** A record id: a newline that would start a row, and a mark that would reorder the rest of the one it is on. */
 const HOSTILE_ID = `receipt-0\n${FORGED}\u202e`;
 
-/** An absence reason: the same two, plus the C1 next-line, which no property class of the old guard missed. */
+/** An absence reason: the same two, plus the C1 next-line, which no property class misses. */
 const HOSTILE_REASON = `the collector read no window\n${FORGED}\u0085`;
 
 const HOSTILE_ORIGIN = `intel-tcb-info\n${FORGED}`;

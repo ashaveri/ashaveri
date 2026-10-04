@@ -28,7 +28,7 @@ const MAX_INIT_SCRIPTS = 5;
 /**
  * dstack pins an application's configuration into the CVM by hashing the
  * verbatim mr_config document under this domain prefix. SEV-SNP commits the
- * digest to the report's HOST_DATA, TDX to MR_CONFIG_ID bytes 1 through 33.
+ * digest to the report's HOST_DATA, TDX to MR_CONFIG_ID bytes 1 through 32.
  */
 export function mrConfigDocumentDigest(document: string): Uint8Array {
   const domain = new TextEncoder().encode(MR_CONFIG_DOMAIN);
@@ -95,7 +95,7 @@ export interface SnpVerification {
 export interface TdxMrConfig {
   /** Binding tag the platform wrote into MR_CONFIG_ID[0]. */
   readonly tag: number;
-  /** Domain-prefixed digest of the mr_config document: MR_CONFIG_ID[1..33]. */
+  /** Domain-prefixed digest of the mr_config document: MR_CONFIG_ID bytes 1 through 32. */
   readonly digest: Uint8Array;
 }
 

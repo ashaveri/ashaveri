@@ -616,10 +616,8 @@ function anchorLines(verdict: Verdict): readonly string[] {
 /**
  * The epoch line, as an adjudication rather than as two numbers standing beside each other.
  *
- * Printing a receipt's epoch and a manifest's epoch and leaving the reader to compare them was the
- * honest thing to do while nothing in this product compared them, and it stopped being honest the day
- * something did: two numbers that happen to be equal read as a verdict to a reader who did not have to
- * work out what the question was. This is the SDK's answer, in the SDK's words.
+ * Two numbers that happen to be equal read as a verdict to a reader who did not have to work out what
+ * the question was. This is the SDK's answer, in the SDK's words.
  */
 function epochLine(verdict: EpochVerdict): string {
   if (!verdict.ok) return `refused (${verdict.code}): ${verdict.detail}`;

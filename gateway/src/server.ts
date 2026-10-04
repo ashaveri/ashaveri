@@ -177,7 +177,7 @@ export type GatewayInstance = FastifyInstance & {
  * rewrite's own lossiness. A removed character leaves a space behind, so two request names differing by one
  * member of the class print as one sentence, and anything a deployment copies out of that sentence carries a
  * string whose extent nobody can recover from it. Two changes would close that: building this copy from
- * `FORGES_A_LINE_RANGES`, which the class owner publishes inside its own package and no other package imports,
+ * `FORGES_A_LINE_RANGES`, which the class owner publishes,
  * or escaping what is removed the way `packages/receipt/src/errors.ts` escapes it, so a message states the
  * character it cut instead of hiding it. Neither is taken here, because this site answers for one line of a
  * client's log and not for a document a reviewer cites, and the exposure is the copying, not the rewriting.
@@ -677,9 +677,9 @@ export function buildGateway(options: GatewayOptions): GatewayInstance {
     // gateway cannot state, and it says it by destroying the body rather than terminating it. The destroy
     // takes the response head with it: measured on a loopback socket, the client's read returns nothing at
     // all, so no id reaches anyone and the completion is simply not served. Minting one records nothing,
-    // because only issuance writes a document. The retired versions said less about such a response and
-    // said it truthfully; one version says everything, so it says nothing about a response that has
-    // nothing to be said, and the whole cost of that is one completion per stream that framed no item.
+    // because only issuance writes a document. One version says everything, so it says nothing about a
+    // response that has nothing to be said, and the whole cost of that is one completion per stream that
+    // framed no item.
     if (!framing.framed) {
       throw new Error(`no item list to attest: ${framing.why}`);
     }
@@ -715,7 +715,7 @@ export function buildGateway(options: GatewayOptions): GatewayInstance {
   // Sealing is not a mode a process can guess its way into: it happens when an operator handed this
   // deployment a key for the purpose, and the bytes served are then a COSE_Sign1 around exactly the
   // JSON written below, so what a client verifies is what it reads rather than a rendering of it. With
-  // no such key the route serves the plain document it always did, which is not a failure and is not
+  // no such key the route serves the plain document, which is not a failure and is not
   // secret: an unsigned manifest is the state a real deployment can be in, and a client that cannot
   // authenticate one says so out loud instead of quietly believing it.
   //
@@ -926,8 +926,7 @@ export function buildGateway(options: GatewayOptions): GatewayInstance {
     const early: Buffer[] = [];
     // Hold the headers until the upstream has produced bytes, so an upstream that accepts the
     // connection and then says nothing is a 502 rather than a receipted empty 200. That is the one
-    // job the old wait for a completion id did, and it is stated as a bytes check now that the id
-    // arriving in those bytes names nothing this gateway looks up.
+    // job the bytes check does: an id arriving in those bytes names nothing this gateway looks up.
     try {
       while (early.length === 0) {
         const next = await withTimeout(iterator.next(), FIRST_EVENT_TIMEOUT_MS, 'inference upstream produced no response bytes');
@@ -1027,7 +1026,7 @@ export function buildGateway(options: GatewayOptions): GatewayInstance {
         return;
       }
       // The mark is the gateway's own bytes, added after the upstream's last byte and before the
-      // digest is finalised, through the same closure that put every other frame on the socket. A
+      // digest is finalized, through the same closure that put every other frame on the socket. A
       // frame written from here on is inside `res`; one written in the `finally` below would not be,
       // which is why the closing byte is not where a mark belongs.
       let marking = unmarked();

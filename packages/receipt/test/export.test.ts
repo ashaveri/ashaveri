@@ -799,9 +799,7 @@ function widthTie(bytes: number, pattern: unknown, position: string): void {
   expect(pattern, `${position} is ${String(bytes)} bytes in the format, so the twin's pattern is ${String(bytes * 2)} hex digits`).toBe(`^[0-9a-f]{${String(bytes * 2)}}$`);
 }
 
-/* -------------------------------------------------------------------------- */
-/* The documents every reader case edits by one position.                       */
-/* -------------------------------------------------------------------------- */
+/* The documents every reader case edits by one position. */
 
 const KEY = signingKeyFromSeed(new Uint8Array(32).fill(11));
 const CLOCK = AN_INT;
@@ -1069,12 +1067,12 @@ describe('the export reader', () => {
   });
 
   it('refuses a manifest carrying no map it has to copy, in the sentence its reader uses', () => {
-    // A manifest with no `assessment` is an absent member of the class this container's row names, and the
-    // encoder reached through it for the map it builds: `TypeError: Cannot read properties of undefined (reading
-    // 'k')`, which carries no code a caller can branch on. Each row hands the writer one manifest missing one
-    // member and asks the reader about the same document with that member deleted past the writer, so the two
-    // answers are held to one sentence rather than two written to agree. The rows run in the order the reader
-    // asks its questions in, which is the order the writer now asks them in.
+    // A manifest with no `assessment` is an absent member of the class this container's row names, and an
+    // encoder that reached through it for the map it builds would answer a bare `TypeError`, no code a
+    // caller can branch on, so the writer refuses the absence by name. Each row hands the writer one manifest
+    // missing one member and asks the reader about the same document with that member deleted past the writer,
+    // so the two answers are held to one sentence rather than two written to agree. The rows run in the order
+    // the reader asks its questions in, which is the order the writer asks them in.
     const whole = manifest({ collection: plainCollection('inline') });
     const sealed = sealedManifest('plain');
     const thrownOf = (run: () => unknown): unknown => {
@@ -1142,7 +1140,7 @@ describe('the export reader', () => {
     const packHeader = encodeExportProtectedHeader(KEY.kid, 'ashaveri/pack');
     expect(codeOf(thrownByDecode(sealExport(packHeader, payload, ed25519.sign(exportSigStructure(packHeader, payload), KEY.privateKey))))).toBe('EXPORT_BAD_HEADER');
     // The other direction, which no reader of this container performs and the pack's own projection does:
-    // an export manifest is not a pack manifest, because the seven members a pack requires are not the five
+    // an export manifest is not a pack manifest, because the eight members a pack requires are not the five
     // this one carries and both maps are closed.
     expect(outcome(exportDocument({ collection: 'anchored', original: 'inline' }).payload, validatePack), 'a pack projection accepted an export manifest').not.toBeNull();
     // And a reader of this container is not a reader of that one: the pack's twin names the type it
@@ -1209,7 +1207,7 @@ describe('the export reader', () => {
   it('refuses a gap, a fork, an unreachable head and an item the walk never reaches', () => {
     const good = anchoredCollection();
     // A record lifted out of the middle: what remains is whole by its own digest, and the walk stops short. The
-    // bytes come from the published pieces, because the writer now refuses to sign a run that does not close.
+    // bytes come from the published pieces, because the writer refuses to sign a run that does not close.
     const gap: ExportAnchoredCollection = { ...good, items: [good.items[0]!, good.items[2]!] };
     const broken = thrownByVerify(sealedPastWriter(manifest({ collection: gap })));
     expect(codeOf(broken)).toBe('EXPORT_CHAIN_BROKEN');

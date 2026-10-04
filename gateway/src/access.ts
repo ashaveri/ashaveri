@@ -120,7 +120,7 @@ const ERROR_MESSAGE: Record<AccessErrorCode, string> = {
  * usable credential is a 401, because retrying a different route changes nothing; a credential
  * that is valid but lacks the scope the route asks for is a 403; a replayed nonce is a 409,
  * which the client clears by sending a fresh request; a rate limit is a 429 that pairs with
- * `retryAfterSeconds`, and the one 429 set below is the durability guard at admission, which is
+ * `retryAfterSeconds`, and the other 429 set below is the durability guard at admission, which is
  * answered a 429 for the same "come back once this clears" reason and carries no wait figure at
  * all. The credential-file codes are 500s: the file the operator installed is
  * what is broken, and no header a client sends can fix it.
@@ -335,10 +335,11 @@ function parseRecord(value: unknown, index: number): CredentialRecord {
     }
     // Node's base64url decoder drops the characters it does not know instead of refusing them, so a token
     // made of punctuation spells no bytes at all and digests to this one value. A record carrying it is
-    // therefore opened by every such token, which is the opposite of a credential, and there are 2^64 of
-    // them. `newBearerCredential` draws 32 random bytes and cannot write one, so this refuses a typed or a
-    // pasted file and nothing this repository produces. `EMPTY_BODY_SHA256_HEX` names the same thirty-two
-    // bytes for the other thing they are the digest of: the body a bodyless request signs.
+    // therefore opened by every such token, which is the opposite of a credential, and the strings that
+    // spell no bytes are unbounded in number. `newBearerCredential` draws 32 random bytes and cannot write
+    // one, so this refuses a typed or a pasted file and nothing this repository produces.
+    // `EMPTY_BODY_SHA256_HEX` names the same thirty-two bytes for the other thing they are the digest of:
+    // the body a bodyless request signs.
     if (hash === EMPTY_BODY_SHA256_HEX) {
       refuse(
         'BAD_CREDENTIAL_RECORD',

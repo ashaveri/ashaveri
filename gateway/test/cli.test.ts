@@ -62,7 +62,7 @@ function run(...args: string[]) {
 /**
  * Start a gateway that serves, read the banner it printed, and stop it.
  *
- * `gateway/src/cli.ts:763` writes the whole banner in one call, measured here as a single 1746 byte
+ * `gateway/src/cli.ts` writes the whole banner in one call, measured here as a single 1746 byte
  * chunk whose last byte is the newline that ends it, so the chunk carrying the listening line carries
  * every line behind it too. This resolves on that line once the write has ended, rather than on a
  * deadline expiring: a case asks for the banner and gets it as soon as it is printed, a gateway that
@@ -152,9 +152,6 @@ function liveArgs(...args: string[]): string[] {
   ];
 }
 
-/** The durability bound and the serving bound `gateway/src/cli.ts` opens a volume store with. Both are
- * shipped at ten thousand receipts, which is a capacity decision and not a figure either count owes
- * the other. */
 /**
  * The two waits a case can spend, named once because a case's ceiling has to be read off them.
  *
@@ -191,6 +188,9 @@ const bootBudget = (boots: number): number => budgetFor(boots, BOOT_DEADLINE_MS)
  *  questions, plus `extra` further bounded questions the case asks around the walk. */
 const pickBudget = (extra: number): number => budgetFor(PORT_CANDIDATES * 2 + extra, PROBE_DEADLINE_MS);
 
+/** The durability bound and the serving bound `gateway/src/cli.ts` opens a volume store with. Both are
+ * shipped at ten thousand receipts, which is a capacity decision and not a figure either count owes
+ * the other. */
 const SHIPPED_RECEIPT_BOUND = 10_000;
 
 /**
@@ -957,7 +957,7 @@ describe('the flags that make the access floor real', () => {
   it('reports the directory and what was already in it', async () => {
     const dir = join(tempDir, 'already-held');
     mkdirSync(dir);
-    // A name the log's own pattern produces, so the count is of files this tool recognises and not of
+    // A name the log's own pattern produces, so the count is of files this tool recognizes and not of
     // whatever a stray on the volume happens to be called.
     writeFileSync(join(dir, 'access-2026-09-16-000.jsonl'), '');
     const banner = await readBanner('--mock', '--port', '0', '--access-log-path', dir);
@@ -1460,7 +1460,7 @@ describe('a volume whose receipts have to outlive the start', () => {
       const dir = join(tempDir, 'window-unheld');
       mkdirSync(dir);
       // Ten thousand receipts, the durability bound this CLI ships, over the hundred seconds the
-      // measured volume takes to write them, against a period configured in the same file as 184 days.
+      // fixture spreads them across, against a period configured in the same file as 184 days.
       const bytes = writeHeldStore(dir, SHIPPED_RECEIPT_BOUND, 100);
 
       const result = run('--mock', '--port', '0', '--receipts-dir', dir);
@@ -1485,8 +1485,6 @@ describe('a volume whose receipts have to outlive the start', () => {
       // measurement of what the bound cannot hold.
       expect(readFileSync(join(dir, RECEIPT_STORE_FILE))).toEqual(bytes);
     },
-    // The volume is written in one go and read back by a start that refuses it: measured here at
-    // 3.1s, which is past what the runner's five-second default leaves room for on a slower machine, so
     // The volume is written in one go and read back by a start that refuses it, and framing
     // SHIPPED_RECEIPT_BOUND receipts is the whole of the work: measured here at 3.1s, about a third of a
     // millisecond a receipt, so the ceiling is three times that, a millisecond a receipt, with a five

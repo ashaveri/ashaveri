@@ -78,11 +78,11 @@ function canonicalHex(value: unknown): string {
 
 describe('the canonical writer spells negative zero as the integer zero', () => {
   // The describe block below refuses every floating-point number inside the two documents the format
-  // declares member by member, so while the writer emitted a float for this one value the package was
-  // signing documents it would not read back. `Object.is(value, -0)` is the only test that tells that
-  // value apart from the zero it prints as: `Number.isSafeInteger(-0)` holds and `-0 < 0` does not, so
-  // no integrality or range check downstream could ever have caught it. The bytes are chosen in one
-  // place, for every value at every depth, which is where the rule sits: see `encodeCanonical`.
+  // declares member by member, and negative zero is the one value that slips past every check after the
+  // decode: it prints as the zero it equals, so `Object.is(value, -0)` is the only test that tells it
+  // apart. `Number.isSafeInteger(-0)` holds and `-0 < 0` does not, so no integrality or range check
+  // downstream could catch it. The bytes are chosen in one place, for every value at every depth, which
+  // is where the rule sits: see `encodeCanonical`.
   it('at every depth it reaches, in a value and in a key alike', () => {
     expect(canonicalHex(-0)).toBe('00');
     expect(canonicalHex(new Map([['iat', -0]]))).toBe('a16369617400');
@@ -254,8 +254,8 @@ describe('encodeCanonical, on the byte strings a caller can actually hand it', (
   });
 
   it('seals a manifest read off a disk and lets its own reader verify it', () => {
-    // The reported failure was this path exactly: bytes from a file, sealed, and the envelope refused
-    // as not a COSE_Sign1 because the payload inside it had become an array of numbers.
+    // The payload arrives as a `Buffer`, which is what reading a file hands back: sealed as the bstr it
+    // is, not encoded as the two-entry map the encoder would write for a non-plain byte-string class.
     const key = generateSigningKey();
     const text = JSON.stringify({ v: 1, iss: 'dpl-9f2a41c3' });
     const sealed = sealDeploymentManifest(Buffer.from(text, 'utf8'), key);

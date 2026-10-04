@@ -46,8 +46,8 @@ Ashaveri-Pack-Protected-Header = {
 ; state, which a retention artifact states and this container carries nothing of. A second copy of a
 ; number the deployment already publishes elsewhere is the thing that drifts.
 ;
-; Two of the seven pass in a way the sentence does not fit, and it is worth saying which so that a reader
-; looking for one shape finds what is actually there. `items` is the body the other six make statements about,
+; Two of the eight pass in a way the sentence does not fit, and it is worth saying which so that a reader
+; looking for one shape finds what is actually there. `items` is the body the other seven make statements about,
 ; so the test says little of it. `v` is the one member no walk consumes: a version states which
 ; rules the bytes are read under, so a reader needs it before it can read a member of anything, and
 ; needing it ahead of the walk is as strong a claim on the manifest as needing it during one.

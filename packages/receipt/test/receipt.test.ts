@@ -261,7 +261,7 @@ describe('COSE_Sign1 receipt codec', () => {
 
   it('refuses a receipt signed under a card-named composite label', () => {
     // Signed past issueReceipt rather than built through it: the point is that a
-    // verifier does not recognise the label, so the bytes have to exist first.
+    // verifier does not recognize the label, so the bytes have to exist first.
     const key = generateSigningKey();
     const foreign = signCoseSign1(
       encodePayload(samplePayload({ meas: { tee: 'snp+h100cc' as never, m: new Uint8Array(48).fill(7) } })),
@@ -966,7 +966,7 @@ describe('the four members a receipt states about itself and the order of its it
     expect(equalBytes(payload.itm[0]!.d, sha256(new TextEncoder().encode('{"a":1}')))).toBe(true);
 
     // Re-encoding what the reader parsed gives back the signed bytes, which is the format's claim for
-    // every version and now for the seventeen members of this one, and the projection writes the same
+    // every version and for the seventeen members of this one, and the projection writes the same
     // seventeen in the order `receipt.cddl` declares them, with `unc` kept as a value.
     expect(equalBytes(encodePayload(payload), verified.cose.payloadBytes)).toBe(true);
     const twin = receiptToJson(payload, verified.cose.signature, verified.header.kid);

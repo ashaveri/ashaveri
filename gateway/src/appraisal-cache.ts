@@ -9,7 +9,7 @@ import { notTakenInAnchor } from './issuance-disclosure.js';
  * path, it is the process that reaches a vendor, and it is not part of this repository. What ships is the
  * reader an issuance holds and the conversion of one reading into the two slots of a payload's `cva`, so a
  * deployment that runs such a service signs a document stating the digests that service observed, and a
- * deployment that runs none signs the same document it always signed. No request path of either contacts a
+ * deployment that runs none signs the document stating both absences. No request path of either contacts a
  * vendor, because the only thing this file can do with a reading is turn it into an anchor.
  *
  * The shapes are this file's own rather than another package's, which is what keeps the dependency out: the

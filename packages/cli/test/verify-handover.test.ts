@@ -612,9 +612,8 @@ function replayedVerdict(result: CliResult): string {
 
 /**
  * The window for the replay below, read off the rows it walks and the deadline each child is given rather
- * than off one host's warmth. The figure it replaces was measured at 9,158ms over 43 invocations and
- * multiplied by eight, which is a statement about the machine that ran it: the same case on the shared
- * Windows runner needs more, and a ceiling that expires mid-loop reports the runner instead of the child.
+ * than off one host's warmth: the same case on the shared Windows runner needs more than a single
+ * machine's timing shows, and a ceiling that expires mid-loop reports the runner instead of the child.
  */
 const WHOLE_SUITE_THROUGH_THE_COMMAND_PATH = { timeout: spawnCeilingForCalls(REDACTION_FIXTURE.vectors.length, SPAWN_DEADLINE_MS) };
 
@@ -748,15 +747,12 @@ describe('the pinned verbs verify-pack and verify-export', () => {
   ];
 
   /**
-   * The window for the three cases below that run the CLI more than four times, chosen from what each of
-   * them measures on a machine with a warm store: 1,274 ms over six invocations for the report
-   * comparison, and 1,092 ms and 1,061 ms over six each for the two cross-type refusals, of which about
-   * 180 ms per invocation is the cost of starting a `node` process rather than any crypto. The shared
-   * Windows runner pays more for a process start than that, which is what makes a case at about two
-   * seconds here a timeout risk there, and six times the slowest measurement leaves room without
-   * hiding a case that genuinely hangs.
+   * The window for the three cases below: six children each, at this file's deadline, per the arithmetic in
+   * each loop. An invocation's cost is mostly starting a `node` process rather than any crypto, and the
+   * shared Windows runner pays more for that start than a local machine measures, so the ceiling is read off
+   * the child count and the deadline rather than off a timing run, which leaves room without hiding a case
+   * that genuinely hangs.
    */
-  /** The window for the three cases below: six children each, at this file's deadline, per the arithmetic in each loop. */
   const MANY_CLI_RUNS = { timeout: spawnCeilingForCalls(6, SPAWN_DEADLINE_MS) };
 
   it('gives its own type the same report the free verb gives, field for field', MANY_CLI_RUNS, () => {
