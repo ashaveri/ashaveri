@@ -55,8 +55,10 @@ import { assertRowRoster, literalEntries, readSourceFile, ROW_NAMING_FIELDS, uni
  * measurement is taken at the width the registry applies and not at one this file remembers.
  *
  * The client half of this reading lives in `packages/cli/test/vector-conformance.test.ts`, which drives the
- * same rows through the two exported inventory readers, since no command of this package reads an epoch
- * inventory. What is here is the format package's own reader, the one every verdict in this file was
+ * same rows through the two exported inventory readers, and the command half in
+ * `packages/cli/test/epoch-inventory-at-the-command-edge.test.ts`, which replays every published row through
+ * `ashaveri verify-handover` and holds the pinned `ashaveri verify-epoch-inventory` answer against that one on
+ * the rows it names. What is here is the format package's own reader, the one every verdict in this file was
  * witnessed with when the generator wrote it.
  */
 
