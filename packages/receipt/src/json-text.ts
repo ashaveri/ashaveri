@@ -39,7 +39,7 @@ function isSpace(char: string): boolean {
 /**
  * The number grammar JSON allows, matched sticky so the scan reads one token where it stands rather than
  * copying the rest of the document per number. Whether what it matched is a number these layouts write is
- * `scanNumber`'s question, and the two are deliberately apart: this recognises the spelling, that one refuses
+ * `scanNumber`'s question, and the two are deliberately apart: this recognizes the spelling, that one refuses
  * the spellings no position of either layout can hold.
  */
 const NUMBER = /-?(?:0|[1-9][0-9]*)(?:\.[0-9]+)?(?:[Ee][-+]?[0-9]+)?/yu;

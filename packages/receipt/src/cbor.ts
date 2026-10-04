@@ -5,7 +5,7 @@ import { ReceiptError, type ReceiptErrorCode } from './errors.js';
  * Byte strings the writer can actually see.
  *
  * A Node `Buffer` is a `Uint8Array`, and TypeScript accepts it anywhere a `Uint8Array` is declared, but
- * `cbor2` recognises its byte-string input by constructor rather than by prototype chain. Handed a
+ * `cbor2` recognizes its byte-string input by constructor rather than by prototype chain. Handed a
  * `Buffer` it takes its generic object path and writes a two-entry map holding `type` and a `data` array
  * of numbers, so the bytes that come out describe an array rather than the `bstr` the format declares.
  * The document is not subtly wrong, it is refuseable, and it is refuseable *after* it was signed, which

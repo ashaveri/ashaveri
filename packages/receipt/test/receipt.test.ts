@@ -261,7 +261,7 @@ describe('COSE_Sign1 receipt codec', () => {
 
   it('refuses a receipt signed under a card-named composite label', () => {
     // Signed past issueReceipt rather than built through it: the point is that a
-    // verifier does not recognise the label, so the bytes have to exist first.
+    // verifier does not recognize the label, so the bytes have to exist first.
     const key = generateSigningKey();
     const foreign = signCoseSign1(
       encodePayload(samplePayload({ meas: { tee: 'snp+h100cc' as never, m: new Uint8Array(48).fill(7) } })),
