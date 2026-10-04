@@ -74,7 +74,7 @@
     },
     {
       "name": "req-of-the-buffered-spelling",
-      "note": "A streamed request presented against a receipt digesting the same body without its `stream` member. The bodies differ by one JSON member and nothing else, so this is the near miss a client that normalised its own request before hashing would ship itself into.",
+      "note": "A streamed request presented against a receipt digesting the same body without its `stream` member. The bodies differ by one JSON member and nothing else, so this is the near miss a client that normalized its own request before hashing would ship itself into.",
       "heldVector": "streaming-request",
       "claimedVector": "buffered-completion",
       "bodyBase64Url": "eyJtb2RlbCI6Im1ldGEtbGxhbWEvTGxhbWEtMy4xLThCLUluc3RydWN0IiwibWVzc2FnZXMiOlt7InJvbGUiOiJ1c2VyIiwiY29udGVudCI6ImhlbGxvIn1dLCJzdHJlYW0iOnRydWV9",
