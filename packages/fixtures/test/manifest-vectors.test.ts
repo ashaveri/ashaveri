@@ -22,8 +22,10 @@ import { assertRowRoster, ROW_NAMING_FIELDS, unionMembers } from './doc-contract
  * that declares them to check that no row answers with a word nothing defines.
  *
  * The envelope column is checked here because the envelope reader is reachable from this package, and the
- * client column is not, because the three-state reading of a manifest lives in `@ashaveri/sdk`, which this
- * package does not depend on. That half is driven through the shipped client path in
+ * client column is not, because the three-state reading of a manifest has its replay in another package
+ * rather than because it is out of reach: `@ashaveri/sdk` is a devDependency here and
+ * `scripts/capture-vectors.ts` reaches it from a script, so `readDeploymentManifest` is callable in this
+ * package and deliberately is not called. That half is driven through the shipped client path in
  * `packages/cli/test/vector-conformance.test.ts`, which replays every row of this file and the epoch claims
  * beside them. What is checked below is therefore the file's own consistency and the layer beneath the
  * client, and the two together are why a row cannot state one answer in one column and a different fact in

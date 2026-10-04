@@ -42,10 +42,12 @@ const DATA = join(dirname(fileURLToPath(import.meta.url)), '..', 'data');
  * `decodeSealedDeploymentManifest` and `verifySealedDeploymentManifest` read them, and both are run
  * here: the `seal` field of every row is what that reader answered when this file was written, not what
  * anybody expected it to answer. The three-state reading belongs to `readDeploymentManifest` in
- * `@ashaveri/sdk`, which `@ashaveri/fixtures` does not depend on and cannot reach from a script. Its
- * verdicts are therefore stated here as data and held by the client path over this file in
- * `packages/cli/test/vector-conformance.test.ts`, which replays every row through the shipped reader
- * and fails if the stated answer is not the one the client gives.
+ * `@ashaveri/sdk`, and its verdicts are stated here as data rather than run. That is a decision about
+ * where the replay lives, not about reach: `@ashaveri/sdk` is a devDependency of this package and
+ * `scripts/capture-vectors.ts` reaches it from a script, so the client reader is callable here. The
+ * replay runs in `packages/cli/test/vector-conformance.test.ts`, which drives every row of this file
+ * through the shipped reader and fails if the stated answer is not the one the client gives, so this
+ * generator holds the layer beneath that call rather than a second copy of it.
  *
  * A document meant to be refused is assembled from the container's published pieces. The honest seal
  * comes from `sealDeploymentManifest` and nothing else, and where a row needs bytes that writer will not
