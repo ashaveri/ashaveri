@@ -17,7 +17,7 @@ import {
 import { ReceiptError } from './errors.js';
 
 /**
- * The signed deployment manifest: the same JSON document a gateway has always served at
+ * The signed deployment manifest: the same JSON document a gateway serves at
  * `/deployment-manifest`, inside a COSE_Sign1 whose protected content type names it.
  *
  * This module owns the envelope and nothing else. It never reads the document inside it, because

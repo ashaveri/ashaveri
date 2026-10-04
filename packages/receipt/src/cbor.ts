@@ -119,8 +119,9 @@ export function decodeCanonical(bytes: Uint8Array, malformed: ReceiptErrorCode =
  * `decodeCanonical` above and keeps admitting anything: it sits outside the signature and carries no
  * claim, so a float inside it is nobody's integer wearing a different coat.
  *
- * Two other closed documents this package publishes come through here for the same reason: an export's
- * protected header and manifest, and a sealed deployment manifest's header. Each declares every member
+ * Every other closed document this package publishes comes through here for the same reason: the
+ * protected header each sealed envelope carries, the pack's, export's and redaction's manifests, the
+ * epoch inventory's header and a sealed deployment manifest's header. Each declares every member
  * it carries, so each is read where no float may stand in for the integer a label has to be.
  */
 export function decodeClosedDocument(bytes: Uint8Array, malformed: ReceiptErrorCode): unknown {

@@ -331,8 +331,8 @@ export function encodeRedactionManifest(manifest: RedactionManifest): Uint8Array
  * pack-dependent half is not checked, because the pack is not an argument to this call, and a writer that
  * claimed to check what it cannot see would be signing a stronger statement than it had made. A caller that
  * wants the whole statement checked reads the finished document back with `verifyRedaction`, and a document
- * meant to be refused, which is what a conformance vector is, is assembled from the four pieces above rather
- * than through this function.
+ * meant to be refused, which is what a conformance vector is, is assembled from the four published pieces
+ * rather than through this function.
  *
  * The key is checked as the pack writer checks its own: `kid` has to be sha256 of the public half travelling
  * beside it, because a header naming a kid that resolves to nothing is a document no reader can verify.

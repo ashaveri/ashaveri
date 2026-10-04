@@ -54,7 +54,7 @@ export function cddlRule(cddl: string, rule: string): string {
  * The members one CDDL block declares, each with the type expression written beside it, in the order
  * the block declares them: comments stripped, then every `name:` read off the commas that separate the
  * members. The order is not decoration: the payload block puts `mk` after the twelve every document
- * shares, and the twin and the
+ * shares beside `v`, and the twin and the
  * parser both claim that list as theirs. The type rides along for the same reason the name does: which
  * of these positions the format makes an integer is the CDDL's answer, and a test that asks for it has
  * to read it here rather than remember it.

@@ -383,12 +383,12 @@ describe('the pack writer', () => {
   });
 
   it('refuses a manifest carrying no map it has to copy, in the sentence its reader uses', () => {
-    // A `chain` that is not there at all is an absent member of the class this container's row names, and the
-    // encoder reached through it for the map it builds: `TypeError: Cannot read properties of undefined (reading
-    // 'anchor')`, which carries no code a caller can branch on. Each row hands the writer one manifest missing
+    // A `chain` that is not there at all is an absent member of the class this container's row names, and an
+    // encoder that reached through it for the map it builds would answer a bare `TypeError`, no code a caller
+    // can branch on, so the writer refuses the absence by name. Each row hands the writer one manifest missing
     // one member and asks the reader about the same document with that member deleted past the writer, so the
     // two answers are held to be one sentence rather than two written to agree. The rows run in the order the
-    // reader asks its own questions in, which is the order the writer now asks them in.
+    // reader asks its own questions in, which is the order the writer asks them in.
     const honest = manifestOf();
     const headerBytes = encodePackProtectedHeader(KEY.kid);
     const readBack = (edit: (root: Map<string, unknown>) => void): ReceiptError => {
@@ -672,8 +672,8 @@ describe('the ordering finding a verified pack carries', () => {
   it('binds the same bytes it reports on, so the finding is not a licence', () => {
     const backwards = signPack(backwardsManifest(), KEY);
     const manifest = decodePack(backwards).manifest;
-    // The walk still refuses a gap in a pack whose stamps run backwards. These bytes are made from the pieces,
-    // because the writer now refuses to sign a run that does not close.
+    // The walk still refuses a gap in a pack whose stamps run backwards. These bytes are made from the
+    // published pieces, because the writer refuses to sign a run that does not close.
     const gapped = { ...manifest, items: [manifest.items[0]!, manifest.items[2]!] };
     expect(codeOf(() => verifyPack(sealedFromPieces(gapped), { publicKey: KEY.publicKey }))).toBe('PACK_CHAIN_BROKEN');
     // The item-stamp equality still refuses on these records. A stamp written to agree with the order the chain
@@ -698,7 +698,7 @@ describe('the ordering finding a verified pack carries', () => {
   it('holds both halves of the chain rule, the walk and the count of what it reached', () => {
     // `pack.cddl` states that a conforming reader's check has two halves and that a verifier implementing only
     // the first has implemented half a rule. Both are pinned here on bytes sealed from the published pieces, so
-    // the reader is asked about documents its writer now refuses to sign, and neither half can go missing
+    // the reader is asked about documents its writer refuses to sign, and neither half can go missing
     // without this case failing.
     const run = chained(ENTRIES);
     const honest = manifestFor(run);

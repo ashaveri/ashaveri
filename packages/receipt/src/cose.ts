@@ -11,8 +11,8 @@ export const COSE_HEADER_CONTENT_TYPE = 3;
 export const COSE_HEADER_KID = 4;
 export const RECEIPT_CONTENT_TYPE = 'ashaveri/receipt';
 /**
- * The content type of the anchor provenance ledger, the sixth document that travels in the framing this
- * module writes. It is named here because it belongs to the family, whose members are all a `COSE_Sign1`
+ * The content type of the anchor provenance ledger, one of the documents that travel in the framing
+ * this module writes. It is named here because it belongs to the family, whose members are all a `COSE_Sign1`
  * over the same three labels sealed by the same key family, and so a reader that is told which of them it
  * holds is told by label 3 and by nothing else in the envelope.
  *
@@ -144,7 +144,7 @@ function sigStructure(protectedBytes: Uint8Array, externalAad: Uint8Array, paylo
  * The signed header: `alg`, `typ` and `kid`, in the order the CDDL lists them, canonically encoded so
  * key order is bytewise and no caller can move a byte of what gets signed.
  *
- * The content type is the one parameter the four documents this package writes do not share. They are
+ * The content type is the one parameter the documents this package writes do not share. They are
  * all a `COSE_Sign1` over the same three labels, sealed by the same key family, and a receipt, a pack,
  * an export and a deployment manifest all pass their own checks, so the field that tells them apart has
  * to be answered before anything about the payload is. It arrives as an argument rather than being read
@@ -168,11 +168,11 @@ export function buildProtectedHeader(kid: Uint8Array, contentType: string = RECE
  * copy is a second place where a signed document could be assembled differently from the one a reader
  * expects.
  *
- * `unprotected` is an argument because each of the four formats declares that map `{ * any => any }` in its
+ * `unprotected` is an argument because each format declares that map `{ * any => any }` in its
  * own CDDL, so a writer of any one of them may fill it. It sits outside the `Sig_structure`, so nothing
  * written there travels as a claim about anything, and a reader that refused a document for the contents of
- * that map would be refusing bytes no signature covers. A receipt and a manifest seal are assembled with the
- * default here, because those two writers have nothing to say beside what they sign.
+ * that map would be refusing bytes no signature covers. A receipt and a manifest seal reach this function
+ * without naming a map, because those two writers have nothing to say beside what they sign.
  */
 export function sealCoseSign1(
   protectedBytes: Uint8Array,

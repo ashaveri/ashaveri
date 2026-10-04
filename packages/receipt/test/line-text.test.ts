@@ -39,10 +39,10 @@ import { buildRun, FOLD_HONEST, HELD as foldHeld, sealFoldDocument, sealOf, FOLD
 const FORGES_A_LINE = /[\p{Cc}\p{Cf}\u{2028}\u{2029}\u{e0000}-\u{e007f}]/u;
 
 /**
- * One row per character the two scans of this package were argued about, per kind of character the class is made
- * of, and per shape outside it. The five the inventory's label scan reached only once the class had one owner are
- * the soft hyphen, the zero width space, the zero width joiner, the right-to-left override, and two of the tag
- * block, and each is here by name so a reader of this file can see the seam rather than infer it from a range.
+ * One row per character the two scans of this package answer for, per kind of character the class is made
+ * of, and per shape outside it. The soft hyphen, the zero width space, the zero width joiner, the
+ * right-to-left override and the tag-block rows are here by name so a reader of this file can see the seam
+ * rather than infer it from a range.
  */
 const ROSTER: ReadonlyArray<{ readonly name: string; readonly character: string; readonly inClass: boolean }> = [
   { name: 'NUL', character: '\u0000', inClass: true },
@@ -302,7 +302,7 @@ describe('the printed-line character class has one owner', () => {
 
   it('refuses the same characters at the copied positions before it seals one', () => {
     // The symmetry the estate asks of a stricter reader: the writer parses what it signs, so a document whose
-    // reader now refuses a copied value cannot be made through this package's own seal. Each refusal names the
+    // reader refuses a copied value cannot be made through this package's own seal. Each refusal names the
     // position and the code point, which is the half that shows the guard is the one answering rather than some
     // earlier shape complaint about the same document.
     for (const position of COPIED_POSITIONS) {
@@ -336,10 +336,10 @@ describe('the printed-line character class has one owner', () => {
     expect(read.outcome.presence, 'the fold stopped answering for a document with a wide issuer').toBeDefined();
   });
 
-  it('answers the class before the width at the label, now that one scan reads both', () => {
-    // The label's own scan moved into the function the copied positions share, and the order this position answers
-    // its three questions in moved with it: emptiness, class, width, padding. Pinned rather than left to the
-    // reading order, because a label that is both too wide and unprintable is a document two refusals could name.
+  it('answers the class before the width at the label', () => {
+    // The label's own scan is the function the copied positions share, and the order this position answers its
+    // three questions in is that scan's: emptiness, class, width, padding. Pinned rather than left to the reading
+    // order, because a label that is both too wide and unprintable is a document two refusals could name.
     const joiner = String.fromCodePoint(0x200d);
     const past = `${'x'.repeat(EPOCH_INVENTORY_LABEL_MAX_BYTES)}${joiner}`;
     const answer = atReader(past);

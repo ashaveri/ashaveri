@@ -39,12 +39,10 @@ import type { CollateralSlot } from './disclosure.js';
  * answers a kid with the key the caller retains for it, and no code path here reaches a network, a filesystem
  * or a key directory.
  *
- * That second argument exists because a deployment rotates its signing key and the manifest's `keys[]` keeps
- * the superseded epochs readable, so the receipts of one span can be signed by two epochs. A pack of that
- * span is verifiable by a caller that hands this reader the same set of keys it would hand the receipt
- * verifier, which is one key per kid rather than one key per document. What the caller retains and where it
- * got each key are the caller's facts, and none of them is a claim this reader checks: the reader verifies
- * under the key it is given for a kid and authenticates no key of its own.
+ * That second argument exists because a deployment rotates its signing key, so the receipts of one span can
+ * be signed by two epochs, each receipt carrying the kid of the epoch that signed it. A pack of that span is
+ * verifiable by a caller that hands this reader the same set of keys it would hand the receipt verifier,
+ * which is one key per kid rather than one key per document.
  *
  * The two findings a reader takes away are kept apart on purpose, because merging them is the defect this
  * container exists to make impossible. A reproduced walk shows that nothing between the first item and the
@@ -65,8 +63,8 @@ import type { CollateralSlot } from './disclosure.js';
  * arrives as one argument, already chained: `packSigStructure` and `packRecordDigest` are the bytes a signature
  * and a record digest are taken over, published both so a caller can compute the endpoints it hands over and
  * because a reimplementer who cannot see them cannot compare two readers' refusals. A document meant to be
- * refused, which is what a conformance vector is, is assembled from those four pieces rather than through
- * `signPack`.
+ * refused, which is what a conformance vector is, is assembled from the four published pieces rather than
+ * through `signPack`.
  */
 
 /** The content type that keeps a pack from being read as a receipt or as an export, at label 3. */
@@ -603,7 +601,7 @@ export function encodePackManifest(manifest: PackManifest): Uint8Array {
  *
  * What goes into a pack is still not this file's question, and the manifest arrives as one argument already
  * chained: a caller that wants to hand a reader a document that is *meant* to be refused, which is what a
- * conformance vector is, assembles it from the four pieces above rather than through this function.
+ * conformance vector is, assembles it from the four published pieces rather than through this function.
  *
  * The key is checked as `manifest-seal.ts` checks its own: `kid` has to be sha256 of the public half travelling
  * beside it. A pack whose header names a kid that resolves to no key is a document no reader can verify, so
@@ -961,10 +959,10 @@ function requireNullableBytes(value: unknown, position: string): Uint8Array | nu
  * figure the format states rather than one this file invented, which is what keeps the bound the format's and
  * not the issuer's.
  *
- * Published because the ceiling is a fact a reader of the format can state: the conformance suite quotes this
- * figure in its own `attachedRule` rather than writing a number beside the prose, and the number it prints is
- * the one the reader refuses on. The same figure bounds the header beside the bytes, which is a run of bytes
- * like any other and gets no second ceiling.
+ * Published because the ceiling is a fact a reader of the format can state: the vector suite quotes this
+ * figure inside its `custodyRule` rather than writing a number beside the prose, and the number it prints
+ * is the one the reader refuses on. The same figure bounds the header beside the bytes, which is a run of
+ * bytes like any other and gets no second ceiling.
  */
 export const CARRIED_MAX_BYTES = ID_MAX_BYTES;
 

@@ -30,7 +30,7 @@ export function toBase64Url(bytes: Uint8Array): string {
     chars.push(ALPHABET.charCodeAt(third & 0b111111));
   }
   // Spread into `String.fromCharCode` takes one argument per character and a call frame cannot
-  // hold an unbounded number of them: on this host (Node 24 / V8) the bare call answers at
+  // hold an unbounded number of them: on Node 24 / V8 the bare call answers at
   // 124,757 arguments and raises RangeError at 124,758, which is about 91 KB of input, and the
   // cliff sits lower the deeper the caller's stack already is. This helper is exported, so the
   // bound is not ours to assume about a caller. Chunk instead, well inside any stack: 8,192

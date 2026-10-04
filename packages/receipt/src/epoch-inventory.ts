@@ -77,7 +77,7 @@ import { parseRetentionDocument, RETENTION_FILE_NAME_SET, type RetentionManifest
  * serializer below is a convenience to a writer and not a rule a reader can insist on. `signEpochInventory`
  * parses and runs its own checks before it signs, so a writer cannot seal an inventory whose run does not
  * add up, and a document meant to be refused, which is what a conformance vector is, is assembled from the
- * four pieces rather than through it.
+ * four published pieces rather than through it.
  */
 
 /** The content type that keeps an inventory from being read as a pack, at label 3. */
@@ -373,10 +373,9 @@ function assertDefined(raw: JsonObject, members: readonly string[], where: strin
  * `duty.short[].art`, come out of documents this format describes and does not author, and each of those declares
  * its own floor with no ceiling beside it: the deployment manifest states a minimum length for its two ids and no
  * maximum, and `pack.cddl` types a duty label as a bare `tstr` that its own reader asks nothing about but being
- * text. So no length is refused here and none is on offer, for the reason this position has always given: a
- * ceiling stated on this side would refuse an inventory over a manifest the deployment published and a pack that
- * pack format seals, which is the one thing a layout written to describe artifacts already in the field may not
- * do.
+ * text. So no length is refused here and none is on offer: a ceiling stated on this side would refuse an
+ * inventory over a manifest the deployment published and a pack that pack format seals, which is the one thing
+ * a layout written to describe artifacts already in the field may not do.
  *
  * The character class is a separate question, and it is answered here on the same ground as the run label beside
  * it. These four values are printed. A reviewer reads the issuer and the instance beside the run this document
@@ -410,15 +409,15 @@ function requireText(value: unknown, position: string): string {
 /**
  * The run's label: printable text that a report can print beside the run it names. The class it has to be
  * printable under is the estate's printed-line class, which `src/line-text.ts` owns, which `src/receipt.ts`
- * refuses a payload's attested text on, and which `requireText` above now asks of this position and of the four it
+ * refuses a payload's attested text on, and which `requireText` above asks of this position and of the four it
  * copies in the same sentence. What this function adds is the width the format states for this member alone,
  * `EPOCH_INVENTORY_LABEL_MAX_BYTES`, and the padding rule; the position name and `EPOCH_INVENTORY_BAD_DOCUMENT`
  * stay this site's own, and a test drives one roster of characters through the writer, this position and the four
  * copied ones (`packages/receipt/test/line-text.test.ts`).
  *
- * The order the three questions are answered in is now the shared one: the class, then the width, then the
+ * The order the three questions are answered in is the shared one: the class, then the width, then the
  * padding. A label both past the printed width and carrying a zero width joiner is therefore refused for its
- * characters rather than for its length, which is the one behaviour of this position that the widening moved, and
+ * characters rather than for its length, which is the one behaviour of this position the order decides, and
  * a case in that test holds the order rather than leaving it to the reading of this file.
  *
  * This scan refuses the whole class rather than the line-enders inside it, and that is a decision about which
@@ -1144,8 +1143,8 @@ export function encodeEpochInventoryManifest(manifest: EpochInventoryManifest): 
  * handed over: a run whose windows leave a gap, a chain claim that smooths a break over and a duty list that
  * disagrees with the packs beside it are each refused where the bytes are made, under the code the reader
  * would have answered with, before a signature fixes them. A caller who wants to hand a reader a document
- * that is *meant* to be refused, which is what a conformance vector is, assembles it from the four pieces
- * above rather than through this function.
+ * that is *meant* to be refused, which is what a conformance vector is, assembles it from the four published
+ * pieces rather than through this function.
  *
  * The retention artifacts are the optional third argument, and where they are handed the fold runs here too: a
  * writer that states a window its own sealed observations do not attest would be sealing a claim about reach

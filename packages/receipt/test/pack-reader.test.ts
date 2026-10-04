@@ -243,9 +243,7 @@ for (const rule of packMapRuleNames()) {
   }
 }
 
-/* -------------------------------------------------------------------------- */
-/* The documents every case edits by one position.                              */
-/* -------------------------------------------------------------------------- */
+/* The documents every case edits by one position. */
 
 const KEY = signingKeyFromSeed(new Uint8Array(32).fill(11));
 const OTHER = signingKeyFromSeed(new Uint8Array(32).fill(12));

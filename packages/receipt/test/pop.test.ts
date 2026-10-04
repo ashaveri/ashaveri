@@ -194,7 +194,7 @@ describe('PoP Authorization header', () => {
     }
     expect(message).toContain('the PoP Authorization header is not parseable');
     // The measured ceiling, not a round number: 45 characters of canned sentence, ': ', and a
-    // detail cut to MAX_DETAIL 200 plus '...'. The old 300 left 50 characters of slack.
+    // detail cut to MAX_DETAIL 200 plus '...'.
     expect(message.length).toBeLessThanOrEqual(250);
 
     // That 250 is not slack: a header one character over it exists, and this is how. A control

@@ -382,7 +382,7 @@ export function encodeExportManifest(manifest: ExportManifest): Uint8Array {
  * will be handed the files, which is the one question here that has no answer inside the document.
  *
  * A caller who wants to hand a reader a document that is *meant* to be refused, which is what a conformance
- * vector is, assembles it from the three pieces above rather than through this function.
+ * vector is, assembles it from the four published pieces rather than through this function.
  */
 export function signExport(manifest: ExportManifest, key: SigningKey): Uint8Array {
   const payloadBytes = encodeExportManifest(manifest);
