@@ -57,11 +57,14 @@ import {
 /**
  * `ashaveri verify-handover <document> [options]`: what is this file, and what holds for it.
  *
- * A verification bundle is a pile of files, and six of the shapes it can hold carry a published content
- * type: `ashaveri/receipt`, `ashaveri/pack`, `ashaveri/export`, `ashaveri/deployment-manifest`,
- * `ashaveri/redaction` and `ashaveri/epoch-inventory`. A file in such a pile is named for what the deployment
- * called it rather than for what it is, so the question a person handed the pile asks is what any of it is.
- * This is that question, answered by one command rather than by six, because the answer is inside the document:
+ * A verification bundle is a pile of files, and the format package publishes seven signed shapes carrying a
+ * published content type: `ashaveri/receipt`, `ashaveri/pack`, `ashaveri/export`, `ashaveri/deployment-manifest`,
+ * `ashaveri/redaction`, `ashaveri/epoch-inventory` and `ashaveri/anchor-provenance`. Six of them are what this
+ * command reads, the seventh being the ledger whose reader ships in the package that ships the bytes the ledger
+ * speaks of, and a header naming it is refused here by name rather than read as one of the six. A file in such a
+ * pile is named for what the deployment called it rather than for what it is, so the question a person handed
+ * the pile asks is what any of it is. This is that question, answered by one command rather than by six, because
+ * the answer is inside the document:
  * the content type sits in the COSE protected header, the header is inside the signature, and so a stranger
  * holding no key and reaching no network can classify these bytes safely. A command per format would have made
  * the caller declare the shape before reading it, which is the one thing a pile makes impossible.
@@ -69,7 +72,8 @@ import {
  * The type is printed first in every answer this command gives, before anything about validity,
  * because a verdict about the wrong document is not a verdict at all.
  *
- * The dispatch is a lookup against the six constants the format package publishes, and each of the
+ * The dispatch is a lookup against six of the seven content-type constants the format package publishes,
+ * `ashaveri/anchor-provenance` being the one it publishes and this command does not read, and each of the
  * six readers re-answers the content type itself, over the protected bytes, inside its own signature
  * check. That is why a relabelled document cannot be talked into a pass here: the classification picks
  * which reader runs, and only a reader that has verified a signature over the header it read reports a
@@ -146,7 +150,7 @@ export interface VerbPin {
 /** `ashaveri verify-handover`, the verb that answers the question a pile of files leaves open. */
 export const HANDOVER_VERB: VerbPin = { verb: 'verify-handover', contentType: null };
 
-/** Label 3 of the COSE header registry: the content type. The six formats all put their name there. */
+/** Label 3 of the COSE header registry: the content type. Every format this command reads puts its name there. */
 const CONTENT_TYPE_LABEL = 3;
 
 /** Label 4 of the same registry: the kid. Every one of the six readers requires it to be 32 bytes. */
@@ -913,7 +917,7 @@ function readInventory(bytes: Uint8Array, inputs: Inputs, kid: Uint8Array): Read
     notChecked: [
       'whether the two digests an entry names are digests of files that exist beside this document, whether the packs they name are sealed by the keys the entries give, and whether an item count beside an entry is the count of receipts inside that pack: an inventory restates a run rather than proving it, and `ashaveri verify-handover` over each pack file recomputes what an entry claims',
       'whether either period an entry states was owed at all: this run compares each held figure with the required figure beside it and refuses a document whose stated shortfall rows are not that arithmetic, and owed-ness turns on the duty mapping revision each entry names and on the law behind it',
-      'whether the store held the appraisal context across the period this run attests: the fold of that interval reads the run\'s retention artifacts, no option of this command line hands them, and so the two retention digests are printed as the document\'s own figures and compared by nothing in this run',
+      'whether the store held the appraisal context across the period this run attests: the fold of that interval reads the run\'s retention artifacts, no option of this command line hands them, and so each entry\'s retention digest prints as the document\'s own figure and is compared by nothing in this run',
       'whether this run is all the epochs the deployment closed and whether it is the latest statement about them: no file in a bundle shows what else a store holds, the stamps these entries carry are each pack\'s own assembly stamp restated, and this run consulted no clock',
     ],
   };
@@ -927,9 +931,10 @@ function readInventory(bytes: Uint8Array, inputs: Inputs, kid: Uint8Array): Read
 type DocumentReader = (bytes: Uint8Array, inputs: Inputs, kid: Uint8Array) => Reading | Promise<Reading>;
 
 /**
- * The six types this command can meet, each with the reader that answers for it. The keys are the constants
- * the format package publishes, so a type published beside these six and not among them reaches this command
- * as an unknown `typ` and is refused by name rather than read as one of the six.
+ * The six types this command can meet, each with the reader that answers for it. The keys are six of the
+ * seven content types the format package publishes, `ashaveri/anchor-provenance` being the one it publishes
+ * and this table does not hold, so a type outside this table reaches this command as an unknown `typ` and is
+ * refused by name rather than read as one of the six.
  */
 const READERS: ReadonlyMap<string, DocumentReader> = new Map<string, DocumentReader>([
   [RECEIPT_CONTENT_TYPE, readReceipt],

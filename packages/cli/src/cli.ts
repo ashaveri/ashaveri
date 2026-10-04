@@ -61,12 +61,14 @@ Arguments:
                      other document is refused before it is opened.
 
 verify-handover answers the question a pile of files leaves open: what is this, and what holds for it.
-Six signed shapes carry a published content type, in the COSE protected header, inside the signature,
-so the answer for a pile is one command that reads the header rather than one that makes the caller
-declare the form before looking at it. The type found is printed before anything about validity, in
-both renderings, and the document is then read by the reader for that type: the receipt reader, the
-pack reader, the export reader, the redaction reader, the inventory reader, or the manifest rule a
-client applies to a served document. Nothing is fetched and no policy is read. Keys are what the
+Seven signed shapes carry a published content type, in the COSE protected header, inside the signature,
+and this command holds a reader for six of them. The seventh, ashaveri/anchor-provenance, names the ledger
+whose reader ships in the package that ships the bytes the ledger speaks of, and a header carrying it is
+refused by name here rather than read as one of the six. So the answer for a pile is one command that reads
+the header rather than one that makes the caller declare the form before looking at it. The type found is printed
+before anything about validity, in both renderings, and the document is then read by the reader for that type:
+the receipt reader, the pack reader, the export reader, the redaction reader, the inventory reader, or the
+manifest rule a client applies to a served document. Nothing is fetched and no policy is read. Keys are what the
 command line designates, by role: --key names the keys whose signatures hold on a receipt, a pack,
 an export, an amendment or an inventory, matched on the kid each document names, and --manifest-key
 names the keys whose seal authenticates a deployment manifest, which is a separate designation

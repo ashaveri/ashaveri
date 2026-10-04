@@ -185,10 +185,10 @@ const HONEST_PAYLOAD = JSON.parse(
 /**
  * The rows this path answers otherwise than their published `verdict`, with the published fact that says why.
  *
- * Each entry is checked against the row it names inside the replay below, so a list of names cannot stay a
- * record of a divergence the suite no longer has: the replay fails a row that diverges without being listed,
- * fails a listed row that stopped diverging, and asks which member of the published row makes the command's
- * answer a different question's answer.
+ * Each entry is checked against the row it names inside the replay below, so a list of names cannot rest on
+ * this file's memory of the suite: the replay fails a row that diverges without being listed, fails a listed
+ * row that stopped diverging, and asks which member of the published row makes the command's answer a
+ * different question's answer.
  */
 interface CommandPathAnswer {
   readonly name: string;
@@ -254,7 +254,12 @@ const COMMAND_PATH_ANSWERS: readonly CommandPathAnswer[] = [
   },
 ];
 
-/** Which group a listed row belongs to, each group stated by a published member rather than by a name. */
+/**
+ * Which group a listed row belongs to. Two groups come out of the row's own `read` columns, and the four
+ * whose divergence is a fact about its refusal come out of its published `name`, one of the naming columns
+ * the file itself lists. The checks below then hold each of those four to a published member of the same
+ * row, so a name is a pointer into the published suite rather than the reason a row diverges.
+ */
 function groupOf(row: InventoryCase): string {
   if (row.read.presence !== undefined) return 'presence';
   if (row.read.pinned === undefined && Object.keys(row.read.retained ?? {}).length === 0) return 'undesignated';

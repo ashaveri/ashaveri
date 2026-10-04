@@ -45,12 +45,14 @@ const SPAWN_DEADLINE_MS = 15_000;
  * own type, and a header changed without a new signature is answered by the signature rather than by a
  * verdict about the shape it now claims to be.
  *
- * The two pinned verbs, `ashaveri verify-pack` and `ashaveri verify-export`, are tested here rather than
- * in files of their own because they are this runner with the answer in label 3 fixed to one value, and
- * the two claims worth making about that are both comparisons against this command's own answers: the
+ * The two pinned verbs this file runs, `ashaveri verify-pack` and `ashaveri verify-export`, are tested here
+ * rather than in files of their own because they are this runner with the answer in label 3 fixed to one value,
+ * and the two claims worth making about that are both comparisons against this command's own answers: the
  * reading of a document of the pinned type is one report and not a second one shaped like the first, and
  * a document of another type meets the refusal this command already gives a type it holds no reader for.
- * The documents are the same bytes either way, which is the only reason the comparison can be made.
+ * The documents are the same bytes either way, which is the only reason the comparison can be made. The
+ * third pinned verb, `ashaveri verify-epoch-inventory`, is run beside the suite it pins, in
+ * `packages/cli/test/epoch-inventory-at-the-command-edge.test.ts`.
  *
  * One shape arrives with a second document. An amendment is checked against the pack it designates by a
  * digest, so its cases hand that pack in through `--companion`, and the whole published redaction suite is
@@ -750,7 +752,7 @@ describe('an excision amendment at the command edge', () => {
 });
 
 /**
- * The two verbs that pin label 3 to one value, run over the documents above.
+ * Two of the three verbs that pin label 3 to one value, the two this file runs, over the documents above.
  *
  * Nothing here builds a document of its own: every byte is one the handover cases already read, so the
  * two answers can be set against each other and a difference can only be the pin.
