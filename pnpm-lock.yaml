@@ -243,6 +243,9 @@ importers:
         specifier: ^2.4.0
         version: 2.4.0
     devDependencies:
+      '@ashaveri/sdk':
+        specifier: workspace:*
+        version: link:../sdk
       '@ashaveri/signerd':
         specifier: workspace:*
         version: link:../../gateway

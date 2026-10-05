@@ -15,7 +15,7 @@ type Shape = 'buffered' | 'buffered-unseen-member' | 'stream-unseen-member' | 's
 
 const PROBE_MEMBER = 'probe_extension';
 const PROBE_VALUE: Record<string, unknown> = { note: 'a member no chat completion declares', seq: 7 };
-const UNRECOGNISED_OBJECT = 'unrecognized.response';
+const UNRECOGNIZED_OBJECT = 'unrecognized.response';
 const COMPLETION_ID = 'chatcmpl-response-shapes-1';
 const MODEL = 'response-shape-model';
 const CREATED = 1_700_000_000;
@@ -62,7 +62,7 @@ function streamFrames(shape: Shape): Record<string, unknown>[] {
     return [...chunks, { id: COMPLETION_ID, object: 'chat.completion.chunk', created: CREATED, model: MODEL, choices: [], [PROBE_MEMBER]: PROBE_VALUE }];
   }
   if (shape === 'stream-unrecognized-frame') {
-    return [...chunks, { object: UNRECOGNISED_OBJECT, [PROBE_MEMBER]: PROBE_VALUE }];
+    return [...chunks, { object: UNRECOGNIZED_OBJECT, [PROBE_MEMBER]: PROBE_VALUE }];
   }
   return chunks;
 }
@@ -261,7 +261,7 @@ describe('a streamed response carrying a frame that is neither a chunk nor the s
     expect(streamedText(chunks)).toBe(CONTENT);
     const odd = chunks[4];
     expect(ownMembersOf(odd)).toEqual(['object', PROBE_MEMBER]);
-    expect(memberOf(odd, 'object')).toBe(UNRECOGNISED_OBJECT);
+    expect(memberOf(odd, 'object')).toBe(UNRECOGNIZED_OBJECT);
     expect(memberOf(odd, 'id')).toBeUndefined();
     expect(memberOf(odd, 'choices')).toBeUndefined();
     expect(memberOf(odd, PROBE_MEMBER)).toEqual(PROBE_VALUE);

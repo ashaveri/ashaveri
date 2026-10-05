@@ -55,8 +55,10 @@ import { assertRowRoster, literalEntries, readSourceFile, ROW_NAMING_FIELDS, uni
  * measurement is taken at the width the registry applies and not at one this file remembers.
  *
  * The client half of this reading lives in `packages/cli/test/vector-conformance.test.ts`, which drives the
- * same rows through the two exported inventory readers, since no command of this package reads an epoch
- * inventory. What is here is the format package's own reader, the one every verdict in this file was
+ * same rows through the two exported inventory readers, and the command half in
+ * `packages/cli/test/epoch-inventory-at-the-command-edge.test.ts`, which replays every published row through
+ * `ashaveri verify-handover` and holds the pinned `ashaveri verify-epoch-inventory` answer against that one on
+ * the rows it names. What is here is the format package's own reader, the one every verdict in this file was
  * witnessed with when the generator wrote it.
  */
 
@@ -448,9 +450,9 @@ describe('the published epoch inventory vectors', () => {
   it('tells every multi-finding refusal of this family apart inside the bound', () => {
     // The same promise one class wider. The error-code document states of several of these codes that the detail
     // says which finding it was, and the published rows are the only place that claim is checkable. The class is
-    // read off the registry rather than named here: every code this package declares for the container, grouped
-    // by the refusing rows that answer with it, which is seven codes carrying more than one row over 46 refusing
-    // rows. Three rows of the suite answer with codes shared with another container, `NOT_COSE_SIGN1`,
+    // read off the registry rather than named here: every code the format package declares for the container,
+    // grouped by the refusing rows that answer with it, which is seven codes carrying more than one row over 46
+    // refusing rows. Three rows of the suite answer with codes shared with another container, `NOT_COSE_SIGN1`,
     // `UNSUPPORTED_ALG` and `INVALID_SIGNATURE`, and are outside this class because their sentences belong to
     // that container's reader. Before the contiguity wording moved, one of the seven published two rows as one
     // identical string and the other six already read apart; the measurement is the point, so a code that

@@ -3,16 +3,19 @@ import { basename } from 'node:path';
 import {
   COSE_SIGN1_TAG,
   DEPLOYMENT_MANIFEST_CONTENT_TYPE,
+  EPOCH_INVENTORY_CONTENT_TYPE,
   EXPORT_CONTENT_TYPE,
   PACK_CONTENT_TYPE,
   RECEIPT_CONTENT_TYPE,
   REDACTION_CONTENT_TYPE,
   decodeCanonical,
   ReceiptError,
+  verifyEpochInventory,
   verifyExport,
   verifyPack,
   verifyReceipt,
   verifyRedaction,
+  type VerifiedEpochInventory,
   type VerifiedExport,
   type VerifiedPack,
   type VerifiedRedaction,
@@ -54,31 +57,35 @@ import {
 /**
  * `ashaveri verify-handover <document> [options]`: what is this file, and what holds for it.
  *
- * A verification bundle is a pile of files, and five of the shapes it can hold now carry a published
- * content type: `ashaveri/receipt`, `ashaveri/pack`, `ashaveri/export`, `ashaveri/deployment-manifest` and
- * `ashaveri/redaction`. Two of them had a reader and no verb anybody could run, so a person handed the pile
- * could not ask what any of it was. This is that question, answered by one command rather than by five,
- * because the answer is inside the document: the content type sits in the COSE protected header, the header
- * is inside the signature, and so a stranger holding no key and reaching no network can classify these
- * bytes safely. A command per format would have made the caller declare the shape before reading it,
- * which is the one thing a pile makes impossible.
+ * A verification bundle is a pile of files, and the format package publishes seven signed shapes carrying a
+ * published content type: `ashaveri/receipt`, `ashaveri/pack`, `ashaveri/export`, `ashaveri/deployment-manifest`,
+ * `ashaveri/redaction`, `ashaveri/epoch-inventory` and `ashaveri/anchor-provenance`. Six of them are what this
+ * command reads, the seventh being the ledger whose reader ships in the package that ships the bytes the ledger
+ * speaks of, and a header naming it is refused here by name rather than read as one of the six. A file in such a
+ * pile is named for what the deployment called it rather than for what it is, so the question a person handed
+ * the pile asks is what any of it is. This is that question, answered by one command rather than by six, because
+ * the answer is inside the document:
+ * the content type sits in the COSE protected header, the header is inside the signature, and so a stranger
+ * holding no key and reaching no network can classify these bytes safely. A command per format would have made
+ * the caller declare the shape before reading it, which is the one thing a pile makes impossible.
  *
  * The type is printed first in every answer this command gives, before anything about validity,
  * because a verdict about the wrong document is not a verdict at all.
  *
- * The dispatch is a lookup against the five constants the format package publishes, and each of the
- * five readers re-answers the content type itself, over the protected bytes, inside its own signature
+ * The dispatch is a lookup against six of the seven content-type constants the format package publishes,
+ * `ashaveri/anchor-provenance` being the one it publishes and this command does not read, and each of the
+ * six readers re-answers the content type itself, over the protected bytes, inside its own signature
  * check. That is why a relabelled document cannot be talked into a pass here: the classification picks
  * which reader runs, and only a reader that has verified a signature over the header it read reports a
  * document as verified. A header changed without re-signing is caught by the signature, and a header
  * that is honest about a shape this command does not read is refused by name.
  *
  * Which keys a document is checked against stays the caller's designation, exactly as
- * `ashaveri verify-receipt` treats one. `--key` designates the keys whose signatures this run accepts
- * on receipts, packs, exports and redactions, matched by the kid a header names; `--manifest-key`
- * designates the keys whose seal authenticates a deployment manifest. The two roles are kept apart for the
- * reason the policy type gives them: a manifest decides which keys sign evidence, so a key trusted for
- * evidence cannot also be the proof that the document naming them is the deployment's own. Each
+ * `ashaveri verify-receipt` treats one. `--key` designates the keys whose signatures this run accepts on
+ * receipts, packs, exports, redactions and epoch inventories, matched by the kid a header names, and
+ * `--manifest-key` designates the keys whose seal authenticates a deployment manifest. The two roles are kept
+ * apart for the reason the policy type gives them: a manifest decides which keys sign evidence, so a key
+ * trusted for evidence cannot also be the proof that the document naming them is the deployment's own. Each
  * designation's kid is computed from the key rather than typed beside it, so a designation that contradicts
  * its own key is refused before a byte of anybody's material is read, and what it refused is the call rather
  * than the document. Which keys a run was handed, and whether the document in front of it consulted
@@ -93,17 +100,24 @@ import {
  * told about. So a receipt read here comes back signed by a key this run designated and whole in its own
  * shape, and the report says in terms which questions that leaves open and which command closes them.
  *
- * Two of the five shapes have a verb of their own beside this one: `ashaveri verify-pack` and
- * `ashaveri verify-export`. They are this command with the answer in label 3 pinned to one value, so a
- * caller that already knows which file it is holding is told, in the same refusal this command gives a
- * type it does not read, when the file in front of it is not that. They add no exit code, no refusal code
- * and no option, because there is nothing here that a pinned type needs and a free type does not.
+ * Three of the six shapes have a verb of their own beside this one: `ashaveri verify-pack`,
+ * `ashaveri verify-export` and `ashaveri verify-epoch-inventory`. They are this command with the answer in
+ * label 3 pinned to one value, so a caller that already knows which file it is holding is told, in the same
+ * refusal this command gives a type it does not read, when the file in front of it is not that. They add no
+ * exit code, no refusal code and no option, because there is nothing here that a pinned type needs and a free
+ * type does not.
  *
  * One shape carries a second document with it. A redaction states a removal from one pack, and the reader
  * recomputes a digest of that pack's whole bytes rather than resolving a name, so the pack travels in
  * through `--companion`, the option this command already uses for the file that arrives beside a document.
- * Nothing about the fifth type widens what is accepted: an amendment names a content type the format
+ * Nothing about the amendment widens what is accepted: an amendment names a content type the format
  * package publishes, and a header naming anything else is still refused by name.
+ *
+ * An inventory is the one shape whose reader takes a second set of documents and folds them into its answer,
+ * and no option of this command line carries them: the presence interval a run's retention artifacts support is
+ * folded only over bytes handed to `verifyEpochInventory` beside the document, so a run here reads the sealed
+ * statement alone, prints the two digests each entry names as the document's own figures, and states in its own
+ * report that the fold answered nothing.
  */
 
 /** The flags `verify-handover` reads, typed as the one parse in `cli.ts` produces them. */
@@ -136,10 +150,10 @@ export interface VerbPin {
 /** `ashaveri verify-handover`, the verb that answers the question a pile of files leaves open. */
 export const HANDOVER_VERB: VerbPin = { verb: 'verify-handover', contentType: null };
 
-/** Label 3 of the COSE header registry: the content type. The five formats all put their name there. */
+/** Label 3 of the COSE header registry: the content type. Every format this command reads puts its name there. */
 const CONTENT_TYPE_LABEL = 3;
 
-/** Label 4 of the same registry: the kid. Every one of the five readers requires it to be 32 bytes. */
+/** Label 4 of the same registry: the kid. Every one of the six readers requires it to be 32 bytes. */
 const KID_LABEL = 4;
 
 /** The width a kid is written at across these formats, which is what the readers refuse anything else for. */
@@ -167,7 +181,7 @@ interface Reading {
   readonly notChecked: readonly string[];
 }
 
-/** Everything the five readers share: what this run was handed, and the bytes it was handed. */
+/** Everything the six readers share: what this run was handed, and the bytes it was handed. */
 interface Inputs {
   readonly evidence: readonly DesignatedKey[];
   readonly manifest: readonly DesignatedKey[];
@@ -196,7 +210,7 @@ function refuse(contentType: string | null, err: ReceiptError | SdkError, json: 
  * What these bytes call themselves, read out of the envelope by the package's own CBOR decoder.
  *
  * Nothing is decided about trust here, and nothing needs to be: this answers only which reader the
- * bytes point at, and which kid that reader will be asked to settle. The codes are the ones the five
+ * bytes point at, and which kid that reader will be asked to settle. The codes are the ones the six
  * readers already use for the same facts about an envelope, because a caller who meets a refusal
  * here and then in a reader should learn one thing twice rather than two things once, and because a
  * command that classified documents is not the place a new refusal code is born.
@@ -356,7 +370,7 @@ function readReceipt(bytes: Uint8Array, inputs: Inputs, kid: Uint8Array): Readin
  *
  * The walk is what the material is weighed against, so the weighing comes after it and nothing else in
  * this reading depends on it: `carriedFacts` prints the roots, the fields and one row per digest a held
- * slot names. The reading is a promise for that reason alone, and the four other readers stay as they
+ * slot names. The reading is a promise for that reason alone, and the five other readers stay as they
  * were because no other shape carries material a slot names.
  */
 async function readPack(bytes: Uint8Array, inputs: Inputs, kid: Uint8Array): Promise<Reading> {
@@ -500,7 +514,7 @@ function carriedFacts(weighing: CarriedReading): readonly Fact[] {
  *
  * The clauses are joined with a semicolon, so a figure from outside this run is quoted on the shared cell rule
  * before it joins them: the record ids, which the pack spells and the format only bounds in length, the vendor's
- * status words, which are the signed material's own text even though the classification admits only the five it
+ * status words, which are the signed material's own text even though the classification admits only the six it
  * reads, and the refusal detail, which is another package's sentence about what it met. Every other figure on the
  * line is a number, a hex digest, or one of a union this run checked before storing it.
  */
@@ -667,7 +681,7 @@ function readExport(bytes: Uint8Array, inputs: Inputs, kid: Uint8Array): Reading
  * rather than as a wording this file chose. A run that designated no key is not a run that failed: it
  * asked a narrower question, and the advisory the function writes is printed instead of softened. No
  * line here claims a signature held when none was checked, which is the reason the verdict line this
- * command prints for the other three types is a fact about the envelope rather than a fixed word.
+ * command prints for the other five types is a fact about the envelope rather than a fixed word.
  */
 function readManifest(bytes: Uint8Array, inputs: Inputs, kid: Uint8Array): Reading {
   const policy: AshaveriPolicy = {
@@ -819,6 +833,97 @@ function readRedaction(bytes: Uint8Array, inputs: Inputs, kid: Uint8Array): Read
 }
 
 /**
+ * An epoch inventory, read as one.
+ *
+ * `verifyEpochInventory` settles the envelope, then the key, then the signature, then the arithmetic the run
+ * folds over its entries, and that order is the reader's own: the figures a document states across a run of
+ * packs are the substance of what it claims about a deployment's store, and a reader that reported them before
+ * deciding whether anybody signed them would be handing out a verdict about unauthenticated bytes. This command
+ * forwards the designation whole exactly as the pack arm does, because an inventory seals a run whose packs were
+ * sealed across a rotation and the key that sealed it is one the caller retained.
+ *
+ * What comes back is the document's agreement with itself, in two registers. An entry's two digests and its item
+ * count are restatements of packs this run was not handed, so they are printed as what the entries say and met
+ * by no bytes here: a stated digest is met by the path the entry is filed under, which is a fact inside the
+ * container, and a stated item count by nothing at all. The spans, the chain endpoints and the two duty figures
+ * are the other half of the reading, walked across the run and refused where the document states a window, an
+ * endpoint, a break list or a shortfall list that is not that walk. The presence fold is the one reading an
+ * inventory's reader can do and this command line cannot ask: the interval
+ * across which a store reported holding the appraisal context is folded from the run's retention artifacts, and
+ * no option here carries them, so the fold answers nothing and the report says so rather than leaving it
+ * implied. The run's rows are the entries in the order the reader's own rule puts them, which is the order the
+ * document's figures support, and position in the array carries no claim either way.
+ */
+function readInventory(bytes: Uint8Array, inputs: Inputs, kid: Uint8Array): Reading {
+  const verified: VerifiedEpochInventory = verifyEpochInventory(bytes, {
+    resolveKey: resolveEvidence(inputs.evidence),
+  });
+  const { manifest, outcome } = verified;
+  const deployment = manifest.manifest;
+  return {
+    contentType: EPOCH_INVENTORY_CONTENT_TYPE,
+    reader: 'verifyEpochInventory',
+    kid: toHex(kid),
+    facts: [
+      { key: 'signature', label: 'signature', value: 'holds, EdDSA over the Sig_structure an inventory frames, under the designated key, and the figures the run folds re-derive from the entries the document lists', json: true },
+      { key: 'payloadVersion', label: 'payload', value: `v${manifest.v}`, json: manifest.v },
+      { key: 'runLabel', label: 'run label', value: printedToken(manifest.epoch), json: manifest.epoch },
+      {
+        key: 'deployment',
+        label: 'deployment',
+        value: `${printedToken(deployment.iss)} / ${printedToken(deployment.ins)}, key epoch ${deployment.epk}`,
+        json: deployment,
+      },
+      {
+        key: 'window',
+        label: 'window',
+        value: `${manifest.window.from} to ${manifest.window.to}, from included and to excluded (${isoOf(manifest.window.from)} to ${isoOf(manifest.window.to)})`,
+        json: manifest.window,
+      },
+      {
+        key: 'entries',
+        label: 'entries',
+        value: outcome.packs
+          .map((one) => `${printedToken(one.file)}: sealed ${one.at} (${isoOf(one.at)}), span ${one.span.from} to ${one.span.to}, ${one.items} item(s), pack ${one.sha256}, retention ${one.retentionSha256} as ${printedToken(one.retention)}, under ${one.kid}, duty ${printedToken(one.duty.art)} revision ${one.duty.rev} required ${one.duty.required} s held ${one.duty.held} s`)
+          .join('; '),
+        json: outcome.packs,
+      },
+      {
+        key: 'chain',
+        label: 'chain',
+        value: `anchor ${manifest.chain.anchor} to head ${manifest.chain.head}, ${
+          manifest.chain.continuous ? 'and each entry\'s anchor is the head before it' : 'and the rows below name where that does not hold'
+        }`,
+        json: { anchor: manifest.chain.anchor, head: manifest.chain.head, continuous: manifest.chain.continuous },
+      },
+      {
+        key: 'breaks',
+        label: 'chain breaks',
+        value:
+          manifest.chain.breaks.length === 0
+            ? 'none stated, which is the claim the row above carries'
+            : `${manifest.chain.breaks.length} row(s): ${manifest.chain.breaks.map((one) => `${printedToken(one.file)} after head ${one.afterHead} carries anchor ${one.anchor}`).join('; ')}`,
+        json: manifest.chain.breaks,
+      },
+      {
+        key: 'duty',
+        label: 'duty',
+        value: manifest.duty.carried
+          ? 'carried, as the run states it: no entry names a period it fell short of'
+          : `${manifest.duty.short.length} of the run's entries fall short of the period the same entry states it owed, as the run states it: ${manifest.duty.short.map((one) => `${printedToken(one.file)} ${printedToken(one.art)} required ${one.required} s, held ${one.held} s, short by ${one.shortBy} s`).join('; ')}`,
+        json: manifest.duty,
+      },
+    ],
+    notChecked: [
+      'whether the two digests an entry names are digests of files that exist beside this document, whether the packs they name are sealed by the keys the entries give, and whether an item count beside an entry is the count of receipts inside that pack: an inventory restates a run rather than proving it, and `ashaveri verify-handover` over each pack file recomputes what an entry claims',
+      'whether either period an entry states was owed at all: this run compares each held figure with the required figure beside it and refuses a document whose stated shortfall rows are not that arithmetic, and owed-ness turns on the duty mapping revision each entry names and on the law behind it',
+      'whether the store held the appraisal context across the period this run attests: the fold of that interval reads the run\'s retention artifacts, no option of this command line hands them, and so each entry\'s retention digest prints as the document\'s own figure and is compared by nothing in this run',
+      'whether this run is all the epochs the deployment closed and whether it is the latest statement about them: no file in a bundle shows what else a store holds, the stamps these entries carry are each pack\'s own assembly stamp restated, and this run consulted no clock',
+    ],
+  };
+}
+
+/**
  * One reader of this family. The pack's returns a promise, because weighing the material it carries awaits an
  * appraisal that fetches nothing; the call site awaits both shapes, so a narrower question about the same bytes
  * does not change what an answer is made of.
@@ -826,9 +931,10 @@ function readRedaction(bytes: Uint8Array, inputs: Inputs, kid: Uint8Array): Read
 type DocumentReader = (bytes: Uint8Array, inputs: Inputs, kid: Uint8Array) => Reading | Promise<Reading>;
 
 /**
- * The five types this command can meet, each with the reader that answers for it. The keys are the
- * constants the format package publishes, so a sixth type published beside them reaches this command as
- * an unknown `typ` and is refused by name rather than read as one of these five.
+ * The six types this command can meet, each with the reader that answers for it. The keys are six of the
+ * seven content types the format package publishes, `ashaveri/anchor-provenance` being the one it publishes
+ * and this table does not hold, so a type outside this table reaches this command as an unknown `typ` and is
+ * refused by name rather than read as one of the six.
  */
 const READERS: ReadonlyMap<string, DocumentReader> = new Map<string, DocumentReader>([
   [RECEIPT_CONTENT_TYPE, readReceipt],
@@ -836,6 +942,7 @@ const READERS: ReadonlyMap<string, DocumentReader> = new Map<string, DocumentRea
   [EXPORT_CONTENT_TYPE, readExport],
   [DEPLOYMENT_MANIFEST_CONTENT_TYPE, readManifest],
   [REDACTION_CONTENT_TYPE, readRedaction],
+  [EPOCH_INVENTORY_CONTENT_TYPE, readInventory],
 ]);
 
 /**
@@ -932,7 +1039,7 @@ function designationFacts(contentType: string, inputs: Inputs): readonly Fact[] 
       json: null,
     },
     // The same rule the two key roles keep: a designation that did nothing is disclosed rather than dropped.
-    // Only a pack carries material an anchor slot names, so on the other four shapes the roots and the question
+    // Only a pack carries material an anchor slot names, so on the other five shapes the roots and the question
     // stand unused, and a caller running one line across a bundle is owed that answer rather than silence.
     ...(contentType === PACK_CONTENT_TYPE || !inputs.carried.asked
       ? []

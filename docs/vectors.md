@@ -32,11 +32,12 @@ each shape.
 | Evidence pack | `packages/fixtures/data/pack-v1.json` | Whole packs in the shapes a deployment hands them over in, the keys a reader designates beside each one, and the verdict the shipped pack reader owes: run and window reported apart, the references a pack signs for the material its sealed receipts name and one accepted pack carrying a served body beside the header that arrived with it, and an honest pack whose stamps run against its links accepted with a finding | `version: 1` |
 | Redaction manifest | `packages/fixtures/data/redaction-v1.json` | Redaction manifests each beside the pack they are checked against, the verdict the shipped redaction reader owes the pair, and what `ashaveri verify-handover` answers for the same pair on every row: the chain over the survivors published apart from the pack's own head, a redaction pointed at a pack the reader lacks refused, and the three wrong constructions of a survivor chain refused by recomputation | `version: 1` |
 | Epoch inventory | `packages/fixtures/data/epoch-inventory-v1.json` | Whole sealed inventories and the verdict the two shipped inventory readers owe each one: the envelope, the header, the key, the reading of a JSON payload, the arithmetic a reader recomputes over a run of packs, and the names each row of the two folded lists points at, with a refusal for every claim the reader recomputes over the run and answers from it, which is the windows meeting end to start, including one entry whose own two figures do not run forwards, the window, the two chain endpoints beside the run that begins and ends them, the claim each folded list states beside it, and every guard of both lists, and with the acceptances a reviewer would otherwise read as faults | `version: 1` |
+| Capture record | `packages/fixtures/data/capture-v1.json` | Whole capture records and the answer the two published capture entry points give each one: one evidence document's exact original bytes held as they arrived beside the context stated with them, a signature re-framed by a second encoder refused as bytes rather than accepted as an equivalent, a context member left unmentioned refused rather than read as an absence, and a digest that is not the digest of the bytes beside it | `version: 1` |
 
 `pop-v1.json`, `req-v1.json`, `res-v1.json`, `marking-v1.json`, `chain-v1.json`, `export-v1.json`,
-`manifest-v1.json`, `pack-v1.json`, `redaction-v1.json` and `epoch-inventory-v1.json` each carry a
+`manifest-v1.json`, `pack-v1.json`, `redaction-v1.json`, `epoch-inventory-v1.json` and `capture-v1.json` each carry a
 `description` stating their rule in prose, and the digest, marked-region, chain, export,
-sealed-manifest, pack, redaction and inventory suites carry a `rule` or `layout` block naming the fields,
+sealed-manifest, pack, redaction, inventory and capture suites carry a `rule` or `layout` block naming the fields,
 and the widths and the byte order where a suite pins a byte layout, so a reader never has to guess what an
 array of hex is standing for. The manifest carries no `description`, because it lists the receipt fixtures
 rather than stating a rule of its own, and it does carry a `layout` block naming the columns its rows
@@ -253,11 +254,33 @@ specific to that case.
   digests or four figures are not the pair's or the pack's. The lists are keyed by the pack each row names,
   which is why the two rows stating a reversed list are acceptances, and the refusal rows beside them are
   what prove the keying is live rather than absent.
+- **Capture record.** A capture record is a JSON document and it is published inline, as the object the reader is
+  handed, because a capture's claim about bytes lives inside its members rather than in the spelling of the document
+  holding them. Hand the record to `parseCaptureRecord` for the layout's answer and to `assessCapture` for the
+  reading's, beside the caller's own pins, its own pinned roots and the clock the row's `read` block states, and
+  compare what comes back with the row. `capture-v1.json` publishes 19 accepted rows and 39 refusals, and 8 of the
+  refusals state one fact a held collateral slot leaves out, one per member, each naming the member it found missing.
+  Where a refused row states `stage`, that is which of the two published steps answered: `layout` where the record
+  itself was refused, which `assessCapture` then refuses with the same code because it parses first, and `reading`
+  where the record is whole and the answer came from a held slot's recomputed bytes, the signature leg, the pinned
+  roots, or the clock. `status` is one of the three a verdict has: `repeated`, `qualified`, `unassessed`. `stated` is
+  the record's claim about the bytes it held and `repeated` is what this reader established over them, published
+  apart because a verdict carrying one word would let the claim be read as the finding. The original bytes of every
+  row but 4 are the document `data/receipts/receipt-valid-v1.cbor` publishes, and
+  `packages/fixtures/test/capture-vectors.test.ts` requires each of the rest to be that file byte for byte while
+  reading that count out of this sentence rather than keeping its own, so a capture in this suite is of evidence the
+  repository already seals. The four that state other bytes say which: the deployment manifest, the receipt with one
+  bit changed inside it, and the re-framed envelope stated twice, once against the digest of the document the source
+  produced and once as its own original.
+  The one bound this suite measures rather than quotes is the address a collateral slot states: a row at 2,048 bytes
+  of UTF-8 is taken and a row at 2,049 is refused. The key material this file publishes is public halves and kids;
+  the private half beside them is the one `data/keys/receipt-key-v1.json` already publishes, which the last section
+  of this document names.
 
 ## Every suite refuses something
 
-Each of the eleven suites the table above lists carries at least one case whose stated verdict is a refusal,
-and every code those cases name is one [error-codes.md](error-codes.md) lists. The eleven are that table's
+Each of the twelve suites the table above lists carries at least one case whose stated verdict is a refusal,
+and every code those cases name is one [error-codes.md](error-codes.md) lists. The twelve are that table's
 rows, which `packages/fixtures/test/vectors-doc.test.ts` counts and compares with this sentence rather than
 trusting it. That is the half a second implementation cannot agree with by accident: an accepted case and
 a refused one, drawn from the same
@@ -270,19 +293,29 @@ two characters, a nonce by a single byte width, a marked span by one field of on
 by one bit inside its own bytes or by its length prefix lying about its size, a protected header by the one
 label it added or the one integer it spelled as a float, a redaction by the one record it did not name or by
 the chain head it took from the pack rather than recomputed, an inventory by the one byte at the end of its run
-label or by the one row a folded list left out. Each is one small edit to
+label or by the one row a folded list left out, a capture record by the one bit inside its original, by the
+other base64url spelling of the very same bytes, or by the one member of an eight-member statement left unspoken.
+Each is one small edit to
 bytes this repository already publishes, so reproducing it is reading a row and not guessing at what the
 author meant. The client path over them is in `packages/cli/test/vector-conformance.test.ts`, which
-drives every suite in this table but the technical export through the shipped verification code rather than
+drives every suite in this table but the technical export and the capture record through the shipped
+verification code rather than
 through a copy of the rule it is checking, and asserts the verdict in both directions: the accepted rows
 accepted, the refusing ones refused for the reason stated. The export suite travels the client path
-through `packages/cli/test/verify-handover.test.ts` instead, beside the command's own cases. The inventory
+through `packages/cli/test/verify-handover.test.ts` instead, beside the command's own cases. The capture
+rows are read by the two published capture entry points themselves, `parseCaptureRecord` and `assessCapture` of
+`@ashaveri/sdk`, in `packages/fixtures/test/capture-vectors.test.ts`, because those two are the shipped reading of
+this format and no command of this package reads a capture record. The inventory
 rows are read there by the two exported inventory readers, `verifyEpochInventory` and
-`decodeEpochInventory`, rather than through a command, because this package ships no verb that reads an
-epoch inventory, and the block states which verbs it ships in a comment a reviewer can check. Those rows are
-therefore witnessed twice over the same published bytes: by
-`packages/fixtures/test/epoch-inventory-vectors.test.ts`, which reads the format package's own reader, and
-by the consumer's path named above.
+`decodeEpochInventory`, rather than through a command, because the claim a port has to satisfy at those two
+doors is about the library surface, and that block names the file which answers the same rows at the command
+edge. Two verbs reach an epoch inventory at this command line: `ashaveri verify-handover`, which takes the type
+out of the document's own protected header, and `ashaveri verify-epoch-inventory`, which is that same dispatch
+with the type pinned to one value. Those rows are therefore witnessed three times over the same published
+bytes: by `packages/fixtures/test/epoch-inventory-vectors.test.ts`, which reads the format package's own
+reader, by the consumer's path named above, and by `packages/cli/test/epoch-inventory-at-the-command-edge.test.ts`,
+which replays every row through `ashaveri verify-handover` and holds the pinned verb's report against that one
+on the rows it names.
 
 ## Regenerating
 
@@ -298,6 +331,7 @@ pnpm --filter @ashaveri/fixtures generate:manifest
 pnpm --filter @ashaveri/fixtures generate:pack
 pnpm --filter @ashaveri/fixtures generate:redaction
 pnpm --filter @ashaveri/fixtures generate:epoch-inventory
+pnpm --filter @ashaveri/fixtures generate:capture
 ```
 
 The generators live beside the loaders in `packages/fixtures`, and running all of them after a change
@@ -342,9 +376,9 @@ These vectors check bytes. They say nothing about trust:
 
 - Nothing here establishes that a key belongs to anybody. The signing keys published in
   `data/keys/receipt-key-v1.json`, in `pop-v1.json`, in `export-v1.json`, in `manifest-v1.json`, in
-  `pack-v1.json`, in `redaction-v1.json` and in `epoch-inventory-v1.json`
-  are test-only, labelled as such in the files themselves, and protect nothing. A port that verifies
-  against them has exercised its verifier, not appraised a deployment.
+  `pack-v1.json`, in `redaction-v1.json`, in `epoch-inventory-v1.json` and in the `layout.keyMaterial` of
+  `capture-v1.json` are test-only, labelled as such in the files themselves, and protect nothing. A port that
+  verifies against them has exercised its verifier, not appraised a deployment.
 - Nothing here touches attestation. Evidence documents, platform roots, device certificate chains and
   the measurements they name are checked against vendor anchors no file in this directory holds, and
   a byte-exact reimplementation of every suite in `data/` is compatible with a deployment that should

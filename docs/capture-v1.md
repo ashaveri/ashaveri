@@ -14,6 +14,12 @@ and a reader for it exists.
 - The record: `packages/sdk/schemas/capture-v1.schema.json`, published as
   `https://ashaveri.com/schemas/capture-v1.json`.
 - The reader: `packages/sdk/src/capture.ts`, `parseCaptureRecord` and `assessCapture`.
+- Its vectors: `packages/fixtures/data/capture-v1.json`, written by
+  `packages/fixtures/scripts/capture-vectors.ts` and replayed row by row through these same two readers by
+  `packages/fixtures/test/capture-vectors.test.ts`. Each row states one record, the caller's own pins and clock beside
+  it, and the answer this code gave when the file was written, so a stranger can hand the readers bytes this
+  repository stands behind and see which answer is owed. `docs/vectors.md` says what the suite pins and how to
+  consume it.
 - Its tests read real bytes: the originals are `issueReceipt` output from `@ashaveri/receipt` and a
   manifest the estate's own `parseManifest` accepts.
 
@@ -184,6 +190,15 @@ a collector outside this repository would only meet in production.
 - a clock the caller handed that is not a whole number of seconds inside the span the reader weighs
   stamps in: `VERIFICATION_TIME_OUT_OF_RANGE`, a `ReceiptError`, raised before either window runs, so a
   caller who mixed the two scales is told about their reading rather than about the document
+
+Every code that `packages/sdk/src/capture.ts` raises itself is refused by a row of
+`packages/fixtures/data/capture-v1.json`: `packages/fixtures/test/capture-vectors.test.ts` reads those call sites out
+of that file and requires a published row to reach every one of them, so a refusal added on the reader's side and
+never vectored stops being invisible. The verifier's own codes are reached at the leg that runs it: `KID_MISMATCH`
+at the row stating a caller whose pin for the kid the header names is another key, `STALE_RECEIPT` at the row
+stating a clock past that caller's window, and `MALFORMED_CBOR` at the row stating the re-framed envelope as its own
+original. Every code a row refuses with is one of the two error registries' declarations, which the same test reads
+out of `packages/sdk/src/errors.ts` and `packages/receipt/src/errors.ts`.
 
 This record's own refusals are two codes of `SdkErrorCode` rather than a borrowing of `NOT_RECEIPTED`,
 which is the client's word for a gateway that answered without a receipt header and says nothing about a

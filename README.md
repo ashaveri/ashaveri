@@ -207,9 +207,9 @@ different `24.x` as something to try before relying on.
 **No network, and no route that would take one.** `verify-receipt` reads its deployment manifest from
 `--manifest` and refuses every other address, so a receipt pointing its `att.url` at a host does not
 make this tool reach that host; the refusal names the file the manifest came from. `verify`,
-`verify-handover`, `verify-pack` and `verify-export` open only the paths you type. Certificate
-revocation is not consulted, and no vendor endpoint is called: a verified platform signature says the
-chain reached the root you named, not that the platform is still current.
+`verify-handover`, `verify-pack`, `verify-export` and `verify-epoch-inventory` open only the
+paths you type. Certificate revocation is not consulted, and no vendor endpoint is called: a verified
+platform signature says the chain reached the root you named, not that the platform is still current.
 
 **What each verb needs.**
 
@@ -217,9 +217,10 @@ chain reached the root you named, not that the platform is still current.
 | --- | --- |
 | `verify <attestation>` | The attestation, `--ask` and `--vcek` when the document carries no chain, and a root: `--ark`, `--intel-root` or `--gpu-root`. With no policy and no root flag it trusts nothing you did not name, and says so with `MISSING_TRUST_ROOT`. |
 | `verify-receipt <receipt>` | The receipt, `--policy`, `--manifest`, `--nonce`, one of `--request-body` or `--request-hash`, and one of `--response-body` or `--response-hash`. A receipt whose payload names a marking needs the response bytes, not only their digest, because its claim is a region inside them. A policy demanding weighed anchor material is answered here and nowhere else on the command line: `--anchor-file <slot>=<file>` hands the document a `held` slot digests and `--anchor-chain <slot>=<file>` the header that arrived beside it, weighed under `--intel-root` and described by the four `--collateral-*` flags, and the report prints the digest the slot states beside the digest those bytes hash to, the root the answer reached and the instant it was read at. A run naming no file keeps the answer it always gave, `ANCHOR_MATERIAL_UNREACHED`, because a slot stating held is not a claim that some reader can resolve it. |
-| `verify-handover <document>` | One signed document and `--key` for a receipt, pack, redaction or export, or `--manifest-key` for a deployment manifest. A redaction is the one shape that arrives as a pair: the pack its own signature designates travels in `--companion`. It classifies the document by the content type inside its own signature and reads it with the reader for that type. |
+| `verify-handover <document>` | One signed document and `--key` for a receipt, pack, redaction, export or epoch inventory, or `--manifest-key` for a deployment manifest. A redaction is the one shape that arrives as a pair: the pack its own signature designates travels in `--companion`. It classifies the document by the content type inside its own signature and reads it with the reader for that type. |
 | `verify-pack <document>` | The pack and at least one `--key`: every key whose receipts a span crosses, since a pack over a rotation carries signatures from the epochs current then. `--intel-root` beside `--collateral-origin`, `--collateral-platform`, `--collateral-cpu-type` and `--collateral-level`, each keyed `<slot>=<value>`, ask what the material this pack carries says about a platform; the rule for the roots is below. |
 | `verify-export <document>` | The export, its `--key`, and one `--companion` per signed item: the original whose digest is recomputed, given by its own name or by a path to it. |
+| `verify-epoch-inventory <document>` | The inventory and at least one `--key`: each entry names the kid its own pack was sealed under, so a run assembled across a rotation is answered by the set of keys the caller retained rather than by one pinned key. The one input this command line cannot carry is printed as open rather than left implied: no option hands over the run's retention artifacts, so the fold across which a store reported holding the appraisal context answers nothing and each entry's retention digest prints as the document's own figure. |
 
 A policy document and a deployment manifest are inputs, and this repository publishes no runnable
 pair of them. The committed receipt vectors carry the values a pair has to agree with:

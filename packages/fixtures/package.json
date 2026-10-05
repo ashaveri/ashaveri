@@ -31,7 +31,8 @@
     "generate:manifest": "node --experimental-strip-types scripts/manifest-vectors.ts",
     "generate:pack": "node --experimental-strip-types scripts/pack-vectors.ts",
     "generate:redaction": "node --experimental-strip-types scripts/redaction-vectors.ts",
-    "generate:epoch-inventory": "node --experimental-strip-types scripts/epoch-inventory-vectors.ts"
+    "generate:epoch-inventory": "node --experimental-strip-types scripts/epoch-inventory-vectors.ts",
+    "generate:capture": "node --experimental-strip-types scripts/capture-vectors.ts"
   },
   "dependencies": {
     "@ashaveri/receipt": "workspace:*",
@@ -39,6 +40,7 @@
     "@noble/hashes": "^2.4.0"
   },
   "devDependencies": {
+    "@ashaveri/sdk": "workspace:*",
     "@ashaveri/signerd": "workspace:*",
     "@types/node": "^22.20.1",
     "typescript": "^5.9.3",

@@ -7,6 +7,7 @@ import { fileURLToPath } from 'node:url';
 import { afterAll, describe, expect, it } from 'vitest';
 import {
   DEPLOYMENT_MANIFEST_CONTENT_TYPE,
+  EPOCH_INVENTORY_CONTENT_TYPE,
   EXPORT_CONTENT_TYPE,
   PACK_CONTENT_TYPE,
   RECEIPT_CONTENT_TYPE,
@@ -39,17 +40,19 @@ const SPAWN_DEADLINE_MS = 15_000;
  * than by an assertion in this file, which is the only proof worth having that a pack assembled outside
  * the package is a pack the package reads.
  *
- * What is asserted is the separation the five content types exist to draw, visible at the command edge:
+ * What is asserted is the separation the six content types exist to draw, visible at the command edge:
  * the type found is printed before anything about validity, a document is read by the reader for its
  * own type, and a header changed without a new signature is answered by the signature rather than by a
  * verdict about the shape it now claims to be.
  *
- * The two pinned verbs, `ashaveri verify-pack` and `ashaveri verify-export`, are tested here rather than
- * in files of their own because they are this runner with the answer in label 3 fixed to one value, and
- * the two claims worth making about that are both comparisons against this command's own answers: the
+ * The two pinned verbs this file runs, `ashaveri verify-pack` and `ashaveri verify-export`, are tested here
+ * rather than in files of their own because they are this runner with the answer in label 3 fixed to one value,
+ * and the two claims worth making about that are both comparisons against this command's own answers: the
  * reading of a document of the pinned type is one report and not a second one shaped like the first, and
  * a document of another type meets the refusal this command already gives a type it holds no reader for.
- * The documents are the same bytes either way, which is the only reason the comparison can be made.
+ * The documents are the same bytes either way, which is the only reason the comparison can be made. The
+ * third pinned verb, `ashaveri verify-epoch-inventory`, is run beside the suite it pins, in
+ * `packages/cli/test/epoch-inventory-at-the-command-edge.test.ts`.
  *
  * One shape arrives with a second document. An amendment is checked against the pack it designates by a
  * digest, so its cases hand that pack in through `--companion`, and the whole published redaction suite is
@@ -599,6 +602,29 @@ const PACK_DOCUMENT_PATH = written(
   Buffer.from(published(packRow('well-formed-three-items').documentBase64Url, 'pack document'), 'base64url'),
 );
 
+/**
+ * One published inventory, as a file and the designation the row states beside it.
+ *
+ * The sixth shape the dispatch reaches, and the one the two older pinned verbs have never met: the bytes come
+ * out of the published suite rather than from a framing this file made, so the refusal each verb owes it names
+ * the type the suite itself writes into label 3.
+ */
+const INVENTORY_FIXTURE = JSON.parse(readFileSync(`${DATA}epoch-inventory-v1.json`, 'utf8')) as {
+  vectors: { name: string; documentBase64Url: string; read: { pinned?: string } }[];
+};
+
+function inventoryRow(name: string): { name: string; documentBase64Url: string; read: { pinned?: string } } {
+  const row = INVENTORY_FIXTURE.vectors.find((one) => one.name === name);
+  if (row === undefined) {
+    throw new Error(`the published epoch inventory suite has no vector named '${name}'`);
+  }
+  return row;
+}
+
+const INVENTORY = inventoryRow('honest-run-of-three');
+const INVENTORY_PATH = written('published-inventory.cbor', Buffer.from(published(INVENTORY.documentBase64Url, 'inventory document'), 'base64url'));
+const INVENTORY_KEY = `--key=${published(INVENTORY.read.pinned, 'pinned key')}`;
+
 /** What one command run answered: the published verdict's shape, or the fact that it refused the call. */
 function replayedVerdict(result: CliResult): string {
   if (result.status === 2) return 'usage';
@@ -726,7 +752,7 @@ describe('an excision amendment at the command edge', () => {
 });
 
 /**
- * The two verbs that pin label 3 to one value, run over the documents above.
+ * Two of the three verbs that pin label 3 to one value, the two this file runs, over the documents above.
  *
  * Nothing here builds a document of its own: every byte is one the handover cases already read, so the
  * two answers can be set against each other and a difference can only be the pin.
@@ -747,13 +773,13 @@ describe('the pinned verbs verify-pack and verify-export', () => {
   ];
 
   /**
-   * The window for the three cases below: six children each, at this file's deadline, per the arithmetic in
+   * The window for the three cases below: seven children each, at this file's deadline, per the arithmetic in
    * each loop. An invocation's cost is mostly starting a `node` process rather than any crypto, and the
    * shared Windows runner pays more for that start than a local machine measures, so the ceiling is read off
    * the child count and the deadline rather than off a timing run, which leaves room without hiding a case
    * that genuinely hangs.
    */
-  const MANY_CLI_RUNS = { timeout: spawnCeilingForCalls(6, SPAWN_DEADLINE_MS) };
+  const MANY_CLI_RUNS = { timeout: spawnCeilingForCalls(7, SPAWN_DEADLINE_MS) };
 
   it('gives its own type the same report the free verb gives, field for field', MANY_CLI_RUNS, () => {
     for (const [verb, path, designation, contentType] of own) {
@@ -780,6 +806,7 @@ describe('the pinned verbs verify-pack and verify-export', () => {
       // An amendment is refused here before its pack is asked for: the type is settled first, and a verb
       // that reads packs has no reader to hand those bytes to.
       [AMENDMENT_PATH, AMENDMENT_KEY, REDACTION_CONTENT_TYPE],
+      [INVENTORY_PATH, INVENTORY_KEY, EPOCH_INVENTORY_CONTENT_TYPE],
       [futurePath, `--key=${RECEIPT_PUBLIC_B64URL}`, 'ashaveri/telemetry'],
     ] as Array<readonly [string, string, string]>) {
       const json = runCli(['verify-pack', path, designation, '--json']);
@@ -807,6 +834,7 @@ describe('the pinned verbs verify-pack and verify-export', () => {
       [RECEIPT_PATH, `--key=${RECEIPT_PUBLIC_B64URL}`, RECEIPT_CONTENT_TYPE],
       [manifestPath, manifestDesignation, DEPLOYMENT_MANIFEST_CONTENT_TYPE],
       [AMENDMENT_PATH, AMENDMENT_KEY, REDACTION_CONTENT_TYPE],
+      [INVENTORY_PATH, INVENTORY_KEY, EPOCH_INVENTORY_CONTENT_TYPE],
       [futurePath, `--key=${RECEIPT_PUBLIC_B64URL}`, 'ashaveri/telemetry'],
     ] as Array<readonly [string, string, string]>) {
       const json = runCli(['verify-export', path, designation, '--json']);
