@@ -113,3 +113,45 @@ regexes = [
 paths = [
   '''^gateway/test/receipt-provenance\.test\.ts$''',
 ]
+
+# A sixth block, and like the fourth it exempts an identifier rather than a key. Every accepted row of the
+# capture fixture publishes `recordKey`, which is sha256 of that record’s canonical JSON, and the built-in
+# generic-api-key rule reads the `"recordKey":` prefix plus the 64 hex characters behind it as a credential
+# candidate. Each value is a content address of bytes the same row already prints: all 19 were reproduced by
+# the shipped `captureRecordKey` over the records beside them, and 17 distinct values cover the 19 rows,
+# because three accepted rows differ only in what the caller pinned, so they hold one record and state one
+# key. Nothing secret is named, and a row whose stated key is not its record’s digest is refused by the
+# suite that replays them.
+#
+# Measured on 8.30.1 against the history of this branch: the scan reports 19 findings in this file with no
+# block below, and reports nothing with it. The narrowing checks ran on the same release against synthetic
+# repositories carrying this config: a different 64-hex value written at the same shape in a file at this
+# path is still reported, and any value listed below copied to another path is still reported. The
+# exemption is the intersection of the two lines below and not either one alone, and the file is
+# generated, so a value pasted over one of its slots also fails the job that regenerates it.
+[[allowlists]]
+description = "The capture fixture’s record keys, in the file that publishes them"
+condition = "AND"
+regexTarget = "secret"
+regexes = [
+  '''^1dd149cbbecdfd2246862c8fdfeb6649463a5b631aaefba7e4ae63cacbc51bed$''',
+  '''^2eda90c63cf619ceb7e258af9c7b8ea24d8420707e00c1365f6b777bef29498b$''',
+  '''^2f7c4692a1d41d8250b097c3945bb92be214fed3b123601a177dd54f5f3d810d$''',
+  '''^3dbbd83353f2804c59c22c14d3f9fa572c7775b6aca4b7ce243fc2e318f3be4d$''',
+  '''^40acb03e48dba1127a2f4b9b52d9c72d0c422e5494cd99e30501d0d4e754bde0$''',
+  '''^619db8d3b300a6b184e615e8ef30f68a571d5b23e12a516b4e89b87928422e32$''',
+  '''^69c8b3955541b012f3121300dfd4aea4f395cd6662288bf7ec608dcccc1dcb43$''',
+  '''^8d8857b0f40e705c357bc10d8fc0b769d6224a954fedd6142ab1c3a3fa1f9386$''',
+  '''^98b60679ba7eece650b0f00f8a60b61399337766868b1eb7999889c3b9d7a8dc$''',
+  '''^9b7994662139f6c9a95c6183c09723a21bcd7a7d0a7c61f5d617d81ea78d3db7$''',
+  '''^ac30a0ac5fd596b6e3f3c1a1e74527d3642824de4f356a89f89dfbce1940b6af$''',
+  '''^bb5c669a351850192efc6e56d3e62716501c2473fe2bc9da44b238d3433d3b5b$''',
+  '''^c3104a39a4ae3b7931ec22f3613ca7074ad3184ff86cd0a1d090a857ee018a0d$''',
+  '''^cf78592627f7b3f3a7da047818513c43be88b8fdf44a13c95eee862eb2d59a13$''',
+  '''^eeddad0c87eb2ccc0dde2bac1d63d03260e0e58e9754fe626138e6f7b704e231$''',
+  '''^f69e0d49e07f8428a7ac6f4077b5c5e160441a480c1ffdd2e2b0d2689f5abd65$''',
+  '''^f772189e549e243bffce6936eafb22e3353a83b68cba032fdb59ef61b87a5ef0$'''
+]
+paths = [
+  '''^packages/fixtures/data/capture-v1\.json$''',
+]
