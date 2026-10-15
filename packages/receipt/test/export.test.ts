@@ -36,7 +36,7 @@ import {
   type ExportManifest,
 } from '../src/export.js';
 import { ReceiptError } from '../src/errors.js';
-import { decodeCanonical, encodeCanonical, signCoseSign1, signingKeyFromSeed, toHex, type SigningKey } from '../src/index.js';
+import { decodeCanonical, encodeCanonical, EXPORT_CLAIM_KINDS, isExportClaimKind, signCoseSign1, signingKeyFromSeed, toHex, type SigningKey } from '../src/index.js';
 import type { ReceiptErrorCode } from '../src/errors.js';
 
 /**
@@ -653,7 +653,12 @@ describe('the export CDDL and its JSON twin', () => {
       .flatMap(([name, def]) => Object.entries(def.properties ?? {}).filter(([, child]) => child.enum !== undefined).map(([key]) => `${name}.${key}`))
       .sort();
     expect(enums, 'the twin enumerates a label position beyond the claim kind').toEqual(['claim.kind']);
-    expect(shape.$defs.claim?.properties?.kind?.enum).toEqual(['provenance', 'custody']);
+    // The third voice of the same choice, and the one a refusal message prints. The loop above ties the
+    // twin's enumeration to the CDDL, so holding the constant against the twin reaches both without
+    // restating either list here, which is what let a copy drift before.
+    expect([...EXPORT_CLAIM_KINDS], "the reader's claim kinds are not the enumeration the twin declares").toEqual(shape.$defs.claim?.properties?.kind?.enum);
+    expect(EXPORT_CLAIM_KINDS.every((one) => isExportClaimKind(one)), 'the guard refuses a kind its own constant names').toBe(true);
+    expect(['Provenance', ' provenance', 'provenance ', 'notarized', '', 1, null].some((one) => isExportClaimKind(one)), 'the guard accepts a value outside the two').toBe(false);
     expect(shape.$defs.assessment?.properties?.k?.const).toBe('none');
     expect(shape.$defs.assessment?.properties?.states?.minLength, 'the statement may be empty, which is the silence this block refuses').toBe(1);
     expect(required(shape.$defs.assessment?.description, 'the assessment says nothing about itself')).toContain('no legal vocabulary');
