@@ -66,10 +66,12 @@ export { ReceiptError } from './errors.js';
 export type { ReceiptErrorCode } from './errors.js';
 export {
   EXPORT_CONTENT_TYPE,
+  EXPORT_CLAIM_KINDS,
   encodeExportManifest,
   encodeExportProtectedHeader,
   exportRecordDigest,
   exportSigStructure,
+  isExportClaimKind,
   sealExport,
   signExport,
   decodeExport,
@@ -79,6 +81,7 @@ export type {
   DecodedExport,
   ExportAnchoredCollection,
   ExportChainedItem,
+  ExportClaimKind,
   ExportCollection,
   ExportItem,
   ExportManifest,
