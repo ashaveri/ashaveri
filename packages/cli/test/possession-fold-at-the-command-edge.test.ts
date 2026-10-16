@@ -299,9 +299,9 @@ describe('the possession fold at the command edge', () => {
       throw new Error('the published row states fewer than two entries to move an artifact between');
     }
     // The two artifacts change doors. Each door still holds a manifest this run seals, so the fold's own
-    // attribution by digest still finds a holder for both digests and the attested interval is unchanged; what
-    // stops being true is the record's statement that the bytes standing at an entry's name are the artifact that
-    // entry seals, and that is the statement the printed report makes.
+    // attribution by digest still finds a holder for both digests and the attested interval is unchanged; the
+    // record's statement that the bytes standing at an entry's name are the artifact that entry seals is not
+    // what this directory holds, and that is the statement the printed report makes.
     const firstPath = join(root, ...first.retention.split('/'));
     const secondPath = join(root, ...second.retention.split('/'));
     const a = readFileSync(firstPath);

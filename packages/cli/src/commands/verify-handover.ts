@@ -884,8 +884,8 @@ function rosterOf(family: string, digests: readonly string[]): string {
  * takes, and each names the door it is about.
  *
  * Bytes at a door that hash to a digest no entry of the run seals are not refused here: they travel to the reader,
- * which owns that judgement and states it as its own refusal, so a digest outside the run keeps the answer it had
- * before this check existed. The check fires only where the bytes are the artifact of a different entry of this
+ * which owns that judgement and states it as its own refusal, so a digest outside the run is answered by the
+ * reader and not by this check. The check fires only where the bytes are the artifact of a different entry of this
  * same run, which is the one case the reader cannot see.
  */
 async function possessionArtifacts(root: string, run: readonly EpochInventoryPack[]): Promise<readonly Uint8Array[]> {

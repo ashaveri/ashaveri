@@ -772,9 +772,9 @@ describe('the marking requirement, as an operator meets it in prose', () => {
  * `src/commands/verify-handover.ts`, and not from a basename a caller typed. Five copies of that one fact exist:
  * the flag's own help entry, the paragraph introducing the handover verbs, the README's row for each of the two
  * verbs that read it, the inventory suite's bullet in `docs/vectors.md`, and the format document's section on the
- * fold. The stale shape this guards against is the claim the flag closed, that no option carries a run's retention
- * artifacts, because a reader who meets it at a terminal gives up on a command that can answer the question. Each
- * copy is read as data and held to the flag's name, to the absence of that closed claim, to naming the layout
+ * fold. The stale shape this guards against is the claim that no option carries a run's retention artifacts,
+ * because a reader who meets it at a terminal gives up on a command that can answer the question. Each
+ * copy is read as data and held to the flag's name, to the absence of that claim, to naming the layout
  * that states a holding where it says what a fold attests, and, where it enumerates the answers a handed
  * directory can give, to naming the refusal a directory that states no holding earns. That last requirement is
  * the one a reader of this command needs and the one a directory of version one artifacts meets: the possession
@@ -782,7 +782,7 @@ describe('the marking requirement, as an operator meets it in prose', () => {
  * answer the question.
  */
 describe('the retention directory, as an operator meets it in prose', () => {
-  /** The claim the code stopped supporting, in whichever shape it was written. */
+  /** The claim this pin rules out, in whichever shape it was written. */
   const NO_ROUTE = /no option of this command line hands them|no flag carrying those bytes|has no flag carrying|the fold answered nothing/u;
   /** The sentence form that says which layout names the held digests, inside one sentence. */
   const STATES_A_HOLDING = /version two layout[^.]*\b(states|stating|carries|adds)\b/u;
@@ -817,7 +817,7 @@ describe('the retention directory, as an operator meets it in prose', () => {
   /** The paragraph that introduces the handover verbs, up to the blank line that ends it. */
   function handoverParagraph(help: string): string {
     const start = help.indexOf('verify-handover answers the question a pile of files leaves open');
-    if (start < 0) throw new Error('the help text no longer introduces verify-handover where this looks');
+    if (start < 0) throw new Error('the help text introduces verify-handover nowhere this looks');
     const end = help.indexOf('\n\n', start);
     return help.slice(start, end < 0 ? help.length : end);
   }
@@ -860,7 +860,7 @@ describe('the retention directory, as an operator meets it in prose', () => {
   ];
 
   for (const [name, read, statesHolding, enumeratesOutcomes] of sites) {
-    it(`keys ${name} on the flag and not on the closed claim`, () => {
+    it(`keys ${name} on the flag and not on the claim that no option carries a run's retention artifacts`, () => {
       const stated = read().replace(/\n\s*/gu, ' ');
       expect(stated, `${name} never names the option that reaches the fold`).toContain('--retention-dir');
       expect(stated, `${name} still says the fold is unreachable from a command line`).not.toMatch(NO_ROUTE);
