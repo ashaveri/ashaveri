@@ -1,0 +1,609 @@
+{
+  "version": 1,
+  "description": "Import envelopes and the answer the published reader gives them: one synthetic provider export's exact bytes held as they arrived, the derived representation the shipped normalization produced from them with its label, its transformation and its basis, the deterministic report of every position the rules do not read, a second intake of one export keyed to the same record, and the refusals in between. Every row states one envelope and, where the row is accepted, what `readImportEnvelope` of `@ashaveri/sdk` answered for it when this file was written: the report rows, the digest computed over the stored bytes it hands back, the digest of what the rules produce, and the derived row the reading accepted. The refused rows state the code, the sentence, and which of the two published steps gave them, `layout` where `parseImportEnvelope` refused the document and `reading` where the layout took the bytes and the refusal came from the normalization or the re-derivation. The import envelope is keyed by `importEnvelopeKey`, sha256 under the domain prefix `ashaveri/import-v1 ` of the canonical JSON of the version, the provider and the original, so the row that states a second intake of one export carries its own envelope and the key of the first.",
+  "layout": {
+    "format": "the record one provider export is held in as imported: the exact bytes, the provider's own names, our intake stamp, and the derived representations, each labeled with the transformation that produced it and the digest of the original it rests on",
+    "schema": "packages/sdk/schemas/import-v1.schema.json, published as https://ashaveri.com/schemas/import-v1.json, which is what an importer outside this repository builds a writer against and the half of the layout that binds what a document is made of",
+    "prose": "docs/import-v1.md",
+    "reader": "parseImportEnvelope in @ashaveri/sdk, which is the layout, and readImportEnvelope, which parses and then runs the reading: the shipped normalization over the original's bytes, the re-derivation of every derived representation against the digest the record states, and the recomputed report",
+    "normalization": "normalizeProviderExport in @ashaveri/sdk, which folds the five named rules into the normalized document; the derived row of every accepted envelope here is that function's output over the envelope's own original bytes",
+    "keying": "importEnvelopeKey in @ashaveri/sdk: sha256, under the domain prefix `ashaveri/import-v1 `, of the canonical JSON of the version, the provider block and the original block. The intake stamp and the derived rows are outside it, which is what makes the second intake of one export key like the first and the record one rather than two",
+    "exportFile": "packages/fixtures/data/exports/provider-export-v1.json, the synthetic provider's export, whose top-level members are `provider`, `export_id`, `issued`, `model` and `completions`, each entry of `completions` carrying `ref`, `sha256` and `at`. The accepted rows state these bytes as their original unless the row states an `exportEdit`",
+    "encodings": "byte strings inside an envelope unpadded base64url, digests lowercase hex, instants unix seconds, and the envelope itself published inline as the JSON object the reader is handed rather than as its bytes, because an envelope is read as a document and its claims live inside its members",
+    "codes": [
+      "EVIDENCE_DIGEST_MISMATCH",
+      "NOT_IMPORT_ENVELOPE",
+      "UNSUPPORTED_VERSION"
+    ],
+    "keyMaterial": "none: nothing in this suite is signed, so no key and no seed is published. The envelope states `signedByProvider` as false on every row, because the synthetic provider signs nothing and a record that claimed a signature nothing could later check would be the claim this layout exists to keep separated from evidence.",
+    "notChecked": "an envelope states which bytes were taken in and what the estate derived from them. Nothing here shows that the provider produced them, that the provider signed anything, or that the provider's names belong to anybody: the provider's signature travels in the provider's own framing and is walked by an adapter with the provider's roots, and no adapter is part of this repository."
+  },
+  "vectors": [
+    {
+      "name": "honest-export-imported",
+      "note": "The export `data/exports/provider-export-v1.json` publishes, imported once: every position the five rules read is stated, the report is empty, and the derived row is the shipped normalization’s output over exactly these bytes. The stored bytes are handed back unchanged, which is the half of this record the vectors exist to hold.",
+      "envelope": {
+        "v": 1,
+        "provider": {
+          "name": "fixture-provider",
+          "exportId": "EXP-2026-10-01-0001"
+        },
+        "original": {
+          "bytes": "eyJwcm92aWRlciI6ImZpeHR1cmUtcHJvdmlkZXIiLCJleHBvcnRfaWQiOiJFWFAtMjAyNi0xMC0wMS0wMDAxIiwiaXNzdWVkIjoxNzcyMDAwMDMwLCJtb2RlbCI6ImZpeHR1cmUtbW9kZWwtMSIsImNvbXBsZXRpb25zIjpbeyJyZWYiOiJjLTAwMDEiLCJzaGEyNTYiOiI2MjllMTA1ODgzYTc3NDViM2M2MjZlODY5NmNjOTdiZjI4ZTNjZDlkMWJjODYyYzhiZGZiNjU1Y2FmYmVmNDMzIiwiYXQiOjE3NzIwMDAwMDF9LHsicmVmIjoiYy0wMDAyIiwic2hhMjU2IjoiOTNkMDY2ZjM4MWI1YzMyNDZkYTcxMWUwM2JjZmM1ZjA2M2RkMjNhZTVlYjI0ZmFkYmIyMGEzOTdkZWVmYmUyMSIsImF0IjoxNzcyMDAwMDA5fV19Cg",
+          "sha256": "77890c0a9baeac8d254a0bc81ed9f2527200c0e129edcf0df3b16fab83e4d2e8",
+          "byteCount": 346,
+          "signedByProvider": false
+        },
+        "imported": {
+          "at": 1772000060
+        },
+        "derived": [
+          {
+            "k": "normalized-export",
+            "derivedBy": "normalizeProviderExport",
+            "basis": "77890c0a9baeac8d254a0bc81ed9f2527200c0e129edcf0df3b16fab83e4d2e8",
+            "bytes": "eyJ2IjoxLCJwcm92aWRlciI6ImZpeHR1cmUtcHJvdmlkZXIiLCJleHBvcnRJZCI6IkVYUC0yMDI2LTEwLTAxLTAwMDEiLCJpc3N1ZWRBdCI6MTc3MjAwMDAzMCwibW9kZWwiOiJmaXh0dXJlLW1vZGVsLTEiLCJpdGVtcyI6W3siaWQiOiJjLTAwMDEiLCJzaGEyNTYiOiI2MjllMTA1ODgzYTc3NDViM2M2MjZlODY5NmNjOTdiZjI4ZTNjZDlkMWJjODYyYzhiZGZiNjU1Y2FmYmVmNDMzIiwiYXQiOjE3NzIwMDAwMDF9LHsiaWQiOiJjLTAwMDIiLCJzaGEyNTYiOiI5M2QwNjZmMzgxYjVjMzI0NmRhNzExZTAzYmNmYzVmMDYzZGQyM2FlNWViMjRmYWRiYjIwYTM5N2RlZWZiZTIxIiwiYXQiOjE3NzIwMDAwMDl9XX0",
+            "sha256": "62136a5b042d6b8d1baef14357b5f86c9e6f0bb25ea39ff9d3c944b64e934436",
+            "byteCount": 344
+          }
+        ]
+      },
+      "key": "a34574b1079b12bd73fb20fea4570e77809390e5126a3f2867215b89637bba1e",
+      "reading": {
+        "report": [],
+        "originalSha256": "77890c0a9baeac8d254a0bc81ed9f2527200c0e129edcf0df3b16fab83e4d2e8",
+        "normalizedSha256": "62136a5b042d6b8d1baef14357b5f86c9e6f0bb25ea39ff9d3c944b64e934436",
+        "derived": [
+          {
+            "k": "normalized-export",
+            "derivedBy": "normalizeProviderExport",
+            "basis": "77890c0a9baeac8d254a0bc81ed9f2527200c0e129edcf0df3b16fab83e4d2e8",
+            "bytes": "eyJ2IjoxLCJwcm92aWRlciI6ImZpeHR1cmUtcHJvdmlkZXIiLCJleHBvcnRJZCI6IkVYUC0yMDI2LTEwLTAxLTAwMDEiLCJpc3N1ZWRBdCI6MTc3MjAwMDAzMCwibW9kZWwiOiJmaXh0dXJlLW1vZGVsLTEiLCJpdGVtcyI6W3siaWQiOiJjLTAwMDEiLCJzaGEyNTYiOiI2MjllMTA1ODgzYTc3NDViM2M2MjZlODY5NmNjOTdiZjI4ZTNjZDlkMWJjODYyYzhiZGZiNjU1Y2FmYmVmNDMzIiwiYXQiOjE3NzIwMDAwMDF9LHsiaWQiOiJjLTAwMDIiLCJzaGEyNTYiOiI5M2QwNjZmMzgxYjVjMzI0NmRhNzExZTAzYmNmYzVmMDYzZGQyM2FlNWViMjRmYWRiYjIwYTM5N2RlZWZiZTIxIiwiYXQiOjE3NzIwMDAwMDl9XX0",
+            "sha256": "62136a5b042d6b8d1baef14357b5f86c9e6f0bb25ea39ff9d3c944b64e934436",
+            "byteCount": 344
+          }
+        ]
+      }
+    },
+    {
+      "name": "honest-export-imported-again",
+      "note": "The same export imported a second time, one day after the first intake. One block differs and it is the block the key excludes, so this record keys exactly as the first one: two intakes of one export are one record, not two. The derivation and the report are the same because the bytes are.",
+      "envelope": {
+        "v": 1,
+        "provider": {
+          "name": "fixture-provider",
+          "exportId": "EXP-2026-10-01-0001"
+        },
+        "original": {
+          "bytes": "eyJwcm92aWRlciI6ImZpeHR1cmUtcHJvdmlkZXIiLCJleHBvcnRfaWQiOiJFWFAtMjAyNi0xMC0wMS0wMDAxIiwiaXNzdWVkIjoxNzcyMDAwMDMwLCJtb2RlbCI6ImZpeHR1cmUtbW9kZWwtMSIsImNvbXBsZXRpb25zIjpbeyJyZWYiOiJjLTAwMDEiLCJzaGEyNTYiOiI2MjllMTA1ODgzYTc3NDViM2M2MjZlODY5NmNjOTdiZjI4ZTNjZDlkMWJjODYyYzhiZGZiNjU1Y2FmYmVmNDMzIiwiYXQiOjE3NzIwMDAwMDF9LHsicmVmIjoiYy0wMDAyIiwic2hhMjU2IjoiOTNkMDY2ZjM4MWI1YzMyNDZkYTcxMWUwM2JjZmM1ZjA2M2RkMjNhZTVlYjI0ZmFkYmIyMGEzOTdkZWVmYmUyMSIsImF0IjoxNzcyMDAwMDA5fV19Cg",
+          "sha256": "77890c0a9baeac8d254a0bc81ed9f2527200c0e129edcf0df3b16fab83e4d2e8",
+          "byteCount": 346,
+          "signedByProvider": false
+        },
+        "imported": {
+          "at": 1772086460
+        },
+        "derived": [
+          {
+            "k": "normalized-export",
+            "derivedBy": "normalizeProviderExport",
+            "basis": "77890c0a9baeac8d254a0bc81ed9f2527200c0e129edcf0df3b16fab83e4d2e8",
+            "bytes": "eyJ2IjoxLCJwcm92aWRlciI6ImZpeHR1cmUtcHJvdmlkZXIiLCJleHBvcnRJZCI6IkVYUC0yMDI2LTEwLTAxLTAwMDEiLCJpc3N1ZWRBdCI6MTc3MjAwMDAzMCwibW9kZWwiOiJmaXh0dXJlLW1vZGVsLTEiLCJpdGVtcyI6W3siaWQiOiJjLTAwMDEiLCJzaGEyNTYiOiI2MjllMTA1ODgzYTc3NDViM2M2MjZlODY5NmNjOTdiZjI4ZTNjZDlkMWJjODYyYzhiZGZiNjU1Y2FmYmVmNDMzIiwiYXQiOjE3NzIwMDAwMDF9LHsiaWQiOiJjLTAwMDIiLCJzaGEyNTYiOiI5M2QwNjZmMzgxYjVjMzI0NmRhNzExZTAzYmNmYzVmMDYzZGQyM2FlNWViMjRmYWRiYjIwYTM5N2RlZWZiZTIxIiwiYXQiOjE3NzIwMDAwMDl9XX0",
+            "sha256": "62136a5b042d6b8d1baef14357b5f86c9e6f0bb25ea39ff9d3c944b64e934436",
+            "byteCount": 344
+          }
+        ]
+      },
+      "key": "a34574b1079b12bd73fb20fea4570e77809390e5126a3f2867215b89637bba1e",
+      "againOf": "honest-export-imported",
+      "reading": {
+        "report": [],
+        "originalSha256": "77890c0a9baeac8d254a0bc81ed9f2527200c0e129edcf0df3b16fab83e4d2e8",
+        "normalizedSha256": "62136a5b042d6b8d1baef14357b5f86c9e6f0bb25ea39ff9d3c944b64e934436",
+        "derived": [
+          {
+            "k": "normalized-export",
+            "derivedBy": "normalizeProviderExport",
+            "basis": "77890c0a9baeac8d254a0bc81ed9f2527200c0e129edcf0df3b16fab83e4d2e8",
+            "bytes": "eyJ2IjoxLCJwcm92aWRlciI6ImZpeHR1cmUtcHJvdmlkZXIiLCJleHBvcnRJZCI6IkVYUC0yMDI2LTEwLTAxLTAwMDEiLCJpc3N1ZWRBdCI6MTc3MjAwMDAzMCwibW9kZWwiOiJmaXh0dXJlLW1vZGVsLTEiLCJpdGVtcyI6W3siaWQiOiJjLTAwMDEiLCJzaGEyNTYiOiI2MjllMTA1ODgzYTc3NDViM2M2MjZlODY5NmNjOTdiZjI4ZTNjZDlkMWJjODYyYzhiZGZiNjU1Y2FmYmVmNDMzIiwiYXQiOjE3NzIwMDAwMDF9LHsiaWQiOiJjLTAwMDIiLCJzaGEyNTYiOiI5M2QwNjZmMzgxYjVjMzI0NmRhNzExZTAzYmNmYzVmMDYzZGQyM2FlNWViMjRmYWRiYjIwYTM5N2RlZWZiZTIxIiwiYXQiOjE3NzIwMDAwMDl9XX0",
+            "sha256": "62136a5b042d6b8d1baef14357b5f86c9e6f0bb25ea39ff9d3c944b64e934436",
+            "byteCount": 344
+          }
+        ]
+      }
+    },
+    {
+      "name": "unsupported-field-export",
+      "note": "The export with one member added that no rule reads, `region`. The envelope is still written and still read: the original holds the provider's bytes whole, the normalized document states what the rules read, and the report carries one `unsupported-field` row naming the position. Refusing the import would turn every future field of every provider into an unimportable document while teaching nobody what the field was.",
+      "envelope": {
+        "v": 1,
+        "provider": {
+          "name": "fixture-provider",
+          "exportId": "EXP-2026-10-01-0001"
+        },
+        "original": {
+          "bytes": "eyJwcm92aWRlciI6ImZpeHR1cmUtcHJvdmlkZXIiLCJleHBvcnRfaWQiOiJFWFAtMjAyNi0xMC0wMS0wMDAxIiwiaXNzdWVkIjoxNzcyMDAwMDMwLCJtb2RlbCI6ImZpeHR1cmUtbW9kZWwtMSIsImNvbXBsZXRpb25zIjpbeyJyZWYiOiJjLTAwMDEiLCJzaGEyNTYiOiI2MjllMTA1ODgzYTc3NDViM2M2MjZlODY5NmNjOTdiZjI4ZTNjZDlkMWJjODYyYzhiZGZiNjU1Y2FmYmVmNDMzIiwiYXQiOjE3NzIwMDAwMDF9LHsicmVmIjoiYy0wMDAyIiwic2hhMjU2IjoiOTNkMDY2ZjM4MWI1YzMyNDZkYTcxMWUwM2JjZmM1ZjA2M2RkMjNhZTVlYjI0ZmFkYmIyMGEzOTdkZWVmYmUyMSIsImF0IjoxNzcyMDAwMDA5fV0sInJlZ2lvbiI6ImV1LXdlc3QtMSJ9Cg",
+          "sha256": "95fb685dfd4b9ebfcd3bff8f61ad26303e089755ee77e422db05d0d971cf95ac",
+          "byteCount": 367,
+          "signedByProvider": false
+        },
+        "imported": {
+          "at": 1772000060
+        },
+        "derived": [
+          {
+            "k": "normalized-export",
+            "derivedBy": "normalizeProviderExport",
+            "basis": "95fb685dfd4b9ebfcd3bff8f61ad26303e089755ee77e422db05d0d971cf95ac",
+            "bytes": "eyJ2IjoxLCJwcm92aWRlciI6ImZpeHR1cmUtcHJvdmlkZXIiLCJleHBvcnRJZCI6IkVYUC0yMDI2LTEwLTAxLTAwMDEiLCJpc3N1ZWRBdCI6MTc3MjAwMDAzMCwibW9kZWwiOiJmaXh0dXJlLW1vZGVsLTEiLCJpdGVtcyI6W3siaWQiOiJjLTAwMDEiLCJzaGEyNTYiOiI2MjllMTA1ODgzYTc3NDViM2M2MjZlODY5NmNjOTdiZjI4ZTNjZDlkMWJjODYyYzhiZGZiNjU1Y2FmYmVmNDMzIiwiYXQiOjE3NzIwMDAwMDF9LHsiaWQiOiJjLTAwMDIiLCJzaGEyNTYiOiI5M2QwNjZmMzgxYjVjMzI0NmRhNzExZTAzYmNmYzVmMDYzZGQyM2FlNWViMjRmYWRiYjIwYTM5N2RlZWZiZTIxIiwiYXQiOjE3NzIwMDAwMDl9XX0",
+            "sha256": "62136a5b042d6b8d1baef14357b5f86c9e6f0bb25ea39ff9d3c944b64e934436",
+            "byteCount": 344
+          }
+        ]
+      },
+      "key": "9d6f466769de2cb4a5f8f23ef0f51c65135823e904222544ccc6bbaeeaa5ec18",
+      "exportEdit": "the committed export with `region` added",
+      "reading": {
+        "report": [
+          {
+            "kind": "unsupported-field",
+            "field": "region",
+            "states": "the export carries 'region', which no normalization rule of import version 1 reads"
+          }
+        ],
+        "originalSha256": "95fb685dfd4b9ebfcd3bff8f61ad26303e089755ee77e422db05d0d971cf95ac",
+        "normalizedSha256": "62136a5b042d6b8d1baef14357b5f86c9e6f0bb25ea39ff9d3c944b64e934436",
+        "derived": [
+          {
+            "k": "normalized-export",
+            "derivedBy": "normalizeProviderExport",
+            "basis": "95fb685dfd4b9ebfcd3bff8f61ad26303e089755ee77e422db05d0d971cf95ac",
+            "bytes": "eyJ2IjoxLCJwcm92aWRlciI6ImZpeHR1cmUtcHJvdmlkZXIiLCJleHBvcnRJZCI6IkVYUC0yMDI2LTEwLTAxLTAwMDEiLCJpc3N1ZWRBdCI6MTc3MjAwMDAzMCwibW9kZWwiOiJmaXh0dXJlLW1vZGVsLTEiLCJpdGVtcyI6W3siaWQiOiJjLTAwMDEiLCJzaGEyNTYiOiI2MjllMTA1ODgzYTc3NDViM2M2MjZlODY5NmNjOTdiZjI4ZTNjZDlkMWJjODYyYzhiZGZiNjU1Y2FmYmVmNDMzIiwiYXQiOjE3NzIwMDAwMDF9LHsiaWQiOiJjLTAwMDIiLCJzaGEyNTYiOiI5M2QwNjZmMzgxYjVjMzI0NmRhNzExZTAzYmNmYzVmMDYzZGQyM2FlNWViMjRmYWRiYjIwYTM5N2RlZWZiZTIxIiwiYXQiOjE3NzIwMDAwMDl9XX0",
+            "sha256": "62136a5b042d6b8d1baef14357b5f86c9e6f0bb25ea39ff9d3c944b64e934436",
+            "byteCount": 344
+          }
+        ]
+      }
+    },
+    {
+      "name": "missing-field-export",
+      "note": "The export with its `model` member taken out. The reading survives it: the normalized document states no model, and the report carries one `missing-field` row naming the position and the rule that reads it. This row and the one above are the pair the two kinds are told apart by: one is the provider's silence and one is our reach, and neither sentence is the other.",
+      "envelope": {
+        "v": 1,
+        "provider": {
+          "name": "fixture-provider",
+          "exportId": "EXP-2026-10-01-0001"
+        },
+        "original": {
+          "bytes": "eyJwcm92aWRlciI6ImZpeHR1cmUtcHJvdmlkZXIiLCJleHBvcnRfaWQiOiJFWFAtMjAyNi0xMC0wMS0wMDAxIiwiaXNzdWVkIjoxNzcyMDAwMDMwLCJjb21wbGV0aW9ucyI6W3sicmVmIjoiYy0wMDAxIiwic2hhMjU2IjoiNjI5ZTEwNTg4M2E3NzQ1YjNjNjI2ZTg2OTZjYzk3YmYyOGUzY2Q5ZDFiYzg2MmM4YmRmYjY1NWNhZmJlZjQzMyIsImF0IjoxNzcyMDAwMDAxfSx7InJlZiI6ImMtMDAwMiIsInNoYTI1NiI6IjkzZDA2NmYzODFiNWMzMjQ2ZGE3MTFlMDNiY2ZjNWYwNjNkZDIzYWU1ZWIyNGZhZGJiMjBhMzk3ZGVlZmJlMjEiLCJhdCI6MTc3MjAwMDAwOX1dfQo",
+          "sha256": "943ec5fd85dc747f6d6e40c4d4efdcd1110c4b97789ffe09bf72bb45ad0d3ca0",
+          "byteCount": 320,
+          "signedByProvider": false
+        },
+        "imported": {
+          "at": 1772000060
+        },
+        "derived": [
+          {
+            "k": "normalized-export",
+            "derivedBy": "normalizeProviderExport",
+            "basis": "943ec5fd85dc747f6d6e40c4d4efdcd1110c4b97789ffe09bf72bb45ad0d3ca0",
+            "bytes": "eyJ2IjoxLCJwcm92aWRlciI6ImZpeHR1cmUtcHJvdmlkZXIiLCJleHBvcnRJZCI6IkVYUC0yMDI2LTEwLTAxLTAwMDEiLCJpc3N1ZWRBdCI6MTc3MjAwMDAzMCwiaXRlbXMiOlt7ImlkIjoiYy0wMDAxIiwic2hhMjU2IjoiNjI5ZTEwNTg4M2E3NzQ1YjNjNjI2ZTg2OTZjYzk3YmYyOGUzY2Q5ZDFiYzg2MmM4YmRmYjY1NWNhZmJlZjQzMyIsImF0IjoxNzcyMDAwMDAxfSx7ImlkIjoiYy0wMDAyIiwic2hhMjU2IjoiOTNkMDY2ZjM4MWI1YzMyNDZkYTcxMWUwM2JjZmM1ZjA2M2RkMjNhZTVlYjI0ZmFkYmIyMGEzOTdkZWVmYmUyMSIsImF0IjoxNzcyMDAwMDA5fV19",
+            "sha256": "f8cd855eab601dc39197afaf03a73093f013f3131dea7006516f23273af8f183",
+            "byteCount": 318
+          }
+        ]
+      },
+      "key": "4c5a0dba50c827ea41afb08e020ea108d732959155450f60ec52350bd40ee41d",
+      "exportEdit": "the committed export without `model`",
+      "reading": {
+        "report": [
+          {
+            "kind": "missing-field",
+            "field": "model",
+            "states": "the export carries nothing at 'model', which normalization rule 'normalizeModel' reads"
+          }
+        ],
+        "originalSha256": "943ec5fd85dc747f6d6e40c4d4efdcd1110c4b97789ffe09bf72bb45ad0d3ca0",
+        "normalizedSha256": "f8cd855eab601dc39197afaf03a73093f013f3131dea7006516f23273af8f183",
+        "derived": [
+          {
+            "k": "normalized-export",
+            "derivedBy": "normalizeProviderExport",
+            "basis": "943ec5fd85dc747f6d6e40c4d4efdcd1110c4b97789ffe09bf72bb45ad0d3ca0",
+            "bytes": "eyJ2IjoxLCJwcm92aWRlciI6ImZpeHR1cmUtcHJvdmlkZXIiLCJleHBvcnRJZCI6IkVYUC0yMDI2LTEwLTAxLTAwMDEiLCJpc3N1ZWRBdCI6MTc3MjAwMDAzMCwiaXRlbXMiOlt7ImlkIjoiYy0wMDAxIiwic2hhMjU2IjoiNjI5ZTEwNTg4M2E3NzQ1YjNjNjI2ZTg2OTZjYzk3YmYyOGUzY2Q5ZDFiYzg2MmM4YmRmYjY1NWNhZmJlZjQzMyIsImF0IjoxNzcyMDAwMDAxfSx7ImlkIjoiYy0wMDAyIiwic2hhMjU2IjoiOTNkMDY2ZjM4MWI1YzMyNDZkYTcxMWUwM2JjZmM1ZjA2M2RkMjNhZTVlYjI0ZmFkYmIyMGEzOTdkZWVmYmUyMSIsImF0IjoxNzcyMDAwMDA5fV19",
+            "sha256": "f8cd855eab601dc39197afaf03a73093f013f3131dea7006516f23273af8f183",
+            "byteCount": 318
+          }
+        ]
+      }
+    },
+    {
+      "name": "nested-field-report",
+      "note": "The export with one member added inside an entry, one member taken out of another, and the `model` member absent as well: one `unsupported-field` row for `completions[0].cost_micros`, one `missing-field` row for `completions[1].sha256`, and one `missing-field` row for `model`, sorted by position rather than by arrival. The entry missing its digest falls out of the normalized `items` whole and is accounted for by the row, so the omission is never silent.",
+      "envelope": {
+        "v": 1,
+        "provider": {
+          "name": "fixture-provider",
+          "exportId": "EXP-2026-10-01-0001"
+        },
+        "original": {
+          "bytes": "eyJwcm92aWRlciI6ImZpeHR1cmUtcHJvdmlkZXIiLCJleHBvcnRfaWQiOiJFWFAtMjAyNi0xMC0wMS0wMDAxIiwiaXNzdWVkIjoxNzcyMDAwMDMwLCJjb21wbGV0aW9ucyI6W3sicmVmIjoiYy0wMDAxIiwic2hhMjU2IjoiNjI5ZTEwNTg4M2E3NzQ1YjNjNjI2ZTg2OTZjYzk3YmYyOGUzY2Q5ZDFiYzg2MmM4YmRmYjY1NWNhZmJlZjQzMyIsImF0IjoxNzcyMDAwMDAxLCJjb3N0X21pY3JvcyI6NDJ9LHsicmVmIjoiYy0wMDAyIiwiYXQiOjE3NzIwMDAwMDl9XX0K",
+          "sha256": "24545263453f0721bdb4269522cd432d92a258e8d884c0338729294ccad18b8d",
+          "byteCount": 261,
+          "signedByProvider": false
+        },
+        "imported": {
+          "at": 1772000060
+        },
+        "derived": [
+          {
+            "k": "normalized-export",
+            "derivedBy": "normalizeProviderExport",
+            "basis": "24545263453f0721bdb4269522cd432d92a258e8d884c0338729294ccad18b8d",
+            "bytes": "eyJ2IjoxLCJwcm92aWRlciI6ImZpeHR1cmUtcHJvdmlkZXIiLCJleHBvcnRJZCI6IkVYUC0yMDI2LTEwLTAxLTAwMDEiLCJpc3N1ZWRBdCI6MTc3MjAwMDAzMCwiaXRlbXMiOlt7ImlkIjoiYy0wMDAxIiwic2hhMjU2IjoiNjI5ZTEwNTg4M2E3NzQ1YjNjNjI2ZTg2OTZjYzk3YmYyOGUzY2Q5ZDFiYzg2MmM4YmRmYjY1NWNhZmJlZjQzMyIsImF0IjoxNzcyMDAwMDAxfV19",
+            "sha256": "b8835361e833f150e93f4e96a5baa23d5feb1b7239ba66009798e67b44218e54",
+            "byteCount": 210
+          }
+        ]
+      },
+      "key": "542fa9a321128900d5aa7646fe80304b0fbb334baaec75fe1ec5a312a0d58165",
+      "exportEdit": "the committed export with an entry member added, an entry member removed and `model` absent",
+      "reading": {
+        "report": [
+          {
+            "kind": "unsupported-field",
+            "field": "completions[0].cost_micros",
+            "states": "the export carries 'completions[0].cost_micros', which no normalization rule of import version 1 reads"
+          },
+          {
+            "kind": "missing-field",
+            "field": "completions[1].sha256",
+            "states": "the export carries nothing at 'completions[1].sha256', which normalization rule 'normalizeCompletions' reads"
+          },
+          {
+            "kind": "missing-field",
+            "field": "model",
+            "states": "the export carries nothing at 'model', which normalization rule 'normalizeModel' reads"
+          }
+        ],
+        "originalSha256": "24545263453f0721bdb4269522cd432d92a258e8d884c0338729294ccad18b8d",
+        "normalizedSha256": "b8835361e833f150e93f4e96a5baa23d5feb1b7239ba66009798e67b44218e54",
+        "derived": [
+          {
+            "k": "normalized-export",
+            "derivedBy": "normalizeProviderExport",
+            "basis": "24545263453f0721bdb4269522cd432d92a258e8d884c0338729294ccad18b8d",
+            "bytes": "eyJ2IjoxLCJwcm92aWRlciI6ImZpeHR1cmUtcHJvdmlkZXIiLCJleHBvcnRJZCI6IkVYUC0yMDI2LTEwLTAxLTAwMDEiLCJpc3N1ZWRBdCI6MTc3MjAwMDAzMCwiaXRlbXMiOlt7ImlkIjoiYy0wMDAxIiwic2hhMjU2IjoiNjI5ZTEwNTg4M2E3NzQ1YjNjNjI2ZTg2OTZjYzk3YmYyOGUzY2Q5ZDFiYzg2MmM4YmRmYjY1NWNhZmJlZjQzMyIsImF0IjoxNzcyMDAwMDAxfV19",
+            "sha256": "b8835361e833f150e93f4e96a5baa23d5feb1b7239ba66009798e67b44218e54",
+            "byteCount": 210
+          }
+        ]
+      }
+    }
+  ],
+  "refusals": [
+    {
+      "name": "version-two",
+      "note": "An envelope naming import format version 2. The version decides which members exist, so a reader with no rules for it refuses before one member is read, under the same code the capture reader answers the same question with.",
+      "envelope": {
+        "v": 2,
+        "provider": {
+          "name": "fixture-provider",
+          "exportId": "EXP-2026-10-01-0001"
+        },
+        "original": {
+          "bytes": "eyJwcm92aWRlciI6ImZpeHR1cmUtcHJvdmlkZXIiLCJleHBvcnRfaWQiOiJFWFAtMjAyNi0xMC0wMS0wMDAxIiwiaXNzdWVkIjoxNzcyMDAwMDMwLCJtb2RlbCI6ImZpeHR1cmUtbW9kZWwtMSIsImNvbXBsZXRpb25zIjpbeyJyZWYiOiJjLTAwMDEiLCJzaGEyNTYiOiI2MjllMTA1ODgzYTc3NDViM2M2MjZlODY5NmNjOTdiZjI4ZTNjZDlkMWJjODYyYzhiZGZiNjU1Y2FmYmVmNDMzIiwiYXQiOjE3NzIwMDAwMDF9LHsicmVmIjoiYy0wMDAyIiwic2hhMjU2IjoiOTNkMDY2ZjM4MWI1YzMyNDZkYTcxMWUwM2JjZmM1ZjA2M2RkMjNhZTVlYjI0ZmFkYmIyMGEzOTdkZWVmYmUyMSIsImF0IjoxNzcyMDAwMDA5fV19Cg",
+          "sha256": "77890c0a9baeac8d254a0bc81ed9f2527200c0e129edcf0df3b16fab83e4d2e8",
+          "byteCount": 346,
+          "signedByProvider": false
+        },
+        "imported": {
+          "at": 1772000060
+        },
+        "derived": [
+          {
+            "k": "normalized-export",
+            "derivedBy": "normalizeProviderExport",
+            "basis": "77890c0a9baeac8d254a0bc81ed9f2527200c0e129edcf0df3b16fab83e4d2e8",
+            "bytes": "eyJ2IjoxLCJwcm92aWRlciI6ImZpeHR1cmUtcHJvdmlkZXIiLCJleHBvcnRJZCI6IkVYUC0yMDI2LTEwLTAxLTAwMDEiLCJpc3N1ZWRBdCI6MTc3MjAwMDAzMCwibW9kZWwiOiJmaXh0dXJlLW1vZGVsLTEiLCJpdGVtcyI6W3siaWQiOiJjLTAwMDEiLCJzaGEyNTYiOiI2MjllMTA1ODgzYTc3NDViM2M2MjZlODY5NmNjOTdiZjI4ZTNjZDlkMWJjODYyYzhiZGZiNjU1Y2FmYmVmNDMzIiwiYXQiOjE3NzIwMDAwMDF9LHsiaWQiOiJjLTAwMDIiLCJzaGEyNTYiOiI5M2QwNjZmMzgxYjVjMzI0NmRhNzExZTAzYmNmYzVmMDYzZGQyM2FlNWViMjRmYWRiYjIwYTM5N2RlZWZiZTIxIiwiYXQiOjE3NzIwMDAwMDl9XX0",
+            "sha256": "62136a5b042d6b8d1baef14357b5f86c9e6f0bb25ea39ff9d3c944b64e934436",
+            "byteCount": 344
+          }
+        ]
+      },
+      "stage": "layout",
+      "code": "UNSUPPORTED_VERSION",
+      "message": "receipt payload declares a version this package cannot parse or is not configured to accept: import envelope names version 2, and this reader implements 1 and does not read it as one of them"
+    },
+    {
+      "name": "member-import-version-one-does-not-define",
+      "note": "An envelope carrying `retainedAt`, a member no version of this layout defines. Closure holds here as it holds at every record of this estate: a writer that stated a field no reader knows was answering a question this record cannot ask, and dropping it quietly turns that answer into a silence.",
+      "envelope": {
+        "v": 1,
+        "provider": {
+          "name": "fixture-provider",
+          "exportId": "EXP-2026-10-01-0001"
+        },
+        "original": {
+          "bytes": "eyJwcm92aWRlciI6ImZpeHR1cmUtcHJvdmlkZXIiLCJleHBvcnRfaWQiOiJFWFAtMjAyNi0xMC0wMS0wMDAxIiwiaXNzdWVkIjoxNzcyMDAwMDMwLCJtb2RlbCI6ImZpeHR1cmUtbW9kZWwtMSIsImNvbXBsZXRpb25zIjpbeyJyZWYiOiJjLTAwMDEiLCJzaGEyNTYiOiI2MjllMTA1ODgzYTc3NDViM2M2MjZlODY5NmNjOTdiZjI4ZTNjZDlkMWJjODYyYzhiZGZiNjU1Y2FmYmVmNDMzIiwiYXQiOjE3NzIwMDAwMDF9LHsicmVmIjoiYy0wMDAyIiwic2hhMjU2IjoiOTNkMDY2ZjM4MWI1YzMyNDZkYTcxMWUwM2JjZmM1ZjA2M2RkMjNhZTVlYjI0ZmFkYmIyMGEzOTdkZWVmYmUyMSIsImF0IjoxNzcyMDAwMDA5fV19Cg",
+          "sha256": "77890c0a9baeac8d254a0bc81ed9f2527200c0e129edcf0df3b16fab83e4d2e8",
+          "byteCount": 346,
+          "signedByProvider": false
+        },
+        "imported": {
+          "at": 1772000060
+        },
+        "derived": [
+          {
+            "k": "normalized-export",
+            "derivedBy": "normalizeProviderExport",
+            "basis": "77890c0a9baeac8d254a0bc81ed9f2527200c0e129edcf0df3b16fab83e4d2e8",
+            "bytes": "eyJ2IjoxLCJwcm92aWRlciI6ImZpeHR1cmUtcHJvdmlkZXIiLCJleHBvcnRJZCI6IkVYUC0yMDI2LTEwLTAxLTAwMDEiLCJpc3N1ZWRBdCI6MTc3MjAwMDAzMCwibW9kZWwiOiJmaXh0dXJlLW1vZGVsLTEiLCJpdGVtcyI6W3siaWQiOiJjLTAwMDEiLCJzaGEyNTYiOiI2MjllMTA1ODgzYTc3NDViM2M2MjZlODY5NmNjOTdiZjI4ZTNjZDlkMWJjODYyYzhiZGZiNjU1Y2FmYmVmNDMzIiwiYXQiOjE3NzIwMDAwMDF9LHsiaWQiOiJjLTAwMDIiLCJzaGEyNTYiOiI5M2QwNjZmMzgxYjVjMzI0NmRhNzExZTAzYmNmYzVmMDYzZGQyM2FlNWViMjRmYWRiYjIwYTM5N2RlZWZiZTIxIiwiYXQiOjE3NzIwMDAwMDl9XX0",
+            "sha256": "62136a5b042d6b8d1baef14357b5f86c9e6f0bb25ea39ff9d3c944b64e934436",
+            "byteCount": 344
+          }
+        ],
+        "retainedAt": 1772000060
+      },
+      "stage": "layout",
+      "code": "NOT_IMPORT_ENVELOPE",
+      "message": "import envelope carries 'retainedAt', which import version 1 does not define"
+    },
+    {
+      "name": "derived-kind-no-version-defines",
+      "note": "A derived row whose `k` names a representation this version does not define. A new reading of a provider export arrives as a new representation kind and a new version rather than as a word a reader falls through to its default handling on.",
+      "envelope": {
+        "v": 1,
+        "provider": {
+          "name": "fixture-provider",
+          "exportId": "EXP-2026-10-01-0001"
+        },
+        "original": {
+          "bytes": "eyJwcm92aWRlciI6ImZpeHR1cmUtcHJvdmlkZXIiLCJleHBvcnRfaWQiOiJFWFAtMjAyNi0xMC0wMS0wMDAxIiwiaXNzdWVkIjoxNzcyMDAwMDMwLCJtb2RlbCI6ImZpeHR1cmUtbW9kZWwtMSIsImNvbXBsZXRpb25zIjpbeyJyZWYiOiJjLTAwMDEiLCJzaGEyNTYiOiI2MjllMTA1ODgzYTc3NDViM2M2MjZlODY5NmNjOTdiZjI4ZTNjZDlkMWJjODYyYzhiZGZiNjU1Y2FmYmVmNDMzIiwiYXQiOjE3NzIwMDAwMDF9LHsicmVmIjoiYy0wMDAyIiwic2hhMjU2IjoiOTNkMDY2ZjM4MWI1YzMyNDZkYTcxMWUwM2JjZmM1ZjA2M2RkMjNhZTVlYjI0ZmFkYmIyMGEzOTdkZWVmYmUyMSIsImF0IjoxNzcyMDAwMDA5fV19Cg",
+          "sha256": "77890c0a9baeac8d254a0bc81ed9f2527200c0e129edcf0df3b16fab83e4d2e8",
+          "byteCount": 346,
+          "signedByProvider": false
+        },
+        "imported": {
+          "at": 1772000060
+        },
+        "derived": [
+          {
+            "k": "canonical-export",
+            "derivedBy": "normalizeProviderExport",
+            "basis": "77890c0a9baeac8d254a0bc81ed9f2527200c0e129edcf0df3b16fab83e4d2e8",
+            "bytes": "eyJ2IjoxLCJwcm92aWRlciI6ImZpeHR1cmUtcHJvdmlkZXIiLCJleHBvcnRJZCI6IkVYUC0yMDI2LTEwLTAxLTAwMDEiLCJpc3N1ZWRBdCI6MTc3MjAwMDAzMCwibW9kZWwiOiJmaXh0dXJlLW1vZGVsLTEiLCJpdGVtcyI6W3siaWQiOiJjLTAwMDEiLCJzaGEyNTYiOiI2MjllMTA1ODgzYTc3NDViM2M2MjZlODY5NmNjOTdiZjI4ZTNjZDlkMWJjODYyYzhiZGZiNjU1Y2FmYmVmNDMzIiwiYXQiOjE3NzIwMDAwMDF9LHsiaWQiOiJjLTAwMDIiLCJzaGEyNTYiOiI5M2QwNjZmMzgxYjVjMzI0NmRhNzExZTAzYmNmYzVmMDYzZGQyM2FlNWViMjRmYWRiYjIwYTM5N2RlZWZiZTIxIiwiYXQiOjE3NzIwMDAwMDl9XX0",
+            "sha256": "62136a5b042d6b8d1baef14357b5f86c9e6f0bb25ea39ff9d3c944b64e934436",
+            "byteCount": 344
+          }
+        ]
+      },
+      "stage": "layout",
+      "code": "NOT_IMPORT_ENVELOPE",
+      "message": "derived[0].k is 'canonical-export', which is none of the representations import version 1 defines"
+    },
+    {
+      "name": "derived-transformation-no-version-implements",
+      "note": "A derived row whose `derivedBy` names a transformation this version does not implement. The name a row cites is what a reader re-runs, so a name outside the shipped set is refused rather than handed on as a digest nobody can reproduce.",
+      "envelope": {
+        "v": 1,
+        "provider": {
+          "name": "fixture-provider",
+          "exportId": "EXP-2026-10-01-0001"
+        },
+        "original": {
+          "bytes": "eyJwcm92aWRlciI6ImZpeHR1cmUtcHJvdmlkZXIiLCJleHBvcnRfaWQiOiJFWFAtMjAyNi0xMC0wMS0wMDAxIiwiaXNzdWVkIjoxNzcyMDAwMDMwLCJtb2RlbCI6ImZpeHR1cmUtbW9kZWwtMSIsImNvbXBsZXRpb25zIjpbeyJyZWYiOiJjLTAwMDEiLCJzaGEyNTYiOiI2MjllMTA1ODgzYTc3NDViM2M2MjZlODY5NmNjOTdiZjI4ZTNjZDlkMWJjODYyYzhiZGZiNjU1Y2FmYmVmNDMzIiwiYXQiOjE3NzIwMDAwMDF9LHsicmVmIjoiYy0wMDAyIiwic2hhMjU2IjoiOTNkMDY2ZjM4MWI1YzMyNDZkYTcxMWUwM2JjZmM1ZjA2M2RkMjNhZTVlYjI0ZmFkYmIyMGEzOTdkZWVmYmUyMSIsImF0IjoxNzcyMDAwMDA5fV19Cg",
+          "sha256": "77890c0a9baeac8d254a0bc81ed9f2527200c0e129edcf0df3b16fab83e4d2e8",
+          "byteCount": 346,
+          "signedByProvider": false
+        },
+        "imported": {
+          "at": 1772000060
+        },
+        "derived": [
+          {
+            "k": "normalized-export",
+            "derivedBy": "normalizeProviderCatalog",
+            "basis": "77890c0a9baeac8d254a0bc81ed9f2527200c0e129edcf0df3b16fab83e4d2e8",
+            "bytes": "eyJ2IjoxLCJwcm92aWRlciI6ImZpeHR1cmUtcHJvdmlkZXIiLCJleHBvcnRJZCI6IkVYUC0yMDI2LTEwLTAxLTAwMDEiLCJpc3N1ZWRBdCI6MTc3MjAwMDAzMCwibW9kZWwiOiJmaXh0dXJlLW1vZGVsLTEiLCJpdGVtcyI6W3siaWQiOiJjLTAwMDEiLCJzaGEyNTYiOiI2MjllMTA1ODgzYTc3NDViM2M2MjZlODY5NmNjOTdiZjI4ZTNjZDlkMWJjODYyYzhiZGZiNjU1Y2FmYmVmNDMzIiwiYXQiOjE3NzIwMDAwMDF9LHsiaWQiOiJjLTAwMDIiLCJzaGEyNTYiOiI5M2QwNjZmMzgxYjVjMzI0NmRhNzExZTAzYmNmYzVmMDYzZGQyM2FlNWViMjRmYWRiYjIwYTM5N2RlZWZiZTIxIiwiYXQiOjE3NzIwMDAwMDl9XX0",
+            "sha256": "62136a5b042d6b8d1baef14357b5f86c9e6f0bb25ea39ff9d3c944b64e934436",
+            "byteCount": 344
+          }
+        ]
+      },
+      "stage": "layout",
+      "code": "NOT_IMPORT_ENVELOPE",
+      "message": "derived[0].derivedBy is 'normalizeProviderCatalog', which is none of the transformations import version 1 implements"
+    },
+    {
+      "name": "original-digest-of-another-document",
+      "note": "The honest bytes, and a digest that is the digest of nothing this suite holds. Nothing downstream of the byte check can tell the two apart, which is why the check runs before a reader interprets a document at all.",
+      "envelope": {
+        "v": 1,
+        "provider": {
+          "name": "fixture-provider",
+          "exportId": "EXP-2026-10-01-0001"
+        },
+        "original": {
+          "bytes": "eyJwcm92aWRlciI6ImZpeHR1cmUtcHJvdmlkZXIiLCJleHBvcnRfaWQiOiJFWFAtMjAyNi0xMC0wMS0wMDAxIiwiaXNzdWVkIjoxNzcyMDAwMDMwLCJtb2RlbCI6ImZpeHR1cmUtbW9kZWwtMSIsImNvbXBsZXRpb25zIjpbeyJyZWYiOiJjLTAwMDEiLCJzaGEyNTYiOiI2MjllMTA1ODgzYTc3NDViM2M2MjZlODY5NmNjOTdiZjI4ZTNjZDlkMWJjODYyYzhiZGZiNjU1Y2FmYmVmNDMzIiwiYXQiOjE3NzIwMDAwMDF9LHsicmVmIjoiYy0wMDAyIiwic2hhMjU2IjoiOTNkMDY2ZjM4MWI1YzMyNDZkYTcxMWUwM2JjZmM1ZjA2M2RkMjNhZTVlYjI0ZmFkYmIyMGEzOTdkZWVmYmUyMSIsImF0IjoxNzcyMDAwMDA5fV19Cg",
+          "sha256": "80f165a0a589db5184a4301d53a7b9d382c84b87891187eeb456b5d3fe1f7e92",
+          "byteCount": 346,
+          "signedByProvider": false
+        },
+        "imported": {
+          "at": 1772000060
+        },
+        "derived": [
+          {
+            "k": "normalized-export",
+            "derivedBy": "normalizeProviderExport",
+            "basis": "77890c0a9baeac8d254a0bc81ed9f2527200c0e129edcf0df3b16fab83e4d2e8",
+            "bytes": "eyJ2IjoxLCJwcm92aWRlciI6ImZpeHR1cmUtcHJvdmlkZXIiLCJleHBvcnRJZCI6IkVYUC0yMDI2LTEwLTAxLTAwMDEiLCJpc3N1ZWRBdCI6MTc3MjAwMDAzMCwibW9kZWwiOiJmaXh0dXJlLW1vZGVsLTEiLCJpdGVtcyI6W3siaWQiOiJjLTAwMDEiLCJzaGEyNTYiOiI2MjllMTA1ODgzYTc3NDViM2M2MjZlODY5NmNjOTdiZjI4ZTNjZDlkMWJjODYyYzhiZGZiNjU1Y2FmYmVmNDMzIiwiYXQiOjE3NzIwMDAwMDF9LHsiaWQiOiJjLTAwMDIiLCJzaGEyNTYiOiI5M2QwNjZmMzgxYjVjMzI0NmRhNzExZTAzYmNmYzVmMDYzZGQyM2FlNWViMjRmYWRiYjIwYTM5N2RlZWZiZTIxIiwiYXQiOjE3NzIwMDAwMDl9XX0",
+            "sha256": "62136a5b042d6b8d1baef14357b5f86c9e6f0bb25ea39ff9d3c944b64e934436",
+            "byteCount": 344
+          }
+        ]
+      },
+      "stage": "layout",
+      "code": "EVIDENCE_DIGEST_MISMATCH",
+      "message": "original states 80f165a0a589db5184a4301d53a7b9d382c84b87891187eeb456b5d3fe1f7e92 and these bytes hash to 77890c0a9baeac8d254a0bc81ed9f2527200c0e129edcf0df3b16fab83e4d2e8"
+    },
+    {
+      "name": "original-bytes-stated-in-a-second-spelling",
+      "note": "The committed export's bytes in the other base64url spelling of the very same bytes, with the digest and the length still the digest and the length of what decodes. Every member of the record is then true of the bytes and the row is still refused for the one thing a JSON document cannot state: that a byte string has one spelling a reader reproduces.",
+      "envelope": {
+        "v": 1,
+        "provider": {
+          "name": "fixture-provider",
+          "exportId": "EXP-2026-10-01-0001"
+        },
+        "original": {
+          "bytes": "eyJwcm92aWRlciI6ImZpeHR1cmUtcHJvdmlkZXIiLCJleHBvcnRfaWQiOiJFWFAtMjAyNi0xMC0wMS0wMDAxIiwiaXNzdWVkIjoxNzcyMDAwMDMwLCJtb2RlbCI6ImZpeHR1cmUtbW9kZWwtMSIsImNvbXBsZXRpb25zIjpbeyJyZWYiOiJjLTAwMDEiLCJzaGEyNTYiOiI2MjllMTA1ODgzYTc3NDViM2M2MjZlODY5NmNjOTdiZjI4ZTNjZDlkMWJjODYyYzhiZGZiNjU1Y2FmYmVmNDMzIiwiYXQiOjE3NzIwMDAwMDF9LHsicmVmIjoiYy0wMDAyIiwic2hhMjU2IjoiOTNkMDY2ZjM4MWI1YzMyNDZkYTcxMWUwM2JjZmM1ZjA2M2RkMjNhZTVlYjI0ZmFkYmIyMGEzOTdkZWVmYmUyMSIsImF0IjoxNzcyMDAwMDA5fV19Ch",
+          "sha256": "77890c0a9baeac8d254a0bc81ed9f2527200c0e129edcf0df3b16fab83e4d2e8",
+          "byteCount": 346,
+          "signedByProvider": false
+        },
+        "imported": {
+          "at": 1772000060
+        },
+        "derived": [
+          {
+            "k": "normalized-export",
+            "derivedBy": "normalizeProviderExport",
+            "basis": "77890c0a9baeac8d254a0bc81ed9f2527200c0e129edcf0df3b16fab83e4d2e8",
+            "bytes": "eyJ2IjoxLCJwcm92aWRlciI6ImZpeHR1cmUtcHJvdmlkZXIiLCJleHBvcnRJZCI6IkVYUC0yMDI2LTEwLTAxLTAwMDEiLCJpc3N1ZWRBdCI6MTc3MjAwMDAzMCwibW9kZWwiOiJmaXh0dXJlLW1vZGVsLTEiLCJpdGVtcyI6W3siaWQiOiJjLTAwMDEiLCJzaGEyNTYiOiI2MjllMTA1ODgzYTc3NDViM2M2MjZlODY5NmNjOTdiZjI4ZTNjZDlkMWJjODYyYzhiZGZiNjU1Y2FmYmVmNDMzIiwiYXQiOjE3NzIwMDAwMDF9LHsiaWQiOiJjLTAwMDIiLCJzaGEyNTYiOiI5M2QwNjZmMzgxYjVjMzI0NmRhNzExZTAzYmNmYzVmMDYzZGQyM2FlNWViMjRmYWRiYjIwYTM5N2RlZWZiZTIxIiwiYXQiOjE3NzIwMDAwMDl9XX0",
+            "sha256": "62136a5b042d6b8d1baef14357b5f86c9e6f0bb25ea39ff9d3c944b64e934436",
+            "byteCount": 344
+          }
+        ]
+      },
+      "stage": "layout",
+      "code": "NOT_IMPORT_ENVELOPE",
+      "message": "original is spelled in a base64url form this reader does not write, so somebody wrote it with another encoder"
+    },
+    {
+      "name": "derived-basis-of-another-original",
+      "note": "A derived row naming a basis that is not the digest of the original beside it, which severs the one relationship this record exists to state. The digest is well formed and the bytes are whole; what disagrees is which original the representation claims to come from.",
+      "envelope": {
+        "v": 1,
+        "provider": {
+          "name": "fixture-provider",
+          "exportId": "EXP-2026-10-01-0001"
+        },
+        "original": {
+          "bytes": "eyJwcm92aWRlciI6ImZpeHR1cmUtcHJvdmlkZXIiLCJleHBvcnRfaWQiOiJFWFAtMjAyNi0xMC0wMS0wMDAxIiwiaXNzdWVkIjoxNzcyMDAwMDMwLCJtb2RlbCI6ImZpeHR1cmUtbW9kZWwtMSIsImNvbXBsZXRpb25zIjpbeyJyZWYiOiJjLTAwMDEiLCJzaGEyNTYiOiI2MjllMTA1ODgzYTc3NDViM2M2MjZlODY5NmNjOTdiZjI4ZTNjZDlkMWJjODYyYzhiZGZiNjU1Y2FmYmVmNDMzIiwiYXQiOjE3NzIwMDAwMDF9LHsicmVmIjoiYy0wMDAyIiwic2hhMjU2IjoiOTNkMDY2ZjM4MWI1YzMyNDZkYTcxMWUwM2JjZmM1ZjA2M2RkMjNhZTVlYjI0ZmFkYmIyMGEzOTdkZWVmYmUyMSIsImF0IjoxNzcyMDAwMDA5fV19Cg",
+          "sha256": "77890c0a9baeac8d254a0bc81ed9f2527200c0e129edcf0df3b16fab83e4d2e8",
+          "byteCount": 346,
+          "signedByProvider": false
+        },
+        "imported": {
+          "at": 1772000060
+        },
+        "derived": [
+          {
+            "k": "normalized-export",
+            "derivedBy": "normalizeProviderExport",
+            "basis": "a280381928ac23c19d4227a81688552b8bbd37281ce3900dc811c8a0085ecc60",
+            "bytes": "eyJ2IjoxLCJwcm92aWRlciI6ImZpeHR1cmUtcHJvdmlkZXIiLCJleHBvcnRJZCI6IkVYUC0yMDI2LTEwLTAxLTAwMDEiLCJpc3N1ZWRBdCI6MTc3MjAwMDAzMCwibW9kZWwiOiJmaXh0dXJlLW1vZGVsLTEiLCJpdGVtcyI6W3siaWQiOiJjLTAwMDEiLCJzaGEyNTYiOiI2MjllMTA1ODgzYTc3NDViM2M2MjZlODY5NmNjOTdiZjI4ZTNjZDlkMWJjODYyYzhiZGZiNjU1Y2FmYmVmNDMzIiwiYXQiOjE3NzIwMDAwMDF9LHsiaWQiOiJjLTAwMDIiLCJzaGEyNTYiOiI5M2QwNjZmMzgxYjVjMzI0NmRhNzExZTAzYmNmYzVmMDYzZGQyM2FlNWViMjRmYWRiYjIwYTM5N2RlZWZiZTIxIiwiYXQiOjE3NzIwMDAwMDl9XX0",
+            "sha256": "62136a5b042d6b8d1baef14357b5f86c9e6f0bb25ea39ff9d3c944b64e934436",
+            "byteCount": 344
+          }
+        ]
+      },
+      "stage": "layout",
+      "code": "EVIDENCE_DIGEST_MISMATCH",
+      "message": "derived[0] names basis a280381928ac23c19d4227a81688552b8bbd37281ce3900dc811c8a0085ecc60 and the original beside it hashes to 77890c0a9baeac8d254a0bc81ed9f2527200c0e129edcf0df3b16fab83e4d2e8"
+    },
+    {
+      "name": "derived-bytes-not-what-the-rule-produces",
+      "note": "A derived row that is self-consistent about its own bytes and is not what the transformation it names produces: the digest and the length are restated for the replacement bytes, so no stated digest is violated and only the re-derivation catches it. This is the reading's own check, and it is the one no schema and no digest recomputation over the record alone could make.",
+      "envelope": {
+        "v": 1,
+        "provider": {
+          "name": "fixture-provider",
+          "exportId": "EXP-2026-10-01-0001"
+        },
+        "original": {
+          "bytes": "eyJwcm92aWRlciI6ImZpeHR1cmUtcHJvdmlkZXIiLCJleHBvcnRfaWQiOiJFWFAtMjAyNi0xMC0wMS0wMDAxIiwiaXNzdWVkIjoxNzcyMDAwMDMwLCJtb2RlbCI6ImZpeHR1cmUtbW9kZWwtMSIsImNvbXBsZXRpb25zIjpbeyJyZWYiOiJjLTAwMDEiLCJzaGEyNTYiOiI2MjllMTA1ODgzYTc3NDViM2M2MjZlODY5NmNjOTdiZjI4ZTNjZDlkMWJjODYyYzhiZGZiNjU1Y2FmYmVmNDMzIiwiYXQiOjE3NzIwMDAwMDF9LHsicmVmIjoiYy0wMDAyIiwic2hhMjU2IjoiOTNkMDY2ZjM4MWI1YzMyNDZkYTcxMWUwM2JjZmM1ZjA2M2RkMjNhZTVlYjI0ZmFkYmIyMGEzOTdkZWVmYmUyMSIsImF0IjoxNzcyMDAwMDA5fV19Cg",
+          "sha256": "77890c0a9baeac8d254a0bc81ed9f2527200c0e129edcf0df3b16fab83e4d2e8",
+          "byteCount": 346,
+          "signedByProvider": false
+        },
+        "imported": {
+          "at": 1772000060
+        },
+        "derived": [
+          {
+            "k": "normalized-export",
+            "derivedBy": "normalizeProviderExport",
+            "basis": "77890c0a9baeac8d254a0bc81ed9f2527200c0e129edcf0df3b16fab83e4d2e8",
+            "bytes": "eyJ2IjoxfQ",
+            "sha256": "afbf9d0f3560b0fd7795e81c42a0a79ee6b6fc67e064f77826aee642cad28d91",
+            "byteCount": 7
+          }
+        ]
+      },
+      "stage": "reading",
+      "code": "EVIDENCE_DIGEST_MISMATCH",
+      "message": "derived[0] states sha256 afbf9d0f3560b0fd7795e81c42a0a79ee6b6fc67e064f77826aee642cad28d91 and the rule 'normalizeProviderExport' produces 62136a5b042d6b8d1baef14357b5f86c9e6f0bb25ea39ff9d3c944b64e934436 from the original beside it"
+    },
+    {
+      "name": "export-value-a-rule-does-not-read",
+      "note": "An envelope whose export states `'yesterday'` at `issued`, where the rule reads a whole number of unix seconds. The position is one this reading knows and its value is one no rule reads, so the normalized document would have to omit a field the export did state: the reading refuses rather than reporting, and the refusal names the position and the shape the rule reads there.",
+      "envelope": {
+        "v": 1,
+        "provider": {
+          "name": "fixture-provider",
+          "exportId": "EXP-2026-10-01-0001"
+        },
+        "original": {
+          "bytes": "eyJwcm92aWRlciI6ImZpeHR1cmUtcHJvdmlkZXIiLCJleHBvcnRfaWQiOiJFWFAtMjAyNi0xMC0wMS0wMDAxIiwiaXNzdWVkIjoieWVzdGVyZGF5IiwibW9kZWwiOiJmaXh0dXJlLW1vZGVsLTEiLCJjb21wbGV0aW9ucyI6W3sicmVmIjoiYy0wMDAxIiwic2hhMjU2IjoiNjI5ZTEwNTg4M2E3NzQ1YjNjNjI2ZTg2OTZjYzk3YmYyOGUzY2Q5ZDFiYzg2MmM4YmRmYjY1NWNhZmJlZjQzMyIsImF0IjoxNzcyMDAwMDAxfSx7InJlZiI6ImMtMDAwMiIsInNoYTI1NiI6IjkzZDA2NmYzODFiNWMzMjQ2ZGE3MTFlMDNiY2ZjNWYwNjNkZDIzYWU1ZWIyNGZhZGJiMjBhMzk3ZGVlZmJlMjEiLCJhdCI6MTc3MjAwMDAwOX1dfQ",
+          "sha256": "e915d014c4c70b98b24d7637cebd85deedb24fceeab82b9ebeb25c20f7e276ad",
+          "byteCount": 346,
+          "signedByProvider": false
+        },
+        "imported": {
+          "at": 1772000060
+        },
+        "derived": [
+          {
+            "k": "normalized-export",
+            "derivedBy": "normalizeProviderExport",
+            "basis": "e915d014c4c70b98b24d7637cebd85deedb24fceeab82b9ebeb25c20f7e276ad",
+            "bytes": "eyJ2IjoxLCJwcm92aWRlciI6ImZpeHR1cmUtcHJvdmlkZXIiLCJleHBvcnRJZCI6IkVYUC0yMDI2LTEwLTAxLTAwMDEiLCJpc3N1ZWRBdCI6MTc3MjAwMDAzMCwibW9kZWwiOiJmaXh0dXJlLW1vZGVsLTEiLCJpdGVtcyI6W3siaWQiOiJjLTAwMDEiLCJzaGEyNTYiOiI2MjllMTA1ODgzYTc3NDViM2M2MjZlODY5NmNjOTdiZjI4ZTNjZDlkMWJjODYyYzhiZGZiNjU1Y2FmYmVmNDMzIiwiYXQiOjE3NzIwMDAwMDF9LHsiaWQiOiJjLTAwMDIiLCJzaGEyNTYiOiI5M2QwNjZmMzgxYjVjMzI0NmRhNzExZTAzYmNmYzVmMDYzZGQyM2FlNWViMjRmYWRiYjIwYTM5N2RlZWZiZTIxIiwiYXQiOjE3NzIwMDAwMDl9XX0",
+            "sha256": "62136a5b042d6b8d1baef14357b5f86c9e6f0bb25ea39ff9d3c944b64e934436",
+            "byteCount": 344
+          }
+        ]
+      },
+      "stage": "reading",
+      "code": "NOT_IMPORT_ENVELOPE",
+      "message": "the export states 'yesterday' at 'issued', where normalization rule 'normalizeIssuedAt' reads a whole number of unix seconds"
+    },
+    {
+      "name": "derived-list-empty",
+      "note": "An envelope whose `derived` list states nothing. An import that derived nothing is not an import this record can describe, and an empty list would let a writer reach the shape of this document without stating any representation at all.",
+      "envelope": {
+        "v": 1,
+        "provider": {
+          "name": "fixture-provider",
+          "exportId": "EXP-2026-10-01-0001"
+        },
+        "original": {
+          "bytes": "eyJwcm92aWRlciI6ImZpeHR1cmUtcHJvdmlkZXIiLCJleHBvcnRfaWQiOiJFWFAtMjAyNi0xMC0wMS0wMDAxIiwiaXNzdWVkIjoxNzcyMDAwMDMwLCJtb2RlbCI6ImZpeHR1cmUtbW9kZWwtMSIsImNvbXBsZXRpb25zIjpbeyJyZWYiOiJjLTAwMDEiLCJzaGEyNTYiOiI2MjllMTA1ODgzYTc3NDViM2M2MjZlODY5NmNjOTdiZjI4ZTNjZDlkMWJjODYyYzhiZGZiNjU1Y2FmYmVmNDMzIiwiYXQiOjE3NzIwMDAwMDF9LHsicmVmIjoiYy0wMDAyIiwic2hhMjU2IjoiOTNkMDY2ZjM4MWI1YzMyNDZkYTcxMWUwM2JjZmM1ZjA2M2RkMjNhZTVlYjI0ZmFkYmIyMGEzOTdkZWVmYmUyMSIsImF0IjoxNzcyMDAwMDA5fV19Cg",
+          "sha256": "77890c0a9baeac8d254a0bc81ed9f2527200c0e129edcf0df3b16fab83e4d2e8",
+          "byteCount": 346,
+          "signedByProvider": false
+        },
+        "imported": {
+          "at": 1772000060
+        },
+        "derived": []
+      },
+      "stage": "layout",
+      "code": "NOT_IMPORT_ENVELOPE",
+      "message": "derived is a list, and an envelope states the representations the normalization produced"
+    }
+  ]
+}

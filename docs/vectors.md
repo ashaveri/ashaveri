@@ -33,11 +33,13 @@ each shape.
 | Redaction manifest | `packages/fixtures/data/redaction-v1.json` | Redaction manifests each beside the pack they are checked against, the verdict the shipped redaction reader owes the pair, and what `ashaveri verify-handover` answers for the same pair on every row: the chain over the survivors published apart from the pack's own head, a redaction pointed at a pack the reader lacks refused, and the three wrong constructions of a survivor chain refused by recomputation | `version: 1` |
 | Epoch inventory | `packages/fixtures/data/epoch-inventory-v1.json` | Whole sealed inventories and the verdict the two shipped inventory readers owe each one: the envelope, the header, the key, the reading of a JSON payload, the arithmetic a reader recomputes over a run of packs, and the names each row of the two folded lists points at, with a refusal for every claim the reader recomputes over the run and answers from it, which is the windows meeting end to start, including one entry whose own two figures do not run forwards, the window, the two chain endpoints beside the run that begins and ends them, the claim each folded list states beside it, and every guard of both lists, and with the acceptances a reviewer would otherwise read as faults | `version: 1` |
 | Capture record | `packages/fixtures/data/capture-v1.json` | Whole capture records and the answer the two published capture entry points give each one: one evidence document's exact original bytes held as they arrived beside the context stated with them, a signature re-framed by a second encoder refused as bytes rather than accepted as an equivalent, a context member left unmentioned refused rather than read as an absence, and a digest that is not the digest of the bytes beside it | `version: 1` |
+| Import envelope | `packages/fixtures/data/import-v1.json` | Whole envelopes and the answer the published reader gives each one: one synthetic provider export's exact bytes held as they arrived beside the derived representation the shipped normalization produced from them with its label, its transformation and the basis it rests on, the deterministic report of every position the rules do not read and every position they read that the export states nothing at, a second intake of one export keyed to the same record as the first, and the refusals in between | `version: 1` |
 
 `pop-v1.json`, `req-v1.json`, `res-v1.json`, `marking-v1.json`, `chain-v1.json`, `export-v1.json`,
-`manifest-v1.json`, `pack-v1.json`, `redaction-v1.json`, `epoch-inventory-v1.json` and `capture-v1.json` each carry a
+`manifest-v1.json`, `pack-v1.json`, `redaction-v1.json`, `epoch-inventory-v1.json`, `capture-v1.json` and
+`import-v1.json` each carry a
 `description` stating their rule in prose, and the digest, marked-region, chain, export,
-sealed-manifest, pack, redaction, inventory and capture suites carry a `rule` or `layout` block naming the fields,
+sealed-manifest, pack, redaction, inventory, capture and import suites carry a `rule` or `layout` block naming the fields,
 and the widths and the byte order where a suite pins a byte layout, so a reader never has to guess what an
 array of hex is standing for. The manifest carries no `description`, because it lists the receipt fixtures
 rather than stating a rule of its own, and it does carry a `layout` block naming the columns its rows
@@ -284,11 +286,27 @@ specific to that case.
   of UTF-8 is taken and a row at 2,049 is refused. The key material this file publishes is public halves and kids;
   the private half beside them is the one `data/keys/receipt-key-v1.json` already publishes, which the last section
   of this document names.
+- **Import envelope.** Hand the envelope the row publishes to `parseImportEnvelope` for the layout's answer and to
+  `readImportEnvelope` for the reading's, and compare what comes back with the row: the `report` rows in order,
+  `originalSha256` over the bytes the reader hands back, `normalizedSha256` over what the shipped rules produce from
+  them, and the `derived` row with its `k`, `derivedBy` and `basis`. `key` is what `importEnvelopeKey` answers for the
+  parsed envelope, and `import-v1.json` publishes 5 accepted rows and 10 refusals. The accepted rows that state no
+  `exportEdit` hold the bytes `data/exports/provider-export-v1.json` publishes, byte for byte, and the generator
+  stops unless that file is the export it wrote and unless the shipped rules read every position of it; a row that
+  states an `exportEdit` names the edit it makes instead. The row `honest-export-imported-again` is the second intake
+  of `honest-export-imported`: its `imported` block differs, its `key` is the first row's key, and its original is
+  the same bytes, which is the record the twice-import claim is made of. The two report kinds are published on the
+  pair `unsupported-field-export` and `missing-field-export`: one `unsupported-field` row for a position no rule
+  reads and one `missing-field` row for a position a rule reads that the export states nothing at, and a port that
+  merges them reports a field this reading chose not to read as one the provider withheld. A refused row states
+  `stage`, which is `layout` where `parseImportEnvelope` refused the document, which `readImportEnvelope` then
+  refuses with the same code because it parses first, and `reading` where the layout took the bytes and the refusal
+  came from the normalization or from the re-derivation of a derived row.
 
 ## Every suite refuses something
 
-Each of the twelve suites the table above lists carries at least one case whose stated verdict is a refusal,
-and every code those cases name is one [error-codes.md](error-codes.md) lists. The twelve are that table's
+Each of the thirteen suites the table above lists carries at least one case whose stated verdict is a refusal,
+and every code those cases name is one [error-codes.md](error-codes.md) lists. The thirteen are that table's
 rows, which `packages/fixtures/test/vectors-doc.test.ts` counts and compares with this sentence rather than
 trusting it. That is the half a second implementation cannot agree with by accident: an accepted case and
 a refused one, drawn from the same
@@ -302,18 +320,22 @@ by one bit inside its own bytes or by its length prefix lying about its size, a 
 label it added or the one integer it spelled as a float, a redaction by the one record it did not name or by
 the chain head it took from the pack rather than recomputed, an inventory by the one byte at the end of its run
 label or by the one row a folded list left out, a capture record by the one bit inside its original, by the
-other base64url spelling of the very same bytes, or by the one member of an eight-member statement left unspoken.
+other base64url spelling of the very same bytes, or by the one member of an eight-member statement left unspoken,
+and an import envelope by one member no version defines, by a derived row that rests on another original, or by a
+derived row that is not the bytes the transformation it names produces.
 Each is one small edit to
 bytes this repository already publishes, so reproducing it is reading a row and not guessing at what the
 author meant. The client path over them is in `packages/cli/test/vector-conformance.test.ts`, which
-drives every suite in this table but the technical export and the capture record through the shipped
+drives every suite in this table but the technical export, the capture record and the import envelope through the shipped
 verification code rather than
 through a copy of the rule it is checking, and asserts the verdict in both directions: the accepted rows
 accepted, the refusing ones refused for the reason stated. The export suite travels the client path
 through `packages/cli/test/verify-handover.test.ts` instead, beside the command's own cases. The capture
 rows are read by the two published capture entry points themselves, `parseCaptureRecord` and `assessCapture` of
 `@ashaveri/sdk`, in `packages/fixtures/test/capture-vectors.test.ts`, because those two are the shipped reading of
-this format and no command of this package reads a capture record. The inventory
+this format and no command of this package reads a capture record, and the import rows are read the same way by
+`parseImportEnvelope` and `readImportEnvelope` in `packages/fixtures/test/import-vectors.test.ts`, because an
+import envelope is read by a library caller and no command of this package reads one. The inventory
 rows are read there by the two exported inventory readers, `verifyEpochInventory` and
 `decodeEpochInventory`, rather than through a command, because the claim a port has to satisfy at those two
 doors is about the library surface, and that block names the file which answers the same rows at the command
@@ -340,6 +362,7 @@ pnpm --filter @ashaveri/fixtures generate:pack
 pnpm --filter @ashaveri/fixtures generate:redaction
 pnpm --filter @ashaveri/fixtures generate:epoch-inventory
 pnpm --filter @ashaveri/fixtures generate:capture
+pnpm --filter @ashaveri/fixtures generate:import
 ```
 
 The generators live beside the loaders in `packages/fixtures`, and running all of them after a change
