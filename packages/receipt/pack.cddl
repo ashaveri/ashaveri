@@ -53,11 +53,11 @@ Ashaveri-Pack-Protected-Header = {
 ; needing it ahead of the walk is as strong a claim on the manifest as needing it during one.
 ;
 ; `v: 1` is the only version this file states, and a version here says what the fields attest rather than
-; which software wrote them, as it does in `receipt.cddl`. The manifest names eight members and `custody` is
+; which software wrote them, as it does in `receipt.cddl`. The manifest names nine members and `custody` is
 ; among them: a pack whose sealed receipts state `held` slots and which signs for nothing about them leaves every
 ; such slot weighable only against an endpoint the reader has to reach somewhere else, which is a different document
 ; from the one the auditor holds, so the member is required and an empty list is a statement rather than an omission.
-; Two of the eight arrived in place of one of them rather than beside it: the member that stood seventh here answered
+; Two of the nine arrived in place of one of them rather than beside it: the member that stood seventh here answered
 ; for a held slot by carrying the document itself, and it is retired, so a `v: 1` manifest naming it is refused as a
 ; member this version does not define rather than read with it dropped. The eighth member is the byte arm, whose
 ; entries a deployment may fill with material it holds rights to redistribute and which no code a deployment runs
@@ -67,9 +67,23 @@ Ashaveri-Pack-Protected-Header = {
 ; dropping would be. An earlier shape of this container named six and not the seventh; it was never delivered outside
 ; this estate and no bytes carrying it exist to be read, so it is not a version this file has to refuse and the number
 ; starts at one. Nothing about the duty mapping, the framing or the envelope is expected to change without one.
+;
+; `prov` is the pack's own statement of where its material came from, and it is a reduction rather than a
+; parameter: its value is the weakest of the items' `prov` values, so a pack cannot be assembled to claim
+; `live` while carrying one fixture, and a mixture of live and captured items states `captured` rather
+; than being washed down to `live`. The three values are the whole vocabulary: `live` for material a
+; running deployment produced while answering a real request, `captured` for a vendor-signed document
+; recorded elsewhere and replayed into a locally issued receipt, and `fixture` for material derived from
+; this repository's own fixtures. The member is separate from execution assurance, from the references
+; and from the duty: what a receipt's `meas` and `att` claim about the deployment, what an anchor names
+; and what period the window answers under are three other questions, and none of them is the one this
+; member answers. A reader refuses a label outside the three and a value that is not the weakest of the
+; items, in either direction, because a stronger value would claim more than the pack carries and a
+; weaker one would state a provenance nothing in the pack has.
 Ashaveri-Pack-Manifest = {
     v: 1,                     ; format version
     at: int,                  ; unix seconds, the instant assembly began
+    prov: "live" / "captured" / "fixture", ; the weakest of the items' values, and never a value the assembly chose
     span: PackSpan,
     chain: PackChain,
     duty: PackDuty,
@@ -305,9 +319,16 @@ PackAttached = {
 ; evidence while proving only that somebody signed two digests. That a span held no receipts at all is
 ; a statement about the window, and it belongs to the artifact that states windows rather than to the
 ; container that carries receipts.
+;
+; `prov` states where the material this record carries came from, in the same three values the manifest
+; reduces. It is not a term of the record's frame: the digest the next item names is taken over the id,
+; the stamp, the predecessor and the receipt bytes, and this member rides inside the pack's signature
+; without moving a link. That is what lets the manifest's own `prov` be the reduction over these values
+; rather than a reading of the frames.
 PackItem = {
     id: tstr .size (1..65535), ; the store's own id for the receipt, as the record names it
     iat: int,                 ; unix seconds, the stamp the record was chained at
+    prov: "live" / "captured" / "fixture", ; where the material this record carries came from
     prev: bstr .size 32,      ; digest of the record before it, or the anchor for the first item
     receipt: bstr .cbor Ashaveri-Receipt, ; the signed receipt bytes, whole and unaltered
 }

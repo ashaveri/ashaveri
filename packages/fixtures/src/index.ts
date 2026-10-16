@@ -619,6 +619,8 @@ export interface PackVectorFile {
     attachedRecords: PackRecordRow[];
     /** The whole rule the reader enforces over the reference list and the byte arm, with both ceilings as figures. */
     custodyRule: string;
+    /** The whole rule the reader enforces over the provenance member and its reduction, three values to one. */
+    provenanceRule: string;
     framingRule: string;
     keyMaterial: Array<{
       id: string;

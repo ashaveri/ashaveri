@@ -194,6 +194,7 @@ function packDocument(key: SigningKey, ids: readonly string[], movedStamp?: numb
     const item = new Map<string, unknown>([
       ['id', `receipt-${String(index)}`],
       ['iat', stamp],
+      ['prov', 'fixture'],
       ['prev', previous],
       ['receipt', receipt],
     ]);
@@ -203,6 +204,7 @@ function packDocument(key: SigningKey, ids: readonly string[], movedStamp?: numb
   const manifest = new Map<string, unknown>([
     ['v', 1],
     ['at', at],
+    ['prov', 'fixture'],
     ['span', new Map([['from', from], ['to', to]])],
     ['chain', new Map([['anchor', anchor], ['head', previous]])],
     ['duty', new Map<string, unknown>([['art', 'retention-evidence'], ['rev', at - 10], ['required', 31_536_000], ['held', at - from]])],

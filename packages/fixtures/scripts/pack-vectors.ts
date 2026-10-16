@@ -9,6 +9,7 @@ import {
   CUSTODY_SLOTS_PER_ITEM,
   EXPORT_CONTENT_TYPE,
   PACK_CONTENT_TYPE,
+  PROVENANCES,
   ReceiptError,
   custodyForSlot,
   decodeCanonical,
@@ -20,6 +21,7 @@ import {
   issueReceipt,
   packRecordDigest,
   packSigStructure,
+  reduceProvenance,
   resolveAttached,
   sealPack,
   signPack,
@@ -34,6 +36,7 @@ import {
   type PackItem,
   type PackManifest,
   type PackOrderingFinding,
+  type Provenance,
   type ReceiptPayload,
   type SigningKey,
   type VerifiedPack,
@@ -135,12 +138,15 @@ const text = (value: string): Uint8Array => new TextEncoder().encode(value);
 /**
  * One record's receipt, under the key that epoch held, attesting the stamp it is chained with. Given `slots` it
  * is the document whose anchors name material a reference answers for; given none it is the field set the suite
- * started from, whose two slots each state that this collector took nothing in.
+ * started from, whose two slots each state that this collector took nothing in. `over` moves a member of that
+ * field set at the call site, which is how a row states the one thing its document says about its own execution
+ * rather than taking the corpus default.
  */
-function receiptFor(id: string, iat: number, key: SigningKey = CURRENT, slots?: AnchorSlots): Uint8Array {
+function receiptFor(id: string, iat: number, key: SigningKey = CURRENT, slots?: AnchorSlots, over: Partial<ReceiptPayload> = {}): Uint8Array {
   const fields: ReceiptPayload = {
     ...fixturePayload({ iat }),
     nce: labeled(`ashaveri-pack-v1/nonce/${id}`, 16),
+    ...over,
   };
   return issueReceipt(slots === undefined ? fields : anchoredPayload(fields, iat, slots), key);
 }
@@ -175,6 +181,10 @@ interface Entry {
   readonly iat: number;
   readonly key?: SigningKey;
   readonly slots?: AnchorSlots;
+  /** Where the material of this record came from. Absent, the row is the fixture run every case starts from. */
+  readonly prov?: Provenance;
+  /** A member of the receipt's field set this record moves, for a row that states its own measurement. */
+  readonly over?: Partial<ReceiptPayload>;
 }
 
 /**
@@ -189,8 +199,9 @@ function chained(entries: readonly Entry[], anchor: Uint8Array = ZEROS): { items
     const item: PackItem = {
       id: entry.id,
       iat: entry.iat,
+      prov: entry.prov ?? 'fixture',
       prev,
-      receipt: receiptFor(entry.id, entry.iat, entry.key ?? CURRENT, entry.slots),
+      receipt: receiptFor(entry.id, entry.iat, entry.key ?? CURRENT, entry.slots, entry.over),
     };
     items.push(item);
     prev = packRecordDigest(item);
@@ -207,12 +218,16 @@ const ENTRIES: readonly Entry[] = [
 /**
  * A manifest from a run, honest in every relation the format states. The duty figures default to the ones a
  * deployment meeting its period signs; the row about a duty that falls short moves `required` and nothing else,
- * because the reader is not where that comparison is made.
+ * because the reader is not where that comparison is made. The pack's own provenance is computed here rather
+ * than taken as an argument, because it is the reduction of the run's per-item values and not a parameter: a
+ * row that wants a stronger or weaker value moves the encoded document past this builder, the way every other
+ * document a deployment would not sign is moved.
  */
 function manifestFor(run: { items: PackItem[]; anchor: Uint8Array; head: Uint8Array }, over: Partial<PackManifest> = {}): PackManifest {
   return {
     v: 1,
     at: SPAN_TO,
+    prov: reduceProvenance(run.items.map((one) => one.prov)),
     span: { from: SPAN_FROM, to: SPAN_TO },
     chain: { anchor: run.anchor, head: run.head },
     duty: { ...HONEST_DUTY, held: Math.max(HONEST_DUTY.held, SPAN_TO - Math.min(...run.items.map((one) => one.iat))) },
@@ -324,7 +339,7 @@ function sealedUnder(header: Uint8Array, payloadBytes: Uint8Array = encodePackMa
 
 /** A record chained from a digest nothing in this run carries, which the walk never needs to reach. */
 function parkedItem(id: string, iat: number): PackItem {
-  return { id, iat, prev: digest(text('a digest nobody in this run names')), receipt: receiptFor(id, iat) };
+  return { id, iat, prov: 'fixture', prev: digest(text('a digest nobody in this run names')), receipt: receiptFor(id, iat) };
 }
 
 /** The designation a row hands the reader: one pinned key, the set a resolver answers from, or neither. */
@@ -391,6 +406,32 @@ const SAME_SECOND = chained([
 const SHORTER = chained([ENTRIES[0]!, ENTRIES[2]!]);
 const SINGLE = chained([ENTRIES[0]!]);
 const SEAM = chained(ENTRIES, digest(text('the seam a trim record carried')));
+
+/**
+ * The provenance rows: a run whose every record states a live origin, one whose every record states a capture,
+ * and one that mixes the two. The live run's receipts declare the software measurement, which is the claim a
+ * deployment with no hardware protection makes, and the captured run keeps the corpus' hardware measurement.
+ * The pair publishes the separation the field keeps, that provenance and execution assurance are two answers,
+ * and the two sentences the reduction states: a run of live items reduces to live and never to captured, so
+ * live software never becomes hardware evidence, and a captured item beside live ones keeps the captured value,
+ * so a captured original can retain valid hardware evidence. Every byte below is this suite's fixture material
+ * like every other row's, and what the rows pin is the shape a document assembled from such runs takes, its own
+ * provenance field included: no reader recomputes where material came from, so that field is the writer's signed
+ * statement and the reader's check is that the document states the weakest of its items.
+ */
+const LIVE_MEASUREMENT: Partial<ReceiptPayload> = {
+  meas: { tee: 'software', m: digest(text('ashaveri-pack-v1/live-measurement')) },
+};
+const LIVE_RUN = chained(ENTRIES.map((one) => ({ ...one, prov: 'live' as const, over: LIVE_MEASUREMENT })));
+const CAPTURED_RUN = chained(ENTRIES.map((one) => ({ ...one, prov: 'captured' as const })));
+const MIXED_RUN = chained([
+  { id: 'receipt-0', iat: BASE, prov: 'live' as const },
+  { id: 'receipt-1', iat: BASE + 1, prov: 'captured' as const },
+  { id: 'receipt-2', iat: BASE + 2, prov: 'live' as const },
+]);
+const liveManifest = manifestFor(LIVE_RUN);
+const capturedManifest = manifestFor(CAPTURED_RUN);
+const mixedManifest = manifestFor(MIXED_RUN);
 
 /**
  * Material a `held` slot names, spelled the way the byte arm spells it: the bytes a deployment might attach beside
@@ -885,6 +926,36 @@ const CASES: readonly Case[] = [
     ordering: [],
   },
   {
+    name: 'provenance-live-run',
+    note: 'Every record of this pack states that a running deployment produced its material while answering a real request, and the pack states live as well, which is the value its items reduce to. The receipts are this suite\'s fixtures like every row here and the one thing this row moves about them is what they declare about their own execution: a software measurement, the claim a deployment with no hardware protection makes. The pair of statements is the separation the field keeps and not a contradiction: a live origin says where the material came from, it does not make the run hardware evidence, and the receipt\'s own measurement is where that separate claim lives. The bytes pin the shape such a pack takes and the reduction the reader checks, and the provenance field itself is the writer\'s signed statement, which no reader recomputes.',
+    bytes: signPack(liveManifest, CURRENT),
+    read: PINNED_CURRENT,
+    verdict: 'verify-ok',
+    structural: 'verify-ok',
+    walk: ['receipt-0', 'receipt-1', 'receipt-2'],
+    ordering: [],
+  },
+  {
+    name: 'provenance-captured-replay',
+    note: 'Every record states that its material is a vendor-signed document recorded elsewhere and replayed into a locally issued receipt, and the pack states the captured value those items reduce to. The receipts keep the corpus\' hardware measurement, because that is what the captured shape is: the vendor signature behind the document is real and the receipt around it is this deployment\'s, which is a valid piece of hardware evidence and is not a live run. The row is the second half of the pair the two sentences state: live software never becomes hardware evidence, and a captured original retains valid hardware evidence.',
+    bytes: signPack(capturedManifest, CURRENT),
+    read: PINNED_CURRENT,
+    verdict: 'verify-ok',
+    structural: 'verify-ok',
+    walk: ['receipt-0', 'receipt-1', 'receipt-2'],
+    ordering: [],
+  },
+  {
+    name: 'provenance-mixture-reduces-to-the-weakest',
+    note: 'A pack whose first and third records state a live origin and whose middle record states a capture, sealed with the value its items reduce to: captured. This is the mixture cell the reduction exists for. The captured item is not washed down to live by the live items beside it, because the weakest value wins and the captured item is the weakest, and the pack cannot state live for the whole while the middle record carries that capture. The run is otherwise the honest three-record span every accepted row starts from, so what this row publishes is the reduction and nothing else.',
+    bytes: signPack(mixedManifest, CURRENT),
+    read: PINNED_CURRENT,
+    verdict: 'verify-ok',
+    structural: 'verify-ok',
+    walk: ['receipt-0', 'receipt-1', 'receipt-2'],
+    ordering: [],
+  },
+  {
     name: 'shortened-run-closing-at-its-own-head',
     note: 'The middle record lifted out and the run re-chained to the head that shorter run hashes to, which is what a deployment that removed a receipt and re-signed the endpoints would hand over. Every check the container supports passes and the deletion is invisible from these bytes alone: publishing the head makes deletion detectable against a copy a reader held from before, and this reader is handed none. The run it reports is two items, and the window it states is the window it was signed to answer for.',
     bytes: signPack(manifestFor(SHORTER), CURRENT),
@@ -1056,6 +1127,24 @@ const CASES: readonly Case[] = [
     item: 'receipt-0',
   },
   {
+    name: 'provenance-stronger-than-the-weakest-item',
+    note: 'A pack whose every record is a fixture, sealed with a statement that its material is a live run. The member is a reduction and not a parameter, so the document contradicts itself and a reader refuses it whoever signed it: a stronger value would claim more than the pack carries, and the stronger direction is the one the design\'s exit test names, a pack whose top-level provenance is stronger than its weakest item. The writer refuses to seal these bytes at all, which is why the row is assembled from the pieces and published as the document a port has to answer.',
+    bytes: mutant(honestManifest, (root) => root.set('prov', 'live')),
+    read: PINNED_CURRENT,
+    verdict: 'PACK_BAD_MANIFEST',
+    structural: 'PACK_BAD_MANIFEST',
+    edited: 'prov, stated as live where the weakest item is a fixture',
+  },
+  {
+    name: 'provenance-label-outside-the-three',
+    note: 'A record carrying a provenance label this version defines no reading for. The vocabulary is closed, and the refusal is the member not being the one this version declares rather than a guess at which of the three the writer meant: a reader that read the value as whichever it resembled would be reporting a provenance no document stated.',
+    bytes: mutant(honestManifest, (root) => itemOf(root, 1).set('prov', 'synthetic')),
+    read: PINNED_CURRENT,
+    verdict: 'PACK_BAD_MANIFEST',
+    structural: 'PACK_BAD_MANIFEST',
+    edited: "items[1].prov, set to a label outside the three",
+  },
+  {
     name: 'item-receipt-is-not-a-receipt',
     note: 'An item whose `receipt` is a sentence rather than a signed document. The originals are read before the walk, so what a caller hears is that this pack carries something other than the receipts it claims, and the refusal names which item and with what answer.',
     bytes: despiteGuard({ ...honestManifest, items: [{ ...honestManifest.items[0]!, receipt: text('not a receipt at all') }, ...honestManifest.items.slice(1)] }),
@@ -1086,7 +1175,7 @@ const CASES: readonly Case[] = [
   {
     name: 'two-items-naming-one-predecessor',
     note: 'A second item claiming the anchor as its predecessor, the rest of the run untouched. The walk would take whichever it met first and report the other as unreached, so a fork is refused rather than resolved by the order the array happened to be in.',
-    bytes: despiteGuard({ ...honestManifest, items: [{ id: 'rival', iat: BASE, prev: HONEST.anchor, receipt: receiptFor('rival', BASE) }, ...honestManifest.items] }),
+    bytes: despiteGuard({ ...honestManifest, items: [{ id: 'rival', iat: BASE, prov: 'fixture', prev: HONEST.anchor, receipt: receiptFor('rival', BASE) }, ...honestManifest.items] }),
     read: PINNED_CURRENT,
     verdict: 'PACK_CHAIN_BROKEN',
     structural: 'verify-ok',
@@ -1395,6 +1484,42 @@ function main() {
     }
   }
 
+  // The reduction, over every combination the generator can produce. Each combination is a run of three
+  // records whose per-item values walk the matrix; the manifest's own value is computed by the same builder
+  // every honest row goes through, the writer accepts the document that comes out, and the reader reads the
+  // same value back beside the same items. A manifest whose own provenance is stronger than the weakest item
+  // is then offered to the writer and has to be refused with the reader's own code, which is the symmetry the
+  // reduction rule states in one direction and the exit test states in the other.
+  for (const first of PROVENANCES) {
+    for (const second of PROVENANCES) {
+      for (const third of PROVENANCES) {
+        const combination = [first, second, third] as const;
+        const run = chained(ENTRIES.map((one, index) => ({ ...one, prov: combination[index]! })));
+        const manifest = manifestFor(run);
+        const weakest = reduceProvenance(combination);
+        if (manifest.prov !== weakest) {
+          throw new Error(`the generator computed '${manifest.prov}' for ${combination.join(', ')}, not the weakest value '${weakest}'`);
+        }
+        const read = decodePack(signPack(manifest, CURRENT)).manifest;
+        const stated = [read.prov, ...read.items.map((one) => one.prov)].join(', ');
+        if (stated !== [weakest, ...combination].join(', ')) {
+          throw new Error(`the reader read back ${stated} for a pack the generator sealed from ${combination.join(', ')}`);
+        }
+      }
+    }
+  }
+  const strongerRefusal = ((): string | null => {
+    try {
+      signPack({ ...mixedManifest, prov: 'live' }, CURRENT);
+      return null;
+    } catch (err) {
+      return err instanceof ReceiptError ? err.code : null;
+    }
+  })();
+  if (strongerRefusal !== 'PACK_BAD_MANIFEST') {
+    throw new Error(`the pack writer answered ${String(strongerRefusal)} for a provenance stronger than its weakest item`);
+  }
+
   for (const one of CASES) {
     const observed = verdictOf(one);
     if (observed !== one.verdict) {
@@ -1544,7 +1669,7 @@ function main() {
       {
         version: 1,
         description:
-          'Evidence packs in the shapes a deployment hands them over in, the keys a reader designates beside each one, and the verdict the shipped pack reader owes: whole documents accepted with the run and the window reported apart, the references a pack signs for each held slot its sealed receipts name, an honest pack whose stamps run against its links reported and not refused, and one refusal for every fault the format names.',
+          'Evidence packs in the shapes a deployment hands them over in, the keys a reader designates beside each one, and the verdict the shipped pack reader owes: whole documents accepted with the run and the window reported apart, the per-item provenance values their material states reduced to the pack\'s own, the references a pack signs for each held slot its sealed receipts name, an honest pack whose stamps run against its links reported and not refused, and one refusal for every fault the format names.',
         layout: {
           format: 'packages/receipt/pack.cddl',
           twin: 'packages/receipt/schemas/pack-v1.schema.json',
@@ -1570,6 +1695,8 @@ function main() {
             'held is at least the age of the oldest receipt in this pack, measured at at. A held short of required is nothing of that kind: the document is whole and the reader states no verdict on the duty, because met is absent from the format on purpose',
           orderingRule:
             'the links fix the order of the run and an item iat is the stamp that record was chained under, and the two are free to disagree because the store chains under whatever stamp it was handed. A reader reports a disagreement on the result and never refuses it: the lawful output of a deployment that corrected its clock is a pack with the finding beside a clean walk',
+          provenanceRule:
+            'the three values are live, captured and fixture, written in the format\'s strength order, and a pack\'s own prov is the weakest of its items\' values: a value that is not the reduction, in either direction, is refused under PACK_BAD_MANIFEST, so a pack cannot be assembled to claim live while carrying one fixture. Live software never becomes hardware evidence, because a run of live items reduces to live and never to captured, and a captured original can retain valid hardware evidence, because a captured item beside live ones keeps the captured value rather than being washed down to live. The field is separate from execution assurance, from the custody references and from the duty: what a receipt\'s meas and att claim, what an anchor names and what period the window answers under are three other questions, and since no reader recomputes where material came from, the field is one statement a reader checks against the items and never a verdict about their bytes',
           custodyRule:
             `custody holds one reference per named held slot of a sealed receipt, and a reference states where it was read from, what was asked, what the answer said it was, when its last byte landed and what that source declares about itself, the digest of the body, the digest of the header that arrived beside it, which arm weighed them and the window the document signed for itself. attached holds the material itself, whole, where a deployment attaches it: the bytes, their digest, and a header beside them exactly when the digest of that header is stated. The reader recomputes each digest instead of trusting the statement beside it, refuses a list of references past the ${String(CUSTODY_SLOTS_PER_ITEM)} slots every sealed receipt can name, an attached object past the ${String(CARRIED_MAX_BYTES)} bytes the format already states for a run of bytes, an attachment past that same count of slots, an instant that is no whole number of Unix seconds inside the band the receipt format draws, and the pair of lists and the slots failing to speak of the same material: no entry answering for a slot no sealed receipt states, no held slot no reference answers for, no digest attached at two positions, no object the body digest of no reference names, and no header carried beside a reference that states none. A slot that states an absence names no digest and owes no reference and no bytes, so a pack referring to nothing and attaching nothing for a run of absences is whole. Each refusal names the position it found`,
           encodings: 'documents and byte strings unpadded base64url, digests, kids, predecessors and signatures lowercase hex, instants unix seconds',
@@ -1584,7 +1711,7 @@ function main() {
             'records frames the run of `well-formed-three-items` and attachedRecords frames the run of `held-slots-referred-to-by-name`, and those are the two runs this suite publishes a framing for: the canonical run, whose every slot of every sealed receipt states an absence, and the run whose every held slot is answered by a reference the pack signs. A row beside them is read the same way and framed by the same rule, so what the two tables give a port is two published answers to recompute against rather than one. Each row of a table is derived from the sealed bytes of the document it sits beside rather than from the manifest its writer was handed, so a table cannot describe a run the published document does not hold',
           codes: [...new Set(CASES.map((one) => one.verdict))].sort(),
           assembled:
-            'every honest pack is `signPack` and no hand-built bytes. Where a row needs something that writer refuses to sign, the manifest is encoded, one position of its map is changed, and the result is signed over the published `Sig_structure` and sealed by `sealPack` under the key its header names; the generator stops unless that path reproduces `signPack` byte for byte on the canonical header, so each fault below is the one position its `edited` field names and nothing else. The writer is also asked to sign a manifest that contradicts its own span, a pack under a key whose kid is not sha256 of its public half, and each position the reference list and the byte arm can disagree with the slots their sealed receipts name, and refuses all of them with the code the row publishes, which is why this suite carries no row that a deployment could have produced by accident. One accepted row does attach material: `custody-served-weighed` hands over a served body and the issuer-chain header that arrived beside it, both made here by the fixture vendor this repository generates, because a reference resolving to nothing is a claim no port can be weighed against. The generator decodes every accepted document, resolves each object of its arm by the digest recomputed from the bytes beside it, and stops unless a reference of that same pack names that digest and states the same digest for any header attached with it; an object no reference names appears only in a row the reader refuses.',
+            'every honest pack is `signPack` and no hand-built bytes. Where a row needs something that writer refuses to sign, the manifest is encoded, one position of its map is changed, and the result is signed over the published `Sig_structure` and sealed by `sealPack` under the key its header names; the generator stops unless that path reproduces `signPack` byte for byte on the canonical header, so each fault below is the one position its `edited` field names and nothing else. The writer is also asked to sign a manifest that contradicts its own span, a pack under a key whose kid is not sha256 of its public half, a pack whose own provenance is not the weakest of its items, and each position the reference list and the byte arm can disagree with the slots their sealed receipts name, and refuses all of them with the code the row publishes, which is why this suite carries no row that a deployment could have produced by accident. The generator also walks every combination of three items\' provenance values through the reduction, seals the pack the same builder computes, and asks the reader for the same three values back; and one accepted row does attach material: `custody-served-weighed` hands over a served body and the issuer-chain header that arrived beside it, both made here by the fixture vendor this repository generates, because a reference resolving to nothing is a claim no port can be weighed against. The generator decodes every accepted document, resolves each object of its arm by the digest recomputed from the bytes beside it, and stops unless a reference of that same pack names that digest and states the same digest for any header attached with it; an object no reference names appears only in a row the reader refuses.',
           keyMaterial: KEY_MATERIAL.map((one) => ({
             id: toHex(one.key.kid).slice(0, 8),
             seed: one.seed,
