@@ -37,7 +37,7 @@ const SPAWN_DEADLINE_MS = 15_000;
  * reached, and one row carries another shape's name in label 3 and so reaches that shape's reader. Those are
  * listed in `COMMAND_PATH_ANSWERS` beside the fact that makes them, and the replay checks both directions, so a
  * row that diverges without being listed fails and a listed row that stopped diverging fails beside it. The
- * three fold rows are replayed again in `possession-fold-at-the-command-edge.test.ts`, where the directory they
+ * six fold rows are replayed again in `possession-fold-at-the-command-edge.test.ts`, where the directory they
  * name is handed, and there the command path answers each of them as its published row states it.
  *
  * The pinned verb is tested against the other five published shapes rather than only beside its own, because a
