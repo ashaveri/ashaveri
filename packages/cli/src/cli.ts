@@ -82,10 +82,12 @@ each entry states its own as packs/<digest>/retention-v1.json or packs/<digest>/
 per entry is read out of the record's own paths rather than named at this command line. Handed, the report
 prints the interval the observations attest beside the digests they name, and the reader refuses by digest an
 artifact whose bytes no entry of the run seals while this command refuses by name an entry whose artifact the
-root does not hold, because the question an auditor asks with this flag has no partial answer. Where every
-artifact handed is the layout stating no holding, the answer is not that line: the reader refuses the run with
-EPOCH_INVENTORY_PRESENCE_WINDOW_TOO_WIDE and the sentence that its observations name no digest at all, which is
-a complete directory that cannot say what was held rather than a shortage of files. Not handed, the two
+root does not hold, because the question an auditor asks with this flag has no partial answer. Where the
+interval the observations attest is not the window the run states (every artifact stating no holding, a gap
+inside the period the run attests, or a window wider than the observations attest), the answer is not that
+line: the reader refuses the pair, and where the directory states no holding the refusal is
+EPOCH_INVENTORY_PRESENCE_WINDOW_TOO_WIDE with the sentence that its observations name no digest at all,
+which is a complete directory that cannot say what was held rather than a shortage of files. Not handed, the two
 digests an entry names print as the document's own figures and the report says in terms that the possession
 reading was not attempted. The option is consulted for an inventory and for nothing else, and it is not a
 second --companion: that one matches a file by its basename, and every entry's artifact carries one of the same
@@ -334,12 +336,14 @@ Handover options, the same for verify-handover, verify-pack, verify-export and v
                      Handed, and every artifact the entries name is there and is the one the same entry seals,
                      the report prints a possession line: the interval the observations attest, how many of the
                      run's entries stated a holding, and the two rosters of digests the interval is about. Where
-                     every artifact handed is the layout stating no holding, the answer is not that line: the
-                     reader refuses the run with EPOCH_INVENTORY_PRESENCE_WINDOW_TOO_WIDE and the sentence that
-                     its observations name no digest at all, which is a complete directory that cannot say what
-                     was held rather than a shortage of files. Not handed, the report says in terms that the
-                     possession reading was not attempted and prints each entry's retention digest as the
-                     document's own figure. An artifact whose bytes hash to a digest no entry of the run seals
+                     the interval the observations attest is not the window the run states (every artifact
+                     stating no holding, a gap inside the period the run attests, or a window wider than the
+                     observations attest), the answer is not that line: the reader refuses the pair, and where
+                     the directory states no holding the refusal is EPOCH_INVENTORY_PRESENCE_WINDOW_TOO_WIDE
+                     with the sentence that its observations name no digest at all, which is a complete
+                     directory that cannot say what was held rather than a shortage of files. Not handed, the
+                     report says in terms that the possession reading was not attempted and prints each entry's
+                     retention digest as the document's own figure. An artifact whose bytes hash to a digest no entry of the run seals
                      is refused by that digest, an entry whose artifact the root does not hold, or whose door
                      holds a file that is not the artifact it names, is refused by name, and none of them leaves
                      a report written, because half an answer about whether the evidence a record describes is
