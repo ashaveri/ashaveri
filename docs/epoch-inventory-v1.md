@@ -291,11 +291,15 @@ still runs across a whole handover. What a run can be answered with is four thin
   reached. The refusal is the reader's own and the command prints it as it gave it. Because the run is resolved one
   file per entry, this is met where the bytes standing at an entry's own name hash to something the run does not
   seal; a file the entries name nowhere under that root is read by nothing, and so neither believed nor refused.
-- **An entry whose artifact is not there.** Refused by name, before the fold is asked: the refusal states the entry,
-  the `retention` path it gives, and the root it was looked for under, and it exits as a gap in what the caller
-  handed rather than as a verdict about the document. No report is written, because the question this flag is asked
-  with, whether the evidence a record describes is still where the record says it is, has no partial answer. A fold
-  over the artifacts that happened to survive would report a period the run attests out of a run that could not.
+- **An entry whose artifact is not there, or whose door holds a file that is not it.** Refused by name, before the
+  fold is asked: the refusal states the entry, the `retention` path it gives, and the root it was looked for under,
+  and it exits as a gap in what the caller handed rather than as a verdict about the document. The second shape is
+  the one the reader cannot see: a manifest that belongs to another entry of the same run still hashes to a digest
+  the run seals, so a directory in which two artifacts change doors folds the same interval, and the command hashes
+  each file it reads against the digest the entry that names it seals rather than trusting the reader's attribution
+  by digest alone. No report is written for either shape, because the question this flag is asked with, whether the
+  evidence a record describes is still where the record says it is, has no partial answer. A fold over the artifacts
+  that happened to survive would report a period the run attests out of a run that could not.
 
 None of the four is a claim that a duty was discharged. The fold pairs digests a caller supplied with digests a
 signature seals, and states the period across which the run's own observations named them; whether that material

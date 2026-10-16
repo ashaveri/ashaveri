@@ -10,6 +10,7 @@ import {
   REDACTION_CONTENT_TYPE,
   decodeCanonical,
   ReceiptError,
+  sha256Hex,
   verifyEpochInventory,
   verifyExport,
   verifyPack,
@@ -871,8 +872,16 @@ function rosterOf(family: string, digests: readonly string[]): string {
  * An entry's artifact that is not there is refused rather than skipped, because the question an auditor asks with
  * this flag is whether the evidence the inventory describes is still where the record says it is, and that
  * question has no partial answer: a fold over the artifacts that happened to survive reads as an answer about the
- * whole run. The refusal is about the caller's directory and so is a usage refusal, the same route a `--companion`
- * file that is not there takes.
+ * whole run. The bytes that are there are then hashed against the digest the same entry seals, because the reader
+ * attributes an artifact by that digest alone and never asks which entry named it, so a directory in which two
+ * manifests change doors still folds the same interval and would print a report claiming an agreement this run had
+ * not made. Both refusals are about the caller's directory and so are usage refusals, the same route a
+ * `--companion` file that is not there takes, and each says which of the two the door did.
+ *
+ * Bytes at a door that hash to a digest no entry of the run seals are not refused here: they travel to the reader,
+ * which owns that judgement and states it as its own refusal, so a digest outside the run keeps the answer it had
+ * before this check existed. The check fires only where the bytes are the artifact of a different entry of this
+ * same run, which is the one case the reader cannot see.
  */
 async function possessionArtifacts(root: string, run: readonly EpochInventoryPack[]): Promise<readonly Uint8Array[]> {
   const artifacts: Uint8Array[] = [];
@@ -884,7 +893,14 @@ async function possessionArtifacts(root: string, run: readonly EpochInventoryPac
         `${RETENTION_DIR_FLAG}: ${printedToken(one.file)} states its retention artifact at ${printedToken(one.retention)} and ${printedToken(root)} holds no file at that name, and this run reads exactly the artifact each entry names rather than whatever else the directory holds, so a run missing one of them is refused rather than folded from the rest`,
       );
     }
-    artifacts.push(await readBytes(path, RETENTION_DIR_FLAG));
+    const bytes = await readBytes(path, RETENTION_DIR_FLAG);
+    const digest = sha256Hex(bytes);
+    if (digest !== one.retentionSha256 && run.some((other) => other.retentionSha256 === digest)) {
+      throw new UsageError(
+        `${RETENTION_DIR_FLAG}: ${printedToken(one.file)} states its retention artifact at ${printedToken(one.retention)} and ${printedToken(root)} holds a file at that name which is not the artifact this entry seals: those bytes hash to ${digest} and the entry seals ${one.retentionSha256}, and this run reads exactly the artifact each entry names rather than whatever else the directory holds, so a directory holding the wrong bytes at one entry's name is refused rather than folded from the rest`,
+      );
+    }
+    artifacts.push(bytes);
   }
   return artifacts;
 }

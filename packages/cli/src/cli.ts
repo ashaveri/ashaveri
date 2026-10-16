@@ -340,9 +340,10 @@ Handover options, the same for verify-handover, verify-pack, verify-export and v
                      was held rather than a shortage of files. Not handed, the report says in terms that the
                      possession reading was not attempted and prints each entry's retention digest as the
                      document's own figure. An artifact whose bytes hash to a digest no entry of the run seals
-                     is refused by that digest, an entry whose artifact the root does not hold is refused by
-                     name, and neither leaves a report written, because half an answer about whether the evidence
-                     a record describes is still there is no answer at all. A stray file under the root is read
+                     is refused by that digest, an entry whose artifact the root does not hold, or whose door
+                     holds a file that is not the artifact it names, is refused by name, and none of them leaves
+                     a report written, because half an answer about whether the evidence a record describes is
+                     still there is no answer at all. A stray file under the root is read
                      by nothing here, because no entry names it. Beside a receipt, a pack, an export, a manifest
                      or an amendment this flag is printed as not consulted.
   --intel-root <file> A root certificate this run stands behind, PEM or DER. Repeatable, one file per flag. On

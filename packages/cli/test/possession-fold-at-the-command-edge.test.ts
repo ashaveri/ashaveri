@@ -6,6 +6,7 @@ import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { afterAll, describe, expect, it } from 'vitest';
 import { EPOCH_INVENTORY_CONTENT_TYPE, RECEIPT_CONTENT_TYPE, decodeEpochInventory } from '@ashaveri/receipt';
+import { printedToken } from '../src/usage.js';
 import { noteSpawn, spawnCeilingForCalls } from './support/spawn-budget.js';
 
 /**
@@ -15,7 +16,9 @@ import { noteSpawn, spawnCeilingForCalls } from './support/spawn-budget.js';
  * for, because the only file-handling flag in the family matches a file by its basename and every pack's
  * retention artifact carries one of the same two names under a different directory. This file therefore asks the
  * four answers a caller can get, over a directory built from published bytes: nothing handed, everything handed
- * and matched, a digest no entry seals, and an entry whose artifact is not where the record says it is. Each
+ * and matched, a digest no entry seals, and an entry whose artifact is not where the record says it is, and it
+ * asks the two shapes of a directory that does not answer the record: an entry's artifact standing at another
+ * entry's name, and a door the operating system will not open. Each
  * answer is read as a printed sentence and an exit code, because that is what a person at a terminal gets, and
  * the pairing itself is decided by the shipped reader rather than by anything here.
  *
@@ -247,6 +250,46 @@ describe('the possession fold at the command edge', () => {
     expect(result.stderr).toContain(missing.retention);
     expect(result.stderr).toContain('holds no file at that name');
     expect(result.stderr).not.toContain('possession:');
+  });
+
+  it('refuses a directory that holds one entry\'s artifact at another entry\'s name, by name, and writes nothing', {
+    timeout: spawnCeilingForCalls(2, SPAWN_DEADLINE_MS),
+  }, () => {
+    const { documentPath, root, entries } = directoryFor(PROVEN);
+    const [first, second] = entries;
+    if (first === undefined || second === undefined) {
+      throw new Error('the published row states fewer than two entries to move an artifact between');
+    }
+    // The two artifacts change doors. Each door still holds a manifest this run seals, so the fold's own
+    // attribution by digest still finds a holder for both digests and the attested interval is unchanged; what
+    // stops being true is the record's statement that the bytes standing at an entry's name are the artifact that
+    // entry seals, and that is the statement the printed report makes.
+    const firstPath = join(root, ...first.retention.split('/'));
+    const secondPath = join(root, ...second.retention.split('/'));
+    const a = readFileSync(firstPath);
+    const b = readFileSync(secondPath);
+    writeFileSync(firstPath, b);
+    writeFileSync(secondPath, a);
+    expect(sha256Hex(b), 'the row does not seal one artifact per entry').not.toBe(first.retentionSha256);
+    const result = runCli(['verify-epoch-inventory', documentPath, designation(PROVEN), '--retention-dir', root]);
+    // The route is the family's existing one for a gap in what the caller handed, and the sentence says which
+    // gap: the door holds a file, and it is not the one the entry names.
+    expect(result.status).toBe(2);
+    expect(result.stdout).toBe('');
+    expect(result.stderr).toContain('--retention-dir');
+    expect(result.stderr).toContain(first.file);
+    expect(result.stderr).toContain(first.retention);
+    expect(result.stderr).toContain(printedToken(root));
+    expect(result.stderr).toContain(sha256Hex(b));
+    expect(result.stderr).toContain(first.retentionSha256);
+    expect(result.stderr).toContain('holds a file at that name which is not the artifact this entry seals');
+    expect(result.stderr).not.toContain('holds no file at that name');
+    expect(result.stderr).not.toContain('possession:');
+    // One route, whichever verb is handed the directory: the free verb prints the same refusal, byte for byte.
+    const free = runCli(['verify-handover', documentPath, designation(PROVEN), '--retention-dir', root]);
+    expect(free.status).toBe(2);
+    expect(free.stdout).toBe('');
+    expect(free.stderr).toBe(result.stderr);
   });
 
   it('refuses an artifact no entry seals by its digest, and reads nothing a name does not state', {
