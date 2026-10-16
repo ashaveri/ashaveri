@@ -252,6 +252,21 @@ describe('the possession fold at the command edge', () => {
     expect(result.stderr).not.toContain('possession:');
   });
 
+  it('refuses an empty --retention-dir as a gap in the call', {
+    timeout: spawnCeilingForCalls(1, SPAWN_DEADLINE_MS),
+  }, () => {
+    const { documentPath } = directoryFor(PROVEN);
+    // An empty argument is a gap in the call rather than a root that holds nothing: it would be handed, every
+    // entry's path would resolve under the working directory, and a refusal about the root would print it as
+    // nothing. Refused before the document is read, the way an empty --companion basename is.
+    const result = runCli(['verify-epoch-inventory', documentPath, designation(PROVEN), '--retention-dir', '']);
+    expect(result.status).toBe(2);
+    expect(result.stdout).toBe('');
+    expect(result.stderr).toContain('--retention-dir');
+    expect(result.stderr).toContain("must name a directory, not ''");
+    expect(result.stderr).not.toContain('holds no file at that name');
+  });
+
   it('carries the operating system\'s reason when a door cannot be resolved at all', {
     timeout: spawnCeilingForCalls(1, SPAWN_DEADLINE_MS),
   }, () => {

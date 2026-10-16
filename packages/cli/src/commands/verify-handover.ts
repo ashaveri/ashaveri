@@ -1246,9 +1246,18 @@ export async function runVerifyHandover(
   const companions = await companionFiles(values.companion);
   const json = values.json === true;
   const carried = await carriedDesignations(values);
+  // An empty root is refused as the gap in the call it is, the way an empty `--companion` basename is: it would
+  // be "handed", `join('', ...)` would resolve every entry's path under the working directory, and the row or
+  // refusal that prints the root would print it as nothing.
+  const retentionDir = values['retention-dir'];
+  if (retentionDir === '') {
+    throw new UsageError(
+      `${RETENTION_DIR_FLAG} must name a directory, not '': a run's retention artifacts are resolved one file per entry under the root this option names, and an empty argument would resolve them under the working directory instead`,
+    );
+  }
   // Nothing is opened here: a root is a name until the reader for an inventory needs it, so handing this flag to
   // a receipt costs that run nothing beyond the row that says it was not consulted.
-  const retentionRoot = values['retention-dir'] ?? null;
+  const retentionRoot = retentionDir ?? null;
   const inputs: Inputs = { evidence, manifest: manifestKeys, companions, retentionRoot, carried };
   const bytes = await readOneDocument(path);
 
