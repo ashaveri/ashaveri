@@ -10,7 +10,7 @@ import { expect } from 'vitest';
  * about it meet, so the parsers here are deliberately narrow: they find one declaration, or one
  * table with one exact header, and refuse to guess when either is missing or doubled. A table the
  * test could not find has to fail the run loudly, because a silently empty row list reads as a
- * document that stopped claiming anything.
+ * document that does not claim anything.
  *
  * One check is here too, because five published suites state a column roster and a reviewer copies
  * it out of their file: `assertRowRoster`. It is the equality, written once, that each of those

@@ -5,8 +5,8 @@ import { describe, expect, it } from 'vitest';
 
 /**
  * The corpora the hostile-input properties in the two parser packages mutate. They are pinned by
- * digest on purpose: a generator built over a corpus that quietly became empty, or stopped
- * containing the structure the properties claim to break, keeps passing while asserting nothing.
+ * digest on purpose: a generator built over a corpus that is empty, or does not contain the
+ * structure the properties claim to break, keeps passing while asserting nothing.
  * A digest that moves means someone changed what the properties read, which is a decision worth
  * making out loud rather than a line that scrolls past in a green run.
  *

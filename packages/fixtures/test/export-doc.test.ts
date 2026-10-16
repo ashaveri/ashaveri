@@ -349,7 +349,7 @@ describe('docs/export-v1.md export layout', () => {
     expect(new Set(laid.map((one) => one.label)).size, 'two signed parameters share one label').toBe(laid.length);
     // The sentence above the table counts the parameters in words, and the count is the layout's.
     const stated = /contains exactly ([a-z]+) parameters/u.exec(prose());
-    expect(stated, 'the document stopped counting the signed parameters').not.toBeNull();
+    expect(stated, 'the document does not count the signed parameters').not.toBeNull();
     expect(spelledNumber(stated?.[1] ?? ''), 'and the count it states is the one the layout declares').toBe(names.length);
     // The values the rows state are the values the layout fixes, including the width a hex projection hides.
     const valueOf = (parameter: string): string => laid.find((one) => one.name === parameter)?.value ?? '';
@@ -405,7 +405,7 @@ describe('docs/export-v1.md export layout', () => {
       'is a reader that was handed too little',
       'is a reader that came holding something else',
     ]) {
-      expect(body, `the document stopped telling a caller that this refusal ${phrase}`).toContain(phrase);
+      expect(body, `the document does not tell a caller that this refusal ${phrase}`).toContain(phrase);
     }
   });
 
@@ -468,7 +468,7 @@ describe('docs/export-v1.md export layout', () => {
       'It is not a verification of the receipts inside it',
       'It is not a statement that the material is what any law, contract or proceeding requires',
     ]) {
-      expect(body, `the document stopped saying that ${phrase.toLowerCase()}`).toContain(phrase);
+      expect(body, `the document does not say that ${phrase.toLowerCase()}`).toContain(phrase);
     }
     expect(body).toContain('A pack refuses an empty collection');
     expect(body).toContain('What an empty export may not do is read as a successful one');
@@ -500,7 +500,7 @@ describe('docs/export-v1.md export layout', () => {
     // nothing else, because a test that restated the number would be edited beside the sentence and pass either
     // way.
     const stated = /The estate has ([a-z]+) signed documents/u.exec(prose());
-    expect(stated, 'the document stopped counting the documents it says the estate signs').not.toBeNull();
+    expect(stated, 'the document does not count the documents it says the estate signs').not.toBeNull();
     const listed = estateRows();
     expect(listed.length, 'the estate table and the sentence above it count different documents').toBe(
       spelledNumber(stated?.[1] ?? ''),

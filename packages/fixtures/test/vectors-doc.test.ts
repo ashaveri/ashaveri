@@ -10,7 +10,7 @@ import { sectionBody, spelledNumber } from './doc-contract.js';
 /**
  * The suite inventory in `docs/vectors.md` is the index a port starts from: it names the file of each
  * published suite and the version field that file carries. Both are copies of facts that live in
- * `data/`, and a copy is how a document comes to state something the artefacts stopped carrying. This
+ * `data/`, and a copy is how a document comes to state something the artefacts do not carry. This
  * reads the table as data and checks it against them. The prose around the rows is reviewed by the
  * people who write it, with one exception: a sentence that states a count of what the published files
  * carry is read for that count, and the rows it counts are taken out of the file the table names for
@@ -185,7 +185,7 @@ function epochInventoryProse(): string {
 
 /**
  * One of the counts those bullets state about the published rows, taken back out of the sentence that
- * states it. A document that stopped claiming a count fails as a missing sentence rather than reading as
+ * states it. A document that does not claim a count fails as a missing sentence rather than reading as
  * a claim of nothing, which is the shape an empty match would have.
  */
 function countStatedByTheDocument(states: RegExp, what: string): string {
@@ -196,7 +196,7 @@ function countStatedByTheDocument(states: RegExp, what: string): string {
  * One count the document states about a published artifact, read out of the sentence that states it. The
  * prose is passed in because the same shape is what the Receipt fixtures bullet, the status line and the
  * inventory bullets all use: a number written where the artifact's rows are described. A sentence that
- * stopped stating its number fails here as a missing sentence, which is a different finding from a count
+ * does not state its number fails here as a missing sentence, which is a different finding from a count
  * of nothing and is the reason this does not return a default.
  */
 function countStatedIn(prose: string, states: RegExp, where: string): string {
@@ -453,8 +453,8 @@ describe('docs/vectors.md suite inventory', () => {
     // the word is read back out of the section and held against them: a table that gained a suite row, or lost
     // one, would otherwise keep a sentence claiming a number the document does not match.
     const stated = /Each of the ([a-z]+) suites the table above lists/u.exec(refusalSection());
-    expect(stated, 'the section stopped counting the suites it speaks for').not.toBeNull();
-    // The assertion above is what refuses a document that stopped stating the count, so the capture this
+    expect(stated, 'the section does not count the suites it speaks for').not.toBeNull();
+    // The assertion above is what refuses a document that does not state the count, so the capture this
     // line reads is there whenever it runs, and no value stands behind it to fall back on.
     expect(spelledNumber(stated![1]!), 'and the count it states is not the count of rows').toBe(rows.length);
     for (const row of rows) {

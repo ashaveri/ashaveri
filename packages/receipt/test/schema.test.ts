@@ -90,7 +90,7 @@ const definedMaps = receiptParser.DEFINED_MAPS;
  * and that version names every map it nests.
  * This is the roster every matrix below sweeps, so it is read out of the structure the parser walks
  * rather than typed here: a roster of this file's own would go on asking the twin about a map the walk
- * had stopped entering, and the lists the parser exports would still match the CDDL rule by rule.
+ * does not enter, and the lists the parser exports would still match the CDDL rule by rule.
  */
 const NESTED_KEYS: string[] = [...new Set(
   Object.values(definedMaps).flatMap((defined) => Object.keys(defined.nested ?? {})),
@@ -227,8 +227,8 @@ function cddlProse(cddl: string): string {
 }
 
 /**
- * `where` says `phrase` exactly once: zero is a document that stopped stating the rule, two is one
- * that started stating it in two voices. The name and the phrase ride along in the failure because a
+ * `where` says `phrase` exactly once: zero is a document that does not state the rule, two is one
+ * that states it in two voices. The name and the phrase ride along in the failure because a
  * bare length assertion cannot say which of the four texts went quiet.
  */
 function saidOnce(where: string, text: string, phrase: string): void {
@@ -518,7 +518,7 @@ describe('the receipt JSON Schema', () => {
   it('closes every map the signature covers, in the twin, the CDDL and the spec alike', () => {
     // The rule is one rule, written down four times: the parser, this schema, the normative CDDL
     // and the specification. A reader porting the format reads the last two, so a document that
-    // stopped saying it would leave the port to guess, which is how an open map comes back.
+    // does not say it would leave the port to guess, which is how an open map comes back.
     const cddl = readCddl();
     const versions = Object.keys(definedMaps).map(Number);
     expect(cddlPayloadVersions(cddl), 'the versions the CDDL defines are the versions the parser reads').toEqual(versions);
@@ -684,8 +684,8 @@ describe('the receipt JSON Schema', () => {
     // Five documents state this rule: the normative definition, the specification's two halves of it,
     // the threat model's closedness sentence, the code table's two rows, and the published projection.
     // A reader porting the format reads those and not the source, so each statement is pinned to one
-    // place in one document: a phrase said twice is a document that started saying the same thing in
-    // two voices, and a phrase that goes quiet is a document that stopped stating the rule.
+    // place in one document: a phrase said twice is a document that says the same thing in
+    // two voices, and a phrase that goes quiet is a document that does not state the rule.
     const cddl = readCddl();
     const spec = readFileSync(specPath, 'utf8');
     const threat = readFileSync(threatModelPath, 'utf8');

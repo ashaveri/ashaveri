@@ -193,8 +193,8 @@ function cddlProse(cddl: string): string {
 }
 
 /**
- * `where` says `phrase` exactly once: zero is a document that stopped stating the rule, two is one that
- * started stating it in two voices. The name and the phrase ride along in the failure because a bare length
+ * `where` says `phrase` exactly once: zero is a document that does not state the rule, two is one that
+ * states it in two voices. The name and the phrase ride along in the failure because a bare length
  * assertion cannot say which of the two texts went quiet.
  */
 function saidOnce(where: string, text: string, phrase: string): void {

@@ -245,7 +245,7 @@ function atCopiedWriter(position: CopiedPosition, value: string): Verdict {
 
 describe('the printed-line character class has one owner', () => {
   it('holds the roster to a sweep of the class and not a token sample', () => {
-    // A roster that quietly stopped covering the class would let all three sites agree on a subset of it, and a
+    // A roster that covers only part of the class would let all three sites agree on a subset of it, and a
     // roster whose rows were typed on a mistake would let them agree on a wrong answer. Both are refused here, in
     // front of the site checks.
     const refused = ROSTER.filter((one) => one.inClass);
@@ -333,7 +333,7 @@ describe('the printed-line character class has one owner', () => {
     const sealed = sealOf({ manifest: COPIED_POSITIONS[0]!.at(SHORT_RUN.manifest, long), artifacts: SHORT_RUN.artifacts });
     const read = verifyEpochInventory(sealed, { publicKey: FOLD_KEY.publicKey, presence: SHORT_RUN.artifacts });
     expect(read.manifest.manifest.iss, 'the value that came back is the value that went in').toBe(long);
-    expect(read.outcome.presence, 'the fold stopped answering for a document with a wide issuer').toBeDefined();
+    expect(read.outcome.presence, 'the fold does not answer for a document with a wide issuer').toBeDefined();
   });
 
   it('answers the class before the width at the label', () => {

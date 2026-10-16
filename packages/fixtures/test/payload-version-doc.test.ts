@@ -313,7 +313,7 @@ describe('published documents state one receipt payload version', () => {
     expect(claims.length, 'the sweep reached almost no version claim, so it is matching nothing').toBeGreaterThanOrEqual(8);
     expect(
       claims.filter((claim) => claim.file.endsWith('capture-v1.md')).length,
-      'the capture document stopped making payload version claims this can read',
+      'the capture document does not make payload version claims this can read',
     ).toBeGreaterThanOrEqual(3);
   });
 });

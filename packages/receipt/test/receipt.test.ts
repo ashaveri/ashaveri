@@ -486,7 +486,7 @@ describe('the protected header closes and the unprotected one does not', () => {
     expect(empty.cose.unprotected.size).toBe(0);
     // And the rival arrived intact rather than being emptied on the way in: the map is handed to the
     // caller as the sender wrote it, which is what makes the assertions that follow about the reads the
-    // parser makes and not about a map that stopped existing before any read happened.
+    // parser makes and not about a map that is missing before any read happens.
     expect(filled.cose.unprotected.get(COSE_HEADER_ALG)).toBe(-7);
     expect(filled.cose.unprotected.get('mdl')).toBe('a-model-the-sender-chose');
     // The two halves the ruling rests on: the payload the parser parses, and the header it projects for

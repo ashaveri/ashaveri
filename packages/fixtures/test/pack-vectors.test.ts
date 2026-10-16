@@ -121,7 +121,7 @@ describe('the evidence pack vectors', () => {
     expect(typeof rule, 'the suite publishes no framing rule').toBe('string');
     if (typeof rule === 'string') {
       for (const one of tables) {
-        expect(rule, `the framing rule stopped naming the table of ${one.vector}`).toContain(one.vector);
+        expect(rule, `the framing rule does not name the table of ${one.vector}`).toContain(one.vector);
       }
     }
     for (const one of tables) {

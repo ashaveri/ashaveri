@@ -37,7 +37,7 @@ export function required<T>(value: T | undefined, detail: string): T {
 /**
  * The text of one CDDL rule, from its opening brace to the first line that closes it. A rule the
  * reader could not find has to fail the run rather than hand back an empty string, because an empty
- * block reads as a format that stopped declaring any members.
+ * block reads as a format that does not declare any members.
  */
 export function cddlRule(cddl: string, rule: string): string {
   // The text is named rather than the path this reader was handed it from, because callers pass several
