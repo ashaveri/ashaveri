@@ -1554,7 +1554,7 @@ describe('the pack reader and the format it reads', () => {
     expect(body, 'the section does not say what a resolver is asked for').toContain(
       'a resolver is asked once for each kid the documents name',
     );
-    expect(readerSource, 'the reader no longer forwards one designation to each item').toMatch(/verifyReceipt\(item\.receipt, options\)/u);
+    expect(readerSource, 'the reader does not forward one designation to each item').toMatch(/verifyReceipt\(item\.receipt, options\)/u);
     expect(readerSource, 'the reader resolves the envelope key after checking its signature').toMatch(
       /const publicKey = envelopeKey\(envelope\.header\.kid, options\);[\s\S]*?!ed25519\.verify/u,
     );
@@ -1591,8 +1591,8 @@ describe('the pack reader and the format it reads', () => {
       'packRecordDigest',
       'packSigStructure',
     ]) {
-      expect(readerSource, `pack.ts no longer exports ${name}`).toMatch(new RegExp(`^export function ${name}\\(`, 'mu'));
-      expect(surface, `the package entry no longer hands out ${name}`).toContain(`\n  ${name},`);
+      expect(readerSource, `pack.ts does not export ${name}`).toMatch(new RegExp(`^export function ${name}\\(`, 'mu'));
+      expect(surface, `the package entry does not hand out ${name}`).toContain(`\n  ${name},`);
     }
     expect(
       spec,
@@ -1616,7 +1616,7 @@ describe('the pack reader and the format it reads', () => {
     ).not.toMatch(/nothing (?:in this repository|here) (?:fills|writes)[^.]*arm/iu);
     expect(
       readerSource,
-      'the verified pack no longer carries the ordering finding beside the run and the window',
+      'the verified pack does not carry the ordering finding beside the run and the window',
     ).toMatch(/outcome: \{ walked, span: manifest\.span, ordering: stampOrderFindings\(walked\) \}/u);
   });
 });

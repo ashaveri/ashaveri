@@ -87,7 +87,7 @@ describe('the evidence pack vectors', () => {
     expect(file.layout.contentType).toBe(PACK_CONTENT_TYPE);
     expect(file.layout.headerLabels).toEqual({ alg: 1, typ: 3, kid: 4 });
     // Every path the file names is a file, and the format and the twin still carry the content type this
-    // suite is about: a port pointed at a document that no longer states the type would compare the wrong pair.
+    // suite is about: a port pointed at a document that does not state the type would compare the wrong pair.
     for (const path of [
       file.layout.format,
       file.layout.twin,

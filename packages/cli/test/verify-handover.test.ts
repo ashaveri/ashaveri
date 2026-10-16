@@ -714,7 +714,7 @@ describe('an excision amendment at the command edge', () => {
     expect(REDACTION_FIXTURE.vectors.length).toBeGreaterThanOrEqual(43);
     // The exception table is published with the rows: a row whose command answer is not its `verdict` states the
     // code and the exit in its `command` member, and every other row states null. Both lists below are names of
-    // rows this loop ran, so neither can carry a note standing beside a case the suite no longer publishes, and
+    // rows this loop ran, so neither can carry a note standing beside a case the suite does not publish, and
     // a suite that moves a row moves its exception with it.
     const recorded = REDACTION_FIXTURE.vectors.filter((row) => row.command !== null).map((row) => row.name);
     const diverged: string[] = [];

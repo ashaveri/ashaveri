@@ -274,11 +274,11 @@ describe('published documents state one receipt payload version', () => {
     // statements cannot drift apart: a second copy of the set is the disagreement this case is written for.
     expect(
       /export function isReceiptVersion[\s\S]{0,220}PARSED_VERSIONS/u.test(source),
-      'isReceiptVersion no longer answers from the list this reads',
+      'isReceiptVersion does not answer from the list this reads',
     ).toBe(true);
     expect(
       /const ACCEPTED_BY_DEFAULT\b[^;\n]*=\s*PARSED_VERSIONS/u.test(source),
-      'the default accepted set is no longer the list this reads',
+      'the default accepted set is not the list this reads',
     ).toBe(true);
     expect(RECEIPT_VERSIONS, 'a version is named twice in the list that holds the set').toEqual([...new Set(RECEIPT_VERSIONS)]);
   });

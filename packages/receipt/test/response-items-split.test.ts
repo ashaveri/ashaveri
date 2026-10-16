@@ -124,11 +124,11 @@ function publishedStream(name: string): PublishedStream {
     }>;
   };
   const one = suite.vectors.find((vector) => vector.name === name);
-  if (!one) throw new Error(`res-v1.json no longer carries the ${name} vector`);
+  if (!one) throw new Error(`res-v1.json does not carry the ${name} vector`);
   const body = fromBase64Url(one.responseBase64Url);
   const chunks = one.chunksBase64Url.map((chunk) => fromBase64Url(chunk));
   const total = chunks.reduce((sum, chunk) => sum + chunk.length, 0);
-  if (total !== body.length) throw new Error(`${name}: its chunks no longer add up to its body`);
+  if (total !== body.length) throw new Error(`${name}: its chunks do not add up to its body`);
   return { name: one.name, contentType: one.contentType, body, chunks };
 }
 
@@ -174,7 +174,7 @@ describe('every delivery of one body frames the same items', () => {
     // and its own line feeds are 42 and 43. Every cut across that span is a place a socket may have
     // stopped, and none of them may change what the response attests.
     const caseItem = FRAME_CASES.find((one) => one.name === 'three frames, the last of them the sentinel');
-    if (!caseItem) throw new Error('the cases file no longer carries the three-frame case');
+    if (!caseItem) throw new Error('the cases file does not carry the three-frame case');
     const body = bytes(caseItem.body);
     expect(body.length).toBe(44);
     const expected = expectedFramingText(caseItem);

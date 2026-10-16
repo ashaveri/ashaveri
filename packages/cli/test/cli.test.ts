@@ -705,7 +705,7 @@ describe('the marking requirement, as an operator meets it in prose', () => {
   /** The paragraph that introduces the verb, up to the blank line that ends it. */
   function verbParagraph(help: string): string {
     const start = help.indexOf('verify-receipt reaches a verdict');
-    if (start < 0) throw new Error('the help text no longer introduces verify-receipt where this looks');
+    if (start < 0) throw new Error('the help text introduces verify-receipt nowhere this looks');
     const end = help.indexOf('\n\n', start);
     return help.slice(start, end < 0 ? help.length : end);
   }
@@ -723,7 +723,7 @@ describe('the marking requirement, as an operator meets it in prose', () => {
   function gatewayComment(): string {
     const source = textOf('../../sdk/src/gateway.ts');
     const start = source.indexOf('The response bytes themselves');
-    if (start < 0) throw new Error('the SDK surface no longer describes responseBytes where this looks');
+    if (start < 0) throw new Error('the SDK surface describes responseBytes nowhere this looks');
     const end = source.indexOf('*/', start);
     return source.slice(start, end < 0 ? source.length : end);
   }
@@ -735,7 +735,7 @@ describe('the marking requirement, as an operator meets it in prose', () => {
   function refusalTrigger(): string {
     const source = textOf('../src/commands/verify-receipt.ts');
     const at = source.indexOf('--response-body is required');
-    if (at < 0) throw new Error('verify-receipt no longer refuses a marked receipt for the response bytes');
+    if (at < 0) throw new Error('verify-receipt states no --response-body requirement where this looks');
     const start = source.lastIndexOf('`', at);
     const end = source.indexOf('`', at);
     return source.slice(start + 1, end);

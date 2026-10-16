@@ -159,7 +159,7 @@ describe('untrusted parsers, by property', () => {
       it('reports the acceptance boundary the truncation rule is stated against', () => {
         // The measured boundary has to be the layout's own number, or the third property below is
         // asserting a boundary that came from nowhere. This is also the claim that a corpus which
-        // stopped being readable cannot quietly pass the other three.
+        // is not readable cannot quietly pass the other three.
         expect(boundary).toBe(target.layoutMinimum);
       });
 

@@ -42,7 +42,7 @@ const markingSourcePath = fileURLToPath(new URL('../../../gateway/src/marking.ts
 
 /** The escape sequences a source file spells out, turned back into the bytes they stand for. */
 function unescapeSource(literal: string | undefined): string {
-  if (literal === undefined) throw new Error('marking.ts no longer declares the frame end in a readable spelling');
+  if (literal === undefined) throw new Error('marking.ts declares the frame end nowhere in a readable spelling');
   return literal.replace(/\\r/g, '\r').replace(/\\n/g, '\n');
 }
 
@@ -591,7 +591,7 @@ describe('the account a verifier can check', () => {
     };
     const streamed = suite.vectors.find((one) => one.name === 'streamed-frames');
     const unframed = suite.vectors.find((one) => one.name === 'streamed-payloads-without-framing');
-    if (!streamed || !unframed) throw new Error('res-v1.json no longer carries the two streamed vectors');
+    if (!streamed || !unframed) throw new Error('res-v1.json does not carry the two streamed vectors');
 
     const body = fromBase64Url(streamed.responseBase64Url);
     expect(body.length).toBe(streamed.responseByteLength);

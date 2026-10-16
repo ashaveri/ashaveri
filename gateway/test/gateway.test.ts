@@ -345,7 +345,7 @@ describe('receipt ids this gateway mints', () => {
       const id = res.headers['x-ashaveri-receipt-id'] as string;
       expect(id.slice(0, RECEIPT_ID_TAG_HEX_CHARS)).toBe(NAMESPACE.tagFor('tenant-a'));
       // Two identifiers now: the body still carries whatever the backend called this completion, and
-      // it is no longer the thing a receipt is fetched by.
+      // it is not the thing a receipt is fetched by.
       expect(id).not.toBe((res.json() as { id: string }).id);
       expect((await asTenant(h, 'tenant-a', 'GET', `/v1/receipts/${id}`, null)).statusCode).toBe(200);
       const second = await asTenant(h, 'tenant-a', 'POST', '/v1/chat/completions', REQUEST_BODY);

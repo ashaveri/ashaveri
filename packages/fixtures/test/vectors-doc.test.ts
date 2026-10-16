@@ -451,7 +451,7 @@ describe('docs/vectors.md suite inventory', () => {
     const codes = documentedCodes();
     // The sentence's opening word counts the suites it speaks for, and what it counts is the table's rows, so
     // the word is read back out of the section and held against them: a table that gained a suite row, or lost
-    // one, would otherwise keep a sentence claiming a number the document no longer matches.
+    // one, would otherwise keep a sentence claiming a number the document does not match.
     const stated = /Each of the ([a-z]+) suites the table above lists/u.exec(refusalSection());
     expect(stated, 'the section stopped counting the suites it speaks for').not.toBeNull();
     // The assertion above is what refuses a document that stopped stating the count, so the capture this

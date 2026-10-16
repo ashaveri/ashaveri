@@ -32,7 +32,7 @@ const VERIFY_DEADLINE_MS = 8_000;
 const FIXTURE = fileURLToPath(new URL('../../packages/attest-core/test/fixtures/sev-snp-attestation.bin', import.meta.url));
 const captured = decodeAttestation(new Uint8Array(readFileSync(FIXTURE)));
 if (captured.platform.kind !== 'sev-snp') {
-  throw new Error('fixture is no longer a SEV-SNP envelope');
+  throw new Error('fixture is not a SEV-SNP envelope');
 }
 const SNP_REPORT = captured.platform.report;
 const MR_CONFIG = captured.platform.mrConfig;

@@ -695,19 +695,19 @@ describe('the export CDDL and its JSON twin', () => {
     const receipt = readCddl();
     const pack = readFileSync(packCddlPath, 'utf8');
     const exportTag = required(/^Ashaveri-Export = #6\.(\d+)\(/mu.exec(CDDL)?.[1], 'the export declares no COSE tag');
-    expect(exportTag, 'an export is no longer a tagged COSE_Sign1').toBe(required(/^Ashaveri-Receipt = #6\.(\d+)\(/mu.exec(receipt)?.[1], 'the receipt declares no tag'));
+    expect(exportTag, 'an export is not a tagged COSE_Sign1').toBe(required(/^Ashaveri-Receipt = #6\.(\d+)\(/mu.exec(receipt)?.[1], 'the receipt declares no tag'));
     expect(exportTag).toBe(required(/^Ashaveri-Pack = #6\.(\d+)\(/mu.exec(pack)?.[1], 'the pack declares no tag'));
     const exportSignature = required(/signature: bstr \.size (\d+)/u.exec(CDDL)?.[1], 'the export states no signature width');
-    expect(exportSignature, 'the three documents no longer sign with one curve').toBe(required(/signature: bstr \.size (\d+)/u.exec(receipt)?.[1], 'the receipt states none'));
+    expect(exportSignature, 'the three documents do not sign with one curve').toBe(required(/signature: bstr \.size (\d+)/u.exec(receipt)?.[1], 'the receipt states none'));
     expect(
       integerLabels(exportRule(CDDL, 'Ashaveri-Export-Protected-Header')).slice().sort((a, b) => a - b),
-      'the three signed headers no longer carry the same three labels',
+      'the three signed headers do not carry the same three labels',
     ).toEqual(integerLabels(cddlRule(receipt, 'Ashaveri-Protected-Header')).slice().sort((a, b) => a - b));
 
     const exportTyp = labeledLiteral(exportRule(CDDL, 'Ashaveri-Export-Protected-Header'), 3);
     const packTyp = labeledLiteral(cddlRule(pack, 'Ashaveri-Pack-Protected-Header'), 3);
     const receiptTyp = labeledLiteral(cddlRule(receipt, 'Ashaveri-Protected-Header'), 3);
-    expect(exportTyp, 'the export no longer says what it is').toBe('ashaveri/export');
+    expect(exportTyp, 'the export does not say what it is').toBe('ashaveri/export');
     expect(exportTyp).toBe(EXPORT_CONTENT_TYPE);
     expect(new Set([exportTyp, packTyp, receiptTyp]).size, 'two of the three containers now share a content type').toBe(3);
     expect(
@@ -722,7 +722,7 @@ describe('the export CDDL and its JSON twin', () => {
     const start = CDDL.indexOf('COSE_Sign1-Export-COSE = [');
     if (start < 0) throw new Error(`the signed envelope is not declared in ${exportCddlPath}`);
     const block = CDDL.slice(start, CDDL.indexOf('\n]', start));
-    expect(block.split('\n').filter((line) => /^\s+\w+:/u.test(line)).length, 'the signed envelope no longer carries four elements').toBe(4);
+    expect(block.split('\n').filter((line) => /^\s+\w+:/u.test(line)).length, 'the signed envelope does not carry four elements').toBe(4);
     expect(block).toContain('signature: bstr .size 64');
     widthTie(Number(exportSignature), required(shape.properties.signature.pattern, 'the twin projects no signature'), 'the export signature');
     const kidWidth = required(/4:\s*bstr \.size (\d+)/u.exec(exportRule(CDDL, 'Ashaveri-Export-Protected-Header'))?.[1], 'the signed header declares no kid width');

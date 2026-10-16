@@ -1014,7 +1014,7 @@ describe('the layout: this file, the CDDL and the twin', () => {
       ['Ashaveri-Epoch-Inventory-Shortfall', 'art: tstr,'],
     ] as const) {
       const block = cddlRule(cddl, rule);
-      expect(block, `${rule} no longer states ${member} as text bounded by nothing`).toContain(member);
+      expect(block, `${rule} does not state ${member} as text bounded by nothing`).toContain(member);
       expect(block.replace(member, ''), `${rule} grew a ceiling beside ${member}`).not.toContain('.size');
     }
     expect(cddl).toContain(`packs/<digest>/${EPOCH_INVENTORY_PACK_FILE}`);

@@ -412,7 +412,7 @@ describe("the demand's ceiling is the anchor's own slot count", () => {
   it('matches the member list the codec declares', () => {
     const source = readFileSync(fileURLToPath(new URL('../../receipt/src/receipt.ts', import.meta.url)), 'utf8');
     const line = /export const COLLATERAL_ANCHOR_MEMBERS = \[([^\]]+)\] as const;/u.exec(source)?.[1];
-    if (line === undefined) throw new Error('receipt.ts no longer declares COLLATERAL_ANCHOR_MEMBERS in a readable shape');
+    if (line === undefined) throw new Error('receipt.ts declares COLLATERAL_ANCHOR_MEMBERS nowhere in a shape this reads');
     const spelled = [...line.matchAll(/'([^']+)'/gu)].map((found) => found[1]!);
     expect(spelled).toEqual(['col', 'val']);
     expect(spelled.length).toBe(MAX_ANCHOR_SLOTS_DEMANDABLE);

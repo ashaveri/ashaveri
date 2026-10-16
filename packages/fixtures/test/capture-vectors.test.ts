@@ -26,7 +26,7 @@ import { readSourceFile, unionMembers } from './doc-contract.js';
  * Nothing here computes an expected verdict out of a rule written again in this file; the statuses, the two halves
  * of each verdict, the refusal codes and the refusal sentences are data in `data/capture-v1.json`, and the only
  * question asked of the shipped code is whether it answers as the file says it does. Each published row is a test
- * of its own, so a row that stopped being replayed would have to be skipped rather than silently pass.
+ * of its own, so a row that is not replayed would have to be skipped rather than silently pass.
  *
  * Four more things are checked on the way, because a suite whose rows are documents is only as good as the claims
  * it can be read for. The first is that every refusal really refuses *at the step the row names*: a reader that
@@ -178,7 +178,7 @@ function codesTheReaderRaises(): string[] {
 /** The facts a held collateral slot owes, read out of the list the shipped reader asks them from. */
 function observationMembers(): string[] {
   const literal = /const OBSERVATION_MEMBERS = \[([\s\S]*?)\] as const;/u.exec(readSourceFile(CAPTURE_SOURCE));
-  if (literal === null) throw new Error('the capture reader no longer states the members of a collateral slot as a list');
+  if (literal === null) throw new Error('the capture reader states the members of a collateral slot as a list nowhere this reads');
   return [...literal[1]!.matchAll(/'([a-zA-Z]+)'/gu)].map((each) => each[1]!);
 }
 

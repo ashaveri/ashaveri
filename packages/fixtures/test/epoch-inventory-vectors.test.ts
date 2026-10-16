@@ -72,7 +72,7 @@ const ERRORS = '../../../packages/receipt/src/errors.ts';
  */
 function detailBound(): number {
   const stated = /const MAX_DETAIL = (\d+);/u.exec(readSourceFile(ERRORS));
-  if (stated === null) throw new Error('the registry no longer states a bound on a quoted detail');
+  if (stated === null) throw new Error('the registry states a bound on a quoted detail nowhere this reads');
   return Number(stated[1]);
 }
 
