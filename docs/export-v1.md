@@ -109,19 +109,23 @@ different measure, so the projections state the floor and not the limit.
 | `claim.kind` | `string` | yes | Which of the two assertions this is: `provenance` about where the material came from, or `custody` about who has held it since. Neither is a legal category. A label outside the two is refused rather than read as whichever it resembled. |
 | `claim.states` | `string` | yes | The assertion, in the writer's own words. Nothing in a reader checks its content, which is the block's whole honesty: it is inside the signature and outside every recomputation. |
 | `anchored.k` | `anchored` | yes | A chained run is claimed over these items, so the walk below applies. |
+| `anchored.prov` | `string` | yes | The collection's own statement of where its material came from: the weakest of the items' `prov` values, and never a value the assembly chose. A reader refuses a label outside the three and a value that is not the weakest of the items, in either direction. |
 | `anchored.anchor` | `string` | yes | The digest the first item was chained from: thirty-two zero bytes before any retirement, otherwise the seam a trim record carried. |
 | `anchored.head` | `string` | yes | The digest of the last item in the run. Neither endpoint is derivable from the items, and both travel inside the signature, which is what gives the walk its meaning. |
 | `anchored.items` | `array` | yes | At least one item, each of which also names its predecessor, so an element is a `chainedItem`. Order in the array bears nothing: the reader follows the links. |
 | `plain.k` | `plain` | yes | Originals, with no ordering, run or completeness claimed about them. No endpoints are carried here because none is claimed, and that is a shape rather than an omission: the arm that would have held two digests is the one a reader looks for. |
+| `plain.prov` | `string` | yes | As the anchored arm states it, and for the same reason: the weakest of the items' `prov` values, checked against the items in either direction. |
 | `plain.items` | `array` | yes | At least one item, and an element is an `item`, which names no predecessor because no run is claimed. |
 | `void.k` | `void` | yes | Nothing is carried. This is how an empty export says so, and it is the only arm that may hold no material. |
 | `void.states` | `string` | yes | The writer's own sentence stating the outcome. It cannot be empty, and the arm carries no items, so a reader has nothing to count and no walk to have completed. |
 | `item.id` | `string` | yes | The writer's name for the item, and no two items in one collection carry the same one. A refusal reports an item by name, and two items answering to one name make that report mean whichever of the two a reader met first. |
 | `item.iat` | `integer` | yes | Unix seconds, the stamp the writer records for the original. This container states no span, so no window bounds it here. |
+| `item.prov` | `string` | yes | Where the material this record carries came from, in the same three values the collection reduces. It is not a term of any frame: a chained record's digest is taken over the id, the stamp, the predecessor and the original bytes, so this member rides inside the signature without moving a link. |
 | `item.d` | `string` | yes | sha256 of the exact original bytes, whole, whether they travel inside the document or beside it. This is the member that makes one altered byte a refusal rather than an unnoticed change. |
 | `item.orig` | `object` | yes | The original, either inside this document or named as a companion file travelling beside it, chosen by its own `k`: the arms are `inline` and `companion` below. |
 | `chainedItem.id` | `string` | yes | As `item.id`, and a term of the hashed input besides. |
 | `chainedItem.iat` | `integer` | yes | Unix seconds, the stamp the record was chained at, and a term of the hashed input: a record restamped into a run it was never chained in breaks a link rather than slipping through. |
+| `chainedItem.prov` | `string` | yes | As in an unchained item, and not a term of the hashed input: the digest a successor names is taken over the id, the stamp, the predecessor and the original bytes, so a moved `prov` changes no link. |
 | `chainedItem.d` | `string` | yes | sha256 of the exact original bytes, as in an unchained item, and independent of the record digest below. One of the two says these are the bytes, the other says they sit in this run. |
 | `chainedItem.p` | `string` | yes | The digest of the record before this one, or the collection's anchor for the first item. Published rather than derived, because the walk follows links and not positions. |
 | `chainedItem.orig` | `object` | yes | The signed receipt bytes, whole and unaltered. The walk hashes them as a record's payload and does not open them. |
@@ -163,6 +167,51 @@ arm's array is never empty, so a writer cannot reach the void statement by leavi
 that needs it: an anchored arm with no items is a malformed document, because its own label says there is
 something in it. And a reader's answer for a void collection carries no items and no walk, so a caller cannot
 print a count of verified material it was not given.
+
+## The collection's provenance, and the reduction over its items
+
+An export states where its material came from, once per item and once for the arm that carries the items.
+The three values are the whole vocabulary: `live` for material a running deployment produced while answering
+a real request, `captured` for a vendor-signed document recorded elsewhere and replayed into a locally issued
+receipt, and `fixture` for material derived from this repository's own fixtures. The member is checked
+against the material rather than believed: an arm's own value is the weakest of its items' values, and a
+reader refuses a value that is not that reduction, in either direction, under `EXPORT_BAD_MANIFEST`. A label
+outside the three is refused the same way, because a reader that guessed at an unknown value would be
+reporting a provenance no document stated. A stronger value would claim more than the export carries and a
+weaker one would state a provenance nothing in it has, which is why the member is a rule rather than a
+parameter a writer picks.
+
+The reduction states two facts, and they are the reason the member is one function and not a value the
+assembly chooses. Live software never becomes hardware evidence: a run of live items reduces to `live` and
+never to `captured`, because the reduction takes the weakest value and never strengthens one. A captured
+original can retain valid hardware evidence: a `captured` item beside live items keeps the `captured` value
+rather than being washed down to `live`, because the weakest value wins and the captured item is it.
+
+The member sits beside the list it reduces rather than on the manifest, and the void arm carries none. A
+void export carries no material, so there is nothing for a provenance to be about: a value stated there
+would name a provenance nothing in the export has, and the reduction over no items is refused by design
+rather than answered with an invented fourth value. That is also why the member cannot ride on the manifest,
+which every arm shares: a position required of a void export would have to hold one of the three values, and
+no reading of any of them is true of material that was never carried.
+
+The field is separate from execution assurance, from source and custody, and from appraisal, and the three
+separations are load-bearing. What a receipt inside an anchored run declares about its own execution, and
+what evidence document stands behind it, is a question the receipt and the keys a reader holds answer, and
+`prov` states none of it. The claim block states provenance and custody as the writer's own words, checked
+by nothing beyond the signature over them, and this member is not one of its sentences: it is a closed
+vocabulary a reader checks against the items. And whether any legal assessment was made is the assessment
+block's statement, which this member does not touch. The one relation the field has to a frame is that it
+has none: a chained record's digest is taken over the id, the stamp, the predecessor and the original bytes,
+so a moved `prov` changes no link.
+
+The published suite carries the corners. `provenance-fixture-export` states `fixture` for an export of one
+original derived from this repository's fixtures, which is the fixture-containing export stated in its own
+field rather than inferred from a sentence. `provenance-mixed-reduces-to-the-weakest` carries live and
+captured items and states `captured`, the value its items reduce to.
+`provenance-stronger-than-the-weakest-item` states `live` for a collection whose every item is a fixture,
+and both readings of the reader refuse it as `EXPORT_BAD_MANIFEST`, which is the shape the reduction exists
+to make unassemblable. And `provenance-label-outside-the-three` carries an item whose value is no label this
+version defines, refused in the same code.
 
 ## Chain carry, and the bound on what it shows
 
@@ -265,7 +314,7 @@ one file states the whole set this container can answer with.
 | `EXPORT_KID_MISMATCH` | The key handed to the reader is not the one the header's kid names |
 | `INVALID_SIGNATURE` | The signature does not verify over the `Sig_structure` |
 | `EXPORT_UNSUPPORTED_VERSION` | The manifest declares a version no format has used |
-| `EXPORT_BAD_MANIFEST` | A member is absent, undefined at this version, of the wrong type or width, negative, a path where a name belongs, an empty array under a non-void arm, or a stamp that contradicts another member |
+| `EXPORT_BAD_MANIFEST` | A member is absent, undefined at this version, of the wrong type or width, negative, a path where a name belongs, an empty array under a non-void arm, a `prov` outside the three values or one that is not the weakest of the items, or a stamp that contradicts another member |
 | `EXPORT_UNSUPPORTED_LABEL` | A `k` or a `kind` names a shape or a label this version defines no reading for |
 | `EXPORT_DUPLICATE_ID` | Two items answer to one name |
 | `EXPORT_DIGEST_MISMATCH` | An original does not hash to the digest its item carries |

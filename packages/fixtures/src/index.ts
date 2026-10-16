@@ -430,6 +430,8 @@ export interface ExportVectorFile {
     framing: string;
     recordDigest: string;
     itemDigest: string;
+    /** The whole rule the reader enforces over a collection arm's provenance member and its reduction, three values to one. */
+    provenanceRule: string;
     manifestFields: string[];
     collectionArms: string[];
     originalArms: string[];

@@ -149,11 +149,29 @@ ExportAssessment = {
 ; customer's own contract, or of three screenshots about a ticket, has no run to claim and must not be
 ; able to imply one by leaving two digests out of a map. Absence is a shape here, not an omission: the
 ; arm names itself, and the arm that would have carried the digests is the one a reader would look for.
+;
+; `prov` is where the material came from, stated once per item and once for the arm that carries the
+; items. The three values are the whole vocabulary: `live` for material a running deployment produced
+; while answering a real request, `captured` for a vendor-signed document recorded elsewhere and
+; replayed into a locally issued receipt, and `fixture` for material derived from this repository's
+; own fixtures. An arm's own value is the weakest of its items' values, so a collection cannot be
+; assembled to claim `live` while carrying one fixture, and a captured original beside live items
+; keeps the captured value rather than being washed down to live: live software never becomes hardware
+; evidence, and a captured original can retain valid hardware evidence. The member is separate from
+; the claim block, which states provenance and custody as the writer's own words that no reader
+; recomputes, and from the assessment, which is where the question of legal appraisal lives: this
+; member is a qualification a reader checks against the items, in either direction, and a value
+; outside the three is refused rather than read as whichever the writer might have meant. The void
+; arm carries no such member, and that absence is the rule rather than a gap: it carries no material
+; and no list, the reduction over nothing is refused by design instead of answered with an invented
+; value, and a provenance stated for material that was never carried would be the ungrounded claim
+; this member exists to make impossible.
 ; ---------------------------------------------------------------------------
 ExportCollection = ExportAnchoredCollection / ExportPlainCollection / ExportVoidCollection
 
 ExportAnchoredCollection = {
     k: "anchored",               ; a chained run is claimed over these items
+    prov: "live" / "captured" / "fixture", ; the weakest of the items' values, and never a value the assembly chose
     anchor: bstr .size 32,       ; the digest the first item was chained from
     head: bstr .size 32,         ; the digest of the last item in the run
     items: [+ ExportChainedItem] ; at least one; the void arm is where nothing lives
@@ -161,6 +179,7 @@ ExportAnchoredCollection = {
 
 ExportPlainCollection = {
     k: "plain",                  ; originals, with no ordering or completeness claimed
+    prov: "live" / "captured" / "fixture", ; the weakest of the items' values, and never a value the assembly chose
     items: [+ ExportItem]        ; at least one, for the same reason
 }
 
@@ -202,6 +221,7 @@ ExportVoidCollection = {
 ExportItem = {
     id: tstr .size (1..65535),  ; the writer's name for this item, unique in the collection
     iat: int,                   ; unix seconds, the stamp recorded for the original
+    prov: "live" / "captured" / "fixture", ; where the material this record carries came from
     d: bstr .size 32,           ; sha256 of the exact original bytes
     orig: ExportOriginal         ; the bytes themselves, or where they sit beside this document
 }
@@ -209,6 +229,7 @@ ExportItem = {
 ExportChainedItem = {
     id: tstr .size (1..65535),  ; as above
     iat: int,                   ; unix seconds, and a term of the hashed input
+    prov: "live" / "captured" / "fixture", ; where the material this record carries came from, and not a term of the hashed input
     d: bstr .size 32,           ; sha256 of the exact original bytes
     p: bstr .size 32,           ; the digest this record was chained from, or the anchor for the first
     orig: ExportOriginal        ; the signed receipt bytes, whole and unaltered

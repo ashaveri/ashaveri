@@ -1,6 +1,8 @@
 import { describe, expect, it } from 'vitest';
 import { existsSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
+import { PROVENANCES, reduceProvenance } from '@ashaveri/receipt';
+import { loadExportVectors } from '../src/index.js';
 import { readSourceFile, spelledNumber, tableRows, unionMembers } from './doc-contract.js';
 
 /**
@@ -289,6 +291,7 @@ function ceilingKeywords(node: JsonSchema): string[] {
 const declared = declaredRows();
 const byPath = new Map(declared.map((one) => [one.path, one]));
 const headerDef = schema.properties?.protectedHeader ?? {};
+const vectors = loadExportVectors();
 
 describe('docs/export-v1.md export layout', () => {
   it('names every member the layout declares, and no member it does not', () => {
@@ -406,6 +409,48 @@ describe('docs/export-v1.md export layout', () => {
       'is a reader that came holding something else',
     ]) {
       expect(body, `the document does not tell a caller that this refusal ${phrase}`).toContain(phrase);
+    }
+  });
+
+  it('states the provenance vocabulary, its reduction and the rows that publish each corner', () => {
+    // The document states the member, the three values and the reduction; the published rule in the suite
+    // states the same vocabulary and the same rule; and the rows the document names are rows the suite
+    // carries. The sentences about combinations are read against the shipped function, so the prose is
+    // held to what the code does and not to a sentence that reads well.
+    const body = prose();
+    for (const value of PROVENANCES) {
+      expect(body, `the document does not state the value ${value}`).toContain(`\`${value}\``);
+    }
+    for (const phrase of [
+      'An export states where its material came from, once per item and once for the arm that carries the items',
+      "an arm's own value is the weakest of its items' values",
+      'a reader refuses a value that is not that reduction, in either direction, under `EXPORT_BAD_MANIFEST`',
+      'Live software never becomes hardware evidence',
+      'A captured original can retain valid hardware evidence',
+      'the void arm carries none',
+      'the reduction over no items is refused by design',
+    ]) {
+      expect(body, `the document does not state that ${phrase}`).toContain(phrase);
+    }
+    expect(reduceProvenance(['live', 'live']), 'a run of live items becomes hardware evidence').toBe('live');
+    expect(reduceProvenance(['live', 'captured']), 'a captured original beside live items loses its value').toBe('captured');
+    expect(reduceProvenance(['captured', 'fixture']), 'a fixture beside a capture does not make the whole').toBe('fixture');
+    const rule = vectors.layout.provenanceRule;
+    expect(typeof rule, 'the published suite states no provenance rule').toBe('string');
+    if (typeof rule === 'string') {
+      for (const value of PROVENANCES) {
+        expect(rule, `the published provenance rule does not state ${value}`).toContain(value);
+      }
+      expect(rule, 'the published provenance rule does not state the reduction').toContain('weakest');
+    }
+    for (const name of [
+      'provenance-fixture-export',
+      'provenance-mixed-reduces-to-the-weakest',
+      'provenance-stronger-than-the-weakest-item',
+      'provenance-label-outside-the-three',
+    ]) {
+      expect(body, `the document does not name the published row ${name}`).toContain(name);
+      expect(vectors.vectors.find((one) => one.name === name), `the document names ${name} and the suite publishes none`).toBeDefined();
     }
   });
 

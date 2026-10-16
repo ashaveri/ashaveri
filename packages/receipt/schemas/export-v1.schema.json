@@ -2,7 +2,7 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "https://ashaveri.com/schemas/export-v1.json",
   "title": "Ashaveri Technical Export (JSON twin of the CBOR/COSE container)",
-  "description": "Display-only projection of the signed COSE_Sign1 export container. The CBOR bytes are canonical and are what a reader verifies; this JSON form is never signed directly. Byte strings appear as lowercase hex, which is how the receipt's own projection writes them, and a length that is a number of bytes in the CBOR is not the same measure as a JSON string length, so only `minLength` carries a bound the format states and nothing here pretends to a ceiling: one character is at least one byte, which is the half of `1..256` a JSON string can assert, and the byte ceiling belongs to `export.cddl`. Closure is not the manifest's alone: the manifest map, `assessment`, `claim`, all three arms of `collection`, both item rules and both original arms name their members in the same object, which is where `additionalProperties` applies, so a member the format does not define is refused at that level rather than read and dropped on the way to a verifier. A member that one arm of a choice carries is a member of that arm and of no other, and a projection that read an `anchored` collection with the `plain` arm's keywords would be dropping two signed endpoints out of a document. `protectedHeader` carries the three labels the CDDL declares and no more, and this definition carries no closure keyword: that map is read by number, its bytes are what the signature hashes, and a document carrying a fourth label is refused before any projection of it is built. The envelope above it is projected more loosely than the format writes it, and that is a decision rather than a gap: this document requires `protectedHeader` and `payload`, names `signature` without demanding it, and leaves its own root unclosed, so an export shown before it is signed still shows, while `export.cddl` requires all four elements of the `COSE_Sign1` and sixty-four bytes in the fourth of them. Requiring the missing one here would refuse a display and not an artifact, which is the same reason the receipt's and the pack's projections are written the same way. The CBOR tag that wraps the four elements on the wire, tag 18, is stated in `export.cddl` and cannot be stated here at all, because a JSON object has no tag to carry: a reader who needs the bytes needs the format, and that is where the number is. Every member of the manifest is required by the arm it sits in, so no position is optional, none carries a default, and a reader never has to work out what an omitted field meant; the one member of this projection that may be absent is the envelope's `signature`, named above. The rules that hold between two members are not spelled out here because no keyword reaches them: that `claim.made` is never after `at`, that an item array of a non-void arm holds at least one item and a void arm holds none, that no two items in one collection answer to one `id`, that every item of an anchored collection is reached from the anchor and exactly one ends the walk at the head, that each item's `d` is sha256 of the original bytes it carries or names, and that no instant lies before the epoch, are all stated in `export.cddl`, which is where a reader holding this projection has to go to learn them. No legal vocabulary is defined in it: no article, no duty, no category, no qualification and no period appears as a member, a label or an enumeration anywhere in this file, and the one statement about assessment is the constant `none` in the assessment block. `docs/export-v1.md` states the same layout as a field table, and `packages/fixtures/test/export-doc.test.ts` holds the two against each other in both directions.",
+  "description": "Display-only projection of the signed COSE_Sign1 export container. The CBOR bytes are canonical and are what a reader verifies; this JSON form is never signed directly. Byte strings appear as lowercase hex, which is how the receipt's own projection writes them, and a length that is a number of bytes in the CBOR is not the same measure as a JSON string length, so only `minLength` carries a bound the format states and nothing here pretends to a ceiling: one character is at least one byte, which is the half of `1..256` a JSON string can assert, and the byte ceiling belongs to `export.cddl`. Closure is not the manifest's alone: the manifest map, `assessment`, `claim`, all three arms of `collection`, both item rules and both original arms name their members in the same object, which is where `additionalProperties` applies, so a member the format does not define is refused at that level rather than read and dropped on the way to a verifier. A member that one arm of a choice carries is a member of that arm and of no other, and a projection that read an `anchored` collection with the `plain` arm's keywords would be dropping two signed endpoints out of a document. `protectedHeader` carries the three labels the CDDL declares and no more, and this definition carries no closure keyword: that map is read by number, its bytes are what the signature hashes, and a document carrying a fourth label is refused before any projection of it is built. The envelope above it is projected more loosely than the format writes it, and that is a decision rather than a gap: this document requires `protectedHeader` and `payload`, names `signature` without demanding it, and leaves its own root unclosed, so an export shown before it is signed still shows, while `export.cddl` requires all four elements of the `COSE_Sign1` and sixty-four bytes in the fourth of them. Requiring the missing one here would refuse a display and not an artifact, which is the same reason the receipt's and the pack's projections are written the same way. The CBOR tag that wraps the four elements on the wire, tag 18, is stated in `export.cddl` and cannot be stated here at all, because a JSON object has no tag to carry: a reader who needs the bytes needs the format, and that is where the number is. Every member of the manifest is required by the arm it sits in, so no position is optional, none carries a default, and a reader never has to work out what an omitted field meant; the one member of this projection that may be absent is the envelope's `signature`, named above. `prov` is an enum here for the same kind of reason the claim's kind is: the three values are the format's own vocabulary of where material came from, and a label outside them is refused rather than read as whichever the writer might have meant. The member rides on the two arms that carry items and not on the manifest, because the manifest is shared with the void arm, which carries no material and no list: an arm's own `prov` is the weakest of its items' values, and a void arm states none, because the reduction over nothing is refused by design rather than answered with an invented value. The rules that hold between two members are not spelled out here because no keyword reaches them: that `claim.made` is never after `at`, that an item array of a non-void arm holds at least one item and a void arm holds none, that no two items in one collection answer to one `id`, that a non-void arm's own `prov` is the weakest of its items' `prov` values, that every item of an anchored collection is reached from the anchor and exactly one ends the walk at the head, that each item's `d` is sha256 of the original bytes it carries or names, and that no instant lies before the epoch, are all stated in `export.cddl`, which is where a reader holding this projection has to go to learn them. No legal vocabulary is defined in it: no article, no duty, no category, no qualification and no period appears as a member, a label or an enumeration anywhere in this file, and the one statement about assessment is the constant `none` in the assessment block. `docs/export-v1.md` states the same layout as a field table, and `packages/fixtures/test/export-doc.test.ts` holds the two against each other in both directions.",
   "type": "object",
   "required": ["protectedHeader", "payload"],
   "properties": {
@@ -56,9 +56,14 @@
     },
     "anchored": {
       "type": "object",
-      "required": ["k", "anchor", "head", "items"],
+      "required": ["k", "prov", "anchor", "head", "items"],
       "properties": {
         "k": { "const": "anchored", "description": "a chained run is claimed over these items" },
+        "prov": {
+          "type": "string",
+          "enum": ["live", "captured", "fixture"],
+          "description": "The arm's own statement of where its material came from: the weakest of the items' `prov` values, and never a value the assembly chose. `live` is material a running deployment produced while answering a real request, `captured` a vendor-signed document recorded elsewhere and replayed into a locally issued receipt, and `fixture` material derived from this repository's own fixtures. A reader compares the member with the reduction over the items and refuses a document whose two disagree, in either direction, under `EXPORT_BAD_MANIFEST`. It sits beside the list it reduces rather than on the manifest, because the manifest is shared with the void arm, which carries no material and no list."
+        },
         "anchor": { "$ref": "#/$defs/hex32", "description": "the digest the first item was chained from: thirty-two zero bytes before any retirement, otherwise the seam a trim record carried" },
         "head": { "$ref": "#/$defs/hex32", "description": "the digest of the last item in the run. Neither endpoint is derivable from the items, which is why both travel inside the signature: an anchor a reader invented would let a deployment start the walk wherever it liked, and a head read off the last item handed over would let it stop there." },
         "items": { "type": "array", "minItems": 1, "items": { "$ref": "#/$defs/chainedItem" }, "description": "The records, at least one, in no particular order: a reader follows each item's `p` to find its predecessor, because retiring a prefix rewrites the front of a chain without touching any surviving record's digest." }
@@ -68,9 +73,14 @@
     },
     "plain": {
       "type": "object",
-      "required": ["k", "items"],
+      "required": ["k", "prov", "items"],
       "properties": {
         "k": { "const": "plain", "description": "originals, with no ordering, run or completeness claimed about them" },
+        "prov": {
+          "type": "string",
+          "enum": ["live", "captured", "fixture"],
+          "description": "As the anchored arm states it, and for the same reason: the weakest of the items' `prov` values, checked against the items in either direction under `EXPORT_BAD_MANIFEST`. The three values are the vocabulary of where material came from, and the member is separate from the claim block, which states provenance and custody as the writer's own words that no reader recomputes."
+        },
         "items": { "type": "array", "minItems": 1, "items": { "$ref": "#/$defs/item" }, "description": "The originals, at least one. No endpoints are carried here because none is claimed, and that absence is a shape rather than an omission: the arm that would have held two digests is the one a reader looks for." }
       },
       "additionalProperties": false,
@@ -88,10 +98,15 @@
     },
     "item": {
       "type": "object",
-      "required": ["id", "iat", "d", "orig"],
+      "required": ["id", "iat", "prov", "d", "orig"],
       "properties": {
         "id": { "type": "string", "minLength": 1, "description": "the writer's name for the item, and no two items in one collection carry the same one. The framing bounds it at 65535 bytes and `minLength` is the half of that a JSON length can state." },
         "iat": { "type": "integer", "description": "unix seconds, the stamp the writer records for the original. This container states no span, so no window bounds it here." },
+        "prov": {
+          "type": "string",
+          "enum": ["live", "captured", "fixture"],
+          "description": "Where the material this record carries came from, in the same three values the arm reduces: `live` for material a running deployment produced while answering a real request, `captured` for a vendor-signed document recorded elsewhere and replayed into a locally issued receipt, and `fixture` for material derived from this repository's own fixtures. It is not a term of the record frame: the digest a successor names is taken over the id, the stamp, the predecessor and the original bytes, so the member rides inside the collection's signature without moving a link."
+        },
         "d": { "$ref": "#/$defs/hex32", "description": "sha256 of the exact original bytes, whole, whether they travel inline or beside this document: the member that makes one altered byte a refusal rather than an unnoticed change." },
         "orig": { "$ref": "#/$defs/original", "description": "the original itself, either inside this document or named as a companion file travelling beside it" }
       },
@@ -100,10 +115,15 @@
     },
     "chainedItem": {
       "type": "object",
-      "required": ["id", "iat", "d", "p", "orig"],
+      "required": ["id", "iat", "prov", "d", "p", "orig"],
       "properties": {
         "id": { "type": "string", "minLength": 1, "description": "the writer's name for the item, unique in the collection, and a term of the hashed input" },
         "iat": { "type": "integer", "description": "unix seconds, the stamp the record was chained at, and a term of the hashed input: a receipt restamped into a run it was never chained in breaks a link rather than slipping through." },
+        "prov": {
+          "type": "string",
+          "enum": ["live", "captured", "fixture"],
+          "description": "Where the material this record carries came from, in the same three values the arm reduces, and not a term of the hashed input. The member is separate from what the receipts inside the run attest and from the claim block: where material came from is a different question from what execution assurance stands behind it."
+        },
         "d": { "$ref": "#/$defs/hex32", "description": "sha256 of the exact original bytes, as in an unchained item, and independent of the record digest below: one of the two says these are the bytes, the other says they sit in this run." },
         "p": { "$ref": "#/$defs/hex32", "description": "the digest of the record before this one, or the collection's anchor for the first item. Published rather than derived because the walk follows links and not positions." },
         "orig": { "$ref": "#/$defs/original", "description": "the signed receipt bytes, whole and unaltered. The walk hashes them as a record's payload and does not open them, so a reader that wants each receipt's own signature verified runs the receipt verifier over these bytes." }

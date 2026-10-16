@@ -5,11 +5,13 @@ import { sha256 } from '@noble/hashes/sha2.js';
 import { ed25519 } from '@noble/curves/ed25519';
 import {
   EXPORT_CONTENT_TYPE,
+  PROVENANCES,
   decodeCanonical,
   decodeExport,
   encodeCanonical,
   exportSigStructure,
   fromBase64Url,
+  reduceProvenance,
   sealExport,
   signingKeyFromSeed,
   toHex,
@@ -56,6 +58,7 @@ function itemMap(one: ExportItem | ExportChainedItem): Map<string, unknown> {
   const map = new Map<string, unknown>([
     ['id', one.id],
     ['iat', one.iat],
+    ['prov', one.prov],
     ['d', one.d],
     [
       'orig',
@@ -265,6 +268,7 @@ describe('the export vectors', () => {
     const rebuilt = new Map(root);
     rebuilt.set('collection', new Map<string, unknown>([
       ['k', 'anchored'],
+      ['prov', collection.prov],
       ['anchor', collection.anchor],
       ['head', collection.head],
       ['items', [...collection.items].reverse().map(itemMap)],
@@ -307,6 +311,52 @@ describe('the export vectors', () => {
     }
     expect(code).toBe(asExport?.expected);
     expect(code).toBe('EXPORT_BAD_HEADER');
+  });
+
+  it('states every accepted export’s own provenance as the weakest of its items, and refuses anything else', () => {
+    // The member is a reduction and not a parameter, and the function that computes it is the one the
+    // reader checks with, so this case is the round trip the vector suite owes the rule: every accepted
+    // row's own value is what its items' values reduce to, and the rows that state anything else are
+    // refused under the code they publish. Nothing here recomputes a verdict from the reader; the values
+    // are data in the file and the tie is between them.
+    const accepted = file.vectors.filter((one) => one.verdict === 'verify-ok');
+    for (const one of accepted) {
+      const collection = decodeExport(fromBase64Url(one.documentBase64Url)).manifest.collection;
+      if (collection.k === 'void') continue;
+      expect(collection.prov, `${one.name} states a provenance its items do not reduce to`).toBe(
+        reduceProvenance(collection.items.map((each) => each.prov)),
+      );
+    }
+    // The matrix rows, read out of the published bytes rather than restated: the fixture export states
+    // fixture for its fixture material, and a mixture of live and captured states the captured value the
+    // captured item keeps rather than being washed down to live.
+    const collectionOf = (name: string) => {
+      const row = file.vectors.find((one) => one.name === name);
+      expect(row, `the suite publishes no ${name} row`).toBeDefined();
+      return decodeExport(fromBase64Url(row!.documentBase64Url)).manifest.collection;
+    };
+    const fixture = collectionOf('provenance-fixture-export');
+    if (fixture.k === 'void') throw new Error('the fixture row is not a void collection');
+    expect([fixture.prov, ...fixture.items.map((one) => one.prov)]).toEqual(['fixture', 'fixture']);
+    const mixed = collectionOf('provenance-mixed-reduces-to-the-weakest');
+    if (mixed.k === 'void') throw new Error('the mixture row is not a void collection');
+    expect([mixed.prov, ...mixed.items.map((one) => one.prov)]).toEqual(['captured', 'live', 'captured', 'live']);
+    // And the two refusals: a value stronger than the weakest item and a label outside the three, each a
+    // document the reader refuses because neither needs a key to see the contradiction.
+    for (const name of ['provenance-stronger-than-the-weakest-item', 'provenance-label-outside-the-three']) {
+      const row = file.vectors.find((one) => one.name === name);
+      expect(row, `the suite publishes no ${name} row`).toBeDefined();
+      expect(row?.verdict, `${name} is not refused as the format's malformed-member code`).toBe('EXPORT_BAD_MANIFEST');
+    }
+    // The published rule states the whole vocabulary and the reduction, and the vocabulary is the package's.
+    const rule = file.layout.provenanceRule;
+    expect(typeof rule, 'the suite publishes no provenance rule').toBe('string');
+    if (typeof rule === 'string') {
+      for (const value of PROVENANCES) {
+        expect(rule, `the published provenance rule does not state ${value}`).toContain(value);
+      }
+      expect(rule, 'the published provenance rule does not state the reduction').toContain('weakest');
+    }
   });
 
   it('publishes a suite whose verdicts are the file and not the reader', () => {
