@@ -128,7 +128,7 @@ import {
  */
 
 /** The flag that names the root an inventory's run files its retention artifacts under. */
-export const RETENTION_DIR_FLAG = '--retention-dir';
+const RETENTION_DIR_FLAG = '--retention-dir';
 
 /** The flags `verify-handover` reads, typed as the one parse in `cli.ts` produces them. */
 export interface VerifyHandoverFlags extends CarriedFlagValues {
