@@ -236,9 +236,10 @@ specific to that case.
   the interval across which the store reported holding the appraisal context. Hand them and you get that reading;
   hand nothing and you get the reading of the document alone, which is what makes a row
   that is `verify-ok` under one call and a refusal under the other a statement about the pair of inputs rather
-  than about the bytes. Two of those rows read one document both ways, so the suite publishes that handing nothing
-  is not a refusal and is not the same answer either. The artifacts a fold is handed are whole manifests written by
-  the retention writer, filed under the name of the layout each one states, and only the version two layout carries
+  than about the bytes. Two of those rows read one document both ways, and the rows publish the same `verdict` for
+  two different calls: the fold's interval is the reader's outcome rather than a published column. The artifacts a
+  fold is handed are whole manifests written by the retention writer, filed under the name of the layout each one
+  states, and only the version two layout carries
   the block naming held digests: one row hands a directory of the other and is refused by a reader that finds no
   digest to attest a period with, which is the reading a complete directory of that layout owes and not a shortage
   of files. At the command edge the same artifacts are what `--retention-dir <directory>` resolves, one file per
