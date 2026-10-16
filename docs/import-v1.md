@@ -12,15 +12,17 @@ does not trust us if the shape is public and a reader for it exists.
 
 - The record: `packages/sdk/schemas/import-v1.schema.json`, published as
   `https://ashaveri.com/schemas/import-v1.json`.
-- The reader: `packages/sdk/src/import-envelope.ts`, `parseImportEnvelope` and `readImportEnvelope`.
-- The normalization: `packages/sdk/src/import-normalize.ts`, `normalizeProviderExport` and the named rules
-  below, re-exported from the package entry.
+- The reader: `packages/sdk/src/import-envelope.ts`, `parseImportEnvelope` and `readImportEnvelope`,
+  re-exported from the package entry beside `importEnvelopeKey`.
+- The normalization: `packages/sdk/src/import-normalize.ts`, `normalizeProviderExport` and the five named
+  rules beside it; the driver and the list of rule names leave by the package entry.
 - Its vectors: `packages/fixtures/data/import-v1.json`, written by
   `packages/fixtures/scripts/import-vectors.ts` and replayed row by row through these same readers by
   `packages/fixtures/test/import-vectors.test.ts`. The synthetic provider export the vectors hold is
   committed as `packages/fixtures/data/exports/provider-export-v1.json`, and the generator stops unless
-  the envelope's original is that file byte for byte. Each row states one envelope, the answer the
-  published reader gave it when the file was written, and the key a store takes it under.
+  the rows that name no edit state it byte for byte and the shipped rules read every position of it. Each
+  row states one envelope, the answer the published reader gave it when the file was written, and the key
+  a store takes it under.
 - Its tests read the shipped code: the derived representation every accepted row carries is
   `normalizeProviderExport` output, so a row stands on the same transformation a reader re-runs.
 
