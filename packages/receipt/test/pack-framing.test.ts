@@ -13,17 +13,19 @@ import {
 /**
  * The pack's per-item provenance, run as a walk.
  *
- * `pack.cddl` states one claim that is not a member list: that the four values `PackItem` declares are
- * the whole of what it takes to rebuild the record the store hashed, and so to walk a span from the
- * anchor the manifest signs to the head it signs. That is a claim about bytes, so it is checked
- * against bytes: ones this file generates with the package's own codec, from a signing key with a
+ * `pack.cddl` states one claim that is not a member list: that the four positions of `PackItem` the
+ * framing consumes are the whole of what it takes to rebuild the record the store hashed, and so to walk
+ * a span from the anchor the manifest signs to the head it signs. That is a claim about bytes, so it is
+ * checked against bytes: ones this file generates with the package's own codec, from a signing key with a
  * fixed seed, because a frame pasted in here would be a frame nobody could re-derive.
  *
- * The four positions are read out of the CDDL and given their jobs by the types the format writes:
+ * The frame's positions are read out of the CDDL and given their jobs by the types the format writes:
  * the text is the id the record names, the integer is the stamp it was chained at, the 32-byte string
- * is the predecessor's digest, and the nested CBOR is the receipt itself. A fifth position of any of
- * those shapes stops the run rather than being ignored, because a member that reaches this format
- * without a job here is a member no reader was told what to do with.
+ * is the predecessor's digest, and the nested CBOR is the receipt itself. A position of any other shape
+ * stops the run rather than being ignored, because a member that reaches this format without a job here
+ * is a member no reader was told what to do with. One position is declared to have no frame job and is
+ * read as such: `prov` states where the material came from, rides inside the pack's signature, and is
+ * not a term of the digest, which is what lets the manifest's own provenance reduce over it.
  *
  * The framing itself is the store's, published in section 5.2 of the specification and as byte images
  * in `packages/fixtures/data/chain-v1.json`. Neither is read here: those images are checked byte for
@@ -40,10 +42,12 @@ import {
  */
 const packCddlPath = fileURLToPath(new URL('../pack.cddl', import.meta.url));
 
-/** Which position of `PackItem` plays which part of a record, read off the format's type expressions. */
-function itemPositions(cddl: string): { id: string; stamp: string; predecessor: string; payload: string } {
+/** Which position of `PackItem` plays which part of a record, read off the format's type expressions. The
+ * provenance position is read too and given the one job the format states for it: none, because the frame
+ * does not consume it. */
+function itemPositions(cddl: string): { id: string; stamp: string; predecessor: string; payload: string; provenance: string } {
   if (!cddl.includes('PackItem = {')) throw new Error(`PackItem is not declared in ${packCddlPath}`);
-  const roles: Array<'id' | 'stamp' | 'predecessor' | 'payload'> = [];
+  const roles: Array<'id' | 'stamp' | 'predecessor' | 'payload' | 'provenance'> = [];
   const names: string[] = [];
   for (const member of memberDeclarations(cddlRule(cddl, 'PackItem'))) {
     const role =
@@ -51,7 +55,8 @@ function itemPositions(cddl: string): { id: string; stamp: string; predecessor: 
         : member.type === 'bstr .size 32' ? 'predecessor'
           : /^bstr \.cbor [A-Z]/u.test(member.type) ? 'payload'
             : /^tstr(?: \.size \(\d+\.\.\d+\))?$/u.test(member.type) ? 'id'
-              : undefined;
+              : /^"[^"]+"(?:\s*\/\s*"[^"]+")+$/u.test(member.type) ? 'provenance'
+                : undefined;
     if (role === undefined) {
       throw new Error(`PackItem declares ${member.name} as "${member.type}", which this walk gives no job`);
     }
@@ -65,10 +70,10 @@ function itemPositions(cddl: string): { id: string; stamp: string; predecessor: 
   roles.forEach((role, index) => {
     out[role] = names[index]!;
   });
-  for (const role of ['id', 'stamp', 'predecessor', 'payload'] as const) {
+  for (const role of ['id', 'stamp', 'predecessor', 'payload', 'provenance'] as const) {
     required(out[role], `PackItem declares no ${role} position, so a reader cannot rebuild a frame from it`);
   }
-  return out as { id: string; stamp: string; predecessor: string; payload: string };
+  return out as { id: string; stamp: string; predecessor: string; payload: string; provenance: string };
 }
 
 const POSITIONS = itemPositions(readFileSync(packCddlPath, 'utf8'));
@@ -333,8 +338,8 @@ function toHex(bytes: Uint8Array): string {
 }
 
 describe('a pack item carries what the walk needs', () => {
-  it('names four positions and no more', () => {
-    expect(POSITIONS).toEqual({ id: 'id', stamp: 'iat', predecessor: 'prev', payload: 'receipt' });
+  it('names the frame’s four positions, the one position the frame does not consume, and no more', () => {
+    expect(POSITIONS).toEqual({ id: 'id', stamp: 'iat', predecessor: 'prev', payload: 'receipt', provenance: 'prov' });
   });
 
   it('walks an unordered span from the anchor to the head', () => {

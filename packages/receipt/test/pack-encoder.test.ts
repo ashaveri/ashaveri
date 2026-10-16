@@ -129,6 +129,7 @@ function chained(
     const item: PackItem = {
       id: entry.id,
       iat: entry.iat,
+      prov: 'fixture',
       prev,
       receipt: issueReceipt(receiptPayload(entry.iat, entry.nonce), entry.key ?? KEY),
     };
@@ -156,6 +157,7 @@ function manifestFor(run: { items: PackItem[]; anchor: Uint8Array; head: Uint8Ar
   return {
     v: 1,
     at: SPAN_TO,
+    prov: 'fixture',
     span: { from: SPAN_FROM, to: SPAN_TO },
     chain: { anchor: run.anchor, head: run.head },
     duty: { art: '19(1)', rev: SPAN_TO - 30, required: 3_600, held: SPAN_TO - BASE },
@@ -223,6 +225,7 @@ function handManifestMap(manifest: PackManifest): Map<string, unknown> {
   return new Map<string, unknown>([
     ['v', manifest.v],
     ['at', manifest.at],
+    ['prov', manifest.prov],
     ['span', new Map<string, unknown>([['from', manifest.span.from], ['to', manifest.span.to]])],
     ['chain', new Map<string, unknown>([['anchor', manifest.chain.anchor], ['head', manifest.chain.head]])],
     [
@@ -240,6 +243,7 @@ function handManifestMap(manifest: PackManifest): Map<string, unknown> {
         new Map<string, unknown>([
           ['id', one.id],
           ['iat', one.iat],
+          ['prov', one.prov],
           ['prev', one.prev],
           ['receipt', one.receipt],
         ]),
@@ -315,10 +319,11 @@ describe('the pack writer', () => {
     const scrambled = new Map<string, unknown>([
       ['attached', honest.attached.map(attachedMap)],
       ['custody', honest.custody.map(custodyMap)],
-      ['items', honest.items.map((one) => new Map<string, unknown>([['receipt', one.receipt], ['prev', one.prev], ['iat', one.iat], ['id', one.id]]))],
+      ['items', honest.items.map((one) => new Map<string, unknown>([['receipt', one.receipt], ['prov', one.prov], ['prev', one.prev], ['iat', one.iat], ['id', one.id]]))],
       ['duty', new Map<string, unknown>([['held', honest.duty.held], ['required', honest.duty.required], ['rev', honest.duty.rev], ['art', honest.duty.art]])],
       ['chain', new Map<string, unknown>([['head', honest.chain.head], ['anchor', honest.chain.anchor]])],
       ['span', new Map<string, unknown>([['to', honest.span.to], ['from', honest.span.from]])],
+      ['prov', honest.prov],
       ['at', honest.at],
       ['v', honest.v],
     ]);
@@ -333,7 +338,7 @@ describe('the pack writer', () => {
     expect([...(encoded.get('chain') as Map<unknown, unknown>).keys()]).toEqual(canonical(['anchor', 'head']));
     expect([...(encoded.get('duty') as Map<unknown, unknown>).keys()]).toEqual(canonical(['art', 'rev', 'required', 'held']));
     const first = (encoded.get('items') as Map<unknown, unknown>[])[0]!;
-    expect([...first.keys()]).toEqual(canonical(['id', 'iat', 'prev', 'receipt']));
+    expect([...first.keys()]).toEqual(canonical(['id', 'iat', 'prov', 'prev', 'receipt']));
     // The numbers are integers and the byte strings are byte strings, which is what the closed decode the reader
     // runs insists on: a stamp written as a float is a document this package refuses.
     expect(first.get('iat')).toBe(BASE);
@@ -402,6 +407,7 @@ describe('the pack writer', () => {
     };
     const holes: Array<[string, PackManifest, (root: Map<string, unknown>) => void]> = [
       ['no span', { ...honest, span: undefined } as unknown as PackManifest, (root) => root.delete('span')],
+      ['no prov', { ...honest, prov: undefined } as unknown as PackManifest, (root) => root.delete('prov')],
       ['no chain', { ...honest, chain: undefined } as unknown as PackManifest, (root) => root.delete('chain')],
       ['no duty', { ...honest, duty: undefined } as unknown as PackManifest, (root) => root.delete('duty')],
       ['no items', { ...honest, items: undefined } as unknown as PackManifest, (root) => root.delete('items')],
@@ -555,7 +561,7 @@ describe('the pack seal walks the run it signs', () => {
     expect(vacuous.code).toBe('PACK_ITEM_UNREACHED');
     expect(vacuous.message).toMatch(/receipt-0, receipt-1, receipt-2/u);
     // Two items claiming one predecessor, where the reader would have to take whichever it met first.
-    const rival: PackItem = { id: 'rival', iat: BASE, prev: new Uint8Array(32), receipt: issueReceipt(receiptPayload(BASE, 6), KEY) };
+    const rival: PackItem = { id: 'rival', iat: BASE, prov: 'fixture', prev: new Uint8Array(32), receipt: issueReceipt(receiptPayload(BASE, 6), KEY) };
     const run = chained(ENTRIES);
     const forked = thrownBy(() => signPack(manifestFor({ ...run, items: [rival, ...run.items] }), KEY)) as ReceiptError;
     expect(forked.code).toBe('PACK_CHAIN_BROKEN');
@@ -563,7 +569,7 @@ describe('the pack seal walks the run it signs', () => {
     expect(forked.message).toMatch(/rival/u);
     expect(forked.message).toMatch(/receipt-0/u);
     // A record parked beside a run it is not part of, which is the half of the rule the endpoints cannot see.
-    const parked: PackItem = { id: 'parked', iat: BASE + 1, prev: seam, receipt: issueReceipt(receiptPayload(BASE + 1, 7), KEY) };
+    const parked: PackItem = { id: 'parked', iat: BASE + 1, prov: 'fixture', prev: seam, receipt: issueReceipt(receiptPayload(BASE + 1, 7), KEY) };
     const unreached = thrownBy(() => signPack(manifestFor({ ...run, items: [...run.items, parked] }), KEY)) as ReceiptError;
     expect(unreached.code).toBe('PACK_ITEM_UNREACHED');
     expect(unreached.message).toMatch(/: parked$/u);
@@ -687,6 +693,7 @@ describe('the ordering finding a verified pack carries', () => {
     const parked: PackItem = {
       id: 'parked',
       iat: BASE,
+      prov: 'fixture',
       prev: sha256(bytesOf('another chain entirely')),
       receipt: issueReceipt(receiptPayload(BASE, 8), KEY),
     };
@@ -709,6 +716,7 @@ describe('the ordering finding a verified pack carries', () => {
     const parked: PackItem = {
       id: 'parked',
       iat: BASE + 1,
+      prov: 'fixture',
       prev: sha256(bytesOf('a digest nobody in this run names')),
       receipt: issueReceipt(receiptPayload(BASE + 1, 7), KEY),
     };
@@ -721,7 +729,7 @@ describe('the ordering finding a verified pack carries', () => {
     expect(short.code).toBe('PACK_CHAIN_BROKEN');
     expect(short.message).toMatch(/the walk reached 1 item\(s\) and stopped at a digest that is not the head/u);
     // A fork is refused rather than resolved by the order the array happened to be in.
-    const rival: PackItem = { id: 'rival', iat: BASE, prev: run.anchor, receipt: issueReceipt(receiptPayload(BASE, 9), KEY) };
+    const rival: PackItem = { id: 'rival', iat: BASE, prov: 'fixture', prev: run.anchor, receipt: issueReceipt(receiptPayload(BASE, 9), KEY) };
     expect(codeOf(() => verifyPack(sealedFromPieces({ ...honest, items: [rival, ...honest.items] }), { publicKey: KEY.publicKey }))).toBe('PACK_CHAIN_BROKEN');
     // And the pack these three edits were cut from is accepted, so no answer above is a fault of the document.
     expect(codeOf(() => verifyPack(signPack(honest, KEY), { publicKey: KEY.publicKey }))).toBe('accepted');

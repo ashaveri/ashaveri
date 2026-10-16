@@ -534,6 +534,7 @@ describe('the envelope and the header', () => {
     const packManifest: PackManifest = {
       v: 1,
       at: RUN_START + 3 * WINDOW + 10,
+      prov: 'fixture',
       span: { from: RUN_START, to: RUN_START + 3 * WINDOW },
       chain: { anchor: new Uint8Array(32), head: new Uint8Array(32) },
       duty: { art: '19(1)', rev: RUN_START - DAY, required: 100, held: 200 },
