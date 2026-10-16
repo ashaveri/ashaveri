@@ -1,5 +1,5 @@
 import { stat } from 'node:fs/promises';
-import { basename } from 'node:path';
+import { basename, join } from 'node:path';
 import {
   COSE_SIGN1_TAG,
   DEPLOYMENT_MANIFEST_CONTENT_TYPE,
@@ -10,11 +10,13 @@ import {
   REDACTION_CONTENT_TYPE,
   decodeCanonical,
   ReceiptError,
+  sha256Hex,
   verifyEpochInventory,
   verifyExport,
   verifyPack,
   verifyReceipt,
   verifyRedaction,
+  type EpochInventoryPack,
   type VerifiedEpochInventory,
   type VerifiedExport,
   type VerifiedPack,
@@ -104,8 +106,10 @@ import {
  * `ashaveri verify-export` and `ashaveri verify-epoch-inventory`. They are this command with the answer in
  * label 3 pinned to one value, so a caller that already knows which file it is holding is told, in the same
  * refusal this command gives a type it does not read, when the file in front of it is not that. They add no
- * exit code, no refusal code and no option, because there is nothing here that a pinned type needs and a free
- * type does not.
+ * exit code, no refusal code and no option of their own, because there is nothing here that a pinned type needs
+ * and a free type does not; an option of this family is read by whichever reader the bytes point at, so
+ * `--retention-dir` reaches the fold of an inventory under either verb and is printed as not consulted beside
+ * the other five shapes.
  *
  * One shape carries a second document with it. A redaction states a removal from one pack, and the reader
  * recomputes a digest of that pack's whole bytes rather than resolving a name, so the pack travels in
@@ -113,12 +117,18 @@ import {
  * Nothing about the amendment widens what is accepted: an amendment names a content type the format
  * package publishes, and a header naming anything else is still refused by name.
  *
- * An inventory is the one shape whose reader takes a second set of documents and folds them into its answer,
- * and no option of this command line carries them: the presence interval a run's retention artifacts support is
- * folded only over bytes handed to `verifyEpochInventory` beside the document, so a run here reads the sealed
- * statement alone, prints the two digests each entry names as the document's own figures, and states in its own
- * report that the fold answered nothing.
+ * An inventory is the one shape whose reader takes a second set of documents and folds them into its answer, and
+ * `--retention-dir` is the option that carries them: it names the root the sealed entries' `retention` paths are
+ * relative to, and because each entry states its own artifact as `packs/<digest>/retention-v1.json` or
+ * `retention-v2.json`, one file per entry is resolved out of the record rather than named by the caller.
+ * `--companion` cannot cross this run because it matches a file by its basename and every entry's artifact
+ * carries one of the same two names under a different directory. The option is consulted for an inventory and for
+ * nothing else: handed beside any other document it is printed as not consulted, the way `--manifest-key`
+ * already is, so one line still runs across a whole bundle.
  */
+
+/** The flag that names the root an inventory's run files its retention artifacts under. */
+const RETENTION_DIR_FLAG = '--retention-dir';
 
 /** The flags `verify-handover` reads, typed as the one parse in `cli.ts` produces them. */
 export interface VerifyHandoverFlags extends CarriedFlagValues {
@@ -128,6 +138,12 @@ export interface VerifyHandoverFlags extends CarriedFlagValues {
   'manifest-key'?: string[];
   /** Every `--companion` given: the files an export item's originals travel in, and the pack a redaction names. */
   companion?: string[];
+  /**
+   * The root an inventory's run files its retention artifacts under, read only when the bytes are an inventory;
+   * see `possessionArtifacts`. One directory rather than a list of files, because the document being verified
+   * states which artifacts belong to the run.
+   */
+  'retention-dir'?: string;
   json?: boolean;
 }
 
@@ -186,6 +202,8 @@ interface Inputs {
   readonly evidence: readonly DesignatedKey[];
   readonly manifest: readonly DesignatedKey[];
   readonly companions: ReadonlyMap<string, Uint8Array>;
+  /** What `--retention-dir` named, or null when the caller named nothing; see `possessionArtifacts`. */
+  readonly retentionRoot: string | null;
   /** What this run was handed about the material a pack carries: the roots and the question. */
   readonly carried: CarriedDesignations;
 }
@@ -833,6 +851,80 @@ function readRedaction(bytes: Uint8Array, inputs: Inputs, kid: Uint8Array): Read
 }
 
 /**
+ * One family of the fold's answer, printed as the count the observation stated and the digests behind it. A
+ * roster of nothing is stated as a count of nothing rather than left out, because which family a store named
+ * nothing for is the reading a reviewer is owed.
+ */
+function rosterOf(family: string, digests: readonly string[]): string {
+  return `${family} ${String(digests.length)} digest(s)${digests.length === 0 ? '' : `: ${digests.join(', ')}`}`;
+}
+
+/**
+ * The run's retention artifacts, one per entry, out of the root `--retention-dir` named.
+ *
+ * Each entry states its own artifact as `packs/<digest>/retention-v1.json` or `retention-v2.json` under a
+ * directory named for the pack's digest, so the entry names the file and the caller names only where the run
+ * begins. That is why a basename cannot carry this: every entry's artifact has one of the same two names under a
+ * different directory, and a map keyed on the name would collapse three of them before the run was read. Nor is
+ * the directory walked: the document being verified states which files belong to the run, and a caller who could
+ * add a name to the reading could extend the period a signature attests by parking a file.
+ *
+ * An entry's artifact that is not there is refused rather than skipped, because the question an auditor asks with
+ * this flag is whether the evidence the inventory describes is still where the record says it is, and that
+ * question has no partial answer: a fold over the artifacts that happened to survive reads as an answer about the
+ * whole run. The holds-no-file reading is only for the names the operating system answers about: nothing stands
+ * at the name (`ENOENT`), or the path passes through a file and no file can stand at it (`ENOTDIR`). A stat that
+ * fails for any other reason (a path past the length the system takes, a name knotted through a link) is
+ * refused with the operating system's own sentence beside the path, because this run has observed nothing about
+ * what stands at that door and a sentence about the store's contents would be a claim nobody made. The bytes that
+ * are there are then hashed against the digest the same entry seals, because the reader attributes an artifact by
+ * that digest alone and never asks which entry named it, so a directory in which two manifests change doors still
+ * folds the same interval and would print a report claiming an agreement this run had not made. Each refusal is
+ * about the caller's directory and so is a usage refusal, the same route a `--companion` file that is not there
+ * takes, and each names the door it is about.
+ *
+ * Bytes at a door that hash to a digest no entry of the run seals are not refused here: they travel to the reader,
+ * which owns that judgement and states it as its own refusal, so a digest outside the run is answered by the
+ * reader and not by this check. The check fires only where the bytes are the artifact of a different entry of this
+ * same run, which is the one case the reader cannot see.
+ */
+async function possessionArtifacts(root: string, run: readonly EpochInventoryPack[]): Promise<readonly Uint8Array[]> {
+  const artifacts: Uint8Array[] = [];
+  for (const one of run) {
+    const path = join(root, ...one.retention.split('/'));
+    let info;
+    try {
+      info = await stat(path);
+    } catch (err) {
+      // The two answers that are about the name rather than about the door's contents: nothing stands at the
+      // name, or the path passes through a file and no file can stand at it. Anything else is the operating
+      // system declining to answer, and this run then knows nothing about what the root holds.
+      const code = err instanceof Error && 'code' in err && typeof err.code === 'string' ? err.code : undefined;
+      if (code !== 'ENOENT' && code !== 'ENOTDIR') {
+        throw new UsageError(
+          `cannot read ${RETENTION_DIR_FLAG} '${path}': ${err instanceof Error ? err.message : String(err)}`,
+        );
+      }
+      info = null;
+    }
+    if (info === null || !info.isFile()) {
+      throw new UsageError(
+        `${RETENTION_DIR_FLAG}: ${printedToken(one.file)} states its retention artifact at ${printedToken(one.retention)} and ${printedToken(root)} holds no file at that name, and this run reads exactly the artifact each entry names rather than whatever else the directory holds, so a run missing one of them is refused rather than folded from the rest`,
+      );
+    }
+    const bytes = await readBytes(path, RETENTION_DIR_FLAG);
+    const digest = sha256Hex(bytes);
+    if (digest !== one.retentionSha256 && run.some((other) => other.retentionSha256 === digest)) {
+      throw new UsageError(
+        `${RETENTION_DIR_FLAG}: ${printedToken(one.file)} states its retention artifact at ${printedToken(one.retention)} and ${printedToken(root)} holds a file at that name which is not the artifact this entry seals: those bytes hash to ${digest} and the entry seals ${one.retentionSha256}, and this run reads exactly the artifact each entry names rather than whatever else the directory holds, so a directory holding the wrong bytes at one entry's name is refused rather than folded from the rest`,
+      );
+    }
+    artifacts.push(bytes);
+  }
+  return artifacts;
+}
+
+/**
  * An epoch inventory, read as one.
  *
  * `verifyEpochInventory` settles the envelope, then the key, then the signature, then the arithmetic the run
@@ -847,19 +939,38 @@ function readRedaction(bytes: Uint8Array, inputs: Inputs, kid: Uint8Array): Read
  * by no bytes here: a stated digest is met by the path the entry is filed under, which is a fact inside the
  * container, and a stated item count by nothing at all. The spans, the chain endpoints and the two duty figures
  * are the other half of the reading, walked across the run and refused where the document states a window, an
- * endpoint, a break list or a shortfall list that is not that walk. The presence fold is the one reading an
- * inventory's reader can do and this command line cannot ask: the interval
- * across which a store reported holding the appraisal context is folded from the run's retention artifacts, and
- * no option here carries them, so the fold answers nothing and the report says so rather than leaving it
- * implied. The run's rows are the entries in the order the reader's own rule puts them, which is the order the
- * document's figures support, and position in the array carries no claim either way.
+ * endpoint, a break list or a shortfall list that is not that walk. The presence fold is the fifth reading, and
+ * `--retention-dir` is the option that reaches it: the interval across which a store reported holding the
+ * appraisal context is folded from the run's retention artifacts, which this command resolves one per entry out
+ * of the root the caller named. Where the flag was handed, the seal is settled by a first reading of the document
+ * before a byte of anybody's volume is opened, so an artifact is read on the word of a record this run has already
+ * accepted, and the second reading, the one handed those bytes, is the one whose answer is printed. Where it was
+ * not, the fold answers nothing and the report says so rather than leaving it implied. The run's rows are the
+ * entries in the order the reader's own rule puts them, which is the order the document's figures support, and
+ * position in the array carries no claim either way.
  */
-function readInventory(bytes: Uint8Array, inputs: Inputs, kid: Uint8Array): Reading {
+async function readInventory(bytes: Uint8Array, inputs: Inputs, kid: Uint8Array): Promise<Reading> {
+  const resolveKey = resolveEvidence(inputs.evidence);
+  const sealed =
+    inputs.retentionRoot === null
+      ? undefined
+      : await possessionArtifacts(
+          inputs.retentionRoot,
+          verifyEpochInventory(bytes, { resolveKey }).outcome.packs,
+        );
   const verified: VerifiedEpochInventory = verifyEpochInventory(bytes, {
-    resolveKey: resolveEvidence(inputs.evidence),
+    resolveKey,
+    ...(sealed === undefined ? {} : { presence: sealed }),
   });
   const { manifest, outcome } = verified;
   const deployment = manifest.manifest;
+  const root = inputs.retentionRoot;
+  const presence = outcome.presence;
+  // The one decision the possession row and the sentence it leaves owe both read: this run has a fold exactly
+  // when a root was named and the reader handed one back, which today is one state rather than two, because the
+  // reader folds only the artifacts the call handed it and this command hands them only where `--retention-dir`
+  // named. Kept as one value so the row and the disclosure can never describe different runs.
+  const folded = root !== null && presence !== undefined;
   return {
     contentType: EPOCH_INVENTORY_CONTENT_TYPE,
     reader: 'verifyEpochInventory',
@@ -888,6 +999,16 @@ function readInventory(bytes: Uint8Array, inputs: Inputs, kid: Uint8Array): Read
           .join('; '),
         json: outcome.packs,
       },
+      ...(folded
+        ? [
+            {
+              key: 'possession',
+              label: 'possession',
+              value: `folded from the run's artifacts under ${printedToken(root)}: ${String(outcome.packs.length)} read, one per entry, each admitted under the digest the entry that names it seals; ${String(presence.observations)} of those entries state a holding, and the interval they attest runs ${presence.from} to ${presence.to} (${isoOf(presence.from)} to ${isoOf(presence.to)}), which is the window above and the reader refuses the pair when it is not, over ${rosterOf('collateral', presence.collateral)} and ${rosterOf('validity', presence.validity)}`,
+              json: presence,
+            },
+          ]
+        : []),
       {
         key: 'chain',
         label: 'chain',
@@ -917,7 +1038,9 @@ function readInventory(bytes: Uint8Array, inputs: Inputs, kid: Uint8Array): Read
     notChecked: [
       'whether the two digests an entry names are digests of files that exist beside this document, whether the packs they name are sealed by the keys the entries give, and whether an item count beside an entry is the count of receipts inside that pack: an inventory restates a run rather than proving it, and `ashaveri verify-handover` over each pack file recomputes what an entry claims',
       'whether either period an entry states was owed at all: this run compares each held figure with the required figure beside it and refuses a document whose stated shortfall rows are not that arithmetic, and owed-ness turns on the duty mapping revision each entry names and on the law behind it',
-      'whether the store held the appraisal context across the period this run attests: the fold of that interval reads the run\'s retention artifacts, no option of this command line hands them, and so each entry\'s retention digest prints as the document\'s own figure and is compared by nothing in this run',
+      folded
+        ? 'whether the material the two presence rosters name can still be reached by anybody: a retention observation states digests and this run read no collateral or validity bytes beside the run\'s artifacts, so the attested interval is the period the store reported holding them across and not a showing that a copy stands anywhere today'
+        : 'whether the store held the appraisal context across the period this run attests: the fold of that interval reads the run\'s retention artifacts, this run was handed no `--retention-dir` to read them from, and so each entry\'s retention digest prints as the document\'s own figure and is compared by nothing in this run',
       'whether this run is all the epochs the deployment closed and whether it is the latest statement about them: no file in a bundle shows what else a store holds, the stamps these entries carry are each pack\'s own assembly stamp restated, and this run consulted no clock',
     ],
   };
@@ -1051,6 +1174,19 @@ function designationFacts(contentType: string, inputs: Inputs): readonly Fact[] 
             json: { consulted: false, contentType, roots: inputs.carried.rootPaths.length },
           },
         ]),
+    // The one option the inventory reader alone consults. A caller running one line across a bundle hands it to
+    // every file in the pile, and the answer for the five shapes that state no run of packs is that nothing was
+    // read, which is a fact about this run's inputs rather than a fault in the document in front of it.
+    ...(contentType === EPOCH_INVENTORY_CONTENT_TYPE || inputs.retentionRoot === null
+      ? []
+      : [
+          {
+            key: 'retentionNotConsulted',
+            label: 'not consulted',
+            value: `${RETENTION_DIR_FLAG} names the root a run's retention artifacts are filed under, and ${contentType} states no run of packs, so nothing was read from ${printedToken(inputs.retentionRoot)}`,
+            json: { consulted: false, contentType, root: inputs.retentionRoot },
+          },
+        ]),
   ];
 }
 
@@ -1115,7 +1251,19 @@ export async function runVerifyHandover(
   const companions = await companionFiles(values.companion);
   const json = values.json === true;
   const carried = await carriedDesignations(values);
-  const inputs: Inputs = { evidence, manifest: manifestKeys, companions, carried };
+  // An empty root is refused as the gap in the call it is, the way an empty `--companion` basename is: it would
+  // be "handed", `join('', ...)` would resolve every entry's path under the working directory, and the row or
+  // refusal that prints the root would print it as nothing.
+  const retentionDir = values['retention-dir'];
+  if (retentionDir === '') {
+    throw new UsageError(
+      `${RETENTION_DIR_FLAG} must name a directory, not '': a run's retention artifacts are resolved one file per entry under the root this option names, and an empty argument would resolve them under the working directory instead`,
+    );
+  }
+  // Nothing is opened here: a root is a name until the reader for an inventory needs it, so handing this flag to
+  // a receipt costs that run nothing beyond the row that says it was not consulted.
+  const retentionRoot = retentionDir ?? null;
+  const inputs: Inputs = { evidence, manifest: manifestKeys, companions, retentionRoot, carried };
   const bytes = await readOneDocument(path);
 
   let contentType: string | null = null;

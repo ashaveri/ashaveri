@@ -764,3 +764,131 @@ describe('the marking requirement, as an operator meets it in prose', () => {
     });
   }
 });
+
+/**
+ * The sentences an operator reads about the directory a possession fold is handed.
+ *
+ * `verify-handover` settles that reading from the `retention` path each sealed entry states, at
+ * `src/commands/verify-handover.ts`, and not from a basename a caller typed. Six copies of that one fact exist:
+ * the flag's own help entry, the paragraph introducing the handover verbs, the README's row for each of the two
+ * verbs that read it, the inventory suite's bullet in `docs/vectors.md`, and the format document's section on the
+ * fold. The stale shape this guards against is the claim that no option carries a run's retention artifacts,
+ * because a reader who meets it at a terminal gives up on a command that can answer the question. Each
+ * copy is read as data and held to the flag's name, to the absence of that claim, to naming the layout
+ * that states a holding where it says what a fold attests, and, where it enumerates the answers a handed
+ * directory can give, to naming the refusal a directory that states no holding earns. That last requirement is
+ * the one a reader of this command needs and the one a directory of version one artifacts meets: the possession
+ * line is not printed there, and a copy that promises it anyway sends the reader to a directory that cannot
+ * answer the question.
+ */
+describe('the retention directory, as an operator meets it in prose', () => {
+  /** The claim this pin rules out, in whichever shape it was written. */
+  const NO_ROUTE = /no option of this command line hands them|no flag carrying those bytes|has no flag carrying|the fold answered nothing/u;
+  /** The sentence form that says which layout names the held digests, inside one sentence. */
+  const STATES_A_HOLDING = /version two layout[^.]*\b(states|stating|carries|adds)\b/u;
+  /**
+   * The sentence form that carries the reader's refusal of a complete directory stating no holding.
+   *
+   * The claim is the pair of figures inside one sentence: artifacts that state no holding, and a refusal. A site
+   * that promises a possession line for every matched directory without that pair tells the reader an outcome the
+   * library withholds, because `foldPresence` answers a window no observation attests with
+   * `EPOCH_INVENTORY_PRESENCE_WINDOW_TOO_WIDE` rather than with an interval of nothing.
+   */
+  const NO_HOLDING_REFUSAL =
+    /\bno (?:digest|digests|holding|observation)s?\b[^.]*\brefus|\brefus\w*\b[^.]*\bno (?:digest|digests|holding|observation)s?\b/u;
+
+  function textOf(path: string): string {
+    return readFileSync(new URL(path, import.meta.url), 'utf8');
+  }
+
+  function helpText(): string {
+    return runCli(['--help']).stdout;
+  }
+
+  /** One option's help entry: its flag line up to the next one, which is where its prose ends. */
+  function optionEntry(help: string, flag: string): string {
+    const start = help.indexOf(`\n  ${flag}`);
+    if (start < 0) throw new Error(`the help text has no '${flag}' entry to check`);
+    const rest = help.slice(start + 1);
+    const next = rest.slice(3).search(/^\s{2}--/mu);
+    return next < 0 ? rest : rest.slice(0, next + 3);
+  }
+
+  /** The paragraph that introduces the handover verbs, up to the blank line that ends it. */
+  function handoverParagraph(help: string): string {
+    const start = help.indexOf('verify-handover answers the question a pile of files leaves open');
+    if (start < 0) throw new Error('the help text introduces verify-handover nowhere this looks');
+    const end = help.indexOf('\n\n', start);
+    return help.slice(start, end < 0 ? help.length : end);
+  }
+
+  /** One verb's row in the README's table of verbs, which is one line. */
+  function readmeRow(verb: string): string {
+    const row = textOf('../../../README.md')
+      .split('\n')
+      .find((line) => line.startsWith(`| \`${verb}\` |`));
+    if (row === undefined) throw new Error(`the README's table has no ${verb} row to check`);
+    return row;
+  }
+
+  /** The inventory suite's bullet in the vector document. */
+  function vectorsBullet(): string {
+    const doc = textOf('../../../docs/vectors.md');
+    const start = doc.indexOf('\n- **Epoch inventory.');
+    if (start < 0) throw new Error('docs/vectors.md states no Epoch inventory bullet to read');
+    const end = doc.indexOf('\n- **', start + 5);
+    return doc.slice(start, end < 0 ? doc.length : end);
+  }
+
+  /**
+   * The format document's fold prose: the section on what a reader folds, with its two subsections on the layouts
+   * and on the four answers a command line gives.
+   *
+   * The slice starts at the section heading and not at the newer of the subsections, so the prose above them
+   * (the fold's admission rules and the refusal a run of the layout that states no observation earns) is held to
+   * the same requirements. The two subsections are 'The two layouts, and which of them states a holding' and
+   * 'The four answers a command line gives'.
+   */
+  function foldSections(): string {
+    const doc = textOf('../../../docs/epoch-inventory-v1.md');
+    const start = doc.indexOf('## The interval a reader folds from what the store reported');
+    if (start < 0) throw new Error('the inventory document states no fold section to read');
+    const rest = doc.slice(start);
+    const end = rest.search(/\n## /u);
+    return end < 0 ? rest : rest.slice(0, end);
+  }
+
+  const sites: Array<[string, () => string, boolean, boolean]> = [
+    ['the --retention-dir help entry', () => optionEntry(helpText(), '--retention-dir'), true, true],
+    ['the paragraph introducing verify-handover', () => handoverParagraph(helpText()), false, true],
+    ["the README's row for verify-handover", () => readmeRow('verify-handover <document>'), false, false],
+    ['the README\'s row for the pinned verb', () => readmeRow('verify-epoch-inventory <document>'), true, true],
+    ['the inventory bullet in the vector document', vectorsBullet, true, true],
+    ['the fold sections of the format document', foldSections, true, true],
+  ];
+
+  for (const [name, read, statesHolding, enumeratesOutcomes] of sites) {
+    it(`keys ${name} on the flag and not on the claim that no option carries a run's retention artifacts`, () => {
+      const stated = read().replace(/\n\s*/gu, ' ');
+      expect(stated, `${name} never names the option that reaches the fold`).toContain('--retention-dir');
+      expect(stated, `${name} still says the fold is unreachable from a command line`).not.toMatch(NO_ROUTE);
+      if (statesHolding) {
+        expect(stated, `${name} does not say which layout states a holding`).toMatch(STATES_A_HOLDING);
+      }
+      if (enumeratesOutcomes) {
+        expect(stated, `${name} promises a possession line to a directory that states no holding`).toMatch(
+          NO_HOLDING_REFUSAL,
+        );
+      }
+    });
+  }
+
+  it('keeps the printed answers on the phrases the prose promises', () => {
+    // The report's own two sentences are the ones six copies of this fact describe: the unused designation
+    // beside another shape, and the not-attempted reading when no root was named.
+    const source = textOf('../src/commands/verify-handover.ts');
+    expect(source).toContain('states no run of packs, so nothing was read from');
+    expect(source).toContain('this run was handed no `--retention-dir` to read them from');
+    expect(helpText()).toContain('printed as not consulted');
+  });
+});

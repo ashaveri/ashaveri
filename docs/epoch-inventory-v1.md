@@ -247,6 +247,66 @@ The same call with nothing handed answers exactly as a call handed a document al
 optional input, and a reader of this document alone is not told less about the document; it is asked a different
 question, and the answer to that one is not in these bytes.
 
+### The two layouts, and which of them states a holding
+
+An entry files its artifact under one of two names, and the name carries the version of the layout inside it:
+`packs/<digest>/retention-v1.json` and `packs/<digest>/retention-v2.json`. Both state the retention the store ran
+at the instant its pack was assembled: the policy it applied, the window it retained, what it retired and by which
+bound, its own chain, and the duty figures it measured. The version two layout adds one block, `presence`, of two
+families, collateral and validity, each stating a count and the digests the store held at that instant. That block
+is the whole of what the fold reads: a version one manifest states nothing about held material, so a fold over a
+directory of them has no digest to intersect and no period to attest.
+
+Which name an entry states is the run's own statement about its directory, and which layout a manifest is is a
+fact inside it, and the reader checks the two apart. A path outside the two names is a malformed document, because
+no other position of this layout holds an artifact. A manifest is read through its own `v` and never through the
+name it arrived under: an entry filed under the newer name and holding the older layout states no observation, and
+one filed under the older name and holding the newer layout states the observations the fold reads. Nothing here
+states which writer puts which layout where: the name and the block are the run's own record, and a fold answers
+from what it was handed.
+
+### The four answers a command line gives
+
+`ashaveri verify-epoch-inventory` and `ashaveri verify-handover` reach the fold through one flag,
+`--retention-dir <directory>`. It names the root the sealed entries' `retention` paths are relative to, and the
+run's artifacts are then resolved one file per entry out of the record's own names: the caller states where the run
+begins and the document states which files belong to it, which is the order a pairing has to run in, since a
+caller who could add a name could extend the period a signature attests by parking a file. The flag is consulted by
+the inventory reading alone; handed beside any of the other five shapes it is printed as not consulted, so one line
+still runs across a whole handover. What a run can be answered with is four things, and each is printed as itself.
+
+- **Nothing handed.** The reading is this document alone, and the report says so: the possession line is absent,
+  and the list of what the run leaves open states that the fold reads the run's retention artifacts, that this run
+  was handed no `--retention-dir` to read them from, and that each entry's retention digest therefore prints as the
+  document's own figure, compared by nothing in the run.
+- **Everything handed and matched.** The report carries a `possession` line: the interval the observations attest,
+  how many of the run's entries stated a holding, and the two rosters of collateral and validity digests the
+  interval is about. The interval is the stated `window` or the reader refuses the pair, so that line is the
+  statement that every artifact standing at an entry's own name hashed to the digest the same entry seals. The
+  reader settles an unmatched digest before it reports anything about a fold, which is what makes arriving at the
+  answer the pairing holding rather than a passing over it. Where every artifact handed is the layout stating no
+  observation, the answer is not that line: the reader refuses with
+  `EPOCH_INVENTORY_PRESENCE_WINDOW_TOO_WIDE` and the sentence that the run's observations name no digest at all,
+  which is the honest reading of a complete directory that cannot say what was held, and not a failure to reach one.
+- **An artifact no entry states.** Refused as `EPOCH_INVENTORY_PRESENCE_UNSEALED`, naming the digest the bytes
+  reached. The refusal is the reader's own and the command prints it as it gave it. Because the run is resolved one
+  file per entry, this is met where the bytes standing at an entry's own name hash to something the run does not
+  seal; a file the entries name nowhere under that root is read by nothing, and so neither believed nor refused.
+- **An entry whose artifact is not there, or whose door holds a file that is not it.** Refused by name, before the
+  fold is asked: the refusal states the entry, the `retention` path it gives, and the root it was looked for under,
+  and it exits as a gap in what the caller handed rather than as a verdict about the document. The second shape is
+  the one the reader cannot see: a manifest that belongs to another entry of the same run still hashes to a digest
+  the run seals, so a directory in which two artifacts change doors folds the same interval, and the command hashes
+  each file it reads against the digest the entry that names it seals rather than trusting the reader's attribution
+  by digest alone. No report is written for either shape, because the question this flag is asked with, whether the
+  evidence a record describes is still where the record says it is, has no partial answer. A fold over the artifacts
+  that happened to survive would report a period the run attests out of a run that could not.
+
+None of the four is a claim that a duty was discharged. The fold pairs digests a caller supplied with digests a
+signature seals, and states the period across which the run's own observations named them; whether that material
+is the record a period owed, and whether it is reachable anywhere, are settled outside this container, and the
+report keeps saying so on its own lines.
+
 ## What a verified inventory does not establish
 
 A reimplementer who has just read the word `verify` is most likely to over-read exactly this, so the list is

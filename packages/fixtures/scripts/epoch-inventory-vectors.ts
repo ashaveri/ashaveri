@@ -136,12 +136,14 @@ function packEntry(one: {
   art?: string;
   /** The manifest this entry seals, when the case has one rather than a digest of a label. */
   retentionBytes?: Uint8Array;
+  /** The retention layout this entry files its artifact under, which is a name and not a version check. */
+  filedAs?: string;
 }): EpochInventoryPack {
   const sha = digest(`pack/${String(one.index)}`);
   const home = `${EPOCH_INVENTORY_PACKS_DIRECTORY}/${sha}`;
   return {
     file: `${home}/${EPOCH_INVENTORY_PACK_FILE}`,
-    retention: `${home}/${RETENTION_FILE}`,
+    retention: `${home}/${one.filedAs ?? RETENTION_FILE}`,
     sha256: sha,
     retentionSha256:
       one.retentionBytes === undefined ? digest(`retention/${String(one.index)}`) : toHex(sha256(one.retentionBytes)),
@@ -259,11 +261,13 @@ const HELD_VALIDITY = digest('the validity document the store held across the ru
 /**
  * A run of `count` windows that continues itself, each entry sealing one manifest, and those manifests in the
  * run's own order beside it. `held` states what one entry's store reported holding, or states nothing at all for
- * the entry whose manifest is of the older layout.
+ * the entry whose manifest is of the older layout. `filedAs` is the name the entry states for its artifact, and
+ * what the fold reads is the document's own `v` rather than that name; absent, the run states the older name.
  */
 function runWithPresence(
   count: number,
   held: (index: number) => { collateral: readonly string[]; validity: readonly string[] } | undefined,
+  filedAs?: string,
 ): { manifest: EpochInventoryManifest; artifacts: Uint8Array[] } {
   const packs: EpochInventoryPack[] = [];
   const artifacts: Uint8Array[] = [];
@@ -273,7 +277,7 @@ function runWithPresence(
     const to = RUN_START + (index + 1) * WINDOW;
     const bytes = retentionArtifact(to + 10, held(index));
     artifacts.push(bytes);
-    const pack = packEntry({ index, from, to, anchor, retentionBytes: bytes });
+    const pack = packEntry({ index, from, to, anchor, retentionBytes: bytes, filedAs });
     packs.push(pack);
     anchor = pack.chain.head;
   }
@@ -303,6 +307,34 @@ const PRESENCE_BLANK_FIRST_RUN = runWithPresence(3, (index) =>
     ? undefined
     : { collateral: [HELD_COLLATERAL], validity: [HELD_VALIDITY] },
 );
+
+/**
+ * A run filed the way the newer layout files it: each entry names its artifact `retention-v2.json` under the
+ * pack's own digest, and each manifest states two collateral roots and two validity documents, held by every
+ * entry from the first window to the last. The name is where a run says it put a layout and the document inside
+ * is what the fold reads, so this row is the pairing a caller meets when the directory and the record agree about
+ * which layout the run was written in. Two digests per family is the roster a fold answers with rather than a
+ * count it answers with: a run that names one root attests one period, and a run that names four attests the
+ * period all four share.
+ */
+const HELD_COLLATERAL_ALSO = digest('the second collateral root the store held across the run');
+const HELD_VALIDITY_ALSO = digest('the second validity document the store held across the run');
+const POSSESSION_RUN = runWithPresence(
+  3,
+  () => ({ collateral: [HELD_COLLATERAL, HELD_COLLATERAL_ALSO], validity: [HELD_VALIDITY, HELD_VALIDITY_ALSO] }),
+  RETENTION_FILE_NAMES[2],
+);
+
+/**
+ * A run whose every artifact is the layout that states no observation: the store reported its retention, its
+ * trims and its chain at each instant and named no collateral or validity digest at all. Each of those manifests
+ * is the one the entry above it seals, so the fold is handed a complete directory and still finds nothing to
+ * attest a period with. That is the reading this suite states rather than a fold that quietly answers less.
+ */
+const POSSESSION_NOTHING_RUN = runWithPresence(3, () => undefined);
+
+/** The document both halves of the pairing below publish: sealed once, read two ways. */
+const POSSESSION_BYTES = signEpochInventory(POSSESSION_RUN.manifest, CURRENT, POSSESSION_RUN.artifacts);
 
 /** A manifest of a window this run never sealed, for the row that hands the fold a file of the deployment's own. */
 const FOREIGN_ARTIFACT = retentionArtifact(RUN_START + 4 * WINDOW + 10, {
@@ -603,6 +635,29 @@ const CASES: readonly Case[] = [
     verdict: 'EPOCH_INVENTORY_PRESENCE_WINDOW_TOO_WIDE',
     structural: 'verify-ok',
     edited: 'the first manifest, written in the layout that states no presence',
+  },
+  {
+    name: 'possession-proven-by-the-artifacts-each-entry-names',
+    note: 'A run of three windows filed the way the layout that states holdings files it: each entry names `retention-v2.json` under its own pack digest, seals the manifest standing at that name, and is handed to the fold beside the document. Every entry names the same two collateral roots and the same two validity documents, so the four stretches meet at both edges of the run and the interval the fold attests is the stated window. Where `presence-folded-across-the-windows-the-run-seals` states one digest per family, this row states the roster a run holding more than one document answers with; where every other row of this suite files its artifact under the older name, this one pairs a name with the layout it carries, which is the reading a directory of that layout meets. The file name is the name the run states for where it filed the manifest, and the document inside is what the fold reads, through its own `v`, so the two are checked apart and neither is taken for the other.',
+    bytes: POSSESSION_BYTES,
+    read: readWithPresence(POSSESSION_RUN.artifacts),
+    verdict: 'verify-ok',
+  },
+  {
+    name: 'possession-absent-with-nothing-handed-to-the-fold',
+    note: 'The same document as `possession-proven-by-the-artifacts-each-entry-names`, read by a call that handed no artifact. Same bytes, same designation, and the run answers whole: the fold is an input rather than a version of this container, so a call that names no directory is a reader of the sealed statement alone and the two digests each entry carries print as the document\'s own figures with nothing beside them. This row and `possession-proven-by-the-artifacts-each-entry-names` together are the published form of that distinction, which a reviewer needs because a report carrying no possession line is the word of a call that was handed nothing and not the word of a store that held nothing. The pairing is refused by `possession-refused-when-no-artifact-states-a-holding` rather than answered short.',
+    bytes: POSSESSION_BYTES,
+    read: PINNED,
+    verdict: 'verify-ok',
+  },
+  {
+    name: 'possession-refused-when-no-artifact-states-a-holding',
+    note: 'A run of three windows whose every artifact is the layout that states no observation, each sealed by the entry above it and each handed to the fold. Nothing is missing and nothing is unsealed: every artifact that arrives is the one the record names, and none of them states a collateral or a validity document, because a retention manifest can report its policy, its windows, its trims, its chain and its duty while naming no held digest. The fold admits observations rather than counts and adds nothing from a document that names nothing, so its observations name no digest, no interval stands against the stated window, and the reading is refused. A complete directory of that layout is therefore the answer that the record cannot say, refused in the reader\'s own sentence rather than reported as a run whose store held nothing.',
+    bytes: sealDocument(POSSESSION_NOTHING_RUN.manifest),
+    read: readWithPresence(POSSESSION_NOTHING_RUN.artifacts),
+    verdict: 'EPOCH_INVENTORY_PRESENCE_WINDOW_TOO_WIDE',
+    structural: 'verify-ok',
+    edited: 'every manifest of the run, written in the layout that states no observation',
   },
   {
     name: 'entries-listed-backwards',
@@ -1284,6 +1339,16 @@ function main(): void {
   }
   if (!writerFoldRefused) throw new Error('the inventory writer signed a run whose observations leave a gap');
   signEpochInventory(PRESENCE_RUN.manifest, CURRENT, PRESENCE_RUN.artifacts);
+  // A directory that is complete in the layout stating no observation is a fold with nothing to attest, and the
+  // writer is asked the same question before it seals: a run whose every artifact names no held digest must not
+  // be sealable as a period the store reported holding material across.
+  let writerSawNoHoldings = false;
+  try {
+    signEpochInventory(POSSESSION_NOTHING_RUN.manifest, CURRENT, POSSESSION_NOTHING_RUN.artifacts);
+  } catch (err) {
+    writerSawNoHoldings = err instanceof ReceiptError && err.code === 'EPOCH_INVENTORY_PRESENCE_WINDOW_TOO_WIDE';
+  }
+  if (!writerSawNoHoldings) throw new Error('the inventory writer sealed a run whose artifacts state no holding');
 
   const rows: Record<string, unknown>[] = [];
   for (const one of CASES) {
@@ -1364,7 +1429,7 @@ function main(): void {
           readFields:
             '`read.pinned` is the one key a caller hands the reader, which answers whatever kid the header names. `read.retained` is the set a resolver answers from, one public half per kid, and is how a deployment holding several keys reads one document; an empty set is a resolver holding nothing for the kid named. A row with neither is the call that designated nothing, which this reader refuses before it reads a byte. `read.presence` is a third thing and it is not about a key: the run\'s retention artifacts, as the bytes that sit on the volume, in the order the call hands them, which is the input of the fold that computes the period across which the store reported holding the appraisal context. A row stating no `presence` is the call that handed no manifest, which is the call that reads the document alone and answers only what the document itself states.',
           presenceFold:
-            'the interval across which a store reported holding the appraisal context is computed at the read and is not a member of the signed document, because it is the arithmetic of artifacts the signature does not carry: the manifest states which collateral and validity digests one store held at one instant and carries none of those bytes, and this document states which manifests the run seals and what its packs add up to and says nothing about what any store held. The fold admits an artifact only under a `packs[].retentionSha256` this document\'s own signature seals, and answers three findings by name, one code each: an observation arriving under a digest no entry seals or under one the run seals twice, a period inside the attested window that no observation speaks for, and a stated window wider than the observations reach. Four rows here carry `read.presence`: one acceptance, one for each refusal, and each hands the manifests the entries seal rather than digests of labels, which is what lets a port replay the fold from published bytes.',
+            'the interval across which a store reported holding the appraisal context is computed at the read and is not a member of the signed document, because it is the arithmetic of artifacts the signature does not carry: the manifest states which collateral and validity digests one store held at one instant and carries none of those bytes, and this document states which manifests the run seals and what its packs add up to and says nothing about what any store held. The fold admits an artifact only under a `packs[].retentionSha256` this document\'s own signature seals, and answers three findings by name, one code each: an observation arriving under a digest no entry seals or under one the run seals twice, a period inside the attested window that no observation speaks for, and a stated window wider than the observations reach. Six rows here carry `read.presence`: two acceptances, one refusal for each finding, and one for a directory complete in the layout that states no observation at all, and each hands the manifests the entries seal rather than digests of labels, which is what lets a port replay the fold from published bytes. One row beside them reads the proven document with nothing handed, which is the same bytes answered by the call that asks only what the signature states. The two layouts an entry may file its artifact under are both published here, and only the one carrying a `presence` block states a holding: the name is where a run says it put a manifest, the document inside is what the fold reads, and an entry filed under one name and holding the other layout is read as the document it holds.',
           summarySites:
             'the two lists a run folds, `chain.breaks` and `duty.short`, are guarded apart rather than by one routine, and every fault a list can carry is stated at both sites: a claim of continuity or of carrying contradicted by the list beside it, a list longer than the arithmetic, a list shorter than it, two rows naming one pack, a row naming a pack the run does not hold, a row naming a pack the run holds whose own figures carry no such finding, and a row whose own two digests or four figures are not the pair or the pack it names. Every refusal at a folded-list site carries `site` and the `guard` of the branch it reaches beside it, and each list is keyed by the pack its `file` names, so the order the rows are stated in bears nothing, which is what makes the two accepted rows carrying reversed lists acceptances rather than oversights.',
           assembled:

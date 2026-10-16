@@ -31,7 +31,7 @@ Arguments:
                          [--collateral-cpu-type <slot>=<hex>]...
                          [--collateral-level <slot>=<arm>=<value>]... [options]
   ashaveri verify-handover <document> [--key <b64url>]... [--manifest-key <b64url>]...
-                         [--companion <file>]... [--intel-root <file>]...
+                         [--companion <file>]... [--retention-dir <directory>] [--intel-root <file>]...
                          [--collateral-origin <slot>=<origin>]...
                          [--collateral-platform <slot>=<sgx|tdx>]...
                          [--collateral-cpu-type <slot>=<hex>]...
@@ -42,7 +42,7 @@ Arguments:
                          [--collateral-cpu-type <slot>=<hex>]...
                          [--collateral-level <slot>=<arm>=<value>]... [--json]
   ashaveri verify-export <document> --key <b64url>... [--companion <file>]... [--json]
-  ashaveri verify-epoch-inventory <document> --key <b64url>... [--json]
+  ashaveri verify-epoch-inventory <document> --key <b64url>... [--retention-dir <directory>] [--json]
   ashaveri keygen [--id <id>] [--json]
   ashaveri credential add --credentials <file> [--id <id>] [--kind pop|bearer]
                           [--scopes read,complete] [--label <text>]
@@ -76,16 +76,30 @@ because a manifest decides which keys sign evidence and cannot be proved by one 
 removal from one pack and designates that pack by a
 digest of its whole bytes, so it is checked against the pack handed as --companion: the digest is
 recomputed from those bytes and compared, and the pair is refused by name when they disagree or when no
-pack was handed at all. An inventory states what a run of packs adds up to, and it is read alone here:
-the fold its reader can do over the run's retention artifacts has no flag carrying those bytes, so the
-two digests an entry names print as the document's own figures and the report says in terms that the
-fold answered nothing. Each key's id is computed from the key, so a designation cannot type an id its
+pack was handed at all. An inventory states what a run of packs adds up to, and its reader folds a fifth
+figure from the run's retention artifacts: --retention-dir names the root those artifacts are filed under, and
+each entry states its own as packs/<digest>/retention-v1.json or packs/<digest>/retention-v2.json, so one file
+per entry is read out of the record's own paths rather than named at this command line. Handed, the report
+prints the interval the observations attest beside the digests they name, and the reader refuses by digest an
+artifact whose bytes no entry of the run seals while this command refuses by name an entry whose artifact the
+root does not hold, because the question an auditor asks with this flag has no partial answer. Where the
+interval the observations attest is not the window the run states (every artifact stating no holding, a gap
+inside the period the run attests, or a window wider than the observations attest), the answer is not that
+line: the reader refuses the pair, and where the directory states no holding the refusal is
+EPOCH_INVENTORY_PRESENCE_WINDOW_TOO_WIDE with the sentence that its observations name no digest at all,
+which is a complete directory that cannot say what was held rather than a shortage of files. Not handed, the two
+digests an entry names print as the document's own figures and the report says in terms that the possession
+reading was not attempted. The option is consulted for an inventory and for nothing else, and it is not a
+second --companion: that one matches a file by its basename, and every entry's artifact carries one of the same
+two names under a different directory. Each key's id is computed from the key, so a designation cannot type an id its
 own key contradicts, and a run prints which designations it was handed and whether the document in front
 of it consulted them. What this command leaves open is printed as open: it compares no nonce against a
 challenge, no digest against the bytes it claims, no pin against a policy and no stamp against a clock,
 and those are the questions ashaveri verify-receipt answers about one request. A directory is refused with
 the reason, because a bundle's rules over which files stand in a substituted root and which are omitted or
-extra are not what decides a document's type, and a pack reads as soon as its file is named.
+extra are not what decides a document's type, and a pack reads as soon as its file is named. A directory named
+as --retention-dir is no such bundle: the document stays the one signed file this run reads, and the root only
+says where the artifacts that entry already names are kept.
 
 A pack carries the material its sealed receipts' anchors state they took in, and a held slot can be weighed
 there rather than promised where those bytes carry the chain their signature stands on: --intel-root hands the
@@ -109,10 +123,12 @@ about the wrong material and exiting 0. A pinned verb refuses that before it ope
 refusal verify-handover already gives a content type it holds no reader for, BAD_PROTECTED_HEADER naming
 the typ the header carries, because which of the six shapes these bytes claim is one fact stated in one
 field and it wants one answer, not a code per verb. None of the three verbs adds an option, a refusal
-code or an exit code: --key designates the keys this run accepts a signature from, exactly as it does
+code or an exit code of its own: --key designates the keys this run accepts a signature from, exactly as it does
 there, an export's originals and an amendment's pack still come in through --companion, and
 --manifest-key is accepted so one line can be run across a whole bundle and is printed as not consulted,
-since none of the three reads a manifest.
+since none of the three reads a manifest. --retention-dir is the family's own option rather than one this verb
+added, and it reaches the fold of an inventory under whichever verb named it; verify-pack and verify-export
+print it as not consulted, because neither shape states a run of packs.
 
 verify-receipt reaches a verdict about a receipt from the files in front of it: the receipt, the
 policy that names what is trusted, the deployment manifest that declares the signing key, and the
@@ -309,6 +325,31 @@ Handover options, the same for verify-handover, verify-pack, verify-export and v
                      pack's whole bytes and never by a name, so the file handed is the file whose digest is
                      recomputed and compared, none handed is refused as the missing pack it is, and two handed is
                      refused as a call that designates no pack.
+  --retention-dir <directory>
+                     The root an epoch inventory's run files its retention artifacts under, consulted by the
+                     inventory reading and by no other. Each entry of the run states its own artifact as
+                     packs/<digest>/retention-v1.json or packs/<digest>/retention-v2.json, so this flag resolves
+                     one file per entry out of the record's own paths rather than taking a list of names from the
+                     caller: the document being verified is what says which files belong to the run. The version
+                     two layout is the one that states which collateral and validity digests a store held at the
+                     instant its pack was assembled, and a version one artifact states no holding at all.
+                     Handed, and every artifact the entries name is there and is the one the same entry seals,
+                     the report prints a possession line: the interval the observations attest, how many of the
+                     run's entries stated a holding, and the two rosters of digests the interval is about. Where
+                     the interval the observations attest is not the window the run states (every artifact
+                     stating no holding, a gap inside the period the run attests, or a window wider than the
+                     observations attest), the answer is not that line: the reader refuses the pair, and where
+                     the directory states no holding the refusal is EPOCH_INVENTORY_PRESENCE_WINDOW_TOO_WIDE
+                     with the sentence that its observations name no digest at all, which is a complete
+                     directory that cannot say what was held rather than a shortage of files. Not handed, the
+                     report says in terms that the possession reading was not attempted and prints each entry's
+                     retention digest as the document's own figure. An artifact whose bytes hash to a digest no entry of the run seals
+                     is refused by that digest, an entry whose artifact the root does not hold, or whose door
+                     holds a file that is not the artifact it names, is refused by name, and none of them leaves
+                     a report written, because half an answer about whether the evidence a record describes is
+                     still there is no answer at all. A stray file under the root is read
+                     by nothing here, because no entry names it. Beside a receipt, a pack, an export, a manifest
+                     or an amendment this flag is printed as not consulted.
   --intel-root <file> A root certificate this run stands behind, PEM or DER. Repeatable, one file per flag. On
                      verify it is one family of anchors, and a policy document may leave that family to the roots
                      bundled with the library. On these verbs it is the whole of what the material a pack carries
@@ -455,6 +496,7 @@ async function main(argv: string[]): Promise<number> {
         'manifest-key': { type: 'string', multiple: true },
         key: { type: 'string', multiple: true },
         companion: { type: 'string', multiple: true },
+        'retention-dir': { type: 'string' },
         'collateral-origin': { type: 'string', multiple: true },
         'collateral-platform': { type: 'string', multiple: true },
         'collateral-cpu-type': { type: 'string', multiple: true },
