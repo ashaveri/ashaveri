@@ -293,7 +293,7 @@ describe('docs/epoch-inventory-v1.md layout', () => {
     expect(new Set(laid.map((one) => one.label)).size, 'two signed parameters share one label').toBe(laid.length);
     // The sentence above the table counts the parameters in words, and the count is the layout's.
     const stated = /contains exactly ([a-z]+) parameters/u.exec(prose());
-    expect(stated, 'the document stopped counting the signed parameters').not.toBeNull();
+    expect(stated, 'the document does not count the signed parameters').not.toBeNull();
     expect(spelledNumber(stated?.[1] ?? ''), 'and the count it states').toBe(names.length);
     const valueOf = (parameter: string): string => laid.find((one) => one.name === parameter)?.value ?? '';
     expect(valueOf('typ'), 'the header table states a content type the layout does not fix').toContain(
@@ -332,7 +332,7 @@ describe('docs/epoch-inventory-v1.md layout', () => {
       `${EPOCH_INVENTORY_PACKS_DIRECTORY}/<digest>/${EPOCH_INVENTORY_PACK_FILE}`,
       ...EPOCH_INVENTORY_RETENTION_FILES.map((name) => `${EPOCH_INVENTORY_PACKS_DIRECTORY}/<digest>/${name}`),
     ]) {
-      expect(body, `the document stopped naming ${named}`).toContain(named);
+      expect(body, `the document does not name ${named}`).toContain(named);
     }
     expect(
       EPOCH_INVENTORY_RETENTION_FILES.length,
@@ -364,7 +364,7 @@ describe('docs/epoch-inventory-v1.md layout', () => {
       'is a row about something the document does not describe',
       'is a reader that was handed too little',
     ]) {
-      expect(body, `the document stopped telling a caller that this refusal ${phrase}`).toContain(phrase);
+      expect(body, `the document does not tell a caller that this refusal ${phrase}`).toContain(phrase);
     }
   });
 
@@ -421,7 +421,7 @@ describe('docs/epoch-inventory-v1.md layout', () => {
       'It is not a statement about a duty, a lawful basis or a request',
       'It is not a claim about freshness',
     ]) {
-      expect(body, `the document stopped saying that a verified inventory ${phrase.toLowerCase()}`).toContain(phrase);
+      expect(body, `the document does not say that a verified inventory ${phrase.toLowerCase()}`).toContain(phrase);
     }
     expect(body, 'the document lets a reader of one document claim a check on the packs').not.toMatch(
       /\bverifies the pack/u,

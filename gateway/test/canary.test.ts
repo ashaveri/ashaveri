@@ -191,7 +191,7 @@ describe('what a refusal leaves in the file an erasure reads', () => {
     // that credential was ever admitted, and it is worth nothing if the refused name never reaches
     // disk. So this is the real handler and the real writer, read back off the volume: a literal
     // record handed to the writer would prove the writer and leave the refusal untested. A collapsed
-    // answer that stopped naming the credential it turned away, or a record that lost the name on
+    // answer that does not name the credential it turned away, or a record that loses the name on
     // its way to the line, is what this would let through.
     const invented = 'canary-never-issued';
     const before = lines(await written()).length;

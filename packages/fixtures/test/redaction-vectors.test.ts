@@ -106,7 +106,7 @@ const fromHex = (hex: string): Uint8Array => new Uint8Array(Buffer.from(hex, 'he
  * the sentence that states it. Both were numbers written by hand that nothing derived: a suite that gained or
  * lost a row, or moved a row's `command` answer from null to an object, kept a document saying the old figure
  * until somebody noticed. So each is taken back out of the sentence and compared with the rows it counts, and a
- * sentence that stopped agreeing with the file it speaks about fails here rather than sitting unrefused.
+ * sentence that does not agree with the file it speaks about fails here rather than sitting unrefused.
  */
 function countStatedByTheDocument(states: RegExp, what: string): string {
   const stated = states.exec(redactionProse());

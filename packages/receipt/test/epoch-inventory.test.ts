@@ -1019,7 +1019,7 @@ describe('the layout: this file, the CDDL and the twin', () => {
     }
     expect(cddl).toContain(`packs/<digest>/${EPOCH_INVENTORY_PACK_FILE}`);
     for (const name of EPOCH_INVENTORY_RETENTION_FILES) {
-      expect(cddl, `the format file stopped naming ${name} as a place an artifact is filed`).toContain(`packs/<digest>/${name}`);
+      expect(cddl, `the format file does not name ${name} as a place an artifact is filed`).toContain(`packs/<digest>/${name}`);
     }
     expect(
       EPOCH_INVENTORY_RETENTION_FILES.length,

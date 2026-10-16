@@ -14,7 +14,7 @@ import { fileURLToPath } from 'node:url';
  *
  * The directory is walked rather than a list written down, because a fifth schema added on its own terms is
  * exactly the case this catches, and a list would have to be edited to notice. Both schema directories are
- * read, and each has to yield at least one file, since a path that quietly stopped resolving would leave
+ * read, and each has to yield at least one file, since a path that does not resolve would leave
  * every assertion below true of nothing.
  */
 

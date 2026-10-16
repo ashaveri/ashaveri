@@ -335,7 +335,7 @@ describe('docs/pack-v1.md layout', () => {
     expect(new Set(laid.map((one) => one.label)).size, 'two signed parameters share one label').toBe(laid.length);
     // The sentence above the table counts the parameters in words, and the count is the layout's.
     const stated = /contains exactly ([a-z]+) parameters/u.exec(prose());
-    expect(stated, 'the document stopped counting the signed parameters').not.toBeNull();
+    expect(stated, 'the document does not count the signed parameters').not.toBeNull();
     expect(spelledNumber(stated?.[1] ?? ''), 'and the count it states is the one the layout declares').toBe(names.length);
     const valueOf = (parameter: string): string => laid.find((one) => one.name === parameter)?.value ?? '';
     expect(valueOf('typ'), 'the header table states a content type the layout does not fix').toContain(
@@ -368,8 +368,8 @@ describe('docs/pack-v1.md layout', () => {
     // The byte ceiling and the slot ceiling are read out of `pack.ts` by the vectors' generator, so the document,
     // the published rule and the code that refuses all carry the same two numbers or this case says which parted.
     const body = prose();
-    expect(body, 'the document stopped stating the byte ceiling').toContain(`${String(CARRIED_MAX_BYTES)} bytes`);
-    expect(body, 'the document stopped stating the slot ceiling beside the list it bounds').toContain(
+    expect(body, 'the document does not state the byte ceiling').toContain(`${String(CARRIED_MAX_BYTES)} bytes`);
+    expect(body, 'the document does not state the slot ceiling beside the list it bounds').toContain(
       `capped at ${String(CUSTODY_SLOTS_PER_ITEM)} entries per item`,
     );
     const rule = vectors.layout.custodyRule;
@@ -399,7 +399,7 @@ describe('docs/pack-v1.md layout', () => {
       'the refusal is `PACK_CUSTODY_UNRESOLVED`, naming the half it stopped on and the digest its answered half states alike',
       'are those two answers, one accepted and one refused',
     ]) {
-      expect(body, `the document stopped stating that ${phrase}`).toContain(phrase);
+      expect(body, `the document does not state that ${phrase}`).toContain(phrase);
     }
     const paired = vectors.vectors.find((one) => one.name === 'one-observation-answers-both-held-slots');
     expect(paired, 'the document states the pair rule and no published row answers it').toBeDefined();
@@ -464,12 +464,12 @@ describe('docs/pack-v1.md layout', () => {
       expect(named, `${code} is declared for this container and named by no row`).toContain(code);
     }
     expect(named, 'a refusal no reader ever answers is in the table anyway').not.toContain('PACK_ATTACHED_UNRESOLVED');
-    expect(prose(), 'the document stopped stating the lookup-only refusal').toContain('PACK_ATTACHED_UNRESOLVED');
+    expect(prose(), 'the document does not state the lookup-only refusal').toContain('PACK_ATTACHED_UNRESOLVED');
     expect(readSourceFile(READER), 'and the pack module does not raise it at the lookup').toContain("'PACK_ATTACHED_UNRESOLVED'");
     // The writer's own refusal is prose rather than a row, because no document can carry it: a signing key whose
     // kid is not its own digest is refused where the bytes are made, and a reader is never handed one.
     const writer = prose();
-    expect(writer, 'the document stopped naming the writer-only refusal').toContain('BAD_SIGNING_KEY');
+    expect(writer, 'the document does not name the writer-only refusal').toContain('BAD_SIGNING_KEY');
     expect(readSourceFile(READER), 'and the pack module does not raise it').toContain("'BAD_SIGNING_KEY'");
     expect(named, 'a refusal a reader never answers is in the table anyway').not.toContain('BAD_SIGNING_KEY');
   });
@@ -486,10 +486,10 @@ describe('docs/pack-v1.md layout', () => {
       'is a pack whose walk is whole and whose array is longer than the walk',
     ];
     for (const one of groups) {
-      expect(body, `the document stopped telling a caller that these answers ${one}`).toContain(one);
+      expect(body, `the document does not tell a caller that these answers ${one}`).toContain(one);
     }
     const stated = /([A-Za-z]+) of those answers are about different things/u.exec(body);
-    expect(stated, 'the document stopped counting the answers a caller must keep apart').not.toBeNull();
+    expect(stated, 'the document does not count the answers a caller must keep apart').not.toBeNull();
     expect(spelledNumber(stated?.[1] ?? ''), 'and the count it states is the number of groups it names').toBe(groups.length);
   });
 
@@ -510,7 +510,7 @@ describe('docs/pack-v1.md layout', () => {
     // The sentence is prose and the list is data. A member that arrives in the twin and not in the sentence is
     // the widening this reads out of the file rather than out of a figure carried beside the rows.
     const stated = /The manifest names ([a-z]+) members/u.exec(prose());
-    expect(stated, 'the document stopped counting the manifest members').not.toBeNull();
+    expect(stated, 'the document does not count the manifest members').not.toBeNull();
     expect(spelledNumber(stated?.[1] ?? ''), 'and the count it states is the one the twin requires').toBe(
       (definition('manifest').required ?? []).length,
     );
@@ -553,7 +553,7 @@ describe('docs/pack-v1.md layout', () => {
       'It is not a claim that these are all the receipts the deployment still holds',
       'It is not a verdict about the duty',
     ]) {
-      expect(body, `the document stopped saying that a verified pack ${phrase.toLowerCase()}`).toContain(phrase);
+      expect(body, `the document does not say that a verified pack ${phrase.toLowerCase()}`).toContain(phrase);
     }
     for (const phrase of [
       'A slot stating an absence names no digest and owes no bytes',
@@ -561,7 +561,7 @@ describe('docs/pack-v1.md layout', () => {
       'the material, not a verdict on it',
       'no root bundled with the verifier is consulted',
     ]) {
-      expect(body, `the document stopped stating that ${phrase}`).toContain(phrase);
+      expect(body, `the document does not state that ${phrase}`).toContain(phrase);
     }
     expect(body, 'the document lets a completed walk stand for the store behind it').not.toMatch(
       /(walk|anchor|head) (that )?proves (the store|completeness|the source)/u,

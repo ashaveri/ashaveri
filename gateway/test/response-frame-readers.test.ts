@@ -36,8 +36,8 @@ import { MarkedStreamTail, SSE_FRAME_END, markingFrame } from '../src/marking.js
  * together each end a line: section 3.1 states it, the item framing implements it, and a body framed with
  * carriage returns has to give every reader the frames it gives a client holding those bytes. The rows
  * whose separator is a bare carriage return are written to fail rather than to record, because a reader
- * that stops seeing frames when a terminator is not a line feed has stopped metering completions and
- * stopped finding its own mark.
+ * that stops seeing frames when a terminator is not a line feed does not meter completions and
+ * does not find its own mark.
  */
 
 const LF = '\n';

@@ -23,7 +23,7 @@ import { fixture } from './helpers.js';
  *
  * The tables are parsed rather than imported, the way every document test in this workspace parses:
  * the shape on the page is the thing under test, and a reader that guessed at a row it could not find
- * would report a document that stopped claiming anything as one that agrees.
+ * would report a document that does not claim anything as one that agrees.
  */
 
 const DOC_PATH = new URL('../../../docs/trust-anchors.md', import.meta.url);
