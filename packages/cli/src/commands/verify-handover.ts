@@ -966,6 +966,11 @@ async function readInventory(bytes: Uint8Array, inputs: Inputs, kid: Uint8Array)
   const deployment = manifest.manifest;
   const root = inputs.retentionRoot;
   const presence = outcome.presence;
+  // The one decision the possession row and the sentence it leaves owe both read: this run has a fold exactly
+  // when a root was named and the reader handed one back, which today is one state rather than two, because the
+  // reader folds only the artifacts the call handed it and this command hands them only where `--retention-dir`
+  // named. Kept as one value so the row and the disclosure can never describe different runs.
+  const folded = root !== null && presence !== undefined;
   return {
     contentType: EPOCH_INVENTORY_CONTENT_TYPE,
     reader: 'verifyEpochInventory',
@@ -994,16 +999,16 @@ async function readInventory(bytes: Uint8Array, inputs: Inputs, kid: Uint8Array)
           .join('; '),
         json: outcome.packs,
       },
-      ...(root === null || presence === undefined
-        ? []
-        : [
+      ...(folded
+        ? [
             {
               key: 'possession',
               label: 'possession',
               value: `folded from the run's artifacts under ${printedToken(root)}: ${String(outcome.packs.length)} read, one per entry, each admitted under the digest the entry that names it seals; ${String(presence.observations)} of those entries state a holding, and the interval they attest runs ${presence.from} to ${presence.to} (${isoOf(presence.from)} to ${isoOf(presence.to)}), which is the window above and the reader refuses the pair when it is not, over ${rosterOf('collateral', presence.collateral)} and ${rosterOf('validity', presence.validity)}`,
               json: presence,
             },
-          ]),
+          ]
+        : []),
       {
         key: 'chain',
         label: 'chain',
@@ -1033,9 +1038,9 @@ async function readInventory(bytes: Uint8Array, inputs: Inputs, kid: Uint8Array)
     notChecked: [
       'whether the two digests an entry names are digests of files that exist beside this document, whether the packs they name are sealed by the keys the entries give, and whether an item count beside an entry is the count of receipts inside that pack: an inventory restates a run rather than proving it, and `ashaveri verify-handover` over each pack file recomputes what an entry claims',
       'whether either period an entry states was owed at all: this run compares each held figure with the required figure beside it and refuses a document whose stated shortfall rows are not that arithmetic, and owed-ness turns on the duty mapping revision each entry names and on the law behind it',
-      presence === undefined
-        ? 'whether the store held the appraisal context across the period this run attests: the fold of that interval reads the run\'s retention artifacts, this run was handed no `--retention-dir` to read them from, and so each entry\'s retention digest prints as the document\'s own figure and is compared by nothing in this run'
-        : 'whether the material the two presence rosters name can still be reached by anybody: a retention observation states digests and this run read no collateral or validity bytes beside the run\'s artifacts, so the attested interval is the period the store reported holding them across and not a showing that a copy stands anywhere today',
+      folded
+        ? 'whether the material the two presence rosters name can still be reached by anybody: a retention observation states digests and this run read no collateral or validity bytes beside the run\'s artifacts, so the attested interval is the period the store reported holding them across and not a showing that a copy stands anywhere today'
+        : 'whether the store held the appraisal context across the period this run attests: the fold of that interval reads the run\'s retention artifacts, this run was handed no `--retention-dir` to read them from, and so each entry\'s retention digest prints as the document\'s own figure and is compared by nothing in this run',
       'whether this run is all the epochs the deployment closed and whether it is the latest statement about them: no file in a bundle shows what else a store holds, the stamps these entries carry are each pack\'s own assembly stamp restated, and this run consulted no clock',
     ],
   };
