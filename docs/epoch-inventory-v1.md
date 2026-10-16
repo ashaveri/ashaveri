@@ -260,9 +260,10 @@ directory of them has no digest to intersect and no period to attest.
 Which name an entry states is the run's own statement about its directory, and which layout a manifest is is a
 fact inside it, and the reader checks the two apart. A path outside the two names is a malformed document, because
 no other position of this layout holds an artifact. A manifest is read through its own `v` and never through the
-name it arrived under, so an entry filed under one name and holding the other layout is read as the document it
-holds, which states no observation rather than one. Nothing here states which writer puts which layout where: the
-name and the block are the run's own record, and a fold answers from what it was handed.
+name it arrived under: an entry filed under the newer name and holding the older layout states no observation, and
+one filed under the older name and holding the newer layout states the observations the fold reads. Nothing here
+states which writer puts which layout where: the name and the block are the run's own record, and a fold answers
+from what it was handed.
 
 ### The four answers a command line gives
 
