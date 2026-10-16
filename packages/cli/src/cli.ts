@@ -82,8 +82,11 @@ each entry states its own as packs/<digest>/retention-v1.json or packs/<digest>/
 per entry is read out of the record's own paths rather than named at this command line. Handed, the report
 prints the interval the observations attest beside the digests they name, and the reader refuses by digest an
 artifact whose bytes no entry of the run seals while this command refuses by name an entry whose artifact the
-root does not hold, because the question an auditor asks with this flag has no partial answer. Not handed, the
-two digests an entry names print as the document's own figures and the report says in terms that the possession
+root does not hold, because the question an auditor asks with this flag has no partial answer. Where every
+artifact handed is the layout stating no holding, the answer is not that line: the reader refuses the run with
+EPOCH_INVENTORY_PRESENCE_WINDOW_TOO_WIDE and the sentence that its observations name no digest at all, which is
+a complete directory that cannot say what was held rather than a shortage of files. Not handed, the two
+digests an entry names print as the document's own figures and the report says in terms that the possession
 reading was not attempted. The option is consulted for an inventory and for nothing else, and it is not a
 second --companion: that one matches a file by its basename, and every entry's artifact carries one of the same
 two names under a different directory. Each key's id is computed from the key, so a designation cannot type an id its
@@ -330,14 +333,18 @@ Handover options, the same for verify-handover, verify-pack, verify-export and v
                      instant its pack was assembled, and a version one artifact states no holding at all.
                      Handed, and every artifact the entries name is there and is the one the same entry seals,
                      the report prints a possession line: the interval the observations attest, how many of the
-                     run's entries stated a holding, and the two rosters of digests the interval is about. Not
-                     handed, the report says in terms that the possession reading was not attempted and prints
-                     each entry's retention digest as the document's own figure. An artifact whose bytes hash to a
-                     digest no entry of the run seals is refused by that digest, an entry whose artifact the root
-                     does not hold is refused by name, and neither leaves a report written, because half an answer
-                     about whether the evidence a record describes is still there is no answer at all. A stray
-                     file under the root is read by nothing here, because no entry names it. Beside a receipt, a
-                     pack, an export, a manifest or an amendment this flag is printed as not consulted.
+                     run's entries stated a holding, and the two rosters of digests the interval is about. Where
+                     every artifact handed is the layout stating no holding, the answer is not that line: the
+                     reader refuses the run with EPOCH_INVENTORY_PRESENCE_WINDOW_TOO_WIDE and the sentence that
+                     its observations name no digest at all, which is a complete directory that cannot say what
+                     was held rather than a shortage of files. Not handed, the report says in terms that the
+                     possession reading was not attempted and prints each entry's retention digest as the
+                     document's own figure. An artifact whose bytes hash to a digest no entry of the run seals
+                     is refused by that digest, an entry whose artifact the root does not hold is refused by
+                     name, and neither leaves a report written, because half an answer about whether the evidence
+                     a record describes is still there is no answer at all. A stray file under the root is read
+                     by nothing here, because no entry names it. Beside a receipt, a pack, an export, a manifest
+                     or an amendment this flag is printed as not consulted.
   --intel-root <file> A root certificate this run stands behind, PEM or DER. Repeatable, one file per flag. On
                      verify it is one family of anchors, and a policy document may leave that family to the roots
                      bundled with the library. On these verbs it is the whole of what the material a pack carries
