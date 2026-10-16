@@ -769,7 +769,7 @@ describe('the marking requirement, as an operator meets it in prose', () => {
  * The sentences an operator reads about the directory a possession fold is handed.
  *
  * `verify-handover` settles that reading from the `retention` path each sealed entry states, at
- * `src/commands/verify-handover.ts`, and not from a basename a caller typed. Five copies of that one fact exist:
+ * `src/commands/verify-handover.ts`, and not from a basename a caller typed. Six copies of that one fact exist:
  * the flag's own help entry, the paragraph introducing the handover verbs, the README's row for each of the two
  * verbs that read it, the inventory suite's bullet in `docs/vectors.md`, and the format document's section on the
  * fold. The stale shape this guards against is the claim that no option carries a run's retention artifacts,
@@ -876,7 +876,7 @@ describe('the retention directory, as an operator meets it in prose', () => {
   }
 
   it('keeps the printed answers on the phrases the prose promises', () => {
-    // The report's own two sentences are the ones five copies of this fact describe: the unused designation
+    // The report's own two sentences are the ones six copies of this fact describe: the unused designation
     // beside another shape, and the not-attempted reading when no root was named.
     const source = textOf('../src/commands/verify-handover.ts');
     expect(source).toContain('states no run of packs, so nothing was read from');
