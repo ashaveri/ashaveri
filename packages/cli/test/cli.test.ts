@@ -844,8 +844,8 @@ describe('the retention directory, as an operator meets it in prose', () => {
    * The format document's fold prose: the section on what a reader folds, with its two subsections on the layouts
    * and on the four answers a command line gives.
    *
-   * The slice starts at the section heading and not at the newer of the subsections, so the prose above them —
-   * the fold's admission rules and the refusal a run of the layout that states no observation earns — is held to
+   * The slice starts at the section heading and not at the newer of the subsections, so the prose above them
+   * (the fold's admission rules and the refusal a run of the layout that states no observation earns) is held to
    * the same requirements. The two subsections are 'The two layouts, and which of them states a holding' and
    * 'The four answers a command line gives'.
    */

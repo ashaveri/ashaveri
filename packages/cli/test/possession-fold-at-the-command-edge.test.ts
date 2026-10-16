@@ -156,7 +156,10 @@ describe('the possession fold at the command edge', () => {
   it('answers every fold row handed its directory as the published row states it', {
     timeout: spawnCeilingForCalls(foldRows.length * 2, SPAWN_DEADLINE_MS),
   }, () => {
-    expect(foldRows.length).toBeGreaterThanOrEqual(4);
+    expect(
+      foldRows.length,
+      'the sibling suite claims six fold rows are replayed here, so the count moves with the rows',
+    ).toBe(6);
     for (const row of foldRows) {
       const { documentPath, root } = directoryFor(row);
       const json = runCli(['verify-epoch-inventory', documentPath, designation(row), '--retention-dir', root, '--json']);

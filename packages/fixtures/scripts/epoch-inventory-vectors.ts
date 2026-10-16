@@ -261,9 +261,8 @@ const HELD_VALIDITY = digest('the validity document the store held across the ru
 /**
  * A run of `count` windows that continues itself, each entry sealing one manifest, and those manifests in the
  * run's own order beside it. `held` states what one entry's store reported holding, or states nothing at all for
- * the entry whose manifest is of the older layout. `filedAs` is the name the entry states for its artifact, which
- * is the layout's version inside the file name; absent, the run files under the older name, as every row written
- * before the fold did.
+ * the entry whose manifest is of the older layout. `filedAs` is the name the entry states for its artifact, and
+ * what the fold reads is the document's own `v` rather than that name; absent, the run states the older name.
  */
 function runWithPresence(
   count: number,
@@ -639,7 +638,7 @@ const CASES: readonly Case[] = [
   },
   {
     name: 'possession-proven-by-the-artifacts-each-entry-names',
-    note: 'A run of three windows filed the way the layout that states holdings files it: each entry names `retention-v2.json` under its own pack digest, seals the manifest standing at that name, and is handed to the fold beside the document. Every entry names the same two collateral roots and the same two validity documents, so the four stretches meet at both edges of the run and the interval the fold attests is the stated window. Where `presence-folded-across-the-windows-the-run-seals` states one digest per family, this row states the roster a run holding more than one document answers with; where every other row of this suite files its artifact under the older name, this one pairs a name with the layout it carries, which is the reading a directory of that layout meets. The file name is where a run states which layout it put a manifest at, and the bytes inside are what the fold reads, so the two are checked apart and neither is taken for the other.',
+    note: 'A run of three windows filed the way the layout that states holdings files it: each entry names `retention-v2.json` under its own pack digest, seals the manifest standing at that name, and is handed to the fold beside the document. Every entry names the same two collateral roots and the same two validity documents, so the four stretches meet at both edges of the run and the interval the fold attests is the stated window. Where `presence-folded-across-the-windows-the-run-seals` states one digest per family, this row states the roster a run holding more than one document answers with; where every other row of this suite files its artifact under the older name, this one pairs a name with the layout it carries, which is the reading a directory of that layout meets. The file name is the name the run states for where it filed the manifest, and the document inside is what the fold reads, through its own `v`, so the two are checked apart and neither is taken for the other.',
     bytes: POSSESSION_BYTES,
     read: readWithPresence(POSSESSION_RUN.artifacts),
     verdict: 'verify-ok',

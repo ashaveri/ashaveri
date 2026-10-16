@@ -874,7 +874,7 @@ function rosterOf(family: string, digests: readonly string[]): string {
  * question has no partial answer: a fold over the artifacts that happened to survive reads as an answer about the
  * whole run. The holds-no-file reading is only for the names the operating system answers about: nothing stands
  * at the name (`ENOENT`), or the path passes through a file and no file can stand at it (`ENOTDIR`). A stat that
- * fails for any other reason — a path past the length the system takes, a name knotted through a link — is
+ * fails for any other reason (a path past the length the system takes, a name knotted through a link) is
  * refused with the operating system's own sentence beside the path, because this run has observed nothing about
  * what stands at that door and a sentence about the store's contents would be a claim nobody made. The bytes that
  * are there are then hashed against the digest the same entry seals, because the reader attributes an artifact by
