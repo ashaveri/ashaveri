@@ -1,6 +1,6 @@
 import { spawnSync } from 'node:child_process';
 import { createHash } from 'node:crypto';
-import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { mkdirSync, mkdtempSync, readFileSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -250,6 +250,29 @@ describe('the possession fold at the command edge', () => {
     expect(result.stderr).toContain(missing.retention);
     expect(result.stderr).toContain('holds no file at that name');
     expect(result.stderr).not.toContain('possession:');
+  });
+
+  it('carries the operating system\'s reason when a door cannot be resolved at all', {
+    timeout: spawnCeilingForCalls(1, SPAWN_DEADLINE_MS),
+  }, () => {
+    const { documentPath, root, entries } = directoryFor(PROVEN);
+    const [first] = entries;
+    if (first === undefined) throw new Error('the published row states no entry to knot a name with');
+    // Which route is real on this host was measured, not assumed: a path through a file collapses to ENOENT on
+    // Windows rather than ENOTDIR, and a directory whose ACL denies the runner still answers a stat (traverse is
+    // bypassed for the owner, and the attribute query is answered where listing is refused), so neither of the
+    // two shapes the review named witnesses this branch here. A knot at the artifact's own name is real on both
+    // platforms, though: on Windows a directory junction that points at itself, elsewhere a symlink that does,
+    // and the stat of it is the ELOOP this branch has to state rather than read as a name holding nothing.
+    const knot = join(root, ...first.retention.split('/'));
+    rmSync(knot);
+    symlinkSync(knot, knot, 'junction');
+    const result = runCli(['verify-epoch-inventory', documentPath, designation(PROVEN), '--retention-dir', root]);
+    expect(result.status).toBe(2);
+    expect(result.stdout).toBe('');
+    expect(result.stderr).toContain('cannot read --retention-dir');
+    expect(result.stderr).toContain('ELOOP');
+    expect(result.stderr).not.toContain('holds no file at that name');
   });
 
   it('refuses a directory that holds one entry\'s artifact at another entry\'s name, by name, and writes nothing', {

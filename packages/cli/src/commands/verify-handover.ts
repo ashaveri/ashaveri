@@ -872,11 +872,16 @@ function rosterOf(family: string, digests: readonly string[]): string {
  * An entry's artifact that is not there is refused rather than skipped, because the question an auditor asks with
  * this flag is whether the evidence the inventory describes is still where the record says it is, and that
  * question has no partial answer: a fold over the artifacts that happened to survive reads as an answer about the
- * whole run. The bytes that are there are then hashed against the digest the same entry seals, because the reader
- * attributes an artifact by that digest alone and never asks which entry named it, so a directory in which two
- * manifests change doors still folds the same interval and would print a report claiming an agreement this run had
- * not made. Both refusals are about the caller's directory and so are usage refusals, the same route a
- * `--companion` file that is not there takes, and each says which of the two the door did.
+ * whole run. The holds-no-file reading is only for the names the operating system answers about: nothing stands
+ * at the name (`ENOENT`), or the path passes through a file and no file can stand at it (`ENOTDIR`). A stat that
+ * fails for any other reason — a path past the length the system takes, a name knotted through a link — is
+ * refused with the operating system's own sentence beside the path, because this run has observed nothing about
+ * what stands at that door and a sentence about the store's contents would be a claim nobody made. The bytes that
+ * are there are then hashed against the digest the same entry seals, because the reader attributes an artifact by
+ * that digest alone and never asks which entry named it, so a directory in which two manifests change doors still
+ * folds the same interval and would print a report claiming an agreement this run had not made. Each refusal is
+ * about the caller's directory and so is a usage refusal, the same route a `--companion` file that is not there
+ * takes, and each names the door it is about.
  *
  * Bytes at a door that hash to a digest no entry of the run seals are not refused here: they travel to the reader,
  * which owns that judgement and states it as its own refusal, so a digest outside the run keeps the answer it had
@@ -887,7 +892,21 @@ async function possessionArtifacts(root: string, run: readonly EpochInventoryPac
   const artifacts: Uint8Array[] = [];
   for (const one of run) {
     const path = join(root, ...one.retention.split('/'));
-    const info = await stat(path).catch(() => null);
+    let info;
+    try {
+      info = await stat(path);
+    } catch (err) {
+      // The two answers that are about the name rather than about the door's contents: nothing stands at the
+      // name, or the path passes through a file and no file can stand at it. Anything else is the operating
+      // system declining to answer, and this run then knows nothing about what the root holds.
+      const code = err instanceof Error && 'code' in err && typeof err.code === 'string' ? err.code : undefined;
+      if (code !== 'ENOENT' && code !== 'ENOTDIR') {
+        throw new UsageError(
+          `cannot read ${RETENTION_DIR_FLAG} '${path}': ${err instanceof Error ? err.message : String(err)}`,
+        );
+      }
+      info = null;
+    }
     if (info === null || !info.isFile()) {
       throw new UsageError(
         `${RETENTION_DIR_FLAG}: ${printedToken(one.file)} states its retention artifact at ${printedToken(one.retention)} and ${printedToken(root)} holds no file at that name, and this run reads exactly the artifact each entry names rather than whatever else the directory holds, so a run missing one of them is refused rather than folded from the rest`,
