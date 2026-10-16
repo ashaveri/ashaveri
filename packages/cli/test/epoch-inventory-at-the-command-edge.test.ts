@@ -30,7 +30,7 @@ const SPAWN_DEADLINE_MS = 15_000;
  * the same two claims are the ones worth making here: the type inside the signature reaches the inventory
  * reader, and every row answers at this edge what its published column states.
  *
- * Nine rows answer otherwise, and each of the nine says so out of a published column of its own: a row naming
+ * Ten rows answer otherwise, and each of the ten says so out of a published column of its own: a row naming
  * retention artifacts to fold meets a run that named no directory to read them from, a row naming no key at all
  * meets the run that asks for one by the type it found, a row pinning a half whose own kid is not the header's
  * meets a designation matched on computed kids, two rows are refused by the classifier before any reader is
@@ -237,6 +237,12 @@ const COMMAND_PATH_ANSWERS: readonly CommandPathAnswer[] = [
     because: 'the fold is the one reading this run hands an input to only when --retention-dir names the root the run files its artifacts under',
   },
   {
+    name: 'possession-refused-when-no-artifact-states-a-holding',
+    answer: 'verify-ok',
+    exit: 0,
+    because: 'the fold is the one reading this run hands an input to only when --retention-dir names the root the run files its artifacts under',
+  },
+  {
     name: 'document-cut-short-mid-envelope',
     answer: 'MALFORMED_CBOR',
     exit: 1,
@@ -339,7 +345,7 @@ describe('an epoch inventory at the command edge', () => {
   it('replays every published inventory row through the command path', {
     timeout: spawnCeilingForCalls(inventories.vectors.length, SPAWN_DEADLINE_MS),
   }, () => {
-    expect(inventories.vectors.length).toBeGreaterThanOrEqual(60);
+    expect(inventories.vectors.length).toBeGreaterThanOrEqual(63);
     const listed = new Map(COMMAND_PATH_ANSWERS.map((one) => [one.name, one]));
     // A listed name has to name a row the suite publishes, or the table is a note about a case that left.
     for (const one of COMMAND_PATH_ANSWERS) {
