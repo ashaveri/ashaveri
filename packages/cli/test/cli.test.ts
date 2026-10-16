@@ -840,11 +840,19 @@ describe('the retention directory, as an operator meets it in prose', () => {
     return doc.slice(start, end < 0 ? doc.length : end);
   }
 
-  /** The two sections of the format document that state what a fold reads and what a command line answers. */
+  /**
+   * The format document's fold prose: the section on what a reader folds, with its two subsections on the layouts
+   * and on the four answers a command line gives.
+   *
+   * The slice starts at the section heading and not at the newer of the subsections, so the prose above them —
+   * the fold's admission rules and the refusal a run of the layout that states no observation earns — is held to
+   * the same requirements. The two subsections are 'The two layouts, and which of them states a holding' and
+   * 'The four answers a command line gives'.
+   */
   function foldSections(): string {
     const doc = textOf('../../../docs/epoch-inventory-v1.md');
-    const start = doc.indexOf('### The two layouts, and which of them states a holding');
-    if (start < 0) throw new Error('the inventory document states no layout sections beside its fold');
+    const start = doc.indexOf('## The interval a reader folds from what the store reported');
+    if (start < 0) throw new Error('the inventory document states no fold section to read');
     const rest = doc.slice(start);
     const end = rest.search(/\n## /u);
     return end < 0 ? rest : rest.slice(0, end);
