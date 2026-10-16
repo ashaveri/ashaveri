@@ -210,7 +210,7 @@ interface RuleDefinition {
 /**
  * The manifest's definition and every map the format opens, walking down as far as the format goes. The walk is
  * by rule rather than one level deep because a reference carries a key and a window of its own: a map two levels
- * down that stopped being swept would be a map the twin could drift away from silently, and `PackCustodyKey` is
+ * down that is not swept would be a map the twin could drift away from silently, and `PackCustodyKey` is
  * exactly such a map.
  */
 function definitionsByRule(cddl: string): RuleDefinition[] {
@@ -245,7 +245,7 @@ function hexOf(bytes: number): string {
 /**
  * One declared byte width against the hex pattern the twin writes for the same position. The comparison
  * is of the numbers, so a width moving in either document reddens the tie by naming both figures: a
- * digest growing from thirty-two bytes to forty-eight is caught here as a tie that no longer holds, and
+ * digest growing from thirty-two bytes to forty-eight is caught here as a tie that does not hold, and
  * not only downstream where a built document fails a pattern for reasons of its own.
  */
 function widthTie(bytes: number, pattern: unknown, position: string): void {
@@ -594,20 +594,20 @@ describe('the pack CDDL and its JSON twin', () => {
     const receipt = readCddl();
     const packTag = required(/^Ashaveri-Pack = #6\.(\d+)\(/mu.exec(CDDL)?.[1], 'the pack declares no COSE tag');
     const receiptTag = required(/^Ashaveri-Receipt = #6\.(\d+)\(/mu.exec(receipt)?.[1], 'the receipt declares no COSE tag');
-    expect(packTag, 'a pack is no longer a tagged COSE_Sign1').toBe(receiptTag);
+    expect(packTag, 'a pack is not a tagged COSE_Sign1').toBe(receiptTag);
     const packSignature = required(/signature: bstr \.size (\d+)/u.exec(CDDL)?.[1], 'the pack states no signature width');
     const receiptSignature = required(/signature: bstr \.size (\d+)/u.exec(receipt)?.[1], 'the receipt states no signature width');
-    expect(packSignature, 'the two documents no longer sign with one curve').toBe(receiptSignature);
+    expect(packSignature, 'the two documents do not sign with one curve').toBe(receiptSignature);
     expect(
       integerLabels(packRule(CDDL, 'Ashaveri-Pack-Protected-Header')).slice().sort((a, b) => a - b),
-      'the two signed headers no longer carry the same three labels',
+      'the two signed headers do not carry the same three labels',
     ).toEqual(integerLabels(cddlRule(receipt, 'Ashaveri-Protected-Header')).slice().sort((a, b) => a - b));
     // And the one thing the two headers have to disagree about: the content type, which is how a reader
     // holding one signed document knows which of the two they are reading.
     const packTyp = labeledLiteral(packRule(CDDL, 'Ashaveri-Pack-Protected-Header'), 3);
     const receiptTyp = labeledLiteral(cddlRule(receipt, 'Ashaveri-Protected-Header'), 3);
     expect(receiptTyp, "the receipt's own type moved, and this file does not own it").toBe('ashaveri/receipt');
-    expect(packTyp, 'the pack no longer says what it is').toBe('ashaveri/pack');
+    expect(packTyp, 'the pack does not say what it is').toBe('ashaveri/pack');
     expect(
       required(shape.properties.protectedHeader.properties?.typ, 'the twin projects no typ').const,
       'the twin writes a typ the CDDL does not declare',
@@ -661,7 +661,7 @@ describe('the pack CDDL and its JSON twin', () => {
     const block = CDDL.slice(start, CDDL.indexOf('\n]', start));
     expect(
       block.split('\n').filter((line) => /^\s+\w+:/u.test(line)).length,
-      'the signed envelope no longer carries four elements',
+      'the signed envelope does not carry four elements',
     ).toBe(4);
     expect(block).toContain('signature: bstr .size 64');
   });

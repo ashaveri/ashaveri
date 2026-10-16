@@ -372,8 +372,8 @@ describe('the two spellings a cached entry restates', () => {
     };
     expect(Object.keys(shaped).sort()).toEqual(['cacheKey', 'observedAt', 'sourceUncertaintySeconds']);
     for (const one of declarations) {
-      expect(owner, `the capture record no longer declares "${one}"`).toContain(one);
-      expect(seam, `the seam no longer declares "${one}"`).toContain(one);
+      expect(owner, `the capture record declares "${one}" nowhere in a shape this reads`).toContain(one);
+      expect(seam, `the seam declares "${one}" nowhere in a shape this reads`).toContain(one);
     }
   });
 });

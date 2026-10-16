@@ -301,7 +301,7 @@ describe('docs/epoch-inventory-v1.md layout', () => {
     );
     expect(valueOf('alg'), 'the header table names no algorithm the layout fixes').toContain('-8');
     expect(valueOf('kid'), 'the header table states a key id of another width').toContain('32-byte');
-    expect(deref(headerDef.properties?.kid).pattern, 'the layout no longer projects the kid as thirty-two bytes of hex').toContain('{64}');
+    expect(deref(headerDef.properties?.kid).pattern, 'the layout does not project the kid as thirty-two bytes of hex').toContain('{64}');
   });
 
   it('states the floors the layout states, and claims no ceiling it does not carry', () => {

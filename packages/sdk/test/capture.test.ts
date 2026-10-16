@@ -795,7 +795,7 @@ describe('the published schema and the reader decide the same documents', () => 
     const said = schema.properties.trust.properties.limits.description;
     expect(said).toContain('or null where the check named none of its own');
     expect(said).toContain('A null is not a window that stayed open');
-    expect(said, 'the reading this format no longer carries').not.toContain('the window nobody set');
+    expect(said, 'the reading this format does not carry').not.toContain('the window nobody set');
   });
 
   it('names the same source kinds in the published document as the reader reads', () => {

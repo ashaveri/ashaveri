@@ -168,7 +168,7 @@ export async function harness(input: HarnessInput = {}): Promise<Harness> {
   const keys = new Map<string, Uint8Array>(credentials.map((each) => [each.record.id, each.privateKey]));
   // One construction site, so the clock, the tolerance and the bearer rule below are the ones every
   // harness runs on: a store a caller built for itself would carry its own, and the pinned instant
-  // `signFor` stamps at would no longer be the one the floor reads.
+  // `signFor` stamps at would not be the one the floor reads.
   const store = new CredentialStore({
     ...(input.storePath === undefined ? { file: { version: 1, credentials: records } } : { path: input.storePath }),
     allowBearer: input.allowBearer,

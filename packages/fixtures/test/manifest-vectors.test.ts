@@ -72,7 +72,7 @@ describe('the sealed deployment manifest vectors', () => {
       );
     }
     // The content type is the one field that separates this container from the two beside it, so a suite
-    // that named a CDDL no longer carrying it would be pointing a port at the wrong file.
+    // that named a CDDL that does not carry it would be pointing a port at the wrong file.
     const cddl = readFileSync(fileURLToPath(new URL(`../../../${file.layout.format}`, import.meta.url)), 'utf8');
     expect(cddl).toContain(`"${DEPLOYMENT_MANIFEST_CONTENT_TYPE}"`);
     const twin = JSON.parse(readFileSync(fileURLToPath(new URL(`../../../${file.layout.twin}`, import.meta.url)), 'utf8')) as {

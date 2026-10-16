@@ -197,7 +197,7 @@ describe('the redaction manifest vectors', () => {
     expect(file.layout.contentType).toBe(REDACTION_CONTENT_TYPE);
     expect(file.layout.headerLabels).toEqual({ alg: 1, typ: 3, kid: 4 });
     // Every path the file names is a file, and the format and the twin still carry the content type this suite
-    // is about: a port pointed at a document that no longer states the type would compare the wrong pair.
+    // is about: a port pointed at a document that does not state the type would compare the wrong pair.
     const prose = file.layout.prose.split(' ')[0] ?? '';
     for (const path of [file.layout.format, file.layout.twin, prose]) {
       expect(

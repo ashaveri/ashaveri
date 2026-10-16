@@ -110,7 +110,7 @@ function gatewaySources(): Map<string, string> {
 /**
  * A file's text without the lines a comment owns. A fallback site is something the code runs, so a
  * sentence that merely names a constant must not put it in an enumeration, and a comment quoting a
- * literal must not make a default the source no longer holds read as true.
+ * literal must not make a default the source does not hold read as true.
  */
 function codeLines(source: string): string {
   return source
@@ -262,7 +262,7 @@ function backticked(cell: string | undefined): string[] {
 function namesOutsideTheTable(): string[] {
   const lines = documentText().split('\n');
   const start = lines.findIndex((line) => line.startsWith(OUTSIDE_THE_TABLE));
-  if (start < 0) throw new Error(`the document no longer states what the default table leaves out: ${OUTSIDE_THE_TABLE}`);
+  if (start < 0) throw new Error(`the document does not state what the default table leaves out: ${OUTSIDE_THE_TABLE}`);
   const paragraph: string[] = [];
   for (const line of lines.slice(start)) {
     if (line.trim().length === 0) break;
@@ -374,7 +374,7 @@ describe('the shipped defaults against the source that declares them', () => {
 
   it('keeps the bounds no flag reaches outside the table, and names constants that are still there', () => {
     // The paragraph after the table is the document's own limit on it, so it is read as well: a name
-    // there that no longer exists is a sentence about nothing, and a name that has since gained a
+    // there that does not exist is a sentence about nothing, and a name that has since gained a
     // fallback site belongs in the table instead of the exception.
     const outside = namesOutsideTheTable();
     expect(outside.length, 'the paragraph outside the table names the bounds it excludes').toBeGreaterThan(0);

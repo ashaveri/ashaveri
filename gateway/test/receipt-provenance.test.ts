@@ -22,7 +22,7 @@ import { CLOCK_SECONDS, generated, harness, type Generated, type Harness } from 
  *
  * The slots a caller controls, each filled before a request leaves this file:
  * - the request body's message content (`PROMPT`), and one more copy of the token as the name of a body
- *   member sitting inside the first thirty-two bytes, so a request value that stopped being a digest is
+ *   member sitting inside the first thirty-two bytes, so a request value that is not a digest is
  *   caught rather than hidden among bytes nobody reads;
  * - the `model` the client sends, which is the declared spelling exactly, because admission compares it
  *   whole against the ids this deployment lists and a name outside that list issues nothing; the last cell
