@@ -98,6 +98,18 @@ export type {
 } from './capture.js';
 export { SdkError, sdkError } from './errors.js';
 export type { SdkErrorCode } from './errors.js';
+export {
+  IMPORT_TRANSFORMATION,
+  NORMALIZATION_RULE_NAMES,
+  NORMALIZED_EXPORT_VERSION,
+  normalizeProviderExport,
+} from './import-normalize.js';
+export type {
+  ImportNormalization,
+  ImportReportRow,
+  NormalizationRuleName,
+  NormalizedExportItem,
+} from './import-normalize.js';
 export { fromBase64Url, toBase64Url, toHex } from './b64.js';
 export {
   claimsConfidentialDevice,
