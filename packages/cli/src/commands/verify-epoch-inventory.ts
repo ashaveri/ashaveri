@@ -15,9 +15,11 @@ import { runVerifyHandover, type VerbPin, type VerifyHandoverFlags } from './ver
  * Everything else is that command's, unchanged: the same reader over the same bytes, the same two renderings,
  * the same keys designated by `--key` and matched on the kid a header names, the same three exit codes. This
  * verb adds no option, no code and no rule, which is the point of it being a pin rather than a second
- * implementation. One input a caller cannot hand here is stated by the reading rather than by this file: the
- * presence fold an inventory's reader can do over the run's retention artifacts has no flag carrying those
- * bytes, so both verbs read the sealed document alone and report that the fold answered nothing.
+ * implementation. One option of that family is read here and nowhere else: `--retention-dir` names the root the
+ * run's retention artifacts are filed under, which is what lets the reader fold the interval across which the
+ * store reported holding the appraisal context. Handed, the report prints that fold beside the digests it is an
+ * interval for; not handed, the reading is the sealed document alone and the report says the possession reading
+ * was not attempted rather than leaving that implied.
  */
 export const EPOCH_INVENTORY_VERB: VerbPin = {
   verb: 'verify-epoch-inventory',

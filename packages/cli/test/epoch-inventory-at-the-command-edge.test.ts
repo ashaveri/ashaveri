@@ -31,12 +31,14 @@ const SPAWN_DEADLINE_MS = 15_000;
  * reader, and every row answers at this edge what its published column states.
  *
  * Nine rows answer otherwise, and each of the nine says so out of a published column of its own: a row naming
- * retention artifacts to fold meets a command line with no flag carrying them, a row naming no key at all meets
- * the run that asks for one by the type it found, a row pinning a half whose own kid is not the header's meets a
- * designation matched on computed kids, two rows are refused by the classifier before any reader is reached,
- * and one row carries another shape's name in label 3 and so reaches that shape's reader. Those are listed in
- * `COMMAND_PATH_ANSWERS` beside the fact that makes them, and the replay checks both directions, so a row that
- * diverges without being listed fails and a listed row that stopped diverging fails beside it.
+ * retention artifacts to fold meets a run that named no directory to read them from, a row naming no key at all
+ * meets the run that asks for one by the type it found, a row pinning a half whose own kid is not the header's
+ * meets a designation matched on computed kids, two rows are refused by the classifier before any reader is
+ * reached, and one row carries another shape's name in label 3 and so reaches that shape's reader. Those are
+ * listed in `COMMAND_PATH_ANSWERS` beside the fact that makes them, and the replay checks both directions, so a
+ * row that diverges without being listed fails and a listed row that stopped diverging fails beside it. The
+ * three fold rows are replayed again in `possession-fold-at-the-command-edge.test.ts`, where the directory they
+ * name is handed, and there the command path answers each of them as its published row states it.
  *
  * The pinned verb is tested against the other five published shapes rather than only beside its own, because a
  * pin that reads whatever arrives is the defect the pin exists to remove: a step written to check the run's
@@ -220,19 +222,19 @@ const COMMAND_PATH_ANSWERS: readonly CommandPathAnswer[] = [
     name: 'presence-observation-no-entry-of-the-run-seals',
     answer: 'verify-ok',
     exit: 0,
-    because: 'the fold is the one reading no option of this command line hands an input to',
+    because: 'the fold is the one reading this run hands an input to only when --retention-dir names the root the run files its artifacts under',
   },
   {
     name: 'presence-gap-inside-the-period-the-run-attests',
     answer: 'verify-ok',
     exit: 0,
-    because: 'the fold is the one reading no option of this command line hands an input to',
+    because: 'the fold is the one reading this run hands an input to only when --retention-dir names the root the run files its artifacts under',
   },
   {
     name: 'presence-window-wider-than-the-observations-attest',
     answer: 'verify-ok',
     exit: 0,
-    because: 'the fold is the one reading no option of this command line hands an input to',
+    because: 'the fold is the one reading this run hands an input to only when --retention-dir names the root the run files its artifacts under',
   },
   {
     name: 'document-cut-short-mid-envelope',
@@ -286,7 +288,7 @@ describe('an epoch inventory at the command edge', () => {
     for (const file of readbackOf(HONEST).runFiles) {
       expect(human.stdout).toContain(file);
     }
-    expect(human.stdout).toContain('no option of this command line hands them');
+    expect(human.stdout).toContain('this run was handed no `--retention-dir` to read them from');
 
     const json = verdictOf(runCli(['verify-handover', HONEST_PATH, HONEST_KEY, '--json']));
     expect(json.ok).toBe(true);
