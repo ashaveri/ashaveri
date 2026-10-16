@@ -110,6 +110,21 @@ export type {
   NormalizationRuleName,
   NormalizedExportItem,
 } from './import-normalize.js';
+export {
+  DERIVED_REPRESENTATION_KINDS,
+  IMPORT_FORMAT_VERSION,
+  importEnvelopeKey,
+  IMPORT_TRANSFORMATIONS,
+  parseImportEnvelope,
+  readImportEnvelope,
+} from './import-envelope.js';
+export type {
+  ImportDerivedKind,
+  ImportDerivedRepresentation,
+  ImportEnvelope,
+  ImportReading,
+  ImportTransformation,
+} from './import-envelope.js';
 export { fromBase64Url, toBase64Url, toHex } from './b64.js';
 export {
   claimsConfidentialDevice,
