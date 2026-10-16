@@ -78,7 +78,7 @@ describe('the stamp disclosure', () => {
     // that a rename there is heard here, where the format member carrying it is written.
     const declaration = readFileSync(storeSourcePath, 'utf8');
     const block = /export interface StampDeclaration \{([\s\S]*?)\n\}/u.exec(declaration)?.[1];
-    if (block === undefined) throw new Error('store.ts no longer declares StampDeclaration in a readable shape');
+    if (block === undefined) throw new Error('store.ts declares StampDeclaration nowhere in a shape this reads');
     const fields = [...block.matchAll(/readonly (\w+):/gu)].map((found) => found[1]!);
     expect(fields).toEqual(['name', 'uncertaintySeconds']);
     expect(block).toContain('number | null');
@@ -92,7 +92,7 @@ describe('the collateral validity anchor', () => {
     // two spellings is invisible to a type checker across that boundary, so it is read off the source.
     const source = readFileSync(captureSourcePath, 'utf8');
     const line = /export type CapturePresence = ([^;]+);/u.exec(source)?.[1];
-    if (line === undefined) throw new Error('capture.ts no longer declares CapturePresence in a readable shape');
+    if (line === undefined) throw new Error('capture.ts declares CapturePresence nowhere in a shape this reads');
     const spelled = [...line.matchAll(/'([^']+)'/gu)].map((found) => found[1]!);
     expect(spelled).toEqual([...COLLATERAL_PRESENCES]);
     expect(COLLATERAL_PRESENCES).toEqual(['held', 'absent-at-source', 'not-taken-in']);

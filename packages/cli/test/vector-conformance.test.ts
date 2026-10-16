@@ -1238,7 +1238,7 @@ describe('the evidence pack vectors through the shipped reader', () => {
     // One declared code belongs to a lookup and to no document, and the sweep states which: `PACK_ATTACHED_UNRESOLVED`
     // is what `resolveAttached` answers when an arm holds nothing for a digest a held slot names, and a pack that
     // attaches nothing is whole, so neither `decodePack` nor `verifyPack` can be reached by it. Excluding it from
-    // the sweep without asserting the other half would hide a code that stopped being raised anywhere, so the
+    // the sweep without asserting the other half would hide a code that is raised nowhere, so the
     // absence is asserted as a fact of the published suite: no row answers with it. The three codes a reference
     // raises stay in the sweep, because rows do reach them.
     const byADocument = [...new Set(declared)].filter((one) => one !== 'PACK_ATTACHED_UNRESOLVED');

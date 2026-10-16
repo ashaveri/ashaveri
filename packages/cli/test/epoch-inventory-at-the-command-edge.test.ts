@@ -36,7 +36,7 @@ const SPAWN_DEADLINE_MS = 15_000;
  * meets a designation matched on computed kids, two rows are refused by the classifier before any reader is
  * reached, and one row carries another shape's name in label 3 and so reaches that shape's reader. Those are
  * listed in `COMMAND_PATH_ANSWERS` beside the fact that makes them, and the replay checks both directions, so a
- * row that diverges without being listed fails and a listed row that stopped diverging fails beside it. The
+ * row that diverges without being listed fails and a listed row that does not diverge fails beside it. The
  * six fold rows are replayed again in `possession-fold-at-the-command-edge.test.ts`, where the directory they
  * name is handed, and there the command path answers each of them as its published row states it.
  *
@@ -189,7 +189,7 @@ const HONEST_PAYLOAD = JSON.parse(
  *
  * Each entry is checked against the row it names inside the replay below, so a list of names cannot rest on
  * this file's memory of the suite: the replay fails a row that diverges without being listed, fails a listed
- * row that stopped diverging, and asks which member of the published row makes the command's answer a
+ * row that does not diverge, and asks which member of the published row makes the command's answer a
  * different question's answer.
  */
 interface CommandPathAnswer {
@@ -415,7 +415,7 @@ describe('an epoch inventory at the command edge', () => {
       observed.push(`${row.name}: ${answer}`);
     }
     // Both directions, read out of published data rather than out of a table this file keeps to itself: a row
-    // that diverged without being listed failed above, and a listed row that stopped diverging fails here.
+    // that diverged without being listed failed above, and a listed row that does not diverge fails here.
     expect(diverged.sort()).toEqual(COMMAND_PATH_ANSWERS.map((one) => one.name).sort());
     expect(observed.filter((one) => !one.endsWith('verify-ok')).length).toBeGreaterThanOrEqual(40);
   });
