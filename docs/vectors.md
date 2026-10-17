@@ -34,12 +34,14 @@ each shape.
 | Epoch inventory | `packages/fixtures/data/epoch-inventory-v1.json` | Whole sealed inventories and the verdict the two shipped inventory readers owe each one: the envelope, the header, the key, the reading of a JSON payload, the arithmetic a reader recomputes over a run of packs, and the names each row of the two folded lists points at, with a refusal for every claim the reader recomputes over the run and answers from it, which is the windows meeting end to start, including one entry whose own two figures do not run forwards, the window, the two chain endpoints beside the run that begins and ends them, the claim each folded list states beside it, and every guard of both lists, and with the acceptances a reviewer would otherwise read as faults | `version: 1` |
 | Capture record | `packages/fixtures/data/capture-v1.json` | Whole capture records and the answer the two published capture entry points give each one: one evidence document's exact original bytes held as they arrived beside the context stated with them, a signature re-framed by a second encoder refused as bytes rather than accepted as an equivalent, a context member left unmentioned refused rather than read as an absence, and a digest that is not the digest of the bytes beside it | `version: 1` |
 | Import envelope | `packages/fixtures/data/import-v1.json` | Whole envelopes and the answer the published reader gives each one: one synthetic provider export's exact bytes held as they arrived beside the derived representation the shipped normalization produced from them with its label, its transformation and the basis it rests on, the deterministic report of every position the rules do not read and every position they read that the export states nothing at, a second intake of one export keyed to the same record as the first, and the refusals in between | `version: 1` |
+| Retention assessment | `packages/fixtures/data/retention-assessment-v1.json` | Whole assessment documents and the outcome the published reading computes for each one: the declared scope with a head an independent party pinned and a customer-held checkpoint schedule, the observed intake runs and acknowledgments, the checkpoint receipts, the observed head, explicit gaps, duplicates, rollbacks and suffix loss, and the three outcomes a reader replays, including a span-only input the old span rule would have called met and a covered period that genuinely reaches met | `version: 1` |
 
 `pop-v1.json`, `req-v1.json`, `res-v1.json`, `marking-v1.json`, `chain-v1.json`, `export-v1.json`,
-`manifest-v1.json`, `pack-v1.json`, `redaction-v1.json`, `epoch-inventory-v1.json`, `capture-v1.json` and
-`import-v1.json` each carry a
+`manifest-v1.json`, `pack-v1.json`, `redaction-v1.json`, `epoch-inventory-v1.json`, `capture-v1.json`,
+`import-v1.json` and `retention-assessment-v1.json` each carry a
 `description` stating their rule in prose, and the digest, marked-region, chain, export,
-sealed-manifest, pack, redaction, inventory, capture and import suites carry a `rule` or `layout` block naming the fields,
+sealed-manifest, pack, redaction, inventory, capture, import and retention-assessment suites carry a `rule`
+or `layout` block naming the fields,
 and the widths and the byte order where a suite pins a byte layout, so a reader never has to guess what an
 array of hex is standing for. The manifest carries no `description`, because it lists the receipt fixtures
 rather than stating a rule of its own, and it does carry a `layout` block naming the columns its rows
@@ -302,10 +304,23 @@ specific to that case.
   `stage`, which is `layout` where `parseImportEnvelope` refused the document, which `readImportEnvelope` then
   refuses with the same code because it parses first, and `reading` where the layout took the bytes and the refusal
   came from the normalization or from the re-derivation of a derived row.
+- **Retention assessment.** Take the document out of the row and hand it to `parseRetentionAssessment` for the
+  layout's answer and to `assessRetention` for the outcome, then compare the outcome, the coverage result, its
+  basis, ranges and reasons, and the assessment's own reasons with the row. `retention-assessment-v1.json`
+  publishes 14 assessment rows and 15 refusals. The assessed rows are whole documents the layout takes; each
+  states the outcome the reading computed for it when the file was written, and a row whose evidence moved
+  without its stated outcome moving is a file the generator refuses. A refused row states `stage`, which is
+  `layout` where `parseRetentionAssessment` refused the document, which `assessRetention` then refuses with the
+  same code because it parses first, and `reading` where the layout took the document and the reading refused
+  the stated outcome its own evidence did not support, under `RETENTION_ASSESSMENT_DISAGREES`. Two rows are the
+  pair the suite exists for: `continuous-coverage-met` is a period the sequence evidence genuinely covers, and
+  `span-only-would-have-met-under-the-span-rule` is the oldest and newest survivors one declared period apart
+  with the newest head matching the pinned head, which the old span rule would have called met and this reading
+  answers indeterminate. The maximum minus the minimum timestamp has no path to `met`.
 
 ## Every suite refuses something
 
-Each of the thirteen suites the table above lists carries at least one case whose stated verdict is a refusal,
+Each of the fourteen suites the table above lists carries at least one case whose stated verdict is a refusal,
 and every code those cases name is one [error-codes.md](error-codes.md) lists. The thirteen are that table's
 rows, which `packages/fixtures/test/vectors-doc.test.ts` counts and compares with this sentence rather than
 trusting it. That is the half a second implementation cannot agree with by accident: an accepted case and
@@ -326,7 +341,8 @@ derived row that is not the bytes the transformation it names produces.
 Each is one small edit to
 bytes this repository already publishes, so reproducing it is reading a row and not guessing at what the
 author meant. The client path over them is in `packages/cli/test/vector-conformance.test.ts`, which
-drives every suite in this table but the technical export, the capture record and the import envelope through the shipped
+drives every suite in this table but the technical export, the capture record, the import envelope and the
+retention assessment through the shipped
 verification code rather than
 through a copy of the rule it is checking, and asserts the verdict in both directions: the accepted rows
 accepted, the refusing ones refused for the reason stated. The export suite travels the client path
@@ -335,7 +351,10 @@ rows are read by the two published capture entry points themselves, `parseCaptur
 `@ashaveri/sdk`, in `packages/fixtures/test/capture-vectors.test.ts`, because those two are the shipped reading of
 this format and no command of this package reads a capture record, and the import rows are read the same way by
 `parseImportEnvelope` and `readImportEnvelope` in `packages/fixtures/test/import-vectors.test.ts`, because an
-import envelope is read by a library caller and no command of this package reads one. The inventory
+import envelope is read by a library caller and no command of this package reads one. The assessment rows are
+read by `parseRetentionAssessment` and `assessRetention` in
+`packages/fixtures/test/retention-assessment-vectors.test.ts`, because a retention assessment is a library
+surface and no command of this package reads one. The inventory
 rows are read there by the two exported inventory readers, `verifyEpochInventory` and
 `decodeEpochInventory`, rather than through a command, because the claim a port has to satisfy at those two
 doors is about the library surface, and that block names the file which answers the same rows at the command
@@ -363,6 +382,7 @@ pnpm --filter @ashaveri/fixtures generate:redaction
 pnpm --filter @ashaveri/fixtures generate:epoch-inventory
 pnpm --filter @ashaveri/fixtures generate:capture
 pnpm --filter @ashaveri/fixtures generate:import
+pnpm --filter @ashaveri/fixtures generate:retention-assessment
 ```
 
 The generators live beside the loaders in `packages/fixtures`, and running all of them after a change

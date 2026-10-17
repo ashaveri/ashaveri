@@ -135,6 +135,7 @@ function verdictsOf(basename: string): { verdict: string; code: string | null }[
     case 'chain-v1.json':
     case 'capture-v1.json':
     case 'import-v1.json':
+    case 'retention-assessment-v1.json':
       return rows('refusals').map((row) => ({ verdict: 'refused', code: field(row, 'code') }));
     default:
       throw new Error(`${basename} states verdicts in a shape this reader does not know`);
