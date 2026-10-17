@@ -7,14 +7,28 @@ export {
 } from './errors.js';
 export type { CollateralErrorCode, CollateralInputName, CollateralRefusal, CollateralVerdict } from './errors.js';
 export {
+  DECLARED_ORIGINS,
   INTEL_QE_IDENTITY,
   INTEL_TCB_INFO,
+  ORIGIN_DECLARATIONS,
   SERVED_ORIGINS,
   collateralCacheKey,
   declarationFor,
   requestUrl,
+  servedDocumentDeclaration,
 } from './intel-origin.js';
-export type { CollateralCacheMember, OriginDeclaration, ServedCollateralOrigin } from './intel-origin.js';
+export type {
+  CollateralAnswerShape,
+  CollateralCacheMember,
+  DeclaredOriginDeclaration,
+  DeclaredRoute,
+  IntelOriginDeclaration,
+  OriginCacheRule,
+  OriginDeclaration,
+  OriginRefusals,
+  ReadCollateralOrigin,
+  ServedCollateralOrigin,
+} from './intel-origin.js';
 export { fetchFromOrigin, wallClock } from './fetch.js';
 export type { FetchContext, FetchOutcome, FetchedCollateral } from './fetch.js';
 export { readSignedCollateral } from './read.js';
@@ -34,6 +48,7 @@ export type {
   IntelPlatform,
   IntelTcbLevel,
   RetainedCollateral,
+  RevocationListStatement,
   SignedCollateral,
   SignedWindow,
   StatusReading,

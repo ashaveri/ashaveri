@@ -1,22 +1,119 @@
 import { collateralRefusal, quoteOrDigest, type CollateralErrorCode, type CollateralInputName, type CollateralRefusal } from './errors.js';
 import type { CollateralOriginName, CollateralQuery, IntelPlatform } from './types.js';
 
-/** The two documents this package reads. Every other name of `CollateralOriginName` is refused. */
-export type ServedCollateralOrigin = 'intel-tcb-info' | 'intel-qe-identity';
+/**
+ * Every origin a query may name. Two are read here; the other four are declared with the routes their
+ * vendors publish and refuse an appraisal until a reader exists for the shape they answer in.
+ */
+export type ServedCollateralOrigin = CollateralOriginName;
+
+/** The two documents this package reads. A query naming another origin is refused with what that origin lacks. */
+export type ReadCollateralOrigin = 'intel-tcb-info' | 'intel-qe-identity';
 
 /** Which field of a query the cache key is built from. */
 export type CollateralCacheMember = 'origin' | 'platform' | 'cpuType' | 'level';
+
+/**
+ * The shape an origin's answer takes, which decides whether this package has an arm to weigh it.
+ *
+ * The shape is stated per origin rather than read off the bytes: a DER sequence, a JSON wrapper and a PEM
+ * block are each a run of bytes until a reader knows what it is looking at, and the reader that exists here
+ * weighs one served JSON document. The other shapes are named so a refusal can say which one arrived.
+ */
+export type CollateralAnswerShape =
+  | 'json-signed-document'
+  | 'der-crl'
+  | 'pem-certificate-chain'
+  | 'der-certificate'
+  | 'swid-rim'
+  | 'der-ocsp-response';
+
+/**
+ * A route a vendor publishes for an origin, as the vendor states it.
+ *
+ * The path is relative to the declaration's host and carries `{member}` placeholders that `requestUrl`
+ * fills from the query. The answer shape travels beside the route because one origin can publish more
+ * than one: a KDS path returns a certificate while another returns the chain beside it.
+ */
+export interface DeclaredRoute {
+  /** The name a query selects this route by, unique within its declaration. */
+  readonly name: string;
+  /** The path on the declared host, with placeholders filled from the query. */
+  readonly path: string;
+  readonly method: 'GET' | 'POST';
+  /** The media type the answer arrives in, which is what the fetch asks for. */
+  readonly mediaType: string;
+  readonly answer: CollateralAnswerShape;
+  /**
+   * How far an answer from this route reaches. A signed reference document speaks for the instant it was
+   * published, which is historical knowledge; an OCSP answer speaks for the instant it was asked, which is
+   * current knowledge at that instant and no later one.
+   */
+  readonly knowledge: 'historical' | 'current';
+}
+
+/** The refusal slots every declaration names, whether or not its origin can reach each one today. */
+export interface OriginRefusals {
+  readonly transport: CollateralErrorCode;
+  readonly status: CollateralErrorCode;
+  readonly oversize: CollateralErrorCode;
+  readonly envelope: CollateralErrorCode;
+  readonly window: CollateralErrorCode;
+  readonly identity: CollateralErrorCode;
+  readonly levels: CollateralErrorCode;
+  readonly statusUnknown: CollateralErrorCode;
+  readonly signature: CollateralErrorCode;
+  readonly anchor: CollateralErrorCode;
+}
+
+/** How a kept blob is named, for an origin whose reader can state the identity and window it belongs to. */
+export interface OriginCacheRule {
+  /** The fields that decide which question a kept blob is an answer to. */
+  readonly keyMembers: readonly CollateralCacheMember[];
+  /** A kept blob records one earlier observation, so it cannot answer what is true now. */
+  readonly answersCurrentQuestions: false;
+  /** How long a caller may keep the bytes: the vendor's own next update, copied and never extended. */
+  readonly retainUntil: 'vendor-next-update';
+}
 
 /**
  * Everything one retrieval path decides, written down once: where it is asked, what shape the answer
  * has to be, how long the wait is, what may be kept, and which refusal each failure answers with.
  * `test/origin-declaration.test.ts` reads this against the code that acts on it, because a
  * declaration nobody checks is a comment with a type.
+ *
+ * The fields an origin does not use are absent from its arm of the union rather than left empty, so a
+ * reader that needs the Intel payload members cannot be handed a declaration that states none.
  */
-export interface OriginDeclaration {
+interface OriginDeclarationCommon {
   readonly name: ServedCollateralOrigin;
   /** The one host asked. An answer that redirects away from it is refused rather than followed. */
   readonly host: string;
+  /** The method the origin answers to. This package builds GET requests alone. */
+  readonly method: 'GET' | 'POST';
+  /** The media type the answer arrives in. */
+  readonly mediaType: string;
+  /** What an answer from this origin is, which is the shape its first route names. */
+  readonly answer: CollateralAnswerShape;
+  /**
+   * The response header that carries this document's issuer chain, or null where no served answer recorded here
+   * names one. A signature is only as good as the path from it to a name a reader pinned, and that path arrives
+   * beside the body rather than inside it, so the bytes are kept as the vendor sent them and nothing here
+   * decodes, reorders or drops one.
+   *
+   * The spelling belongs to one document at one version, so it is read off that document's own cited answer,
+   * quoted in the note above each declaration below: a name remembered from a neighbouring document, or from
+   * the same document at another version, asks for a header no answer carries.
+   */
+  readonly chainHeader: string | null;
+  readonly timeoutMs: number;
+  readonly maxResponseBytes: number;
+  readonly refusals: OriginRefusals;
+}
+
+/** A declaration this package reads: the served JSON document Intel answers with. */
+export interface IntelOriginDeclaration extends OriginDeclarationCommon {
+  readonly reader: { readonly as: 'served-json-document' };
   readonly platformPath: (platform: IntelPlatform) => string;
   readonly documentPath: string;
   /** The query member carrying the CPU type, or null when the document is not indexed by one. */
@@ -47,17 +144,6 @@ export interface OriginDeclaration {
     readonly mediaType: string;
     readonly certificateMember: 'x5c';
   };
-  /**
-   * The response header that carries this document's issuer chain, or null where no served answer recorded here
-   * names one. A signature is only as good as the path from it to a name a reader pinned, and that path arrives
-   * beside the body rather than inside it, so the bytes are kept as the vendor sent them and nothing here
-   * decodes, reorders or drops one.
-   *
-   * The spelling belongs to one document at one version, so it is read off that document's own cited answer,
-   * quoted in the note above each declaration below: a name remembered from a neighbouring document, or from
-   * the same document at another version, asks for a header no answer carries.
-   */
-  readonly chainHeader: string | null;
   /** Where the signed window is written, and inside which member of the payload it is written. */
   readonly window: {
     readonly documentMember: string | null;
@@ -84,16 +170,7 @@ export interface OriginDeclaration {
     readonly levelCompositionStatedAs: 'hex-text' | 'component-numbers';
     readonly statusMember: string;
   };
-  readonly timeoutMs: number;
-  readonly maxResponseBytes: number;
-  readonly cache: {
-    /** The fields that decide which question a kept blob is an answer to. */
-    readonly keyMembers: readonly CollateralCacheMember[];
-    /** A kept blob records one earlier observation, so it cannot answer what is true now. */
-    readonly answersCurrentQuestions: false;
-    /** How long a caller may keep the bytes: the vendor's own next update, copied and never extended. */
-    readonly retainUntil: 'vendor-next-update';
-  };
+  readonly cache: OriginCacheRule;
   /**
    * Which of the vendor's own status words this package reads as what.
    *
@@ -105,18 +182,37 @@ export interface OriginDeclaration {
     readonly trusted: readonly string[];
     readonly revoked: readonly string[];
   };
-  readonly refusals: {
-    readonly transport: CollateralErrorCode;
-    readonly status: CollateralErrorCode;
-    readonly oversize: CollateralErrorCode;
-    readonly envelope: CollateralErrorCode;
-    readonly window: CollateralErrorCode;
-    readonly identity: CollateralErrorCode;
-    readonly levels: CollateralErrorCode;
-    readonly statusUnknown: CollateralErrorCode;
-    readonly signature: CollateralErrorCode;
-    readonly anchor: CollateralErrorCode;
-  };
+}
+
+/**
+ * A declaration this package names but does not read.
+ *
+ * The routes are the vendor's, copied from published documentation and measured answers, and the sentence
+ * states what a reader would still need. Nothing is inferred from the origin's name: an origin without a
+ * reader refuses an appraisal rather than handing back bytes under a shape nobody has weighed.
+ */
+export interface DeclaredOriginDeclaration extends OriginDeclarationCommon {
+  readonly reader: { readonly as: 'declared-only'; readonly lacks: string };
+  /** The routes the vendor publishes, in the order the declaration prefers them. */
+  readonly routes: readonly DeclaredRoute[];
+  /**
+   * No record can be named for this origin yet. A cache key names the question a kept answer answers, and
+   * naming it here would require a reader that states the answer's own identity and window, which is the
+   * reader this origin lacks.
+   */
+  readonly cache: null;
+}
+
+export type OriginDeclaration = IntelOriginDeclaration | DeclaredOriginDeclaration;
+
+/** Whether a declaration has a reader here, narrowed so a caller can reach the payload members it states. */
+export function isIntelDeclaration(declaration: OriginDeclaration): declaration is IntelOriginDeclaration {
+  return declaration.reader.as === 'served-json-document';
+}
+
+/** Whether a declaration names routes without a reader, narrowed so a caller can reach the routes. */
+export function isDeclaredOnly(declaration: OriginDeclaration): declaration is DeclaredOriginDeclaration {
+  return declaration.reader.as === 'declared-only';
 }
 
 const REFUSALS = {
@@ -130,7 +226,7 @@ const REFUSALS = {
   statusUnknown: 'COLLATERAL_STATUS_UNSUPPORTED',
   signature: 'COLLATERAL_SIGNATURE_UNVERIFIED',
   anchor: 'COLLATERAL_ANCHOR_NOT_PINNED',
-} as const satisfies OriginDeclaration['refusals'];
+} as const satisfies OriginRefusals;
 
 /**
  * The rule a kept blob is held under, which is the same for both documents of this path.
@@ -169,6 +265,10 @@ const STATUS_VOCABULARY = {
 
 const INTEL_PATH = {
   host: 'api.trustedservices.intel.com',
+  method: 'GET',
+  mediaType: 'application/jose',
+  answer: 'json-signed-document',
+  reader: { as: 'served-json-document' },
   platformPath: (platform: IntelPlatform) => `/${platform}/certification/v4`,
   timeoutMs: 5000,
   maxResponseBytes: 65536,
@@ -246,7 +346,7 @@ const INTEL_PATH = {
  *   header is a body alone, which is all material that arrives inside a pack can be. What a served answer
  *   *states* is nobody's claim here: these rules are about the shape the answer arrives in.
  */
-export const INTEL_TCB_INFO: OriginDeclaration = {
+export const INTEL_TCB_INFO: IntelOriginDeclaration = {
   ...INTEL_PATH,
   name: 'intel-tcb-info',
   documentPath: 'tcb',
@@ -291,7 +391,7 @@ export const INTEL_TCB_INFO: OriginDeclaration = {
  * text, the same rule the TCB Info document is answered by, and a rule about the shape the answer arrives
  * in rather than about what any of it states.
  */
-export const INTEL_QE_IDENTITY: OriginDeclaration = {
+export const INTEL_QE_IDENTITY: IntelOriginDeclaration = {
   ...INTEL_PATH,
   name: 'intel-qe-identity',
   documentPath: 'qe/identity',
@@ -310,23 +410,69 @@ export const INTEL_QE_IDENTITY: OriginDeclaration = {
   cache: { keyMembers: ['origin', 'platform', 'level'], ...CACHE_RULE },
 };
 
-export const SERVED_ORIGINS: readonly ServedCollateralOrigin[] = ['intel-tcb-info', 'intel-qe-identity'];
+/** The origins with a reader here. A declaration elsewhere in this file is a route, not a reader. */
+export const SERVED_ORIGINS: readonly ReadCollateralOrigin[] = ['intel-tcb-info', 'intel-qe-identity'];
 
-const BY_ORIGIN: Record<ServedCollateralOrigin, OriginDeclaration> = {
+const BY_ORIGIN: Record<ReadCollateralOrigin, IntelOriginDeclaration> = {
   'intel-tcb-info': INTEL_TCB_INFO,
   'intel-qe-identity': INTEL_QE_IDENTITY,
 };
 
-/** The declaration for an origin, or the refusal that says this path is not read here. */
-export function declarationFor(origin: CollateralOriginName): OriginDeclaration | { readonly refusal: CollateralRefusal } {
+/** Every origin this file declares, read or not, keyed by the name a query uses. */
+export const ORIGIN_DECLARATIONS: Partial<Record<ServedCollateralOrigin, OriginDeclaration>> = {
+  ...BY_ORIGIN,
+};
+
+/** Every name this file declares, in the order the declarations were written. */
+export const DECLARED_ORIGINS = Object.keys(ORIGIN_DECLARATIONS) as readonly ServedCollateralOrigin[];
+
+/**
+ * The declaration for an origin, or the refusal that says this path is not read here.
+ *
+ * An origin this file declares but does not read answers with the route it is declared at, what a reader
+ * would still need, and the origins that are read, so a caller learns which sentence to look up rather
+ * than which name to retype. An origin with no declaration at all answers with the origins that are read.
+ */
+export function declarationFor(origin: CollateralOriginName): IntelOriginDeclaration | { readonly refusal: CollateralRefusal } {
   if (origin === 'intel-tcb-info' || origin === 'intel-qe-identity') {
     return BY_ORIGIN[origin];
+  }
+  const declared = ORIGIN_DECLARATIONS[origin];
+  if (declared !== undefined && isDeclaredOnly(declared)) {
+    const route = declared.routes[0];
+    const where = route === undefined ? declared.host : `${declared.host}${route.path}`;
+    return {
+      refusal: collateralRefusal(
+        'COLLATERAL_ORIGIN_UNSUPPORTED',
+        `${origin} is declared at ${where} but unread; this reads ${SERVED_ORIGINS.join(' and ')}; missing: ${declared.reader.lacks}`,
+        ['origin'],
+      ),
+    };
   }
   return {
     refusal: collateralRefusal(
       'COLLATERAL_ORIGIN_UNSUPPORTED',
       `${quoteOrDigest(origin)} is not read here, which serves ${SERVED_ORIGINS.join(' and ')}`,
       ['origin'],
+    ),
+  };
+}
+
+/**
+ * The declaration as the reader of a served JSON document needs it, or the refusal for an origin that
+ * reader has no arm for. Both envelope readers call this before one byte is parsed, so a declared-only
+ * origin cannot be read as if its shape were Intel's.
+ */
+export function servedDocumentDeclaration(
+  declaration: OriginDeclaration,
+): IntelOriginDeclaration | { readonly refusal: CollateralRefusal } {
+  if (isIntelDeclaration(declaration)) {
+    return declaration;
+  }
+  return {
+    refusal: collateralRefusal(
+      'COLLATERAL_ORIGIN_UNSUPPORTED',
+      `${declaration.name} answers as ${declaration.answer} and this reader weighs a served JSON document alone`,
     ),
   };
 }
@@ -342,6 +488,9 @@ const CPU_TYPE = /^[0-9a-fA-F]{12}$/u;
  * from the refusal that names the field.
  */
 export function requestUrl(query: CollateralQuery, declaration: OriginDeclaration): string | { readonly refusal: CollateralRefusal } {
+  if (isDeclaredOnly(declaration)) {
+    return declaredUrl(query, declaration);
+  }
   const base = `https://${declaration.host}${declaration.platformPath(query.platform)}/${declaration.documentPath}`;
   if (declaration.cpuTypeMember === null) {
     return base;
@@ -358,6 +507,101 @@ export function requestUrl(query: CollateralQuery, declaration: OriginDeclaratio
 }
 
 /**
+ * The address a declared origin publishes, with the members this query supplies filled in.
+ *
+ * A route's path is a template, and a placeholder with no value in the query stops the address rather
+ * than being sent as braces: the origin would answer a request for a name it never published. The POST
+ * route is the one shape this package states and cannot ask, because an OCSP question carries a
+ * certificate and its issuer in a DER body this path builds nowhere.
+ */
+function declaredUrl(
+  query: CollateralQuery,
+  declaration: DeclaredOriginDeclaration,
+): string | { readonly refusal: CollateralRefusal } {
+  const route = query.route == null
+    ? declaration.routes[0]
+    : declaration.routes.find((one) => one.name === query.route);
+  if (route === undefined) {
+    return {
+      refusal: collateralRefusal(
+        'COLLATERAL_INPUT_MISSING',
+        `${declaration.name} declares no route named ${quoteOrDigest(query.route ?? 'nothing')}`,
+        ['route'],
+      ),
+    };
+  }
+  if (route.method !== 'GET') {
+    const missing: CollateralInputName[] = [];
+    if (query.ocspCertificate == null) {
+      missing.push('ocspCertificate');
+    }
+    if (query.ocspIssuer == null) {
+      missing.push('ocspIssuer');
+    }
+    if (missing.length > 0) {
+      return {
+        refusal: collateralRefusal(
+          'COLLATERAL_INPUT_MISSING',
+          `${declaration.name} states an OCSP question with a certificate and its issuer, and one was not given`,
+          missing,
+        ),
+      };
+    }
+    return {
+      refusal: collateralRefusal(
+        'COLLATERAL_ORIGIN_UNSUPPORTED',
+        `${declaration.name} is asked by ${route.method} and this path builds no request body`,
+      ),
+    };
+  }
+  const missing: CollateralInputName[] = [];
+  const path = route.path.replace(/\{([A-Za-z]+)\}/gu, (_whole, member: string) => routeMember(query, member, missing) ?? `{${member}}`);
+  if (missing.length > 0) {
+    return {
+      refusal: collateralRefusal(
+        'COLLATERAL_INPUT_MISSING',
+        `${declaration.name} is asked at ${route.name} and the address needs ${missing.join(' and ')}`,
+        missing,
+      ),
+    };
+  }
+  return `https://${declaration.host}${path}`;
+}
+
+/** One placeholder of a declared route, as the query spells it, or null where the query states none. */
+function routeMember(query: CollateralQuery, member: string, missing: CollateralInputName[]): string | null {
+  switch (member) {
+    case 'ca':
+      if (query.ca == null) {
+        missing.push('ca');
+        return null;
+      }
+      return query.ca;
+    case 'product':
+      if (query.product == null || !/^[A-Za-z0-9._-]{1,32}$/u.test(query.product)) {
+        missing.push('product');
+        return null;
+      }
+      return query.product;
+    case 'hwid':
+      if (query.hwid == null || !/^[0-9a-fA-F]{64}$/u.test(query.hwid)) {
+        missing.push('hwid');
+        return null;
+      }
+      return query.hwid.toLowerCase();
+    case 'rimId':
+      if (query.rimId == null || !/^[A-Za-z0-9._:-]{1,128}$/u.test(query.rimId)) {
+        missing.push('rimId');
+        return null;
+      }
+      return query.rimId;
+    default:
+      missing.push('route');
+      return null;
+  }
+}
+
+/**
  * Where a kept blob belongs, spelled from the declared members in their declared order.
  *
  * The key holds what changes the answer, which the declaration states per document: a TCB Info blob
@@ -369,7 +613,13 @@ export function requestUrl(query: CollateralQuery, declaration: OriginDeclaratio
 export function collateralCacheKey(
   query: CollateralQuery,
   declaration: OriginDeclaration,
-): string | { readonly missing: readonly CollateralInputName[] } {
+): string | { readonly missing: readonly CollateralInputName[]; readonly why?: string } {
+  if (declaration.cache === null) {
+    return {
+      missing: [],
+      why: `${declaration.name} declares no cache key yet: no reader states the identity and window a kept record belongs to`,
+    };
+  }
   const parts: string[] = [];
   const missing: CollateralInputName[] = [];
   for (const member of declaration.cache.keyMembers) {

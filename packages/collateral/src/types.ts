@@ -113,6 +113,22 @@ export interface CollateralQuery {
   /** The CPU type the origin indexes collateral by: Intel's FMSPC id as hex text. Required for TCB Info. */
   readonly cpuType: string | null;
   readonly level: IntelTcbLevel | null;
+  /** Which declared route this query asks, or null for the declaration's first route. */
+  readonly route?: string | null;
+  /** The PCK CRL's authority scope: the processor list or the platform list. Required for that origin. */
+  readonly ca?: 'processor' | 'platform' | null;
+  /** AMD's product line as KDS spells it, such as `Milan`. Required for a KDS address. */
+  readonly product?: string | null;
+  /** AMD's chip id as 64 hex characters, the value a platform's report states. Required for a VCEK address. */
+  readonly hwid?: string | null;
+  /** NVIDIA's RIM id, the value a GPU's attestation evidence names. Required for a RIM address. */
+  readonly rimId?: string | null;
+  /**
+   * The certificate an OCSP question asks about, and the issuer that signed it. Neither is read here:
+   * the names are carried so a refusal can say which half of the question is absent.
+   */
+  readonly ocspCertificate?: Uint8Array | null;
+  readonly ocspIssuer?: Uint8Array | null;
   /**
    * The instant the answer is for, in Unix seconds. `null` is an answer rather than a default: a
    * caller that does not know what moment it is appraising cannot be handed a verdict about one.
@@ -193,6 +209,22 @@ export interface CollateralClaim {
   readonly retainUntil: number;
   /** Where these bytes belong, spelled from the declared key members, so a store cannot mix identities. */
   readonly cacheKey: string;
+}
+
+/**
+ * What a signed revocation list states once a reader exists for it.
+ *
+ * A list speaks for its own window, not for a platform level: an instant outside `thisUpdate` to
+ * `nextUpdate` answers `COLLATERAL_WINDOW_CLOSED`, and `namesCertificate` true is the only case that
+ * answers `COLLATERAL_REVOKED_BY_VENDOR`. A list that does not name the certificate is not a statement
+ * that the certificate is trusted, and nothing here reads it as one. No parser for a DER list exists in
+ * this package, so no reader reaches this type today; it names the vocabulary the declaration and the
+ * error table state for the origin.
+ */
+export interface RevocationListStatement {
+  readonly thisUpdate: number;
+  readonly nextUpdate: number;
+  readonly namesCertificate: boolean;
 }
 
 /**

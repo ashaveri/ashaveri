@@ -1,6 +1,6 @@
 import { collateralRefusal, quoteOrDigest, type CollateralRefusal } from './errors.js';
 import { utf8 } from './bytes.js';
-import type { OriginDeclaration } from './intel-origin.js';
+import { isIntelDeclaration, type OriginDeclaration } from './intel-origin.js';
 import type { CollateralTransport } from './types.js';
 
 /** The bytes an answer arrived with, the issuer chain that arrived beside them, and the instant they were seen. */
@@ -47,17 +47,28 @@ export async function fetchFromOrigin(
   context: FetchContext = {},
 ): Promise<FetchOutcome> {
   const transport = context.transport ?? globalThis.fetch;
+  if (declaration.method !== 'GET') {
+    return {
+      refusal: collateralRefusal(
+        'COLLATERAL_ORIGIN_UNSUPPORTED',
+        `${declaration.name} is asked by ${declaration.method} and this path asks GET alone`,
+      ),
+    };
+  }
   const asked = askedOf(url, declaration);
   if (asked !== null) {
     return { refusal: asked };
   }
+  // The Intel arm states its media type beside the envelope it weighs, and both are the same string there.
+  // A declared origin states it on the declaration, because it publishes no envelope this path decodes.
+  const accept = isIntelDeclaration(declaration) ? declaration.signature.mediaType : declaration.mediaType;
   let response: Response;
   try {
     response = await transport(url, {
       method: 'GET',
       redirect: 'error',
       signal: AbortSignal.timeout(declaration.timeoutMs),
-      headers: { accept: declaration.signature.mediaType },
+      headers: { accept },
     });
   } catch (err) {
     const name = err instanceof Error ? err.name : 'unknown';

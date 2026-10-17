@@ -1,6 +1,6 @@
 import { CollateralError, collateralRefusal, quoteOrDigest, type CollateralRefusal } from './errors.js';
 import { fetchFromOrigin, wallClock } from './fetch.js';
-import { collateralCacheKey, declarationFor, requestUrl, type OriginDeclaration } from './intel-origin.js';
+import { collateralCacheKey, declarationFor, requestUrl, type IntelOriginDeclaration } from './intel-origin.js';
 import { readSignedCollateral, type ReadCollateral } from './read.js';
 import { readServedCollateral } from './served.js';
 import { sha256Hex, toHex } from './bytes.js';
@@ -180,7 +180,7 @@ async function appraise(
 function classify(
   read: ReadCollateral,
   query: CollateralQuery,
-  declaration: OriginDeclaration,
+  declaration: IntelOriginDeclaration,
   observedAt: number,
   appraisalAt: number,
   askedThisRun: boolean,
@@ -258,7 +258,7 @@ function signed(read: ReadCollateral, query: CollateralQuery, readAs: StatusRead
 }
 
 /** Everything a query has to state before the origin is worth asking. */
-function askedButNotGiven(query: CollateralQuery, declaration: OriginDeclaration): CollateralRefusal | null {
+function askedButNotGiven(query: CollateralQuery, declaration: IntelOriginDeclaration): CollateralRefusal | null {
   if (query.roots.length === 0) {
     return collateralRefusal(declaration.refusals.anchor, 'a verdict needs a root the caller holds, and none was passed', ['roots']);
   }
@@ -286,6 +286,6 @@ function unavailable(refusal: CollateralRefusal): CollateralOutcome {
   return { state: 'unavailable', collateral: null, claim: null, refusal };
 }
 
-function refused(declaration: OriginDeclaration, why: string): CollateralRefusal {
+function refused(declaration: IntelOriginDeclaration, why: string): CollateralRefusal {
   return collateralRefusal(declaration.refusals.envelope, why);
 }

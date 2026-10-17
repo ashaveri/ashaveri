@@ -2,7 +2,7 @@ import { p256 } from '@noble/curves/nist.js';
 import { derEcdsaSignature, type ParsedCertificate } from '@ashaveri/attest-core';
 import { utf8 } from './bytes.js';
 import { collateralRefusal, quoteOrDigest, type CollateralRefusal } from './errors.js';
-import type { OriginDeclaration } from './intel-origin.js';
+import { servedDocumentDeclaration, type IntelOriginDeclaration, type OriginDeclaration } from './intel-origin.js';
 import {
   decodeText,
   parseCertificates,
@@ -34,7 +34,11 @@ import {
  * and what the signature is taken over.
  */
 export function readServedCollateral(body: Uint8Array, chain: Uint8Array | null, reading: Reading): ReadOutcome {
-  const { declaration } = reading;
+  const narrowed = servedDocumentDeclaration(reading.declaration);
+  if ('refusal' in narrowed) {
+    return narrowed;
+  }
+  const declaration: IntelOriginDeclaration = narrowed;
   const served = declaration.signature.served;
   if (served === null) {
     return refused(declaration, 'the declaration names no served envelope, so no pair is weighed here');
