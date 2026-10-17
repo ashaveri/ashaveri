@@ -55,28 +55,32 @@ Arguments:
   <attestation>      Path to a dStack VersionedAttestation file, or - for stdin.
   <receipt>          Path to a COSE_Sign1 receipt file, or - for stdin.
   <document>         Path to one signed document from a handover, or - for stdin: a receipt, a pack,
-                     an export, a deployment manifest, an excision amendment or an epoch inventory,
-                     whichever the bytes say it is. For verify-pack, verify-export and
+                     an export, a deployment manifest, an excision amendment, an epoch inventory or a
+                     provenance ledger, whichever the bytes say it is. For verify-pack, verify-export and
                      verify-epoch-inventory it is the file that says the one thing that verb reads, and any
                      other document is refused before it is opened.
 
 verify-handover answers the question a pile of files leaves open: what is this, and what holds for it.
 Seven signed shapes carry a published content type, in the COSE protected header, inside the signature,
-and this command holds a reader for six of them. The seventh, ashaveri/anchor-provenance, names the ledger
-whose reader ships in the package that ships the bytes the ledger speaks of, and a header carrying it is
-refused by name here rather than read as one of the six. So the answer for a pile is one command that reads
+and this command holds a reader for all seven. The seventh, ashaveri/anchor-provenance, names the ledger
+whose reader ships in @ashaveri/attest-core, the package that ships the anchors the ledger speaks of; its
+verifying key is designated with --key, and the tracked fixture bytes its rows name travel in through
+--companion under the bare names the rows carry. So the answer for a pile is one command that reads
 the header rather than one that makes the caller declare the form before looking at it. The type found is printed
 before anything about validity, in both renderings, and the document is then read by the reader for that type:
-the receipt reader, the pack reader, the export reader, the redaction reader, the inventory reader, or the
-manifest rule a client applies to a served document. Nothing is fetched and no policy is read. Keys are what the
+the receipt reader, the pack reader, the export reader, the redaction reader, the inventory reader, the
+provenance ledger reader, or the manifest rule a client applies to a served document. Nothing is fetched and no policy is read. Keys are what the
 command line designates, by role: --key names the keys whose signatures hold on a receipt, a pack,
-an export, an amendment or an inventory, matched on the kid each document names, and --manifest-key
+an export, an amendment, an inventory or a provenance ledger, matched on the kid each document names, and --manifest-key
 names the keys whose seal authenticates a deployment manifest, which is a separate designation
 because a manifest decides which keys sign evidence and cannot be proved by one of them. An amendment states a
 removal from one pack and designates that pack by a
 digest of its whole bytes, so it is checked against the pack handed as --companion: the digest is
 recomputed from those bytes and compared, and the pair is refused by name when they disagree or when no
-pack was handed at all. An inventory states what a run of packs adds up to, and its reader folds a fifth
+pack was handed at all. A provenance ledger names its rows against a roster: the three anchors the reader
+embeds resolve from its own source, and a row naming test/fixtures/<name> is checked against the file handed
+as --companion under that bare name, so a ledger handed no companion, or one handed bytes a row does not
+digest, is refused by the reader's own code rather than read as a claim nobody checked. An inventory states what a run of packs adds up to, and its reader folds a fifth
 figure from the run's retention artifacts: --retention-dir names the root those artifacts are filed under, and
 each entry states its own as packs/<digest>/retention-v1.json or packs/<digest>/retention-v2.json, so one file
 per entry is read out of the record's own paths rather than named at this command line. Handed, the report
@@ -121,7 +125,7 @@ not knowing is the question; tell a script which shape it came for and the shape
 so a step written to check a pack that is handed an export should not come back reporting a verdict
 about the wrong material and exiting 0. A pinned verb refuses that before it opens the payload, with the
 refusal verify-handover already gives a content type it holds no reader for, BAD_PROTECTED_HEADER naming
-the typ the header carries, because which of the six shapes these bytes claim is one fact stated in one
+the typ the header carries, because which of the seven shapes these bytes claim is one fact stated in one
 field and it wants one answer, not a code per verb. None of the three verbs adds an option, a refusal
 code or an exit code of its own: --key designates the keys this run accepts a signature from, exactly as it does
 there, an export's originals and an amendment's pack still come in through --companion, and
@@ -315,16 +319,21 @@ Handover options, the same for verify-handover, verify-pack, verify-export and v
                      Base64url includes a dash in its alphabet, and an argument that starts with one
                      is not read as this option's value, so pass such a key as --key=<value>.
   --companion <file>  A file that travels beside the document: one original an export item's digest is recomputed
-                     over, or the pack an excision amendment is checked against. Repeatable, and matched by the
-                     file's own name, which is the name the signed item carries: a file named contract.txt answers
-                     the item naming contract.txt. An item whose name was not handed is refused by that name rather
+                     over, the pack an excision amendment is checked against, or one shipped fixture whose bytes
+                     a provenance ledger row digests. Repeatable, and matched by the file's own name, which is
+                     the name the signed item carries: a file named contract.txt answers the item naming
+                     contract.txt, and a file named amd-ark-milan.pem answers the ledger row naming
+                     test/fixtures/amd-ark-milan.pem. An item whose name was not handed is refused by that name rather
                      than passed over, because an export that reported on material nobody looked at is the defect
                      this container exists not to have. A file no item names is left unused and said so in the
                      report. An amendment is the one case where the option carries a second signed document rather
                      than an original, and it takes exactly one: a redaction designates its pack by a digest of that
                      pack's whole bytes and never by a name, so the file handed is the file whose digest is
                      recomputed and compared, none handed is refused as the missing pack it is, and two handed is
-                     refused as a call that designates no pack.
+                     refused as a call that designates no pack. A provenance ledger is the one case where the option
+                     carries the bytes a roster of rows names: the three anchors the reader embeds resolve from its
+                     own source, every row naming test/fixtures/<name> is read from the companion of that bare
+                     name, and a companion no row names is disclosed and read by nothing.
   --retention-dir <directory>
                      The root an epoch inventory's run files its retention artifacts under, consulted by the
                      inventory reading and by no other. Each entry of the run states its own artifact as

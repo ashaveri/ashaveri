@@ -10,11 +10,11 @@ import { runVerifyHandover, type VerbPin, type VerifyHandoverFlags } from './ver
  * so a step written to check a handover's material can quietly check a completeness statement instead and
  * exit 0. The pin answers that with `verify-handover`'s own refusal of a type it holds no reader for,
  * `BAD_PROTECTED_HEADER` naming the `typ` the header carries, since the content type is the field that states
- * which shape these bytes claim to be: five of the six shapes this command reads take their keys from `--key`,
- * the deployment manifest being the sixth and the one `--manifest-key` designates.
+ * which shape these bytes claim to be: six of the seven shapes this command reads take their keys from `--key`,
+ * the deployment manifest being the seventh and the one `--manifest-key` designates.
  *
  * The options are the handover's and no others. `--key` designates the key whose signature this run
- * accepts, matched on the kid the export's header names, which is the one reader of the five that takes a
+ * accepts, matched on the kid the export's header names, which is the one reader of the six that takes a
  * single pinned key rather than a resolver, and `--companion` hands over the files an item's original
  * travels in, matched by the bare name the signed item carries. An item whose companion was not handed
  * over is refused by that name here exactly as it is there, because an export that reported on material
