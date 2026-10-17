@@ -18,13 +18,15 @@ import {
 } from './cose.js';
 import { ReceiptError } from './errors.js';
 import { packRecordDigest } from './pack.js';
+import { PROVENANCES, isProvenance, reduceProvenance, type Provenance } from './provenance.js';
 
 /**
  * The reader of a technical export: what `packages/receipt/export.cddl` states, run.
  *
  * This is a checker and not a verdict engine. It answers whether the bytes are a well-formed export,
  * whether the key it was handed signed them, whether each item's original hashes to the digest beside it,
- * and whether an anchored collection walks from the anchor it names to the head it names. It answers
+ * whether the collection's own provenance is the weakest of the values its items state, and whether an
+ * anchored collection walks from the anchor it names to the head it names. It answers
  * nothing about a legal duty, nothing about whether the material is complete at its source, and nothing
  * about whether it is fresh, and the codes that could be misread as such a verdict are marked below as
  * saying which of three different things happened: `EXPORT_BAD_MANIFEST` is a document that contradicts
@@ -75,11 +77,11 @@ export function isExportClaimKind(value: unknown): value is ExportClaimKind {
 export const EXPORT_MANIFEST_MEMBERS = ['v', 'at', 'assessment', 'collection', 'claim'] as const;
 export const EXPORT_ASSESSMENT_MEMBERS = ['k', 'states'] as const;
 export const EXPORT_CLAIM_MEMBERS = ['made', 'by', 'kind', 'states'] as const;
-export const EXPORT_ANCHORED_MEMBERS = ['k', 'anchor', 'head', 'items'] as const;
-export const EXPORT_PLAIN_MEMBERS = ['k', 'items'] as const;
+export const EXPORT_ANCHORED_MEMBERS = ['k', 'prov', 'anchor', 'head', 'items'] as const;
+export const EXPORT_PLAIN_MEMBERS = ['k', 'prov', 'items'] as const;
 export const EXPORT_VOID_MEMBERS = ['k', 'states'] as const;
-export const EXPORT_ITEM_MEMBERS = ['id', 'iat', 'd', 'orig'] as const;
-export const EXPORT_CHAINED_ITEM_MEMBERS = ['id', 'iat', 'd', 'p', 'orig'] as const;
+export const EXPORT_ITEM_MEMBERS = ['id', 'iat', 'prov', 'd', 'orig'] as const;
+export const EXPORT_CHAINED_ITEM_MEMBERS = ['id', 'iat', 'prov', 'd', 'p', 'orig'] as const;
 export const EXPORT_INLINE_MEMBERS = ['k', 'bytes'] as const;
 export const EXPORT_COMPANION_MEMBERS = ['k', 'name'] as const;
 
@@ -103,6 +105,15 @@ export type ExportOriginal = ExportInlineOriginal | ExportCompanionOriginal;
 export interface ExportItem {
   readonly id: string;
   readonly iat: number;
+  /**
+   * Where the material this record carries came from: a live deployment that produced it while answering a
+   * real request, a document captured elsewhere and replayed, or this repository's own fixtures. The member
+   * is one of the three values `provenance.ts` states and nothing else is read here. It is not a term of
+   * any frame: a chained record's digest is taken over the id, the stamp, the predecessor and the original
+   * bytes, and for the unchained item there is no frame at all, so the member rides inside the collection's
+   * signature without moving a link.
+   */
+  readonly prov: Provenance;
   /** sha256 of the exact original bytes, whether they travel inline or beside the document. */
   readonly d: Uint8Array;
   readonly orig: ExportOriginal;
@@ -127,6 +138,14 @@ export interface ExportClaim {
 
 export interface ExportAnchoredCollection {
   readonly k: 'anchored';
+  /**
+   * The weakest of the items' provenance values, and never a value the assembly chose: a reader compares it
+   * with the reduction over the items and refuses a document whose two members disagree, so a collection
+   * cannot be assembled to claim `live` while carrying one fixture. The member sits beside the list it
+   * reduces rather than on the manifest, because the manifest is shared with the void arm, which carries no
+   * material and no list, and a member required of every arm could not be grounded there.
+   */
+  readonly prov: Provenance;
   readonly anchor: Uint8Array;
   readonly head: Uint8Array;
   readonly items: readonly ExportChainedItem[];
@@ -134,6 +153,8 @@ export interface ExportAnchoredCollection {
 
 export interface ExportPlainCollection {
   readonly k: 'plain';
+  /** As the anchored arm states it: the weakest of the items' values, checked against the items. */
+  readonly prov: Provenance;
   readonly items: readonly ExportItem[];
 }
 
@@ -321,12 +342,17 @@ export function encodeExportManifest(manifest: ExportManifest): Uint8Array {
       : new Map<string, unknown>([['k', 'companion'], ['name', one.name]]);
   };
   // The two item rules differ by the one member the CDDL puts between `d` and `orig`, and the order of
-  // the rest is the order `ExportItem` declares them in.
+  // the rest is the order `ExportItem` declares them in. The provenance value is asked with the reader's
+  // own check, because an absent or out-of-vocabulary value is one fault whichever side of the signature
+  // it is met on. The collection's own value is asked after the array it reduces, matching the order the
+  // reader asks them, so a document missing both is refused here for the same member the reader names.
   const item = (one: ExportItem, position: string): Map<string, unknown> => {
     encodableMap(one, position);
+    requireProvenance(one.prov, `${position}.prov`);
     const fields: Array<readonly [string, unknown]> = [
       ['id', one.id],
       ['iat', one.iat],
+      ['prov', one.prov],
       ['d', one.d],
     ];
     if ('p' in one) fields.push(['p', one.p]);
@@ -337,14 +363,18 @@ export function encodeExportManifest(manifest: ExportManifest): Uint8Array {
     if (one.k === 'void') return new Map<string, unknown>([['k', 'void'], ['states', one.states]]);
     if (one.k === 'plain') {
       encodableList(one.items, 'collection.items');
+      requireProvenance(one.prov, 'collection.prov');
       return new Map<string, unknown>([
         ['k', 'plain'],
+        ['prov', one.prov],
         ['items', one.items.map((member, index) => item(member, `collection.items[${index}]`))],
       ]);
     }
     encodableList(one.items, 'collection.items');
+    requireProvenance(one.prov, 'collection.prov');
     return new Map<string, unknown>([
       ['k', 'anchored'],
+      ['prov', one.prov],
       ['anchor', one.anchor],
       ['head', one.head],
       ['items', one.items.map((member, index) => item(member, `collection.items[${index}]`))],
@@ -462,6 +492,23 @@ function requireDigest(value: unknown, position: string): Uint8Array {
 }
 
 /**
+ * One of the three provenance values, read as the closed vocabulary `provenance.ts` states.
+ *
+ * A fourth label is refused rather than read as whichever of the three it resembled, which is the
+ * confusion the closed set exists to make impossible: the value states where material came from, and a
+ * reader that guessed at an unknown label would be reporting a provenance the document never stated.
+ * The answer is this container's malformed-member code and not `EXPORT_UNSUPPORTED_LABEL`: a `k` or a
+ * `kind` names a shape or a reading the version lacks, and this member is a stated value the version
+ * defines no other reading for, which is the same answer the pack's reader gives the same fault.
+ */
+function requireProvenance(value: unknown, position: string): Provenance {
+  if (!isProvenance(value)) {
+    throw badManifest(`${position} must be one of ${PROVENANCES.map((one) => `'${one}'`).join(', ')}, got ${typeof value === 'string' ? `'${value}'` : String(value)}`);
+  }
+  return value;
+}
+
+/**
  * A companion's name, checked as the file name the format says it is. This reader never resolves one, so
  * this is not a traversal guard for code here: it is the rule that keeps the promise `export.cddl` makes
  * about what the member holds, and that promise matters to whoever does open a file, which is why a
@@ -558,12 +605,13 @@ function readItem(raw: unknown, position: string, chained: boolean): ExportItem 
   assertDefined(map, chained ? EXPORT_CHAINED_ITEM_MEMBERS : EXPORT_ITEM_MEMBERS, position);
   const id = requireText(map.get('id'), `${position}.id`, ID_MAX_BYTES);
   const iat = requireStamp(map.get('iat'), `${position}.iat`);
+  const prov = requireProvenance(map.get('prov'), `${position}.prov`);
   const d = requireDigest(map.get('d'), `${position}.d`);
   const p = chained ? requireDigest(map.get('p'), `${position}.p`) : undefined;
   const orig = decodedMap(map.get('orig'));
   if (orig === null) throw badManifest(`${position}.orig must be a map`);
   const original = readOriginal(orig, `${position}.orig`);
-  return p === undefined ? { id, iat, d, orig: original } : { id, iat, d, p, orig: original };
+  return p === undefined ? { id, iat, prov, d, orig: original } : { id, iat, prov, d, p, orig: original };
 }
 
 function readItems(raw: unknown, position: string, chained: boolean): Array<ExportItem | ExportChainedItem> {
@@ -598,13 +646,39 @@ function readCollection(raw: Map<unknown, unknown>): ExportCollection {
     return { k: 'void', states: requireText(raw.get('states'), 'collection.states', COLLECTION_STATES_MAX_BYTES) };
   }
   const items = readItems(raw.get('items'), 'collection.items', label === 'anchored');
-  if (label === 'plain') return { k: 'plain', items };
+  const prov = requireProvenance(raw.get('prov'), 'collection.prov');
+  if (label === 'plain') return { k: 'plain', prov, items };
   return {
     k: 'anchored',
+    prov,
     anchor: requireDigest(raw.get('anchor'), 'collection.anchor'),
     head: requireDigest(raw.get('head'), 'collection.head'),
     items: items as readonly ExportChainedItem[],
   };
+}
+
+/**
+ * The collection's own provenance, weighed against its items.
+ *
+ * The member is not a parameter: it is the weakest of the items' values, and a reader refuses any other
+ * value in either direction, because a stronger value would claim more than the material carries and a
+ * weaker one would state a provenance nothing in the export has. The two directions are one refusal
+ * because the member has one rule, and the sentence names both figures so a writer that miscalculated the
+ * reduction reads what the items reduce to rather than a bare rejection. The member and the items sit
+ * inside one signature, so a disagreement is the document contradicting itself and not a handover that
+ * misremembered, which is the distinction this container exists to keep decidable.
+ *
+ * The void arm is where this rule has nothing to run over, and it is left alone rather than special-cased
+ * into a value: a void export carries no material and no list, the reduction refuses a call over nothing
+ * rather than inventing a value, and a stated provenance for material that was never carried would be
+ * the ungrounded claim the rule exists to make impossible.
+ */
+function assertProvReduces(collection: ExportCollection): void {
+  if (collection.k === 'void') return;
+  const weakest = reduceProvenance(collection.items.map((one) => one.prov));
+  if (collection.prov !== weakest) {
+    throw badManifest(`collection.prov is '${collection.prov}' where the weakest of the items is '${weakest}'`);
+  }
 }
 
 function readAssessment(raw: Map<unknown, unknown>): ExportAssessment {
@@ -658,11 +732,14 @@ function parseManifest(bytes: Uint8Array): ExportManifest {
   const claim = decodedMap(raw.get('claim'));
   if (claim === null) throw badManifest('claim must be a map');
   const at = requireStamp(raw.get('at'), 'at');
+  const assessmentValue = readAssessment(assessment);
+  const collectionValue = readCollection(collection);
+  assertProvReduces(collectionValue);
   return {
     v: 1,
     at,
-    assessment: readAssessment(assessment),
-    collection: readCollection(collection),
+    assessment: assessmentValue,
+    collection: collectionValue,
     claim: readClaim(claim, at),
   };
 }
@@ -670,8 +747,9 @@ function parseManifest(bytes: Uint8Array): ExportManifest {
 /**
  * A manifest read and a signature not yet checked: how a document is inspected before anybody has decided
  * to trust it, and enough on its own for everything that is a property of the document rather than of who
- * wrote it. Shape, version, labels, widths, non-negativity, name uniqueness and the one tie between two
- * stamps are answered here, because none of them needs a key to be true.
+ * wrote it. Shape, version, labels, widths, non-negativity, name uniqueness, the reduction the collection's
+ * own provenance is held to against its items and the one tie between two stamps are answered here,
+ * because none of them needs a key to be true.
  */
 export function decodeExport(bytes: Uint8Array): DecodedExport {
   const envelope = readEnvelope(bytes);

@@ -393,6 +393,7 @@ function chained(
     const item: PackItem = {
       id: entry.id,
       iat: entry.iat,
+      prov: 'fixture',
       prev,
       receipt: issueReceipt(attest(entry.iat, entry.nonce), entry.key ?? key),
     };
@@ -408,6 +409,7 @@ function manifestValue(over: Partial<PackManifest> = {}): PackManifest {
   return {
     v: 1,
     at: SPAN_TO,
+    prov: 'fixture',
     span: { from: SPAN_FROM, to: SPAN_TO },
     chain: { anchor: run.anchor, head: run.head },
     duty: { art: '19(1)', rev: SPAN_TO - 30, required: 3_600, held: SPAN_TO - BASE },
@@ -424,6 +426,7 @@ function manifestMap(manifest: PackManifest): Map<string, unknown> {
     new Map<string, unknown>([
       ['id', one.id],
       ['iat', one.iat],
+      ['prov', one.prov],
       ['prev', one.prev],
       ['receipt', one.receipt],
     ]);
@@ -451,6 +454,7 @@ function manifestMap(manifest: PackManifest): Map<string, unknown> {
   return new Map<string, unknown>([
     ['v', manifest.v],
     ['at', manifest.at],
+    ['prov', manifest.prov],
     ['span', new Map<string, unknown>([['from', manifest.span.from], ['to', manifest.span.to]])],
     ['chain', new Map<string, unknown>([['anchor', manifest.chain.anchor], ['head', manifest.chain.head]])],
     [
@@ -904,11 +908,11 @@ describe('the pack reader and the format it reads', () => {
     expect(shortened.outcome.span).toEqual({ from: SPAN_FROM, to: SPAN_TO });
     // Two items claiming one predecessor: the walk would take whichever it met first, so a fork is refused
     // rather than resolved by arrival order.
-    const rival: PackItem = { id: 'rival', iat: BASE + 1, prev: run.anchor, receipt: issueReceipt(receiptPayload(BASE + 1, 7), KEY) };
+    const rival: PackItem = { id: 'rival', iat: BASE + 1, prov: 'fixture', prev: run.anchor, receipt: issueReceipt(receiptPayload(BASE + 1, 7), KEY) };
     expect(codeOf(() => verifyPack(signPack(manifestValue({ items: [rival, ...run.items] })), { publicKey: KEY.publicKey }))).toBe('PACK_CHAIN_BROKEN');
     // A receipt parked beside a span it is not part of reaches the head exactly as the honest ones do, because
     // the walk stops where the head is: the count of what it reached is the half with eyes for it.
-    const parked: PackItem = { id: 'parked', iat: BASE + 1, prev: sha256(bytesOf('another chain entirely')), receipt: issueReceipt(receiptPayload(BASE + 1, 8), KEY) };
+    const parked: PackItem = { id: 'parked', iat: BASE + 1, prov: 'fixture', prev: sha256(bytesOf('another chain entirely')), receipt: issueReceipt(receiptPayload(BASE + 1, 8), KEY) };
     const unreached = thrownBy(() => verifyPack(signPack(manifestValue({ items: [...run.items, parked] })), { publicKey: KEY.publicKey })) as ReceiptError;
     expect(unreached.code).toBe('PACK_ITEM_UNREACHED');
     expect(unreached.message).toMatch(/parked/u);
@@ -941,6 +945,8 @@ describe('the pack reader and the format it reads', () => {
       ['an empty id', (root) => itemOf(root, 0).set('id', ''), /must be between 1 and 65535 bytes/u, 'PACK_BAD_MANIFEST'],
       ['a receipt that is not bytes', (root) => itemOf(root, 0).set('receipt', 'x'), /receipt must be a bstr/u, 'PACK_BAD_MANIFEST'],
       ['a duty label that is not text', (root) => dutyOf(root).set('art', 19), /duty\.art must be a tstr/u, 'PACK_BAD_MANIFEST'],
+      ['a provenance label outside the three, on an item', (root) => itemOf(root, 0).set('prov', 'synthetic'), /items\[0\]\.prov must be one of 'live', 'captured', 'fixture'/u, 'PACK_BAD_MANIFEST'],
+      ['a provenance label outside the three, on the manifest', (root) => root.set('prov', 'synthetic'), /prov must be one of 'live', 'captured', 'fixture'/u, 'PACK_BAD_MANIFEST'],
       ['a version that is not an integer', (root) => root.set('v', '1'), /v must be an integer pack version/u, 'PACK_BAD_MANIFEST'],
       ['a version this package cannot read', (root) => root.set('v', 3), /version 3 is not a format this package reads/u, 'PACK_UNSUPPORTED_VERSION'],
     ];
@@ -956,6 +962,26 @@ describe('the pack reader and the format it reads', () => {
     // document that contradicts itself does so whoever signed it.
     expect(codeOf(() => decodePack(reSealed(good, (root) => root.set('at', SPAN_TO - 1))))).toBe('PACK_BAD_MANIFEST');
     expect(codeOf(() => decodePack(reSealed(good, (root) => root.set('v', 3))))).toBe('PACK_UNSUPPORTED_VERSION');
+  });
+
+  it('holds the pack’s own provenance to the weakest of its items, in both directions', () => {
+    // The member is a reduction and not a parameter: a value stronger than the weakest item would claim
+    // more than the pack carries, and a value weaker than the weakest item would state a provenance
+    // nothing in the pack has. Both are the document contradicting itself, and both are refused with the
+    // two figures named so a writer reads what its items reduce to.
+    const stronger = thrownBy(() => decodePack(signPack(manifestValue({ prov: 'live' })))) as ReceiptError;
+    expect(stronger.code, 'a provenance stronger than the weakest item was read').toBe('PACK_BAD_MANIFEST');
+    expect(stronger.message).toContain("prov is 'live' where the weakest of the items is 'fixture'");
+    const run = chained(ENTRIES);
+    const liveItems = run.items.map((one) => ({ ...one, prov: 'live' as const }));
+    const weaker = thrownBy(() => decodePack(signPack(manifestValue({ prov: 'fixture', items: liveItems })))) as ReceiptError;
+    expect(weaker.code, 'a provenance weaker than the weakest item was read').toBe('PACK_BAD_MANIFEST');
+    expect(weaker.message).toContain("prov is 'fixture' where the weakest of the items is 'live'");
+    // The control: the same run stating the value its items reduce to, which need not be fixture, is the
+    // document a writer makes and a reader takes.
+    const capturedItems = run.items.map((one) => ({ ...one, prov: 'captured' as const }));
+    const accepted = verifyPack(signPack(manifestValue({ prov: 'captured', items: capturedItems })), { publicKey: KEY.publicKey });
+    expect([accepted.manifest.prov, ...accepted.manifest.items.map((one) => one.prov)]).toEqual(['captured', 'captured', 'captured', 'captured']);
   });
 
   it('keeps the edges the format states rather than tightening them', () => {
@@ -1006,7 +1032,7 @@ describe('the pack reader and the format it reads', () => {
     // The bytes are the signed receipt, whole and unaltered, and they parse and verify under the key the
     // manifest's own header designates, which is the one the pack was just verified under.
     expect(() => verifyPack(signPack(manifestValue()), { publicKey: KEY.publicKey })).not.toThrow();
-    const junk = manifestValue({ items: [{ id: 'receipt-0', iat: BASE, prev: run.items[0]!.prev, receipt: bytesOf('not a receipt at all') }, run.items[1]!, run.items[2]!] });
+    const junk = manifestValue({ items: [{ id: 'receipt-0', iat: BASE, prov: 'fixture', prev: run.items[0]!.prev, receipt: bytesOf('not a receipt at all') }, run.items[1]!, run.items[2]!] });
     const invalid = thrownBy(() => verifyPack(signPack(junk), { publicKey: KEY.publicKey })) as ReceiptError;
     expect(invalid.code).toBe('PACK_RECEIPT_INVALID');
     expect(invalid.message).toMatch(/receipt-0/u);
@@ -1761,7 +1787,7 @@ describe('the pack verifier resolves keys the way the receipt verifier does', ()
     expect(wrongKey.message).toMatch(/receipt-0 answers KID_MISMATCH/u);
     const run = chained(ENTRIES);
     const junk = manifestValue({
-      items: [{ id: 'receipt-0', iat: BASE, prev: run.items[0]!.prev, receipt: bytesOf('not a receipt at all') }, ...run.items.slice(1)],
+      items: [{ id: 'receipt-0', iat: BASE, prov: 'fixture', prev: run.items[0]!.prev, receipt: bytesOf('not a receipt at all') }, ...run.items.slice(1)],
     });
     const edited = thrownBy(() => verifyPack(signPack(junk, KEY), { resolveKey: keySet([KEY]).resolveKey })) as ReceiptError;
     expect(edited.code).toBe('PACK_RECEIPT_INVALID');
@@ -1785,7 +1811,7 @@ describe('the pack verifier resolves keys the way the receipt verifier does', ()
     const gap = thrownBy(() => verifyPack(signPack({ ...rotated, items: [rotated.items[0]!, rotated.items[2]!] }, KEY), both())) as ReceiptError;
     expect(gap.code).toBe('PACK_CHAIN_BROKEN');
     // The second half, which is the one with eyes for a receipt parked beside a span it is not part of.
-    const parked: PackItem = { id: 'parked', iat: BASE + 1, prev: sha256(bytesOf('another chain entirely')), receipt: issueReceipt(receiptPayload(BASE + 1, 9), OTHER) };
+    const parked: PackItem = { id: 'parked', iat: BASE + 1, prov: 'fixture', prev: sha256(bytesOf('another chain entirely')), receipt: issueReceipt(receiptPayload(BASE + 1, 9), OTHER) };
     const unreached = thrownBy(() => verifyPack(signPack({ ...rotated, items: [...rotated.items, parked] }, KEY), both())) as ReceiptError;
     expect(unreached.code).toBe('PACK_ITEM_UNREACHED');
     expect(unreached.message).toMatch(/parked/u);

@@ -128,6 +128,7 @@ function chained(
     const item: PackItem = {
       id: entry.id,
       iat: entry.iat,
+      prov: 'fixture',
       prev,
       receipt: issueReceipt(receiptPayload(entry.iat, entry.nonce), entry.key ?? KEY),
     };
@@ -150,6 +151,7 @@ function packManifest(
   return {
     v: 1,
     at: SPAN_TO,
+    prov: 'fixture',
     span: { from: SPAN_FROM, to: SPAN_TO },
     chain: { anchor: run.anchor, head: run.head },
     duty: {

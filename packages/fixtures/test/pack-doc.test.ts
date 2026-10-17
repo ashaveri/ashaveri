@@ -5,9 +5,11 @@ import {
   CARRIED_MAX_BYTES,
   CUSTODY_SLOTS_PER_ITEM,
   PACK_CONTENT_TYPE,
+  PROVENANCES,
   ReceiptError,
   decodePack,
   decodeReceipt,
+  reduceProvenance,
   toHex,
 } from '@ashaveri/receipt';
 import { loadPackVectors } from '../src/index.js';
@@ -504,6 +506,49 @@ describe('docs/pack-v1.md layout', () => {
     expect(body, 'the document points at the vectors it is measured with').toContain('packages/fixtures/data/pack-v1.json');
     expect(body, 'and at the test that holds this table to the schema').toContain('packages/fixtures/test/pack-doc.test.ts');
     expect(body).toContain(PACK_CONTENT_TYPE);
+  });
+
+  it('states the provenance vocabulary, its reduction and the rows that publish each corner', () => {
+    // The document states the member, the three values and the reduction; the published rule in the suite
+    // states the same vocabulary and the same rule; and the rows the document names are rows the suite
+    // carries. The two sentences about combinations are read against the shipped function, so the prose is
+    // held to what the code does and not to a sentence that reads well.
+    const body = prose();
+    for (const value of PROVENANCES) {
+      expect(body, `the document does not state the value ${value}`).toContain(`\`${value}\``);
+    }
+    for (const phrase of [
+      'The manifest names nine members and each is required',
+      "The manifest's `prov` is the weakest of the items' values",
+      'The reduction is a rule rather than a parameter, so a pack cannot be assembled to claim `live` while carrying one fixture',
+      'Live software never becomes hardware evidence',
+      'A captured original can retain valid hardware evidence',
+      'A reader refuses a `prov` that is not the weakest of its items, in either direction, under `PACK_BAD_MANIFEST`',
+      'A label outside the three is refused the same way',
+    ]) {
+      expect(body, `the document does not state that ${phrase}`).toContain(phrase);
+    }
+    expect(reduceProvenance(['live', 'live']), 'a run of live items becomes hardware evidence').toBe('live');
+    expect(reduceProvenance(['live', 'captured']), 'a captured original beside live items loses its value').toBe('captured');
+    expect(reduceProvenance(['captured', 'fixture']), 'a fixture beside a capture does not make the whole').toBe('fixture');
+    const rule = vectors.layout.provenanceRule;
+    expect(typeof rule, 'the published suite states no provenance rule').toBe('string');
+    if (typeof rule === 'string') {
+      for (const value of PROVENANCES) {
+        expect(rule, `the published provenance rule does not state ${value}`).toContain(value);
+      }
+      expect(rule, 'the published provenance rule does not state the reduction').toContain('weakest');
+    }
+    for (const name of [
+      'provenance-live-run',
+      'provenance-captured-replay',
+      'provenance-mixture-reduces-to-the-weakest',
+      'provenance-stronger-than-the-weakest-item',
+      'provenance-label-outside-the-three',
+    ]) {
+      expect(body, `the document does not name the published row ${name}`).toContain(name);
+      expect(vectors.vectors.find((one) => one.name === name), `the document names ${name} and the suite publishes none`).toBeDefined();
+    }
   });
 
   it('counts the manifest members at the number the layout requires', () => {

@@ -126,6 +126,8 @@ export type {
   VerifiedPack,
   VerifiedPackItem,
 } from './pack.js';
+export { PROVENANCES, isProvenance, reduceProvenance } from './provenance.js';
+export type { Provenance } from './provenance.js';
 export {
   REDACTION_CONTENT_TYPE,
   decodeRedaction,

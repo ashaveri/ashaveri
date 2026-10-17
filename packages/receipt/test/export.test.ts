@@ -34,6 +34,7 @@ import {
   type ExportCollection,
   type ExportItem,
   type ExportManifest,
+  type ExportPlainCollection,
 } from '../src/export.js';
 import { ReceiptError } from '../src/errors.js';
 import { decodeCanonical, encodeCanonical, EXPORT_CLAIM_KINDS, isExportClaimKind, signCoseSign1, signingKeyFromSeed, toHex, type SigningKey } from '../src/index.js';
@@ -647,12 +648,14 @@ describe('the export CDDL and its JSON twin', () => {
     for (const name of ['duty', 'article', 'law', 'required', 'held', 'met', 'qualification', 'period', 'category', 'mapping']) {
       expect(declared, `the format declares a member named ${name}`).not.toContain(name);
     }
-    // The only enumeration in the twin, and it is not a legal label; the assessment's one statement is a
-    // const per arm, not an enum, so a later version adds an arm rather than widening a list in place.
+    // The only enumerations in the twin, and they are not legal labels: the claim's kind and the two
+    // provenance positions, whose three values are the format's own vocabulary of where material came
+    // from. The assessment's one statement is a const per arm, not an enum, so a later version adds an
+    // arm rather than widening a list in place.
     const enums = Object.entries(shape.$defs)
       .flatMap(([name, def]) => Object.entries(def.properties ?? {}).filter(([, child]) => child.enum !== undefined).map(([key]) => `${name}.${key}`))
       .sort();
-    expect(enums, 'the twin enumerates a label position beyond the claim kind').toEqual(['claim.kind']);
+    expect(enums, 'the twin enumerates a label position beyond the claim kind and the provenance values').toEqual(['anchored.prov', 'chainedItem.prov', 'claim.kind', 'item.prov', 'plain.prov']);
     // The third voice of the same choice, and the one a refusal message prints. The loop above ties the
     // twin's enumeration to the CDDL, so holding the constant against the twin reaches both without
     // restating either list here, which is what let a copy drift before.
@@ -748,10 +751,12 @@ describe('the export CDDL and its JSON twin', () => {
 
     const arms = armsOf(CDDL, 'ExportCollection', 'collection');
     expect(arms.map((one) => one.label)).toEqual(COLLECTION_ARMS);
-    // Only the anchored arm carries the two endpoints, and no other arm can reach them.
+    // Only the anchored arm carries the two endpoints, and no other arm can reach them; both arms that
+    // carry items state the provenance they reduce to, and the void arm carries none because it carries
+    // no material for a provenance to be about.
     expect(arms.map((one) => Object.keys(one.def.properties ?? {}))).toEqual([
-      ['k', 'anchor', 'head', 'items'],
-      ['k', 'items'],
+      ['k', 'prov', 'anchor', 'head', 'items'],
+      ['k', 'prov', 'items'],
       ['k', 'states'],
     ]);
     expect(COLLECTION_ARMS).toEqual(['anchored', 'plain', 'void']);
@@ -827,7 +832,7 @@ function manifest(over: Partial<ExportManifest> = {}): ExportManifest {
 
 function inlineItem(id: string, iat: number, text: string): ExportItem {
   const bytes = bytesOf(text);
-  return { id, iat, d: sha256(bytes), orig: { k: 'inline', bytes } };
+  return { id, iat, prov: 'fixture', d: sha256(bytes), orig: { k: 'inline', bytes } };
 }
 
 /** The companion names this file builds, and the bytes a reader would be handed for each. */
@@ -839,12 +844,12 @@ const COMPANIONS: ReadonlyMap<string, string> = new Map([
 function companionItem(id: string, iat: number, name: string): ExportItem {
   const text = COMPANIONS.get(name);
   if (text === undefined) throw new Error(`no companion named ${name} is built by this file`);
-  return { id, iat, d: sha256(bytesOf(text)), orig: { k: 'companion', name } };
+  return { id, iat, prov: 'fixture', d: sha256(bytesOf(text)), orig: { k: 'companion', name } };
 }
 
-function plainCollection(arm: string): ExportCollection {
+function plainCollection(arm: string): ExportPlainCollection {
   const items = arm === 'inline' ? [inlineItem('item-0', CLOCK - 30, 'contract text'), inlineItem('item-1', CLOCK - 20, 'ticket image')] : [companionItem('item-0', CLOCK - 30, 'contract.pdf'), companionItem('item-1', CLOCK - 20, 'screenshot.png')];
-  return { k: 'plain', items };
+  return { k: 'plain', prov: 'fixture', items };
 }
 
 /** The framing's own byte layout, rebuilt here so the reader's function is compared against a second source. */
@@ -867,11 +872,11 @@ function anchoredCollection(): ExportAnchoredCollection {
   let prev: Uint8Array = new Uint8Array(32);
   const items: ExportChainedItem[] = texts.map((text, index) => {
     const bytes = bytesOf(text);
-    const one: ExportChainedItem = { id: `r-${String(index)}`, iat: CLOCK + index, d: sha256(bytes), p: prev, orig: { k: 'inline', bytes } };
+    const one: ExportChainedItem = { id: `r-${String(index)}`, iat: CLOCK + index, prov: 'fixture', d: sha256(bytes), p: prev, orig: { k: 'inline', bytes } };
     prev = exportRecordDigest({ id: one.id, iat: one.iat, p: one.p, bytes });
     return one;
   });
-  return { k: 'anchored', anchor: new Uint8Array(32), head: prev, items };
+  return { k: 'anchored', prov: 'fixture', anchor: new Uint8Array(32), head: prev, items };
 }
 
 function sealedManifest(arms: string, original = 'inline'): Uint8Array {
@@ -1052,11 +1057,13 @@ describe('the export reader', () => {
     expect(() => signExport(whole, KEY)).not.toThrow();
     const collection = whole.collection as ExportAnchoredCollection;
     const cases: Array<[string, ExportManifest, string, ReceiptErrorCode]> = [
-      ['an empty items array', { ...whole, collection: { k: 'plain', items: [] } }, 'declares a non-empty', 'EXPORT_BAD_MANIFEST'],
+      ['an empty items array', { ...whole, collection: { k: 'plain', prov: 'fixture', items: [] } }, 'declares a non-empty', 'EXPORT_BAD_MANIFEST'],
       ['a claim stamped after the assembly', { ...whole, claim: { ...whole.claim, made: CLOCK + 1 } }, 'postdates the assembly', 'EXPORT_BAD_MANIFEST'],
       ['an assessment label of its own invention', { ...whole, assessment: { k: 'partial', states: 'a later version says so' } as unknown as ExportManifest['assessment'] }, 'is not the label this version defines', 'EXPORT_UNSUPPORTED_LABEL'],
       ['a digest of the wrong width', { ...whole, collection: { ...collection, items: [{ ...collection.items[0]!, d: new Uint8Array(31) }, collection.items[1]!, collection.items[2]!] } }, 'must be a 32-byte bstr', 'EXPORT_BAD_MANIFEST'],
-      ['a companion name that is a path', { ...whole, collection: { k: 'plain', items: [{ id: 'item-0', iat: CLOCK, d: sha256(bytesOf('contract text')), orig: { k: 'companion', name: '../outside' } }] } }, 'not a path or a location', 'EXPORT_BAD_MANIFEST'],
+      ['a companion name that is a path', { ...whole, collection: { k: 'plain', prov: 'fixture', items: [{ id: 'item-0', iat: CLOCK, prov: 'fixture', d: sha256(bytesOf('contract text')), orig: { k: 'companion', name: '../outside' } }] } }, 'not a path or a location', 'EXPORT_BAD_MANIFEST'],
+      ['a collection provenance that is not the weakest of its items', { ...whole, collection: { ...collection, prov: 'live' } }, "is 'live' where the weakest of the items is 'fixture'", 'EXPORT_BAD_MANIFEST'],
+      ['a provenance label outside the three', { ...whole, collection: { ...collection, items: [{ ...collection.items[0]!, prov: 'synthetic' } as unknown as ExportChainedItem, collection.items[1]!, collection.items[2]!] } }, "must be one of 'live', 'captured', 'fixture'", 'EXPORT_BAD_MANIFEST'],
     ];
     for (const [name, value, phrase, code] of cases) {
       let caught: unknown;
@@ -1099,7 +1106,7 @@ describe('the export reader', () => {
       ],
       [
         'an item that is not there',
-        { ...whole, collection: { k: 'plain', items: [undefined as unknown as ExportItem] } },
+        { ...whole, collection: { k: 'plain', prov: 'fixture', items: [undefined as unknown as ExportItem] } },
         (root) => {
           const items = child(child(root, 'collection'), 'items');
           if (Array.isArray(items)) items[0] = null;
@@ -1107,8 +1114,13 @@ describe('the export reader', () => {
       ],
       [
         'an item with no original',
-        { ...whole, collection: { k: 'plain', items: [{ id: 'item-0', iat: CLOCK, d: sha256(bytesOf('contract text')) } as unknown as ExportItem] } },
+        { ...whole, collection: { k: 'plain', prov: 'fixture', items: [{ id: 'item-0', iat: CLOCK, prov: 'fixture', d: sha256(bytesOf('contract text')) } as unknown as ExportItem] } },
         (root) => itemOf(root, 0).delete('orig'),
+      ],
+      [
+        'no provenance on the arm that carries them',
+        { ...whole, collection: { k: 'plain', items: plainCollection('inline').items } as unknown as ExportCollection },
+        (root) => mapOf(child(root, 'collection'), 'collection').delete('prov'),
       ],
     ];
     for (const [name, value, edit] of holes) {
@@ -1174,6 +1186,9 @@ describe('the export reader', () => {
       ['a digest of another width', { collection: 'plain', original: 'inline' }, (root) => itemOf(root, 0).set('d', new Uint8Array(31)), 'EXPORT_BAD_MANIFEST', /d must be a 32-byte bstr/u],
       ['an empty array under the plain arm', { collection: 'plain', original: 'inline' }, (root) => atCollection(root).set('items', []), 'EXPORT_BAD_MANIFEST', /declares a non-empty/u],
       ['an empty array under the anchored arm', { collection: 'anchored', original: 'inline' }, (root) => atCollection(root).set('items', []), 'EXPORT_BAD_MANIFEST', /the anchored arm declares a non-empty/u],
+      ['a collection provenance that is not the weakest of its items', { collection: 'plain', original: 'inline' }, (root) => atCollection(root).set('prov', 'live'), 'EXPORT_BAD_MANIFEST', /collection\.prov is 'live' where the weakest of the items is 'fixture'/u],
+      ['a provenance outside the three on the collection', { collection: 'plain', original: 'inline' }, (root) => atCollection(root).set('prov', 'synthetic'), 'EXPORT_BAD_MANIFEST', /collection\.prov must be one of/u],
+      ['a provenance outside the three on an item', { collection: 'plain', original: 'inline' }, (root) => itemOf(root, 0).set('prov', 'synthetic'), 'EXPORT_BAD_MANIFEST', /collection\.items\[0\]\.prov must be one of/u],
       ['a predecessor inside a collection that claims no chain', { collection: 'plain', original: 'inline' }, (root) => itemOf(root, 0).set('p', new Uint8Array(32)), 'EXPORT_BAD_MANIFEST', /names a predecessor in a collection that claims no chain/u],
       ['a missing predecessor in an anchored collection', { collection: 'anchored', original: 'inline' }, (root) => itemOf(root, 0).delete('p'), 'EXPORT_BAD_MANIFEST', /names no predecessor in a collection that claims one/u],
       ['an assessment label of another version', { collection: 'plain', original: 'inline' }, (root) => mapOf(child(root, 'assessment'), 'assessment').set('k', 'partial'), 'EXPORT_UNSUPPORTED_LABEL', /is not the label this version defines/u],
@@ -1235,7 +1250,7 @@ describe('the export reader', () => {
     // from an anchor to its own digest is a whole run of one.
     expect(() => verifyExport(signExport(manifest({ collection: good }), KEY), KEY.publicKey)).not.toThrow();
     const single = rechain([good.items[0]!]);
-    expect(() => verifyExport(signExport(manifest({ collection: { k: 'anchored', anchor: good.anchor, head: exportRecordDigest({ id: single[0]!.id, iat: single[0]!.iat, p: single[0]!.p, bytes: (single[0]!.orig as { bytes: Uint8Array }).bytes }), items: single } }), KEY), KEY.publicKey)).not.toThrow();
+    expect(() => verifyExport(signExport(manifest({ collection: { k: 'anchored', prov: 'fixture', anchor: good.anchor, head: exportRecordDigest({ id: single[0]!.id, iat: single[0]!.iat, p: single[0]!.p, bytes: (single[0]!.orig as { bytes: Uint8Array }).bytes }), items: single } }), KEY), KEY.publicKey)).not.toThrow();
   });
 
   it('checks each digest, and refuses to guess about a companion it was not handed', () => {
@@ -1358,13 +1373,13 @@ function rechain(items: readonly ExportChainedItem[], anchor: Uint8Array = new U
 /** A second item claiming the anchor as its predecessor, which is where a run would have to choose. */
 function forked(collection: ExportAnchoredCollection): ExportChainedItem {
   const bytes = bytesOf('a rival first record');
-  return { id: 'rival', iat: collection.items[0]!.iat, d: sha256(bytes), p: collection.anchor, orig: { k: 'inline', bytes } };
+  return { id: 'rival', iat: collection.items[0]!.iat, prov: 'fixture', d: sha256(bytes), p: collection.anchor, orig: { k: 'inline', bytes } };
 }
 
 /** An item named by nobody's predecessor and naming a predecessor from another chain entirely. */
 function parkedItem(collection: ExportAnchoredCollection): ExportChainedItem {
   const bytes = bytesOf('a parked record');
-  return { id: 'parked', iat: collection.items[0]!.iat, d: sha256(bytes), p: sha256(bytesOf('another chain entirely')), orig: { k: 'inline', bytes } };
+  return { id: 'parked', iat: collection.items[0]!.iat, prov: 'fixture', d: sha256(bytes), p: sha256(bytesOf('another chain entirely')), orig: { k: 'inline', bytes } };
 }
 
 /** The digest of the last record of a run, which is the head an anchored collection names. */
@@ -1377,7 +1392,7 @@ function headOf(items: readonly ExportChainedItem[]): Uint8Array {
 /** A run chained from the anchor a retired prefix left behind, with the head that run hashes to. */
 function anchoredFrom(anchor: Uint8Array, items: readonly ExportChainedItem[]): ExportAnchoredCollection {
   const rechained = rechain(items, anchor);
-  return { k: 'anchored', anchor, head: headOf(rechained), items: rechained };
+  return { k: 'anchored', prov: 'fixture', anchor, head: headOf(rechained), items: rechained };
 }
 
 /** A run whose originals travel beside the document under the names a reader would be handed. */
@@ -1387,11 +1402,11 @@ function companionAnchored(names: readonly string[]): ExportAnchoredCollection {
     const text = COMPANIONS.get(name);
     if (text === undefined) throw new Error(`no companion named ${name} is built by this file`);
     const bytes = bytesOf(text);
-    const one: ExportChainedItem = { id: `c-${String(index)}`, iat: CLOCK + index, d: sha256(bytes), p: prev, orig: { k: 'companion', name } };
+    const one: ExportChainedItem = { id: `c-${String(index)}`, iat: CLOCK + index, prov: 'fixture', d: sha256(bytes), p: prev, orig: { k: 'companion', name } };
     prev = exportRecordDigest({ id: one.id, iat: one.iat, p: one.p, bytes });
     return one;
   });
-  return { k: 'anchored', anchor: new Uint8Array(32), head: prev, items };
+  return { k: 'anchored', prov: 'fixture', anchor: new Uint8Array(32), head: prev, items };
 }
 
 /** What `signExport` answers about a manifest: the code it refused with, or that it signed. */
@@ -1480,7 +1495,7 @@ describe('the export seal walks the run it signs', () => {
     expect((noStep as Error).message).toMatch(/the walk reached 0 item\(s\)/u);
     // An empty items array is a fault of the manifest, which the parse answers first, and that order is the
     // only thing keeping a walk over nothing from closing vacuously over two equal endpoints.
-    expect(sealedBy(manifest({ collection: { k: 'anchored', anchor: ZEROS32, head: ZEROS32, items: [] } }))).toBe('EXPORT_BAD_MANIFEST');
+    expect(sealedBy(manifest({ collection: { k: 'anchored', prov: 'fixture', anchor: ZEROS32, head: ZEROS32, items: [] } }))).toBe('EXPORT_BAD_MANIFEST');
     // The vacuous pair itself: a run chained from a seam, naming thirty-two zero bytes as both endpoints. The
     // walk reaches nothing, what it reached is already the head, and only the count of the array sees the
     // three records outside the run.

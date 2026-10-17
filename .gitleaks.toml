@@ -155,3 +155,17 @@ regexes = [
 paths = [
   '''^packages/fixtures/data/capture-v1\.json$''',
 ]
+
+[[allowlists]]
+description = "The import envelope's content keys, in the file that publishes the vectors"
+condition = "AND"
+regexTarget = "secret"
+regexes = [
+  '''^a34574b1079b12bd73fb20fea4570e77809390e5126a3f2867215b89637bba1e$''',
+  '''^9d6f466769de2cb4a5f8f23ef0f51c65135823e904222544ccc6bbaeeaa5ec18$''',
+  '''^4c5a0dba50c827ea41afb08e020ea108d732959155450f60ec52350bd40ee41d$''',
+  '''^542fa9a321128900d5aa7646fe80304b0fbb334baaec75fe1ec5a312a0d58165$''',
+]
+paths = [
+  '''^packages/fixtures/data/import-v1\.json$''',
+]
