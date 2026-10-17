@@ -4,9 +4,10 @@ import type { CollateralRefusal } from './errors.js';
 export type IntelPlatform = 'sgx' | 'tdx';
 
 /**
- * Every path an appraisal could ask collateral of. Two are served here, and the other four are named
- * so that asking for one answers with the sentence "this origin is not read here" rather than with a
- * type error a caller could only reach by deleting the question.
+ * Every path an appraisal could ask collateral of. Two are read here, and the other four are declared
+ * with the host and routes their vendors publish and refused with the reader they lack, so asking for
+ * one answers with a sentence rather than a type error a caller could only reach by deleting the
+ * question.
  */
 export type CollateralOriginName =
   | 'intel-tcb-info'
@@ -113,6 +114,22 @@ export interface CollateralQuery {
   /** The CPU type the origin indexes collateral by: Intel's FMSPC id as hex text. Required for TCB Info. */
   readonly cpuType: string | null;
   readonly level: IntelTcbLevel | null;
+  /** Which declared route this query asks, or null for the declaration's first route. */
+  readonly route?: string | null;
+  /** The PCK CRL's authority scope: the processor list or the platform list. Required for that origin. */
+  readonly ca?: 'processor' | 'platform' | null;
+  /** AMD's product line as KDS spells it, such as `Milan`. Required for a KDS address. */
+  readonly product?: string | null;
+  /** AMD's chip id as 64 hex characters, the value a platform's report states. Required for a VCEK address. */
+  readonly hwid?: string | null;
+  /** NVIDIA's RIM id, the value a GPU's attestation evidence names. Any non-empty id is percent-encoded into the path. */
+  readonly rimId?: string | null;
+  /**
+   * The certificate an OCSP question asks about, and the issuer that signed it. Neither is read here:
+   * the names are carried so a refusal can say which half of the question is absent.
+   */
+  readonly ocspCertificate?: Uint8Array | null;
+  readonly ocspIssuer?: Uint8Array | null;
   /**
    * The instant the answer is for, in Unix seconds. `null` is an answer rather than a default: a
    * caller that does not know what moment it is appraising cannot be handed a verdict about one.

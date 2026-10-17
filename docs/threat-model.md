@@ -193,8 +193,11 @@ What is still true, in both modes:
   freshness needs network access and is deliberately outside the offline verification path. The
   residual risk in T12 is the whole of this limitation, and it is not scheduled away: a service
   publishing this collateral for deployments that want it is the position, described in
-  the README's attestation-collateral section, and no service, endpoint or fetch is in this code or is a
-  precondition of any verdict a third party can reach. What is in this code is the other half of the same
+  the README's attestation-collateral section, and no shipped command asks an origin or makes one a
+  precondition of any verdict a third party can reach. `@ashaveri/collateral` declares four further
+  origins, the Intel PCK CRL, AMD KDS, NVIDIA RIM and NVIDIA OCSP, with the host and routes their
+  vendors publish; it reads none of them, refuses an appraisal of one with the reader it lacks, and
+  commits no vendor-service bytes. What is in this code is the other half of the same
   question and closes none of it: `@ashaveri/collateral` reads and classifies a vendor document it is handed,
   and a pack carries the material its sealed receipts' anchors name, so `ashaveri verify-pack` weighs those
   bytes against the roots its caller names and prints each slot it could not weigh beside the flag that would

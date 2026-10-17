@@ -3,7 +3,7 @@ import { sha256 } from '@noble/hashes/sha2.js';
 import { equalBytes, parseCertificateChain, type ParsedCertificate } from '@ashaveri/attest-core';
 import { fromBase64, fromBase64Url, sha256Hex, utf8 } from './bytes.js';
 import { collateralRefusal, quoteOrDigest, type CollateralRefusal } from './errors.js';
-import type { OriginDeclaration } from './intel-origin.js';
+import { servedDocumentDeclaration, type IntelOriginDeclaration, type OriginDeclaration } from './intel-origin.js';
 import type { CollateralQuery, IntelTcbLevel } from './types.js';
 
 /** What the signed document says, once its signature has been believed. */
@@ -56,7 +56,11 @@ export interface Reading {
  * are not part of the package's exports: the two readers are.
  */
 export function readSignedCollateral(bytes: Uint8Array, reading: Reading): ReadOutcome {
-  const { declaration } = reading;
+  const narrowed = servedDocumentDeclaration(reading.declaration);
+  if ('refusal' in narrowed) {
+    return narrowed;
+  }
+  const declaration = narrowed;
   const envelope = splitEnvelope(bytes, declaration);
   if ('refusal' in envelope) {
     return envelope;
@@ -125,7 +129,12 @@ export function readStatement(
   payload: Record<string, unknown>,
   reading: Reading,
 ): DocumentStatement | { readonly refusal: CollateralRefusal } {
-  const { declaration, query } = reading;
+  const narrowed = servedDocumentDeclaration(reading.declaration);
+  if ('refusal' in narrowed) {
+    return narrowed;
+  }
+  const declaration: IntelOriginDeclaration = narrowed;
+  const { query } = reading;
   const document = declaration.window.documentMember === null
     ? payload
     : objectMember(payload, declaration.window.documentMember);
@@ -166,7 +175,7 @@ export function readStatement(
 function readCpuType(
   document: Record<string, unknown>,
   query: CollateralQuery,
-  declaration: OriginDeclaration,
+  declaration: IntelOriginDeclaration,
 ): { readonly cpuType: string | null } | { readonly refusal: CollateralRefusal } {
   const member = declaration.identity.cpuTypeMember;
   if (member === null) {
@@ -192,7 +201,7 @@ function readCpuType(
 function statusOf(
   document: Record<string, unknown>,
   level: IntelTcbLevel | null,
-  declaration: OriginDeclaration,
+  declaration: IntelOriginDeclaration,
 ): { readonly status: string } | { readonly refusal: CollateralRefusal } {
   const statusMember = declaration.identity.statusMember;
   if (declaration.identity.levelsMember === null) {
@@ -240,7 +249,7 @@ function statusOf(
  * loud. Blaming the document for the second would send a reader back to the wrong one.
  */
 function unlistedLevel(
-  declaration: OriginDeclaration,
+  declaration: IntelOriginDeclaration,
   level: IntelTcbLevel,
   levels: readonly unknown[],
 ): { readonly refusal: CollateralRefusal } {
@@ -275,7 +284,7 @@ function fieldsOf(entry: unknown): Record<string, unknown> | null {
   return typeof entry === 'object' && entry !== null && !Array.isArray(entry) ? entry as Record<string, unknown> : null;
 }
 
-function levelMatches(entry: Record<string, unknown>, level: IntelTcbLevel, declaration: OriginDeclaration): boolean {
+function levelMatches(entry: Record<string, unknown>, level: IntelTcbLevel, declaration: IntelOriginDeclaration): boolean {
   if (level.by === 'tcb-date') {
     const dateMember = declaration.identity.levelDateMember;
     const stated = dateMember === null ? null : stringMember(entry, dateMember);
@@ -293,7 +302,7 @@ function levelMatches(entry: Record<string, unknown>, level: IntelTcbLevel, decl
 
 function certificateTexts(
   header: Record<string, unknown>,
-  declaration: OriginDeclaration,
+  declaration: IntelOriginDeclaration,
 ): { readonly certificates: readonly string[] } | { readonly refusal: CollateralRefusal } {
   const listed = header[declaration.signature.certificateMember];
   if (!Array.isArray(listed) || listed.length === 0) {
