@@ -292,7 +292,7 @@ describe('assessRetention', () => {
   it('answers not-met for an interior gap the document does not state', () => {
     // The runs' own edges state the hole and no `gaps` row repeats it. The store acknowledged the whole
     // range, so the continuity check is the only member this document's outcome turns on: remove it and
-    // every other check supports met.
+    // the checkpoint ranges, which cannot witness the hole, answer indeterminate instead.
     const document = documentFor();
     (document['coverage'] as Block)['runs'] = [
       { from: 1, to: 40 },
@@ -461,6 +461,12 @@ describe('assessRetention', () => {
 
   it('answers not-met when the observed head is not the pinned head', () => {
     const document = documentFor();
+    // The receipts close on the same head the intake observed, so only the comparison with the pin fails.
+    (document['coverage'] as Block)['checkpoints'] = [
+      { range: { from: 1, to: 34 }, at: PERIOD_FROM, head: '11'.repeat(32) },
+      { range: { from: 35, to: 67 }, at: PERIOD_FROM + 100, head: '22'.repeat(32) },
+      { range: { from: 68, to: 100 }, at: PERIOD_TO, head: OTHER },
+    ];
     (document['coverage'] as Block)['observedHead'] = { sequence: 100, sha256: OTHER };
     document['assessment'] = { outcome: 'not-met' };
     const assessment = assessRetention(document);

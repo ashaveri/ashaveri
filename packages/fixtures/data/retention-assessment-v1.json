@@ -1570,7 +1570,7 @@
     },
     {
       "name": "substituted-expected-head-not-met",
-      "note": "Continuous runs, acknowledgments and checkpoints, and an observed head at sequence 100 that is not the head the customer pinned. The pin catches the substitution: every other member agrees, and the one comparison the coverage cannot make for itself is the one that fails. The answer is not met.",
+      "note": "Continuous runs, acknowledgments and checkpoints, and an observed head at sequence 100 that is not the head the customer pinned. The receipts close on the head the intake observed, so every other member agrees and the one comparison the coverage cannot make for itself is the one that fails. The answer is not met.",
       "document": {
         "v": 1,
         "scope": {
@@ -1646,7 +1646,7 @@
                 "to": 100
               },
               "at": 1000200,
-              "head": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+              "head": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
             }
           ],
           "observedHead": {

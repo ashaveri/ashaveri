@@ -282,8 +282,13 @@ const ASSESSMENT_ROWS: readonly AssessmentRow[] = [
   },
   {
     name: 'substituted-expected-head-not-met',
-    note: 'Continuous runs, acknowledgments and checkpoints, and an observed head at sequence 100 that is not the head the customer pinned. The pin catches the substitution: every other member agrees, and the one comparison the coverage cannot make for itself is the one that fails. The answer is not met.',
+    note: 'Continuous runs, acknowledgments and checkpoints, and an observed head at sequence 100 that is not the head the customer pinned. The receipts close on the head the intake observed, so every other member agrees and the one comparison the coverage cannot make for itself is the one that fails. The answer is not met.',
     document: withEdit((document) => {
+      coverageOf(document)['checkpoints'] = [
+        { range: { from: 1, to: 34 }, at: PERIOD_FROM, head: '11'.repeat(32) },
+        { range: { from: 35, to: 67 }, at: PERIOD_FROM + 100, head: '22'.repeat(32) },
+        { range: { from: 68, to: 100 }, at: PERIOD_TO, head: OTHER },
+      ];
       coverageOf(document)['observedHead'] = { sequence: 100, sha256: OTHER };
       document['assessment'] = { outcome: 'not-met' };
     }),
