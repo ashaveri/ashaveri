@@ -48,7 +48,7 @@ end to end through the SDK in strict mode.
 | `@ashaveri/receipt` | Deterministic CBOR + COSE_Sign1 receipt codec (RFC 8949 / RFC 9052) |
 | `@ashaveri/attest-core` | Offline verification of dStack confidential-VM attestations (SEV-SNP and TDX) |
 | `@ashaveri/sdk` | Client SDK: `AshaveriClient` and `wrapOpenAI` with receipt verification |
-| `@ashaveri/signerd` | Receipt-signing gateway: mock mode for development, live dStack CVM mode. Every route it serves demands a credential, checks the scope that route needs and rejects a replay and a spent rate bucket before it answers, and writes one access-log line per request; a live start requires `--credentials-path` and `--access-log-path` |
+| `@ashaveri/signerd` | Receipt-signing gateway: mock mode for development, live dStack CVM mode. Every route it serves but the weights manifest fetch demands a credential and checks the scope that route needs, and a credential-bearing request is rejected on a replay or a spent rate bucket before the route answers; every request writes one access-log line. A live start requires `--credentials-path` and `--access-log-path` |
 | `@ashaveri/cli` | `ashaveri` binary: `verify` for offline attestation checks, plus `keygen`, `credential` and `accesslog` operator commands, with CI-friendly exit codes |
 | `@ashaveri/fixtures` | Golden conformance vectors shared by every implementation |
 
@@ -93,8 +93,10 @@ Start the mock gateway, then call it through the SDK:
 node gateway/dist/cli.js --mock --port 7173
 ```
 
-Every route a signerd gateway serves refuses a request that names no credential, so the
-client signs each request with one. `--mock` prints a development credential at start-up: the id
+Every route a signerd gateway serves but the weights manifest fetch refuses a request that names no
+credential, so the client signs each request with one. The weights manifest is the one document the
+client fetches by the digest its receipt already carries, and `docs/receipt-spec.md` section 4.8 states
+that route. `--mock` prints a development credential at start-up: the id
 `dev`, and a key generated when that process starts and gone when it stops. That record is a fixture
 of a process that refuses nothing real. `dev` names nothing outside the run that printed it, and a
 live gateway answers from the credential file its operator installed, where an id the file does not

@@ -366,10 +366,13 @@ What is still true, in both modes:
   key it was. What no deployment here can do is present a long-term identity of its own: the wrapper
   names whoever holds the key an operator pointed at, and the decision about which identity that should
   be, and where its key lives, is outside this code.
-- **The weights digest chain has one open link.** The receipt binds `sha256(manifest)` and the
-  manifest binds each model file, but the manifest itself is not carried in the receipt and is
-  not in the compose measurement unless the operator mounts the weights as a dm-verity volume.
-  A client that has not been given the manifest out of band sees an opaque `wts` value.
+- **The weights digest chain can be closed by a fetch, and the fetch says nothing about loading.** The
+  receipt binds `sha256(manifest)` and the manifest binds each model file. The manifest is not carried
+  in the receipt, but a deployment that read one serves the bytes at `GET /v1/weights/<wts>`, so a
+  client holding a receipt fetches them and checks the digest without trusting the transport. What
+  that check cannot show is that the deployment loaded the model files the manifest lists, and the
+  manifest is not in the compose measurement unless the operator mounts the weights as a dm-verity
+  volume. A mock deployment holds no bytes behind its `wts` and answers 404.
 - **On the managed dStack platform, TLS terminates outside the TEE.** The measured container
   serves plain HTTP behind the platform gateway, so transport confidentiality depends on the
   platform edge, not on a channel the workload terminates inside the enclave.

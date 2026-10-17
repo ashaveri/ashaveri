@@ -137,7 +137,7 @@ process.stdout.write(`signing key, print once and keep off any volume: ${toHex(k
 '
 ```
 
-Two consequences of making every route ask for a credential:
+Two consequences of asking every route but the weights manifest fetch for a credential:
 
 - Revocation is an edit to this file, and on a managed rail the file travels with the deployment, so
   the edit means a redeploy. The compose text is identical before and after it, so the value

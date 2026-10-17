@@ -71,10 +71,10 @@ services:
       - inference
     restart: unless-stopped
     healthcheck:
-      # Every route needs a credential now, so a probe looking for a 200 would have to carry one, and a
-      # probe that can authenticate is a probe that can be mistaken for a client. Whether the listener
-      # accepts a connection is the fact this probe owns; who may use it is decided on every real
-      # request, by the pipeline.
+      # Every route a probe can name without a manifest digest needs a credential, so a probe looking
+      # for a 200 would have to carry one, and a probe that can authenticate is a probe that can be
+      # mistaken for a client. Whether the listener accepts a connection is the fact this probe owns;
+      # who may use it is decided on every real request, by the pipeline.
       test:
         - CMD
         - node
