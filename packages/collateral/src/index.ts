@@ -31,7 +31,6 @@ export type {
   OriginDeclaration,
   OriginRefusals,
   ReadCollateralOrigin,
-  ServedCollateralOrigin,
 } from './intel-origin.js';
 export { fetchFromOrigin, wallClock } from './fetch.js';
 export type { FetchContext, FetchOutcome, FetchedCollateral } from './fetch.js';
@@ -52,7 +51,6 @@ export type {
   IntelPlatform,
   IntelTcbLevel,
   RetainedCollateral,
-  RevocationListStatement,
   SignedCollateral,
   SignedWindow,
   StatusReading,

@@ -1,12 +1,6 @@
 import { collateralRefusal, quoteOrDigest, type CollateralErrorCode, type CollateralInputName, type CollateralRefusal } from './errors.js';
 import type { CollateralOriginName, CollateralQuery, IntelPlatform } from './types.js';
 
-/**
- * Every origin a query may name. Two are read here; the other four are declared with the routes their
- * vendors publish and refuse an appraisal until a reader exists for the shape they answer in.
- */
-export type ServedCollateralOrigin = CollateralOriginName;
-
 /** The two documents this package reads. A query naming another origin is refused with what that origin lacks. */
 export type ReadCollateralOrigin = 'intel-tcb-info' | 'intel-qe-identity';
 
@@ -52,7 +46,7 @@ export interface DeclaredRoute {
   readonly knowledge: 'historical' | 'current';
 }
 
-/** The refusal slots every declaration names, whether or not its origin can reach each one today. */
+/** The refusal slots every declaration names, whether or not its origin can reach each one. */
 export interface OriginRefusals {
   readonly transport: CollateralErrorCode;
   readonly status: CollateralErrorCode;
@@ -86,7 +80,7 @@ export interface OriginCacheRule {
  * reader that needs the Intel payload members cannot be handed a declaration that states none.
  */
 interface OriginDeclarationCommon {
-  readonly name: ServedCollateralOrigin;
+  readonly name: CollateralOriginName;
   /** The one host asked. An answer that redirects away from it is refused rather than followed. */
   readonly host: string;
   /** The method the origin answers to. This package builds GET requests alone. */
@@ -570,9 +564,9 @@ export const NVIDIA_RIM: DeclaredOriginDeclaration = {
  *
  * The endpoint is `https://ocsp.ndis.nvidia.com`, an RFC 6960 responder reached by POST with a DER OCSP
  * request that names the certificate and its issuer. Asked with GET on 17 October 2026, the host answered
- * 405 with `content-type: application/json`; the path is not a GET route and no response is served
- * anonymously. The answer, when a caller has the credential the responder wants, is a DER OCSP response
- * whose `thisUpdate` and `nextUpdate` bound the instant it speaks for.
+ * 405 with `content-type: application/json`, which states that GET is not a route there; an anonymous POST
+ * is unmeasured by that probe. The answer, when a caller has the credential the responder wants, is a DER
+ * OCSP response whose `thisUpdate` and `nextUpdate` bound the instant it speaks for.
  *
  * An OCSP answer is current knowledge at the instant it is asked, not historical evidence: the same
  * certificate asked about a month later gets a different answer. The package's `CollateralClaim` names
@@ -618,7 +612,7 @@ const BY_ORIGIN: Record<ReadCollateralOrigin, IntelOriginDeclaration> = {
 };
 
 /** Every origin this file declares, read or not, keyed by the name a query uses. */
-export const ORIGIN_DECLARATIONS: Partial<Record<ServedCollateralOrigin, OriginDeclaration>> = {
+export const ORIGIN_DECLARATIONS: Record<CollateralOriginName, OriginDeclaration> = {
   ...BY_ORIGIN,
   'intel-pck-crl': INTEL_PCK_CRL,
   'amd-kds': AMD_KDS,
@@ -627,20 +621,23 @@ export const ORIGIN_DECLARATIONS: Partial<Record<ServedCollateralOrigin, OriginD
 };
 
 /** Every name this file declares, in the order the declarations were written. */
-export const DECLARED_ORIGINS = Object.keys(ORIGIN_DECLARATIONS) as readonly ServedCollateralOrigin[];
+export const DECLARED_ORIGINS = Object.keys(ORIGIN_DECLARATIONS) as readonly CollateralOriginName[];
 
 /**
  * The declaration for an origin, or the refusal that says this path is not read here.
  *
  * An origin this file declares but does not read answers with the route it is declared at, what a reader
  * would still need, and the origins that are read, so a caller learns which sentence to look up rather
- * than which name to retype. An origin with no declaration at all answers with the origins that are read.
+ * than which name to retype. The map is complete over the union; a name outside it holds no declaration
+ * and answers with the origins that are read alone.
  */
 export function declarationFor(origin: CollateralOriginName): IntelOriginDeclaration | { readonly refusal: CollateralRefusal } {
   if (origin === 'intel-tcb-info' || origin === 'intel-qe-identity') {
     return BY_ORIGIN[origin];
   }
-  const declared = ORIGIN_DECLARATIONS[origin];
+  const declared: OriginDeclaration | undefined = Object.hasOwn(ORIGIN_DECLARATIONS, origin)
+    ? ORIGIN_DECLARATIONS[origin]
+    : undefined;
   if (declared !== undefined && isDeclaredOnly(declared)) {
     return {
       refusal: collateralRefusal(
@@ -711,9 +708,9 @@ export function requestUrl(query: CollateralQuery, declaration: OriginDeclaratio
  * The address a declared origin publishes, with the members this query supplies filled in.
  *
  * A route's path is a template, and a placeholder with no value in the query stops the address rather
- * than being sent as braces: the origin would answer a request for a name it never published. The POST
- * route is the one shape this package states and cannot ask, because an OCSP question carries a
- * certificate and its issuer in a DER body this path builds nowhere.
+ * than being sent as braces: the origin would answer a request for a name it never published. A POST
+ * route is addressed the same way once the certificate and issuer an OCSP question states are present;
+ * the refusal to ask it belongs to the fetch, which builds GET requests alone.
  */
 function declaredUrl(
   query: CollateralQuery,
@@ -731,7 +728,7 @@ function declaredUrl(
       ),
     };
   }
-  if (route.method !== 'GET') {
+  if (route.method === 'POST') {
     const missing: CollateralInputName[] = [];
     if (query.ocspCertificate == null) {
       missing.push('ocspCertificate');
@@ -748,12 +745,6 @@ function declaredUrl(
         ),
       };
     }
-    return {
-      refusal: collateralRefusal(
-        'COLLATERAL_ORIGIN_UNSUPPORTED',
-        `${declaration.name} is asked by ${route.method} and this path builds no request body`,
-      ),
-    };
   }
   const missing: CollateralInputName[] = [];
   const path = route.path.replace(/\{([A-Za-z]+)\}/gu, (_whole, member: string) => routeMember(query, member, missing) ?? `{${member}}`);
@@ -791,11 +782,13 @@ function routeMember(query: CollateralQuery, member: string, missing: Collateral
       }
       return query.hwid.toLowerCase();
     case 'rimId':
-      if (query.rimId == null || !/^[A-Za-z0-9._:-]{1,128}$/u.test(query.rimId)) {
+      // No served sample pins the id's character set, so any non-empty id is taken and
+      // percent-encoded rather than refused under a class nobody measured.
+      if (query.rimId == null || query.rimId.length === 0) {
         missing.push('rimId');
         return null;
       }
-      return query.rimId;
+      return encodeURIComponent(query.rimId);
     default:
       missing.push('route');
       return null;

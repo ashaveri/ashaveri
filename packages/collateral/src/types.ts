@@ -122,7 +122,7 @@ export interface CollateralQuery {
   readonly product?: string | null;
   /** AMD's chip id as 64 hex characters, the value a platform's report states. Required for a VCEK address. */
   readonly hwid?: string | null;
-  /** NVIDIA's RIM id, the value a GPU's attestation evidence names. Required for a RIM address. */
+  /** NVIDIA's RIM id, the value a GPU's attestation evidence names. Any non-empty id is percent-encoded into the path. */
   readonly rimId?: string | null;
   /**
    * The certificate an OCSP question asks about, and the issuer that signed it. Neither is read here:
@@ -210,22 +210,6 @@ export interface CollateralClaim {
   readonly retainUntil: number;
   /** Where these bytes belong, spelled from the declared key members, so a store cannot mix identities. */
   readonly cacheKey: string;
-}
-
-/**
- * What a signed revocation list states once a reader exists for it.
- *
- * A list speaks for its own window, not for a platform level: an instant outside `thisUpdate` to
- * `nextUpdate` answers `COLLATERAL_WINDOW_CLOSED`, and `namesCertificate` true is the only case that
- * answers `COLLATERAL_REVOKED_BY_VENDOR`. A list that does not name the certificate is not a statement
- * that the certificate is trusted, and nothing here reads it as one. No parser for a DER list exists in
- * this package, so no reader reaches this type today; it names the vocabulary the declaration and the
- * error table state for the origin.
- */
-export interface RevocationListStatement {
-  readonly thisUpdate: number;
-  readonly nextUpdate: number;
-  readonly namesCertificate: boolean;
 }
 
 /**

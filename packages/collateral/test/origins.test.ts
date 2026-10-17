@@ -330,6 +330,11 @@ describe('a declared origin with no reader', () => {
     expect(requestUrl(query({ origin: 'nvidia-rim', rimId: 'gpu-rim-0001' }), NVIDIA_RIM)).toBe(
       'https://rim.attestation.nvidia.com/v1/rim/gpu-rim-0001',
     );
+    // No served answer pins the id's character set, so a stated id is carried percent-encoded rather
+    // than refused as missing under a class nobody measured.
+    expect(requestUrl(query({ origin: 'nvidia-rim', rimId: 'gpu rim/0001' }), NVIDIA_RIM)).toBe(
+      'https://rim.attestation.nvidia.com/v1/rim/gpu%20rim%2F0001',
+    );
     const missing = requestUrl(query({ origin: 'nvidia-rim' }), NVIDIA_RIM);
     if (typeof missing === 'string') throw new Error('a RIM address was spelled without an id');
     expect(missing.refusal.code).toBe('COLLATERAL_INPUT_MISSING');
@@ -380,19 +385,17 @@ describe('a declared origin with no reader', () => {
     expect(NVIDIA_OCSP.reader.lacks).toContain('DER OCSP parser');
   });
 
-  it('names the certificate and issuer an OCSP question cannot be asked without', () => {
+  it('names the certificate and issuer an OCSP question states, and spells its address once both are given', () => {
     const missing = requestUrl(query({ origin: 'ocsp' }), NVIDIA_OCSP);
     if (typeof missing === 'string') throw new Error('an OCSP address was spelled with no question');
     expect(missing.refusal.code).toBe('COLLATERAL_INPUT_MISSING');
     expect(missing.refusal.missing).toEqual(['ocspCertificate', 'ocspIssuer']);
 
-    const unbuildable = requestUrl(
+    const addressed = requestUrl(
       query({ origin: 'ocsp', ocspCertificate: new Uint8Array([1]), ocspIssuer: new Uint8Array([2]) }),
       NVIDIA_OCSP,
     );
-    if (typeof unbuildable === 'string') throw new Error('a POST request body was built by an address function');
-    expect(unbuildable.refusal.code).toBe('COLLATERAL_ORIGIN_UNSUPPORTED');
-    expect(unbuildable.refusal.detail).toContain('no request body');
+    expect(addressed).toBe('https://ocsp.ndis.nvidia.com/');
   });
 
   it('refuses an OCSP appraisal and a POST fetch before either can read a response', async () => {
@@ -430,7 +433,7 @@ describe('a declared origin with no reader', () => {
     }
   });
 
-  it('refuses to ask a POST route rather than sending a GET it never published', async () => {
+  it('spells a POST address but refuses to fetch it rather than sending a GET it never published', async () => {
     const posted: DeclaredOriginDeclaration = {
       ...DECLARED,
       name: 'ocsp',
@@ -441,9 +444,9 @@ describe('a declared origin with no reader', () => {
     };
     const at = query({ ca: 'processor', ocspCertificate: new Uint8Array([1]), ocspIssuer: new Uint8Array([2]) });
     const asked = requestUrl(at, posted);
-    if (typeof asked === 'string') throw new Error('a POST route was handed back as an address');
-    expect(asked.refusal.code).toBe('COLLATERAL_ORIGIN_UNSUPPORTED');
-    const outcome = await fetchFromOrigin('https://declared.example/', posted, { transport: silent() });
+    if (typeof asked !== 'string') throw new Error(`a stated POST question was refused: ${asked.refusal.detail}`);
+    expect(asked).toBe('https://declared.example/');
+    const outcome = await fetchFromOrigin(asked, posted, { transport: silent() });
     if (!('refusal' in outcome)) throw new Error('a POST declaration was fetched with GET');
     expect(outcome.refusal.code).toBe('COLLATERAL_ORIGIN_UNSUPPORTED');
   });
