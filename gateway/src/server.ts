@@ -42,6 +42,8 @@ const FIRST_EVENT_TIMEOUT_MS = 120_000;
 const MAX_BUFFERED_BODY = 32 * 1024 * 1024;
 /** Evidence is addressed by the digest it binds to, which is what its URL says. */
 const REPORT_DATA_HEX = /^[0-9a-fA-F]{64}$/;
+/** A weights manifest is addressed by the digest a receipt's `wts` carries: 32 bytes, 64 hex characters. */
+const WEIGHTS_DIGEST_HEX = /^[0-9a-f]{64}$/;
 
 /** The scheme this gateway marks with when its operator asked for none, which is the shipped state. */
 const DEFAULT_MARKING: MarkingScheme = 'none';
@@ -730,6 +732,29 @@ export function buildGateway(options: GatewayOptions): GatewayInstance {
     if (sealedManifest === null) return manifest;
     reply.header('content-type', 'application/cose');
     reply.send(Buffer.from(sealedManifest));
+  });
+
+  // The bytes a receipt's `wts` names, addressable by that digest. The manifest is read once at start-up
+  // and the one reading is held on the deployment, so a request never touches the file: what this route
+  // serves is what every receipt of the run states, even after the file on disk changes. The body is the
+  // file's own bytes rather than a rendering of the parsed document, because the client's check is that
+  // sha256(body) equals the path digest its receipt carries. A digest this deployment does not hold and a
+  // deployment that holds none answer alike, so a caller learns only that these bytes are not here.
+  app.get('/v1/weights/:digest', async (request, reply) => {
+    const digest = (request.params as { digest: string }).digest;
+    if (!WEIGHTS_DIGEST_HEX.test(digest)) {
+      reply.code(400).send({
+        error: { message: 'digest must be 64 lowercase hex characters', type: 'invalid_request_error' },
+      });
+      return;
+    }
+    const weightsManifest = deployment.weightsManifest;
+    if (weightsManifest === undefined || toHex(weightsManifest.digest) !== digest) {
+      reply.code(404).send({ error: { message: `no weights manifest for digest ${digest}`, type: 'not_found' } });
+      return;
+    }
+    reply.header('content-type', 'application/json');
+    reply.send(Buffer.from(weightsManifest.bytes));
   });
 
   app.get('/v1/attestation', async (request, reply) => {

@@ -10,6 +10,7 @@ import { CLOCK_SECONDS, credentialFileAt, generated, harness, type Generated, ty
 const bodies: Record<string, string | null> = {
   'POST /v1/chat/completions': '{"model":"mock-model-1","messages":[{"role":"user","content":"hello"}]}',
   'GET /v1/deployment-manifest': null,
+  'GET /v1/weights/:digest': null,
   'GET /v1/attestation': null,
   'GET /v1/attestation/gpu': null,
   'GET /v1/receipts/:id': null,
@@ -18,6 +19,7 @@ const bodies: Record<string, string | null> = {
 const targets: Record<string, string> = {
   'POST /v1/chat/completions': '/v1/chat/completions',
   'GET /v1/deployment-manifest': '/v1/deployment-manifest',
+  'GET /v1/weights/:digest': `/v1/weights/${'ab'.repeat(32)}`,
   'GET /v1/attestation': '/v1/attestation',
   'GET /v1/attestation/gpu': '/v1/attestation/gpu?report_data=ab',
   'GET /v1/receipts/:id': '/v1/receipts/rcp_pipeline_test',
@@ -148,6 +150,7 @@ const STATES: readonly State[] = [
 const SCOPE_OF: Record<string, Scope[]> = {
   'POST /v1/chat/completions': ['complete'],
   'GET /v1/deployment-manifest': [],
+  'GET /v1/weights/:digest': ['read'],
   'GET /v1/attestation': ['read'],
   'GET /v1/attestation/gpu': ['read'],
   'GET /v1/receipts/:id': ['read'],
@@ -169,6 +172,7 @@ interface Cell {
 const ADMITTED_STATUS: Record<string, number> = {
   'POST /v1/chat/completions': 200,
   'GET /v1/deployment-manifest': 200,
+  'GET /v1/weights/:digest': 404,
   'GET /v1/attestation': 200,
   'GET /v1/attestation/gpu': 404,
   'GET /v1/receipts/:id': 404,
@@ -207,7 +211,7 @@ function cell(route: string, state: State): Cell {
     case 'insufficient-scope':
       // Only a row of `any` has no scope to miss. A `read` row is just as missable as a
       // `complete` one, so skipping it here would leave the scope check ungated at the
-      // HTTP layer on three of the five routes.
+      // HTTP layer on four of the six routes.
       return required === 'any'
         ? { status: 0, code: undefined, skip: 'this route accepts any scope, so a scope miss is unreachable' }
         : { status: 403, code: 'SCOPE_DENIED' };
@@ -217,7 +221,7 @@ function cell(route: string, state: State): Cell {
   }
 }
 
-describe('the route matrix: five routes by ten states', () => {
+describe('the route matrix: six routes by ten states', () => {
   for (const route of ROUTES) {
     describe(route, () => {
       for (const state of STATES) {

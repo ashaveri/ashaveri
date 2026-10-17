@@ -263,6 +263,7 @@ describe('route scope table', () => {
   const routes: ReadonlyArray<readonly [string, string, 'any' | 'read' | 'complete' | undefined]> = [
     ['POST', '/v1/chat/completions', 'complete'],
     ['GET', '/v1/deployment-manifest', 'any'],
+    ['GET', `/v1/weights/${'ab'.repeat(32)}`, 'read'],
     ['GET', '/v1/attestation', 'read'],
     ['HEAD', '/v1/attestation', 'read'],
     ['GET', '/v1/attestation/gpu', 'read'],

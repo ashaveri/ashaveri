@@ -14,7 +14,7 @@ import { claimsConfidentialDevice, signingKeyFromSeed } from '@ashaveri/receipt'
 import { GuestClient, GuestError, type GuestApi, type GpuEvidenceBundle } from './guest.js';
 import { sha256, toHex } from './digest.js';
 import { declarationOf, HOST_CLOCK_SOURCE, type TimeSource } from './store.js';
-import type { AttestationBundle, Deployment, HardwareTeeKind, ModelInfo, TeeKind } from './deployment.js';
+import type { AttestationBundle, Deployment, HardwareTeeKind, ModelInfo, TeeKind, WeightsManifest } from './deployment.js';
 
 /**
  * Live deployment: the signing key comes from the CVM's own key derivation and
@@ -58,6 +58,12 @@ export interface DstackDeploymentOptions {
   readonly client?: GuestApi;
   /** Served models with the weight digest each receipt must carry. */
   readonly models: readonly ModelInfo[];
+  /**
+   * The manifest bytes those models' `wts` digest, when the run read one. Absent leaves the manifest
+   * route answering 404; the CLI passes the one reading `modelsFromManifest` made, so a live process
+   * serves the same bytes every receipt it issues names.
+   */
+  readonly weightsManifest?: WeightsManifest;
   /** Public origin of this gateway, without a trailing slash, e.g. https://inference.ashaveri.com/v1 */
   readonly evidenceBaseUrl: string;
   /** Guest key path. Rotating the key means changing this and bumping epk. */
@@ -349,6 +355,7 @@ export async function dstackDeployment(options: DstackDeploymentOptions): Promis
     tee,
     measurement: platform.measurement,
     models: options.models,
+    weightsManifest: options.weightsManifest,
     async attestation(reportData: Uint8Array | null): Promise<AttestationBundle> {
       return fetchEvidence(reportData ?? standingReportData);
     },

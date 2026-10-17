@@ -285,6 +285,35 @@ describe('dstackDeployment key material', () => {
 });
 
 /**
+ * The manifest bytes a run read travel with the deployment, so the route addressed by the same digest
+ * serves exactly the bytes every receipt names. Absent is the state a deployment that read none is in.
+ */
+describe('dstackDeployment weights manifest', () => {
+  const URL_BASE = 'https://inference.ashaveri.test/v1';
+
+  it('carries the one reading beside the models whose wts it digests', async () => {
+    const guest = snpGuest();
+    const bytes = new TextEncoder().encode('{"files":[]}');
+    const digest = sha256(bytes);
+    const deployment = await dstackDeployment({
+      client: guest,
+      models: [{ id: 'tinyllama', wts: digest }],
+      weightsManifest: { digest, bytes },
+      evidenceBaseUrl: URL_BASE,
+    });
+    expect(deployment.weightsManifest).toBeDefined();
+    expect(Buffer.from(deployment.weightsManifest!.bytes)).toEqual(Buffer.from(bytes));
+    expect(toHex(deployment.weightsManifest!.digest)).toBe(toHex(deployment.models[0]!.wts));
+  });
+
+  it('holds none when the run named none', async () => {
+    const guest = snpGuest();
+    const deployment = await dstackDeployment({ client: guest, models: MODELS, evidenceBaseUrl: URL_BASE });
+    expect(deployment.weightsManifest).toBeUndefined();
+  });
+});
+
+/**
  * The second key a deployment can be handed, and the three states its manifest route is then in. The
  * gateway never derives, generates or stores a manifest key from here: it asks the guest for one at a
  * path an operator named, and serves the plain document when no path was named.

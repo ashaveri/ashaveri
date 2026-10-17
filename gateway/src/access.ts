@@ -498,6 +498,7 @@ export type RouteScope = 'any' | 'read' | 'complete';
  */
 export const ROUTE_SCOPES: Record<string, RouteScope> = {
   'GET /v1/deployment-manifest': 'any',
+  'GET /v1/weights/:digest': 'read',
   'GET /v1/attestation': 'read',
   'GET /v1/attestation/gpu': 'read',
   'GET /v1/receipts/:id': 'read',
