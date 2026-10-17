@@ -4,15 +4,20 @@ import { fileURLToPath } from 'node:url';
 import { ed25519 } from '@noble/curves/ed25519';
 import { sha256 } from '@noble/hashes/sha2.js';
 import {
+  PROVENANCES,
+  ReceiptError,
   decodeCanonical,
+  decodeExport,
   encodeCanonical,
   encodeExportManifest,
   encodeExportProtectedHeader,
   exportRecordDigest,
   exportSigStructure,
   fromBase64Url,
+  reduceProvenance,
   sealExport,
   signCoseSign1,
+  signExport,
   signingKeyFromSeed,
   toBase64Url,
   toHex,
@@ -22,6 +27,7 @@ import {
   type ExportCollection,
   type ExportItem,
   type ExportManifest,
+  type Provenance,
   type SigningKey,
 } from '@ashaveri/receipt';
 
@@ -39,8 +45,10 @@ const DATA = join(dirname(fileURLToPath(import.meta.url)), '..', 'data');
  *
  * A document that is meant to be refused is assembled from the container's own published pieces,
  * `encodeExportProtectedHeader`, `encodeExportManifest`, `exportSigStructure` and `sealExport`.
- * `signExport` is deliberately unused: it will not produce bytes its reader rejects, and a fault case is
- * exactly that. Where a case edits a whole
+ * `signExport` writes no vector: it will not produce bytes its reader rejects, and a fault case is
+ * exactly that. The generator calls it inside the matrix at the bottom and on one document stronger than
+ * its weakest item, to pin that the writer accepts what the reader accepts and refuses what the reader
+ * refuses. Where a case edits a whole
  * document, one position of the manifest map changes and the bytes are re-sealed under the same key, so
  * the only thing wrong with them is the edit. An honest document whose chain is broken by construction is
  * sealed the same way, with the chain recomputed over the records it carries.
@@ -68,6 +76,8 @@ const COMPANION_FILES: ReadonlyMap<string, Uint8Array> = new Map([
 interface ItemSpec {
   readonly id: string;
   readonly iat: number;
+  /** Where the material of this item came from. Absent, the row is the fixture material every case starts from. */
+  readonly prov?: Provenance;
   /** The original inside the document, when the item carries one. */
   readonly bytes?: Uint8Array;
   /** The name beside the document, when the item references one. */
@@ -76,7 +86,7 @@ interface ItemSpec {
 
 function inlineItem(one: ItemSpec): ExportItem {
   const bytes = one.bytes ?? encoded('');
-  return { id: one.id, iat: one.iat, d: digest(bytes), orig: { k: 'inline', bytes } };
+  return { id: one.id, iat: one.iat, prov: one.prov ?? 'fixture', d: digest(bytes), orig: { k: 'inline', bytes } };
 }
 
 function companionItem(one: ItemSpec): ExportItem {
@@ -84,7 +94,7 @@ function companionItem(one: ItemSpec): ExportItem {
   // A name this file has no content for still gets a digest, which is what a case about the name itself
   // needs: the reader refuses `../outside` before it ever asks what the file holds.
   const bytes = COMPANION_FILES.get(name) ?? encoded(name);
-  return { id: one.id, iat: one.iat, d: digest(bytes), orig: { k: 'companion', name } };
+  return { id: one.id, iat: one.iat, prov: one.prov ?? 'fixture', d: digest(bytes), orig: { k: 'companion', name } };
 }
 
 function itemOf(one: ItemSpec): ExportItem {
@@ -93,10 +103,16 @@ function itemOf(one: ItemSpec): ExportItem {
 
 function chainedItem(one: ItemSpec, prev: Uint8Array): ExportChainedItem {
   const bytes = one.bytes ?? encoded('');
-  return { id: one.id, iat: one.iat, d: digest(bytes), p: prev, orig: { k: 'inline', bytes } };
+  return { id: one.id, iat: one.iat, prov: one.prov ?? 'fixture', d: digest(bytes), p: prev, orig: { k: 'inline', bytes } };
 }
 
-/** The records of a run, chained in the order given from an anchor of thirty-two zero bytes. */
+/**
+ * The records of a run, chained in the order given from an anchor of thirty-two zero bytes. The
+ * collection's own provenance is the reduction over these records, computed here rather than taken as an
+ * argument, because it is the weakest of the values they state and never a value the assembly chose: a
+ * row that wants a stronger or weaker value moves the encoded document past this builder, the way every
+ * other document a deployment would not sign is moved.
+ */
 function run(items: readonly ItemSpec[]): { collection: ExportAnchoredCollection; head: Uint8Array } {
   let prev: Uint8Array = ZEROS;
   const records = items.map((one) => {
@@ -107,11 +123,12 @@ function run(items: readonly ItemSpec[]): { collection: ExportAnchoredCollection
     prev = exportRecordDigest({ id: next.id, iat: next.iat, p: next.p, bytes });
     return next;
   });
-  return { collection: { k: 'anchored', anchor: ZEROS, head: prev, items: records }, head: prev };
+  return { collection: { k: 'anchored', prov: reduceProvenance(records.map((one) => one.prov)), anchor: ZEROS, head: prev, items: records }, head: prev };
 }
 
 function plain(items: readonly ItemSpec[]): ExportCollection {
-  return { k: 'plain', items: items.map(itemOf) };
+  const records = items.map(itemOf);
+  return { k: 'plain', prov: reduceProvenance(records.map((one) => one.prov)), items: records };
 }
 
 function voided(states = 'the store held nothing for the period asked for'): ExportCollection {
@@ -275,9 +292,26 @@ const COLLIDED = run([THREE[0]!, { id: 'r-0', iat: CLOCK + 1, bytes: RECEIPTS[1]
 const CONTRACT_ITEM: readonly ItemSpec[] = [{ id: 'contract', iat: CLOCK - 60, bytes: CONTRACT }];
 const CONTRACT_FILE: readonly ItemSpec[] = [{ id: 'contract', iat: CLOCK - 60, companion: 'contract.pdf' }];
 
+/**
+ * The provenance rows: a run whose first and third records carry live material and whose middle record
+ * carries a capture, sealed with the value its items reduce to, captured. The pair with the fixture
+ * material every other row carries states the reduction this container applies: a captured item beside
+ * live ones keeps the captured value rather than being washed down to live, and a collection cannot state
+ * live while carrying that capture, because the value is the weakest of the items and never a number the
+ * assembly chose. Every byte here is this suite's fixture material like every other row's, and what the
+ * row pins is the shape such a collection takes, its own provenance field included: no reader recomputes
+ * where material came from, so that field is the writer's signed statement and the reader's check is that
+ * the document states the weakest of its items.
+ */
+const MIXED_RUN = run([
+  { id: 'r-0', iat: CLOCK, bytes: RECEIPTS[0], prov: 'live' },
+  { id: 'r-1', iat: CLOCK + 1, bytes: RECEIPTS[1], prov: 'captured' },
+  { id: 'r-2', iat: CLOCK + 2, bytes: RECEIPTS[2], prov: 'live' },
+]);
+
 /** The honest run of three, with a different array of records and endpoint beside it. */
 function anchoredWith(items: readonly ExportChainedItem[], head: Uint8Array): ExportAnchoredCollection {
-  return { k: 'anchored', anchor: ZEROS, head, items };
+  return { k: 'anchored', prov: reduceProvenance(items.map((one) => one.prov)), anchor: ZEROS, head, items };
 }
 
 const THREE_ITEMS = HONEST_RUN.collection.items;
@@ -307,6 +341,35 @@ const CASES: readonly Case[] = [
     expected: 'verify-ok',
     outcome: 'anchored',
     walk: ['r-0', 'r-1', 'r-2'],
+  },
+  {
+    name: 'provenance-fixture-export',
+    note: 'An export carrying one original derived from this repository\'s own fixtures, and stating so in the collection\'s own field: fixture. This is the fixture-qualified export a reader is meant to see without reading the claim sentence, which is the writer\'s words and is checked by nothing. The member is a closed vocabulary and the reader holds it to the value its items reduce to, which for a single fixture item is fixture without a choice.',
+    bytes: honest(plain(CONTRACT_ITEM)),
+    expected: 'verify-ok',
+    outcome: 'plain',
+  },
+  {
+    name: 'provenance-mixed-reduces-to-the-weakest',
+    note: 'A run whose first and third records carry live material and whose middle record carries a capture, sealed with the value its items reduce to: captured. The captured item is not washed down to live by the live items beside it, because the weakest value wins and the captured item is it, and the collection cannot state live for the whole while the middle record carries that capture. What the row publishes is the reduction on this container, one arm under the same rule the pack states.',
+    bytes: honest(MIXED_RUN.collection),
+    expected: 'verify-ok',
+    outcome: 'anchored',
+    walk: ['r-0', 'r-1', 'r-2'],
+  },
+  {
+    name: 'provenance-stronger-than-the-weakest-item',
+    note: 'A collection whose every item is a fixture, sealed with a statement that its material is a live run. The member is a reduction and not a parameter, so the document contradicts itself and a reader refuses it whoever signed it: a stronger value would claim more than the export carries. The writer refuses to seal these bytes, which is why the row is assembled from the pieces and published as the document a port has to answer.',
+    bytes: mutant(HONEST_RUN.collection, (root) => collectionOf(root).set('prov', 'live')),
+    expected: 'EXPORT_BAD_MANIFEST',
+    edited: 'collection.prov, stated as live where the weakest item is a fixture',
+  },
+  {
+    name: 'provenance-label-outside-the-three',
+    note: 'An item carrying a provenance label this version defines no reading for. The vocabulary is closed, and the refusal is the member not being the one this version declares rather than a guess at which of the three the writer meant: a reader that read the value as whichever it resembled would be reporting a provenance no document stated.',
+    bytes: mutant(HONEST_RUN.collection, (root) => firstItem(root).set('prov', 'synthetic')),
+    expected: 'EXPORT_BAD_MANIFEST',
+    edited: 'items[0].prov, set to a label outside the three',
   },
   {
     name: 'companion-handed-and-checked',
@@ -593,6 +656,7 @@ function projectedExport(manifest: ExportManifest): Record<string, unknown> {
   const item = (one: ExportItem | ExportChainedItem): Record<string, unknown> => ({
     id: one.id,
     iat: one.iat,
+    prov: one.prov,
     d: toHex(one.d),
     ...chained(one),
     orig: orig(one),
@@ -608,7 +672,7 @@ function projectedExport(manifest: ExportManifest): Record<string, unknown> {
         collection.k === 'void'
           ? { k: 'void', states: collection.states }
           : {
-              ...(collection.k === 'anchored' ? { k: 'anchored', anchor: toHex(collection.anchor), head: toHex(collection.head) } : { k: 'plain' }),
+              ...(collection.k === 'anchored' ? { k: 'anchored', prov: collection.prov, anchor: toHex(collection.anchor), head: toHex(collection.head) } : { k: 'plain', prov: collection.prov }),
               items: [...collection.items].map(item),
             },
       claim: { made: manifest.claim.made, by: manifest.claim.by, kind: manifest.claim.kind, states: manifest.claim.states },
@@ -623,6 +687,42 @@ function main() {
       throw new Error(`${one.name}: the reader this file is measured by answers ${observed}, not the ${one.expected} it states`);
     }
   }
+  // The reduction, over every combination the generator can produce. Each combination is a run of three
+  // records whose per-item values walk the matrix; the arm's own value is computed by the same builder
+  // every honest row goes through, the writer accepts the document that comes out, and the reader reads
+  // the same value back beside the same items. A collection whose own provenance is stronger than the
+  // weakest item is then offered to the writer and has to be refused with the reader's own code, which is
+  // the symmetry the reduction rule states in one direction and the refused rows state in the other.
+  for (const first of PROVENANCES) {
+    for (const second of PROVENANCES) {
+      for (const third of PROVENANCES) {
+        const combination = [first, second, third] as const;
+        const runValue = run(THREE.map((one, index) => ({ ...one, prov: combination[index]! })));
+        const collection = runValue.collection;
+        const weakest = reduceProvenance(combination);
+        if (collection.prov !== weakest) {
+          throw new Error(`the generator computed '${collection.prov}' for ${combination.join(', ')}, not the weakest value '${weakest}'`);
+        }
+        const read = decodeExport(signExport(manifestFor(collection), KEY)).manifest.collection;
+        if (read.k === 'void') throw new Error('a run this file built came back as the void arm');
+        const stated = [read.prov, ...read.items.map((one) => one.prov)].join(', ');
+        if (stated !== [weakest, ...combination].join(', ')) {
+          throw new Error(`the reader read back ${stated} for a collection the generator sealed from ${combination.join(', ')}`);
+        }
+      }
+    }
+  }
+  const strongerRefusal = ((): string | null => {
+    try {
+      signExport({ ...manifestFor(HONEST_RUN.collection), collection: { ...HONEST_RUN.collection, prov: 'live' } }, KEY);
+      return null;
+    } catch (err) {
+      return err instanceof ReceiptError ? err.code : null;
+    }
+  })();
+  if (strongerRefusal !== 'EXPORT_BAD_MANIFEST') {
+    throw new Error(`the export writer answered ${String(strongerRefusal)} for a provenance stronger than its weakest item`);
+  }
   const names = CASES.map((one) => one.name);
   if (new Set(names).size !== names.length) throw new Error('two cases of this suite share a name');
   const verdicts = new Set(CASES.map((one) => one.expected));
@@ -634,7 +734,7 @@ function main() {
       {
         version: 1,
         description:
-          'Technical export documents, the arguments a reader is handed beside them, and the verdict each one owes: three well-formed shapes, and one refusal for every fault the format names.',
+          'Technical export documents, the arguments a reader is handed beside them, and the verdict each one owes: three well-formed shapes, the per-item provenance values their material states reduced to the collection arm\'s own, and one refusal for every fault the format names.',
         layout: {
           format: 'packages/receipt/export.cddl',
           twin: 'packages/receipt/schemas/export-v1.schema.json',
@@ -645,6 +745,8 @@ function main() {
           framing: 'docs/receipt-spec.md section 5.2',
           recordDigest: 'sha256 over 0x00 || p || iat as eight big-endian bytes || the byte length of id as two big-endian bytes || id || the original bytes',
           itemDigest: 'sha256 of the exact original bytes, held in the item field d',
+          provenanceRule:
+            'the three values are live, captured and fixture, written in the format\'s strength order, and a collection arm that carries items states the weakest of its items\' prov values: a value that is not the reduction, in either direction, is refused under EXPORT_BAD_MANIFEST, so a collection cannot be assembled to claim live while carrying one fixture. Live software never becomes hardware evidence, because a run of live items reduces to live and never to captured, and a captured original can retain valid hardware evidence, because a captured item beside live items keeps the captured value rather than being washed down to live. The member rides on the two arms that carry items and not on the manifest, because the manifest is shared with the void arm, which carries no material and no list: a void arm states no provenance, and the reduction over nothing is refused by design rather than answered with an invented value. The field is separate from execution assurance, from the claim block and from the assessment: what a receipt declares about its own execution, what the writer asserts about provenance and custody in their own words, and whether any legal assessment was made are three other questions, and since no reader recomputes where material came from, the field is one statement a reader checks against the items and never a verdict about their bytes',
           manifestFields: ['v', 'at', 'assessment', 'collection', 'claim'],
           collectionArms: ['anchored', 'plain', 'void'],
           originalArms: ['inline', 'companion'],

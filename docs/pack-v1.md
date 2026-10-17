@@ -74,7 +74,7 @@ negative stamp is a malformed document and not an unusual way of writing a quant
 The payload is a closed map at `v: 1`: a member the format does not define makes the document
 malformed rather than a document read with that member dropped. That holds of every map below, so a span cannot
 be read with a duty's keywords, a reference cannot be read as an item, and the member this version replaced
-cannot be read as though it were still standing. The manifest names eight members and each is required, so no
+cannot be read as though it were still standing. The manifest names nine members and each is required, so no
 position is optional, none carries a default, and a reader never has to work out what an omitted field meant.
 
 Two members stand where one stood. `custody` is the list of references the sealed receipts' `held` slots answer
@@ -102,6 +102,7 @@ measure, so the twin states the floor and not the limit.
 | `signature` | `string` | no | Ed25519 over the `Sig_structure`, hex. Named without being demanded, because a display of an unsigned pack still shows; `pack.cddl` requires four elements and sixty-four bytes. |
 | `v` | `1` | yes | Format version, one constant rather than a discriminant. A reader refuses a number it does not define rather than reading the bytes under rules that were not written for them. |
 | `at` | `integer` | yes | Unix seconds, the instant assembly began, stamped before the reads rather than after them so that a slow store cannot date a pack later than the window it describes. `held` is measured at it and the span is served as of it. |
+| `prov` | `string` | yes | The pack's own statement of where its material came from: the weakest of the items' `prov` values, and never a value the assembly chose. A reader refuses a label outside the three and a value that is not the weakest of the items. |
 | `span` | `object` | yes | The period the pack answers for, half-open: `from` included, `to` excluded. |
 | `chain` | `object` | yes | The two endpoints a reader walks between, neither of them derivable from the items. |
 | `duty` | `object` | yes | The retention duty this window was answered under, and the revision of the mapping the required period was read from. |
@@ -118,6 +119,7 @@ measure, so the twin states the floor and not the limit.
 | `duty.held` | `integer` | yes | Seconds the store has held the oldest receipt it retains, measured at `at`. At least the age of the oldest receipt in this pack, because a receipt handed over here is one the store still holds. |
 | `item.id` | `string` | yes | The store's own id for the receipt, as the record names it, between 1 and 65535 bytes, and no two items in one pack carry the same one. A refusal reports an item by name, and two items answering to one name make that report mean whichever of the two a reader met first. |
 | `item.iat` | `integer` | yes | Unix seconds, the stamp the record was chained at, bounded by the span and equal to the `iat` the receipt itself attests. The store chains under whatever stamp it was handed, so a reader that checked the walk and not this equality would accept a receipt moved into a window it was never issued in. |
+| `item.prov` | `string` | yes | Where the material this record carries came from, in the same three values the manifest reduces. It is not a term of the record's frame: the digest the next item names is taken over the id, the stamp, the predecessor and the receipt bytes, and this member rides inside the pack's signature without moving a link. |
 | `item.prev` | `string` | yes | The digest of the record before this one, or the anchor for the first item. Published rather than derived, because the walk follows links and not positions. |
 | `item.receipt` | `string` | yes | The signed receipt bytes, whole and unaltered, exactly as the record's payload holds them. The walk hashes them as a record's payload and verifies each as its own document. |
 | `custody.k` | `object` | yes | Which sealed receipt and which half of its anchor this reference answers for. The slot is the only name a reference is reached by, and an entry naming a slot no sealed receipt states is a record of an observation nobody asked it to stand behind. |
@@ -139,6 +141,49 @@ measure, so the twin states the floor and not the limit.
 | `attached.sha256` | `string` | yes | sha256 of the bytes beside it. The reader recomputes it and refuses a disagreement, which makes the entry a statement about its own bytes rather than a label over bytes the reader cannot see. |
 | `attached.chain` | `string or null` | yes | The issuer-chain header that arrived beside those bytes, exactly as it arrived, or null where none did. Present exactly when the digest below is: a header with no digest stated for it is the document contradicting itself about its own arm, and no recomputation settles which half the issuer meant. |
 | `attached.chain_sha256` | `string or null` | yes | sha256 of that header, or null where there was no header. The reader recomputes it, refuses a disagreement, and refuses a header carried here beside a reference whose `c` states none. The label is lowercase because every label this format writes is; `resolveAttached` hands the same value back under its object spelling. |
+
+## Per-item provenance, and the one it reduces to
+
+A pack states where its material came from, once per item and once for the whole document. The item's
+`prov` is one of three values, and they are the whole vocabulary: `live` for material a running
+deployment produced while answering a real request, `captured` for a vendor-signed document recorded
+elsewhere and replayed into a locally issued receipt, and `fixture` for material derived from this
+repository's own fixtures. The manifest's `prov` is the weakest of the items' values, and the two
+statements answer different questions: the items say what each record carries, and the manifest states
+the floor the container as a whole stands on.
+
+The reduction is a rule rather than a parameter, so a pack cannot be assembled to claim `live` while
+carrying one fixture. Live software never becomes hardware evidence: a run of live items reduces to
+`live` and never to `captured`, because the reduction takes the weakest value and never strengthens
+one. A captured original can retain valid hardware evidence: `captured` beside live items keeps the
+`captured` value rather than being washed down to `live`, because the weakest value wins and the
+captured item is it. A reader refuses a `prov` that is not the weakest of its items, in either
+direction, under `PACK_BAD_MANIFEST`, naming the value the document states and the value the items
+reduce to; a stronger value would claim more than the pack carries and a weaker one would state a
+provenance nothing in the pack has. A label outside the three is refused the same way, because a reader
+that guessed at an unknown value would be reporting a provenance no document stated.
+
+The member is separate from execution assurance, from source and custody, and from appraisal, and the
+three separations are load-bearing. A receipt's `meas` and `att` state what the deployment claims about
+its own execution and what evidence document stands behind it, a question the receipt and the roots a
+reader holds answer, and `prov` states none of it. A reference in `custody` states where appraisal
+material was read from, which is a question about the collateral, and the pack's provenance is not one
+of its answers. The `duty` block states the period the window answers under and the revision it came
+from, which is appraisal context, and where material came from is not a duty. The one relation the
+field has to the frames is that it has none: the record digest is taken over the id, the stamp, the
+predecessor and the receipt bytes, so a moved `prov` changes no link, and the manifest's reduction is
+checked against the values the items state, both inside one signature.
+
+The published suite carries the corners. `provenance-live-run` states `live` for every item and for the
+pack, and its receipts declare a software measurement, so the document shows both what live material
+looks like and that a live run is not hardware evidence by itself. `provenance-captured-replay` states
+`captured` for every item and keeps the fixture corpus' hardware measurement, which is the captured
+original that retains valid hardware evidence. `provenance-mixture-reduces-to-the-weakest` carries
+live and captured items and states `captured`. `provenance-stronger-than-the-weakest-item` states
+`live` for a pack whose weakest item is a fixture, and both readings of the reader refuse it as
+`PACK_BAD_MANIFEST`, which is the shape the reduction exists to make unassemblable. And
+`provenance-label-outside-the-three` carries an item whose value is no label this version defines,
+which is refused in the same code.
 
 ## The walk, and the two halves of its check
 
@@ -283,7 +328,7 @@ holds this table against the codes the published suite names as verdicts.
 | `PACK_KID_MISMATCH` | The key handed to the reader is not the one the header's kid names |
 | `INVALID_SIGNATURE` | The signature does not verify over the `Sig_structure` |
 | `PACK_UNSUPPORTED_VERSION` | The manifest declares a version no format has used |
-| `PACK_BAD_MANIFEST` | A member is absent, undefined at this version including the member this version replaced, of the wrong type or width, negative, a stamp outside the span it is bounded by, a duration that contradicts the items it travels with, a list or an entry past a ceiling the format takes from its own contents, an attached header stated with no digest beside it, or a reference list that does not reach the held slots its sealed receipts state |
+| `PACK_BAD_MANIFEST` | A member is absent, undefined at this version including the member this version replaced, of the wrong type or width, negative, a `prov` outside the three values or one that is not the weakest of the items, a stamp outside the span it is bounded by, a duration that contradicts the items it travels with, a list or an entry past a ceiling the format takes from its own contents, an attached header stated with no digest beside it, or a reference list that does not reach the held slots its sealed receipts state |
 | `PACK_DUPLICATE_ID` | Two items answer to one name |
 | `PACK_RECEIPT_INVALID` | A receipt inside the container is not a receipt, or does not verify under the key its own header names |
 | `PACK_RECEIPT_STAMP_MISMATCH` | An item's chained stamp differs from the `iat` its own receipt attests |

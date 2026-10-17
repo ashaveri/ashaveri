@@ -6,9 +6,11 @@ import {
   PACK_CONTENT_TYPE,
   CARRIED_MAX_BYTES,
   CUSTODY_SLOTS_PER_ITEM,
+  PROVENANCES,
   ReceiptError,
   decodePack,
   packRecordDigest,
+  reduceProvenance,
   resolveAttached,
   toHex,
   verifyPack,
@@ -219,6 +221,51 @@ describe('the evidence pack vectors', () => {
     expect(thrown, 'the lookup answered a digest this pack attaches nothing for with no refusal at all').toBeInstanceOf(ReceiptError);
     expect((thrown as ReceiptError).code).toBe('PACK_ATTACHED_UNRESOLVED');
     expect((thrown as ReceiptError).message).toContain(first.k.item);
+  });
+
+  it('states every accepted pack’s own provenance as the weakest of its items, and refuses anything else', () => {
+    // The member is a reduction and not a parameter, and the function that computes it is the one the reader
+    // checks with, so this case is the round trip the vector suite owes the rule: every accepted row's own
+    // value is what its items' values reduce to, and the rows that state anything else are refused by both
+    // readings under the code they publish. Nothing here recomputes a verdict from the reader; the values
+    // are data in the file and the tie is between them.
+    const accepted = file.vectors.filter((one) => one.verdict === 'verify-ok');
+    for (const one of accepted) {
+      const manifest = decodePack(bytes(one.documentBase64Url)).manifest;
+      expect(manifest.prov, `${one.name} states a provenance its items do not reduce to`).toBe(
+        reduceProvenance(manifest.items.map((each) => each.prov)),
+      );
+    }
+    // The three matrix rows, read out of the published bytes rather than restated: live items state live,
+    // captured items state captured, and a mixture of live and captured states the captured value the
+    // captured item keeps rather than being washed down to live.
+    const readOf = (name: string): PackManifest => {
+      const row = file.vectors.find((one) => one.name === name);
+      expect(row, `the suite publishes no ${name} row`).toBeDefined();
+      return decodePack(bytes(row!.documentBase64Url)).manifest;
+    };
+    const live = readOf('provenance-live-run');
+    expect([live.prov, ...live.items.map((one) => one.prov)]).toEqual(['live', 'live', 'live', 'live']);
+    const captured = readOf('provenance-captured-replay');
+    expect([captured.prov, ...captured.items.map((one) => one.prov)]).toEqual(['captured', 'captured', 'captured', 'captured']);
+    const mixed = readOf('provenance-mixture-reduces-to-the-weakest');
+    expect([mixed.prov, ...mixed.items.map((one) => one.prov)]).toEqual(['captured', 'live', 'captured', 'live']);
+    // And the two refusals: a value stronger than the weakest item, and a label outside the three, each a
+    // document both readings refuse because neither needs a key to see the contradiction.
+    for (const name of ['provenance-stronger-than-the-weakest-item', 'provenance-label-outside-the-three']) {
+      const row = file.vectors.find((one) => one.name === name);
+      expect(row, `the suite publishes no ${name} row`).toBeDefined();
+      expect([row?.verdict, row?.structural], `${name} is not refused by both readings`).toEqual(['PACK_BAD_MANIFEST', 'PACK_BAD_MANIFEST']);
+    }
+    // The published rule states the whole vocabulary and the reduction, and the vocabulary is the package's.
+    const rule = file.layout.provenanceRule;
+    expect(typeof rule, 'the suite publishes no provenance rule').toBe('string');
+    if (typeof rule === 'string') {
+      for (const value of PROVENANCES) {
+        expect(rule, `the published provenance rule does not state ${value}`).toContain(value);
+      }
+      expect(rule, 'the published provenance rule does not state the reduction').toContain('weakest');
+    }
   });
 
   it('designates only keys it publishes, and publishes keys that resolve', () => {

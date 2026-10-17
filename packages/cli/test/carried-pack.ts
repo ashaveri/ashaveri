@@ -10,6 +10,7 @@ import {
   encodePayload,
   packRecordDigest,
   packSigStructure,
+  reduceProvenance,
   sealPack,
   signCoseSign1,
   signPack,
@@ -18,6 +19,7 @@ import {
   type PackAttachedObject,
   type PackCustodyEntry,
   type PackManifest,
+  type Provenance,
   type ReceiptPayload,
   type SigningKey,
 } from '@ashaveri/receipt';
@@ -229,6 +231,8 @@ export interface PackEntry {
   readonly id: string;
   readonly iat: number;
   readonly receipt: Uint8Array;
+  /** Where this material came from; absent means a fixture, which is what these helpers build. */
+  readonly prov?: Provenance;
 }
 
 /**
@@ -267,7 +271,7 @@ export function packManifestOf(
   const at = to + 1_000;
   let previous: Uint8Array<ArrayBufferLike> = new Uint8Array(32);
   const items = entries.map((one) => {
-    const item = { id: one.id, iat: one.iat, prev: previous, receipt: one.receipt };
+    const item = { id: one.id, iat: one.iat, prov: one.prov ?? 'fixture', prev: previous, receipt: one.receipt };
     previous = packRecordDigest(item);
     return item;
   });
@@ -277,6 +281,7 @@ export function packManifestOf(
   return {
     v: 1,
     at,
+    prov: reduceProvenance(items.map((item) => item.prov)),
     span: { from, to },
     chain: { anchor: new Uint8Array(32), head: previous },
     duty: { art: 'retention-evidence', rev: at - 10, required: 31_536_000, held: at - from },

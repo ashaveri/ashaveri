@@ -24,6 +24,7 @@ import {
   LATEST_VERIFICATION_SECONDS,
   type VerifiedReceipt,
 } from './receipt.js';
+import { PROVENANCES, isProvenance, reduceProvenance, type Provenance } from './provenance.js';
 import type { CollateralSlot } from './disclosure.js';
 
 /**
@@ -86,11 +87,11 @@ export const DECLARED_PACK_PROTECTED_LABELS: readonly number[] = [
  * to hold against the blocks rather than against this file's reading of them, and exported from `pack.ts`
  * alone: the package's public surface gains the reader and the writer, not a roster.
  */
-export const PACK_MANIFEST_MEMBERS = ['v', 'at', 'span', 'chain', 'duty', 'items', 'custody', 'attached'] as const;
+export const PACK_MANIFEST_MEMBERS = ['v', 'at', 'prov', 'span', 'chain', 'duty', 'items', 'custody', 'attached'] as const;
 export const PACK_SPAN_MEMBERS = ['from', 'to'] as const;
 export const PACK_CHAIN_MEMBERS = ['anchor', 'head'] as const;
 export const PACK_DUTY_MEMBERS = ['art', 'rev', 'required', 'held'] as const;
-export const PACK_ITEM_MEMBERS = ['id', 'iat', 'prev', 'receipt'] as const;
+export const PACK_ITEM_MEMBERS = ['id', 'iat', 'prov', 'prev', 'receipt'] as const;
 export const PACK_CUSTODY_MEMBERS = ['k', 'o', 'u', 'i', 's', 'n', 'b', 'c', 'a', 'w', 'y'] as const;
 export const PACK_CUSTODY_KEY_MEMBERS = ['item', 'slot'] as const;
 export const PACK_WINDOW_MEMBERS = ['from', 'to'] as const;
@@ -136,6 +137,15 @@ export interface PackItem {
   readonly id: string;
   /** unix seconds, the stamp the record was chained at. */
   readonly iat: number;
+  /**
+   * Where the material this record carries came from: a live run, a captured document replayed into a
+   * locally issued receipt, or a fixture. The member is one of the three values `provenance.ts` states
+   * and nothing else is read here. It is not a term of the record's frame: the digest the next item
+   * names is taken over the id, the stamp, the predecessor and the receipt bytes, so this member rides
+   * inside the pack's signature without moving a link, which is what lets the manifest's own statement
+   * about it be the reduction below.
+   */
+  readonly prov: Provenance;
   /** The digest of the record before it, or the anchor for the first item. */
   readonly prev: Uint8Array;
   /** The signed receipt bytes, whole and unaltered. */
@@ -253,6 +263,15 @@ export interface PackAttachedResolution {
 export interface PackManifest {
   readonly v: 1;
   readonly at: number;
+  /**
+   * The pack's own statement of where its material came from: the weakest of its items' provenance
+   * values, and never a value the assembly chose. A reader compares it with the reduction over the items
+   * and refuses a document whose two members disagree, so a pack cannot be assembled to claim `live`
+   * while carrying one fixture. It is kept apart from the duty block, from the references and from what
+   * each receipt attests about measurement and evidence, because where the material came from is a
+   * different question from what execution assurance stands behind it.
+   */
+  readonly prov: Provenance;
   readonly span: PackSpan;
   readonly chain: PackChain;
   readonly duty: PackDuty;
@@ -515,9 +534,12 @@ function encodableList(value: unknown, position: string): void {
  * same signature, so a writer that spelled a number another way would make a deployment refuse its own pack.
  */
 export function encodePackManifest(manifest: PackManifest): Uint8Array {
-  // Asked in the order the reader asks them, so a manifest missing two of these six is refused here for the
-  // same one it is refused for once the bytes come back.
+  // Asked in the order the reader asks them, so a manifest missing two of these is refused here for the
+  // same one it is refused for once the bytes come back. The provenance value is asked with the reader's
+  // own check, because an absent or out-of-vocabulary value is one fault whichever side of the signature
+  // it is met on.
   encodableMap(manifest.span, 'span');
+  requireProvenance(manifest.prov, 'prov');
   encodableMap(manifest.chain, 'chain');
   encodableMap(manifest.duty, 'duty');
   encodableList(manifest.items, 'items');
@@ -528,6 +550,7 @@ export function encodePackManifest(manifest: PackManifest): Uint8Array {
     return new Map<string, unknown>([
       ['id', one.id],
       ['iat', one.iat],
+      ['prov', one.prov],
       ['prev', one.prev],
       ['receipt', one.receipt],
     ]);
@@ -569,6 +592,7 @@ export function encodePackManifest(manifest: PackManifest): Uint8Array {
     new Map<string, unknown>([
       ['v', manifest.v],
       ['at', manifest.at],
+      ['prov', manifest.prov],
       ['span', new Map<string, unknown>([['from', manifest.span.from], ['to', manifest.span.to]])],
       ['chain', new Map<string, unknown>([['anchor', manifest.chain.anchor], ['head', manifest.chain.head]])],
       [
@@ -803,6 +827,7 @@ function readItem(raw: unknown, position: string): PackItem {
   return {
     id: requireText(map.get('id'), `${position}.id`, ID_MAX_BYTES),
     iat: requireStamp(map.get('iat'), `${position}.iat`),
+    prov: requireProvenance(map.get('prov'), `${position}.prov`),
     prev: requireDigest(map.get('prev'), `${position}.prev`),
     receipt,
   };
@@ -854,6 +879,23 @@ function requireSlot(value: unknown, position: string): PackAnchorSlot {
 function requireArm(value: unknown, position: string): PackWeighingArm {
   if (value !== 'served' && value !== 'embedded') {
     throw badManifest(`${position} must be 'served' or 'embedded', got ${typeof value === 'string' ? `'${value}'` : String(value)}`);
+  }
+  return value;
+}
+
+/**
+ * One of the three provenance values, read as the closed vocabulary `provenance.ts` states.
+ *
+ * A fourth label is refused rather than read as whichever of the three it resembled, which is the
+ * confusion the closed set exists to make impossible: the value states where material came from, and a
+ * reader that guessed at an unknown label would be reporting a provenance the document never stated.
+ * There is no `PACK_UNSUPPORTED_LABEL` in this container's family: a value at this position outside the
+ * three is the member not being the one this version defines, and `PACK_BAD_MANIFEST` is the answer the
+ * format already gives every such position, beside `custody.a` and `custody.k.slot`.
+ */
+function requireProvenance(value: unknown, position: string): Provenance {
+  if (!isProvenance(value)) {
+    throw badManifest(`${position} must be one of ${PROVENANCES.map((one) => `'${one}'`).join(', ')}, got ${typeof value === 'string' ? `'${value}'` : String(value)}`);
   }
   return value;
 }
@@ -1289,6 +1331,24 @@ export function resolveAttached(manifest: PackManifest, digest: Uint8Array): Pac
 }
 
 /**
+ * The pack's own provenance, weighed against its items.
+ *
+ * The member is not a parameter: it is the weakest of the items' values, and a reader refuses any other
+ * value in either direction, because a stronger value would claim more than the material carries and a
+ * weaker one would state a provenance nothing in the pack has. The two directions are one refusal
+ * because the member has one rule, and the sentence names both figures so a writer that miscalculated
+ * the reduction reads what the items reduce to rather than a bare rejection. Both members sit inside one
+ * signature, so a disagreement is the document contradicting itself and not a deployment that
+ * misremembered, which is the distinction this container exists to keep decidable.
+ */
+function assertProvReduces(manifest: PackManifest): void {
+  const weakest = reduceProvenance(manifest.items.map((one) => one.prov));
+  if (manifest.prov !== weakest) {
+    throw badManifest(`prov is '${manifest.prov}' where the weakest of the items is '${weakest}'`);
+  }
+}
+
+/**
  * The `held` floor, which is the one statement in the manifest about the store as a whole that the container
  * carrying it can check. A pack covers one span and the duty runs against everything still held, so the oldest
  * receipt in the container need not be the oldest one retained; what follows from being in here at all is that
@@ -1331,6 +1391,7 @@ function parseManifest(bytes: Uint8Array): PackManifest {
   const manifest: PackManifest = {
     v: 1,
     at,
+    prov: requireProvenance(raw.get('prov'), 'prov'),
     span,
     chain: readChain(chainMap),
     duty: readDuty(dutyMap, at),
@@ -1338,6 +1399,7 @@ function parseManifest(bytes: Uint8Array): PackManifest {
     custody: readCustody(raw.get('custody')),
     attached: readAttached(raw.get('attached')),
   };
+  assertProvReduces(manifest);
   assertHeldCoversItems(manifest);
   assertCustodyResolves(manifest);
   assertAttachedResolves(manifest);
@@ -1346,9 +1408,10 @@ function parseManifest(bytes: Uint8Array): PackManifest {
 
 /**
  * A manifest read and a signature not yet checked: shape, version, closure, widths, the epoch and zero floors,
- * the span's bound on every item, the two stamps that order themselves against `at`, unique names and the one
- * item the format refuses to be without. None of it needs a key to be true, so a document that contradicts
- * itself is refused whoever signed it.
+ * the span's bound on every item, the two stamps that order themselves against `at`, unique names, the one
+ * item the format refuses to be without, and the reduction the pack's own provenance is held to against its
+ * items' values. None of it needs a key to be true, so a document that contradicts itself is refused whoever
+ * signed it.
  */
 export function decodePack(bytes: Uint8Array): DecodedPack {
   const envelope = readEnvelope(bytes);
