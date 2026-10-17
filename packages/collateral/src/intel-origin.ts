@@ -469,13 +469,13 @@ export const INTEL_PCK_CRL: DeclaredOriginDeclaration = {
  * `content-disposition: attachment; filename=Milan.pem`, a 4602-byte body holding two PEM certificates
  * in the order the chain presents them. The per-chip route is published at
  * `https://kdsintf.amd.com/vcek/v1/{product_name}/{hwid}` and states its TCB as query members; a request
- * with a fabricated all-zero hwid answered 400, so this lane holds no served VCEK and keeps none. The
+ * with a fabricated all-zero hwid answered 400, so this package holds no served VCEK and keeps none. The
  * older `kds.amd.com` name does not resolve.
  *
  * What a KDS answer is, either way, is a certificate chain or a certificate, not a TCB status list. A
  * reader could hand the bytes to a verifier that decides the chain and the report binding, and this path
- * would then be reporting what a verifier made of them rather than deciding a hardware pass. This lane
- * implements neither arm. The two reasons are stated rather than folded together: no served VCEK confirms
+ * would then be reporting what a verifier made of them rather than deciding a hardware pass. This
+ * package implements neither arm. The two reasons are stated rather than folded together: no served VCEK confirms
  * the per-chip answer's encoding and TCB query members, and the chain walk in `read.ts` reads
  * ECDSA-P256 certificates alone while AMD's root and intermediate are RSA and a VCEK is P-384, so the
  * existing primitives cannot weigh this chain even when it arrives.
