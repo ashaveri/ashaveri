@@ -410,6 +410,56 @@ export const INTEL_QE_IDENTITY: IntelOriginDeclaration = {
   cache: { keyMembers: ['origin', 'platform', 'level'], ...CACHE_RULE },
 };
 
+/**
+ * Intel's PCK CRL: the signed revocation list for the platform and processor PCK certificates.
+ *
+ * The route and the answer shape are measured, not inferred. Asked at
+ * `https://api.trustedservices.intel.com/sgx/certification/v4/pckcrl?ca=processor&encoding=der` on
+ * 17 October 2026, the host answered 200 with `content-type: application/pkix-crl` and a 1002-byte body
+ * beginning with the DER sequence tag `30 82`; the same path with `ca=platform` answered 200 with 3354
+ * bytes. The issuer chain arrives beside the body in the response's `SGX-PCK-CRL-Issuer-Chain` header as
+ * URL-encoded PEM, the same spelling the two JSON documents use for their chains. Neither answer is a
+ * JSON document, and no bytes from either are kept here: a service's output travels as a reference, not
+ * as a committed blob.
+ *
+ * This package reads no CRL. `parseCertificateChain` in `@ashaveri/attest-core` parses certificates and
+ * stops there; a DER `CertificateList` needs a reader for its `tbsCertList`, its `thisUpdate` and
+ * `nextUpdate`, and its revoked serial numbers before any signature can be weighed. A list read without
+ * that reader would be a field name invented at the call site, so an appraisal of this origin stops at
+ * the declaration and names the missing parser.
+ *
+ * What a reader would owe once it exists is stated here so the vocabulary is not reinvented later. A list
+ * speaks for the window between its own `thisUpdate` and `nextUpdate`; an instant outside that window
+ * answers `COLLATERAL_WINDOW_CLOSED`, because a list that stood last month is not a statement about now.
+ * `COLLATERAL_REVOKED_BY_VENDOR` is the answer only where the signed list names the certificate asked
+ * about. A list that does not name it says that the issuer had not revoked it as of `thisUpdate`; that is
+ * not a statement that the certificate is trusted, and no arm here reads it as one.
+ */
+export const INTEL_PCK_CRL: DeclaredOriginDeclaration = {
+  name: 'intel-pck-crl',
+  host: 'api.trustedservices.intel.com',
+  method: 'GET',
+  mediaType: 'application/pkix-crl',
+  answer: 'der-crl',
+  /** Measured beside the answer: the header that carries this list's issuer chain. */
+  chainHeader: 'SGX-PCK-CRL-Issuer-Chain',
+  timeoutMs: 5000,
+  maxResponseBytes: 65536,
+  refusals: REFUSALS,
+  reader: { as: 'declared-only', lacks: 'a DER CRL parser' },
+  routes: [
+    {
+      name: 'pck-crl',
+      path: '/sgx/certification/v4/pckcrl?ca={ca}&encoding=der',
+      method: 'GET',
+      mediaType: 'application/pkix-crl',
+      answer: 'der-crl',
+      knowledge: 'historical',
+    },
+  ],
+  cache: null,
+};
+
 /** The origins with a reader here. A declaration elsewhere in this file is a route, not a reader. */
 export const SERVED_ORIGINS: readonly ReadCollateralOrigin[] = ['intel-tcb-info', 'intel-qe-identity'];
 
@@ -421,6 +471,7 @@ const BY_ORIGIN: Record<ReadCollateralOrigin, IntelOriginDeclaration> = {
 /** Every origin this file declares, read or not, keyed by the name a query uses. */
 export const ORIGIN_DECLARATIONS: Partial<Record<ServedCollateralOrigin, OriginDeclaration>> = {
   ...BY_ORIGIN,
+  'intel-pck-crl': INTEL_PCK_CRL,
 };
 
 /** Every name this file declares, in the order the declarations were written. */
@@ -439,12 +490,10 @@ export function declarationFor(origin: CollateralOriginName): IntelOriginDeclara
   }
   const declared = ORIGIN_DECLARATIONS[origin];
   if (declared !== undefined && isDeclaredOnly(declared)) {
-    const route = declared.routes[0];
-    const where = route === undefined ? declared.host : `${declared.host}${route.path}`;
     return {
       refusal: collateralRefusal(
         'COLLATERAL_ORIGIN_UNSUPPORTED',
-        `${origin} is declared at ${where} but unread; this reads ${SERVED_ORIGINS.join(' and ')}; missing: ${declared.reader.lacks}`,
+        `${origin} is declared at ${declared.host} but unread; this reads ${SERVED_ORIGINS.join(' and ')}; missing: ${declared.reader.lacks}`,
         ['origin'],
       ),
     };

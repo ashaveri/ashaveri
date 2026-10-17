@@ -8,6 +8,7 @@ export {
 export type { CollateralErrorCode, CollateralInputName, CollateralRefusal, CollateralVerdict } from './errors.js';
 export {
   DECLARED_ORIGINS,
+  INTEL_PCK_CRL,
   INTEL_QE_IDENTITY,
   INTEL_TCB_INFO,
   ORIGIN_DECLARATIONS,
