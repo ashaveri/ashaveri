@@ -289,6 +289,30 @@ describe('assessRetention', () => {
     expect(assessment.coverage.ranges).toContainEqual({ from: 41, to: 60 });
   });
 
+  it('answers not-met for an interior gap the document does not state', () => {
+    // The runs' own edges state the hole and no `gaps` row repeats it. This is the case the continuity
+    // check alone owns: remove that check and every other member of this document supports met.
+    const document = documentFor();
+    (document['coverage'] as Block)['runs'] = [
+      { from: 1, to: 40 },
+      { from: 61, to: 100 },
+    ];
+    (document['coverage'] as Block)['acknowledged'] = [
+      { from: 1, to: 40 },
+      { from: 61, to: 100 },
+    ];
+    (document['coverage'] as Block)['checkpoints'] = [
+      { range: { from: 1, to: 40 }, at: PERIOD_FROM, head: OTHER },
+      { range: { from: 61, to: 100 }, at: PERIOD_TO, head: HEAD },
+    ];
+    document['assessment'] = { outcome: 'not-met' };
+    const assessment = assessRetention(document);
+    expect(assessment.outcome).toBe('not-met');
+    expect(assessment.coverage.result).toBe('gap');
+    expect(assessment.coverage.ranges).toContainEqual({ from: 41, to: 60 });
+    expect(assessment.coverage.reasons.join(' ')).toContain('41 to 60');
+  });
+
   it('answers not-met for a suffix loss against the pinned head', () => {
     const document = documentFor();
     (document['coverage'] as Block)['runs'] = [{ from: 1, to: 90 }];

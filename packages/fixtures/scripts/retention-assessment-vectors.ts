@@ -150,6 +150,25 @@ const ASSESSMENT_ROWS: readonly AssessmentRow[] = [
     document: interiorGap('not-met'),
   },
   {
+    name: 'unstated-interior-gap-not-met',
+    note: 'The intake observed sequences 1 through 40 and 61 through 100, acknowledged the same two ranges, and says nothing about the missing stretch: no `gaps` row states it. The edges of the runs state it, and the reading derives the missing range from them and answers not met. Coverage is a property of the sequence the evidence supports, not of the findings a writer chose to list, which is the rule a `gaps` row cannot be the only witness for.',
+    document: withEdit((document) => {
+      coverageOf(document)['runs'] = [
+        { from: 1, to: 40 },
+        { from: 61, to: 100 },
+      ];
+      coverageOf(document)['acknowledged'] = [
+        { from: 1, to: 40 },
+        { from: 61, to: 100 },
+      ];
+      coverageOf(document)['checkpoints'] = [
+        { range: { from: 1, to: 40 }, at: PERIOD_FROM, head: OTHER },
+        { range: { from: 61, to: 100 }, at: PERIOD_TO, head: HEAD },
+      ];
+      document['assessment'] = { outcome: 'not-met' };
+    }),
+  },
+  {
     name: 'suffix-loss-against-the-pinned-head-not-met',
     note: 'The intake observed sequences 1 through 90 against a declared range that ends at 100, and states the tail it lost. The observed head stands at 90 and the customer pinned a head for 100, so the suffix loss is visible against the pin rather than only against the runs. The answer is not met.',
     document: withEdit((document) => {

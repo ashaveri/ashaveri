@@ -307,7 +307,7 @@ specific to that case.
 - **Retention assessment.** Take the document out of the row and hand it to `parseRetentionAssessment` for the
   layout's answer and to `assessRetention` for the outcome, then compare the outcome, the coverage result, its
   basis, ranges and reasons, and the assessment's own reasons with the row. `retention-assessment-v1.json`
-  publishes 14 assessment rows and 15 refusals. The assessed rows are whole documents the layout takes; each
+  publishes 15 assessment rows and 15 refusals. The assessed rows are whole documents the layout takes; each
   states the outcome the reading computed for it when the file was written, and a row whose evidence moved
   without its stated outcome moving is a file the generator refuses. A refused row states `stage`, which is
   `layout` where `parseRetentionAssessment` refused the document, which `assessRetention` then refuses with the
