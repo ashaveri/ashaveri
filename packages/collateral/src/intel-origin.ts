@@ -93,7 +93,7 @@ interface OriginDeclarationCommon {
   readonly method: 'GET' | 'POST';
   /** The media type the answer arrives in. */
   readonly mediaType: string;
-  /** What an answer from this origin is, which is the shape its first route names. */
+  /** What an answer from this origin is, where one shape describes the declaration; each route states its own. */
   readonly answer: CollateralAnswerShape;
   /**
    * The response header that carries this document's issuer chain, or null where no served answer recorded here

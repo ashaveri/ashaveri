@@ -4,9 +4,10 @@ import type { CollateralRefusal } from './errors.js';
 export type IntelPlatform = 'sgx' | 'tdx';
 
 /**
- * Every path an appraisal could ask collateral of. Two are served here, and the other four are named
- * so that asking for one answers with the sentence "this origin is not read here" rather than with a
- * type error a caller could only reach by deleting the question.
+ * Every path an appraisal could ask collateral of. Two are read here, and the other four are declared
+ * with the host and routes their vendors publish and refused with the reader they lack, so asking for
+ * one answers with a sentence rather than a type error a caller could only reach by deleting the
+ * question.
  */
 export type CollateralOriginName =
   | 'intel-tcb-info'

@@ -297,6 +297,18 @@ rows for every vendor file this repository tracks. The evidence document reaches
 deployment's own evidence URL, in `strict` mode, and that fetch is to the deployment rather than to
 us.
 
+**The origins beyond the two Intel documents.** `@ashaveri/collateral` names six origins and reads
+two. The Intel PCK CRL, AMD KDS, NVIDIA RIM and NVIDIA OCSP are declared with the host, route and
+answer shape their vendors publish, and an appraisal of any of them answers
+`COLLATERAL_ORIGIN_UNSUPPORTED` with what a reader would still need: a DER CRL parser, a served VCEK
+sample and an RSA/P-384 chain reader, a served RIM body and an XML DSig reader, or a served OCSP
+response and a DER OCSP parser. No vendor-service bytes are committed, because a service's output
+travels as a reference and a certificate a platform produced travels as bytes its caller supplies.
+Measured on 17 October 2026: Intel's PCK CRL answered 200 with `application/pkix-crl`;
+`kds.amd.com` did not resolve while `kdsintf.amd.com/vcek/v1/Milan/cert_chain` answered 200 with two
+PEM certificates; NVIDIA's RIM service answered 403 and its OCSP endpoint answered 405 to a GET.
+None of those answers is read as a verdict, and none of them is a hardware pass.
+
 **The planned collateral service.** This project will run a service publishing exactly
 the collateral named above: the TCB info, the QE identity and the revocation status, and the reference
 measurements a device verdict needs, all fetched from Intel's, AMD's and NVIDIA's own endpoints and
