@@ -1,3 +1,4 @@
+#!/bin/sh
 # Weights arrive on a mount the gateway does not control. Checking the manifest against
 # the files before the first receipt is signed means a swapped model produces a loud
 # startup failure instead of a verifiable receipt for the wrong weights.

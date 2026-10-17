@@ -32,6 +32,5 @@ COPY --from=build /app /app
 RUN mkdir -p /var/lib/ashaveri/access-log && chown -R node:node /var/lib/ashaveri
 USER node
 EXPOSE 8081
-# The entrypoint file names no interpreter, so this form names the shell that reads it.
-ENTRYPOINT ["/bin/sh", "/app/docker-entrypoint.sh"]
+ENTRYPOINT ["/app/docker-entrypoint.sh"]
 CMD ["--help"]

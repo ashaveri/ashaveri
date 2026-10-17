@@ -83,8 +83,8 @@ function runWithEnv(overrides: Record<string, string | undefined>, ...args: stri
 }
 
 /**
- * The shell that reads the container entrypoint, named by the platform's own location where a bare
- * name is not guaranteed. The file carries no shebang, so the reader is named here rather than by it.
+ * The shell that reads the container entrypoint on this host. The file names `/bin/sh` on its first
+ * line, a path Windows does not have, so the shell is named here from the platform's own location.
  */
 function entrypointShell(): string {
   if (process.platform !== 'win32') return 'sh';
@@ -2006,10 +2006,12 @@ describe('the two weights inputs one run is given', () => {
     spawnBudget(2),
   );
 
-  it('carries no shebang, so the image names the interpreter that reads it', () => {
+  it('pairs the shell entrypoint with the image that execs it', () => {
     const first = readFileSync(ENTRYPOINT_PATH, 'utf8').split('\n')[0] ?? '';
-    expect(first.startsWith('#!'), `the entrypoint starts with ${first}`).toBe(false);
-    expect(readFileSync(DOCKERFILE_PATH, 'utf8')).toContain('ENTRYPOINT ["/bin/sh", "/app/docker-entrypoint.sh"]');
+    // A shell entrypoint names the interpreter that reads it, and the image runs the file directly
+    // rather than naming a second interpreter that could disagree with the first line.
+    expect(first, `the entrypoint starts with ${first}`).toBe('#!/bin/sh');
+    expect(readFileSync(DOCKERFILE_PATH, 'utf8')).toContain('ENTRYPOINT ["/app/docker-entrypoint.sh"]');
   });
 
   it('refuses a live run whose two names are different files', () => {
