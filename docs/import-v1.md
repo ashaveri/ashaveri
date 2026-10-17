@@ -195,5 +195,5 @@ one document.
 Two things remain owed to a real provider, and they are recorded rather than built here. The adapter,
 which routes, retries and maintains one provider's integration, is Confidential to the estate and
 unreleased; and the provider credential belongs to a secret manager and to no repository of ours at all.
-This lane proves what is provable without either: the shape, the rules, the reading, the identity and the
+What is provable without either is here: the shape, the rules, the reading, the identity and the
 determinism, over a synthetic export the generator builds and no provider's bytes.
