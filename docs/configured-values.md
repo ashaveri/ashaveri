@@ -95,9 +95,12 @@ Bounds shipped in the same source, and holding whatever the operator named, are 
 are not rows above: `MAX_CREDENTIALS`, `MAX_TRACKED_PEERS`, `MAX_BUFFERED_BODY`,
 `MAX_CACHED_EVIDENCE`, `MAX_REPORT_DATA_BYTES`, `FIRST_EVENT_TIMEOUT_MS` and
 `MINIMUM_RETENTION_SECONDS` each bound one behaviour, no flag reaches any of them, and the receipt
-store's own retention period is the last of those rather than a duration a deployment chooses per run.
-The period a bounded record states is chosen per run, by `--receipts-record-kind`, and it is a statement
-inside the record rather than a bound this process enforces.
+store's own retention period is `MINIMUM_RETENTION_SECONDS` rather than a duration a deployment
+chooses per run. `SIDECAR_BLOCK_RECORDS` is a shipped default of the same kind and the checkpoint
+cadence: the count of records a sidecar block indexes, read by the store's append and resume paths,
+and reached by no flag. The period a bounded record states is chosen per run, by
+`--receipts-record-kind`, and it is a statement inside the record rather than a bound this process
+enforces.
 
 ## 3. Environment settings the operator declares
 

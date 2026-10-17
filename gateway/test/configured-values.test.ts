@@ -72,6 +72,13 @@ const TABLES: readonly TableSpec[] = [
   { header: SECRET_TABLE, classCell: 4, fileCell: 5, className: 'never in a commit or a log' },
 ];
 
+/** The three classes the document states, spelled as its tables carry them. */
+const CLASSES: readonly string[] = [
+  "the operator's to declare",
+  'shipped default',
+  'never in a commit or a log',
+];
+
 interface DocRow {
   /** The row's subject, with its backticks and a flag's leading dashes removed. */
   readonly name: string;
@@ -320,6 +327,7 @@ describe('docs/configured-values.md against the flags gateway/src/cli.ts accepts
   it('carries each row in the class its table was written for, and names a file for it', () => {
     for (const table of TABLES) {
       for (const row of rows(table.header)) {
+        expect(CLASSES, `${row.name} states a class the document defines`).toContain(row.cells[table.classCell]);
         expect(row.cells[table.classCell], `${row.name} states the class of its own table`).toBe(table.className);
         const file = unbacktick(row.cells[table.fileCell] ?? '');
         expect(file.length, `${row.name} names the file it is read from`).toBeGreaterThan(0);
@@ -339,13 +347,30 @@ describe('docs/configured-values.md against the flags gateway/src/cli.ts accepts
     }
   });
 
-  it('quotes as a default only a name a table carries or a literal the code holds in a defaulting position', () => {
+  it('quotes as a default only a value the class that default belongs to holds', () => {
+    // A flag's class is the operator's to declare, so a default it names has to belong to one of the
+    // other tables: a shipped constant the default table names, a deployment value the settings table
+    // names, or a literal the block itself holds in a defaulting position. A credential is in none of
+    // those classes, so a default can never carry one.
     const literals = literalsHeldInDefaultingPositions();
-    const names = new Set([...fallbackConstants, ...environment]);
+    const shipped = new Set(defaultRows.map((row) => row.name));
+    const settings = new Set(settingRows.map((row) => row.name));
     for (const row of flagRows) {
       for (const token of backticked(row.cells[4])) {
-        const backed = /^[A-Z][A-Z0-9_]+$/u.test(token) ? names.has(token) : literals.has(token);
-        expect(backed, `--${row.name} states a default the source backs: ${token}`).toBe(true);
+        if (/^[A-Z][A-Z0-9_]+$/u.test(token) && settings.has(token)) {
+          expect(environment.has(token), `--${row.name} defaults to ${token}`).toBe(true);
+          continue;
+        }
+        if (/^[A-Z][A-Z0-9_]+$/u.test(token)) {
+          expect(
+            shipped.has(token),
+            `--${row.name} defaults to ${token}, which the shipped-default table does not name`,
+          ).toBe(true);
+          continue;
+        }
+        expect(literals.has(token), `--${row.name} defaults to ${token}, which no defaulting position holds`).toBe(
+          true,
+        );
       }
     }
   });
@@ -438,5 +463,86 @@ describe('the environment variables against the code that reads them', () => {
         .filter((name) => credential.all.has(name)),
       "the settings table carries the credential's name and kind, which are public, and not its key",
     ).toEqual(['ASHAVERI_CREDENTIAL_ID', 'ASHAVERI_CREDENTIAL_KIND']);
+  });
+});
+
+/**
+ * The class a value may sit in, as distinct from the class its table was written for.
+ *
+ * The checks above hold each row to the class of its own table. What they do not say is that a value
+ * belongs to one class only: a name in two tables would let a reader take two answers about what a
+ * deployment may set, and the default rows would stop being the whole set of fallback sites. These
+ * checks state that separation, the credential rule that keeps key material out of every shipped
+ * default and out of the document as a value, and the three values the inventory was asked to name
+ * beyond the flags and constants it already carries.
+ */
+describe('the class a configured value may sit in', () => {
+  it('puts every value in one table, so each value carries one class', () => {
+    const seen = new Map<string, string>();
+    for (const table of TABLES) {
+      for (const row of rows(table.header)) {
+        const previous = seen.get(row.name);
+        expect(
+          previous,
+          `${row.name} sits in ${table.className} and in ${previous ?? 'no other table'}`,
+        ).toBeUndefined();
+        seen.set(row.name, table.className);
+      }
+    }
+  });
+
+  it('does not give a deployment value a shipped default', () => {
+    // The default table is the set of values this repository chooses when an operator names nothing.
+    // An environment variable is the operator's to declare, so no row of it can stand there as well.
+    const shipped = new Set(defaultRows.map((row) => row.name));
+    for (const row of [...settingRows, ...secretRows]) {
+      expect(shipped.has(row.name), `${row.name} is a deployment value and a shipped default`).toBe(false);
+    }
+  });
+
+  it('keeps credential material out of every shipped default and out of the document as a value', () => {
+    const { secret } = namesTheCredentialCarries();
+    const row = secretRows.find((each) => each.name === secret);
+    if (row === undefined) throw new Error(`the secret table does not name ${secret}`);
+    // Never a shipped default, and never a setting: no other table names it, and no flag runs it
+    // when the operator named nothing.
+    expect(defaultRows.map((each) => each.name), `${secret} is a default`).not.toContain(secret);
+    expect(settingRows.map((each) => each.name), `${secret} is a setting`).not.toContain(secret);
+    for (const flag of flagRows) {
+      expect(backticked(flag.cells[4]), `--${flag.name} runs ${secret} by default`).not.toContain(secret);
+    }
+    // Named by its shape and never by its value: the row states a shape, and the source that reads
+    // it takes the value out of an environment record rather than assigning one.
+    for (const cell of row.cells) {
+      expect(cell, `${secret} states a value where a shape belongs`).not.toMatch(/\b[0-9a-fA-F]{64}\b/u);
+    }
+    const source = readSourceFile(`${FROM_FIXTURES}${unbacktick(row.cells[5] ?? '')}`);
+    expect(source, `${secret} is read from the environment`).toContain('env[CREDENTIAL_ENV.secret]');
+    for (const line of source.split('\n')) {
+      if (!line.includes('CREDENTIAL_ENV.secret')) continue;
+      expect(line, `${secret} carries a literal on this line`).not.toMatch(/\b[0-9a-fA-F]{64}\b/u);
+    }
+  });
+
+  it('leaves the bounds paragraph the only place a constant no flag reaches is named', () => {
+    // The default table is where a shipped default is read in a defaulting position. A constant the
+    // store holds as a bound belongs to the paragraph, and the paragraph is where the checkpoint
+    // cadence is named: SIDECAR_BLOCK_RECORDS is a store format constant read in no defaulting
+    // position, and no flag reaches it.
+    const outside = namesOutsideTheTable();
+    expect(outside).toContain('SIDECAR_BLOCK_RECORDS');
+    expect(defaultRows.map((row) => row.name)).not.toContain('SIDECAR_BLOCK_RECORDS');
+    // MAX_SERVED_RECEIPTS was split into the shipped retained and served counts, and a row for the
+    // old name would describe a constant the source no longer declares.
+    expect(defaultRows.map((row) => row.name)).not.toContain('MAX_SERVED_RECEIPTS');
+  });
+
+  it('names the horizon threshold and the epoch trigger beside the checkpoint cadence', () => {
+    // The row this inventory answers asked for all three. The threshold is the flag and the constant
+    // the intake guard reads; the epoch is the flag the manifest publishes. A document that named the
+    // cadence and dropped either would answer the row with a third of what it asked for.
+    expect(flagRows.map((row) => row.name)).toContain('receipts-guard-at');
+    expect(defaultRows.map((row) => row.name)).toContain('DEFAULT_INTAKE_GUARD_FRACTION');
+    expect(flagRows.map((row) => row.name)).toContain('epk');
   });
 });
