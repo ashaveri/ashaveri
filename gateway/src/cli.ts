@@ -404,8 +404,8 @@ function refuseToStart(message: string): never {
  *
  * A direct run outside the container names neither environment value and is not a deployment with two
  * inputs: it keeps the existing requirement for the flag and invents no pairing it never made. A mock
- * run serves a model of its own and reads no manifest, so values left in its environment reach
- * nothing here.
+ * run serves a model of its own and reads no manifest, so values left in its environment pass no
+ * check here.
  */
 function weightsManifestPath(values: CliOptions): string | undefined {
   const dir = process.env['ASHAVERI_WEIGHTS_DIR'];
@@ -443,7 +443,7 @@ function weightsManifestPath(values: CliOptions): string | undefined {
   }
   if (verifiedFile !== flagFile) {
     refuseToStart(
-      `--weights-manifest names ${flag} and ASHAVERI_WEIGHTS_MANIFEST names ${manifest}, which do not resolve to the same file, so the bytes the boot check verified are not the bytes a receipt would carry`,
+      `--weights-manifest names ${flag} and ASHAVERI_WEIGHTS_MANIFEST names ${manifest}, which do not resolve to the same file, so the manifest the boot check verified is not the manifest a receipt would carry`,
     );
   }
   return flag;

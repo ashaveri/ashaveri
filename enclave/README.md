@@ -59,9 +59,9 @@ curl -L -o enclave/release/<model>.gguf https://huggingface.co/<repo>/resolve/ma
 node enclave/weights.mjs generate enclave/release enclave/release/weights-manifest.json
 ```
 
-`generate` prints the manifest digest. That digest is what the gateway reads from
-`--weights-manifest` and puts in the manifest's `models[].wts` and in every receipt for that model,
-so record it: it is the value a client compares against after it has the manifest file itself.
+`generate` prints the manifest digest. That digest is what the gateway computes from the manifest
+`--weights-manifest` names and puts in the manifest's `models[].wts` and in every receipt for that
+model, so record it: it is the value a client compares against after it has the manifest file itself.
 `verify` re-walks the directory and lists every difference at once (content mismatch,
 canonical-order problem, missing or extra file) and exits non-zero; the entrypoint runs it before
 the gateway starts signing.

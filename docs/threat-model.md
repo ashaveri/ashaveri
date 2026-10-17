@@ -169,10 +169,10 @@ serving side:
   the container sets both `ASHAVERI_WEIGHTS_DIR` and `ASHAVERI_WEIGHTS_MANIFEST`, which the
   bundled compose does (see [enclave/README.md](../enclave/README.md)), so a swapped model file
   stops the process at startup instead of quietly signing the wrong weights. The entrypoint and the
-  gateway refuse a deployment that sets one of the two weights inputs without the other, and the
-  gateway refuses a run whose `--weights-manifest` and `ASHAVERI_WEIGHTS_MANIFEST` do not resolve to
-  one file, so the manifest the boot check verified is the manifest whose digest every receipt
-  carries as `wts`.
+  gateway refuse a deployment that sets one of the two weights inputs without the other, and, in a
+  container run that sets both, the gateway refuses a `--weights-manifest` and
+  `ASHAVERI_WEIGHTS_MANIFEST` that do not resolve to one file, so the manifest the boot check
+  verified is the manifest whose digest every receipt carries as `wts`.
 
 What is still true, in both modes:
 
