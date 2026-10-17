@@ -79,6 +79,9 @@ const CLASSES: readonly string[] = [
   'never in a commit or a log',
 ];
 
+/** The shape a proof-of-possession credential is read as: 64 hex digits and no surrounding word. */
+const CREDENTIAL_SHAPE = /\b[0-9a-fA-F]{64}\b/u;
+
 interface DocRow {
   /** The row's subject, with its backticks and a flag's leading dashes removed. */
   readonly name: string;
@@ -178,21 +181,26 @@ function constantsReadInDefaultingPositions(): Set<string> {
 }
 
 /**
- * Literals standing in a defaulting position in the gateway's source: a block default, the left of a
- * `??`, or the arm taken when a value is absent. A row may quote one of these as a flag's default and
- * nothing else, which is what keeps a number nobody changed in source from reading as a fact.
+ * The literals standing in one flag's own defaulting positions: the default written beside its
+ * declaration, the right of a `??` over that flag's value, or the arm taken when the value is absent.
+ * A row may quote one of these as that flag's default and nothing else, so a literal held for another
+ * flag cannot back this one's row.
  */
-function literalsHeldInDefaultingPositions(): Set<string> {
+function literalDefaultsOf(flag: FlagDeclaration): Set<string> {
   const found = new Set<string>();
+  if (flag.literalDefault !== undefined) found.add(flag.literalDefault);
+  const camel = flag.name.replace(/-([a-z])/gu, (_match, letter: string) => letter.toUpperCase());
+  const reference = `(?:(?:values|options)(?:\\.${camel}|\\[['"]${flag.name}['"]\\]))`;
+  const fallbacks = [
+    new RegExp(`${reference}\\s*\\?\\?\\s*'([^']*)'`, 'gu'),
+    new RegExp(`${reference}\\s*===\\s*undefined\\s*\\?\\s*(?:'([^']*)'|(\\d+))\\s*:`, 'gu'),
+  ];
   for (const source of gatewaySources().values()) {
     const code = codeLines(source);
-    for (const literal of code.matchAll(/default:\s*'([^']*)'/gu)) found.add(literal[1]!);
-    for (const literal of code.matchAll(/\?\?\s*'([^']*)'/gu)) found.add(literal[1]!);
-    for (const literal of code.matchAll(/=== undefined \?\s*(?:'([^']*)'|(\d+))\s*:/gu)) {
-      found.add(literal[1] ?? literal[2]!);
+    for (const fallback of fallbacks) {
+      for (const literal of code.matchAll(fallback)) found.add(literal[1] ?? literal[2]!);
     }
   }
-  if (found.size === 0) throw new Error('gateway/src holds no literal in a defaulting position for a row to quote');
   return found;
 }
 
@@ -349,13 +357,15 @@ describe('docs/configured-values.md against the flags gateway/src/cli.ts accepts
 
   it('quotes as a default only a value the class that default belongs to holds', () => {
     // A flag's class is the operator's to declare, so a default it names has to belong to one of the
-    // other tables: a shipped constant the default table names, a deployment value the settings table
-    // names, or a literal the block itself holds in a defaulting position. A credential is in none of
+    // other classes: a shipped constant the default table names, a deployment value the settings table
+    // names, or a literal held in that flag's own defaulting position. A credential is in none of
     // those classes, so a default can never carry one.
-    const literals = literalsHeldInDefaultingPositions();
     const shipped = new Set(defaultRows.map((row) => row.name));
     const settings = new Set(settingRows.map((row) => row.name));
     for (const row of flagRows) {
+      const flag = codeFlags.find((each) => each.name === row.name);
+      if (flag === undefined) throw new Error(`the option block declares no --${row.name}`);
+      const literals = literalDefaultsOf(flag);
       for (const token of backticked(row.cells[4])) {
         if (/^[A-Z][A-Z0-9_]+$/u.test(token) && settings.has(token)) {
           expect(environment.has(token), `--${row.name} defaults to ${token}`).toBe(true);
@@ -368,9 +378,10 @@ describe('docs/configured-values.md against the flags gateway/src/cli.ts accepts
           ).toBe(true);
           continue;
         }
-        expect(literals.has(token), `--${row.name} defaults to ${token}, which no defaulting position holds`).toBe(
-          true,
-        );
+        expect(
+          literals.has(token),
+          `--${row.name} defaults to ${token}, which no defaulting position of this flag holds`,
+        ).toBe(true);
       }
     }
   });
@@ -473,8 +484,8 @@ describe('the environment variables against the code that reads them', () => {
  * belongs to one class only: a name in two tables would let a reader take two answers about what a
  * deployment may set, and the default rows would stop being the whole set of fallback sites. These
  * checks state that separation, the credential rule that keeps key material out of every shipped
- * default and out of the document as a value, and the three values the inventory was asked to name
- * beyond the flags and constants it already carries.
+ * default and out of the document as a value, and the three values the inventory names beyond the
+ * flags and constants it already carries.
  */
 describe('the class a configured value may sit in', () => {
   it('puts every value in one table, so each value carries one class', () => {
@@ -504,6 +515,15 @@ describe('the class a configured value may sit in', () => {
     const { secret } = namesTheCredentialCarries();
     const row = secretRows.find((each) => each.name === secret);
     if (row === undefined) throw new Error(`the secret table does not name ${secret}`);
+    // A run that names nothing falls back to a flag default or a shipped-default value, and a key
+    // written in either is a key published with the code. A 64 hex digit run is the shape a
+    // proof-of-possession credential is read as, so neither column may carry one.
+    for (const flag of flagRows) {
+      expect(flag.cells[4] ?? '', `--${flag.name} states a key where a default belongs`).not.toMatch(CREDENTIAL_SHAPE);
+    }
+    for (const each of defaultRows) {
+      expect(each.cells[2] ?? '', `${each.name} states a key where a value belongs`).not.toMatch(CREDENTIAL_SHAPE);
+    }
     // Never a shipped default, and never a setting: no other table names it, and no flag runs it
     // when the operator named nothing.
     expect(defaultRows.map((each) => each.name), `${secret} is a default`).not.toContain(secret);
@@ -512,15 +532,17 @@ describe('the class a configured value may sit in', () => {
       expect(backticked(flag.cells[4]), `--${flag.name} runs ${secret} by default`).not.toContain(secret);
     }
     // Named by its shape and never by its value: the row states a shape, and the source that reads
-    // it takes the value out of an environment record rather than assigning one.
+    // it takes the value out of an environment record rather than assigning one. Every line of that
+    // source is read, because a key on a line that never names the secret is still a key in the file.
     for (const cell of row.cells) {
-      expect(cell, `${secret} states a value where a shape belongs`).not.toMatch(/\b[0-9a-fA-F]{64}\b/u);
+      expect(cell, `${secret} states a value where a shape belongs`).not.toMatch(CREDENTIAL_SHAPE);
     }
     const source = readSourceFile(`${FROM_FIXTURES}${unbacktick(row.cells[5] ?? '')}`);
     expect(source, `${secret} is read from the environment`).toContain('env[CREDENTIAL_ENV.secret]');
-    for (const line of source.split('\n')) {
-      if (!line.includes('CREDENTIAL_ENV.secret')) continue;
-      expect(line, `${secret} carries a literal on this line`).not.toMatch(/\b[0-9a-fA-F]{64}\b/u);
+    for (const [index, line] of source.split('\n').entries()) {
+      expect(line, `${secret} source line ${String(index + 1)} states a key-shaped literal`).not.toMatch(
+        CREDENTIAL_SHAPE,
+      );
     }
   });
 
@@ -538,9 +560,9 @@ describe('the class a configured value may sit in', () => {
   });
 
   it('names the horizon threshold and the epoch trigger beside the checkpoint cadence', () => {
-    // The row this inventory answers asked for all three. The threshold is the flag and the constant
-    // the intake guard reads; the epoch is the flag the manifest publishes. A document that named the
-    // cadence and dropped either would answer the row with a third of what it asked for.
+    // The inventory names all three: the threshold is the flag and the constant the intake guard
+    // reads, the epoch is the flag the manifest publishes, and the cadence is the store constant the
+    // bounds paragraph carries. Naming the cadence and dropping either would leave the set incomplete.
     expect(flagRows.map((row) => row.name)).toContain('receipts-guard-at');
     expect(defaultRows.map((row) => row.name)).toContain('DEFAULT_INTAKE_GUARD_FRACTION');
     expect(flagRows.map((row) => row.name)).toContain('epk');
