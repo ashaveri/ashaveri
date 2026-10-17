@@ -28,6 +28,8 @@ import { ATTESTED_MARKING, stampedReceiptBytes } from './stamped-receipt.js';
 import { noteSpawn, spawnCeilingForCalls } from './support/spawn-budget.js';
 /** How long one child of the built CLI may live before this file calls it a bug rather than a slow machine. */
 const SPAWN_DEADLINE_MS = 15_000;
+/** The ceiling for the freshness loop: five children at this file's deadline. */
+const MANY_READINGS = { timeout: spawnCeilingForCalls(5, SPAWN_DEADLINE_MS) };
 
 /**
  * `ashaveri verify-handover`, run over bytes of every signed shape it can meet.
@@ -40,7 +42,7 @@ const SPAWN_DEADLINE_MS = 15_000;
  * than by an assertion in this file, which is the only proof worth having that a pack assembled outside
  * the package is a pack the package reads.
  *
- * What is asserted is the separation the six content types exist to draw, visible at the command edge:
+ * What is asserted is the separation the seven content types exist to draw, visible at the command edge:
  * the type found is printed before anything about validity, a document is read by the reader for its
  * own type, and a header changed without a new signature is answered by the signature rather than by a
  * verdict about the shape it now claims to be.
@@ -81,7 +83,7 @@ interface CliResult {
   readonly stderr: string;
 }
 
-function runCli(args: string[], cwd?: string): CliResult {
+function runCli(args: readonly string[], cwd?: string): CliResult {
   noteSpawn(SPAWN_DEADLINE_MS);
   const result = spawnSync(process.execPath, [CLI, ...args], {
     encoding: 'utf8',
@@ -177,7 +179,7 @@ function receiptStampOf(path: string): number {
  * stamps, `at` after the span closes, the revision before the reads, `held` covering the oldest receipt,
  * is computed rather than guessed, and the shipped reader's acceptance is what says so.
  */
-function packDocument(key: SigningKey, ids: readonly string[], movedStamp?: number): Uint8Array {
+function packDocument(key: SigningKey, ids: readonly string[], movedStamp?: number, manifestProv = 'fixture'): Uint8Array {
   const anchor = new Uint8Array(32);
   // The stamps the records are chained under, which the span then bounds. Moving one leaves a manifest
   // that is whole by its own lights, so the only thing a reader can find is that the receipt inside the
@@ -204,7 +206,7 @@ function packDocument(key: SigningKey, ids: readonly string[], movedStamp?: numb
   const manifest = new Map<string, unknown>([
     ['v', 1],
     ['at', at],
-    ['prov', 'fixture'],
+    ['prov', manifestProv],
     ['span', new Map([['from', from], ['to', to]])],
     ['chain', new Map([['anchor', anchor], ['head', previous]])],
     ['duty', new Map<string, unknown>([['art', 'retention-evidence'], ['rev', at - 10], ['required', 31_536_000], ['held', at - from]])],
@@ -458,6 +460,71 @@ describe('ashaveri verify-handover', () => {
 
     const human = runCli(['verify-handover', path, `--key=${RECEIPT_PUBLIC_B64URL}`]);
     expect(human.stdout).toContain('judges neither');
+  });
+
+  it('reports every published item provenance and the manifest reduction in both renderings', () => {
+    // The published pack carries fixture material, and the field is the one statement the reader checks
+    // against the items rather than recomputes from the bytes: a report that dropped it would leave a
+    // reader unable to see that the demonstration material is marked as such.
+    const path = written('published-pack-provenance.cbor', Buffer.from(published(packRow('well-formed-three-items').documentBase64Url, 'pack document'), 'base64url'));
+    const json = verdictOf(runCli(['verify-pack', path, `--key=${published(packRow('well-formed-three-items').read.pinned, 'pack key')}`, '--json']));
+    expect(json.ok).toBe(true);
+    const body = json.document as Record<string, unknown>;
+    expect(body.provenance).toMatchObject({
+      declared: 'fixture',
+      items: [
+        { id: 'receipt-0', prov: 'fixture' },
+        { id: 'receipt-1', prov: 'fixture' },
+        { id: 'receipt-2', prov: 'fixture' },
+      ],
+    });
+    expect(String((body.provenance as { rule: string }).rule)).toContain('weakest of its items');
+    expect((body.items as { prov: string }[]).map((one) => one.prov)).toEqual(['fixture', 'fixture', 'fixture']);
+    // The three registers stay apart: the pack states where its material came from and when it was
+    // assembled, and it states nothing about the present or about freshness.
+    expect(body.freshness).toMatchObject({ current: null, freshness: 'unknown', clockConsulted: false });
+
+    const human = runCli(['verify-pack', path, `--key=${published(packRow('well-formed-three-items').read.pinned, 'pack key')}`]);
+    expect(human.stdout).toContain('provenance:       fixture, the weakest of 3 item(s)');
+    expect(human.stdout).toContain('(fixture)');
+    expect(human.stdout).toContain('freshness:        historical:');
+    expect(human.stdout).toContain('freshness: unknown');
+  });
+
+  it('refuses a pack whose manifest claims more than its items carry', () => {
+    // The member is the reduction and not a parameter, so a manifest stating live over fixture items is
+    // refused even though its signature holds. The refusal names both figures, which is what tells a writer
+    // what the items reduce to rather than only that the document is wrong.
+    const key = signingKeyFromSeed(Buffer.from(RECEIPT_KEY.privateKey, 'hex'));
+    const path = written('pack-claiming-live.cbor', Buffer.from(packDocument(key, [RECEIPT_PATH, SOFTWARE_RECEIPT_PATH], undefined, 'live')));
+    const result = runCli(['verify-pack', path, `--key=${RECEIPT_PUBLIC_B64URL}`, '--json']);
+    expect(result.status).toBe(1);
+    const refusal = verdictOf(result);
+    expect(refusal).toMatchObject({ ok: false, contentType: PACK_CONTENT_TYPE, code: 'PACK_BAD_MANIFEST' });
+    expect(String(refusal.message)).toContain("prov is 'live' where the weakest of the items is 'fixture'");
+  });
+
+  it('reports every reading in the same three registers, with current and freshness unknown', MANY_READINGS, () => {
+    // One shape for every reader, so a port reads one member rather than one wording per document. The
+    // ledger is the seventh type and is asserted beside its own suite.
+    const readings: readonly (readonly [string, readonly string[], string])[] = [
+      ['receipt', ['verify-handover', RECEIPT_PATH, `--key=${RECEIPT_PUBLIC_B64URL}`, '--json'], RECEIPT_CONTENT_TYPE],
+      ['export', ['verify-handover', written('freshness-export.cbor', exportVector('well-formed-plain').bytes), `--key=${EXPORT_KEY_B64URL}`, '--json'], EXPORT_CONTENT_TYPE],
+      ['manifest', ['verify-handover', written('freshness-manifest.cbor', Buffer.from(sealDeploymentManifest(new TextEncoder().encode(manifestDocument()), SEALING_KEY))), `--manifest-key=${Buffer.from(SEALING_KEY.publicKey).toString('base64url')}`, '--json'], DEPLOYMENT_MANIFEST_CONTENT_TYPE],
+      ['redaction', ['verify-handover', AMENDMENT_PATH, AMENDMENT_KEY, `--companion=${AMENDMENT_PACK_PATH}`, '--json'], REDACTION_CONTENT_TYPE],
+      ['inventory', ['verify-handover', INVENTORY_PATH, INVENTORY_KEY, '--json'], EPOCH_INVENTORY_CONTENT_TYPE],
+    ];
+    for (const [name, args, contentType] of readings) {
+      const result = runCli(args);
+      expect(result.status, `${name}: ${result.stderr}`).toBe(0);
+      const report = verdictOf(result);
+      expect(report.contentType, name).toBe(contentType);
+      expect((report.document as { freshness: unknown }).freshness, name).toMatchObject({
+        current: null,
+        freshness: 'unknown',
+        clockConsulted: false,
+      });
+    }
   });
 
   it('refuses a pack whose own original attests a different instant than the record chains it', () => {

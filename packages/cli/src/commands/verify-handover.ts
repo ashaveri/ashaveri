@@ -407,6 +407,15 @@ function readReceipt(bytes: Uint8Array, inputs: Inputs, kid: Uint8Array): Readin
         value: `${toHex(payload.att.d)} at ${payload.att.ts} (${isoOf(payload.att.ts)})`,
         json: { digest: toHex(payload.att.d), timestamp: payload.att.ts },
       },
+      freshnessFact({
+        historical: `the receipt was issued at ${payload.iat} (${isoOf(payload.iat)})`,
+        current: 'not stated, because this run reached no deployment and read no policy',
+        freshness: 'unknown, because the age windows belong to the receipt verb and this run consulted no clock',
+        json: freshnessJson(
+          { issuedAt: payload.iat },
+          `the age windows a policy names are applied by 'ashaveri verify-receipt', and this run applied none`,
+        ),
+      }),
     ],
     notChecked: [
       `the nonce against a challenge, the two digests against any bytes, the pins a policy names and the age windows a clock closes: 'ashaveri verify-receipt' decides those, from the receipt, a policy file and a deployment manifest`,
@@ -460,12 +469,27 @@ async function readPack(bytes: Uint8Array, inputs: Inputs, kid: Uint8Array): Pro
         json: { walked: outcome.walked.length, declared: manifest.items.length },
       },
       {
+        key: 'provenance',
+        label: 'provenance',
+        value: `${manifest.prov}, the weakest of ${String(manifest.items.length)} item(s) (${manifest.items
+          .map((one) => `${one.id}=${one.prov}`)
+          .join(', ')}), as the pack states it: where each record's material came from, which the reader holds to the reduction, and not execution assurance, custody or freshness`,
+        json: {
+          declared: manifest.prov,
+          items: manifest.items.map((one) => ({ id: one.id, prov: one.prov })),
+          rule: 'the manifest states the weakest of its items, and a reader refuses any other value in either direction',
+        },
+      },
+      {
         key: 'items',
         label: 'items',
-        value: outcome.walked.map((one) => `${one.item.id} at ${one.item.iat}, receipt under ${toHex(one.receipt.header.kid)}`).join('; '),
+        value: outcome.walked
+          .map((one) => `${one.item.id} at ${one.item.iat} (${one.item.prov}), receipt under ${toHex(one.receipt.header.kid)}`)
+          .join('; '),
         json: outcome.walked.map((one) => ({
           id: one.item.id,
           iat: one.item.iat,
+          prov: one.item.prov,
           prev: toHex(one.item.prev),
           receiptKid: toHex(one.receipt.header.kid),
           receiptIssuer: one.receipt.payload.iss,
@@ -477,6 +501,15 @@ async function readPack(bytes: Uint8Array, inputs: Inputs, kid: Uint8Array): Pro
         value: `${manifest.duty.art}, revision ${manifest.duty.rev} (${isoOf(manifest.duty.rev)}), required ${manifest.duty.required} s, held ${manifest.duty.held} s, both as the deployment states them`,
         json: manifest.duty,
       },
+      freshnessFact({
+        historical: `the pack was assembled at ${manifest.at} (${isoOf(manifest.at)}) and its records were chained across the span ${manifest.span.from} to ${manifest.span.to} (${isoOf(manifest.span.from)} to ${isoOf(manifest.span.to)})`,
+        current: 'not stated, because this run reached no store and holds no copy a reader kept before',
+        freshness: 'unknown, because this run consulted no clock and compared this pack with no later statement',
+        json: freshnessJson(
+          { assembledAt: manifest.at, span: manifest.span },
+          'whether these receipts are all the deployment still holds, whether the span is the period somebody asked for, and whether a copy held before agrees are answered by no file in this run',
+        ),
+      }),
       ...carriedFacts(weighing),
     ],
     notChecked: [
@@ -720,6 +753,15 @@ function readExport(bytes: Uint8Array, inputs: Inputs, kid: Uint8Array): Reading
           original: one.orig.k === 'inline' ? 'inline' : one.orig.name,
         })),
       },
+      freshnessFact({
+        historical: `the export was assembled at ${manifest.at} (${isoOf(manifest.at)}) and its claim was made at ${manifest.claim.made} (${isoOf(manifest.claim.made)})`,
+        current: 'not stated, because this run fetched nothing from the source the export names',
+        freshness: 'unknown, because this run consulted no clock and compared this export with no later copy',
+        json: freshnessJson(
+          { assembledAt: manifest.at, claimMade: manifest.claim.made },
+          'whether this export is the latest statement from its source, and whether the material still stands, are answered by no field here',
+        ),
+      }),
     ],
     notChecked: [
       'whether this export is complete at the source it came from: no walk can see a store, which is why the endpoints a reader already has cause to believe are compared by that reader and not invented here',
@@ -779,6 +821,15 @@ function readManifest(bytes: Uint8Array, inputs: Inputs, kid: Uint8Array): Readi
       },
       { key: 'models', label: 'models', value: manifest.models.map((one) => `${one.id}@${one.wts}`).join('; '), json: manifest.models },
       { key: 'measurement', label: 'measurement', value: `${manifest.meas.m} (${manifest.meas.tee})`, json: manifest.meas },
+      freshnessFact({
+        historical: 'the manifest carries no assembly instant, so there is no historical stamp to report',
+        current: 'the keys, epochs and measurement above are the document\'s own statement about itself, and this run authenticated that statement only where the seal held',
+        freshness: 'unknown, because this run fetched nothing and compared the document with no later one',
+        json: freshnessJson(
+          null,
+          'a manifest states its own present tense, and whether a deployment still serves it is answered by no file in this run',
+        ),
+      }),
     ],
     notChecked: [
       `which of these keys is trusted for anything: no policy document was read and no digest is cited, so the ${String(manifest.keys.length)} declared key(s) are reported as the deployment's own statement about itself`,
@@ -880,6 +931,15 @@ function readRedaction(bytes: Uint8Array, inputs: Inputs, kid: Uint8Array): Read
         json: toHex(outcome.originalHead),
       },
       { key: 'states', label: 'states', value: manifest.states, json: manifest.states },
+      freshnessFact({
+        historical: `the amendment was stated at ${manifest.at} (${isoOf(manifest.at)})`,
+        current: 'not stated, because this run reached no deployment and compared no later statement about this pack',
+        freshness: 'unknown, because this run consulted no clock',
+        json: freshnessJson(
+          { statedAt: manifest.at },
+          'whether this amendment is the latest statement about the pack, and whether the removal still stands, are answered by no file in this run',
+        ),
+      }),
     ],
     notChecked: [
       `whether the ${String(manifest.removed.length)} record(s) named as removed are unreachable anywhere this deployment still holds them: this run reads the statement and the pack it names, and no file in a bundle shows what else is stored`,
@@ -1073,6 +1133,15 @@ async function readInventory(bytes: Uint8Array, inputs: Inputs, kid: Uint8Array)
           : `${manifest.duty.short.length} of the run's entries fall short of the period the same entry states it owed, as the run states it: ${manifest.duty.short.map((one) => `${printedToken(one.file)} ${printedToken(one.art)} required ${one.required} s, held ${one.held} s, short by ${one.shortBy} s`).join('; ')}`,
         json: manifest.duty,
       },
+      freshnessFact({
+        historical: `the run states the window ${manifest.window.from} to ${manifest.window.to} (${isoOf(manifest.window.from)} to ${isoOf(manifest.window.to)}) and each entry states the instant its pack was assembled`,
+        current: 'not stated, because this run reached no store and read only the artifacts this caller named',
+        freshness: 'unknown, because this run consulted no clock and compared this run with no later closing',
+        json: freshnessJson(
+          { window: manifest.window, entries: outcome.packs.map((one) => ({ file: one.file, at: one.at })) },
+          'whether this run is all the epochs a deployment closed, and whether it is the latest statement about them, are answered by no file here',
+        ),
+      }),
     ],
     notChecked: [
       'whether the two digests an entry names are digests of files that exist beside this document, whether the packs they name are sealed by the keys the entries give, and whether an item count beside an entry is the count of receipts inside that pack: an inventory restates a run rather than proving it, and `ashaveri verify-handover` over each pack file recomputes what an entry claims',
