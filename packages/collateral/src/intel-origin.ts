@@ -516,6 +516,99 @@ export const AMD_KDS: DeclaredOriginDeclaration = {
   cache: null,
 };
 
+/**
+ * NVIDIA's Reference Integrity Manifest service: the signed reference document a GPU's measurements are
+ * weighed against.
+ *
+ * The route is `https://rim.attestation.nvidia.com/v1/rim/{id}`, NVIDIA's Get RIM by ID. Asked at the bare
+ * path on 17 October 2026, the host answered 403 with `content-type: application/json`; no RIM body is
+ * served here without the id a GPU's evidence names. NVIDIA's API reference describes the answer as a
+ * JSON wrapper carrying `$schema`, `id`, `last_updated`, `message`, `request_id`, `rim`, `rim_format` and
+ * `sha256`, with `rim_format` one of `TCG`, `CORIM` or `GENERIC`, and its RIM guide describes the `TCG`
+ * form as SWID XML signed with `ecdsa-sha384`, the certificates inside `ds:X509Certificate`.
+ *
+ * No reader here reaches that document. The package has no XML parser and no XML digital-signature
+ * canonicalization, which a signature over SWID XML needs before any measurement can be read, and no
+ * served RIM body confirms which format a GPU RIM answers in. A reader that assumed one would be
+ * inventing both the variant and the signature rule, so an appraisal stops at the declaration.
+ *
+ * A RIM is a signed reference document and reaches the instant it was published, not the instant it is
+ * read: `last_updated` is when the vendor updated the file, not a validity window, and the package's
+ * `CollateralClaim` can only report that reach as historical knowledge. It is not revocation knowledge,
+ * which belongs to the OCSP route below.
+ */
+export const NVIDIA_RIM: DeclaredOriginDeclaration = {
+  name: 'nvidia-rim',
+  host: 'rim.attestation.nvidia.com',
+  method: 'GET',
+  mediaType: 'application/json',
+  answer: 'swid-rim',
+  /**
+   * The signed SWID document travels in the wrapper's `rim` member, and no response header carries the
+   * certificates beside it. The wrapper's `sha256` is a digest the caller can check, not a chain.
+   */
+  chainHeader: null,
+  timeoutMs: 5000,
+  maxResponseBytes: 65536,
+  refusals: REFUSALS,
+  reader: { as: 'declared-only', lacks: 'a served RIM body and an XML DSig reader' },
+  routes: [
+    {
+      name: 'rim',
+      path: '/v1/rim/{rimId}',
+      method: 'GET',
+      mediaType: 'application/json',
+      answer: 'swid-rim',
+      knowledge: 'historical',
+    },
+  ],
+  cache: null,
+};
+
+/**
+ * NVIDIA's OCSP responder: current revocation knowledge about a device identity certificate.
+ *
+ * The endpoint is `https://ocsp.ndis.nvidia.com`, an RFC 6960 responder reached by POST with a DER OCSP
+ * request that names the certificate and its issuer. Asked with GET on 17 October 2026, the host answered
+ * 405 with `content-type: application/json`; the path is not a GET route and no response is served
+ * anonymously. The answer, when a caller has the credential the responder wants, is a DER OCSP response
+ * whose `thisUpdate` and `nextUpdate` bound the instant it speaks for.
+ *
+ * An OCSP answer is current knowledge at the instant it is asked, not historical evidence: the same
+ * certificate asked about a month later gets a different answer. The package's `CollateralClaim` names
+ * that distinction, and nothing here can reach `current-knowledge` from bytes kept in an archive.
+ *
+ * This package reads no OCSP response. A DER `OCSPResponse` needs a reader for its response status, its
+ * `BasicOCSPResponse`, its responder certificate and its single-response status before any signature is
+ * weighed, and none of that parser exists here. A caller can name the certificate and its issuer, which
+ * is the missing context the address reports, but the request body and the response read stop at the
+ * declaration.
+ */
+export const NVIDIA_OCSP: DeclaredOriginDeclaration = {
+  name: 'ocsp',
+  host: 'ocsp.ndis.nvidia.com',
+  method: 'POST',
+  mediaType: 'application/ocsp-response',
+  answer: 'der-ocsp-response',
+  /** A responder certificate sits inside the signed response, and no header is declared to carry one. */
+  chainHeader: null,
+  timeoutMs: 5000,
+  maxResponseBytes: 65536,
+  refusals: REFUSALS,
+  reader: { as: 'declared-only', lacks: 'a served OCSP response and a DER OCSP parser' },
+  routes: [
+    {
+      name: 'ocsp',
+      path: '/',
+      method: 'POST',
+      mediaType: 'application/ocsp-response',
+      answer: 'der-ocsp-response',
+      knowledge: 'current',
+    },
+  ],
+  cache: null,
+};
+
 /** The origins with a reader here. A declaration elsewhere in this file is a route, not a reader. */
 export const SERVED_ORIGINS: readonly ReadCollateralOrigin[] = ['intel-tcb-info', 'intel-qe-identity'];
 
@@ -529,6 +622,8 @@ export const ORIGIN_DECLARATIONS: Partial<Record<ServedCollateralOrigin, OriginD
   ...BY_ORIGIN,
   'intel-pck-crl': INTEL_PCK_CRL,
   'amd-kds': AMD_KDS,
+  'nvidia-rim': NVIDIA_RIM,
+  ocsp: NVIDIA_OCSP,
 };
 
 /** Every name this file declares, in the order the declarations were written. */

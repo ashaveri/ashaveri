@@ -2,10 +2,16 @@ import { describe, expect, it } from 'vitest';
 import {
   AMD_KDS,
   CollateralError,
+  DECLARED_ORIGINS,
   INTEL_PCK_CRL,
   INTEL_TCB_INFO,
+  NVIDIA_OCSP,
+  NVIDIA_RIM,
+  ORIGIN_DECLARATIONS,
+  SERVED_ORIGINS,
   appraiseCollateral,
   collateralCacheKey,
+  declarationFor,
   fetchFromOrigin,
   readSignedCollateral,
   requestUrl,
@@ -278,6 +284,150 @@ describe('a declared origin with no reader', () => {
     });
     if (!('refusal' in refused)) throw new Error('a 403 was read as a chain');
     expect(refused.refusal.code).toBe('COLLATERAL_ORIGIN_REFUSED');
+  });
+
+  it('names every origin a query may carry once, and serves exactly the two documents read here', () => {
+    expect([...DECLARED_ORIGINS].sort()).toEqual([
+      'amd-kds',
+      'intel-pck-crl',
+      'intel-qe-identity',
+      'intel-tcb-info',
+      'nvidia-rim',
+      'ocsp',
+    ]);
+    expect(SERVED_ORIGINS).toEqual(['intel-tcb-info', 'intel-qe-identity']);
+    for (const name of DECLARED_ORIGINS) {
+      expect(ORIGIN_DECLARATIONS[name]?.name, name).toBe(name);
+    }
+    for (const name of ['intel-pck-crl', 'amd-kds', 'nvidia-rim', 'ocsp'] as const) {
+      const asked = declarationFor(name);
+      if (!('refusal' in asked)) throw new Error(`${name} was served without a reader`);
+      expect(asked.refusal.code, name).toBe('COLLATERAL_ORIGIN_UNSUPPORTED');
+      expect(asked.refusal.missing, name).toEqual(['origin']);
+      expect(asked.refusal.detail, name).toContain('intel-tcb-info and intel-qe-identity');
+    }
+  });
+
+  it('states the RIM route and the signed reference shape NVIDIA publishes for it', () => {
+    expect(NVIDIA_RIM.host).toBe('rim.attestation.nvidia.com');
+    expect(NVIDIA_RIM.mediaType).toBe('application/json');
+    expect(NVIDIA_RIM.answer).toBe('swid-rim');
+    expect(NVIDIA_RIM.routes[0]).toEqual({
+      name: 'rim',
+      path: '/v1/rim/{rimId}',
+      method: 'GET',
+      mediaType: 'application/json',
+      answer: 'swid-rim',
+      knowledge: 'historical',
+    });
+    if (NVIDIA_RIM.reader.as !== 'declared-only') throw new Error('the RIM was declared readable');
+    expect(NVIDIA_RIM.reader.lacks).toContain('served RIM body');
+    expect(NVIDIA_RIM.reader.lacks).toContain('XML DSig reader');
+    expect(NVIDIA_RIM.cache).toBeNull();
+  });
+
+  it('spells the RIM address from the id the evidence names, and stops when it names none', () => {
+    expect(requestUrl(query({ origin: 'nvidia-rim', rimId: 'gpu-rim-0001' }), NVIDIA_RIM)).toBe(
+      'https://rim.attestation.nvidia.com/v1/rim/gpu-rim-0001',
+    );
+    const missing = requestUrl(query({ origin: 'nvidia-rim' }), NVIDIA_RIM);
+    if (typeof missing === 'string') throw new Error('a RIM address was spelled without an id');
+    expect(missing.refusal.code).toBe('COLLATERAL_INPUT_MISSING');
+    expect(missing.refusal.missing).toEqual(['rimId']);
+  });
+
+  it('refuses an appraisal of the RIM with the body and DSig reader it lacks', async () => {
+    const outcome = await appraiseCollateral(
+      query({ origin: 'nvidia-rim', rimId: 'gpu-rim-0001' }),
+      { transport: silent() },
+    );
+    expect(outcome.state).toBe('unavailable');
+    if (!('refusal' in outcome)) throw new Error('the RIM answered with a document it never served');
+    expect(outcome.refusal.code).toBe('COLLATERAL_ORIGIN_UNSUPPORTED');
+    expect(outcome.refusal.detail).toContain('served RIM body');
+    expect(outcome.refusal.detail).toContain('XML DSig reader');
+  });
+
+  it('keeps the fetch rules for the RIM, including a credential-required refusal', async () => {
+    const { transport, seen } = recorder(() => new Response('{}', { headers: { 'content-type': 'application/json' } }));
+    const outcome = await fetchFromOrigin('https://rim.attestation.nvidia.com/v1/rim/gpu-rim-0001', NVIDIA_RIM, {
+      transport,
+      clock: () => AT,
+    });
+    if (!('fetched' in outcome)) throw new Error(`the RIM answer was refused: ${outcome.refusal.detail}`);
+    const init = seen[0]?.init as RequestInit;
+    const headers = new Headers(init.headers);
+    expect(headers.get('accept')).toBe('application/json');
+    expect([...headers.keys()]).toEqual(['accept']);
+    expect(init.redirect).toBe('error');
+
+    const refused = await fetchFromOrigin('https://rim.attestation.nvidia.com/v1/rim/gpu-rim-0001', NVIDIA_RIM, {
+      transport: async () => new Response('{}', { status: 403, headers: { 'content-type': 'application/json' } }),
+    });
+    if (!('refusal' in refused)) throw new Error('a 403 was read as a manifest');
+    expect(refused.refusal.code).toBe('COLLATERAL_ORIGIN_REFUSED');
+    expect(refused.refusal.verdict).toBe('retryable');
+  });
+
+  it('states the OCSP endpoint as a POST route whose answer is current knowledge', () => {
+    expect(NVIDIA_OCSP.host).toBe('ocsp.ndis.nvidia.com');
+    expect(NVIDIA_OCSP.method).toBe('POST');
+    expect(NVIDIA_OCSP.mediaType).toBe('application/ocsp-response');
+    expect(NVIDIA_OCSP.answer).toBe('der-ocsp-response');
+    expect(NVIDIA_OCSP.routes[0]?.knowledge).toBe('current');
+    if (NVIDIA_OCSP.reader.as !== 'declared-only') throw new Error('the OCSP route was declared readable');
+    expect(NVIDIA_OCSP.reader.lacks).toContain('served OCSP response');
+    expect(NVIDIA_OCSP.reader.lacks).toContain('DER OCSP parser');
+  });
+
+  it('names the certificate and issuer an OCSP question cannot be asked without', () => {
+    const missing = requestUrl(query({ origin: 'ocsp' }), NVIDIA_OCSP);
+    if (typeof missing === 'string') throw new Error('an OCSP address was spelled with no question');
+    expect(missing.refusal.code).toBe('COLLATERAL_INPUT_MISSING');
+    expect(missing.refusal.missing).toEqual(['ocspCertificate', 'ocspIssuer']);
+
+    const unbuildable = requestUrl(
+      query({ origin: 'ocsp', ocspCertificate: new Uint8Array([1]), ocspIssuer: new Uint8Array([2]) }),
+      NVIDIA_OCSP,
+    );
+    if (typeof unbuildable === 'string') throw new Error('a POST request body was built by an address function');
+    expect(unbuildable.refusal.code).toBe('COLLATERAL_ORIGIN_UNSUPPORTED');
+    expect(unbuildable.refusal.detail).toContain('no request body');
+  });
+
+  it('refuses an OCSP appraisal and a POST fetch before either can read a response', async () => {
+    const outcome = await appraiseCollateral(
+      query({ origin: 'ocsp', ocspCertificate: new Uint8Array([1]), ocspIssuer: new Uint8Array([2]) }),
+      { transport: silent() },
+    );
+    expect(outcome.state).toBe('unavailable');
+    if (!('refusal' in outcome)) throw new Error('the OCSP origin answered with a response it never served');
+    expect(outcome.refusal.code).toBe('COLLATERAL_ORIGIN_UNSUPPORTED');
+    expect(outcome.refusal.detail).toContain('DER OCSP parser');
+
+    const { transport, seen } = recorder(() => new Response('never'));
+    const fetched = await fetchFromOrigin('https://ocsp.ndis.nvidia.com/', NVIDIA_OCSP, { transport });
+    if (!('refusal' in fetched)) throw new Error('a POST declaration was fetched');
+    expect(fetched.refusal.code).toBe('COLLATERAL_ORIGIN_UNSUPPORTED');
+    expect(seen).toHaveLength(0);
+  });
+
+  it('reaches unavailable and missing context for every declared origin, and no passing state', async () => {
+    const states: string[] = [];
+    for (const origin of ['intel-pck-crl', 'amd-kds', 'nvidia-rim', 'ocsp'] as const) {
+      const outcome = await appraiseCollateral(query({ origin }), { transport: silent() });
+      states.push(outcome.state);
+      expect(outcome.collateral, origin).toBeNull();
+      expect(outcome.claim, origin).toBeNull();
+    }
+    expect(states).toEqual(['unavailable', 'unavailable', 'unavailable', 'unavailable']);
+
+    const rimWithoutId = requestUrl(query({ origin: 'nvidia-rim' }), NVIDIA_RIM);
+    const ocspWithoutQuestion = requestUrl(query({ origin: 'ocsp' }), NVIDIA_OCSP);
+    for (const missing of [rimWithoutId, ocspWithoutQuestion]) {
+      if (typeof missing === 'string') throw new Error('a missing-context answer was spelled as an address');
+      expect(missing.refusal.code).toBe('COLLATERAL_INPUT_MISSING');
+    }
   });
 
   it('refuses to ask a POST route rather than sending a GET it never published', async () => {
