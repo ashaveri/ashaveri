@@ -41,7 +41,7 @@ row says so rather than inventing a number for it.
 | `--help` | The usage text, then nothing else | boolean | none: the usage text is printed and the process exits 0 | the operator's to declare | `gateway/src/cli.ts` |
 | `--public-url` | The origin clients refetch the evidence behind each receipt from | an absolute URL | none: a live run without it is refused | the operator's to declare | `gateway/src/cli.ts` |
 | `--model` | The served model ids, one per occurrence | one or more ids, each checked against what the upstream reports | none: a live run naming no model is refused | the operator's to declare | `gateway/src/cli.ts` |
-| `--weights-manifest` | The file whose digest every receipt for a model carries | a readable file, hashed once at start-up | none: a live run without it is refused | the operator's to declare | `gateway/src/cli.ts` |
+| `--weights-manifest` | The file whose digest every receipt for a model carries | a readable file, read and hashed once per run; where the container sets both weights environment values, the same file `ASHAVERI_WEIGHTS_MANIFEST` names, so the manifest the entrypoint checks those files against is the manifest a receipt's digest covers | none: a live run without it is refused, and an environment manifest without it is refused before the gateway starts | the operator's to declare | `gateway/src/cli.ts` |
 | `--upstream` | The OpenAI-compatible root this gateway proxies completions to | a URL this process can reach | the mock backend, so completions are answered here rather than fetched | the operator's to declare | `gateway/src/cli.ts` |
 | `--guest-socket` | The guest agent socket, or an http endpoint for the dStack simulator | a path or an http URL | `DSTACK_SIMULATOR_ENDPOINT`, then the first standard guest path that exists | the operator's to declare | `gateway/src/cli.ts` |
 | `--key-path` | The guest key path that signs receipts | a path the guest agent will derive a key from | `/ashaveri/receipt` | the operator's to declare | `gateway/src/cli.ts` |
@@ -95,9 +95,12 @@ Bounds shipped in the same source, and holding whatever the operator named, are 
 are not rows above: `MAX_CREDENTIALS`, `MAX_TRACKED_PEERS`, `MAX_BUFFERED_BODY`,
 `MAX_CACHED_EVIDENCE`, `MAX_REPORT_DATA_BYTES`, `FIRST_EVENT_TIMEOUT_MS` and
 `MINIMUM_RETENTION_SECONDS` each bound one behaviour, no flag reaches any of them, and the receipt
-store's own retention period is the last of those rather than a duration a deployment chooses per run.
-The period a bounded record states is chosen per run, by `--receipts-record-kind`, and it is a statement
-inside the record rather than a bound this process enforces.
+store's own retention period is `MINIMUM_RETENTION_SECONDS` rather than a duration a deployment
+chooses per run. `SIDECAR_BLOCK_RECORDS` is a shipped bound of the same kind and the checkpoint
+cadence: the count of records a sidecar block indexes, read by the store's append and resume paths,
+and reached by no flag. The period a bounded record states is chosen per run, by
+`--receipts-record-kind`, and it is a statement inside the record rather than a bound this process
+enforces.
 
 ## 3. Environment settings the operator declares
 
@@ -108,8 +111,8 @@ flag, and the Declared column names the file that reads or substitutes them.
 |---|---|---|---|---|
 | `ASHAVERI_PUBLIC_URL` | The origin the container advertises, and so the one receipts point a client back to | required, and an https URL a client can reach | the operator's to declare | `enclave/docker-compose.yaml` |
 | `ASHAVERI_TEE` | The environment the container starts expecting | one of the platform's TEE kinds | the operator's to declare | `enclave/docker-compose.yaml` |
-| `ASHAVERI_WEIGHTS_DIR` | The directory the entrypoint verifies against the manifest before the gateway starts | a directory the manifest's files are read from | the operator's to declare | `enclave/docker-compose.yaml` |
-| `ASHAVERI_WEIGHTS_MANIFEST` | The manifest those weights are checked against | a file inside that directory | the operator's to declare | `enclave/docker-compose.yaml` |
+| `ASHAVERI_WEIGHTS_DIR` | The directory the entrypoint verifies against the manifest before the gateway starts | a directory the manifest's files are read from, set only beside `ASHAVERI_WEIGHTS_MANIFEST`, because a run that sets one without the other is refused | the operator's to declare | `enclave/docker-compose.yaml` |
+| `ASHAVERI_WEIGHTS_MANIFEST` | The manifest those weights are checked against | a file inside that directory, and the same file `--weights-manifest` names, so a receipt's digest covers the manifest the entrypoint checks those files against | the operator's to declare | `enclave/docker-compose.yaml` |
 | `DSTACK_SIMULATOR_ENDPOINT` | The guest endpoint a development run talks to instead of a real guest agent | a path or an http URL, and a real CVM ignores it | the operator's to declare | `gateway/src/guest.ts` |
 | `ASHAVERI_CREDENTIAL_ID` | Which credential a client signs with | a credential name, and public | the operator's to declare | `packages/sdk/src/auth.ts` |
 | `ASHAVERI_CREDENTIAL_KIND` | Whether that credential is proved by possession or presented as a bearer token | `pop` or `bearer`, and `pop` when unset | the operator's to declare | `packages/sdk/src/auth.ts` |

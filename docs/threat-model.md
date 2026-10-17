@@ -168,9 +168,11 @@ serving side:
 - The entrypoint verifies the mounted model files against a manifest before `signerd` starts when
   the container sets both `ASHAVERI_WEIGHTS_DIR` and `ASHAVERI_WEIGHTS_MANIFEST`, which the
   bundled compose does (see [enclave/README.md](../enclave/README.md)), so a swapped model file
-  stops the process at startup instead of quietly signing the wrong weights. It is an opt-in
-  check reading environment variables while `wts` comes from the separate `--weights-manifest`
-  flag, so a deployment that sets one without the other signs a digest nothing checked at boot.
+  stops the process at startup instead of quietly signing the wrong weights. The entrypoint and the
+  gateway refuse a deployment that sets one of the two weights inputs without the other, and, in a
+  container run that sets both, the gateway refuses a `--weights-manifest` and
+  `ASHAVERI_WEIGHTS_MANIFEST` that do not resolve to one file, so the manifest the boot check
+  verified is the manifest whose digest every receipt carries as `wts`.
 
 What is still true, in both modes:
 
