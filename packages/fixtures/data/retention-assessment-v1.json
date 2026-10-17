@@ -4,7 +4,7 @@
   "layout": {
     "format": "one closed v1 document with three blocks: the declared scope, the observed coverage and the deployment's stated conclusion, which the reading recomputes rather than believes",
     "schema": "packages/sdk/schemas/retention-assessment-v1.schema.json, published as https://ashaveri.com/schemas/retention-assessment-v1.json, which is the layout a writer outside this repository builds against",
-    "reader": "parseRetentionAssessment in @ashaveri/sdk, which is the layout, and assessRetention, which parses and then recomputes the outcome from the evidence: continuous sequence coverage, acknowledgment across the declared width, checkpoints across the period, and an observed head matching a head an independent party pinned",
+    "reader": "parseRetentionAssessment in @ashaveri/sdk, which is the layout, and assessRetention, which parses and then recomputes the outcome from the evidence: continuous sequence coverage, acknowledgment across the declared width, checkpoints that tile the intake and close on the observed head, and an observed head matching a head an independent party pinned",
     "codes": [
       "NOT_RETENTION_ASSESSMENT",
       "RETENTION_ASSESSMENT_DISAGREES",
@@ -124,7 +124,7 @@
           "reasons": []
         },
         "reasons": [
-          "the period is continuously covered, acknowledged across its width and witnessed by checkpoints, and the observed head matches a head an independent party pinned"
+          "the period is continuously covered, acknowledged across its width and witnessed by checkpoints that tile the intake and close on the observed head, and the observed head matches a head an independent party pinned"
         ]
       }
     },
@@ -999,6 +999,226 @@
         },
         "reasons": [
           "the coverage evidence cannot answer whether the period was continuously held"
+        ]
+      }
+    },
+    {
+      "name": "checkpoint-range-gap-indeterminate",
+      "note": "Two checkpoint receipts stamped at the two ends of the period, one over sequences 1 through 10 and one over 91 through 100, with the declared schedule allowing an hour between receipts. The stamps witness the instants and the ranges leave sequences 11 through 90 unwitnessed, so the receipts do not tile the intake they are meant to witness. The answer is indeterminate: no evidence states that the middle was lost, and none places it either.",
+      "document": {
+        "v": 1,
+        "scope": {
+          "subject": {
+            "kind": "deployment",
+            "id": "fixture-deployment"
+          },
+          "duty": {
+            "article": "19(1)",
+            "requiredSeconds": 200
+          },
+          "period": {
+            "from": 1000000,
+            "to": 1000200
+          },
+          "intake": {
+            "from": 1,
+            "to": 100,
+            "expectedHead": {
+              "sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+              "pinnedBy": "customer",
+              "reason": null
+            }
+          },
+          "checkpoint": {
+            "holder": "customer",
+            "eachCompletedBatch": true,
+            "maxIntervalSeconds": 3600
+          },
+          "timeBasis": {
+            "source": "fixture host clock",
+            "uncertaintySeconds": 1
+          },
+          "excludes": [
+            "request bodies",
+            "model weights",
+            "the provider side of the intake"
+          ]
+        },
+        "coverage": {
+          "runs": [
+            {
+              "from": 1,
+              "to": 100
+            }
+          ],
+          "acknowledged": [
+            {
+              "from": 1,
+              "to": 100
+            }
+          ],
+          "checkpoints": [
+            {
+              "range": {
+                "from": 1,
+                "to": 10
+              },
+              "at": 1000000,
+              "head": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+            },
+            {
+              "range": {
+                "from": 91,
+                "to": 100
+              },
+              "at": 1000200,
+              "head": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+            }
+          ],
+          "observedHead": {
+            "sequence": 100,
+            "sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+          },
+          "span": null,
+          "gaps": [],
+          "duplicates": [],
+          "rollbacks": [],
+          "suffixLoss": null
+        },
+        "assessment": {
+          "outcome": "indeterminate"
+        }
+      },
+      "assessment": {
+        "outcome": "indeterminate",
+        "coverage": {
+          "result": "indeterminate",
+          "basis": "sequence",
+          "ranges": [
+            {
+              "from": 11,
+              "to": 90
+            }
+          ],
+          "reasons": [
+            "checkpoints cover sequences 1 to 10 and 91 to 100, leaving the intake between them unwitnessed"
+          ]
+        },
+        "reasons": [
+          "the coverage evidence cannot answer whether the period was continuously held"
+        ]
+      }
+    },
+    {
+      "name": "checkpoint-head-mismatch-not-met",
+      "note": "Continuous runs and acknowledgments, receipts that tile the intake across the period, and an observed head that matches the head the customer pinned. The final receipt names a head the intake did not observe, so the checkpoint does not witness the head the runs closed at. Every other member agrees and the closing witness fails: the answer is not met.",
+      "document": {
+        "v": 1,
+        "scope": {
+          "subject": {
+            "kind": "deployment",
+            "id": "fixture-deployment"
+          },
+          "duty": {
+            "article": "19(1)",
+            "requiredSeconds": 200
+          },
+          "period": {
+            "from": 1000000,
+            "to": 1000200
+          },
+          "intake": {
+            "from": 1,
+            "to": 100,
+            "expectedHead": {
+              "sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+              "pinnedBy": "customer",
+              "reason": null
+            }
+          },
+          "checkpoint": {
+            "holder": "customer",
+            "eachCompletedBatch": true,
+            "maxIntervalSeconds": 3600
+          },
+          "timeBasis": {
+            "source": "fixture host clock",
+            "uncertaintySeconds": 1
+          },
+          "excludes": [
+            "request bodies",
+            "model weights",
+            "the provider side of the intake"
+          ]
+        },
+        "coverage": {
+          "runs": [
+            {
+              "from": 1,
+              "to": 100
+            }
+          ],
+          "acknowledged": [
+            {
+              "from": 1,
+              "to": 100
+            }
+          ],
+          "checkpoints": [
+            {
+              "range": {
+                "from": 1,
+                "to": 34
+              },
+              "at": 1000000,
+              "head": "1111111111111111111111111111111111111111111111111111111111111111"
+            },
+            {
+              "range": {
+                "from": 35,
+                "to": 67
+              },
+              "at": 1000100,
+              "head": "2222222222222222222222222222222222222222222222222222222222222222"
+            },
+            {
+              "range": {
+                "from": 68,
+                "to": 100
+              },
+              "at": 1000200,
+              "head": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+            }
+          ],
+          "observedHead": {
+            "sequence": 100,
+            "sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+          },
+          "span": null,
+          "gaps": [],
+          "duplicates": [],
+          "rollbacks": [],
+          "suffixLoss": null
+        },
+        "assessment": {
+          "outcome": "not-met"
+        }
+      },
+      "assessment": {
+        "outcome": "not-met",
+        "coverage": {
+          "result": "covered",
+          "basis": "sequence",
+          "ranges": [
+            {
+              "from": 1,
+              "to": 100
+            }
+          ],
+          "reasons": []
+        },
+        "reasons": [
+          "the final checkpoint names the head bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb and the intake observed aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa, so the checkpoint does not witness the head the runs closed at"
         ]
       }
     },

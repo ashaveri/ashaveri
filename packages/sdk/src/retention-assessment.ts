@@ -27,10 +27,11 @@ import { SdkError, type SdkErrorCode } from './errors.js';
  * minus the minimum timestamp is not evidence that every record between them survived, and no member of
  * this layout gives that subtraction a path to `met`.
  *
- * An adverse observation is never a pass. A gap, a duplicate, a rollback or a lost suffix makes the
- * assessment `not-met`, because the evidence states that the period was not continuously held. A missing
- * checkpoint, an unacknowledged interval, a missing expected head or a head the deployment asserted about
- * itself makes it `indeterminate`, because the evidence cannot answer either way.
+ * An adverse observation is never a pass. A gap, a duplicate, a rollback, a lost suffix or a final
+ * checkpoint head that is not the head the intake observed makes the assessment `not-met`, because the
+ * evidence states that the period was not continuously held. A missing checkpoint, a checkpoint list that
+ * does not tile the declared intake, an unacknowledged interval, a missing expected head or a head the
+ * deployment asserted about itself makes it `indeterminate`, because the evidence cannot answer either way.
  *
  * The stated conclusion is recomputed. `assessment.outcome` is the writer's claim, and a reader that
  * computed another outcome refuses the document under `RETENTION_ASSESSMENT_DISAGREES`. A writer cannot
@@ -158,9 +159,9 @@ export interface RetentionAssessmentCheckpointSchedule {
  * it names. A null uncertainty states that nobody measured the source, which is a statement and not a
  * bound of zero.
  *
- * This block is the named seam to the policy work that will make a clock bound a demand. This version
- * carries the declaration and the reading reports it beside the result; nothing here refuses a document
- * because its uncertainty is wide, because that demand belongs to a policy and not to this layout.
+ * This block is the named seam to a policy demand on the clock bound. This version carries the
+ * declaration and the reading reports it beside the result; nothing here refuses a document because its
+ * uncertainty is wide, because that demand belongs to a policy and not to this layout.
  */
 export interface RetentionAssessmentTimeBasis {
   readonly source: string;
@@ -1021,26 +1022,58 @@ function endsOf<T>(list: readonly T[]): { readonly first: T; readonly last: T } 
  * What a checkpoint list says about a period.
  *
  * The schedule is customer-held, one receipt per completed batch and no more than the declared interval
- * between two. Nothing in the document can show that every batch produced a receipt, so the reading
- * weighs the two properties it can: a receipt at or before the period opens, one at or after it closes,
- * and no interval between consecutive receipts wider than the declared maximum. A failure of any of the
- * three is an unwitnessed interval, which is `indeterminate` and never a pass.
+ * between two. The reading weighs the properties it can: the receipts tile the declared intake in order,
+ * the first stands at or before the period opens, the last at or after it closes, and no interval between
+ * consecutive receipts is wider than the declared maximum. A receipt list with a sequence gap is a
+ * witness that does not place the intake, and a failure of any of the timing properties is an unwitnessed
+ * interval; both answer `indeterminate` and never a pass. A range finding is stated in sequence numbers,
+ * a timing finding in unix seconds, and the basis says which list the ranges beside the result are in.
  */
 function checkpointFindings(
   checkpoints: readonly RetentionCheckpointReceipt[],
+  declared: RetentionSequenceRange,
   period: RetentionAssessmentPeriod,
   maxIntervalSeconds: number,
-): { readonly missing: readonly RetentionSequenceRange[]; readonly reasons: readonly string[] } {
+): {
+  readonly missing: readonly RetentionSequenceRange[];
+  readonly reasons: readonly string[];
+  readonly basis: 'sequence' | 'time';
+} {
   const ends = endsOf(checkpoints);
   if (ends === null) {
     return {
       missing: [{ from: period.from, to: period.to }],
       reasons: ['no checkpoint receipt stands beside the period, so no instant in it is witnessed by the customer-held schedule'],
+      basis: 'time',
     };
   }
   const { first, last } = ends;
   const missing: RetentionSequenceRange[] = [];
   const reasons: string[] = [];
+  if (first.range.from > declared.from) {
+    missing.push({ from: declared.from, to: first.range.from - 1 });
+    reasons.push(
+      `the first checkpoint covers sequences ${String(first.range.from)} to ${String(first.range.to)}, after the declared intake opens at ${String(declared.from)}, so the intake before it is unwitnessed`,
+    );
+  }
+  for (let index = 1; index < checkpoints.length; index += 1) {
+    const receipt = checkpoints[index];
+    const previous = checkpoints[index - 1];
+    if (receipt === undefined || previous === undefined) continue;
+    if (receipt.range.from > previous.range.to + 1) {
+      missing.push({ from: previous.range.to + 1, to: receipt.range.from - 1 });
+      reasons.push(
+        `checkpoints cover sequences ${String(previous.range.from)} to ${String(previous.range.to)} and ${String(receipt.range.from)} to ${String(receipt.range.to)}, leaving the intake between them unwitnessed`,
+      );
+    }
+  }
+  if (last.range.to < declared.to) {
+    missing.push({ from: last.range.to + 1, to: declared.to });
+    reasons.push(
+      `the last checkpoint covers sequences ${String(last.range.from)} to ${String(last.range.to)}, before the declared intake closes at ${String(declared.to)}, so the intake after it is unwitnessed`,
+    );
+  }
+  if (missing.length > 0) return { missing, reasons, basis: 'sequence' };
   if (first.at > period.from) {
     missing.push({ from: period.from, to: first.at - 1 });
     reasons.push(`the first checkpoint is stamped ${String(first.at)}, after the period opens at ${String(period.from)}, so the interval before it is unwitnessed`);
@@ -1061,7 +1094,7 @@ function checkpointFindings(
     missing.push({ from: last.at + 1, to: period.to });
     reasons.push(`the last checkpoint is stamped ${String(last.at)}, before the period closes at ${String(period.to)}, so the interval after it is unwitnessed`);
   }
-  return { missing, reasons };
+  return { missing, reasons, basis: 'time' };
 }
 
 /** One line for each range a finding list names, in the words of the finding it came from. */
@@ -1087,10 +1120,11 @@ function rangeReasons(gaps: readonly RetentionCoverageGap[], duplicates: readonl
  * The order is the order the outcome turns on. A span-only input answers `indeterminate` before any head
  * is compared, which is what gives the maximum minus minimum timestamp no path to `met`. A sequence
  * shortfall or an explicit adverse finding answers `not-met`, because the evidence states that the period
- * was not held. A missing acknowledgment, a missing checkpoint, a missing pin or a pin the deployment made
- * about itself answers `indeterminate`, because the evidence cannot answer either way. Only a period
- * continuously covered in sequence, acknowledged across its width, witnessed by the customer-held
- * checkpoints, and closed by a head an independent party pinned and the intake matched answers `met`.
+ * was not held. A missing acknowledgment, a missing checkpoint, a checkpoint list that does not tile the
+ * intake, a missing pin or a pin the deployment made about itself answers `indeterminate`, because the
+ * evidence cannot answer either way. Only a period continuously covered in sequence, acknowledged across
+ * its width, witnessed by customer-held checkpoints that tile the intake and close on the observed head,
+ * and closed by a head an independent party pinned and the intake matched answers `met`.
  */
 export function assessRetention(value: unknown): RetentionAssessmentResult {
   const document = parseRetentionAssessment(value);
@@ -1122,6 +1156,7 @@ export function assessRetention(value: unknown): RetentionAssessmentResult {
     const unacknowledged = uncovered(declared, coverage.acknowledged);
     const checkpoint = checkpointFindings(
       coverage.checkpoints,
+      declared,
       scope.period,
       scope.checkpoint.maxIntervalSeconds,
     );
@@ -1147,7 +1182,7 @@ export function assessRetention(value: unknown): RetentionAssessmentResult {
       coverageReasons.push('the store acknowledged no range over that stretch, so the interval is unwitnessed rather than observed');
     } else if (checkpoint.reasons.length > 0) {
       coverageResult = 'indeterminate';
-      coverageBasis = 'time';
+      coverageBasis = checkpoint.basis;
       coverageRanges = checkpoint.missing.length > 0 ? [...checkpoint.missing] : [{ from: scope.period.from, to: scope.period.to }];
       coverageReasons.push(...checkpoint.reasons);
     } else {
@@ -1170,6 +1205,7 @@ export function assessRetention(value: unknown): RetentionAssessmentResult {
     reasons.push('a span is not continuous coverage');
   } else {
     const periodSeconds = scope.period.to - scope.period.from;
+    const finalCheckpoint = coverage.checkpoints[coverage.checkpoints.length - 1];
     if (periodSeconds < scope.duty.requiredSeconds) {
       outcome = 'not-met';
       reasons.push(
@@ -1194,9 +1230,20 @@ export function assessRetention(value: unknown): RetentionAssessmentResult {
       reasons.push(
         `the observed head ${coverage.observedHead.sha256} is not the pinned head ${scope.intake.expectedHead.sha256}, so the pin catches a substitution or a rollback`,
       );
+    } else if (finalCheckpoint === undefined) {
+      // Unreachable: a covered result requires a receipt list that tiles the intake, and an empty list
+      // answers indeterminate above. Stated rather than assumed away, because a pass with no final
+      // witness is the shape this check exists to refuse.
+      outcome = 'indeterminate';
+      reasons.push('no final checkpoint receipt stands beside the intake, so no checkpoint witnesses the observed head');
+    } else if (finalCheckpoint.head !== coverage.observedHead.sha256) {
+      outcome = 'not-met';
+      reasons.push(
+        `the final checkpoint names the head ${finalCheckpoint.head} and the intake observed ${coverage.observedHead.sha256}, so the checkpoint does not witness the head the runs closed at`,
+      );
     } else {
       outcome = 'met';
-      reasons.push('the period is continuously covered, acknowledged across its width and witnessed by checkpoints, and the observed head matches a head an independent party pinned');
+      reasons.push('the period is continuously covered, acknowledged across its width and witnessed by checkpoints that tile the intake and close on the observed head, and the observed head matches a head an independent party pinned');
     }
   }
 

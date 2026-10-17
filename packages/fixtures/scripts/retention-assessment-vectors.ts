@@ -223,6 +223,29 @@ const ASSESSMENT_ROWS: readonly AssessmentRow[] = [
     }),
   },
   {
+    name: 'checkpoint-range-gap-indeterminate',
+    note: 'Two checkpoint receipts stamped at the two ends of the period, one over sequences 1 through 10 and one over 91 through 100, with the declared schedule allowing an hour between receipts. The stamps witness the instants and the ranges leave sequences 11 through 90 unwitnessed, so the receipts do not tile the intake they are meant to witness. The answer is indeterminate: no evidence states that the middle was lost, and none places it either.',
+    document: withEdit((document) => {
+      coverageOf(document)['checkpoints'] = [
+        { range: { from: 1, to: 10 }, at: PERIOD_FROM, head: OTHER },
+        { range: { from: 91, to: 100 }, at: PERIOD_TO, head: HEAD },
+      ];
+      document['assessment'] = { outcome: 'indeterminate' };
+    }),
+  },
+  {
+    name: 'checkpoint-head-mismatch-not-met',
+    note: 'Continuous runs and acknowledgments, receipts that tile the intake across the period, and an observed head that matches the head the customer pinned. The final receipt names a head the intake did not observe, so the checkpoint does not witness the head the runs closed at. Every other member agrees and the closing witness fails: the answer is not met.',
+    document: withEdit((document) => {
+      coverageOf(document)['checkpoints'] = [
+        { range: { from: 1, to: 34 }, at: PERIOD_FROM, head: '11'.repeat(32) },
+        { range: { from: 35, to: 67 }, at: PERIOD_FROM + 100, head: '22'.repeat(32) },
+        { range: { from: 68, to: 100 }, at: PERIOD_TO, head: OTHER },
+      ];
+      document['assessment'] = { outcome: 'not-met' };
+    }),
+  },
+  {
     name: 'unacknowledged-interval-indeterminate',
     note: 'The intake observed every sequence in the declared range and the store acknowledged only the two ends of it. Nothing states that the middle was lost, and no acknowledgment speaks for it. An unwitnessed interval is indeterminate and never a pass.',
     document: withEdit((document) => {
@@ -574,7 +597,7 @@ function main(): void {
           schema:
             'packages/sdk/schemas/retention-assessment-v1.schema.json, published as https://ashaveri.com/schemas/retention-assessment-v1.json, which is the layout a writer outside this repository builds against',
           reader:
-            'parseRetentionAssessment in @ashaveri/sdk, which is the layout, and assessRetention, which parses and then recomputes the outcome from the evidence: continuous sequence coverage, acknowledgment across the declared width, checkpoints across the period, and an observed head matching a head an independent party pinned',
+            'parseRetentionAssessment in @ashaveri/sdk, which is the layout, and assessRetention, which parses and then recomputes the outcome from the evidence: continuous sequence coverage, acknowledgment across the declared width, checkpoints that tile the intake and close on the observed head, and an observed head matching a head an independent party pinned',
           codes: codeList,
           encodings: 'heads lowercase hex of 64 characters, instants unix seconds, sequence numbers non-negative whole numbers, and the document published inline as the object the reader is handed',
           keyMaterial:

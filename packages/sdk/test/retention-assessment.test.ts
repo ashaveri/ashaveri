@@ -379,6 +379,61 @@ describe('assessRetention', () => {
     expect(assessment.coverage.reasons.join(' ')).toContain('more than the declared');
   });
 
+  it('answers indeterminate for checkpoints that do not tile the declared intake', () => {
+    // Two receipts at the two ends of the period witness the instants and leave the middle of the intake
+    // unwitnessed. The old gate read only the timing and answered met; a range gap is a witness that does
+    // not place the intake, so the answer is indeterminate and the range is named in sequence numbers.
+    const document = documentFor();
+    (document['coverage'] as Block)['checkpoints'] = [
+      { range: { from: 1, to: 10 }, at: PERIOD_FROM, head: OTHER },
+      { range: { from: 91, to: 100 }, at: PERIOD_TO, head: HEAD },
+    ];
+    document['assessment'] = { outcome: 'indeterminate' };
+    const assessment = assessRetention(document);
+    expect(assessment.outcome).toBe('indeterminate');
+    expect(assessment.coverage.result).toBe('indeterminate');
+    expect(assessment.coverage.basis).toBe('sequence');
+    expect(assessment.coverage.ranges).toContainEqual({ from: 11, to: 90 });
+    expect(assessment.coverage.reasons.join(' ')).toContain('unwitnessed');
+  });
+
+  it('answers indeterminate when the first receipt starts late or the last stops early', () => {
+    const lateStart = documentFor();
+    (lateStart['coverage'] as Block)['checkpoints'] = [
+      { range: { from: 11, to: 100 }, at: PERIOD_FROM, head: HEAD },
+    ];
+    lateStart['assessment'] = { outcome: 'indeterminate' };
+    const started = assessRetention(lateStart);
+    expect(started.outcome).toBe('indeterminate');
+    expect(started.coverage.ranges).toContainEqual({ from: 1, to: 10 });
+
+    const earlyStop = documentFor();
+    (earlyStop['coverage'] as Block)['checkpoints'] = [
+      { range: { from: 1, to: 90 }, at: PERIOD_FROM, head: HEAD },
+    ];
+    earlyStop['assessment'] = { outcome: 'indeterminate' };
+    const stopped = assessRetention(earlyStop);
+    expect(stopped.outcome).toBe('indeterminate');
+    expect(stopped.coverage.ranges).toContainEqual({ from: 91, to: 100 });
+  });
+
+  it('answers not-met when the final checkpoint head is not the observed head', () => {
+    // The receipts tile the intake, their stamps witness the period and the observed head matches the pin.
+    // The final receipt names a head the intake did not observe, so the checkpoint does not witness the
+    // head the runs closed at: the answer is not met rather than met on the strength of the other members.
+    const document = documentFor();
+    (document['coverage'] as Block)['checkpoints'] = [
+      { range: { from: 1, to: 34 }, at: PERIOD_FROM, head: '11'.repeat(32) },
+      { range: { from: 35, to: 67 }, at: PERIOD_FROM + 100, head: '22'.repeat(32) },
+      { range: { from: 68, to: 100 }, at: PERIOD_TO, head: OTHER },
+    ];
+    document['assessment'] = { outcome: 'not-met' };
+    const assessment = assessRetention(document);
+    expect(assessment.outcome).toBe('not-met');
+    expect(assessment.coverage.result).toBe('covered');
+    expect(assessment.reasons.join(' ')).toContain('does not witness the head');
+  });
+
   it('answers indeterminate for an unwitnessed interval the store never acknowledged', () => {
     const document = documentFor();
     (document['coverage'] as Block)['acknowledged'] = [

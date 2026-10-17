@@ -307,7 +307,7 @@ specific to that case.
 - **Retention assessment.** Take the document out of the row and hand it to `parseRetentionAssessment` for the
   layout's answer and to `assessRetention` for the outcome, then compare the outcome, the coverage result, its
   basis, ranges and reasons, and the assessment's own reasons with the row. `retention-assessment-v1.json`
-  publishes 15 assessment rows and 15 refusals. The assessed rows are whole documents the layout takes; each
+  publishes 17 assessment rows and 15 refusals. The assessed rows are whole documents the layout takes; each
   states the outcome the reading computed for it when the file was written, and a row whose evidence moved
   without its stated outcome moving is a file the generator refuses. A refused row states `stage`, which is
   `layout` where `parseRetentionAssessment` refused the document, which `assessRetention` then refuses with the
@@ -316,12 +316,15 @@ specific to that case.
   pair the suite exists for: `continuous-coverage-met` is a period the sequence evidence genuinely covers, and
   `span-only-would-have-met-under-the-span-rule` is the oldest and newest survivors one declared period apart
   with the newest head matching the pinned head, which the old span rule would have called met and this reading
-  answers indeterminate. The maximum minus the minimum timestamp has no path to `met`.
+  answers indeterminate. The maximum minus the minimum timestamp has no path to `met`. The checkpoint evidence
+  is held to the same rule: `checkpoint-range-gap-indeterminate` leaves a stretch of the intake unwitnessed and
+  answers indeterminate, and `checkpoint-head-mismatch-not-met` closes the intake on a head the observed head
+  does not match and answers not met.
 
 ## Every suite refuses something
 
 Each of the fourteen suites the table above lists carries at least one case whose stated verdict is a refusal,
-and every code those cases name is one [error-codes.md](error-codes.md) lists. The thirteen are that table's
+and every code those cases name is one [error-codes.md](error-codes.md) lists. The fourteen are that table's
 rows, which `packages/fixtures/test/vectors-doc.test.ts` counts and compares with this sentence rather than
 trusting it. That is the half a second implementation cannot agree with by accident: an accepted case and
 a refused one, drawn from the same

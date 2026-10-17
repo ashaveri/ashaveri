@@ -459,6 +459,11 @@ describe('docs/vectors.md suite inventory', () => {
     // The assertion above is what refuses a document that does not state the count, so the capture this
     // line reads is there whenever it runs, and no value stands behind it to fall back on.
     expect(spelledNumber(stated![1]!), 'and the count it states is not the count of rows').toBe(rows.length);
+    // The same section restates the count in a second sentence. It is read here too, because a number
+    // repeated by hand is the copy that drifts when a suite joins or leaves the table.
+    const repeated = /The ([a-z]+) are that table's rows/u.exec(refusalSection());
+    expect(repeated, 'the section does not restate the count it speaks for').not.toBeNull();
+    expect(spelledNumber(repeated![1]!), 'and the count it restates is not the count of rows').toBe(rows.length);
     for (const row of rows) {
       const files = row.files.filter((each) => each.endsWith('.json')).map((each) => basename(each));
       expect(files.length, `${row.suite} names no file to read verdicts out of`).toBeGreaterThan(0);

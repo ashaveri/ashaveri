@@ -134,7 +134,7 @@
           "type": "object",
           "required": ["source", "uncertaintySeconds"],
           "additionalProperties": false,
-          "description": "The clock every stamp in the document rests on, and how far it may stand from the instant it names. A null uncertainty states that nobody measured the source, which is not a bound of zero. This block is the seam to the policy work that will weigh a clock bound as a demand; this version carries the declaration and reports it beside the result.",
+          "description": "The clock every stamp in the document rests on, and how far it may stand from the instant it names. A null uncertainty states that nobody measured the source, which is not a bound of zero. This block is the seam to a policy demand on the clock bound; this version carries the declaration and reports it beside the result.",
           "properties": {
             "source": {
               "type": "string",
