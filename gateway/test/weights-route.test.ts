@@ -13,10 +13,12 @@ import { generated, harness, type Harness } from './helpers.js';
  * The manifest route, addressed by the digest a receipt already carries.
  *
  * A client holding only a receipt and network access fetches the manifest at `/v1/weights/<wts>` and
- * checks that sha256(response) is the `wts` in the document it holds. The route therefore has to serve
- * the bytes the gateway hashed at start-up rather than a rendering or a second reading of the file, and
- * it has to answer a digest it does not hold without saying whether any other digest is held. The mock
- * deployment has no manifest file behind its digests, and that state is served as the absence it is.
+ * checks that sha256(response) is the `wts` in the document it holds. That client presents no
+ * credential, and the route asks for none: the digest is the address, and the one public row in the
+ * route table is this exact GET. The route therefore has to serve the bytes the gateway hashed at
+ * start-up rather than a rendering or a second reading of the file, and it has to answer a digest it
+ * does not hold without saying whether any other digest is held. The mock deployment has no manifest
+ * file behind its digests, and that state is served as the absence it is.
  */
 
 const tempDir = mkdtempSync(join(tmpdir(), 'ashaveri-weights-route-'));
@@ -38,17 +40,26 @@ function deploymentFromFile(modelIds: readonly string[], path: string): Deployme
   return { ...mockDeployment(), models, weightsManifest: manifest };
 }
 
-async function serve(h: Harness, path: string): Promise<{ statusCode: number; contentType: string; body: Buffer }> {
-  const response = await h.app.inject({
-    method: 'GET',
-    url: path,
-    headers: h.signFor(CREDENTIAL, 'GET', path, null),
-  });
+/**
+ * The route as a client with only a receipt reads it: no credential of any kind. The harness holds one
+ * for the cases that mint and fetch a receipt, and these reads never present it.
+ */
+async function serve(
+  h: Harness,
+  path: string,
+  headers: Record<string, string> = {},
+): Promise<{ statusCode: number; contentType: string; body: Buffer }> {
+  const response = await h.app.inject({ method: 'GET', url: path, headers });
   return {
     statusCode: response.statusCode,
     contentType: String(response.headers['content-type'] ?? ''),
     body: Buffer.from(response.rawPayload),
   };
+}
+
+/** The refusal code a JSON error body carries, or undefined where the route answers no code. */
+function errorCode(json: { error?: { code?: string } } & Record<string, unknown>): string | undefined {
+  return json.error?.code;
 }
 
 async function openHarness(deployment?: Deployment): Promise<Harness> {
@@ -80,6 +91,38 @@ describe('GET /v1/weights/:digest', () => {
     expect(served.body).toEqual(Buffer.from(deployment.weightsManifest!.bytes));
     expect(toHex(sha256(served.body))).toBe(digest);
   });
+
+  it('answers a read with no credential, and a credential changes nothing', async () => {
+    const deployment = deploymentFromFile(['model-a'], MANIFEST);
+    const digest = toHex(deployment.models[0]!.wts);
+    const h = await openHarness(deployment);
+    const anonymous = await serve(h, `/v1/weights/${digest}`);
+    // The route asks for no credential, so one that is presented is not verified and not needed: a
+    // client holding a receipt cannot be turned away by a header it did not have to send.
+    const presented = await serve(h, `/v1/weights/${digest}`, { authorization: 'Bearer not-a-credential' });
+    expect(anonymous.statusCode).toBe(200);
+    expect(presented.statusCode).toBe(200);
+    expect(presented.body).toEqual(anonymous.body);
+  });
+
+  it('leaves every other method and path to the credential checks', async () => {
+    const deployment = deploymentFromFile(['model-a'], MANIFEST);
+    const digest = toHex(deployment.models[0]!.wts);
+    const h = await openHarness(deployment);
+    // Same path, another method: the public row names GET and does not stand for a prefix or a verb.
+    const post = await h.inject({ method: 'POST', url: `/v1/weights/${digest}` });
+    expect(post.statusCode).toBe(401);
+    expect(errorCode(post.json)).toBe('AUTH_MALFORMED');
+    // Same method, one segment past the route: an unregistered target still meets the credential
+    // checks, so the allowance cannot be walked as a prefix.
+    const deeper = await h.inject({ method: 'GET', url: `/v1/weights/${digest}/past-the-end` });
+    expect(deeper.statusCode).toBe(401);
+    expect(errorCode(deeper.json)).toBe('AUTH_MALFORMED');
+    const prefix = await h.inject({ method: 'GET', url: '/v1/weights' });
+    expect(prefix.statusCode).toBe(401);
+    expect(errorCode(prefix.json)).toBe('AUTH_MALFORMED');
+  });
+
 
   it('serves the bytes of the one reading after the file on disk changes', async () => {
     let readings = 0;

@@ -829,12 +829,15 @@ describe('what a target the route table does not name costs', () => {
     expect(routeScope('POST', COMPLETE_ROUTE.url)).toBe('complete');
     expect(routeScope('GET', '/v1/receipts/rcpt.01')).toBeUndefined();
     expect(routeScope('GET', '/v1/receipts/rcpt_01')).toBe('read');
-    expect(routeScope('GET', `/v1/weights/${'ab'.repeat(32)}`)).toBe('read');
+    expect(routeScope('GET', `/v1/weights/${'ab'.repeat(32)}`)).toBe('public');
+    // The table names the route; the digest's own width is the route body's check, which is what lets a
+    // malformed digest answer 400 rather than disappear into the credential refusal of an unknown path.
+    expect(routeScope('GET', '/v1/weights/not-a-digest')).toBe('public');
     // `HEAD` is GET without a body and Fastify answers it on every GET route, so it is listed and has
     // no business being in a corpus of unlisted targets.
     expect(routeScope('HEAD', WORK_ROUTE.url)).toBe('any');
     expect(routeScope('HEAD', '/v1/attestation')).toBe('read');
-    expect(routeScope('HEAD', `/v1/weights/${'ab'.repeat(32)}`)).toBe('read');
+    expect(routeScope('HEAD', `/v1/weights/${'ab'.repeat(32)}`)).toBe('public');
     expect(UNLISTED_TARGETS.some((each) => each.method === 'HEAD')).toBe(false);
   });
 });

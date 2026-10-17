@@ -582,14 +582,16 @@ export function buildGateway(options: GatewayOptions): GatewayInstance {
         if (refusal !== null) {
           throw new AccessError('RECEIPT_WINDOW_UNHOLDABLE', {
             detail: intakeGuardDetail(refusal),
-            credentialId: admitted.credentialId,
+            credentialId: admitted.credentialId ?? undefined,
           });
         }
       }
       state.credential = admitted.credentialId;
       // Held on the request the moment admission names the credential, so a mint and a read compare
-      // the same value they were admitted with rather than looking one up again per request.
-      state.tag = receiptIds.tagFor(admitted.credentialId);
+      // the same value they were admitted with rather than looking one up again per request. A public
+      // route names no credential, and no route that mints or reads a receipt is public, so null here
+      // reaches only a body that asks for no tag.
+      state.tag = admitted.credentialId === null ? null : receiptIds.tagFor(admitted.credentialId);
       state.auth = admitted.auth;
       state.scope = admitted.scope;
       state.nonce = admitted.nonce === null ? null : toBase64Url(admitted.nonce);

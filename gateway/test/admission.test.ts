@@ -17,6 +17,7 @@ import {
   CredentialStore,
   DEFAULT_RATE,
   REPLAY_WINDOW_SECONDS,
+  ROUTE_SCOPES,
   TokenBucket,
   newBearerCredential,
   newPopCredential,
@@ -300,6 +301,46 @@ describe('CredentialStore.admit, the five checks in order', () => {
     // There is no separate comparison for this: the nonce is a signing-string
     // component, so a header that disagrees with the signature fails the signature.
     expect(code(() => store([generated.record]).admit(swapped))).toBe('AUTH_SIGNATURE');
+  });
+});
+
+/**
+ * The one public row, read at the store rather than through a transport. The route is addressed by the
+ * digest a receipt carries, and the allowance is that row alone: every other row still demands a
+ * credential, and the connection bound is charged before the row is even read.
+ */
+describe('the public weights manifest row', () => {
+  const WEIGHTS = `/v1/weights/${'ab'.repeat(32)}`;
+  const OTHERS = Object.entries(ROUTE_SCOPES).filter(([, scope]) => scope !== 'public');
+
+  function anonymous(method: string, url: string): string {
+    return code(() => store([]).admit({ method, url, headers: {}, body: null, nowSeconds: NOW }));
+  }
+
+  it('admits a request with no credential on that route, and refuses one on every other row', () => {
+    for (const [route] of OTHERS) {
+      const [method, pattern] = route.split(' ');
+      const url = (pattern ?? '').replace(':id', 'rcp_01').replace(':digest', 'ab'.repeat(32));
+      expect(anonymous(method as string, url), `${route} still refuses an unauthenticated caller`).toBe(
+        'AUTH_MALFORMED',
+      );
+    }
+    const admission = store([]).admit({ method: 'GET', url: WEIGHTS, headers: {}, body: null, nowSeconds: NOW });
+    expect(admission).toEqual({ credentialId: null, scope: 'public', auth: null, nonce: null, receiptId: null });
+  });
+
+  it('charges the connection bound before it answers the public row', () => {
+    const s = new CredentialStore({
+      file: { version: 1, credentials: [] },
+      peerRate: { perMinute: 1, burst: 1 },
+      nowMillis: () => NOW * 1000,
+    });
+    const ask = (): string =>
+      code(() => s.admit({ method: 'GET', url: WEIGHTS, headers: {}, body: null, peerAddress: 'peer-1' }));
+    expect(ask()).toBe('no-error');
+    // A public read is still a request this process serves, so it spends from the same per-address
+    // bucket a credential check does rather than bypassing the one bound every request meets.
+    expect(ask()).toBe('RATE_LIMITED');
   });
 });
 
