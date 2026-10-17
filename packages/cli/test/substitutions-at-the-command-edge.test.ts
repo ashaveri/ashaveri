@@ -1,11 +1,17 @@
 import { spawnSync } from 'node:child_process';
-import { createHash } from 'node:crypto';
+import { createHash, createPrivateKey, sign } from 'node:crypto';
 import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { afterAll, describe, expect, it } from 'vitest';
-import { decodeEpochInventory } from '@ashaveri/receipt';
+import {
+  decodeCanonical,
+  decodeEpochInventory,
+  encodeCanonical,
+  exportSigStructure,
+  sealExport,
+} from '@ashaveri/receipt';
 import { noteSpawn } from './support/spawn-budget.js';
 /** How long one child of the built CLI may live before this file calls it a bug rather than a slow machine. */
 const SPAWN_DEADLINE_MS = 10_000;
@@ -102,6 +108,7 @@ const EXPORT_SUITE = JSON.parse(readFileSync(`${DATA}export-v1.json`, 'utf8')) a
   readonly vectors: readonly {
     readonly name: string;
     readonly documentBase64Url: string;
+    readonly verdict: string;
     readonly read: { readonly companions?: readonly { readonly name: string; readonly bytesBase64Url: string }[] };
   }[];
 };
@@ -120,6 +127,56 @@ function exportDocument(row: (typeof EXPORT_SUITE.vectors)[number]): string {
 
 function packDocument(row: (typeof PACK_SUITE.vectors)[number]): string {
   return written(`${row.name}.cbor`, Buffer.from(row.documentBase64Url, 'base64url'));
+}
+
+/** The published export seed, stated by the suite as thirty-two bytes of 23, for a document re-signed here. */
+const EXPORT_SEED_HEX = '17'.repeat(32);
+
+/** An Ed25519 signature over arbitrary bytes, from a seed the published suite states. */
+function signWithSeed(seedHex: string, message: Uint8Array): Uint8Array {
+  const key = createPrivateKey({
+    key: Buffer.concat([Buffer.from('302e020100300506032b657004220420', 'hex'), Buffer.from(seedHex, 'hex')]),
+    format: 'der',
+    type: 'pkcs8',
+  });
+  return new Uint8Array(sign(null, message, key));
+}
+
+/**
+ * The published export with one item's original name replaced and the document sealed again.
+ *
+ * The rule under test is the format's own `requireFileName`, so the document has to be whole in every
+ * other respect: the same protected header, the same key, and a signature made after the edit. Only the
+ * name moves, which is the one position the row is about.
+ */
+function exportWithOriginalName(name: string): Uint8Array {
+  const row = rowOf('export-v1.json', EXPORT_SUITE.vectors, 'companion-handed-and-checked');
+  const envelope = decodeCanonical(Buffer.from(row.documentBase64Url, 'base64url')) as {
+    readonly contents: readonly [Uint8Array, Map<unknown, unknown>, Uint8Array, Uint8Array];
+  };
+  const [protectedBytes, , payloadBytes] = envelope.contents;
+  const payload = decodeCanonical(payloadBytes) as Map<unknown, unknown>;
+  const collection = payload.get('collection') as Map<unknown, unknown>;
+  const items = collection.get('items') as Map<unknown, unknown>[];
+  const first = items[0];
+  if (first === undefined) throw new Error('the published companion row carries no item to rename');
+  const original = first.get('orig') as Map<unknown, unknown>;
+  original.set('name', name);
+  const resealed = encodeCanonical(payload);
+  const signature = signWithSeed(EXPORT_SEED_HEX, exportSigStructure(protectedBytes, resealed));
+  return sealExport(protectedBytes, resealed, signature);
+}
+
+/** The published pack with one payload byte flipped and the signature left as it was. */
+function packWithFlippedPayload(row: (typeof PACK_SUITE.vectors)[number]): Uint8Array {
+  const envelope = decodeCanonical(Buffer.from(row.documentBase64Url, 'base64url')) as {
+    readonly contents: readonly [Uint8Array, Map<unknown, unknown>, Uint8Array, Uint8Array];
+  };
+  const [protectedBytes, , payloadBytes, signature] = envelope.contents;
+  const flipped = Uint8Array.from(payloadBytes);
+  const last = flipped.length - 1;
+  flipped[last] = (flipped[last] as number) ^ 0x01;
+  return sealExport(protectedBytes, flipped, signature);
 }
 
 /**
@@ -369,5 +426,69 @@ describe('the substitutions a handover invites, at the command edge', () => {
     const alone = runCli(['verify-epoch-inventory', document, `--key=${row.read.pinned}`, '--json']);
     expect(alone.status, alone.stderr).toBe(0);
     expect(verdictOf(alone).ok).toBe(true);
+  });
+
+  it('refuses an absolute original name under the same rule as the climbing one', () => {
+    // The published row proves the climbing shape. An absolute path reaches the same `requireFileName`
+    // branch, and the document is sealed after the edit, so the refusal cannot be a signature failure.
+    for (const name of ['/outside.pdf', 'C:\\outside.pdf']) {
+      const result = runCli(['verify-export', written(`absolute-${name.replace(/[^A-Za-z]/gu, '')}.cbor`, exportWithOriginalName(name)), `--key=${EXPORT_KEY}`, '--json']);
+      expect(result.status, name).toBe(1);
+      const refusal = verdictOf(result);
+      expect(refusal.code, name).toBe('EXPORT_BAD_MANIFEST');
+      expect(String(refusal.message), name).toContain('must be a file name and not a path or a location');
+    }
+  });
+
+  it('refuses two companions that answer to one name, which is the collision this surface can meet', () => {
+    // No archive is extracted here, so the collision a member walk would answer is not reachable. The
+    // companion set is keyed by the bare name a signed item carries, and two files at one name would leave
+    // the second answering for the item that carries the first one's bytes.
+    const row = rowOf('export-v1.json', EXPORT_SUITE.vectors, 'companion-handed-and-checked');
+    const companion = row.read.companions?.[0];
+    if (companion === undefined) {
+      throw new Error('the published handed row states no bytes, so this run would hand nothing at the name');
+    }
+    const bytes = Buffer.from(companion.bytesBase64Url, 'base64url');
+    const first = writtenUnderItsOwnName(companion.name, bytes);
+    const second = writtenUnderItsOwnName(companion.name, bytes);
+    const result = runCli(['verify-export', exportDocument(row), `--key=${EXPORT_KEY}`, `--companion=${first}`, `--companion=${second}`]);
+    expect(result.status).toBe(2);
+    expect(result.stderr).toContain(`--companion names '${companion.name}' twice`);
+  });
+
+  it('refuses a pack whose signed payload was changed after signing', () => {
+    // The signature is checked over the exact protected and payload bytes, so a flipped payload byte is an
+    // invalid signature even though the envelope still decodes and the kid is one this run designates.
+    const row = rowOf('pack-v1.json', PACK_SUITE.vectors, 'well-formed-three-items');
+    const result = runCli(['verify-pack', written('pack-payload-flipped.cbor', packWithFlippedPayload(row)), `--key=${row.read.pinned}`, '--json']);
+    expect(result.status).toBe(1);
+    const refusal = verdictOf(result);
+    expect(refusal).toMatchObject({ ok: false, code: 'INVALID_SIGNATURE' });
+  });
+
+  it('refuses original bytes edited after assembly, whose digest the item still carries', () => {
+    // The document is sealed after the edit, so the signature holds and only the recomputed item digest
+    // separates the bytes handed from the claim beside them.
+    const row = rowOf('export-v1.json', EXPORT_SUITE.vectors, 'original-bytes-edited');
+    const result = runCli(['verify-export', exportDocument(row), `--key=${EXPORT_KEY}`, '--json']);
+    expect(result.status).toBe(1);
+    const refusal = verdictOf(result);
+    expect(refusal.code).toBe('EXPORT_DIGEST_MISMATCH');
+    expect(String(refusal.message)).toContain('do not hash to the digest the item carries');
+  });
+
+  it('measures the stale-replay gap: a signed endpoint a reader would compare is not a pin this CLI takes', () => {
+    // The published row is refused only by a reader that arrives holding the head it expects. The handover
+    // surface designates keys and companions and no endpoint, so the same bytes pass here and the report
+    // says in terms that a reader holding an endpoint is the one that compares it. A checkpoint pin is
+    // DU-9.3's assessment surface, and importing it here would be a second pin mechanism.
+    const row = rowOf('export-v1.json', EXPORT_SUITE.vectors, 'endpoint-head-disagrees');
+    expect(row.verdict).toBe('EXPORT_ENDPOINT_MISMATCH');
+    const result = runCli(['verify-export', exportDocument(row), `--key=${EXPORT_KEY}`, '--json']);
+    expect(result.status, result.stderr).toBe(0);
+    const report = verdictOf(result);
+    expect(report.ok).toBe(true);
+    expect((report.notChecked as string[]).join(' ')).toContain('endpoints a reader already has cause to believe are compared by that reader');
   });
 });
