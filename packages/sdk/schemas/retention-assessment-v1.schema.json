@@ -1,0 +1,404 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://ashaveri.com/schemas/retention-assessment-v1.json",
+  "title": "Ashaveri Retention Assessment (v1)",
+  "description": "One deployment's declared retention scope, the coverage evidence behind it, and the deployment's own conclusion, stated so that a reader who does not trust the writer can recompute the conclusion from the evidence. A retention manifest states the distance from the oldest surviving record to the stamp of the manifest; that distance is arithmetic, and no subtraction over it shows that every record between the two ends survived. This document is the shape that asks the question the subtraction cannot answer. The `scope` block is the deployment's declaration: the subject the assessment is about, the article and period it takes itself to owe, the intake sequence range with a head pinned by a party other than the subject, the customer-held checkpoint schedule, the clock basis with its declared uncertainty, and what the scope leaves out. The `coverage` block is what was observed: the intake sequence runs, the ranges the store acknowledged, the checkpoint receipts, the head observed at the last sequence, a span where a span is all there is, and the explicit gaps, duplicates, rollbacks and suffix loss. The `assessment` block is the deployment's own conclusion, and `assessRetention` in `packages/sdk/src/retention-assessment.ts` recomputes it rather than believing it: a document whose stated outcome is not the outcome its evidence supports is refused. A span-only input answers `indeterminate` however long the span is, because the maximum minus the minimum timestamp is not evidence that every record survived and has no path to `met`. An interior gap, a stated duplicate, a rollback or a suffix loss answers `not-met`. A missing checkpoint, an unacknowledged interval, a missing expected head or a head the subject pinned about itself answers `indeterminate`. Only continuous sequence coverage, acknowledgment across the width of the declared range, customer-held checkpoint receipts across the period, and an observed head matching an independently pinned expected head answer `met`. Every block is closed: a member this version does not define makes the document invalid rather than a document read with the member dropped. The cross-member rules the keywords cannot state, such as ascending runs, are enforced by the reader and named in its refusals.",
+  "type": "object",
+  "required": ["v", "scope", "coverage", "assessment"],
+  "additionalProperties": false,
+  "properties": {
+    "v": {
+      "const": 1,
+      "description": "Retention assessment format version. A reader refuses a version it does not implement rather than reading the document as one it does."
+    },
+    "scope": {
+      "type": "object",
+      "required": ["subject", "duty", "period", "intake", "checkpoint", "timeBasis", "excludes"],
+      "additionalProperties": false,
+      "description": "What the assessment is about and what the deployment declares about it. These are the deployment's own statements: the article, the period, the schedule and the clock bound are copied, not interpreted by this estate.",
+      "properties": {
+        "subject": {
+          "type": "object",
+          "required": ["kind", "id"],
+          "additionalProperties": false,
+          "properties": {
+            "kind": {
+              "enum": ["deployment", "provider"],
+              "description": "Whether the assessment is about one deployment or about a provider across deployments."
+            },
+            "id": {
+              "type": "string",
+              "minLength": 1,
+              "description": "The subject's own name for itself, as it states it."
+            }
+          }
+        },
+        "duty": {
+          "type": "object",
+          "required": ["article", "requiredSeconds"],
+          "additionalProperties": false,
+          "description": "The obligation the deployment declares, in its own reading of the article. Nothing here decides which article applies.",
+          "properties": {
+            "article": {
+              "enum": ["19(1)", "19(2)", "26(6)"],
+              "description": "The closed set of duty labels the retention manifest beside this family also enumerates."
+            },
+            "requiredSeconds": {
+              "type": "integer",
+              "minimum": 1,
+              "description": "The period the deployment takes that article to require, never below one. This layout enforces no legal period of its own."
+            }
+          }
+        },
+        "period": {
+          "type": "object",
+          "required": ["from", "to"],
+          "additionalProperties": false,
+          "description": "The period the assessment is about, in whole unix seconds, both ends inclusive. A period shorter than the declared `requiredSeconds` is a duty the evidence cannot meet, which the reading reports as `not-met` rather than refusing the document.",
+          "properties": {
+            "from": {
+              "type": "integer",
+              "minimum": 0,
+              "description": "The instant the period opens."
+            },
+            "to": {
+              "type": "integer",
+              "minimum": 0,
+              "description": "The instant the period closes."
+            }
+          }
+        },
+        "intake": {
+          "type": "object",
+          "required": ["from", "to", "expectedHead"],
+          "additionalProperties": false,
+          "description": "The intake sequence range the assessment is about, and the head the deployment expected at its end.",
+          "properties": {
+            "from": {
+              "type": "integer",
+              "minimum": 0,
+              "description": "The first intake sequence in the range."
+            },
+            "to": {
+              "type": "integer",
+              "minimum": 0,
+              "description": "The last intake sequence in the range. A head is comparable only at the sequence it was taken at, which is why the pin names the sequence beside it in `coverage.observedHead`."
+            },
+            "expectedHead": {
+              "type": "object",
+              "required": ["sha256", "pinnedBy", "reason"],
+              "additionalProperties": false,
+              "description": "The head expected at the last intake sequence, and who pinned it. `customer` and `external-holder` are parties other than the subject; `subject` is the deployment stating that it pinned the head about itself, which the reading weighs as self-assertion; `none` says nobody pinned one. A head the intake wrote beside its own observation is refused by the reader rather than accepted as a pin, because a document that attests itself proves nothing.",
+              "properties": {
+                "sha256": {
+                  "type": ["string", "null"],
+                  "pattern": "^[0-9a-f]{64}$",
+                  "description": "The expected chain head, 64 lowercase hex characters, or null where no head is pinned. Null owes a reason."
+                },
+                "pinnedBy": {
+                  "enum": ["customer", "external-holder", "subject", "none"],
+                  "description": "Who pinned the head. A value outside this set is refused, and the reader names the intake-side spellings it refuses by name."
+                },
+                "reason": {
+                  "type": ["string", "null"],
+                  "minLength": 1,
+                  "description": "Why no independent head is pinned. Required exactly where `sha256` is null or `pinnedBy` is `none`, and null otherwise."
+                }
+              }
+            }
+          }
+        },
+        "checkpoint": {
+          "type": "object",
+          "required": ["holder", "eachCompletedBatch", "maxIntervalSeconds"],
+          "additionalProperties": false,
+          "description": "The checkpoint schedule the deployment declares. The layout refuses a schedule weaker than customer-held, one per completed batch and at least hourly, because the checkpoint is the only temporal witness this family carries. `coverage.checkpoints` is the receipts that schedule produced.",
+          "properties": {
+            "holder": {
+              "const": "customer",
+              "description": "The party holding the checkpoint receipts. The reading requires a party independent of the deployment."
+            },
+            "eachCompletedBatch": {
+              "const": true,
+              "description": "Whether every completed intake batch produced a receipt. This layout defines only the schedule where it did."
+            },
+            "maxIntervalSeconds": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 3600,
+              "description": "The longest interval the schedule allows between two receipts, capped at 3,600 seconds, which is the hourly floor stated as a number."
+            }
+          }
+        },
+        "timeBasis": {
+          "type": "object",
+          "required": ["source", "uncertaintySeconds"],
+          "additionalProperties": false,
+          "description": "The clock every stamp in the document rests on, and how far it may stand from the instant it names. A null uncertainty states that nobody measured the source, which is not a bound of zero. This block is the seam to the policy work that will weigh a clock bound as a demand; this version carries the declaration and reports it beside the result.",
+          "properties": {
+            "source": {
+              "type": "string",
+              "minLength": 1,
+              "description": "The source's own name for itself."
+            },
+            "uncertaintySeconds": {
+              "type": ["integer", "null"],
+              "minimum": 0,
+              "description": "How far the clock may stand from the instant it names, in whole seconds, or null where nobody measured it."
+            }
+          }
+        },
+        "excludes": {
+          "type": "array",
+          "description": "What the scope leaves out, one sentence each. An empty list states that the scope excludes nothing, which is a statement rather than an omission.",
+          "items": {
+            "type": "string",
+            "minLength": 1
+          }
+        }
+      }
+    },
+    "coverage": {
+      "type": "object",
+      "required": ["runs", "acknowledged", "checkpoints", "observedHead", "span", "gaps", "duplicates", "rollbacks", "suffixLoss"],
+      "additionalProperties": false,
+      "description": "What the intake and the store observed. The runs, the acknowledgments, the checkpoints and the observed head are one basis; `span` is the other, and the reader refuses a span beside any of them because one result cannot have two bases.",
+      "properties": {
+        "runs": {
+          "type": "array",
+          "description": "The intake sequence ranges observed, ascending and disjoint. A range that runs backwards is a non-monotonic observation and two ranges that share a sequence are one sequence stated twice; the reader refuses both. An empty list with `span` null is a document that observed nothing, which the reading answers `indeterminate`.",
+          "items": {
+            "type": "object",
+            "required": ["from", "to"],
+            "additionalProperties": false,
+            "properties": {
+              "from": {
+                "type": "integer",
+                "minimum": 0,
+                "description": "The first sequence in the range."
+              },
+              "to": {
+                "type": "integer",
+                "minimum": 0,
+                "description": "The last sequence in the range."
+              }
+            }
+          }
+        },
+        "acknowledged": {
+          "type": "array",
+          "description": "The ranges the store acknowledged receiving, ascending and disjoint. A period covered by runs but not acknowledged across its width is an unwitnessed interval, which the reading answers `indeterminate`.",
+          "items": {
+            "type": "object",
+            "required": ["from", "to"],
+            "additionalProperties": false,
+            "properties": {
+              "from": {
+                "type": "integer",
+                "minimum": 0,
+                "description": "The first acknowledged sequence."
+              },
+              "to": {
+                "type": "integer",
+                "minimum": 0,
+                "description": "The last acknowledged sequence."
+              }
+            }
+          }
+        },
+        "checkpoints": {
+          "type": "array",
+          "description": "The checkpoint receipts the declared schedule produced, ascending in time and in sequence range. Each range must lie inside a run the intake observed; a receipt that claims a range the intake does not support is refused by the reader.",
+          "items": {
+            "type": "object",
+            "required": ["range", "at", "head"],
+            "additionalProperties": false,
+            "properties": {
+              "range": {
+                "type": "object",
+                "required": ["from", "to"],
+                "additionalProperties": false,
+                "properties": {
+                  "from": {
+                    "type": "integer",
+                    "minimum": 0,
+                    "description": "The first sequence this receipt covers."
+                  },
+                  "to": {
+                    "type": "integer",
+                    "minimum": 0,
+                    "description": "The last sequence this receipt covers."
+                  }
+                }
+              },
+              "at": {
+                "type": "integer",
+                "minimum": 0,
+                "description": "Unix seconds on the clock the scope declares, the instant the receipt was taken."
+              },
+              "head": {
+                "type": "string",
+                "pattern": "^[0-9a-f]{64}$",
+                "description": "The chain head the receipt names at this range, 64 lowercase hex characters."
+              }
+            }
+          }
+        },
+        "observedHead": {
+          "type": ["object", "null"],
+          "required": ["sequence", "sha256"],
+          "additionalProperties": false,
+          "description": "The head the intake observed at the last sequence it saw, or null where nothing was observed. Its sequence must be the end of the last run, and the reader refuses a head that stands anywhere else.",
+          "properties": {
+            "sequence": {
+              "type": "integer",
+              "minimum": 0,
+              "description": "The intake sequence the head was taken at."
+            },
+            "sha256": {
+              "type": "string",
+              "pattern": "^[0-9a-f]{64}$",
+              "description": "The observed chain head, 64 lowercase hex characters."
+            }
+          }
+        },
+        "span": {
+          "type": ["object", "null"],
+          "required": ["from", "to", "oldestHead", "newestHead"],
+          "additionalProperties": false,
+          "description": "The oldest and newest surviving records with their stamps, for a document whose only evidence is a span. The reader requires every other coverage member to be empty beside it, and the reading answers `indeterminate` for it: the distance between the two stamps states nothing about the sequences between the ends. This is the path the old span rule would have read as `met`, and it has no path to that outcome here.",
+          "properties": {
+            "from": {
+              "type": "integer",
+              "minimum": 0,
+              "description": "Unix seconds of the oldest surviving record."
+            },
+            "to": {
+              "type": "integer",
+              "minimum": 0,
+              "description": "Unix seconds of the newest surviving record."
+            },
+            "oldestHead": {
+              "type": "string",
+              "pattern": "^[0-9a-f]{64}$",
+              "description": "The head of the chain at the oldest surviving record."
+            },
+            "newestHead": {
+              "type": "string",
+              "pattern": "^[0-9a-f]{64}$",
+              "description": "The head of the chain at the newest surviving record."
+            }
+          }
+        },
+        "gaps": {
+          "type": "array",
+          "description": "Explicit stretches of the declared range the intake did not carry, ascending and disjoint, each with its reason. The reader refuses a gap that a run beside it observed.",
+          "items": {
+            "type": "object",
+            "required": ["from", "to", "reason"],
+            "additionalProperties": false,
+            "properties": {
+              "from": {
+                "type": "integer",
+                "minimum": 0,
+                "description": "The first missing sequence."
+              },
+              "to": {
+                "type": "integer",
+                "minimum": 0,
+                "description": "The last missing sequence."
+              },
+              "reason": {
+                "type": "string",
+                "minLength": 1,
+                "description": "Why the run is missing, in the writer's own words."
+              }
+            }
+          }
+        },
+        "duplicates": {
+          "type": "array",
+          "description": "Intake sequences the intake saw more than once, ascending and unique. A duplicate is an adverse observation and makes the assessment `not-met`; it is never a silent pass.",
+          "items": {
+            "type": "object",
+            "required": ["sequence", "count"],
+            "additionalProperties": false,
+            "properties": {
+              "sequence": {
+                "type": "integer",
+                "minimum": 0,
+                "description": "The sequence the intake saw more than once."
+              },
+              "count": {
+                "type": "integer",
+                "minimum": 2,
+                "description": "How many times the intake saw it. Fewer than two is not a duplicate and the reader refuses the row."
+              }
+            }
+          }
+        },
+        "rollbacks": {
+          "type": "array",
+          "description": "Points where the intake observed a head and then restored an earlier one, ascending and unique. A rollback is an adverse observation and makes the assessment `not-met`.",
+          "items": {
+            "type": "object",
+            "required": ["sequence", "observedHead", "restoredHead"],
+            "additionalProperties": false,
+            "properties": {
+              "sequence": {
+                "type": "integer",
+                "minimum": 0,
+                "description": "The sequence at which the rollback was observed."
+              },
+              "observedHead": {
+                "type": "string",
+                "pattern": "^[0-9a-f]{64}$",
+                "description": "The head the intake observed at that sequence."
+              },
+              "restoredHead": {
+                "type": "string",
+                "pattern": "^[0-9a-f]{64}$",
+                "description": "The earlier head the intake restored. The reader refuses this equal to `observedHead`, because that states no rollback."
+              }
+            }
+          }
+        },
+        "suffixLoss": {
+          "type": ["object", "null"],
+          "required": ["from", "to", "reason"],
+          "additionalProperties": false,
+          "description": "The tail of the declared range the intake never observed, against the head pinned at its end. The reader requires the range to begin immediately after the last observed sequence and end at the declared end, and refuses any other shape. A stated suffix loss makes the assessment `not-met`.",
+          "properties": {
+            "from": {
+              "type": "integer",
+              "minimum": 0,
+              "description": "The first unobserved sequence of the suffix."
+            },
+            "to": {
+              "type": "integer",
+              "minimum": 0,
+              "description": "The last sequence of the declared intake range."
+            },
+            "reason": {
+              "type": "string",
+              "minLength": 1,
+              "description": "Why the suffix is missing, in the writer's own words."
+            }
+          }
+        }
+      }
+    },
+    "assessment": {
+      "type": "object",
+      "required": ["outcome"],
+      "additionalProperties": false,
+      "description": "The deployment's own conclusion. The reading recomputes it from the evidence and refuses a document whose stated outcome differs, under `RETENTION_ASSESSMENT_DISAGREES`.",
+      "properties": {
+        "outcome": {
+          "enum": ["met", "not-met", "indeterminate"],
+          "description": "`met` claims the declared period was continuously covered and a pinned head matched. The reading reaches it only from continuous sequence coverage, acknowledgment across the declared width, checkpoints across the period, and a matched independent head. `not-met` is a period the evidence states was not continuously held. `indeterminate` is a period the evidence cannot answer either way."
+        }
+      }
+    }
+  }
+}
