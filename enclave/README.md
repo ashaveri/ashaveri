@@ -11,7 +11,7 @@ hostname, or the exact flags that tier accepts; they get resolved the first time
 | --- | --- |
 | `docker-compose.yaml` | The compose text the platform measures. It defines `inference` (llama.cpp, loopback only) and `gateway` (signerd, the only published port). |
 | `Dockerfile` | Compiles `@ashaveri/signerd` from source in a `node:24.21.0-bookworm-slim` build stage, then copies the production install into a runtime stage on the same tag. |
-| `docker-entrypoint.sh` | Checks the mounted model files against the manifest when both weights environment variables are set, then execs `signerd`. |
+| `docker-entrypoint.sh` | Refuses a run that sets one weights environment value without the other, checks the mounted model files against the manifest when both are set, then execs `signerd`. |
 | `weights.mjs` | Emits and checks the model manifest whose sha256 every receipt carries as `wts`. |
 
 The compose text is what the platform measures, and this file boots TDX unless `ASHAVERI_TEE` says
@@ -59,11 +59,12 @@ curl -L -o enclave/release/<model>.gguf https://huggingface.co/<repo>/resolve/ma
 node enclave/weights.mjs generate enclave/release enclave/release/weights-manifest.json
 ```
 
-`generate` prints the manifest digest. That digest is what `weightsOf()` puts in the manifest's
-`models[].wts` and in every receipt for that model, so record it: it is the value a client
-compares against after it has the manifest file itself. `verify` re-walks the directory and
-lists every difference at once (content mismatch, canonical-order problem, missing or extra
-file) and exits non-zero; the entrypoint runs it before the gateway starts signing.
+`generate` prints the manifest digest. That digest is what the gateway computes from the manifest
+`--weights-manifest` names and puts in the manifest's `models[].wts` and in every receipt for that
+model, so record it: it is the value a client compares against after it has the manifest file itself.
+`verify` re-walks the directory and lists every difference at once (content mismatch,
+canonical-order problem, missing or extra file) and exits non-zero; the entrypoint runs it before
+the gateway starts signing.
 
 ## 3. Deploy
 

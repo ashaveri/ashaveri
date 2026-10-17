@@ -1,7 +1,7 @@
 import { createHash } from 'node:crypto';
 import { noteSpawn } from './support/spawn-budget.js';
 import { spawn, spawnSync } from 'node:child_process';
-import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { connect, createServer } from 'node:net';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -18,9 +18,18 @@ import { newBearerCredential, newPopCredential, serializeCredentialFile } from '
 import { MINIMUM_RETENTION_SECONDS, openFileReceiptStore, RECEIPT_STORE_FILE } from '../src/store.js';
 
 const CLI = fileURLToPath(new URL('../dist/cli.js', import.meta.url));
+const ENTRYPOINT_PATH = fileURLToPath(new URL('../../enclave/docker-entrypoint.sh', import.meta.url));
+const DOCKERFILE_PATH = fileURLToPath(new URL('../../enclave/Dockerfile', import.meta.url));
+/** The directory the container files are read from, which a shell starts in for a relative script name. */
+const REPO_ROOT = fileURLToPath(new URL('../../', import.meta.url));
 const tempDir = mkdtempSync(join(tmpdir(), 'ashaveri-signerd-'));
 const MANIFEST = join(tempDir, 'weights-manifest.json');
 writeFileSync(MANIFEST, `{"files":[{"name":"model.safetensors","sha256":"${'ab'.repeat(32)}"}]}`);
+/** A second manifest whose bytes differ, and a copy of the first under another name. */
+const OTHER_MANIFEST = join(tempDir, 'weights-manifest-other.json');
+writeFileSync(OTHER_MANIFEST, `{"files":[{"name":"model.safetensors","sha256":"${'cd'.repeat(32)}"}]}`);
+const COPY_OF_MANIFEST = join(tempDir, 'weights-manifest-copy.json');
+writeFileSync(COPY_OF_MANIFEST, readFileSync(MANIFEST));
 
 const CREDENTIALS = join(tempDir, 'credentials.json');
 const ACCESS_DIR = join(tempDir, 'access');
@@ -41,9 +50,23 @@ afterAll(() => {
 });
 
 function run(...args: string[]) {
+  return runWithEnv({}, ...args);
+}
+
+/**
+ * Run the built CLI with the environment a case names, on top of this process's own.
+ *
+ * A case about the container's two weights values needs them present or absent by name, and the
+ * process this suite runs in may carry either one. Naming a value as `undefined` removes it, which
+ * is how a case states that a partner is absent rather than inheriting whatever the shell had.
+ */
+function runWithEnv(overrides: Record<string, string | undefined>, ...args: string[]) {
   noteSpawn(SPAWN_DEADLINE_MS);
-  const env = { ...process.env };
+  const env: NodeJS.ProcessEnv = { ...process.env, ...overrides };
   delete env['DSTACK_SIMULATOR_ENDPOINT'];
+  for (const [name, value] of Object.entries(overrides)) {
+    if (value === undefined) delete env[name];
+  }
   // Every case below is an exit path, so a process still alive after eight seconds is a bug rather
   // than a slow machine. The deadline is what turns a handle that never closes into the named
   // failure on the next line instead of a CI job that waits forever.
@@ -55,6 +78,38 @@ function run(...args: string[]) {
   });
   // Without this a process that never started leaves `status` null, which reads as the CLI
   // exiting with the wrong code rather than as the spawn itself failing.
+  expect(result.error).toBeUndefined();
+  return result;
+}
+
+/**
+ * The shell that reads the container entrypoint on this host. The file names `/bin/sh` on its first
+ * line, a path Windows does not have, so the shell is named here from the platform's own location.
+ */
+function entrypointShell(): string {
+  if (process.platform !== 'win32') return 'sh';
+  const programFiles = process.env['ProgramFiles'];
+  const candidates =
+    programFiles === undefined
+      ? []
+      : [join(programFiles, 'Git', 'bin', 'bash.exe'), join(programFiles, 'Git', 'usr', 'bin', 'sh.exe')];
+  return candidates.find((candidate) => existsSync(candidate)) ?? 'bash';
+}
+
+/** One run of the entrypoint, with the container's weights values named or removed by the case. */
+function runEntrypoint(overrides: Record<string, string | undefined>) {
+  noteSpawn(SPAWN_DEADLINE_MS);
+  const env: NodeJS.ProcessEnv = { ...process.env, ...overrides };
+  for (const [name, value] of Object.entries(overrides)) {
+    if (value === undefined) delete env[name];
+  }
+  const result = spawnSync(entrypointShell(), ['enclave/docker-entrypoint.sh'], {
+    cwd: REPO_ROOT,
+    encoding: 'utf8',
+    env,
+    timeout: SPAWN_DEADLINE_MS,
+    killSignal: 'SIGKILL',
+  });
   expect(result.error).toBeUndefined();
   return result;
 }
@@ -1911,4 +1966,132 @@ describe('the record kind a volume is written under', () => {
     // Two boots of a gateway that serves, one per kind: measured here at 0.8s together, which the
     // runner's default covers, so the case carries no ceiling of its own.
   );
+});
+
+/**
+ * The two weights inputs a container deployment is handed: the directory the entrypoint verifies, the
+ * manifest it verifies against, and the flag the gateway hashes for `wts`.
+ *
+ * One input without the other leaves a receipt carrying a digest of bytes no boot check read, and two
+ * names for two files leaves the checked digest and the signed digest apart even where their bytes
+ * happen to agree. The entrypoint refuses the first state before the gateway starts; the gateway
+ * refuses every state but one file under both names. The containers values are set on the child's
+ * environment rather than this process's, because a case that mutates the suite's own environment
+ * would decide what a later case reads.
+ */
+describe('the two weights inputs one run is given', () => {
+  it(
+    'refuses an entrypoint run that sets one weights value without its partner',
+    () => {
+      const dirOnly = runEntrypoint({
+        ASHAVERI_WEIGHTS_DIR: '/run/ashaveri',
+        ASHAVERI_WEIGHTS_MANIFEST: undefined,
+      });
+      expect(dirOnly.status, dirOnly.stderr).toBe(1);
+      expect(dirOnly.stderr).toContain('ASHAVERI_WEIGHTS_DIR names /run/ashaveri');
+      expect(dirOnly.stderr).toContain('ASHAVERI_WEIGHTS_MANIFEST is empty');
+      expect(dirOnly.stdout, 'a refused boot started the gateway').not.toContain('listening');
+
+      const manifestOnly = runEntrypoint({
+        ASHAVERI_WEIGHTS_DIR: undefined,
+        ASHAVERI_WEIGHTS_MANIFEST: '/run/ashaveri/weights-manifest.json',
+      });
+      expect(manifestOnly.status, manifestOnly.stderr).toBe(1);
+      expect(manifestOnly.stderr).toContain(
+        'ASHAVERI_WEIGHTS_MANIFEST names /run/ashaveri/weights-manifest.json',
+      );
+      expect(manifestOnly.stderr).toContain('ASHAVERI_WEIGHTS_DIR is empty');
+    },
+    // Two entrypoint runs, each given the same deadline the CLI child gets: the ceiling is their sum.
+    spawnBudget(2),
+  );
+
+  it('pairs the shell entrypoint with the image that execs it', () => {
+    const first = readFileSync(ENTRYPOINT_PATH, 'utf8').split('\n')[0] ?? '';
+    // A shell entrypoint names the interpreter that reads it, and the image runs the file directly
+    // rather than naming a second interpreter that could disagree with the first line.
+    expect(first, `the entrypoint starts with ${first}`).toBe('#!/bin/sh');
+    expect(readFileSync(DOCKERFILE_PATH, 'utf8')).toContain('ENTRYPOINT ["/app/docker-entrypoint.sh"]');
+  });
+
+  it('refuses a live run whose two names are different files', () => {
+    const result = runWithEnv(
+      { ASHAVERI_WEIGHTS_DIR: tempDir, ASHAVERI_WEIGHTS_MANIFEST: MANIFEST },
+      ...liveArgs('--model', 'm', '--weights-manifest', OTHER_MANIFEST),
+    );
+    expect(result.status, result.stderr).toBe(1);
+    expect(result.stderr).toContain(`--weights-manifest names ${OTHER_MANIFEST}`);
+    expect(result.stderr).toContain(`ASHAVERI_WEIGHTS_MANIFEST names ${MANIFEST}`);
+    expect(result.stderr).toContain('do not resolve to the same file');
+    // The refusal is a sentence about the files, not a usage error that sends the operator to --help.
+    expect(result.stderr).not.toContain("Try 'signerd --help'");
+  });
+
+  it('refuses two names for one set of bytes, because the checked file is one file', () => {
+    const result = runWithEnv(
+      { ASHAVERI_WEIGHTS_DIR: tempDir, ASHAVERI_WEIGHTS_MANIFEST: MANIFEST },
+      ...liveArgs('--model', 'm', '--weights-manifest', COPY_OF_MANIFEST),
+    );
+    expect(result.status, result.stderr).toBe(1);
+    expect(result.stderr).toContain(`--weights-manifest names ${COPY_OF_MANIFEST}`);
+    expect(result.stderr).toContain(`ASHAVERI_WEIGHTS_MANIFEST names ${MANIFEST}`);
+    expect(result.stderr).toContain('do not resolve to the same file');
+  });
+
+  it(
+    'refuses each unpaired environment value on the gateway path as well, and an environment manifest without the flag',
+    () => {
+      const dirOnly = runWithEnv(
+        { ASHAVERI_WEIGHTS_DIR: tempDir, ASHAVERI_WEIGHTS_MANIFEST: undefined },
+        ...liveArgs('--model', 'm'),
+      );
+      expect(dirOnly.status, dirOnly.stderr).toBe(1);
+      expect(dirOnly.stderr).toContain(`ASHAVERI_WEIGHTS_DIR names ${tempDir}`);
+      expect(dirOnly.stderr).toContain('ASHAVERI_WEIGHTS_MANIFEST is empty');
+      expect(dirOnly.stderr).not.toContain("Try 'signerd --help'");
+
+      const manifestOnly = runWithEnv(
+        { ASHAVERI_WEIGHTS_DIR: undefined, ASHAVERI_WEIGHTS_MANIFEST: MANIFEST },
+        ...liveArgs('--model', 'm'),
+      );
+      expect(manifestOnly.status, manifestOnly.stderr).toBe(1);
+      expect(manifestOnly.stderr).toContain(`ASHAVERI_WEIGHTS_MANIFEST names ${MANIFEST}`);
+      expect(manifestOnly.stderr).toContain('ASHAVERI_WEIGHTS_DIR is empty');
+      expect(manifestOnly.stderr).not.toContain("Try 'signerd --help'");
+
+      const noFlag = runWithEnv(
+        { ASHAVERI_WEIGHTS_DIR: tempDir, ASHAVERI_WEIGHTS_MANIFEST: MANIFEST },
+        '--live',
+        '--public-url',
+        'https://inference.ashaveri.test',
+        '--model',
+        'm',
+        '--credentials-path',
+        CREDENTIALS,
+        '--access-log-path',
+        ACCESS_DIR,
+      );
+      expect(noFlag.status, noFlag.stderr).toBe(1);
+      expect(noFlag.stderr).toContain(`ASHAVERI_WEIGHTS_MANIFEST names ${MANIFEST}`);
+      expect(noFlag.stderr).toContain('--weights-manifest names no file');
+      expect(noFlag.stderr).not.toContain("Try 'signerd --help'");
+    },
+    // Three exit-path runs, each given the same deadline: the ceiling is their sum.
+    spawnBudget(3),
+  );
+
+  it('accepts one file under both names and stops at the guest agent this environment lacks', () => {
+    // The accepted pairing is what the run is about: a refusal here would name one of the weights
+    // values, and the guest error is the existing stop every live run in this suite reaches. The one
+    // digest both models carry is asserted where it is built, in `weights.test.ts`.
+    const result = runWithEnv(
+      { ASHAVERI_WEIGHTS_DIR: tempDir, ASHAVERI_WEIGHTS_MANIFEST: MANIFEST },
+      ...liveArgs('--model', 'first', '--model', 'second'),
+    );
+    expect(result.stderr, result.stderr).not.toContain('ASHAVERI_WEIGHTS_DIR names');
+    expect(result.stderr, result.stderr).not.toContain('ASHAVERI_WEIGHTS_MANIFEST');
+    expect(result.stderr, result.stderr).not.toContain('do not resolve to the same file');
+    expect(result.status, result.stderr).toBe(1);
+    expect(result.stderr).toContain('GUEST_ENDPOINT_MISSING');
+  });
 });

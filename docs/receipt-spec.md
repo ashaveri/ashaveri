@@ -1070,8 +1070,8 @@ section's to carry.
 | `duty` | `object` | yes | The article the manifest is written against, the period taken from it, the time held, and the comparison. |
 | `duty.article` | `string` | yes | Which obligation: `19(1)`, `19(2)` or `26(6)`. |
 | `duty.requiredSeconds` | `integer` | yes | Seconds the deployment takes that article to require, never below one. |
-| `duty.heldSeconds` | `integer` | yes | Seconds the store has held the oldest receipt it retains, measured at `at`, and zero for a store holding nothing. |
-| `duty.met` | `boolean` | yes | Whether `heldSeconds` is at least `requiredSeconds`, computed by the writer. |
+| `duty.heldSeconds` | `integer` | yes | Seconds from the stamp of the oldest surviving record to `at`, or zero for a store holding nothing. This is a span between two ends, not a record that every receipt across the period was held. |
+| `duty.met` | `boolean` | yes | Whether that span is at least `requiredSeconds`, computed by the writer. The comparison is arithmetic over two stated integers and does not prove continuous retention; the retention assessment answers that question. |
 
 Every block is closed, in the same sense and for the same reason section 6 states for a payload: a member
 `v: 1` does not define makes the document malformed rather than a document read with that member dropped,
@@ -1136,13 +1136,28 @@ the period is a claim about a body of law this repository does not interpret. Th
 equivalent conclusion out for exactly that reason, so the two artifacts differ on whether to state it, and
 a reader should take `met` as arithmetic and the four integers behind it as the evidence.
 
+Neither `heldSeconds` nor `met` establishes continuous retention. The span is measured from the oldest
+record that survived to the manifest's stamp, so a store that lost every later record, or lost a stretch in
+the middle and kept a newer tail, reports the same figure as a store that held the whole run without
+interruption. The question the subtraction cannot answer, whether the declared period was continuously
+covered, is the retention assessment's: `assessRetention` in `@ashaveri/sdk` reads a public document of
+declared scope, intake sequence runs and acknowledgments, customer-held checkpoint receipts, and explicit
+gaps, duplicates, rollbacks and suffix loss. Its schema is
+[`packages/sdk/schemas/retention-assessment-v1.schema.json`](../packages/sdk/schemas/retention-assessment-v1.schema.json)
+and its vectors are the Retention assessment suite in [vectors.md](vectors.md). A span-only input answers
+`indeterminate` there, never `met`.
+
 **The rules between members that no keyword reaches.** These are stated here because the layout cannot hold
-them: `heldSeconds` is `at` less `retained.from`, or zero when `count` is zero; `met` is
-`heldSeconds >= requiredSeconds`; every trim event's `at` is no later than the manifest's `at`; and
-`retained.from` is at or after the older edge implied by whatever `maxAgeSeconds` was in force, which a
-reader can only check event by event because the bounds move. A document that satisfies the schema and
-contradicts one of these is a malformed manifest read as a whole, not a deployment that failed to hold what
-it promised, and keeping those two answers apart is the reason the layout is public.
+them: `heldSeconds` is the distance from the stamp of the oldest surviving record to `at`, or zero when
+`count` is zero; `met` is the comparison of that span with `requiredSeconds`; every trim event's `at` is no
+later than the manifest's `at`; and `retained.from` is at or after the older edge implied by whatever
+`maxAgeSeconds` was in force, which a reader can only check event by event because the bounds move. The
+first two are arithmetic and nothing more: the span is measured from the oldest survivor, so it does not
+show that the records between that end and the stamp were held without interruption, and `met` does not
+report a duty discharged. Continuous coverage across the period is the retention assessment's question,
+named in the paragraph above. A document that satisfies the schema and contradicts one of these is a
+malformed manifest read as a whole, not a deployment that failed to hold what it promised, and keeping
+those two answers apart is the reason the layout is public.
 
 ### 5.4 Retention manifest layout, version 2
 
@@ -1214,8 +1229,8 @@ of them alone cannot see the half the other carries.
 | `duty` | `object` | yes | The article the manifest is written against, the period taken from it, the time held, and the comparison. |
 | `duty.article` | `string` | yes | Which obligation: `19(1)`, `19(2)` or `26(6)`. |
 | `duty.requiredSeconds` | `integer` | yes | Seconds the deployment takes that article to require, never below one. |
-| `duty.heldSeconds` | `integer` | yes | Seconds the store has held the oldest receipt it retains, measured at `at`, and zero for a store holding nothing. |
-| `duty.met` | `boolean` | yes | Whether `heldSeconds` is at least `requiredSeconds`, computed by the writer. |
+| `duty.heldSeconds` | `integer` | yes | Seconds from the stamp of the oldest surviving record to `at`, or zero for a store holding nothing. This is a span between two ends, not a record that every receipt across the period was held. |
+| `duty.met` | `boolean` | yes | Whether that span is at least `requiredSeconds`, computed by the writer. The comparison is arithmetic over two stated integers and does not prove continuous retention; the retention assessment answers that question. |
 | `presence` | `object` | yes | The appraisal context this store held at `at`, in the two families it arrives in. Required, and never read as optional: a manifest that said nothing about a family would be a malformed document rather than a store that held nothing. |
 | `presence.collateral` | `object` | yes | The vendor-signed material held at `at`: the count the store gave and one entry per document. |
 | `presence.collateral.count` | `integer` | yes | How many collateral documents the store held. The reader recomputes it against `presence.collateral.held` and a manifest whose two disagree is malformed. |

@@ -72,6 +72,16 @@ const TABLES: readonly TableSpec[] = [
   { header: SECRET_TABLE, classCell: 4, fileCell: 5, className: 'never in a commit or a log' },
 ];
 
+/** The three classes the document states, spelled as its tables carry them. */
+const CLASSES: readonly string[] = [
+  "the operator's to declare",
+  'shipped default',
+  'never in a commit or a log',
+];
+
+/** The shape a proof-of-possession credential is read as: 64 hex digits and no surrounding word. */
+const CREDENTIAL_SHAPE = /\b[0-9a-fA-F]{64}\b/u;
+
 interface DocRow {
   /** The row's subject, with its backticks and a flag's leading dashes removed. */
   readonly name: string;
@@ -171,21 +181,26 @@ function constantsReadInDefaultingPositions(): Set<string> {
 }
 
 /**
- * Literals standing in a defaulting position in the gateway's source: a block default, the left of a
- * `??`, or the arm taken when a value is absent. A row may quote one of these as a flag's default and
- * nothing else, which is what keeps a number nobody changed in source from reading as a fact.
+ * The literals standing in one flag's own defaulting positions: the default written beside its
+ * declaration, the right of a `??` over that flag's value, or the arm taken when the value is absent.
+ * A row may quote one of these as that flag's default and nothing else, so a literal held for another
+ * flag cannot back this one's row.
  */
-function literalsHeldInDefaultingPositions(): Set<string> {
+function literalDefaultsOf(flag: FlagDeclaration): Set<string> {
   const found = new Set<string>();
+  if (flag.literalDefault !== undefined) found.add(flag.literalDefault);
+  const camel = flag.name.replace(/-([a-z])/gu, (_match, letter: string) => letter.toUpperCase());
+  const reference = `(?:(?:values|options)(?:\\.${camel}|\\[['"]${flag.name}['"]\\]))`;
+  const fallbacks = [
+    new RegExp(`${reference}\\s*\\?\\?\\s*'([^']*)'`, 'gu'),
+    new RegExp(`${reference}\\s*===\\s*undefined\\s*\\?\\s*(?:'([^']*)'|(\\d+))\\s*:`, 'gu'),
+  ];
   for (const source of gatewaySources().values()) {
     const code = codeLines(source);
-    for (const literal of code.matchAll(/default:\s*'([^']*)'/gu)) found.add(literal[1]!);
-    for (const literal of code.matchAll(/\?\?\s*'([^']*)'/gu)) found.add(literal[1]!);
-    for (const literal of code.matchAll(/=== undefined \?\s*(?:'([^']*)'|(\d+))\s*:/gu)) {
-      found.add(literal[1] ?? literal[2]!);
+    for (const fallback of fallbacks) {
+      for (const literal of code.matchAll(fallback)) found.add(literal[1] ?? literal[2]!);
     }
   }
-  if (found.size === 0) throw new Error('gateway/src holds no literal in a defaulting position for a row to quote');
   return found;
 }
 
@@ -320,6 +335,7 @@ describe('docs/configured-values.md against the flags gateway/src/cli.ts accepts
   it('carries each row in the class its table was written for, and names a file for it', () => {
     for (const table of TABLES) {
       for (const row of rows(table.header)) {
+        expect(CLASSES, `${row.name} states a class the document defines`).toContain(row.cells[table.classCell]);
         expect(row.cells[table.classCell], `${row.name} states the class of its own table`).toBe(table.className);
         const file = unbacktick(row.cells[table.fileCell] ?? '');
         expect(file.length, `${row.name} names the file it is read from`).toBeGreaterThan(0);
@@ -339,13 +355,33 @@ describe('docs/configured-values.md against the flags gateway/src/cli.ts accepts
     }
   });
 
-  it('quotes as a default only a name a table carries or a literal the code holds in a defaulting position', () => {
-    const literals = literalsHeldInDefaultingPositions();
-    const names = new Set([...fallbackConstants, ...environment]);
+  it('quotes as a default only a value the class that default belongs to holds', () => {
+    // A flag's class is the operator's to declare, so a default it names has to belong to one of the
+    // other classes: a shipped constant the default table names, a deployment value the settings table
+    // names, or a literal held in that flag's own defaulting position. A credential is in none of
+    // those classes, so a default can never carry one.
+    const shipped = new Set(defaultRows.map((row) => row.name));
+    const settings = new Set(settingRows.map((row) => row.name));
     for (const row of flagRows) {
+      const flag = codeFlags.find((each) => each.name === row.name);
+      if (flag === undefined) throw new Error(`the option block declares no --${row.name}`);
+      const literals = literalDefaultsOf(flag);
       for (const token of backticked(row.cells[4])) {
-        const backed = /^[A-Z][A-Z0-9_]+$/u.test(token) ? names.has(token) : literals.has(token);
-        expect(backed, `--${row.name} states a default the source backs: ${token}`).toBe(true);
+        if (/^[A-Z][A-Z0-9_]+$/u.test(token) && settings.has(token)) {
+          expect(environment.has(token), `--${row.name} defaults to ${token}`).toBe(true);
+          continue;
+        }
+        if (/^[A-Z][A-Z0-9_]+$/u.test(token)) {
+          expect(
+            shipped.has(token),
+            `--${row.name} defaults to ${token}, which the shipped-default table does not name`,
+          ).toBe(true);
+          continue;
+        }
+        expect(
+          literals.has(token),
+          `--${row.name} defaults to ${token}, which no defaulting position of this flag holds`,
+        ).toBe(true);
       }
     }
   });
@@ -409,16 +445,19 @@ describe('the environment variables against the code that reads them', () => {
     expect(extra, 'a row for a variable no shipped file reads').toEqual([]);
   });
 
-  it('keeps the three readings apart, so the total the paragraph states is a count and not a coincidence', () => {
+  it('reads the environment from three places and counts each variable once', () => {
     const credential = namesTheCredentialCarries();
     const container = namesTheContainerReads();
     const gateway = namesTheGatewayReads();
     expect(
       [...credential.all].filter((name) => container.has(name) || gateway.has(name)),
-      'a credential name that a container file or the gateway also reads, which would count twice',
+      'a credential name that a container file or the gateway also reads, which would put key material in a setting row',
     ).toEqual([]);
+    // A weights value is declared to a deployment in the compose file and read again by the process
+    // that refuses an unpaired run, so a name can stand in two readings. The opening paragraph counts
+    // variables rather than readings, and the union is the set it states.
     expect(
-      container.size + gateway.size + credential.all.size,
+      new Set([...container, ...gateway, ...credential.all]).size,
       'the three readings add up to the set the tables carry',
     ).toBe(environment.size);
   });
@@ -435,5 +474,97 @@ describe('the environment variables against the code that reads them', () => {
         .filter((name) => credential.all.has(name)),
       "the settings table carries the credential's name and kind, which are public, and not its key",
     ).toEqual(['ASHAVERI_CREDENTIAL_ID', 'ASHAVERI_CREDENTIAL_KIND']);
+  });
+});
+
+/**
+ * The class a value may sit in, as distinct from the class its table was written for.
+ *
+ * The checks above hold each row to the class of its own table. What they do not say is that a value
+ * belongs to one class only: a name in two tables would let a reader take two answers about what a
+ * deployment may set, and the default rows would stop being the whole set of fallback sites. These
+ * checks state that separation, the credential rule that keeps key material out of every shipped
+ * default and out of the document as a value, and the three values the inventory names beyond the
+ * flags and constants it already carries.
+ */
+describe('the class a configured value may sit in', () => {
+  it('puts every value in one table, so each value carries one class', () => {
+    const seen = new Map<string, string>();
+    for (const table of TABLES) {
+      for (const row of rows(table.header)) {
+        const previous = seen.get(row.name);
+        expect(
+          previous,
+          `${row.name} sits in ${table.className} and in ${previous ?? 'no other table'}`,
+        ).toBeUndefined();
+        seen.set(row.name, table.className);
+      }
+    }
+  });
+
+  it('does not give a deployment value a shipped default', () => {
+    // The default table is the set of values this repository chooses when an operator names nothing.
+    // An environment variable is the operator's to declare, so no row of it can stand there as well.
+    const shipped = new Set(defaultRows.map((row) => row.name));
+    for (const row of [...settingRows, ...secretRows]) {
+      expect(shipped.has(row.name), `${row.name} is a deployment value and a shipped default`).toBe(false);
+    }
+  });
+
+  it('keeps credential material out of every shipped default and out of the document as a value', () => {
+    const { secret } = namesTheCredentialCarries();
+    const row = secretRows.find((each) => each.name === secret);
+    if (row === undefined) throw new Error(`the secret table does not name ${secret}`);
+    // A run that names nothing falls back to a flag default or a shipped-default value, and a key
+    // written in either is a key published with the code. A 64 hex digit run is the shape a
+    // proof-of-possession credential is read as, so neither column may carry one.
+    for (const flag of flagRows) {
+      expect(flag.cells[4] ?? '', `--${flag.name} states a key where a default belongs`).not.toMatch(CREDENTIAL_SHAPE);
+    }
+    for (const each of defaultRows) {
+      expect(each.cells[2] ?? '', `${each.name} states a key where a value belongs`).not.toMatch(CREDENTIAL_SHAPE);
+    }
+    // Never a shipped default, and never a setting: no other table names it, and no flag runs it
+    // when the operator named nothing.
+    expect(defaultRows.map((each) => each.name), `${secret} is a default`).not.toContain(secret);
+    expect(settingRows.map((each) => each.name), `${secret} is a setting`).not.toContain(secret);
+    for (const flag of flagRows) {
+      expect(backticked(flag.cells[4]), `--${flag.name} runs ${secret} by default`).not.toContain(secret);
+    }
+    // Named by its shape and never by its value: the row states a shape, and the source that reads
+    // it takes the value out of an environment record rather than assigning one. Every line of that
+    // source is read, because a key on a line that never names the secret is still a key in the file.
+    for (const cell of row.cells) {
+      expect(cell, `${secret} states a value where a shape belongs`).not.toMatch(CREDENTIAL_SHAPE);
+    }
+    const source = readSourceFile(`${FROM_FIXTURES}${unbacktick(row.cells[5] ?? '')}`);
+    expect(source, `${secret} is read from the environment`).toContain('env[CREDENTIAL_ENV.secret]');
+    for (const [index, line] of source.split('\n').entries()) {
+      expect(line, `${secret} source line ${String(index + 1)} states a key-shaped literal`).not.toMatch(
+        CREDENTIAL_SHAPE,
+      );
+    }
+  });
+
+  it('leaves the bounds paragraph the only place a constant no flag reaches is named', () => {
+    // The default table is where a shipped default is read in a defaulting position. A constant the
+    // store holds as a bound belongs to the paragraph, and the paragraph is where the checkpoint
+    // cadence is named: SIDECAR_BLOCK_RECORDS is a store format constant read in no defaulting
+    // position, and no flag reaches it.
+    const outside = namesOutsideTheTable();
+    expect(outside).toContain('SIDECAR_BLOCK_RECORDS');
+    expect(defaultRows.map((row) => row.name)).not.toContain('SIDECAR_BLOCK_RECORDS');
+    // MAX_SERVED_RECEIPTS was split into the shipped retained and served counts, and a row for the
+    // old name would describe a constant the source no longer declares.
+    expect(defaultRows.map((row) => row.name)).not.toContain('MAX_SERVED_RECEIPTS');
+  });
+
+  it('names the horizon threshold and the epoch trigger beside the checkpoint cadence', () => {
+    // The inventory names all three: the threshold is the flag and the constant the intake guard
+    // reads, the epoch is the flag the manifest publishes, and the cadence is the store constant the
+    // bounds paragraph carries. Naming the cadence and dropping either would leave the set incomplete.
+    expect(flagRows.map((row) => row.name)).toContain('receipts-guard-at');
+    expect(defaultRows.map((row) => row.name)).toContain('DEFAULT_INTAKE_GUARD_FRACTION');
+    expect(flagRows.map((row) => row.name)).toContain('epk');
   });
 });

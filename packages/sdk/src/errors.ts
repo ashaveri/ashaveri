@@ -76,6 +76,14 @@ export type SdkErrorCode =
   // in `docs/error-codes.md` states its clauses one by one, from a member no version defines to a
   // derived representation that is not the bytes the transformation it names produces.
   | 'NOT_IMPORT_ENVELOPE'
+  // A retention assessment, the public document that states whether a declared period was
+  // continuously covered. The first is the layout's refusal, the second is the reading's: a
+  // document whose stated outcome is not the outcome its own evidence supports is refused rather
+  // than answered with a correction, because a claim and the evidence beside it that disagree
+  // leave no other claim in the document priced. Neither is a verdict about a deployment, and
+  // neither is a refusal of the retention manifest beside this family, which keeps its own code.
+  | 'NOT_RETENTION_ASSESSMENT'
+  | 'RETENTION_ASSESSMENT_DISAGREES'
   // Strict mode only: the hardware evidence behind a receipt. Listed in the order
   // the checks run, so the code identifies the stage that rejected the document.
   | 'EVIDENCE_NOT_FOUND'

@@ -1,4 +1,4 @@
-import { readFileSync, statSync } from 'node:fs';
+import { realpathSync, statSync } from 'node:fs';
 import { parseArgs } from 'node:util';
 import {
   MARKING_SCHEMES,
@@ -25,7 +25,8 @@ import { GuestClient } from './guest.js';
 import { mockBackend, type CompletionBackend } from './backend.js';
 import { upstreamBackend } from './upstream.js';
 import { mockDeployment, type Deployment, type HardwareTeeKind, type ModelInfo } from './deployment.js';
-import { sha256, toHex } from './digest.js';
+import { toHex } from './digest.js';
+import { modelsFromManifest } from './weights.js';
 import {
   DEFAULT_RECEIPT_RECORD_KIND,
   HOST_CLOCK_SOURCE,
@@ -377,15 +378,75 @@ if (!Number.isInteger(port) || port < 0 || port > 65535) {
   fail(`invalid port '${String(values.port)}'`);
 }
 const host = values.host as string;
+// Read before any store or log opens, so a weights pair that cannot name one file is refused while
+// the process has touched nothing a deployment keeps.
+const weightsManifest = weightsManifestPath(values);
 
-function weightsOf(manifestPath: string): Uint8Array {
-  let bytes: Buffer;
-  try {
-    bytes = readFileSync(manifestPath);
-  } catch (error) {
-    fail(`--weights-manifest could not be read: ${error instanceof Error ? error.message : String(error)}`);
+/**
+ * A refusal about the files this deployment was handed rather than about how signerd was invoked.
+ * The process has read the container's own values and found them inconsistent, so no command line
+ * answers it. The sentence is the whole refusal, and exit 1 is the posture every other start-up
+ * refusal here takes: a usage exit would send an operator to the flags when the fault is the pairing.
+ */
+function refuseToStart(message: string): never {
+  process.stderr.write(`signerd: ${message}\n`);
+  process.exit(1);
+}
+
+/**
+ * The manifest a live run carries, read together with the two environment values the container sets.
+ *
+ * The boot check verifies a directory against a manifest, and every receipt states the digest of the
+ * file this function returns. Two names for that file are two chances for the checked bytes and the
+ * signed digest to part company, so a deployment that sets one weights input without the other, or
+ * sets both while naming a different file with the flag, is refused before a store opens. The one
+ * accepted state is one file under both names, which is one set of bytes and therefore one digest.
+ *
+ * A direct run outside the container names neither environment value and is not a deployment with two
+ * inputs: it keeps the existing requirement for the flag and invents no pairing it never made. A mock
+ * run serves a model of its own and reads no manifest, so values left in its environment pass no
+ * check here.
+ */
+function weightsManifestPath(values: CliOptions): string | undefined {
+  const dir = process.env['ASHAVERI_WEIGHTS_DIR'];
+  const manifest = process.env['ASHAVERI_WEIGHTS_MANIFEST'];
+  const flag = values['weights-manifest'];
+  if (values.mock === true) return flag;
+  if (dir !== undefined && dir.length > 0 && (manifest === undefined || manifest.length === 0)) {
+    refuseToStart(
+      `ASHAVERI_WEIGHTS_DIR names ${dir} and ASHAVERI_WEIGHTS_MANIFEST is empty, so this deployment sets one weights input without the other and a receipt would carry a digest its boot check never verified`,
+    );
   }
-  return sha256(new Uint8Array(bytes.buffer, bytes.byteOffset, bytes.byteLength));
+  if (manifest !== undefined && manifest.length > 0 && (dir === undefined || dir.length === 0)) {
+    refuseToStart(
+      `ASHAVERI_WEIGHTS_MANIFEST names ${manifest} and ASHAVERI_WEIGHTS_DIR is empty, so this deployment sets one weights input without the other and a receipt would carry a digest its boot check never verified`,
+    );
+  }
+  if (dir === undefined || dir.length === 0 || manifest === undefined || manifest.length === 0) {
+    return flag;
+  }
+  if (flag === undefined) {
+    refuseToStart(
+      `ASHAVERI_WEIGHTS_MANIFEST names ${manifest} and --weights-manifest names no file, so the manifest the boot check verified is not the manifest a receipt would carry`,
+    );
+  }
+  let verifiedFile: string;
+  let flagFile: string;
+  try {
+    verifiedFile = realpathSync(manifest);
+    flagFile = realpathSync(flag);
+  } catch (error) {
+    const reason = error instanceof Error ? error.message : String(error);
+    refuseToStart(
+      `--weights-manifest names ${flag} and ASHAVERI_WEIGHTS_MANIFEST names ${manifest}, and one of the two does not resolve to a file: ${reason}`,
+    );
+  }
+  if (verifiedFile !== flagFile) {
+    refuseToStart(
+      `--weights-manifest names ${flag} and ASHAVERI_WEIGHTS_MANIFEST names ${manifest}, which do not resolve to the same file, so the manifest the boot check verified is not the manifest a receipt would carry`,
+    );
+  }
+  return flag;
 }
 
 function isDirectory(path: string): boolean {
@@ -598,10 +659,19 @@ async function liveDeployment(values: CliOptions): Promise<Deployment> {
   } catch {
     fail(`--public-url is not an absolute URL: ${String(values['public-url'])}`);
   }
-  const manifestPath = required(values, 'weights-manifest');
-  const models: ModelInfo[] = (values.model ?? []).map((id) => ({ id, wts: weightsOf(manifestPath) }));
-  if (models.length === 0) {
+  const manifestPath = weightsManifest ?? required(values, 'weights-manifest');
+  const modelIds = values.model ?? [];
+  if (modelIds.length === 0) {
     fail('at least one --model is required in live mode');
+  }
+  let models: ModelInfo[];
+  try {
+    // One reading of the manifest and one digest of those bytes, handed to every model this run
+    // serves: a receipt's `wts` is the digest of the bytes this process read, not a second reading of
+    // the same path that could name different bytes.
+    models = modelsFromManifest(modelIds, manifestPath);
+  } catch (error) {
+    fail(`--weights-manifest could not be read: ${error instanceof Error ? error.message : String(error)}`);
   }
   const epk = values.epk === undefined ? 0 : Number(values.epk);
   if (!Number.isInteger(epk) || epk < 0) {
