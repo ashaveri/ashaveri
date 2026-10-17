@@ -125,6 +125,43 @@ export type {
   ImportReading,
   ImportTransformation,
 } from './import-envelope.js';
+export {
+  assessRetention,
+  EXPECTED_HEAD_PINNERS,
+  MAX_CHECKPOINT_INTERVAL_SECONDS,
+  parseRetentionAssessment,
+  RETENTION_ASSESSMENT_ARTICLES,
+  RETENTION_ASSESSMENT_FORMAT_VERSION,
+  RETENTION_ASSESSMENT_OUTCOMES,
+  RETENTION_COVERAGE_RESULTS,
+} from './retention-assessment.js';
+export type {
+  ExpectedHeadPinner,
+  RetentionAssessmentArticle,
+  RetentionAssessmentCheckpointSchedule,
+  RetentionAssessmentClaim,
+  RetentionAssessmentDocument,
+  RetentionAssessmentDuty,
+  RetentionAssessmentExpectedHead,
+  RetentionAssessmentIntake,
+  RetentionAssessmentOutcome,
+  RetentionAssessmentPeriod,
+  RetentionAssessmentResult,
+  RetentionAssessmentScope,
+  RetentionAssessmentSubject,
+  RetentionAssessmentTimeBasis,
+  RetentionCheckpointReceipt,
+  RetentionCoverage,
+  RetentionCoverageAssessment,
+  RetentionCoverageDuplicate,
+  RetentionCoverageGap,
+  RetentionCoverageResult,
+  RetentionCoverageRollback,
+  RetentionCoverageSpan,
+  RetentionCoverageSuffixLoss,
+  RetentionObservedHead,
+  RetentionSequenceRange,
+} from './retention-assessment.js';
 export { fromBase64Url, toBase64Url, toHex } from './b64.js';
 export {
   claimsConfidentialDevice,

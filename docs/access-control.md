@@ -97,9 +97,11 @@ credential it refused.
 Three states keep a quiet deployment from starting to refuse, and they are the three the store's own
 opening refusal respects. A policy bounded on one side only has no pairing to contradict, so it is
 never asked. A retained set below the configured point of its bound is shedding nothing, however
-little it has issued. A store at its bound whose stamps already span the configured period is holding
-what it asked for at the traffic it carries, and a store that has retained fewer than two receipts has
-measured no rate at all, which is that condition's own precondition. The threshold is a fraction of
+little it has issued. A store at its bound whose stamps already span the configured period is issuing
+at a rate the bound supports, and a store that has retained fewer than two receipts has measured no
+rate at all, which is that condition's own precondition. The span is a rate over the retained set and
+not a record that every receipt across the period survived; the retention assessment, `assessRetention`
+in `@ashaveri/sdk`, answers that question. The threshold is a fraction of
 the bound and defaults to the bound itself: the retained set never exceeds the count that retires it,
 so that default is the one state a store already refuses to open at, which is why a deployment that
 configures nothing behaves here exactly as it did before this pairing was read while serving.

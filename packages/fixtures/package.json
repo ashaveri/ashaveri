@@ -33,7 +33,8 @@
     "generate:redaction": "node --experimental-strip-types scripts/redaction-vectors.ts",
     "generate:epoch-inventory": "node --experimental-strip-types scripts/epoch-inventory-vectors.ts",
     "generate:capture": "node --experimental-strip-types scripts/capture-vectors.ts",
-    "generate:import": "node --experimental-strip-types scripts/import-vectors.ts"
+    "generate:import": "node --experimental-strip-types scripts/import-vectors.ts",
+    "generate:retention-assessment": "node --experimental-strip-types scripts/retention-assessment-vectors.ts"
   },
   "dependencies": {
     "@ashaveri/receipt": "workspace:*",

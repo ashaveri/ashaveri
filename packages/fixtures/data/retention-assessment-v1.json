@@ -1,0 +1,3335 @@
+{
+  "version": 1,
+  "description": "Retention assessments and the outcome the published reading computes for each one: a declared scope, the intake sequence runs and acknowledgments behind it, customer-held checkpoint receipts, the observed head, a span where a span is all there is, and the explicit gaps, duplicates, rollbacks and suffix loss. Every assessment row is a whole document and the outcome, coverage result, ranges and reasons `assessRetention` of `@ashaveri/sdk` reached for it when this file was written. The refused rows state the code and sentence, and which of the two published steps answered: `layout` where `parseRetentionAssessment` refused the document and `reading` where the layout took it and `assessRetention` refused the stated conclusion its own evidence did not support. The span-only row is the case the old span rule, the distance between the oldest and newest stamps compared with the required period, would have read as met; it is indeterminate here, and the covered row beside it is a period the sequence evidence genuinely covers, so the two outcomes are distinguishable by outcome alone.",
+  "layout": {
+    "format": "one closed v1 document with three blocks: the declared scope, the observed coverage and the deployment's stated conclusion, which the reading recomputes rather than believes",
+    "schema": "packages/sdk/schemas/retention-assessment-v1.schema.json, published as https://ashaveri.com/schemas/retention-assessment-v1.json, which is the layout a writer outside this repository builds against",
+    "reader": "parseRetentionAssessment in @ashaveri/sdk, which is the layout, and assessRetention, which parses and then recomputes the outcome from the evidence: continuous sequence coverage, acknowledgment across the declared width, checkpoints that tile the intake and close on the observed head, and an observed head matching a head an independent party pinned",
+    "codes": [
+      "NOT_RETENTION_ASSESSMENT",
+      "RETENTION_ASSESSMENT_DISAGREES",
+      "UNSUPPORTED_VERSION"
+    ],
+    "encodings": "heads lowercase hex of 64 characters, instants unix seconds, sequence numbers non-negative whole numbers, and the document published inline as the object the reader is handed",
+    "keyMaterial": "none: the document carries no signature and no key. A retention assessment is the deployment's report about its own store, and what makes it evidence is the head an independent party pinned and the checkpoint receipts that party holds, not a key inside the document.",
+    "notChecked": "a document states one deployment's account of its own intake and store. Nothing here shows that the runs happened, that the acknowledgments came from a store, that the checkpoint receipts are the customer's, or that the clock the stamps rest on is bounded by the declared uncertainty. Those are the questions a reader answers with material it holds outside the file."
+  },
+  "vectors": [
+    {
+      "name": "continuous-coverage-met",
+      "note": "A period the sequence evidence genuinely covers: one run across the declared intake range, the same range acknowledged by the store, three customer-held checkpoints from the period open to its close, and an observed head that matches a head the customer pinned. This is the case `met` exists for, and the evidence behind it is what the reader recomputes rather than what the document asserts.",
+      "document": {
+        "v": 1,
+        "scope": {
+          "subject": {
+            "kind": "deployment",
+            "id": "fixture-deployment"
+          },
+          "duty": {
+            "article": "19(1)",
+            "requiredSeconds": 200
+          },
+          "period": {
+            "from": 1000000,
+            "to": 1000200
+          },
+          "intake": {
+            "from": 1,
+            "to": 100,
+            "expectedHead": {
+              "sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+              "pinnedBy": "customer",
+              "reason": null
+            }
+          },
+          "checkpoint": {
+            "holder": "customer",
+            "eachCompletedBatch": true,
+            "maxIntervalSeconds": 3600
+          },
+          "timeBasis": {
+            "source": "fixture host clock",
+            "uncertaintySeconds": 1
+          },
+          "excludes": [
+            "request bodies",
+            "model weights",
+            "the provider side of the intake"
+          ]
+        },
+        "coverage": {
+          "runs": [
+            {
+              "from": 1,
+              "to": 100
+            }
+          ],
+          "acknowledged": [
+            {
+              "from": 1,
+              "to": 100
+            }
+          ],
+          "checkpoints": [
+            {
+              "range": {
+                "from": 1,
+                "to": 34
+              },
+              "at": 1000000,
+              "head": "1111111111111111111111111111111111111111111111111111111111111111"
+            },
+            {
+              "range": {
+                "from": 35,
+                "to": 67
+              },
+              "at": 1000100,
+              "head": "2222222222222222222222222222222222222222222222222222222222222222"
+            },
+            {
+              "range": {
+                "from": 68,
+                "to": 100
+              },
+              "at": 1000200,
+              "head": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+            }
+          ],
+          "observedHead": {
+            "sequence": 100,
+            "sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+          },
+          "span": null,
+          "gaps": [],
+          "duplicates": [],
+          "rollbacks": [],
+          "suffixLoss": null
+        },
+        "assessment": {
+          "outcome": "met"
+        }
+      },
+      "assessment": {
+        "outcome": "met",
+        "coverage": {
+          "result": "covered",
+          "basis": "sequence",
+          "ranges": [
+            {
+              "from": 1,
+              "to": 100
+            }
+          ],
+          "reasons": []
+        },
+        "reasons": [
+          "the period is continuously covered, acknowledged across its width and witnessed by checkpoints that tile the intake and close on the observed head, and the observed head matches a head an independent party pinned"
+        ]
+      }
+    },
+    {
+      "name": "span-only-would-have-met-under-the-span-rule",
+      "note": "The oldest and newest surviving records, exactly one declared period apart, with the newest head equal to the pinned head. The old span rule, the distance between two stamps compared with the required period, would have called this met. It is indeterminate: a span states nothing about the sequences between its ends, and the reading gives the subtraction no path to a covered result.",
+      "document": {
+        "v": 1,
+        "scope": {
+          "subject": {
+            "kind": "deployment",
+            "id": "fixture-deployment"
+          },
+          "duty": {
+            "article": "19(1)",
+            "requiredSeconds": 200
+          },
+          "period": {
+            "from": 1000000,
+            "to": 1000200
+          },
+          "intake": {
+            "from": 1,
+            "to": 100,
+            "expectedHead": {
+              "sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+              "pinnedBy": "customer",
+              "reason": null
+            }
+          },
+          "checkpoint": {
+            "holder": "customer",
+            "eachCompletedBatch": true,
+            "maxIntervalSeconds": 3600
+          },
+          "timeBasis": {
+            "source": "fixture host clock",
+            "uncertaintySeconds": 1
+          },
+          "excludes": [
+            "request bodies",
+            "model weights",
+            "the provider side of the intake"
+          ]
+        },
+        "coverage": {
+          "runs": [],
+          "acknowledged": [],
+          "checkpoints": [],
+          "observedHead": null,
+          "span": {
+            "from": 1000000,
+            "to": 1000200,
+            "oldestHead": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+            "newestHead": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+          },
+          "gaps": [],
+          "duplicates": [],
+          "rollbacks": [],
+          "suffixLoss": null
+        },
+        "assessment": {
+          "outcome": "indeterminate"
+        }
+      },
+      "assessment": {
+        "outcome": "indeterminate",
+        "coverage": {
+          "result": "indeterminate",
+          "basis": "time",
+          "ranges": [
+            {
+              "from": 1000000,
+              "to": 1000200
+            }
+          ],
+          "reasons": [
+            "the only evidence is a span between the oldest and newest surviving record, and a span states no sequence between its ends",
+            "the maximum minus the minimum timestamp is not evidence that every record in the period survived, so a span has no path to a covered result"
+          ]
+        },
+        "reasons": [
+          "the coverage evidence cannot answer whether the period was continuously held"
+        ]
+      }
+    },
+    {
+      "name": "interior-gap-not-met",
+      "note": "The intake carried sequences 1 through 40 and 61 through 100 and nothing between them, and the document states the gap rather than leaving it to be inferred. The store acknowledged the two runs, the checkpoints witness them, and the period is not continuously covered: a crash or a restart that loses the sequence state is a gap, never a silent pass.",
+      "document": {
+        "v": 1,
+        "scope": {
+          "subject": {
+            "kind": "deployment",
+            "id": "fixture-deployment"
+          },
+          "duty": {
+            "article": "19(1)",
+            "requiredSeconds": 200
+          },
+          "period": {
+            "from": 1000000,
+            "to": 1000200
+          },
+          "intake": {
+            "from": 1,
+            "to": 100,
+            "expectedHead": {
+              "sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+              "pinnedBy": "customer",
+              "reason": null
+            }
+          },
+          "checkpoint": {
+            "holder": "customer",
+            "eachCompletedBatch": true,
+            "maxIntervalSeconds": 3600
+          },
+          "timeBasis": {
+            "source": "fixture host clock",
+            "uncertaintySeconds": 1
+          },
+          "excludes": [
+            "request bodies",
+            "model weights",
+            "the provider side of the intake"
+          ]
+        },
+        "coverage": {
+          "runs": [
+            {
+              "from": 1,
+              "to": 40
+            },
+            {
+              "from": 61,
+              "to": 100
+            }
+          ],
+          "acknowledged": [
+            {
+              "from": 1,
+              "to": 40
+            },
+            {
+              "from": 61,
+              "to": 100
+            }
+          ],
+          "checkpoints": [
+            {
+              "range": {
+                "from": 1,
+                "to": 40
+              },
+              "at": 1000000,
+              "head": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+            },
+            {
+              "range": {
+                "from": 61,
+                "to": 100
+              },
+              "at": 1000200,
+              "head": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+            }
+          ],
+          "observedHead": {
+            "sequence": 100,
+            "sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+          },
+          "span": null,
+          "gaps": [
+            {
+              "from": 41,
+              "to": 60,
+              "reason": "the intake process restarted without its sequence state"
+            }
+          ],
+          "duplicates": [],
+          "rollbacks": [],
+          "suffixLoss": null
+        },
+        "assessment": {
+          "outcome": "not-met"
+        }
+      },
+      "assessment": {
+        "outcome": "not-met",
+        "coverage": {
+          "result": "gap",
+          "basis": "sequence",
+          "ranges": [
+            {
+              "from": 41,
+              "to": 60
+            },
+            {
+              "from": 41,
+              "to": 60
+            }
+          ],
+          "reasons": [
+            "the intake sequence 41 to 60 is not covered, so there is a hole between those two ends",
+            "the intake did not carry sequences 41 to 60: the intake process restarted without its sequence state"
+          ]
+        },
+        "reasons": [
+          "the coverage evidence states a period that was not continuously held, so the duty is not met"
+        ]
+      }
+    },
+    {
+      "name": "unstated-interior-gap-not-met",
+      "note": "The intake observed sequences 1 through 40 and 61 through 100, the store acknowledged the whole declared range, and nothing states the missing stretch: no `gaps` row and no unacknowledged interval. The edges of the runs state it, and the reading derives the missing range from them and answers not met. Coverage is a property of the sequence the evidence supports, not of the findings a writer chose to list, which is the rule a `gaps` row cannot be the only witness for.",
+      "document": {
+        "v": 1,
+        "scope": {
+          "subject": {
+            "kind": "deployment",
+            "id": "fixture-deployment"
+          },
+          "duty": {
+            "article": "19(1)",
+            "requiredSeconds": 200
+          },
+          "period": {
+            "from": 1000000,
+            "to": 1000200
+          },
+          "intake": {
+            "from": 1,
+            "to": 100,
+            "expectedHead": {
+              "sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+              "pinnedBy": "customer",
+              "reason": null
+            }
+          },
+          "checkpoint": {
+            "holder": "customer",
+            "eachCompletedBatch": true,
+            "maxIntervalSeconds": 3600
+          },
+          "timeBasis": {
+            "source": "fixture host clock",
+            "uncertaintySeconds": 1
+          },
+          "excludes": [
+            "request bodies",
+            "model weights",
+            "the provider side of the intake"
+          ]
+        },
+        "coverage": {
+          "runs": [
+            {
+              "from": 1,
+              "to": 40
+            },
+            {
+              "from": 61,
+              "to": 100
+            }
+          ],
+          "acknowledged": [
+            {
+              "from": 1,
+              "to": 100
+            }
+          ],
+          "checkpoints": [
+            {
+              "range": {
+                "from": 1,
+                "to": 40
+              },
+              "at": 1000000,
+              "head": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+            },
+            {
+              "range": {
+                "from": 61,
+                "to": 100
+              },
+              "at": 1000200,
+              "head": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+            }
+          ],
+          "observedHead": {
+            "sequence": 100,
+            "sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+          },
+          "span": null,
+          "gaps": [],
+          "duplicates": [],
+          "rollbacks": [],
+          "suffixLoss": null
+        },
+        "assessment": {
+          "outcome": "not-met"
+        }
+      },
+      "assessment": {
+        "outcome": "not-met",
+        "coverage": {
+          "result": "gap",
+          "basis": "sequence",
+          "ranges": [
+            {
+              "from": 41,
+              "to": 60
+            }
+          ],
+          "reasons": [
+            "the intake sequence 41 to 60 is not covered, so there is a hole between those two ends"
+          ]
+        },
+        "reasons": [
+          "the coverage evidence states a period that was not continuously held, so the duty is not met"
+        ]
+      }
+    },
+    {
+      "name": "suffix-loss-against-the-pinned-head-not-met",
+      "note": "The intake observed sequences 1 through 90 against a declared range that ends at 100, and states the tail it lost. The observed head stands at 90 and the customer pinned a head for 100, so the suffix loss is visible against the pin rather than only against the runs. The answer is not met.",
+      "document": {
+        "v": 1,
+        "scope": {
+          "subject": {
+            "kind": "deployment",
+            "id": "fixture-deployment"
+          },
+          "duty": {
+            "article": "19(1)",
+            "requiredSeconds": 200
+          },
+          "period": {
+            "from": 1000000,
+            "to": 1000200
+          },
+          "intake": {
+            "from": 1,
+            "to": 100,
+            "expectedHead": {
+              "sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+              "pinnedBy": "customer",
+              "reason": null
+            }
+          },
+          "checkpoint": {
+            "holder": "customer",
+            "eachCompletedBatch": true,
+            "maxIntervalSeconds": 3600
+          },
+          "timeBasis": {
+            "source": "fixture host clock",
+            "uncertaintySeconds": 1
+          },
+          "excludes": [
+            "request bodies",
+            "model weights",
+            "the provider side of the intake"
+          ]
+        },
+        "coverage": {
+          "runs": [
+            {
+              "from": 1,
+              "to": 90
+            }
+          ],
+          "acknowledged": [
+            {
+              "from": 1,
+              "to": 90
+            }
+          ],
+          "checkpoints": [
+            {
+              "range": {
+                "from": 1,
+                "to": 45
+              },
+              "at": 1000000,
+              "head": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+            },
+            {
+              "range": {
+                "from": 46,
+                "to": 90
+              },
+              "at": 1000200,
+              "head": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+            }
+          ],
+          "observedHead": {
+            "sequence": 90,
+            "sha256": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+          },
+          "span": null,
+          "gaps": [],
+          "duplicates": [],
+          "rollbacks": [],
+          "suffixLoss": {
+            "from": 91,
+            "to": 100,
+            "reason": "the volume lost its tail before the period closed"
+          }
+        },
+        "assessment": {
+          "outcome": "not-met"
+        }
+      },
+      "assessment": {
+        "outcome": "not-met",
+        "coverage": {
+          "result": "gap",
+          "basis": "sequence",
+          "ranges": [
+            {
+              "from": 91,
+              "to": 100
+            },
+            {
+              "from": 91,
+              "to": 100
+            }
+          ],
+          "reasons": [
+            "the intake sequence 91 to 100 is not covered, so there is a hole between those two ends",
+            "the intake lost the suffix from sequence 91 to 100: the volume lost its tail before the period closed"
+          ]
+        },
+        "reasons": [
+          "the coverage evidence states a period that was not continuously held, so the duty is not met"
+        ]
+      }
+    },
+    {
+      "name": "rollback-against-the-pinned-head-not-met",
+      "note": "The intake reached the pinned head at sequence 100 and then restored an earlier head at the same sequence. The rollback is stated rather than inferred, and it is a rollback against the pinned head because the head it left is the one the customer pinned. The answer is not met.",
+      "document": {
+        "v": 1,
+        "scope": {
+          "subject": {
+            "kind": "deployment",
+            "id": "fixture-deployment"
+          },
+          "duty": {
+            "article": "19(1)",
+            "requiredSeconds": 200
+          },
+          "period": {
+            "from": 1000000,
+            "to": 1000200
+          },
+          "intake": {
+            "from": 1,
+            "to": 100,
+            "expectedHead": {
+              "sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+              "pinnedBy": "customer",
+              "reason": null
+            }
+          },
+          "checkpoint": {
+            "holder": "customer",
+            "eachCompletedBatch": true,
+            "maxIntervalSeconds": 3600
+          },
+          "timeBasis": {
+            "source": "fixture host clock",
+            "uncertaintySeconds": 1
+          },
+          "excludes": [
+            "request bodies",
+            "model weights",
+            "the provider side of the intake"
+          ]
+        },
+        "coverage": {
+          "runs": [
+            {
+              "from": 1,
+              "to": 100
+            }
+          ],
+          "acknowledged": [
+            {
+              "from": 1,
+              "to": 100
+            }
+          ],
+          "checkpoints": [
+            {
+              "range": {
+                "from": 1,
+                "to": 34
+              },
+              "at": 1000000,
+              "head": "1111111111111111111111111111111111111111111111111111111111111111"
+            },
+            {
+              "range": {
+                "from": 35,
+                "to": 67
+              },
+              "at": 1000100,
+              "head": "2222222222222222222222222222222222222222222222222222222222222222"
+            },
+            {
+              "range": {
+                "from": 68,
+                "to": 100
+              },
+              "at": 1000200,
+              "head": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+            }
+          ],
+          "observedHead": {
+            "sequence": 100,
+            "sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+          },
+          "span": null,
+          "gaps": [],
+          "duplicates": [],
+          "rollbacks": [
+            {
+              "sequence": 100,
+              "observedHead": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+              "restoredHead": "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc"
+            }
+          ],
+          "suffixLoss": null
+        },
+        "assessment": {
+          "outcome": "not-met"
+        }
+      },
+      "assessment": {
+        "outcome": "not-met",
+        "coverage": {
+          "result": "gap",
+          "basis": "sequence",
+          "ranges": [
+            {
+              "from": 1,
+              "to": 100
+            }
+          ],
+          "reasons": [
+            "the intake rolled back at sequence 100 from aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa to cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc"
+          ]
+        },
+        "reasons": [
+          "the coverage evidence states a period that was not continuously held, so the duty is not met"
+        ]
+      }
+    },
+    {
+      "name": "duplicate-intake-sequence-not-met",
+      "note": "The intake saw sequence 30 twice. A retry would leave this trace, and a document that stated it would be honest about the duplicate; the answer is still not met, because a record the intake saw twice is not a run it carried once. Duplicates inside the runs list are a different fault and are refused by the reader as a duplicate sequence.",
+      "document": {
+        "v": 1,
+        "scope": {
+          "subject": {
+            "kind": "deployment",
+            "id": "fixture-deployment"
+          },
+          "duty": {
+            "article": "19(1)",
+            "requiredSeconds": 200
+          },
+          "period": {
+            "from": 1000000,
+            "to": 1000200
+          },
+          "intake": {
+            "from": 1,
+            "to": 100,
+            "expectedHead": {
+              "sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+              "pinnedBy": "customer",
+              "reason": null
+            }
+          },
+          "checkpoint": {
+            "holder": "customer",
+            "eachCompletedBatch": true,
+            "maxIntervalSeconds": 3600
+          },
+          "timeBasis": {
+            "source": "fixture host clock",
+            "uncertaintySeconds": 1
+          },
+          "excludes": [
+            "request bodies",
+            "model weights",
+            "the provider side of the intake"
+          ]
+        },
+        "coverage": {
+          "runs": [
+            {
+              "from": 1,
+              "to": 100
+            }
+          ],
+          "acknowledged": [
+            {
+              "from": 1,
+              "to": 100
+            }
+          ],
+          "checkpoints": [
+            {
+              "range": {
+                "from": 1,
+                "to": 34
+              },
+              "at": 1000000,
+              "head": "1111111111111111111111111111111111111111111111111111111111111111"
+            },
+            {
+              "range": {
+                "from": 35,
+                "to": 67
+              },
+              "at": 1000100,
+              "head": "2222222222222222222222222222222222222222222222222222222222222222"
+            },
+            {
+              "range": {
+                "from": 68,
+                "to": 100
+              },
+              "at": 1000200,
+              "head": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+            }
+          ],
+          "observedHead": {
+            "sequence": 100,
+            "sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+          },
+          "span": null,
+          "gaps": [],
+          "duplicates": [
+            {
+              "sequence": 30,
+              "count": 2
+            }
+          ],
+          "rollbacks": [],
+          "suffixLoss": null
+        },
+        "assessment": {
+          "outcome": "not-met"
+        }
+      },
+      "assessment": {
+        "outcome": "not-met",
+        "coverage": {
+          "result": "gap",
+          "basis": "sequence",
+          "ranges": [
+            {
+              "from": 1,
+              "to": 100
+            }
+          ],
+          "reasons": [
+            "the intake saw sequence 30 2 times"
+          ]
+        },
+        "reasons": [
+          "the coverage evidence states a period that was not continuously held, so the duty is not met"
+        ]
+      }
+    },
+    {
+      "name": "missing-checkpoint-indeterminate",
+      "note": "A continuously observed and acknowledged period with no checkpoint receipt beside it. Nothing states that the period was not held, and nothing witnesses it either: the answer is indeterminate, because the customer-held schedule is the only temporal witness this family carries.",
+      "document": {
+        "v": 1,
+        "scope": {
+          "subject": {
+            "kind": "deployment",
+            "id": "fixture-deployment"
+          },
+          "duty": {
+            "article": "19(1)",
+            "requiredSeconds": 200
+          },
+          "period": {
+            "from": 1000000,
+            "to": 1000200
+          },
+          "intake": {
+            "from": 1,
+            "to": 100,
+            "expectedHead": {
+              "sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+              "pinnedBy": "customer",
+              "reason": null
+            }
+          },
+          "checkpoint": {
+            "holder": "customer",
+            "eachCompletedBatch": true,
+            "maxIntervalSeconds": 3600
+          },
+          "timeBasis": {
+            "source": "fixture host clock",
+            "uncertaintySeconds": 1
+          },
+          "excludes": [
+            "request bodies",
+            "model weights",
+            "the provider side of the intake"
+          ]
+        },
+        "coverage": {
+          "runs": [
+            {
+              "from": 1,
+              "to": 100
+            }
+          ],
+          "acknowledged": [
+            {
+              "from": 1,
+              "to": 100
+            }
+          ],
+          "checkpoints": [],
+          "observedHead": {
+            "sequence": 100,
+            "sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+          },
+          "span": null,
+          "gaps": [],
+          "duplicates": [],
+          "rollbacks": [],
+          "suffixLoss": null
+        },
+        "assessment": {
+          "outcome": "indeterminate"
+        }
+      },
+      "assessment": {
+        "outcome": "indeterminate",
+        "coverage": {
+          "result": "indeterminate",
+          "basis": "time",
+          "ranges": [
+            {
+              "from": 1000000,
+              "to": 1000200
+            }
+          ],
+          "reasons": [
+            "no checkpoint receipt stands beside the period, so no instant in it is witnessed by the customer-held schedule"
+          ]
+        },
+        "reasons": [
+          "the coverage evidence cannot answer whether the period was continuously held"
+        ]
+      }
+    },
+    {
+      "name": "checkpoint-interval-too-wide-indeterminate",
+      "note": "Two checkpoints at the two ends of a period the declared schedule promises to witness every 100 seconds. The receipts are 200 seconds apart, so the middle of the period is unwitnessed. The answer is indeterminate rather than met, and rather than a gap: no evidence states that anything was lost.",
+      "document": {
+        "v": 1,
+        "scope": {
+          "subject": {
+            "kind": "deployment",
+            "id": "fixture-deployment"
+          },
+          "duty": {
+            "article": "19(1)",
+            "requiredSeconds": 200
+          },
+          "period": {
+            "from": 1000000,
+            "to": 1000200
+          },
+          "intake": {
+            "from": 1,
+            "to": 100,
+            "expectedHead": {
+              "sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+              "pinnedBy": "customer",
+              "reason": null
+            }
+          },
+          "checkpoint": {
+            "holder": "customer",
+            "eachCompletedBatch": true,
+            "maxIntervalSeconds": 100
+          },
+          "timeBasis": {
+            "source": "fixture host clock",
+            "uncertaintySeconds": 1
+          },
+          "excludes": [
+            "request bodies",
+            "model weights",
+            "the provider side of the intake"
+          ]
+        },
+        "coverage": {
+          "runs": [
+            {
+              "from": 1,
+              "to": 100
+            }
+          ],
+          "acknowledged": [
+            {
+              "from": 1,
+              "to": 100
+            }
+          ],
+          "checkpoints": [
+            {
+              "range": {
+                "from": 1,
+                "to": 50
+              },
+              "at": 1000000,
+              "head": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+            },
+            {
+              "range": {
+                "from": 51,
+                "to": 100
+              },
+              "at": 1000200,
+              "head": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+            }
+          ],
+          "observedHead": {
+            "sequence": 100,
+            "sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+          },
+          "span": null,
+          "gaps": [],
+          "duplicates": [],
+          "rollbacks": [],
+          "suffixLoss": null
+        },
+        "assessment": {
+          "outcome": "indeterminate"
+        }
+      },
+      "assessment": {
+        "outcome": "indeterminate",
+        "coverage": {
+          "result": "indeterminate",
+          "basis": "time",
+          "ranges": [
+            {
+              "from": 1000001,
+              "to": 1000199
+            }
+          ],
+          "reasons": [
+            "checkpoints stamped 1000000 and 1000200 stand 200 seconds apart, more than the declared 100"
+          ]
+        },
+        "reasons": [
+          "the coverage evidence cannot answer whether the period was continuously held"
+        ]
+      }
+    },
+    {
+      "name": "checkpoint-range-gap-indeterminate",
+      "note": "Two checkpoint receipts stamped at the two ends of the period, one over sequences 1 through 10 and one over 91 through 100, with the declared schedule allowing an hour between receipts. The stamps witness the instants and the ranges leave sequences 11 through 90 unwitnessed, so the receipts do not tile the intake they are meant to witness. The answer is indeterminate: no evidence states that the middle was lost, and none places it either.",
+      "document": {
+        "v": 1,
+        "scope": {
+          "subject": {
+            "kind": "deployment",
+            "id": "fixture-deployment"
+          },
+          "duty": {
+            "article": "19(1)",
+            "requiredSeconds": 200
+          },
+          "period": {
+            "from": 1000000,
+            "to": 1000200
+          },
+          "intake": {
+            "from": 1,
+            "to": 100,
+            "expectedHead": {
+              "sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+              "pinnedBy": "customer",
+              "reason": null
+            }
+          },
+          "checkpoint": {
+            "holder": "customer",
+            "eachCompletedBatch": true,
+            "maxIntervalSeconds": 3600
+          },
+          "timeBasis": {
+            "source": "fixture host clock",
+            "uncertaintySeconds": 1
+          },
+          "excludes": [
+            "request bodies",
+            "model weights",
+            "the provider side of the intake"
+          ]
+        },
+        "coverage": {
+          "runs": [
+            {
+              "from": 1,
+              "to": 100
+            }
+          ],
+          "acknowledged": [
+            {
+              "from": 1,
+              "to": 100
+            }
+          ],
+          "checkpoints": [
+            {
+              "range": {
+                "from": 1,
+                "to": 10
+              },
+              "at": 1000000,
+              "head": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+            },
+            {
+              "range": {
+                "from": 91,
+                "to": 100
+              },
+              "at": 1000200,
+              "head": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+            }
+          ],
+          "observedHead": {
+            "sequence": 100,
+            "sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+          },
+          "span": null,
+          "gaps": [],
+          "duplicates": [],
+          "rollbacks": [],
+          "suffixLoss": null
+        },
+        "assessment": {
+          "outcome": "indeterminate"
+        }
+      },
+      "assessment": {
+        "outcome": "indeterminate",
+        "coverage": {
+          "result": "indeterminate",
+          "basis": "sequence",
+          "ranges": [
+            {
+              "from": 11,
+              "to": 90
+            }
+          ],
+          "reasons": [
+            "checkpoints cover sequences 1 to 10 and 91 to 100, leaving the intake between them unwitnessed"
+          ]
+        },
+        "reasons": [
+          "the coverage evidence cannot answer whether the period was continuously held"
+        ]
+      }
+    },
+    {
+      "name": "checkpoint-head-mismatch-not-met",
+      "note": "Continuous runs and acknowledgments, receipts that tile the intake across the period, and an observed head that matches the head the customer pinned. The final receipt names a head the intake did not observe, so the checkpoint does not witness the head the runs closed at. Every other member agrees and the closing witness fails: the answer is not met.",
+      "document": {
+        "v": 1,
+        "scope": {
+          "subject": {
+            "kind": "deployment",
+            "id": "fixture-deployment"
+          },
+          "duty": {
+            "article": "19(1)",
+            "requiredSeconds": 200
+          },
+          "period": {
+            "from": 1000000,
+            "to": 1000200
+          },
+          "intake": {
+            "from": 1,
+            "to": 100,
+            "expectedHead": {
+              "sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+              "pinnedBy": "customer",
+              "reason": null
+            }
+          },
+          "checkpoint": {
+            "holder": "customer",
+            "eachCompletedBatch": true,
+            "maxIntervalSeconds": 3600
+          },
+          "timeBasis": {
+            "source": "fixture host clock",
+            "uncertaintySeconds": 1
+          },
+          "excludes": [
+            "request bodies",
+            "model weights",
+            "the provider side of the intake"
+          ]
+        },
+        "coverage": {
+          "runs": [
+            {
+              "from": 1,
+              "to": 100
+            }
+          ],
+          "acknowledged": [
+            {
+              "from": 1,
+              "to": 100
+            }
+          ],
+          "checkpoints": [
+            {
+              "range": {
+                "from": 1,
+                "to": 34
+              },
+              "at": 1000000,
+              "head": "1111111111111111111111111111111111111111111111111111111111111111"
+            },
+            {
+              "range": {
+                "from": 35,
+                "to": 67
+              },
+              "at": 1000100,
+              "head": "2222222222222222222222222222222222222222222222222222222222222222"
+            },
+            {
+              "range": {
+                "from": 68,
+                "to": 100
+              },
+              "at": 1000200,
+              "head": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+            }
+          ],
+          "observedHead": {
+            "sequence": 100,
+            "sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+          },
+          "span": null,
+          "gaps": [],
+          "duplicates": [],
+          "rollbacks": [],
+          "suffixLoss": null
+        },
+        "assessment": {
+          "outcome": "not-met"
+        }
+      },
+      "assessment": {
+        "outcome": "not-met",
+        "coverage": {
+          "result": "covered",
+          "basis": "sequence",
+          "ranges": [
+            {
+              "from": 1,
+              "to": 100
+            }
+          ],
+          "reasons": []
+        },
+        "reasons": [
+          "the final checkpoint names the head bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb and the intake observed aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa, so the checkpoint does not witness the head the runs closed at"
+        ]
+      }
+    },
+    {
+      "name": "unacknowledged-interval-indeterminate",
+      "note": "The intake observed every sequence in the declared range and the store acknowledged only the two ends of it. Nothing states that the middle was lost, and no acknowledgment speaks for it. An unwitnessed interval is indeterminate and never a pass.",
+      "document": {
+        "v": 1,
+        "scope": {
+          "subject": {
+            "kind": "deployment",
+            "id": "fixture-deployment"
+          },
+          "duty": {
+            "article": "19(1)",
+            "requiredSeconds": 200
+          },
+          "period": {
+            "from": 1000000,
+            "to": 1000200
+          },
+          "intake": {
+            "from": 1,
+            "to": 100,
+            "expectedHead": {
+              "sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+              "pinnedBy": "customer",
+              "reason": null
+            }
+          },
+          "checkpoint": {
+            "holder": "customer",
+            "eachCompletedBatch": true,
+            "maxIntervalSeconds": 3600
+          },
+          "timeBasis": {
+            "source": "fixture host clock",
+            "uncertaintySeconds": 1
+          },
+          "excludes": [
+            "request bodies",
+            "model weights",
+            "the provider side of the intake"
+          ]
+        },
+        "coverage": {
+          "runs": [
+            {
+              "from": 1,
+              "to": 100
+            }
+          ],
+          "acknowledged": [
+            {
+              "from": 1,
+              "to": 40
+            },
+            {
+              "from": 61,
+              "to": 100
+            }
+          ],
+          "checkpoints": [
+            {
+              "range": {
+                "from": 1,
+                "to": 34
+              },
+              "at": 1000000,
+              "head": "1111111111111111111111111111111111111111111111111111111111111111"
+            },
+            {
+              "range": {
+                "from": 35,
+                "to": 67
+              },
+              "at": 1000100,
+              "head": "2222222222222222222222222222222222222222222222222222222222222222"
+            },
+            {
+              "range": {
+                "from": 68,
+                "to": 100
+              },
+              "at": 1000200,
+              "head": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+            }
+          ],
+          "observedHead": {
+            "sequence": 100,
+            "sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+          },
+          "span": null,
+          "gaps": [],
+          "duplicates": [],
+          "rollbacks": [],
+          "suffixLoss": null
+        },
+        "assessment": {
+          "outcome": "indeterminate"
+        }
+      },
+      "assessment": {
+        "outcome": "indeterminate",
+        "coverage": {
+          "result": "indeterminate",
+          "basis": "sequence",
+          "ranges": [
+            {
+              "from": 41,
+              "to": 60
+            }
+          ],
+          "reasons": [
+            "the acknowledged sequence 41 to 60 is not covered, so there is a hole between those two ends",
+            "the store acknowledged no range over that stretch, so the interval is unwitnessed rather than observed"
+          ]
+        },
+        "reasons": [
+          "the coverage evidence cannot answer whether the period was continuously held"
+        ]
+      }
+    },
+    {
+      "name": "missing-expected-head-indeterminate",
+      "note": "The scope states that no customer held a head for this period and gives the reason. The coverage evidence is continuous, and the document cannot answer whether the head it observed is the head the customer expected. The absence is stated rather than inferred, and the answer is indeterminate.",
+      "document": {
+        "v": 1,
+        "scope": {
+          "subject": {
+            "kind": "deployment",
+            "id": "fixture-deployment"
+          },
+          "duty": {
+            "article": "19(1)",
+            "requiredSeconds": 200
+          },
+          "period": {
+            "from": 1000000,
+            "to": 1000200
+          },
+          "intake": {
+            "from": 1,
+            "to": 100,
+            "expectedHead": {
+              "sha256": null,
+              "pinnedBy": "none",
+              "reason": "the customer held no head for this period"
+            }
+          },
+          "checkpoint": {
+            "holder": "customer",
+            "eachCompletedBatch": true,
+            "maxIntervalSeconds": 3600
+          },
+          "timeBasis": {
+            "source": "fixture host clock",
+            "uncertaintySeconds": 1
+          },
+          "excludes": [
+            "request bodies",
+            "model weights",
+            "the provider side of the intake"
+          ]
+        },
+        "coverage": {
+          "runs": [
+            {
+              "from": 1,
+              "to": 100
+            }
+          ],
+          "acknowledged": [
+            {
+              "from": 1,
+              "to": 100
+            }
+          ],
+          "checkpoints": [
+            {
+              "range": {
+                "from": 1,
+                "to": 34
+              },
+              "at": 1000000,
+              "head": "1111111111111111111111111111111111111111111111111111111111111111"
+            },
+            {
+              "range": {
+                "from": 35,
+                "to": 67
+              },
+              "at": 1000100,
+              "head": "2222222222222222222222222222222222222222222222222222222222222222"
+            },
+            {
+              "range": {
+                "from": 68,
+                "to": 100
+              },
+              "at": 1000200,
+              "head": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+            }
+          ],
+          "observedHead": {
+            "sequence": 100,
+            "sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+          },
+          "span": null,
+          "gaps": [],
+          "duplicates": [],
+          "rollbacks": [],
+          "suffixLoss": null
+        },
+        "assessment": {
+          "outcome": "indeterminate"
+        }
+      },
+      "assessment": {
+        "outcome": "indeterminate",
+        "coverage": {
+          "result": "covered",
+          "basis": "sequence",
+          "ranges": [
+            {
+              "from": 1,
+              "to": 100
+            }
+          ],
+          "reasons": []
+        },
+        "reasons": [
+          "no expected head is pinned, so the observed head cannot be compared against anything independent"
+        ]
+      }
+    },
+    {
+      "name": "self-asserted-expected-head-indeterminate",
+      "note": "The deployment pinned the expected head about itself. The scope says so honestly, which is why the reader takes the document, and the reading weighs the declaration as self-assertion rather than as an independent pin. The answer is indeterminate; a head the subject pinned itself cannot close the period against the subject.",
+      "document": {
+        "v": 1,
+        "scope": {
+          "subject": {
+            "kind": "deployment",
+            "id": "fixture-deployment"
+          },
+          "duty": {
+            "article": "19(1)",
+            "requiredSeconds": 200
+          },
+          "period": {
+            "from": 1000000,
+            "to": 1000200
+          },
+          "intake": {
+            "from": 1,
+            "to": 100,
+            "expectedHead": {
+              "sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+              "pinnedBy": "subject",
+              "reason": null
+            }
+          },
+          "checkpoint": {
+            "holder": "customer",
+            "eachCompletedBatch": true,
+            "maxIntervalSeconds": 3600
+          },
+          "timeBasis": {
+            "source": "fixture host clock",
+            "uncertaintySeconds": 1
+          },
+          "excludes": [
+            "request bodies",
+            "model weights",
+            "the provider side of the intake"
+          ]
+        },
+        "coverage": {
+          "runs": [
+            {
+              "from": 1,
+              "to": 100
+            }
+          ],
+          "acknowledged": [
+            {
+              "from": 1,
+              "to": 100
+            }
+          ],
+          "checkpoints": [
+            {
+              "range": {
+                "from": 1,
+                "to": 34
+              },
+              "at": 1000000,
+              "head": "1111111111111111111111111111111111111111111111111111111111111111"
+            },
+            {
+              "range": {
+                "from": 35,
+                "to": 67
+              },
+              "at": 1000100,
+              "head": "2222222222222222222222222222222222222222222222222222222222222222"
+            },
+            {
+              "range": {
+                "from": 68,
+                "to": 100
+              },
+              "at": 1000200,
+              "head": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+            }
+          ],
+          "observedHead": {
+            "sequence": 100,
+            "sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+          },
+          "span": null,
+          "gaps": [],
+          "duplicates": [],
+          "rollbacks": [],
+          "suffixLoss": null
+        },
+        "assessment": {
+          "outcome": "indeterminate"
+        }
+      },
+      "assessment": {
+        "outcome": "indeterminate",
+        "coverage": {
+          "result": "covered",
+          "basis": "sequence",
+          "ranges": [
+            {
+              "from": 1,
+              "to": 100
+            }
+          ],
+          "reasons": []
+        },
+        "reasons": [
+          "the expected head is pinned by the subject itself, so it is the deployment attesting to its own intake"
+        ]
+      }
+    },
+    {
+      "name": "substituted-expected-head-not-met",
+      "note": "Continuous runs, acknowledgments and checkpoints, and an observed head at sequence 100 that is not the head the customer pinned. The receipts close on the head the intake observed, so every other member agrees and the one comparison the coverage cannot make for itself is the one that fails. The answer is not met.",
+      "document": {
+        "v": 1,
+        "scope": {
+          "subject": {
+            "kind": "deployment",
+            "id": "fixture-deployment"
+          },
+          "duty": {
+            "article": "19(1)",
+            "requiredSeconds": 200
+          },
+          "period": {
+            "from": 1000000,
+            "to": 1000200
+          },
+          "intake": {
+            "from": 1,
+            "to": 100,
+            "expectedHead": {
+              "sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+              "pinnedBy": "customer",
+              "reason": null
+            }
+          },
+          "checkpoint": {
+            "holder": "customer",
+            "eachCompletedBatch": true,
+            "maxIntervalSeconds": 3600
+          },
+          "timeBasis": {
+            "source": "fixture host clock",
+            "uncertaintySeconds": 1
+          },
+          "excludes": [
+            "request bodies",
+            "model weights",
+            "the provider side of the intake"
+          ]
+        },
+        "coverage": {
+          "runs": [
+            {
+              "from": 1,
+              "to": 100
+            }
+          ],
+          "acknowledged": [
+            {
+              "from": 1,
+              "to": 100
+            }
+          ],
+          "checkpoints": [
+            {
+              "range": {
+                "from": 1,
+                "to": 34
+              },
+              "at": 1000000,
+              "head": "1111111111111111111111111111111111111111111111111111111111111111"
+            },
+            {
+              "range": {
+                "from": 35,
+                "to": 67
+              },
+              "at": 1000100,
+              "head": "2222222222222222222222222222222222222222222222222222222222222222"
+            },
+            {
+              "range": {
+                "from": 68,
+                "to": 100
+              },
+              "at": 1000200,
+              "head": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+            }
+          ],
+          "observedHead": {
+            "sequence": 100,
+            "sha256": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+          },
+          "span": null,
+          "gaps": [],
+          "duplicates": [],
+          "rollbacks": [],
+          "suffixLoss": null
+        },
+        "assessment": {
+          "outcome": "not-met"
+        }
+      },
+      "assessment": {
+        "outcome": "not-met",
+        "coverage": {
+          "result": "covered",
+          "basis": "sequence",
+          "ranges": [
+            {
+              "from": 1,
+              "to": 100
+            }
+          ],
+          "reasons": []
+        },
+        "reasons": [
+          "the observed head bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb is not the pinned head aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa, so the pin catches a substitution or a rollback"
+        ]
+      }
+    },
+    {
+      "name": "period-shorter-than-the-declared-duty-not-met",
+      "note": "A period one second shorter than the duty the deployment declares. The coverage is continuous and the head matches, and the period assessed is not the period the duty requires: the answer is not met. This is the one figure the old span rule also treated as a failure, and it stays a failure here.",
+      "document": {
+        "v": 1,
+        "scope": {
+          "subject": {
+            "kind": "deployment",
+            "id": "fixture-deployment"
+          },
+          "duty": {
+            "article": "19(1)",
+            "requiredSeconds": 200
+          },
+          "period": {
+            "from": 1000000,
+            "to": 1000199
+          },
+          "intake": {
+            "from": 1,
+            "to": 100,
+            "expectedHead": {
+              "sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+              "pinnedBy": "customer",
+              "reason": null
+            }
+          },
+          "checkpoint": {
+            "holder": "customer",
+            "eachCompletedBatch": true,
+            "maxIntervalSeconds": 3600
+          },
+          "timeBasis": {
+            "source": "fixture host clock",
+            "uncertaintySeconds": 1
+          },
+          "excludes": [
+            "request bodies",
+            "model weights",
+            "the provider side of the intake"
+          ]
+        },
+        "coverage": {
+          "runs": [
+            {
+              "from": 1,
+              "to": 100
+            }
+          ],
+          "acknowledged": [
+            {
+              "from": 1,
+              "to": 100
+            }
+          ],
+          "checkpoints": [
+            {
+              "range": {
+                "from": 1,
+                "to": 34
+              },
+              "at": 1000000,
+              "head": "1111111111111111111111111111111111111111111111111111111111111111"
+            },
+            {
+              "range": {
+                "from": 35,
+                "to": 67
+              },
+              "at": 1000100,
+              "head": "2222222222222222222222222222222222222222222222222222222222222222"
+            },
+            {
+              "range": {
+                "from": 68,
+                "to": 100
+              },
+              "at": 1000200,
+              "head": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+            }
+          ],
+          "observedHead": {
+            "sequence": 100,
+            "sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+          },
+          "span": null,
+          "gaps": [],
+          "duplicates": [],
+          "rollbacks": [],
+          "suffixLoss": null
+        },
+        "assessment": {
+          "outcome": "not-met"
+        }
+      },
+      "assessment": {
+        "outcome": "not-met",
+        "coverage": {
+          "result": "covered",
+          "basis": "sequence",
+          "ranges": [
+            {
+              "from": 1,
+              "to": 100
+            }
+          ],
+          "reasons": []
+        },
+        "reasons": [
+          "the declared period is 199 seconds and the declared duty requires 200, so the period assessed is shorter than the duty"
+        ]
+      }
+    },
+    {
+      "name": "no-observation-indeterminate",
+      "note": "A document that states neither a run nor a span: the intake observed nothing, and the document says so by leaving both lists empty. The answer is indeterminate rather than a pass over a period nothing witnessed.",
+      "document": {
+        "v": 1,
+        "scope": {
+          "subject": {
+            "kind": "deployment",
+            "id": "fixture-deployment"
+          },
+          "duty": {
+            "article": "19(1)",
+            "requiredSeconds": 200
+          },
+          "period": {
+            "from": 1000000,
+            "to": 1000200
+          },
+          "intake": {
+            "from": 1,
+            "to": 100,
+            "expectedHead": {
+              "sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+              "pinnedBy": "customer",
+              "reason": null
+            }
+          },
+          "checkpoint": {
+            "holder": "customer",
+            "eachCompletedBatch": true,
+            "maxIntervalSeconds": 3600
+          },
+          "timeBasis": {
+            "source": "fixture host clock",
+            "uncertaintySeconds": 1
+          },
+          "excludes": [
+            "request bodies",
+            "model weights",
+            "the provider side of the intake"
+          ]
+        },
+        "coverage": {
+          "runs": [],
+          "acknowledged": [],
+          "checkpoints": [],
+          "observedHead": null,
+          "span": null,
+          "gaps": [],
+          "duplicates": [],
+          "rollbacks": [],
+          "suffixLoss": null
+        },
+        "assessment": {
+          "outcome": "indeterminate"
+        }
+      },
+      "assessment": {
+        "outcome": "indeterminate",
+        "coverage": {
+          "result": "indeterminate",
+          "basis": "sequence",
+          "ranges": [
+            {
+              "from": 1,
+              "to": 100
+            }
+          ],
+          "reasons": [
+            "no intake sequence run is stated, so the document carries no coverage evidence at all"
+          ]
+        },
+        "reasons": [
+          "the coverage evidence cannot answer whether the period was continuously held"
+        ]
+      }
+    }
+  ],
+  "refusals": [
+    {
+      "name": "unknown-root-member",
+      "note": "A document carrying `retainedAt`, a member no version of this layout defines. Closure holds here as it holds at every record of this estate: a writer that stated a field no reader knows was answering a question this document cannot ask, and dropping it quietly turns that answer into a silence.",
+      "document": {
+        "v": 1,
+        "scope": {
+          "subject": {
+            "kind": "deployment",
+            "id": "fixture-deployment"
+          },
+          "duty": {
+            "article": "19(1)",
+            "requiredSeconds": 200
+          },
+          "period": {
+            "from": 1000000,
+            "to": 1000200
+          },
+          "intake": {
+            "from": 1,
+            "to": 100,
+            "expectedHead": {
+              "sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+              "pinnedBy": "customer",
+              "reason": null
+            }
+          },
+          "checkpoint": {
+            "holder": "customer",
+            "eachCompletedBatch": true,
+            "maxIntervalSeconds": 3600
+          },
+          "timeBasis": {
+            "source": "fixture host clock",
+            "uncertaintySeconds": 1
+          },
+          "excludes": [
+            "request bodies",
+            "model weights",
+            "the provider side of the intake"
+          ]
+        },
+        "coverage": {
+          "runs": [
+            {
+              "from": 1,
+              "to": 100
+            }
+          ],
+          "acknowledged": [
+            {
+              "from": 1,
+              "to": 100
+            }
+          ],
+          "checkpoints": [
+            {
+              "range": {
+                "from": 1,
+                "to": 34
+              },
+              "at": 1000000,
+              "head": "1111111111111111111111111111111111111111111111111111111111111111"
+            },
+            {
+              "range": {
+                "from": 35,
+                "to": 67
+              },
+              "at": 1000100,
+              "head": "2222222222222222222222222222222222222222222222222222222222222222"
+            },
+            {
+              "range": {
+                "from": 68,
+                "to": 100
+              },
+              "at": 1000200,
+              "head": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+            }
+          ],
+          "observedHead": {
+            "sequence": 100,
+            "sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+          },
+          "span": null,
+          "gaps": [],
+          "duplicates": [],
+          "rollbacks": [],
+          "suffixLoss": null
+        },
+        "assessment": {
+          "outcome": "met"
+        },
+        "retainedAt": 1000200
+      },
+      "stage": "layout",
+      "code": "NOT_RETENTION_ASSESSMENT",
+      "message": "retention assessment carries 'retainedAt', which retention assessment version 1 does not define"
+    },
+    {
+      "name": "unknown-nested-member",
+      "note": "A subject block carrying `region`, a member the layout does not define. The closure reaches every block, not only the root, so a nested field is refused at the position it sits on.",
+      "document": {
+        "v": 1,
+        "scope": {
+          "subject": {
+            "kind": "deployment",
+            "id": "fixture-deployment",
+            "region": "eu-west-1"
+          },
+          "duty": {
+            "article": "19(1)",
+            "requiredSeconds": 200
+          },
+          "period": {
+            "from": 1000000,
+            "to": 1000200
+          },
+          "intake": {
+            "from": 1,
+            "to": 100,
+            "expectedHead": {
+              "sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+              "pinnedBy": "customer",
+              "reason": null
+            }
+          },
+          "checkpoint": {
+            "holder": "customer",
+            "eachCompletedBatch": true,
+            "maxIntervalSeconds": 3600
+          },
+          "timeBasis": {
+            "source": "fixture host clock",
+            "uncertaintySeconds": 1
+          },
+          "excludes": [
+            "request bodies",
+            "model weights",
+            "the provider side of the intake"
+          ]
+        },
+        "coverage": {
+          "runs": [
+            {
+              "from": 1,
+              "to": 100
+            }
+          ],
+          "acknowledged": [
+            {
+              "from": 1,
+              "to": 100
+            }
+          ],
+          "checkpoints": [
+            {
+              "range": {
+                "from": 1,
+                "to": 34
+              },
+              "at": 1000000,
+              "head": "1111111111111111111111111111111111111111111111111111111111111111"
+            },
+            {
+              "range": {
+                "from": 35,
+                "to": 67
+              },
+              "at": 1000100,
+              "head": "2222222222222222222222222222222222222222222222222222222222222222"
+            },
+            {
+              "range": {
+                "from": 68,
+                "to": 100
+              },
+              "at": 1000200,
+              "head": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+            }
+          ],
+          "observedHead": {
+            "sequence": 100,
+            "sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+          },
+          "span": null,
+          "gaps": [],
+          "duplicates": [],
+          "rollbacks": [],
+          "suffixLoss": null
+        },
+        "assessment": {
+          "outcome": "met"
+        }
+      },
+      "stage": "layout",
+      "code": "NOT_RETENTION_ASSESSMENT",
+      "message": "scope.subject carries 'region', which retention assessment version 1 does not define"
+    },
+    {
+      "name": "version-two",
+      "note": "A document naming version 2. The version decides which members exist, so a reader with no rules for it refuses before one member is read, under the code the capture and import readers answer the same question with.",
+      "document": {
+        "v": 2,
+        "scope": {
+          "subject": {
+            "kind": "deployment",
+            "id": "fixture-deployment"
+          },
+          "duty": {
+            "article": "19(1)",
+            "requiredSeconds": 200
+          },
+          "period": {
+            "from": 1000000,
+            "to": 1000200
+          },
+          "intake": {
+            "from": 1,
+            "to": 100,
+            "expectedHead": {
+              "sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+              "pinnedBy": "customer",
+              "reason": null
+            }
+          },
+          "checkpoint": {
+            "holder": "customer",
+            "eachCompletedBatch": true,
+            "maxIntervalSeconds": 3600
+          },
+          "timeBasis": {
+            "source": "fixture host clock",
+            "uncertaintySeconds": 1
+          },
+          "excludes": [
+            "request bodies",
+            "model weights",
+            "the provider side of the intake"
+          ]
+        },
+        "coverage": {
+          "runs": [
+            {
+              "from": 1,
+              "to": 100
+            }
+          ],
+          "acknowledged": [
+            {
+              "from": 1,
+              "to": 100
+            }
+          ],
+          "checkpoints": [
+            {
+              "range": {
+                "from": 1,
+                "to": 34
+              },
+              "at": 1000000,
+              "head": "1111111111111111111111111111111111111111111111111111111111111111"
+            },
+            {
+              "range": {
+                "from": 35,
+                "to": 67
+              },
+              "at": 1000100,
+              "head": "2222222222222222222222222222222222222222222222222222222222222222"
+            },
+            {
+              "range": {
+                "from": 68,
+                "to": 100
+              },
+              "at": 1000200,
+              "head": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+            }
+          ],
+          "observedHead": {
+            "sequence": 100,
+            "sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+          },
+          "span": null,
+          "gaps": [],
+          "duplicates": [],
+          "rollbacks": [],
+          "suffixLoss": null
+        },
+        "assessment": {
+          "outcome": "met"
+        }
+      },
+      "stage": "layout",
+      "code": "UNSUPPORTED_VERSION",
+      "message": "receipt payload declares a version this package cannot parse or is not configured to accept: retention assessment names version 2, and this reader implements 1 and does not read it as one of them"
+    },
+    {
+      "name": "non-monotonic-runs",
+      "note": "Two observed runs whose sequence numbers run backwards: 10 through 20 followed by 5 through 8. A run that begins before the previous one began is a non-monotonic observation, which is a different fault from one sequence stated twice and gets its own sentence.",
+      "document": {
+        "v": 1,
+        "scope": {
+          "subject": {
+            "kind": "deployment",
+            "id": "fixture-deployment"
+          },
+          "duty": {
+            "article": "19(1)",
+            "requiredSeconds": 200
+          },
+          "period": {
+            "from": 1000000,
+            "to": 1000200
+          },
+          "intake": {
+            "from": 1,
+            "to": 100,
+            "expectedHead": {
+              "sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+              "pinnedBy": "customer",
+              "reason": null
+            }
+          },
+          "checkpoint": {
+            "holder": "customer",
+            "eachCompletedBatch": true,
+            "maxIntervalSeconds": 3600
+          },
+          "timeBasis": {
+            "source": "fixture host clock",
+            "uncertaintySeconds": 1
+          },
+          "excludes": [
+            "request bodies",
+            "model weights",
+            "the provider side of the intake"
+          ]
+        },
+        "coverage": {
+          "runs": [
+            {
+              "from": 10,
+              "to": 20
+            },
+            {
+              "from": 5,
+              "to": 8
+            }
+          ],
+          "acknowledged": [
+            {
+              "from": 1,
+              "to": 100
+            }
+          ],
+          "checkpoints": [
+            {
+              "range": {
+                "from": 1,
+                "to": 34
+              },
+              "at": 1000000,
+              "head": "1111111111111111111111111111111111111111111111111111111111111111"
+            },
+            {
+              "range": {
+                "from": 35,
+                "to": 67
+              },
+              "at": 1000100,
+              "head": "2222222222222222222222222222222222222222222222222222222222222222"
+            },
+            {
+              "range": {
+                "from": 68,
+                "to": 100
+              },
+              "at": 1000200,
+              "head": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+            }
+          ],
+          "observedHead": {
+            "sequence": 100,
+            "sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+          },
+          "span": null,
+          "gaps": [],
+          "duplicates": [],
+          "rollbacks": [],
+          "suffixLoss": null
+        },
+        "assessment": {
+          "outcome": "met"
+        }
+      },
+      "stage": "layout",
+      "code": "NOT_RETENTION_ASSESSMENT",
+      "message": "coverage.runs lists a range beginning at 5 after one beginning at 10, so the intake sequence is not monotonic"
+    },
+    {
+      "name": "duplicate-sequence-in-runs",
+      "note": "Two observed runs that meet at sequence 50. One run ends there and the next begins there, so the document states one intake sequence twice. The reader refuses the pair rather than merging it into a longer run, because a merge would hide the duplicate the evidence recorded.",
+      "document": {
+        "v": 1,
+        "scope": {
+          "subject": {
+            "kind": "deployment",
+            "id": "fixture-deployment"
+          },
+          "duty": {
+            "article": "19(1)",
+            "requiredSeconds": 200
+          },
+          "period": {
+            "from": 1000000,
+            "to": 1000200
+          },
+          "intake": {
+            "from": 1,
+            "to": 100,
+            "expectedHead": {
+              "sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+              "pinnedBy": "customer",
+              "reason": null
+            }
+          },
+          "checkpoint": {
+            "holder": "customer",
+            "eachCompletedBatch": true,
+            "maxIntervalSeconds": 3600
+          },
+          "timeBasis": {
+            "source": "fixture host clock",
+            "uncertaintySeconds": 1
+          },
+          "excludes": [
+            "request bodies",
+            "model weights",
+            "the provider side of the intake"
+          ]
+        },
+        "coverage": {
+          "runs": [
+            {
+              "from": 1,
+              "to": 50
+            },
+            {
+              "from": 50,
+              "to": 100
+            }
+          ],
+          "acknowledged": [
+            {
+              "from": 1,
+              "to": 100
+            }
+          ],
+          "checkpoints": [
+            {
+              "range": {
+                "from": 1,
+                "to": 34
+              },
+              "at": 1000000,
+              "head": "1111111111111111111111111111111111111111111111111111111111111111"
+            },
+            {
+              "range": {
+                "from": 35,
+                "to": 67
+              },
+              "at": 1000100,
+              "head": "2222222222222222222222222222222222222222222222222222222222222222"
+            },
+            {
+              "range": {
+                "from": 68,
+                "to": 100
+              },
+              "at": 1000200,
+              "head": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+            }
+          ],
+          "observedHead": {
+            "sequence": 100,
+            "sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+          },
+          "span": null,
+          "gaps": [],
+          "duplicates": [],
+          "rollbacks": [],
+          "suffixLoss": null
+        },
+        "assessment": {
+          "outcome": "met"
+        }
+      },
+      "stage": "layout",
+      "code": "NOT_RETENTION_ASSESSMENT",
+      "message": "coverage.runs lists sequence 50 twice: one range ends at 50 and the next begins at 50"
+    },
+    {
+      "name": "self-asserted-pin-spelling",
+      "note": "A head pinned by `'self'`, a word that names the intake rather than a party that could pin a head independently of it. The layout enumerates the parties it can weigh and refuses the intake-side spellings by name, because a head the intake wrote beside its own observation is that observation repeated.",
+      "document": {
+        "v": 1,
+        "scope": {
+          "subject": {
+            "kind": "deployment",
+            "id": "fixture-deployment"
+          },
+          "duty": {
+            "article": "19(1)",
+            "requiredSeconds": 200
+          },
+          "period": {
+            "from": 1000000,
+            "to": 1000200
+          },
+          "intake": {
+            "from": 1,
+            "to": 100,
+            "expectedHead": {
+              "sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+              "pinnedBy": "self",
+              "reason": null
+            }
+          },
+          "checkpoint": {
+            "holder": "customer",
+            "eachCompletedBatch": true,
+            "maxIntervalSeconds": 3600
+          },
+          "timeBasis": {
+            "source": "fixture host clock",
+            "uncertaintySeconds": 1
+          },
+          "excludes": [
+            "request bodies",
+            "model weights",
+            "the provider side of the intake"
+          ]
+        },
+        "coverage": {
+          "runs": [
+            {
+              "from": 1,
+              "to": 100
+            }
+          ],
+          "acknowledged": [
+            {
+              "from": 1,
+              "to": 100
+            }
+          ],
+          "checkpoints": [
+            {
+              "range": {
+                "from": 1,
+                "to": 34
+              },
+              "at": 1000000,
+              "head": "1111111111111111111111111111111111111111111111111111111111111111"
+            },
+            {
+              "range": {
+                "from": 35,
+                "to": 67
+              },
+              "at": 1000100,
+              "head": "2222222222222222222222222222222222222222222222222222222222222222"
+            },
+            {
+              "range": {
+                "from": 68,
+                "to": 100
+              },
+              "at": 1000200,
+              "head": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+            }
+          ],
+          "observedHead": {
+            "sequence": 100,
+            "sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+          },
+          "span": null,
+          "gaps": [],
+          "duplicates": [],
+          "rollbacks": [],
+          "suffixLoss": null
+        },
+        "assessment": {
+          "outcome": "met"
+        }
+      },
+      "stage": "layout",
+      "code": "NOT_RETENTION_ASSESSMENT",
+      "message": "scope.intake.expectedHead.pinnedBy is 'self', which names the intake rather than a party that could pin a head independently of it"
+    },
+    {
+      "name": "checkpoint-claims-an-unsupported-range",
+      "note": "A checkpoint receipt over sequences 41 through 60 while the observed runs cover 1 through 40 and 61 through 100. The receipt claims a range the intake does not support, which is the witness asserting a stretch nobody observed. It is refused rather than read as a checkpoint over the gap.",
+      "document": {
+        "v": 1,
+        "scope": {
+          "subject": {
+            "kind": "deployment",
+            "id": "fixture-deployment"
+          },
+          "duty": {
+            "article": "19(1)",
+            "requiredSeconds": 200
+          },
+          "period": {
+            "from": 1000000,
+            "to": 1000200
+          },
+          "intake": {
+            "from": 1,
+            "to": 100,
+            "expectedHead": {
+              "sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+              "pinnedBy": "customer",
+              "reason": null
+            }
+          },
+          "checkpoint": {
+            "holder": "customer",
+            "eachCompletedBatch": true,
+            "maxIntervalSeconds": 3600
+          },
+          "timeBasis": {
+            "source": "fixture host clock",
+            "uncertaintySeconds": 1
+          },
+          "excludes": [
+            "request bodies",
+            "model weights",
+            "the provider side of the intake"
+          ]
+        },
+        "coverage": {
+          "runs": [
+            {
+              "from": 1,
+              "to": 40
+            },
+            {
+              "from": 61,
+              "to": 100
+            }
+          ],
+          "acknowledged": [
+            {
+              "from": 1,
+              "to": 40
+            },
+            {
+              "from": 61,
+              "to": 100
+            }
+          ],
+          "checkpoints": [
+            {
+              "range": {
+                "from": 41,
+                "to": 60
+              },
+              "at": 1000000,
+              "head": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+            }
+          ],
+          "observedHead": {
+            "sequence": 100,
+            "sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+          },
+          "span": null,
+          "gaps": [],
+          "duplicates": [],
+          "rollbacks": [],
+          "suffixLoss": null
+        },
+        "assessment": {
+          "outcome": "met"
+        }
+      },
+      "stage": "layout",
+      "code": "NOT_RETENTION_ASSESSMENT",
+      "message": "coverage.checkpoints[0].range claims 41 to 60, which the observed intake runs do not support"
+    },
+    {
+      "name": "duplicate-checkpoint-sequence",
+      "note": "Two checkpoint receipts over the same range. One sequence is witnessed twice by two receipts, which is a duplicate claim rather than two observations, and the reader refuses the pair. A checkpoint range that overlaps an earlier one by any amount is the same fault.",
+      "document": {
+        "v": 1,
+        "scope": {
+          "subject": {
+            "kind": "deployment",
+            "id": "fixture-deployment"
+          },
+          "duty": {
+            "article": "19(1)",
+            "requiredSeconds": 200
+          },
+          "period": {
+            "from": 1000000,
+            "to": 1000200
+          },
+          "intake": {
+            "from": 1,
+            "to": 100,
+            "expectedHead": {
+              "sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+              "pinnedBy": "customer",
+              "reason": null
+            }
+          },
+          "checkpoint": {
+            "holder": "customer",
+            "eachCompletedBatch": true,
+            "maxIntervalSeconds": 3600
+          },
+          "timeBasis": {
+            "source": "fixture host clock",
+            "uncertaintySeconds": 1
+          },
+          "excludes": [
+            "request bodies",
+            "model weights",
+            "the provider side of the intake"
+          ]
+        },
+        "coverage": {
+          "runs": [
+            {
+              "from": 1,
+              "to": 100
+            }
+          ],
+          "acknowledged": [
+            {
+              "from": 1,
+              "to": 100
+            }
+          ],
+          "checkpoints": [
+            {
+              "range": {
+                "from": 1,
+                "to": 34
+              },
+              "at": 1000000,
+              "head": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+            },
+            {
+              "range": {
+                "from": 1,
+                "to": 34
+              },
+              "at": 1000100,
+              "head": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+            }
+          ],
+          "observedHead": {
+            "sequence": 100,
+            "sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+          },
+          "span": null,
+          "gaps": [],
+          "duplicates": [],
+          "rollbacks": [],
+          "suffixLoss": null
+        },
+        "assessment": {
+          "outcome": "met"
+        }
+      },
+      "stage": "layout",
+      "code": "NOT_RETENTION_ASSESSMENT",
+      "message": "coverage.checkpoints lists sequence 1 twice: one receipt ends at 34 and the next begins at 1"
+    },
+    {
+      "name": "span-beside-runs",
+      "note": "A span stated beside the runs, acknowledgments and checkpoints. One coverage result cannot have two bases, and a reader that took both would have to choose which one produced the answer without saying so. The combination is refused.",
+      "document": {
+        "v": 1,
+        "scope": {
+          "subject": {
+            "kind": "deployment",
+            "id": "fixture-deployment"
+          },
+          "duty": {
+            "article": "19(1)",
+            "requiredSeconds": 200
+          },
+          "period": {
+            "from": 1000000,
+            "to": 1000200
+          },
+          "intake": {
+            "from": 1,
+            "to": 100,
+            "expectedHead": {
+              "sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+              "pinnedBy": "customer",
+              "reason": null
+            }
+          },
+          "checkpoint": {
+            "holder": "customer",
+            "eachCompletedBatch": true,
+            "maxIntervalSeconds": 3600
+          },
+          "timeBasis": {
+            "source": "fixture host clock",
+            "uncertaintySeconds": 1
+          },
+          "excludes": [
+            "request bodies",
+            "model weights",
+            "the provider side of the intake"
+          ]
+        },
+        "coverage": {
+          "runs": [
+            {
+              "from": 1,
+              "to": 100
+            }
+          ],
+          "acknowledged": [
+            {
+              "from": 1,
+              "to": 100
+            }
+          ],
+          "checkpoints": [
+            {
+              "range": {
+                "from": 1,
+                "to": 34
+              },
+              "at": 1000000,
+              "head": "1111111111111111111111111111111111111111111111111111111111111111"
+            },
+            {
+              "range": {
+                "from": 35,
+                "to": 67
+              },
+              "at": 1000100,
+              "head": "2222222222222222222222222222222222222222222222222222222222222222"
+            },
+            {
+              "range": {
+                "from": 68,
+                "to": 100
+              },
+              "at": 1000200,
+              "head": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+            }
+          ],
+          "observedHead": {
+            "sequence": 100,
+            "sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+          },
+          "span": {
+            "from": 1000000,
+            "to": 1000200,
+            "oldestHead": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+            "newestHead": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+          },
+          "gaps": [],
+          "duplicates": [],
+          "rollbacks": [],
+          "suffixLoss": null
+        },
+        "assessment": {
+          "outcome": "met"
+        }
+      },
+      "stage": "layout",
+      "code": "NOT_RETENTION_ASSESSMENT",
+      "message": "coverage.span stands beside other coverage evidence, so the document states two bases for one result and the reader cannot tell which produced it"
+    },
+    {
+      "name": "schedule-weaker-than-hourly",
+      "note": "A checkpoint schedule declaring 3601 seconds between receipts. The layout defines a customer-held schedule with at most an hour between two, and a document declaring a weaker one is refused rather than read as a different promise.",
+      "document": {
+        "v": 1,
+        "scope": {
+          "subject": {
+            "kind": "deployment",
+            "id": "fixture-deployment"
+          },
+          "duty": {
+            "article": "19(1)",
+            "requiredSeconds": 200
+          },
+          "period": {
+            "from": 1000000,
+            "to": 1000200
+          },
+          "intake": {
+            "from": 1,
+            "to": 100,
+            "expectedHead": {
+              "sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+              "pinnedBy": "customer",
+              "reason": null
+            }
+          },
+          "checkpoint": {
+            "holder": "customer",
+            "eachCompletedBatch": true,
+            "maxIntervalSeconds": 3601
+          },
+          "timeBasis": {
+            "source": "fixture host clock",
+            "uncertaintySeconds": 1
+          },
+          "excludes": [
+            "request bodies",
+            "model weights",
+            "the provider side of the intake"
+          ]
+        },
+        "coverage": {
+          "runs": [
+            {
+              "from": 1,
+              "to": 100
+            }
+          ],
+          "acknowledged": [
+            {
+              "from": 1,
+              "to": 100
+            }
+          ],
+          "checkpoints": [
+            {
+              "range": {
+                "from": 1,
+                "to": 34
+              },
+              "at": 1000000,
+              "head": "1111111111111111111111111111111111111111111111111111111111111111"
+            },
+            {
+              "range": {
+                "from": 35,
+                "to": 67
+              },
+              "at": 1000100,
+              "head": "2222222222222222222222222222222222222222222222222222222222222222"
+            },
+            {
+              "range": {
+                "from": 68,
+                "to": 100
+              },
+              "at": 1000200,
+              "head": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+            }
+          ],
+          "observedHead": {
+            "sequence": 100,
+            "sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+          },
+          "span": null,
+          "gaps": [],
+          "duplicates": [],
+          "rollbacks": [],
+          "suffixLoss": null
+        },
+        "assessment": {
+          "outcome": "met"
+        }
+      },
+      "stage": "layout",
+      "code": "NOT_RETENTION_ASSESSMENT",
+      "message": "scope.checkpoint.maxIntervalSeconds is 3601, above the 3600 seconds this layout requires at most"
+    },
+    {
+      "name": "suffix-loss-that-is-not-the-tail",
+      "note": "A stated suffix loss over the last two sequences while the observed runs stop at 90. The loss the document states is not the tail its own runs leave, so the document disagrees with itself and is refused. The reading refuses the shape rather than choosing which of the two tails to believe.",
+      "document": {
+        "v": 1,
+        "scope": {
+          "subject": {
+            "kind": "deployment",
+            "id": "fixture-deployment"
+          },
+          "duty": {
+            "article": "19(1)",
+            "requiredSeconds": 200
+          },
+          "period": {
+            "from": 1000000,
+            "to": 1000200
+          },
+          "intake": {
+            "from": 1,
+            "to": 100,
+            "expectedHead": {
+              "sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+              "pinnedBy": "customer",
+              "reason": null
+            }
+          },
+          "checkpoint": {
+            "holder": "customer",
+            "eachCompletedBatch": true,
+            "maxIntervalSeconds": 3600
+          },
+          "timeBasis": {
+            "source": "fixture host clock",
+            "uncertaintySeconds": 1
+          },
+          "excludes": [
+            "request bodies",
+            "model weights",
+            "the provider side of the intake"
+          ]
+        },
+        "coverage": {
+          "runs": [
+            {
+              "from": 1,
+              "to": 90
+            }
+          ],
+          "acknowledged": [
+            {
+              "from": 1,
+              "to": 90
+            }
+          ],
+          "checkpoints": [
+            {
+              "range": {
+                "from": 1,
+                "to": 45
+              },
+              "at": 1000000,
+              "head": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+            },
+            {
+              "range": {
+                "from": 46,
+                "to": 90
+              },
+              "at": 1000200,
+              "head": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+            }
+          ],
+          "observedHead": {
+            "sequence": 90,
+            "sha256": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+          },
+          "span": null,
+          "gaps": [],
+          "duplicates": [],
+          "rollbacks": [],
+          "suffixLoss": {
+            "from": 99,
+            "to": 100,
+            "reason": "the last two sequences are gone"
+          }
+        },
+        "assessment": {
+          "outcome": "not-met"
+        }
+      },
+      "stage": "layout",
+      "code": "NOT_RETENTION_ASSESSMENT",
+      "message": "coverage.suffixLoss begins at 99 and the last observed sequence is 90, so the loss stated is not the tail the runs leave"
+    },
+    {
+      "name": "duplicate-count-below-two",
+      "note": "A duplicate row stating that the intake saw one sequence once. A sequence seen fewer than twice is not a duplicate, and the row is the writer stating a finding its own count does not support. The reader refuses it rather than dropping the row.",
+      "document": {
+        "v": 1,
+        "scope": {
+          "subject": {
+            "kind": "deployment",
+            "id": "fixture-deployment"
+          },
+          "duty": {
+            "article": "19(1)",
+            "requiredSeconds": 200
+          },
+          "period": {
+            "from": 1000000,
+            "to": 1000200
+          },
+          "intake": {
+            "from": 1,
+            "to": 100,
+            "expectedHead": {
+              "sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+              "pinnedBy": "customer",
+              "reason": null
+            }
+          },
+          "checkpoint": {
+            "holder": "customer",
+            "eachCompletedBatch": true,
+            "maxIntervalSeconds": 3600
+          },
+          "timeBasis": {
+            "source": "fixture host clock",
+            "uncertaintySeconds": 1
+          },
+          "excludes": [
+            "request bodies",
+            "model weights",
+            "the provider side of the intake"
+          ]
+        },
+        "coverage": {
+          "runs": [
+            {
+              "from": 1,
+              "to": 100
+            }
+          ],
+          "acknowledged": [
+            {
+              "from": 1,
+              "to": 100
+            }
+          ],
+          "checkpoints": [
+            {
+              "range": {
+                "from": 1,
+                "to": 34
+              },
+              "at": 1000000,
+              "head": "1111111111111111111111111111111111111111111111111111111111111111"
+            },
+            {
+              "range": {
+                "from": 35,
+                "to": 67
+              },
+              "at": 1000100,
+              "head": "2222222222222222222222222222222222222222222222222222222222222222"
+            },
+            {
+              "range": {
+                "from": 68,
+                "to": 100
+              },
+              "at": 1000200,
+              "head": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+            }
+          ],
+          "observedHead": {
+            "sequence": 100,
+            "sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+          },
+          "span": null,
+          "gaps": [],
+          "duplicates": [
+            {
+              "sequence": 30,
+              "count": 1
+            }
+          ],
+          "rollbacks": [],
+          "suffixLoss": null
+        },
+        "assessment": {
+          "outcome": "met"
+        }
+      },
+      "stage": "layout",
+      "code": "NOT_RETENTION_ASSESSMENT",
+      "message": "coverage.duplicates[0].count is 1, and a sequence seen fewer than twice is not a duplicate"
+    },
+    {
+      "name": "span-only-claimed-met",
+      "note": "The span-only document with its stated outcome changed to met. The layout takes the document and the evidence cannot support the claim: the stamps are one period apart and the newest head matches the pin, which is exactly the arithmetic the old rule read as fulfilment. The reading refuses the claim under its own code rather than silently returning indeterminate, because a document that says met and means indeterminate is not a document a reader can report on.",
+      "document": {
+        "v": 1,
+        "scope": {
+          "subject": {
+            "kind": "deployment",
+            "id": "fixture-deployment"
+          },
+          "duty": {
+            "article": "19(1)",
+            "requiredSeconds": 200
+          },
+          "period": {
+            "from": 1000000,
+            "to": 1000200
+          },
+          "intake": {
+            "from": 1,
+            "to": 100,
+            "expectedHead": {
+              "sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+              "pinnedBy": "customer",
+              "reason": null
+            }
+          },
+          "checkpoint": {
+            "holder": "customer",
+            "eachCompletedBatch": true,
+            "maxIntervalSeconds": 3600
+          },
+          "timeBasis": {
+            "source": "fixture host clock",
+            "uncertaintySeconds": 1
+          },
+          "excludes": [
+            "request bodies",
+            "model weights",
+            "the provider side of the intake"
+          ]
+        },
+        "coverage": {
+          "runs": [],
+          "acknowledged": [],
+          "checkpoints": [],
+          "observedHead": null,
+          "span": {
+            "from": 1000000,
+            "to": 1000200,
+            "oldestHead": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+            "newestHead": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+          },
+          "gaps": [],
+          "duplicates": [],
+          "rollbacks": [],
+          "suffixLoss": null
+        },
+        "assessment": {
+          "outcome": "met"
+        }
+      },
+      "stage": "reading",
+      "code": "RETENTION_ASSESSMENT_DISAGREES",
+      "message": "assessment.outcome states 'met' and the evidence in this document supports 'indeterminate'"
+    },
+    {
+      "name": "interior-gap-claimed-met",
+      "note": "The interior-gap document with its stated outcome changed to met. The document is whole, the gap is stated, and the two cannot both stand: the evidence states a period that was not continuously held. The reading refuses the claim under the disagreement code.",
+      "document": {
+        "v": 1,
+        "scope": {
+          "subject": {
+            "kind": "deployment",
+            "id": "fixture-deployment"
+          },
+          "duty": {
+            "article": "19(1)",
+            "requiredSeconds": 200
+          },
+          "period": {
+            "from": 1000000,
+            "to": 1000200
+          },
+          "intake": {
+            "from": 1,
+            "to": 100,
+            "expectedHead": {
+              "sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+              "pinnedBy": "customer",
+              "reason": null
+            }
+          },
+          "checkpoint": {
+            "holder": "customer",
+            "eachCompletedBatch": true,
+            "maxIntervalSeconds": 3600
+          },
+          "timeBasis": {
+            "source": "fixture host clock",
+            "uncertaintySeconds": 1
+          },
+          "excludes": [
+            "request bodies",
+            "model weights",
+            "the provider side of the intake"
+          ]
+        },
+        "coverage": {
+          "runs": [
+            {
+              "from": 1,
+              "to": 40
+            },
+            {
+              "from": 61,
+              "to": 100
+            }
+          ],
+          "acknowledged": [
+            {
+              "from": 1,
+              "to": 40
+            },
+            {
+              "from": 61,
+              "to": 100
+            }
+          ],
+          "checkpoints": [
+            {
+              "range": {
+                "from": 1,
+                "to": 40
+              },
+              "at": 1000000,
+              "head": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+            },
+            {
+              "range": {
+                "from": 61,
+                "to": 100
+              },
+              "at": 1000200,
+              "head": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+            }
+          ],
+          "observedHead": {
+            "sequence": 100,
+            "sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+          },
+          "span": null,
+          "gaps": [
+            {
+              "from": 41,
+              "to": 60,
+              "reason": "the intake process restarted without its sequence state"
+            }
+          ],
+          "duplicates": [],
+          "rollbacks": [],
+          "suffixLoss": null
+        },
+        "assessment": {
+          "outcome": "met"
+        }
+      },
+      "stage": "reading",
+      "code": "RETENTION_ASSESSMENT_DISAGREES",
+      "message": "assessment.outcome states 'met' and the evidence in this document supports 'not-met'"
+    },
+    {
+      "name": "covered-period-claimed-not-met",
+      "note": "The covered document with its stated outcome changed to not-met. The evidence supports met, and the document states the opposite. The disagreement is refused in both directions: a reader cannot report a period as held when the document denies it, any more than it can report the reverse.",
+      "document": {
+        "v": 1,
+        "scope": {
+          "subject": {
+            "kind": "deployment",
+            "id": "fixture-deployment"
+          },
+          "duty": {
+            "article": "19(1)",
+            "requiredSeconds": 200
+          },
+          "period": {
+            "from": 1000000,
+            "to": 1000200
+          },
+          "intake": {
+            "from": 1,
+            "to": 100,
+            "expectedHead": {
+              "sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+              "pinnedBy": "customer",
+              "reason": null
+            }
+          },
+          "checkpoint": {
+            "holder": "customer",
+            "eachCompletedBatch": true,
+            "maxIntervalSeconds": 3600
+          },
+          "timeBasis": {
+            "source": "fixture host clock",
+            "uncertaintySeconds": 1
+          },
+          "excludes": [
+            "request bodies",
+            "model weights",
+            "the provider side of the intake"
+          ]
+        },
+        "coverage": {
+          "runs": [
+            {
+              "from": 1,
+              "to": 100
+            }
+          ],
+          "acknowledged": [
+            {
+              "from": 1,
+              "to": 100
+            }
+          ],
+          "checkpoints": [
+            {
+              "range": {
+                "from": 1,
+                "to": 34
+              },
+              "at": 1000000,
+              "head": "1111111111111111111111111111111111111111111111111111111111111111"
+            },
+            {
+              "range": {
+                "from": 35,
+                "to": 67
+              },
+              "at": 1000100,
+              "head": "2222222222222222222222222222222222222222222222222222222222222222"
+            },
+            {
+              "range": {
+                "from": 68,
+                "to": 100
+              },
+              "at": 1000200,
+              "head": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+            }
+          ],
+          "observedHead": {
+            "sequence": 100,
+            "sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+          },
+          "span": null,
+          "gaps": [],
+          "duplicates": [],
+          "rollbacks": [],
+          "suffixLoss": null
+        },
+        "assessment": {
+          "outcome": "not-met"
+        }
+      },
+      "stage": "reading",
+      "code": "RETENTION_ASSESSMENT_DISAGREES",
+      "message": "assessment.outcome states 'not-met' and the evidence in this document supports 'met'"
+    }
+  ]
+}

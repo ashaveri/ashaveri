@@ -827,6 +827,61 @@ export function loadEpochInventoryVectors(): EpochInventoryVectorFile {
   return JSON.parse(readFileSync(join(DATA, 'epoch-inventory-v1.json'), 'utf8')) as EpochInventoryVectorFile;
 }
 
+/** What the published reading concluded about one assessment row's coverage. */
+export interface RetentionAssessmentCoverageVector {
+  result: 'covered' | 'gap' | 'indeterminate';
+  basis: 'sequence' | 'time';
+  ranges: Array<{ from: number; to: number }>;
+  reasons: string[];
+}
+
+/**
+ * One whole assessment document and the outcome the published reading computed for it. The document is
+ * published inline, as the object the reader is handed, because a scope and its evidence live inside the
+ * members rather than in the spelling of the file holding them.
+ */
+export interface RetentionAssessmentVector {
+  name: string;
+  note: string;
+  document: Record<string, unknown>;
+  assessment: {
+    outcome: 'met' | 'not-met' | 'indeterminate';
+    coverage: RetentionAssessmentCoverageVector;
+    reasons: string[];
+  };
+}
+
+/** One document the shipped steps refuse, the step that refused it, and the sentence it gave. */
+export interface RetentionAssessmentRefusal {
+  name: string;
+  note: string;
+  document: Record<string, unknown>;
+  stage: 'layout' | 'reading';
+  code: string;
+  message: string;
+}
+
+export interface RetentionAssessmentVectorFile {
+  version: number;
+  description: string;
+  layout: {
+    format: string;
+    schema: string;
+    reader: string;
+    codes: string[];
+    encodings: string;
+    keyMaterial: string;
+    notChecked: string;
+  };
+  vectors: RetentionAssessmentVector[];
+  refusals: RetentionAssessmentRefusal[];
+}
+
+/** The retention assessment: whole documents, the outcome the reading computes, and the refusals. */
+export function loadRetentionAssessmentVectors(): RetentionAssessmentVectorFile {
+  return JSON.parse(readFileSync(join(DATA, 'retention-assessment-v1.json'), 'utf8')) as RetentionAssessmentVectorFile;
+}
+
 /**
  * The estate's synthetic vendor: the certificates, the signed documents and the served answer its suites build
  * rather than capture. It is exported from this entry rather than left inside one package's test directory,
