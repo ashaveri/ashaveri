@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import {
+  AMD_KDS,
   CollateralError,
   INTEL_PCK_CRL,
   INTEL_TCB_INFO,
@@ -195,6 +196,88 @@ describe('a declared origin with no reader', () => {
     if (typeof key === 'string') throw new Error('a CRL was keyed without a reader');
     expect(key.missing).toEqual([]);
     expect(key.why).toContain('no cache key yet');
+  });
+
+  it('states the two KDS routes and the chain shape measured beside them', () => {
+    expect(AMD_KDS.host).toBe('kdsintf.amd.com');
+    expect(AMD_KDS.mediaType).toBe('application/octet-stream');
+    expect(AMD_KDS.answer).toBe('pem-certificate-chain');
+    expect(AMD_KDS.chainHeader).toBeNull();
+    expect(AMD_KDS.routes).toEqual([
+      {
+        name: 'vcek',
+        path: '/vcek/v1/{product}/{hwid}',
+        method: 'GET',
+        mediaType: 'application/octet-stream',
+        answer: 'der-certificate',
+        knowledge: 'historical',
+      },
+      {
+        name: 'cert-chain',
+        path: '/vcek/v1/{product}/cert_chain',
+        method: 'GET',
+        mediaType: 'application/octet-stream',
+        answer: 'pem-certificate-chain',
+        knowledge: 'historical',
+      },
+    ]);
+    if (AMD_KDS.reader.as !== 'declared-only') throw new Error('the KDS was declared readable');
+    expect(AMD_KDS.reader.lacks).toContain('served VCEK sample');
+    expect(AMD_KDS.reader.lacks).toContain('RSA/P-384 chain reader');
+    expect(AMD_KDS.cache).toBeNull();
+  });
+
+  it('spells the chain and VCEK addresses, and names the member an address cannot be built without', () => {
+    const hwid = 'ab'.repeat(32);
+    expect(requestUrl(query({ origin: 'amd-kds', route: 'cert-chain', product: 'Milan' }), AMD_KDS)).toBe(
+      'https://kdsintf.amd.com/vcek/v1/Milan/cert_chain',
+    );
+    expect(requestUrl(query({ origin: 'amd-kds', product: 'Milan', hwid: hwid.toUpperCase() }), AMD_KDS)).toBe(
+      `https://kdsintf.amd.com/vcek/v1/Milan/${hwid}`,
+    );
+    const noProduct = requestUrl(query({ origin: 'amd-kds', route: 'cert-chain' }), AMD_KDS);
+    if (typeof noProduct === 'string') throw new Error('a chain address was spelled without a product');
+    expect(noProduct.refusal.missing).toEqual(['product']);
+
+    const noHwid = requestUrl(query({ origin: 'amd-kds', product: 'Milan' }), AMD_KDS);
+    if (typeof noHwid === 'string') throw new Error('a VCEK address was spelled without a chip id');
+    expect(noHwid.refusal.missing).toEqual(['hwid']);
+
+    const noRoute = requestUrl(query({ origin: 'amd-kds', route: 'crl', product: 'Milan' }), AMD_KDS);
+    if (typeof noRoute === 'string') throw new Error('an undeclared route was spelled anyway');
+    expect(noRoute.refusal.missing).toEqual(['route']);
+  });
+
+  it('refuses an appraisal of the KDS with the sample and reader it lacks', async () => {
+    const outcome = await appraiseCollateral(
+      query({ origin: 'amd-kds', product: 'Milan', hwid: 'ab'.repeat(32) }),
+      { transport: silent() },
+    );
+    expect(outcome.state).toBe('unavailable');
+    if (!('refusal' in outcome)) throw new Error('the KDS answered with a chain it never served');
+    expect(outcome.refusal.code).toBe('COLLATERAL_ORIGIN_UNSUPPORTED');
+    expect(outcome.refusal.detail).toContain('served VCEK sample');
+    expect(outcome.refusal.detail).toContain('RSA/P-384 chain reader');
+    expect(outcome.refusal.detail).toContain('intel-tcb-info and intel-qe-identity');
+  });
+
+  it('keeps the fetch rules for the KDS chain, and asks the media type it measured', async () => {
+    const { transport, seen } = recorder(() => new Response('-----BEGIN CERTIFICATE-----\nMIIB\n-----END CERTIFICATE-----'));
+    const outcome = await fetchFromOrigin('https://kdsintf.amd.com/vcek/v1/Milan/cert_chain', AMD_KDS, { transport, clock: () => AT });
+    if (!('fetched' in outcome)) throw new Error(`the chain answer was refused: ${outcome.refusal.detail}`);
+    expect(new TextDecoder().decode(outcome.fetched.bytes)).toContain('BEGIN CERTIFICATE');
+    expect(outcome.fetched.chain).toBeNull();
+    const init = seen[0]?.init as RequestInit;
+    const headers = new Headers(init.headers);
+    expect(headers.get('accept')).toBe('application/octet-stream');
+    expect([...headers.keys()]).toEqual(['accept']);
+    expect(init.redirect).toBe('error');
+
+    const refused = await fetchFromOrigin('https://kdsintf.amd.com/vcek/v1/Milan/cert_chain', AMD_KDS, {
+      transport: async () => new Response('no', { status: 403 }),
+    });
+    if (!('refusal' in refused)) throw new Error('a 403 was read as a chain');
+    expect(refused.refusal.code).toBe('COLLATERAL_ORIGIN_REFUSED');
   });
 
   it('refuses to ask a POST route rather than sending a GET it never published', async () => {

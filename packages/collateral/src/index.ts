@@ -7,6 +7,7 @@ export {
 } from './errors.js';
 export type { CollateralErrorCode, CollateralInputName, CollateralRefusal, CollateralVerdict } from './errors.js';
 export {
+  AMD_KDS,
   DECLARED_ORIGINS,
   INTEL_PCK_CRL,
   INTEL_QE_IDENTITY,

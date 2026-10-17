@@ -460,6 +460,62 @@ export const INTEL_PCK_CRL: DeclaredOriginDeclaration = {
   cache: null,
 };
 
+/**
+ * AMD's Key Distribution Service: the certificate chain beside a chip and the VCEK the chip's own
+ * report names.
+ *
+ * The chain route is measured. Asked at `https://kdsintf.amd.com/vcek/v1/Milan/cert_chain` on
+ * 17 October 2026, the host answered 200 with `content-type: application/octet-stream` and
+ * `content-disposition: attachment; filename=Milan.pem`, a 4602-byte body holding two PEM certificates
+ * in the order the chain presents them. The per-chip route is published at
+ * `https://kdsintf.amd.com/vcek/v1/{product_name}/{hwid}` and states its TCB as query members; a request
+ * with a fabricated all-zero hwid answered 400, so this lane holds no served VCEK and keeps none. The
+ * older `kds.amd.com` name does not resolve.
+ *
+ * What a KDS answer is, either way, is a certificate chain or a certificate, not a TCB status list. A
+ * reader could hand the bytes to a verifier that decides the chain and the report binding, and this path
+ * would then be reporting what a verifier made of them rather than deciding a hardware pass. This lane
+ * implements neither arm. The two reasons are stated rather than folded together: no served VCEK confirms
+ * the per-chip answer's encoding and TCB query members, and the chain walk in `read.ts` reads
+ * ECDSA-P256 certificates alone while AMD's root and intermediate are RSA and a VCEK is P-384, so the
+ * existing primitives cannot weigh this chain even when it arrives.
+ *
+ * No bytes from the KDS are kept here. A certificate a customer's platform produced travels as bytes it
+ * supplies; a service's output travels as the reference this declaration is.
+ */
+export const AMD_KDS: DeclaredOriginDeclaration = {
+  name: 'amd-kds',
+  host: 'kdsintf.amd.com',
+  method: 'GET',
+  mediaType: 'application/octet-stream',
+  answer: 'pem-certificate-chain',
+  /** Measured: the chain arrives in the body, and no header carries a second copy. */
+  chainHeader: null,
+  timeoutMs: 5000,
+  maxResponseBytes: 65536,
+  refusals: REFUSALS,
+  reader: { as: 'declared-only', lacks: 'a served VCEK sample and an RSA/P-384 chain reader' },
+  routes: [
+    {
+      name: 'vcek',
+      path: '/vcek/v1/{product}/{hwid}',
+      method: 'GET',
+      mediaType: 'application/octet-stream',
+      answer: 'der-certificate',
+      knowledge: 'historical',
+    },
+    {
+      name: 'cert-chain',
+      path: '/vcek/v1/{product}/cert_chain',
+      method: 'GET',
+      mediaType: 'application/octet-stream',
+      answer: 'pem-certificate-chain',
+      knowledge: 'historical',
+    },
+  ],
+  cache: null,
+};
+
 /** The origins with a reader here. A declaration elsewhere in this file is a route, not a reader. */
 export const SERVED_ORIGINS: readonly ReadCollateralOrigin[] = ['intel-tcb-info', 'intel-qe-identity'];
 
@@ -472,6 +528,7 @@ const BY_ORIGIN: Record<ReadCollateralOrigin, IntelOriginDeclaration> = {
 export const ORIGIN_DECLARATIONS: Partial<Record<ServedCollateralOrigin, OriginDeclaration>> = {
   ...BY_ORIGIN,
   'intel-pck-crl': INTEL_PCK_CRL,
+  'amd-kds': AMD_KDS,
 };
 
 /** Every name this file declares, in the order the declarations were written. */
