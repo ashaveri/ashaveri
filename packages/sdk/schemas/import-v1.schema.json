@@ -1,0 +1,120 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://ashaveri.com/schemas/import-v1.json",
+  "title": "Ashaveri Import Envelope (v1)",
+  "description": "One provider export as imported: the provider's exact bytes held as they arrived, the provider's own names for itself and the export, our intake stamp, and the derived representations the estate's normalization produced from those bytes, each labeled and each naming the transformation that produced it and the digest of the original it was derived from. A provider hands over an export signed in the provider's own framing, and somebody will read it into a normalized view sooner or later; the moment that view is written beside the export without a label, a reader of the pair cannot tell which of the two a provider's signature covered. This document is the shape that keeps the two apart: the original stands for itself, byte for byte, and every derived representation says what it is, which rule produced it, and which original it rests on. The shape is closed, as the capture record beside it is: a member the version names makes the document invalid rather than a document read with the unexpected member dropped, because a writer that stated a field no reader knows was answering a question this record cannot ask. The provider's export is not closed: a position it states that no rule reads, and a position a rule reads that the export states nothing at, both reach the deterministic report the reader computes, because the provider's document is larger than this reading and refusing it would turn every future field of every provider into an unimportable document while teaching nobody what the field was. A value of a shape no rule reads at a position a rule reads is refused under `NOT_IMPORT_ENVELOPE`: the field is one this reading knows and its value is one no rule reads, so the normalized document would have to omit a field the export did state. The record's identity is `importEnvelopeKey`, a digest of the canonical JSON of the version, the provider and the original, and not of the intake stamp: a second intake of one export dates itself, derives the same view, and writes no second record. Nothing writes one of these in this repository: the layout a writer builds against and the reading `parseImportEnvelope` and `readImportEnvelope` in `packages/sdk/src/import-envelope.ts` run are what is published, and the adapter that carries a real provider's export is Confidential and reaches no file here.",
+  "type": "object",
+  "required": ["v", "provider", "original", "imported", "derived"],
+  "additionalProperties": false,
+  "properties": {
+    "v": {
+      "const": 1,
+      "description": "Import format version. A reader refuses a version it does not implement rather than reading the record as its own, under the code the capture reader answers the same question with."
+    },
+    "provider": {
+      "type": "object",
+      "required": ["name", "exportId"],
+      "additionalProperties": false,
+      "description": "Who the export is from, in the export's own words. Both values are copied out of the export rather than resolved: a name here is what the document states, and nothing in this record makes it true.",
+      "properties": {
+        "name": {
+          "type": "string",
+          "minLength": 1,
+          "description": "The provider's name for itself, read off the export's `provider` member by `normalizeProvider`."
+        },
+        "exportId": {
+          "type": "string",
+          "minLength": 1,
+          "description": "The provider's own name for this export, read off `export_id` by `normalizeExportId`. Not our file name for it."
+        }
+      }
+    },
+    "original": {
+      "type": "object",
+      "required": ["bytes", "sha256", "byteCount", "signedByProvider"],
+      "additionalProperties": false,
+      "description": "The provider's exact bytes, held as they arrived. No step between the provider and this member may re-encode them: a derived representation that passed through any encoder is a derived representation, and it travels in `derived` with a label rather than in here.",
+      "properties": {
+        "bytes": {
+          "$ref": "#/$defs/byteString",
+          "description": "Unpadded base64url of the export's exact bytes, in the one spelling that decodes back to them: the tail bits of a short last group are free, and a record written by a second encoder can carry the same bytes in a spelling no reader reproduces."
+        },
+        "sha256": {
+          "$ref": "#/$defs/digest",
+          "description": "SHA-256 of exactly those bytes and nothing else. A reader recomputes it and refuses the record when the two disagree, which is what makes a structurally equivalent re-serialization a refusal rather than an equal."
+        },
+        "byteCount": {
+          "type": "integer",
+          "minimum": 0,
+          "description": "How many bytes `bytes` decodes to, stated so a reader can name the disagreement when a record says one length and carries another."
+        },
+        "signedByProvider": {
+          "type": "boolean",
+          "description": "Our assertion that the provider signed these bytes. Stated either way rather than left out, because an omitted claim and a denied one are different records. Nothing here says the signature holds, and no member of this record could: a provider's signature travels in the provider's own framing and is read by the adapter's rules, not by this package."
+        }
+      }
+    },
+    "imported": {
+      "type": "object",
+      "required": ["at"],
+      "additionalProperties": false,
+      "description": "When the bytes came into our hands, on our clock. This is the record's own intake stamp and not the provider's; the instant the export states for itself is read off `issued` into the normalized document, and `importEnvelopeKey` deliberately does not cover this block.",
+      "properties": {
+        "at": {
+          "type": "integer",
+          "minimum": 0,
+          "description": "Unix seconds on the importer's clock at the instant the bytes were taken in."
+        }
+      }
+    },
+    "derived": {
+      "type": "array",
+      "minItems": 1,
+      "description": "The representations the normalization produced from the original, each labeled. One envelope holds one representation of one kind, so two rows claiming one kind are refused; a version that defines a second reading of a provider export gains it here as a new kind and a new version rather than as a second name in one list.",
+      "items": {
+        "type": "object",
+        "required": ["k", "derivedBy", "basis", "bytes", "sha256", "byteCount"],
+        "additionalProperties": false,
+        "properties": {
+          "k": {
+            "enum": ["normalized-export"],
+            "description": "Which representation this is, of the kinds import version 1 defines. A closed set: a new reading arrives as a new import version, because a reader that fell through an unknown kind to its default handling would read a document it holds no rules for."
+          },
+          "derivedBy": {
+            "enum": ["normalizeProviderExport"],
+            "description": "The named transformation that produced these bytes, which `@ashaveri/sdk` ships and `readImportEnvelope` re-runs over the original. The digest this row states has to be the digest that run produces; a row produced by another rule set is refused rather than handed on beside a digest that agrees with nobody's code."
+          },
+          "basis": {
+            "$ref": "#/$defs/digest",
+            "description": "SHA-256 of the original bytes this representation was derived from. This is the relationship the record exists to state: the derived view names the original it rests on, and a reader compares it against the digest it recomputes over the original it holds."
+          },
+          "bytes": {
+            "$ref": "#/$defs/byteString",
+            "description": "The representation's exact bytes, as the named transformation produced them, unpadded base64url."
+          },
+          "sha256": {
+            "$ref": "#/$defs/digest",
+            "description": "SHA-256 of those bytes, recomputed by a reader, and the digest the named transformation has to produce when the reader runs it."
+          },
+          "byteCount": {
+            "type": "integer",
+            "minimum": 0,
+            "description": "How many bytes `bytes` decodes to."
+          }
+        }
+      }
+    }
+  },
+  "$defs": {
+    "digest": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{64}$",
+      "description": "A SHA-256 digest, lowercase hex, 64 characters."
+    },
+    "byteString": {
+      "type": "string",
+      "pattern": "^[A-Za-z0-9_-]*$",
+      "description": "Unpadded base64url. The pattern refuses characters outside the alphabet and no more than that: the one-spelling rule is arithmetic a reader reproduces, and no JSON Schema keyword states it. The reader binds it for every byte string in a record, at the original and at every derived representation."
+    }
+  }
+}

@@ -70,6 +70,12 @@ export type SdkErrorCode =
   // union carries no semicolon, because the document contract reads a union to its first one.
   | 'NOT_CAPTURE_RECORD'
   | 'CAPTURE_SIGNATURE_NOT_CARRIED'
+  // An import envelope. Beside the two capture codes rather than under them, for the reason the
+  // container codes of `@ashaveri/receipt` sit beside each other: the fixed sentence names the
+  // document, and a caller reading a log line has to be told which record it was reading. The row
+  // in `docs/error-codes.md` states its clauses one by one, from a member no version defines to a
+  // derived representation that is not the bytes the transformation it names produces.
+  | 'NOT_IMPORT_ENVELOPE'
   // Strict mode only: the hardware evidence behind a receipt. Listed in the order
   // the checks run, so the code identifies the stage that rejected the document.
   | 'EVIDENCE_NOT_FOUND'
