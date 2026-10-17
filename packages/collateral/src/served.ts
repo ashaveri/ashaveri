@@ -102,7 +102,7 @@ export function readServedCollateral(body: Uint8Array, chain: Uint8Array | null,
 }
 
 /** The certificates the header carried, in the order it carried them, and the DER of each. */
-interface Presented {
+export interface PresentedChain {
   readonly certificates: ParsedCertificate[];
   readonly der: Uint8Array[];
 }
@@ -114,8 +114,12 @@ interface Presented {
  * URL-decode, then let the platform's own X.509 reader split the blocks, which accepts PEM and DER alike. Both
  * steps throw on input a vendor would never send, and both are answers here rather than exceptions, because a
  * chain that is not a chain is a refusal about the answer and not a fault in the caller.
+ *
+ * Exported because both readers of this host need the same decode: a served JSON document weighs the chain beside
+ * its body, and a DER certificate list weighs the same header beside its own bytes. A second decoder would be a
+ * second answer to what a malformed header is.
  */
-function chainCertificates(chain: Uint8Array, declaration: OriginDeclaration): Presented | { readonly refusal: CollateralRefusal } {
+export function chainCertificates(chain: Uint8Array, declaration: OriginDeclaration): PresentedChain | { readonly refusal: CollateralRefusal } {
   const header = quoteOrDigest(declaration.chainHeader ?? 'a header this declaration does not name');
   const encoded = decodeText(chain, declaration);
   if (typeof encoded !== 'string') {

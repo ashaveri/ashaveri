@@ -116,8 +116,8 @@ describe('a declared origin with no reader', () => {
     expect(read.refusal.detail).toContain('der-crl');
   });
 
-  it('states the CRL route, media type and chain header measured for it, and the parser it lacks', () => {
-    expect(INTEL_PCK_CRL.reader.as).toBe('declared-only');
+  it('states the CRL route, media type and chain header measured for it, and the reader it now carries', () => {
+    expect(INTEL_PCK_CRL.reader.as).toBe('der-certificate-list');
     expect(INTEL_PCK_CRL.answer).toBe('der-crl');
     expect(INTEL_PCK_CRL.mediaType).toBe('application/pkix-crl');
     expect(INTEL_PCK_CRL.chainHeader).toBe('SGX-PCK-CRL-Issuer-Chain');
@@ -129,9 +129,8 @@ describe('a declared origin with no reader', () => {
       answer: 'der-crl',
       knowledge: 'historical',
     });
-    if (INTEL_PCK_CRL.reader.as !== 'declared-only') throw new Error('the CRL was declared readable');
-    expect(INTEL_PCK_CRL.reader.lacks).toBe('a DER CRL parser');
-    expect(INTEL_PCK_CRL.cache).toBeNull();
+    expect(INTEL_PCK_CRL.serialMember).toBe('certificateSerial');
+    expect(INTEL_PCK_CRL.cache.keyMembers).toEqual(['origin', 'ca']);
   });
 
   it('spells the processor and platform CRL addresses, and stops when no authority scope is named', () => {
@@ -145,17 +144,21 @@ describe('a declared origin with no reader', () => {
     expect(missing.refusal.missing).toEqual(['ca']);
   });
 
-  it('refuses an appraisal of the CRL with the parser it lacks, and names the origins it reads', async () => {
-    const outcome = await appraiseCollateral(query({ origin: 'intel-pck-crl', ca: 'processor' }), { transport: silent() });
-    expect(outcome.state).toBe('unavailable');
-    if (!('refusal' in outcome)) throw new Error('an unread origin answered with a document');
-    expect(outcome.refusal.code).toBe('COLLATERAL_ORIGIN_UNSUPPORTED');
-    expect(outcome.refusal.missing).toEqual(['origin']);
-    expect(outcome.refusal.detail).toContain('intel-pck-crl');
-    expect(outcome.refusal.detail).toContain('DER CRL parser');
-    expect(outcome.refusal.detail).toContain('intel-tcb-info and intel-qe-identity');
+  it('routes the CRL to its serial appraisal rather than reading it as a platform level', async () => {
+    const outcome = await appraiseCollateral(
+      query({ origin: 'intel-pck-crl', ca: 'processor', certificateSerial: 'ab' }),
+      { transport: silent() },
+    );
+    expect(outcome.state).toBe('missing-context');
+    if (!('refusal' in outcome)) throw new Error('a CRL was read as a platform level');
+    expect(outcome.refusal.code).toBe('COLLATERAL_INPUT_MISSING');
+    expect(outcome.refusal.missing).toEqual(['level']);
+    expect(outcome.refusal.detail).toContain('appraisePckCrl');
 
-    const required = appraiseCollateral(query({ origin: 'intel-pck-crl', ca: 'processor', onAbsent: 'refuse' }), { transport: silent() });
+    const required = appraiseCollateral(
+      query({ origin: 'intel-pck-crl', ca: 'processor', certificateSerial: 'ab', onAbsent: 'refuse' }),
+      { transport: silent() },
+    );
     await expect(required).rejects.toBeInstanceOf(CollateralError);
   });
 
@@ -197,11 +200,9 @@ describe('a declared origin with no reader', () => {
     expect(unreachable.refusal.code).toBe('COLLATERAL_ORIGIN_UNREACHABLE');
   });
 
-  it('names no cache key for the CRL, because no reader states the list record', () => {
-    const key = collateralCacheKey(query({ ca: 'processor' }), INTEL_PCK_CRL);
-    if (typeof key === 'string') throw new Error('a CRL was keyed without a reader');
-    expect(key.missing).toEqual([]);
-    expect(key.why).toContain('no cache key yet');
+  it('keys a kept CRL by the authority scope whose list it is', () => {
+    expect(collateralCacheKey(query({ ca: 'processor' }), INTEL_PCK_CRL)).toBe('origin=intel-pck-crl|ca=processor');
+    expect(collateralCacheKey(query({ ca: 'platform' }), INTEL_PCK_CRL)).toBe('origin=intel-pck-crl|ca=platform');
   });
 
   it('states the two KDS routes and the chain shape measured beside them', () => {
@@ -264,7 +265,7 @@ describe('a declared origin with no reader', () => {
     expect(outcome.refusal.code).toBe('COLLATERAL_ORIGIN_UNSUPPORTED');
     expect(outcome.refusal.detail).toContain('served VCEK sample');
     expect(outcome.refusal.detail).toContain('RSA/P-384 chain reader');
-    expect(outcome.refusal.detail).toContain('intel-tcb-info and intel-qe-identity');
+    expect(outcome.refusal.detail).toContain('intel-tcb-info, intel-qe-identity and intel-pck-crl');
   });
 
   it('keeps the fetch rules for the KDS chain, and asks the media type it measured', async () => {
@@ -286,7 +287,7 @@ describe('a declared origin with no reader', () => {
     expect(refused.refusal.code).toBe('COLLATERAL_ORIGIN_REFUSED');
   });
 
-  it('names every origin a query may carry once, and serves exactly the two documents read here', () => {
+  it('names every origin a query may carry once, and serves the three documents read here', () => {
     expect([...DECLARED_ORIGINS].sort()).toEqual([
       'amd-kds',
       'intel-pck-crl',
@@ -295,17 +296,18 @@ describe('a declared origin with no reader', () => {
       'nvidia-rim',
       'ocsp',
     ]);
-    expect(SERVED_ORIGINS).toEqual(['intel-tcb-info', 'intel-qe-identity']);
+    expect(SERVED_ORIGINS).toEqual(['intel-tcb-info', 'intel-qe-identity', 'intel-pck-crl']);
     for (const name of DECLARED_ORIGINS) {
       expect(ORIGIN_DECLARATIONS[name]?.name, name).toBe(name);
     }
-    for (const name of ['intel-pck-crl', 'amd-kds', 'nvidia-rim', 'ocsp'] as const) {
+    for (const name of ['amd-kds', 'nvidia-rim', 'ocsp'] as const) {
       const asked = declarationFor(name);
       if (!('refusal' in asked)) throw new Error(`${name} was served without a reader`);
       expect(asked.refusal.code, name).toBe('COLLATERAL_ORIGIN_UNSUPPORTED');
       expect(asked.refusal.missing, name).toEqual(['origin']);
-      expect(asked.refusal.detail, name).toContain('intel-tcb-info and intel-qe-identity');
+      expect(asked.refusal.detail, name).toContain('intel-tcb-info, intel-qe-identity and intel-pck-crl');
     }
+    expect(declarationFor('intel-pck-crl')).toBe(INTEL_PCK_CRL);
   });
 
   it('states the RIM route and the signed reference shape NVIDIA publishes for it', () => {
@@ -415,15 +417,23 @@ describe('a declared origin with no reader', () => {
     expect(seen).toHaveLength(0);
   });
 
-  it('reaches unavailable and missing context for every declared origin, and no passing state', async () => {
+  it('reaches unavailable and missing context for every origin this package does not serve, and no passing state', async () => {
     const states: string[] = [];
-    for (const origin of ['intel-pck-crl', 'amd-kds', 'nvidia-rim', 'ocsp'] as const) {
+    for (const origin of ['amd-kds', 'nvidia-rim', 'ocsp'] as const) {
       const outcome = await appraiseCollateral(query({ origin }), { transport: silent() });
       states.push(outcome.state);
       expect(outcome.collateral, origin).toBeNull();
       expect(outcome.claim, origin).toBeNull();
     }
-    expect(states).toEqual(['unavailable', 'unavailable', 'unavailable', 'unavailable']);
+    expect(states).toEqual(['unavailable', 'unavailable', 'unavailable']);
+
+    const crl = await appraiseCollateral(
+      query({ origin: 'intel-pck-crl', ca: 'processor', certificateSerial: 'ab' }),
+      { transport: silent() },
+    );
+    expect(crl.state).toBe('missing-context');
+    expect(crl.collateral, 'the CRL entry point answers about a serial, not a level').toBeNull();
+    expect(crl.claim).toBeNull();
 
     const rimWithoutId = requestUrl(query({ origin: 'nvidia-rim' }), NVIDIA_RIM);
     const ocspWithoutQuestion = requestUrl(query({ origin: 'ocsp' }), NVIDIA_OCSP);
