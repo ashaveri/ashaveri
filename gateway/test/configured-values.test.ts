@@ -409,16 +409,19 @@ describe('the environment variables against the code that reads them', () => {
     expect(extra, 'a row for a variable no shipped file reads').toEqual([]);
   });
 
-  it('keeps the three readings apart, so the total the paragraph states is a count and not a coincidence', () => {
+  it('reads the environment from three places and counts each variable once', () => {
     const credential = namesTheCredentialCarries();
     const container = namesTheContainerReads();
     const gateway = namesTheGatewayReads();
     expect(
       [...credential.all].filter((name) => container.has(name) || gateway.has(name)),
-      'a credential name that a container file or the gateway also reads, which would count twice',
+      'a credential name that a container file or the gateway also reads, which would put key material in a setting row',
     ).toEqual([]);
+    // A weights value is declared to a deployment in the compose file and read again by the process
+    // that refuses an unpaired run, so a name can stand in two readings. The opening paragraph counts
+    // variables rather than readings, and the union is the set it states.
     expect(
-      container.size + gateway.size + credential.all.size,
+      new Set([...container, ...gateway, ...credential.all]).size,
       'the three readings add up to the set the tables carry',
     ).toBe(environment.size);
   });
