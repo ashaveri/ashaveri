@@ -475,10 +475,10 @@ export const INTEL_PCK_CRL: DeclaredOriginDeclaration = {
  * What a KDS answer is, either way, is a certificate chain or a certificate, not a TCB status list. A
  * reader could hand the bytes to a verifier that decides the chain and the report binding, and this path
  * would then be reporting what a verifier made of them rather than deciding a hardware pass. This
- * package implements neither arm. The two reasons are stated rather than folded together: no served VCEK confirms
- * the per-chip answer's encoding and TCB query members, and the chain walk in `read.ts` reads
- * ECDSA-P256 certificates alone while AMD's root and intermediate are RSA and a VCEK is P-384, so the
- * existing primitives cannot weigh this chain even when it arrives.
+ * package implements neither arm. The two reasons are stated rather than folded together: no served
+ * VCEK confirms the per-chip answer's encoding and TCB query members, and the chain walk in `read.ts`
+ * reads ECDSA-P256 certificates alone while AMD's root and intermediate are RSA and a VCEK is P-384,
+ * so the existing primitives cannot weigh this chain even when it arrives.
  *
  * No bytes from the KDS are kept here. A certificate a customer's platform produced travels as bytes it
  * supplies; a service's output travels as the reference this declaration is.
