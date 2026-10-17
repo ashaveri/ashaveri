@@ -290,17 +290,15 @@ describe('assessRetention', () => {
   });
 
   it('answers not-met for an interior gap the document does not state', () => {
-    // The runs' own edges state the hole and no `gaps` row repeats it. This is the case the continuity
-    // check alone owns: remove that check and every other member of this document supports met.
+    // The runs' own edges state the hole and no `gaps` row repeats it. The store acknowledged the whole
+    // range, so the continuity check is the only member this document's outcome turns on: remove it and
+    // every other check supports met.
     const document = documentFor();
     (document['coverage'] as Block)['runs'] = [
       { from: 1, to: 40 },
       { from: 61, to: 100 },
     ];
-    (document['coverage'] as Block)['acknowledged'] = [
-      { from: 1, to: 40 },
-      { from: 61, to: 100 },
-    ];
+    (document['coverage'] as Block)['acknowledged'] = [{ from: 1, to: 100 }];
     (document['coverage'] as Block)['checkpoints'] = [
       { range: { from: 1, to: 40 }, at: PERIOD_FROM, head: OTHER },
       { range: { from: 61, to: 100 }, at: PERIOD_TO, head: HEAD },

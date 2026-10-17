@@ -151,16 +151,13 @@ const ASSESSMENT_ROWS: readonly AssessmentRow[] = [
   },
   {
     name: 'unstated-interior-gap-not-met',
-    note: 'The intake observed sequences 1 through 40 and 61 through 100, acknowledged the same two ranges, and says nothing about the missing stretch: no `gaps` row states it. The edges of the runs state it, and the reading derives the missing range from them and answers not met. Coverage is a property of the sequence the evidence supports, not of the findings a writer chose to list, which is the rule a `gaps` row cannot be the only witness for.',
+    note: 'The intake observed sequences 1 through 40 and 61 through 100, the store acknowledged the whole declared range, and nothing states the missing stretch: no `gaps` row and no unacknowledged interval. The edges of the runs state it, and the reading derives the missing range from them and answers not met. Coverage is a property of the sequence the evidence supports, not of the findings a writer chose to list, which is the rule a `gaps` row cannot be the only witness for.',
     document: withEdit((document) => {
       coverageOf(document)['runs'] = [
         { from: 1, to: 40 },
         { from: 61, to: 100 },
       ];
-      coverageOf(document)['acknowledged'] = [
-        { from: 1, to: 40 },
-        { from: 61, to: 100 },
-      ];
+      coverageOf(document)['acknowledged'] = [{ from: 1, to: 100 }];
       coverageOf(document)['checkpoints'] = [
         { range: { from: 1, to: 40 }, at: PERIOD_FROM, head: OTHER },
         { range: { from: 61, to: 100 }, at: PERIOD_TO, head: HEAD },
