@@ -317,8 +317,14 @@ function askedButNotGivenChain(query: VcekChainQuery, declaration: VcekOriginDec
  * that AMD signed this key for this chip, and nothing else. It is not a pass for the chip, not a statement
  * about revocation, and not a level, so no vendor status word is read beside it and no window refusal travels
  * with it. Bytes this run did not fetch are `stale` under the observation refusal the other two paths already
- * give, whatever the certificates say about their own validity, and the claim beside them states the reach the
- * declaration's routes state rather than the reach a fetch would have bought.
+ * give, and they reach it only after `readVcekChain` has believed the chain at the moment asked: a chain nobody
+ * believes states nothing, not even that it stands, so a kept pair with a member outside its own validity is
+ * the unverified refusal rather than this one, and the moment that verifier weighs at is the appraisal instant
+ * rather than the instant the bytes landed. Both states carry the same `historical-knowledge` reach, because
+ * `routesAnswerNow` answers false for this declaration and neither route states that it speaks for the moment
+ * it is asked, so a fetch buys no reach a kept pair does not already carry. What the two states differ in is
+ * the claim's `observedAt`, which stays null for bytes this run did not fetch, and the refusal that travels
+ * beside the answer.
  */
 function classifyChain(
   read: VcekChain,

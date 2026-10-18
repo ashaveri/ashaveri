@@ -204,9 +204,9 @@ What is still true, in both modes:
   the same primitives that believe a report's own ARK, ASK and VCEK, and under the ARK the caller
   pins rather than a root that arrived with the answer; a VCEK states what AMD signed about a chip, so
   that reading carries a historical reach, states no revocation, and AMD's TCB extension is read by
-  nothing. No shipped command asks either, and neither closes any of the residual above. What is in
-  this code is the other half of the same
-  question and closes none of it: `@ashaveri/collateral` reads and classifies a vendor document it is handed,
+  nothing. No shipped command asks either, and neither closes any of the residual above.
+  What is in this code is the other half of the same question and closes none of it:
+  `@ashaveri/collateral` reads and classifies a vendor document it is handed,
   and a pack carries the material its sealed receipts' anchors name, so `ashaveri verify-pack` weighs those
   bytes against the roots its caller names and prints each slot it could not weigh beside the flag that would
   have supplied the question. Weighing reaches an answer only for bytes of the envelope that document's

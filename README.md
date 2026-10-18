@@ -313,7 +313,7 @@ trusted; one that stands outside that moment answers `COLLATERAL_WINDOW_CLOSED`,
 answer `COLLATERAL_NOT_OBSERVED`, a list that does name the serial is refused as revoked wherever the
 moment falls, and an entry whose reason is `removeFromCRL` is refused under
 `COLLATERAL_STATUS_UNSUPPORTED` rather than read as a revocation. AMD KDS is read as one chip's VCEK
-and the two authorities beside it: the per-chip route answers a DER certificate, the chain route
+and the chain answer beside it: the per-chip route answers a DER certificate, the chain route
 answers a PEM chain, and the pair is believed by the same primitives that believe a report's own ARK,
 ASK and VCEK, under the root the caller pins rather than one that arrived with the answer, so a chain
 cannot borrow a trusted name. Which authority signed the certificate is settled by the issuer name
