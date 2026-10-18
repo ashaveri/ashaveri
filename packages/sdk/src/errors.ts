@@ -17,6 +17,22 @@ export type SdkErrorCode =
   // `MANIFEST_KEY_NOT_PINNED`'s alone.
   | 'MANIFEST_EPOCH_UNDECLARED'
   | 'MANIFEST_EPOCH_DISAGREES'
+  // The two gaps between what a receipt claims about the model it was issued for and what the
+  // authenticated deployment manifest declares it serves. The member each one weighs is `models[]`,
+  // the array that pairs a served model id with the digest of the reading behind it, and the pair is
+  // the shape of the epoch pair above: one is a manifest that does not speak of the model, the other
+  // is a manifest that speaks of it and disagrees. They are two codes because the gaps are two and the
+  // acts around them differ, the same reason `ANCHOR_MATERIAL_UNREACHED` and
+  // `ANCHOR_MATERIAL_NOT_STANDING` are two: one is answered by the deployment declaring the model it
+  // serves, the other by the two documents being brought around one reading. Neither is a pin code,
+  // since `ISSUER_NOT_ALLOWED`, `INSTANCE_NOT_ALLOWED` and `MEASUREMENT_NOT_ALLOWED` weigh an
+  // operator's allow-list against this document while these weigh this document's own declaration
+  // against that one, and neither is a `MANIFEST_*` code, which weigh the seal and the epochs rather
+  // than a row of what the sealed document says it serves. A run whose manifest was not authenticated
+  // answers neither, because the `models[]` of a document nobody established is a claim and not a
+  // declaration, and a check resting on it would be worth less than the gap it closed.
+  | 'MODEL_UNDECLARED'
+  | 'WEIGHTS_DISAGREE'
   | 'RECEIPT_NOT_FOUND'
   | 'REQUEST_HASH_MISMATCH'
   | 'RESPONSE_HASH_MISMATCH'
