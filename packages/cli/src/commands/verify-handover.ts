@@ -221,10 +221,12 @@ function freshnessFact(parts: {
 
 /**
  * The one JSON shape every freshness row carries, so a port reads one member rather than seven.
- * The printed row words the current register as the document's own sentence about itself, and that
- * sentence has no machine-readable counterpart, so the JSON row keeps `current` null rather than
- * pushing prose into the field; `reason` states why freshness is unknown and `clockConsulted` that
- * no clock was consulted, which is what a port reads in place of the printed sentence.
+ * The printed row words the current register as a sentence about the document: the manifest row words
+ * it as the document's own statement about itself, and the other six print a run-scoped disclaimer that
+ * current is not stated. No machine field answers for either sentence, so the JSON row keeps `current`
+ * null rather than pushing prose into the field; `reason` states why freshness is unknown and
+ * `clockConsulted` that no clock was consulted, which is what a port reads in place of the printed
+ * sentence.
  */
 function freshnessJson(historical: unknown, reason: string): Record<string, unknown> {
   return { historical, current: null, freshness: 'unknown', clockConsulted: false, reason };
