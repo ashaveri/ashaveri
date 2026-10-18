@@ -1033,6 +1033,85 @@
       "verdict": "BAD_MANIFEST",
       "seal": "verify-ok",
       "edited": "the keys array, emptied"
+    },
+    {
+      "name": "paired-with-the-published-receipt-family",
+      "note": "The deployment the published receipts came from, stated by a manifest assembled out of one of those receipts' own file: the issuer, instance, epoch, environment kind and measurement are that file's payload members, the key id is the one its protected header names and the public half beside it is the one `data/keys/receipt-key-v1.json` publishes, and the single `models[]` row is the model id and weights digest the receipt states. The published receipt family and the manifest family this suite began with describe two deployments, so a reader who handed a published receipt to `ashaveri verify-receipt` beside a published manifest met `MODEL_UNDECLARED` for a reason neither document could be blamed for; this row is the document that pair was missing, and it is the one row here whose `verdict`, `authentication`, `parsed` and `claims` are what `readDeploymentManifest` and `adjudicateReceiptEpoch` answered rather than words stated beside a run. Its seal is made by the key that signed the receipts it pairs with, which is one fixture key playing both roles: a deployment keeps the two apart, as `keyNote` states, and this row is the exception because it is published so that the pairing of two committed files can be run and not only described.",
+      "documentBase64Url": "0oRYRaMBJwN4HGFzaGF2ZXJpL2RlcGxveW1lbnQtbWFuaWZlc3QEWCA1ATpuAAuNXcpRxL1cHbnyhgKDYGx2ru7qjucrcrXhXqBZAdd7InYiOjEsImlzcyI6ImRwbC05ZjJhNDFjMyIsImlucyI6ImN2bS1pLTA0N2YyYSIsImVwayI6MSwia2V5cyI6W3sia2lkIjoiMzUwMTNhNmUwMDBiOGQ1ZGNhNTFjNGJkNWMxZGI5ZjI4NjAyODM2MDZjNzZhZWVlZWE4ZWU3MmI3MmI1ZTE1ZSIsImFsZyI6IkVkMjU1MTkiLCJwdWJsaWNLZXkiOiJFNnVPMGVkM196bS1JeDMybEx1OGo1WjlXM2VldDhxMVdIWXN0VS1XQ3dVIn1dLCJtb2RlbHMiOlt7ImlkIjoibWV0YS1sbGFtYS9MbGFtYS0zLjEtOEItSW5zdHJ1Y3QiLCJ3dHMiOiIyNjg5NTcwYWVjZjUwNTQyODRiMDZkNjAyMjU1NGZiOTc5NDJjYWQwYTc3NGQ1ZGJjOTMwOGIyZDA0NzdkOWI1In1dLCJtZWFzIjp7InRlZSI6InNucCtncHVjYyIsIm0iOiJiZDc2NjEzNjdlYTdjMGZhMDI3Mjk1YjQ5NWEzN2Q4YzQ0NWU5NTg4OWMwOWQ2YjdiZWI2ZWQ0MDUyNzE5ZTMwZjE2ZjA1MDc4MjdlMmQwMDQ5NDliNTUyZjFlNTUxZjIifX1YQCPN1Vwe1ugvgw88FVxVbwMUsVLg_EK02XbIXDkzNHMVFKoX-b5HbO9iE8il9-WXVtzBQRzQuImS110WeRPgdQ8",
+      "documentByteLength": 614,
+      "read": {
+        "designates": [
+          {
+            "kid": "35013a6e000b8d5dca51c4bd5c1db9f2860283606c76aeeeea8ee72b72b5e15e",
+            "publicKeyBase64Url": "E6uO0ed3_zm-Ix32lLu8j5Z9W3eet8q1WHYstU-WCwU"
+          }
+        ]
+      },
+      "verdict": "verify-ok",
+      "seal": "verify-ok",
+      "authentication": {
+        "sealed": true,
+        "authenticated": true,
+        "kid": "35013a6e000b8d5dca51c4bd5c1db9f2860283606c76aeeeea8ee72b72b5e15e",
+        "demanded": true,
+        "advisory": false
+      },
+      "parsed": {
+        "v": 1,
+        "iss": "dpl-9f2a41c3",
+        "ins": "cvm-i-047f2a",
+        "epk": 1,
+        "keys": [
+          {
+            "kid": "35013a6e000b8d5dca51c4bd5c1db9f2860283606c76aeeeea8ee72b72b5e15e",
+            "alg": "Ed25519",
+            "publicKey": "E6uO0ed3_zm-Ix32lLu8j5Z9W3eet8q1WHYstU-WCwU"
+          }
+        ],
+        "epochs": null,
+        "models": [
+          {
+            "id": "meta-llama/Llama-3.1-8B-Instruct",
+            "wts": "2689570aecf5054284b06d6022554fb97942cad0a774d5dbc9308b2d0477d9b5"
+          }
+        ],
+        "meas": {
+          "tee": "snp+gpucc",
+          "m": "bd7661367ea7c0fa027295b495a37d8c445e95889c09d6b7beb6ed4052719e30f16f0507827e2d004949b552f1e551f2"
+        }
+      },
+      "claims": [
+        {
+          "claim": {
+            "kid": "35013a6e000b8d5dca51c4bd5c1db9f2860283606c76aeeeea8ee72b72b5e15e",
+            "epoch": 1,
+            "issuedAt": 1772000000
+          },
+          "ok": true,
+          "basis": "current-epoch",
+          "superseded": false,
+          "validFrom": null,
+          "validTo": null
+        },
+        {
+          "claim": {
+            "kid": "b922e87846566b24b1f5c8933f54c64c6621c74a5c15d81e87b2d2592175afb2",
+            "epoch": 1,
+            "issuedAt": 1772000000
+          },
+          "ok": false,
+          "code": "MANIFEST_EPOCH_DISAGREES"
+        },
+        {
+          "claim": {
+            "kid": "35013a6e000b8d5dca51c4bd5c1db9f2860283606c76aeeeea8ee72b72b5e15e",
+            "epoch": 2,
+            "issuedAt": 1772000000
+          },
+          "ok": false,
+          "code": "MANIFEST_EPOCH_UNDECLARED"
+        }
+      ]
     }
   ],
   "crossReading": {

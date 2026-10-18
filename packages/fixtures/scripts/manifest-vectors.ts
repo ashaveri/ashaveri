@@ -1,4 +1,4 @@
-import { writeFileSync } from 'node:fs';
+import { readFileSync, writeFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { ed25519 } from '@noble/curves/ed25519';
@@ -22,6 +22,14 @@ import {
   verifySealedDeploymentManifest,
   type SigningKey,
 } from '@ashaveri/receipt';
+import {
+  SdkError,
+  adjudicateReceiptEpoch,
+  readDeploymentManifest,
+  type AshaveriPolicy,
+  type DeploymentManifest,
+  type ReceiptEpochClaim,
+} from '@ashaveri/sdk';
 import { labeled } from './seed.ts';
 import { FIXED_IAT, fixtureKey, fixturePayload } from './receipt-envelope.ts';
 
@@ -42,7 +50,13 @@ const DATA = join(dirname(fileURLToPath(import.meta.url)), '..', 'data');
  * `decodeSealedDeploymentManifest` and `verifySealedDeploymentManifest` read them, and both are run
  * here: the `seal` field of every row is what that reader answered when this file was written, not what
  * anybody expected it to answer. The three-state reading belongs to `readDeploymentManifest` in
- * `@ashaveri/sdk`, and its verdicts are stated here as data rather than run. That is a decision about
+ * `@ashaveri/sdk`, and its verdicts are stated here as data rather than run, with one row excepted: the
+ * row paired with the published receipt family carries the `verdict`, `authentication` and `parsed` that
+ * reader answered over its bytes when this file was written, and the `claims` that
+ * `adjudicateReceiptEpoch` answered against the document that reading returned. A pairing is a statement
+ * about what a reader concludes from two documents rather than about how one document is spelled, and a
+ * generator that typed that conclusion out would be a second implementation of the reader it publishes.
+ * Reaching the client for that row is a decision about
  * where the replay lives, not about reach: `@ashaveri/sdk` is a devDependency of this package and
  * `scripts/capture-vectors.ts` reaches it from a script, so the client reader is callable here. The
  * replay runs in `packages/cli/test/vector-conformance.test.ts`, which drives every row of this file
@@ -312,6 +326,162 @@ function reading(keys: readonly ParsedKey[], epochs: ParsedDocument['epochs'], o
 }
 
 const authenticated: Authentication = { sealed: true, authenticated: true, kid: toHex(SIGNER.kid), demanded: true, advisory: false };
+
+/**
+ * The row that pairs this suite with the published receipts, and the provenance it is built from.
+ *
+ * Every other row speaks of the deployment this suite was written for: `ashaveri-mock`, `mock-instance-1`,
+ * a software measurement and `mock-model-1`. The published receipts describe another deployment, and all
+ * ten of them carry one model id with one weights digest, so a reader handed a published receipt and a
+ * published manifest was handed two documents that answer different questions and met a refusal for it.
+ * This row is the manifest of the deployment those receipts came from, and nothing in it is retyped: the
+ * issuer, instance, epoch, environment kind, measurement and model row are read out of
+ * `data/receipts/receipt-buffered-v1.json`, the key id out of that same file's protected header, the
+ * public half out of `data/keys/receipt-key-v1.json`, and the verdict columns out of the shipped readers
+ * over the bytes this builds. The bytes of the other rows do not move, and neither does the worked example
+ * in `docs/receipt-spec.md`, which stays the mock document this suite has always published.
+ */
+const PAIRED_ROW = 'paired-with-the-published-receipt-family';
+
+/** The published receipt whose deployment this row describes, read as the file states it. */
+interface PublishedReceiptRow {
+  readonly protectedHeader: { readonly kid: string };
+  readonly payload: {
+    readonly iss: string;
+    readonly ins: string;
+    readonly iat: number;
+    readonly epk: number;
+    readonly mdl: string;
+    readonly wts: string;
+    readonly meas: { readonly tee: string; readonly m: string };
+  };
+}
+
+const PAIRED_RECEIPT: PublishedReceiptRow = JSON.parse(
+  readFileSync(join(DATA, 'receipts', 'receipt-buffered-v1.json'), 'utf8'),
+) as PublishedReceiptRow;
+
+/**
+ * The receipt signing key as the published key file states it.
+ *
+ * The seed is read out of `data/keys/receipt-key-v1.json` rather than re-derived from the label this
+ * suite's other keys come from, so the document is sealed under the key that file publishes. Its own
+ * published halves are then held against the key the seed rebuilds, and the rebuilt `kid` against the id
+ * the receipt's protected header names: a pairing published across two files is only a pairing while all
+ * three agree, and one that silently drifted would read as a manifest for a deployment no receipt of
+ * this corpus came from.
+ */
+function pairedSigner(): SigningKey {
+  const published = JSON.parse(readFileSync(join(DATA, 'keys', 'receipt-key-v1.json'), 'utf8')) as {
+    privateKey: string;
+    publicKey: string;
+    kid: string;
+  };
+  const key = signingKeyFromSeed(new Uint8Array(Buffer.from(published.privateKey, 'hex')));
+  if (toHex(key.publicKey) !== published.publicKey) {
+    throw new Error('the published key file states a public half its own seed does not carry');
+  }
+  if (toHex(key.kid) !== published.kid) {
+    throw new Error('the published key file states a key id its own seed does not hash to');
+  }
+  if (published.kid !== PAIRED_RECEIPT.protectedHeader.kid) {
+    throw new Error('the published receipt is signed by a key the published key file does not name');
+  }
+  if (toHex(RECEIPT_SIGNER.kid) !== published.kid) {
+    throw new Error('the paired row would seal under a key this suite publishes no material for');
+  }
+  return key;
+}
+
+const PAIRED_SIGNER: SigningKey = pairedSigner();
+const PAIRED_PINS: readonly Pin[] = [pinOf(PAIRED_SIGNER)];
+
+/** The document, in the member order every other row of this suite is written in. */
+const PAIRED_DOCUMENT = JSON.stringify({
+  v: 1,
+  iss: PAIRED_RECEIPT.payload.iss,
+  ins: PAIRED_RECEIPT.payload.ins,
+  epk: PAIRED_RECEIPT.payload.epk,
+  keys: [entryOf(PAIRED_SIGNER)],
+  models: [{ id: PAIRED_RECEIPT.payload.mdl, wts: PAIRED_RECEIPT.payload.wts }],
+  meas: { tee: PAIRED_RECEIPT.payload.meas.tee, m: PAIRED_RECEIPT.payload.meas.m },
+});
+
+/** The policy a designation is, in the shape the client reader takes it. */
+function designating(pins: readonly Pin[]): AshaveriPolicy {
+  return { manifestKeys: Object.fromEntries(pins.map((one) => [one.kid, one.publicKeyBase64Url])) };
+}
+
+/**
+ * What the shipped client path answered, as the columns of a row plus the document it parsed.
+ *
+ * The reading is run rather than restated, and `main` requires the direction the row is published for,
+ * because a generator that published whatever a reader answered could publish a refusal beside a pairing
+ * and a reader would learn nothing about which of the two happened. The manifest the call hands back is
+ * kept beside the columns so the epoch claims are answered against the document the client actually read.
+ */
+function clientReadingOf(
+  bytes: Uint8Array,
+  pins: readonly Pin[],
+): {
+  readonly verdict: string;
+  readonly authentication?: Authentication;
+  readonly parsed?: ParsedDocument;
+  readonly manifest: DeploymentManifest | null;
+} {
+  try {
+    const read = readDeploymentManifest(bytes, designating(pins));
+    return {
+      verdict: 'verify-ok',
+      authentication: {
+        sealed: read.authentication.sealed,
+        authenticated: read.authentication.authenticated,
+        kid: read.authentication.kid,
+        demanded: read.authentication.demanded,
+        advisory: read.authentication.advisory !== null,
+      },
+      parsed: JSON.parse(JSON.stringify(read.manifest)) as ParsedDocument,
+      manifest: read.manifest,
+    };
+  } catch (err) {
+    if (err instanceof SdkError || err instanceof ReceiptError) return { verdict: err.code, manifest: null };
+    throw new Error(`the client reader raised something with no code: ${String(err)}`);
+  }
+}
+
+/** One epoch claim as the shipped rule answers it, in the spelling every row that states claims uses. */
+function claimRowOf(manifest: DeploymentManifest, claim: ReceiptEpochClaim): EpochClaim {
+  const verdict = adjudicateReceiptEpoch(manifest, claim);
+  return verdict.ok
+    ? {
+        claim,
+        ok: true,
+        basis: verdict.basis,
+        superseded: verdict.superseded,
+        validFrom: verdict.validFrom,
+        validTo: verdict.validTo,
+      }
+    : { claim, ok: false, code: verdict.code };
+}
+
+/**
+ * The three answers this document owes about a signing key: the claim the published receipt actually
+ * makes, a claim from a key the document does not list, and a claim from another epoch.
+ */
+function pairedClaims(manifest: DeploymentManifest): readonly EpochClaim[] {
+  const receiptKid = PAIRED_RECEIPT.protectedHeader.kid;
+  const at = PAIRED_RECEIPT.payload.iat;
+  return [
+    claimRowOf(manifest, { kid: receiptKid, epoch: PAIRED_RECEIPT.payload.epk, issuedAt: at }),
+    claimRowOf(manifest, { kid: toHex(EXTRA_RECEIPT_KEY.kid), epoch: PAIRED_RECEIPT.payload.epk, issuedAt: at }),
+    claimRowOf(manifest, { kid: receiptKid, epoch: PAIRED_RECEIPT.payload.epk + 1, issuedAt: at }),
+  ];
+}
+
+const PAIRED_BYTES = sealDeploymentManifest(encodeText(PAIRED_DOCUMENT), PAIRED_SIGNER);
+const PAIRED_READING = clientReadingOf(PAIRED_BYTES, PAIRED_PINS);
+const PAIRED_CLAIMS: readonly EpochClaim[] =
+  PAIRED_READING.manifest === null ? [] : pairedClaims(PAIRED_READING.manifest);
 
 const CASES: readonly Case[] = [
   {
@@ -744,6 +914,17 @@ const CASES: readonly Case[] = [
     seal: 'verify-ok',
     edited: 'the keys array, emptied',
   },
+  {
+    name: PAIRED_ROW,
+    note: 'The deployment the published receipts came from, stated by a manifest assembled out of one of those receipts\' own file: the issuer, instance, epoch, environment kind and measurement are that file\'s payload members, the key id is the one its protected header names and the public half beside it is the one `data/keys/receipt-key-v1.json` publishes, and the single `models[]` row is the model id and weights digest the receipt states. The published receipt family and the manifest family this suite began with describe two deployments, so a reader who handed a published receipt to `ashaveri verify-receipt` beside a published manifest met `MODEL_UNDECLARED` for a reason neither document could be blamed for; this row is the document that pair was missing, and it is the one row here whose `verdict`, `authentication`, `parsed` and `claims` are what `readDeploymentManifest` and `adjudicateReceiptEpoch` answered rather than words stated beside a run. Its seal is made by the key that signed the receipts it pairs with, which is one fixture key playing both roles: a deployment keeps the two apart, as `keyNote` states, and this row is the exception because it is published so that the pairing of two committed files can be run and not only described.',
+    bytes: PAIRED_BYTES,
+    pins: PAIRED_PINS,
+    verdict: PAIRED_READING.verdict,
+    seal: sealVerdictOf(PAIRED_BYTES),
+    ...(PAIRED_READING.authentication === undefined ? {} : { authentication: PAIRED_READING.authentication }),
+    ...(PAIRED_READING.parsed === undefined ? {} : { parsed: PAIRED_READING.parsed }),
+    claims: PAIRED_CLAIMS,
+  },
 ];
 
 /**
@@ -783,6 +964,59 @@ function published(one: Case): Record<string, unknown> {
   };
 }
 
+/**
+ * The direction the paired row exists for, required of the run rather than inferred from its outcome.
+ *
+ * A reader who takes a published receipt and a published manifest to the command line is the whole reason
+ * this row is in the file, and every value it pairs on is read off the receipt rather than typed here, so
+ * the row is a pairing only while the client authenticates the document, the envelope verifies its seal,
+ * and each deployment member of that document is the member of the receipt it was assembled from. A run
+ * that lost one of those writes no file, which is the answer a generator owes a row it cannot state.
+ */
+function requirePairedRow(): void {
+  const paired = CASES.find((one) => one.name === PAIRED_ROW);
+  if (paired === undefined) throw new Error(`this suite publishes no row named ${PAIRED_ROW}`);
+  if (paired.verdict !== 'verify-ok') {
+    throw new Error(`the paired row answers ${paired.verdict}, so no published receipt pairs with it`);
+  }
+  if (paired.seal !== 'verify-ok') {
+    throw new Error(`the paired row's seal reads as ${paired.seal}, so the document is not whole under its own key`);
+  }
+  const authentication = paired.authentication;
+  if (
+    authentication === undefined ||
+    !authentication.authenticated ||
+    authentication.kid !== PAIRED_RECEIPT.protectedHeader.kid
+  ) {
+    throw new Error('the paired row is not authenticated under the key the published receipt names');
+  }
+  const document = paired.parsed;
+  if (document === undefined) throw new Error('the paired row states no parsed document');
+  const receipt = PAIRED_RECEIPT.payload;
+  if (document.iss !== receipt.iss || document.ins !== receipt.ins || document.epk !== receipt.epk) {
+    throw new Error("the paired row names an issuer, an instance or an epoch other than the published receipt's");
+  }
+  if (document.keys.length !== 1 || document.keys[0]?.kid !== PAIRED_RECEIPT.protectedHeader.kid) {
+    throw new Error('the paired row does not list the key that signed the published receipt');
+  }
+  const model = document.models[0];
+  if (document.models.length !== 1 || model === undefined || model.id !== receipt.mdl || model.wts !== receipt.wts) {
+    throw new Error('the paired row does not declare the model and the weights digest the published receipt states');
+  }
+  if (document.meas.tee !== receipt.meas.tee || document.meas.m !== receipt.meas.m) {
+    throw new Error('the paired row does not state the measurement the published receipt carries');
+  }
+  const ownClaim = paired.claims?.[0];
+  if (
+    ownClaim === undefined ||
+    !ownClaim.ok ||
+    ownClaim.claim.kid !== PAIRED_RECEIPT.protectedHeader.kid ||
+    ownClaim.claim.issuedAt !== receipt.iat
+  ) {
+    throw new Error('the paired row does not accept the epoch claim the published receipt makes about its own key');
+  }
+}
+
 function main() {
   // The hand-assembled rows are only honest if the path that builds them writes what the shipping writer
   // writes, so that is checked before a single case is: same header, same payload, same key, same bytes.
@@ -809,6 +1043,8 @@ function main() {
       throw new Error(`${one.name}: the envelope reader answers ${observed}, not the ${one.seal} this file states`);
     }
   }
+
+  requirePairedRow();
 
   const names = CASES.map((one) => one.name);
   if (new Set(names).size !== names.length) throw new Error('two cases of this suite share a name');
