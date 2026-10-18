@@ -28,8 +28,8 @@ import {
  * The shape returned mirrors the published assessment scope and coverage member for member, written here
  * because a gateway that imported those types from another package would be a gateway that reached outside
  * this repository's signing stack. The composition from this evidence into a document, and the reading of that
- * document, belong to a caller that holds both the store and the assessment reader; nothing in this lane
- * invents a verdict about the store.
+ * document, belong to a caller that holds both the store and the assessment reader; this evidence reader
+ * states no verdict about the store.
  */
 
 /** An inclusive range of intake sequences, or of unix seconds for a period and a span. */
