@@ -17,7 +17,6 @@ import {
   requestUrl,
   routesAnswerNow,
   type CollateralClaim,
-  type CollateralQuery,
   type CollateralRefusal,
   type CollateralTransport,
   type OriginDeclaration,
@@ -249,6 +248,13 @@ describe('the VCEK and the chain the KDS answers with', () => {
     expect(outcome.state).toBe('unavailable');
     expect(refusalOf(outcome).code).toBe('COLLATERAL_SIGNATURE_UNVERIFIED');
     expect(refusalOf(outcome).detail).toContain('CERT_EXPIRED');
+  });
+
+  it('refuses a believed chain whose certificates state no shared span', () => {
+    const degenerate = amdVcek(ask, { productName: 'Milan-B0', hwid: HWID, notBefore: WITHIN, notAfter: WITHIN });
+    const refused = readVcekChain(degenerate.der, CHAIN, reading());
+    expect(refusalOf(refused).code).toBe('COLLATERAL_BLOB_UNREADABLE');
+    expect(refusalOf(refused).detail).toContain('share no validity');
   });
 
   it('binds the certificate to the chip the question named', async () => {
