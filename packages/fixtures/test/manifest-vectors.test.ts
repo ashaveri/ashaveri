@@ -30,6 +30,11 @@ import { assertRowRoster, ROW_NAMING_FIELDS, unionMembers } from './doc-contract
  * beside them. What is checked below is therefore the file's own consistency and the layer beneath the
  * client, and the two together are why a row cannot state one answer in one column and a different fact in
  * the other without a gate noticing.
+ *
+ * One row is a pairing rather than a fault. It states the deployment the published receipt family was
+ * issued by, and that claim is weighed below against `data/receipts/receipt-buffered-v1.json` and
+ * `data/keys/receipt-key-v1.json`, because a row that says two of this package's own artifacts describe
+ * one deployment is a claim about those artifacts and not about this suite.
  */
 
 const file = loadSealedManifestVectors();
@@ -176,4 +181,84 @@ describe('the sealed deployment manifest vectors', () => {
     expect(open?.dropped?.length).toBeGreaterThan(0);
     expect(open?.verdict).toBe('verify-ok');
   });
+
+  /**
+   * The row published so that a receipt of this package can be met with a manifest of this package.
+   *
+   * Its deployment members are read out of the receipt file it pairs with and its key out of the key file,
+   * which is what the row claims about itself, so the claim is weighed here against those files rather than
+   * against figures copied into this test. The mock rows are held to be a different deployment in the same
+   * breath: a reader who brings a published receipt to one of them meets a refusal, and that refusal is a
+   * fact about two deployments rather than a defect in the pairing.
+   */
+  it('publishes one row that pairs with the receipt family this package ships', () => {
+    const paired = file.vectors.find((one) => one.name === 'paired-with-the-published-receipt-family');
+    expect(paired, 'this suite publishes no row paired with the published receipts').toBeDefined();
+    const receipt = JSON.parse(
+      readFileSync(fileURLToPath(new URL('../data/receipts/receipt-buffered-v1.json', import.meta.url)), 'utf8'),
+    ) as PublishedReceipt;
+    const keyFile = JSON.parse(
+      readFileSync(fileURLToPath(new URL('../data/keys/receipt-key-v1.json', import.meta.url)), 'utf8'),
+    ) as { kid: string; publicKey: string };
+    const statedPublic = Buffer.from(keyFile.publicKey, 'hex').toString('base64url');
+    const document = paired?.parsed as PairedDocument | undefined;
+    expect(document).toBeDefined();
+    expect(document?.iss).toBe(receipt.payload.iss);
+    expect(document?.ins).toBe(receipt.payload.ins);
+    expect(document?.epk).toBe(receipt.payload.epk);
+    expect(document?.meas).toEqual(receipt.payload.meas);
+    expect(document?.keys).toEqual([{ kid: receipt.protectedHeader.kid, alg: 'Ed25519', publicKey: statedPublic }]);
+    expect(document?.models).toEqual([{ id: receipt.payload.mdl, wts: receipt.payload.wts }]);
+    expect(document?.epochs).toBeNull();
+    // The seal, the designation and the receipt all name the one key the committed key file publishes.
+    expect(paired?.read.designates).toEqual([{ kid: receipt.protectedHeader.kid, publicKeyBase64Url: statedPublic }]);
+    expect(paired?.authentication?.kid).toBe(receipt.protectedHeader.kid);
+    expect(paired?.verdict).toBe('verify-ok');
+    expect(paired?.seal).toBe('verify-ok');
+    // The receipt's own epoch claim, and the two a reader must not confuse with it.
+    expect(paired?.claims?.[0]).toEqual({
+      claim: { kid: receipt.protectedHeader.kid, epoch: receipt.payload.epk, issuedAt: receipt.payload.iat },
+      ok: true,
+      basis: 'current-epoch',
+      superseded: false,
+      validFrom: null,
+      validTo: null,
+    });
+    expect(paired?.claims?.map((row) => row.code)).toEqual([
+      undefined,
+      'MANIFEST_EPOCH_DISAGREES',
+      'MANIFEST_EPOCH_UNDECLARED',
+    ]);
+    // And the family this suite began with is another deployment, so the pairing is one row and not the file.
+    const mock = file.vectors.find((one) => one.name === 'sealed-under-designated-key');
+    const mockDocument = mock?.parsed as PairedDocument | undefined;
+    expect(mockDocument?.iss).not.toBe(receipt.payload.iss);
+    expect(mockDocument?.models).not.toEqual(document?.models);
+    expect(mock?.verdict).toBe('verify-ok');
+  });
 });
+
+/** The receipt file this suite's paired row is assembled from, as that file states it. */
+interface PublishedReceipt {
+  protectedHeader: { kid: string };
+  payload: {
+    iss: string;
+    ins: string;
+    iat: number;
+    epk: number;
+    mdl: string;
+    wts: string;
+    meas: { tee: string; m: string };
+  };
+}
+
+/** The parsed document of a row, in the shape a pairing is read out of. */
+interface PairedDocument {
+  iss: string;
+  ins: string;
+  epk: number;
+  keys: { kid: string; alg: string; publicKey: string }[];
+  epochs: unknown;
+  models: { id: string; wts: string }[];
+  meas: { tee: string; m: string };
+}
