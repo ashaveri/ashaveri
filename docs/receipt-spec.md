@@ -605,9 +605,10 @@ serves the bytes that digest was taken over, addressed by the digest itself. On 
 path is `GET /v1/weights/<wts>`:
 
 ```text
-GET /weights/<wts>    -> 200 application/json, the exact manifest bytes
-                      -> 400 if the path value is not 64 lowercase hex characters
-                      -> 404 if this deployment holds no manifest under that digest
+GET /v1/weights/<wts>   -> 200 application/json, the exact manifest bytes
+                        -> 400 if the path value is not 64 lowercase hex characters
+                        -> 404 if this deployment holds no manifest under that digest
+HEAD /v1/weights/<wts>  -> the same three answers, the same content type, and no bytes
 ```
 
 The body is the exact reading the gateway hashed at start-up, not a rendering of the parsed document,
@@ -620,7 +621,10 @@ receipt names, whoever served them.
 This is the one route a deployment answers without a credential. The digest is the address, so a client
 holding a receipt and the deployment's URL needs nothing else, and every other route keeps the admission
 `docs/access-control.md` states. A deployment with no manifest bytes behind its `wts` answers 404 at every
-well-formed digest rather than invent a document, which is the state a mock deployment is in.
+well-formed digest rather than invent a document, which is the state a mock deployment is in. The transport
+registers a HEAD beside every GET and the route table read normalizes HEAD onto the GET's row, so a HEAD
+at this path is admitted by the same row, asks no credential, declares the length of the body it does not
+send, and carries no bytes.
 
 ## 5. Verification algorithm
 

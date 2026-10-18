@@ -48,7 +48,7 @@ end to end through the SDK in strict mode.
 | `@ashaveri/receipt` | Deterministic CBOR + COSE_Sign1 receipt codec (RFC 8949 / RFC 9052) |
 | `@ashaveri/attest-core` | Offline verification of dStack confidential-VM attestations (SEV-SNP and TDX) |
 | `@ashaveri/sdk` | Client SDK: `AshaveriClient` and `wrapOpenAI` with receipt verification |
-| `@ashaveri/signerd` | Receipt-signing gateway: mock mode for development, live dStack CVM mode. Every route it serves but the weights manifest fetch demands a credential and checks the scope that route needs, and a credential-bearing request is rejected on a replay or a spent rate bucket before the route answers; every request writes one access-log line. A live start requires `--credentials-path` and `--access-log-path` |
+| `@ashaveri/signerd` | Receipt-signing gateway: mock mode for development, live dStack CVM mode. Every route it serves but the weights manifest fetch demands a credential and checks the scope that route needs, and on those routes a credential-bearing request is rejected on a replay or a spent rate bucket before the route answers. The weights fetch reads no header, so a credential presented on it is not verified, not spent and not refused: that request is answered by the route itself, which answers 200 with the bytes when the deployment holds a manifest under that digest and 404 when it holds none. Every request writes one access-log line. A live start requires `--credentials-path` and `--access-log-path` |
 | `@ashaveri/cli` | `ashaveri` binary: `verify` for offline attestation checks, plus `keygen`, `credential` and `accesslog` operator commands, with CI-friendly exit codes |
 | `@ashaveri/fixtures` | Golden conformance vectors shared by every implementation |
 
@@ -94,9 +94,12 @@ node gateway/dist/cli.js --mock --port 7173
 ```
 
 Every route a signerd gateway serves but the weights manifest fetch refuses a request that names no
-credential, so the client signs each request with one. The weights manifest is the one document the
-client fetches by the digest its receipt already carries, and `docs/receipt-spec.md` section 4.8 states
-that route. `--mock` prints a development credential at start-up: the id
+credential, so the client signs each request with one. The weights manifest is the one document a
+gateway hands to a caller that presents nothing: whoever holds a receipt can fetch the bytes its `wts`
+names at `GET /v1/weights/<wts>` and check that sha256 of the response is that digest, and
+`docs/receipt-spec.md` section 4.8 states that route. Nothing in `@ashaveri/sdk` makes that fetch; it
+parses `wts` out of a deployment manifest document, and the check the route enables is one a caller runs
+for itself. `--mock` prints a development credential at start-up: the id
 `dev`, and a key generated when that process starts and gone when it stops. That record is a fixture
 of a process that refuses nothing real. `dev` names nothing outside the run that printed it, and a
 live gateway answers from the credential file its operator installed, where an id the file does not

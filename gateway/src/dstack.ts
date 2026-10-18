@@ -60,8 +60,11 @@ export interface DstackDeploymentOptions {
   readonly models: readonly ModelInfo[];
   /**
    * The manifest bytes those models' `wts` digest, when the run read one. Absent leaves the manifest
-   * route answering 404; the CLI passes the one reading `modelsFromManifest` made, so a live process
-   * serves the same bytes every receipt it issues names.
+   * route answering 404. `modelsFromManifest` derives both halves from one reading and the CLI passes
+   * what it returns, and that pairing is what makes a live process serve the bytes every receipt it
+   * issues names. Nothing here checks a pairing a caller assembled apart: the route compares the path
+   * digest with the manifest it holds, so any other digest is answered 404, and a model whose `wts` is
+   * not that digest simply has no bytes to fetch.
    */
   readonly weightsManifest?: WeightsManifest;
   /** Public origin of this gateway, without a trailing slash, e.g. https://inference.ashaveri.com/v1 */

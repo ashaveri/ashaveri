@@ -61,7 +61,8 @@ node enclave/weights.mjs generate enclave/release enclave/release/weights-manife
 
 `generate` prints the manifest digest. That digest is what the gateway computes from the manifest
 `--weights-manifest` names and puts in the manifest's `models[].wts` and in every receipt for that
-model, so record it: it is the value a client compares against after it has the manifest file itself.
+model, so record it: it is the digest a client checks the manifest bytes against, whether those bytes
+came to it out of band or it fetched them at `GET /v1/weights/<wts>`.
 `verify` re-walks the directory and lists every difference at once (content mismatch,
 canonical-order problem, missing or extra file) and exits non-zero; the entrypoint runs it before
 the gateway starts signing.
@@ -167,7 +168,8 @@ VM.
 
 ## 4. Verify from a laptop
 
-Both documents now need a credential, so a bare `curl` gets a 401 and the SDK is the way to fetch them.
+Both documents below need a credential, so a bare `curl` gets a 401 and the SDK is the way to fetch
+them.
 The report data below is read from `$RD` by both halves, since a document fetched for one challenge
 cannot satisfy a check against another:
 
@@ -275,8 +277,15 @@ Does not prove:
 - That the weights behind `wts` match the files in the container. The receipt binds the
   manifest digest; the manifest binds each file digest; the gap between the manifest and the
   mounted bytes is closed by the entrypoint check plus the measured compose text, not by the
-  receipt chain. The manifest is also not published by the gateway, so a client needs it out
-  of band to make `wts` more than an opaque hash.
+  receipt chain. The gateway does publish the manifest bytes: `GET /v1/weights/<wts>` serves the
+  exact ones that digest was taken over, addressed by the `wts` a receipt already carries, so a
+  client holding a receipt can make `wts` more than an opaque hash without anyone sending it a file.
+  Two things stay out of band. The digest a client starts from is still something it has to learn
+  from somewhere the serving side does not choose, because a receipt and a manifest read off one
+  gateway agree with each other whatever files stand behind them. And the check that the mounted
+  files hash to the per-file digests the manifest states is not something a fetch performs: the
+  entrypoint makes it before the gateway signs anything, and a client that reads the manifest
+  learns what the manifest claims, not what the process loaded.
 - That the measured image contains the inference code you think it does, beyond what the
   compose hash pins: image contents are covered transitively through the digest in the compose
   text, which is why the digest pin matters more than the tag.

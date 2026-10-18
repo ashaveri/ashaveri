@@ -505,10 +505,12 @@ export type RouteScope = 'public' | 'any' | 'read' | 'complete';
 export const ROUTE_SCOPES: Record<string, RouteScope> = {
   'GET /v1/deployment-manifest': 'any',
   // The one public row. Its address is the digest a receipt already carries, so asking a verifier to
-  // hold a credential to check a document it was given would withhold the check itself. The allowance is
-  // this exact method and one-segment path: a path the table does not name still meets the credential
-  // checks, and the route body answers a value that is not 64 lowercase hex with 400 rather than
-  // widening the row.
+  // hold a credential to check a document it was given would withhold the check itself. The method this
+  // row spells is not by itself the whole allowance: Fastify registers a HEAD beside every GET route and
+  // `routeScope` normalizes HEAD to GET before the lookup, so a HEAD on this one-segment path is answered
+  // here too, with the bytes withheld. A POST on the same path, and any path the table does not name,
+  // still meet the credential checks, and the route body answers a value that is not 64 lowercase hex
+  // with 400 rather than widening the row.
   'GET /v1/weights/:digest': 'public',
   'GET /v1/attestation': 'read',
   'GET /v1/attestation/gpu': 'read',
@@ -1221,10 +1223,10 @@ export class CredentialStore {
     const scope = routeScope(input.method, input.url);
     // The one route a credential is not asked for. Its address is the digest a receipt already carries,
     // so a client that proves nothing beyond holding that receipt can read the bytes it names. The
-    // allowance is this table row exactly: the method and the one-segment path are the route, and a path
-    // the table does not name still meets every check below. The connection bound above is charged here
-    // as it is everywhere, and no header is read, so a credential presented on this route is not
-    // verified and nothing about it reaches the access record.
+    // allowance is this table row and the HEAD that `routeScope` normalizes onto it: the one-segment path
+    // is the reach, and a target the table does not name still meets every check below. The connection
+    // bound above is charged here as it is everywhere, and no header is read, so a credential presented
+    // on this route is not verified and nothing about it reaches the access record.
     if (scope === 'public') {
       return { credentialId: null, scope, auth: null, nonce: null, receiptId: null };
     }

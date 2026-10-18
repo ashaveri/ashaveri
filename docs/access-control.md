@@ -26,11 +26,13 @@ receipt carries `wts`, the digest of a manifest, and a client holding that recei
 read the bytes the digest names without first obtaining a second document the product never promised it.
 So admission charges the connection bound, reads the route table, and, when the row is `public`, answers
 without reading a header at all: no signature is verified, no credential is spent, and the access line
-names no credential. The allowance is that row exactly, `GET /v1/weights/:digest`. The method and the one
-path segment are the whole of it, a target the table does not name still meets all five checks below, and
-the route body answers a value that is not 64 lowercase hex characters with 400 rather than widening the
-row. Every other route still refuses a request that names no credential, and section 2's table is the
-whole of the public set.
+names no credential. The allowance is that row, `GET /v1/weights/:digest`, together with the HEAD that
+Fastify registers beside every GET route and `routeScope` normalizes onto it: a HEAD on that one path
+segment is answered by this row too, with the body withheld. A POST on the same path is refused for
+naming no credential, a target the table does not name still meets all five checks below, and the route
+body answers a value that is not 64 lowercase hex characters with 400 rather than widening the row. Every
+other route still refuses a request that names no credential, and section 2's table is the whole of the
+public set.
 
 1. **The request says who it is, and when.** The `Authorization` header parses and speaks a scheme
    this deployment runs; the `ts` parameter is within the deployment's tolerance; the
@@ -215,7 +217,7 @@ once, with the least scope it accepts.
 | Route | Required scope | Why |
 |---|---|---|
 | `GET /v1/deployment-manifest` | `any` | `any` is not anonymous: the pipeline runs first, and the SDK's manifest fetch goes out over the same credential-signed transport as its completions. What this row drops is the scope test, so a credential holding only `read` can fetch what it needs to check a receipt. Requiring `complete` here would leave a verifier holding a reader's credential unable to verify the receipt it was given |
-| `GET /v1/weights/:digest` | `public` | The address is the digest a receipt already carries, so a client holding only that receipt fetches the manifest and checks it against `wts` without holding a second document the product never promised. `public` is the one value no credential is asked for, and this row is the whole of it: the method and the one path segment are the allowance, every other row still runs the five checks, and the route body answers a value that is not 64 lowercase hex characters with 400 |
+| `GET /v1/weights/:digest` | `public` | The address is the digest a receipt already carries, so a client holding only that receipt can fetch the manifest and check it against `wts` without holding a second document the product never promised. `public` is the one value no credential is asked for, and this row is the whole of it: the one path segment is the reach, the HEAD the transport registers beside every GET is answered on it as its GET is and carries no body, every other row still runs the five checks, and the route body answers a value that is not 64 lowercase hex characters with 400 |
 | `GET /v1/attestation` | `read` | It hands out live evidence, so the deployment chose to attribute the fetch |
 | `GET /v1/attestation/gpu` | `read` | Device evidence, fetched with a caller-named `report_data`, which makes the fetch attributable in a way a signed completion's route is not |
 | `POST /v1/chat/completions` | `complete` | The route that costs money, generates content, and has a privacy surface |
@@ -223,7 +225,11 @@ once, with the least scope it accepts.
 
 `HEAD` is answered as `GET`: Fastify registers a `HEAD` route for every `GET` route, so an
 unnormalized `HEAD` would arrive as a target the table does not contain, and an absent table row is
-a refusal rather than an unclassified route.
+a refusal rather than an unclassified route. That normalization reaches the one public row: a `HEAD`
+at `/v1/weights/<digest>` is admitted by it, asks no credential, declares the length of the manifest
+and carries none of its bytes. Elsewhere it changes what arrives, not who is refused, and an
+unauthenticated `HEAD` on a protected path answers the same 401 as the same request with no credential
+at all. `gateway/test/weights-route.test.ts` pins both halves.
 
 An unknown route is a startup failure rather than a serving decision. Every route the server
 registers is checked against the table when it is registered, and a route with no row raises
