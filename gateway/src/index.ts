@@ -55,6 +55,7 @@ export {
   MINIMUM_RETENTION_SECONDS,
   openFileReceiptStore,
   openMemoryReceiptStore,
+  readReceiptStoreCheckpoint,
   receiptsNeededForWindow,
   RECEIPT_STORE_FILE,
   DEFAULT_RECEIPT_RECORD_KIND,
@@ -68,6 +69,7 @@ export type {
   ReceiptRetention,
   ReceiptServing,
   ReceiptStore,
+  ReceiptStoreCheckpoint,
   RetainedWindow,
   StampDeclaration,
   StoreErrorCode,
@@ -76,6 +78,15 @@ export type {
   TrimEvent,
   WindowClaim,
 } from './store.js';
+// The evidence reader is part of the entry point for the same reason the store is: a retention assessment is
+// produced by a program that reads a live store through this package and the assessment document through
+// another, and a caller that could not name the shape this reader hands back would have to restate it and
+// could drift from what the store actually answers with no compile error anywhere. The evidence shape mirrors
+// the published assessment scope and coverage member for member, so the seam from a store directory to a
+// produced assessment is checkable against the bytes this gateway reads rather than left to a handoff nobody
+// exercises.
+export { readRetentionEvidence } from './retention-evidence.js';
+export type { ReadRetentionEvidenceRequest, RetentionEvidence } from './retention-evidence.js';
 // The credential file's shape and the admission decision are exported for the same reason the
 // store's is: the tooling that writes a credential and the code that checks one are compiled
 // separately, and a second copy of these shapes could drift from the parser and the pipeline that
