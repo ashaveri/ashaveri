@@ -1394,6 +1394,82 @@ async function readCheckpoint(file: FileHandle, path: string, identity: string, 
 }
 
 /**
+ * The checkpoint a store's sidecar states about the records it speaks for, in the terms a retention
+ * assessment reads: the sequence range the index covers, the instant of the last record it covers, and the
+ * chain head at that record.
+ *
+ * This is the store's own checkpoint, read through `readCheckpoint`, which is the only code in this package
+ * that understands the index layout: an opening that declines the index, or whose index cannot be believed,
+ * states no checkpoint and `present` is false. The head is the digest of the last record the index speaks for,
+ * so a store whose index covers the whole file reports the same value `head()` does, and a reader comparing a
+ * pinned head against this one is comparing it against a digest this store recomputed from bytes rather than a
+ * number it was handed. The range is stated in the store's own chain positions, the order the records were
+ * appended in; a deployment that assesses a wider intake than the store observed says so by declaring that
+ * range, not by widening this answer.
+ */
+export interface ReceiptStoreCheckpoint {
+  readonly present: boolean;
+  /** The lowest chain position the index speaks for; meaningless when `present` is false. */
+  readonly firstSequence: number;
+  /** The highest chain position the index speaks for; meaningless when `present` is false. */
+  readonly lastSequence: number;
+  /** The unix stamp of the highest record the index speaks for. */
+  readonly at: number;
+  /** The chain head at that record, lowercase hex; empty when `present` is false. */
+  readonly head: string;
+}
+
+const ABSENT_CHECKPOINT: ReceiptStoreCheckpoint = {
+  present: false,
+  firstSequence: 0,
+  lastSequence: -1,
+  at: 0,
+  head: '',
+};
+
+/**
+ * Reads the checkpoint a store directory states, or none, without re-deriving the whole file.
+ *
+ * The store file is opened read-only: this reports what the index on disk already says, and an opening that
+ * rebuilds the index belongs to `openFileReceiptStore`, not to an assessment probe. A missing store file, a
+ * missing index, and an index that `readCheckpoint` refuses all answer the same way, with no checkpoint, so a
+ * deployment running without the sidecar is seen to hold no temporal witness rather than a broken one.
+ */
+export async function readReceiptStoreCheckpoint(
+  dir: string,
+  receiptKind: ReceiptRecordKind = DEFAULT_RECEIPT_RECORD_KIND,
+): Promise<ReceiptStoreCheckpoint> {
+  const storeFile = join(dir, RECEIPT_STORE_FILE);
+  let file: FileHandle;
+  try {
+    file = await open(storeFile, 'r');
+  } catch {
+    return ABSENT_CHECKPOINT;
+  }
+  try {
+    const stats = await file.stat();
+    const loaded = await readCheckpoint(file, join(dir, RECEIPT_SIDECAR_FILE), serialOf(stats), stats.size, receiptKind);
+    if (loaded === null) return ABSENT_CHECKPOINT;
+    let firstSequence = Number.MAX_SAFE_INTEGER;
+    let lastSequence = -1;
+    let at = 0;
+    let head: string | null = null;
+    for (const record of loaded.scan.records.values()) {
+      if (record.seq < firstSequence) firstSequence = record.seq;
+      if (record.seq > lastSequence) {
+        lastSequence = record.seq;
+        at = record.iat;
+        head = record.digest.toString('hex');
+      }
+    }
+    if (head === null || lastSequence < 0) return ABSENT_CHECKPOINT;
+    return { present: true, firstSequence, lastSequence, at, head };
+  } finally {
+    await file.close();
+  }
+}
+
+/**
  * Reads what the store file holds, from the index where the index speaks for it and from the file where
  * it does not, and leaves the index speaking for the whole of the file either way.
  */
