@@ -359,15 +359,18 @@ describe('the origin prose of the shipped documents', () => {
   it('finds no shipped command asking an origin', () => {
     const files = SHIPPED_SOURCES.flatMap(sourcesUnder);
     expect(files.length, 'the shipped sources were read').toBeGreaterThan(20);
-    const text = files.map((one) => readFileSync(one, 'utf8'));
-    const code = text.map(withoutComments).join('\n');
+    const stripped = files.map((one) => withoutComments(readFileSync(one, 'utf8')));
+    const code = stripped.join('\n');
     for (const name of ORIGIN_ASKING_NAMES) {
       expect(new RegExp(`\\b${name}\\b`, 'u').test(code), `a shipped command names ${name}`).toBe(false);
     }
-    // The scanner reads code rather than an empty string: the one appraisal entry point a shipped command does
-    // call weighs material a caller hands over, and `requestUrl` is still named in a source comment, which the
-    // stripping above takes out while leaving the call sites.
-    expect(/\bappraiseCarriedCollateral\b/u.test(code), 'the carried appraisal is the shipped half').toBe(true);
-    expect(text.some((one) => /requestUrl/u.test(one)), 'the comment naming requestUrl is still there').toBe(true);
+    // One control per scanned file rather than existentially over the joined text: the comment stripping is a
+    // small scanner rather than a parser, so a file whose code fell inside a swallowed quote or comment could
+    // leave the absence above read out of text that no longer carried that file, and a control over the whole
+    // would not see it. Every file the list holds has to keep a module edge, an import or export statement,
+    // outside its comments, which is what proves the scan ran over each file's code.
+    for (const [index, file] of files.entries()) {
+      expect(/^(?:import|export)\b/mu.test(stripped[index] as string), `${file} keeps a module edge outside its comments`).toBe(true);
+    }
   });
 });

@@ -299,9 +299,9 @@ type Scenario = () => Promise<string>;
 
 /** Every scenario one JSON document origin can be put through. */
 function intelScenarios(origin: ReadDocumentOrigin): Partial<Record<CollateralErrorCode, Scenario>> {
+  const declaration = origin === 'intel-tcb-info' ? INTEL_TCB_INFO : INTEL_QE_IDENTITY;
   const pair = servedPair(origin);
   const foreignSigned = servedPair(origin, { signer: { ...documentVendor, signingKey: foreignKey() } });
-  const wrongIdentity = servedPair(origin, { fmspc: OTHER_FMSPC });
   const revoked = servedPair(origin, { status: 'OutOfDate' });
   const unknownWord = servedPair(origin, { status: 'LpToDate' });
   const chainOf = servedChainOf([documentVendor.issuerDer, documentVendor.rootDer]);
@@ -314,7 +314,13 @@ function intelScenarios(origin: ReadDocumentOrigin): Partial<Record<CollateralEr
     COLLATERAL_ORIGIN_REFUSED: () => ask(async () => new Response('no', { status: 403 })),
     COLLATERAL_BLOB_UNREADABLE: () => ask(answering(origin, pair.body, null)),
     COLLATERAL_SIGNATURE_UNVERIFIED: () => ask(answering(origin, foreignSigned.body, chainOf)),
-    COLLATERAL_IDENTITY_MISMATCH: () => ask(answering(origin, wrongIdentity.body, chainOf)),
+    // The identity answer differs from the baseline only where the declaration names the member the document
+    // carries it in. Where that slot is null the pair builder ignores the substituted field, so the document
+    // would be the baseline bytes and the entry would read as producing a code it can never reach; the case is
+    // spelled only for an origin whose declaration carries an identity member.
+    ...(declaration.identity.cpuTypeMember === null
+      ? {}
+      : { COLLATERAL_IDENTITY_MISMATCH: () => ask(answering(origin, servedPair(origin, { fmspc: OTHER_FMSPC }).body, chainOf)) }),
     COLLATERAL_TCB_LEVEL_UNLISTED: () => ask(answering(origin, pair.body, chainOf), {
       level: { by: 'tcb-date', value: '2027-01-01T00:00:00Z' },
     }),

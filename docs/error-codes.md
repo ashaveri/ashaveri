@@ -329,15 +329,15 @@ rather than by the call site that met it.
 The grid has 56 rows, one for each pair of the 4 origins named by `SERVED_ORIGINS` and the 14 members of
 `CollateralErrorCode`. A row says whether that origin can answer with that code and names where the answer is
 decided. The fourth cell names a file and the symbol in it that decides, because a symbol moves with the code a
-reader is looking at while a line number does not. `yes` is produced by handing a public entry point an answer
-that reaches the code, `no` is carried by a fact the origin's own declaration states for that code, and
-`not exercised` means that no answer this package can be handed here reaches the code, which is a gap in the run
-rather than a fact about the origin. The origins `SERVED_ORIGINS` leaves out, `nvidia-rim` and `ocsp`, are
+reader is looking at while a line number does not; what the check proves of that cell is that the cited symbol
+is declared in the cited file. `yes` is produced by handing a public entry point an answer that reaches the
+code, and `no` is carried by a fact the origin's own declaration states for that code. The origins
+`SERVED_ORIGINS` leaves out, `nvidia-rim` and `ocsp`, are
 declared and unread, so they answer `COLLATERAL_ORIGIN_UNSUPPORTED` before any row of this grid can be reached and
 hold no row here. `packages/collateral/test/refusal-reachability.test.ts` reads this table and holds it to the
-package: it runs the scenario behind every `yes`, reads the declaration fact behind every `no`, checks each cited
-symbol against the file that cell names, and refuses a grid that is not exactly those origins crossed with those
-codes.
+package: it runs the scenario behind every `yes`, reads the declaration fact behind every `no`, checks that the
+file each cell names declares the symbol it cites, and refuses a grid that is not exactly those origins crossed
+with those codes.
 
 | Origin | Refusal | Reached | Where it is decided |
 |---|---|---|---|
@@ -398,7 +398,9 @@ codes.
 | `amd-kds` | `COLLATERAL_RETAINED_CHAIN_MISMATCH` | yes | `packages/collateral/src/classify.ts`, `observe` |
 | `amd-kds` | `COLLATERAL_REVOKED_BY_VENDOR` | no | `packages/collateral/src/intel-origin.ts`, `AMD_KDS` |
 
-Not one of the 56 cells reads `not exercised`: each is produced by an answer or carried by a declaration fact.
+Not one of the 56 cells reads `not exercised`, which means that no answer this package can be handed here reaches
+the code, a gap in the run rather than a fact about the origin: each cell is produced by an answer or carried by
+a declaration fact.
 
 ## Why these strings do not overlap
 
