@@ -12,13 +12,15 @@ import { generated, harness, type Harness } from './helpers.js';
 /**
  * The manifest route, addressed by the digest a receipt already carries.
  *
- * A client holding only a receipt and network access fetches the manifest at `/v1/weights/<wts>` and
- * checks that sha256(response) is the `wts` in the document it holds. That client presents no
+ * A client holding only a receipt and network access can fetch the manifest at `/v1/weights/<wts>` and
+ * check that sha256(response) is the `wts` in the document it holds. That client presents no
  * credential, and the route asks for none: the digest is the address, and the one public row in the
- * route table is this exact GET. The route therefore has to serve the bytes the gateway hashed at
- * start-up rather than a rendering or a second reading of the file, and it has to answer a digest it
- * does not hold without saying whether any other digest is held. The mock deployment has no manifest
- * file behind its digests, and that state is served as the absence it is.
+ * route table is the GET on that path. Fastify registers a HEAD beside every GET route and the lookup
+ * normalizes HEAD to GET, so the clone is served the same way with its bytes withheld. The route
+ * therefore has to serve the bytes the gateway hashed at start-up rather than a rendering or a second
+ * reading of the file, and it has to answer a digest it does not hold without saying whether any other
+ * digest is held. The mock deployment has no manifest file behind its digests, and that state is served
+ * as the absence it is.
  */
 
 const tempDir = mkdtempSync(join(tmpdir(), 'ashaveri-weights-route-'));
@@ -62,6 +64,24 @@ function errorCode(json: { error?: { code?: string } } & Record<string, unknown>
   return json.error?.code;
 }
 
+/** One verb against one path, with the shape a HEAD's answer is read from: status, headers, and bytes. */
+async function call(
+  h: Harness,
+  method: 'GET' | 'HEAD',
+  url: string,
+  headers: Record<string, string> = {},
+): Promise<{ statusCode: number; bytes: number; declared: number; contentType: string }> {
+  const response = await h.app.inject({ method, url, headers });
+  return {
+    statusCode: response.statusCode,
+    // The bytes actually on the wire. A HEAD carries none, whatever its status.
+    bytes: response.rawPayload.length,
+    // The length the answer declares, which is the size of the body the same request as a GET sends.
+    declared: Number(response.headers['content-length'] ?? -1),
+    contentType: String(response.headers['content-type'] ?? ''),
+  };
+}
+
 async function openHarness(deployment?: Deployment): Promise<Harness> {
   const h = await harness({
     credentials: [generated(CREDENTIAL, ['read', 'complete'])],
@@ -100,9 +120,19 @@ describe('GET /v1/weights/:digest', () => {
     // The route asks for no credential, so one that is presented is not verified and not needed: a
     // client holding a receipt cannot be turned away by a header it did not have to send.
     const presented = await serve(h, `/v1/weights/${digest}`, { authorization: 'Bearer not-a-credential' });
+    // A proof of possession naming a credential this file does not carry is the same case in the other
+    // scheme: admission returns before the header is read, so neither half of a credential that would
+    // be refused elsewhere is ever looked at here.
+    const signed = await serve(
+      h,
+      `/v1/weights/${digest}`,
+      h.signFor('no-such-credential', 'GET', `/v1/weights/${digest}`, null),
+    );
     expect(anonymous.statusCode).toBe(200);
     expect(presented.statusCode).toBe(200);
     expect(presented.body).toEqual(anonymous.body);
+    expect(signed.statusCode).toBe(200);
+    expect(signed.body).toEqual(anonymous.body);
   });
 
   it('leaves every other method and path to the credential checks', async () => {
@@ -110,6 +140,8 @@ describe('GET /v1/weights/:digest', () => {
     const digest = toHex(deployment.models[0]!.wts);
     const h = await openHarness(deployment);
     // Same path, another method: the public row names GET and does not stand for a prefix or a verb.
+    // HEAD is the one verb this file cannot test that way, because the transport registers it beside
+    // every GET; it is pinned on its own below.
     const post = await h.inject({ method: 'POST', url: `/v1/weights/${digest}` });
     expect(post.statusCode).toBe(401);
     expect(errorCode(post.json)).toBe('AUTH_MALFORMED');
@@ -211,5 +243,68 @@ describe('GET /v1/weights/:digest', () => {
     // The digest is well formed and is the one the mock receipt carries: the answer is about the bytes,
     // not about the spelling.
     expect(fromHex(mockDigest)).toHaveLength(32);
+  });
+});
+
+/**
+ * HEAD on the paths the GET row covers.
+ *
+ * Fastify answers a HEAD from the GET route registered for the same path, and `routeScope` normalizes
+ * HEAD to GET before it consults the table, so a HEAD at `/v1/weights/<digest>` reaches the public
+ * branch and is admitted without a header being read. The allowance is therefore not the method the row
+ * spells on its own: it is that row and the clone the transport makes of it. What a HEAD differs by is
+ * the body, so these cells pin the status the route answers with, the length it declares for the body it
+ * does not carry, and the fact that no bytes arrive. They pin nothing about a refusal code read from a
+ * HEAD, because a HEAD has no body to read one from.
+ */
+describe('HEAD on the same paths', () => {
+  it('is served by the public row, declaring the bytes it withholds', async () => {
+    const deployment = deploymentFromFile(['model-a'], MANIFEST);
+    const digest = toHex(deployment.models[0]!.wts);
+    const h = await openHarness(deployment);
+
+    const known = await call(h, 'HEAD', `/v1/weights/${digest}`);
+    expect(known.statusCode).toBe(200);
+    expect(known.bytes).toBe(0);
+    // The length is the manifest's own, so a HEAD can size the document it does not carry.
+    expect(known.declared).toBe(MANIFEST_BYTES.length);
+    expect(known.contentType).toContain('application/json');
+    // The same request as a GET is served the bytes, from the same row.
+    const get = await call(h, 'GET', `/v1/weights/${digest}`);
+    expect(get.statusCode).toBe(200);
+    expect(get.bytes).toBe(MANIFEST_BYTES.length);
+    expect(get.declared).toBe(known.declared);
+
+    // The route body runs for the clone, so the answers it gives elsewhere arrive here too, bodyless:
+    // an unknown digest at the public row, and a malformed one refused as a bad request.
+    const missing = await call(h, 'HEAD', `/v1/weights/${'ab'.repeat(32)}`);
+    expect(missing.statusCode).toBe(404);
+    expect(missing.bytes).toBe(0);
+    expect(missing.declared).toBe((await call(h, 'GET', `/v1/weights/${'ab'.repeat(32)}`)).bytes);
+    const malformed = await call(h, 'HEAD', `/v1/weights/${'A'.repeat(64)}`);
+    expect(malformed.statusCode).toBe(400);
+    expect(malformed.bytes).toBe(0);
+
+    // A credential presented on this path is not read on the clone either.
+    const presented = await call(h, 'HEAD', `/v1/weights/${digest}`, { authorization: 'Bearer not-a-credential' });
+    expect(presented.statusCode).toBe(200);
+    expect(presented.bytes).toBe(0);
+  });
+
+  it('is refused by the credential checks on a protected path, and carries none of the refusal body', async () => {
+    const deployment = deploymentFromFile(['model-a'], MANIFEST);
+    const h = await openHarness(deployment);
+    const target = '/v1/receipts/rcp_head_case';
+
+    const refused = await call(h, 'GET', target);
+    expect(refused.statusCode).toBe(401);
+    expect(refused.bytes).toBeGreaterThan(0);
+    // The HEAD of the same protected path gets the same refusal; only the body that names its code is
+    // withheld, so the answer a prober can read from a HEAD is a status and a length.
+    const probe = await call(h, 'HEAD', target);
+    expect(probe.statusCode).toBe(refused.statusCode);
+    expect(probe.bytes).toBe(0);
+    expect(probe.declared).toBe(refused.bytes);
+    expect(errorCode((await h.inject({ method: 'GET', url: target })).json)).toBe('AUTH_MALFORMED');
   });
 });
