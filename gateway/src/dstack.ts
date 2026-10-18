@@ -14,7 +14,7 @@ import { claimsConfidentialDevice, signingKeyFromSeed } from '@ashaveri/receipt'
 import { GuestClient, GuestError, type GuestApi, type GpuEvidenceBundle } from './guest.js';
 import { sha256, toHex } from './digest.js';
 import { declarationOf, HOST_CLOCK_SOURCE, type TimeSource } from './store.js';
-import type { AttestationBundle, Deployment, HardwareTeeKind, ModelInfo, TeeKind } from './deployment.js';
+import type { AttestationBundle, Deployment, HardwareTeeKind, ModelInfo, TeeKind, WeightsManifest } from './deployment.js';
 
 /**
  * Live deployment: the signing key comes from the CVM's own key derivation and
@@ -58,6 +58,15 @@ export interface DstackDeploymentOptions {
   readonly client?: GuestApi;
   /** Served models with the weight digest each receipt must carry. */
   readonly models: readonly ModelInfo[];
+  /**
+   * The manifest bytes those models' `wts` digest, when the run read one. Absent leaves the manifest
+   * route answering 404. `modelsFromManifest` derives both halves from one reading and the CLI passes
+   * what it returns, and that pairing is what makes a live process serve the bytes every receipt it
+   * issues names. Nothing here checks a pairing a caller assembled apart: the route compares the path
+   * digest with the manifest it holds, so any other digest is answered 404, and a model whose `wts` is
+   * not that digest simply has no bytes to fetch.
+   */
+  readonly weightsManifest?: WeightsManifest;
   /** Public origin of this gateway, without a trailing slash, e.g. https://inference.ashaveri.com/v1 */
   readonly evidenceBaseUrl: string;
   /** Guest key path. Rotating the key means changing this and bumping epk. */
@@ -349,6 +358,7 @@ export async function dstackDeployment(options: DstackDeploymentOptions): Promis
     tee,
     measurement: platform.measurement,
     models: options.models,
+    weightsManifest: options.weightsManifest,
     async attestation(reportData: Uint8Array | null): Promise<AttestationBundle> {
       return fetchEvidence(reportData ?? standingReportData);
     },

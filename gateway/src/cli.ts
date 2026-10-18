@@ -24,9 +24,9 @@ import { dstackDeployment } from './dstack.js';
 import { GuestClient } from './guest.js';
 import { mockBackend, type CompletionBackend } from './backend.js';
 import { upstreamBackend } from './upstream.js';
-import { mockDeployment, type Deployment, type HardwareTeeKind, type ModelInfo } from './deployment.js';
+import { mockDeployment, type Deployment, type HardwareTeeKind } from './deployment.js';
 import { toHex } from './digest.js';
-import { modelsFromManifest } from './weights.js';
+import { modelsFromManifest, type ManifestModels } from './weights.js';
 import {
   DEFAULT_RECEIPT_RECORD_KIND,
   HOST_CLOCK_SOURCE,
@@ -664,12 +664,13 @@ async function liveDeployment(values: CliOptions): Promise<Deployment> {
   if (modelIds.length === 0) {
     fail('at least one --model is required in live mode');
   }
-  let models: ModelInfo[];
+  let manifestModels: ManifestModels;
   try {
     // One reading of the manifest and one digest of those bytes, handed to every model this run
     // serves: a receipt's `wts` is the digest of the bytes this process read, not a second reading of
-    // the same path that could name different bytes.
-    models = modelsFromManifest(modelIds, manifestPath);
+    // the same path that could name different bytes. The same reading travels beside the models, so
+    // the route addressed by that digest serves exactly the bytes the receipts name.
+    manifestModels = modelsFromManifest(modelIds, manifestPath);
   } catch (error) {
     fail(`--weights-manifest could not be read: ${error instanceof Error ? error.message : String(error)}`);
   }
@@ -682,7 +683,8 @@ async function liveDeployment(values: CliOptions): Promise<Deployment> {
   }
   return dstackDeployment({
     client: new GuestClient({ endpoint: values['guest-socket'] }),
-    models,
+    models: manifestModels.models,
+    weightsManifest: manifestModels.manifest,
     evidenceBaseUrl: `${publicUrl.origin}${publicUrl.pathname.replace(/\/+$/, '')}/v1`,
     keyPath: values['key-path'],
     keyPurpose: values['key-purpose'],

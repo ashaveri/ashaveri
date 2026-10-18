@@ -14,6 +14,20 @@ export interface ModelInfo {
 }
 
 /**
+ * One reading of a weights manifest, held as the bytes that were hashed.
+ *
+ * `digest` is the value every model's `wts` carries and the address the manifest route answers at, and
+ * `bytes` are the bytes that digest was taken over. The two travel together because the route's claim is
+ * their relation: a client fetches `bytes` by `digest` and checks that sha256(bytes) is the `wts` its
+ * receipt carries. Reading the file again to answer the route would break that claim the first time an
+ * operator edits the file under a running process, so the bytes here are the ones read at start-up.
+ */
+export interface WeightsManifest {
+  readonly digest: Uint8Array;
+  readonly bytes: Uint8Array;
+}
+
+/**
  * Hardware evidence a client can re-verify on its own. The receipt binds
  * `att.d` to `sha256(document)`, so the served document must be byte-stable.
  */
@@ -67,6 +81,16 @@ export interface Deployment {
   readonly tee: TeeKind;
   readonly measurement: Uint8Array;
   readonly models: readonly ModelInfo[];
+  /**
+   * The manifest bytes a live run read, when it read one. Absent means this deployment publishes no
+   * bytes behind its models' `wts`, which is the mock deployment's state: its digest names a string that
+   * never existed as a file, so the manifest route answers 404 rather than invent a document for it.
+   *
+   * Present means these bytes are the one reading whose digest every model carries, held from start-up
+   * rather than read again per request, so the route serves exactly the bytes a receipt's `wts` names
+   * even after the file on disk changes.
+   */
+  readonly weightsManifest?: WeightsManifest;
   /**
    * Evidence for a receipt. `reportData` is the client nonce when the platform
    * can bind one, or null for the deployment's standing evidence.

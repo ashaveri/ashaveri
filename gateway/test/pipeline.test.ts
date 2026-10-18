@@ -10,6 +10,7 @@ import { CLOCK_SECONDS, credentialFileAt, generated, harness, type Generated, ty
 const bodies: Record<string, string | null> = {
   'POST /v1/chat/completions': '{"model":"mock-model-1","messages":[{"role":"user","content":"hello"}]}',
   'GET /v1/deployment-manifest': null,
+  'GET /v1/weights/:digest': null,
   'GET /v1/attestation': null,
   'GET /v1/attestation/gpu': null,
   'GET /v1/receipts/:id': null,
@@ -18,12 +19,20 @@ const bodies: Record<string, string | null> = {
 const targets: Record<string, string> = {
   'POST /v1/chat/completions': '/v1/chat/completions',
   'GET /v1/deployment-manifest': '/v1/deployment-manifest',
+  'GET /v1/weights/:digest': `/v1/weights/${'ab'.repeat(32)}`,
   'GET /v1/attestation': '/v1/attestation',
   'GET /v1/attestation/gpu': '/v1/attestation/gpu?report_data=ab',
   'GET /v1/receipts/:id': '/v1/receipts/rcp_pipeline_test',
 };
 
 const ROUTES = Object.keys(ROUTE_SCOPES);
+
+/**
+ * The routes that ask for a credential, which is every row but the one public row. The weights manifest
+ * is addressed by the digest a receipt carries and is answered before a header is read, so its cells
+ * are asserted in `weights-route.test.ts` and the matrix below stays a statement about the floor.
+ */
+const CREDENTIAL_ROUTES = ROUTES.filter((route) => ROUTE_SCOPES[route] !== 'public');
 
 /** The paths the scope table names, which is the shape the gateway's registration tally reads as. */
 const ROUTE_PATHS = new Set(ROUTES.map((route) => route.split(' ')[1]));
@@ -83,13 +92,39 @@ describe('the floor covers every route the instance has', () => {
     expect(h.app.scopeCheckedRoutes()).toEqual([...ROUTE_PATHS].sort());
   });
 
-  it.each(ROUTES)('%s refuses a request with no credential', async (route) => {
+  it.each(CREDENTIAL_ROUTES)('%s refuses a request with no credential', async (route) => {
     const [method] = route.split(' ');
     const h = await openWith([]);
     const response = await h.inject({ method: method as string, url: targets[route] as string });
     expect(response.statusCode).toBe(401);
     expect(denyCode(response.json)).toBe('AUTH_MALFORMED');
     expect(response.json['error']).toMatchObject({ type: 'authentication_error' });
+  });
+
+  it('declares exactly one public row, and it is the weights manifest fetch', () => {
+    // One row, named by method and path. A prefix, a wildcard or a second row would each be a wider
+    // allowance than a client holding a receipt needs, so the table's public set is pinned whole.
+    const declared = Object.entries(ROUTE_SCOPES)
+      .filter(([, scope]) => scope === 'public')
+      .map(([route]) => route);
+    expect(declared).toEqual(['GET /v1/weights/:digest']);
+  });
+
+  it('answers the public route anonymously and every other route with the refusal it always gave', async () => {
+    const h = await openWith([]);
+    for (const route of ROUTES) {
+      const [method] = route.split(' ');
+      const response = await h.inject({ method: method as string, url: targets[route] as string });
+      if (ROUTE_SCOPES[route] === 'public') {
+        // The mock deployment holds no bytes behind its wts, so the route's own honest answer is 404:
+        // what is asserted here is that the floor did not answer.
+        expect(response.statusCode, route).toBe(404);
+        expect(denyCode(response.json), route).toBeUndefined();
+      } else {
+        expect(response.statusCode, route).toBe(401);
+        expect(denyCode(response.json), route).toBe('AUTH_MALFORMED');
+      }
+    }
   });
 
   it('an undeclared route stops the process at registration, not at request time', () => {
@@ -207,7 +242,7 @@ function cell(route: string, state: State): Cell {
     case 'insufficient-scope':
       // Only a row of `any` has no scope to miss. A `read` row is just as missable as a
       // `complete` one, so skipping it here would leave the scope check ungated at the
-      // HTTP layer on three of the five routes.
+      // HTTP layer on every route that names a scope.
       return required === 'any'
         ? { status: 0, code: undefined, skip: 'this route accepts any scope, so a scope miss is unreachable' }
         : { status: 403, code: 'SCOPE_DENIED' };
@@ -217,8 +252,8 @@ function cell(route: string, state: State): Cell {
   }
 }
 
-describe('the route matrix: five routes by ten states', () => {
-  for (const route of ROUTES) {
+describe('the route matrix: five credential routes by ten states', () => {
+  for (const route of CREDENTIAL_ROUTES) {
     describe(route, () => {
       for (const state of STATES) {
         const expectation = cell(route, state);

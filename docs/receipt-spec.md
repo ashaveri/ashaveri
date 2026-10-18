@@ -598,6 +598,34 @@ caller's credential could have minted the id, not whether the id exists. What th
 to a holder of the id, and what erasing the access log can and cannot undo around it, is treated in
 `docs/access-control.md`.
 
+### 4.8 Weights manifest
+
+A receipt's `wts` is the SHA-256 of the deployment's weights manifest. A deployment that holds one
+serves the bytes that digest was taken over, addressed by the digest itself. On a signerd gateway the
+path is `GET /v1/weights/<wts>`:
+
+```text
+GET /v1/weights/<wts>   -> 200 application/json, the exact manifest bytes
+                        -> 400 if the path value is not 64 lowercase hex characters
+                        -> 404 if this deployment holds no manifest under that digest
+HEAD /v1/weights/<wts>  -> the same three answers, the same content type, and no bytes
+```
+
+The body is the exact reading the gateway hashed at start-up, not a rendering of the parsed document,
+and the gateway does not read the file again to answer: an edit under a running process changes neither
+the bytes this route serves nor the `wts` on receipts the process issued before it. A client checks
+`sha256(body)` against the `wts` in the receipt it holds. That check is the whole of what the fetch adds,
+and it needs nothing from the transport: bytes that hash to the signed digest are the document the
+receipt names, whoever served them.
+
+This is the one route a deployment answers without a credential. The digest is the address, so a client
+holding a receipt and the deployment's URL needs nothing else, and every other route keeps the admission
+`docs/access-control.md` states. A deployment with no manifest bytes behind its `wts` answers 404 at every
+well-formed digest rather than invent a document, which is the state a mock deployment is in. The transport
+registers a HEAD beside every GET and the route table read normalizes HEAD onto the GET's row, so a HEAD
+at this path is admitted by the same row, asks no credential, declares the length of the body it does not
+send, and carries no bytes.
+
 ## 5. Verification algorithm
 
 The deployment manifest of section 4.4 is read first, in whichever of its two shapes this deployment

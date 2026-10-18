@@ -1,14 +1,15 @@
 # Access control
 
-Every route this gateway serves sits behind one pipeline. A client presents a credential; the
-gateway decides whether that credential may reach the route named in the request target; a refusal
-leaves nothing further to evaluate; and whichever way the decision goes the request is written to a
-log the deployer holds. This document states how each of those steps behaves, what it records, how
-long the record lives, and how it is removed. Legal grounding is named where a requirement rests on
-an instrument, and a sentence says plainly where the choice is ours rather than the law's. Two
-neighbours hold what this document does not: [receipt-spec.md](receipt-spec.md) specifies the receipt
-format and the HTTP protocol around it, and [threat-model.md](threat-model.md) lists the threats this
-design addresses and the ones it leaves open.
+Every route this gateway serves sits behind one pipeline. On every route but one, a client presents a
+credential; the gateway decides whether that credential may reach the route named in the request target;
+a refusal leaves nothing further to evaluate; and whichever way the decision goes the request is written
+to a log the deployer holds. The one route that asks for no credential is the weights manifest fetch,
+stated in section 2, and section 1 says where in the pipeline it is answered and why. This document
+states how each of those steps behaves, what it records, how long the record lives, and how it is
+removed. Legal grounding is named where a requirement rests on an instrument, and a sentence says
+plainly where the choice is ours rather than the law's. Two neighbours hold what this document does not:
+[receipt-spec.md](receipt-spec.md) specifies the receipt format and the HTTP protocol around it, and
+[threat-model.md](threat-model.md) lists the threats this design addresses and the ones it leaves open.
 
 ## 1. The pipeline
 
@@ -19,6 +20,19 @@ property that makes the difference knowable: a request that fails two of them re
 Each check is listed below with what it proves and, in parentheses, the refusal it raises when it
 fails; the bound is described with them, because it answers with one of their codes, and the guard is
 described after them, because it is the one check that reads the store rather than the credential.
+
+**One route is answered before the five, and it is the weights manifest fetch named in section 2.** A
+receipt carries `wts`, the digest of a manifest, and a client holding that receipt has to be able to
+read the bytes the digest names without first obtaining a second document the product never promised it.
+So admission charges the connection bound, reads the route table, and, when the row is `public`, answers
+without reading a header at all: no signature is verified, no credential is spent, and the access line
+names no credential. The allowance is that row, `GET /v1/weights/:digest`, together with the HEAD that
+Fastify registers beside every GET route and `routeScope` normalizes onto it: a HEAD on that one path
+segment is answered by this row too, with the body withheld. A POST on the same path is refused for
+naming no credential, a target the table does not name still meets all five checks below, and the route
+body answers a value that is not 64 lowercase hex characters with 400 rather than widening the row. Every
+other route still refuses a request that names no credential, and section 2's table is the whole of the
+public set.
 
 1. **The request says who it is, and when.** The `Authorization` header parses and speaks a scheme
    this deployment runs; the `ts` parameter is within the deployment's tolerance; the
@@ -203,6 +217,7 @@ once, with the least scope it accepts.
 | Route | Required scope | Why |
 |---|---|---|
 | `GET /v1/deployment-manifest` | `any` | `any` is not anonymous: the pipeline runs first, and the SDK's manifest fetch goes out over the same credential-signed transport as its completions. What this row drops is the scope test, so a credential holding only `read` can fetch what it needs to check a receipt. Requiring `complete` here would leave a verifier holding a reader's credential unable to verify the receipt it was given |
+| `GET /v1/weights/:digest` | `public` | The address is the digest a receipt already carries, so a client holding only that receipt can fetch the manifest and check it against `wts` without holding a second document the product never promised. `public` is the one value no credential is asked for, and this row is the whole of it: the one path segment is the reach, the HEAD the transport registers beside every GET is answered on it as its GET is and carries no body, every other row still runs the five checks, and the route body answers a value that is not 64 lowercase hex characters with 400 |
 | `GET /v1/attestation` | `read` | It hands out live evidence, so the deployment chose to attribute the fetch |
 | `GET /v1/attestation/gpu` | `read` | Device evidence, fetched with a caller-named `report_data`, which makes the fetch attributable in a way a signed completion's route is not |
 | `POST /v1/chat/completions` | `complete` | The route that costs money, generates content, and has a privacy surface |
@@ -210,7 +225,11 @@ once, with the least scope it accepts.
 
 `HEAD` is answered as `GET`: Fastify registers a `HEAD` route for every `GET` route, so an
 unnormalized `HEAD` would arrive as a target the table does not contain, and an absent table row is
-a refusal rather than an unclassified route.
+a refusal rather than an unclassified route. That normalization reaches the one public row: a `HEAD`
+at `/v1/weights/<digest>` is admitted by it, asks no credential, declares the length of the manifest
+and carries none of its bytes. Elsewhere it changes what arrives, not who is refused, and an
+unauthenticated `HEAD` on a protected path answers the same 401 as the same request with no credential
+at all. `gateway/test/weights-route.test.ts` pins both halves.
 
 An unknown route is a startup failure rather than a serving decision. Every route the server
 registers is checked against the table when it is registered, and a route with no row raises
@@ -224,13 +243,17 @@ one, so an unmatched path comes back as a credential refusal rather than as a 40
 holding one credential, with no signed header on the request, `GET /v1/nope`, `GET
 /v1/deployment-manifest` and `GET /` each answered 401 with `AUTH_MALFORMED`, and each wrote an
 access record whose `cred`, `auth`, `scope`, `rcp` and `nce` were null and whose `deny` carried
-that same code. The registered route and the unregistered one were refused identically.
+that same code. The registered route and the unregistered one were refused identically. The weights
+route is the one target that answered an anonymous request without a credential: the same request to
+`GET /v1/weights/<64 hex>` reached the route and answered 404, because the mock deployment holds no
+manifest bytes behind any digest.
 
-Scope arithmetic is one-directional: `any` is always satisfied, `complete` needs `complete`, and
-`read` is satisfied by a credential holding either. A credential file that grants `complete` without
-`read` is refused at parse time, so no credential this gateway will load can generate content and be
-refused the receipts for it: a completing credential is always also a reading one, which is the only
-combination with a coherent use.
+Scope arithmetic is one-directional: `public` is the one value that asks for no credential and is carried
+by the single weights row, `any` still runs every check and drops only the scope test, `complete` needs
+`complete`, and `read` is satisfied by a credential holding either. A credential file that grants
+`complete` without `read` is refused at parse time, so no credential this gateway will load can generate
+content and be refused the receipts for it: a completing credential is always also a reading one, which
+is the only combination with a coherent use.
 
 Scope is a product and security decision, not an Article 15 requirement of the GDPR. Article 18 of
 the GDPR gives a data subject the right to obtain a restriction of processing, one of its cases being
@@ -432,7 +455,7 @@ deployer's, and the log is where its use shows.
 
 | Flag | Default | Effect |
 |---|---|---|
-| `--credentials-path <file>` | required in a live start | The file every request must present a credential from. In `--mock` it is optional, and without it the process holds one credential in memory under the id `dev` and prints its key at start-up. That record is a fixture of a process that refuses nothing real: it exists so a quick start has something to sign with, the key is generated when the process starts and dies with it, and `dev` names nothing outside that run. A live gateway answers from whatever its operator's file holds, and its refusals are built so that a name alone earns no answer about that file |
+| `--credentials-path <file>` | required in a live start | The file every request that asks for a credential must present one from. In `--mock` it is optional, and without it the process holds one credential in memory under the id `dev` and prints its key at start-up. That record is a fixture of a process that refuses nothing real: it exists so a quick start has something to sign with, the key is generated when the process starts and dies with it, and `dev` names nothing outside that run. A live gateway answers from whatever its operator's file holds, and its refusals are built so that a name alone earns no answer about that file |
 | `--access-log-path <dir>` | required in a live start | Where the per-request log is written. The value must name an existing directory, so a volume that was not mounted is a refusal rather than a log written onto the root filesystem |
 | `--access-log-days <n>` | 184 | How long log files are kept, in days. 184 is the default and the floor the code names, and it is not enforced as a ceiling on the operator's choice: a shorter value starts, and the start-up report says out loud that the run is below the floor (section 8.2) |
 | `--pop-tolerance <seconds>` | 120 | Clock slack accepted for a proof-of-possession timestamp, in both directions |
@@ -457,7 +480,7 @@ The twelve fields, in the order the writer emits them:
 | `rid` | Server-generated request id, the join key between a line and a support ticket |
 | `cred` | Which credential made the request. A refusal that got as far as reading an id records the id the header carried, known to the file or not, including a name the file does not carry whose response said only that the signature failed; `null` covers the rest, which is a request that named none, a refusal raised before the header's id could be read, and the bearer scan's `AUTH_UNKNOWN` |
 | `auth` | `pop`, `bearer`, or `null`. What this request was verified as, so the two postures read differently even in one bearer-capable deployment; `null` on a refusal, since what was verified is the thing the refusal says did not happen |
-| `scope` | Which scope the route needed, on a request the pipeline admitted. A refusal records `null`, and the row it was refused against is named in that refusal's own message |
+| `scope` | Which scope the route needed, on a request the pipeline admitted, or `public` on the one route that asks for no credential. A refusal records `null`, and the row it was refused against is named in that refusal's own message |
 | `m` | The HTTP method |
 | `p` | The path only, with the query string dropped: it can carry a report-data challenge and receipt ids |
 | `rcp` | The receipt a read route was asked for. Only `GET /v1/receipts/:id` names one in its target, so a completion that issues a receipt records nothing here |

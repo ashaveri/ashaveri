@@ -28,7 +28,7 @@ function digestOf(bytes: string): Buffer {
 describe('the models one weights manifest builds', () => {
   it('reads the manifest once and hands every model the one digest of those bytes', () => {
     let readings = 0;
-    const models = modelsFromManifest(['first', 'second'], MANIFEST, (path) => {
+    const { models, manifest } = modelsFromManifest(['first', 'second'], MANIFEST, (path) => {
       readings += 1;
       return new Uint8Array(readFileSync(path));
     });
@@ -40,13 +40,21 @@ describe('the models one weights manifest builds', () => {
     }
     // The same value rather than two equal copies: one reading is what the entire run states.
     expect(models[0]!.wts).toBe(models[1]!.wts);
+    // The bytes the route serves are the bytes that digest was taken over, held beside it.
+    expect(manifest.digest).toBe(models[0]!.wts);
+    expect(Buffer.from(manifest.bytes)).toEqual(Buffer.from(FIRST_BYTES));
+    expect(Buffer.from(manifest.bytes)).toEqual(Buffer.from(readFileSync(MANIFEST)));
   });
 
   it('digests the bytes on disk, so a rewritten manifest moves every model at once', () => {
-    const before = modelsFromManifest(['m'], MANIFEST)[0]!;
+    const before = modelsFromManifest(['m'], MANIFEST);
     writeFileSync(MANIFEST, `${FIRST_BYTES}\n`);
-    const after = modelsFromManifest(['m'], MANIFEST)[0]!;
-    expect(Buffer.from(after.wts)).toEqual(digestOf(`${FIRST_BYTES}\n`));
-    expect(Buffer.from(after.wts)).not.toEqual(Buffer.from(before.wts));
+    const after = modelsFromManifest(['m'], MANIFEST);
+    expect(Buffer.from(after.models[0]!.wts)).toEqual(digestOf(`${FIRST_BYTES}\n`));
+    expect(Buffer.from(after.models[0]!.wts)).not.toEqual(Buffer.from(before.models[0]!.wts));
+    // The reading a run holds is its own: a later read of the path does not move the bytes already
+    // handed over, which is the property the route depends on.
+    expect(Buffer.from(before.manifest.bytes)).toEqual(Buffer.from(FIRST_BYTES));
+    expect(Buffer.from(after.manifest.bytes)).toEqual(Buffer.from(`${FIRST_BYTES}\n`));
   });
 });

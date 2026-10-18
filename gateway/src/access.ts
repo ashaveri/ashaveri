@@ -489,7 +489,13 @@ export function newBearerCredential(input: {
   return { record, secret };
 }
 
-export type RouteScope = 'any' | 'read' | 'complete';
+/**
+ * What a route asks of a credential. `public` is the one row that asks for none: the weights manifest is
+ * addressed by the digest a receipt already carries, so a client holding that document needs no
+ * credential to read the bytes it names. A public row is answered before any credential is read, and
+ * every other row is answered exactly as it was.
+ */
+export type RouteScope = 'public' | 'any' | 'read' | 'complete';
 
 /**
  * Every route the gateway registers, and the least scope it accepts. A route that appears here but
@@ -498,6 +504,14 @@ export type RouteScope = 'any' | 'read' | 'complete';
  */
 export const ROUTE_SCOPES: Record<string, RouteScope> = {
   'GET /v1/deployment-manifest': 'any',
+  // The one public row. Its address is the digest a receipt already carries, so asking a verifier to
+  // hold a credential to check a document it was given would withhold the check itself. The method this
+  // row spells is not by itself the whole allowance: Fastify registers a HEAD beside every GET route and
+  // `routeScope` normalizes HEAD to GET before the lookup, so a HEAD on this one-segment path is answered
+  // here too, with the bytes withheld. A POST on the same path, and any path the table does not name,
+  // still meet the credential checks, and the route body answers a value that is not 64 lowercase hex
+  // with 400 rather than widening the row.
+  'GET /v1/weights/:digest': 'public',
   'GET /v1/attestation': 'read',
   'GET /v1/attestation/gpu': 'read',
   'GET /v1/receipts/:id': 'read',
@@ -654,6 +668,9 @@ export function routeScope(method: string, url: string): RouteScope | undefined 
 
 /** `read` on a route means either scope; the route table's one-way door. */
 export function scopeSatisfied(granted: readonly Scope[], required: RouteScope): boolean {
+  // A public row is never put to a credential: `admit` answers it before reading a header. The branch
+  // keeps this function total over the table for a caller that asks.
+  if (required === 'public') return true;
   if (required === 'any') return true;
   if (required === 'complete') return granted.includes('complete');
   return granted.includes('read') || granted.includes('complete');
@@ -878,11 +895,12 @@ export interface AdmissionInput {
 }
 
 export interface Admission {
-  credentialId: string;
+  /** The admitted credential, or null on a public route, where no credential is asked for. */
+  credentialId: string | null;
   scope: RouteScope;
-  auth: 'pop' | 'bearer';
+  auth: 'pop' | 'bearer' | null;
   nonce: Uint8Array | null;
-  /** The artifact this target names, for the one route that names one; `null` otherwise. */
+  /** The receipt a read route was asked for, for the one route whose path names one; `null` otherwise. */
   receiptId: string | null;
 }
 
@@ -932,7 +950,7 @@ function bodyDigest(body: Uint8Array | null): string {
   return sha256Hex(body);
 }
 
-/** `/v1/receipts/<id>` is the only route whose path names an artifact, so it is the only receipt id admission reports. */
+/** `/v1/receipts/<id>` is the only route whose path names a receipt, so it is the only receipt id admission reports. */
 function receiptIdFrom(url: string): string | null {
   const path = url.split('?', 1)[0] ?? url;
   const match = /^\/v1\/receipts\/([A-Za-z0-9_-]{1,64})$/u.exec(path);
@@ -1203,6 +1221,15 @@ export class CredentialStore {
     // check: refusing a target outside the table before a credential is named would let anyone
     // enumerate which paths this gateway has scoped.
     const scope = routeScope(input.method, input.url);
+    // The one route a credential is not asked for. Its address is the digest a receipt already carries,
+    // so a client that proves nothing beyond holding that receipt can read the bytes it names. The
+    // allowance is this table row and the HEAD that `routeScope` normalizes onto it: the one-segment path
+    // is the reach, and a target the table does not name still meets every check below. The connection
+    // bound above is charged here as it is everywhere, and no header is read, so a credential presented
+    // on this route is not verified and nothing about it reaches the access record.
+    if (scope === 'public') {
+      return { credentialId: null, scope, auth: null, nonce: null, receiptId: null };
+    }
     const header = firstHeader(input.headers, 'authorization');
     if (header === undefined || header.trim().length === 0) {
       throw new AccessError('AUTH_MALFORMED', { detail: 'no Authorization header' });

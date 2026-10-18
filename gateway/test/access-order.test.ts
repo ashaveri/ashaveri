@@ -102,13 +102,15 @@ function unlistedSpelledFrom(row: string, index: number): HttpRoute[] {
   const space = row.indexOf(' ');
   const listedMethod = row.slice(0, space);
   const pattern = row.slice(space + 1);
-  const concrete = pattern.replace(':id', 'rcpt_01');
+  // Each parameter is filled with a value its row accepts, so the candidates below are the ways past
+  // the matcher rather than typos of the pattern.
+  const concrete = pattern.replace(':id', 'rcpt_01').replace(':digest', 'ab'.repeat(32));
   const candidates: HttpRoute[] = [
     ...UNLISTED_METHODS.map((method) => ({ method, url: concrete })),
     { method: listedMethod, url: `${concrete}/past-the-end` },
     { method: listedMethod, url: `${concrete}/` },
   ];
-  if (pattern.includes(':')) {
+  if (pattern.includes(':id')) {
     candidates.push(
       { method: listedMethod, url: concrete.replace('rcpt_01', 'rcpt.01') },
       { method: listedMethod, url: concrete.replace('rcpt_01', '') },
@@ -819,18 +821,23 @@ describe('what a target the route table does not name costs', () => {
     // These are the draws the two properties above make from, so the corpus is their domain. It is
     // spelled out of `ROUTE_SCOPES` instead of typed out by hand, and the digest is what makes a change
     // to the table arrive as a failing test rather than as a quietly smaller set of targets.
-    expect(corpusDigest(UNLISTED_TARGETS)).toBe('c3589fce857b75e9473cd2f8e103d8c2148a98bd05a04de297b110cc8ab9512f');
-    expect(UNLISTED_TARGETS.length).toBe(38);
+    expect(corpusDigest(UNLISTED_TARGETS)).toBe('334b7355c56f1896791f9e8a655a1d29e5cdb22561ae7ade74555ac04d64403d');
+    expect(UNLISTED_TARGETS.length).toBe(45);
     // Two shapes, not one trick: a table path under a method the table has no row for, and a table
     // method over a path its pattern does not reach.
     expect(routeScope('PUT', COMPLETE_ROUTE.url)).toBeUndefined();
     expect(routeScope('POST', COMPLETE_ROUTE.url)).toBe('complete');
     expect(routeScope('GET', '/v1/receipts/rcpt.01')).toBeUndefined();
     expect(routeScope('GET', '/v1/receipts/rcpt_01')).toBe('read');
+    expect(routeScope('GET', `/v1/weights/${'ab'.repeat(32)}`)).toBe('public');
+    // The table names the route; the digest's own width is the route body's check, which is what lets a
+    // malformed digest answer 400 rather than disappear into the credential refusal of an unknown path.
+    expect(routeScope('GET', '/v1/weights/not-a-digest')).toBe('public');
     // `HEAD` is GET without a body and Fastify answers it on every GET route, so it is listed and has
     // no business being in a corpus of unlisted targets.
     expect(routeScope('HEAD', WORK_ROUTE.url)).toBe('any');
     expect(routeScope('HEAD', '/v1/attestation')).toBe('read');
+    expect(routeScope('HEAD', `/v1/weights/${'ab'.repeat(32)}`)).toBe('public');
     expect(UNLISTED_TARGETS.some((each) => each.method === 'HEAD')).toBe(false);
   });
 });

@@ -336,6 +336,20 @@ What is still true, in both modes:
   so no refusal distinguishes a real id from an invented one for a caller that has proved nothing. The
   access log does keep the true reason for such a refusal, and the log is the deployer's artifact,
   erased with the credential it names.
+- **The public read of the weights manifest is unauthenticated, unattributable, and not free.**
+  `GET /v1/weights/<wts>`, and the HEAD that the route table read normalizes onto that same row, is
+  admitted before a header is touched, so the access line names no credential: `cred`, `auth`, `nce`
+  and `rcp` are all null on it. Whoever holds a digest and the deployment's URL reads the manifest
+  bytes, and a digest stops being private the moment a receipt carrying it is shown to anyone. What
+  bounds that is the one check taken ahead of the table read: the shared per-address request bound,
+  2,000 requests in a burst and 6,000 a minute from one connection address, which `admit` spends
+  before it consults `ROUTE_SCOPES` and therefore spends on this row as on every other. It is the
+  only bound there is, because a caller that presents no credential has no credential bucket to
+  charge, so the read is rate-limited rather than free. A deployment behind one reverse proxy puts
+  every anonymous reader through one bucket, the shape
+  [access-control.md](access-control.md) section 1 describes for the bound.
+  `gateway/test/admission.test.ts` pins the order: on an address holding one token, the first public
+  read is admitted and the second is refused `RATE_LIMITED`.
 - **Receipt retention is a deployment choice, not a protocol guarantee.** A signerd started with
   `--receipts-dir` appends each receipt to a hash-chained file on that volume and keeps it for 184
   days, or until 10,000 later receipts push it out as a bound on the volume, whichever comes
@@ -369,10 +383,13 @@ What is still true, in both modes:
   key it was. What no deployment here can do is present a long-term identity of its own: the wrapper
   names whoever holds the key an operator pointed at, and the decision about which identity that should
   be, and where its key lives, is outside this code.
-- **The weights digest chain has one open link.** The receipt binds `sha256(manifest)` and the
-  manifest binds each model file, but the manifest itself is not carried in the receipt and is
-  not in the compose measurement unless the operator mounts the weights as a dm-verity volume.
-  A client that has not been given the manifest out of band sees an opaque `wts` value.
+- **The weights digest chain can be closed by a fetch, and the fetch says nothing about loading.** The
+  receipt binds `sha256(manifest)` and the manifest binds each model file. The manifest is not carried
+  in the receipt, but a deployment that read one serves the bytes at `GET /v1/weights/<wts>`, so a
+  client holding a receipt can fetch them and check the digest without trusting the transport. What
+  that check cannot show is that the deployment loaded the model files the manifest lists, and the
+  manifest is not in the compose measurement unless the operator mounts the weights as a dm-verity
+  volume. A mock deployment holds no bytes behind its `wts` and answers 404.
 - **On the managed dStack platform, TLS terminates outside the TEE.** The measured container
   serves plain HTTP behind the platform gateway, so transport confidentiality depends on the
   platform edge, not on a channel the workload terminates inside the enclave.
