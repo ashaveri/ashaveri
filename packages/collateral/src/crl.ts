@@ -9,6 +9,7 @@ import type { RevocationList, RevokedCertificate, SignedWindow } from './types.j
 const OID_ECDSA_SHA256 = '1.2.840.10045.4.3.2';
 const OID_ECDSA_SHA384 = '1.2.840.10045.4.3.3';
 const OID_CRL_REASON = '2.5.29.21';
+const OID_COMMON_NAME = '2.5.4.3';
 
 /** The algorithm names a refusal can state, keyed by the OID the list carries. */
 const ALGORITHM_NAMES: Readonly<Record<string, string>> = {
@@ -53,7 +54,10 @@ export type RevocationReadOutcome = { readonly read: RevocationList } | { readon
  * The parser is bounded by the declaration's own byte cap and by strict DER rules: definite lengths only,
  * no multi-byte tags, no trailing data inside any sequence. A list that is not the shape this origin
  * declares answers `COLLATERAL_BLOB_UNREADABLE`, and a list whose signature does not hold answers
- * `COLLATERAL_SIGNATURE_UNVERIFIED`.
+ * `COLLATERAL_SIGNATURE_UNVERIFIED`. Once the signature holds, the issuer the list names is checked against the
+ * one the requested authority scope publishes, and a list from the other scope answers
+ * `COLLATERAL_IDENTITY_MISMATCH` rather than a question about this one. A question that states no scope has no
+ * issuer to bind to, so it is refused as a missing input before any list is read.
  */
 export function readPckCrl(body: Uint8Array, chain: Uint8Array | null, reading: Reading): RevocationReadOutcome {
   if (!isCrlDeclaration(reading.declaration)) {
@@ -68,6 +72,16 @@ export function readPckCrl(body: Uint8Array, chain: Uint8Array | null, reading: 
     };
   }
   const declaration: CrlOriginDeclaration = reading.declaration;
+  const scope = reading.query.ca;
+  if (scope !== 'processor' && scope !== 'platform') {
+    return {
+      refusal: collateralRefusal(
+        'COLLATERAL_INPUT_MISSING',
+        `${declaration.name} answers about one authority scope and none was given, so no issuer can be bound to a question`,
+        ['ca'],
+      ),
+    };
+  }
   if (body.byteLength === 0) {
     return unreadable(declaration, 'the body is empty');
   }
@@ -113,6 +127,16 @@ export function readPckCrl(body: Uint8Array, chain: Uint8Array | null, reading: 
   }
   if (!verifiesUnderLeaf(signer, list.tbs, list.signature)) {
     return signatureRefusal(declaration, 'the signature over tbsCertList does not hold under the certificate that carries the list issuer name');
+  }
+  const expected = declaration.issuers[scope];
+  if (commonName(list.issuer) !== expected) {
+    return {
+      refusal: collateralRefusal(
+        declaration.refusals.identity,
+        `the list does not name ${expected} as its issuer, and the ${scope} scope publishes that name`,
+        ['ca'],
+      ),
+    };
   }
   return {
     read: {
@@ -419,6 +443,50 @@ function decodeOid(body: Uint8Array, tlv: Tlv): string {
   const firstArc = first < 40 ? 0 : first < 80 ? 1 : 2;
   const secondArc = first < 40 ? first : first < 80 ? first - 40 : first - 80;
   return [firstArc, secondArc, ...arcs.slice(1)].join('.');
+}
+
+/** The one common name a DER Name carries, or null where it carries none this parser reads. */
+function commonName(name: Uint8Array): string | null {
+  let found: string | null = null;
+  try {
+    let at = 0;
+    while (at < name.byteLength) {
+      const rdn = readTlv(name, at, name.byteLength, 'issuer');
+      expectTag(rdn, 0x31, 'issuer');
+      let inner = rdn.contentStart;
+      while (inner < rdn.end) {
+        const attribute = readTlv(name, inner, rdn.end, 'issuer attribute');
+        expectTag(attribute, 0x30, 'issuer attribute');
+        let field = attribute.contentStart;
+        const oidTlv = readTlv(name, field, attribute.end, 'issuer attribute oid');
+        expectTag(oidTlv, 0x06, 'issuer attribute oid');
+        field = oidTlv.end;
+        const value = readTlv(name, field, attribute.end, 'issuer attribute value');
+        if (value.end !== attribute.end) {
+          fail('trailing data inside an issuer attribute');
+        }
+        if (decodeOid(name, oidTlv) === OID_COMMON_NAME) {
+          if (found !== null) {
+            fail('the issuer carries more than one common name');
+          }
+          found = attributeText(name, value);
+        }
+        inner = attribute.end;
+      }
+      at = rdn.end;
+    }
+  } catch {
+    return null;
+  }
+  return found;
+}
+
+/** A Name attribute's text, for the string types a served name uses and no other. */
+function attributeText(body: Uint8Array, tlv: Tlv): string {
+  if (tlv.tag !== 0x0c && tlv.tag !== 0x13 && tlv.tag !== 0x16) {
+    fail(`an issuer attribute uses tag 0x${tlv.tag.toString(16)}, whose text this reader does not read`);
+  }
+  return new TextDecoder('utf-8').decode(body.subarray(tlv.contentStart, tlv.end));
 }
 
 /** One Time value as Unix seconds, with the calendar checked rather than normalized. */

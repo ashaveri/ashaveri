@@ -232,7 +232,13 @@ export interface CollateralClaim {
   readonly cacheKey: string;
 }
 
-/** One entry of a DER certificate list's revokedCertificates sequence. */
+/**
+ * One entry of a DER certificate list's revokedCertificates sequence.
+ *
+ * The sequence can carry an entry whose reason is `removeFromCRL`, which takes a certificate out of a
+ * listing rather than revoking it. Such an entry is copied here with its own bytes, and the serial appraisal
+ * refuses it under `COLLATERAL_STATUS_UNSUPPORTED` rather than reading it as a revocation.
+ */
 export interface RevokedCertificate {
   /** The serial exactly as the list's INTEGER content carries it, including a leading zero the DER needs. */
   readonly serial: Uint8Array;
@@ -278,7 +284,9 @@ export interface RevocationList {
  * `not-listed` is the state a verified, current list reaches when it does not name the serial asked about.
  * It is not `current` and not a pass: the list says the issuer had not listed that certificate as of its
  * `thisUpdate`, which is a narrower statement than the certificate being trusted. A list that names the
- * serial is `revoked`, with the bytes kept beside the refusal. `stale` covers a list that speaks for a window
+ * serial is `revoked`, with the bytes kept beside the refusal, unless the entry states `removeFromCRL`,
+ * which removes a listing rather than revoking a certificate and answers `unavailable` under
+ * `COLLATERAL_STATUS_UNSUPPORTED` with no list beside it. `stale` covers a list that speaks for a window
  * outside the moment asked about, and a list this run did not observe; the claim beside it says which.
  */
 export type RevocationOutcome =

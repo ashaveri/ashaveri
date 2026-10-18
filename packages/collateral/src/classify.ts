@@ -368,11 +368,14 @@ function signed(read: ReadCollateral, query: CollateralQuery, readAs: StatusRead
  *
  * A named serial is `revoked` even when the list stands outside the moment asked about, because the bytes
  * still carry a signature over the statement that the serial was listed; the claim beside the answer states
- * how far that reach goes. A list that does not name the serial is `not-listed` only when this run watched it
- * arrive inside its own window; otherwise the honest answer is `stale`, with the window refusal for a list
- * that stood outside the moment asked about and the observation refusal for bytes this run did not fetch.
- * `not-listed` is deliberately not a passing state: the issuer's silence about one serial is narrower than a
- * statement that the certificate is trusted.
+ * how far that reach goes, and a refusal whose moment precedes the listing says so rather than leaving the
+ * reader to compare two instants. One reason code is not a revocation: `removeFromCRL` removes a listing, so
+ * an entry that carries it answers `COLLATERAL_STATUS_UNSUPPORTED` instead of reading as revoked. A list
+ * that does not name the serial is `not-listed` only when this run watched it arrive inside its own window;
+ * otherwise the honest answer is `stale`, with the window refusal for a list that stood outside the moment
+ * asked about and the observation refusal for bytes this run did not fetch. `not-listed` is deliberately not
+ * a passing state: the issuer's silence about one serial is narrower than a statement that the certificate is
+ * trusted.
  */
 function classifyRevocation(
   list: RevocationList,
@@ -400,14 +403,27 @@ function classifyRevocation(
   };
   const named = list.revoked.find((entry) => entry.serialHex === normalizedSerial(query.certificateSerial));
   if (named !== undefined) {
+    if (named.reasonCode === REMOVE_FROM_CRL) {
+      return unavailableRevocation(collateralRefusal(
+        declaration.refusals.statusUnknown,
+        `the list names serial ${named.serialHex} with removeFromCRL, which removes a listing rather than revoking the certificate, and no revocation is read from it`,
+      ));
+    }
     const reason = named.reason ?? (named.reasonCode === null ? 'no reason stated' : `reason code ${String(named.reasonCode)}`);
+    const precedes = appraisalAt < list.window.from
+      ? `; asked ${iso(appraisalAt)} precedes the list's thisUpdate`
+      : appraisalAt < named.revokedAt
+        ? `; asked ${iso(appraisalAt)} precedes its revocation date`
+        : null;
     return {
       state: 'revoked',
       list,
       claim,
       refusal: collateralRefusal(
         'COLLATERAL_REVOKED_BY_VENDOR',
-        `the signed list names serial ${named.serialHex} with ${reason}, revoked at ${new Date(named.revokedAt * 1000).toISOString()}; the list stands from ${new Date(list.window.from * 1000).toISOString()} to ${new Date(list.window.until * 1000).toISOString()}`,
+        precedes === null
+          ? `serial ${named.serialHex} with ${reason} at ${iso(named.revokedAt)}; the list stands ${iso(list.window.from)} to ${iso(list.window.until)}`
+          : `serial ${named.serialHex} with ${reason} at ${iso(named.revokedAt)}${precedes}`,
       ),
     };
   }
@@ -434,6 +450,11 @@ function classifyRevocation(
 /** A serial as the number it names, with no leading zero the query's spelling or the DER's padding added. */
 function normalizedSerial(value: string): string {
   return BigInt(`0x${value}`).toString(16);
+}
+
+/** A Unix instant as the text a refusal prints. */
+function iso(seconds: number): string {
+  return new Date(seconds * 1000).toISOString();
 }
 
 /** Everything a query has to state before the origin is worth asking. */
@@ -488,6 +509,9 @@ function askedButNotGivenCrl(query: PckCrlQuery, declaration: CrlOriginDeclarati
 
 /** A certificate serial as a query spells it: hex digits and nothing else. */
 const SERIAL = /^[0-9a-fA-F]{1,128}$/u;
+
+/** RFC 5280's reason that takes an entry out of a listing rather than revoking the certificate. */
+const REMOVE_FROM_CRL = 8;
 
 function missingContext(refusal: CollateralRefusal): CollateralOutcome {
   return { state: 'missing-context', collateral: null, claim: null, refusal };

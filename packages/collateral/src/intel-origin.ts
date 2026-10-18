@@ -214,6 +214,12 @@ export interface CrlOriginDeclaration extends OriginDeclarationCommon {
   readonly routes: readonly DeclaredRoute[];
   /** The query member that names the certificate serial this list is asked about. */
   readonly serialMember: 'certificateSerial';
+  /**
+   * The issuer name the list of each authority scope is expected to carry, as the common name its own Name
+   * states. The scope is part of the question, so a list whose issuer is not the name of the scope asked about
+   * answers `COLLATERAL_IDENTITY_MISMATCH` rather than carrying the answer over from the other authority.
+   */
+  readonly issuers: Readonly<Record<'processor' | 'platform', string>>;
   readonly cache: OriginCacheRule;
 }
 
@@ -432,24 +438,25 @@ export const INTEL_QE_IDENTITY: IntelOriginDeclaration = {
 /**
  * Intel's PCK CRL: the signed revocation list for the platform and processor PCK certificates.
  *
- * The route and the answer shape are measured. Asked at
- * `https://api.trustedservices.intel.com/sgx/certification/v4/pckcrl?ca=processor&encoding=der` on
- * 17 October 2026, the host answered 200 with `content-type: application/pkix-crl` and a 1003-byte body
- * beginning with the DER sequence tag `30 82`; the same path with `ca=platform` answered with a longer list.
- * The issuer chain arrives beside the body in the response's `SGX-PCK-CRL-Issuer-Chain` header as
- * URL-encoded PEM, leaf first. The served list is a DER `CertificateList`: version 2, `ecdsa-with-SHA256`,
- * issuer `Intel SGX PCK Processor CA`, a `thisUpdate` and `nextUpdate` a month apart, thirteen revoked
- * certificate serials each carrying a `keyCompromise` reason, and CRL number and authority key identifier
- * extensions. The signature is ECDSA P-256 over the DER of `tbsCertList`, including its own tag and length.
- * No bytes from either answer are kept here: a service's output travels as a reference, not as a committed
- * blob.
+ * The route and the answer shape are measured: the route this declaration states answers 200 with
+ * `content-type: application/pkix-crl` and a DER `CertificateList` signed with `ecdsa-with-SHA256`, and the
+ * issuer chain arrives beside the body in the response's `SGX-PCK-CRL-Issuer-Chain` header as URL-encoded PEM,
+ * leaf first. The same route answers for either authority scope, and each scope's list names its own
+ * authority, which is why the issuer is bound to the `ca` that was asked for rather than reported beside the
+ * answer. The signature is ECDSA P-256 over the DER of `tbsCertList`, including its own tag and length. No
+ * bytes from either answer are kept here: a service's output travels as a reference, not as a committed blob.
  *
  * `readPckCrl` parses the list and walks the header's chain to a root the caller pinned, and `appraisePckCrl`
- * answers about one certificate serial. A list speaks for the window between its own `thisUpdate` and
- * `nextUpdate`; an instant outside that window answers `COLLATERAL_WINDOW_CLOSED`. The answer for a serial the
- * list names is `revoked` under `COLLATERAL_REVOKED_BY_VENDOR`. A list that does not name the serial answers
+ * answers about one certificate serial. The list's issuer is bound to the requested `ca`: each scope's list
+ * names its own authority, and the other scope's list answers `COLLATERAL_IDENTITY_MISMATCH` rather than a
+ * question about this one. A list speaks for the window between its own `thisUpdate` and `nextUpdate`; an
+ * instant outside that window answers `COLLATERAL_WINDOW_CLOSED` where the list does not name the serial. The
+ * answer for a serial the list names is `revoked` under `COLLATERAL_REVOKED_BY_VENDOR`, wherever that moment
+ * falls, and an entry whose reason is `removeFromCRL` is refused under `COLLATERAL_STATUS_UNSUPPORTED` because
+ * a removal is not a revocation. A current list this run fetched that does not name the serial answers
  * `not-listed`, which is the issuer's silence about that certificate as of `thisUpdate` and not a statement
- * that the certificate is trusted. Nothing here decides a hardware pass.
+ * that the certificate is trusted. Where the moment asked precedes the listing, the revocation refusal says
+ * so. Nothing here decides a hardware pass.
  */
 export const INTEL_PCK_CRL: CrlOriginDeclaration = {
   name: 'intel-pck-crl',
@@ -474,6 +481,17 @@ export const INTEL_PCK_CRL: CrlOriginDeclaration = {
     },
   ],
   serialMember: 'certificateSerial',
+  /**
+   * The issuer name each authority scope's own list carries, read from that list's `issuer` field and from the
+   * leaf certificate of the chain header the same answer brings. The common name is what carries the
+   * authority, so it is what binds a list to the `ca` that was asked for: a processor list handed to a
+   * platform question would be a true statement about another authority. A scope has a name here only where a
+   * served list of that scope carried one.
+   */
+  issuers: {
+    processor: 'Intel SGX PCK Processor CA',
+    platform: 'Intel SGX PCK Platform CA',
+  },
   /**
    * The list states one window for every serial it carries, so a kept copy is keyed by the authority scope
    * whose list it is. The platform is absent because the measured route is not indexed by one.

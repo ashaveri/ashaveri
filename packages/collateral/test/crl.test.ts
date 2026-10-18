@@ -31,13 +31,15 @@ import { writeCrl } from './crl-writer.js';
 const THIS = secondsOf('2026-09-01T00:00:00Z');
 const NEXT = secondsOf('2026-10-01T00:00:00Z');
 const WITHIN = secondsOf('2026-09-15T00:00:00Z');
+const LATER = secondsOf('2026-09-20T00:00:00Z');
+const BEFORE = secondsOf('2026-08-15T00:00:00Z');
 const AFTER = secondsOf('2026-11-15T00:00:00Z');
 const OBSERVED = secondsOf('2026-09-15T06:00:00Z');
 const SERIAL = '5b0bf77b49c75aaba21cf76ad14224c0514fdcf4';
 const OTHER = '0badc0de';
 const HEADER = INTEL_PCK_CRL.chainHeader as string;
 
-const vendor = testVendor();
+const vendor = testVendor({ issuerName: INTEL_PCK_CRL.issuers.processor });
 
 function hex(bytes: Uint8Array): string {
   return Array.from(bytes, (byte) => byte.toString(16).padStart(2, '0')).join('');
@@ -60,11 +62,12 @@ function query(over: Partial<PckCrlQuery> = {}): PckCrlQuery {
 }
 
 function listOf(input: {
-  readonly revoked?: readonly { readonly serial: string; readonly revokedAt: number; readonly reason?: number }[];
+  readonly revoked?: readonly { readonly serial: string; readonly revokedAt: number; readonly reason?: number; readonly redundantSerialZero?: boolean }[];
   readonly signer?: TestVendor;
   readonly signingKey?: Uint8Array;
   readonly algorithmOid?: string;
   readonly omitNextUpdate?: boolean;
+  readonly omitVersion?: boolean;
   readonly trailing?: Uint8Array;
 } = {}): Uint8Array {
   return writeCrl({
@@ -75,6 +78,7 @@ function listOf(input: {
     signingKey: input.signingKey,
     algorithmOid: input.algorithmOid,
     omitNextUpdate: input.omitNextUpdate,
+    omitVersion: input.omitVersion,
     trailing: input.trailing,
   });
 }
@@ -327,6 +331,45 @@ describe('the checks the outcomes rest on', () => {
     expect(refusalOf(after).code).toBe('COLLATERAL_REVOKED_BY_VENDOR');
   });
 
+  it('refuses a removeFromCRL entry rather than reading a removal as a revocation', async () => {
+    const body = listOf({ revoked: [{ serial: SERIAL, revokedAt: THIS, reason: 8 }] });
+    const outcome = await ask(answering(body, servedChain(vendor)));
+    expect(outcome.state).toBe('unavailable');
+    expect(refusalOf(outcome).code).toBe('COLLATERAL_STATUS_UNSUPPORTED');
+    expect(refusalOf(outcome).detail).toContain('removeFromCRL');
+    expect(refusalOf(outcome).detail).toContain(SERIAL);
+    expect(outcome.list, 'a refusal of a removal keeps no list and reads no revocation').toBeNull();
+
+    const kept = await ask(neverAsked(), {
+      retained: { bytes: body, chain: servedChain(vendor), chainSha256: null, observedAt: OBSERVED },
+    });
+    expect(kept.state).toBe('unavailable');
+    expect(refusalOf(kept).code).toBe('COLLATERAL_STATUS_UNSUPPORTED');
+
+    const untouched = await ask(answering(body, servedChain(vendor)), { certificateSerial: OTHER });
+    expect(untouched.state).toBe('not-listed');
+  });
+
+  it('says the moment precedes the listing for each of its two orderings', async () => {
+    const body = listOf({ revoked: [{ serial: SERIAL, revokedAt: THIS, reason: 1 }] });
+    const beforeList = await ask(neverAsked(), {
+      retained: { bytes: body, chain: servedChain(vendor), chainSha256: null, observedAt: OBSERVED },
+      appraisalAt: BEFORE,
+    });
+    expect(beforeList.state).toBe('revoked');
+    if (!('refusal' in beforeList)) throw new Error('a revocation carried no refusal');
+    expect(beforeList.refusal.code).toBe('COLLATERAL_REVOKED_BY_VENDOR');
+    expect(beforeList.refusal.detail).toContain("precedes the list's thisUpdate");
+    expect(weighed(beforeList).claim.reach).toBe('historical-knowledge');
+
+    const laterEntry = listOf({ revoked: [{ serial: SERIAL, revokedAt: LATER, reason: 1 }] });
+    const beforeEntry = await ask(answering(laterEntry, servedChain(vendor)), { appraisalAt: WITHIN });
+    expect(beforeEntry.state).toBe('revoked');
+    if (!('refusal' in beforeEntry)) throw new Error('a revocation carried no refusal');
+    expect(beforeEntry.refusal.detail).toContain('precedes its revocation date');
+    expect(weighed(beforeEntry).claim.reach).toBe('current-knowledge');
+  });
+
   it('compares a serial as a number, so case and padding do not change the answer', async () => {
     const body = listOf({ revoked: [{ serial: SERIAL, revokedAt: THIS, reason: 1 }] });
     for (const spelling of [SERIAL.toUpperCase(), `00${SERIAL}`, `0000${SERIAL.toUpperCase()}`]) {
@@ -396,9 +439,64 @@ describe('the DER shape this reader refuses', () => {
 
   it('refuses a list whose issuer name is worn by a certificate another key signed', () => {
     const body = listOf();
-    const lookalike = testVendor();
+    const lookalike = testVendor({ issuerName: INTEL_PCK_CRL.issuers.processor });
     const refused = readPckCrl(body, servedChain(lookalike), { query: query(), declaration: INTEL_PCK_CRL, appraisalAt: WITHIN });
     expect(refusalOf(refused).code).toBe('COLLATERAL_SIGNATURE_UNVERIFIED');
+  });
+
+  it('binds the list issuer to the requested authority scope', async () => {
+    const platformVendor = testVendor({ issuerName: INTEL_PCK_CRL.issuers.platform });
+    const body = listOf({ signer: platformVendor });
+    const wrong = await ask(answering(body, servedChain(platformVendor)), {
+      ca: 'processor',
+      roots: [platformVendor.rootDer],
+    });
+    expect(wrong.state).toBe('unavailable');
+    expect(refusalOf(wrong).code).toBe('COLLATERAL_IDENTITY_MISMATCH');
+    expect(refusalOf(wrong).missing).toEqual(['ca']);
+    expect(refusalOf(wrong).detail).toContain(INTEL_PCK_CRL.issuers.processor);
+
+    const otherWay = await ask(answering(listOf(), servedChain(vendor)), { ca: 'platform' });
+    expect(otherWay.state).toBe('unavailable');
+    expect(refusalOf(otherWay).code).toBe('COLLATERAL_IDENTITY_MISMATCH');
+    expect(refusalOf(otherWay).detail).toContain(INTEL_PCK_CRL.issuers.platform);
+
+    const right = await ask(answering(body, servedChain(platformVendor)), {
+      ca: 'platform',
+      roots: [platformVendor.rootDer],
+    });
+    expect(right.state).toBe('not-listed');
+  });
+
+  it('refuses to bind an issuer to a scope the question did not state', () => {
+    const noScope = readPckCrl(listOf(), servedChain(vendor), {
+      query: { ...query(), ca: null },
+      declaration: INTEL_PCK_CRL,
+      appraisalAt: WITHIN,
+    });
+    expect(refusalOf(noScope).code).toBe('COLLATERAL_INPUT_MISSING');
+    expect(refusalOf(noScope).missing).toEqual(['ca']);
+    expect(refusalOf(noScope).detail).toContain(INTEL_PCK_CRL.name);
+  });
+
+  it('refuses malformed DER framings and reads an absent version as version 1', () => {
+    for (const [name, body, why] of [
+      ['indefinite length', Uint8Array.of(0x30, 0x80), 'indefinite length'],
+      ['long-form overrun', Uint8Array.of(0x30, 0x81, 0x80), 'overruns the bytes'],
+      ['multi-byte tag', Uint8Array.of(0x3f, 0x00), 'multi-byte tag'],
+    ] as const) {
+      const refused = readPckCrl(body, servedChain(vendor), { query: query(), declaration: INTEL_PCK_CRL, appraisalAt: WITHIN });
+      expect(refusalOf(refused).code, name).toBe('COLLATERAL_BLOB_UNREADABLE');
+      expect(refusalOf(refused).detail, name).toContain(why);
+    }
+
+    const redundant = listOf({ revoked: [{ serial: OTHER, revokedAt: THIS, redundantSerialZero: true }] });
+    const redundantRead = readPckCrl(redundant, servedChain(vendor), { query: query(), declaration: INTEL_PCK_CRL, appraisalAt: WITHIN });
+    expect(refusalOf(redundantRead).code).toBe('COLLATERAL_BLOB_UNREADABLE');
+    expect(refusalOf(redundantRead).detail).toContain('redundant leading zero');
+
+    const absentVersion = listOf({ omitVersion: true });
+    expect(read(absentVersion, servedChain(vendor)).version).toBe(1);
   });
 });
 
@@ -423,5 +521,9 @@ describe('the declaration the reader is wired through', () => {
     );
     expect(collateralCacheKey(query(), INTEL_PCK_CRL)).toBe('origin=intel-pck-crl|ca=processor');
     expect(INTEL_PCK_CRL.serialMember).toBe('certificateSerial');
+    expect(INTEL_PCK_CRL.issuers).toEqual({
+      processor: 'Intel SGX PCK Processor CA',
+      platform: 'Intel SGX PCK Platform CA',
+    });
   });
 });

@@ -18,6 +18,8 @@ export interface CrlEntryInput {
   readonly revokedAt: number;
   /** A cRLReason code, or absent where the entry states no reason. */
   readonly reason?: number;
+  /** Pad the serial INTEGER with a leading zero it does not need, which strict DER refuses. */
+  readonly redundantSerialZero?: boolean;
   /** An unknown critical extension beside the reason, for a case that asks what the reader does with one. */
   readonly unknownCriticalExtension?: boolean;
   /** An unknown non-critical extension beside the reason, which a reader may skip. */
@@ -35,6 +37,8 @@ export interface CrlInput {
   readonly algorithmOid?: string;
   /** Leave `nextUpdate` out, which is a list that states no end to its own window. */
   readonly omitNextUpdate?: boolean;
+  /** Leave the version INTEGER out, which is the DER spelling of version 1. */
+  readonly omitVersion?: boolean;
   /** Bytes after the outer sequence, which a strict reader refuses. */
   readonly trailing?: Uint8Array;
 }
@@ -54,7 +58,7 @@ export function writeCrl(input: CrlInput): Uint8Array {
   const algorithm = sequence(oidNode(input.algorithmOid ?? OID_ECDSA_SHA256));
   const entries = (input.revoked ?? []).map((entry) => revokedEntry(entry));
   const tbs = sequence(
-    integerSmall(1),
+    ...(input.omitVersion ? [] : [integerSmall(1)]),
     algorithm,
     sequence(issuer.subject),
     timeNode(input.thisUpdate),
@@ -79,7 +83,7 @@ function revokedEntry(input: CrlEntryInput): Uint8Array {
     extensions.push(extensionNode(OID_UNKNOWN, true, octetNode(tlv(0x04, Uint8Array.of(1)))));
   }
   return sequence(
-    serialInteger(input.serial),
+    serialInteger(input.serial, input.redundantSerialZero === true),
     timeNode(input.revokedAt),
     ...(extensions.length === 0 ? [] : [sequence(...extensions)]),
   );
@@ -93,7 +97,7 @@ function extensionNode(oid: string, critical: boolean, value: Uint8Array): Uint8
   );
 }
 
-function serialInteger(hex: string): Uint8Array {
+function serialInteger(hex: string, redundantZero = false): Uint8Array {
   if (!/^[0-9a-fA-F]+$/u.test(hex)) {
     throw new Error(`serial ${hex} is not hex text`);
   }
@@ -106,6 +110,9 @@ function serialInteger(hex: string): Uint8Array {
     bytes = bytes.slice(1);
   }
   if ((bytes[0] as number) >= 0x80) {
+    bytes.unshift(0);
+  }
+  if (redundantZero) {
     bytes.unshift(0);
   }
   return tlv(0x02, Uint8Array.from(bytes));
