@@ -162,6 +162,8 @@ export type {
   RetentionObservedHead,
   RetentionSequenceRange,
 } from './retention-assessment.js';
+export { produceRetentionAssessment } from './retention-assessment-produce.js';
+export type { ProducedRetentionAssessment, RetentionAssessmentEvidence } from './retention-assessment-produce.js';
 export { fromBase64Url, toBase64Url, toHex } from './b64.js';
 export {
   claimsConfidentialDevice,
