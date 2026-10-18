@@ -14,14 +14,15 @@ import { sha256 } from '@noble/hashes/sha2.js';
  * the CPU type is the vendor's `fmspc`, so a test cannot make the identity guard fire by writing a name here
  * that the reader looks for there.
  *
- * Two envelopes are written here, because `@ashaveri/collateral` reads two. `signedDocument` writes three base64url
- * parts with the certificates in the header, which is the envelope `readSignedCollateral` decodes and the
- * shape Intel does not answer in. `servedAnswer` writes the answer that address returns, the document member
- * and a hex `signature` member, beside the issuer chain a response header carries, which is what
- * `readServedCollateral` weighs. Material that arrived inside a pack arrives alone, with no response header
- * beside it, so the two are kept apart rather than reconciled from here, and `servedJsonBody` hands a test
- * the vendor's own body with no chain anywhere, precisely so a case can pin the refusal the JWS arm owes it
- * rather than pretend the gap away.
+ * Two envelope shapes are written here, the two the JSON arms of `@ashaveri/collateral` read. The package's
+ * third origin is a DER certificate list, and its cases write that shape directly rather than through an
+ * envelope here. `signedDocument` writes three base64url parts with the certificates in the header, which is
+ * the envelope `readSignedCollateral` decodes and the shape Intel does not answer in. `servedAnswer` writes
+ * the answer that address returns, the document member and a hex `signature` member, beside the issuer chain
+ * a response header carries, which is what `readServedCollateral` weighs. Material that arrived inside a pack
+ * arrives alone, with no response header beside it, so the two are kept apart rather than reconciled from
+ * here, and `servedJsonBody` hands a test the vendor's own body with no chain anywhere, precisely so a case
+ * can pin the refusal the JWS arm owes it rather than pretend the gap away.
  *
  * Builders here state only the members the collateral reader reads, spelled as the vendor spells them. The members a
  * served body states and nothing here reads (`id`, `version`, `pceId`, `tcbType`,

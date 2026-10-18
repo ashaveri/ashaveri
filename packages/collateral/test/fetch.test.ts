@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import {
+  INTEL_PCK_CRL,
   INTEL_QE_IDENTITY,
   INTEL_TCB_INFO,
   collateralCacheKey,
@@ -84,7 +85,7 @@ describe('the Intel retrieval path', () => {
   });
 
   it('refuses an origin it does not read instead of guessing at one', () => {
-    for (const origin of ['intel-pck-crl', 'amd-kds', 'nvidia-rim', 'ocsp'] as const) {
+    for (const origin of ['amd-kds', 'nvidia-rim', 'ocsp'] as const) {
       const asked = declarationFor(origin);
       if ('refusal' in asked) {
         expect(asked.refusal.code, origin).toBe('COLLATERAL_ORIGIN_UNSUPPORTED');
@@ -93,6 +94,7 @@ describe('the Intel retrieval path', () => {
         throw new Error(`${origin} is served, which this package does not do`);
       }
     }
+    expect(declarationFor('intel-pck-crl'), 'the CRL now has a reader').toBe(INTEL_PCK_CRL);
   });
 
   it('sends no credential and asks for the declared media type', async () => {

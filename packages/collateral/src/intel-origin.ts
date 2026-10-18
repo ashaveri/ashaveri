@@ -1,11 +1,14 @@
 import { collateralRefusal, quoteOrDigest, type CollateralErrorCode, type CollateralInputName, type CollateralRefusal } from './errors.js';
 import type { CollateralOriginName, CollateralQuery, IntelPlatform } from './types.js';
 
-/** The two documents this package reads. A query naming another origin is refused with what that origin lacks. */
-export type ReadCollateralOrigin = 'intel-tcb-info' | 'intel-qe-identity';
+/** The origins this package reads. A query naming another origin is refused with what that origin lacks. */
+export type ReadCollateralOrigin = 'intel-tcb-info' | 'intel-qe-identity' | 'intel-pck-crl';
+
+/** The origins whose answer is the served JSON document that one reader weighs. */
+export type ReadDocumentOrigin = 'intel-tcb-info' | 'intel-qe-identity';
 
 /** Which field of a query the cache key is built from. */
-export type CollateralCacheMember = 'origin' | 'platform' | 'cpuType' | 'level';
+export type CollateralCacheMember = 'origin' | 'platform' | 'cpuType' | 'level' | 'ca';
 
 /**
  * The shape an origin's answer takes, which decides whether this package has an arm to weigh it.
@@ -197,7 +200,30 @@ export interface DeclaredOriginDeclaration extends OriginDeclarationCommon {
   readonly cache: null;
 }
 
-export type OriginDeclaration = IntelOriginDeclaration | DeclaredOriginDeclaration;
+/**
+ * A declaration this package reads as a DER certificate list: the Intel PCK CRL.
+ *
+ * The list states its own window and its own issuer, so a kept blob answers about that window and about every
+ * serial the list names. The query member carrying the serial is declared here rather than left to a call site,
+ * because a list asked without a serial has no question to answer, and the cache key names the authority scope
+ * whose list was kept rather than a serial the same list answers for every one.
+ */
+export interface CrlOriginDeclaration extends OriginDeclarationCommon {
+  readonly reader: { readonly as: 'der-certificate-list' };
+  /** The routes the vendor publishes, in the order the declaration prefers them. */
+  readonly routes: readonly DeclaredRoute[];
+  /** The query member that names the certificate serial this list is asked about. */
+  readonly serialMember: 'certificateSerial';
+  /**
+   * The issuer name the list of each authority scope is expected to carry, as the common name its own Name
+   * states. The scope is part of the question, so a list whose issuer is not the name of the scope asked about
+   * answers `COLLATERAL_IDENTITY_MISMATCH` rather than carrying the answer over from the other authority.
+   */
+  readonly issuers: Readonly<Record<'processor' | 'platform', string>>;
+  readonly cache: OriginCacheRule;
+}
+
+export type OriginDeclaration = IntelOriginDeclaration | DeclaredOriginDeclaration | CrlOriginDeclaration;
 
 /** Whether a declaration has a reader here, narrowed so a caller can reach the payload members it states. */
 export function isIntelDeclaration(declaration: OriginDeclaration): declaration is IntelOriginDeclaration {
@@ -207,6 +233,11 @@ export function isIntelDeclaration(declaration: OriginDeclaration): declaration 
 /** Whether a declaration names routes without a reader, narrowed so a caller can reach the routes. */
 export function isDeclaredOnly(declaration: OriginDeclaration): declaration is DeclaredOriginDeclaration {
   return declaration.reader.as === 'declared-only';
+}
+
+/** Whether a declaration is read as a DER certificate list, narrowed so a caller can reach its cache rule. */
+export function isCrlDeclaration(declaration: OriginDeclaration): declaration is CrlOriginDeclaration {
+  return declaration.reader.as === 'der-certificate-list';
 }
 
 const REFUSALS = {
@@ -407,29 +438,27 @@ export const INTEL_QE_IDENTITY: IntelOriginDeclaration = {
 /**
  * Intel's PCK CRL: the signed revocation list for the platform and processor PCK certificates.
  *
- * The route and the answer shape are measured, not inferred. Asked at
- * `https://api.trustedservices.intel.com/sgx/certification/v4/pckcrl?ca=processor&encoding=der` on
- * 17 October 2026, the host answered 200 with `content-type: application/pkix-crl` and a 1002-byte body
- * beginning with the DER sequence tag `30 82`; the same path with `ca=platform` answered 200 with 3354
- * bytes. The issuer chain arrives beside the body in the response's `SGX-PCK-CRL-Issuer-Chain` header as
- * URL-encoded PEM, the same spelling the two JSON documents use for their chains. Neither answer is a
- * JSON document, and no bytes from either are kept here: a service's output travels as a reference, not
- * as a committed blob.
+ * The route and the answer shape are measured: the route this declaration states answers 200 with
+ * `content-type: application/pkix-crl` and a DER `CertificateList` signed with `ecdsa-with-SHA256`, and the
+ * issuer chain arrives beside the body in the response's `SGX-PCK-CRL-Issuer-Chain` header as URL-encoded PEM,
+ * leaf first. The same route answers for either authority scope, and each scope's list names its own
+ * authority, which is why the issuer is bound to the `ca` that was asked for rather than reported beside the
+ * answer. The signature is ECDSA P-256 over the DER of `tbsCertList`, including its own tag and length. No
+ * bytes from either answer are kept here: a service's output travels as a reference, not as a committed blob.
  *
- * This package reads no CRL. `parseCertificateChain` in `@ashaveri/attest-core` parses certificates and
- * stops there; a DER `CertificateList` needs a reader for its `tbsCertList`, its `thisUpdate` and
- * `nextUpdate`, and its revoked serial numbers before any signature can be weighed. A list read without
- * that reader would be a field name invented at the call site, so an appraisal of this origin stops at
- * the declaration and names the missing parser.
- *
- * What a reader would owe once it exists is stated here so the vocabulary is not reinvented later. A list
- * speaks for the window between its own `thisUpdate` and `nextUpdate`; an instant outside that window
- * answers `COLLATERAL_WINDOW_CLOSED`, because a list that stood last month is not a statement about now.
- * `COLLATERAL_REVOKED_BY_VENDOR` is the answer only where the signed list names the certificate asked
- * about. A list that does not name it says that the issuer had not revoked it as of `thisUpdate`; that is
- * not a statement that the certificate is trusted, and no arm here reads it as one.
+ * `readPckCrl` parses the list and walks the header's chain to a root the caller pinned, and `appraisePckCrl`
+ * answers about one certificate serial. The list's issuer is bound to the requested `ca`: each scope's list
+ * names its own authority, and the other scope's list answers `COLLATERAL_IDENTITY_MISMATCH` rather than a
+ * question about this one. A list speaks for the window between its own `thisUpdate` and `nextUpdate`; an
+ * instant outside that window answers `COLLATERAL_WINDOW_CLOSED` where the list does not name the serial. The
+ * answer for a serial the list names is `revoked` under `COLLATERAL_REVOKED_BY_VENDOR`, wherever that moment
+ * falls, and an entry whose reason is `removeFromCRL` is refused under `COLLATERAL_STATUS_UNSUPPORTED` because
+ * a removal is not a revocation. A current list this run fetched that does not name the serial answers
+ * `not-listed`, which is the issuer's silence about that certificate as of `thisUpdate` and not a statement
+ * that the certificate is trusted. Where the moment asked precedes the listing, the revocation refusal says
+ * so. Nothing here decides a hardware pass.
  */
-export const INTEL_PCK_CRL: DeclaredOriginDeclaration = {
+export const INTEL_PCK_CRL: CrlOriginDeclaration = {
   name: 'intel-pck-crl',
   host: 'api.trustedservices.intel.com',
   method: 'GET',
@@ -440,7 +469,7 @@ export const INTEL_PCK_CRL: DeclaredOriginDeclaration = {
   timeoutMs: 5000,
   maxResponseBytes: 65536,
   refusals: REFUSALS,
-  reader: { as: 'declared-only', lacks: 'a DER CRL parser' },
+  reader: { as: 'der-certificate-list' },
   routes: [
     {
       name: 'pck-crl',
@@ -451,7 +480,23 @@ export const INTEL_PCK_CRL: DeclaredOriginDeclaration = {
       knowledge: 'historical',
     },
   ],
-  cache: null,
+  serialMember: 'certificateSerial',
+  /**
+   * The issuer name each authority scope's own list carries, read from that list's `issuer` field and from the
+   * leaf certificate of the chain header the same answer brings. The common name is what carries the
+   * authority, so it is what binds a list to the `ca` that was asked for: a processor list handed to a
+   * platform question would be a true statement about another authority. A scope has a name here only where a
+   * served list of that scope carried one.
+   */
+  issuers: {
+    processor: 'Intel SGX PCK Processor CA',
+    platform: 'Intel SGX PCK Platform CA',
+  },
+  /**
+   * The list states one window for every serial it carries, so a kept copy is keyed by the authority scope
+   * whose list it is. The platform is absent because the measured route is not indexed by one.
+   */
+  cache: { keyMembers: ['origin', 'ca'], ...CACHE_RULE },
 };
 
 /**
@@ -604,9 +649,9 @@ export const NVIDIA_OCSP: DeclaredOriginDeclaration = {
 };
 
 /** The origins with a reader here. A declaration elsewhere in this file is a route, not a reader. */
-export const SERVED_ORIGINS: readonly ReadCollateralOrigin[] = ['intel-tcb-info', 'intel-qe-identity'];
+export const SERVED_ORIGINS: readonly ReadCollateralOrigin[] = ['intel-tcb-info', 'intel-qe-identity', 'intel-pck-crl'];
 
-const BY_ORIGIN: Record<ReadCollateralOrigin, IntelOriginDeclaration> = {
+const BY_ORIGIN: Record<ReadDocumentOrigin, IntelOriginDeclaration> = {
   'intel-tcb-info': INTEL_TCB_INFO,
   'intel-qe-identity': INTEL_QE_IDENTITY,
 };
@@ -623,6 +668,11 @@ export const ORIGIN_DECLARATIONS: Record<CollateralOriginName, OriginDeclaration
 /** Every name this file declares, in the order the declarations were written. */
 export const DECLARED_ORIGINS = Object.keys(ORIGIN_DECLARATIONS) as readonly CollateralOriginName[];
 
+/** The origins that are read, spelled for a sentence rather than joined with a repeated conjunction. */
+function readOrigins(): string {
+  return `${SERVED_ORIGINS.slice(0, -1).join(', ')} and ${SERVED_ORIGINS[SERVED_ORIGINS.length - 1] as string}`;
+}
+
 /**
  * The declaration for an origin, or the refusal that says this path is not read here.
  *
@@ -631,9 +681,12 @@ export const DECLARED_ORIGINS = Object.keys(ORIGIN_DECLARATIONS) as readonly Col
  * than which name to retype. The map is complete over the union; a name outside it holds no declaration
  * and answers with the origins that are read alone.
  */
-export function declarationFor(origin: CollateralOriginName): IntelOriginDeclaration | { readonly refusal: CollateralRefusal } {
+export function declarationFor(origin: CollateralOriginName): OriginDeclaration | { readonly refusal: CollateralRefusal } {
   if (origin === 'intel-tcb-info' || origin === 'intel-qe-identity') {
     return BY_ORIGIN[origin];
+  }
+  if (origin === 'intel-pck-crl') {
+    return INTEL_PCK_CRL;
   }
   const declared: OriginDeclaration | undefined = Object.hasOwn(ORIGIN_DECLARATIONS, origin)
     ? ORIGIN_DECLARATIONS[origin]
@@ -642,7 +695,7 @@ export function declarationFor(origin: CollateralOriginName): IntelOriginDeclara
     return {
       refusal: collateralRefusal(
         'COLLATERAL_ORIGIN_UNSUPPORTED',
-        `${origin} is declared at ${declared.host} but unread; this reads ${SERVED_ORIGINS.join(' and ')}; missing: ${declared.reader.lacks}`,
+        `${origin} is declared at ${declared.host} but unread; this reads ${readOrigins()}; missing: ${declared.reader.lacks}`,
         ['origin'],
       ),
     };
@@ -650,7 +703,7 @@ export function declarationFor(origin: CollateralOriginName): IntelOriginDeclara
   return {
     refusal: collateralRefusal(
       'COLLATERAL_ORIGIN_UNSUPPORTED',
-      `${quoteOrDigest(origin)} is not read here, which serves ${SERVED_ORIGINS.join(' and ')}`,
+      `${quoteOrDigest(origin)} is not read here, which serves ${readOrigins()}`,
       ['origin'],
     ),
   };
@@ -667,9 +720,13 @@ export function servedDocumentDeclaration(
   if (isIntelDeclaration(declaration)) {
     return declaration;
   }
+  // A CRL has a reader here, so the origin is supported and what this arm cannot weigh is the envelope.
+  const code: CollateralErrorCode = isCrlDeclaration(declaration)
+    ? 'COLLATERAL_BLOB_UNREADABLE'
+    : 'COLLATERAL_ORIGIN_UNSUPPORTED';
   return {
     refusal: collateralRefusal(
-      'COLLATERAL_ORIGIN_UNSUPPORTED',
+      code,
       `${declaration.name} answers as ${declaration.answer} and this reader weighs a served JSON document alone`,
     ),
   };
@@ -686,7 +743,7 @@ const CPU_TYPE = /^[0-9a-fA-F]{12}$/u;
  * from the refusal that names the field.
  */
 export function requestUrl(query: CollateralQuery, declaration: OriginDeclaration): string | { readonly refusal: CollateralRefusal } {
-  if (isDeclaredOnly(declaration)) {
+  if (isDeclaredOnly(declaration) || isCrlDeclaration(declaration)) {
     return declaredUrl(query, declaration);
   }
   const base = `https://${declaration.host}${declaration.platformPath(query.platform)}/${declaration.documentPath}`;
@@ -714,7 +771,7 @@ export function requestUrl(query: CollateralQuery, declaration: OriginDeclaratio
  */
 function declaredUrl(
   query: CollateralQuery,
-  declaration: DeclaredOriginDeclaration,
+  declaration: DeclaredOriginDeclaration | CrlOriginDeclaration,
 ): string | { readonly refusal: CollateralRefusal } {
   const route = query.route == null
     ? declaration.routes[0]
@@ -835,6 +892,8 @@ function spellKeyMember(query: CollateralQuery, member: CollateralCacheMember): 
       return query.platform;
     case 'cpuType':
       return query.cpuType?.toLowerCase() ?? null;
+    case 'ca':
+      return query.ca ?? null;
     case 'level':
       return query.level === null ? null : `${query.level.by}=${query.level.value}`;
   }

@@ -1,6 +1,7 @@
 import { CollateralError, collateralRefusal, quoteOrDigest, type CollateralRefusal } from './errors.js';
 import { fetchFromOrigin, wallClock } from './fetch.js';
-import { collateralCacheKey, declarationFor, requestUrl, type IntelOriginDeclaration } from './intel-origin.js';
+import { collateralCacheKey, declarationFor, isCrlDeclaration, isIntelDeclaration, requestUrl, INTEL_PCK_CRL, type IntelOriginDeclaration, type CrlOriginDeclaration, type OriginDeclaration } from './intel-origin.js';
+import { readPckCrl } from './crl.js';
 import { readSignedCollateral, type ReadCollateral } from './read.js';
 import { readServedCollateral } from './served.js';
 import { sha256Hex, toHex } from './bytes.js';
@@ -10,6 +11,9 @@ import type {
   CollateralClaim,
   CollateralOutcome,
   CollateralQuery,
+  PckCrlQuery,
+  RevocationList,
+  RevocationOutcome,
   SignedCollateral,
   StatusReading,
 } from './types.js';
@@ -22,6 +26,9 @@ import type {
  * nothing is classified before its signature has been established under a root the caller named, so the
  * two ways a platform gets a pass it did not earn, an unanswered question and an unverified answer, are
  * closed before either is read.
+ *
+ * A CRL is not a platform-level document, so this entry point names the serial appraisal instead of
+ * reading one as a level list. `appraisePckCrl` is where a list is weighed.
  */
 export async function appraiseCollateral(
   query: CollateralQuery,
@@ -89,6 +96,27 @@ export async function appraiseCarriedCollateral(
   );
 }
 
+/**
+ * The Intel PCK CRL asked about one certificate serial.
+ *
+ * A list answers whether a serial was revoked as of its own `thisUpdate`, so this entry point takes a
+ * `PckCrlQuery` rather than the platform-level `CollateralQuery`. It fetches and reads through the same
+ * transport, declaration and chain walk the two JSON documents use, and it keeps its answers apart because
+ * `not-listed` is neither `current` nor trusted. A caller holding a list from its own store or from a sealed
+ * container passes it through `retained`, with the container's own instant as `observedAt`, and the claim
+ * beside the answer states that reach as historical.
+ */
+export async function appraisePckCrl(
+  query: PckCrlQuery,
+  options: CollateralAppraisalOptions = {},
+): Promise<RevocationOutcome> {
+  const outcome = await appraiseRevocation(query, options);
+  if ((outcome.state === 'unavailable' || outcome.state === 'missing-context') && query.onAbsent === 'refuse') {
+    throw new CollateralError(outcome.refusal);
+  }
+  return outcome;
+}
+
 async function appraise(
   query: CollateralQuery,
   options: CollateralAppraisalOptions,
@@ -97,60 +125,31 @@ async function appraise(
   if ('refusal' in declared) {
     return unavailable(declared.refusal);
   }
+  if (isCrlDeclaration(declared)) {
+    // A CRL has a reader here, so this is not an unsupported origin. What it lacks is a platform level, which
+    // this entry point asks about; the serial question belongs to `appraisePckCrl`.
+    return missingContext(collateralRefusal(
+      'COLLATERAL_INPUT_MISSING',
+      `${declared.name} answers about a certificate serial and this appraisal asks about a platform level; appraisePckCrl weighs that list`,
+      query.level === null ? ['level'] : [],
+    ));
+  }
+  if (!isIntelDeclaration(declared)) {
+    return unavailable(collateralRefusal(
+      'COLLATERAL_ORIGIN_UNSUPPORTED',
+      `${declared.name} has no reader on this appraisal path`,
+      ['origin'],
+    ));
+  }
   const declaration = declared;
   const missing = askedButNotGiven(query, declaration);
   if (missing !== null) {
     return missingContext(missing);
   }
   const appraisalAt = query.appraisalAt as number;
-  const bytes = query.retained === null ? null : query.retained.bytes;
-  if (bytes !== null && bytes.byteLength > declaration.maxResponseBytes) {
-    return unavailable(refused(
-      declaration,
-      `a retained blob of ${String(bytes.byteLength)} bytes is over the ${String(declaration.maxResponseBytes)} this path reads`,
-    ));
-  }
-  const url = requestUrl(query, declaration);
-  if (typeof url !== 'string') {
-    return missingContext(url.refusal);
-  }
-  let observed: { readonly bytes: Uint8Array; readonly chain: Uint8Array | null; readonly observedAt: number } | { readonly refusal: CollateralRefusal };
-  if (query.retained === null) {
-    const asked = await fetchFromOrigin(url, declaration, { transport: options.transport, clock: options.clock ?? wallClock });
-    if ('refusal' in asked) {
-      return unavailable(asked.refusal);
-    }
-    observed = asked.fetched;
-  } else {
-    if (query.retained.observedAt === null) {
-      return missingContext(
-        collateralRefusal('COLLATERAL_INPUT_MISSING', 'the retained bytes carry no stamp for when they were seen', ['retained.observedAt']),
-      );
-    }
-    // A caller that states a digest for the chain beside its bytes is asking what was seen, so the pair is checked
-    // against that promise before anything of the body is believed: a header swapped under the question would
-    // otherwise answer a different one and report the digest the caller named.
-    if (query.retained.chain !== null && query.retained.chainSha256 !== null) {
-      const actual = sha256Hex(query.retained.chain);
-      const stated = toHex(query.retained.chainSha256);
-      if (actual !== stated) {
-        return unavailable(
-          collateralRefusal(
-            'COLLATERAL_RETAINED_CHAIN_MISMATCH',
-            `the retained chain hashes to ${actual} and the caller named ${stated}`,
-            ['retained.chain', 'retained.chainSha256'],
-          ),
-        );
-      }
-    }
-    // A header is not a member of a body, so what arrives beside retained bytes is whatever the caller kept. A
-    // chain kept with them is carried, and its absence is carried rather than invented: nothing here reads a
-    // header off the wire to complete a pair that was kept as one half.
-    observed = {
-      bytes: query.retained.bytes,
-      chain: query.retained.chain ?? null,
-      observedAt: query.retained.observedAt,
-    };
+  const observed = await observe(query, declaration, options);
+  if ('refusal' in observed) {
+    return observed.state === 'missing-context' ? missingContext(observed.refusal) : unavailable(observed.refusal);
   }
   const reading = { query, declaration, appraisalAt };
   // Which arm weighs the answer is a fact of the declaration and of the answer, never a guess from the bytes.
@@ -159,13 +158,120 @@ async function appraise(
   // answers in. A body that arrived without its header is a body alone, and the arm that reads a body alone is the
   // one whose certificates sit inside it, so a served shape handed over alone is refused at the envelope rather
   // than weighed.
-  const read = declaration.signature.served !== null && observed.chain !== null
-    ? readServedCollateral(observed.bytes, observed.chain, reading)
-    : readSignedCollateral(observed.bytes, reading);
+  const read = declaration.signature.served !== null && observed.observed.chain !== null
+    ? readServedCollateral(observed.observed.bytes, observed.observed.chain, reading)
+    : readSignedCollateral(observed.observed.bytes, reading);
   if ('refusal' in read) {
     return unavailable(read.refusal);
   }
-  return classify(read.read, query, declaration, observed.observedAt, appraisalAt, query.retained === null);
+  return classify(read.read, query, declaration, observed.observed.observedAt, appraisalAt, query.retained === null);
+}
+
+async function appraiseRevocation(
+  query: PckCrlQuery,
+  options: CollateralAppraisalOptions,
+): Promise<RevocationOutcome> {
+  const declaration = INTEL_PCK_CRL;
+  const missing = askedButNotGivenCrl(query, declaration);
+  if (missing !== null) {
+    return missingRevocation(missing);
+  }
+  const appraisalAt = query.appraisalAt as number;
+  const observed = await observe(query, declaration, options);
+  if ('refusal' in observed) {
+    return observed.state === 'missing-context' ? missingRevocation(observed.refusal) : unavailableRevocation(observed.refusal);
+  }
+  const read = readPckCrl(
+    observed.observed.bytes,
+    observed.observed.chain,
+    { query, declaration, appraisalAt },
+  );
+  if ('refusal' in read) {
+    return unavailableRevocation(read.refusal);
+  }
+  return classifyRevocation(
+    read.read,
+    query,
+    declaration,
+    observed.observed.observedAt,
+    appraisalAt,
+    query.retained === null,
+  );
+}
+
+/** The bytes one appraisal weighs, and the instant this run watched them land. */
+interface Observation {
+  readonly bytes: Uint8Array;
+  readonly chain: Uint8Array | null;
+  readonly observedAt: number;
+}
+
+/**
+ * The bytes a query names, asked of the origin or taken from the caller's store.
+ *
+ * Both appraisal paths share this half so a retained pair is checked against its stated chain digest, an empty
+ * retained blob is refused, and a fetch keeps the host, wait, cap and header rules in one place. Which state
+ * an absence produces travels beside the refusal because a missing input is the caller's question and an
+ * unreachable or unreadable answer is the origin's.
+ */
+async function observe(
+  query: CollateralQuery,
+  declaration: OriginDeclaration,
+  options: CollateralAppraisalOptions,
+): Promise<{ readonly observed: Observation } | { readonly refusal: CollateralRefusal; readonly state: 'unavailable' | 'missing-context' }> {
+  const bytes = query.retained === null ? null : query.retained.bytes;
+  if (bytes !== null && bytes.byteLength > declaration.maxResponseBytes) {
+    return {
+      refusal: collateralRefusal(
+        declaration.refusals.envelope,
+        `a retained blob of ${String(bytes.byteLength)} bytes is over the ${String(declaration.maxResponseBytes)} this path reads`,
+      ),
+      state: 'unavailable',
+    };
+  }
+  const url = requestUrl(query, declaration);
+  if (typeof url !== 'string') {
+    return { refusal: url.refusal, state: 'missing-context' };
+  }
+  if (query.retained === null) {
+    const asked = await fetchFromOrigin(url, declaration, { transport: options.transport, clock: options.clock ?? wallClock });
+    return 'refusal' in asked
+      ? { refusal: asked.refusal, state: 'unavailable' }
+      : { observed: asked.fetched };
+  }
+  if (query.retained.observedAt === null) {
+    return {
+      refusal: collateralRefusal('COLLATERAL_INPUT_MISSING', 'the retained bytes carry no stamp for when they were seen', ['retained.observedAt']),
+      state: 'missing-context',
+    };
+  }
+  // A caller that states a digest for the chain beside its bytes is asking what was seen, so the pair is checked
+  // against that promise before anything of the body is believed: a header swapped under the question would
+  // otherwise answer a different one and report the digest the caller named.
+  if (query.retained.chain !== null && query.retained.chainSha256 !== null) {
+    const actual = sha256Hex(query.retained.chain);
+    const stated = toHex(query.retained.chainSha256);
+    if (actual !== stated) {
+      return {
+        refusal: collateralRefusal(
+          'COLLATERAL_RETAINED_CHAIN_MISMATCH',
+          `the retained chain hashes to ${actual} and the caller named ${stated}`,
+          ['retained.chain', 'retained.chainSha256'],
+        ),
+        state: 'unavailable',
+      };
+    }
+  }
+  // A header is not a member of a body, so what arrives beside retained bytes is whatever the caller kept. A
+  // chain kept with them is carried, and its absence is carried rather than invented: nothing here reads a
+  // header off the wire to complete a pair that was kept as one half.
+  return {
+    observed: {
+      bytes: query.retained.bytes,
+      chain: query.retained.chain ?? null,
+      observedAt: query.retained.observedAt,
+    },
+  };
 }
 
 /**
@@ -257,6 +363,100 @@ function signed(read: ReadCollateral, query: CollateralQuery, readAs: StatusRead
   };
 }
 
+/**
+ * Which of the revocation answers this is.
+ *
+ * A named serial is `revoked` even when the list stands outside the moment asked about, because the bytes
+ * still carry a signature over the statement that the serial was listed; the claim beside the answer states
+ * how far that reach goes, and a refusal whose moment precedes the listing says so rather than leaving the
+ * reader to compare two instants. One reason code is not a revocation: `removeFromCRL` removes a listing, so
+ * an entry that carries it answers `COLLATERAL_STATUS_UNSUPPORTED` instead of reading as revoked. A list
+ * that does not name the serial is `not-listed` only when this run watched it arrive inside its own window;
+ * otherwise the honest answer is `stale`, with the window refusal for a list that stood outside the moment
+ * asked about and the observation refusal for bytes this run did not fetch. `not-listed` is deliberately not
+ * a passing state: the issuer's silence about one serial is narrower than a statement that the certificate is
+ * trusted.
+ */
+function classifyRevocation(
+  list: RevocationList,
+  query: PckCrlQuery,
+  declaration: CrlOriginDeclaration,
+  observedAt: number,
+  appraisalAt: number,
+  askedThisRun: boolean,
+): RevocationOutcome {
+  const covers = appraisalAt >= list.window.from && appraisalAt < list.window.until;
+  const key = collateralCacheKey(query, declaration);
+  if (typeof key !== 'string') {
+    return missingRevocation(collateralRefusal(
+      'COLLATERAL_INPUT_MISSING',
+      'the record these bytes belong to cannot be named',
+      key.missing,
+    ));
+  }
+  const claim: CollateralClaim = {
+    reach: askedThisRun && covers ? 'current-knowledge' : 'historical-knowledge',
+    appraisalAt,
+    observedAt: askedThisRun ? observedAt : null,
+    retainUntil: list.window.until,
+    cacheKey: key,
+  };
+  const named = list.revoked.find((entry) => entry.serialHex === normalizedSerial(query.certificateSerial));
+  if (named !== undefined) {
+    if (named.reasonCode === REMOVE_FROM_CRL) {
+      return unavailableRevocation(collateralRefusal(
+        declaration.refusals.statusUnknown,
+        `the list names serial ${named.serialHex} with removeFromCRL, which removes a listing rather than revoking the certificate, and no revocation is read from it`,
+      ));
+    }
+    const reason = named.reason ?? (named.reasonCode === null ? 'no reason stated' : `reason code ${String(named.reasonCode)}`);
+    const precedes = appraisalAt < list.window.from
+      ? `; asked ${iso(appraisalAt)} precedes the list's thisUpdate`
+      : appraisalAt < named.revokedAt
+        ? `; asked ${iso(appraisalAt)} precedes its revocation date`
+        : null;
+    return {
+      state: 'revoked',
+      list,
+      claim,
+      refusal: collateralRefusal(
+        'COLLATERAL_REVOKED_BY_VENDOR',
+        precedes === null
+          ? `serial ${named.serialHex} with ${reason} at ${iso(named.revokedAt)}; the list stands ${iso(list.window.from)} to ${iso(list.window.until)}`
+          : `serial ${named.serialHex} with ${reason} at ${iso(named.revokedAt)}${precedes}`,
+      ),
+    };
+  }
+  if (claim.reach === 'current-knowledge') {
+    return { state: 'not-listed', list, claim };
+  }
+  return {
+    state: 'stale',
+    list,
+    claim,
+    refusal: askedThisRun
+      ? collateralRefusal(
+        declaration.refusals.window,
+        `the list stands from ${new Date(list.window.from * 1000).toISOString()} to ${new Date(list.window.until * 1000).toISOString()} and the moment asked is ${new Date(appraisalAt * 1000).toISOString()}`,
+      )
+      : collateralRefusal(
+        'COLLATERAL_NOT_OBSERVED',
+        `the bytes were seen at ${new Date(observedAt * 1000).toISOString()} and this run asked the origin nothing`,
+        ['retained'],
+      ),
+  };
+}
+
+/** A serial as the number it names, with no leading zero the query's spelling or the DER's padding added. */
+function normalizedSerial(value: string): string {
+  return BigInt(`0x${value}`).toString(16);
+}
+
+/** A Unix instant as the text a refusal prints. */
+function iso(seconds: number): string {
+  return new Date(seconds * 1000).toISOString();
+}
+
 /** Everything a query has to state before the origin is worth asking. */
 function askedButNotGiven(query: CollateralQuery, declaration: IntelOriginDeclaration): CollateralRefusal | null {
   if (query.roots.length === 0) {
@@ -278,6 +478,41 @@ function askedButNotGiven(query: CollateralQuery, declaration: IntelOriginDeclar
   return null;
 }
 
+/** Every field a CRL query has to state before the list is worth asking for. */
+function askedButNotGivenCrl(query: PckCrlQuery, declaration: CrlOriginDeclaration): CollateralRefusal | null {
+  if (query.roots.length === 0) {
+    return collateralRefusal(declaration.refusals.anchor, 'a verdict needs a root the caller holds, and none was passed', ['roots']);
+  }
+  if (query.appraisalAt === null) {
+    return collateralRefusal('COLLATERAL_INPUT_MISSING', 'no instant was stated for the appraisal, and no verdict can be reached about a moment nobody named', ['appraisalAt']);
+  }
+  const serial = query.certificateSerial;
+  if (typeof serial !== 'string' || serial.length === 0) {
+    return collateralRefusal(
+      'COLLATERAL_INPUT_MISSING',
+      `${declaration.name} answers about one certificate serial and none was given`,
+      ['certificateSerial'],
+    );
+  }
+  if (!SERIAL.test(serial)) {
+    return collateralRefusal(
+      'COLLATERAL_INPUT_MISSING',
+      `certificateSerial ${quoteOrDigest(serial)} is not one to 128 hex characters`,
+      ['certificateSerial'],
+    );
+  }
+  if (query.retained !== null && query.retained.bytes.byteLength === 0) {
+    return collateralRefusal('COLLATERAL_INPUT_MISSING', 'the retained blob is empty', ['retained.bytes']);
+  }
+  return null;
+}
+
+/** A certificate serial as a query spells it: hex digits and nothing else. */
+const SERIAL = /^[0-9a-fA-F]{1,128}$/u;
+
+/** RFC 5280's reason that takes an entry out of a listing rather than revoking the certificate. */
+const REMOVE_FROM_CRL = 8;
+
 function missingContext(refusal: CollateralRefusal): CollateralOutcome {
   return { state: 'missing-context', collateral: null, claim: null, refusal };
 }
@@ -286,6 +521,10 @@ function unavailable(refusal: CollateralRefusal): CollateralOutcome {
   return { state: 'unavailable', collateral: null, claim: null, refusal };
 }
 
-function refused(declaration: IntelOriginDeclaration, why: string): CollateralRefusal {
-  return collateralRefusal(declaration.refusals.envelope, why);
+function missingRevocation(refusal: CollateralRefusal): RevocationOutcome {
+  return { state: 'missing-context', list: null, claim: null, refusal };
+}
+
+function unavailableRevocation(refusal: CollateralRefusal): RevocationOutcome {
+  return { state: 'unavailable', list: null, claim: null, refusal };
 }

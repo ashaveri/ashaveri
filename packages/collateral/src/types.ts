@@ -4,10 +4,9 @@ import type { CollateralRefusal } from './errors.js';
 export type IntelPlatform = 'sgx' | 'tdx';
 
 /**
- * Every path an appraisal could ask collateral of. Two are read here, and the other four are declared
- * with the host and routes their vendors publish and refused with the reader they lack, so asking for
- * one answers with a sentence rather than a type error a caller could only reach by deleting the
- * question.
+ * Every path an appraisal could ask collateral of. Three are read here, and the other three are declared
+ * with the host and routes their vendors publish and refused with the reader they lack, so asking for one
+ * answers with a sentence rather than a type error a caller could only reach by deleting the question.
  */
 export type CollateralOriginName =
   | 'intel-tcb-info'
@@ -108,8 +107,7 @@ export interface CarriedCollateral {
 }
 
 /** What an appraisal asks for, and with what it was supplied. */
-export interface CollateralQuery {
-  readonly origin: CollateralOriginName;
+export interface CollateralQuery {  readonly origin: CollateralOriginName;
   readonly platform: IntelPlatform;
   /** The CPU type the origin indexes collateral by: Intel's FMSPC id as hex text. Required for TCB Info. */
   readonly cpuType: string | null;
@@ -118,6 +116,14 @@ export interface CollateralQuery {
   readonly route?: string | null;
   /** The PCK CRL's authority scope: the processor list or the platform list. Required for that origin. */
   readonly ca?: 'processor' | 'platform' | null;
+  /**
+   * The certificate serial the PCK CRL is asked about, as hex text a certificate or a list states.
+   *
+   * A revocation list answers a question about a serial, not about a platform level, so a CRL appraisal
+   * names this input rather than a level. The value is read as an unsigned number: a leading zero byte
+   * and the case of the hex digits do not change which serial is meant.
+   */
+  readonly certificateSerial?: string | null;
   /** AMD's product line as KDS spells it, such as `Milan`. Required for a KDS address. */
   readonly product?: string | null;
   /** AMD's chip id as 64 hex characters, the value a platform's report states. Required for a VCEK address. */
@@ -150,6 +156,20 @@ export interface CollateralQuery {
   /** What an absent answer does: reported as unassessed, or refused because this appraisal requires it. */
   readonly onAbsent: 'unassessed' | 'refuse';
 }
+
+/**
+ * A query for the Intel PCK CRL, which asks about one certificate serial rather than a platform level.
+ *
+ * The serial and the authority scope are required here even though the general query states them as optional,
+ * because a CRL appraisal that named neither would have no question to ask and no route to ask it at. The
+ * platform field stays because every query this package takes names one, and the list itself is not indexed by
+ * it: the measured route returns the same list for every platform.
+ */
+export type PckCrlQuery = Omit<CollateralQuery, 'origin' | 'ca' | 'certificateSerial'> & {
+  readonly origin: 'intel-pck-crl';
+  readonly ca: 'processor' | 'platform';
+  readonly certificateSerial: string;
+};
 
 /** The identity a signed document names for itself, read off the bytes rather than assumed. */
 export interface DeclaredIdentity {
@@ -211,6 +231,70 @@ export interface CollateralClaim {
   /** Where these bytes belong, spelled from the declared key members, so a store cannot mix identities. */
   readonly cacheKey: string;
 }
+
+/**
+ * One entry of a DER certificate list's revokedCertificates sequence.
+ *
+ * The sequence can carry an entry whose reason is `removeFromCRL`, which takes a certificate out of a
+ * listing rather than revoking it. Such an entry is copied here with its own bytes, and the serial appraisal
+ * refuses it under `COLLATERAL_STATUS_UNSUPPORTED` rather than reading it as a revocation.
+ */
+export interface RevokedCertificate {
+  /** The serial exactly as the list's INTEGER content carries it, including a leading zero the DER needs. */
+  readonly serial: Uint8Array;
+  /** The same number as lowercase hex with no leading zeros, which is how a query names it. */
+  readonly serialHex: string;
+  /** The instant the list states this revocation took effect, in Unix seconds. */
+  readonly revokedAt: number;
+  /** RFC 5280's reason code where the entry carries a cRLReason extension, or null where it carries none. */
+  readonly reasonCode: number | null;
+  /** The registry name for that code where one exists, or null for a code this reader does not name. */
+  readonly reason: string | null;
+}
+
+/**
+ * A DER CertificateList that parsed, reached a pinned root, and verified under the issuer's own key.
+ *
+ * The window is the list's own `thisUpdate` and `nextUpdate`, and the revoked entries are copied with the
+ * bytes that stated them. `blobs` keeps the list first and then the certificates the chain header presented,
+ * in the order it presented them, so nothing here re-encodes, reorders or drops a byte.
+ */
+export interface RevocationList {
+  /** The version the DER states: 2 where it carries the v2 marker, 1 where it carries none. */
+  readonly version: 1 | 2;
+  /** The one signature suite this path reads, copied from the list's own algorithm identifier. */
+  readonly signatureAlgorithm: 'ecdsa-with-SHA256';
+  /** The issuer Name exactly as the list carries it, without its SEQUENCE wrapper. */
+  readonly issuer: Uint8Array;
+  /** The window the list states for itself, in Unix seconds. */
+  readonly window: SignedWindow;
+  readonly revoked: readonly RevokedCertificate[];
+  /** sha256 of the whole CertificateList, as the bytes arrived. */
+  readonly digest: string;
+  /** sha256 of the pinned certificate the issuer chain reached. */
+  readonly anchorDigest: string;
+  /** The list first, then every certificate the chain header presented, in the order it presented them. */
+  readonly blobs: readonly Uint8Array[];
+}
+
+/**
+ * The answers a CRL appraisal can give, kept apart from `CollateralOutcome` because a list states nothing
+ * about a platform level.
+ *
+ * `not-listed` is the state a verified, current list reaches when it does not name the serial asked about.
+ * It is not `current` and not a pass: the list says the issuer had not listed that certificate as of its
+ * `thisUpdate`, which is a narrower statement than the certificate being trusted. A list that names the
+ * serial is `revoked`, with the bytes kept beside the refusal, unless the entry states `removeFromCRL`,
+ * which removes a listing rather than revoking a certificate and answers `unavailable` under
+ * `COLLATERAL_STATUS_UNSUPPORTED` with no list beside it. `stale` covers a list that speaks for a window
+ * outside the moment asked about, and a list this run did not observe; the claim beside it says which.
+ */
+export type RevocationOutcome =
+  | { readonly state: 'revoked'; readonly list: RevocationList; readonly claim: CollateralClaim; readonly refusal: CollateralRefusal }
+  | { readonly state: 'not-listed'; readonly list: RevocationList; readonly claim: CollateralClaim }
+  | { readonly state: 'stale'; readonly list: RevocationList; readonly claim: CollateralClaim; readonly refusal: CollateralRefusal }
+  | { readonly state: 'unavailable'; readonly list: null; readonly claim: null; readonly refusal: CollateralRefusal }
+  | { readonly state: 'missing-context'; readonly list: null; readonly claim: null; readonly refusal: CollateralRefusal };
 
 /**
  * The five answers, and the one thing all of them refuse to be: a pass.

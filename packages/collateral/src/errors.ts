@@ -36,6 +36,7 @@ export type CollateralInputName =
   | 'level'
   | 'route'
   | 'ca'
+  | 'certificateSerial'
   | 'product'
   | 'hwid'
   | 'rimId'
@@ -118,7 +119,7 @@ const REFUSAL: Record<CollateralErrorCode, RefusalEntry> = {
     verdict: 'terminal',
   },
   COLLATERAL_REVOKED_BY_VENDOR: {
-    message: 'the signed collateral states that this platform level is not trusted',
+    message: 'the signed collateral states that what the caller asked about is not trusted',
     verdict: 'terminal',
   },
 };

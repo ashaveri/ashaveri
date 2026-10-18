@@ -297,13 +297,23 @@ rows for every vendor file this repository tracks. The evidence document reaches
 deployment's own evidence URL, in `strict` mode, and that fetch is to the deployment rather than to
 us.
 
-**The origins beyond the two Intel documents.** `@ashaveri/collateral` names six origins and reads
-two. The Intel PCK CRL, AMD KDS, NVIDIA RIM and NVIDIA OCSP are declared with the host, route and
-answer shape their vendors publish, and an appraisal of any of them answers
-`COLLATERAL_ORIGIN_UNSUPPORTED` with what a reader would still need: a DER CRL parser, a served VCEK
-sample and an RSA/P-384 chain reader, a served RIM body and an XML DSig reader, or a served OCSP
-response and a DER OCSP parser. No vendor-service bytes are committed, because a service's output
-travels as a reference and a certificate a platform produced travels as bytes its caller supplies.
+**The origins beyond the two Intel JSON documents.** `@ashaveri/collateral` names six origins and
+reads three. The Intel PCK CRL is read as a DER `CertificateList`, verified under the issuer chain
+that arrives in `SGX-PCK-CRL-Issuer-Chain` and pinned to the caller's root; it answers about a
+certificate serial inside the list's own `thisUpdate` and `nextUpdate` window, and a list whose
+issuer is not the one the requested `ca` scope publishes is refused under
+`COLLATERAL_IDENTITY_MISMATCH`. A list this run fetched, whose window covers the moment asked, and
+that does not name the serial answers `not-listed`, which is not a statement that the certificate is
+trusted; one that stands outside that moment answers `COLLATERAL_WINDOW_CLOSED`, bytes from a store
+answer `COLLATERAL_NOT_OBSERVED`, a list that does name the serial is refused as revoked wherever the
+moment falls, and an entry whose reason is `removeFromCRL` is refused under
+`COLLATERAL_STATUS_UNSUPPORTED` rather than read as a revocation. AMD KDS, NVIDIA RIM and
+NVIDIA OCSP are declared with the host, route and answer shape their vendors publish, and an
+appraisal of any of them answers `COLLATERAL_ORIGIN_UNSUPPORTED` with what a reader would still
+need: a served VCEK sample and an RSA/P-384 chain reader, a served RIM body and an XML DSig reader,
+or a served OCSP response and a DER OCSP parser. No vendor-service bytes are committed, because a
+service's output travels as a reference and a certificate a platform produced travels as bytes its
+caller supplies.
 Measured on 17 October 2026: Intel's PCK CRL answered 200 with `application/pkix-crl`;
 `kds.amd.com` did not resolve while `kdsintf.amd.com/vcek/v1/Milan/cert_chain` answered 200 with two
 PEM certificates; the bare `rim.attestation.nvidia.com/v1/rim/` path answered 403 and

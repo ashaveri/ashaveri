@@ -24,6 +24,7 @@ export {
 export type {
   CollateralAnswerShape,
   CollateralCacheMember,
+  CrlOriginDeclaration,
   DeclaredOriginDeclaration,
   DeclaredRoute,
   IntelOriginDeclaration,
@@ -31,13 +32,16 @@ export type {
   OriginDeclaration,
   OriginRefusals,
   ReadCollateralOrigin,
+  ReadDocumentOrigin,
 } from './intel-origin.js';
 export { fetchFromOrigin, wallClock } from './fetch.js';
 export type { FetchContext, FetchOutcome, FetchedCollateral } from './fetch.js';
 export { readSignedCollateral } from './read.js';
 export type { ReadCollateral, ReadOutcome } from './read.js';
 export { readServedCollateral } from './served.js';
-export { appraiseCarriedCollateral, appraiseCollateral } from './classify.js';
+export { readPckCrl } from './crl.js';
+export type { RevocationReadOutcome } from './crl.js';
+export { appraiseCarriedCollateral, appraiseCollateral, appraisePckCrl } from './classify.js';
 export type {
   CarriedCollateral,
   CollateralAppraisalOptions,
@@ -50,7 +54,11 @@ export type {
   DeclaredIdentity,
   IntelPlatform,
   IntelTcbLevel,
+  PckCrlQuery,
   RetainedCollateral,
+  RevocationList,
+  RevocationOutcome,
+  RevokedCertificate,
   SignedCollateral,
   SignedWindow,
   StatusReading,

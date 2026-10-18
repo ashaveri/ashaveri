@@ -194,15 +194,18 @@ What is still true, in both modes:
   residual risk in T12 is the whole of this limitation, and it is not scheduled away: a service
   publishing this collateral for deployments that want it is the position, described in
   the README's attestation-collateral section, and no shipped command asks an origin or makes one a
-  precondition of any verdict a third party can reach. `@ashaveri/collateral` declares four further
-  origins, the Intel PCK CRL, AMD KDS, NVIDIA RIM and NVIDIA OCSP, with the host and routes their
-  vendors publish; it reads none of them, refuses an appraisal of one with the reader it lacks, and
-  commits no vendor-service bytes. What is in this code is the other half of the same
+  precondition of any verdict a third party can reach. `@ashaveri/collateral` declares three further
+  origins, AMD KDS, NVIDIA RIM and NVIDIA OCSP, with the host and routes their vendors publish; it
+  reads none of them, refuses an appraisal of one with the reader it lacks, and commits no
+  vendor-service bytes. It reads the Intel PCK CRL as a DER certificate list when a caller asks
+  `appraisePckCrl`, under the issuer chain the answer carries and a root the caller pins, and that
+  reading answers about one certificate serial rather than a platform level; no shipped command asks
+  it, and it closes none of the residual above. What is in this code is the other half of the same
   question and closes none of it: `@ashaveri/collateral` reads and classifies a vendor document it is handed,
   and a pack carries the material its sealed receipts' anchors name, so `ashaveri verify-pack` weighs those
   bytes against the roots its caller names and prints each slot it could not weigh beside the flag that would
   have supplied the question. Weighing reaches an answer only for bytes of the envelope that document's
-  declaration decodes. Intel answers its two document addresses with the issuer chain in a response header
+  declaration decodes. Intel answers its two JSON document addresses with the issuer chain in a response header
   beside the body, so that material is weighed only when the header arrived beside it, and a body handed over
   alone is read as a body alone, and [pack-v1.md](pack-v1.md) states that limit and what a custody reference
   answers for. That weighing
