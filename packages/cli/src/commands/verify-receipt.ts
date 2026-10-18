@@ -572,8 +572,11 @@ interface Verdict {
   /**
    * The weights digest the authenticated manifest declares for the model this receipt names, or null when
    * this run had no authenticated declaration to weigh and so weighed nothing. A value here is the `wts` of
-   * the `models[]` entry whose `id` is the receipt's `mdl`: a run whose manifest was authenticated and found
-   * no such entry, or found one stating another digest, was refused before this verdict was built.
+   * the `models[]` entry whose `id` is the receipt's `mdl`, and the first such entry where the array carries
+   * that id twice: `parseManifest` appends every row it is handed and the manifest format refuses no
+   * duplicate id, so one entry decides and the figure beside it is what this run weighed. A run whose
+   * manifest was authenticated and found no such entry, or found one stating another digest, was refused
+   * before this verdict was built.
    */
   readonly manifestWeights: string | null;
   /** The manifest signing keys this run was handed, with the flag that named each of them. */
@@ -676,16 +679,21 @@ function designationLines(designated: readonly DesignatedKey[]): readonly string
  * The weights line's tail: which of the two states this run was in, in the words both renderings print.
  *
  * A digest printed with no sentence saying what weighed it reads as a figure a reader has to compare by
- * hand, which is the gap this closes. Where nothing was weighed the sentence says so and names why, and it
- * states no digest of the unauthenticated document: a figure this run did not weigh is not one to print
- * beside a figure it did, and printing the manifest's would let a document nobody established look like a
- * declaration the verdict rested on.
+ * hand, which is what this line answers. The state is read off `authentication`, not off the figure, because
+ * what is absent when a manifest was not authenticated is an authentication and not a declaration: the
+ * document such a run holds may name this model at some digest or may not name it at all, and neither is
+ * something the verdict may credit, so the sentence reports only the absence it can prove. Where a digest
+ * was weighed, the sentence states one digest rather than two, because reaching a verdict means the two
+ * agree and the figure before the comma is the one it agreed with; both hexes are spelled out only where
+ * they differ, which is a refusal. A digest this run did not weigh is never printed beside one it did:
+ * printing the manifest's figure would let a document nobody established read as a declaration the verdict
+ * stood on.
  */
 function weightsSentence(verdict: Verdict): string {
   const model = verdict.verified.payload.mdl;
-  return verdict.manifestWeights === null
-    ? `not compared: the deployment manifest declaring the reading served for ${model} was not authenticated, so this run weighed no digest against it`
-    : `compared with the authenticated manifest's declaration for ${model}, which states ${verdict.manifestWeights}, the same digest`;
+  return verdict.authentication.authenticated
+    ? `compared with the authenticated manifest, which states that digest for ${model}`
+    : `not compared: this run authenticated no manifest and weighed no declaration for ${model}`;
 }
 
 function humanVerdict(verdict: Verdict): string {
@@ -734,10 +742,11 @@ function jsonVerdict(verdict: Verdict): Record<string, unknown> {
     model: payload.mdl,
     weights: toHex(payload.wts),
     // The figure above is this receipt's own claim. This object is the answer to what weighed it, in the
-    // sentence the human rendering prints beside it, and `manifestDigest` is null exactly where nothing was
-    // weighed, so no reader takes an unauthenticated document's declaration for a checked one.
+    // sentence the human rendering prints beside it, and `compared` and `manifestDigest` both come off the
+    // authentication of the document rather than off a figure, so no reader takes an unauthenticated
+    // document's text for a checked declaration.
     weightsComparedWithManifest: {
-      compared: verdict.manifestWeights !== null,
+      compared: verdict.authentication.authenticated,
       model: payload.mdl,
       manifestDigest: verdict.manifestWeights,
       statement: weightsSentence(verdict),
@@ -939,13 +948,11 @@ export async function runVerifyReceipt(positionals: string[], values: VerifyRece
       );
     }
     // The receipt's `wts` and the manifest's `models[]` are two claims about one reading, both already in
-    // hand through the session that verified the receipt, so this is where they are weighed: first whether
-    // the manifest speaks of this model at all, then whether the reading it names is the one the receipt
-    // digests. `authentication.authenticated` gates both, and the gate is not a courtesy to a caller who
-    // skipped `--manifest-key`: a manifest this run could not authenticate declares nothing about what the
-    // deployment serves, and a refusal resting on its text would hand whoever can put a file at
-    // `--manifest` the choice of which receipts are refused. A run behind the gate reports that it weighed
-    // nothing rather than reporting a check it did not run.
+    // hand through the session that verified the receipt, and they are weighed here in this order: first
+    // whether the authenticated manifest speaks of this model at all, then whether the reading it names is
+    // the one the receipt digests. `authentication.authenticated` gates the lookup and both refusals, and a
+    // run outside it leaves `manifestWeights` null and reports the absence; the header states why that gate
+    // is not optional.
     const receiptWeights = toHex(verified.payload.wts);
     const manifestWeights = authentication.authenticated
       ? (manifest.models.find((each) => each.id === verified.payload.mdl)?.wts ?? null)

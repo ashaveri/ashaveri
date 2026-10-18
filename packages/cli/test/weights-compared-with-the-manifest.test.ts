@@ -14,22 +14,22 @@ const SPAWN_DEADLINE_MS = 10_000;
  *
  * A deployment manifest's `models[]` is that deployment's own list of the readings it serves, each under
  * the id it serves it as, and a receipt's `mdl` and `wts` are its claim about which entry it was issued
- * for. Before these cases the offline verdict printed the receipt's digest and compared it with nothing,
- * so a receipt stamped for a model the manifest does not name, or for a reading the manifest does not
- * call one of its own, passed and printed its digest as though it were trusted. This file runs the built
- * CLI over each of the four states a run can be in: declared and equal, declared with another digest,
- * declared not at all, and weighed by nothing because the document carrying the declaration was not
- * authenticated.
+ * for, so the two agree or the receipt was not issued for anything this deployment declares it serves.
+ * Which of the two happened is never left to a reader to work out by hand: this file runs the built CLI
+ * over each of the four states a run can be in and holds each to what it answers. Declared and equal, a
+ * verdict that says it weighed the digest. Declared at another digest, `WEIGHTS_DISAGREE` naming both
+ * figures. Declared not at all, `MODEL_UNDECLARED` naming the count the array carries. And a manifest this
+ * run did not authenticate, which is weighed by nothing and answers with the verdict the run reached
+ * beside the sentence that says no declaration was weighed.
  *
- * The two refusals and both renderings of a run that reached a verdict are asserted as printed, because
- * the sentence is part of the product here: a verdict that weighed the digest has to say it and a verdict
- * that could not has to say that, and a reader who cannot tell which of the two happened has been handed
- * the same false comfort the gap gave. The unauthenticated cases substitute a sealed document's own bytes
- * rather than its signature, so each arrives as a manifest that fails to seal and states a declaration
- * disagreeing with the receipt on purpose. Those runs keep the exit code and the verdict they had before
- * the comparison existed, which is what makes the guard a guard rather than a second way to refuse a
- * receipt: whoever can put a file at `--manifest` gets no say over which receipts pass by writing a model
- * list into it.
+ * Both renderings of the two states that reach a verdict are asserted as printed, because the sentence is
+ * part of the product here: a verdict that weighed the digest has to say it and a verdict that could not
+ * has to say that, and a reader who cannot tell which of the two happened cannot act on either. The
+ * unauthenticated cases substitute a sealed document's own bytes rather than its signature, so each
+ * arrives as a manifest that fails to seal and carries a model list disagreeing with the receipt on
+ * purpose. Those runs keep the exit code and the verdict every unweighed run keeps, which is what makes
+ * the guard a guard rather than a second way to refuse a receipt: whoever can put a file at `--manifest`
+ * gets no say over which receipts pass by writing a model list into it.
  *
  * Every document here is built around the published valid vector, whose receipt, key, pins and response
  * bytes are read out of `packages/fixtures/data` rather than restated, and whose `models[]` row the helper
@@ -206,8 +206,8 @@ function run(manifest: string, extra: readonly string[], json: boolean): CliResu
 }
 
 /** The sentence both renderings print, so a case states one string rather than two shapes of it. */
-const WEIGHED = `compared with the authenticated manifest's declaration for ${MODEL}, which states ${STATED}, the same digest`;
-const UNWEIGHED = `not compared: the deployment manifest declaring the reading served for ${MODEL} was not authenticated, so this run weighed no digest against it`;
+const WEIGHED = `compared with the authenticated manifest, which states that digest for ${MODEL}`;
+const UNWEIGHED = `not compared: this run authenticated no manifest and weighed no declaration for ${MODEL}`;
 
 describe('the weights digest compared with the manifest at the command edge', () => {
   it('weighs the receipt against the authenticated declaration and says that it did', () => {
@@ -230,8 +230,8 @@ describe('the weights digest compared with the manifest at the command edge', ()
   });
 
   it('refuses a model the authenticated manifest declares nothing about', () => {
-    // The manifest does speak of models: one entry, for another id, which is the shape that used to print
-    // this receipt's digest beside a verdict and call it done.
+    // The manifest does speak of models: one entry, for another id, so the refusal is about this receipt's
+    // model being unnamed rather than about an array that carries nothing.
     const undeclared = run(sealedManifestFile(manifestText([{ id: OTHER_MODEL, wts: STATED }]), SEALING_KEY), [DESIGNATION], true);
     expect(undeclared.stderr).toBe('');
     expect(undeclared.status).toBe(1);
@@ -278,12 +278,11 @@ describe('the weights digest compared with the manifest at the command edge', ()
   /**
    * The guard, in the shape that costs a caller the most to get wrong.
    *
-   * Each manifest here fails to seal and states a declaration the receipt disagrees with, so a run that
+   * Each manifest here fails to seal and carries a model list the receipt disagrees with, so a run that
    * trusted the text would refuse. None of them does, and none of them claims a check: each answers with
-   * the verdict this command answered before the comparison existed, beside the sentence that says nothing
-   * was weighed. The unauthenticated manifest's figure is asserted absent rather than merely unmentioned,
-   * because a report that printed it would let a document nobody established read as a figure the verdict
-   * stood on.
+   * the verdict a run that weighed nothing answers with, beside the sentence that says nothing was weighed.
+   * The unauthenticated manifest's figure is asserted absent rather than merely unmentioned, because a
+   * report that printed it would let a document nobody established read as a figure the verdict stood on.
    */
   it('weighs nothing on a manifest it could not authenticate, and keeps the verdict the run reached', () => {
     const disagreeingDigest = sealedAroundSwappedDocument(manifestText(DECLARED), manifestText([{ id: MODEL, wts: FOREIGN }]), SEALING_KEY);
