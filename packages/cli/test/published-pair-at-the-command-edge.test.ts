@@ -13,19 +13,18 @@ const SPAWN_DEADLINE_MS = 10_000;
  * A published receipt and the published manifest of the deployment that receipt came from, met at the
  * command line in both directions.
  *
- * The receipt vectors and the sealed-manifest vectors were cut from two deployments: the ten published
- * receipts all name `dpl-9f2a41c3` and one model at one weights digest, while the manifest family speaks
- * of `ashaveri-mock` at `mock-model-1`. Nothing in the published set demonstrated the pair working, so a
- * reader who brought a published receipt to `ashaveri verify-receipt` beside a published manifest met a
- * refusal and had no committed bytes telling them whether the documents, the command or their own
- * expectation was what failed. `paired-with-the-published-receipt-family` in `manifest-v1.json` is the
+ * The receipt vectors and the sealed-manifest vectors describe two deployments: the ten published receipts
+ * all name `dpl-9f2a41c3` and one model at one weights digest, while the manifest family speaks of
+ * `ashaveri-mock` at `mock-model-1`, so a published receipt brought to `ashaveri verify-receipt` beside a
+ * published manifest meets a refusal with nothing committed to say whether the documents, the command or
+ * the expectation is at fault. `paired-with-the-published-receipt-family` in `manifest-v1.json` is the
  * document that closes that gap, and this file is what it looks like from the outside: the same receipt
  * bytes, the same policy, the same response body, one run against each of two manifests.
  *
  * Everything here is read out of `packages/fixtures/data`: the receipt's payload, the key its protected
  * header names, the response bytes its row publishes beside it, the manifest bytes of each row and the
- * designation each row states. No value is restated from a note, because a test that retyped the digests
- * would pass against a vector whose values had moved and would then be evidence for nothing.
+ * designation each row states. No value is restated from a note, because a test that retypes the digests
+ * passes against whatever the vector says, and is evidence about the bytes only while it reads them.
  */
 
 const CLI = fileURLToPath(new URL('../dist/cli.js', import.meta.url));
@@ -196,9 +195,11 @@ describe('a published receipt met with the published manifest of its own deploym
    * The provenance of the pairing, held before any child is started.
    *
    * Each deployment member of the paired document is the member of the published receipt it is paired
-   * with, and the mock document this suite began with states a model that receipt names nowhere, which is
-   * what the two directions below turn on. Were either of those untrue, a passing run would be evidence
-   * about a pairing the published bytes never claimed.
+   * with, and the mock document states a model that receipt names nowhere, which is what the two
+   * directions below turn on. Were either of those untrue, a passing run would be evidence about a pairing
+   * the published bytes never claimed. The generator holds the same facts where the row is written, and
+   * this is the guard that makes a vector that drifted fail in the suite consuming it rather than only in
+   * the one that produced it.
    */
   it('is built out of the receipt file rather than beside it', () => {
     const parsed = parsedOf(PAIRED);

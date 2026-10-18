@@ -970,8 +970,9 @@ function published(one: Case): Record<string, unknown> {
  * A reader who takes a published receipt and a published manifest to the command line is the whole reason
  * this row is in the file, and every value it pairs on is read off the receipt rather than typed here, so
  * the row is a pairing only while the client authenticates the document, the envelope verifies its seal,
- * and each deployment member of that document is the member of the receipt it was assembled from. A run
- * that lost one of those writes no file, which is the answer a generator owes a row it cannot state.
+ * and each deployment member of that document is the member of the receipt it was assembled from. Where
+ * one of those does not hold, no file is written, which is the answer a generator owes a row it cannot
+ * state.
  */
 function requirePairedRow(): void {
   const paired = CASES.find((one) => one.name === PAIRED_ROW);
