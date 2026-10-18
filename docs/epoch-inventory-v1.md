@@ -272,7 +272,7 @@ from what it was handed.
 run's artifacts are then resolved one file per entry out of the record's own names: the caller states where the run
 begins and the document states which files belong to it, which is the order a pairing has to run in, since a
 caller who could add a name could extend the period a signature attests by parking a file. The flag is consulted by
-the inventory reading alone; handed beside any of the other five shapes it is printed as not consulted, so one line
+the inventory reading alone; handed beside any of the other six shapes it is printed as not consulted, so one line
 still runs across a whole handover. What a run can be answered with is four things, and each is printed as itself.
 
 - **Nothing handed.** The reading is this document alone, and the report says so: the possession line is absent,

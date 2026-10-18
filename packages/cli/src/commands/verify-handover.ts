@@ -89,9 +89,9 @@ import {
  *
  * Which keys a document is checked against stays the caller's designation, exactly as
  * `ashaveri verify-receipt` treats one. `--key` designates the keys whose signatures this run accepts on
- * receipts, packs, exports, redactions and epoch inventories, matched by the kid a header names, and
- * `--manifest-key` designates the keys whose seal authenticates a deployment manifest. The two roles are kept
- * apart for the reason the policy type gives them: a manifest decides which keys sign evidence, so a key
+ * receipts, packs, exports, redactions, epoch inventories and provenance ledgers, matched by the kid a header
+ * names, and `--manifest-key` designates the keys whose seal authenticates a deployment manifest. The two roles
+ * are kept apart for the reason the policy type gives them: a manifest decides which keys sign evidence, so a key
  * trusted for evidence cannot also be the proof that the document naming them is the deployment's own. Each
  * designation's kid is computed from the key rather than typed beside it, so a designation that contradicts
  * its own key is refused before a byte of anybody's material is read, and what it refused is the call rather
@@ -219,7 +219,13 @@ function freshnessFact(parts: {
   };
 }
 
-/** The one JSON shape every freshness row carries, so a port reads one member rather than seven. */
+/**
+ * The one JSON shape every freshness row carries, so a port reads one member rather than seven.
+ * The printed row words the current register as the document's own sentence about itself, and that
+ * sentence has no machine-readable counterpart, so the JSON row keeps `current` null rather than
+ * pushing prose into the field; `reason` states why freshness is unknown and `clockConsulted` that
+ * no clock was consulted, which is what a port reads in place of the printed sentence.
+ */
 function freshnessJson(historical: unknown, reason: string): Record<string, unknown> {
   return { historical, current: null, freshness: 'unknown', clockConsulted: false, reason };
 }
@@ -343,7 +349,8 @@ function notSign1(): ReceiptError {
 }
 
 /**
- * The key set this run designates for evidence, answered the way the receipt, pack and redaction readers ask.
+ * The key set this run designates for evidence, answered the way the receipt, pack, redaction and
+ * inventory readers ask.
  *
  * A resolver rather than one pinned key, because a pack's span can cross a key rotation and the
  * receipts inside it were signed by the epochs that were current then, which is what the caller
@@ -436,7 +443,7 @@ function readReceipt(bytes: Uint8Array, inputs: Inputs, kid: Uint8Array): Readin
  *
  * The walk is what the material is weighed against, so the weighing comes after it and nothing else in
  * this reading depends on it: `carriedFacts` prints the roots, the fields and one row per digest a held
- * slot names. The reading is a promise for that reason alone, and the five other readers stay as they
+ * slot names. The reading is a promise for that reason alone, and the six other readers stay as they
  * were because no other shape carries material a slot names.
  */
 async function readPack(bytes: Uint8Array, inputs: Inputs, kid: Uint8Array): Promise<Reading> {

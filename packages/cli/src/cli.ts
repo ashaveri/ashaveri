@@ -69,7 +69,9 @@ verifying key is designated with --key, and the tracked fixture bytes its rows n
 the header rather than one that makes the caller declare the form before looking at it. The type found is printed
 before anything about validity, in both renderings, and the document is then read by the reader for that type:
 the receipt reader, the pack reader, the export reader, the redaction reader, the inventory reader, the
-provenance ledger reader, or the manifest rule a client applies to a served document. Nothing is fetched and no policy is read. Keys are what the
+provenance ledger reader, or the manifest rule a client applies to a served document. Nothing is fetched and no policy is read. The freshness row keeps its
+renderings apart by design: the printed row words the current register as a sentence about the document, and the JSON row of the same reading keeps
+that member null, because no machine field answers for that sentence and reason states in its place why freshness is unknown. Keys are what the
 command line designates, by role: --key names the keys whose signatures hold on a receipt, a pack,
 an export, an amendment, an inventory or a provenance ledger, matched on the kid each document names, and --manifest-key
 names the keys whose seal authenticates a deployment manifest, which is a separate designation

@@ -481,8 +481,9 @@ describe('the substitutions a handover invites, at the command edge', () => {
   it('measures the stale-replay gap: a signed endpoint a reader would compare is not a pin this CLI takes', () => {
     // The published row is refused only by a reader that arrives holding the head it expects. The handover
     // surface designates keys and companions and no endpoint, so the same bytes pass here and the report
-    // says in terms that a reader holding an endpoint is the one that compares it. A checkpoint pin is
-    // DU-9.3's assessment surface, and importing it here would be a second pin mechanism.
+    // says in terms that a reader holding an endpoint is the one that compares it. A checkpoint pin answers
+    // an assessment that runs over time rather than a reading of one file, and importing it here would be
+    // a second pin mechanism.
     const row = rowOf('export-v1.json', EXPORT_SUITE.vectors, 'endpoint-head-disagrees');
     expect(row.verdict).toBe('EXPORT_ENDPOINT_MISMATCH');
     const result = runCli(['verify-export', exportDocument(row), `--key=${EXPORT_KEY}`, '--json']);
