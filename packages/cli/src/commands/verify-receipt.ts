@@ -68,6 +68,17 @@ import { readPolicyFile } from './verify.js';
  * rather than leaving it to be inferred: the pin lines name where a designation came from, and both
  * renderings carry the designated keys beside the policy digest.
  *
+ * What the manifest declares about the model a receipt names is weighed, and never merely printed beside
+ * it. A receipt's `wts` is the digest of one reading of the model its `mdl` names, and a manifest's
+ * `models[]` is that deployment's own list of the readings it serves, each under the id it serves it as, so
+ * the two either agree or the receipt was not issued for anything this deployment declares it serves. The
+ * comparison reads the manifest the same session that verified the receipt authenticated, through the member
+ * that session already parsed. A run whose manifest was not authenticated runs no comparison and says that it
+ * did not: the `models[]` of a document nobody established is a claim about a deployment rather than a
+ * declaration by one, and a refusal built on it would hand whoever can put a file at `--manifest` the choice
+ * of which receipts pass. Both renderings name which of the two states a run was in, and each refusal names
+ * the id and the digests it weighed.
+ *
  * A policy's demand on the material a held slot digests is answerable from this command line. A sealed
  * receipt's `held` slot digests material, and the demand weighs what a reader established about those
  * bytes, so the demand is answerable only where the material is in hand, and two flags put it in hand:
@@ -558,6 +569,13 @@ interface Verdict {
   readonly epoch: EpochVerdict;
   /** Whether the document that carried those declarations was authenticated, and the reason it was not. */
   readonly authentication: ManifestAuthentication;
+  /**
+   * The weights digest the authenticated manifest declares for the model this receipt names, or null when
+   * this run had no authenticated declaration to weigh and so weighed nothing. A value here is the `wts` of
+   * the `models[]` entry whose `id` is the receipt's `mdl`: a run whose manifest was authenticated and found
+   * no such entry, or found one stating another digest, was refused before this verdict was built.
+   */
+  readonly manifestWeights: string | null;
   /** The manifest signing keys this run was handed, with the flag that named each of them. */
   readonly keyDesignation: readonly DesignatedKey[];
   readonly policyDigest: string;
@@ -654,6 +672,22 @@ function designationLines(designated: readonly DesignatedKey[]): readonly string
   ];
 }
 
+/**
+ * The weights line's tail: which of the two states this run was in, in the words both renderings print.
+ *
+ * A digest printed with no sentence saying what weighed it reads as a figure a reader has to compare by
+ * hand, which is the gap this closes. Where nothing was weighed the sentence says so and names why, and it
+ * states no digest of the unauthenticated document: a figure this run did not weigh is not one to print
+ * beside a figure it did, and printing the manifest's would let a document nobody established look like a
+ * declaration the verdict rested on.
+ */
+function weightsSentence(verdict: Verdict): string {
+  const model = verdict.verified.payload.mdl;
+  return verdict.manifestWeights === null
+    ? `not compared: the deployment manifest declaring the reading served for ${model} was not authenticated, so this run weighed no digest against it`
+    : `compared with the authenticated manifest's declaration for ${model}, which states ${verdict.manifestWeights}, the same digest`;
+}
+
 function humanVerdict(verdict: Verdict): string {
   const payload = verdict.verified.payload;
   const lines = [
@@ -662,7 +696,7 @@ function humanVerdict(verdict: Verdict): string {
     `  issuer:           ${payload.iss}`,
     `  instance:         ${payload.ins}`,
     `  model:            ${payload.mdl}`,
-    `  weights:          ${toHex(payload.wts)}`,
+    `  weights:          ${toHex(payload.wts)}, ${weightsSentence(verdict)}`,
     `  nonce:            ${toHex(verdict.nonce)} (the value this run was told to expect)`,
     `  issued at:        ${payload.iat} (${isoOf(payload.iat)})`,
     `  verified at:      ${verdict.verificationSeconds} (${isoOf(verdict.verificationSeconds)})`,
@@ -699,6 +733,15 @@ function jsonVerdict(verdict: Verdict): Record<string, unknown> {
     instance: payload.ins,
     model: payload.mdl,
     weights: toHex(payload.wts),
+    // The figure above is this receipt's own claim. This object is the answer to what weighed it, in the
+    // sentence the human rendering prints beside it, and `manifestDigest` is null exactly where nothing was
+    // weighed, so no reader takes an unauthenticated document's declaration for a checked one.
+    weightsComparedWithManifest: {
+      compared: verdict.manifestWeights !== null,
+      model: payload.mdl,
+      manifestDigest: verdict.manifestWeights,
+      statement: weightsSentence(verdict),
+    },
     nonce: toHex(verdict.nonce),
     issuedAt: payload.iat,
     issuedAtIso: isoOf(payload.iat),
@@ -895,6 +938,37 @@ export async function runVerifyReceipt(positionals: string[], values: VerifyRece
         values.json === true,
       );
     }
+    // The receipt's `wts` and the manifest's `models[]` are two claims about one reading, both already in
+    // hand through the session that verified the receipt, so this is where they are weighed: first whether
+    // the manifest speaks of this model at all, then whether the reading it names is the one the receipt
+    // digests. `authentication.authenticated` gates both, and the gate is not a courtesy to a caller who
+    // skipped `--manifest-key`: a manifest this run could not authenticate declares nothing about what the
+    // deployment serves, and a refusal resting on its text would hand whoever can put a file at
+    // `--manifest` the choice of which receipts are refused. A run behind the gate reports that it weighed
+    // nothing rather than reporting a check it did not run.
+    const receiptWeights = toHex(verified.payload.wts);
+    const manifestWeights = authentication.authenticated
+      ? (manifest.models.find((each) => each.id === verified.payload.mdl)?.wts ?? null)
+      : null;
+    if (authentication.authenticated && manifestWeights === null) {
+      const declared = manifest.models.length;
+      return refuse(
+        new SdkError(
+          'MODEL_UNDECLARED',
+          `the authenticated deployment manifest declares no model with id '${verified.payload.mdl}': its models[] array carries ${String(declared)} entr${declared === 1 ? 'y' : 'ies'} and none of them names that id, so the weights digest this receipt states (${receiptWeights}) is answered by nothing this deployment declared`,
+        ),
+        values.json === true,
+      );
+    }
+    if (manifestWeights !== null && manifestWeights !== receiptWeights) {
+      return refuse(
+        new SdkError(
+          'WEIGHTS_DISAGREE',
+          `the authenticated deployment manifest declares model '${verified.payload.mdl}' with weights ${manifestWeights} and this receipt states ${receiptWeights}, which is a different reading of that model`,
+        ),
+        values.json === true,
+      );
+    }
     const families = pinFamilies(loaded.policy, designations);
     const verdict: Verdict = {
       verified,
@@ -904,6 +978,7 @@ export async function runVerifyReceipt(positionals: string[], values: VerifyRece
       manifestKeys: manifest.keys.map((key) => key.kid),
       epoch,
       authentication,
+      manifestWeights,
       keyDesignation: designations,
       policyDigest: loaded.digest,
       policyPath,

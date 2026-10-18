@@ -505,12 +505,13 @@ describe('ashaveri verify-receipt', () => {
     });
 
     it('refuses a sealed manifest whose bytes moved after it was signed, and only after a key made the check possible', () => {
-      // The swapped document differs from the sealed one in one weights digest, which decides nothing on
-      // this path: the seal is verified before the document is parsed, so the refusal can only be about
-      // the bytes having moved. Sealing the same swapped document under the same key is the control that
-      // says so, and it passes.
+      // The swapped document differs from the sealed one in the order two members of one `models[]` entry
+      // are written in, which parses to exactly the declaration the sealed document states: the seal is
+      // verified before the document is parsed, so the refusal can only be about the bytes having moved
+      // rather than about anything this run weighs a receipt against. Sealing the same swapped document
+      // under the same key is the control that says so, and it passes.
       const moved = manifestDocument({
-        models: [{ id: VALID.payload.mdl, wts: 'f'.repeat(64) }],
+        models: [{ wts: VALID.payload.wts, id: VALID.payload.mdl }],
       });
       expect(moved.length).toBe(manifestDocument().length);
       const swapped = sealedAroundSwappedDocument(manifestDocument(), moved, SEALING_KEY);
@@ -688,6 +689,41 @@ describe('ashaveri verify-receipt', () => {
     const out = verdictOf(result);
     expect(out.code).toBe('MANIFEST_EPOCH_DISAGREES');
     expect(out.message).toContain('outside the epoch');
+  });
+
+  /**
+   * The two refusals a reading earns against the manifest that declares what is served.
+   *
+   * Both are reached through a sealed document and a designated key, because a manifest this run could not
+   * authenticate declares nothing and answers neither code. The cases vary one member of the published
+   * helper's `models[]` row, which is the member this command now weighs against the receipt's own `mdl`
+   * and `wts`.
+   */
+  describe("the weights digest against the authenticated manifest's declaration", () => {
+    it('refuses a model the authenticated manifest declares nothing about', () => {
+      const manifest = sealedManifestFile(manifestDocument({ models: [] }), SEALING_KEY);
+      const result = runCli(argsFor({ manifest, manifestKeys: [DESIGNATED_SEALING_KEY] }));
+      expect(result.status).toBe(1);
+      const out = verdictOf(result);
+      expect(out.code).toBe('MODEL_UNDECLARED');
+      expect(out.message).toContain(`declares no model with id '${VALID.payload.mdl}'`);
+      expect(out.message).toContain('carries 0 entries');
+      expect(out.message).toContain(`the weights digest this receipt states (${VALID.payload.wts})`);
+    });
+
+    it('refuses a reading the authenticated manifest declares otherwise, naming both digests', () => {
+      const declared = 'f'.repeat(64);
+      const manifest = sealedManifestFile(
+        manifestDocument({ models: [{ id: VALID.payload.mdl, wts: declared }] }),
+        SEALING_KEY,
+      );
+      const result = runCli(argsFor({ manifest, manifestKeys: [DESIGNATED_SEALING_KEY] }));
+      expect(result.status).toBe(1);
+      const out = verdictOf(result);
+      expect(out.code).toBe('WEIGHTS_DISAGREE');
+      expect(out.message).toContain(`declares model '${VALID.payload.mdl}' with weights ${declared}`);
+      expect(out.message).toContain(`and this receipt states ${VALID.payload.wts}`);
+    });
   });
 
   it('names which pins a thin policy left unchecked instead of counting them as passes', () => {
