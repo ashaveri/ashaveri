@@ -481,9 +481,10 @@ the README: every origin name a sentence here cites is one `DECLARED_ORIGINS` de
 read are the 4 `SERVED_ORIGINS` names and the count that sentence states, the origins described as refused are
 the remainder it names, every entry point that prose names is an export of `@ashaveri/collateral` while only the
 two the revocation list and the certificate chain are cited through, `appraisePckCrl` and `appraiseVcekChain`,
-have to be named there so that a further true citation of a real export stays writable, every suite this section
-names as holding a claim has to stay named there while every name it carries has to belong to a file that exists
-and reads this document, and no tracked source of a shipped command asks an origin.
+have to be named there so that a further true citation of a real export stays writable, the three suites known
+to hold a claim of this section, the union-table suite, the grid suite and this one, have to stay named in the
+opening sentence while every name that sentence carries has to belong to a file that exists and reads this
+document, and no tracked source of a shipped command asks an origin.
 
 A new code with no row fails CI, which is the only reason a reference table like this one stays correct after its
 first month. What no suite reads is the argument inside a cell: whether the condition a `Raised when` cell

@@ -160,22 +160,26 @@ const NUMBER_WORDS: Readonly<Record<string, number>> = {
   fourteen: 14,
 };
 
-function counted(spelling: string): number {
+/**
+ * The count a spelling states, digits or a number word, or nothing for a spelling this estate does not read.
+ * Nothing is raised here: a run that stopped at an odd spelling would cancel the report of every other count,
+ * which is the behaviour the collection below exists to avoid.
+ */
+function counted(spelling: string): number | undefined {
   const word = NUMBER_WORDS[spelling.toLowerCase()];
   if (word !== undefined) {
     return word;
   }
-  if (/^\d+$/u.test(spelling)) {
-    return Number(spelling);
-  }
-  throw new Error(`${spelling} is neither a digit nor a number word this estate writes`);
+  return /^\d+$/u.test(spelling) ? Number(spelling) : undefined;
 }
 
 /**
  * The counts the documents state about origins, each beside the sentence that states it, and the list each count
  * is a fact about. A sentence that counts a list counts it as the package declares it or the run fails. One
  * derived figure can back the same wording in more than one document, and then every document listed carries
- * the claim, so a list that moves turns each sentence that states its length red at once.
+ * the claim, so a list that moves turns each sentence that states its length red at once. A sentence that states
+ * one of those figures in words of its own shape is its own entry keyed to the document that carries it, since
+ * a figure read only through one pattern leaves a sentence written another way free to go false unremarked.
  */
 const COUNT_CLAIMS: readonly (readonly [docs: readonly string[], claim: RegExp, counts: () => number[]])[] = [
   [
@@ -190,6 +194,11 @@ const COUNT_CLAIMS: readonly (readonly [docs: readonly string[], claim: RegExp, 
   [
     [README, THREAT_MODEL],
     /the (\w+) intel json documents/iu,
+    () => [Object.values(ORIGIN_DECLARATIONS).filter((one) => one.reader.as === 'served-json-document').length],
+  ],
+  [
+    [THREAT_MODEL],
+    /its (\w+) json document addresses/iu,
     () => [Object.values(ORIGIN_DECLARATIONS).filter((one) => one.reader.as === 'served-json-document').length],
   ],
 ];
@@ -319,7 +328,22 @@ describe('the origin prose of the shipped documents', () => {
           unstated.push(`${doc} states no count matching ${claim.source}`);
           continue;
         }
-        const figures = stated.slice(1).map(counted);
+        const figures: number[] = [];
+        const unreadable: string[] = [];
+        for (const spelling of stated.slice(1)) {
+          const figure = counted(spelling);
+          if (figure === undefined) {
+            unreadable.push(spelling);
+            continue;
+          }
+          figures.push(figure);
+        }
+        if (unreadable.length > 0) {
+          mismatched.push(
+            `${doc}: ${claim.source} spells ${unreadable.join(',')} where a count is a digit or a number word`,
+          );
+          continue;
+        }
         if (figures.join(',') !== expected().join(',')) {
           mismatched.push(`${doc}: ${claim.source} reads ${figures.join(',')} where the lists carry ${expected().join(',')}`);
         }
@@ -396,12 +420,20 @@ describe('the origin prose of the shipped documents', () => {
     // by a shipped source only inside a comment, so the text read from disk carries it while the stripped text
     // has to lose it; `appraiseCarriedCollateral` names the appraisal a shipped command does call, so the
     // stripped text has to carry it still. A scanner that takes nothing out fails the second control and one
-    // that swallows a file past its head fails the third.
+    // that swallows a file past its head fails the third. Each message carries both premises the control can
+    // fail on, because a scanned source whose comment or call site moved reads exactly like a scanner that
+    // misbehaved, and the named file is where a moved fact is checked.
     expect(raw.some((one) => /\brequestUrl\b/u.test(one)), 'a shipped source comment names requestUrl').toBe(true);
-    expect(/\brequestUrl\b/u.test(code), 'the stripping left the comment naming requestUrl in').toBe(false);
+    expect(
+      /\brequestUrl\b/u.test(code),
+      'the stripped text names requestUrl, so either the stripping took no comment out or a shipped source ' +
+        'names it outside a comment: the comment is in packages/cli/src/commands/carried-collateral.ts',
+    ).toBe(false);
     expect(
       /\bappraiseCarriedCollateral\b/u.test(code),
-      'the stripping took the carried appraisal call site out',
+      'the stripped text lost appraiseCarriedCollateral, so either the stripping swallowed code or no shipped ' +
+        'command calls it any more: the call sites are packages/cli/src/commands/carried-collateral.ts and ' +
+        'packages/cli/src/commands/verify-receipt.ts',
     ).toBe(true);
     for (const name of ORIGIN_ASKING_NAMES) {
       expect(new RegExp(`\\b${name}\\b`, 'u').test(code), `a shipped command names ${name}`).toBe(false);
@@ -409,7 +441,9 @@ describe('the origin prose of the shipped documents', () => {
     // One control per scanned file rather than existentially over the joined text, which is what proves each
     // file the list holds survived the scan with its head intact: a module edge, an import or export statement
     // outside its comments. A scanner that swallowed the text after that edge keeps passing here, so these
-    // controls say nothing about the rest of a file, and the two controls above are what cover the rest of it.
+    // controls say nothing about the rest of a file, and the two controls above are existential over the
+    // joined text: a scanner that swallowed every body but the files carrying those two names would satisfy
+    // them, so what they cover is the rest of at least one file each.
     for (const [index, file] of files.entries()) {
       expect(/^(?:import|export)\b/mu.test(stripped[index] as string), `${file} keeps a module edge outside its comments`).toBe(true);
     }
