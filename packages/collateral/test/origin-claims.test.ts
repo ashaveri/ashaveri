@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { readFileSync, readdirSync } from 'node:fs';
+import { existsSync, readFileSync, readdirSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { join, resolve } from 'node:path';
 import {
@@ -21,7 +21,10 @@ import * as barrel from '../src/index.js';
  * origin is one the package declares, an enumeration of the read origins is exactly the ones it reads, an
  * enumeration of the refused ones exactly the remainder, and a count stated beside those sentences is the
  * length of the list it counts. Entry points the prose names are checked against the package's exports, so a
- * rename lands here rather than in a document a caller trusts. The claim that no shipped command asks an origin
+ * rename lands here rather than in a document a caller trusts, and the two entry points the revocation list and
+ * the certificate chain are cited through are required to be named while no list of the further names is
+ * fixed. A sentence about which suites hold a document's claims names files, so it is read out of the files: each
+ * name has to belong to a test that reads that document. The claim that no shipped command asks an origin
  * is read out of the sources of the shipped commands rather than out of the prose that states it.
  *
  * What stays a reader's work is the argument inside a sentence, and the vocabulary below names the backticked
@@ -187,11 +190,24 @@ const COUNT_CLAIMS: readonly (readonly [doc: string, claim: RegExp, counts: () =
   ],
 ];
 
+/** The closing section, which states which suites hold the claims this file makes about itself. */
+const KEEPING = section(documentOf(ERROR_CODES), KEEPING_HEADING);
+
 const REGIONS: ReadonlyMap<string, string> = new Map([
-  [ERROR_CODES, `${section(documentOf(ERROR_CODES), GRID_HEADING)} ${section(documentOf(ERROR_CODES), KEEPING_HEADING)}`],
+  [ERROR_CODES, `${section(documentOf(ERROR_CODES), GRID_HEADING)} ${KEEPING}`],
   [THREAT_MODEL, bullet(documentOf(THREAT_MODEL), THREAT_MARKER)],
   [README, section(documentOf(README), README_HEADING)],
 ]);
+
+/**
+ * The test files the opening sentence names. The sentence is a claim about files, so it is read out of the files:
+ * the suites holding the reachability and origin claims have to appear in it, and every name it carries has to
+ * belong to a file that reads this document.
+ */
+function namedHolders(): string[] {
+  const lead = sentences(KEEPING)[0] as string;
+  return [...new Set(backticked(lead).filter((token) => /\.test\.ts$/u.test(token)))];
+}
 
 /** Every source file under a tracked directory, which is the text a shipped command is built from. */
 function sourcesUnder(dir: string): string[] {
@@ -286,6 +302,23 @@ describe('the origin prose of the shipped documents', () => {
     }
   });
 
+  /**
+   * The sentence naming the suites that hold this document's claims is a claim about files, and a list of files
+   * that drifts from the readers on disk is a false count about this suite. It is read out of the files: the
+   * holders of the reachability and origin claims have to be named, and each name has to be a file that reads
+   * the document.
+   */
+  it('names the suites holding its claims as the files that read this document', () => {
+    const holders = namedHolders();
+    for (const holder of ['packages/collateral/test/refusal-reachability.test.ts', 'packages/collateral/test/origin-claims.test.ts']) {
+      expect(holders, `${holder} holds a claim the closing section states, and its sentence stopped naming it`).toContain(holder);
+    }
+    for (const file of holders) {
+      expect(existsSync(join(REPO, file)), `${file} is named as a holder and is not a file`).toBe(true);
+      expect(documentOf(file), `${file} is named as a holder and does not read ${ERROR_CODES}`).toContain(ERROR_CODES);
+    }
+  });
+
   it('cites entry points the package exports', () => {
     const exported = new Set([
       ...Object.keys(barrel),
@@ -309,7 +342,12 @@ describe('the origin prose of the shipped documents', () => {
         }
       }
     }
-    expect([...cited].sort(), 'the entry points the prose cites by name').toEqual(['appraisePckCrl', 'appraiseVcekChain']);
+    // The two entry points the revocation list and the certificate chain are cited through have to be named, and
+    // a sentence citing any further entry point is held to the export rule alone rather than to the inventory
+    // written down so far: a list of every citation would refuse a truer sentence about a real export.
+    for (const needed of ['appraisePckCrl', 'appraiseVcekChain']) {
+      expect([...cited], `${needed} is no longer cited by the origin prose`).toContain(needed);
+    }
   });
 
   it('keeps every declared origin named in the prose that describes them', () => {

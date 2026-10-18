@@ -200,7 +200,9 @@ What is still true, in both modes:
   an appraisal of one with the reader it lacks, and commits no vendor-service bytes.
   It reads the Intel PCK CRL as a DER certificate list when a caller asks `appraisePckCrl`, under the
   issuer chain the answer carries and a root the caller pins, and that reading answers about one
-  certificate serial rather than a platform level. It reads the AMD KDS as one chip's VCEK and the
+  certificate serial rather than a platform level. It reads the two Intel JSON documents, the TCB Info and the
+  QE Identity, when a caller asks `appraiseCollateral`, under the chain header each answer carries and a root the
+  caller pins. It reads the AMD KDS as one chip's VCEK and the
   authorities the chain route answers beside it when a caller asks `appraiseVcekChain`, believed by
   the same primitives that believe a report's own ARK, ASK and VCEK, and under the ARK the caller
   pins rather than a root that arrived with the answer; a VCEK states what AMD signed about a chip, so

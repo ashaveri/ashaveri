@@ -45,8 +45,10 @@ import { writeCrl } from './crl-writer.js';
  * the scenario that produces it and the run asserts the code the answer arrives with. A `no` is worth nothing
  * unless a member of the origin's own declaration carries it, so each `no` cell names the fact and the run reads
  * it back out of the declaration: a declaration that gained the member a `no` rests on turns that cell red
- * rather than leaving the sentence standing. Every cited symbol is checked to be declared in the file the cell
- * names, which is what makes a rename in the source a failure here rather than a stale line in a document.
+ * rather than leaving the sentence standing. Each fact is chosen by the code a cell cites and narrowed by the
+ * origin citing it, so a `no` written for a pair no fact covers is named there rather than carried by a fact
+ * meant for a neighbour. Every cited symbol is checked to be declared in the file the cell names, which is what
+ * makes a rename in the source a failure here rather than a stale line in a document.
  *
  * The grid is the origins `SERVED_ORIGINS` names crossed with the codes `collateralRefusals()` states, in those
  * orders. An origin or a code added to the package has no cell here, so the document's table and this file's
@@ -462,29 +464,55 @@ function chainQuery(over: Partial<VcekChainQuery> = {}): VcekChainQuery {
   };
 }
 
-/** The fact a `no` cell rests on, read out of the declaration rather than out of the code that acts on it. */
+/** The fact a `no` cell rests on, read out of a declaration rather than out of the code that acts on it. */
+type DeclarationFact = (origin: ReadCollateralOrigin) => boolean;
+
+/** Whether the origin is served and its declaration states a reader, which is what no unread origin can state. */
+function originHasAReader(origin: ReadCollateralOrigin): boolean {
+  const declared = declarationFor(origin);
+  return !('refusal' in declared) && SERVED_ORIGINS.includes(origin) && declared.reader.as !== 'declared-only';
+}
+
+/**
+ * The declaration facts behind the `no` cells, keyed first by the code a cell cites and then by the origin that
+ * may cite it. The code picks the fact because a refusal is one question about the package's own vocabulary, and
+ * the origin narrows it because which member that question is asked of belongs to the origin. A pair missing here
+ * is a `no` no declaration is written for, so the run names the pair instead of letting the fact beside it, meant
+ * for another origin or another code, certify the cell.
+ */
+const NO_CELL_FACTS: Readonly<Partial<Record<CollateralErrorCode, Readonly<Partial<Record<ReadCollateralOrigin, DeclarationFact>>>>>> = {
+  COLLATERAL_ORIGIN_UNSUPPORTED: {
+    'intel-tcb-info': originHasAReader,
+    'intel-qe-identity': originHasAReader,
+    'intel-pck-crl': originHasAReader,
+    'amd-kds': originHasAReader,
+  },
+  COLLATERAL_IDENTITY_MISMATCH: {
+    'intel-qe-identity': () => INTEL_QE_IDENTITY.identity.cpuTypeMember === null,
+  },
+  COLLATERAL_TCB_LEVEL_UNLISTED: {
+    'intel-pck-crl': () => !Object.hasOwn(INTEL_PCK_CRL, 'identity') && INTEL_PCK_CRL.serialMember === 'certificateSerial',
+    'amd-kds': () => !Object.hasOwn(AMD_KDS, 'identity'),
+  },
+  COLLATERAL_STATUS_UNSUPPORTED: {
+    'amd-kds': () => !Object.hasOwn(AMD_KDS, 'status'),
+  },
+  COLLATERAL_WINDOW_CLOSED: {
+    'amd-kds': () => !Object.hasOwn(AMD_KDS, 'window'),
+  },
+  COLLATERAL_REVOKED_BY_VENDOR: {
+    'amd-kds': () => !Object.hasOwn(AMD_KDS, 'status')
+      && AMD_KDS.routes.every((route) => route.answer !== 'der-crl' && route.answer !== 'der-ocsp-response'),
+  },
+};
+
+/** Whether a `no` cell is carried by the fact written for exactly that origin and that code. */
 function noCellHolds(origin: ReadCollateralOrigin, code: CollateralErrorCode): boolean {
-  if (code === 'COLLATERAL_ORIGIN_UNSUPPORTED') {
-    const declared = declarationFor(origin);
-    return !('refusal' in declared) && SERVED_ORIGINS.includes(origin) && declared.reader.as !== 'declared-only';
+  const fact = NO_CELL_FACTS[code]?.[origin];
+  if (fact === undefined) {
+    throw new Error(`the no cell ${origin} / ${code} cites no declaration fact`);
   }
-  if (origin === 'intel-qe-identity') {
-    return INTEL_QE_IDENTITY.identity.cpuTypeMember === null;
-  }
-  if (origin === 'intel-pck-crl') {
-    return !Object.hasOwn(INTEL_PCK_CRL, 'identity') && INTEL_PCK_CRL.serialMember === 'certificateSerial';
-  }
-  if (code === 'COLLATERAL_WINDOW_CLOSED') {
-    return !Object.hasOwn(AMD_KDS, 'window');
-  }
-  if (code === 'COLLATERAL_TCB_LEVEL_UNLISTED') {
-    return !Object.hasOwn(AMD_KDS, 'identity');
-  }
-  if (code === 'COLLATERAL_STATUS_UNSUPPORTED') {
-    return !Object.hasOwn(AMD_KDS, 'status');
-  }
-  return !Object.hasOwn(AMD_KDS, 'status')
-    && AMD_KDS.routes.every((route) => route.answer !== 'der-crl' && route.answer !== 'der-ocsp-response');
+  return fact(origin);
 }
 
 /** Whether the cited file declares the symbol, rather than merely mentioning it in a sentence. */
