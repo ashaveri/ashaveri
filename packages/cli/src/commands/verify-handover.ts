@@ -1,6 +1,13 @@
 import { stat } from 'node:fs/promises';
 import { basename, join } from 'node:path';
 import {
+  ANCHOR_LEDGER_CONTENT_TYPE,
+  AttestationError,
+  verifyAnchorLedger,
+  type AnchorLedgerRow,
+  type VerifiedAnchorLedger,
+} from '@ashaveri/attest-core';
+import {
   COSE_SIGN1_TAG,
   DEPLOYMENT_MANIFEST_CONTENT_TYPE,
   EPOCH_INVENTORY_CONTENT_TYPE,
@@ -61,11 +68,10 @@ import {
  *
  * A verification bundle is a pile of files, and the format package publishes seven signed shapes carrying a
  * published content type: `ashaveri/receipt`, `ashaveri/pack`, `ashaveri/export`, `ashaveri/deployment-manifest`,
- * `ashaveri/redaction`, `ashaveri/epoch-inventory` and `ashaveri/anchor-provenance`. Six of them are what this
- * command reads, the seventh being the ledger whose reader ships in the package that ships the bytes the ledger
- * speaks of, and a header naming it is refused here by name rather than read as one of the six. A file in such a
- * pile is named for what the deployment called it rather than for what it is, so the question a person handed
- * the pile asks is what any of it is. This is that question, answered by one command rather than by six, because
+ * `ashaveri/redaction`, `ashaveri/epoch-inventory` and `ashaveri/anchor-provenance`. All seven are what this
+ * command reads, the seventh through the reader the package that ships the anchors publishes, and a file in such
+ * a pile is named for what the deployment called it rather than for what it is, so the question a person handed
+ * the pile asks is what any of it is. This is that question, answered by one command rather than by seven, because
  * the answer is inside the document:
  * the content type sits in the COSE protected header, the header is inside the signature, and so a stranger
  * holding no key and reaching no network can classify these bytes safely. A command per format would have made
@@ -74,19 +80,18 @@ import {
  * The type is printed first in every answer this command gives, before anything about validity,
  * because a verdict about the wrong document is not a verdict at all.
  *
- * The dispatch is a lookup against six of the seven content-type constants the format package publishes,
- * `ashaveri/anchor-provenance` being the one it publishes and this command does not read, and each of the
- * six readers re-answers the content type itself, over the protected bytes, inside its own signature
+ * The dispatch is a lookup against the seven content-type constants the format package publishes, and each
+ * reader re-answers the content type itself, over the protected bytes, inside its own signature
  * check. That is why a relabelled document cannot be talked into a pass here: the classification picks
  * which reader runs, and only a reader that has verified a signature over the header it read reports a
  * document as verified. A header changed without re-signing is caught by the signature, and a header
- * that is honest about a shape this command does not read is refused by name.
+ * that is honest about a shape this command holds no reader for is refused by name.
  *
  * Which keys a document is checked against stays the caller's designation, exactly as
  * `ashaveri verify-receipt` treats one. `--key` designates the keys whose signatures this run accepts on
- * receipts, packs, exports, redactions and epoch inventories, matched by the kid a header names, and
- * `--manifest-key` designates the keys whose seal authenticates a deployment manifest. The two roles are kept
- * apart for the reason the policy type gives them: a manifest decides which keys sign evidence, so a key
+ * receipts, packs, exports, redactions, epoch inventories and provenance ledgers, matched by the kid a header
+ * names, and `--manifest-key` designates the keys whose seal authenticates a deployment manifest. The two roles
+ * are kept apart for the reason the policy type gives them: a manifest decides which keys sign evidence, so a key
  * trusted for evidence cannot also be the proof that the document naming them is the deployment's own. Each
  * designation's kid is computed from the key rather than typed beside it, so a designation that contradicts
  * its own key is refused before a byte of anybody's material is read, and what it refused is the call rather
@@ -102,20 +107,28 @@ import {
  * told about. So a receipt read here comes back signed by a key this run designated and whole in its own
  * shape, and the report says in terms which questions that leaves open and which command closes them.
  *
- * Three of the six shapes have a verb of their own beside this one: `ashaveri verify-pack`,
+ * Three of the seven shapes have a verb of their own beside this one: `ashaveri verify-pack`,
  * `ashaveri verify-export` and `ashaveri verify-epoch-inventory`. They are this command with the answer in
  * label 3 pinned to one value, so a caller that already knows which file it is holding is told, in the same
  * refusal this command gives a type it does not read, when the file in front of it is not that. They add no
  * exit code, no refusal code and no option of their own, because there is nothing here that a pinned type needs
  * and a free type does not; an option of this family is read by whichever reader the bytes point at, so
  * `--retention-dir` reaches the fold of an inventory under either verb and is printed as not consulted beside
- * the other five shapes.
+ * the other six shapes.
  *
  * One shape carries a second document with it. A redaction states a removal from one pack, and the reader
  * recomputes a digest of that pack's whole bytes rather than resolving a name, so the pack travels in
  * through `--companion`, the option this command already uses for the file that arrives beside a document.
  * Nothing about the amendment widens what is accepted: an amendment names a content type the format
  * package publishes, and a header naming anything else is still refused by name.
+ *
+ * A provenance ledger is the shape whose rows name bytes the reader has to be handed. The three anchors the
+ * attest package embeds resolve from its own source, and every row naming `test/fixtures/<name>` is checked
+ * against the file handed as `--companion` under that bare name, because the row's name is a roster entry
+ * rather than a path to open. A ledger handed no companion, or one handed bytes a row does not digest, is
+ * refused by the reader's own code rather than skipped: a provenance row nobody checked is the claim this
+ * document exists to make checkable. A companion no row names is disclosed and read by nothing, exactly as
+ * an uninvited original is beside an export.
  *
  * An inventory is the one shape whose reader takes a second set of documents and folds them into its answer, and
  * `--retention-dir` is the option that carries them: it names the root the sealed entries' `retention` paths are
@@ -136,7 +149,7 @@ export interface VerifyHandoverFlags extends CarriedFlagValues {
   key?: string[];
   /** Every `--manifest-key` given, unvalidated at this point; see `designatedKeys`. */
   'manifest-key'?: string[];
-  /** Every `--companion` given: the files an export item's originals travel in, and the pack a redaction names. */
+  /** Every `--companion` given: an export item's original, a redaction's pack, and a provenance ledger's shipped bytes. */
   companion?: string[];
   /**
    * The root an inventory's run files its retention artifacts under, read only when the bytes are an inventory;
@@ -169,7 +182,7 @@ export const HANDOVER_VERB: VerbPin = { verb: 'verify-handover', contentType: nu
 /** Label 3 of the COSE header registry: the content type. Every format this command reads puts its name there. */
 const CONTENT_TYPE_LABEL = 3;
 
-/** Label 4 of the same registry: the kid. Every one of the six readers requires it to be 32 bytes. */
+/** Label 4 of the same registry: the kid. Every one of the seven readers requires it to be 32 bytes. */
 const KID_LABEL = 4;
 
 /** The width a kid is written at across these formats, which is what the readers refuse anything else for. */
@@ -185,6 +198,40 @@ interface Fact {
   readonly json: unknown;
 }
 
+/**
+ * The three registers a stamp can be read in, kept apart because they answer different questions:
+ * `historical` is when the document says something happened, `current` is what the document states about
+ * the deployment now, and `freshness` is whether what it states still stands at the reading. A reading of
+ * a file that reached no source and consulted no clock can answer the first and must not answer the other
+ * two, so it prints them as unknown rather than letting a past stamp read as a present assurance.
+ */
+function freshnessFact(parts: {
+  readonly historical: string;
+  readonly current: string;
+  readonly freshness: string;
+  readonly json: unknown;
+}): Fact {
+  return {
+    key: 'freshness',
+    label: 'freshness',
+    value: `historical: ${parts.historical}; current: ${parts.current}; freshness: ${parts.freshness}`,
+    json: parts.json,
+  };
+}
+
+/**
+ * The one JSON shape every freshness row carries, so a port reads one member rather than seven.
+ * The printed row words the current register as a sentence about the document: the manifest row words
+ * it as the document's own statement about itself, and the other six print a run-scoped disclaimer that
+ * current is not stated. No machine field answers for either sentence, so the JSON row keeps `current`
+ * null rather than pushing prose into the field; `reason` states why freshness is unknown and
+ * `clockConsulted` that no clock was consulted, which is what a port reads in place of the printed
+ * sentence.
+ */
+function freshnessJson(historical: unknown, reason: string): Record<string, unknown> {
+  return { historical, current: null, freshness: 'unknown', clockConsulted: false, reason };
+}
+
 /** One document, classified and read. Both renderings are built from this and from nothing else. */
 interface Reading {
   readonly contentType: string;
@@ -197,7 +244,7 @@ interface Reading {
   readonly notChecked: readonly string[];
 }
 
-/** Everything the six readers share: what this run was handed, and the bytes it was handed. */
+/** Everything the seven readers share: what this run was handed, and the bytes it was handed. */
 interface Inputs {
   readonly evidence: readonly DesignatedKey[];
   readonly manifest: readonly DesignatedKey[];
@@ -209,7 +256,7 @@ interface Inputs {
 }
 
 /** The refusal every command in this tool owes in the same shape: the code, and the message beside it. */
-function refuse(contentType: string | null, err: ReceiptError | SdkError, json: boolean): number {
+function refuse(contentType: string | null, err: ReceiptError | SdkError | AttestationError, json: boolean): number {
   if (json) {
     writeJson({
       ok: false,
@@ -228,7 +275,7 @@ function refuse(contentType: string | null, err: ReceiptError | SdkError, json: 
  * What these bytes call themselves, read out of the envelope by the package's own CBOR decoder.
  *
  * Nothing is decided about trust here, and nothing needs to be: this answers only which reader the
- * bytes point at, and which kid that reader will be asked to settle. The codes are the ones the six
+ * bytes point at, and which kid that reader will be asked to settle. The codes are the ones the seven
  * readers already use for the same facts about an envelope, because a caller who meets a refusal
  * here and then in a reader should learn one thing twice rather than two things once, and because a
  * command that classified documents is not the place a new refusal code is born.
@@ -304,7 +351,8 @@ function notSign1(): ReceiptError {
 }
 
 /**
- * The key set this run designates for evidence, answered the way the receipt, pack and redaction readers ask.
+ * The key set this run designates for evidence, answered the way the receipt, pack, redaction and
+ * inventory readers ask.
  *
  * A resolver rather than one pinned key, because a pack's span can cross a key rotation and the
  * receipts inside it were signed by the epochs that were current then, which is what the caller
@@ -368,6 +416,15 @@ function readReceipt(bytes: Uint8Array, inputs: Inputs, kid: Uint8Array): Readin
         value: `${toHex(payload.att.d)} at ${payload.att.ts} (${isoOf(payload.att.ts)})`,
         json: { digest: toHex(payload.att.d), timestamp: payload.att.ts },
       },
+      freshnessFact({
+        historical: `the receipt was issued at ${payload.iat} (${isoOf(payload.iat)})`,
+        current: 'not stated, because this run reached no deployment and read no policy',
+        freshness: 'unknown, because the age windows belong to the receipt verb and this run consulted no clock',
+        json: freshnessJson(
+          { issuedAt: payload.iat },
+          `the age windows a policy names are applied by 'ashaveri verify-receipt', and this run applied none`,
+        ),
+      }),
     ],
     notChecked: [
       `the nonce against a challenge, the two digests against any bytes, the pins a policy names and the age windows a clock closes: 'ashaveri verify-receipt' decides those, from the receipt, a policy file and a deployment manifest`,
@@ -388,7 +445,7 @@ function readReceipt(bytes: Uint8Array, inputs: Inputs, kid: Uint8Array): Readin
  *
  * The walk is what the material is weighed against, so the weighing comes after it and nothing else in
  * this reading depends on it: `carriedFacts` prints the roots, the fields and one row per digest a held
- * slot names. The reading is a promise for that reason alone, and the five other readers stay as they
+ * slot names. The reading is a promise for that reason alone, and the six other readers stay as they
  * were because no other shape carries material a slot names.
  */
 async function readPack(bytes: Uint8Array, inputs: Inputs, kid: Uint8Array): Promise<Reading> {
@@ -421,12 +478,27 @@ async function readPack(bytes: Uint8Array, inputs: Inputs, kid: Uint8Array): Pro
         json: { walked: outcome.walked.length, declared: manifest.items.length },
       },
       {
+        key: 'provenance',
+        label: 'provenance',
+        value: `${manifest.prov}, the weakest of ${String(manifest.items.length)} item(s) (${manifest.items
+          .map((one) => `${one.id}=${one.prov}`)
+          .join(', ')}), as the pack states it: where each record's material came from, which the reader holds to the reduction, and not execution assurance, custody or freshness`,
+        json: {
+          declared: manifest.prov,
+          items: manifest.items.map((one) => ({ id: one.id, prov: one.prov })),
+          rule: 'the manifest states the weakest of its items, and a reader refuses any other value in either direction',
+        },
+      },
+      {
         key: 'items',
         label: 'items',
-        value: outcome.walked.map((one) => `${one.item.id} at ${one.item.iat}, receipt under ${toHex(one.receipt.header.kid)}`).join('; '),
+        value: outcome.walked
+          .map((one) => `${one.item.id} at ${one.item.iat} (${one.item.prov}), receipt under ${toHex(one.receipt.header.kid)}`)
+          .join('; '),
         json: outcome.walked.map((one) => ({
           id: one.item.id,
           iat: one.item.iat,
+          prov: one.item.prov,
           prev: toHex(one.item.prev),
           receiptKid: toHex(one.receipt.header.kid),
           receiptIssuer: one.receipt.payload.iss,
@@ -438,6 +510,15 @@ async function readPack(bytes: Uint8Array, inputs: Inputs, kid: Uint8Array): Pro
         value: `${manifest.duty.art}, revision ${manifest.duty.rev} (${isoOf(manifest.duty.rev)}), required ${manifest.duty.required} s, held ${manifest.duty.held} s, both as the deployment states them`,
         json: manifest.duty,
       },
+      freshnessFact({
+        historical: `the pack was assembled at ${manifest.at} (${isoOf(manifest.at)}) and its records were chained across the span ${manifest.span.from} to ${manifest.span.to} (${isoOf(manifest.span.from)} to ${isoOf(manifest.span.to)})`,
+        current: 'not stated, because this run reached no store and holds no copy a reader kept before',
+        freshness: 'unknown, because this run consulted no clock and compared this pack with no later statement',
+        json: freshnessJson(
+          { assembledAt: manifest.at, span: manifest.span },
+          'whether these receipts are all the deployment still holds, whether the span is the period somebody asked for, and whether a copy held before agrees are answered by no file in this run',
+        ),
+      }),
       ...carriedFacts(weighing),
     ],
     notChecked: [
@@ -532,7 +613,7 @@ function carriedFacts(weighing: CarriedReading): readonly Fact[] {
  *
  * The clauses are joined with a semicolon, so a figure from outside this run is quoted on the shared cell rule
  * before it joins them: the record ids, which the pack spells and the format only bounds in length, the vendor's
- * status words, which are the signed material's own text even though the classification admits only the six it
+ * status words, which are the signed material's own text even though the classification admits only the seven it
  * reads, and the refusal detail, which is another package's sentence about what it met. Every other figure on the
  * line is a number, a hex digest, or one of a union this run checked before storing it.
  */
@@ -681,6 +762,15 @@ function readExport(bytes: Uint8Array, inputs: Inputs, kid: Uint8Array): Reading
           original: one.orig.k === 'inline' ? 'inline' : one.orig.name,
         })),
       },
+      freshnessFact({
+        historical: `the export was assembled at ${manifest.at} (${isoOf(manifest.at)}) and its claim was made at ${manifest.claim.made} (${isoOf(manifest.claim.made)})`,
+        current: 'not stated, because this run fetched nothing from the source the export names',
+        freshness: 'unknown, because this run consulted no clock and compared this export with no later copy',
+        json: freshnessJson(
+          { assembledAt: manifest.at, claimMade: manifest.claim.made },
+          'whether this export is the latest statement from its source, and whether the material still stands, are answered by no field here',
+        ),
+      }),
     ],
     notChecked: [
       'whether this export is complete at the source it came from: no walk can see a store, which is why the endpoints a reader already has cause to believe are compared by that reader and not invented here',
@@ -699,7 +789,7 @@ function readExport(bytes: Uint8Array, inputs: Inputs, kid: Uint8Array): Reading
  * rather than as a wording this file chose. A run that designated no key is not a run that failed: it
  * asked a narrower question, and the advisory the function writes is printed instead of softened. No
  * line here claims a signature held when none was checked, which is the reason the verdict line this
- * command prints for the other five types is a fact about the envelope rather than a fixed word.
+ * command prints for the other six types is a fact about the envelope rather than a fixed word.
  */
 function readManifest(bytes: Uint8Array, inputs: Inputs, kid: Uint8Array): Reading {
   const policy: AshaveriPolicy = {
@@ -740,6 +830,15 @@ function readManifest(bytes: Uint8Array, inputs: Inputs, kid: Uint8Array): Readi
       },
       { key: 'models', label: 'models', value: manifest.models.map((one) => `${one.id}@${one.wts}`).join('; '), json: manifest.models },
       { key: 'measurement', label: 'measurement', value: `${manifest.meas.m} (${manifest.meas.tee})`, json: manifest.meas },
+      freshnessFact({
+        historical: 'the manifest carries no assembly instant, so there is no historical stamp to report',
+        current: 'the keys, epochs and measurement above are the document\'s own statement about itself, and this run authenticated that statement only where the seal held',
+        freshness: 'unknown, because this run fetched nothing and compared the document with no later one',
+        json: freshnessJson(
+          null,
+          'a manifest states its own present tense, and whether a deployment still serves it is answered by no file in this run',
+        ),
+      }),
     ],
     notChecked: [
       `which of these keys is trusted for anything: no policy document was read and no digest is cited, so the ${String(manifest.keys.length)} declared key(s) are reported as the deployment's own statement about itself`,
@@ -841,6 +940,15 @@ function readRedaction(bytes: Uint8Array, inputs: Inputs, kid: Uint8Array): Read
         json: toHex(outcome.originalHead),
       },
       { key: 'states', label: 'states', value: manifest.states, json: manifest.states },
+      freshnessFact({
+        historical: `the amendment was stated at ${manifest.at} (${isoOf(manifest.at)})`,
+        current: 'not stated, because this run reached no deployment and compared no later statement about this pack',
+        freshness: 'unknown, because this run consulted no clock',
+        json: freshnessJson(
+          { statedAt: manifest.at },
+          'whether this amendment is the latest statement about the pack, and whether the removal still stands, are answered by no file in this run',
+        ),
+      }),
     ],
     notChecked: [
       `whether the ${String(manifest.removed.length)} record(s) named as removed are unreachable anywhere this deployment still holds them: this run reads the statement and the pack it names, and no file in a bundle shows what else is stored`,
@@ -1034,6 +1142,15 @@ async function readInventory(bytes: Uint8Array, inputs: Inputs, kid: Uint8Array)
           : `${manifest.duty.short.length} of the run's entries fall short of the period the same entry states it owed, as the run states it: ${manifest.duty.short.map((one) => `${printedToken(one.file)} ${printedToken(one.art)} required ${one.required} s, held ${one.held} s, short by ${one.shortBy} s`).join('; ')}`,
         json: manifest.duty,
       },
+      freshnessFact({
+        historical: `the run states the window ${manifest.window.from} to ${manifest.window.to} (${isoOf(manifest.window.from)} to ${isoOf(manifest.window.to)}) and each entry states the instant its pack was assembled`,
+        current: 'not stated, because this run reached no store and read only the artifacts this caller named',
+        freshness: 'unknown, because this run consulted no clock and compared this run with no later closing',
+        json: freshnessJson(
+          { window: manifest.window, entries: outcome.packs.map((one) => ({ file: one.file, at: one.at })) },
+          'whether this run is all the epochs a deployment closed, and whether it is the latest statement about them, are answered by no file here',
+        ),
+      }),
     ],
     notChecked: [
       'whether the two digests an entry names are digests of files that exist beside this document, whether the packs they name are sealed by the keys the entries give, and whether an item count beside an entry is the count of receipts inside that pack: an inventory restates a run rather than proving it, and `ashaveri verify-handover` over each pack file recomputes what an entry claims',
@@ -1047,6 +1164,108 @@ async function readInventory(bytes: Uint8Array, inputs: Inputs, kid: Uint8Array)
 }
 
 /**
+ * A provenance ledger, read as one.
+ *
+ * `verifyAnchorLedger` is the reader the package that embeds the anchors publishes, so the pin rule, the
+ * envelope rule, the signature, the declared-key check and the row rules are the ones a reader of the
+ * ledger applies. What this command supplies is the two things the reader takes from its caller: the pins,
+ * which are the `--key` designations this run was handed, and the tracked fixture bytes, which travel as
+ * companions under the bare names the rows carry. The three embedded anchors resolve from the package's own
+ * source and need no file.
+ *
+ * The rows are printed one per line because a ledger is a roster: a reader comparing it with a licence
+ * record needs every row, not a count. What each row states is a claim about bytes this repository ships,
+ * and the reader recomputes the digest over the bytes it was handed before a row is kept, so a row that
+ * prints here is one whose digest agreed with a copy this run held.
+ */
+function ledgerRowLine(one: AnchorLedgerRow): string {
+  const certificate =
+    one.subject === undefined || one.serial === undefined || one.spki === undefined || one.validity === undefined
+      ? ''
+      : `; certificate key ${toHex(one.spki)} valid ${isoOf(one.validity.from)} to ${isoOf(one.validity.to)}`;
+  const note = one.licenceNote === undefined ? '' : ` (${printedToken(one.licenceNote)})`;
+  return `${printedToken(one.file)}: ${toHex(one.digest)} from ${printedToken(one.origin)}, taken ${one.takenAt} (${isoOf(one.takenAt)}), licence ${printedToken(one.licence)}${note}${certificate}`;
+}
+
+function ledgerRowJson(one: AnchorLedgerRow): Record<string, unknown> {
+  return {
+    family: one.family,
+    file: one.file,
+    digest: toHex(one.digest),
+    ...(one.subject === undefined || one.serial === undefined || one.spki === undefined || one.validity === undefined
+      ? {}
+      : { subject: toHex(one.subject), serial: toHex(one.serial), spki: toHex(one.spki), validity: one.validity }),
+    origin: one.origin,
+    takenAt: one.takenAt,
+    licence: one.licence,
+    ...(one.licenceNote === undefined ? {} : { licenceNote: one.licenceNote }),
+  };
+}
+
+function readAnchorLedger(bytes: Uint8Array, inputs: Inputs, kid: Uint8Array): Reading {
+  // A row names a roster entry rather than a path, and the one directory that roster gives tracked bytes
+  // a location in is `test/fixtures/`. A companion is keyed by the bare name it arrived under, so the
+  // map below states the only translation this command makes and leaves every other row to the reader's
+  // own roster check.
+  const shipped = new Map<string, Uint8Array>();
+  for (const [name, companion] of inputs.companions) {
+    shipped.set(`test/fixtures/${name}`, companion);
+  }
+  const verified: VerifiedAnchorLedger = verifyAnchorLedger(bytes, {
+    trustedKeys: inputs.evidence.map((one) => fromBase64Url(one.publicKey)),
+    shipped,
+  });
+  const { document } = verified;
+  const tracked = document.rows.filter((one) => one.file.startsWith('test/fixtures/'));
+  const embedded = document.rows.length - tracked.length;
+  const named = new Set(tracked.map((one) => one.file.slice('test/fixtures/'.length)));
+  const unused = [...inputs.companions.keys()].filter((one) => !named.has(one));
+  const takenAt = document.rows.map((one) => one.takenAt);
+  return {
+    contentType: ANCHOR_LEDGER_CONTENT_TYPE,
+    reader: 'verifyAnchorLedger',
+    kid: toHex(kid),
+    facts: [
+      { key: 'signature', label: 'signature', value: 'holds, EdDSA over the Sig_structure a provenance ledger frames, under a key this run pinned', json: true },
+      { key: 'payloadVersion', label: 'payload', value: `v${document.v}`, json: document.v },
+      { key: 'generatedAt', label: 'generated at', value: `${document.generatedAt} (${isoOf(document.generatedAt)})`, json: document.generatedAt },
+      {
+        key: 'declaredKeys',
+        label: 'declared keys',
+        value: `${document.keys.map((one) => toHex(one)).join('; ')}, the ids the ledger names as the ones that may seal it`,
+        json: document.keys.map((one) => toHex(one)),
+      },
+      {
+        key: 'shipped',
+        label: 'shipped bytes',
+        value: `${String(embedded)} row(s) resolve from the anchors this package embeds; ${String(tracked.length)} row(s) were checked against companion bytes handed under the bare names the rows carry${unused.length === 0 ? '' : `; ${String(unused.length)} companion file(s) no row named: ${unused.map((one) => printedToken(one)).join(', ')}`}`,
+        json: { embedded, fromCompanions: tracked.length, companionsHanded: inputs.companions.size, unused },
+      },
+      ...document.rows.map((one, index) => ({
+        key: `row-${String(index)}`,
+        label: `row ${String(index)} (${one.family})`,
+        value: ledgerRowLine(one),
+        json: ledgerRowJson(one),
+      })),
+      freshnessFact({
+        historical: `the ledger was generated at ${document.generatedAt} (${isoOf(document.generatedAt)}) and its rows state the instants their bytes were taken, ${isoOf(Math.min(...takenAt))} to ${isoOf(Math.max(...takenAt))}`,
+        current: 'not stated, because this run fetched nothing from the sources the rows name',
+        freshness: 'unknown, because this run consulted no clock and compared this ledger with no later one',
+        json: freshnessJson(
+          { generatedAt: document.generatedAt, takenAt: { from: Math.min(...takenAt), to: Math.max(...takenAt) } },
+          'whether a source still serves the bytes a row digests, and whether this ledger is the latest statement about these anchors, are answered by no file in this run',
+        ),
+      }),
+    ],
+    notChecked: [
+      'whether each source a row names still serves the bytes it digests, or still serves them under the licence class the row records: this run fetched nothing and read no licence text',
+      'whether this ledger is the latest statement about these anchors: no file in a bundle shows what else the issuer sealed, and this run consulted no clock',
+      'whether the tracked fixture bytes handed here are the copies the ledger issuer held: each row digest is recomputed over the bytes this run was handed, so a matching digest states that the copy agrees with the row and nothing about the source',
+    ],
+  };
+}
+
+/**
  * One reader of this family. The pack's returns a promise, because weighing the material it carries awaits an
  * appraisal that fetches nothing; the call site awaits both shapes, so a narrower question about the same bytes
  * does not change what an answer is made of.
@@ -1054,10 +1273,9 @@ async function readInventory(bytes: Uint8Array, inputs: Inputs, kid: Uint8Array)
 type DocumentReader = (bytes: Uint8Array, inputs: Inputs, kid: Uint8Array) => Reading | Promise<Reading>;
 
 /**
- * The six types this command can meet, each with the reader that answers for it. The keys are six of the
- * seven content types the format package publishes, `ashaveri/anchor-provenance` being the one it publishes
- * and this table does not hold, so a type outside this table reaches this command as an unknown `typ` and is
- * refused by name rather than read as one of the six.
+ * The seven types this command can meet, each with the reader that answers for it. The keys are the content
+ * types the format package publishes, so a type outside this table is refused by name rather than read as one
+ * of the seven.
  */
 const READERS: ReadonlyMap<string, DocumentReader> = new Map<string, DocumentReader>([
   [RECEIPT_CONTENT_TYPE, readReceipt],
@@ -1066,6 +1284,7 @@ const READERS: ReadonlyMap<string, DocumentReader> = new Map<string, DocumentRea
   [DEPLOYMENT_MANIFEST_CONTENT_TYPE, readManifest],
   [REDACTION_CONTENT_TYPE, readRedaction],
   [EPOCH_INVENTORY_CONTENT_TYPE, readInventory],
+  [ANCHOR_LEDGER_CONTENT_TYPE, readAnchorLedger],
 ]);
 
 /**
@@ -1162,7 +1381,7 @@ function designationFacts(contentType: string, inputs: Inputs): readonly Fact[] 
       json: null,
     },
     // The same rule the two key roles keep: a designation that did nothing is disclosed rather than dropped.
-    // Only a pack carries material an anchor slot names, so on the other five shapes the roots and the question
+    // Only a pack carries material an anchor slot names, so on the other six shapes the roots and the question
     // stand unused, and a caller running one line across a bundle is owed that answer rather than silence.
     ...(contentType === PACK_CONTENT_TYPE || !inputs.carried.asked
       ? []
@@ -1175,7 +1394,7 @@ function designationFacts(contentType: string, inputs: Inputs): readonly Fact[] 
           },
         ]),
     // The one option the inventory reader alone consults. A caller running one line across a bundle hands it to
-    // every file in the pile, and the answer for the five shapes that state no run of packs is that nothing was
+    // every file in the pile, and the answer for the six shapes that state no run of packs is that nothing was
     // read, which is a fact about this run's inputs rather than a fault in the document in front of it.
     ...(contentType === EPOCH_INVENTORY_CONTENT_TYPE || inputs.retentionRoot === null
       ? []
@@ -1294,7 +1513,7 @@ export async function runVerifyHandover(
     }
     return 0;
   } catch (err) {
-    if (err instanceof ReceiptError || err instanceof SdkError) {
+    if (err instanceof ReceiptError || err instanceof SdkError || err instanceof AttestationError) {
       return refuse(contentType, err, json);
     }
     throw err;

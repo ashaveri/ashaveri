@@ -40,7 +40,7 @@ const SPAWN_DEADLINE_MS = 15_000;
  * six fold rows are replayed again in `possession-fold-at-the-command-edge.test.ts`, where the directory they
  * name is handed, and there the command path answers each of them as its published row states it.
  *
- * The pinned verb is tested against the other five published shapes rather than only beside its own, because a
+ * The pinned verb is tested against five of the other six published shapes rather than only beside its own, because a
  * pin that reads whatever arrives is the defect the pin exists to remove: a step written to check the run's
  * summary, handed a pack and reporting a verdict about it, exits 0. The bytes it refuses are the same published
  * documents the free verb reads happily, which is the only reason the two answers can be set against each other.
@@ -521,7 +521,8 @@ describe('an epoch inventory at the command edge', () => {
 });
 
 describe('the pinned verb verify-epoch-inventory', () => {
-  /** The other five published shapes, each a document the free verb reads as itself. */
+  /** Five of the other six published shapes, each a document the free verb reads as itself; the provenance
+   * ledger is not run against this pinned verb. */
   const others: readonly (readonly [string, Uint8Array, string])[] = [
     ['receipt', Buffer.from(readFileSync(`${DATA}receipts/receipt-valid-v1.cbor`)), RECEIPT_CONTENT_TYPE],
     ['pack', publishedDocument('pack-v1.json', 'well-formed-three-items'), PACK_CONTENT_TYPE],
