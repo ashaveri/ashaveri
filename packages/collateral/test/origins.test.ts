@@ -205,7 +205,7 @@ describe('a declared origin with no reader', () => {
     expect(collateralCacheKey(query({ ca: 'platform' }), INTEL_PCK_CRL)).toBe('origin=intel-pck-crl|ca=platform');
   });
 
-  it('states the two KDS routes and the chain shape measured beside them', () => {
+  it('states the two KDS routes, the chain shape measured beside them and the reader that weighs them', () => {
     expect(AMD_KDS.host).toBe('kdsintf.amd.com');
     expect(AMD_KDS.mediaType).toBe('application/octet-stream');
     expect(AMD_KDS.answer).toBe('pem-certificate-chain');
@@ -228,14 +228,12 @@ describe('a declared origin with no reader', () => {
         knowledge: 'historical',
       },
     ]);
-    if (AMD_KDS.reader.as !== 'declared-only') throw new Error('the KDS was declared readable');
-    expect(AMD_KDS.reader.lacks).toContain('served VCEK sample');
-    expect(AMD_KDS.reader.lacks).toContain('RSA/P-384 chain reader');
-    expect(AMD_KDS.cache).toBeNull();
+    expect(AMD_KDS.reader.as).toBe('amd-vcek-chain');
+    expect(AMD_KDS.cache.keyMembers).toEqual(['origin', 'product', 'hwid']);
   });
 
   it('spells the chain and VCEK addresses, and names the member an address cannot be built without', () => {
-    const hwid = 'ab'.repeat(32);
+    const hwid = 'ab'.repeat(64);
     expect(requestUrl(query({ origin: 'amd-kds', route: 'cert-chain', product: 'Milan' }), AMD_KDS)).toBe(
       'https://kdsintf.amd.com/vcek/v1/Milan/cert_chain',
     );
@@ -250,30 +248,44 @@ describe('a declared origin with no reader', () => {
     if (typeof noHwid === 'string') throw new Error('a VCEK address was spelled without a chip id');
     expect(noHwid.refusal.missing).toEqual(['hwid']);
 
+    // The route answers 400 for a chip id spelled at half the length it states, so the shorter spelling is
+    // refused here rather than sent to an address that has no answer for it.
+    const halfHwid = requestUrl(query({ origin: 'amd-kds', product: 'Milan', hwid: 'ab'.repeat(32) }), AMD_KDS);
+    if (typeof halfHwid === 'string') throw new Error('a half-length chip id reached an address');
+    expect(halfHwid.refusal.missing).toEqual(['hwid']);
+
     const noRoute = requestUrl(query({ origin: 'amd-kds', route: 'crl', product: 'Milan' }), AMD_KDS);
     if (typeof noRoute === 'string') throw new Error('an undeclared route was spelled anyway');
     expect(noRoute.refusal.missing).toEqual(['route']);
   });
 
-  it('refuses an appraisal of the KDS with the sample and reader it lacks', async () => {
+  it('keeps the KDS out of the platform-level appraisal now that it has a reader', async () => {
     const outcome = await appraiseCollateral(
-      query({ origin: 'amd-kds', product: 'Milan', hwid: 'ab'.repeat(32) }),
+      query({ origin: 'amd-kds', product: 'Milan', hwid: 'ab'.repeat(64) }),
       { transport: silent() },
     );
-    expect(outcome.state).toBe('unavailable');
-    if (!('refusal' in outcome)) throw new Error('the KDS answered with a chain it never served');
-    expect(outcome.refusal.code).toBe('COLLATERAL_ORIGIN_UNSUPPORTED');
-    expect(outcome.refusal.detail).toContain('served VCEK sample');
-    expect(outcome.refusal.detail).toContain('RSA/P-384 chain reader');
-    expect(outcome.refusal.detail).toContain('intel-tcb-info, intel-qe-identity and intel-pck-crl');
+    expect(outcome.state).toBe('missing-context');
+    if (!('refusal' in outcome)) throw new Error('the KDS was appraised as a platform level');
+    expect(outcome.refusal.code).toBe('COLLATERAL_INPUT_MISSING');
+    expect(outcome.refusal.detail).toContain('appraiseVcekChain');
   });
 
-  it('keeps the fetch rules for the KDS chain, and asks the media type it measured', async () => {
-    const { transport, seen } = recorder(() => new Response('-----BEGIN CERTIFICATE-----\nMIIB\n-----END CERTIFICATE-----'));
-    const outcome = await fetchFromOrigin('https://kdsintf.amd.com/vcek/v1/Milan/cert_chain', AMD_KDS, { transport, clock: () => AT });
-    if (!('fetched' in outcome)) throw new Error(`the chain answer was refused: ${outcome.refusal.detail}`);
-    expect(new TextDecoder().decode(outcome.fetched.bytes)).toContain('BEGIN CERTIFICATE');
-    expect(outcome.fetched.chain).toBeNull();
+  it('keeps the fetch rules for the KDS, and asks the media type it measured', async () => {
+    const pem = new TextEncoder().encode('-----BEGIN CERTIFICATE-----\nMIIB\n-----END CERTIFICATE-----');
+    const der = new Uint8Array([0x30, 0x03, 0x02, 0x01, 0x07]);
+    const { transport, seen } = recorder(() => new Response(pem));
+    const chain = await fetchFromOrigin('https://kdsintf.amd.com/vcek/v1/Milan/cert_chain', AMD_KDS, { transport, clock: () => AT });
+    if (!('fetched' in chain)) throw new Error(`the chain answer was refused: ${chain.refusal.detail}`);
+    expect(new TextDecoder().decode(chain.fetched.bytes)).toContain('BEGIN CERTIFICATE');
+    expect(chain.fetched.chain, 'the chain arrives in the body, and no header carries a second copy').toBeNull();
+
+    const chip = await fetchFromOrigin('https://kdsintf.amd.com/vcek/v1/Milan/ab', { ...AMD_KDS, maxResponseBytes: 65536 }, {
+      transport: async () => new Response(der),
+      clock: () => AT,
+    });
+    if (!('fetched' in chip)) throw new Error(`the certificate answer was refused: ${chip.refusal.detail}`);
+    expect(chip.fetched.bytes).toEqual(der);
+
     const init = seen[0]?.init as RequestInit;
     const headers = new Headers(init.headers);
     expect(headers.get('accept')).toBe('application/octet-stream');
@@ -285,9 +297,19 @@ describe('a declared origin with no reader', () => {
     });
     if (!('refusal' in refused)) throw new Error('a 403 was read as a chain');
     expect(refused.refusal.code).toBe('COLLATERAL_ORIGIN_REFUSED');
+
+    const away = await fetchFromOrigin('https://cache.example.com/vcek/v1/Milan/cert_chain', AMD_KDS, { transport: silent() });
+    if (!('refusal' in away)) throw new Error('a foreign host was asked for the chain');
+    expect(away.refusal.code).toBe('COLLATERAL_BLOB_UNREADABLE');
+
+    const oversize = await fetchFromOrigin('https://kdsintf.amd.com/vcek/v1/Milan/cert_chain', { ...AMD_KDS, maxResponseBytes: 4 }, {
+      transport: async () => new Response(pem),
+    });
+    if (!('refusal' in oversize)) throw new Error('an oversize chain was kept');
+    expect(oversize.refusal.code).toBe('COLLATERAL_BLOB_UNREADABLE');
   });
 
-  it('names every origin a query may carry once, and serves the three documents read here', () => {
+  it('names every origin a query may carry once, and serves the four read here', () => {
     expect([...DECLARED_ORIGINS].sort()).toEqual([
       'amd-kds',
       'intel-pck-crl',
@@ -296,18 +318,19 @@ describe('a declared origin with no reader', () => {
       'nvidia-rim',
       'ocsp',
     ]);
-    expect(SERVED_ORIGINS).toEqual(['intel-tcb-info', 'intel-qe-identity', 'intel-pck-crl']);
+    expect(SERVED_ORIGINS).toEqual(['intel-tcb-info', 'intel-qe-identity', 'intel-pck-crl', 'amd-kds']);
     for (const name of DECLARED_ORIGINS) {
       expect(ORIGIN_DECLARATIONS[name]?.name, name).toBe(name);
     }
-    for (const name of ['amd-kds', 'nvidia-rim', 'ocsp'] as const) {
+    for (const name of ['nvidia-rim', 'ocsp'] as const) {
       const asked = declarationFor(name);
       if (!('refusal' in asked)) throw new Error(`${name} was served without a reader`);
       expect(asked.refusal.code, name).toBe('COLLATERAL_ORIGIN_UNSUPPORTED');
       expect(asked.refusal.missing, name).toEqual(['origin']);
-      expect(asked.refusal.detail, name).toContain('intel-tcb-info, intel-qe-identity and intel-pck-crl');
+      expect(asked.refusal.detail, name).toContain('intel-tcb-info, intel-qe-identity, intel-pck-crl and amd-kds');
     }
     expect(declarationFor('intel-pck-crl')).toBe(INTEL_PCK_CRL);
+    expect(declarationFor('amd-kds')).toBe(AMD_KDS);
   });
 
   it('states the RIM route and the signed reference shape NVIDIA publishes for it', () => {
@@ -417,15 +440,23 @@ describe('a declared origin with no reader', () => {
     expect(seen).toHaveLength(0);
   });
 
-  it('reaches unavailable and missing context for every origin this package does not serve, and no passing state', async () => {
+  it('reaches unavailable and missing context for every origin this package does not read, and no passing state', async () => {
     const states: string[] = [];
-    for (const origin of ['amd-kds', 'nvidia-rim', 'ocsp'] as const) {
+    for (const origin of ['nvidia-rim', 'ocsp'] as const) {
       const outcome = await appraiseCollateral(query({ origin }), { transport: silent() });
       states.push(outcome.state);
       expect(outcome.collateral, origin).toBeNull();
       expect(outcome.claim, origin).toBeNull();
     }
-    expect(states).toEqual(['unavailable', 'unavailable', 'unavailable']);
+    expect(states).toEqual(['unavailable', 'unavailable']);
+
+    const chain = await appraiseCollateral(
+      query({ origin: 'amd-kds', product: 'Milan', hwid: 'ab'.repeat(64) }),
+      { transport: silent() },
+    );
+    expect(chain.state).toBe('missing-context');
+    expect(chain.collateral, 'the KDS entry point answers about a chip, not a level').toBeNull();
+    expect(chain.claim).toBeNull();
 
     const crl = await appraiseCollateral(
       query({ origin: 'intel-pck-crl', ca: 'processor', certificateSerial: 'ab' }),

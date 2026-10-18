@@ -4,7 +4,7 @@ import type { CollateralRefusal } from './errors.js';
 export type IntelPlatform = 'sgx' | 'tdx';
 
 /**
- * Every path an appraisal could ask collateral of. Three are read here, and the other three are declared
+ * Every path an appraisal could ask collateral of. Four are read here, and the other two are declared
  * with the host and routes their vendors publish and refused with the reader they lack, so asking for one
  * answers with a sentence rather than a type error a caller could only reach by deleting the question.
  */
@@ -126,7 +126,13 @@ export interface CollateralQuery {  readonly origin: CollateralOriginName;
   readonly certificateSerial?: string | null;
   /** AMD's product line as KDS spells it, such as `Milan`. Required for a KDS address. */
   readonly product?: string | null;
-  /** AMD's chip id as 64 hex characters, the value a platform's report states. Required for a VCEK address. */
+  /**
+   * AMD's chip id as 128 hex characters, the 64 bytes a platform's report states and the spelling the
+   * per-chip route answers. Required for a VCEK address.
+   *
+   * The half-length spelling is refused before the origin is asked, because the route answers it with a
+   * refusal of its own rather than with a certificate.
+   */
   readonly hwid?: string | null;
   /** NVIDIA's RIM id, the value a GPU's attestation evidence names. Any non-empty id is percent-encoded into the path. */
   readonly rimId?: string | null;
@@ -276,6 +282,71 @@ export interface RevocationList {
   /** The list first, then every certificate the chain header presented, in the order it presented them. */
   readonly blobs: readonly Uint8Array[];
 }
+
+/**
+ * A query for the AMD Key Distribution Service, which asks about one chip rather than a platform level.
+ *
+ * The product line and the chip id are required here even though the general query states them as optional,
+ * because a KDS answer that names no chip has no question to answer: both are in the address the routes are
+ * built from and both are stated again inside the certificate that comes back. The route is not a caller's
+ * field on this path, because one question is answered by two published routes and the appraisal asks both.
+ * The platform field stays because every query this package takes names one, and neither route is indexed by
+ * it: the measured addresses are per product line and per chip alone.
+ */
+export type VcekChainQuery = Omit<CollateralQuery, 'origin' | 'route' | 'product' | 'hwid'> & {
+  readonly origin: 'amd-kds';
+  /** AMD's product line as the route spells it and as the certificate's own name begins, such as `Milan`. */
+  readonly product: string;
+  /** AMD's chip id as 128 hex characters, the 64 bytes a platform's report states. */
+  readonly hwid: string;
+};
+
+/**
+ * A VCEK that parsed, reached a root the caller pinned, and was believed under it.
+ *
+ * The window is the span the three believed certificates all hold themselves valid for, which is the span
+ * over which the chain stands as read; it is copied from the certificates and extended by nothing here.
+ * `blobs` keeps the certificate answer first and then every certificate the chain answer presented, in the
+ * order it presented them, so nothing re-encodes, reorders or drops a byte. `digest` identifies one answer
+ * rather than one certificate: the per-chip route re-mints its answer per request, so the digest of a kept
+ * answer is not the digest of the next one, while `hwidHex` and `serialHex` are.
+ */
+export interface VcekChain {
+  /** The product name the certificate's own AMD extension states, copied verbatim, stepping and all. */
+  readonly productName: string;
+  /** The chip id the certificate's own AMD extension states, as 128 lowercase hex characters. */
+  readonly hwidHex: string;
+  /** The VCEK's serial as its DER INTEGER content carries it, as lowercase hex. */
+  readonly serialHex: string;
+  /** The instants the whole believed chain holds itself valid for, in Unix seconds. */
+  readonly window: SignedWindow;
+  readonly digest: string;
+  /** sha256 of the pinned certificate the chain was believed under. */
+  readonly anchorDigest: string;
+  readonly blobs: readonly Uint8Array[];
+}
+
+/**
+ * The answers a KDS appraisal can give, kept apart from both other outcome types because a certificate
+ * chain states no platform level and no vendor status word, and no revocation either.
+ *
+ * `issued` is the answer for a chain this run fetched and believed: AMD published this certificate for the
+ * chip the question named, and the chain stood at the moment asked. It is not a statement that the chip is
+ * trusted, not revocation knowledge and not a hardware pass, and the claim beside it says its reach is
+ * historical even when this run watched both answers land. `stale` is the same believed chain from bytes this
+ * run did not fetch, with the observation refusal beside it. `unavailable` and `missing-context` carry
+ * nothing, because there is nothing yet to have read.
+ */
+export type VcekChainOutcome =
+  | { readonly state: 'issued'; readonly chain: VcekChain; readonly claim: CollateralClaim }
+  | {
+      readonly state: 'stale';
+      readonly chain: VcekChain;
+      readonly claim: CollateralClaim;
+      readonly refusal: CollateralRefusal;
+    }
+  | { readonly state: 'unavailable'; readonly chain: null; readonly claim: null; readonly refusal: CollateralRefusal }
+  | { readonly state: 'missing-context'; readonly chain: null; readonly claim: null; readonly refusal: CollateralRefusal };
 
 /**
  * The answers a CRL appraisal can give, kept apart from `CollateralOutcome` because a list states nothing

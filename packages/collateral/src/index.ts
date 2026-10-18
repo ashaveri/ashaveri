@@ -19,6 +19,7 @@ export {
   collateralCacheKey,
   declarationFor,
   requestUrl,
+  routesAnswerNow,
   servedDocumentDeclaration,
 } from './intel-origin.js';
 export type {
@@ -33,6 +34,7 @@ export type {
   OriginRefusals,
   ReadCollateralOrigin,
   ReadDocumentOrigin,
+  VcekOriginDeclaration,
 } from './intel-origin.js';
 export { fetchFromOrigin, wallClock } from './fetch.js';
 export type { FetchContext, FetchOutcome, FetchedCollateral } from './fetch.js';
@@ -41,7 +43,9 @@ export type { ReadCollateral, ReadOutcome } from './read.js';
 export { readServedCollateral } from './served.js';
 export { readPckCrl } from './crl.js';
 export type { RevocationReadOutcome } from './crl.js';
-export { appraiseCarriedCollateral, appraiseCollateral, appraisePckCrl } from './classify.js';
+export { readVcekChain } from './amd-kds.js';
+export type { VcekChainReadOutcome } from './amd-kds.js';
+export { appraiseCarriedCollateral, appraiseCollateral, appraisePckCrl, appraiseVcekChain } from './classify.js';
 export type {
   CarriedCollateral,
   CollateralAppraisalOptions,
@@ -62,4 +66,7 @@ export type {
   SignedCollateral,
   SignedWindow,
   StatusReading,
+  VcekChain,
+  VcekChainOutcome,
+  VcekChainQuery,
 } from './types.js';
