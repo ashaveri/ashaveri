@@ -1,6 +1,7 @@
 import { CollateralError, collateralRefusal, quoteOrDigest, type CollateralRefusal } from './errors.js';
 import { fetchFromOrigin, wallClock } from './fetch.js';
-import { collateralCacheKey, declarationFor, isCrlDeclaration, isIntelDeclaration, requestUrl, INTEL_PCK_CRL, type IntelOriginDeclaration, type CrlOriginDeclaration, type OriginDeclaration } from './intel-origin.js';
+import { collateralCacheKey, declarationFor, isCrlDeclaration, isIntelDeclaration, isVcekDeclaration, routesAnswerNow, requestUrl, AMD_KDS, INTEL_PCK_CRL, type IntelOriginDeclaration, type CrlOriginDeclaration, type OriginDeclaration, type VcekOriginDeclaration } from './intel-origin.js';
+import { readVcekChain } from './amd-kds.js';
 import { readPckCrl } from './crl.js';
 import { readSignedCollateral, type ReadCollateral } from './read.js';
 import { readServedCollateral } from './served.js';
@@ -16,6 +17,9 @@ import type {
   RevocationOutcome,
   SignedCollateral,
   StatusReading,
+  VcekChain,
+  VcekChainOutcome,
+  VcekChainQuery,
 } from './types.js';
 
 /**
@@ -134,6 +138,15 @@ async function appraise(
       query.level === null ? ['level'] : [],
     ));
   }
+  if (isVcekDeclaration(declared)) {
+    // The same sentence for the other origin with a reader that is not a level reader: a VCEK chain names a
+    // chip rather than a rung, and `appraiseVcekChain` is where the pair is weighed.
+    return missingContext(collateralRefusal(
+      'COLLATERAL_INPUT_MISSING',
+      `${declared.name} answers about one chip's certificate chain and this appraisal asks about a platform level; appraiseVcekChain weighs that chain`,
+      query.level === null ? ['level'] : [],
+    ));
+  }
   if (!isIntelDeclaration(declared)) {
     return unavailable(collateralRefusal(
       'COLLATERAL_ORIGIN_UNSUPPORTED',
@@ -197,6 +210,158 @@ async function appraiseRevocation(
     appraisalAt,
     query.retained === null,
   );
+}
+
+/**
+ * The AMD Key Distribution Service asked about one chip.
+ *
+ * The question is answered by two published routes rather than one: the per-chip route answers the certificate
+ * and the chain route answers the authorities above it, so this entry point asks both and weighs the pair, and
+ * it keeps its answers apart from the other two outcome types because a certificate chain states no platform
+ * level, no vendor status word and no revocation. The chain is believed by the same primitives a report's own
+ * certificates are believed by, under a root the caller names, and the answer it reaches is what the routes
+ * state: AMD signed this key for this chip, and that signing stands over the window the certificates share.
+ * A caller holding a pair from its own store or from a sealed container passes it through `retained`, the
+ * certificate as `bytes` and the chain as `chain`, with the container's own instant as `observedAt`.
+ */
+export async function appraiseVcekChain(
+  query: VcekChainQuery,
+  options: CollateralAppraisalOptions = {},
+): Promise<VcekChainOutcome> {
+  const outcome = await appraiseChain(query, options);
+  if ((outcome.state === 'unavailable' || outcome.state === 'missing-context') && query.onAbsent === 'refuse') {
+    throw new CollateralError(outcome.refusal);
+  }
+  return outcome;
+}
+
+async function appraiseChain(
+  query: VcekChainQuery,
+  options: CollateralAppraisalOptions,
+): Promise<VcekChainOutcome> {
+  const declaration = AMD_KDS;
+  const missing = askedButNotGivenChain(query, declaration);
+  if (missing !== null) {
+    return missingChain(missing);
+  }
+  const appraisalAt = query.appraisalAt as number;
+  // The route is named rather than left to the declaration's order, so a question answered by two routes
+  // cannot have its body read from whichever one happens to be listed first.
+  const observed = await observe({ ...query, route: declaration.certificateRoute }, declaration, options);
+  if ('refusal' in observed) {
+    return observed.state === 'missing-context' ? missingChain(observed.refusal) : unavailableChain(observed.refusal);
+  }
+  const chain = await chainHalf(query, declaration, observed.observed.chain, options);
+  if ('refusal' in chain) {
+    return unavailableChain(chain.refusal);
+  }
+  const read = readVcekChain(observed.observed.bytes, chain.bytes, { query, declaration, appraisalAt });
+  if ('refusal' in read) {
+    return unavailableChain(read.refusal);
+  }
+  return classifyChain(
+    read.read,
+    query,
+    declaration,
+    // The stamp the claim carries is the instant the certificate itself landed. A question asked of two routes
+    // is seen twice, and the half the question is about is the one a reader of the claim means.
+    observed.observed.observedAt,
+    appraisalAt,
+    query.retained === null,
+  );
+}
+
+/**
+ * The chain beside the certificate, kept or asked.
+ *
+ * A retained pair arrives as the two halves the caller kept, and `observe` has already carried them. A fresh
+ * one arrives at the other published route, so this asks it and hands back its bytes as they landed: the
+ * second answer is under the same host, wait and cap rules as the first because both are stated on the same
+ * declaration, and a refusal from it is the refusal for the question rather than a half an answer.
+ */
+async function chainHalf(
+  query: VcekChainQuery,
+  declaration: VcekOriginDeclaration,
+  kept: Uint8Array | null,
+  options: CollateralAppraisalOptions,
+): Promise<{ readonly bytes: Uint8Array | null } | { readonly refusal: CollateralRefusal }> {
+  if (kept !== null || query.retained !== null) {
+    return { bytes: kept };
+  }
+  const url = requestUrl({ ...query, route: declaration.chainRoute }, declaration);
+  if (typeof url !== 'string') {
+    return { refusal: url.refusal };
+  }
+  const asked = await fetchFromOrigin(url, declaration, { transport: options.transport, clock: options.clock ?? wallClock });
+  return 'refusal' in asked ? { refusal: asked.refusal } : { bytes: asked.fetched.bytes };
+}
+
+/** Everything a chip question has to state before either route is worth asking. */
+function askedButNotGivenChain(query: VcekChainQuery, declaration: VcekOriginDeclaration): CollateralRefusal | null {
+  if (query.roots.length === 0) {
+    return collateralRefusal(declaration.refusals.anchor, 'a verdict needs a root the caller holds, and none was passed', ['roots']);
+  }
+  if (query.appraisalAt === null) {
+    return collateralRefusal('COLLATERAL_INPUT_MISSING', 'no instant was stated for the appraisal, and no verdict can be reached about a moment nobody named', ['appraisalAt']);
+  }
+  if (query.retained !== null && query.retained.bytes.byteLength === 0) {
+    return collateralRefusal('COLLATERAL_INPUT_MISSING', 'the retained blob is empty', ['retained.bytes']);
+  }
+  return null;
+}
+
+/**
+ * Which of the chip answers this is.
+ *
+ * `issued` is the state for a pair this run fetched and believed at the moment asked: the certificates state
+ * that AMD signed this key for this chip, and nothing else. It is not a pass for the chip, not a statement
+ * about revocation, and not a level, so no vendor status word is read beside it and no window refusal travels
+ * with it. Bytes this run did not fetch are `stale` under the observation refusal the other two paths already
+ * give, and they reach it only after `readVcekChain` has believed the chain at the moment asked: a chain nobody
+ * believes states nothing, not even that it stands, so a kept pair with a member outside its own validity is
+ * the unverified refusal rather than this one, and the moment that verifier weighs at is the appraisal instant
+ * rather than the instant the bytes landed. Both states carry the same `historical-knowledge` reach, because
+ * `routesAnswerNow` answers false for this declaration and neither route states that it speaks for the moment
+ * it is asked, so a fetch buys no reach a kept pair does not already carry. What the two states differ in is
+ * the claim's `observedAt`, which stays null for bytes this run did not fetch, and the refusal that travels
+ * beside the answer.
+ */
+function classifyChain(
+  read: VcekChain,
+  query: VcekChainQuery,
+  declaration: VcekOriginDeclaration,
+  observedAt: number,
+  appraisalAt: number,
+  askedThisRun: boolean,
+): VcekChainOutcome {
+  const key = collateralCacheKey(query, declaration);
+  if (typeof key !== 'string') {
+    return missingChain(collateralRefusal(
+      'COLLATERAL_INPUT_MISSING',
+      'the record these bytes belong to cannot be named',
+      key.missing,
+    ));
+  }
+  const claim: CollateralClaim = {
+    reach: askedThisRun && routesAnswerNow(declaration) ? 'current-knowledge' : 'historical-knowledge',
+    appraisalAt,
+    observedAt: askedThisRun ? observedAt : null,
+    retainUntil: read.window.until,
+    cacheKey: key,
+  };
+  if (askedThisRun) {
+    return { state: 'issued', chain: read, claim };
+  }
+  return {
+    state: 'stale',
+    chain: read,
+    claim,
+    refusal: collateralRefusal(
+      'COLLATERAL_NOT_OBSERVED',
+      `the bytes were seen at ${new Date(observedAt * 1000).toISOString()} and this run asked the origin nothing`,
+      ['retained'],
+    ),
+  };
 }
 
 /** The bytes one appraisal weighs, and the instant this run watched them land. */
@@ -527,4 +692,12 @@ function missingRevocation(refusal: CollateralRefusal): RevocationOutcome {
 
 function unavailableRevocation(refusal: CollateralRefusal): RevocationOutcome {
   return { state: 'unavailable', list: null, claim: null, refusal };
+}
+
+function missingChain(refusal: CollateralRefusal): VcekChainOutcome {
+  return { state: 'missing-context', chain: null, claim: null, refusal };
+}
+
+function unavailableChain(refusal: CollateralRefusal): VcekChainOutcome {
+  return { state: 'unavailable', chain: null, claim: null, refusal };
 }

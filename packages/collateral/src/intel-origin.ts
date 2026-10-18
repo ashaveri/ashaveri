@@ -1,14 +1,15 @@
+import type { CertificatePublicKey, SignatureAlgorithm } from '@ashaveri/attest-core';
 import { collateralRefusal, quoteOrDigest, type CollateralErrorCode, type CollateralInputName, type CollateralRefusal } from './errors.js';
 import type { CollateralOriginName, CollateralQuery, IntelPlatform } from './types.js';
 
 /** The origins this package reads. A query naming another origin is refused with what that origin lacks. */
-export type ReadCollateralOrigin = 'intel-tcb-info' | 'intel-qe-identity' | 'intel-pck-crl';
+export type ReadCollateralOrigin = 'intel-tcb-info' | 'intel-qe-identity' | 'intel-pck-crl' | 'amd-kds';
 
 /** The origins whose answer is the served JSON document that one reader weighs. */
 export type ReadDocumentOrigin = 'intel-tcb-info' | 'intel-qe-identity';
 
 /** Which field of a query the cache key is built from. */
-export type CollateralCacheMember = 'origin' | 'platform' | 'cpuType' | 'level' | 'ca';
+export type CollateralCacheMember = 'origin' | 'platform' | 'cpuType' | 'level' | 'ca' | 'product' | 'hwid';
 
 /**
  * The shape an origin's answer takes, which decides whether this package has an arm to weigh it.
@@ -69,8 +70,12 @@ export interface OriginCacheRule {
   readonly keyMembers: readonly CollateralCacheMember[];
   /** A kept blob records one earlier observation, so it cannot answer what is true now. */
   readonly answersCurrentQuestions: false;
-  /** How long a caller may keep the bytes: the vendor's own next update, copied and never extended. */
-  readonly retainUntil: 'vendor-next-update';
+  /**
+   * How long a caller may keep the bytes: the expiry the answer itself states, copied and never extended.
+   * A signed document and a revocation list write it as `nextUpdate`; a certificate writes it as its own
+   * `notAfter`, which is the same kind of fact and the same kind of ban on extending it.
+   */
+  readonly retainUntil: 'vendor-next-update' | 'certificate-not-after';
 }
 
 /**
@@ -223,7 +228,46 @@ export interface CrlOriginDeclaration extends OriginDeclarationCommon {
   readonly cache: OriginCacheRule;
 }
 
-export type OriginDeclaration = IntelOriginDeclaration | DeclaredOriginDeclaration | CrlOriginDeclaration;
+/**
+ * A declaration this package reads as an AMD VCEK and the authority chain above it.
+ *
+ * Two published routes answer one question, so one reader weighs both: the per-chip route answers the
+ * certificate the chip's own report names, and the chain route answers the authorities beneath the root the
+ * caller pinned. The route names are stated here rather than read off the order, because a route that answers
+ * a chain is not a route that answers a certificate and the reader has to know which half it was handed. The
+ * identity members are stated for the same reason the CRL states its serial member: a VCEK is an answer about
+ * one chip, and a question that names none has nothing to bind the certificate to.
+ */
+export interface VcekOriginDeclaration extends OriginDeclarationCommon {
+  readonly reader: { readonly as: 'amd-vcek-chain' };
+  /** The routes the vendor publishes, in the order the declaration prefers them. */
+  readonly routes: readonly DeclaredRoute[];
+  /** The route whose answer is the VCEK the question is about. */
+  readonly certificateRoute: 'vcek';
+  /** The route whose answer is the certificate chain beside it. */
+  readonly chainRoute: 'cert-chain';
+  /** The query member naming the product line, which the address carries and the certificate states. */
+  readonly productMember: 'product';
+  /** The query member naming the chip id, which the address carries and the certificate states. */
+  readonly hwidMember: 'hwid';
+  /**
+   * The shape both halves of the answer have to carry to be this origin's answer at all.
+   *
+   * Measured on the Milan line: the root and the intermediate are rsa-pss certificates over rsa keys and the
+   * per-chip certificate carries a P-384 key under that same suite. The rule inside the suite, which is the
+   * hash, the mask, the salt and the curve pairing, is `@ashaveri/attest-core`'s and is stated here only as the
+   * name of the suite, so a chain of another shape is refused as the wrong answer rather than believed. A line
+   * that published another suite would answer this name wrongly, and no line but this one has been measured.
+   */
+  readonly suites: {
+    readonly signature: Exclude<SignatureAlgorithm['kind'], 'unsupported'>;
+    readonly authorityKey: CertificatePublicKey['kind'];
+    readonly certificateKey: CertificatePublicKey['kind'];
+  };
+  readonly cache: OriginCacheRule;
+}
+
+export type OriginDeclaration = IntelOriginDeclaration | DeclaredOriginDeclaration | CrlOriginDeclaration | VcekOriginDeclaration;
 
 /** Whether a declaration has a reader here, narrowed so a caller can reach the payload members it states. */
 export function isIntelDeclaration(declaration: OriginDeclaration): declaration is IntelOriginDeclaration {
@@ -238,6 +282,30 @@ export function isDeclaredOnly(declaration: OriginDeclaration): declaration is D
 /** Whether a declaration is read as a DER certificate list, narrowed so a caller can reach its cache rule. */
 export function isCrlDeclaration(declaration: OriginDeclaration): declaration is CrlOriginDeclaration {
   return declaration.reader.as === 'der-certificate-list';
+}
+
+/** Whether a declaration is read as a VCEK beside its authority chain, narrowed for the same reason. */
+export function isVcekDeclaration(declaration: OriginDeclaration): declaration is VcekOriginDeclaration {
+  return declaration.reader.as === 'amd-vcek-chain';
+}
+
+/** Whether this declaration has a reader here at all, whatever shape that reader weighs. */
+export function hasReader(declaration: OriginDeclaration): boolean {
+  return declaration.reader.as !== 'declared-only';
+}
+
+/**
+ * Whether the two routes an answer is read from state that they speak for the moment they are asked.
+ *
+ * A signed document states a window and a vendor word about a level, and a reader that fetched it inside that
+ * window this run reports current knowledge. A certificate chain states what its issuer signed and until when
+ * its own validity runs, which is historical whatever the fetch did, so this answers from what the routes
+ * state rather than from what the call site remembers.
+ */
+export function routesAnswerNow(declaration: VcekOriginDeclaration): boolean {
+  return declaration.routes
+    .filter((route) => route.name === declaration.certificateRoute || route.name === declaration.chainRoute)
+    .every((route) => route.knowledge === 'current');
 }
 
 const REFUSALS = {
@@ -500,40 +568,46 @@ export const INTEL_PCK_CRL: CrlOriginDeclaration = {
 };
 
 /**
- * AMD's Key Distribution Service: the certificate chain beside a chip and the VCEK the chip's own
- * report names.
+ * AMD's Key Distribution Service: the VCEK a chip's report names and the authority chain above it.
  *
- * The chain route is measured. Asked at `https://kdsintf.amd.com/vcek/v1/Milan/cert_chain` on
- * 17 October 2026, the host answered 200 with `content-type: application/octet-stream` and
- * `content-disposition: attachment; filename=Milan.pem`, a 4602-byte body holding two PEM certificates
- * in the order the chain presents them. The per-chip route is published at
- * `https://kdsintf.amd.com/vcek/v1/{product_name}/{hwid}` and states its TCB as query members; a request
- * with a fabricated all-zero hwid answered 400, so this package holds no served VCEK and keeps none. The
- * older `kds.amd.com` name does not resolve.
+ * Both routes are measured. Asked at `https://kdsintf.amd.com/vcek/v1/Milan/cert_chain`, the host answers 200
+ * with `content-type: application/octet-stream`, `content-disposition: attachment; filename=Milan.pem` and a
+ * 4602-byte body holding two PEM certificates, the attestation signing key first and the root beneath it.
+ * Asked at `https://kdsintf.amd.com/vcek/v1/Milan/{hwid}` with a chip id of 64 bytes spelled as 128 hex
+ * characters, the host answers 200 with `content-type: application/octet-stream`,
+ * `content-disposition: attachment; filename=vcek.crt` and a 1350-byte body holding one DER certificate; the
+ * same path with the id spelled at half that length answers 400, and an all-zero id of the right length answers
+ * 404, so a malformed id and an unlisted one are different answers. The per-chip certificate is re-minted per
+ * request: two asks inside two seconds returned different DER and different validity, with the product name,
+ * chip id and serial unchanged. No bytes of either answer are kept here: a service's output travels as a
+ * reference, and a certificate a customer's platform produced travels as bytes its caller supplies.
  *
- * What a KDS answer is, either way, is a certificate chain or a certificate, not a TCB status list. A
- * reader could hand the bytes to a verifier that decides the chain and the report binding, and this path
- * would then be reporting what a verifier made of them rather than deciding a hardware pass. This
- * package implements neither arm. The two reasons are stated rather than folded together: no served
- * VCEK confirms the per-chip answer's encoding and TCB query members, and the chain walk in `read.ts`
- * reads ECDSA-P256 certificates alone while AMD's root and intermediate are RSA and a VCEK is P-384,
- * so the existing primitives cannot weigh this chain even when it arrives.
+ * The suites are what the vendor publishes and this path does not re-derive them. The root and the
+ * intermediate are rsa-pss with SHA-384, MGF1-SHA384 and a 48-byte salt over rsa keys; the VCEK carries a P-384
+ * key under that same suite and no `BasicConstraints` extension. `readVcekChain` believes the chain with
+ * `verifyAmdCertificateChain` and selects the root with `findMatchingArk`, both of `@ashaveri/attest-core`, so
+ * the parameter and curve rules sit where the rest of the estate's certificate rules sit and this package
+ * writes none of them. Before this origin had a reader the refusal said the existing primitives could not weigh
+ * the chain: they weigh it, and what they read is the walk, not the shape of a served JSON document.
  *
- * No bytes from the KDS are kept here. A certificate a customer's platform produced travels as bytes it
- * supplies; a service's output travels as the reference this declaration is.
+ * What an answer reaches is historical. A VCEK states what AMD signed about one chip and until when the
+ * certificate it signed runs; it states no revocation and no vendor word about a level, so `COLLATERAL_WINDOW_CLOSED`
+ * and `COLLATERAL_NOT_OBSERVED` keep the meanings the other origins give them and no answer from this origin
+ * reports current knowledge. The chain states no TCB status either: AMD's TCB extension is read by nothing here,
+ * so the answer binds a chip to a key and says nothing about which firmware that key stands for.
  */
-export const AMD_KDS: DeclaredOriginDeclaration = {
+export const AMD_KDS: VcekOriginDeclaration = {
   name: 'amd-kds',
   host: 'kdsintf.amd.com',
   method: 'GET',
   mediaType: 'application/octet-stream',
   answer: 'pem-certificate-chain',
-  /** Measured: the chain arrives in the body, and no header carries a second copy. */
+  /** Measured: each answer carries its own bytes, and no header on either route carries a second copy. */
   chainHeader: null,
   timeoutMs: 5000,
   maxResponseBytes: 65536,
   refusals: REFUSALS,
-  reader: { as: 'declared-only', lacks: 'a served VCEK sample and an RSA/P-384 chain reader' },
+  reader: { as: 'amd-vcek-chain' },
   routes: [
     {
       name: 'vcek',
@@ -552,7 +626,21 @@ export const AMD_KDS: DeclaredOriginDeclaration = {
       knowledge: 'historical',
     },
   ],
-  cache: null,
+  certificateRoute: 'vcek',
+  chainRoute: 'cert-chain',
+  productMember: 'product',
+  hwidMember: 'hwid',
+  suites: { signature: 'rsa-pss', authorityKey: 'rsa', certificateKey: 'ec-p384' },
+  /**
+   * A VCEK answers for one chip, so a kept answer is keyed by the line and the id the question named, and its
+   * own validity is what bounds how long it may be kept. The platform is absent because the measured routes are
+   * not indexed by one.
+   */
+  cache: {
+    keyMembers: ['origin', 'product', 'hwid'],
+    answersCurrentQuestions: false,
+    retainUntil: 'certificate-not-after',
+  },
 };
 
 /**
@@ -649,7 +737,12 @@ export const NVIDIA_OCSP: DeclaredOriginDeclaration = {
 };
 
 /** The origins with a reader here. A declaration elsewhere in this file is a route, not a reader. */
-export const SERVED_ORIGINS: readonly ReadCollateralOrigin[] = ['intel-tcb-info', 'intel-qe-identity', 'intel-pck-crl'];
+export const SERVED_ORIGINS: readonly ReadCollateralOrigin[] = [
+  'intel-tcb-info',
+  'intel-qe-identity',
+  'intel-pck-crl',
+  'amd-kds',
+];
 
 const BY_ORIGIN: Record<ReadDocumentOrigin, IntelOriginDeclaration> = {
   'intel-tcb-info': INTEL_TCB_INFO,
@@ -688,6 +781,9 @@ export function declarationFor(origin: CollateralOriginName): OriginDeclaration 
   if (origin === 'intel-pck-crl') {
     return INTEL_PCK_CRL;
   }
+  if (origin === 'amd-kds') {
+    return AMD_KDS;
+  }
   const declared: OriginDeclaration | undefined = Object.hasOwn(ORIGIN_DECLARATIONS, origin)
     ? ORIGIN_DECLARATIONS[origin]
     : undefined;
@@ -720,8 +816,8 @@ export function servedDocumentDeclaration(
   if (isIntelDeclaration(declaration)) {
     return declaration;
   }
-  // A CRL has a reader here, so the origin is supported and what this arm cannot weigh is the envelope.
-  const code: CollateralErrorCode = isCrlDeclaration(declaration)
+  // An origin with a reader here is supported, so what this arm cannot weigh is the envelope, not the origin.
+  const code: CollateralErrorCode = hasReader(declaration)
     ? 'COLLATERAL_BLOB_UNREADABLE'
     : 'COLLATERAL_ORIGIN_UNSUPPORTED';
   return {
@@ -743,7 +839,7 @@ const CPU_TYPE = /^[0-9a-fA-F]{12}$/u;
  * from the refusal that names the field.
  */
 export function requestUrl(query: CollateralQuery, declaration: OriginDeclaration): string | { readonly refusal: CollateralRefusal } {
-  if (isDeclaredOnly(declaration) || isCrlDeclaration(declaration)) {
+  if (!isIntelDeclaration(declaration)) {
     return declaredUrl(query, declaration);
   }
   const base = `https://${declaration.host}${declaration.platformPath(query.platform)}/${declaration.documentPath}`;
@@ -771,7 +867,7 @@ export function requestUrl(query: CollateralQuery, declaration: OriginDeclaratio
  */
 function declaredUrl(
   query: CollateralQuery,
-  declaration: DeclaredOriginDeclaration | CrlOriginDeclaration,
+  declaration: DeclaredOriginDeclaration | CrlOriginDeclaration | VcekOriginDeclaration,
 ): string | { readonly refusal: CollateralRefusal } {
   const route = query.route == null
     ? declaration.routes[0]
@@ -833,7 +929,9 @@ function routeMember(query: CollateralQuery, member: string, missing: Collateral
       }
       return query.product;
     case 'hwid':
-      if (query.hwid == null || !/^[0-9a-fA-F]{64}$/u.test(query.hwid)) {
+      // The measured bound: the route answers a chip id of 64 bytes, spelled as 128 hex characters, and
+      // answers 400 for the 64-character spelling and 404 for a well-formed id it has no certificate for.
+      if (query.hwid == null || !/^[0-9a-fA-F]{128}$/u.test(query.hwid)) {
         missing.push('hwid');
         return null;
       }
@@ -894,6 +992,10 @@ function spellKeyMember(query: CollateralQuery, member: CollateralCacheMember): 
       return query.cpuType?.toLowerCase() ?? null;
     case 'ca':
       return query.ca ?? null;
+    case 'product':
+      return query.product?.toLowerCase() ?? null;
+    case 'hwid':
+      return query.hwid?.toLowerCase() ?? null;
     case 'level':
       return query.level === null ? null : `${query.level.by}=${query.level.value}`;
   }

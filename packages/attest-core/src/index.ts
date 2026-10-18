@@ -25,6 +25,7 @@ export {
   NVIDIA_DEVICE_IDENTITY_CA_PEM,
 } from './trust-anchors.js';
 export {
+  findMatchingArk,
   normalizeSnpCertificates,
   parseSnpReport,
   parseSnpPolicy,
@@ -33,6 +34,7 @@ export {
   SNP_REPORT_SIZE,
   SNP_SIGNED_SIZE,
   SNP_SIGNATURE_OFFSET,
+  verifyAmdCertificateChain,
 } from './sev-snp.js';
 export { reportDataBinds, verifyAttestation, mrConfigDocumentDigest, pinnedComposeHash, platformMeasurement } from './verify.js';
 export type {

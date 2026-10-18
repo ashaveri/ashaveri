@@ -303,7 +303,7 @@ deployment's own evidence URL, in `strict` mode, and that fetch is to the deploy
 us.
 
 **The origins beyond the two Intel JSON documents.** `@ashaveri/collateral` names six origins and
-reads three. The Intel PCK CRL is read as a DER `CertificateList`, verified under the issuer chain
+reads four. The Intel PCK CRL is read as a DER `CertificateList`, verified under the issuer chain
 that arrives in `SGX-PCK-CRL-Issuer-Chain` and pinned to the caller's root; it answers about a
 certificate serial inside the list's own `thisUpdate` and `nextUpdate` window, and a list whose
 issuer is not the one the requested `ca` scope publishes is refused under
@@ -312,13 +312,23 @@ that does not name the serial answers `not-listed`, which is not a statement tha
 trusted; one that stands outside that moment answers `COLLATERAL_WINDOW_CLOSED`, bytes from a store
 answer `COLLATERAL_NOT_OBSERVED`, a list that does name the serial is refused as revoked wherever the
 moment falls, and an entry whose reason is `removeFromCRL` is refused under
-`COLLATERAL_STATUS_UNSUPPORTED` rather than read as a revocation. AMD KDS, NVIDIA RIM and
-NVIDIA OCSP are declared with the host, route and answer shape their vendors publish, and an
-appraisal of any of them answers `COLLATERAL_ORIGIN_UNSUPPORTED` with what a reader would still
-need: a served VCEK sample and an RSA/P-384 chain reader, a served RIM body and an XML DSig reader,
-or a served OCSP response and a DER OCSP parser. No vendor-service bytes are committed, because a
-service's output travels as a reference and a certificate a platform produced travels as bytes its
-caller supplies.
+`COLLATERAL_STATUS_UNSUPPORTED` rather than read as a revocation. AMD KDS is read as one chip's VCEK
+and the chain answer beside it: the per-chip route answers a DER certificate, the chain route
+answers a PEM chain, and the pair is believed by the same primitives that believe a report's own ARK,
+ASK and VCEK, under the root the caller pins rather than one that arrived with the answer, so a chain
+cannot borrow a trusted name. Which authority signed the certificate is settled by the issuer name
+the certificate states rather than by the order the chain arrived in, and a certificate that arrives
+with no chain beside it is refused as weighed by nobody rather than read. The product line and the
+chip id the certificate states for itself are compared with the ones the question named, because a
+true statement about another chip is not an answer about this one. What that reading reaches is
+historical: a VCEK says what AMD signed about one chip and until when the certificate it signed
+runs, it states no revocation and no vendor word about a level, and AMD's TCB extension is read by
+nothing there, so no appraisal of one answers that a chip is trusted or that its key stands for a
+particular firmware. NVIDIA RIM and NVIDIA OCSP are declared with the host, route and answer shape
+their vendors publish, and an appraisal of either answers `COLLATERAL_ORIGIN_UNSUPPORTED` with what a
+reader would still need: a served RIM body and an XML DSig reader, or a served OCSP response and a
+DER OCSP parser. No vendor-service bytes are committed, because a service's output travels as a
+reference and a certificate a platform produced travels as bytes its caller supplies.
 Measured on 17 October 2026: Intel's PCK CRL answered 200 with `application/pkix-crl`;
 `kds.amd.com` did not resolve while `kdsintf.amd.com/vcek/v1/Milan/cert_chain` answered 200 with two
 PEM certificates; the bare `rim.attestation.nvidia.com/v1/rim/` path answered 403 and
