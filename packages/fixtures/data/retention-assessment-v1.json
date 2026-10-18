@@ -1870,6 +1870,911 @@
           "the coverage evidence cannot answer whether the period was continuously held"
         ]
       }
+    },
+    {
+      "name": "produced-covered-met",
+      "note": "Evidence of a period the sequence genuinely covers, handed to the producer: one run across the declared intake, the same range acknowledged, three customer-held checkpoints tiling it, and an observed head equal to a head the customer pinned. The producer writes the met the deployment claims because its reader reaches met over the same bytes; it does not compute the word.",
+      "document": {
+        "v": 1,
+        "scope": {
+          "subject": {
+            "kind": "deployment",
+            "id": "fixture-deployment"
+          },
+          "duty": {
+            "article": "19(1)",
+            "requiredSeconds": 200
+          },
+          "period": {
+            "from": 1000000,
+            "to": 1000200
+          },
+          "intake": {
+            "from": 1,
+            "to": 100,
+            "expectedHead": {
+              "sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+              "pinnedBy": "customer",
+              "reason": null
+            }
+          },
+          "checkpoint": {
+            "holder": "customer",
+            "eachCompletedBatch": true,
+            "maxIntervalSeconds": 3600
+          },
+          "timeBasis": {
+            "source": "fixture host clock",
+            "uncertaintySeconds": 1
+          },
+          "excludes": [
+            "request bodies",
+            "model weights",
+            "the provider side of the intake"
+          ]
+        },
+        "coverage": {
+          "runs": [
+            {
+              "from": 1,
+              "to": 100
+            }
+          ],
+          "acknowledged": [
+            {
+              "from": 1,
+              "to": 100
+            }
+          ],
+          "checkpoints": [
+            {
+              "range": {
+                "from": 1,
+                "to": 34
+              },
+              "at": 1000000,
+              "head": "1111111111111111111111111111111111111111111111111111111111111111"
+            },
+            {
+              "range": {
+                "from": 35,
+                "to": 67
+              },
+              "at": 1000100,
+              "head": "2222222222222222222222222222222222222222222222222222222222222222"
+            },
+            {
+              "range": {
+                "from": 68,
+                "to": 100
+              },
+              "at": 1000200,
+              "head": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+            }
+          ],
+          "observedHead": {
+            "sequence": 100,
+            "sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+          },
+          "span": null,
+          "gaps": [],
+          "duplicates": [],
+          "rollbacks": [],
+          "suffixLoss": null
+        },
+        "assessment": {
+          "outcome": "met"
+        }
+      },
+      "assessment": {
+        "outcome": "met",
+        "coverage": {
+          "result": "covered",
+          "basis": "sequence",
+          "ranges": [
+            {
+              "from": 1,
+              "to": 100
+            }
+          ],
+          "reasons": []
+        },
+        "reasons": [
+          "the period is continuously covered, acknowledged across its width and witnessed by checkpoints that tile the intake and close on the observed head, and the observed head matches a head an independent party pinned"
+        ]
+      }
+    },
+    {
+      "name": "produced-omitted-record-not-met",
+      "note": "A period where the intake carried sequences 1 through 40 and 61 through 100 and stated the omitted stretch as a gap. The producer assembles the coverage the store observed and the gap the deployment reported, and the reader reaches not-met: an omitted record is a period that was not continuously held.",
+      "document": {
+        "v": 1,
+        "scope": {
+          "subject": {
+            "kind": "deployment",
+            "id": "fixture-deployment"
+          },
+          "duty": {
+            "article": "19(1)",
+            "requiredSeconds": 200
+          },
+          "period": {
+            "from": 1000000,
+            "to": 1000200
+          },
+          "intake": {
+            "from": 1,
+            "to": 100,
+            "expectedHead": {
+              "sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+              "pinnedBy": "customer",
+              "reason": null
+            }
+          },
+          "checkpoint": {
+            "holder": "customer",
+            "eachCompletedBatch": true,
+            "maxIntervalSeconds": 3600
+          },
+          "timeBasis": {
+            "source": "fixture host clock",
+            "uncertaintySeconds": 1
+          },
+          "excludes": [
+            "request bodies",
+            "model weights",
+            "the provider side of the intake"
+          ]
+        },
+        "coverage": {
+          "runs": [
+            {
+              "from": 1,
+              "to": 40
+            },
+            {
+              "from": 61,
+              "to": 100
+            }
+          ],
+          "acknowledged": [
+            {
+              "from": 1,
+              "to": 40
+            },
+            {
+              "from": 61,
+              "to": 100
+            }
+          ],
+          "checkpoints": [
+            {
+              "range": {
+                "from": 1,
+                "to": 40
+              },
+              "at": 1000000,
+              "head": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+            },
+            {
+              "range": {
+                "from": 61,
+                "to": 100
+              },
+              "at": 1000200,
+              "head": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+            }
+          ],
+          "observedHead": {
+            "sequence": 100,
+            "sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+          },
+          "span": null,
+          "gaps": [
+            {
+              "from": 41,
+              "to": 60,
+              "reason": "the intake process restarted without its sequence state"
+            }
+          ],
+          "duplicates": [],
+          "rollbacks": [],
+          "suffixLoss": null
+        },
+        "assessment": {
+          "outcome": "not-met"
+        }
+      },
+      "assessment": {
+        "outcome": "not-met",
+        "coverage": {
+          "result": "gap",
+          "basis": "sequence",
+          "ranges": [
+            {
+              "from": 41,
+              "to": 60
+            },
+            {
+              "from": 41,
+              "to": 60
+            }
+          ],
+          "reasons": [
+            "the intake sequence 41 to 60 is not covered, so there is a hole between those two ends",
+            "the intake did not carry sequences 41 to 60: the intake process restarted without its sequence state"
+          ]
+        },
+        "reasons": [
+          "the coverage evidence states a period that was not continuously held, so the duty is not met"
+        ]
+      }
+    },
+    {
+      "name": "produced-extra-record-not-met",
+      "note": "A period where the intake saw sequence 30 twice, which is what a retry leaves behind. The producer states the duplicate the deployment reported and the reader reaches not-met: a record seen twice is not a run carried once.",
+      "document": {
+        "v": 1,
+        "scope": {
+          "subject": {
+            "kind": "deployment",
+            "id": "fixture-deployment"
+          },
+          "duty": {
+            "article": "19(1)",
+            "requiredSeconds": 200
+          },
+          "period": {
+            "from": 1000000,
+            "to": 1000200
+          },
+          "intake": {
+            "from": 1,
+            "to": 100,
+            "expectedHead": {
+              "sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+              "pinnedBy": "customer",
+              "reason": null
+            }
+          },
+          "checkpoint": {
+            "holder": "customer",
+            "eachCompletedBatch": true,
+            "maxIntervalSeconds": 3600
+          },
+          "timeBasis": {
+            "source": "fixture host clock",
+            "uncertaintySeconds": 1
+          },
+          "excludes": [
+            "request bodies",
+            "model weights",
+            "the provider side of the intake"
+          ]
+        },
+        "coverage": {
+          "runs": [
+            {
+              "from": 1,
+              "to": 100
+            }
+          ],
+          "acknowledged": [
+            {
+              "from": 1,
+              "to": 100
+            }
+          ],
+          "checkpoints": [
+            {
+              "range": {
+                "from": 1,
+                "to": 34
+              },
+              "at": 1000000,
+              "head": "1111111111111111111111111111111111111111111111111111111111111111"
+            },
+            {
+              "range": {
+                "from": 35,
+                "to": 67
+              },
+              "at": 1000100,
+              "head": "2222222222222222222222222222222222222222222222222222222222222222"
+            },
+            {
+              "range": {
+                "from": 68,
+                "to": 100
+              },
+              "at": 1000200,
+              "head": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+            }
+          ],
+          "observedHead": {
+            "sequence": 100,
+            "sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+          },
+          "span": null,
+          "gaps": [],
+          "duplicates": [
+            {
+              "sequence": 30,
+              "count": 2
+            }
+          ],
+          "rollbacks": [],
+          "suffixLoss": null
+        },
+        "assessment": {
+          "outcome": "not-met"
+        }
+      },
+      "assessment": {
+        "outcome": "not-met",
+        "coverage": {
+          "result": "gap",
+          "basis": "sequence",
+          "ranges": [
+            {
+              "from": 1,
+              "to": 100
+            }
+          ],
+          "reasons": [
+            "the intake saw sequence 30 2 times"
+          ]
+        },
+        "reasons": [
+          "the coverage evidence states a period that was not continuously held, so the duty is not met"
+        ]
+      }
+    },
+    {
+      "name": "produced-stale-replay-not-met",
+      "note": "Continuous runs and checkpoints, and an observed head at sequence 100 that is not the head the customer pinned: the shape a replay of a stale checkpoint leaves at the command edge, which names no endpoint. The pin inside this document closes the sentence, and the reader reaches not-met against it.",
+      "document": {
+        "v": 1,
+        "scope": {
+          "subject": {
+            "kind": "deployment",
+            "id": "fixture-deployment"
+          },
+          "duty": {
+            "article": "19(1)",
+            "requiredSeconds": 200
+          },
+          "period": {
+            "from": 1000000,
+            "to": 1000200
+          },
+          "intake": {
+            "from": 1,
+            "to": 100,
+            "expectedHead": {
+              "sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+              "pinnedBy": "customer",
+              "reason": null
+            }
+          },
+          "checkpoint": {
+            "holder": "customer",
+            "eachCompletedBatch": true,
+            "maxIntervalSeconds": 3600
+          },
+          "timeBasis": {
+            "source": "fixture host clock",
+            "uncertaintySeconds": 1
+          },
+          "excludes": [
+            "request bodies",
+            "model weights",
+            "the provider side of the intake"
+          ]
+        },
+        "coverage": {
+          "runs": [
+            {
+              "from": 1,
+              "to": 100
+            }
+          ],
+          "acknowledged": [
+            {
+              "from": 1,
+              "to": 100
+            }
+          ],
+          "checkpoints": [
+            {
+              "range": {
+                "from": 1,
+                "to": 34
+              },
+              "at": 1000000,
+              "head": "1111111111111111111111111111111111111111111111111111111111111111"
+            },
+            {
+              "range": {
+                "from": 35,
+                "to": 67
+              },
+              "at": 1000100,
+              "head": "2222222222222222222222222222222222222222222222222222222222222222"
+            },
+            {
+              "range": {
+                "from": 68,
+                "to": 100
+              },
+              "at": 1000200,
+              "head": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+            }
+          ],
+          "observedHead": {
+            "sequence": 100,
+            "sha256": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+          },
+          "span": null,
+          "gaps": [],
+          "duplicates": [],
+          "rollbacks": [],
+          "suffixLoss": null
+        },
+        "assessment": {
+          "outcome": "not-met"
+        }
+      },
+      "assessment": {
+        "outcome": "not-met",
+        "coverage": {
+          "result": "covered",
+          "basis": "sequence",
+          "ranges": [
+            {
+              "from": 1,
+              "to": 100
+            }
+          ],
+          "reasons": []
+        },
+        "reasons": [
+          "the observed head bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb is not the pinned head aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa, so the pin catches a substitution or a rollback"
+        ]
+      }
+    },
+    {
+      "name": "produced-rollback-not-met",
+      "note": "The intake reached the pinned head and then restored an earlier one at the same sequence. The producer states the rollback the deployment reported, and the reader reaches not-met.",
+      "document": {
+        "v": 1,
+        "scope": {
+          "subject": {
+            "kind": "deployment",
+            "id": "fixture-deployment"
+          },
+          "duty": {
+            "article": "19(1)",
+            "requiredSeconds": 200
+          },
+          "period": {
+            "from": 1000000,
+            "to": 1000200
+          },
+          "intake": {
+            "from": 1,
+            "to": 100,
+            "expectedHead": {
+              "sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+              "pinnedBy": "customer",
+              "reason": null
+            }
+          },
+          "checkpoint": {
+            "holder": "customer",
+            "eachCompletedBatch": true,
+            "maxIntervalSeconds": 3600
+          },
+          "timeBasis": {
+            "source": "fixture host clock",
+            "uncertaintySeconds": 1
+          },
+          "excludes": [
+            "request bodies",
+            "model weights",
+            "the provider side of the intake"
+          ]
+        },
+        "coverage": {
+          "runs": [
+            {
+              "from": 1,
+              "to": 100
+            }
+          ],
+          "acknowledged": [
+            {
+              "from": 1,
+              "to": 100
+            }
+          ],
+          "checkpoints": [
+            {
+              "range": {
+                "from": 1,
+                "to": 34
+              },
+              "at": 1000000,
+              "head": "1111111111111111111111111111111111111111111111111111111111111111"
+            },
+            {
+              "range": {
+                "from": 35,
+                "to": 67
+              },
+              "at": 1000100,
+              "head": "2222222222222222222222222222222222222222222222222222222222222222"
+            },
+            {
+              "range": {
+                "from": 68,
+                "to": 100
+              },
+              "at": 1000200,
+              "head": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+            }
+          ],
+          "observedHead": {
+            "sequence": 100,
+            "sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+          },
+          "span": null,
+          "gaps": [],
+          "duplicates": [],
+          "rollbacks": [
+            {
+              "sequence": 100,
+              "observedHead": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+              "restoredHead": "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc"
+            }
+          ],
+          "suffixLoss": null
+        },
+        "assessment": {
+          "outcome": "not-met"
+        }
+      },
+      "assessment": {
+        "outcome": "not-met",
+        "coverage": {
+          "result": "gap",
+          "basis": "sequence",
+          "ranges": [
+            {
+              "from": 1,
+              "to": 100
+            }
+          ],
+          "reasons": [
+            "the intake rolled back at sequence 100 from aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa to cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc"
+          ]
+        },
+        "reasons": [
+          "the coverage evidence states a period that was not continuously held, so the duty is not met"
+        ]
+      }
+    },
+    {
+      "name": "produced-suffix-loss-not-met",
+      "note": "The intake observed sequences 1 through 90 against a declared range that ends at 100 and stated the tail it lost. The observed head stands at 90 and the customer pinned a head for 100, so the suffix loss is visible against the pin, and the reader reaches not-met.",
+      "document": {
+        "v": 1,
+        "scope": {
+          "subject": {
+            "kind": "deployment",
+            "id": "fixture-deployment"
+          },
+          "duty": {
+            "article": "19(1)",
+            "requiredSeconds": 200
+          },
+          "period": {
+            "from": 1000000,
+            "to": 1000200
+          },
+          "intake": {
+            "from": 1,
+            "to": 100,
+            "expectedHead": {
+              "sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+              "pinnedBy": "customer",
+              "reason": null
+            }
+          },
+          "checkpoint": {
+            "holder": "customer",
+            "eachCompletedBatch": true,
+            "maxIntervalSeconds": 3600
+          },
+          "timeBasis": {
+            "source": "fixture host clock",
+            "uncertaintySeconds": 1
+          },
+          "excludes": [
+            "request bodies",
+            "model weights",
+            "the provider side of the intake"
+          ]
+        },
+        "coverage": {
+          "runs": [
+            {
+              "from": 1,
+              "to": 90
+            }
+          ],
+          "acknowledged": [
+            {
+              "from": 1,
+              "to": 90
+            }
+          ],
+          "checkpoints": [
+            {
+              "range": {
+                "from": 1,
+                "to": 45
+              },
+              "at": 1000000,
+              "head": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+            },
+            {
+              "range": {
+                "from": 46,
+                "to": 90
+              },
+              "at": 1000200,
+              "head": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+            }
+          ],
+          "observedHead": {
+            "sequence": 90,
+            "sha256": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+          },
+          "span": null,
+          "gaps": [],
+          "duplicates": [],
+          "rollbacks": [],
+          "suffixLoss": {
+            "from": 91,
+            "to": 100,
+            "reason": "the volume lost its tail before the period closed"
+          }
+        },
+        "assessment": {
+          "outcome": "not-met"
+        }
+      },
+      "assessment": {
+        "outcome": "not-met",
+        "coverage": {
+          "result": "gap",
+          "basis": "sequence",
+          "ranges": [
+            {
+              "from": 91,
+              "to": 100
+            },
+            {
+              "from": 91,
+              "to": 100
+            }
+          ],
+          "reasons": [
+            "the intake sequence 91 to 100 is not covered, so there is a hole between those two ends",
+            "the intake lost the suffix from sequence 91 to 100: the volume lost its tail before the period closed"
+          ]
+        },
+        "reasons": [
+          "the coverage evidence states a period that was not continuously held, so the duty is not met"
+        ]
+      }
+    },
+    {
+      "name": "produced-no-pin-indeterminate",
+      "note": "A period the coverage genuinely covers, declared with no head pinned by anyone and the reason for the absence. The producer states that absence honestly rather than filling a pin, and the reader reaches indeterminate: nothing independent is there to compare the observed head against.",
+      "document": {
+        "v": 1,
+        "scope": {
+          "subject": {
+            "kind": "deployment",
+            "id": "fixture-deployment"
+          },
+          "duty": {
+            "article": "19(1)",
+            "requiredSeconds": 200
+          },
+          "period": {
+            "from": 1000000,
+            "to": 1000200
+          },
+          "intake": {
+            "from": 1,
+            "to": 100,
+            "expectedHead": {
+              "sha256": null,
+              "pinnedBy": "none",
+              "reason": "the customer held no head for this period"
+            }
+          },
+          "checkpoint": {
+            "holder": "customer",
+            "eachCompletedBatch": true,
+            "maxIntervalSeconds": 3600
+          },
+          "timeBasis": {
+            "source": "fixture host clock",
+            "uncertaintySeconds": 1
+          },
+          "excludes": [
+            "request bodies",
+            "model weights",
+            "the provider side of the intake"
+          ]
+        },
+        "coverage": {
+          "runs": [
+            {
+              "from": 1,
+              "to": 100
+            }
+          ],
+          "acknowledged": [
+            {
+              "from": 1,
+              "to": 100
+            }
+          ],
+          "checkpoints": [
+            {
+              "range": {
+                "from": 1,
+                "to": 34
+              },
+              "at": 1000000,
+              "head": "1111111111111111111111111111111111111111111111111111111111111111"
+            },
+            {
+              "range": {
+                "from": 35,
+                "to": 67
+              },
+              "at": 1000100,
+              "head": "2222222222222222222222222222222222222222222222222222222222222222"
+            },
+            {
+              "range": {
+                "from": 68,
+                "to": 100
+              },
+              "at": 1000200,
+              "head": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+            }
+          ],
+          "observedHead": {
+            "sequence": 100,
+            "sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+          },
+          "span": null,
+          "gaps": [],
+          "duplicates": [],
+          "rollbacks": [],
+          "suffixLoss": null
+        },
+        "assessment": {
+          "outcome": "indeterminate"
+        }
+      },
+      "assessment": {
+        "outcome": "indeterminate",
+        "coverage": {
+          "result": "covered",
+          "basis": "sequence",
+          "ranges": [
+            {
+              "from": 1,
+              "to": 100
+            }
+          ],
+          "reasons": []
+        },
+        "reasons": [
+          "no expected head is pinned, so the observed head cannot be compared against anything independent"
+        ]
+      }
+    },
+    {
+      "name": "produced-span-only-indeterminate",
+      "note": "The oldest and newest survivors one declared period apart, the newest head equal to the pinned head, and no sequence between them. The producer fills the span the deployment holds and the reader reaches indeterminate, never met: the distance between two stamps is not coverage.",
+      "document": {
+        "v": 1,
+        "scope": {
+          "subject": {
+            "kind": "deployment",
+            "id": "fixture-deployment"
+          },
+          "duty": {
+            "article": "19(1)",
+            "requiredSeconds": 200
+          },
+          "period": {
+            "from": 1000000,
+            "to": 1000200
+          },
+          "intake": {
+            "from": 1,
+            "to": 100,
+            "expectedHead": {
+              "sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+              "pinnedBy": "customer",
+              "reason": null
+            }
+          },
+          "checkpoint": {
+            "holder": "customer",
+            "eachCompletedBatch": true,
+            "maxIntervalSeconds": 3600
+          },
+          "timeBasis": {
+            "source": "fixture host clock",
+            "uncertaintySeconds": 1
+          },
+          "excludes": [
+            "request bodies",
+            "model weights",
+            "the provider side of the intake"
+          ]
+        },
+        "coverage": {
+          "runs": [],
+          "acknowledged": [],
+          "checkpoints": [],
+          "observedHead": null,
+          "span": {
+            "from": 1000000,
+            "to": 1000200,
+            "oldestHead": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+            "newestHead": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+          },
+          "gaps": [],
+          "duplicates": [],
+          "rollbacks": [],
+          "suffixLoss": null
+        },
+        "assessment": {
+          "outcome": "indeterminate"
+        }
+      },
+      "assessment": {
+        "outcome": "indeterminate",
+        "coverage": {
+          "result": "indeterminate",
+          "basis": "time",
+          "ranges": [
+            {
+              "from": 1000000,
+              "to": 1000200
+            }
+          ],
+          "reasons": [
+            "the only evidence is a span between the oldest and newest surviving record, and a span states no sequence between its ends",
+            "the maximum minus the minimum timestamp is not evidence that every record in the period survived, so a span has no path to a covered result"
+          ]
+        },
+        "reasons": [
+          "the coverage evidence cannot answer whether the period was continuously held"
+        ]
+      }
     }
   ],
   "refusals": [

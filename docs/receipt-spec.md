@@ -1175,6 +1175,18 @@ gaps, duplicates, rollbacks and suffix loss. Its schema is
 and its vectors are the Retention assessment suite in [vectors.md](vectors.md). A span-only input answers
 `indeterminate` there, never `met`.
 
+**How the assessment is written, not only read.** `produceRetentionAssessment` in `@ashaveri/sdk` is the writing
+half of the same public shape. It takes a structured evidence argument, fills `scope` and `coverage` from it,
+and leaves the `assessment` block as the deployment's own claim rather than computing an outcome of its own. It
+then runs `assessRetention` over the canonical bytes it wrote and hands them back only if that reader takes
+them, so a writer cannot state `met` for evidence its reader reads as `indeterminate`: such a claim is refused
+at the producer under `RETENTION_ASSESSMENT_DISAGREES` instead of shipped for a later reader to trip over. The
+expected head travels through verbatim with its pinner from `EXPECTED_HEAD_PINNERS`; where a caller supplies a
+pin the document states it, and where none is supplied the document states `none` with the reason it was given,
+never a field the producer quietly filled. That pin is what closes the stale-replay question inside the
+produced document, against a head a party other than the subject pinned, rather than at any surface that reads
+a store and names no endpoint.
+
 **The rules between members that no keyword reaches.** These are stated here because the layout cannot hold
 them: `heldSeconds` is the distance from the stamp of the oldest surviving record to `at`, or zero when
 `count` is zero; `met` is the comparison of that span with `requiredSeconds`; every trim event's `at` is no
