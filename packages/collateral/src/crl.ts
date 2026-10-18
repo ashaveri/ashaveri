@@ -57,9 +57,9 @@ export type RevocationReadOutcome = { readonly read: RevocationList } | { readon
  * `COLLATERAL_SIGNATURE_UNVERIFIED`. Once the signature holds, the issuer the list names is checked against the
  * one the requested authority scope publishes, and a list from the other scope answers
  * `COLLATERAL_IDENTITY_MISMATCH` rather than a question about this one. A name this reader cannot spell out,
- * because it carries no common name or a string type it does not read, is the same refusal: an issuer nobody
- * has read is not an issuer that matched. A question that states no scope has no issuer to bind to, so it is
- * refused as a missing input before any list is read.
+ * because it carries no common name, more than one common name, or a string type it does not read, is the same
+ * refusal: an issuer nobody has read is not an issuer that matched. A question that states no scope has no
+ * issuer to bind to, so it is refused as a missing input before any list is read.
  */
 export function readPckCrl(body: Uint8Array, chain: Uint8Array | null, reading: Reading): RevocationReadOutcome {
   if (!isCrlDeclaration(reading.declaration)) {
@@ -135,7 +135,7 @@ export function readPckCrl(body: Uint8Array, chain: Uint8Array | null, reading: 
     return {
       refusal: collateralRefusal(
         declaration.refusals.identity,
-        `the list does not name ${expected} as its issuer, and the ${scope} scope publishes that name`,
+        `the list does not answer to ${expected}, which the ${scope} scope publishes, whether it names another authority or carries a name this reader cannot spell out`,
         ['ca'],
       ),
     };
