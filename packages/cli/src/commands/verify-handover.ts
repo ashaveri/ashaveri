@@ -130,6 +130,16 @@ import {
  * document exists to make checkable. A companion no row names is disclosed and read by nothing, exactly as
  * an uninvited original is beside an export.
  *
+ * A deployment's weights manifest is bytes rather than a signed shape, and it is the file two of the seven
+ * readers can be checked against: a receipt states its digest as `wts` and a deployment manifest states one
+ * beside every model id it lists. It travels in through `--companion`, keyed by its own basename as an export's
+ * originals and a ledger's shipped rows are, and no name is required of it, because the document states a digest
+ * and not a file name. Every companion handed is hashed and met against those digests: the row names the model
+ * ids the bytes in the room answer for, discloses a file whose digest answers none of them, and states that
+ * nothing was handed when nothing was. The manifest stays outside the dispatch table for the reason the header
+ * gives: it carries no content type and no signature, so it is a companion and not an eighth shape, and no reader
+ * runs over it.
+ *
  * An inventory is the one shape whose reader takes a second set of documents and folds them into its answer, and
  * `--retention-dir` is the option that carries them: it names the root the sealed entries' `retention` paths are
  * relative to, and because each entry states its own artifact as `packs/<digest>/retention-v1.json` or
@@ -149,7 +159,10 @@ export interface VerifyHandoverFlags extends CarriedFlagValues {
   key?: string[];
   /** Every `--manifest-key` given, unvalidated at this point; see `designatedKeys`. */
   'manifest-key'?: string[];
-  /** Every `--companion` given: an export item's original, a redaction's pack, and a provenance ledger's shipped bytes. */
+  /**
+   * Every `--companion` given: an export item's original, a redaction's pack, a provenance ledger's shipped
+   * bytes, and the weights manifest a receipt's `wts` and a deployment manifest's `models[].wts` are digests of.
+   */
   companion?: string[];
   /**
    * The root an inventory's run files its retention artifacts under, read only when the bytes are an inventory;
@@ -370,6 +383,161 @@ function isoOf(epochSeconds: number): string {
   return new Date(epochSeconds * 1000).toISOString();
 }
 
+/** The flag the bytes a `wts` can be met by travel in, named by the rows the comparison prints. */
+const COMPANION_FLAG = '--companion';
+
+/** One served-model digest a document states, beside the model id it states it for. */
+interface WeightsStated {
+  readonly id: string;
+  readonly wts: string;
+}
+
+/** One companion file, as it arrived and as this run reads it. */
+interface WeightsHanded {
+  /** The basename the file was keyed under, which is the only name this run has for it. */
+  readonly name: string;
+  readonly sha256: string;
+  readonly bytes: number;
+}
+
+/** One stated digest and the handed files whose bytes meet it. */
+interface WeightsMatched extends WeightsStated {
+  readonly answeredBy: readonly string[];
+}
+
+/** What the weights comparison saw: the digests a document states and the bytes a caller handed. */
+interface WeightsReading {
+  readonly handed: readonly WeightsHanded[];
+  readonly stated: readonly WeightsMatched[];
+  /** The handed files whose digest answers no model this document names. */
+  readonly unmatched: readonly string[];
+}
+
+/**
+ * The bytes a handover handed beside a document, met against the digests that document states.
+ *
+ * A `wts` is the SHA-256 of one reading of a deployment's weights manifest, and a deployment that serves
+ * those bytes addresses them by that digest, so the digest is both the claim and the address. A verifier
+ * holding no network and no checkout has neither, unless the handover directory carried the bytes: they
+ * arrive as a `--companion` file, keyed by its own basename as an export's originals and a ledger's
+ * shipped rows are, and the only thing a document states about them is the digest. So the comparison this
+ * run can make is the arithmetic `sha256(bytes) == wts`, over every companion it was handed, and nothing
+ * else about those bytes is claimed: no name is required of the file, because a caller who kept the
+ * manifest under another name is holding the same bytes, and a digest is the one thing the document can
+ * check a file against.
+ *
+ * Every stated digest is answered for by id, because a deployment hands one reading's digest to every
+ * model it serves and a file in the room can therefore answer for several at once. A handed file that
+ * answers none is disclosed rather than dropped, which is what a caller looping one command line across
+ * a bundle needs to see: the manifest that belongs to a different deployment states a digest and hashes
+ * to another number, and a report that passed over it would read as a comparison that held.
+ */
+function weightsReading(companions: ReadonlyMap<string, Uint8Array>, stated: readonly WeightsStated[]): WeightsReading {
+  const handed: WeightsHanded[] = [...companions].map(([name, bytes]) => ({
+    name,
+    sha256: sha256Hex(bytes),
+    bytes: bytes.byteLength,
+  }));
+  const byDigest = new Map<string, string[]>();
+  for (const one of handed) {
+    const names = byDigest.get(one.sha256);
+    if (names === undefined) byDigest.set(one.sha256, [one.name]);
+    else names.push(one.name);
+  }
+  const matched = new Set<string>();
+  const rows: WeightsMatched[] = stated.map((one) => {
+    const answeredBy = byDigest.get(one.wts) ?? [];
+    if (answeredBy.length > 0) matched.add(one.wts);
+    return { id: one.id, wts: one.wts, answeredBy };
+  });
+  return {
+    handed,
+    stated: rows,
+    unmatched: handed.filter((one) => !matched.has(one.sha256)).map((one) => one.name),
+  };
+}
+
+/** The comparison as one row, in the words an operator reads, and as figures for a port. */
+function weightsFact(reading: WeightsReading): Fact {
+  const met = reading.stated.filter((one) => one.answeredBy.length > 0);
+  const unmet = reading.stated.filter((one) => one.answeredBy.length === 0);
+  const parts: string[] = [];
+  if (reading.stated.length === 0) {
+    parts.push('this document names no model, so no served-model digest is stated here for any bytes to answer for');
+  } else if (reading.handed.length === 0) {
+    parts.push(
+      `nothing was handed as ${COMPANION_FLAG}, so the ${String(reading.stated.length)} served-model digest(s) this document names are met by no bytes in this run`,
+    );
+  } else {
+    parts.push(
+      `${String(met.length)} of ${String(reading.stated.length)} served-model digest(s) met by bytes this run holds`,
+    );
+    // One clause per digest that was met, naming every model it answers for: a deployment hands the same
+    // reading to all of its models, so the ids travel together and are printed together. The file's name,
+    // its length and the digest it reached are all printed, because between this clause and the two below
+    // every file handed over is enumerated once with the number it hashed to.
+    const clauses = new Map<string, string[]>();
+    for (const one of met) {
+      const ids = clauses.get(one.wts);
+      if (ids === undefined) clauses.set(one.wts, [one.id]);
+      else ids.push(one.id);
+    }
+    for (const [digest, ids] of clauses) {
+      const one = met.find((each) => each.wts === digest) as WeightsMatched;
+      const bytes = reading.handed.find((each) => each.sha256 === digest)?.bytes;
+      parts.push(
+        `sha256 over the ${String(bytes)} byte(s) handed as ${one.answeredBy.map((each) => printedToken(each)).join(', ')} reaches ${digest}, the wts of ${ids.map((each) => printedToken(each)).join(', ')}`,
+      );
+    }
+  }
+  // The unmet clause is about a comparison this run made and lost, so it is silent when no bytes were handed:
+  // the sentence above already states that nothing was met, and a run that read no file has no digest to name
+  // back beside the one the document carries.
+  if (unmet.length > 0 && reading.handed.length > 0) {
+    parts.push(
+      `no file handed as ${COMPANION_FLAG} digests to the wts of ${unmet.map((one) => `${printedToken(one.id)} (${one.wts})`).join(', ')}`,
+    );
+  }
+  if (reading.unmatched.length > 0) {
+    parts.push(
+      reading.handed
+        .filter((one) => reading.unmatched.includes(one.name))
+        .map((one) => `${printedToken(one.name)} hashes to ${one.sha256}, which is no wts this document names`)
+        .join('; '),
+    );
+  }
+  return {
+    key: 'weightsBytes',
+    label: 'weights bytes',
+    value: parts.join('; '),
+    json: { handed: reading.handed, stated: reading.stated, unmatched: reading.unmatched },
+  };
+}
+
+/**
+ * What the comparison leaves open, in the rows the report prints under `not checked`.
+ *
+ * A weights manifest states a digest per weights file, and this run read the manifest and no file it lists, so
+ * the row above cannot say what was loaded into a model. A deployment also serves the bytes behind one reading
+ * and no other, so which reading a caller is holding is not a fact about these bytes. Both are stated
+ * whether the digests agreed or not, because a comparison this run made does not become an assurance about
+ * material it never opened.
+ */
+function weightsNotChecked(reading: WeightsReading): readonly string[] {
+  if (reading.stated.length === 0) {
+    return [];
+  }
+  if (reading.handed.length === 0) {
+    return [
+      `whether the served-model digest this document names is the digest of any bytes this run holds: nothing was handed as ${COMPANION_FLAG}, so it prints as the document's own figure and is compared by nothing here, and the deployment's own route at GET /v1/weights/<digest> is the other way those bytes reach a caller and was not reached`,
+    ];
+  }
+  return [
+    'whether the bytes handed here are the weights a model is made of, or the files a deployment mounted: the manifest lists a digest per file and this run opened none of them, so the row above states that one reading hashes to the digest the signature carries and says nothing about what was loaded',
+    'whether this is the reading the deployment still holds: a gateway serves the bytes it hashed at start-up, an edit under a running process changes neither those bytes nor the digest on the receipts it issued before it, and this run reached no route to ask which reading it is answering for',
+  ];
+}
+
 /**
  * A receipt, read as a receipt.
  *
@@ -378,6 +546,12 @@ function isoOf(epochSeconds: number): string {
  * transaction: no challenge, no request or response bytes, no policy pins, no clock. Those are printed
  * as open questions naming the verb that closes them, because a report that said "verified" about a
  * receipt whose nonce nobody compared would be claiming the one thing a receipt is for.
+ *
+ * `wts` is the one digest in this payload that bytes in the room can answer for, so every companion this
+ * run was handed is hashed against it. The row prints which file hashes to the digest the signature
+ * carries and which model id those bytes answer for, and states in terms that nothing was handed when
+ * nothing was, because a verifier with no network reaches those bytes only through a handover that
+ * carried them.
  */
 function readReceipt(bytes: Uint8Array, inputs: Inputs, kid: Uint8Array): Reading {
   const verified: VerifiedReceipt = verifyReceipt(bytes, { resolveKey: resolveEvidence(inputs.evidence) });
@@ -386,6 +560,7 @@ function readReceipt(bytes: Uint8Array, inputs: Inputs, kid: Uint8Array): Readin
   // the payload naming `mk`: every document this reader opens names one, so the report names the region
   // it attests or it is not looking at a receipt this format writes.
   const marking = payload.mk;
+  const weights = weightsReading(inputs.companions, [{ id: payload.mdl, wts: toHex(payload.wts) }]);
   return {
     contentType: RECEIPT_CONTENT_TYPE,
     reader: 'verifyReceipt',
@@ -397,6 +572,7 @@ function readReceipt(bytes: Uint8Array, inputs: Inputs, kid: Uint8Array): Readin
       { key: 'instance', label: 'instance', value: payload.ins, json: payload.ins },
       { key: 'model', label: 'model', value: payload.mdl, json: payload.mdl },
       { key: 'weights', label: 'weights', value: toHex(payload.wts), json: toHex(payload.wts) },
+      weightsFact(weights),
       { key: 'issuedAt', label: 'issued at', value: `${payload.iat} (${isoOf(payload.iat)})`, json: payload.iat },
       { key: 'keyEpoch', label: 'key epoch', value: String(payload.epk), json: payload.epk },
       { key: 'measurement', label: 'measurement', value: `${toHex(payload.meas.m)} (${payload.meas.tee})`, json: { tee: payload.meas.tee, m: toHex(payload.meas.m) } },
@@ -427,8 +603,9 @@ function readReceipt(bytes: Uint8Array, inputs: Inputs, kid: Uint8Array): Readin
       }),
     ],
     notChecked: [
-      `the nonce against a challenge, the two digests against any bytes, the pins a policy names and the age windows a clock closes: 'ashaveri verify-receipt' decides those, from the receipt, a policy file and a deployment manifest`,
+      `the nonce against a challenge, the request and response digests against any bytes, the pins a policy names and the age windows a clock closes: 'ashaveri verify-receipt' decides those, from the receipt, a policy file and a deployment manifest`,
       'the evidence document behind att.d, which no file in a bundle stands in for',
+      ...weightsNotChecked(weights),
     ],
   };
 }
@@ -790,6 +967,13 @@ function readExport(bytes: Uint8Array, inputs: Inputs, kid: Uint8Array): Reading
  * asked a narrower question, and the advisory the function writes is printed instead of softened. No
  * line here claims a signature held when none was checked, which is the reason the verdict line this
  * command prints for the other six types is a fact about the envelope rather than a fixed word.
+ *
+ * The `models[]` list is where a deployment states, beside each model id, the digest of the one reading of the
+ * weights manifest that run serves, so the same comparison the receipt arm runs runs here across every model at
+ * once: the companions handed
+ * this run are hashed, and `weightsBytes` prints which ids those bytes answer for. A deployment hands one
+ * reading's digest to every model it serves, so one file in the room can answer the whole list, and a list
+ * answered by nothing is printed as unanswered rather than passed over.
  */
 function readManifest(bytes: Uint8Array, inputs: Inputs, kid: Uint8Array): Reading {
   const policy: AshaveriPolicy = {
@@ -799,6 +983,7 @@ function readManifest(bytes: Uint8Array, inputs: Inputs, kid: Uint8Array): Readi
   const seal = authentication.authenticated
     ? `sealed, and the seal holds under ${String(authentication.kid)}, designated by ${MANIFEST_KEY_FLAG}`
     : (authentication.advisory ?? 'not authenticated, and no reason was recorded');
+  const weights = weightsReading(inputs.companions, manifest.models);
   return {
     contentType: DEPLOYMENT_MANIFEST_CONTENT_TYPE,
     reader: 'readDeploymentManifest',
@@ -829,6 +1014,7 @@ function readManifest(bytes: Uint8Array, inputs: Inputs, kid: Uint8Array): Readi
         json: manifest.epochs,
       },
       { key: 'models', label: 'models', value: manifest.models.map((one) => `${one.id}@${one.wts}`).join('; '), json: manifest.models },
+      weightsFact(weights),
       { key: 'measurement', label: 'measurement', value: `${manifest.meas.m} (${manifest.meas.tee})`, json: manifest.meas },
       freshnessFact({
         historical: 'the manifest carries no assembly instant, so there is no historical stamp to report',
@@ -843,6 +1029,7 @@ function readManifest(bytes: Uint8Array, inputs: Inputs, kid: Uint8Array): Readi
     notChecked: [
       `which of these keys is trusted for anything: no policy document was read and no digest is cited, so the ${String(manifest.keys.length)} declared key(s) are reported as the deployment's own statement about itself`,
       `whether a receipt stamped under one of these epochs was issued inside it: 'ashaveri verify-receipt' adjudicates that, against a policy and a manifest together`,
+      ...weightsNotChecked(weights),
     ],
   };
 }

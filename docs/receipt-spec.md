@@ -626,6 +626,27 @@ registers a HEAD beside every GET and the route table read normalizes HEAD onto 
 at this path is admitted by the same row, asks no credential, declares the length of the body it does not
 send, and carries no bytes.
 
+The same bytes travel without a route. A handover directory can carry the manifest beside the receipts and
+the deployment manifest it carries, and `ashaveri verify-handover` reads it there. The file comes in through
+`--companion`, the option that already carries an export's originals, an amendment's pack and a provenance
+ledger's shipped fixtures, and it is met by its own basename as those are; no name is asked of it, because
+what the document states is a digest and not a filename. A receipt reading then hashes every companion it
+was handed and compares each digest against the `wts` the payload carries, and a deployment manifest reading
+does the same across `models[]` and names the model ids the bytes in the room answer for. Two states are
+printed rather than acted on: a `wts` that no handed file digests to is stated as unanswered beside the files
+that were handed and what each hashed to, and a handed file whose digest answers no model the document names
+is disclosed rather than dropped. Neither moves an exit code, because the comparison is about which bytes a
+caller set beside a document and a signature over that document is unchanged by them. Nothing on this path
+fetches: no client of `@ashaveri/sdk` reads this route, and the check a handover runs is the same one a
+caller runs for itself over bytes it already holds.
+
+What the digest meeting a `wts` does not settle is the same on both arms. The manifest lists a digest per
+weights file, and a reader holding the manifest opens none of those files, so the comparison states that one
+reading's bytes hash to the digest the signature carries and says nothing about what a deployment mounted or
+what a model loaded, which is the entrypoint check `enclave/README.md` states. It also cannot say that this
+reading is the one the deployment still holds: a running gateway serves the bytes it hashed at start-up, and
+a caller with no network has nothing to ask.
+
 ## 5. Verification algorithm
 
 The deployment manifest of section 4.4 is read first, in whichever of its two shapes this deployment

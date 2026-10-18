@@ -100,8 +100,14 @@ second --companion: that one matches a file by its basename, and every entry's a
 two names under a different directory. Each key's id is computed from the key, so a designation cannot type an id its
 own key contradicts, and a run prints which designations it was handed and whether the document in front
 of it consulted them. What this command leaves open is printed as open: it compares no nonce against a
-challenge, no digest against the bytes it claims, no pin against a policy and no stamp against a clock,
-and those are the questions ashaveri verify-receipt answers about one request. A directory is refused with
+challenge, no request or response digest against the bytes it claims, no pin against a policy and no stamp against
+a clock, and those are the questions ashaveri verify-receipt answers about one request. The one digest a handover
+can hand this command is a deployment's weights manifest: a receipt states its sha256 as wts, a deployment
+manifest states one beside each model id it serves, and the bytes themselves travel as a --companion file, so a
+reading of either shape hashes every companion it was handed and prints which model ids those bytes answer for.
+Nothing about that file is signed and no name is asked of it, because the document names bytes by a digest, and a
+wts that no handed file digests to is reported as unanswered at the same exit code as one that every handed file
+meets. A directory is refused with
 the reason, because a bundle's rules over which files stand in a substituted root and which are omitted or
 extra are not what decides a document's type, and a pack reads as soon as its file is named. A directory named
 as --retention-dir is no such bundle: the document stays the one signed file this run reads, and the root only
@@ -321,9 +327,10 @@ Handover options, the same for verify-handover, verify-pack, verify-export and v
                      Base64url includes a dash in its alphabet, and an argument that starts with one
                      is not read as this option's value, so pass such a key as --key=<value>.
   --companion <file>  A file that travels beside the document: one original an export item's digest is recomputed
-                     over, the pack an excision amendment is checked against, or one shipped fixture whose bytes
-                     a provenance ledger row digests. Repeatable, and matched by the file's own name, which is
-                     the name the signed item carries: a file named contract.txt answers the item naming
+                     over, the pack an excision amendment is checked against, one shipped fixture whose bytes
+                     a provenance ledger row digests, or the weights manifest whose digest a receipt's wts and a
+                     deployment manifest's models[].wts name. Repeatable, and matched by the file's own name where
+                     the signed document carries one: a file named contract.txt answers the item naming
                      contract.txt, and a file named amd-ark-milan.pem answers the ledger row naming
                      test/fixtures/amd-ark-milan.pem. An item whose name was not handed is refused by that name rather
                      than passed over, because an export that reported on material nobody looked at is the defect
@@ -335,7 +342,14 @@ Handover options, the same for verify-handover, verify-pack, verify-export and v
                      refused as a call that designates no pack. A provenance ledger is the one case where the option
                      carries the bytes a roster of rows names: the three anchors the reader embeds resolve from its
                      own source, every row naming test/fixtures/<name> is read from the companion of that bare
-                     name, and a companion no row names is disclosed and read by nothing.
+                     name, and a companion no row names is disclosed and read by nothing. A weights manifest is the
+                     case where the document names bytes by a digest and by no name at all, so no name is required
+                     of the file: every companion a receipt reading or a manifest reading is handed is hashed, the
+                     report names the model ids whose wts those bytes meet, says in terms when a wts is met by
+                     nothing and what was handed beside it, and discloses a file whose digest answers no model the
+                     document names. The comparison moves no exit code: bytes that hash to another number answer
+                     for no model here and leave the signature over the document exactly as it was, which is a
+                     finding about the room rather than a fault in a document.
   --retention-dir <directory>
                      The root an epoch inventory's run files its retention artifacts under, consulted by the
                      inventory reading and by no other. Each entry of the run states its own artifact as

@@ -63,6 +63,9 @@ node enclave/weights.mjs generate enclave/release enclave/release/weights-manife
 `--weights-manifest` names and puts in the manifest's `models[].wts` and in every receipt for that
 model, so record it: it is the digest a client checks the manifest bytes against, whether those bytes
 came to it out of band or it fetched them at `GET /v1/weights/<wts>`.
+Keep the manifest itself beside the documents you hand over: `ashaveri verify-handover --companion
+<file>` hashes it against the `wts` a receipt carries and against every `models[].wts` a deployment
+manifest states, which is how a verifier with no network reaches the same comparison without a route.
 `verify` re-walks the directory and lists every difference at once (content mismatch,
 canonical-order problem, missing or extra file) and exits non-zero; the entrypoint runs it before
 the gateway starts signing.
@@ -280,6 +283,11 @@ Does not prove:
   receipt chain. The gateway does publish the manifest bytes: `GET /v1/weights/<wts>` serves the
   exact ones that digest was taken over, addressed by the `wts` a receipt already carries, so a
   client holding a receipt can make `wts` more than an opaque hash without anyone sending it a file.
+  A handover directory is the other way those bytes travel: `ashaveri verify-handover` takes the
+  manifest as a `--companion` file and hashes it against the `wts` on the receipts and against every
+  `models[].wts` in the deployment manifest, so a verifier with no network and no checkout can state
+  that the digest a signed receipt carries is the digest of the bytes in the room. Neither arm closes
+  the gap this bullet is about.
   Two things stay out of band. The digest a client starts from is still something it has to learn
   from somewhere the serving side does not choose, because a receipt and a manifest read off one
   gateway agree with each other whatever files stand behind them. And the check that the mounted
