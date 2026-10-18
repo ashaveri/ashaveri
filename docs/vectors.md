@@ -28,7 +28,7 @@ each shape.
 | Marked region | `packages/fixtures/data/marking-v1.json` | The span inside a response that `mk.d` digests, in both shapes, and what a reader owes a response carrying too few, too many, or not the attested one | `version: 1` |
 | Receipt store chain | `packages/fixtures/data/chain-v1.json` | The record frames a gateway writes to `receipts.log`, the state a reader derives from them, and what it refuses | `version: 1` |
 | Technical export | `packages/fixtures/data/export-v1.json` | Whole export documents, the arguments a reader is handed beside each one, and the verdict a conforming reader owes it | `version: 1` |
-| Sealed deployment manifest | `packages/fixtures/data/manifest-v1.json` | One deployment manifest in both shapes it is served in, the signing keys a reader designates beside it, and the verdict the client path owes each | `version: 1` |
+| Sealed deployment manifest | `packages/fixtures/data/manifest-v1.json` | Deployment manifests in both shapes a deployment serves, the signing keys a reader designates beside them, and the verdict the client path owes each; the family speaks of one deployment and one row speaks of the deployment the published receipts came from | `version: 1` |
 | Evidence pack | `packages/fixtures/data/pack-v1.json` | Whole packs in the shapes a deployment hands them over in, the keys a reader designates beside each one, and the verdict the shipped pack reader owes: run and window reported apart, the references a pack signs for the material its sealed receipts name and one accepted pack carrying a served body beside the header that arrived with it, and an honest pack whose stamps run against its links accepted with a finding | `version: 1` |
 | Redaction manifest | `packages/fixtures/data/redaction-v1.json` | Redaction manifests each beside the pack they are checked against, the verdict the shipped redaction reader owes the pair, and what `ashaveri verify-handover` answers for the same pair on every row: the chain over the survivors published apart from the pack's own head, a redaction pointed at a pack the reader lacks refused, and the three wrong constructions of a survivor chain refused by recomputation | `version: 1` |
 | Epoch inventory | `packages/fixtures/data/epoch-inventory-v1.json` | Whole sealed inventories and the verdict the two shipped inventory readers owe each one: the envelope, the header, the key, the reading of a JSON payload, the arithmetic a reader recomputes over a run of packs, and the names each row of the two folded lists points at, with a refusal for every claim the reader recomputes over the run and answers from it, which is the windows meeting end to start, including one entry whose own two figures do not run forwards, the window, the two chain endpoints beside the run that begins and ends them, the claim each folded list states beside it, and every guard of both lists, and with the acceptances a reviewer would otherwise read as faults | `version: 1` |
@@ -166,6 +166,15 @@ specific to that case.
   document. The `reveal` block of the first row carries the protected header, the payload bytes, the signature
   and the `Sig_structure` rebuilt from them, so a port can compare its framing without this repository's
   writer.
+  One row, `paired-with-the-published-receipt-family`, is the manifest of the deployment the published
+  receipts came from, and nothing about it is a second spelling of those receipts' values: its issuer,
+  instance, epoch, environment kind, measurement and single `models[]` row are the members of
+  `data/receipts/receipt-buffered-v1.json`, the `keys[]` entry is the kid that document's protected header
+  names with the public half `data/keys/receipt-key-v1.json` publishes, and its `verdict`,
+  `authentication`, `parsed` and `claims` are what `readDeploymentManifest` and `adjudicateReceiptEpoch`
+  answered over those bytes. It is the document beside which `ashaveri verify-receipt` weighs a published
+  receipt's `wts` and answers `verify-ok`; hand the same receipt to one of the `ashaveri-mock` rows and the
+  answer is `MODEL_UNDECLARED`, which is two deployments disagreeing rather than a check failing.
 - **Evidence pack.** Decode `documentBase64Url` and hand it to your reader with the designation the row's `read`
   block states: `pinned` is the one key a caller holds, which answers the envelope and every receipt inside the
   container, `retained` is the set a resolver answers from, one key per kid, which is how the row whose span
@@ -459,3 +468,13 @@ These vectors check bytes. They say nothing about trust:
 - The store chain vectors pin a file format and the retention behaviour those vectors exercise: a
   count cap, an age bound, a compaction, a repair. They do not commit anyone to a retention period,
   and what a deployment promises to keep is stated where retention is stated, not here.
+- Which published families are one pair is a fact of the bytes and not of a reader's guess. The receipt
+  fixtures under `data/receipts/` and the row `paired-with-the-published-receipt-family` of
+  `manifest-v1.json` describe one deployment, so a published receipt and a published manifest can be
+  brought to `ashaveri verify-receipt` as a pair and the weights comparison holds. Every other suite here
+  is an independent illustration of its own format, and so is every other row of `manifest-v1.json`: that
+  family speaks of `ashaveri-mock` at `mock-instance-1`, under a software measurement and a different
+  signing key, which is why a published receipt handed to one of those rows is answered
+  `MODEL_UNDECLARED`. That refusal is two documents describing two deployments, and a reader who takes it
+  for a failed check has been misled by nothing but the assumption that one file's rows are one
+  deployment's rows.
