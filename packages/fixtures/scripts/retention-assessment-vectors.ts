@@ -6,9 +6,13 @@ import {
   assessRetention,
   MAX_CHECKPOINT_INTERVAL_SECONDS,
   parseRetentionAssessment,
+  produceRetentionAssessment,
   RETENTION_ASSESSMENT_FORMAT_VERSION,
   SdkError,
+  type RetentionAssessmentEvidence,
   type RetentionAssessmentResult,
+  type RetentionAssessmentScope,
+  type RetentionCoverage,
 } from '@ashaveri/sdk';
 
 /**
@@ -131,6 +135,225 @@ interface AssessmentRow {
   readonly name: string;
   readonly note: string;
   readonly document: Block;
+}
+
+/**
+ * The evidence the produced rows start from, in the shape `produceRetentionAssessment` takes.
+ *
+ * The rows below are not documents typed by hand: each is a scope declaration and a coverage observation
+ * handed to the producer, and the document recorded in the file is the one the producer wrote. The scope is
+ * the same period the hand-typed covered row declares; the coverage is what a deployment that genuinely
+ * covered it would hold. A produced row is only published if the producer's bytes re-parse to the document it
+ * returned and `assessRetention` reads that document back to the outcome the producer intended.
+ */
+function producedScope(
+  expectedHead: RetentionAssessmentScope['intake']['expectedHead'] = { sha256: HEAD, pinnedBy: 'customer', reason: null },
+): RetentionAssessmentScope {
+  return {
+    subject: { kind: 'deployment', id: 'fixture-deployment' },
+    duty: { article: '19(1)', requiredSeconds: 200 },
+    period: { from: PERIOD_FROM, to: PERIOD_TO },
+    intake: { from: 1, to: 100, expectedHead },
+    checkpoint: { holder: 'customer', eachCompletedBatch: true, maxIntervalSeconds: 3_600 },
+    timeBasis: { source: 'fixture host clock', uncertaintySeconds: 1 },
+    excludes: ['request bodies', 'model weights', 'the provider side of the intake'],
+  };
+}
+
+function producedCoverage(): RetentionCoverage {
+  return {
+    runs: [{ from: 1, to: 100 }],
+    acknowledged: [{ from: 1, to: 100 }],
+    checkpoints: [
+      { range: { from: 1, to: 34 }, at: PERIOD_FROM, head: '11'.repeat(32) },
+      { range: { from: 35, to: 67 }, at: PERIOD_FROM + 100, head: '22'.repeat(32) },
+      { range: { from: 68, to: 100 }, at: PERIOD_TO, head: HEAD },
+    ],
+    observedHead: { sequence: 100, sha256: HEAD },
+    span: null,
+    gaps: [],
+    duplicates: [],
+    rollbacks: [],
+    suffixLoss: null,
+  };
+}
+
+/** The span-only coverage: the oldest and newest survivors and no sequence between them. */
+function spanOnlyCoverage(): RetentionCoverage {
+  return {
+    runs: [],
+    acknowledged: [],
+    checkpoints: [],
+    observedHead: null,
+    span: { from: PERIOD_FROM, to: PERIOD_TO, oldestHead: OTHER, newestHead: HEAD },
+    gaps: [],
+    duplicates: [],
+    rollbacks: [],
+    suffixLoss: null,
+  };
+}
+
+/**
+ * Produce one row and refuse to publish it unless its own reader agrees with the producer.
+ *
+ * `produceRetentionAssessment` runs `assessRetention` over the bytes before it returns, so a claim the
+ * evidence does not support is refused at the producer. This adds the check the file still owes a port: the
+ * bytes re-parse to the document the writer handed back, and the shipped reader reaches the intended outcome
+ * over that document. A produced row whose bytes drifted from its document, or whose reading disagreed with the
+ * claim, stops the run rather than shipping.
+ */
+function producedRow(
+  name: string,
+  note: string,
+  claim: RetentionAssessmentEvidence['claim'],
+  scope: RetentionAssessmentScope,
+  coverage: RetentionCoverage,
+): Block {
+  const result = produceRetentionAssessment({ scope, coverage, claim });
+  const parsed = JSON.parse(result.bytes) as Block;
+  if (JSON.stringify(parsed) !== JSON.stringify(result.document)) {
+    throw new Error(`${name}: the producer's bytes do not re-parse to the document it returned`);
+  }
+  const reading = assessRetention(parsed);
+  if (reading.outcome !== claim) {
+    throw new Error(`${name}: the producer intended ${claim} and its reader reached ${reading.outcome}`);
+  }
+  return {
+    name,
+    note,
+    document: result.document,
+    assessment: {
+      outcome: result.assessment.outcome,
+      coverage: result.assessment.coverage,
+      reasons: result.assessment.reasons,
+    },
+  };
+}
+
+/**
+ * The rows the producer writes, one per detection the assessment is asked to make.
+ *
+ * Each is evidence in and document out: a continuously covered period reaches `met`; an omitted stretch, an
+ * extra record, a head that disagrees with the pin, a rollback and a lost suffix each reach `not-met` on the
+ * evidence, not on a stated word; a period with no independent pin and a span-only period reach
+ * `indeterminate`.
+ */
+function producedVectors(): Block[] {
+  return [
+    producedRow(
+      'produced-covered-met',
+      'Evidence of a period the sequence genuinely covers, handed to the producer: one run across the declared intake, the same range acknowledged, three customer-held checkpoints tiling it, and an observed head equal to a head the customer pinned. The producer writes the met the deployment claims because its reader reaches met over the same bytes; it does not compute the word.',
+      'met',
+      producedScope(),
+      producedCoverage(),
+    ),
+    producedRow(
+      'produced-omitted-record-not-met',
+      'A period where the intake carried sequences 1 through 40 and 61 through 100 and stated the omitted stretch as a gap. The producer assembles the coverage the store observed and the gap the deployment reported, and the reader reaches not-met: an omitted record is a period that was not continuously held.',
+      'not-met',
+      producedScope(),
+      {
+        ...producedCoverage(),
+        runs: [{ from: 1, to: 40 }, { from: 61, to: 100 }],
+        acknowledged: [{ from: 1, to: 40 }, { from: 61, to: 100 }],
+        checkpoints: [
+          { range: { from: 1, to: 40 }, at: PERIOD_FROM, head: OTHER },
+          { range: { from: 61, to: 100 }, at: PERIOD_TO, head: HEAD },
+        ],
+        gaps: [{ from: 41, to: 60, reason: 'the intake process restarted without its sequence state' }],
+      },
+    ),
+    producedRow(
+      'produced-extra-record-not-met',
+      'A period where the intake saw sequence 30 twice, which is what a retry leaves behind. The producer states the duplicate the deployment reported and the reader reaches not-met: a record seen twice is not a run carried once.',
+      'not-met',
+      producedScope(),
+      { ...producedCoverage(), duplicates: [{ sequence: 30, count: 2 }] },
+    ),
+    producedRow(
+      'produced-stale-replay-not-met',
+      'Continuous runs and checkpoints, and an observed head at sequence 100 that is not the head the customer pinned: the shape a replay of a stale checkpoint leaves at the command edge, which names no endpoint. The pin inside this document closes the sentence, and the reader reaches not-met against it.',
+      'not-met',
+      producedScope(),
+      {
+        ...producedCoverage(),
+        checkpoints: [
+          { range: { from: 1, to: 34 }, at: PERIOD_FROM, head: '11'.repeat(32) },
+          { range: { from: 35, to: 67 }, at: PERIOD_FROM + 100, head: '22'.repeat(32) },
+          { range: { from: 68, to: 100 }, at: PERIOD_TO, head: OTHER },
+        ],
+        observedHead: { sequence: 100, sha256: OTHER },
+      },
+    ),
+    producedRow(
+      'produced-rollback-not-met',
+      'The intake reached the pinned head and then restored an earlier one at the same sequence. The producer states the rollback the deployment reported, and the reader reaches not-met.',
+      'not-met',
+      producedScope(),
+      { ...producedCoverage(), rollbacks: [{ sequence: 100, observedHead: HEAD, restoredHead: RESTORED }] },
+    ),
+    producedRow(
+      'produced-suffix-loss-not-met',
+      'The intake observed sequences 1 through 90 against a declared range that ends at 100 and stated the tail it lost. The observed head stands at 90 and the customer pinned a head for 100, so the suffix loss is visible against the pin, and the reader reaches not-met.',
+      'not-met',
+      producedScope(),
+      {
+        ...producedCoverage(),
+        runs: [{ from: 1, to: 90 }],
+        acknowledged: [{ from: 1, to: 90 }],
+        checkpoints: [
+          { range: { from: 1, to: 45 }, at: PERIOD_FROM, head: OTHER },
+          { range: { from: 46, to: 90 }, at: PERIOD_TO, head: OTHER },
+        ],
+        observedHead: { sequence: 90, sha256: OTHER },
+        suffixLoss: { from: 91, to: 100, reason: 'the volume lost its tail before the period closed' },
+      },
+    ),
+    producedRow(
+      'produced-no-pin-indeterminate',
+      'A period the coverage genuinely covers, declared with no head pinned by anyone and the reason for the absence. The producer states that absence honestly rather than filling a pin, and the reader reaches indeterminate: nothing independent is there to compare the observed head against.',
+      'indeterminate',
+      producedScope({ sha256: null, pinnedBy: 'none', reason: 'the customer held no head for this period' }),
+      producedCoverage(),
+    ),
+    producedRow(
+      'produced-span-only-indeterminate',
+      'The oldest and newest survivors one declared period apart, the newest head equal to the pinned head, and no sequence between them. The producer fills the span the deployment holds and the reader reaches indeterminate, never met: the distance between two stamps is not coverage.',
+      'indeterminate',
+      producedScope(),
+      spanOnlyCoverage(),
+    ),
+  ];
+}
+
+/**
+ * The claims a producer must refuse to write, because its own reader would call the evidence another outcome.
+ *
+ * These are not published rows: a produced document the reader refuses never reaches the file. They are the
+ * run's own gate on the defect class the whole task turns on, that a writer cannot state `met` over evidence
+ * its reader reads as `indeterminate`, and that the refusal carries the reader's own code.
+ */
+function refusedClaims(): void {
+  const dishonest: ReadonlyArray<readonly [string, RetentionAssessmentEvidence]> = [
+    ['span-only-as-met', { scope: producedScope(), coverage: spanOnlyCoverage(), claim: 'met' }],
+    [
+      'no-pin-as-met',
+      {
+        scope: producedScope({ sha256: null, pinnedBy: 'none', reason: 'no head was pinned' }),
+        coverage: producedCoverage(),
+        claim: 'met',
+      },
+    ],
+  ];
+  for (const [name, evidence] of dishonest) {
+    try {
+      produceRetentionAssessment(evidence);
+      throw new Error(`${name}: the producer emitted a document its reader reads as ${evidence.coverage.span !== null || evidence.scope.intake.expectedHead.sha256 === null ? 'not met' : 'another'} outcome`);
+    } catch (err) {
+      if (err instanceof SdkError && err.code === 'RETENTION_ASSESSMENT_DISAGREES') continue;
+      throw err;
+    }
+  }
 }
 
 const ASSESSMENT_ROWS: readonly AssessmentRow[] = [
@@ -530,6 +753,14 @@ function main(): void {
       },
     });
   }
+
+  // The producer's own rows: evidence in, the document the writer produced, and that document read back by
+  // assessRetention. Each was already round-tripped inside producedRow; a dishonest met claim is checked
+  // against the refusal the producer raises.
+  for (const row of producedVectors()) {
+    rows.push(row);
+  }
+  refusedClaims();
 
   const refusals: Block[] = [];
   for (const row of REFUSALS) {

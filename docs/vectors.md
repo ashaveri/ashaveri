@@ -307,9 +307,18 @@ specific to that case.
 - **Retention assessment.** Take the document out of the row and hand it to `parseRetentionAssessment` for the
   layout's answer and to `assessRetention` for the outcome, then compare the outcome, the coverage result, its
   basis, ranges and reasons, and the assessment's own reasons with the row. `retention-assessment-v1.json`
-  publishes 17 assessment rows and 15 refusals. The assessed rows are whole documents the layout takes; each
+  publishes 25 assessment rows and 15 refusals. The assessed rows are whole documents the layout takes; each
   states the outcome the reading computed for it when the file was written, and a row whose evidence moved
-  without its stated outcome moving is a file the generator refuses. A refused row states `stage`, which is
+  without its stated outcome moving is a file the generator refuses. The eight rows whose name begins
+  `produced-` are the producer's output rather than documents typed by hand: the generator hands each one a
+  scope declaration and a coverage observation to `produceRetentionAssessment` in `@ashaveri/sdk`, records the
+  document that writer returned, and refuses the run unless the producer's canonical bytes re-parse to that
+  document and `assessRetention` reads it back to the outcome the producer intended. The producer's rule is
+  that it fills `scope` and `coverage` from evidence and places the deployment's claim in the `assessment`
+  block, then runs the shipped reader over the bytes and emits only what that reader takes: a `met` claim over
+  span-only evidence or over a missing independent pin is refused at the writer under
+  `RETENTION_ASSESSMENT_DISAGREES`, so no row here is a document its own reader would reject. A refused row
+  states `stage`, which is
   `layout` where `parseRetentionAssessment` refused the document, which `assessRetention` then refuses with the
   same code because it parses first, and `reading` where the layout took the document and the reading refused
   the stated outcome its own evidence did not support, under `RETENTION_ASSESSMENT_DISAGREES`. Two rows are the
