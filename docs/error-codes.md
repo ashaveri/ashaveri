@@ -328,16 +328,16 @@ rather than by the call site that met it.
 
 The grid has 56 rows, one for each pair of the 4 origins named by `SERVED_ORIGINS` and the 14 members of
 `CollateralErrorCode`. A row says whether that origin can answer with that code and names where the answer is
-decided. The fourth cell names a file and the symbol in it that decides, because a symbol moves with the code a
-reader is looking at while a line number does not; what the check proves of that cell is that the cited symbol
-is declared in the cited file. `yes` is produced by handing a public entry point an answer that reaches the
-code, and `no` is carried by a fact the origin's own declaration states for that code. The origins
-`SERVED_ORIGINS` leaves out, `nvidia-rim` and `ocsp`, are
-declared and unread, so they answer `COLLATERAL_ORIGIN_UNSUPPORTED` before any row of this grid can be reached and
-hold no row here. `packages/collateral/test/refusal-reachability.test.ts` reads this table and holds it to the
-package: it runs the scenario behind every `yes`, reads the declaration fact behind every `no`, checks that the
-file each cell names declares the symbol it cites, and refuses a grid that is not exactly those origins crossed
-with those codes.
+decided. The fourth cell names a file and the symbol in it that decides, because a symbol moves with the code
+a reader is looking at while a line number does not; what the check proves of that cell is that the cited
+symbol is declared in the cited file. `yes` is produced by handing a public entry point an answer that reaches
+the code, and `no` is carried by a fact the origin's own declaration states for that code. The origins
+`SERVED_ORIGINS` leaves out, `nvidia-rim` and `ocsp`, are declared and unread, so they answer
+`COLLATERAL_ORIGIN_UNSUPPORTED` before any row of this grid can be reached and hold no row here.
+`packages/collateral/test/refusal-reachability.test.ts` reads this table and holds it to the package: it runs
+the scenario behind every `yes`, reads the declaration fact behind every `no`, checks that the file each cell
+names declares the symbol it cites, and refuses a grid that is not exactly those origins crossed with those
+codes.
 
 | Origin | Refusal | Reached | Where it is decided |
 |---|---|---|---|
@@ -398,9 +398,9 @@ with those codes.
 | `amd-kds` | `COLLATERAL_RETAINED_CHAIN_MISMATCH` | yes | `packages/collateral/src/classify.ts`, `observe` |
 | `amd-kds` | `COLLATERAL_REVOKED_BY_VENDOR` | no | `packages/collateral/src/intel-origin.ts`, `AMD_KDS` |
 
-Not one of the 56 cells reads `not exercised`, which means that no answer this package can be handed here reaches
-the code, a gap in the run rather than a fact about the origin: each cell is produced by an answer or carried by
-a declaration fact.
+Not one of the 56 cells reads `not exercised`, because each cell is produced by an answer or carried by a
+declaration fact. A cell that read it would say that no answer this package can be handed here reaches the code,
+which is a gap in the run rather than a fact about the origin.
 
 ## Why these strings do not overlap
 
@@ -481,11 +481,12 @@ the README: every origin name a sentence here cites is one `DECLARED_ORIGINS` de
 read are the 4 `SERVED_ORIGINS` names and the count that sentence states, the origins described as refused are
 the remainder it names, every entry point that prose names is an export of `@ashaveri/collateral` while only the
 two the revocation list and the certificate chain are cited through, `appraisePckCrl` and `appraiseVcekChain`,
-have to be named there so that a further true citation of a real export stays writable, the suites this section
-names as holding its claims are read out of the files, which have to exist and to read this document, and no
-tracked source of a shipped command asks an origin.
+have to be named there so that a further true citation of a real export stays writable, every suite this section
+names as holding a claim has to stay named there while every name it carries has to belong to a file that exists
+and reads this document, and no tracked source of a shipped command asks an origin.
 
 A new code with no row fails CI, which is the only reason a reference table like this one stays correct after its
 first month. What no suite reads is the argument inside a cell: whether the condition a `Raised when` cell
 describes is the condition the code met, and whether a `no` cell's declaration fact still carries the refusal it
-explains, stay a reader's work.
+explains, stay a reader's work. The attribution of a claim to the holder named for it stays a reader's work too,
+because the check reads that a named file exists and mentions this document, not which sentence it stands behind.

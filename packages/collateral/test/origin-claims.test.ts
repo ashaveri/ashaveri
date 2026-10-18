@@ -24,11 +24,13 @@ import * as barrel from '../src/index.js';
  * rename lands here rather than in a document a caller trusts, and the two entry points the revocation list and
  * the certificate chain are cited through are required to be named while no list of the further names is
  * fixed. A sentence about which suites hold a document's claims names files, so it is read out of the files: each
- * name has to belong to a test that reads that document. The claim that no shipped command asks an origin
- * is read out of the sources of the shipped commands rather than out of the prose that states it.
+ * suite known to hold one of those claims has to stay named there, and every name the sentence carries has to
+ * belong to a test that reads that document. The claim that no shipped command asks an origin is read out of the
+ * sources of the shipped commands rather than out of the prose that states it.
  *
- * What stays a reader's work is the argument inside a sentence, and the vocabulary below names the backticked
- * words that are material facts rather than symbols of this package.
+ * What stays a reader's work is the argument inside a sentence and which claim of the section each named holder
+ * answers, since a name only has to belong to a file that reads the document. The vocabulary below names the
+ * backticked words that are material facts rather than symbols of this package.
  */
 
 const ERROR_CODES = 'docs/error-codes.md';
@@ -171,20 +173,22 @@ function counted(spelling: string): number {
 
 /**
  * The counts the documents state about origins, each beside the sentence that states it, and the list each count
- * is a fact about. A sentence that counts a list counts it as the package declares it or the run fails.
+ * is a fact about. A sentence that counts a list counts it as the package declares it or the run fails. One
+ * derived figure can back the same wording in more than one document, and then every document listed carries
+ * the claim, so a list that moves turns each sentence that states its length red at once.
  */
-const COUNT_CLAIMS: readonly (readonly [doc: string, claim: RegExp, counts: () => number[]])[] = [
+const COUNT_CLAIMS: readonly (readonly [docs: readonly string[], claim: RegExp, counts: () => number[]])[] = [
   [
-    ERROR_CODES,
+    [ERROR_CODES],
     /the grid has (\w+) rows, one for each pair of the (\w+) origins named by `SERVED_ORIGINS` and the (\w+) members of `CollateralErrorCode`/iu,
     () => [SERVED_ORIGINS.length * CODES.length, SERVED_ORIGINS.length, CODES.length],
   ],
-  [ERROR_CODES, /not one of the (\w+) cells reads `not exercised`/iu, () => [SERVED_ORIGINS.length * CODES.length]],
-  [THREAT_MODEL, /declares (\w+) origins and reads (\w+)/iu, () => [DECLARED_ORIGINS.length, SERVED_ORIGINS.length]],
-  [THREAT_MODEL, /declares the other (\w+)/iu, () => [UNREAD.length]],
-  [README, /names (\w+) origins and reads (\w+)/iu, () => [DECLARED_ORIGINS.length, SERVED_ORIGINS.length]],
+  [[ERROR_CODES], /not one of the (\w+) cells reads `not exercised`/iu, () => [SERVED_ORIGINS.length * CODES.length]],
+  [[THREAT_MODEL], /declares (\w+) origins and reads (\w+)/iu, () => [DECLARED_ORIGINS.length, SERVED_ORIGINS.length]],
+  [[THREAT_MODEL], /declares the other (\w+)/iu, () => [UNREAD.length]],
+  [[README], /names (\w+) origins and reads (\w+)/iu, () => [DECLARED_ORIGINS.length, SERVED_ORIGINS.length]],
   [
-    README,
+    [README, THREAT_MODEL],
     /the (\w+) intel json documents/iu,
     () => [Object.values(ORIGIN_DECLARATIONS).filter((one) => one.reader.as === 'served-json-document').length],
   ],
@@ -201,13 +205,24 @@ const REGIONS: ReadonlyMap<string, string> = new Map([
 
 /**
  * The test files the opening sentence names. The sentence is a claim about files, so it is read out of the files:
- * the suites holding the reachability and origin claims have to appear in it, and every name it carries has to
+ * each suite known to hold one of the section's claims has to appear in it, and every name it carries has to
  * belong to a file that reads this document.
  */
 function namedHolders(): string[] {
   const lead = sentences(KEEPING)[0] as string;
   return [...new Set(backticked(lead).filter((token) => /\.test\.ts$/u.test(token)))];
 }
+
+/**
+ * The suites known to hold a claim of that section: the union-table suite, the grid suite, and this one. A name
+ * can drop out while the list still reads as a list of readers, and then a claim of the section sits with a
+ * suite that sentence stopped naming.
+ */
+const CLAIM_HOLDERS = [
+  'packages/fixtures/test/error-codes.test.ts',
+  'packages/collateral/test/refusal-reachability.test.ts',
+  'packages/collateral/test/origin-claims.test.ts',
+];
 
 /** Every source file under a tracked directory, which is the text a shipped command is built from. */
 function sourcesUnder(dir: string): string[] {
@@ -294,23 +309,37 @@ describe('the origin prose of the shipped documents', () => {
   });
 
   it('states the counts the lists carry', () => {
-    for (const [doc, claim, expected] of COUNT_CLAIMS) {
-      const prose = sentences(REGIONS.get(doc) as string).join(' ');
-      const stated = claim.exec(prose);
-      expect(stated, `${doc} states no count matching ${claim.source}`).not.toBeNull();
-      expect((stated as RegExpExecArray).slice(1).map(counted), `${doc}: ${claim.source}`).toEqual(expected());
+    const unstated: string[] = [];
+    const mismatched: string[] = [];
+    for (const [docs, claim, expected] of COUNT_CLAIMS) {
+      for (const doc of docs) {
+        const prose = sentences(REGIONS.get(doc) as string).join(' ');
+        const stated = claim.exec(prose);
+        if (stated === null) {
+          unstated.push(`${doc} states no count matching ${claim.source}`);
+          continue;
+        }
+        const figures = stated.slice(1).map(counted);
+        if (figures.join(',') !== expected().join(',')) {
+          mismatched.push(`${doc}: ${claim.source} reads ${figures.join(',')} where the lists carry ${expected().join(',')}`);
+        }
+      }
     }
+    // Both lists are collected rather than raised one claim at a time, because one derived figure can back
+    // several sentences, and a run that stops at the first mismatch leaves the rest of them to the reader.
+    expect(unstated, 'a count claim with no sentence behind it').toEqual([]);
+    expect(mismatched, 'a count the prose states and the lists deny').toEqual([]);
   });
 
   /**
    * The sentence naming the suites that hold this document's claims is a claim about files, and a list of files
-   * that drifts from the readers on disk is a false count about this suite. It is read out of the files: the
-   * holders of the reachability and origin claims have to be named, and each name has to be a file that reads
-   * the document.
+   * that drifts from the readers on disk is a false count about this suite. It is read out of the files: every
+   * holder the section names has to stay named there, and each name has to be a file that reads the document.
+   * Which claim of the section each name answers is not read here, because the files do not say.
    */
   it('names the suites holding its claims as the files that read this document', () => {
     const holders = namedHolders();
-    for (const holder of ['packages/collateral/test/refusal-reachability.test.ts', 'packages/collateral/test/origin-claims.test.ts']) {
+    for (const holder of CLAIM_HOLDERS) {
       expect(holders, `${holder} holds a claim the closing section states, and its sentence stopped naming it`).toContain(holder);
     }
     for (const file of holders) {
@@ -359,16 +388,28 @@ describe('the origin prose of the shipped documents', () => {
   it('finds no shipped command asking an origin', () => {
     const files = SHIPPED_SOURCES.flatMap(sourcesUnder);
     expect(files.length, 'the shipped sources were read').toBeGreaterThan(20);
-    const stripped = files.map((one) => withoutComments(readFileSync(one, 'utf8')));
+    const raw = files.map((file) => readFileSync(file, 'utf8'));
+    const stripped = raw.map((one) => withoutComments(one));
     const code = stripped.join('\n');
+    // Two controls over the scanner, one for each half of what it has to do, so that the absence loop below is
+    // read out of text known to be each file's own code with only its comments taken out. `requestUrl` is named
+    // by a shipped source only inside a comment, so the text read from disk carries it while the stripped text
+    // has to lose it; `appraiseCarriedCollateral` names the appraisal a shipped command does call, so the
+    // stripped text has to carry it still. A scanner that takes nothing out fails the second control and one
+    // that swallows a file past its head fails the third.
+    expect(raw.some((one) => /\brequestUrl\b/u.test(one)), 'a shipped source comment names requestUrl').toBe(true);
+    expect(/\brequestUrl\b/u.test(code), 'the stripping left the comment naming requestUrl in').toBe(false);
+    expect(
+      /\bappraiseCarriedCollateral\b/u.test(code),
+      'the stripping took the carried appraisal call site out',
+    ).toBe(true);
     for (const name of ORIGIN_ASKING_NAMES) {
       expect(new RegExp(`\\b${name}\\b`, 'u').test(code), `a shipped command names ${name}`).toBe(false);
     }
-    // One control per scanned file rather than existentially over the joined text: the comment stripping is a
-    // small scanner rather than a parser, so a file whose code fell inside a swallowed quote or comment could
-    // leave the absence above read out of text that no longer carried that file, and a control over the whole
-    // would not see it. Every file the list holds has to keep a module edge, an import or export statement,
-    // outside its comments, which is what proves the scan ran over each file's code.
+    // One control per scanned file rather than existentially over the joined text, which is what proves each
+    // file the list holds survived the scan with its head intact: a module edge, an import or export statement
+    // outside its comments. A scanner that swallowed the text after that edge keeps passing here, so these
+    // controls say nothing about the rest of a file, and the two controls above are what cover the rest of it.
     for (const [index, file] of files.entries()) {
       expect(/^(?:import|export)\b/mu.test(stripped[index] as string), `${file} keeps a module edge outside its comments`).toBe(true);
     }
