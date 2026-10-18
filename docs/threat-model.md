@@ -194,9 +194,10 @@ What is still true, in both modes:
   residual risk in T12 is the whole of this limitation, and it is not scheduled away: a service
   publishing this collateral for deployments that want it is the position, described in
   the README's attestation-collateral section, and no shipped command asks an origin or makes one a
-  precondition of any verdict a third party can reach. `@ashaveri/collateral` declares two further
-  origins, NVIDIA RIM and NVIDIA OCSP, with the host and routes their vendors publish; it reads
-  neither, refuses an appraisal of one with the reader it lacks, and commits no vendor-service bytes.
+  precondition of any verdict a third party can reach. `@ashaveri/collateral` declares 6 origins and
+  reads 4: `intel-tcb-info`, `intel-qe-identity`, `intel-pck-crl` and `amd-kds`. It declares the other
+  2, `nvidia-rim` and `ocsp`, with the host and routes their vendors publish, reads neither, refuses
+  an appraisal of one with the reader it lacks, and commits no vendor-service bytes.
   It reads the Intel PCK CRL as a DER certificate list when a caller asks `appraisePckCrl`, under the
   issuer chain the answer carries and a root the caller pins, and that reading answers about one
   certificate serial rather than a platform level. It reads the AMD KDS as one chip's VCEK and the

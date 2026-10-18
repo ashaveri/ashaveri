@@ -591,10 +591,13 @@ export const INTEL_PCK_CRL: CrlOriginDeclaration = {
  * the chain: they weigh it, and what they read is the walk, not the shape of a served JSON document.
  *
  * What an answer reaches is historical. A VCEK states what AMD signed about one chip and until when the
- * certificate it signed runs; it states no revocation and no vendor word about a level, so `COLLATERAL_WINDOW_CLOSED`
- * and `COLLATERAL_NOT_OBSERVED` keep the meanings the other origins give them and no answer from this origin
- * reports current knowledge. The chain states no TCB status either: AMD's TCB extension is read by nothing here,
- * so the answer binds a chip to a key and says nothing about which firmware that key stands for.
+ * certificate it signed runs; it states no revocation and no vendor word about a level, so no answer from this
+ * origin reports current knowledge, and none answers `COLLATERAL_WINDOW_CLOSED`, which is what a document
+ * stating a vendor's own window for a level answers with. The validity the chain verifier insists on at the
+ * moment asked is a different fact, and a chain that does not stand then is the unverified answer rather than a
+ * closed window, so a kept pair reaches `COLLATERAL_NOT_OBSERVED` only after `readVcekChain` has believed it.
+ * The chain states no TCB status either: AMD's TCB extension is read by nothing here, so the answer binds a chip
+ * to a key and says nothing about which firmware that key stands for.
  */
 export const AMD_KDS: VcekOriginDeclaration = {
   name: 'amd-kds',
