@@ -1,7 +1,7 @@
 {
   "name": "@ashaveri/collateral",
   "version": "0.1.0",
-  "description": "Fetch, classify, retain and refuse Intel attestation collateral for one origin",
+  "description": "Fetch, classify, retain and refuse Intel and AMD attestation collateral for four origins",
   "license": "Apache-2.0",
   "type": "module",
   "main": "./dist/index.js",
