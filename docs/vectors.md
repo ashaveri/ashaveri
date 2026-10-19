@@ -477,7 +477,7 @@ These vectors check bytes. They say nothing about trust:
   `data/receipts/receipt-valid-v1.cbor` handed to the manifest reader rather than a manifest illustrating
   a format of its own. Which published documents are one pair is decided by what they state: issuer,
   instance, measurement kind and `models[]`. The rest of that family speaks of `ashaveri-mock` at
-  `mock-instance-1` under a software measurement and a `models[]` list naming nothing the receipts state,
-  which is why a published receipt handed to one of those rows is answered `MODEL_UNDECLARED`. That
+  `mock-instance-1` with a `models[]` list naming nothing the receipts state, which is why a published
+  receipt handed to one of those rows is answered `MODEL_UNDECLARED`. That
   refusal is two documents describing two deployments, and a reader who takes it for a failed check has
   been misled by nothing but the assumption that one file's rows are one deployment's rows.

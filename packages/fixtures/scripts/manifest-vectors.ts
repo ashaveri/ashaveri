@@ -66,9 +66,8 @@ const DATA = join(dirname(fileURLToPath(import.meta.url)), '..', 'data');
  *
  * A document meant to be refused is assembled from the container's published pieces. The honest seal
  * comes from `sealDeploymentManifest` and nothing else, and where a row needs bytes that writer will not
- * produce, which is every row whose protected header names something other than the three labels the
- * format declares, the header is encoded by hand, signed over the same `Sig_structure` the writer uses,
- * and assembled by the published tag-18 writer. `main` stops the run when that hand-assembled path
+ * produce, the header is encoded by hand, signed over the same `Sig_structure` the writer uses, and
+ * assembled by the published tag-18 writer. `main` stops the run when that hand-assembled path
  * diverges by a single byte from `sealDeploymentManifest` for the canonical header, so the fault cases
  * differ from what a deployment signs only in the position their `edited` field names.
  */
@@ -402,10 +401,11 @@ const PAIRED_RECEIPT_KEY: SigningKey = pairedReceiptKey();
  * The key the paired row seals under, which is the manifest signer this suite publishes and never a key the
  * row itself lists.
  *
- * Two roles meet in this row, and they are the two every other row of the family already keeps apart: the
- * seal is what authenticates the document, so it belongs to the key `layout.keyMaterial` publishes as
- * signing the manifests a reader designates, and `keys[]` is this deployment's statement about which keys
- * sign its receipts, so it names the key the published receipt carries in its own protected header. One key
+ * Two roles meet in this row, the manifest-signing seal and the receipt-signing `keys[]` entry, which
+ * `layout.keyNote` derives apart: the seal is what authenticates the document, so it belongs to the key
+ * `layout.keyMaterial` publishes as signing the manifests a reader designates, and `keys[]` is this
+ * deployment's statement about which keys sign its receipts, so it names the key the published receipt
+ * carries in its own protected header. One key
  * in both positions is the state `layout.keyNote` refuses, where the key that signs receipts also signs the
  * rotation record meant to retire it, and a row that drifted into it would still answer `verify-ok` at
  * every step a reader takes: the envelope holds, the designation matches, the pairing weighs the same
@@ -431,7 +431,10 @@ function pairedSigner(): SigningKey {
 const PAIRED_SIGNER: SigningKey = pairedSigner();
 const PAIRED_PINS: readonly Pin[] = [pinOf(PAIRED_SIGNER)];
 
-/** The document, in the member order every other row of this suite is written in. */
+/**
+ * The paired manifest text, members in this order: version, issuer, instance, epoch, keys, models,
+ * measurement.
+ */
 const PAIRED_DOCUMENT = JSON.stringify({
   v: 1,
   iss: PAIRED_RECEIPT.payload.iss,
