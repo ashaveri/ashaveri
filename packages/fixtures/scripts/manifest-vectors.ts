@@ -99,12 +99,15 @@ const RECEIPT_SIGNER: SigningKey = fixtureKey();
 const ALL_KEYS: readonly SigningKey[] = [SIGNER, SECOND_SIGNER, RECEIPT_SIGNER, EXTRA_RECEIPT_KEY];
 const KEY_BY_KID = new Map(ALL_KEYS.map((one) => [toHex(one.kid), one]));
 
+/** The published role of the one key whose duty is signing the manifests a reader designates. */
+const MANIFEST_SIGNER_ROLE = 'signs the manifests a reader designates';
+
 /** Each key with the seed it comes from and the role it plays, published as the file states them. */
 const KEY_MATERIAL: readonly { key: SigningKey; seed: string; role: string }[] = [
   {
     key: SIGNER,
     seed: "sha256 of 'ashaveri-fixtures/manifest-v1/signer-a'",
-    role: 'signs the manifests a reader designates',
+    role: MANIFEST_SIGNER_ROLE,
   },
   {
     key: SECOND_SIGNER,
@@ -337,8 +340,9 @@ const authenticated: Authentication = { sealed: true, authenticated: true, kid: 
  * This row is the manifest of the deployment those receipts came from, and nothing in it is retyped: the
  * issuer, instance, epoch, environment kind, measurement and model row are read out of
  * `data/receipts/receipt-buffered-v1.json`, the key id out of that same file's protected header, the
- * public half out of `data/keys/receipt-key-v1.json`, and the verdict columns out of the shipped readers
- * over the bytes this builds. The bytes of the other rows do not move, and neither does the worked example
+ * public half beside it out of `data/keys/receipt-key-v1.json`, the seal under the manifest signing key
+ * every other row of this suite is sealed under, and the verdict columns out of the shipped readers over
+ * the bytes this builds. The bytes of the other rows do not move, and neither does the worked example
  * in `docs/receipt-spec.md`, which stays the mock document this suite has always published.
  */
 const PAIRED_ROW = 'paired-with-the-published-receipt-family';
@@ -365,13 +369,13 @@ const PAIRED_RECEIPT: PublishedReceiptRow = JSON.parse(
  * The receipt signing key as the published key file states it.
  *
  * The seed is read out of `data/keys/receipt-key-v1.json` rather than re-derived from the label this
- * suite's other keys come from, so the document is sealed under the key that file publishes. Its own
- * published halves are then held against the key the seed rebuilds, and the rebuilt `kid` against the id
- * the receipt's protected header names: a pairing published across two files is only a pairing while all
- * three agree, and one that silently drifted would read as a manifest for a deployment no receipt of
- * this corpus came from.
+ * suite's other keys come from, because that file is where the deployment of the published receipts keeps
+ * its key, and this row's `keys[]` names it. Its own published halves are then held against the key the
+ * seed rebuilds, and the rebuilt `kid` against the id the receipt's protected header names: a pairing
+ * published across two files is only a pairing while all three agree, and one that silently drifted would
+ * read as a manifest for a deployment no receipt of this corpus came from.
  */
-function pairedSigner(): SigningKey {
+function pairedReceiptKey(): SigningKey {
   const published = JSON.parse(readFileSync(join(DATA, 'keys', 'receipt-key-v1.json'), 'utf8')) as {
     privateKey: string;
     publicKey: string;
@@ -388,9 +392,41 @@ function pairedSigner(): SigningKey {
     throw new Error('the published receipt is signed by a key the published key file does not name');
   }
   if (toHex(RECEIPT_SIGNER.kid) !== published.kid) {
-    throw new Error('the paired row would seal under a key this suite publishes no material for');
+    throw new Error('the paired row would list a receipt key other than the one this suite signs its receipts with');
   }
   return key;
+}
+
+const PAIRED_RECEIPT_KEY: SigningKey = pairedReceiptKey();
+
+/**
+ * The key the paired row seals under, which is the manifest signer this suite publishes and never a key the
+ * row itself lists.
+ *
+ * Two roles meet in this row, and they are the two every other row of the family already keeps apart: the
+ * seal is what authenticates the document, so it belongs to the key `layout.keyMaterial` publishes as
+ * signing the manifests a reader designates, and `keys[]` is this deployment's statement about which keys
+ * sign its receipts, so it names the key the published receipt carries in its own protected header. One key
+ * in both positions is the state `layout.keyNote` refuses, where the key that signs receipts also signs the
+ * rotation record meant to retire it, and a row that drifted into it would still answer `verify-ok` at
+ * every step a reader takes: the envelope holds, the designation matches, the pairing weighs the same
+ * digest. So the collision is refused where the seal key is chosen, and again from the published row.
+ */
+function pairedSigner(): SigningKey {
+  const seal = SIGNER;
+  if (toHex(seal.kid) === toHex(PAIRED_RECEIPT_KEY.kid)) {
+    throw new Error(
+      'the paired row would seal under the receipt key its own keys[] lists, which is the role split layout.keyNote states',
+    );
+  }
+  const manifestSigners = KEY_MATERIAL.filter((one) => one.role === MANIFEST_SIGNER_ROLE);
+  const [signer] = manifestSigners;
+  if (manifestSigners.length !== 1 || signer === undefined || toHex(signer.key.kid) !== toHex(seal.kid)) {
+    throw new Error(
+      'the paired row seals under a key this suite publishes as something other than the manifest signer a reader designates',
+    );
+  }
+  return seal;
 }
 
 const PAIRED_SIGNER: SigningKey = pairedSigner();
@@ -402,7 +438,7 @@ const PAIRED_DOCUMENT = JSON.stringify({
   iss: PAIRED_RECEIPT.payload.iss,
   ins: PAIRED_RECEIPT.payload.ins,
   epk: PAIRED_RECEIPT.payload.epk,
-  keys: [entryOf(PAIRED_SIGNER)],
+  keys: [entryOf(PAIRED_RECEIPT_KEY)],
   models: [{ id: PAIRED_RECEIPT.payload.mdl, wts: PAIRED_RECEIPT.payload.wts }],
   meas: { tee: PAIRED_RECEIPT.payload.meas.tee, m: PAIRED_RECEIPT.payload.meas.m },
 });
@@ -916,7 +952,7 @@ const CASES: readonly Case[] = [
   },
   {
     name: PAIRED_ROW,
-    note: 'The deployment the published receipts came from, stated by a manifest assembled out of one of those receipts\' own file: the issuer, instance, epoch, environment kind and measurement are that file\'s payload members, the key id is the one its protected header names and the public half beside it is the one `data/keys/receipt-key-v1.json` publishes, and the single `models[]` row is the model id and weights digest the receipt states. The published receipt family and the manifest family this suite began with describe two deployments, so a reader who handed a published receipt to `ashaveri verify-receipt` beside a published manifest met `MODEL_UNDECLARED` for a reason neither document could be blamed for; this row is the document that pair was missing, and it is the one row here whose `verdict`, `authentication`, `parsed` and `claims` are what `readDeploymentManifest` and `adjudicateReceiptEpoch` answered rather than words stated beside a run. Its seal is made by the key that signed the receipts it pairs with, which is one fixture key playing both roles: a deployment keeps the two apart, as `keyNote` states, and this row is the exception because it is published so that the pairing of two committed files can be run and not only described.',
+    note: 'The deployment the published receipts came from, stated by a manifest assembled out of one of those receipts\' own file: the issuer, instance, epoch, environment kind and measurement are that file\'s payload members, the key id is the one its protected header names and the public half beside it is the one `data/keys/receipt-key-v1.json` publishes, and the single `models[]` row is the model id and weights digest the receipt states. Its seal is made by the key `layout.keyMaterial` publishes as signing the manifests a reader designates, the same key every other row of this suite is sealed under. The published receipt family and the manifest family this suite began with describe two deployments, so a reader who handed a published receipt to `ashaveri verify-receipt` beside a published manifest met `MODEL_UNDECLARED` for a reason neither document could be blamed for; this row is the document that pair was missing, and it is the one row here whose `verdict`, `authentication`, `parsed` and `claims` are what `readDeploymentManifest` and `adjudicateReceiptEpoch` answered rather than words stated beside a run.',
     bytes: PAIRED_BYTES,
     pins: PAIRED_PINS,
     verdict: PAIRED_READING.verdict,
@@ -969,10 +1005,11 @@ function published(one: Case): Record<string, unknown> {
  *
  * A reader who takes a published receipt and a published manifest to the command line is the whole reason
  * this row is in the file, and every value it pairs on is read off the receipt rather than typed here, so
- * the row is a pairing only while the client authenticates the document, the envelope verifies its seal,
- * and each deployment member of that document is the member of the receipt it was assembled from. Where
- * one of those does not hold, no file is written, which is the answer a generator owes a row it cannot
- * state.
+ * the row is a pairing only while the client authenticates the document under the manifest signer this
+ * suite publishes, the envelope verifies its seal, the key that signed the published receipt is the one the
+ * document lists and not the one that sealed it, and each deployment member of that document is the member
+ * of the receipt it was assembled from. Where one of those does not hold, no file is written, which is the
+ * answer a generator owes a row it cannot state.
  */
 function requirePairedRow(): void {
   const paired = CASES.find((one) => one.name === PAIRED_ROW);
@@ -983,13 +1020,13 @@ function requirePairedRow(): void {
   if (paired.seal !== 'verify-ok') {
     throw new Error(`the paired row's seal reads as ${paired.seal}, so the document is not whole under its own key`);
   }
+  const sealKid = toHex(PAIRED_SIGNER.kid);
+  if (toHex(decodeSealedDeploymentManifest(paired.bytes).header.kid) !== sealKid) {
+    throw new Error("the paired row's protected header names a key other than the manifest signer it was sealed under");
+  }
   const authentication = paired.authentication;
-  if (
-    authentication === undefined ||
-    !authentication.authenticated ||
-    authentication.kid !== PAIRED_RECEIPT.protectedHeader.kid
-  ) {
-    throw new Error('the paired row is not authenticated under the key the published receipt names');
+  if (authentication === undefined || !authentication.authenticated || authentication.kid !== sealKid) {
+    throw new Error('the paired row is not authenticated under the manifest signing key its own seal names');
   }
   const document = paired.parsed;
   if (document === undefined) throw new Error('the paired row states no parsed document');
@@ -997,8 +1034,15 @@ function requirePairedRow(): void {
   if (document.iss !== receipt.iss || document.ins !== receipt.ins || document.epk !== receipt.epk) {
     throw new Error("the paired row names an issuer, an instance or an epoch other than the published receipt's");
   }
-  if (document.keys.length !== 1 || document.keys[0]?.kid !== PAIRED_RECEIPT.protectedHeader.kid) {
+  if (
+    document.keys.length !== 1 ||
+    document.keys[0]?.kid !== PAIRED_RECEIPT.protectedHeader.kid ||
+    document.keys[0]?.publicKey !== toBase64Url(PAIRED_RECEIPT_KEY.publicKey)
+  ) {
     throw new Error('the paired row does not list the key that signed the published receipt');
+  }
+  if (document.keys.some((one) => one.kid === sealKid)) {
+    throw new Error('the paired row lists the key it seals under, so one key holds both roles layout.keyNote keeps apart');
   }
   const model = document.models[0];
   if (document.models.length !== 1 || model === undefined || model.id !== receipt.mdl || model.wts !== receipt.wts) {

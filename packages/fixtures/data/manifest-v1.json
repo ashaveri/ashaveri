@@ -1036,14 +1036,14 @@
     },
     {
       "name": "paired-with-the-published-receipt-family",
-      "note": "The deployment the published receipts came from, stated by a manifest assembled out of one of those receipts' own file: the issuer, instance, epoch, environment kind and measurement are that file's payload members, the key id is the one its protected header names and the public half beside it is the one `data/keys/receipt-key-v1.json` publishes, and the single `models[]` row is the model id and weights digest the receipt states. The published receipt family and the manifest family this suite began with describe two deployments, so a reader who handed a published receipt to `ashaveri verify-receipt` beside a published manifest met `MODEL_UNDECLARED` for a reason neither document could be blamed for; this row is the document that pair was missing, and it is the one row here whose `verdict`, `authentication`, `parsed` and `claims` are what `readDeploymentManifest` and `adjudicateReceiptEpoch` answered rather than words stated beside a run. Its seal is made by the key that signed the receipts it pairs with, which is one fixture key playing both roles: a deployment keeps the two apart, as `keyNote` states, and this row is the exception because it is published so that the pairing of two committed files can be run and not only described.",
-      "documentBase64Url": "0oRYRaMBJwN4HGFzaGF2ZXJpL2RlcGxveW1lbnQtbWFuaWZlc3QEWCA1ATpuAAuNXcpRxL1cHbnyhgKDYGx2ru7qjucrcrXhXqBZAdd7InYiOjEsImlzcyI6ImRwbC05ZjJhNDFjMyIsImlucyI6ImN2bS1pLTA0N2YyYSIsImVwayI6MSwia2V5cyI6W3sia2lkIjoiMzUwMTNhNmUwMDBiOGQ1ZGNhNTFjNGJkNWMxZGI5ZjI4NjAyODM2MDZjNzZhZWVlZWE4ZWU3MmI3MmI1ZTE1ZSIsImFsZyI6IkVkMjU1MTkiLCJwdWJsaWNLZXkiOiJFNnVPMGVkM196bS1JeDMybEx1OGo1WjlXM2VldDhxMVdIWXN0VS1XQ3dVIn1dLCJtb2RlbHMiOlt7ImlkIjoibWV0YS1sbGFtYS9MbGFtYS0zLjEtOEItSW5zdHJ1Y3QiLCJ3dHMiOiIyNjg5NTcwYWVjZjUwNTQyODRiMDZkNjAyMjU1NGZiOTc5NDJjYWQwYTc3NGQ1ZGJjOTMwOGIyZDA0NzdkOWI1In1dLCJtZWFzIjp7InRlZSI6InNucCtncHVjYyIsIm0iOiJiZDc2NjEzNjdlYTdjMGZhMDI3Mjk1YjQ5NWEzN2Q4YzQ0NWU5NTg4OWMwOWQ2YjdiZWI2ZWQ0MDUyNzE5ZTMwZjE2ZjA1MDc4MjdlMmQwMDQ5NDliNTUyZjFlNTUxZjIifX1YQCPN1Vwe1ugvgw88FVxVbwMUsVLg_EK02XbIXDkzNHMVFKoX-b5HbO9iE8il9-WXVtzBQRzQuImS110WeRPgdQ8",
+      "note": "The deployment the published receipts came from, stated by a manifest assembled out of one of those receipts' own file: the issuer, instance, epoch, environment kind and measurement are that file's payload members, the key id is the one its protected header names and the public half beside it is the one `data/keys/receipt-key-v1.json` publishes, and the single `models[]` row is the model id and weights digest the receipt states. Its seal is made by the key `layout.keyMaterial` publishes as signing the manifests a reader designates, the same key every other row of this suite is sealed under. The published receipt family and the manifest family this suite began with describe two deployments, so a reader who handed a published receipt to `ashaveri verify-receipt` beside a published manifest met `MODEL_UNDECLARED` for a reason neither document could be blamed for; this row is the document that pair was missing, and it is the one row here whose `verdict`, `authentication`, `parsed` and `claims` are what `readDeploymentManifest` and `adjudicateReceiptEpoch` answered rather than words stated beside a run.",
+      "documentBase64Url": "0oRYRaMBJwN4HGFzaGF2ZXJpL2RlcGxveW1lbnQtbWFuaWZlc3QEWCCO6Wge6Y1bz3nhsLWRTJK2Japzlem3b_z7mWJKSvG3ZKBZAdd7InYiOjEsImlzcyI6ImRwbC05ZjJhNDFjMyIsImlucyI6ImN2bS1pLTA0N2YyYSIsImVwayI6MSwia2V5cyI6W3sia2lkIjoiMzUwMTNhNmUwMDBiOGQ1ZGNhNTFjNGJkNWMxZGI5ZjI4NjAyODM2MDZjNzZhZWVlZWE4ZWU3MmI3MmI1ZTE1ZSIsImFsZyI6IkVkMjU1MTkiLCJwdWJsaWNLZXkiOiJFNnVPMGVkM196bS1JeDMybEx1OGo1WjlXM2VldDhxMVdIWXN0VS1XQ3dVIn1dLCJtb2RlbHMiOlt7ImlkIjoibWV0YS1sbGFtYS9MbGFtYS0zLjEtOEItSW5zdHJ1Y3QiLCJ3dHMiOiIyNjg5NTcwYWVjZjUwNTQyODRiMDZkNjAyMjU1NGZiOTc5NDJjYWQwYTc3NGQ1ZGJjOTMwOGIyZDA0NzdkOWI1In1dLCJtZWFzIjp7InRlZSI6InNucCtncHVjYyIsIm0iOiJiZDc2NjEzNjdlYTdjMGZhMDI3Mjk1YjQ5NWEzN2Q4YzQ0NWU5NTg4OWMwOWQ2YjdiZWI2ZWQ0MDUyNzE5ZTMwZjE2ZjA1MDc4MjdlMmQwMDQ5NDliNTUyZjFlNTUxZjIifX1YQD8JCGYljaxMR3zGRM8b-FAp24I6Fp1qCo3yZ_cghSAqM2l-7PFc4Y8ETpkgLdrMB_2if9cokK7wtQK-ZMMSHgU",
       "documentByteLength": 614,
       "read": {
         "designates": [
           {
-            "kid": "35013a6e000b8d5dca51c4bd5c1db9f2860283606c76aeeeea8ee72b72b5e15e",
-            "publicKeyBase64Url": "E6uO0ed3_zm-Ix32lLu8j5Z9W3eet8q1WHYstU-WCwU"
+            "kid": "8ee9681ee98d5bcf79e1b0b5914c92b625aa7395e9b76ffcfb99624a4af1b764",
+            "publicKeyBase64Url": "oXZwPF3W14CiPZkn2ebMTHO7aJDg4nOdO2yl8cD-sNE"
           }
         ]
       },
@@ -1052,7 +1052,7 @@
       "authentication": {
         "sealed": true,
         "authenticated": true,
-        "kid": "35013a6e000b8d5dca51c4bd5c1db9f2860283606c76aeeeea8ee72b72b5e15e",
+        "kid": "8ee9681ee98d5bcf79e1b0b5914c92b625aa7395e9b76ffcfb99624a4af1b764",
         "demanded": true,
         "advisory": false
       },

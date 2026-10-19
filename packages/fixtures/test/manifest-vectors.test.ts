@@ -43,6 +43,9 @@ const SDK_ERRORS = '../../../packages/sdk/src/errors.ts';
 
 const bytes = (base64url: string): Uint8Array => new Uint8Array(Buffer.from(base64url, 'base64url'));
 
+/** The role `layout.keyMaterial` gives the one key whose duty is signing the manifests a reader designates. */
+const MANIFEST_SIGNER_ROLE = 'signs the manifests a reader designates';
+
 /** What the envelope reader answers for a row, under the published key its own header names. */
 function envelopeAnswer(documentBase64Url: string): string {
   const documentBytes = bytes(documentBase64Url);
@@ -187,9 +190,14 @@ describe('the sealed deployment manifest vectors', () => {
    *
    * Its deployment members are read out of the receipt file it pairs with and its key out of the key file,
    * which is what the row claims about itself, so the claim is weighed here against those files rather than
-   * against figures copied into this test. The mock rows are held to be a different deployment in the same
-   * breath: a reader who brings a published receipt to one of them meets a refusal, and that refusal is a
-   * fact about two deployments rather than a defect in the pairing.
+   * against figures copied into this test. The seal and the listing are two duties and this row holds them
+   * apart like every other row of the family: the document is sealed under the published material whose
+   * stated role is signing the manifests a reader designates, and it lists the key the receipt was signed
+   * by, because a row that sealed under a key it also lists would answer `verify-ok` at every step a reader
+   * takes while making one key sign both a deployment's receipts and the record that retires them. The mock
+   * rows are held to be a different deployment in the same breath: a reader who brings a published receipt
+   * to one of them meets a refusal, and that refusal is a fact about two deployments rather than a defect
+   * in the pairing.
    */
   it('publishes one row that pairs with the receipt family this package ships', () => {
     const paired = file.vectors.find((one) => one.name === 'paired-with-the-published-receipt-family');
@@ -210,9 +218,19 @@ describe('the sealed deployment manifest vectors', () => {
     expect(document?.keys).toEqual([{ kid: receipt.protectedHeader.kid, alg: 'Ed25519', publicKey: statedPublic }]);
     expect(document?.models).toEqual([{ id: receipt.payload.mdl, wts: receipt.payload.wts }]);
     expect(document?.epochs).toBeNull();
-    // The seal, the designation and the receipt all name the one key the committed key file publishes.
-    expect(paired?.read.designates).toEqual([{ kid: receipt.protectedHeader.kid, publicKeyBase64Url: statedPublic }]);
-    expect(paired?.authentication?.kid).toBe(receipt.protectedHeader.kid);
+    // The seal names one key and the document lists another: the header's kid resolves to the published
+    // material whose role is manifest signing, and that id is not the receipt key the `keys[]` entry carries.
+    const sealKid = toHex(decodeSealedDeploymentManifest(bytes(paired?.documentBase64Url ?? '')).header.kid);
+    expect(
+      sealKid,
+      'the paired row seals under the receipt key its own keys[] lists, so one key holds both roles layout.keyNote keeps apart',
+    ).not.toBe(receipt.protectedHeader.kid);
+    const sealMaterial = file.layout.keyMaterial.find((one) => one.kidHex === sealKid);
+    expect(sealMaterial?.role, `${sealKid} seals the paired row and publishes no manifest signing role`).toBe(
+      MANIFEST_SIGNER_ROLE,
+    );
+    expect(paired?.read.designates).toEqual([{ kid: sealKid, publicKeyBase64Url: sealMaterial?.publicKeyBase64Url }]);
+    expect(paired?.authentication?.kid).toBe(sealKid);
     expect(paired?.verdict).toBe('verify-ok');
     expect(paired?.seal).toBe('verify-ok');
     // The receipt's own epoch claim, and the two a reader must not confuse with it.

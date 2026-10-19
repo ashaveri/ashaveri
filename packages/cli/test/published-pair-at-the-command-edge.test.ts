@@ -84,7 +84,15 @@ interface ManifestRow {
   };
 }
 
-const vectors = JSON.parse(readFileSync(`${DATA}manifest-v1.json`, 'utf8')) as { vectors: ManifestRow[] };
+const vectors = JSON.parse(readFileSync(`${DATA}manifest-v1.json`, 'utf8')) as {
+  vectors: ManifestRow[];
+  layout: { keyMaterial: { kidHex: string; publicKeyBase64Url: string; role: string }[] };
+};
+
+/** The published material a designated id is read from, which is where a caller gets a key's duty. */
+function publishedMaterial(kid: string): { publicKeyBase64Url: string; role: string } | undefined {
+  return vectors.layout.keyMaterial.find((one) => one.kidHex === kid);
+}
 
 /** The row cut from the receipts' own deployment, and the honest row of the family this suite began with. */
 const PAIRED = vectors.vectors.find((one) => one.name === 'paired-with-the-published-receipt-family');
@@ -195,11 +203,12 @@ describe('a published receipt met with the published manifest of its own deploym
    * The provenance of the pairing, held before any child is started.
    *
    * Each deployment member of the paired document is the member of the published receipt it is paired
-   * with, and the mock document states a model that receipt names nowhere, which is what the two
-   * directions below turn on. Were either of those untrue, a passing run would be evidence about a pairing
-   * the published bytes never claimed. The generator holds the same facts where the row is written, and
-   * this is the guard that makes a vector that drifted fail in the suite consuming it rather than only in
-   * the one that produced it.
+   * with, its seal is authenticated under the published material whose stated duty is signing the manifests
+   * a reader designates rather than under the receipt key the document lists, and the mock document states a
+   * model that receipt names nowhere, which is what the two directions below turn on. Were either of those
+   * untrue, a passing run would be evidence about a pairing the published bytes never claimed. The generator
+   * holds the same facts where the row is written, and this is the guard that makes a vector that drifted
+   * fail in the suite consuming it rather than only in the one that produced it.
    */
   it('is built out of the receipt file rather than beside it', () => {
     const parsed = parsedOf(PAIRED);
@@ -211,6 +220,21 @@ describe('a published receipt met with the published manifest of its own deploym
     expect(parsed.models).toEqual([{ id: PAYLOAD.mdl, wts: PAYLOAD.wts }]);
     expect(parsedOf(MOCK).models).not.toEqual(parsed.models);
     expect(parsedOf(MOCK).iss).not.toBe(PAYLOAD.iss);
+    // The seal is designated apart from the receipt key, because `--manifest-key` is what the run hands the
+    // client for that duty: the id, and the public half the suite publishes beside it, have to name the key
+    // whose published role is signing manifests rather than the key this row lists as signing receipts.
+    const designated = PAIRED.read.designates[0];
+    expect(
+      designated?.kid,
+      'the paired row designates the receipt key it lists as its seal signer, one key for both roles',
+    ).not.toBe(receiptJson.protectedHeader.kid);
+    const sealMaterial = publishedMaterial(designated?.kid ?? '');
+    expect(sealMaterial?.publicKeyBase64Url, `${designated?.kid} designates a half no published material carries`).toBe(
+      designated?.publicKeyBase64Url,
+    );
+    expect(sealMaterial?.role, `${designated?.kid} seals the paired row and publishes no manifest signing role`).toBe(
+      'signs the manifests a reader designates',
+    );
   });
 
   it('verifies against the paired manifest and prints the weights as compared', () => {
