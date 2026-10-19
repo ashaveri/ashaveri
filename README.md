@@ -329,11 +329,8 @@ their vendors publish, and an appraisal of either answers `COLLATERAL_ORIGIN_UNS
 reader would still need: a served RIM body and an XML DSig reader, or a served OCSP response and a
 DER OCSP parser. No vendor-service bytes are committed, because a service's output travels as a
 reference and a certificate a platform produced travels as bytes its caller supplies.
-Measured on 17 October 2026: Intel's PCK CRL answered 200 with `application/pkix-crl`;
-`kds.amd.com` did not resolve while `kdsintf.amd.com/vcek/v1/Milan/cert_chain` answered 200 with two
-PEM certificates; the bare `rim.attestation.nvidia.com/v1/rim/` path answered 403 and
-`ocsp.ndis.nvidia.com` answered 405 to a GET. None of those answers is read as a verdict, and none of
-them is a hardware pass.
+The hosts, routes and answer shapes named above are copied from what the vendors publish, not recorded from an
+answer observed here, and no collateral reading here is a hardware pass.
 
 **The planned collateral service.** This project will run a service publishing exactly
 the collateral named above: the TCB info, the QE identity and the revocation status, and the reference
