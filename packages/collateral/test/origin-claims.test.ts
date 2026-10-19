@@ -174,6 +174,14 @@ function counted(spelling: string): number | undefined {
 }
 
 /**
+ * The declarations whose reader answers with a served JSON document, which is the figure the Intel JSON sentences
+ * count. One list holds the filter and each entry reads its length, because two copies of the same filter can
+ * disagree while each still reads as the list it came from.
+ */
+const SERVED_JSON_DOCUMENTS = Object.values(ORIGIN_DECLARATIONS)
+  .filter((one) => one.reader.as === 'served-json-document');
+
+/**
  * The counts the documents state about origins, each beside the sentence that states it, and the list each count
  * is a fact about. A sentence that counts a list counts it as the package declares it or the run fails. One
  * derived figure can back the same wording in more than one document, and then every document listed carries
@@ -188,18 +196,28 @@ const COUNT_CLAIMS: readonly (readonly [docs: readonly string[], claim: RegExp, 
     () => [SERVED_ORIGINS.length * CODES.length, SERVED_ORIGINS.length, CODES.length],
   ],
   [[ERROR_CODES], /not one of the (\w+) cells reads `not exercised`/iu, () => [SERVED_ORIGINS.length * CODES.length]],
+  [
+    [ERROR_CODES],
+    /its rows are the (\w+) origins `SERVED_ORIGINS` names crossed with the (\w+) members of `CollateralErrorCode`/iu,
+    () => [SERVED_ORIGINS.length, CODES.length],
+  ],
+  [
+    [ERROR_CODES],
+    /the origins described as read are the (\w+) `SERVED_ORIGINS` names/iu,
+    () => [SERVED_ORIGINS.length],
+  ],
   [[THREAT_MODEL], /declares (\w+) origins and reads (\w+)/iu, () => [DECLARED_ORIGINS.length, SERVED_ORIGINS.length]],
   [[THREAT_MODEL], /declares the other (\w+)/iu, () => [UNREAD.length]],
   [[README], /names (\w+) origins and reads (\w+)/iu, () => [DECLARED_ORIGINS.length, SERVED_ORIGINS.length]],
   [
     [README, THREAT_MODEL],
     /the (\w+) intel json documents/iu,
-    () => [Object.values(ORIGIN_DECLARATIONS).filter((one) => one.reader.as === 'served-json-document').length],
+    () => [SERVED_JSON_DOCUMENTS.length],
   ],
   [
     [THREAT_MODEL],
     /its (\w+) json document addresses/iu,
-    () => [Object.values(ORIGIN_DECLARATIONS).filter((one) => one.reader.as === 'served-json-document').length],
+    () => [SERVED_JSON_DOCUMENTS.length],
   ],
 ];
 
