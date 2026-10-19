@@ -4,6 +4,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { afterAll, describe, expect, it } from 'vitest';
+import { MANIFEST_SIGNER_ROLE } from '@ashaveri/fixtures';
 import { noteSpawn } from './support/spawn-budget.js';
 
 /** How long one child of the built CLI may live before this file calls it a bug rather than a slow machine. */
@@ -84,14 +85,30 @@ interface ManifestRow {
   };
 }
 
+/** One entry of the suite's published key material: the id, the half a caller pins, and the duty it states. */
+interface KeyMaterial {
+  readonly kidHex: string;
+  readonly publicKeyBase64Url: string;
+  readonly role: string;
+}
+
 const vectors = JSON.parse(readFileSync(`${DATA}manifest-v1.json`, 'utf8')) as {
   vectors: ManifestRow[];
-  layout: { keyMaterial: { kidHex: string; publicKeyBase64Url: string; role: string }[] };
+  layout: { keyMaterial: KeyMaterial[] };
 };
 
 /** The published material a designated id is read from, which is where a caller gets a key's duty. */
-function publishedMaterial(kid: string): { publicKeyBase64Url: string; role: string } | undefined {
+function publishedMaterial(kid: string): KeyMaterial | undefined {
   return vectors.layout.keyMaterial.find((one) => one.kidHex === kid);
+}
+
+/** The published material whose stated duty is signing the manifests a reader designates. */
+function manifestSignerMaterial(): KeyMaterial {
+  const material = vectors.layout.keyMaterial.find((one) => one.role === MANIFEST_SIGNER_ROLE);
+  if (material === undefined) {
+    throw new Error('manifest-v1.json publishes no key material whose role is signing the manifests a reader designates');
+  }
+  return material;
 }
 
 /** The row cut from the receipts' own deployment, and the honest row of the family this suite began with. */
@@ -179,14 +196,20 @@ function designated(row: ManifestRow): string {
   return `--manifest-key=${pin.publicKeyBase64Url}`;
 }
 
-/** One run of the command over one published manifest, in the rendering the caller asked for. */
-function run(one: ServedManifest, json: boolean): CliResult {
+/**
+ * One run of the command over one published manifest, in the rendering the caller asked for.
+ *
+ * The designation defaults to the one the row states, and a caller can name one read off the published
+ * key material instead, which is how a run can be made to depend on a key's published duty rather than on
+ * the row that carries it.
+ */
+function run(one: ServedManifest, json: boolean, manifestKey: string = designated(one.row)): CliResult {
   return runCli([
     'verify-receipt',
     RECEIPT,
     `--policy=${POLICY}`,
     `--manifest=${one.path}`,
-    designated(one.row),
+    manifestKey,
     `--nonce=${PAYLOAD.nce}`,
     `--request-hash=${PAYLOAD.req}`,
     `--response-body=${RESPONSE_FILE}`,
@@ -233,7 +256,7 @@ describe('a published receipt met with the published manifest of its own deploym
       designated?.publicKeyBase64Url,
     );
     expect(sealMaterial?.role, `${designated?.kid} seals the paired row and publishes no manifest signing role`).toBe(
-      'signs the manifests a reader designates',
+      MANIFEST_SIGNER_ROLE,
     );
   });
 
@@ -287,5 +310,39 @@ describe('a published receipt met with the published manifest of its own deploym
     expect(human.stdout).toBe('');
     expect(human.status).toBe(1);
     expect(human.stderr).toBe(`verification failed (MODEL_UNDECLARED): ${message}\n`);
+  });
+
+  /**
+   * The paired bytes run with the designation named from `layout.keyMaterial` rather than from the row.
+   *
+   * A row that states its own designation makes this file hand the command the answer it is testing, so a
+   * document sealed under the key it also lists for signing receipts would be run under that same key and
+   * still exit 0. Reading the designation off the published duties instead gives the exit code something
+   * to notice: the document holds under the material whose published role is signing the manifests a
+   * reader designates, and designating only the receipt key this document lists leaves its seal named by no
+   * one the caller accepted, which the client answers fatally rather than by reading the bytes anyway.
+   */
+  it('accepts the paired bytes under the published manifest signing key', () => {
+    const accepted = run(PAIRED_MANIFEST, true, `--manifest-key=${manifestSignerMaterial().publicKeyBase64Url}`);
+    expect(accepted.stderr).toBe('');
+    expect(accepted.status, accepted.stdout).toBe(0);
+    const verdict = verdictOf(accepted);
+    expect(verdict.ok).toBe(true);
+    expect(verdict.weights).toBe(PAYLOAD.wts);
+    expect(verdict.manifestSeal).toMatchObject({ sealed: true, authenticated: true });
+  });
+
+  it('refuses the paired bytes under the published receipt key alone', () => {
+    const receiptMaterial = publishedMaterial(receiptJson.protectedHeader.kid);
+    if (receiptMaterial === undefined) {
+      throw new Error('manifest-v1.json publishes no key material for the key the paired receipt carries');
+    }
+    expect(receiptMaterial.role, `${receiptMaterial.kidHex} is listed as signing receipts and also signs manifests`).not.toBe(
+      MANIFEST_SIGNER_ROLE,
+    );
+    const refused = run(PAIRED_MANIFEST, true, `--manifest-key=${receiptMaterial.publicKeyBase64Url}`);
+    expect(refused.stderr).toBe('');
+    expect(refused.status).toBe(1);
+    expect(verdictOf(refused).code).toBe('MANIFEST_NOT_AUTHENTICATED');
   });
 });
