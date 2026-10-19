@@ -118,7 +118,7 @@ describe('two readings of one source', () => {
 describe('a stamp read against the window it was served out of', () => {
   it('keeps an unmeasured source from reporting a satisfied membership', async () => {
     // Ten seconds deep inside a wide window by any clock in the world, and the store still has no
-    // bound to weigh it with, which is the state this lane must not let read as accuracy.
+    // bound to weigh it with, which is the state a satisfied membership must not be printed from.
     const store = openMemoryReceiptStore();
     await store.put('rcpt_01', Uint8Array.from([1, 2, 3]), 1_010);
     expect(store.timeSource()).toEqual({ name: 'host clock', uncertaintySeconds: null });
