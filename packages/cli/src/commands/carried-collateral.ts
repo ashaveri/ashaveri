@@ -314,8 +314,8 @@ export async function carriedDesignations(values: CarriedFlagValues): Promise<Ca
     const one = draft(slot);
     once(COLLATERAL_ORIGIN_FLAG, slot, 'origin, which is the path the bytes were published by', one.origin);
     // The name is matched against no list kept here, on purpose. The package answers an origin it does not read
-    // with the sentence naming the two it does, which is the reason all six names are in the union at all; a
-    // second copy of that set in this file would be a thing to remember on the day the set grew.
+    // with the sentence naming the origins it does read, which is the reason every declared name is in the union at
+    // all; a second copy of that set in this file would be a thing to remember on the day the set grew.
     one.origin = { value: rest as CollateralOriginName, from: `${COLLATERAL_ORIGIN_FLAG} ${slot}=${printedToken(rest)}` };
   }
   for (const value of values['collateral-platform'] ?? []) {
