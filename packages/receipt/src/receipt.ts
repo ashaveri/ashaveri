@@ -183,7 +183,7 @@ export interface ReceiptPayload extends ReceiptFields {
 
 /**
  * The members the payload declares, in the order `receipt.cddl` lists them: the twelve every document
- * shares, then the marking, the disclosure, the anchor and the item list.
+ * shares, then the metering of tokens, the marking, the disclosure, the anchor and the item list.
  *
  * This list and the ones below are exported so a reader outside the package can hold each one
  * against the map `receipt.cddl` declares it for: they are the whole of what the closure walk
