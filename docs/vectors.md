@@ -472,9 +472,12 @@ These vectors check bytes. They say nothing about trust:
   fixtures under `data/receipts/` and the row `paired-with-the-published-receipt-family` of
   `manifest-v1.json` describe one deployment, so a published receipt and a published manifest can be
   brought to `ashaveri verify-receipt` as a pair and the weights comparison holds. Every other suite here
-  is an independent illustration of its own format, and so is every other row of `manifest-v1.json`: that
-  family speaks of `ashaveri-mock` at `mock-instance-1` under a software measurement and a `models[]` list
-  naming nothing the receipts state, which is why a published receipt handed to one of those rows is
-  answered `MODEL_UNDECLARED`. That refusal is two documents describing two deployments, and a reader who
-  takes it for a failed check has been misled by nothing but the assumption that one file's rows are one
-  deployment's rows.
+  is an independent illustration of its own format, and so is every other row of `manifest-v1.json` except
+  `protected-content-type-of-a-receipt`, whose document is the published receipt
+  `data/receipts/receipt-valid-v1.cbor` handed to the manifest reader rather than a manifest illustrating
+  a format of its own. Which published documents are one pair is decided by what they state: issuer,
+  instance, measurement kind and `models[]`. The rest of that family speaks of `ashaveri-mock` at
+  `mock-instance-1` under a software measurement and a `models[]` list naming nothing the receipts state,
+  which is why a published receipt handed to one of those rows is answered `MODEL_UNDECLARED`. That
+  refusal is two documents describing two deployments, and a reader who takes it for a failed check has
+  been misled by nothing but the assumption that one file's rows are one deployment's rows.

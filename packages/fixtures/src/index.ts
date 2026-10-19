@@ -451,6 +451,15 @@ export function loadExportVectors(): ExportVectorFile {
   return JSON.parse(readFileSync(join(DATA, 'export-v1.json'), 'utf8')) as ExportVectorFile;
 }
 
+/**
+ * The `layout.keyMaterial` role of the one key whose duty is signing the manifests a reader designates.
+ *
+ * It is published rather than restated because three readers of this suite weigh it: the generator that
+ * writes the rows, the test that reads them back, and the command-edge test that names a designation by it,
+ * and a copy in each of them is a fact that can disagree with the file it is supposed to be read from.
+ */
+export const MANIFEST_SIGNER_ROLE = 'signs the manifests a reader designates';
+
 /** The keys a row designates for signing manifests: an id, and the public half pinned under it. */
 export interface DesignatedManifestKey {
   kid: string;

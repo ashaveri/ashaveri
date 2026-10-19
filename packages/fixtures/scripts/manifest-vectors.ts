@@ -30,6 +30,7 @@ import {
   type DeploymentManifest,
   type ReceiptEpochClaim,
 } from '@ashaveri/sdk';
+import { MANIFEST_SIGNER_ROLE } from '@ashaveri/fixtures';
 import { labeled } from './seed.ts';
 import { FIXED_IAT, fixtureKey, fixturePayload } from './receipt-envelope.ts';
 
@@ -98,9 +99,6 @@ const EXTRA_RECEIPT_KEY: SigningKey = signingKeyFromSeed(labeled('ashaveri-fixtu
 const RECEIPT_SIGNER: SigningKey = fixtureKey();
 const ALL_KEYS: readonly SigningKey[] = [SIGNER, SECOND_SIGNER, RECEIPT_SIGNER, EXTRA_RECEIPT_KEY];
 const KEY_BY_KID = new Map(ALL_KEYS.map((one) => [toHex(one.kid), one]));
-
-/** The published role of the one key whose duty is signing the manifests a reader designates. */
-const MANIFEST_SIGNER_ROLE = 'signs the manifests a reader designates';
 
 /** Each key with the seed it comes from and the role it plays, published as the file states them. */
 const KEY_MATERIAL: readonly { key: SigningKey; seed: string; role: string }[] = [
@@ -341,7 +339,7 @@ const authenticated: Authentication = { sealed: true, authenticated: true, kid: 
  * issuer, instance, epoch, environment kind, measurement and model row are read out of
  * `data/receipts/receipt-buffered-v1.json`, the key id out of that same file's protected header, the
  * public half beside it out of `data/keys/receipt-key-v1.json`, the seal under the manifest signing key
- * every other row of this suite is sealed under, and the verdict columns out of the shipped readers over
+ * every honest row of this suite is sealed under, and the verdict columns out of the shipped readers over
  * the bytes this builds. The bytes of the other rows do not move, and neither does the worked example
  * in `docs/receipt-spec.md`, which stays the mock document this suite has always published.
  */
@@ -952,7 +950,7 @@ const CASES: readonly Case[] = [
   },
   {
     name: PAIRED_ROW,
-    note: 'The deployment the published receipts came from, stated by a manifest assembled out of one of those receipts\' own file: the issuer, instance, epoch, environment kind and measurement are that file\'s payload members, the key id is the one its protected header names and the public half beside it is the one `data/keys/receipt-key-v1.json` publishes, and the single `models[]` row is the model id and weights digest the receipt states. Its seal is made by the key `layout.keyMaterial` publishes as signing the manifests a reader designates, the same key every other row of this suite is sealed under. The published receipt family and the manifest family this suite began with describe two deployments, so a reader who handed a published receipt to `ashaveri verify-receipt` beside a published manifest met `MODEL_UNDECLARED` for a reason neither document could be blamed for; this row is the document that pair was missing, and it is the one row here whose `verdict`, `authentication`, `parsed` and `claims` are what `readDeploymentManifest` and `adjudicateReceiptEpoch` answered rather than words stated beside a run.',
+    note: 'The deployment the published receipts came from, stated by a manifest assembled out of one of those receipts\' own file: the issuer, instance, epoch, environment kind and measurement are that file\'s payload members, the key id is the one its protected header names and the public half beside it is the one `data/keys/receipt-key-v1.json` publishes, and the single `models[]` row is the model id and weights digest the receipt states. Its seal is made by the key `layout.keyMaterial` publishes as signing the manifests a reader designates, the same key every honest row of this suite is sealed under. The published receipt family and the manifest family this suite began with describe two deployments, so a reader who handed a published receipt to `ashaveri verify-receipt` beside a published manifest met `MODEL_UNDECLARED` for a reason neither document could be blamed for; this row is the document that pair was missing, and it is the one row here whose `verdict`, `authentication`, `parsed` and `claims` are what `readDeploymentManifest` and `adjudicateReceiptEpoch` answered rather than words stated beside a run.',
     bytes: PAIRED_BYTES,
     pins: PAIRED_PINS,
     verdict: PAIRED_READING.verdict,

@@ -9,7 +9,7 @@ import {
   toHex,
   verifySealedDeploymentManifest,
 } from '@ashaveri/receipt';
-import { loadSealedManifestVectors } from '../src/index.js';
+import { MANIFEST_SIGNER_ROLE, loadSealedManifestVectors } from '../src/index.js';
 import { assertRowRoster, ROW_NAMING_FIELDS, unionMembers } from './doc-contract.js';
 
 /**
@@ -42,9 +42,6 @@ const RECEIPT_ERRORS = '../../../packages/receipt/src/errors.ts';
 const SDK_ERRORS = '../../../packages/sdk/src/errors.ts';
 
 const bytes = (base64url: string): Uint8Array => new Uint8Array(Buffer.from(base64url, 'base64url'));
-
-/** The role `layout.keyMaterial` gives the one key whose duty is signing the manifests a reader designates. */
-const MANIFEST_SIGNER_ROLE = 'signs the manifests a reader designates';
 
 /** What the envelope reader answers for a row, under the published key its own header names. */
 function envelopeAnswer(documentBase64Url: string): string {
