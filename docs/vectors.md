@@ -172,9 +172,9 @@ specific to that case.
   `data/receipts/receipt-buffered-v1.json`, the `keys[]` entry is the kid that document's protected header
   names with the public half `data/keys/receipt-key-v1.json` publishes, and its `verdict`,
   `authentication`, `parsed` and `claims` are what `readDeploymentManifest` and `adjudicateReceiptEpoch`
-  answered over those bytes; it is sealed under the key that signed those receipts, because a published
-  vector has to be self-contained and the seal then rests on bytes committed as a file rather than on a key
-  re-derived from a label, while a deployment keeps a manifest signing key of its own, which is what
+  answered over those bytes; it is sealed under the key that signed those receipts, because the row pairs
+  with receipts that key already signed, and a seal under any other key would rest on material this suite
+  publishes nowhere, while a deployment keeps a manifest signing key of its own, which is what
   `layout.keyNote` states and this row is the one place in the suite that departs from it. It is the
   document beside which `ashaveri verify-receipt` weighs a published receipt's `wts` and answers
   `verify-ok`; hand the same receipt to one of the `ashaveri-mock` rows and the answer is
@@ -476,12 +476,12 @@ These vectors check bytes. They say nothing about trust:
   fixtures under `data/receipts/` and the row `paired-with-the-published-receipt-family` of
   `manifest-v1.json` describe one deployment, so a published receipt and a published manifest can be
   brought to `ashaveri verify-receipt` as a pair and the weights comparison holds, that row being sealed
-  under the key that signed those receipts so the pair rests on two committed files and on nothing a reader
-  re-derives, which is what a self-contained published vector gives up rather than a key role to copy: a
-  deployment keeps a manifest signing key of its own, as `layout.keyNote` states. Every other suite here is
-  an independent illustration of its own format, and so is every other row of `manifest-v1.json`: that
-  family speaks of `ashaveri-mock` at `mock-instance-1`, under a software measurement and a different
-  signing key, which is why a published receipt handed to one of those rows is answered
+  under the key that signed those receipts, because the pairing is what the row is published for, which is
+  the suite's one disclosed exception rather than a key role to copy: a deployment keeps a manifest
+  signing key of its own, as `layout.keyNote` states. Every other suite here is an independent
+  illustration of its own format, and so is every other row of `manifest-v1.json`: that family speaks of
+  `ashaveri-mock` at `mock-instance-1`, under a software measurement and a different signing key, which
+  is why a published receipt handed to one of those rows is answered
   `MODEL_UNDECLARED`. That refusal is two documents describing two deployments, and a reader who takes it
   for a failed check has been misled by nothing but the assumption that one file's rows are one
   deployment's rows.
