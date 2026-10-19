@@ -329,8 +329,8 @@ their vendors publish, and an appraisal of either answers `COLLATERAL_ORIGIN_UNS
 reader would still need: a served RIM body and an XML DSig reader, or a served OCSP response and a
 DER OCSP parser. No vendor-service bytes are committed, because a service's output travels as a
 reference and a certificate a platform produced travels as bytes its caller supplies.
-The hosts, routes and answer shapes named above are copied from what the vendors publish, not recorded from an
-answer observed here, and no collateral reading here is a hardware pass.
+The hosts, routes and answer shapes this package declares are copied from what the vendors publish,
+not recorded from an answer observed here, and no collateral reading here is a hardware pass.
 
 **The planned collateral service.** This project will run a service publishing exactly
 the collateral named above: the TCB info, the QE identity and the revocation status, and the reference

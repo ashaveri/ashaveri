@@ -128,10 +128,8 @@ export interface IntelOriginDeclaration extends OriginDeclarationCommon {
    * inside them, which is this path's rule and not the vendor's. `served` is the envelope the answer that this
    * address returns is actually written in, or null where no served answer recorded below arrives in an
    * envelope this package can weigh: a JSON wrapper whose signature sits in a hex member and whose issuer chain
-   * arrives beside the body, in the header `chainHeader` names. That is the pair `readServedCollateral` weighs,
-   * and it is the pair every reader of this envelope weighs: the body the answer carries and the chain
-   * `chainHeader` names. The suite is the one on both sides, ES256 over P-256, spelled raw rather than as a JWS
-   * signature.
+   * arrives beside the body, in the header `chainHeader` names. That is the pair `readServedCollateral` weighs.
+   * The suite is the one on both sides, ES256 over P-256, spelled raw rather than as a JWS signature.
    *
    * Both are stated here rather than read off the bytes because which arm weighs an answer cannot be guessed
    * from a body: a wrapper that starts with a brace and a token that starts with base64url are the same text to
