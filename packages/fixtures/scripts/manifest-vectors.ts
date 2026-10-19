@@ -332,8 +332,8 @@ const authenticated: Authentication = { sealed: true, authenticated: true, kid: 
  *
  * The mock document of this suite, `HONEST` in this file, states `ashaveri-mock` at
  * `mock-instance-1` under a software measurement and `mock-model-1` in `models[]`. The published receipts
- * state another deployment, and every receipt of that corpus carries one model id with one weights digest,
- * so a reader who handed a published receipt to `ashaveri verify-receipt` beside the row
+ * state another deployment, and every receipt under `data/receipts/` carries one model id with one weights
+ * digest, so a reader who handed a published receipt to `ashaveri verify-receipt` beside the row
  * `sealed-under-designated-key` met `MODEL_UNDECLARED`, a refusal neither of those two documents caused.
  * This row is the manifest of the deployment those receipts came from, and nothing in it is retyped: the
  * issuer, instance, epoch, environment kind, measurement and model row are read out of
