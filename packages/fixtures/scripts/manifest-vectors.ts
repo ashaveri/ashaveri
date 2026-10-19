@@ -86,8 +86,8 @@ const EMPTY = new Uint8Array(0);
  * A deployment signs receipts with one key and manifests with another, and the separation is not
  * decoration: the manifest is the document that states which keys sign receipts, so a wrapper verified
  * under a receipt signing key would let one compromised signing key rewrite the rotation record meant to
- * retire it. So the honest rows are sealed by `SIGNER` and their `keys[]` lists `RECEIPT_SIGNER`, which is
- * the committed fixture key this repository already publishes in `data/keys/receipt-key-v1.json`. That
+ * retire it. So `SIGNER` carries the manifest duty here, and `RECEIPT_SIGNER`, the committed fixture key
+ * this repository already publishes in `data/keys/receipt-key-v1.json`, carries the receipt duty. That
  * makes the cross-container row sharper as well: the receipt handed to the manifest reader is signed by a
  * key the very manifest beside it lists, and both documents verify cleanly under their own keys.
  * `SECOND_SIGNER` is another deployment's manifest key, and `EXTRA_RECEIPT_KEY` a second receipt key that
@@ -331,17 +331,18 @@ const authenticated: Authentication = { sealed: true, authenticated: true, kid: 
 /**
  * The row that pairs this suite with the published receipts, and the provenance it is built from.
  *
- * Every other row speaks of the deployment this suite was written for: `ashaveri-mock`, `mock-instance-1`,
- * a software measurement and `mock-model-1`. The published receipts describe another deployment, and all
- * ten of them carry one model id with one weights digest, so a reader handed a published receipt and a
- * published manifest was handed two documents that answer different questions and met a refusal for it.
+ * The mock document of this suite, `HONEST` in this file, states `ashaveri-mock` at
+ * `mock-instance-1` under a software measurement and `mock-model-1` in `models[]`. The published receipts
+ * state another deployment, and all ten of them carry one model id with one weights digest, so a reader
+ * who handed a published receipt to `ashaveri verify-receipt` beside the row
+ * `sealed-under-designated-key` met `MODEL_UNDECLARED`, a refusal neither of those two documents caused.
  * This row is the manifest of the deployment those receipts came from, and nothing in it is retyped: the
  * issuer, instance, epoch, environment kind, measurement and model row are read out of
  * `data/receipts/receipt-buffered-v1.json`, the key id out of that same file's protected header, the
- * public half beside it out of `data/keys/receipt-key-v1.json`, the seal under the manifest signing key
- * every honest row of this suite is sealed under, and the verdict columns out of the shipped readers over
- * the bytes this builds. The bytes of the other rows do not move, and neither does the worked example
- * in `docs/receipt-spec.md`, which stays the mock document this suite has always published.
+ * public half beside it out of `data/keys/receipt-key-v1.json`, the seal made by `sealDeploymentManifest`
+ * under `SIGNER`, and the verdict columns out of the shipped readers over the bytes this builds. The bytes
+ * of the other rows do not move, and neither does the worked example in `docs/receipt-spec.md`, which
+ * stays the mock document this suite has always published.
  */
 const PAIRED_ROW = 'paired-with-the-published-receipt-family';
 
@@ -950,7 +951,7 @@ const CASES: readonly Case[] = [
   },
   {
     name: PAIRED_ROW,
-    note: 'The deployment the published receipts came from, stated by a manifest assembled out of one of those receipts\' own file: the issuer, instance, epoch, environment kind and measurement are that file\'s payload members, the key id is the one its protected header names and the public half beside it is the one `data/keys/receipt-key-v1.json` publishes, and the single `models[]` row is the model id and weights digest the receipt states. Its seal is made by the key `layout.keyMaterial` publishes as signing the manifests a reader designates, the same key every honest row of this suite is sealed under. The published receipt family and the manifest family this suite began with describe two deployments, so a reader who handed a published receipt to `ashaveri verify-receipt` beside a published manifest met `MODEL_UNDECLARED` for a reason neither document could be blamed for; this row is the document that pair was missing, and it is the one row here whose `verdict`, `authentication`, `parsed` and `claims` are what `readDeploymentManifest` and `adjudicateReceiptEpoch` answered rather than words stated beside a run.',
+    note: 'The deployment the published receipts came from, stated by a manifest assembled out of one of those receipts\' own file: the issuer, instance, epoch, environment kind and measurement are that file\'s payload members, the key id is the one its protected header names and the public half beside it is the one `data/keys/receipt-key-v1.json` publishes, and the single `models[]` row is the model id and weights digest the receipt states. Its seal is made by the key `layout.keyMaterial` publishes as signing the manifests a reader designates. The published receipt family and the manifest family this suite began with describe two deployments, so a reader who handed a published receipt to `ashaveri verify-receipt` beside a published manifest met `MODEL_UNDECLARED` for a reason neither document could be blamed for; this row is the document that pair was missing, and it is the one row here whose `verdict`, `authentication`, `parsed` and `claims` are what `readDeploymentManifest` and `adjudicateReceiptEpoch` answered rather than words stated beside a run.',
     bytes: PAIRED_BYTES,
     pins: PAIRED_PINS,
     verdict: PAIRED_READING.verdict,

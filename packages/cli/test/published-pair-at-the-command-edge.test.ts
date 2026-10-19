@@ -16,11 +16,12 @@ const SPAWN_DEADLINE_MS = 10_000;
  *
  * The receipt vectors and the sealed-manifest vectors describe two deployments: the ten published receipts
  * all name `dpl-9f2a41c3` and one model at one weights digest, while the manifest family speaks of
- * `ashaveri-mock` at `mock-model-1`, so a published receipt brought to `ashaveri verify-receipt` beside a
- * published manifest meets a refusal with nothing committed to say whether the documents, the command or
- * the expectation is at fault. `paired-with-the-published-receipt-family` in `manifest-v1.json` is the
- * document that closes that gap, and this file is what it looks like from the outside: the same receipt
- * bytes, the same policy, the same response body, one run against each of two manifests.
+ * `ashaveri-mock` at `mock-instance-1`, with a `models[]` entry naming `mock-model-1`, so a published
+ * receipt brought to `ashaveri verify-receipt` beside a published manifest meets a refusal with nothing
+ * committed to say whether the documents, the command or the expectation is at fault.
+ * `paired-with-the-published-receipt-family` in `manifest-v1.json` is the document that closes that gap,
+ * and this file is what it looks like from the outside: the same receipt bytes, the same policy, the same
+ * response body, one run against each of two manifests.
  *
  * Everything here is read out of `packages/fixtures/data`: the receipt's payload, the key its protected
  * header names, the response bytes its row publishes beside it, the manifest bytes of each row and the
@@ -106,7 +107,7 @@ function publishedMaterial(kid: string): KeyMaterial | undefined {
 function manifestSignerMaterial(): KeyMaterial {
   const material = vectors.layout.keyMaterial.find((one) => one.role === MANIFEST_SIGNER_ROLE);
   if (material === undefined) {
-    throw new Error('manifest-v1.json publishes no key material whose role is signing the manifests a reader designates');
+    throw new Error(`manifest-v1.json publishes no key material whose role is '${MANIFEST_SIGNER_ROLE}'`);
   }
   return material;
 }
@@ -321,8 +322,17 @@ describe('a published receipt met with the published manifest of its own deploym
    * to notice: the document holds under the material whose published role is signing the manifests a
    * reader designates, and designating only the receipt key this document lists leaves its seal named by no
    * one the caller accepted, which the client answers fatally rather than by reading the bytes anyway.
+   * The published duty and the paired row name one key, so the flag below is the one the run in `verifies
+   * against the paired manifest and prints the weights as compared` builds from that row. The first
+   * assertion states the agreement, and it is what fails when the duty and the row name different keys,
+   * rather than this case becoming a second child process over bytes another case already read.
    */
   it('accepts the paired bytes under the published manifest signing key', () => {
+    const fromRow = PAIRED.read.designates[0];
+    expect(
+      manifestSignerMaterial().kidHex,
+      `the published manifest signing duty names ${manifestSignerMaterial().kidHex} while the paired row designates ${fromRow?.kid}, so the designation read off the duty is no longer the one the row states`,
+    ).toBe(fromRow?.kid);
     const accepted = run(PAIRED_MANIFEST, true, `--manifest-key=${manifestSignerMaterial().publicKeyBase64Url}`);
     expect(accepted.stderr).toBe('');
     expect(accepted.status, accepted.stdout).toBe(0);
