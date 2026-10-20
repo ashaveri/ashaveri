@@ -194,17 +194,20 @@ What is still true, in both modes:
   residual risk in T12 is the whole of this limitation, and it is not scheduled away: a service
   publishing this collateral for deployments that want it is the position, described in
   the README's attestation-collateral section, and no shipped command asks an origin or makes one a
-  precondition of any verdict a third party can reach. `@ashaveri/collateral` declares two further
-  origins, NVIDIA RIM and NVIDIA OCSP, with the host and routes their vendors publish; it reads
-  neither, refuses an appraisal of one with the reader it lacks, and commits no vendor-service bytes.
+  precondition of any verdict a third party can reach. `@ashaveri/collateral` declares 6 origins and
+  reads 4: `intel-tcb-info`, `intel-qe-identity`, `intel-pck-crl` and `amd-kds`. It declares the other
+  2, `nvidia-rim` and `ocsp`, with the host and routes their vendors publish, reads neither, refuses
+  an appraisal of one with the reader it lacks, and commits no vendor-service bytes.
   It reads the Intel PCK CRL as a DER certificate list when a caller asks `appraisePckCrl`, under the
   issuer chain the answer carries and a root the caller pins, and that reading answers about one
-  certificate serial rather than a platform level. It reads the AMD KDS as one chip's VCEK and the
+  certificate serial rather than a platform level. It reads the two Intel JSON documents, the TCB Info and the
+  QE Identity, when a caller asks `appraiseCollateral`, under the chain header each answer carries and a root the
+  caller pins. It reads the AMD KDS as one chip's VCEK and the
   authorities the chain route answers beside it when a caller asks `appraiseVcekChain`, believed by
   the same primitives that believe a report's own ARK, ASK and VCEK, and under the ARK the caller
   pins rather than a root that arrived with the answer; a VCEK states what AMD signed about a chip, so
   that reading carries a historical reach, states no revocation, and AMD's TCB extension is read by
-  nothing. No shipped command asks either, and neither closes any of the residual above.
+  nothing. No shipped command asks any of those entry points, and none of them closes any of the residual above.
   What is in this code is the other half of the same question and closes none of it:
   `@ashaveri/collateral` reads and classifies a vendor document it is handed,
   and a pack carries the material its sealed receipts' anchors name, so `ashaveri verify-pack` weighs those

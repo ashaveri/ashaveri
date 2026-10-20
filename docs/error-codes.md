@@ -326,6 +326,84 @@ rather than by the call site that met it.
 | `COLLATERAL_RETAINED_CHAIN_MISMATCH` | `CollateralErrorCode` | The caller handed a chain beside its retained bytes and named a digest for it, and the header's own bytes hash to something else. The check runs where both the header and the stated digest are in hand, ahead of either reading arm, so no member of a body is believed while the pair disagrees. A stated digest with no header beside it, or a header nobody stated a digest for, is not this refusal: nothing was promised that could be broken | Hand the header exactly as it arrived, or drop the stated digest and let the pair answer on its own shape. The detail gives both hexes and the list names both fields, which is what tells a caller whether the record or the bytes are the half that drifted | terminal |
 | `COLLATERAL_REVOKED_BY_VENDOR` | `CollateralErrorCode` | The signed document states, for the level asked about or the certificate serial a revocation list was asked about, a status the declaration lists as one the vendor no longer stands behind. For a signed revocation list the answer is this code only where the list names the certificate asked about; a list that does not name it is not a statement that it is trusted, and no arm reads absence as trust. For a level document this outranks a closed window, because nothing published later un-revokes a level, so it is the answer even when the document is itself too old to be a fresh one. A revocation list names the serial even when its window has closed or the moment asked precedes the listing, and that refusal says so where it does: a closed window or a kept copy carries a historical claim beside the answer, and a list this run fetched inside its own window carries a current one even where the entry's own date is later than the moment asked | Refuse the platform, or move it to a level the vendor still stands behind. The document is kept and quoted, and it is never a pass | terminal |
 
+## Which origin can reach which refusal
+
+The grid has 56 rows, one for each pair of the 4 origins named by `SERVED_ORIGINS` and the 14 members of
+`CollateralErrorCode`. A row says whether that origin can answer with that code and names where the answer is
+decided. The fourth cell names a file and the symbol in it that decides, because a symbol moves with the code
+a reader is looking at while a line number does not; what the check proves of that cell is that the cited
+symbol is declared in the cited file. `yes` is produced by handing a public entry point an answer that reaches
+the code, and `no` is carried by a fact the origin's own declaration states for that code. The origins
+`SERVED_ORIGINS` leaves out, `nvidia-rim` and `ocsp`, are declared and unread, so they answer
+`COLLATERAL_ORIGIN_UNSUPPORTED` before any row of this grid can be reached and hold no row here.
+`packages/collateral/test/refusal-reachability.test.ts` reads this table and holds it to the package: it runs
+the scenario behind every `yes`, reads the declaration fact behind every `no`, checks that the file each cell
+names declares the symbol it cites, and refuses a grid that is not exactly those origins crossed with those
+codes.
+
+| Origin | Refusal | Reached | Where it is decided |
+|---|---|---|---|
+| `intel-tcb-info` | `COLLATERAL_INPUT_MISSING` | yes | `packages/collateral/src/classify.ts`, `askedButNotGiven` |
+| `intel-tcb-info` | `COLLATERAL_ANCHOR_NOT_PINNED` | yes | `packages/collateral/src/read.ts`, `parsePinned` |
+| `intel-tcb-info` | `COLLATERAL_ORIGIN_UNSUPPORTED` | no | `packages/collateral/src/intel-origin.ts`, `declarationFor` |
+| `intel-tcb-info` | `COLLATERAL_ORIGIN_UNREACHABLE` | yes | `packages/collateral/src/fetch.ts`, `fetchFromOrigin` |
+| `intel-tcb-info` | `COLLATERAL_ORIGIN_REFUSED` | yes | `packages/collateral/src/fetch.ts`, `fetchFromOrigin` |
+| `intel-tcb-info` | `COLLATERAL_BLOB_UNREADABLE` | yes | `packages/collateral/src/read.ts`, `readSignedCollateral` |
+| `intel-tcb-info` | `COLLATERAL_SIGNATURE_UNVERIFIED` | yes | `packages/collateral/src/served.ts`, `readServedCollateral` |
+| `intel-tcb-info` | `COLLATERAL_IDENTITY_MISMATCH` | yes | `packages/collateral/src/read.ts`, `readCpuType` |
+| `intel-tcb-info` | `COLLATERAL_TCB_LEVEL_UNLISTED` | yes | `packages/collateral/src/read.ts`, `unlistedLevel` |
+| `intel-tcb-info` | `COLLATERAL_STATUS_UNSUPPORTED` | yes | `packages/collateral/src/classify.ts`, `classify` |
+| `intel-tcb-info` | `COLLATERAL_WINDOW_CLOSED` | yes | `packages/collateral/src/classify.ts`, `classify` |
+| `intel-tcb-info` | `COLLATERAL_NOT_OBSERVED` | yes | `packages/collateral/src/classify.ts`, `classify` |
+| `intel-tcb-info` | `COLLATERAL_RETAINED_CHAIN_MISMATCH` | yes | `packages/collateral/src/classify.ts`, `observe` |
+| `intel-tcb-info` | `COLLATERAL_REVOKED_BY_VENDOR` | yes | `packages/collateral/src/classify.ts`, `classify` |
+| `intel-qe-identity` | `COLLATERAL_INPUT_MISSING` | yes | `packages/collateral/src/classify.ts`, `askedButNotGiven` |
+| `intel-qe-identity` | `COLLATERAL_ANCHOR_NOT_PINNED` | yes | `packages/collateral/src/read.ts`, `parsePinned` |
+| `intel-qe-identity` | `COLLATERAL_ORIGIN_UNSUPPORTED` | no | `packages/collateral/src/intel-origin.ts`, `declarationFor` |
+| `intel-qe-identity` | `COLLATERAL_ORIGIN_UNREACHABLE` | yes | `packages/collateral/src/fetch.ts`, `fetchFromOrigin` |
+| `intel-qe-identity` | `COLLATERAL_ORIGIN_REFUSED` | yes | `packages/collateral/src/fetch.ts`, `fetchFromOrigin` |
+| `intel-qe-identity` | `COLLATERAL_BLOB_UNREADABLE` | yes | `packages/collateral/src/read.ts`, `readSignedCollateral` |
+| `intel-qe-identity` | `COLLATERAL_SIGNATURE_UNVERIFIED` | yes | `packages/collateral/src/served.ts`, `readServedCollateral` |
+| `intel-qe-identity` | `COLLATERAL_IDENTITY_MISMATCH` | no | `packages/collateral/src/intel-origin.ts`, `INTEL_QE_IDENTITY` |
+| `intel-qe-identity` | `COLLATERAL_TCB_LEVEL_UNLISTED` | yes | `packages/collateral/src/read.ts`, `unlistedLevel` |
+| `intel-qe-identity` | `COLLATERAL_STATUS_UNSUPPORTED` | yes | `packages/collateral/src/classify.ts`, `classify` |
+| `intel-qe-identity` | `COLLATERAL_WINDOW_CLOSED` | yes | `packages/collateral/src/classify.ts`, `classify` |
+| `intel-qe-identity` | `COLLATERAL_NOT_OBSERVED` | yes | `packages/collateral/src/classify.ts`, `classify` |
+| `intel-qe-identity` | `COLLATERAL_RETAINED_CHAIN_MISMATCH` | yes | `packages/collateral/src/classify.ts`, `observe` |
+| `intel-qe-identity` | `COLLATERAL_REVOKED_BY_VENDOR` | yes | `packages/collateral/src/classify.ts`, `classify` |
+| `intel-pck-crl` | `COLLATERAL_INPUT_MISSING` | yes | `packages/collateral/src/classify.ts`, `askedButNotGivenCrl` |
+| `intel-pck-crl` | `COLLATERAL_ANCHOR_NOT_PINNED` | yes | `packages/collateral/src/classify.ts`, `askedButNotGivenCrl` |
+| `intel-pck-crl` | `COLLATERAL_ORIGIN_UNSUPPORTED` | no | `packages/collateral/src/intel-origin.ts`, `declarationFor` |
+| `intel-pck-crl` | `COLLATERAL_ORIGIN_UNREACHABLE` | yes | `packages/collateral/src/fetch.ts`, `fetchFromOrigin` |
+| `intel-pck-crl` | `COLLATERAL_ORIGIN_REFUSED` | yes | `packages/collateral/src/fetch.ts`, `fetchFromOrigin` |
+| `intel-pck-crl` | `COLLATERAL_BLOB_UNREADABLE` | yes | `packages/collateral/src/crl.ts`, `readPckCrl` |
+| `intel-pck-crl` | `COLLATERAL_SIGNATURE_UNVERIFIED` | yes | `packages/collateral/src/crl.ts`, `readPckCrl` |
+| `intel-pck-crl` | `COLLATERAL_IDENTITY_MISMATCH` | yes | `packages/collateral/src/crl.ts`, `readPckCrl` |
+| `intel-pck-crl` | `COLLATERAL_TCB_LEVEL_UNLISTED` | no | `packages/collateral/src/intel-origin.ts`, `INTEL_PCK_CRL` |
+| `intel-pck-crl` | `COLLATERAL_STATUS_UNSUPPORTED` | yes | `packages/collateral/src/classify.ts`, `classifyRevocation` |
+| `intel-pck-crl` | `COLLATERAL_WINDOW_CLOSED` | yes | `packages/collateral/src/classify.ts`, `classifyRevocation` |
+| `intel-pck-crl` | `COLLATERAL_NOT_OBSERVED` | yes | `packages/collateral/src/classify.ts`, `classifyRevocation` |
+| `intel-pck-crl` | `COLLATERAL_RETAINED_CHAIN_MISMATCH` | yes | `packages/collateral/src/classify.ts`, `observe` |
+| `intel-pck-crl` | `COLLATERAL_REVOKED_BY_VENDOR` | yes | `packages/collateral/src/classify.ts`, `classifyRevocation` |
+| `amd-kds` | `COLLATERAL_INPUT_MISSING` | yes | `packages/collateral/src/classify.ts`, `askedButNotGivenChain` |
+| `amd-kds` | `COLLATERAL_ANCHOR_NOT_PINNED` | yes | `packages/collateral/src/classify.ts`, `askedButNotGivenChain` |
+| `amd-kds` | `COLLATERAL_ORIGIN_UNSUPPORTED` | no | `packages/collateral/src/intel-origin.ts`, `declarationFor` |
+| `amd-kds` | `COLLATERAL_ORIGIN_UNREACHABLE` | yes | `packages/collateral/src/fetch.ts`, `fetchFromOrigin` |
+| `amd-kds` | `COLLATERAL_ORIGIN_REFUSED` | yes | `packages/collateral/src/fetch.ts`, `fetchFromOrigin` |
+| `amd-kds` | `COLLATERAL_BLOB_UNREADABLE` | yes | `packages/collateral/src/amd-kds.ts`, `readVcekChain` |
+| `amd-kds` | `COLLATERAL_SIGNATURE_UNVERIFIED` | yes | `packages/collateral/src/amd-kds.ts`, `believe` |
+| `amd-kds` | `COLLATERAL_IDENTITY_MISMATCH` | yes | `packages/collateral/src/amd-kds.ts`, `readIdentity` |
+| `amd-kds` | `COLLATERAL_TCB_LEVEL_UNLISTED` | no | `packages/collateral/src/intel-origin.ts`, `AMD_KDS` |
+| `amd-kds` | `COLLATERAL_STATUS_UNSUPPORTED` | no | `packages/collateral/src/intel-origin.ts`, `AMD_KDS` |
+| `amd-kds` | `COLLATERAL_WINDOW_CLOSED` | no | `packages/collateral/src/intel-origin.ts`, `AMD_KDS` |
+| `amd-kds` | `COLLATERAL_NOT_OBSERVED` | yes | `packages/collateral/src/classify.ts`, `classifyChain` |
+| `amd-kds` | `COLLATERAL_RETAINED_CHAIN_MISMATCH` | yes | `packages/collateral/src/classify.ts`, `observe` |
+| `amd-kds` | `COLLATERAL_REVOKED_BY_VENDOR` | no | `packages/collateral/src/intel-origin.ts`, `AMD_KDS` |
+
+Not one of the 56 cells reads `not exercised`, because each cell is produced by an answer or carried by a
+declaration fact. A cell that read it would say that no answer this package can be handed here reaches the code,
+which is a gap in the run rather than a fact about the origin.
+
 ## Why these strings do not overlap
 
 A bare code string has to say which layer failed. Two pairs did not, and both sides were renamed
@@ -383,8 +461,35 @@ the message still names its layer even where the code does not.
 
 ## Keeping this file true
 
-`packages/fixtures/test/error-codes.test.ts` reads the eight unions out of source and checks them
-against this file: every declared code has exactly one row, every code in a row is declared, the
-counts in the opening paragraph agree, and the only strings two unions share are the two this
-section explains. A new code with no row fails CI, which is the only
-reason a reference table like this one stays correct after its first month.
+The suites holding the claims below are `packages/fixtures/test/error-codes.test.ts`,
+`packages/collateral/test/refusal-reachability.test.ts` and `packages/collateral/test/origin-claims.test.ts`,
+each for a different kind of fact; other suites read parts of this file for tables of their own, so this names
+the holders of those claims rather than counting every reader of it.
+
+`packages/fixtures/test/error-codes.test.ts` reads the eight unions out of source and holds the union tables to
+them: every declared code has exactly one row, no row carries an undeclared one, the counts in the opening
+paragraph agree with the declarations, the only strings two unions share are the two explained above, and a row
+running onto a second physical line is refused rather than read short.
+
+`packages/collateral/test/refusal-reachability.test.ts` owns the reachability grid above: its rows are the 4
+origins `SERVED_ORIGINS` names crossed with the 14 members of `CollateralErrorCode`, and this file carries that
+grid cell for cell. A `yes` is proved by handing a public entry point an answer that reaches the code, a `no` by
+a fact that origin's declaration states for that code, and every cited symbol is checked against the file that
+cell names, so a renamed symbol, a declaration that gained the member a `no` rests on, a `no` whose origin and
+code no fact covers, or a code or an origin added without its rows here fails the run.
+
+`packages/collateral/test/origin-claims.test.ts` reads the origin prose of this file, of `threat-model.md` and of
+the README: every origin name a sentence here cites is one `DECLARED_ORIGINS` declares, the origins described as
+read are the 4 `SERVED_ORIGINS` names and the count that sentence states, the origins described as refused are
+the remainder it names, every entry point that prose names is an export of `@ashaveri/collateral` while only the
+two the revocation list and the certificate chain are cited through, `appraisePckCrl` and `appraiseVcekChain`,
+have to be named there so that a further true citation of a real export stays writable, the three suites known
+to hold a claim of this section, the union-table suite, the grid suite and this one, have to stay named in the
+opening sentence while every name that sentence carries has to belong to a file that exists and reads this
+document, and no tracked source of a shipped command asks an origin.
+
+A new code with no row fails CI, which is the only reason a reference table like this one stays correct after its
+first month. What no suite reads is the argument inside a cell: whether the condition a `Raised when` cell
+describes is the condition the code met, and whether a `no` cell's declaration fact still carries the refusal it
+explains, stay a reader's work. The attribution of a claim to the holder named for it stays a reader's work too,
+because the check reads that a named file exists and mentions this document, not which sentence it stands behind.
