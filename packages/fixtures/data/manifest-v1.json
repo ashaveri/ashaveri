@@ -15,7 +15,7 @@
     },
     "headerCloses": "the protected header carries exactly the three labels above and no fourth, because its bytes are hashed into the signature; the document inside the payload is read openly, and a member version 1 does not name is left alone",
     "sigStructure": "RFC 9052 section 4.4: the array [\"Signature1\", the protected bstr as written, the external AAD, the payload bstr], canonically encoded. The external AAD is empty for this container and nothing inside the envelope carries which one was used.",
-    "payload": "the deployment manifest JSON document as UTF-8, signed byte for byte: no re-encode, no key order chosen on the way, so what a client verifies is what it read. The one case that separates a document from its rendering is a key id written in capitals.",
+    "payload": "the deployment manifest JSON document as UTF-8, signed byte for byte: no re-encode, no key order chosen on the way, so what a client verifies is what it read.",
     "integers": "no floating-point number stands where the CBOR declares an integer, in a label or in a value, and the rule lives in the envelope rather than the payload: a JSON number that is a whole one is that whole number by the time a document is read.",
     "decidesSealedOrPlain": "the first byte, 0xd2 for a `COSE_Sign1` and no JSON text beginning with it, rather than a content type a sender chose. `isSealedDeploymentManifest` is the shipped reading. It has a consequence past the branch: bytes that meant to be an envelope and lost their tag are read as the plain document and refused as a manifest, so `NOT_COSE_SIGN1` is reached only behind a first byte that claims the tag.",
     "encodings": "documents and byte strings unpadded base64url, digests, kids and signatures lowercase hex, instants unix seconds",
@@ -49,7 +49,7 @@
       "UNSUPPORTED_ALG",
       "verify-ok"
     ],
-    "assembled": "every honest seal is `sealDeploymentManifest` and no hand-built bytes. Where a row needs a protected header that writer will not write, an undeclared label, a label or value of another type, a kid of another width, an `alg` other than EdDSA, a content type other than this one, a non-empty unprotected map, a truncated signature or a non-empty external AAD, the header is encoded from its parts, signed over the published `Sig_structure`, and assembled by the published tag-18 writer; the generator stops unless that path reproduces `sealDeploymentManifest` byte for byte on the canonical header, so each fault below is the one position its `edited` field names and nothing else. The writer is also asked to seal under a key whose kid is not sha256 of its public half and refuses with `BAD_SIGNING_KEY`, which is why this suite carries no such row.",
+    "assembled": "every honest seal is `sealDeploymentManifest` and no hand-built bytes. Where a row needs a protected header that writer will not write, an undeclared label, a label or value of another type, a kid of another width, an `alg` other than EdDSA, a content type other than this one, a non-empty unprotected map, a truncated signature or a non-empty external AAD, the header is encoded from its parts, signed over the published `Sig_structure`, and assembled by the published tag-18 writer, and the generator stops unless that path reproduces `sealDeploymentManifest` byte for byte on the canonical header. The writer is also asked to seal under a key whose kid is not sha256 of its public half and refuses with `BAD_SIGNING_KEY`, which is why this suite carries no such row.",
     "documentFaults": "the rows whose `seal` is `verify-ok` and whose `verdict` is `BAD_MANIFEST` are documents the writer sealed exactly as given: the signature holds and the document inside it does not parse. That is the state of a deployment that published a manifest no client can read, and it is a different answer from tampering.",
     "keyMaterial": [
       {
@@ -1033,6 +1033,85 @@
       "verdict": "BAD_MANIFEST",
       "seal": "verify-ok",
       "edited": "the keys array, emptied"
+    },
+    {
+      "name": "paired-with-the-published-receipt-family",
+      "note": "The deployment the published receipts came from, stated by a manifest assembled out of one of those receipts' own file: the issuer, instance, epoch, environment kind and measurement are that file's payload members, the key id is the one its protected header names and the public half beside it is the one `data/keys/receipt-key-v1.json` publishes, and the single `models[]` row is the model id and weights digest the receipt states. Its seal is made by the key `layout.keyMaterial` publishes as signing the manifests a reader designates. The published receipt family and the manifest family this suite began with describe two deployments, so a reader who handed a published receipt to `ashaveri verify-receipt` beside a published manifest met `MODEL_UNDECLARED` for a reason neither document could be blamed for; this row is the document that pair was missing, and it is the one row here whose `verdict`, `authentication`, `parsed` and `claims` are what `readDeploymentManifest` and `adjudicateReceiptEpoch` answered rather than words stated beside a run.",
+      "documentBase64Url": "0oRYRaMBJwN4HGFzaGF2ZXJpL2RlcGxveW1lbnQtbWFuaWZlc3QEWCCO6Wge6Y1bz3nhsLWRTJK2Japzlem3b_z7mWJKSvG3ZKBZAdd7InYiOjEsImlzcyI6ImRwbC05ZjJhNDFjMyIsImlucyI6ImN2bS1pLTA0N2YyYSIsImVwayI6MSwia2V5cyI6W3sia2lkIjoiMzUwMTNhNmUwMDBiOGQ1ZGNhNTFjNGJkNWMxZGI5ZjI4NjAyODM2MDZjNzZhZWVlZWE4ZWU3MmI3MmI1ZTE1ZSIsImFsZyI6IkVkMjU1MTkiLCJwdWJsaWNLZXkiOiJFNnVPMGVkM196bS1JeDMybEx1OGo1WjlXM2VldDhxMVdIWXN0VS1XQ3dVIn1dLCJtb2RlbHMiOlt7ImlkIjoibWV0YS1sbGFtYS9MbGFtYS0zLjEtOEItSW5zdHJ1Y3QiLCJ3dHMiOiIyNjg5NTcwYWVjZjUwNTQyODRiMDZkNjAyMjU1NGZiOTc5NDJjYWQwYTc3NGQ1ZGJjOTMwOGIyZDA0NzdkOWI1In1dLCJtZWFzIjp7InRlZSI6InNucCtncHVjYyIsIm0iOiJiZDc2NjEzNjdlYTdjMGZhMDI3Mjk1YjQ5NWEzN2Q4YzQ0NWU5NTg4OWMwOWQ2YjdiZWI2ZWQ0MDUyNzE5ZTMwZjE2ZjA1MDc4MjdlMmQwMDQ5NDliNTUyZjFlNTUxZjIifX1YQD8JCGYljaxMR3zGRM8b-FAp24I6Fp1qCo3yZ_cghSAqM2l-7PFc4Y8ETpkgLdrMB_2if9cokK7wtQK-ZMMSHgU",
+      "documentByteLength": 614,
+      "read": {
+        "designates": [
+          {
+            "kid": "8ee9681ee98d5bcf79e1b0b5914c92b625aa7395e9b76ffcfb99624a4af1b764",
+            "publicKeyBase64Url": "oXZwPF3W14CiPZkn2ebMTHO7aJDg4nOdO2yl8cD-sNE"
+          }
+        ]
+      },
+      "verdict": "verify-ok",
+      "seal": "verify-ok",
+      "authentication": {
+        "sealed": true,
+        "authenticated": true,
+        "kid": "8ee9681ee98d5bcf79e1b0b5914c92b625aa7395e9b76ffcfb99624a4af1b764",
+        "demanded": true,
+        "advisory": false
+      },
+      "parsed": {
+        "v": 1,
+        "iss": "dpl-9f2a41c3",
+        "ins": "cvm-i-047f2a",
+        "epk": 1,
+        "keys": [
+          {
+            "kid": "35013a6e000b8d5dca51c4bd5c1db9f2860283606c76aeeeea8ee72b72b5e15e",
+            "alg": "Ed25519",
+            "publicKey": "E6uO0ed3_zm-Ix32lLu8j5Z9W3eet8q1WHYstU-WCwU"
+          }
+        ],
+        "epochs": null,
+        "models": [
+          {
+            "id": "meta-llama/Llama-3.1-8B-Instruct",
+            "wts": "2689570aecf5054284b06d6022554fb97942cad0a774d5dbc9308b2d0477d9b5"
+          }
+        ],
+        "meas": {
+          "tee": "snp+gpucc",
+          "m": "bd7661367ea7c0fa027295b495a37d8c445e95889c09d6b7beb6ed4052719e30f16f0507827e2d004949b552f1e551f2"
+        }
+      },
+      "claims": [
+        {
+          "claim": {
+            "kid": "35013a6e000b8d5dca51c4bd5c1db9f2860283606c76aeeeea8ee72b72b5e15e",
+            "epoch": 1,
+            "issuedAt": 1772000000
+          },
+          "ok": true,
+          "basis": "current-epoch",
+          "superseded": false,
+          "validFrom": null,
+          "validTo": null
+        },
+        {
+          "claim": {
+            "kid": "b922e87846566b24b1f5c8933f54c64c6621c74a5c15d81e87b2d2592175afb2",
+            "epoch": 1,
+            "issuedAt": 1772000000
+          },
+          "ok": false,
+          "code": "MANIFEST_EPOCH_DISAGREES"
+        },
+        {
+          "claim": {
+            "kid": "35013a6e000b8d5dca51c4bd5c1db9f2860283606c76aeeeea8ee72b72b5e15e",
+            "epoch": 2,
+            "issuedAt": 1772000000
+          },
+          "ok": false,
+          "code": "MANIFEST_EPOCH_UNDECLARED"
+        }
+      ]
     }
   ],
   "crossReading": {

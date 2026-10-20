@@ -235,9 +235,14 @@ pair of them. The committed receipt vectors carry the values a pair has to agree
 measurement, digests and issuance time, and `packages/fixtures/data/keys/receipt-key-v1.json` holds
 the public half in hex, which is the base64url the pins want. `packages/cli/scripts/offline-proof.ts`
 turns those two files into a `policy.json`, a `manifest.json` and the four values above, in a
-directory outside the checkout, and it is the readable form of what the pair has to say. A real
-handover brings its own: a deployment serves the manifest once, you keep the copy, and the policy is
-yours.
+directory outside the checkout, and it is the readable form of what the pair has to say; one committed
+vector reaches `ashaveri verify-receipt` without a built manifest, the row
+`paired-with-the-published-receipt-family` of `packages/fixtures/data/manifest-v1.json`, which is the
+manifest of the deployment `packages/fixtures/data/receipts/receipt-buffered-v1.cbor` describes, so those
+two files answer each other there and the weights comparison asks nothing built of the reader, while the
+policy of such a run is still what the recipe above writes rather than a file this repository
+publishes. A real handover brings its own: a deployment serves the manifest once, you keep the copy, and
+the policy is yours.
 
 **What a run refuses to assume, and prints instead.** Keys come only from the command line, and the
 report says which it was handed and whether the document in front of it consulted them. An evidence key
