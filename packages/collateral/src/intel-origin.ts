@@ -2,7 +2,8 @@ import type { CertificatePublicKey, SignatureAlgorithm } from '@ashaveri/attest-
 import { collateralRefusal, quoteOrDigest, type CollateralErrorCode, type CollateralInputName, type CollateralRefusal } from './errors.js';
 import type { CollateralOriginName, CollateralQuery, IntelPlatform } from './types.js';
 
-/** The origins this package reads. A query naming another origin is refused with what that origin lacks. */
+/** The origins this package reads. A query naming another origin is refused before any request: a declared one
+ * by the reader it has no arm for, an undeclared name by the set this type lists. */
 export type ReadCollateralOrigin = 'intel-tcb-info' | 'intel-qe-identity' | 'intel-pck-crl' | 'amd-kds';
 
 /** The origins whose answer is the served JSON document that one reader weighs. */
@@ -127,9 +128,8 @@ export interface IntelOriginDeclaration extends OriginDeclarationCommon {
    * inside them, which is this path's rule and not the vendor's. `served` is the envelope the answer that this
    * address returns is actually written in, or null where no served answer recorded below arrives in an
    * envelope this package can weigh: a JSON wrapper whose signature sits in a hex member and whose issuer chain
-   * arrives beside the body, in the header `chainHeader` names. That is the pair `readServedCollateral` weighs,
-   * and it is what the gap between the two looked like from this file before there was a reader for the second
-   * half. The suite is the one on both sides, ES256 over P-256, spelled raw rather than as a JWS signature.
+   * arrives beside the body, in the header `chainHeader` names. That is the pair `readServedCollateral` weighs.
+   * The suite is the one on both sides, ES256 over P-256, spelled raw rather than as a JWS signature.
    *
    * Both are stated here rather than read off the bytes because which arm weighs an answer cannot be guessed
    * from a body: a wrapper that starts with a brace and a token that starts with base64url are the same text to
@@ -337,10 +337,8 @@ const CACHE_RULE = {
  *
  * `UpToDate` and `OutOfDate` are the only two words a published level carries, on either platform, at
  * either version, on either document: the first is the vendor standing
- * behind a level and the second is the vendor no longer standing behind it. `OK`, the word this list used
- * to hold as the only trusted one, is no word the vendor publishes, so the trusted side of this vocabulary
- * is the one
- * word the vendor writes and nothing this repository remembered.
+ * behind a level and the second is the vendor no longer standing behind it. `OK` is no word the vendor
+ * publishes, so a vocabulary that trusted it would be trusting a word of ours rather than the vendor's.
  *
  * The two compound spellings stay on the revoked side. They are no words a published level carries; a word
  * that says the vendor no longer stands behind a level belongs on that side on any spelling of it, while
@@ -605,7 +603,7 @@ export const AMD_KDS: VcekOriginDeclaration = {
   method: 'GET',
   mediaType: 'application/octet-stream',
   answer: 'pem-certificate-chain',
-  /** Measured: each answer carries its own bytes, and no header on either route carries a second copy. */
+  /** Each answer carries its own bytes, so no header on either route carries a second copy to reconcile. */
   chainHeader: null,
   timeoutMs: 5000,
   maxResponseBytes: 65536,

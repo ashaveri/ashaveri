@@ -1,8 +1,9 @@
 # Conformance vectors
 
 Status: current for format versions 1. The payload carries one version, and it states seventeen members:
-the twelve every receipt has always carried, the marking member, the disclosure of a stamped instant, the
-anchor of an appraisal context, and the item list of a response. The receipt fixtures under
+the twelve every receipt has always carried, the metering of a call's tokens, the marking member, the
+disclosure of a stamped instant, the anchor of an appraisal context, and the item list of a response.
+The receipt fixtures under
 `data/receipts/` all carry that document, and `data/manifest.json` states beside each row the answer a
 reader owes it. The files named here are the
 contract a
