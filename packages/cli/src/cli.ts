@@ -151,7 +151,14 @@ that signs the manifest is the one trust a policy file cannot carry, so --manife
 one run instead, and the report says in both of its shapes which keys it checked a seal against and
 that the cited policy digest covers none of them. What it applies is what a client applies: the same
 verification rules, in the same order, from the same package, over a receipt taken out of a response
-header and put on a disk. What it does not do is read
+header and put on a disk. A sealed receipt names the reading of the model it was issued for, and a
+manifest's models[] row is that deployment's own list of the readings it serves, so the digest the
+receipt states is weighed against that declaration rather than printed beside it: a model the
+authenticated manifest declares nothing about is refused as MODEL_UNDECLARED, and one it declares at
+another digest is refused as WEIGHTS_DISAGREE. Neither question is asked of a manifest this run could
+not authenticate, because the model list of a document nobody established is a claim about a deployment
+rather than a declaration by one, and both renderings of a verdict say which of the two states the run
+was in. What it does not do is read
 the evidence document behind att.d, which no file here stands in for; the receipt's own att.ts still
 has to sit inside the policy's evidence window, and the report says in terms that the document was not
 fetched. Every receipt this format states names a marking, and a marking attests one region inside
