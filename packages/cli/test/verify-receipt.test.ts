@@ -1253,5 +1253,42 @@ describe('ashaveri verify-receipt', () => {
       expect(refusal.code).toBe('STAMP_SOURCE_TOO_UNCERTAIN');
       expect(String(refusal.message)).toContain('can stand 1 seconds');
     });
+
+    it('says which demand the run weighed, and does not print the same line under none', () => {
+      // One measured receipt, two policies: the one naming no demand and the one whose demand of a
+      // second the receipt meets. The disclosure is the same in both, so what separates the runs is
+      // what this run did with the figure — weighed, or asked to weigh nothing — and a report that
+      // prints the same sentence for both passes over the one policy figure it silently skipped,
+      // while printing both age windows and a `not pinned:` row for every omitted pin.
+      const stampLine = (out: string): string =>
+        out.split('\n').find((one) => one.startsWith('  stamp source:')) ?? '';
+      const noDemand = runCli(argsFor({ receipt: receiptPath('receipt-stream-v1'), json: false }));
+      expect(noDemand.status, noDemand.stdout).toBe(0);
+      const met = runCli(argsFor({
+        receipt: receiptPath('receipt-stream-v1'),
+        policy: policyFile({ maxTimeUncertaintySeconds: 1 }),
+        json: false,
+      }));
+      expect(met.status, met.stdout).toBe(0);
+      const unweighed = stampLine(noDemand.stdout);
+      const weighed = stampLine(met.stdout);
+      expect(unweighed).not.toBe('');
+      expect(weighed).not.toBe('');
+      expect(weighed).not.toBe(unweighed);
+      expect(unweighed).toContain('no maxTimeUncertaintySeconds named by this policy, so this run weighed nothing against it');
+      expect(weighed).toContain('weighed here against the 1 s this policy demands, and met');
+      // The JSON rendering carries the shared sentence, so a port reads the same answer it prints.
+      const jsonNo = verdictOf(runCli(argsFor({ receipt: receiptPath('receipt-stream-v1') })));
+      expect(String((jsonNo.stampSource as { statement: string }).statement)).toContain(
+        'no maxTimeUncertaintySeconds named by this policy, so this run weighed nothing against it',
+      );
+      const jsonMet = verdictOf(runCli(argsFor({
+        receipt: receiptPath('receipt-stream-v1'),
+        policy: policyFile({ maxTimeUncertaintySeconds: 1 }),
+      })));
+      expect(String((jsonMet.stampSource as { statement: string }).statement)).toContain(
+        'weighed here against the 1 s this policy demands, and met',
+      );
+    });
   });
 });
