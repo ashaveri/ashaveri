@@ -106,6 +106,20 @@
           "verdict": "verify-ok"
         }
       ],
+      "stampSource": [
+        {
+          "maxTimeUncertaintySeconds": null,
+          "verdict": "verify-ok"
+        },
+        {
+          "maxTimeUncertaintySeconds": 0,
+          "verdict": "STAMP_SOURCE_TOO_UNCERTAIN"
+        },
+        {
+          "maxTimeUncertaintySeconds": 1,
+          "verdict": "verify-ok"
+        }
+      ],
       "note": "A receipt over the four items a streamed completion frames, issued by a deployment whose time source declares a bound: one reading per item in the order the items were framed, the last a second before `iat`, and both anchor slots holding the digest of bytes that were taken in. Its `res` is sha256 of the whole stream with its framing and its sentinel, the bytes marking-v1.json publishes as `streamed-region-stripped`, and its `itm` digests are the four `data:` payloads inside those bytes. This is the anchor a demand of two answers: both slots state they were taken in, so every posture a policy can take about an anchor accepts it, and the column states all three beside that fact."
     },
     {
@@ -156,6 +170,20 @@
           "verdict": "ANCHOR_SLOT_NOT_HELD"
         }
       ],
+      "stampSource": [
+        {
+          "maxTimeUncertaintySeconds": null,
+          "verdict": "verify-ok"
+        },
+        {
+          "maxTimeUncertaintySeconds": 0,
+          "verdict": "STAMP_SOURCE_TOO_UNCERTAIN"
+        },
+        {
+          "maxTimeUncertaintySeconds": 1,
+          "verdict": "verify-ok"
+        }
+      ],
       "note": "A receipt over a buffered body, whose item list is the one item holding the whole of it: `itm[0].d` and `res` are two statements about one byte string, and a port that walks a buffered body for frames reads no item out of it and disagrees with both. Its anchor holds the collateral and names the validity context as a document its source reports as never issued, which is the pair of states a slot carries a label for rather than a flag. The postures say what that pair is worth: a demand of one slot is met by the half that was taken in, and a demand of both is refused by the half that was not."
     },
     {
@@ -204,6 +232,20 @@
         {
           "minAnchorSlotsHeld": 2,
           "verdict": "verify-ok"
+        }
+      ],
+      "stampSource": [
+        {
+          "maxTimeUncertaintySeconds": null,
+          "verdict": "verify-ok"
+        },
+        {
+          "maxTimeUncertaintySeconds": 0,
+          "verdict": "STAMP_SOURCE_TOO_UNCERTAIN"
+        },
+        {
+          "maxTimeUncertaintySeconds": 1,
+          "verdict": "STAMP_SOURCE_TOO_UNCERTAIN"
         }
       ],
       "note": "A receipt whose source declares that nobody measured it: `sd.unc` is `null`, which is that source saying nothing here knows how far its readings stand from the instants they name, and neither a bound of zero nor a member left out. The name is the shipped one for a deployment that wired no source. The response is the marked buffered completion, so this row and `receipt-marked-v1` attest one response, one disclosure apart. Its anchor holds both halves, so the two windows a policy runs and the demand a policy states are two separate questions here: this row is accepted whatever posture the anchor demand takes."
@@ -280,6 +322,20 @@
           "verdict": "ANCHOR_SLOT_NOT_HELD"
         }
       ],
+      "stampSource": [
+        {
+          "maxTimeUncertaintySeconds": null,
+          "verdict": "verify-ok"
+        },
+        {
+          "maxTimeUncertaintySeconds": 0,
+          "verdict": "STAMP_SOURCE_TOO_UNCERTAIN"
+        },
+        {
+          "maxTimeUncertaintySeconds": 1,
+          "verdict": "verify-ok"
+        }
+      ],
       "note": "A receipt with both anchor slots saying `not-taken-in` beside their reasons: an issuer that takes no collateral in and appraises nothing states both absences in the words that name the collector rather than the world, and a verifier weighing the anchor refuses a declared gap instead of an undeclared one. The response is the marked stream, so the list is the four upstream chunks and the marking frame, five items in the order the bytes put them in. The postures are the whole of what a demand reaches here: naming nothing leaves this document where it was, and asking for one slot or for both refuses it, because there is no held slot to count."
     },
     {
@@ -330,6 +386,20 @@
           "verdict": "ANCHOR_SLOT_NOT_HELD"
         }
       ],
+      "stampSource": [
+        {
+          "maxTimeUncertaintySeconds": null,
+          "verdict": "verify-ok"
+        },
+        {
+          "maxTimeUncertaintySeconds": 0,
+          "verdict": "STAMP_SOURCE_TOO_UNCERTAIN"
+        },
+        {
+          "maxTimeUncertaintySeconds": 1,
+          "verdict": "verify-ok"
+        }
+      ],
       "note": "A receipt over a buffered body whose anchor is the mirror of `receipt-buffered-v1`: the collateral its evidence was appraised against is the half its source reports as never issued, and the validity context is the half held. Written by `issueReceipt` over these bytes like every accepted row here, since a slot naming an absence and its reason is a shape the shipped writer makes. The postures read both halves: a demand of one slot is met by the half that was taken in and a demand of both is refused by the half that was not, and a row whose one held slot is the other one answers alike, which is the only way the column is seen to count slots rather than to look for one name."
     },
     {
@@ -378,6 +448,20 @@
         {
           "minAnchorSlotsHeld": 2,
           "verdict": "ANCHOR_SLOT_NOT_HELD"
+        }
+      ],
+      "stampSource": [
+        {
+          "maxTimeUncertaintySeconds": null,
+          "verdict": "verify-ok"
+        },
+        {
+          "maxTimeUncertaintySeconds": 0,
+          "verdict": "STAMP_SOURCE_TOO_UNCERTAIN"
+        },
+        {
+          "maxTimeUncertaintySeconds": 1,
+          "verdict": "verify-ok"
         }
       ],
       "note": "A receipt over the marked buffered body whose anchor states both halves as material its source never had: the collateral as never issued and the validity context as never issued, each beside its own reason. This is the absence the world is account for, in contrast to `receipt-not-taken-in-v1`, whose two absences are this deployment's own account of looking away, and the two shapes answer a demand alike because neither gives a verifier bytes to weigh. Written by `issueReceipt` over these bytes. Naming no demand leaves it where it was, and a demand of one slot refuses it for the same count a demand of two does: there is no held slot to reach either."
@@ -432,6 +516,20 @@
         },
         {
           "minAnchorSlotsHeld": 2,
+          "verdict": "verify-ok"
+        }
+      ],
+      "stampSource": [
+        {
+          "maxTimeUncertaintySeconds": null,
+          "verdict": "verify-ok"
+        },
+        {
+          "maxTimeUncertaintySeconds": 0,
+          "verdict": "STAMP_SOURCE_TOO_UNCERTAIN"
+        },
+        {
+          "maxTimeUncertaintySeconds": 1,
           "verdict": "verify-ok"
         }
       ],
@@ -1329,7 +1427,8 @@
     "verdictFields": [
       "expected",
       "keyless",
-      "handover"
+      "handover",
+      "stampSource"
     ],
     "readers": {
       "keyless": "decodeReceipt reads the payload a document claims with no key in hand, so a row's `keyless` column is the answer these bytes owe a reader that has not authenticated them",
@@ -1346,6 +1445,7 @@
       "sd": "The disclosure the payload carries: the source `iat` was read from, and the bound that source declares, where `null` is that source's statement that nobody measured it. A row stating no `unc` is a document that withheld the member, which is a refusal and not the same sentence.",
       "cva": "The anchor the payload carries, each slot one of the three presence labels with the digest or the reason that label selects. A slot stating `held` with an empty `d` is a claim with no material behind it, which is a refusal.",
       "handover": "What the shipped client path answers for this document under each posture `minAnchorSlotsHeld` can take, three entries in the order `null`, `1`, `2`: the policy that names no demand, a demand of one held slot, a demand of both. Each entry is that policy field's own name beside the number an operator would write and the verdict the client gives the bytes under it, read off `verifyCompletionReceipt` with the fixture's issuer pinned, the clock at the instant the document names, and nothing else named, so the only thing the three readings differ in is the demand. The `null` entry repeats the row's `expected` rather than claiming a second answer, because what the field promises is that a demand nobody stated moves no verdict. A row states this column where this file publishes the row's own per-member columns: a refusal row states none because the format reader answers it before a policy is weighed at all, and the entries this suite began with state none because they carry no per-member column at all. Every document a reader accepts states an anchor with both of its halves, because the format declares one payload version and it requires the anchor, so the client reaches two slots on every accepted row. Whether a slot stating `held` still resolves is not this column and not this suite: it is answered outside the document.",
+      "stampSource": "What the shipped client path answers for this document under each posture `maxTimeUncertaintySeconds` can take, three entries in the order `null`, `0`, `1`: the policy that names no demand, the tightest demand a policy can state, and a demand of one second. The figures are the ones the two disclosures this suite publishes part on: the measured rows declare `unc` `1`, so the demand of `1` meets them at the boundary and the demand of `0` refuses them for stating a number wider than nothing, while the row declaring that nobody measured is refused at both, which is the pair a reader that flattened the null into a zero, or read the absence as a bound of nothing, could never tell apart. Like the `handover` readings each entry names the policy field, states the verdict, and is read off `verifyCompletionReceipt` with nothing but the document, that issuer pinned and the clock at the instant the document names; the demand is weighed against the payload's own `sd`, which is the only place a reader of a finished receipt can reach it from, and the `null` entry repeats the row's `expected` for the same promised reason. A row states this column on the same roster as `handover`, because both are answers the client path reaches over accepted bytes.",
       "fault": "On a refusal row, the position the shipped reader names in the answer these bytes get, and what the row states about it. Where the reader quotes a member back, the row states the name as `member`. The position is what makes the row about one member rather than about the document as a whole."
     },
     "encodings": "byte strings unpadded base64url, digests lowercase hex, instants whole Unix seconds"

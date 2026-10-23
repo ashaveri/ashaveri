@@ -1197,4 +1197,61 @@ describe('ashaveri verify-receipt', () => {
       expect(unaskedSlot.stderr).toContain("--anchor-file names the 'col' slot, which this receipt states as an absence (not-taken-in:");
     });
   });
+
+  /**
+   * The bound a policy demands of a stamp's source, weighed against what the receipt itself discloses.
+   *
+   * Nothing in these runs states a source: the command is handed a receipt, a policy and the document's
+   * own digests, and the figures behind the refusal or the printed qualification come out of the signed
+   * payload. The published pair does the rest: `receipt-unmeasured-v1` declares a source that states
+   * nobody measured, `receipt-stream-v1` declares one bounded at a second, and the demand of `0` answers
+   * neither while the demand of `1` answers only the measured one, which is the difference no flattened
+   * reading of the disclosure could produce.
+   */
+  describe('the bound a policy demands of the source a receipt discloses', () => {
+    it('refuses the published unmeasured stamp under a policy that names a demand', () => {
+      const result = runCli(argsFor({
+        receipt: receiptPath('receipt-unmeasured-v1'),
+        policy: policyFile({ maxTimeUncertaintySeconds: 3600 }),
+      }));
+      expect(result.status).toBe(1);
+      const refusal = verdictOf(result);
+      expect(refusal.code).toBe('STAMP_SOURCE_TOO_UNCERTAIN');
+      expect(String(refusal.message)).toContain('host clock');
+      expect(String(refusal.message)).toContain('no measured uncertainty');
+    });
+
+    it('prints what the artifact states and passes the same bytes under a policy that names none', () => {
+      const human = runCli(argsFor({
+        receipt: receiptPath('receipt-unmeasured-v1'),
+        json: false,
+      }));
+      expect(human.status, human.stdout).toBe(0);
+      expect(human.stdout).toContain(
+        "  stamp source:     'host clock' declares no measured bound on its readings",
+      );
+      expect(human.stdout).toContain('is not a bound of zero');
+      const machine = verdictOf(runCli(argsFor({ receipt: receiptPath('receipt-unmeasured-v1') })));
+      expect(machine.stampSource).toMatchObject({ name: 'host clock', uncertaintySeconds: null });
+      expect(String((machine.stampSource as { statement: string }).statement)).toContain('not a bound of zero');
+    });
+
+    it('weighs the published measured stamp at the demand its own bound answers, and one notch tighter', () => {
+      const met = runCli(argsFor({
+        receipt: receiptPath('receipt-stream-v1'),
+        policy: policyFile({ maxTimeUncertaintySeconds: 1 }),
+        json: false,
+      }));
+      expect(met.status, met.stdout).toBe(0);
+      expect(met.stdout).toContain("  stamp source:     'ptp-disciplined host clock' declares its readings can stand up to 1 s");
+      const refused = runCli(argsFor({
+        receipt: receiptPath('receipt-stream-v1'),
+        policy: policyFile({ maxTimeUncertaintySeconds: 0 }),
+      }));
+      expect(refused.status).toBe(1);
+      const refusal = verdictOf(refused);
+      expect(refusal.code).toBe('STAMP_SOURCE_TOO_UNCERTAIN');
+      expect(String(refusal.message)).toContain('can stand 1 seconds');
+    });
+  });
 });

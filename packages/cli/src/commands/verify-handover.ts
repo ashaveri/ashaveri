@@ -539,6 +539,21 @@ function weightsNotChecked(reading: WeightsReading): readonly string[] {
 }
 
 /**
+ * What one stamp's source declares about itself, in the reader's words and off the document's own bytes.
+ *
+ * The two figures are the receipt's signed `sd` members, so this file states them and decides nothing with
+ * them: no policy is applied here, and the row exists because a report that quoted `iat` and passed over
+ * its source would read as though the instant were worth whatever the reader assumed. A bound of zero and
+ * the statement that nobody measured are kept apart on purpose, because the second is the case a
+ * demanding policy refuses and the first is the case it can accept.
+ */
+function stampDisclosure(sd: { readonly name: string; readonly uncertaintySeconds: number | null }): string {
+  return sd.uncertaintySeconds === null
+    ? `'${sd.name}' states that nobody measured how far its readings stand from the instants they name, which is not a bound of zero`
+    : `'${sd.name}' declares its readings up to ${String(sd.uncertaintySeconds)} s from the instants they name`;
+}
+
+/**
  * A receipt, read as a receipt.
  *
  * `verifyReceipt` is the shipped reader, so the signature rule, the kid rule and the payload rules are
@@ -574,6 +589,12 @@ function readReceipt(bytes: Uint8Array, inputs: Inputs, kid: Uint8Array): Readin
       { key: 'weights', label: 'weights', value: toHex(payload.wts), json: toHex(payload.wts) },
       weightsFact(weights),
       { key: 'issuedAt', label: 'issued at', value: `${payload.iat} (${isoOf(payload.iat)})`, json: payload.iat },
+      {
+        key: 'stampSource',
+        label: 'stamp source',
+        value: `${stampDisclosure(payload.sd)}, read off the signed payload beside the instant it qualifies`,
+        json: { name: payload.sd.name, uncertaintySeconds: payload.sd.uncertaintySeconds },
+      },
       { key: 'keyEpoch', label: 'key epoch', value: String(payload.epk), json: payload.epk },
       { key: 'measurement', label: 'measurement', value: `${toHex(payload.meas.m)} (${payload.meas.tee})`, json: { tee: payload.meas.tee, m: toHex(payload.meas.m) } },
       { key: 'requestDigest', label: 'request digest', value: toHex(payload.req), json: toHex(payload.req) },
@@ -603,7 +624,7 @@ function readReceipt(bytes: Uint8Array, inputs: Inputs, kid: Uint8Array): Readin
       }),
     ],
     notChecked: [
-      `the nonce against a challenge, the request and response digests against any bytes, the pins a policy names and the age windows a clock closes: 'ashaveri verify-receipt' decides those, from the receipt, a policy file and a deployment manifest`,
+      `the nonce against a challenge, the request and response digests against any bytes, the pins a policy names, the bound a policy demands of the source the stamp source row quotes, and the age windows a clock closes: 'ashaveri verify-receipt' decides those, from the receipt, a policy file and a deployment manifest`,
       'the evidence document behind att.d, which no file in a bundle stands in for',
       ...weightsNotChecked(weights),
     ],
@@ -686,6 +707,24 @@ async function readPack(bytes: Uint8Array, inputs: Inputs, kid: Uint8Array): Pro
         label: 'duty',
         value: `${manifest.duty.art}, revision ${manifest.duty.rev} (${isoOf(manifest.duty.rev)}), required ${manifest.duty.required} s, held ${manifest.duty.held} s, both as the deployment states them`,
         json: manifest.duty,
+      },
+      {
+        key: 'stampSources',
+        label: 'stamp sources',
+        value:
+          `one disclosure per sealed receipt, stated at its own item and merged with nothing: ` +
+          outcome.walked.map((one) => `${one.item.id} at ${one.item.iat}: ${stampDisclosure(one.receipt.payload.sd)}`).join('; ') +
+          `; the pack's own assembly instant ${manifest.at} is stated by no disclosure member, because the container discloses the stamps it seals and not the clock it assembled under`,
+        json: {
+          perReceipt: outcome.walked.map((one) => ({
+            id: one.item.id,
+            iat: one.item.iat,
+            name: one.receipt.payload.sd.name,
+            uncertaintySeconds: one.receipt.payload.sd.uncertaintySeconds,
+          })),
+          assembledAt: { value: manifest.at, disclosedBy: null },
+          rule: 'each sealed receipt states its own source inside this container; a reader weighs them one at a time, and no figure of one receipt qualifies the stamp of another',
+        },
       },
       freshnessFact({
         historical: `the pack was assembled at ${manifest.at} (${isoOf(manifest.at)}) and its records were chained across the span ${manifest.span.from} to ${manifest.span.to} (${isoOf(manifest.span.from)} to ${isoOf(manifest.span.to)})`,

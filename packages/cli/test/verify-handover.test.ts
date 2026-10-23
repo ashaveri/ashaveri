@@ -504,6 +504,36 @@ describe('ashaveri verify-handover', () => {
     expect(String(refusal.message)).toContain("prov is 'live' where the weakest of the items is 'fixture'");
   });
 
+  it('states what each sealed receipt discloses about its stamp, and qualifies the pack stamp with none', () => {
+    // The disclosure member travels inside every sealed receipt, so a pack reader reaches it from the
+    // container alone; the pack's own assembly instant is stated by no such member, and a report that
+    // printed one merged source figure for the whole container would be reading a claim the document
+    // never made. The receipts the builder seals here both name `host clock` and state that nobody
+    // measured it, which is what the per-item rows must repeat per item rather than average.
+    const key = signingKeyFromSeed(Buffer.from(RECEIPT_KEY.privateKey, 'hex'));
+    const path = written('pack-stamp-sources.cbor', Buffer.from(packDocument(key, [RECEIPT_PATH, SOFTWARE_RECEIPT_PATH])));
+    const json = verdictOf(runCli(['verify-handover', path, `--key=${RECEIPT_PUBLIC_B64URL}`, '--json']));
+    const sources = (json.document as Record<string, unknown>).stampSources as {
+      perReceipt: { name: string; uncertaintySeconds: number | null }[];
+      assembledAt: { value: number; disclosedBy: null };
+    };
+    expect(sources.perReceipt.map((one) => [one.name, one.uncertaintySeconds])).toEqual([
+      ['host clock', null],
+      ['host clock', null],
+    ]);
+    expect(sources.assembledAt.disclosedBy).toBeNull();
+    const human = runCli(['verify-pack', path, `--key=${RECEIPT_PUBLIC_B64URL}`]);
+    expect(human.status, human.stdout).toBe(0);
+    expect(human.stdout).toContain('stamp sources:    one disclosure per sealed receipt, stated at its own item and merged with nothing');
+    expect(human.stdout).toContain('states that nobody measured how far its readings stand');
+
+    const receiptReport = verdictOf(runCli(['verify-handover', RECEIPT_PATH, `--key=${RECEIPT_PUBLIC_B64URL}`, '--json']));
+    expect((receiptReport.document as Record<string, unknown>).stampSource).toMatchObject({
+      name: 'host clock',
+      uncertaintySeconds: null,
+    });
+  });
+
   it('reports every reading in the same three registers, with current and freshness unknown', MANY_READINGS, () => {
     // One shape for every reader, so a port reads one member rather than one wording per document. The
     // ledger is the seventh type and is asserted beside its own suite.
