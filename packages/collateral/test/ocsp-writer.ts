@@ -63,6 +63,13 @@ export interface OcspInput {
    * two content bytes of a `[0]` are a member the answer did not state it had.
    */
   readonly standing?: Uint8Array;
+  /**
+   * Which of the four instants an answer carries to spell as `UTCTime` rather than `GeneralizedTime`.
+   *
+   * RFC 6960 states each of the four as `GeneralizedTime`, so a case naming one asks what the other form, the
+   * one a certificate's own window may arrive in, answers with.
+   */
+  readonly utcTimeFor?: readonly ('producedAt' | 'thisUpdate' | 'nextUpdate' | 'revocationTime')[];
   /** Which of the two responder identities to write, as the answer spells the signer. */
   readonly responderBy?: 'name' | 'key';
   /** A key other than the responder's, which makes a well-formed answer that its chain did not sign. */
@@ -193,7 +200,7 @@ export function writeOcspResponse(input: OcspInput): Uint8Array {
   const responseData = sequence(
     ...(input.version === undefined ? [] : [tlv(0xa0, integerNode(input.version))]),
     identity,
-    generalTime(input.producedAt),
+    instantTime(input, 'producedAt', input.producedAt),
     sequence(...entries),
     ...(input.unknownCriticalExtension === true
       ? [tlv(0xa1, sequence(extension(OID_UNKNOWN, true, tlv(0x04, Uint8Array.of(1)))))]
@@ -226,7 +233,7 @@ function singleResponse(certId: Uint8Array, input: OcspInput, status: 'good' | '
     : status === 'unknown'
       ? tlv(0x82, new Uint8Array(0))
       : tlv(0xa1, concat([
-        generalTime(input.revokedAt ?? input.thisUpdate),
+        instantTime(input, 'revocationTime', input.revokedAt ?? input.thisUpdate),
         ...(input.revokedReason === undefined
           ? []
           : [tlv(0xa0, tlv(0x0a, Uint8Array.of(input.revokedReason)))]),
@@ -235,9 +242,33 @@ function singleResponse(certId: Uint8Array, input: OcspInput, status: 'good' | '
   return sequence(
     certId,
     standing,
-    generalTime(input.thisUpdate),
-    ...(input.nextUpdate === null ? [] : [tlv(0xa0, generalTime(input.nextUpdate as number))]),
+    instantTime(input, 'thisUpdate', input.thisUpdate),
+    ...(input.nextUpdate === null ? [] : [tlv(0xa0, instantTime(input, 'nextUpdate', input.nextUpdate as number))]),
   );
+}
+
+/**
+ * One of the four instants an answer carries, in the form the case asks for.
+ *
+ * `GeneralizedTime` is what RFC 6960 states, so it is the spelling every case gets unless it names this instant
+ * in `utcTimeFor`.
+ */
+function instantTime(
+  input: OcspInput,
+  name: 'producedAt' | 'thisUpdate' | 'nextUpdate' | 'revocationTime',
+  seconds: number,
+): Uint8Array {
+  return (input.utcTimeFor ?? []).includes(name) ? utcTime(seconds) : generalTime(seconds);
+}
+
+/** A `UTCTime`, the two-digit-year form RFC 5280 states for a certificate's window and RFC 6960 not for an answer. */
+function utcTime(seconds: number): Uint8Array {
+  const at = new Date(seconds * 1000);
+  const part = (value: number) => String(value).padStart(2, '0');
+  const text = part(at.getUTCFullYear() % 100)
+    + `${part(at.getUTCMonth() + 1)}${part(at.getUTCDate())}`
+    + `${part(at.getUTCHours())}${part(at.getUTCMinutes())}${part(at.getUTCSeconds())}Z`;
+  return tlv(0x17, new TextEncoder().encode(text));
 }
 
 /** The value of a `SubjectPublicKeyInfo`'s public-key BIT STRING, which is what a key hash is taken over. */
@@ -324,7 +355,7 @@ function oidNode(dotted: string): Uint8Array {
   return tlv(0x06, Uint8Array.from(bytes));
 }
 
-/** A `GeneralizedTime`, which is the one spelling RFC 6960 states for the three instants an answer carries. */
+/** A `GeneralizedTime`, which is the one spelling RFC 6960 states for the four instants an answer carries. */
 function generalTime(seconds: number): Uint8Array {
   const at = new Date(seconds * 1000);
   const part = (value: number) => String(value).padStart(2, '0');

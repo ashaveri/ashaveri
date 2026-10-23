@@ -549,6 +549,22 @@ describe('what the reader refuses before it believes anything', () => {
     expect(refusalOf(pastReason).detail).toContain('trailing data inside the revoked standing');
   });
 
+  it('refuses an instant spelled in the form RFC 6960 does not state for it, one instant at a time', () => {
+    const one = fixture();
+    const instants = ['producedAt', 'thisUpdate', 'nextUpdate', 'revocationTime'] as const;
+    for (const instant of instants) {
+      const body = answer(one, instant === 'revocationTime'
+        ? { status: 'revoked', revokedAt: REVOKED_AT, utcTimeFor: [instant] }
+        : { utcTimeFor: [instant] });
+      const outcome = readOutcome(one, body);
+      // The refusal is read before its code is asked for, so a case that lets an instant through names the
+      // instant it let through rather than dying on the first one a loop happens to reach.
+      const detail = 'refusal' in outcome ? outcome.refusal.detail : 'the answer was read with no refusal beside it';
+      expect(detail, `${instant} as UTCTime is refused for the tag it wears`).toContain(`${instant} is tag 0x17`);
+      expect(codeOf(outcome), `${instant} as UTCTime is refused as an unreadable answer`).toBe('COLLATERAL_BLOB_UNREADABLE');
+    }
+  });
+
   it('answers a status that is not successful with the origin refusal, and names which one it was', () => {
     const statuses: readonly (readonly [number, string])[] = [
       [1, 'malformedRequest'],

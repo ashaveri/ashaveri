@@ -228,6 +228,22 @@ interface SingleAnswer {
 }
 
 /**
+ * One of the four instants an answer states, read in the form RFC 6960 states it in.
+ *
+ * `producedAt`, `thisUpdate`, `nextUpdate` and `revocationTime` are each spelled `GeneralizedTime`, and the
+ * standard points at RFC 5280 for that form, so a two-digit-year `UTCTime` in one of these slots is a response
+ * the standard does not state. `der.ts` reads either form because a certificate list may lawfully carry the
+ * short one; this reader reads the long one only, because these four instants are what a window, a revocation
+ * and the reach of an answer are measured against.
+ */
+function readInstant(body: Uint8Array, element: Tlv, context: string): number {
+  if (element.tag !== 0x18) {
+    fail(`${context} is tag 0x${element.tag.toString(16)}, not the GeneralizedTime RFC 6960 states for it`);
+  }
+  return parseTime(body, element, context);
+}
+
+/**
  * The whole `OCSPResponse`, parsed field by field over the bytes as they arrived.
  *
  * A status that is not `successful` carries no `responseBytes` at all, which RFC 6960 states as the rule rather
@@ -393,7 +409,7 @@ function parseResponseData(
       : fail(`responderID is tag 0x${responderTlv.tag.toString(16)}, neither byName nor byKey`);
   at = responderTlv.end;
   const producedTlv = readTlv(tbs, at, outer.end, 'producedAt');
-  const producedAt = parseTime(tbs, producedTlv, 'producedAt');
+  const producedAt = readInstant(tbs, producedTlv, 'producedAt');
   at = producedTlv.end;
   const responses = readTlv(tbs, at, outer.end, 'responses');
   expectTag(responses, 0x30, 'responses');
@@ -439,12 +455,13 @@ function parseSingleResponse(single: Uint8Array): { readonly single: SingleAnswe
   const status = readTlv(single, at, outer.end, 'certStatus');
   at = status.end;
   const thisUpdateTlv = readTlv(single, at, outer.end, 'thisUpdate');
-  const thisUpdate = parseTime(single, thisUpdateTlv, 'thisUpdate');
+  const thisUpdate = readInstant(single, thisUpdateTlv, 'thisUpdate');
   at = thisUpdateTlv.end;
   let nextUpdate: number | null = null;
   if (at < outer.end && single[at] === 0xa0) {
     const wrapper = readTlv(single, at, outer.end, 'nextUpdate');
-    nextUpdate = parseTime(single, readTlv(single, wrapper.contentStart, wrapper.end, 'nextUpdate'), 'nextUpdate');
+    const instant = readTlv(single, wrapper.contentStart, wrapper.end, 'nextUpdate');
+    nextUpdate = readInstant(single, instant, 'nextUpdate');
     at = wrapper.end;
   }
   if (at < outer.end) {
@@ -782,7 +799,7 @@ function readStatus(
   }
   const body = single.statusContent;
   const time = readTlv(body, 0, body.byteLength, 'revocationTime');
-  const revokedAt = parseTime(body, time, 'revocationTime');
+  const revokedAt = readInstant(body, time, 'revocationTime');
   let reasonCode: number | null = null;
   let at = time.end;
   if (at < body.byteLength) {
