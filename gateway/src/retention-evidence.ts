@@ -33,13 +33,16 @@ import {
  * document, belong to a caller that holds both the store and the assessment reader; this evidence reader
  * states no verdict about the store.
  *
- * Two things this reader owes the directory it opens, because opening it is a second opening of the store the
+ * Three things this reader owes the directory it opens, because opening it is a second opening of the store the
  * deployment serves from. It opens under the bounds that deployment configured, so an opening the gateway
  * would refuse at startup is refused here rather than read past, and the window the evidence reports is the
  * one the deployment retains rather than the wider span still on the volume. And it declines the sidecar index
  * unless the caller asks for it by name, because a reader of evidence has no business writing it: an ordinary
  * opening bootstraps an index beside the operator's log, and a command that came to look at a directory should
- * not have changed it.
+ * not have changed it. Third, where the caller gave the reader neither a period nor a count, the evidence says
+ * so of itself, so that a span nobody bounded cannot read outward as the deployment's own duty. That statement
+ * rides beside the scope and the coverage rather than inside the scope, whose members and version belong to the
+ * published document and not to this reader.
  */
 
 /** An inclusive range of intake sequences, or of unix seconds for a period and a span. */
@@ -100,10 +103,31 @@ export interface EvidenceCoverage {
   readonly suffixLoss: (EvidenceRange & { readonly reason: string }) | null;
 }
 
+/**
+ * The durability bound this evidence was read under, stated by the evidence rather than left to inference.
+ *
+ * `ReceiptRetention` makes every field optional and documents an absent period as nothing aging out and an
+ * absent count as nothing shed by count, so the object reaching the door is not the same claim as a bound
+ * reaching it. A caller can hand over a configuration that bounds nothing; the opening then retires nothing,
+ * the window it reports is whatever the file still holds, and that span is wider than any answer about what
+ * the deployment undertakes to keep. Stated here, in the arm the reader lands in, is what keeps a span nobody
+ * bounded from reading as the deployment's own duty.
+ *
+ * It sits on the evidence a producer is handed, and not inside `scope`: the scope's layout is the published
+ * `retention-assessment-v1` shape, whose members and version are the estate's to move and not this reader's.
+ * A serving bound is no part of this statement, because it retires nothing and shortens no window - it sizes
+ * one walk - so it cannot widen the span an assessment reads.
+ */
+export type EvidenceReaderBound =
+  | { readonly stated: 'none'; readonly sentence: 'no bound was given to the reader' }
+  | { readonly stated: 'given'; readonly maxAgeSeconds: number | null; readonly maxCount: number | null };
+
 /** The evidence a producer assembles a document from: a declared scope and the store's observed coverage. */
 export interface RetentionEvidence {
   readonly scope: EvidenceScope;
   readonly coverage: EvidenceCoverage;
+  /** Which bound, if any, the caller gave the reader that read this store. */
+  readonly readerBound: EvidenceReaderBound;
 }
 
 /** What a caller hands this reader: the store to open and the scope the deployment declares about it. */
@@ -236,6 +260,23 @@ function coverageFromSpan(reading: StoreReading): EvidenceCoverage {
 }
 
 /**
+ * Which arm the reader landed in: the period and count it was given, or the statement that it was given none.
+ *
+ * The test is on the two fields, not on the object, because a `ReceiptRetention` with nothing in it is a
+ * configuration that bounds nothing and the opening it describes prunes nothing. An absent field is stated as
+ * null rather than left out, so a reader of this evidence can tell a bound the deployment never set apart from
+ * a bound this reader forgot to look up.
+ */
+function readerBoundOf(retention: ReceiptRetention | undefined): EvidenceReaderBound {
+  const maxAgeSeconds = retention?.maxAgeSeconds;
+  const maxCount = retention?.maxCount;
+  if (maxAgeSeconds === undefined && maxCount === undefined) {
+    return { stated: 'none', sentence: 'no bound was given to the reader' };
+  }
+  return { stated: 'given', maxAgeSeconds: maxAgeSeconds ?? null, maxCount: maxCount ?? null };
+}
+
+/**
  * Reads a store directory as retention assessment evidence.
  *
  * The scope is the caller's declaration with the store's own clock basis beside it; the coverage is what the
@@ -245,7 +286,10 @@ function coverageFromSpan(reading: StoreReading): EvidenceCoverage {
  * at all. None of those three is a verdict: each is the evidence, which the reader over the produced document
  * weighs. A broken chain, a mixture of record kinds, a pairing of durability bound and period that the
  * gateway would refuse to start on, or any other opening refusal comes back from the store unchanged, because
- * there is no honest assessment of a store that cannot tell what it holds.
+ * there is no honest assessment of a store that cannot tell what it holds. Beside the two shapes the caller
+ * declared and the store answered, the result states which bound this reader was given, or that it was given
+ * neither, so that a caller composing a document from it cannot hand a span the deployment never bounded out
+ * as the deployment's own keeping.
  */
 export async function readRetentionEvidence(request: ReadRetentionEvidenceRequest): Promise<RetentionEvidence> {
   const receiptKind = request.receiptKind ?? DEFAULT_RECEIPT_RECORD_KIND;
@@ -262,5 +306,5 @@ export async function readRetentionEvidence(request: ReadRetentionEvidenceReques
     timeBasis: { source: reading.source, uncertaintySeconds: reading.uncertaintySeconds },
     excludes: request.excludes ?? [],
   };
-  return { scope, coverage };
+  return { scope, coverage, readerBound: readerBoundOf(request.retention) };
 }

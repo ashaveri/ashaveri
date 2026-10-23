@@ -24,12 +24,13 @@ import { fixedClock } from './helpers.js';
  * chain endpoints the store holds. That is what keeps a reader from shipping a document its own store
  * contradicts.
  *
- * The second block holds the door to the two things it owes the directory it reads. It is a second opening
- * of the operator's store, so the deployment's durability and serving bounds go into that opening: an
- * opening the gateway refuses at startup is refused here, and a window the
+ * The second and third blocks hold the door to the two things it owes the directory it reads and the document
+ * it hands back. It is a second opening of the operator's store, so the deployment's durability and serving
+ * bounds go into that opening: an opening the gateway refuses at startup is refused here, and a window the
  * deployment would have pruned is not read as a window it holds. And a reader of evidence has no business
  * writing it, so the sidecar is declined unless the caller asks for it by name, which a listing taken before
- * and after a read is able to show.
+ * and after a read is able to show. Where the caller gave the reader neither a period nor a count, the evidence
+ * says so itself, because a span read from a file nobody bounded is not the deployment's own duty.
  */
 
 const RECEIPT = Uint8Array.from(Array.from({ length: 64 }, (_, i) => (i * 7) % 256));
@@ -218,3 +219,65 @@ describe('the bounds the door opens under', () => {
   });
 });
 
+describe('what the evidence states about the bound it was given', () => {
+  it('states that no bound was given to the reader when the request named neither a period nor a count', async () => {
+    const dir = await emptyDir();
+    await fileWith(dir, IDS, false);
+
+    const evidence = await readRetentionEvidence({ dir, ...DECLARATION });
+    expect(evidence.readerBound).toEqual({
+      stated: 'none',
+      sentence: 'no bound was given to the reader',
+    });
+  });
+
+  it('states that no bound was given when the request handed over an empty retention object', async () => {
+    // Passing the object is not passing a bound: every field of `ReceiptRetention` is optional, and each
+    // absent one is documented as nothing aging out or nothing shed by count. A reader given `{}` was given
+    // a configuration that bounds nothing, and the evidence has to say so rather than let the object read
+    // as an answer about what the deployment keeps.
+    const dir = await emptyDir();
+    await fileWith(dir, IDS, false);
+
+    const evidence = await readRetentionEvidence({ dir, retention: {}, ...DECLARATION });
+    expect(evidence.readerBound).toEqual({
+      stated: 'none',
+      sentence: 'no bound was given to the reader',
+    });
+  });
+
+  it('names the period it was given and states that it was given no count', async () => {
+    const dir = await emptyDir();
+    await fileWith(dir, IDS, false);
+
+    const evidence = await readRetentionEvidence({
+      dir,
+      retention: { maxAgeSeconds: 600, time: fixedClock(() => STAMP) },
+      ...DECLARATION,
+    });
+    expect(evidence.readerBound).toEqual({ stated: 'given', maxAgeSeconds: 600, maxCount: null });
+  });
+
+  it('names the count it was given and states that it was given no period', async () => {
+    // A count alone is a capacity number and covers no span of time, which is why the pairing the opening
+    // refuses is a period beside a count and why this arm states the period it does not have.
+    const dir = await emptyDir();
+    await fileWith(dir, IDS, false);
+
+    const evidence = await readRetentionEvidence({ dir, retention: { maxCount: 10_000 }, ...DECLARATION });
+    expect(evidence.readerBound).toEqual({ stated: 'given', maxAgeSeconds: null, maxCount: 10_000 });
+  });
+
+  it('names both when the deployment configured both', async () => {
+    const dir = await emptyDir();
+    await fileWith(dir, IDS, false);
+
+    const evidence = await readRetentionEvidence({
+      dir,
+      retention: { maxAgeSeconds: 600, maxCount: 10_000, time: fixedClock(() => STAMP) },
+      serving: { maxServedReceipts: 500 },
+      ...DECLARATION,
+    });
+    expect(evidence.readerBound).toEqual({ stated: 'given', maxAgeSeconds: 600, maxCount: 10_000 });
+  });
+});

@@ -86,7 +86,7 @@ export type {
 // produced assessment is checkable against the bytes this gateway reads rather than left to a handoff nobody
 // exercises.
 export { readRetentionEvidence } from './retention-evidence.js';
-export type { ReadRetentionEvidenceRequest, RetentionEvidence } from './retention-evidence.js';
+export type { EvidenceReaderBound, ReadRetentionEvidenceRequest, RetentionEvidence } from './retention-evidence.js';
 // The credential file's shape and the admission decision are exported for the same reason the
 // store's is: the tooling that writes a credential and the code that checks one are compiled
 // separately, and a second copy of these shapes could drift from the parser and the pipeline that
