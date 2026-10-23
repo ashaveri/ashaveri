@@ -302,8 +302,9 @@ operator installed and no header a client sends can fix it.
 
 ## `CollateralErrorCode`
 
-What `@ashaveri/collateral` answers when it asks a vendor what that vendor says about a platform or about one of its
-chips, which is a different question from what a document says about the evidence a platform carries. Every one of
+What `@ashaveri/collateral` answers when it asks a vendor what that vendor says about a platform, about one of
+its chips, about one of its certificates or about the reference manifest a device's measurements are weighed
+against, which is a different question from what a document says about the evidence a platform carries. Every one of
 these comes back as a returned state unless the query set `onAbsent: 'refuse'`, which turns an `unavailable` or
 `missing-context` answer into a thrown `CollateralError` carrying the same code. Most arrive through the refusal
 table an origin declaration states, so which code answers a given failure is settled by the document being read
