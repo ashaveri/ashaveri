@@ -9,9 +9,10 @@ import type { CollateralOriginName, CollateralQuery, IntelPlatform } from './typ
  * rather than a type error it could only reach by deleting the question.
  *
  * Five of these read an answer to one of the five verdict states. The sixth, `nvidia-rim`, reads the wrapper its
- * route answers in and refuses the manifest inside it: a served origin here means an answer is weighed, not that
- * every answer reaches a verdict, and the refusal the wrapper reader returns beside the bytes it read says which
- * of the two a caller is holding.
+ * route answers in and weighs the `TCG` manifest inside it, and answers a manifest the service names `CORIM` or
+ * `GENERIC` with that wrapper read beside the refusal that says this path states no rule for weighing the shape
+ * it met: a served origin here means an answer is weighed, not that every answer reaches a verdict, and the
+ * refusal a RIM reading returns beside the bytes it read says which of the two a caller is holding.
  */
 export type ReadCollateralOrigin =
   | 'intel-tcb-info'
@@ -244,12 +245,17 @@ export interface DeclaredOriginDeclaration extends OriginDeclarationCommon {
 }
 
 /**
- * A declaration this package reads as far as its answer's own wrapper, and no further.
+ * A declaration this package reads as far as its answer's own wrapper, and into the manifest the wrapper carries
+ * where that manifest is the shape whose profile this path states.
  *
  * The wrapper is the JSON body a RIM route answers in, and `readRimManifest` weighs it: the base64 manifest
- * against the `sha256` the same body names, and the id the body carries against the id the question asked for.
- * That is a reading of an answer, so this origin is served, and it is not a verdict, because the manifest the
- * wrapper carries is signed in a form this package states no rule for canonicalizing.
+ * against the `sha256` the same body names, and the id the body carries against the id the question asked for. A
+ * `TCG` manifest is then weighed as the profile in `rim.ts` states it: the digest of the canonicalized document,
+ * the signature over the canonicalized signed element, and the chain the document presents walked to a root the
+ * caller pinned. A manifest the service names another way is answered with the wrapper read beside the refusal
+ * that says no rule for its shape is stated here. Either way this is a reading of an answer, so the origin is
+ * served, and it is not a verdict, because a reference document states no platform level and no window a device's
+ * own evidence could be compared with.
  *
  * `lacks` names the reading that would have to exist for an appraisal of this origin to answer a verdict, and
  * `reads` names the half a reader here does weigh, so a caller learns both from one declaration rather than from
@@ -261,9 +267,9 @@ export interface RimOriginDeclaration extends OriginDeclarationCommon {
   /** The routes the vendor publishes, in the order the declaration prefers them. */
   readonly routes: readonly DeclaredRoute[];
   /**
-   * No record can be named for this origin yet. A cache key names the question a kept answer answers, and a
-   * wrapper whose manifest was never believed answers no question about a device, so there is no record for
-   * kept bytes to belong to.
+   * No record can be named for this origin. A cache key names the question a kept answer answers, and this
+   * declaration states no window and no level, so a manifest whose signature held would answer no question that
+   * kept bytes could be an answer to.
    */
   readonly cache: null;
 }
@@ -412,7 +418,8 @@ export function isOcspDeclaration(declaration: OriginDeclaration): declaration i
 }
 
 /**
- * Whether a declaration is read as far as its own wrapper, narrowed so a caller can reach what it lacks.
+ * Whether a declaration is read as far as its own wrapper and the manifest that wrapper names, narrowed so a
+ * caller can reach what it lacks.
  *
  * The tag states the reach rather than the shape: a wrapper reader is a reader, and the `lacks` it carries says
  * how far short of a verdict it stops, which is the pair a caller of the appraisal path has to see together.
@@ -787,25 +794,35 @@ export const AMD_KDS: VcekOriginDeclaration = {
  * NVIDIA's Reference Integrity Manifest service: the signed reference document a GPU's measurements are
  * weighed against.
  *
- * The route is `https://rim.attestation.nvidia.com/v1/rim/{id}`, NVIDIA's Get RIM by ID. Asked at the bare
- * path on 17 October 2026, the host answered 403 with `content-type: application/json`; no RIM body is
- * served here without the id a GPU's evidence names. NVIDIA's API reference describes the answer as a
- * JSON wrapper carrying `$schema`, `id`, `last_updated`, `message`, `request_id`, `rim`, `rim_format` and
- * `sha256`, with `rim_format` one of `TCG`, `CORIM` or `GENERIC`, and its RIM guide describes the `TCG`
- * form as SWID XML signed with `ecdsa-sha384`, the certificates inside `ds:X509Certificate`.
+ * The route is `https://rim.attestation.nvidia.com/v1/rim/{id}`, NVIDIA's Get RIM by ID, and it answers a
+ * manifest id the service holds with the wrapper: nothing is presented first, and the list of the ids it holds
+ * is answered the same way at `/v1/rim/ids`. A name it does not hold is answered with a `403` carrying a JSON
+ * error body, which is a refusal of that question rather than an answer kept for somebody holding a key. NVIDIA's
+ * API reference describes the answer as a JSON wrapper carrying `$schema`, `id`, `last_updated`, `message`,
+ * `request_id`, `rim`, `rim_format` and `sha256`, with `rim_format` one of `TCG`, `CORIM` or `GENERIC`, and its
+ * RIM guide describes the `TCG` form as SWID XML signed with `ecdsa-sha384`, the certificates inside
+ * `ds:X509Certificate`.
  *
- * The wrapper is read, and the manifest inside it is not. `readRimManifest` weighs the wrapper's own `sha256`
- * against the bytes its `rim` member carries, reads the id and the format the service states, and answers with
- * those beside the refusal that says the bytes were signed by nobody this path weighed. What stands between
- * that and an appraisal is a canonicalization: the `TCG` form is SWID XML whose signature is taken over a
- * canonicalized element, and the package has no XML parser and no XML digital-signature canonicalization, so
- * no measurement inside a manifest is read here and no appraisal of this origin answers a verdict. Nor is the
- * variant settled from an answer: no served RIM body confirms which of the three formats a GPU RIM arrives in,
- * and a reader that assumed one would be inventing both the variant and the signature rule.
+ * `readRimManifest` weighs the wrapper's `sha256` against the bytes its `rim` member carries, reads the id and
+ * the format the service states, and then reads a `TCG` manifest as the profile in `rim.ts` states one: the
+ * digest of the canonicalized whole document with its `ds:Signature` element removed, the ECDSA-P384 signature
+ * over the canonicalized `ds:SignedInfo`, and the chain inside `ds:KeyInfo` walked to a root the caller pinned. A
+ * `CORIM` or `GENERIC` manifest is answered with the wrapper read beside the refusal that names the format no rule
+ * here weighs. Which of the three shapes an answer carries is read from the wrapper's own `rim_format` rather than
+ * guessed at the bytes, because a reader that assumed one would be inventing both the variant and the signature
+ * rule beside it.
  *
- * A RIM is a signed reference document and would reach the instant it was published, not the instant it is
- * read: `last_updated` is when the vendor updated the file, not a validity window, so even a weighed manifest
- * could only ever be reported as historical knowledge. It is not revocation knowledge, which belongs to the
+ * Neither reading reaches a verdict, and this declaration states why in its own members: no window, no identity
+ * block, no chain header, no cache rule, and one route that answers a reference document rather than a revocation
+ * shape. The identity a manifest states for itself is reported beside the id the question asked for and is never
+ * compared with it, because the first is a name a publisher gives its own document and the second is the handle
+ * the route is addressed by, and no rule of this format binds one to the other. The binding to the question is
+ * the wrapper's own id, which `readRimManifest` compares with the id a query names before it weighs a byte of the
+ * manifest.
+ *
+ * A RIM is a signed reference document and reaches the instant it was published, not the instant it is read:
+ * `last_updated` is when the vendor updated the file, not a validity window, so a manifest whose signature held
+ * is still historical knowledge about a reference document. It is not revocation knowledge, which belongs to the
  * OCSP route below, and it is not a measurement match, which is what a GPU's evidence would be weighed against.
  */
 export const NVIDIA_RIM: RimOriginDeclaration = {
@@ -816,8 +833,8 @@ export const NVIDIA_RIM: RimOriginDeclaration = {
   mediaType: 'application/json',
   answer: 'swid-rim',
   /**
-   * The signed SWID document travels in the wrapper's `rim` member, and no response header carries the
-   * certificates beside it. The wrapper's `sha256` is a digest the caller can check, not a chain.
+   * The signed SWID document travels in the wrapper's `rim` member, and its chain travels inside that document
+   * rather than in a response header. The wrapper's `sha256` is a digest the caller can check, not a chain.
    */
   chainHeader: null,
   timeoutMs: 5000,
@@ -825,8 +842,11 @@ export const NVIDIA_RIM: RimOriginDeclaration = {
   refusals: REFUSALS,
   reader: {
     as: 'rim-wrapper',
-    reads: 'the JSON wrapper the route answers in, which readRimManifest weighs against its own sha256',
-    lacks: 'an XML digital-signature reader for the manifest the wrapper carries',
+    reads: 'the JSON wrapper the route answers in, which readRimManifest weighs against its own sha256, and the '
+      + 'TCG manifest inside it: the digest of the canonicalized document, the signature over the canonicalized '
+      + 'signed element, and the chain the document presents walked to a root the caller pins',
+    lacks: 'the reading that compares a device measurement with what a manifest states, which an XML '
+      + 'digital-signature reader supplies nothing of',
   },
   routes: [
     {
@@ -1129,8 +1149,8 @@ function routeMember(query: CollateralQuery, member: string, missing: Collateral
       }
       return query.hwid.toLowerCase();
     case 'rimId':
-      // No served sample pins the id's character set, so any non-empty id is taken and
-      // percent-encoded rather than refused under a class nobody measured.
+      // The route answers the ids it holds and states no character set for one, so any non-empty id is
+      // taken and percent-encoded rather than refused under a class nothing here states.
       if (query.rimId == null || query.rimId.length === 0) {
         missing.push('rimId');
         return null;

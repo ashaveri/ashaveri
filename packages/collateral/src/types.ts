@@ -449,12 +449,18 @@ export interface OcspCollateral extends SignedCollateral {
 }
 
 /**
- * What a RIM wrapper states about the manifest it carries.
+ * What a RIM wrapper states about the manifest it carries, and what was established about the manifest itself.
  *
- * Nothing here is a statement about the manifest's contents: `readRimManifest` weighs the wrapper's own digest
- * against the bytes the `rim` member carries and copies the identity the service states for the answer, and the
- * refusal beside it says that the manifest's own signature was weighed by nobody. `lastUpdated` is the vendor's
- * text for when the file was updated and states no window, so no reach and no expiry is derived from it.
+ * `readRimManifest` weighs the wrapper's own digest against the bytes the `rim` member carries and copies the
+ * identity the service states for the answer. For the `TCG` form it goes further: the digest of the canonicalized
+ * document, the signature over the canonicalized signed element and the chain to a root the caller pinned are all
+ * settled before a word of the manifest is believed, and `tagId` and `anchorDigest` are what that reading then
+ * states. Both are null where the manifest was not weighed, which is the answer for a `CORIM` or `GENERIC` form
+ * and for every failure to hold: a caller cannot be handed a tag identity read out of a document nobody signed.
+ *
+ * `lastUpdated` is the vendor's text for when the file was updated and states no window, so no reach and no
+ * expiry is derived from it, and a weighed manifest is knowledge about a reference document rather than a match
+ * against a measurement.
  */
 export interface RimManifest {
   /** The manifest id the wrapper states for itself, verbatim. */
@@ -467,7 +473,11 @@ export interface RimManifest {
   readonly rim: Uint8Array;
   /** sha256 of `rim` as hex, which is the digest the wrapper stated and this path compared. */
   readonly digest: string;
-  /** The whole answer, as it arrived, so a caller keeps the bytes rather than a re-encoding of them. */
+  /** The tag identity the document element states, or null where the manifest was not weighed. */
+  readonly tagId: string | null;
+  /** sha256 of the pinned root the chain walk ended on, or null where no chain was walked. */
+  readonly anchorDigest: string | null;
+  /** The answer as it arrived, then each certificate the manifest presented, in the order it presented them. */
   readonly blobs: readonly Uint8Array[];
 }
 

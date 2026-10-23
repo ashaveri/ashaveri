@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { readFileSync } from 'node:fs';
-import { sha256 } from '@noble/hashes/sha2.js';
+import { sha256, sha384 } from '@noble/hashes/sha2.js';
 import {
   foreignKey,
   qeIdentity,
@@ -37,10 +37,13 @@ import {
   type PckCrlQuery,
   type ReadCollateralOrigin,
   type ReadDocumentOrigin,
+  type RimReadOutcome,
   type VcekChainQuery,
 } from '../src/index.js';
+import { utf8 } from '../src/bytes.js';
 import { ocspDevice, writeOcspResponse, type OcspInput } from './ocsp-writer.js';
 import { writeRimWrapper } from './rim-writer.js';
+import { manifestBytes, rimChain, rimManifest, wrap } from './rim-document-writer.js';
 import { amdAsk, amdChain, amdRoot, amdVcek, hwidHex, hwidOf, secondsOf as writerSeconds } from './kds-writer.js';
 import { writeCrl } from './crl-writer.js';
 
@@ -166,19 +169,20 @@ const CELLS: Record<ReadCollateralOrigin, Record<CollateralErrorCode, CellSpec>>
     COLLATERAL_REVOKED_BY_VENDOR: ['yes', 'classify', 'classifyOcsp', 'an answer reading revoked for the certificate asked about'],
   },
   /**
-   * The RIM row is the reach of a wrapper reader: what the service sent is weighed, and what the service sent
-   * it inside is not. Four codes belong to a verdict this origin reaches never and are carried by the members the
-   * declaration states none of: no window, no identity block, no cache rule, no revocation shape on its route.
-   * The rest are the wrapper's own failures, produced by `readRimManifest`, `requestUrl` and `fetchFromOrigin`.
+   * The RIM row is the reach of the reader that weighs a wrapper and, for the shape whose profile it states, the
+   * manifest inside that wrapper. Four codes belong to a verdict this origin reaches never and are carried by the
+   * members the declaration states none of: no window, no identity block, no cache rule, no revocation shape on
+   * its route. The rest are the failures of an answer this path reads, produced by `readRimManifest`,
+   * `requestUrl` and `fetchFromOrigin`.
    */
   'nvidia-rim': {
     COLLATERAL_INPUT_MISSING: ['yes', 'origin', 'declaredUrl', 'a RIM route whose id placeholder the question leaves empty'],
-    COLLATERAL_ANCHOR_NOT_PINNED: ['no', 'origin', 'NVIDIA_RIM', 'no header carries a chain and the reader weighs a digest, so no root is consulted'],
+    COLLATERAL_ANCHOR_NOT_PINNED: ['yes', 'rim', 'walkToPinnedRoot', 'a manifest whose chain ends at a self-signed root the caller pinned nothing for'],
     COLLATERAL_ORIGIN_UNSUPPORTED: ['no', 'origin', 'declarationFor', 'the declaration names a reader, so no unread-origin arm is reached'],
     COLLATERAL_ORIGIN_UNREACHABLE: ['yes', 'fetch', 'fetchFromOrigin', 'a transport that throws on the way to the declared host'],
     COLLATERAL_ORIGIN_REFUSED: ['yes', 'fetch', 'fetchFromOrigin', 'a 403 answered in place of a wrapper'],
     COLLATERAL_BLOB_UNREADABLE: ['yes', 'rim', 'readRimManifest', 'an answer that is not the JSON wrapper the route states'],
-    COLLATERAL_SIGNATURE_UNVERIFIED: ['yes', 'rim', 'readRimManifest', 'a wrapper that parses, whose manifest signature is weighed by nobody here'],
+    COLLATERAL_SIGNATURE_UNVERIFIED: ['yes', 'rim', 'readRimManifest', 'a wrapper that parses beside a CORIM manifest signed in a shape this path states no rule for weighing'],
     COLLATERAL_IDENTITY_MISMATCH: ['yes', 'rim', 'readRimManifest', 'a wrapper whose own digest does not match the bytes it carries'],
     COLLATERAL_TCB_LEVEL_UNLISTED: ['no', 'origin', 'NVIDIA_RIM', 'the declaration states no identity block, so no level is read'],
     COLLATERAL_STATUS_UNSUPPORTED: ['yes', 'rim', 'readRimManifest', 'a format name outside the three the reference states'],
@@ -591,16 +595,79 @@ function rimAddress(): string {
   return asked;
 }
 
+/** The identifiers the fixture's `ds:SignedInfo` is written in, which are the ones the profile reads. */
+const RIM_DS = 'http://www.w3.org/2000/09/xmldsig#';
+const RIM_C14N11 = 'http://www.w3.org/2006/12/xml-c14n11';
+const RIM_ECDSA_SHA384 = 'http://www.w3.org/2001/04/xmldsig-more#ecdsa-sha384';
+const RIM_SHA384 = 'http://www.w3.org/2001/04/xmldsig-more#sha384';
+const RIM_ENVELOPED = 'http://www.w3.org/2000/09/xmldsig#enveloped-signature';
+
+/**
+ * The canonical form of the fixture manifest with its `ds:Signature` element left out, spelled from the
+ * canonicalization rules the way `test/rim.test.ts` pins them: the declarations an element has in scope by prefix
+ * with the default first, the document element's attributes by name, the comment dropped, `<Meta/>` as a start tag
+ * and an end tag, the closing bracket of an attribute value as the character it names, and the carriage return of
+ * the measured text as `&#xD;`. The attribute values are the ones `test/rim-document-writer.ts` writes by default.
+ * This row needs a document whose digest holds because the chain walk sits behind the digest, and a copy that
+ * drifted would answer with the digest refusal rather than the one the row names, which is where the two copies
+ * are kept in step.
+ */
+const RIM_CANONICAL_DOCUMENT = '<SoftwareIdentity xmlns="http://standards.iso.org/iso/19770/-2/2015/schema.xsd"'
+  + ' xmlns:ds="http://www.w3.org/2000/09/xmldsig#" corpus="false" name="GH100 > driver"'
+  + ' tagId="NV_GPU_DRIVER_GH100_550.127.08" version="550.127.08"><Meta></Meta><Payload>'
+  + '<Measurements>sha384 &gt; a&#xD;b</Measurements></Payload></SoftwareIdentity>';
+
+/** The `ds:SignedInfo` the profile reads, carrying the digest of the canonical document above. */
+function rimSignedInfo(digest: string): string {
+  return '<ds:SignedInfo>'
+    + `<ds:CanonicalizationMethod Algorithm="${RIM_C14N11}"/>`
+    + `<ds:SignatureMethod Algorithm="${RIM_ECDSA_SHA384}"/>`
+    + '<ds:Reference URI="">'
+    + `<ds:Transforms xmlns:ds="${RIM_DS}">`
+    + `<ds:Transform Algorithm="${RIM_ENVELOPED}"/>`
+    + `<ds:Transform Algorithm="${RIM_C14N11}"/>`
+    + '</ds:Transforms>'
+    + `<ds:DigestMethod Algorithm="${RIM_SHA384}"/>`
+    + `<ds:DigestValue>${digest}</ds:DigestValue>`
+    + '</ds:Reference></ds:SignedInfo>';
+}
+
+/**
+ * One `TCG` manifest in the wrapper the route answers it in, read far enough to reach the chain walk: the digest
+ * it carries is the one the canonicalized document holds, so the answer is whatever the certificates and the
+ * pinned roots decide, and the chain is handed in because which link the walk stops at is the cell's own fact.
+ */
+function rimWeighedWrapper(chain: ReturnType<typeof rimChain> = rimChain()): Uint8Array {
+  const digest = wrap(Buffer.from(sha384(utf8(RIM_CANONICAL_DOCUMENT))).toString('base64'));
+  const signedInfo = rimSignedInfo(digest);
+  const document = rimManifest({ chain, signedInfo, signedInfoBytes: utf8(signedInfo) });
+  return writeRimWrapper({ id: RIM_ID, rim: manifestBytes(document) });
+}
+
+/**
+ * The refusal code an answer carries.
+ *
+ * Every RIM cell of the grid is made of a refusal, so an answer that weighed its manifest instead of refusing one
+ * is an answer no cell of that row names, and that is said here rather than read off a missing field.
+ */
+function rimRefusalCode(outcome: RimReadOutcome): CollateralErrorCode {
+  if (!('refusal' in outcome)) {
+    throw new Error('the RIM reader weighed the answer and handed back no refusal for a grid cell to name');
+  }
+  return outcome.refusal.code;
+}
+
 /**
  * The RIM cells, produced through the three public entry points a RIM reading is made of.
  *
- * No appraisal path answers for this origin, because no verdict does: the wrapper reader answers with what it
- * read beside the refusal that says the manifest inside it was weighed by nobody, so the refusal is read off the
- * outcome rather than off a state.
+ * No appraisal path answers for this origin, because no verdict does, so each cell is read off the outcome
+ * `readRimManifest` hands back, off the address `requestUrl` refuses to spell, or off the status
+ * `fetchFromOrigin` met: a `CORIM` answer carries its refusal beside the wrapper it read, and the walk answers
+ * the question a caller pinned nothing for.
  */
 function rimScenarios(): Partial<Record<CollateralErrorCode, Scenario>> {
   const wrapper = (body: Uint8Array, over: Partial<CollateralQuery> = {}): Promise<string> =>
-    Promise.resolve(readRimManifest(body, rimQuery(over), NVIDIA_RIM).refusal.code);
+    Promise.resolve(rimRefusalCode(readRimManifest(body, rimQuery(over), NVIDIA_RIM)));
   const asked = async (transport: CollateralTransport): Promise<string> => {
     const out = await fetchFromOrigin(rimAddress(), NVIDIA_RIM, { transport });
     return 'refusal' in out ? out.refusal.code : 'an answer was fetched and carried no refusal';
@@ -612,8 +679,9 @@ function rimScenarios(): Partial<Record<CollateralErrorCode, Scenario>> {
     },
     COLLATERAL_ORIGIN_UNREACHABLE: () => asked(unreachable()),
     COLLATERAL_ORIGIN_REFUSED: () => asked(async () => new Response('{}', { status: 403 })),
+    COLLATERAL_ANCHOR_NOT_PINNED: () => wrapper(rimWeighedWrapper()),
     COLLATERAL_BLOB_UNREADABLE: () => wrapper(new TextEncoder().encode('not a wrapper')),
-    COLLATERAL_SIGNATURE_UNVERIFIED: () => wrapper(writeRimWrapper({ id: RIM_ID })),
+    COLLATERAL_SIGNATURE_UNVERIFIED: () => wrapper(writeRimWrapper({ id: RIM_ID, format: 'CORIM' })),
     COLLATERAL_IDENTITY_MISMATCH: () => wrapper(writeRimWrapper({ id: RIM_ID, digest: '0'.repeat(64) })),
     COLLATERAL_STATUS_UNSUPPORTED: () => wrapper(writeRimWrapper({ id: RIM_ID, format: 'NOT-A-FORMAT' })),
   };
@@ -659,11 +727,6 @@ const NO_CELL_FACTS: Readonly<Partial<Record<CollateralErrorCode, Readonly<Parti
     'amd-kds': originHasAReader,
     ocsp: originHasAReader,
     'nvidia-rim': originHasAReader,
-  },
-  COLLATERAL_ANCHOR_NOT_PINNED: {
-    // A wrapper carries a digest of its own bytes and no chain beside them, so there is no root this reader
-    // could be asked to pin and no walk that could fail to reach one.
-    'nvidia-rim': () => NVIDIA_RIM.chainHeader === null && NVIDIA_RIM.reader.as === 'rim-wrapper',
   },
   COLLATERAL_IDENTITY_MISMATCH: {
     'intel-qe-identity': () => INTEL_QE_IDENTITY.identity.cpuTypeMember === null,
@@ -782,21 +845,26 @@ describe('the reachability grid docs/error-codes.md carries', () => {
   });
 
   /**
-   * The RIM row holds because an arm weighs its wrapper, and the cells that read `no` hold because the same
-   * declaration states no window, no identity block, no chain header, no cache rule and no revocation shape.
-   * That is the grid's way of stating that a wrapper reading reaches no verdict. The refusal a wrapper that
-   * parses carries says the same thing from the reader's side, so this case reads both and refuses a grid that
-   * quietly grants this origin a row it cannot fill.
+   * The RIM row holds because an arm weighs its wrapper and weighs the `TCG` manifest inside it, and the cells
+   * that read `no` hold because the same declaration states no window, no identity block, no chain header, no
+   * cache rule and no revocation shape. That is the grid's way of stating that no RIM reading reaches a verdict.
+   * What the reader answers says the same thing from its side, so this case reads both and refuses a grid that
+   * quietly grants this origin a row it cannot fill: a `CORIM` wrapper answers with the read and the refusal
+   * beside it, a `TCG` wrapper whose manifest holds nothing this path can weigh answers with a refusal alone, and
+   * a chain that ends at a self-signed name the question pinned nothing for answers with the anchor refusal its
+   * row names.
    */
   it('holds the RIM to the reach its declaration and its reader both state', () => {
     const declared = ORIGIN_DECLARATIONS['nvidia-rim'];
     if (declared.reader.as !== 'rim-wrapper') throw new Error('the RIM was granted a verdict its reader does not reach');
     expect(declared.reader.reads).toContain('readRimManifest');
     expect(declared.reader.reads).toContain('sha256');
-    expect(declared.reader.lacks).toContain('XML digital-signature reader');
+    expect(declared.reader.reads).toContain('the digest of the canonicalized document');
+    expect(declared.reader.reads).toContain('the signature over the canonicalized signed element');
+    expect(declared.reader.reads).toContain('walked to a root the caller pins');
+    expect(declared.reader.lacks).toContain('compares a device measurement');
     const cells = CELLS['nvidia-rim'];
     for (const code of [
-      'COLLATERAL_ANCHOR_NOT_PINNED',
       'COLLATERAL_ORIGIN_UNSUPPORTED',
       'COLLATERAL_TCB_LEVEL_UNLISTED',
       'COLLATERAL_WINDOW_CLOSED',
@@ -806,17 +874,35 @@ describe('the reachability grid docs/error-codes.md carries', () => {
     ] as const) {
       expect(cells[code][0], code).toBe('no');
     }
+    expect(cells.COLLATERAL_ANCHOR_NOT_PINNED[0], 'the walk answers a chain that reaches no root the caller pinned').toBe('yes');
     expect(requestUrl(rimQuery(), NVIDIA_RIM), 'the route is published even where no verdict reads its answer').toBe(
       'https://rim.attestation.nvidia.com/v1/rim/gpu-rim-0001',
     );
 
-    const paired = readRimManifest(writeRimWrapper({ id: RIM_ID }), rimQuery(), NVIDIA_RIM);
-    if (!('read' in paired)) throw new Error(`the wrapper was refused: ${paired.refusal.detail}`);
-    expect(paired.read.format).toBe('TCG');
+    const paired = readRimManifest(writeRimWrapper({ id: RIM_ID, format: 'CORIM' }), rimQuery(), NVIDIA_RIM);
+    if (!('read' in paired) || !('refusal' in paired)) {
+      throw new Error('the wrapper did not answer with the read and the refusal this cell pairs');
+    }
+    expect(paired.read.format).toBe('CORIM');
     expect(paired.read.id).toBe(RIM_ID);
     expect(paired.read.blobs).toHaveLength(1);
+    expect(paired.read.tagId).toBeNull();
+    expect(paired.read.anchorDigest).toBeNull();
     expect(paired.refusal.code).toBe('COLLATERAL_SIGNATURE_UNVERIFIED');
-    expect(paired.refusal.detail).toContain('canonicalized');
+    expect(paired.refusal.detail).toContain('CORIM');
+    expect(paired.refusal.detail).toContain('no rule');
+
+    const refused = readRimManifest(writeRimWrapper({ id: RIM_ID }), rimQuery(), NVIDIA_RIM);
+    if ('read' in refused) throw new Error('a TCG wrapper carrying an opaque manifest answered with a reading and no refusal');
+    expect(refused.refusal.code).toBe('COLLATERAL_BLOB_UNREADABLE');
+
+    // The row names the arm as well as the code, so the answer the scenario hands is read here for the sentence
+    // it carries: a chain the walk believed link by link, ending at a self-signed name this question pinned
+    // nothing for, which is the anchor refusal rather than the unverified signature one.
+    const unpinned = readRimManifest(rimWeighedWrapper(), rimQuery(), NVIDIA_RIM);
+    if (!('refusal' in unpinned)) throw new Error('the chain walk answered with a reading and no refusal');
+    expect(unpinned.refusal.code).toBe('COLLATERAL_ANCHOR_NOT_PINNED');
+    expect(unpinned.refusal.detail).toContain('pinned nothing for');
   });
 });
 
