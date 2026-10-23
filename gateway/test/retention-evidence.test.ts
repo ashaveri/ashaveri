@@ -154,7 +154,7 @@ describe('the bounds the door opens under', () => {
   it('refuses the pairing the gateway refuses at startup, rather than assessing past it', async () => {
     // Ten receipts sharing one instant are a store exactly at its durability bound, and a two second
     // period takes more receipts at that traffic than the bound allows: the count is what cut the window
-    // short. `openFileReceiptStore` refuses that pairing since DU-3.8, and this door is a second opening
+    // short. `openFileReceiptStore` refuses that pairing since the window derivation landed, and this door is a second opening
     // of the same directory, so the refusal it owes is the same one and not a wider span read as evidence.
     const dir = await emptyDir();
     const retention: ReceiptRetention = { maxAgeSeconds: 2, maxCount: 10, time: fixedClock(() => STAMP) };

@@ -186,7 +186,7 @@ interface StoreReading {
 /**
  * Opens the store under the deployment's own bounds and reads the checkpoint already on the volume.
  *
- * The bounds travel into the opening because this is a second opening of the same directory. DU-3.8 settled
+ * The bounds travel into the opening because this is a second opening of the same directory. The store settled
  * the question for the serving process, where a store at its count bound derives the count its configured
  * period needs and refuses to open rather than serve a window it cannot hold; a door that opened without the
  * pairing would assess records that deployment would have pruned, and would reach past the rule for nothing
