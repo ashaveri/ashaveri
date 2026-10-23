@@ -212,8 +212,8 @@ What is still true, in both modes:
   It reads a responder's DER answer when a caller asks `appraiseOcspResponse`: the question is written from the
   certificate and the issuer the caller names, the answer is weighed under that issuer and walked to a root the
   caller pins, and the span it speaks for is the answer's own `thisUpdate` to `nextUpdate`. An answer this run
-  asked inside that span is the one `current-knowledge` this package states about a revocation; bytes kept from an
-  earlier run carry a historical reach and are answered as unobserved; and a standing the responder gave as
+  asked inside that span is the one `current-knowledge` this package states about a revocation; bytes kept from
+  an earlier run carry a historical reach and are answered as unobserved; and a standing the responder gave as
   revoked outranks a closed window, because nothing published later un-revokes a certificate. It says nothing
   about a platform: a responder names one certificate, and a certificate that is not revoked is not a statement
   that the platform carrying it is trusted. It reads a RIM route's JSON wrapper when a caller asks
@@ -223,7 +223,8 @@ What is still true, in both modes:
   canonicalizing) was weighed by nobody. A RIM therefore answers no verdict and states no window: the vendor's
   update text says when a file was changed, not what span it speaks for, so a read wrapper establishes nothing
   about a device measurement, and a platform-level question put to that origin is answered by naming the arm that
-  reads the wrapper rather than by handing back bytes nobody believed. No shipped command asks any of those entry points, and none of them closes any of the residual above.
+  reads the wrapper rather than by handing back bytes nobody believed.
+  No shipped command asks any of those entry points, and none of them closes any of the residual above.
   What is in this code is the other half of the same question and closes none of it:
   `@ashaveri/collateral` reads and classifies a vendor document it is handed,
   and a pack carries the material its sealed receipts' anchors name, so `ashaveri verify-pack` weighs those
