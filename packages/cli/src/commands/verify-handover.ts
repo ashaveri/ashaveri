@@ -1106,6 +1106,11 @@ function handedPack(companions: ReadonlyMap<string, Uint8Array>): Uint8Array | u
  * impossible: the pack's signed head still holds over the pack's own run, and the head over the survivors is
  * a chain the pack does not contain. What a removal was for, and whether the bytes named as removed are
  * unreachable anywhere else, are answered by no reading of two documents, and are printed as open.
+ *
+ * Each survivor record prints with the stamp disclosure its own sealed receipt states, per record and merged
+ * with nothing, exactly as the pack arm states one disclosure per receipt it seals: this arm reaches the
+ * payload of every survivor it walks, and a report that quoted `at` and passed over its source would read as
+ * though the instant were worth whatever the reader assumed.
  */
 function readRedaction(bytes: Uint8Array, inputs: Inputs, kid: Uint8Array): Reading {
   const packBytes = handedPack(inputs.companions);
@@ -1115,7 +1120,6 @@ function readRedaction(bytes: Uint8Array, inputs: Inputs, kid: Uint8Array): Read
     packBytes: packBytes as Uint8Array,
   });
   const { manifest, outcome } = verified;
-  const survivors = outcome.survivors.map((one) => one.item);
   return {
     contentType: REDACTION_CONTENT_TYPE,
     reader: 'verifyRedaction',
@@ -1144,13 +1148,19 @@ function readRedaction(bytes: Uint8Array, inputs: Inputs, kid: Uint8Array): Read
       {
         key: 'survivorItems',
         label: 'survivor records',
-        value: survivors.map((one) => `${one.id} at ${one.iat}`).join('; '),
+        value:
+          `each with the stamp disclosure its own sealed receipt states and merged with nothing: ` +
+          outcome.survivors.map((one) => `${one.item.id} at ${one.item.iat}: ${stampDisclosure(one.receipt.payload.sd)}`).join('; '),
         json: outcome.survivors.map((one) => ({
           id: one.item.id,
           iat: one.item.iat,
           prev: toHex(one.item.prev),
           receiptKid: toHex(one.receipt.header.kid),
           receiptIssuer: one.receipt.payload.iss,
+          stampSource: {
+            name: one.receipt.payload.sd.name,
+            uncertaintySeconds: one.receipt.payload.sd.uncertaintySeconds,
+          },
         })),
       },
       {

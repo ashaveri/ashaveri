@@ -769,6 +769,29 @@ describe('an excision amendment at the command edge', () => {
     expect(human.stdout).toContain('unreachable anywhere this deployment still holds them');
   });
 
+  it('names the stamp source of every survivor record, in both renderings', () => {
+    // The survivors are sealed receipts this arm walked and verified, each carrying its own signed `sd`,
+    // exactly like the receipts the pack arm prints one disclosure per. A reader of this report who
+    // flattened it could still read `at 1772000000` as an instant worth whatever a clock of the reader's
+    // own assumed, so the disclosure travels with the record it qualifies and is stated per record.
+    const human = runCli(['verify-handover', AMENDMENT_PATH, AMENDMENT_KEY, `--companion=${AMENDMENT_PACK_PATH}`]);
+    expect(human.status, human.stdout).toBe(0);
+    expect(human.stdout).toContain("receipt-0 at 1772000000: 'host clock' states that nobody measured how far its readings stand");
+    expect(human.stdout).toContain("receipt-2 at 1772000002: 'host clock' states that nobody measured how far its readings stand");
+    expect(human.stdout.match(/states that nobody measured/gu)?.length).toBe(2);
+
+    const json = verdictOf(runCli(['verify-handover', AMENDMENT_PATH, AMENDMENT_KEY, `--companion=${AMENDMENT_PACK_PATH}`, '--json']));
+    const body = json.document as Record<string, unknown>;
+    expect(
+      (body.survivorItems as { stampSource: { name: string; uncertaintySeconds: number | null } }[]).map(
+        (one) => [one.stampSource.name, one.stampSource.uncertaintySeconds],
+      ),
+    ).toEqual([
+      ['host clock', null],
+      ['host clock', null],
+    ]);
+  });
+
   it('refuses an amendment whose pack was not handed, naming the input the call left out', () => {
     const result = runCli(['verify-handover', AMENDMENT_PATH, AMENDMENT_KEY, '--json']);
     expect(result.status).toBe(1);
