@@ -9,7 +9,6 @@ import {
   type XmlAttribute,
   type XmlDocument,
   type XmlElement,
-  type XmlText,
 } from '../src/xml.js';
 
 /**
@@ -25,10 +24,10 @@ import {
  * element, and the SHA-256 of the bytes below is the same number. The report of 23 October carries the rest of
  * those measurements, including the two places where implementations of this specification disagree.
  *
- * Two cases hold a value no accepted spelling of this reader's subset can carry: a tab, a line feed and a
- * carriage return inside an attribute value, and a carriage return inside text, since a character reference is
- * refused where it is met and a line ending is settled before parsing. Those trees are built by hand so the escape
- * tables stay pinned to bytes rather than dropped as unreachable.
+ * The whitespace escaping rules are met through character references, which is the only accepted spelling a value
+ * carries them in: a line ending in the input is settled before parsing, a value carrying literal tab or line-feed
+ * whitespace is refused by the reader, and a carriage return reaches a value or a text node only as a reference.
+ * So the escape tables are pinned by documents the reader itself takes rather than by trees no document spells.
  */
 
 const DS = 'http://www.w3.org/2000/09/xmldsig#';
@@ -122,16 +121,6 @@ const MANIFEST_WITHOUT_SIGNATURE =
   `<SoftwareIdentity xmlns="${ISO}" xmlns:ds="${DS}" tagId="sample" version="1"><Entity name="Vendor"></Entity></SoftwareIdentity>`;
 
 const BOOK_LANGUAGE = '<book xmlns="urn:example:book" xml:lang="en"><chapter Id="outer"><body Id="inner" xml:lang="fr"><line>text</line></body></chapter></book>';
-
-function handBuiltText(value: string): XmlElement {
-  const text: XmlText = { kind: 'text', characters: value };
-  return { kind: 'element', name: 'note', prefix: '', localName: 'note', namespace: '', attributes: [], children: [text], inScope: new Map<string, string>(), parent: null };
-}
-
-function handBuiltValue(value: string): XmlElement {
-  const attribute: XmlAttribute = { prefix: '', localName: 'value', namespace: '', value };
-  return { kind: 'element', name: 'row', prefix: '', localName: 'row', namespace: '', attributes: [attribute], children: [], inScope: new Map<string, string>(), parent: null };
-}
 
 describe('Canonical XML 1.1', () => {
   describe('the golden bytes', () => {
@@ -254,14 +243,12 @@ describe('Canonical XML 1.1', () => {
       expect(whole('<note>a\tb\nc</note>')).toBe('<note>a\tb\nc</note>');
     });
 
-    it('escapes a carriage return in text', () => {
-      expect(new TextDecoder().decode(bytesOf(canonicalizeSubtree(handBuiltText('a\tb\nc\rd')))))
-        .toBe('<note>a\tb\nc&#xD;d</note>');
+    it('escapes a carriage return in text and writes the tab and line feed beside it as themselves', () => {
+      expect(whole('<note>a&#x9;b&#xA;c&#xD;d</note>')).toBe('<note>a\tb\nc&#xD;d</note>');
     });
 
     it('escapes the quotation mark and the three whitespace characters in a value', () => {
-      const one = handBuiltValue('say "hi" and \ttab and \nline and \rreturn and > angle');
-      expect(new TextDecoder().decode(bytesOf(canonicalizeSubtree(one))))
+      expect(whole('<row value="say &quot;hi&quot; and &#x9;tab and &#xA;line and &#xD;return and &gt; angle"></row>'))
         .toBe('<row value="say &quot;hi&quot; and &#x9;tab and &#xA;line and &#xD;return and > angle"></row>');
     });
 

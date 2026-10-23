@@ -19,6 +19,13 @@
  * manifest arrives in and a declaration naming another is refused; a leading byte order mark is an artifact of
  * that encoding and is dropped, as the canonical form carries none.
  *
+ * Whitespace reaches a value through a character reference and not as itself. The canonical form states a rule for
+ * a value holding a tab, a line feed or a carriage return, but the parsers feeding it disagree about whether that
+ * character is in the value at all when the document spelled it literally rather than as a reference, so a value
+ * carrying literal whitespace is refused: bytes whose digest depends on which parser a signer used are not a fact
+ * a verifier can hand back. A reference is settled by the reader into the character it names, which is what the
+ * canonical form then escapes, so both readings of the rule agree on those bytes.
+ *
  * The ceilings are this path's limit and not the format's: a document over one of them is refused before the
  * canonical form is built, because the work a document can ask of a verifier is itself something to bound.
  */
@@ -253,23 +260,31 @@ class Document {
         return { why: `the XML declaration carries the member ${member}, which version 1.0 states nowhere` };
       }
     }
-    if (members['version'] !== '1.0') {
-      return { why: `the XML declaration states version ${String(members['version'])} and this path reads 1.0` };
+    const stated = members['version'];
+    if (stated === undefined) {
+      return { why: 'the XML declaration states no version' };
+    }
+    if (stated !== '1.0') {
+      return { why: `the XML declaration states version ${stated} and this path reads 1.0` };
     }
     const encoding = members['encoding'];
     if (encoding !== undefined && encoding.toLowerCase() !== 'utf-8') {
       return { why: `the XML declaration states the encoding ${encoding} and this path reads UTF-8 alone` };
+    }
+    const standalone = members['standalone'];
+    if (standalone !== undefined && standalone !== 'yes' && standalone !== 'no') {
+      return { why: `the XML declaration states standalone ${standalone}, which is not one of the two answers version 1.0 allows` };
     }
     return { ok: true };
   }
 
   /** A comment or an instruction, or null where the next thing to read is not one of them. */
   private readOutside(): { readonly node: XmlComment | XmlInstruction | null } | { readonly why: string } {
-    if (this.source.starts('<!')) {
-      return { why: 'the document carries a document type declaration or an entity declaration, which this path refuses before reading any further' };
-    }
     if (this.source.starts('<!--')) {
       return this.readComment();
+    }
+    if (this.source.starts('<!')) {
+      return { why: 'the document carries a document type declaration or an entity declaration, which this path refuses before reading any further' };
     }
     if (this.source.starts('<?')) {
       return this.readInstruction();
@@ -354,11 +369,11 @@ class Document {
         this.source.take(1);
         break;
       }
-      if (spaced === 0) {
-        return { why: `the start tag of ${name.name} carries no space before another name` };
-      }
       if (this.source.end) {
         return { why: `the start tag of ${name.name} is not closed` };
+      }
+      if (spaced === 0) {
+        return { why: `the start tag of ${name.name} carries no space before another name` };
       }
       const item = this.readStartTagItem(name.name);
       if ('why' in item) {
@@ -612,6 +627,9 @@ class Document {
       }
       if (one === '<') {
         return { why: 'an attribute value carries a bare angle bracket' };
+      }
+      if (one === '\t' || one === '\n') {
+        return { why: 'an attribute value carries literal whitespace, which the readers feeding the canonical form settle differently' };
       }
       if (one === '&') {
         const reference = this.readReference();
