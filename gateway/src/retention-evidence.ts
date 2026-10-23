@@ -4,6 +4,8 @@ import {
   openFileReceiptStore,
   readReceiptStoreCheckpoint,
   type ReceiptRecordKind,
+  type ReceiptRetention,
+  type ReceiptServing,
   type ReceiptStoreCheckpoint,
 } from './store.js';
 
@@ -30,6 +32,14 @@ import {
  * this repository's signing stack. The composition from this evidence into a document, and the reading of that
  * document, belong to a caller that holds both the store and the assessment reader; this evidence reader
  * states no verdict about the store.
+ *
+ * Two things this reader owes the directory it opens, because opening it is a second opening of the store the
+ * deployment serves from. It opens under the bounds that deployment configured, so an opening the gateway
+ * would refuse at startup is refused here rather than read past, and the window the evidence reports is the
+ * one the deployment retains rather than the wider span still on the volume. And it declines the sidecar index
+ * unless the caller asks for it by name, because a reader of evidence has no business writing it: an ordinary
+ * opening bootstraps an index beside the operator's log, and a command that came to look at a directory should
+ * not have changed it.
  */
 
 /** An inclusive range of intake sequences, or of unix seconds for a period and a span. */
@@ -101,7 +111,33 @@ export interface ReadRetentionEvidenceRequest {
   readonly dir: string;
   /** The receipt record kind the store writes, so the checkpoint is read for the right log. */
   readonly receiptKind?: ReceiptRecordKind;
-  /** How the store is configured: when the deployment declines its index, the evidence states no checkpoint. */
+  /**
+   * The deployment's durability bound, forwarded into the opening. An assessment is a statement about what
+   * that deployment keeps and serves, and a store opened without this bound is a store whose pruning this
+   * reader did not do: it would report a wider span than the gateway holds as though the deployment held it.
+   *
+   * Absent is not a bound of no length. Every field of `ReceiptRetention` is optional, and each absent one
+   * is documented as nothing aging out or nothing shed by count, so passing the object is not the same as
+   * passing a bound and the evidence says, of itself, whether it was given one.
+   */
+  readonly retention?: ReceiptRetention;
+  /**
+   * The deployment's serving bound, forwarded with it. This one retires nothing and shortens no window - it
+   * sizes how many records one walk holds - so it cannot widen what an assessment reads, and it travels here
+   * because the opening is the deployment's own, and because the refusal this pairing raises names the number
+   * an operator must not raise when it is configured.
+   */
+  readonly serving?: ReceiptServing;
+  /**
+   * Asks the store to keep and use its sidecar index, which an opening then writes where the volume does not
+   * already hold one. Absent, or false, declines it: the door then touches only `receipts.log`, and a reader
+   * of evidence leaves the directory it read as it found it.
+   *
+   * Declining does not hide a checkpoint the deployment keeps. The checkpoint the evidence reports is the one
+   * already on the volume, read through the store's own loader, so a deployment that keeps an index is seen
+   * to keep it whether or not this reader asked for one, and a deployment that declined it is seen to state
+   * no temporal witness rather than a broken one.
+   */
   readonly sidecarIndex?: boolean;
   readonly subject: EvidenceScope['subject'];
   readonly duty: EvidenceScope['duty'];
@@ -124,12 +160,20 @@ interface StoreReading {
 }
 
 /**
- * Opens the store through its own opening and reads its checkpoint through its own sidecar loader.
+ * Opens the store under the deployment's own bounds and reads the checkpoint already on the volume.
+ *
+ * The bounds travel into the opening because this is a second opening of the same directory. DU-3.8 settled
+ * the question for the serving process, where a store at its count bound derives the count its configured
+ * period needs and refuses to open rather than serve a window it cannot hold; a door that opened without the
+ * pairing would assess records that deployment would have pruned, and would reach past the rule for nothing
+ * more than a look. Whatever the store answers to that opening - including a refusal - is what the evidence is
+ * made of, because an honest assessment of a store the gateway would not start is not an assessment at all.
  *
  * The store is opened before the checkpoint is read so that a deployment which keeps an index is seen to keep
- * it: the opening leaves that index speaking for the whole file, and the loader then reports the checkpoint an
- * opening of this store would resume from. A declined index is a store with no index on the volume, and the
- * loader answers `present: false` for it without a second read.
+ * it: the loader reports the checkpoint an opening of this store would resume from. This opening declines the
+ * index unless the caller asked for it by name, so it neither bootstraps one into the operator's directory
+ * nor leaves a file there that was not there when the read began, and a deployment that runs without an index
+ * is read as a store with no index on the volume, which the loader answers as no checkpoint.
  */
 async function readOnce(
   request: ReadRetentionEvidenceRequest,
@@ -138,7 +182,11 @@ async function readOnce(
   const store = await openFileReceiptStore({
     dir: request.dir,
     receiptKind,
-    ...(request.sidecarIndex === undefined ? {} : { sidecarIndex: request.sidecarIndex }),
+    retention: request.retention,
+    serving: request.serving,
+    // Declined by default, and asked for by name: the default for the store's own option is to keep the
+    // index, and an opening that keeps one writes it where the volume does not hold it yet.
+    sidecarIndex: request.sidecarIndex === true,
   });
   const window = await store.window();
   const head = await store.head();
@@ -195,8 +243,9 @@ function coverageFromSpan(reading: StoreReading): EvidenceCoverage {
  * range acknowledged, that one checkpoint, and the head it closed on; a store that states none yields a span
  * between its oldest and newest survivors and nothing else, and a store that holds nothing yields no coverage
  * at all. None of those three is a verdict: each is the evidence, which the reader over the produced document
- * weighs. A broken chain, a mixture of record kinds, or any other opening refusal comes back from the store
- * unchanged, because there is no honest assessment of a store that cannot tell what it holds.
+ * weighs. A broken chain, a mixture of record kinds, a pairing of durability bound and period that the
+ * gateway would refuse to start on, or any other opening refusal comes back from the store unchanged, because
+ * there is no honest assessment of a store that cannot tell what it holds.
  */
 export async function readRetentionEvidence(request: ReadRetentionEvidenceRequest): Promise<RetentionEvidence> {
   const receiptKind = request.receiptKind ?? DEFAULT_RECEIPT_RECORD_KIND;
