@@ -355,8 +355,8 @@ export interface OcspOriginDeclaration extends OriginDeclarationCommon {
   /**
    * The suites this path weighs an answer in, stated as the shapes `@ashaveri/attest-core` parses.
    *
-   * The responder's suite is not measured from an answer here — the endpoint is reached by POST and no served
-   * response is committed — so these are the rules this path applies and refuses outside, the same way the
+   * The responder's suite is not measured from an answer here: the endpoint is reached by POST and no served
+   * response is committed, so these are the rules this path applies and refuses outside, the same way the
    * JWS envelope rule in `read.ts` is this package's rule and not the vendor's. A responder that signs another
    * way answers `COLLATERAL_SIGNATURE_UNVERIFIED`, which says plainly that nobody weighed that answer here.
    */
@@ -848,7 +848,7 @@ export const NVIDIA_RIM: RimOriginDeclaration = {
  * that names the certificate and its issuer. Asked with GET, the host answers 405 with
  * `content-type: application/json`, which states that GET is not a route there; whether an anonymous POST is
  * answered with a response or with a status asking for a credential is unmeasured, and no response of the
- * responder's is committed here — a service's output travels as a reference. What the route publishes is
+ * responder's is committed here. A service's output travels as a reference. What the route publishes is
  * copied from RFC 6960: a `Successful` answer carries a `BasicOCSPResponse` whose signed data states a
  * `producedAt`, one `SingleResponse` per certificate asked about, that response's `CertID`, its `certStatus`
  * of `good`, `revoked` or `unknown`, and its own `thisUpdate` beside the optional `nextUpdate`.
@@ -952,7 +952,7 @@ function readOrigins(): string {
  * The declaration for an origin, or the refusal that says this path is not read here.
  *
  * Every name `CollateralOriginName` carries has a declaration in this file and a reader that weighs its answer,
- * so the refusal is for a name outside the union and for a declaration that states no reader at all — which a
+ * so the refusal is for a name outside the union and for a declaration that states no reader at all, which a
  * caller can only hold by building one, and which is answered with the route it is declared at, what a reader
  * would still need, and the origins that are read, so a caller learns which sentence to look up rather than
  * which name to retype. A name outside the map answers with the origins that are read alone.

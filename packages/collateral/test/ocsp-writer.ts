@@ -16,8 +16,8 @@ import type { TestVendor } from '@ashaveri/fixtures';
  * The module RFC 6960 defines is read as `EXPLICIT TAGS`, and the one place it says otherwise is `CertStatus`,
  * whose three choices are `IMPLICIT`: `good` and `unknown` are therefore written as the empty primitive tags
  * `[0]` and `[2]`, and a revoked standing as the constructed `[1]` holding `RevokedInfo`'s own members. The two
- * hashes a `CertID` carries are taken over what RFC 6960 names them on — the whole DER `Name` for the issuer,
- * and the subject public key value with tag, length and unused-bit count left out — because a writer that
+ * hashes a `CertID` carries are taken over what RFC 6960 names them on (the whole DER `Name` for the issuer,
+ * and the subject public key value with tag, length and unused-bit count left out), because a writer that
  * hashed anything else would test a reader rather than an answer.
  */
 

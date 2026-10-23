@@ -313,7 +313,7 @@ describe('the declarations a query can name', () => {
   /**
    * The two lists meet at six: every name a query may carry has a declaration, and every declaration has an arm
    * that weighs some answer of it. Serving an origin says a reader exists for its shape, not that the reader
-   * reaches a verdict — the RIM wrapper is read and the manifest inside it refused — so this case pins the names
+   * reaches a verdict (the RIM wrapper is read and the manifest inside it refused), so this case pins the names
    * and the order the grid is built from, and `declarationFor` answers a declaration for each of them.
    */
   it('names every origin a query may carry once, and serves each one it declares', () => {

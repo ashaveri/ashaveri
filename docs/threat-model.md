@@ -219,8 +219,8 @@ What is still true, in both modes:
   that the platform carrying it is trusted. It reads a RIM route's JSON wrapper when a caller asks
   `readRimManifest`, weighing the manifest bytes against the digest the same body names for them and the manifest
   id against the one the question asked for, and it returns that read beside the sentence that the signature
-  inside the wrapper — taken over a canonicalized element, in a form this package states no rule for
-  canonicalizing — was weighed by nobody. A RIM therefore answers no verdict and states no window: the vendor's
+  inside the wrapper (taken over a canonicalized element, in a form this package states no rule for
+  canonicalizing) was weighed by nobody. A RIM therefore answers no verdict and states no window: the vendor's
   update text says when a file was changed, not what span it speaks for, so a read wrapper establishes nothing
   about a device measurement, and a platform-level question put to that origin is answered by naming the arm that
   reads the wrapper rather than by handing back bytes nobody believed. No shipped command asks any of those entry points, and none of them closes any of the residual above.

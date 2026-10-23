@@ -1,8 +1,8 @@
 /**
  * The DER element reader this package's binary answers share.
  *
- * Two origins answer in DER — the Intel PCK CRL as a `CertificateList`, the OCSP responder as an
- * `OCSPResponse` — and both are weighed by the same rules: definite lengths only, no multi-byte tags, no
+ * Two origins answer in DER (the Intel PCK CRL as a `CertificateList`, the OCSP responder as an
+ * `OCSPResponse`), and both are weighed by the same rules: definite lengths only, no multi-byte tags, no
  * trailing data inside a sequence the reader walked to its end, and every value kept as the bytes that
  * arrived rather than as a re-encoding of it. One reader of these elements is where a rule of that kind
  * belongs, because a second copy is a second answer to what a malformed answer is, and the two would drift.

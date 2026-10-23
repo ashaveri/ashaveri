@@ -168,8 +168,8 @@ const CELLS: Record<ReadCollateralOrigin, Record<CollateralErrorCode, CellSpec>>
   /**
    * The RIM row is the reach of a wrapper reader: what the service sent is weighed, and what the service sent
    * it inside is not. Four codes belong to a verdict this origin reaches never and are carried by the members the
-   * declaration states none of — no window, no identity block, no cache rule, no revocation shape on its route —
-   * and the rest are the wrapper's own failures, produced by `readRimManifest`, `requestUrl` and `fetchFromOrigin`.
+   * declaration states none of: no window, no identity block, no cache rule, no revocation shape on its route.
+   * The rest are the wrapper's own failures, produced by `readRimManifest`, `requestUrl` and `fetchFromOrigin`.
    */
   'nvidia-rim': {
     COLLATERAL_INPUT_MISSING: ['yes', 'origin', 'declaredUrl', 'a RIM route whose id placeholder the question leaves empty'],
@@ -783,8 +783,8 @@ describe('the reachability grid docs/error-codes.md carries', () => {
 
   /**
    * The RIM row holds because an arm weighs its wrapper, and the cells that read `no` hold because the same
-   * declaration states no window, no identity block, no chain header, no cache rule and no revocation shape —
-   * which is the grid's way of stating that a wrapper reading reaches no verdict. The refusal a wrapper that
+   * declaration states no window, no identity block, no chain header, no cache rule and no revocation shape.
+   * That is the grid's way of stating that a wrapper reading reaches no verdict. The refusal a wrapper that
    * parses carries says the same thing from the reader's side, so this case reads both and refuses a grid that
    * quietly grants this origin a row it cannot fill.
    */

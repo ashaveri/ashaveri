@@ -21,8 +21,8 @@ const FORMATS = ['TCG', 'CORIM', 'GENERIC'];
 /**
  * Reads the JSON wrapper a RIM route answers in, and refuses the manifest it carries.
  *
- * The wrapper's members are the ones cited beside the declaration in `intel-origin.ts` — `id`, `last_updated`,
- * `rim`, `rim_format` and `sha256` — and what this path establishes about them is only what the wrapper states
+ * The wrapper's members are the ones cited beside the declaration in `intel-origin.ts`: `id`, `last_updated`,
+ * `rim`, `rim_format` and `sha256`. What this path establishes about them is only what the wrapper states
  * about itself: that the bytes in `rim` decode as base64 and hash to the digest the same body names, and that
  * the id the answer carries is the one the question asked for. A digest is not a signature: it says these are
  * the bytes the service meant to send, and nothing about who signed them or what the manifest stands for.

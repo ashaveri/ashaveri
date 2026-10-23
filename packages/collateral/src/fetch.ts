@@ -51,8 +51,8 @@ export interface FetchContext {
  * The method is the declaration's and not a rule this path adds to it: an origin whose route publishes a POST
  * is asked by POST with the body its own reader built, and an origin asked by GET is asked with none. A body
  * beside a GET declaration is refused rather than dropped, because a caller that sent one believes it asked
- * something. What either method carries is the identity the question is about — a CPU type, a chip id, a
- * certificate — and never an identity of the caller.
+ * something. What either method carries is the identity the question is about (a CPU type, a chip id, a
+ * certificate) and never an identity of the caller.
  */
 export async function fetchFromOrigin(
   url: string,
