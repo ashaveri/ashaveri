@@ -1,16 +1,39 @@
 import type { CertificatePublicKey, SignatureAlgorithm } from '@ashaveri/attest-core';
+import { sha256Hex } from './bytes.js';
 import { collateralRefusal, quoteOrDigest, type CollateralErrorCode, type CollateralInputName, type CollateralRefusal } from './errors.js';
 import type { CollateralOriginName, CollateralQuery, IntelPlatform } from './types.js';
 
-/** The origins this package reads. A query naming another origin is refused before any request: a declared one
- * by the reader it has no arm for, an undeclared name by the set this type lists. */
-export type ReadCollateralOrigin = 'intel-tcb-info' | 'intel-qe-identity' | 'intel-pck-crl' | 'amd-kds';
+/**
+ * The origins this package has a reader for. A query naming an undeclared origin, or putting a question to an
+ * entry point that weighs another origin's answer, is refused before any request, so a caller gets a sentence
+ * rather than a type error it could only reach by deleting the question.
+ *
+ * Five of these read an answer to one of the five verdict states. The sixth, `nvidia-rim`, reads the wrapper its
+ * route answers in and refuses the manifest inside it: a served origin here means an answer is weighed, not that
+ * every answer reaches a verdict, and the refusal the wrapper reader returns beside the bytes it read says which
+ * of the two a caller is holding.
+ */
+export type ReadCollateralOrigin =
+  | 'intel-tcb-info'
+  | 'intel-qe-identity'
+  | 'intel-pck-crl'
+  | 'amd-kds'
+  | 'ocsp'
+  | 'nvidia-rim';
 
 /** The origins whose answer is the served JSON document that one reader weighs. */
 export type ReadDocumentOrigin = 'intel-tcb-info' | 'intel-qe-identity';
 
 /** Which field of a query the cache key is built from. */
-export type CollateralCacheMember = 'origin' | 'platform' | 'cpuType' | 'level' | 'ca' | 'product' | 'hwid';
+export type CollateralCacheMember =
+  | 'origin'
+  | 'platform'
+  | 'cpuType'
+  | 'level'
+  | 'ca'
+  | 'product'
+  | 'hwid'
+  | 'ocspCertificate';
 
 /**
  * The shape an origin's answer takes, which decides whether this package has an arm to weigh it.
@@ -92,8 +115,16 @@ interface OriginDeclarationCommon {
   readonly name: CollateralOriginName;
   /** The one host asked. An answer that redirects away from it is refused rather than followed. */
   readonly host: string;
-  /** The method the origin answers to. This package builds GET requests alone. */
+  /** The method the origin answers to. A POST declaration is asked with the body its reader builds. */
   readonly method: 'GET' | 'POST';
+  /**
+   * The media type a question is sent with, or null where the declaration is asked by GET and sends no body.
+   *
+   * `mediaType` is the type the *answer* arrives in, which is what the request's `accept` names; a POST asks
+   * with a document of its own, and RFC 6960 gives the two halves different types. The pair is stated apart
+   * because a request sent under the answer's type is a document the responder has no rule for reading.
+   */
+  readonly requestMediaType: string | null;
   /** The media type the answer arrives in. */
   readonly mediaType: string;
   /** What an answer from this origin is, where one shape describes the declaration; each route states its own. */
@@ -187,20 +218,52 @@ export interface IntelOriginDeclaration extends OriginDeclarationCommon {
 }
 
 /**
- * A declaration this package names but does not read.
+ * A declaration this package names but does not read to a verdict.
  *
  * The routes are the vendor's, copied from published documentation and measured answers, and the sentence
  * states what a reader would still need. Nothing is inferred from the origin's name: an origin without a
  * reader refuses an appraisal rather than handing back bytes under a shape nobody has weighed.
  */
 export interface DeclaredOriginDeclaration extends OriginDeclarationCommon {
-  readonly reader: { readonly as: 'declared-only'; readonly lacks: string };
+  /**
+   * What this origin's answer is weighed by, beside what it is still not weighed for.
+   *
+   * `lacks` names the reading that would have to exist for an appraisal of this origin to answer a verdict,
+   * and `reads` names the half that a reader here does weigh, so a caller of the wrapper reader learns both
+   * from one declaration rather than from the absence of a refusal.
+   */
+  readonly reader: { readonly as: 'declared-only'; readonly lacks: string; readonly reads?: string };
   /** The routes the vendor publishes, in the order the declaration prefers them. */
   readonly routes: readonly DeclaredRoute[];
   /**
    * No record can be named for this origin yet. A cache key names the question a kept answer answers, and
    * naming it here would require a reader that states the answer's own identity and window, which is the
    * reader this origin lacks.
+   */
+  readonly cache: null;
+}
+
+/**
+ * A declaration this package reads as far as its answer's own wrapper, and no further.
+ *
+ * The wrapper is the JSON body a RIM route answers in, and `readRimManifest` weighs it: the base64 manifest
+ * against the `sha256` the same body names, and the id the body carries against the id the question asked for.
+ * That is a reading of an answer, so this origin is served, and it is not a verdict, because the manifest the
+ * wrapper carries is signed in a form this package states no rule for canonicalizing.
+ *
+ * `lacks` names the reading that would have to exist for an appraisal of this origin to answer a verdict, and
+ * `reads` names the half a reader here does weigh, so a caller learns both from one declaration rather than from
+ * the absence of a refusal. `reads` is required here and optional on a declaration with no reader at all,
+ * because this one has something to state.
+ */
+export interface RimOriginDeclaration extends OriginDeclarationCommon {
+  readonly reader: { readonly as: 'rim-wrapper'; readonly reads: string; readonly lacks: string };
+  /** The routes the vendor publishes, in the order the declaration prefers them. */
+  readonly routes: readonly DeclaredRoute[];
+  /**
+   * No record can be named for this origin yet. A cache key names the question a kept answer answers, and a
+   * wrapper whose manifest was never believed answers no question about a device, so there is no record for
+   * kept bytes to belong to.
    */
   readonly cache: null;
 }
@@ -267,7 +330,61 @@ export interface VcekOriginDeclaration extends OriginDeclarationCommon {
   readonly cache: OriginCacheRule;
 }
 
-export type OriginDeclaration = IntelOriginDeclaration | DeclaredOriginDeclaration | CrlOriginDeclaration | VcekOriginDeclaration;
+export type OriginDeclaration =
+  | IntelOriginDeclaration
+  | DeclaredOriginDeclaration
+  | RimOriginDeclaration
+  | CrlOriginDeclaration
+  | VcekOriginDeclaration
+  | OcspOriginDeclaration;
+
+/**
+ * A declaration this package reads as a DER `OCSPResponse`: the answer one certificate's revocation status is
+ * asked with.
+ *
+ * One route answers one certificate, and the answer is signed rather than stated: the responder signs the
+ * response data and the caller's pinned root is what makes that signature an answer at all. The identity the
+ * answer binds to is the certificate the question names, which is why `ocspCertificate` and `ocspIssuer` are
+ * required members of the query type rather than optional ones of the general query, and why a response whose
+ * `CertID` is not that certificate's answers an identity refusal rather than a verdict about this one.
+ */
+export interface OcspOriginDeclaration extends OriginDeclarationCommon {
+  readonly reader: { readonly as: 'ocsp-response' };
+  /** The routes the vendor publishes, in the order the declaration prefers them. */
+  readonly routes: readonly DeclaredRoute[];
+  /**
+   * The suites this path weighs an answer in, stated as the shapes `@ashaveri/attest-core` parses.
+   *
+   * The responder's suite is not measured from an answer here — the endpoint is reached by POST and no served
+   * response is committed — so these are the rules this path applies and refuses outside, the same way the
+   * JWS envelope rule in `read.ts` is this package's rule and not the vendor's. A responder that signs another
+   * way answers `COLLATERAL_SIGNATURE_UNVERIFIED`, which says plainly that nobody weighed that answer here.
+   */
+  readonly suites: {
+    readonly signature: Exclude<SignatureAlgorithm['kind'], 'unsupported'>;
+    readonly responderKey: CertificatePublicKey['kind'];
+  };
+  /**
+   * Which words of the answer this path reads as which standing.
+   *
+   * `unknown` is deliberately in neither list: a responder that has no record of the certificate asked about
+   * answers a question about its own database, not about the certificate, and a word outside both lists is
+   * refused with the answer's own text rather than sorted into the nearer one.
+   */
+  readonly status: {
+    readonly trusted: readonly string[];
+    readonly revoked: readonly string[];
+  };
+  /**
+   * The responder this path accepts a signature from: the issuer of the certificate the question names.
+   *
+   * RFC 6960 allows a CA to delegate OCSP signing to another certificate, and the delegation is carried in an
+   * extension this package's certificate reader states no rule for reading. A response signed by anybody else
+   * is refused rather than believed, so this slot is where that limit is written down rather than remembered.
+   */
+  readonly signer: 'issuer-named-by-the-question';
+  readonly cache: OriginCacheRule;
+}
 
 /** Whether a declaration has a reader here, narrowed so a caller can reach the payload members it states. */
 export function isIntelDeclaration(declaration: OriginDeclaration): declaration is IntelOriginDeclaration {
@@ -289,23 +406,42 @@ export function isVcekDeclaration(declaration: OriginDeclaration): declaration i
   return declaration.reader.as === 'amd-vcek-chain';
 }
 
+/** Whether a declaration is read as a DER OCSP response, narrowed so a caller can reach its rules. */
+export function isOcspDeclaration(declaration: OriginDeclaration): declaration is OcspOriginDeclaration {
+  return declaration.reader.as === 'ocsp-response';
+}
+
+/**
+ * Whether a declaration is read as far as its own wrapper, narrowed so a caller can reach what it lacks.
+ *
+ * The tag states the reach rather than the shape: a wrapper reader is a reader, and the `lacks` it carries says
+ * how far short of a verdict it stops, which is the pair a caller of the appraisal path has to see together.
+ */
+export function isRimDeclaration(declaration: OriginDeclaration): declaration is RimOriginDeclaration {
+  return declaration.reader.as === 'rim-wrapper';
+}
+
 /** Whether this declaration has a reader here at all, whatever shape that reader weighs. */
 export function hasReader(declaration: OriginDeclaration): boolean {
   return declaration.reader.as !== 'declared-only';
 }
 
 /**
- * Whether the two routes an answer is read from state that they speak for the moment they are asked.
+ * Whether the routes an answer is read from state that they speak for the moment they are asked.
  *
  * A signed document states a window and a vendor word about a level, and a reader that fetched it inside that
  * window this run reports current knowledge. A certificate chain states what its issuer signed and until when
  * its own validity runs, which is historical whatever the fetch did, so this answers from what the routes
- * state rather than from what the call site remembers.
+ * state rather than from what the call site remembers. Where a declaration names the two routes one question
+ * is answered with, only those two count; a question asked of a single route is answered by that route alone.
  */
-export function routesAnswerNow(declaration: VcekOriginDeclaration): boolean {
-  return declaration.routes
-    .filter((route) => route.name === declaration.certificateRoute || route.name === declaration.chainRoute)
-    .every((route) => route.knowledge === 'current');
+export function routesAnswerNow(
+  declaration: { readonly routes: readonly DeclaredRoute[] } & Partial<Pick<VcekOriginDeclaration, 'certificateRoute' | 'chainRoute'>>,
+): boolean {
+  const asked = declaration.certificateRoute === undefined
+    ? declaration.routes
+    : declaration.routes.filter((route) => route.name === declaration.certificateRoute || route.name === declaration.chainRoute);
+  return asked.every((route) => route.knowledge === 'current');
 }
 
 const REFUSALS = {
@@ -357,6 +493,7 @@ const STATUS_VOCABULARY = {
 const INTEL_PATH = {
   host: 'api.trustedservices.intel.com',
   method: 'GET',
+  requestMediaType: null,
   mediaType: 'application/jose',
   answer: 'json-signed-document',
   reader: { as: 'served-json-document' },
@@ -528,6 +665,7 @@ export const INTEL_PCK_CRL: CrlOriginDeclaration = {
   name: 'intel-pck-crl',
   host: 'api.trustedservices.intel.com',
   method: 'GET',
+  requestMediaType: null,
   mediaType: 'application/pkix-crl',
   answer: 'der-crl',
   /** Measured beside the answer: the header that carries this list's issuer chain. */
@@ -601,6 +739,7 @@ export const AMD_KDS: VcekOriginDeclaration = {
   name: 'amd-kds',
   host: 'kdsintf.amd.com',
   method: 'GET',
+  requestMediaType: null,
   mediaType: 'application/octet-stream',
   answer: 'pem-certificate-chain',
   /** Each answer carries its own bytes, so no header on either route carries a second copy to reconcile. */
@@ -655,20 +794,25 @@ export const AMD_KDS: VcekOriginDeclaration = {
  * `sha256`, with `rim_format` one of `TCG`, `CORIM` or `GENERIC`, and its RIM guide describes the `TCG`
  * form as SWID XML signed with `ecdsa-sha384`, the certificates inside `ds:X509Certificate`.
  *
- * No reader here reaches that document. The package has no XML parser and no XML digital-signature
- * canonicalization, which a signature over SWID XML needs before any measurement can be read, and no
- * served RIM body confirms which format a GPU RIM answers in. A reader that assumed one would be
- * inventing both the variant and the signature rule, so an appraisal stops at the declaration.
+ * The wrapper is read, and the manifest inside it is not. `readRimManifest` weighs the wrapper's own `sha256`
+ * against the bytes its `rim` member carries, reads the id and the format the service states, and answers with
+ * those beside the refusal that says the bytes were signed by nobody this path weighed. What stands between
+ * that and an appraisal is a canonicalization: the `TCG` form is SWID XML whose signature is taken over a
+ * canonicalized element, and the package has no XML parser and no XML digital-signature canonicalization, so
+ * no measurement inside a manifest is read here and no appraisal of this origin answers a verdict. Nor is the
+ * variant settled from an answer: no served RIM body confirms which of the three formats a GPU RIM arrives in,
+ * and a reader that assumed one would be inventing both the variant and the signature rule.
  *
- * A RIM is a signed reference document and reaches the instant it was published, not the instant it is
- * read: `last_updated` is when the vendor updated the file, not a validity window, and the package's
- * `CollateralClaim` can only report that reach as historical knowledge. It is not revocation knowledge,
- * which belongs to the OCSP route below.
+ * A RIM is a signed reference document and would reach the instant it was published, not the instant it is
+ * read: `last_updated` is when the vendor updated the file, not a validity window, so even a weighed manifest
+ * could only ever be reported as historical knowledge. It is not revocation knowledge, which belongs to the
+ * OCSP route below, and it is not a measurement match, which is what a GPU's evidence would be weighed against.
  */
-export const NVIDIA_RIM: DeclaredOriginDeclaration = {
+export const NVIDIA_RIM: RimOriginDeclaration = {
   name: 'nvidia-rim',
   host: 'rim.attestation.nvidia.com',
   method: 'GET',
+  requestMediaType: null,
   mediaType: 'application/json',
   answer: 'swid-rim',
   /**
@@ -679,7 +823,11 @@ export const NVIDIA_RIM: DeclaredOriginDeclaration = {
   timeoutMs: 5000,
   maxResponseBytes: 65536,
   refusals: REFUSALS,
-  reader: { as: 'declared-only', lacks: 'a served RIM body and an XML DSig reader' },
+  reader: {
+    as: 'rim-wrapper',
+    reads: 'the JSON wrapper the route answers in, which readRimManifest weighs against its own sha256',
+    lacks: 'an XML digital-signature reader for the manifest the wrapper carries',
+  },
   routes: [
     {
       name: 'rim',
@@ -694,28 +842,46 @@ export const NVIDIA_RIM: DeclaredOriginDeclaration = {
 };
 
 /**
- * NVIDIA's OCSP responder: current revocation knowledge about a device identity certificate.
+ * NVIDIA's OCSP responder: the answer about one device identity certificate's revocation standing.
  *
- * The endpoint is `https://ocsp.ndis.nvidia.com`, an RFC 6960 responder reached by POST with a DER OCSP
- * request that names the certificate and its issuer. Asked with GET on 17 October 2026, the host answered
- * 405 with `content-type: application/json`, which states that GET is not a route there; an anonymous POST
- * is unmeasured by that probe. The answer, when a caller has the credential the responder wants, is a DER
- * OCSP response whose `thisUpdate` and `nextUpdate` bound the instant it speaks for.
+ * The endpoint is `https://ocsp.ndis.nvidia.com`, an RFC 6960 responder reached by POST with a DER OCSP request
+ * that names the certificate and its issuer. Asked with GET, the host answers 405 with
+ * `content-type: application/json`, which states that GET is not a route there; whether an anonymous POST is
+ * answered with a response or with a status asking for a credential is unmeasured, and no response of the
+ * responder's is committed here — a service's output travels as a reference. What the route publishes is
+ * copied from RFC 6960: a `Successful` answer carries a `BasicOCSPResponse` whose signed data states a
+ * `producedAt`, one `SingleResponse` per certificate asked about, that response's `CertID`, its `certStatus`
+ * of `good`, `revoked` or `unknown`, and its own `thisUpdate` beside the optional `nextUpdate`.
  *
- * An OCSP answer is current knowledge at the instant it is asked, not historical evidence: the same
- * certificate asked about a month later gets a different answer. The package's `CollateralClaim` names
- * that distinction, and nothing here can reach `current-knowledge` from bytes kept in an archive.
+ * `readOcspResponse` weighs that shape and `appraiseOcspResponse` answers with it. Four rules decide what the
+ * answer can be relied on for, and each is stated on this declaration rather than remembered at a call site:
+ * - the signer is the issuer the question names. RFC 6960 also allows a CA to delegate OCSP signing to another
+ *   certificate, and the extension that carries that delegation is read by nothing in this repository's
+ *   certificate parser, so a response signed by anybody else is refused rather than believed.
+ * - the suite is the one this package already weighs elsewhere: ECDSA over P-256 with SHA-256, which is what
+ *   `read.ts` walks chains in and what `crl.ts` reads a list's signature in. It is this path's rule, stated
+ *   because no answer from this responder has been measured here; a responder signing another way meets
+ *   `COLLATERAL_SIGNATURE_UNVERIFIED`, which says that nobody weighed that answer rather than that the
+ *   certificate is unrevoked.
+ * - the `CertID` is compared with the certificate the question states, as RFC 6960 defines it: SHA-1 over the
+ *   issuer's DER `Name`, SHA-1 over the issuer's public-key BIT STRING content, and the serial. A response
+ *   about another certificate is refused as the wrong answer to this question.
+ * - the standing is the answer's own word. `good` and `revoked` are the two this path reads, and `unknown` is
+ *   refused as a status it has no rule for, because a responder with no record of the certificate answers a
+ *   question about its own database rather than one about the certificate.
  *
- * This package reads no OCSP response. A DER `OCSPResponse` needs a reader for its response status, its
- * `BasicOCSPResponse`, its responder certificate and its single-response status before any signature is
- * weighed, and none of that parser exists here. A caller can name the certificate and its issuer, which
- * is the missing context the address reports, but the request body and the response read stop at the
- * declaration.
+ * What an answer reaches is the distinction `CollateralClaim` names: an answer this run asked, whose
+ * `thisUpdate` covers the moment being appraised, is `current-knowledge` about that certificate's standing as
+ * the responder stated it, and bytes kept from an earlier run are `historical-knowledge` beside
+ * `COLLATERAL_NOT_OBSERVED`. Revocation standing is not a platform pass: nothing here reads a TCB level, a
+ * measurement or a vendor status about a platform, and a certificate that is not revoked says only that.
  */
-export const NVIDIA_OCSP: DeclaredOriginDeclaration = {
+export const NVIDIA_OCSP: OcspOriginDeclaration = {
   name: 'ocsp',
   host: 'ocsp.ndis.nvidia.com',
   method: 'POST',
+  /** RFC 6960 names the request and the response types apart, and the request is the one this path writes. */
+  requestMediaType: 'application/ocsp-request',
   mediaType: 'application/ocsp-response',
   answer: 'der-ocsp-response',
   /** A responder certificate sits inside the signed response, and no header is declared to carry one. */
@@ -723,7 +889,7 @@ export const NVIDIA_OCSP: DeclaredOriginDeclaration = {
   timeoutMs: 5000,
   maxResponseBytes: 65536,
   refusals: REFUSALS,
-  reader: { as: 'declared-only', lacks: 'a served OCSP response and a DER OCSP parser' },
+  reader: { as: 'ocsp-response' },
   routes: [
     {
       name: 'ocsp',
@@ -734,15 +900,30 @@ export const NVIDIA_OCSP: DeclaredOriginDeclaration = {
       knowledge: 'current',
     },
   ],
-  cache: null,
+  suites: { signature: 'ecdsa-sha256', responderKey: 'ec-p256' },
+  status: { trusted: ['good'], revoked: ['revoked'] },
+  signer: 'issuer-named-by-the-question',
+  /**
+   * One answer speaks for one certificate, so a kept answer is keyed by the certificate the question named,
+   * spelled as the digest of its bytes rather than as the bytes themselves, and the window that bounds how
+   * long it may be kept is the response's own `nextUpdate`. The platform is absent because the responder is
+   * indexed by a certificate and not by one.
+   */
+  cache: {
+    keyMembers: ['origin', 'ocspCertificate'],
+    answersCurrentQuestions: false,
+    retainUntil: 'vendor-next-update',
+  },
 };
 
-/** The origins with a reader here. A declaration elsewhere in this file is a route, not a reader. */
+/** The origins a reader here weighs an answer of. A declaration with no reader is a route, not an answer. */
 export const SERVED_ORIGINS: readonly ReadCollateralOrigin[] = [
   'intel-tcb-info',
   'intel-qe-identity',
   'intel-pck-crl',
   'amd-kds',
+  'ocsp',
+  'nvidia-rim',
 ];
 
 const BY_ORIGIN: Record<ReadDocumentOrigin, IntelOriginDeclaration> = {
@@ -770,10 +951,11 @@ function readOrigins(): string {
 /**
  * The declaration for an origin, or the refusal that says this path is not read here.
  *
- * An origin this file declares but does not read answers with the route it is declared at, what a reader
- * would still need, and the origins that are read, so a caller learns which sentence to look up rather
- * than which name to retype. The map is complete over the union; a name outside it holds no declaration
- * and answers with the origins that are read alone.
+ * Every name `CollateralOriginName` carries has a declaration in this file and a reader that weighs its answer,
+ * so the refusal is for a name outside the union and for a declaration that states no reader at all — which a
+ * caller can only hold by building one, and which is answered with the route it is declared at, what a reader
+ * would still need, and the origins that are read, so a caller learns which sentence to look up rather than
+ * which name to retype. A name outside the map answers with the origins that are read alone.
  */
 export function declarationFor(origin: CollateralOriginName): OriginDeclaration | { readonly refusal: CollateralRefusal } {
   if (origin === 'intel-tcb-info' || origin === 'intel-qe-identity') {
@@ -785,10 +967,22 @@ export function declarationFor(origin: CollateralOriginName): OriginDeclaration 
   if (origin === 'amd-kds') {
     return AMD_KDS;
   }
+  if (origin === 'ocsp') {
+    return NVIDIA_OCSP;
+  }
   const declared: OriginDeclaration | undefined = Object.hasOwn(ORIGIN_DECLARATIONS, origin)
     ? ORIGIN_DECLARATIONS[origin]
     : undefined;
-  if (declared !== undefined && isDeclaredOnly(declared)) {
+  if (declared === undefined) {
+    return {
+      refusal: collateralRefusal(
+        'COLLATERAL_ORIGIN_UNSUPPORTED',
+        `${quoteOrDigest(origin)} is not read here, which serves ${readOrigins()}`,
+        ['origin'],
+      ),
+    };
+  }
+  if (isDeclaredOnly(declared)) {
     return {
       refusal: collateralRefusal(
         'COLLATERAL_ORIGIN_UNSUPPORTED',
@@ -797,13 +991,7 @@ export function declarationFor(origin: CollateralOriginName): OriginDeclaration 
       ),
     };
   }
-  return {
-    refusal: collateralRefusal(
-      'COLLATERAL_ORIGIN_UNSUPPORTED',
-      `${quoteOrDigest(origin)} is not read here, which serves ${readOrigins()}`,
-      ['origin'],
-    ),
-  };
+  return declared;
 }
 
 /**
@@ -862,13 +1050,13 @@ export function requestUrl(query: CollateralQuery, declaration: OriginDeclaratio
  * The address a declared origin publishes, with the members this query supplies filled in.
  *
  * A route's path is a template, and a placeholder with no value in the query stops the address rather
- * than being sent as braces: the origin would answer a request for a name it never published. A POST
- * route is addressed the same way once the certificate and issuer an OCSP question states are present;
- * the refusal to ask it belongs to the fetch, which builds GET requests alone.
+ * than being sent as braces: the origin would answer a request for a name it never published. A POST route
+ * is addressed the same way once the certificate and issuer an OCSP question states are present, because a
+ * question that names no certificate has nothing for a responder to answer about.
  */
 function declaredUrl(
   query: CollateralQuery,
-  declaration: DeclaredOriginDeclaration | CrlOriginDeclaration | VcekOriginDeclaration,
+  declaration: DeclaredOriginDeclaration | RimOriginDeclaration | CrlOriginDeclaration | VcekOriginDeclaration | OcspOriginDeclaration,
 ): string | { readonly refusal: CollateralRefusal } {
   const route = query.route == null
     ? declaration.routes[0]
@@ -997,6 +1185,11 @@ function spellKeyMember(query: CollateralQuery, member: CollateralCacheMember): 
       return query.product?.toLowerCase() ?? null;
     case 'hwid':
       return query.hwid?.toLowerCase() ?? null;
+    // The certificate an OCSP answer is about is a run of bytes, and a key that copied them would put a
+    // certificate's bytes where a record name belongs; the digest identifies the same certificate and is
+    // the spelling the rest of this package prints a blob by.
+    case 'ocspCertificate':
+      return query.ocspCertificate == null ? null : sha256Hex(query.ocspCertificate);
     case 'level':
       return query.level === null ? null : `${query.level.by}=${query.level.value}`;
   }

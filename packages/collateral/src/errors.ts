@@ -42,6 +42,7 @@ export type CollateralInputName =
   | 'rimId'
   | 'ocspCertificate'
   | 'ocspIssuer'
+  | 'body'
   | 'appraisalAt'
   | 'roots'
   | 'retained'

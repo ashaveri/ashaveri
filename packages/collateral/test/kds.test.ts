@@ -4,6 +4,7 @@ import { parseCertificateChain } from '@ashaveri/attest-core';
 import { secondsOf, testVendor } from '@ashaveri/fixtures';
 import {
   AMD_KDS,
+  DECLARED_ORIGINS,
   INTEL_PCK_CRL,
   NVIDIA_RIM,
   SERVED_ORIGINS,
@@ -416,6 +417,11 @@ describe('the VCEK and the chain the KDS answers with', () => {
     expect(refusalOf(readVcekChain(chip.der, CHAIN, reading({}, INTEL_PCK_CRL))).code)
       .toBe('COLLATERAL_BLOB_UNREADABLE');
     expect(refusalOf(readVcekChain(chip.der, CHAIN, reading({}, NVIDIA_RIM))).code)
+      .toBe('COLLATERAL_BLOB_UNREADABLE');
+    // The refusal for a declaration that states no reader is reachable only through one of that shape, since
+    // every origin this package declares has an arm weighing some answer of it.
+    const unread: OriginDeclaration = { ...NVIDIA_RIM, reader: { as: 'declared-only', lacks: 'an arm for a chain' } };
+    expect(refusalOf(readVcekChain(chip.der, CHAIN, reading({}, unread))).code)
       .toBe('COLLATERAL_ORIGIN_UNSUPPORTED');
   });
 });
@@ -468,7 +474,7 @@ describe('the declaration the chain reader is wired through', () => {
   });
 
   it('keys a kept pair by the chip it answers for, and reads the reach off the routes', () => {
-    expect(SERVED_ORIGINS).toEqual(['intel-tcb-info', 'intel-qe-identity', 'intel-pck-crl', 'amd-kds']);
+    expect(SERVED_ORIGINS).toEqual(['intel-tcb-info', 'intel-qe-identity', 'intel-pck-crl', 'amd-kds', 'ocsp', 'nvidia-rim']);
     expect(collateralCacheKey(query(), AMD_KDS)).toBe(`origin=amd-kds|product=milan|hwid=${HWID_HEX}`);
     expect(collateralCacheKey({ ...query(), appraisalAt: BEFORE }, AMD_KDS)).toBe(collateralCacheKey(query(), AMD_KDS));
     expect(routesAnswerNow(AMD_KDS)).toBe(false);
@@ -495,20 +501,26 @@ describe('the declaration the chain reader is wired through', () => {
     })).toBe(false);
   });
 
-  it('names the two origins still declared without a reader, and counts the four that are read', async () => {
-    for (const name of ['nvidia-rim', 'ocsp'] as const) {
+  /**
+   * Every name the query type carries has a declaration and a reader now, so the refusal this case used to read
+   * off two unread origins is the one a level question gets for an answer the level arm does not weigh: it names
+   * the entry point that does weigh it, and nothing is asked of the origin on the way to saying so.
+   */
+  it('answers every declared origin with its declaration, and a level question about another answer with the arm', async () => {
+    for (const name of DECLARED_ORIGINS) {
       const asked = declarationFor(name);
-      if (!('refusal' in asked)) throw new Error(`${name} was served without a reader`);
-      expect(asked.refusal.code, name).toBe('COLLATERAL_ORIGIN_UNSUPPORTED');
-      expect(asked.refusal.missing, name).toEqual(['origin']);
-      expect(asked.refusal.detail, name).toContain('intel-tcb-info, intel-qe-identity, intel-pck-crl and amd-kds');
+      expect('refusal' in asked, name).toBe(false);
+      expect('refusal' in asked ? 'refusal' : asked.name, name).toBe(name);
     }
     const outcome = await appraiseCollateral(
       { ...query(), origin: 'nvidia-rim', rimId: 'gpu-rim-0001' },
       { transport: neverAsked() },
     );
-    expect(outcome.state).toBe('unavailable');
-    if (!('refusal' in outcome)) throw new Error('an unread origin answered');
-    expect(outcome.refusal.detail).toContain('intel-pck-crl and amd-kds');
+    expect(outcome.state).toBe('missing-context');
+    if (!('refusal' in outcome)) throw new Error('a manifest wrapper answered a question about a platform level');
+    expect(outcome.refusal.code).toBe('COLLATERAL_INPUT_MISSING');
+    expect(outcome.refusal.detail).toContain('readRimManifest');
+    expect(outcome.collateral).toBeNull();
+    expect(outcome.claim).toBeNull();
   });
 });

@@ -207,7 +207,6 @@ const COUNT_CLAIMS: readonly (readonly [docs: readonly string[], claim: RegExp, 
     () => [SERVED_ORIGINS.length],
   ],
   [[THREAT_MODEL], /declares (\w+) origins and reads (\w+)/iu, () => [DECLARED_ORIGINS.length, SERVED_ORIGINS.length]],
-  [[THREAT_MODEL], /declares the other (\w+)/iu, () => [UNREAD.length]],
   [[README], /names (\w+) origins and reads (\w+)/iu, () => [DECLARED_ORIGINS.length, SERVED_ORIGINS.length]],
   [
     [README, THREAT_MODEL],

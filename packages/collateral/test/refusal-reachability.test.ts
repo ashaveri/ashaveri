@@ -16,23 +16,31 @@ import {
   INTEL_PCK_CRL,
   INTEL_QE_IDENTITY,
   INTEL_TCB_INFO,
+  NVIDIA_OCSP,
+  NVIDIA_RIM,
   ORIGIN_DECLARATIONS,
   SERVED_ORIGINS,
   appraiseCollateral,
+  appraiseOcspResponse,
   appraisePckCrl,
   appraiseVcekChain,
   collateralRefusals,
   declarationFor,
+  fetchFromOrigin,
+  readRimManifest,
   requestUrl,
   type CollateralErrorCode,
   type CollateralQuery,
   type CollateralRefusal,
   type CollateralTransport,
+  type OcspQuery,
   type PckCrlQuery,
   type ReadCollateralOrigin,
   type ReadDocumentOrigin,
   type VcekChainQuery,
 } from '../src/index.js';
+import { ocspDevice, writeOcspResponse, type OcspInput } from './ocsp-writer.js';
+import { writeRimWrapper } from './rim-writer.js';
 import { amdAsk, amdChain, amdRoot, amdVcek, hwidHex, hwidOf, secondsOf as writerSeconds } from './kds-writer.js';
 import { writeCrl } from './crl-writer.js';
 
@@ -63,8 +71,10 @@ const FILES = {
   classify: 'packages/collateral/src/classify.ts',
   crl: 'packages/collateral/src/crl.ts',
   fetch: 'packages/collateral/src/fetch.ts',
+  ocsp: 'packages/collateral/src/ocsp.ts',
   origin: 'packages/collateral/src/intel-origin.ts',
   read: 'packages/collateral/src/read.ts',
+  rim: 'packages/collateral/src/rim.ts',
   served: 'packages/collateral/src/served.ts',
 } as const;
 
@@ -139,6 +149,44 @@ const CELLS: Record<ReadCollateralOrigin, Record<CollateralErrorCode, CellSpec>>
     COLLATERAL_RETAINED_CHAIN_MISMATCH: ['yes', 'classify', 'observe', 'a retained chain beside a stated digest it does not hash to'],
     COLLATERAL_REVOKED_BY_VENDOR: ['no', 'origin', 'AMD_KDS', 'neither route answers a revocation shape and the declaration states no vendor word'],
   },
+  ocsp: {
+    COLLATERAL_INPUT_MISSING: ['yes', 'classify', 'askedButNotGivenOcsp', 'a certificate question that states no instant to appraise at'],
+    COLLATERAL_ANCHOR_NOT_PINNED: ['yes', 'read', 'parsePinned', 'an answer weighed under bytes pinned as a root that hold no certificate'],
+    COLLATERAL_ORIGIN_UNSUPPORTED: ['no', 'origin', 'declarationFor', 'the declaration names a reader, so no unread-origin arm is reached'],
+    COLLATERAL_ORIGIN_UNREACHABLE: ['yes', 'fetch', 'fetchFromOrigin', 'a transport that throws on the way to the declared host'],
+    COLLATERAL_ORIGIN_REFUSED: ['yes', 'ocsp', 'readOcspResponse', 'a responder status of tryLater in place of a signed statement'],
+    COLLATERAL_BLOB_UNREADABLE: ['yes', 'ocsp', 'readOcspResponse', 'an answer that states no nextUpdate, so it bounds no window'],
+    COLLATERAL_SIGNATURE_UNVERIFIED: ['yes', 'ocsp', 'readOcspResponse', 'an answer signed with a key the issuer the question names did not issue'],
+    COLLATERAL_IDENTITY_MISMATCH: ['yes', 'ocsp', 'bindCertId', 'a CertID about another certificate than the one the question asked about'],
+    COLLATERAL_TCB_LEVEL_UNLISTED: ['no', 'origin', 'NVIDIA_OCSP', 'the declaration names the certificate members and states no level roster'],
+    COLLATERAL_STATUS_UNSUPPORTED: ['yes', 'classify', 'classifyOcsp', 'a standing of unknown, which states no revocation and no good standing'],
+    COLLATERAL_WINDOW_CLOSED: ['yes', 'classify', 'classifyOcsp', 'a fetched answer appraised after its own nextUpdate'],
+    COLLATERAL_NOT_OBSERVED: ['yes', 'classify', 'classifyOcsp', 'an answer kept from an earlier run, with the responder unasked'],
+    COLLATERAL_RETAINED_CHAIN_MISMATCH: ['yes', 'classify', 'observe', 'a retained chain beside a stated digest it does not hash to'],
+    COLLATERAL_REVOKED_BY_VENDOR: ['yes', 'classify', 'classifyOcsp', 'an answer reading revoked for the certificate asked about'],
+  },
+  /**
+   * The RIM row is the reach of a wrapper reader: what the service sent is weighed, and what the service sent
+   * it inside is not. Four codes belong to a verdict this origin reaches never and are carried by the members the
+   * declaration states none of — no window, no identity block, no cache rule, no revocation shape on its route —
+   * and the rest are the wrapper's own failures, produced by `readRimManifest`, `requestUrl` and `fetchFromOrigin`.
+   */
+  'nvidia-rim': {
+    COLLATERAL_INPUT_MISSING: ['yes', 'origin', 'declaredUrl', 'a RIM route whose id placeholder the question leaves empty'],
+    COLLATERAL_ANCHOR_NOT_PINNED: ['no', 'origin', 'NVIDIA_RIM', 'no header carries a chain and the reader weighs a digest, so no root is consulted'],
+    COLLATERAL_ORIGIN_UNSUPPORTED: ['no', 'origin', 'declarationFor', 'the declaration names a reader, so no unread-origin arm is reached'],
+    COLLATERAL_ORIGIN_UNREACHABLE: ['yes', 'fetch', 'fetchFromOrigin', 'a transport that throws on the way to the declared host'],
+    COLLATERAL_ORIGIN_REFUSED: ['yes', 'fetch', 'fetchFromOrigin', 'a 403 answered in place of a wrapper'],
+    COLLATERAL_BLOB_UNREADABLE: ['yes', 'rim', 'readRimManifest', 'an answer that is not the JSON wrapper the route states'],
+    COLLATERAL_SIGNATURE_UNVERIFIED: ['yes', 'rim', 'readRimManifest', 'a wrapper that parses, whose manifest signature is weighed by nobody here'],
+    COLLATERAL_IDENTITY_MISMATCH: ['yes', 'rim', 'readRimManifest', 'a wrapper whose own digest does not match the bytes it carries'],
+    COLLATERAL_TCB_LEVEL_UNLISTED: ['no', 'origin', 'NVIDIA_RIM', 'the declaration states no identity block, so no level is read'],
+    COLLATERAL_STATUS_UNSUPPORTED: ['yes', 'rim', 'readRimManifest', 'a format name outside the three the reference states'],
+    COLLATERAL_WINDOW_CLOSED: ['no', 'origin', 'NVIDIA_RIM', 'the declaration states no window members, and last_updated names no validity span'],
+    COLLATERAL_NOT_OBSERVED: ['no', 'origin', 'NVIDIA_RIM', 'the declaration states no cache rule, so no kept answer has a record to be unobserved in'],
+    COLLATERAL_RETAINED_CHAIN_MISMATCH: ['no', 'origin', 'NVIDIA_RIM', 'no header carries a chain beside retained bytes, so no pair can disagree'],
+    COLLATERAL_REVOKED_BY_VENDOR: ['no', 'origin', 'NVIDIA_RIM', 'the route answers a reference document and states no revocation shape'],
+  },
 };
 
 /**
@@ -171,6 +219,13 @@ const VALID_FROM = writerSeconds('2026-06-01T00:00:00Z');
 const VALID_UNTIL = writerSeconds('2033-06-01T00:00:00Z');
 const CHIP = amdVcek(askCert, { productName: 'Milan-B0', hwid: HWID, notBefore: VALID_FROM, notAfter: VALID_UNTIL });
 const CHAIN = amdChain(askCert.der, arkRoot.der);
+
+const ocspVendor = testVendor();
+const OCSP_CERT = ocspDevice(ocspVendor.issuerDer, ocspVendor.signingKey, 0x5b0bf77b);
+const OCSP_THIS = secondsOf('2026-09-01T00:00:00Z');
+const OCSP_NEXT = secondsOf('2026-10-01T00:00:00Z');
+const OCSP_PRODUCED = secondsOf('2026-09-01T06:00:00Z');
+const OCSP_REVOKED = secondsOf('2026-08-20T00:00:00Z');
 
 /** The codes the package states it can answer with, in the order the refusal registry carries them. */
 const CODES: readonly CollateralErrorCode[] = collateralRefusals().map((entry) => entry.code);
@@ -454,6 +509,116 @@ function chainScenarios(): Partial<Record<CollateralErrorCode, Scenario>> {
   };
 }
 
+/** One answer under the vendor this file pins, in the shape the route serves it. */
+function ocspAnswer(over: Partial<OcspInput> = {}): Uint8Array {
+  return writeOcspResponse({
+    responder: ocspVendor,
+    certificate: OCSP_CERT.der,
+    issuer: ocspVendor.issuerDer,
+    producedAt: OCSP_PRODUCED,
+    thisUpdate: OCSP_THIS,
+    nextUpdate: OCSP_NEXT,
+    ...over,
+  });
+}
+
+function ocspQuery(over: Partial<OcspQuery> = {}): OcspQuery {
+  return {
+    origin: 'ocsp',
+    platform: 'sgx',
+    cpuType: null,
+    level: null,
+    ocspCertificate: OCSP_CERT.der,
+    ocspIssuer: ocspVendor.issuerDer,
+    appraisalAt: WITHIN,
+    roots: [ocspVendor.rootDer],
+    retained: null,
+    onAbsent: 'unassessed',
+    ...over,
+  };
+}
+
+function ocspScenarios(): Partial<Record<CollateralErrorCode, Scenario>> {
+  const ask = (transport: CollateralTransport, over: Partial<OcspQuery> = {}): Promise<string> =>
+    appraiseOcspResponse(ocspQuery(over), { transport, clock: () => OBSERVED }).then(answerOf);
+  const served = (body: Uint8Array): CollateralTransport => async () => new Response(body);
+  return {
+    COLLATERAL_INPUT_MISSING: () => ask(unreachable(), { appraisalAt: null }),
+    COLLATERAL_ANCHOR_NOT_PINNED: () => ask(served(ocspAnswer()), { roots: [Uint8Array.from([1, 2, 3, 4])] }),
+    COLLATERAL_ORIGIN_UNREACHABLE: () => ask(unreachable()),
+    COLLATERAL_ORIGIN_REFUSED: () => ask(served(ocspAnswer({ responseStatus: 3 }))),
+    COLLATERAL_BLOB_UNREADABLE: () => ask(served(ocspAnswer({ nextUpdate: null }))),
+    COLLATERAL_SIGNATURE_UNVERIFIED: () => ask(served(ocspAnswer({ signingKey: foreignKey() }))),
+    COLLATERAL_IDENTITY_MISMATCH: () => ask(served(ocspAnswer({ serialHex: OTHER_SERIAL }))),
+    COLLATERAL_STATUS_UNSUPPORTED: () => ask(served(ocspAnswer({ status: 'unknown' }))),
+    COLLATERAL_WINDOW_CLOSED: () => ask(served(ocspAnswer()), { appraisalAt: AFTER }),
+    COLLATERAL_NOT_OBSERVED: () => ask(unreachable(), {
+      retained: { bytes: ocspAnswer(), chain: null, chainSha256: null, observedAt: OBSERVED },
+    }),
+    COLLATERAL_RETAINED_CHAIN_MISMATCH: () => ask(unreachable(), {
+      retained: {
+        bytes: ocspAnswer(),
+        chain: servedChainOf([ocspVendor.rootDer, ocspVendor.rootDer]),
+        chainSha256: sha256(ocspVendor.issuerDer),
+        observedAt: OBSERVED,
+      },
+    }),
+    COLLATERAL_REVOKED_BY_VENDOR: () => ask(served(ocspAnswer({ status: 'revoked', revokedAt: OCSP_REVOKED }))),
+  };
+}
+
+const RIM_ID = 'gpu-rim-0001';
+
+function rimQuery(over: Partial<CollateralQuery> = {}): CollateralQuery {
+  return {
+    origin: 'nvidia-rim',
+    platform: 'sgx',
+    cpuType: null,
+    level: null,
+    rimId: RIM_ID,
+    appraisalAt: WITHIN,
+    roots: [documentVendor.rootDer],
+    retained: null,
+    onAbsent: 'unassessed',
+    ...over,
+  };
+}
+
+/** The address the route publishes for the id the question names. */
+function rimAddress(): string {
+  const asked = requestUrl(rimQuery(), NVIDIA_RIM);
+  if (typeof asked !== 'string') throw new Error(`the RIM address was refused: ${asked.refusal.detail}`);
+  return asked;
+}
+
+/**
+ * The RIM cells, produced through the three public entry points a RIM reading is made of.
+ *
+ * No appraisal path answers for this origin, because no verdict does: the wrapper reader answers with what it
+ * read beside the refusal that says the manifest inside it was weighed by nobody, so the refusal is read off the
+ * outcome rather than off a state.
+ */
+function rimScenarios(): Partial<Record<CollateralErrorCode, Scenario>> {
+  const wrapper = (body: Uint8Array, over: Partial<CollateralQuery> = {}): Promise<string> =>
+    Promise.resolve(readRimManifest(body, rimQuery(over), NVIDIA_RIM).refusal.code);
+  const asked = async (transport: CollateralTransport): Promise<string> => {
+    const out = await fetchFromOrigin(rimAddress(), NVIDIA_RIM, { transport });
+    return 'refusal' in out ? out.refusal.code : 'an answer was fetched and carried no refusal';
+  };
+  return {
+    COLLATERAL_INPUT_MISSING: async () => {
+      const addressed = requestUrl(rimQuery({ rimId: null }), NVIDIA_RIM);
+      return typeof addressed === 'string' ? `an address was spelled with no id: ${addressed}` : addressed.refusal.code;
+    },
+    COLLATERAL_ORIGIN_UNREACHABLE: () => asked(unreachable()),
+    COLLATERAL_ORIGIN_REFUSED: () => asked(async () => new Response('{}', { status: 403 })),
+    COLLATERAL_BLOB_UNREADABLE: () => wrapper(new TextEncoder().encode('not a wrapper')),
+    COLLATERAL_SIGNATURE_UNVERIFIED: () => wrapper(writeRimWrapper({ id: RIM_ID })),
+    COLLATERAL_IDENTITY_MISMATCH: () => wrapper(writeRimWrapper({ id: RIM_ID, digest: '0'.repeat(64) })),
+    COLLATERAL_STATUS_UNSUPPORTED: () => wrapper(writeRimWrapper({ id: RIM_ID, format: 'NOT-A-FORMAT' })),
+  };
+}
+
 function chainQuery(over: Partial<VcekChainQuery> = {}): VcekChainQuery {
   return {
     origin: 'amd-kds',
@@ -492,6 +657,13 @@ const NO_CELL_FACTS: Readonly<Partial<Record<CollateralErrorCode, Readonly<Parti
     'intel-qe-identity': originHasAReader,
     'intel-pck-crl': originHasAReader,
     'amd-kds': originHasAReader,
+    ocsp: originHasAReader,
+    'nvidia-rim': originHasAReader,
+  },
+  COLLATERAL_ANCHOR_NOT_PINNED: {
+    // A wrapper carries a digest of its own bytes and no chain beside them, so there is no root this reader
+    // could be asked to pin and no walk that could fail to reach one.
+    'nvidia-rim': () => NVIDIA_RIM.chainHeader === null && NVIDIA_RIM.reader.as === 'rim-wrapper',
   },
   COLLATERAL_IDENTITY_MISMATCH: {
     'intel-qe-identity': () => INTEL_QE_IDENTITY.identity.cpuTypeMember === null,
@@ -499,16 +671,30 @@ const NO_CELL_FACTS: Readonly<Partial<Record<CollateralErrorCode, Readonly<Parti
   COLLATERAL_TCB_LEVEL_UNLISTED: {
     'intel-pck-crl': () => !Object.hasOwn(INTEL_PCK_CRL, 'identity') && INTEL_PCK_CRL.serialMember === 'certificateSerial',
     'amd-kds': () => !Object.hasOwn(AMD_KDS, 'identity'),
+    ocsp: () => !Object.hasOwn(NVIDIA_OCSP, 'identity') && NVIDIA_OCSP.cache.keyMembers.includes('ocspCertificate'),
+    'nvidia-rim': () => !Object.hasOwn(NVIDIA_RIM, 'identity') && NVIDIA_RIM.reader.as === 'rim-wrapper',
   },
   COLLATERAL_STATUS_UNSUPPORTED: {
     'amd-kds': () => !Object.hasOwn(AMD_KDS, 'status'),
   },
   COLLATERAL_WINDOW_CLOSED: {
     'amd-kds': () => !Object.hasOwn(AMD_KDS, 'window'),
+    // The declaration states no member a window is read from, and `last_updated` is the vendor's text for when
+    // a file was updated, which bounds nothing and so can no more close than it can open.
+    'nvidia-rim': () => !Object.hasOwn(NVIDIA_RIM, 'window') && NVIDIA_RIM.reader.as === 'rim-wrapper',
+  },
+  COLLATERAL_NOT_OBSERVED: {
+    // A kept answer is refused as unobserved where the declaration names the record it belongs to; this one
+    // names none, because no verdict of this origin's would have a key to be kept under.
+    'nvidia-rim': () => NVIDIA_RIM.cache === null,
+  },
+  COLLATERAL_RETAINED_CHAIN_MISMATCH: {
+    'nvidia-rim': () => NVIDIA_RIM.chainHeader === null && NVIDIA_RIM.cache === null,
   },
   COLLATERAL_REVOKED_BY_VENDOR: {
     'amd-kds': () => !Object.hasOwn(AMD_KDS, 'status')
       && AMD_KDS.routes.every((route) => route.answer !== 'der-crl' && route.answer !== 'der-ocsp-response'),
+    'nvidia-rim': () => NVIDIA_RIM.routes.every((route) => route.answer !== 'der-crl' && route.answer !== 'der-ocsp-response'),
   },
 };
 
@@ -543,7 +729,7 @@ function cellsOf(reached: Reached): string[] {
 describe('the reachability grid docs/error-codes.md carries', () => {
   it('is the read origins crossed with the declared codes, in those orders', () => {
     expect(CODES).toHaveLength(14);
-    expect(SERVED_ORIGINS).toHaveLength(4);
+    expect(SERVED_ORIGINS).toHaveLength(6);
     const rows = gridRows();
     expect(rows).toEqual(expectedRows());
     expect(rows).toHaveLength(SERVED_ORIGINS.length * CODES.length);
@@ -567,6 +753,8 @@ describe('the reachability grid docs/error-codes.md carries', () => {
       'intel-qe-identity': intelScenarios('intel-qe-identity'),
       'intel-pck-crl': crlScenarios(),
       'amd-kds': chainScenarios(),
+      ocsp: ocspScenarios(),
+      'nvidia-rim': rimScenarios(),
     };
     for (const origin of SERVED_ORIGINS) {
       for (const code of CODES) {
@@ -594,22 +782,41 @@ describe('the reachability grid docs/error-codes.md carries', () => {
   });
 
   /**
-   * The two declared origins hold no row because they answer ahead of the grid, so the grid's `no` cells are
-   * not a claim that an unread origin is readable: this case keeps the unread answer where the prose puts it.
+   * The RIM row holds because an arm weighs its wrapper, and the cells that read `no` hold because the same
+   * declaration states no window, no identity block, no chain header, no cache rule and no revocation shape —
+   * which is the grid's way of stating that a wrapper reading reaches no verdict. The refusal a wrapper that
+   * parses carries says the same thing from the reader's side, so this case reads both and refuses a grid that
+   * quietly grants this origin a row it cannot fill.
    */
-  it('keeps the declared-only origins ahead of the grid', () => {
-    for (const unread of ['nvidia-rim', 'ocsp'] as const) {
-      const asked = declarationFor(unread);
-      expect('refusal' in asked ? asked.refusal.code : 'no refusal', unread).toBe('COLLATERAL_ORIGIN_UNSUPPORTED');
-      expect(cellsOf('no').some((cell) => cell.startsWith(`${unread} `)), `${unread} holds a grid cell`).toBe(false);
+  it('holds the RIM to the reach its declaration and its reader both state', () => {
+    const declared = ORIGIN_DECLARATIONS['nvidia-rim'];
+    if (declared.reader.as !== 'rim-wrapper') throw new Error('the RIM was granted a verdict its reader does not reach');
+    expect(declared.reader.reads).toContain('readRimManifest');
+    expect(declared.reader.reads).toContain('sha256');
+    expect(declared.reader.lacks).toContain('XML digital-signature reader');
+    const cells = CELLS['nvidia-rim'];
+    for (const code of [
+      'COLLATERAL_ANCHOR_NOT_PINNED',
+      'COLLATERAL_ORIGIN_UNSUPPORTED',
+      'COLLATERAL_TCB_LEVEL_UNLISTED',
+      'COLLATERAL_WINDOW_CLOSED',
+      'COLLATERAL_NOT_OBSERVED',
+      'COLLATERAL_RETAINED_CHAIN_MISMATCH',
+      'COLLATERAL_REVOKED_BY_VENDOR',
+    ] as const) {
+      expect(cells[code][0], code).toBe('no');
     }
-    const addressed = requestUrl(
-      { ...intelQuery('intel-tcb-info'), origin: 'nvidia-rim', rimId: 'gpu-rim-0001' },
-      ORIGIN_DECLARATIONS['nvidia-rim'],
-    );
-    expect(addressed, 'the route is published even where no reader weighs its answer').toBe(
+    expect(requestUrl(rimQuery(), NVIDIA_RIM), 'the route is published even where no verdict reads its answer').toBe(
       'https://rim.attestation.nvidia.com/v1/rim/gpu-rim-0001',
     );
+
+    const paired = readRimManifest(writeRimWrapper({ id: RIM_ID }), rimQuery(), NVIDIA_RIM);
+    if (!('read' in paired)) throw new Error(`the wrapper was refused: ${paired.refusal.detail}`);
+    expect(paired.read.format).toBe('TCG');
+    expect(paired.read.id).toBe(RIM_ID);
+    expect(paired.read.blobs).toHaveLength(1);
+    expect(paired.refusal.code).toBe('COLLATERAL_SIGNATURE_UNVERIFIED');
+    expect(paired.refusal.detail).toContain('canonicalized');
   });
 });
 

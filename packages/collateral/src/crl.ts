@@ -1,6 +1,7 @@
 import { equalBytes } from '@ashaveri/attest-core';
 import { sha256Hex } from './bytes.js';
 import { collateralRefusal, quoteOrDigest, type CollateralRefusal } from './errors.js';
+import { bitStringContent, decodeOid, expectTag, fail, parseTime, positiveInteger, readTlv, type Tlv } from './der.js';
 import { isCrlDeclaration, isDeclaredOnly, type CrlOriginDeclaration } from './intel-origin.js';
 import { parsePinned, reachAnchor, verifiesUnderLeaf, type Reading } from './read.js';
 import { chainCertificates } from './served.js';
@@ -31,14 +32,6 @@ const CRL_REASONS: Readonly<Record<number, string>> = {
   10: 'aACompromise',
 };
 
-/** One DER element, with the offsets needed to keep its bytes exactly as they arrived. */
-interface Tlv {
-  readonly tag: number;
-  readonly start: number;
-  readonly contentStart: number;
-  readonly end: number;
-}
-
 /** What a CRL read answered: the list, or the refusal that says why no list was believed. */
 export type RevocationReadOutcome = { readonly read: RevocationList } | { readonly refusal: CollateralRefusal };
 
@@ -52,8 +45,10 @@ export type RevocationReadOutcome = { readonly read: RevocationList } | { readon
  * arrived, and the refusal a bad answer gets names the field that failed.
  *
  * The parser is bounded by the declaration's own byte cap and by strict DER rules: definite lengths only,
- * no multi-byte tags, no trailing data inside any sequence. A list that is not the shape this origin
- * declares answers `COLLATERAL_BLOB_UNREADABLE`, and a list whose signature does not hold answers
+ * no multi-byte tags, no trailing data inside any sequence. Those element rules are `der.ts`'s, shared with
+ * the OCSP reader so that a malformed answer of either shape means one thing in this package rather than two
+ * nearly identical things. A list that is not the shape this origin declares answers
+ * `COLLATERAL_BLOB_UNREADABLE`, and a list whose signature does not hold answers
  * `COLLATERAL_SIGNATURE_UNVERIFIED`. Once the signature holds, the issuer the list names is checked against the
  * one the requested authority scope publishes, and a list from the other scope answers
  * `COLLATERAL_IDENTITY_MISMATCH` rather than a question about this one. A name this reader cannot spell out,
@@ -198,7 +193,7 @@ function parseCertificateList(
     if (signatureAlgorithm !== 'ecdsa-with-SHA256') {
       fail(`signatureAlgorithm is ${signatureAlgorithm}, not ecdsa-with-SHA256`);
     }
-    const signature = bitStringContent(body, signatureValue);
+    const signature = bitStringContent(body, signatureValue, 'signatureValue');
 
     let at = tbs.contentStart;
     let version: 1 | 2 = 1;
@@ -415,38 +410,6 @@ function parseAlgorithm(body: Uint8Array, sequence: Tlv): string {
   return ALGORITHM_NAMES[oid] ?? oid;
 }
 
-/**
- * An OID as its own dotted text.
- *
- * The first sub-identifier packs the first two arcs, as X.690 states it, and a value whose last byte still
- * has the continuation bit set is truncated rather than a very large arc.
- */
-function decodeOid(body: Uint8Array, tlv: Tlv): string {
-  if (tlv.end === tlv.contentStart) {
-    fail('an OID states no arc');
-  }
-  const arcs: number[] = [];
-  let value = 0;
-  for (let at = tlv.contentStart; at < tlv.end; at += 1) {
-    const byte = body[at] as number;
-    if (value > Number.MAX_SAFE_INTEGER / 128) {
-      fail('an OID arc is larger than this reader can state');
-    }
-    value = value * 128 + (byte & 0x7f);
-    if ((byte & 0x80) === 0) {
-      arcs.push(value);
-      value = 0;
-    }
-  }
-  if ((body[tlv.end - 1] as number) & 0x80) {
-    fail('an OID ends in the middle of an arc');
-  }
-  const first = arcs[0] as number;
-  const firstArc = first < 40 ? 0 : first < 80 ? 1 : 2;
-  const secondArc = first < 40 ? first : first < 80 ? first - 40 : first - 80;
-  return [firstArc, secondArc, ...arcs.slice(1)].join('.');
-}
-
 /** The one common name a DER Name carries, or null where it carries none this parser reads. */
 function commonName(name: Uint8Array): string | null {
   let found: string | null = null;
@@ -489,131 +452,6 @@ function attributeText(body: Uint8Array, tlv: Tlv): string {
     fail(`an issuer attribute uses tag 0x${tlv.tag.toString(16)}, whose text this reader does not read`);
   }
   return new TextDecoder('utf-8').decode(body.subarray(tlv.contentStart, tlv.end));
-}
-
-/** One Time value as Unix seconds, with the calendar checked rather than normalized. */
-function parseTime(body: Uint8Array, tlv: Tlv, context: string): number {
-  if (tlv.tag !== 0x17 && tlv.tag !== 0x18) {
-    fail(`${context} is neither UTCTime nor GeneralizedTime`);
-  }
-  const text = new TextDecoder('latin1').decode(body.subarray(tlv.contentStart, tlv.end));
-  const match = tlv.tag === 0x17
-    ? /^(\d{2})(\d{2})(\d{2})(\d{2})(\d{2})(\d{2})Z$/u.exec(text)
-    : /^(\d{4})(\d{2})(\d{2})(\d{2})(\d{2})(\d{2})Z$/u.exec(text);
-  if (match === null) {
-    fail(`${context} is not a DER time`);
-  }
-  let year = Number(match[1]);
-  if (tlv.tag === 0x17) {
-    year += year >= 50 ? 1900 : 2000;
-  }
-  const month = Number(match[2]);
-  const day = Number(match[3]);
-  const hour = Number(match[4]);
-  const minute = Number(match[5]);
-  const second = Number(match[6]);
-  const millis = Date.UTC(year, month - 1, day, hour, minute, second);
-  const date = new Date(millis);
-  if (
-    date.getUTCFullYear() !== year
-    || date.getUTCMonth() !== month - 1
-    || date.getUTCDate() !== day
-    || date.getUTCHours() !== hour
-    || date.getUTCMinutes() !== minute
-    || date.getUTCSeconds() !== second
-  ) {
-    fail(`${context} names a calendar instant that does not exist`);
-  }
-  return Math.floor(millis / 1000);
-}
-
-/** A DER INTEGER's canonical unsigned value, refused where its bytes would read as negative or redundant. */
-function positiveInteger(body: Uint8Array, tlv: Tlv, context: string): bigint {
-  const length = tlv.end - tlv.contentStart;
-  if (length === 0) {
-    fail(`${context} is an empty INTEGER`);
-  }
-  const first = body[tlv.contentStart] as number;
-  if ((first & 0x80) !== 0) {
-    fail(`${context} is negative`);
-  }
-  if (length > 1 && first === 0 && ((body[tlv.contentStart + 1] as number) & 0x80) === 0) {
-    fail(`${context} has a redundant leading zero`);
-  }
-  let value = 0n;
-  for (let at = tlv.contentStart; at < tlv.end; at += 1) {
-    value = (value << 8n) | BigInt(body[at] as number);
-  }
-  return value;
-}
-
-/** A BIT STRING's contents, less the unused-bits byte, which must state no unused bits here. */
-function bitStringContent(body: Uint8Array, tlv: Tlv): Uint8Array {
-  const length = tlv.end - tlv.contentStart;
-  if (length < 2) {
-    fail('signatureValue is too short to hold a signature');
-  }
-  if ((body[tlv.contentStart] as number) !== 0) {
-    fail('signatureValue states unused bits');
-  }
-  return body.slice(tlv.contentStart + 1, tlv.end);
-}
-
-/** One DER element read with a definite length, a bounded length field and no trailing bytes implied. */
-function readTlv(body: Uint8Array, offset: number, limit: number, context: string): Tlv {
-  if (offset >= limit) {
-    fail(`${context} is truncated at its tag`);
-  }
-  const tag = body[offset] as number;
-  if ((tag & 0x1f) === 0x1f) {
-    fail(`${context} uses a multi-byte tag`);
-  }
-  let at = offset + 1;
-  if (at >= limit) {
-    fail(`${context} is truncated at its length`);
-  }
-  const first = body[at] as number;
-  let length: number;
-  if (first < 0x80) {
-    length = first;
-    at += 1;
-  } else {
-    const count = first & 0x7f;
-    if (count === 0) {
-      fail(`${context} uses an indefinite length`);
-    }
-    if (count > 4) {
-      fail(`${context} states a length wider than four bytes`);
-    }
-    if (at + count >= limit) {
-      fail(`${context} is truncated inside its length`);
-    }
-    if ((body[at + 1] as number) === 0) {
-      fail(`${context} states a length with a leading zero`);
-    }
-    length = 0;
-    for (let index = 1; index <= count; index += 1) {
-      length = length * 0x100 + (body[at + index] as number);
-    }
-    if (length < 0x80) {
-      fail(`${context} states a long-form length for a value that fits the short form`);
-    }
-    at += 1 + count;
-  }
-  if (length > limit - at) {
-    fail(`${context} overruns the bytes that carry it`);
-  }
-  return { tag, start: offset, contentStart: at, end: at + length };
-}
-
-function expectTag(tlv: Tlv, tag: number, context: string): void {
-  if (tlv.tag !== tag) {
-    fail(`${context} is tag 0x${tlv.tag.toString(16)}, not 0x${tag.toString(16)}`);
-  }
-}
-
-function fail(why: string): never {
-  throw new Error(why);
 }
 
 function unreadable(declaration: CrlOriginDeclaration, why: string): { readonly refusal: CollateralRefusal } {

@@ -195,9 +195,10 @@ What is still true, in both modes:
   publishing this collateral for deployments that want it is the position, described in
   the README's attestation-collateral section, and no shipped command asks an origin or makes one a
   precondition of any verdict a third party can reach. `@ashaveri/collateral` declares 6 origins and
-  reads 4: `intel-tcb-info`, `intel-qe-identity`, `intel-pck-crl` and `amd-kds`. It declares the other
-  2, `nvidia-rim` and `ocsp`, with the host and routes their vendors publish, reads neither, refuses
-  an appraisal of one with the reader it lacks, and commits no vendor-service bytes.
+  reads 6: `intel-tcb-info`, `intel-qe-identity`, `intel-pck-crl`, `amd-kds`, `ocsp` and `nvidia-rim`, each
+  with an arm weighing some answer of it, each reached only when a caller asks one of those entry points, and
+  no vendor-service byte committed: the answers a reader weighs are handed to it by a transport the caller
+  injects, and every fixture is written by a generator inside the test tree.
   It reads the Intel PCK CRL as a DER certificate list when a caller asks `appraisePckCrl`, under the
   issuer chain the answer carries and a root the caller pins, and that reading answers about one
   certificate serial rather than a platform level. It reads the two Intel JSON documents, the TCB Info and the
@@ -207,7 +208,22 @@ What is still true, in both modes:
   the same primitives that believe a report's own ARK, ASK and VCEK, and under the ARK the caller
   pins rather than a root that arrived with the answer; a VCEK states what AMD signed about a chip, so
   that reading carries a historical reach, states no revocation, and AMD's TCB extension is read by
-  nothing. No shipped command asks any of those entry points, and none of them closes any of the residual above.
+  nothing.
+  It reads a responder's DER answer when a caller asks `appraiseOcspResponse`: the question is written from the
+  certificate and the issuer the caller names, the answer is weighed under that issuer and walked to a root the
+  caller pins, and the span it speaks for is the answer's own `thisUpdate` to `nextUpdate`. An answer this run
+  asked inside that span is the one `current-knowledge` this package states about a revocation; bytes kept from an
+  earlier run carry a historical reach and are answered as unobserved; and a standing the responder gave as
+  revoked outranks a closed window, because nothing published later un-revokes a certificate. It says nothing
+  about a platform: a responder names one certificate, and a certificate that is not revoked is not a statement
+  that the platform carrying it is trusted. It reads a RIM route's JSON wrapper when a caller asks
+  `readRimManifest`, weighing the manifest bytes against the digest the same body names for them and the manifest
+  id against the one the question asked for, and it returns that read beside the sentence that the signature
+  inside the wrapper — taken over a canonicalized element, in a form this package states no rule for
+  canonicalizing — was weighed by nobody. A RIM therefore answers no verdict and states no window: the vendor's
+  update text says when a file was changed, not what span it speaks for, so a read wrapper establishes nothing
+  about a device measurement, and a platform-level question put to that origin is answered by naming the arm that
+  reads the wrapper rather than by handing back bytes nobody believed. No shipped command asks any of those entry points, and none of them closes any of the residual above.
   What is in this code is the other half of the same question and closes none of it:
   `@ashaveri/collateral` reads and classifies a vendor document it is handed,
   and a pack carries the material its sealed receipts' anchors name, so `ashaveri verify-pack` weighs those

@@ -45,6 +45,7 @@ const DECLARED: DeclaredOriginDeclaration = {
   name: 'intel-pck-crl',
   host: 'declared.example',
   method: 'GET',
+  requestMediaType: null,
   mediaType: 'application/pkix-crl',
   answer: 'der-crl',
   chainHeader: 'X-Declared-Chain',
@@ -89,7 +90,7 @@ function recorder(reply: (init: RequestInit) => Response | Promise<Response>): {
 
 const CRL_URL = 'https://api.trustedservices.intel.com/sgx/certification/v4/pckcrl?ca=processor&encoding=der';
 
-describe('a declared origin with no reader', () => {
+describe('the declarations a query can name', () => {
   it('spells the route a query names, and stops where the query states no member for a placeholder', () => {
     expect(requestUrl(query({ ca: 'processor' }), DECLARED)).toBe('https://declared.example/list?ca=processor&encoding=der');
     const missing = requestUrl(query(), DECLARED);
@@ -309,7 +310,13 @@ describe('a declared origin with no reader', () => {
     expect(oversize.refusal.code).toBe('COLLATERAL_BLOB_UNREADABLE');
   });
 
-  it('names every origin a query may carry once, and serves the four read here', () => {
+  /**
+   * The two lists meet at six: every name a query may carry has a declaration, and every declaration has an arm
+   * that weighs some answer of it. Serving an origin says a reader exists for its shape, not that the reader
+   * reaches a verdict — the RIM wrapper is read and the manifest inside it refused — so this case pins the names
+   * and the order the grid is built from, and `declarationFor` answers a declaration for each of them.
+   */
+  it('names every origin a query may carry once, and serves each one it declares', () => {
     expect([...DECLARED_ORIGINS].sort()).toEqual([
       'amd-kds',
       'intel-pck-crl',
@@ -318,16 +325,13 @@ describe('a declared origin with no reader', () => {
       'nvidia-rim',
       'ocsp',
     ]);
-    expect(SERVED_ORIGINS).toEqual(['intel-tcb-info', 'intel-qe-identity', 'intel-pck-crl', 'amd-kds']);
+    expect(SERVED_ORIGINS).toEqual(['intel-tcb-info', 'intel-qe-identity', 'intel-pck-crl', 'amd-kds', 'ocsp', 'nvidia-rim']);
+    expect(SERVED_ORIGINS).toHaveLength(DECLARED_ORIGINS.length);
     for (const name of DECLARED_ORIGINS) {
       expect(ORIGIN_DECLARATIONS[name]?.name, name).toBe(name);
-    }
-    for (const name of ['nvidia-rim', 'ocsp'] as const) {
       const asked = declarationFor(name);
-      if (!('refusal' in asked)) throw new Error(`${name} was served without a reader`);
-      expect(asked.refusal.code, name).toBe('COLLATERAL_ORIGIN_UNSUPPORTED');
-      expect(asked.refusal.missing, name).toEqual(['origin']);
-      expect(asked.refusal.detail, name).toContain('intel-tcb-info, intel-qe-identity, intel-pck-crl and amd-kds');
+      expect('refusal' in asked, name).toBe(false);
+      expect('refusal' in asked ? 'refusal' : asked.name, name).toBe(name);
     }
     expect(declarationFor('intel-pck-crl')).toBe(INTEL_PCK_CRL);
     expect(declarationFor('amd-kds')).toBe(AMD_KDS);
@@ -335,6 +339,8 @@ describe('a declared origin with no reader', () => {
 
   it('states the RIM route and the signed reference shape NVIDIA publishes for it', () => {
     expect(NVIDIA_RIM.host).toBe('rim.attestation.nvidia.com');
+    expect(NVIDIA_RIM.method).toBe('GET');
+    expect(NVIDIA_RIM.requestMediaType).toBeNull();
     expect(NVIDIA_RIM.mediaType).toBe('application/json');
     expect(NVIDIA_RIM.answer).toBe('swid-rim');
     expect(NVIDIA_RIM.routes[0]).toEqual({
@@ -345,9 +351,11 @@ describe('a declared origin with no reader', () => {
       answer: 'swid-rim',
       knowledge: 'historical',
     });
-    if (NVIDIA_RIM.reader.as !== 'declared-only') throw new Error('the RIM was declared readable');
-    expect(NVIDIA_RIM.reader.lacks).toContain('served RIM body');
-    expect(NVIDIA_RIM.reader.lacks).toContain('XML DSig reader');
+    // The reader states both halves: what it weighs and what it weighs nothing for, so a caller of the
+    // declaration learns the reach of a RIM reading from the declaration rather than from a missing refusal.
+    expect(NVIDIA_RIM.reader.as).toBe('rim-wrapper');
+    expect(NVIDIA_RIM.reader.reads).toContain('readRimManifest');
+    expect(NVIDIA_RIM.reader.lacks).toContain('XML digital-signature reader');
     expect(NVIDIA_RIM.cache).toBeNull();
   });
 
@@ -366,16 +374,23 @@ describe('a declared origin with no reader', () => {
     expect(missing.refusal.missing).toEqual(['rimId']);
   });
 
-  it('refuses an appraisal of the RIM with the body and DSig reader it lacks', async () => {
+  /**
+   * A RIM is an answer about a manifest, and the platform-level appraisal asks about a level, so the refusal
+   * names the arm that reads the wrapper and the reading that no arm here has. Nothing is asked of the origin on
+   * the way to that answer, and no state that carries collateral or a claim is reachable for this origin.
+   */
+  it('refuses an appraisal of the RIM with the entry point that reads its wrapper and the reader it lacks', async () => {
     const outcome = await appraiseCollateral(
       query({ origin: 'nvidia-rim', rimId: 'gpu-rim-0001' }),
       { transport: silent() },
     );
-    expect(outcome.state).toBe('unavailable');
-    if (!('refusal' in outcome)) throw new Error('the RIM answered with a document it never served');
-    expect(outcome.refusal.code).toBe('COLLATERAL_ORIGIN_UNSUPPORTED');
-    expect(outcome.refusal.detail).toContain('served RIM body');
-    expect(outcome.refusal.detail).toContain('XML DSig reader');
+    expect(outcome.state).toBe('missing-context');
+    if (!('refusal' in outcome)) throw new Error('the RIM answered with a verdict it cannot reach');
+    expect(outcome.refusal.code).toBe('COLLATERAL_INPUT_MISSING');
+    expect(outcome.refusal.detail).toContain('readRimManifest');
+    expect(outcome.refusal.detail).toContain('XML digital-signature reader');
+    expect(outcome.collateral).toBeNull();
+    expect(outcome.claim).toBeNull();
   });
 
   it('keeps the fetch rules for the RIM, including a credential-required refusal', async () => {
@@ -399,15 +414,20 @@ describe('a declared origin with no reader', () => {
     expect(refused.refusal.verdict).toBe('retryable');
   });
 
-  it('states the OCSP endpoint as a POST route whose answer is current knowledge', () => {
+  it('states the OCSP endpoint as a POST route whose answer this package reads', () => {
     expect(NVIDIA_OCSP.host).toBe('ocsp.ndis.nvidia.com');
     expect(NVIDIA_OCSP.method).toBe('POST');
+    // The request and the response types are named apart, because RFC 6960 states them apart and a question
+    // sent under the answer's type is a document the responder has no rule for reading.
+    expect(NVIDIA_OCSP.requestMediaType).toBe('application/ocsp-request');
     expect(NVIDIA_OCSP.mediaType).toBe('application/ocsp-response');
     expect(NVIDIA_OCSP.answer).toBe('der-ocsp-response');
     expect(NVIDIA_OCSP.routes[0]?.knowledge).toBe('current');
-    if (NVIDIA_OCSP.reader.as !== 'declared-only') throw new Error('the OCSP route was declared readable');
-    expect(NVIDIA_OCSP.reader.lacks).toContain('served OCSP response');
-    expect(NVIDIA_OCSP.reader.lacks).toContain('DER OCSP parser');
+    expect(NVIDIA_OCSP.reader.as).toBe('ocsp-response');
+    expect(NVIDIA_OCSP.suites).toEqual({ signature: 'ecdsa-sha256', responderKey: 'ec-p256' });
+    expect(NVIDIA_OCSP.status).toEqual({ trusted: ['good'], revoked: ['revoked'] });
+    expect(NVIDIA_OCSP.signer).toBe('issuer-named-by-the-question');
+    expect(NVIDIA_OCSP.cache.keyMembers).toEqual(['origin', 'ocspCertificate']);
   });
 
   it('names the certificate and issuer an OCSP question states, and spells its address once both are given', () => {
@@ -423,24 +443,33 @@ describe('a declared origin with no reader', () => {
     expect(addressed).toBe('https://ocsp.ndis.nvidia.com/');
   });
 
-  it('refuses an OCSP appraisal and a POST fetch before either can read a response', async () => {
+  /**
+   * A certificate question put to the platform-level entry point is the missing-context refusal that names the
+   * arm weighing the answer, and a POST declaration is asked by POST alone: nothing left this path's hand a GET
+   * when the route it publishes states a question to post.
+   */
+  it('routes an OCSP question to the arm that weighs it and refuses to ask it by GET', async () => {
     const outcome = await appraiseCollateral(
       query({ origin: 'ocsp', ocspCertificate: new Uint8Array([1]), ocspIssuer: new Uint8Array([2]) }),
       { transport: silent() },
     );
-    expect(outcome.state).toBe('unavailable');
-    if (!('refusal' in outcome)) throw new Error('the OCSP origin answered with a response it never served');
-    expect(outcome.refusal.code).toBe('COLLATERAL_ORIGIN_UNSUPPORTED');
-    expect(outcome.refusal.detail).toContain('DER OCSP parser');
+    expect(outcome.state).toBe('missing-context');
+    if (!('refusal' in outcome)) throw new Error('the OCSP origin answered a question about a platform level');
+    expect(outcome.refusal.code).toBe('COLLATERAL_INPUT_MISSING');
+    expect(outcome.refusal.detail).toContain('appraiseOcspResponse');
 
-    const { transport, seen } = recorder(() => new Response('never'));
-    const fetched = await fetchFromOrigin('https://ocsp.ndis.nvidia.com/', NVIDIA_OCSP, { transport });
-    if (!('refusal' in fetched)) throw new Error('a POST declaration was fetched');
-    expect(fetched.refusal.code).toBe('COLLATERAL_ORIGIN_UNSUPPORTED');
-    expect(seen).toHaveLength(0);
+    const unasked = await fetchFromOrigin('https://ocsp.ndis.nvidia.com/', NVIDIA_OCSP, { transport: silent() });
+    if (!('refusal' in unasked)) throw new Error('a POST route was asked with no question to post');
+    expect(unasked.refusal.code).toBe('COLLATERAL_INPUT_MISSING');
+    expect(unasked.refusal.missing).toEqual(['body']);
   });
 
-  it('reaches unavailable and missing context for every origin this package does not read, and no passing state', async () => {
+  /**
+   * No origin this package declares is left without an arm now, so what a wrong entry point answers is the
+   * refusal naming the right one, and no question to a level arm about another origin's answer reaches a state
+   * carrying bytes or a claim.
+   */
+  it('reaches missing context for a question put to the wrong arm, and no passing state', async () => {
     const states: string[] = [];
     for (const origin of ['nvidia-rim', 'ocsp'] as const) {
       const outcome = await appraiseCollateral(query({ origin }), { transport: silent() });
@@ -448,7 +477,7 @@ describe('a declared origin with no reader', () => {
       expect(outcome.collateral, origin).toBeNull();
       expect(outcome.claim, origin).toBeNull();
     }
-    expect(states).toEqual(['unavailable', 'unavailable']);
+    expect(states).toEqual(['missing-context', 'missing-context']);
 
     const chain = await appraiseCollateral(
       query({ origin: 'amd-kds', product: 'Milan', hwid: 'ab'.repeat(64) }),
@@ -474,11 +503,17 @@ describe('a declared origin with no reader', () => {
     }
   });
 
-  it('spells a POST address but refuses to fetch it rather than sending a GET it never published', async () => {
+  /**
+   * A declaration states the method its route answers to, and this path asks with that method rather than with
+   * one it adds of its own. A POST declaration stating no request media type states a question nobody can be
+   * asked with, so it is refused ahead of the transport rather than sent under the answer's type.
+   */
+  it('asks a POST route by POST, and refuses one that states no type to ask with', async () => {
     const posted: DeclaredOriginDeclaration = {
       ...DECLARED,
       name: 'ocsp',
       method: 'POST',
+      requestMediaType: 'application/ocsp-request',
       mediaType: 'application/ocsp-response',
       answer: 'der-ocsp-response',
       routes: [{ name: 'ocsp', path: '/', method: 'POST', mediaType: 'application/ocsp-response', answer: 'der-ocsp-response', knowledge: 'current' }],
@@ -487,8 +522,16 @@ describe('a declared origin with no reader', () => {
     const asked = requestUrl(at, posted);
     if (typeof asked !== 'string') throw new Error(`a stated POST question was refused: ${asked.refusal.detail}`);
     expect(asked).toBe('https://declared.example/');
-    const outcome = await fetchFromOrigin(asked, posted, { transport: silent() });
-    if (!('refusal' in outcome)) throw new Error('a POST declaration was fetched with GET');
-    expect(outcome.refusal.code).toBe('COLLATERAL_ORIGIN_UNSUPPORTED');
+    const { transport, seen } = recorder(() => new Response('answered'));
+    const fetched = await fetchFromOrigin(asked, posted, { transport, body: new TextEncoder().encode('a question') });
+    if ('refusal' in fetched) throw new Error(`a stated POST route was refused: ${fetched.refusal.detail}`);
+    expect((seen[0]?.init as RequestInit).method).toBe('POST');
+
+    const noType: DeclaredOriginDeclaration = { ...posted, requestMediaType: null };
+    const silentTransport = recorder(() => new Response('never'));
+    const refused = await fetchFromOrigin(asked, noType, { transport: silentTransport.transport, body: new TextEncoder().encode('a question') });
+    if (!('refusal' in refused)) throw new Error('a POST route with no request type was asked anyway');
+    expect(refused.refusal.code).toBe(noType.refusals.envelope);
+    expect(silentTransport.seen).toHaveLength(0);
   });
 });
