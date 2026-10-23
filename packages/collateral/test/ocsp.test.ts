@@ -516,6 +516,39 @@ describe('what the reader refuses before it believes anything', () => {
     expect(codeOf(readOutcome(one, answer(one, { omitResponseBytes: true })))).toBe('COLLATERAL_BLOB_UNREADABLE');
   });
 
+  it('refuses a standing carrying bytes where RFC 6960 states a NULL, in either of the two shapes', () => {
+    const one = fixture();
+    const good = readOutcome(one, answer(one, { standing: Uint8Array.of(0x80, 0x01, 0x00) }));
+    expect(codeOf(good)).toBe('COLLATERAL_BLOB_UNREADABLE');
+    expect(refusalOf(good).detail).toContain('certStatus');
+    const unknown = readOutcome(one, answer(one, { standing: Uint8Array.of(0x82, 0x01, 0x00) }));
+    expect(codeOf(unknown)).toBe('COLLATERAL_BLOB_UNREADABLE');
+    expect(refusalOf(unknown).detail).toContain('certStatus');
+  });
+
+  it('refuses a revoked standing carrying more than the instant and the reason, and answers rather than throws', () => {
+    const one = fixture();
+    // The one member RFC 6960 puts after `revocationTime` is `revocationReason`, so a bytes-after-the-instant is
+    // refused under the slot the standard states there; a trailing element beside a reason that slot has filled
+    // is refused as the standing's own trailing data.
+    const extra = readOutcome(one, answer(one, {
+      status: 'revoked',
+      revokedAt: REVOKED_AT,
+      revokedExtra: Uint8Array.of(0x05, 0x00),
+    }));
+    expect(codeOf(extra)).toBe('COLLATERAL_BLOB_UNREADABLE');
+    expect(refusalOf(extra).detail).toContain('revocationReason');
+
+    const pastReason = readOutcome(one, answer(one, {
+      status: 'revoked',
+      revokedAt: REVOKED_AT,
+      revokedReason: 1,
+      revokedExtra: Uint8Array.of(0x05, 0x00),
+    }));
+    expect(codeOf(pastReason)).toBe('COLLATERAL_BLOB_UNREADABLE');
+    expect(refusalOf(pastReason).detail).toContain('trailing data inside the revoked standing');
+  });
+
   it('answers a status that is not successful with the origin refusal, and names which one it was', () => {
     const statuses: readonly (readonly [number, string])[] = [
       [1, 'malformedRequest'],

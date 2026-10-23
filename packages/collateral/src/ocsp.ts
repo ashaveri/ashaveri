@@ -170,7 +170,15 @@ export function readOcspResponse(body: Uint8Array, reading: Reading): OcspReadOu
   if ('refusal' in window) {
     return window;
   }
-  const standing = readStatus(declaration, answered.single);
+  let standing: ReturnType<typeof readStatus>;
+  try {
+    standing = readStatus(declaration, answered.single);
+  } catch (err) {
+    // The standing's own members are DER inside the answer, so a standing that does not parse is the same fact
+    // as an answer that does: the bytes arrived, and no reading of them is on offer. Throwing would hand the
+    // caller a crash where the declaration states a refusal.
+    return unreadable(declaration, err instanceof Error ? err.message : 'the standing the answer states did not parse');
+  }
   if ('refusal' in standing) {
     return standing;
   }
@@ -736,6 +744,19 @@ function windowOf(declaration: OcspOriginDeclaration, answered: AnsweredResponse
   return { from: answered.single.thisUpdate, until };
 }
 
+/**
+ * A standing that states no value is refused where it carries one.
+ *
+ * RFC 6960 writes `good` and `unknown` as `[0]` and `[2]` IMPLICIT over NULL, and an IMPLICIT tag over NULL
+ * states zero content bytes, so content beside either tag is a member the answer did not state it had:
+ * RFC 6960 calls such a response malformed, and this reader says so rather than believing the tag alone.
+ */
+function emptyStanding(content: Uint8Array, tag: number): void {
+  if (content.byteLength !== 0) {
+    fail(`the certStatus of tag 0x${tag.toString(16)} carries ${String(content.byteLength)} content bytes, which RFC 6960 states as a NULL`);
+  }
+}
+
 /** The standing the answer states, copied rather than inferred, and the instant and reason a `revoked` word carries. */
 function readStatus(
   declaration: OcspOriginDeclaration,
@@ -746,9 +767,11 @@ function readStatus(
   readonly reasonCode: number | null;
 } | { readonly refusal: CollateralRefusal } {
   if (single.statusTag === STATUS_GOOD) {
+    emptyStanding(single.statusContent, STATUS_GOOD);
     return { status: 'good', revokedAt: null, reasonCode: null };
   }
   if (single.statusTag === STATUS_UNKNOWN) {
+    emptyStanding(single.statusContent, STATUS_UNKNOWN);
     return { status: 'unknown', revokedAt: null, reasonCode: null };
   }
   if (single.statusTag !== STATUS_REVOKED) {

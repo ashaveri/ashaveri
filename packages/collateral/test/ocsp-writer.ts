@@ -49,6 +49,20 @@ export interface OcspInput {
    * code when it asks what the standing reads as with a reason beside it.
    */
   readonly revokedReason?: number;
+  /**
+   * Bytes after the instant and the reason inside a `revoked` standing, which the standing states no member for.
+   *
+   * A case names these to ask what an answer that carries more than `RevokedInfo` has in it answers with.
+   */
+  readonly revokedExtra?: Uint8Array;
+  /**
+   * The whole `certStatus` element to write, in place of the one the case's status names.
+   *
+   * A standing is written by tag, length and content here rather than reached for through the status, because
+   * the case is about what the element carries: RFC 6960 states `good` and `unknown` as IMPLICIT NULL, so the
+   * two content bytes of a `[0]` are a member the answer did not state it had.
+   */
+  readonly standing?: Uint8Array;
   /** Which of the two responder identities to write, as the answer spells the signer. */
   readonly responderBy?: 'name' | 'key';
   /** A key other than the responder's, which makes a well-formed answer that its chain did not sign. */
@@ -207,7 +221,7 @@ export function writeOcspResponse(input: OcspInput): Uint8Array {
 
 /** One `SingleResponse`: the identity it answers about, the standing, and the window it states. */
 function singleResponse(certId: Uint8Array, input: OcspInput, status: 'good' | 'revoked' | 'unknown'): Uint8Array {
-  const standing = status === 'good'
+  const standing = input.standing ?? (status === 'good'
     ? tlv(0x80, new Uint8Array(0))
     : status === 'unknown'
       ? tlv(0x82, new Uint8Array(0))
@@ -216,7 +230,8 @@ function singleResponse(certId: Uint8Array, input: OcspInput, status: 'good' | '
         ...(input.revokedReason === undefined
           ? []
           : [tlv(0xa0, tlv(0x0a, Uint8Array.of(input.revokedReason)))]),
-      ]));
+        input.revokedExtra ?? new Uint8Array(0),
+      ])));
   return sequence(
     certId,
     standing,
