@@ -355,7 +355,11 @@ describe('the declarations a query can name', () => {
     // declaration learns the reach of a RIM reading from the declaration rather than from a missing refusal.
     expect(NVIDIA_RIM.reader.as).toBe('rim-wrapper');
     expect(NVIDIA_RIM.reader.reads).toContain('readRimManifest');
-    expect(NVIDIA_RIM.reader.lacks).toContain('XML digital-signature reader');
+    expect(NVIDIA_RIM.reader.reads).toContain('the signature over the canonicalized signed element');
+    // What the declaration lacks is the measurement comparison, not a reader. A `lacks` that still denied this
+    // package an XML digital-signature reader would contradict the weigh its own `reads` field states.
+    expect(NVIDIA_RIM.reader.lacks).toContain('compares a device measurement');
+    expect(NVIDIA_RIM.reader.lacks).not.toContain('no XML digital-signature reader');
     expect(NVIDIA_RIM.cache).toBeNull();
   });
 
@@ -379,7 +383,7 @@ describe('the declarations a query can name', () => {
    * names the arm that reads the wrapper and the reading that no arm here has. Nothing is asked of the origin on
    * the way to that answer, and no state that carries collateral or a claim is reachable for this origin.
    */
-  it('refuses an appraisal of the RIM with the entry point that reads its wrapper and the reader it lacks', async () => {
+  it('refuses an appraisal of the RIM by naming the reader that weighs the wrapper and what a weighed manifest lacks', async () => {
     const outcome = await appraiseCollateral(
       query({ origin: 'nvidia-rim', rimId: 'gpu-rim-0001' }),
       { transport: silent() },
@@ -387,8 +391,9 @@ describe('the declarations a query can name', () => {
     expect(outcome.state).toBe('missing-context');
     if (!('refusal' in outcome)) throw new Error('the RIM answered with a verdict it cannot reach');
     expect(outcome.refusal.code).toBe('COLLATERAL_INPUT_MISSING');
-    expect(outcome.refusal.detail).toContain('readRimManifest');
-    expect(outcome.refusal.detail).toContain('XML digital-signature reader');
+    expect(outcome.refusal.detail).toContain('readRimManifest weighs');
+    expect(outcome.refusal.detail).toContain('lacks the reading that compares a device measurement');
+    expect(outcome.refusal.detail).not.toContain('refuses what is inside it');
     expect(outcome.collateral).toBeNull();
     expect(outcome.claim).toBeNull();
   });

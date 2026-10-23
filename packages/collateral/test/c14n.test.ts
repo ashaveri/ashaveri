@@ -15,14 +15,16 @@ import {
  * Canonical XML version 1.1, held to bytes written out by hand.
  *
  * The expected sequences in the golden cases were derived from the rules before the canonicalizer they check was
- * run, and each was then measured against implementations that are not this repository's code: libxml2's
- * `xmllint --c14n11`, the .NET `XmlDsigC14NTransform`, and the JDK's `http://www.w3.org/2006/12/xml-c14n11`
- * canonicalization read out through the `DigestValue` it writes for a reference naming one element by its `Id`. A
- * writer that shares an assumption with the code it feeds cannot show that assumption wrong, so the bytes here
- * stand on their own and the canonicalizer has to meet them. The SignedInfo sequence carries the weight:
- * `DIGEST_HEX=ec8a8644532ab4182406b80fcfb49261b019e05e048ada464e1e6b80aa64715a` is what the JDK wrote for that
- * element, and the SHA-256 of the bytes below is the same number. The report of 23 October carries the rest of
- * those measurements, including the two places where implementations of this specification disagree.
+ * run, and each was then measured against implementations that are not this repository's code, each of which
+ * answers for a different half of the rules. libxml2's `xmllint --c14n11` writes the canonical form with comments
+ * and states no switch to drop them, so it witnesses the escaping, the namespace axis and the attribute order, and
+ * any document carrying no comment; the .NET `XmlDsigC14NTransform` answers for the same on version 1.0's terms.
+ * Comment omission is witnessed by the JDK's `http://www.w3.org/2006/12/xml-c14n11`, the identifier XML Signature
+ * 1.1 registers for Canonical XML 1.1 in its omit-comments form, read out through the `DigestValue` it writes for a
+ * reference naming one element by its `Id`. A writer that shares an assumption with the code it feeds cannot show
+ * that assumption wrong, so the bytes here stand on their own and the canonicalizer has to meet them. The
+ * SignedInfo sequence carries the weight: `DIGEST_HEX=ec8a8644532ab4182406b80fcfb49261b019e05e048ada464e1e6b80aa64715a`
+ * is what the JDK wrote for that element, and the SHA-256 of the bytes below is the same number.
  *
  * The whitespace escaping rules are met through character references, which is the only accepted spelling a value
  * carries them in: a line ending in the input is settled before parsing, a value carrying literal tab or line-feed
