@@ -121,4 +121,26 @@ describe('store evidence composed into a produced assessment', () => {
     expect(failure).toBeInstanceOf(SdkError);
     expect((failure as SdkError).code).toBe('RETENTION_ASSESSMENT_DISAGREES');
   });
+
+  it('keeps the door\'s statement about the bound it was given outside the published document', async () => {
+    // The door now says, of itself, when its caller gave it neither a period nor a count, and that statement
+    // belongs to the evidence rather than to the assessment: the layout `retention-assessment-v1` defines is
+    // four members and the producer takes a scope and a coverage, so the statement has no way into the bytes
+    // and no reason to. A reader of a document therefore still reads the deployment's declared scope and the
+    // store's coverage, while whoever composed the evidence from an unbounded opening can see that the wider
+    // span it wrote up was nobody's bound.
+    const dir = await storeDir();
+    await maintainedStore(dir);
+    const evidence = await readRetentionEvidence(request(dir));
+    expect(evidence.readerBound).toEqual({ stated: 'none', sentence: 'no bound was given to the reader' });
+
+    const produced = produceRetentionAssessment({
+      scope: evidence.scope,
+      coverage: evidence.coverage,
+      claim: 'indeterminate',
+    });
+    expect(Object.keys(produced.document)).toEqual(['v', 'scope', 'coverage', 'assessment']);
+    expect(produced.bytes).not.toContain('readerBound');
+    expect(assessRetention(JSON.parse(produced.bytes))).toEqual(produced.assessment);
+  });
 });
