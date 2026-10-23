@@ -1,7 +1,7 @@
 import { equalBytes } from '@ashaveri/attest-core';
 import { sha256Hex } from './bytes.js';
 import { collateralRefusal, quoteOrDigest, type CollateralRefusal } from './errors.js';
-import { bitStringContent, decodeOid, expectTag, fail, parseTime, positiveInteger, readTlv, type Tlv } from './der.js';
+import { bitStringContent, CRL_REASONS, decodeOid, expectTag, fail, parseTime, positiveInteger, readTlv, type Tlv } from './der.js';
 import { isCrlDeclaration, isDeclaredOnly, type CrlOriginDeclaration } from './intel-origin.js';
 import { parsePinned, reachAnchor, verifiesUnderLeaf, type Reading } from './read.js';
 import { chainCertificates } from './served.js';
@@ -16,20 +16,6 @@ const OID_COMMON_NAME = '2.5.4.3';
 const ALGORITHM_NAMES: Readonly<Record<string, string>> = {
   [OID_ECDSA_SHA256]: 'ecdsa-with-SHA256',
   [OID_ECDSA_SHA384]: 'ecdsa-with-SHA384',
-};
-
-/** RFC 5280's reason codes, named rather than renumbered at a call site. */
-const CRL_REASONS: Readonly<Record<number, string>> = {
-  0: 'unspecified',
-  1: 'keyCompromise',
-  2: 'cACompromise',
-  3: 'affiliationChanged',
-  4: 'superseded',
-  5: 'cessationOfOperation',
-  6: 'certificateHold',
-  8: 'removeFromCRL',
-  9: 'privilegeWithdrawn',
-  10: 'aACompromise',
 };
 
 /** What a CRL read answered: the list, or the refusal that says why no list was believed. */

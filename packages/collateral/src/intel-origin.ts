@@ -868,7 +868,10 @@ export const NVIDIA_RIM: RimOriginDeclaration = {
  *   about another certificate is refused as the wrong answer to this question.
  * - the standing is the answer's own word. `good` and `revoked` are the two this path reads, and `unknown` is
  *   refused as a status it has no rule for, because a responder with no record of the certificate answers a
- *   question about its own database rather than one about the certificate.
+ *   question about its own database rather than one about the certificate. The reason beside a `revoked`
+ *   standing is read too: RFC 6960 types it as a `cRLReason`, the code a revocation list's entry carries, and
+ *   `removeFromCRL` answers with the refusal that reason already answers with on a list, so one vendor code
+ *   means one thing to either reader of this package.
  *
  * What an answer reaches is the distinction `CollateralClaim` names: an answer this run asked, whose
  * `thisUpdate` covers the moment being appraised, is `current-knowledge` about that certificate's standing as

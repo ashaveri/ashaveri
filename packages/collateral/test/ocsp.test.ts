@@ -169,6 +169,8 @@ describe('the five answers one certificate question reaches', () => {
     expect(collateral.certStatus).toBe('good');
     expect(collateral.serialHex).toBe(one.serialHex);
     expect(collateral.revokedAt).toBeNull();
+    expect(collateral.reasonCode).toBeNull();
+    expect(collateral.reason).toBeNull();
     expect(collateral.digest).toBe(sha256Hex(body));
     expect(collateral.anchorDigest).toBe(sha256Hex(one.vendor.rootDer));
     expect(collateral.classification.readAs).toBe('trusted');
@@ -246,6 +248,62 @@ describe('the five answers one certificate question reaches', () => {
     expect(codeOf(outcome)).toBe('COLLATERAL_REVOKED_BY_VENDOR');
     expect(claim.reach).toBe('historical-knowledge');
     expect(claim.observedAt).toBeNull();
+  });
+
+  it('reads a reason the package honours as the revocation it names, and carries it beside the answer', async () => {
+    const one = fixture();
+    const outcome = await appraiseOcspResponse(queryOf(one), {
+      transport: serving(answer(one, { status: 'revoked', revokedAt: REVOKED_AT, revokedReason: 1 })),
+      clock: () => OBSERVED,
+    });
+    expect(outcome.state).toBe('revoked');
+    const { collateral } = weighed(outcome);
+    expect(codeOf(outcome)).toBe('COLLATERAL_REVOKED_BY_VENDOR');
+    expect(collateral.reasonCode).toBe(1);
+    expect(collateral.reason).toBe('keyCompromise');
+    expect(refusalOf(outcome).detail).toContain('keyCompromise');
+  });
+
+  it('refuses a removeFromCRL reason rather than reading a removal as a revocation', async () => {
+    const one = fixture();
+    const outcome = await appraiseOcspResponse(queryOf(one), {
+      transport: serving(answer(one, { status: 'revoked', revokedAt: REVOKED_AT, revokedReason: 8 })),
+      clock: () => OBSERVED,
+    });
+    expect(outcome.state).toBe('unavailable');
+    expect(codeOf(outcome)).toBe('COLLATERAL_STATUS_UNSUPPORTED');
+    expect(refusalOf(outcome).detail).toContain('removeFromCRL');
+    expect(refusalOf(outcome).detail).toContain(one.serialHex);
+    expect(outcome.collateral, 'a refusal of a removal keeps no answer and reads no revocation').toBeNull();
+    expect(outcome.claim).toBeNull();
+
+    const kept = await appraiseOcspResponse(queryOf(one, {
+      retained: { bytes: answer(one, { status: 'revoked', revokedAt: REVOKED_AT, revokedReason: 8 }), chain: null, chainSha256: null, observedAt: OBSERVED },
+    }), { transport: silence(), clock: () => OBSERVED });
+    expect(kept.state).toBe('unavailable');
+    expect(codeOf(kept)).toBe('COLLATERAL_STATUS_UNSUPPORTED');
+
+    const asked = readOutcome(one, answer(one, { status: 'revoked', revokedAt: REVOKED_AT, revokedReason: 8 }));
+    if ('read' in asked) {
+      expect(asked.read.reasonCode).toBe(8);
+      expect(asked.read.reason).toBe('removeFromCRL');
+    } else {
+      throw new Error('the reader refuses an answer the classification is the half that decides');
+    }
+  });
+
+  it('names an unassigned reason code as the number it states rather than sorting it into a nearer reason', async () => {
+    const one = fixture();
+    const outcome = await appraiseOcspResponse(queryOf(one), {
+      transport: serving(answer(one, { status: 'revoked', revokedAt: REVOKED_AT, revokedReason: 7 })),
+      clock: () => OBSERVED,
+    });
+    expect(outcome.state).toBe('revoked');
+    const { collateral } = weighed(outcome);
+    expect(codeOf(outcome)).toBe('COLLATERAL_REVOKED_BY_VENDOR');
+    expect(collateral.reasonCode).toBe(7);
+    expect(collateral.reason).toBeNull();
+    expect(refusalOf(outcome).detail).toContain('reason code 7');
   });
 
   it('answers a standing it has no rule for as absence, with no bytes and no claim beside it', async () => {

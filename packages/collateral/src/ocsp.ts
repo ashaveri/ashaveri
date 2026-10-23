@@ -2,7 +2,7 @@ import { sha1 } from '@noble/hashes/legacy.js';
 import { equalBytes, type ParsedCertificate } from '@ashaveri/attest-core';
 import { sha256Hex } from './bytes.js';
 import { collateralRefusal, quoteOrDigest, type CollateralRefusal } from './errors.js';
-import { bitStringContent, contentOf, decodeOid, expectTag, fail, parseTime, positiveInteger, readTlv, type Tlv } from './der.js';
+import { bitStringContent, contentOf, CRL_REASONS, decodeOid, expectTag, fail, parseTime, positiveInteger, readTlv, type Tlv } from './der.js';
 import { hasReader, isOcspDeclaration, type OcspOriginDeclaration } from './intel-origin.js';
 import { parseCertificates, parsePinned, reachAnchor, verifiesUnderLeaf, type Reading } from './read.js';
 import type { CollateralQuery, SignedWindow } from './types.js';
@@ -50,12 +50,21 @@ export type OcspReadOutcome = { readonly read: OcspReading } | { readonly refusa
  *
  * The standing is the answer's own word, copied rather than sorted: which of the two lists of the declaration
  * it sits in, and so whether it is a trust or a revocation, is the classification's reading rather than this
- * reader's. `revokedAt` is the instant a `revoked` word states and null for one that states no revocation.
+ * reader's. `revokedAt` is the instant a `revoked` word states and null for one that states no revocation, and
+ * `reasonCode` is the reason beside it, read as the number the standing carries rather than sorted into a word.
  */
 export interface OcspReading {
   /** The responder's own word for the certificate's standing. */
   readonly certStatus: 'good' | 'revoked' | 'unknown';
   readonly revokedAt: number | null;
+  /**
+   * RFC 5280's `cRLReason` code a `revoked` standing carries in its `revocationReason`, or null for one that
+   * states no reason and for a standing that states no revocation. Reading it is this reader's job; which code
+   * a revocation is read from is decided by the classification, the same half that decides it for a list.
+   */
+  readonly reasonCode: number | null;
+  /** The registry name for that code where one exists, or null for a code this reader does not name. */
+  readonly reason: string | null;
   /** The window the answer states for this certificate, in Unix seconds. */
   readonly window: SignedWindow;
   /** `producedAt`: the instant the responder states it signed. */
@@ -86,8 +95,10 @@ export interface OcspReading {
  * another certificate answers `COLLATERAL_IDENTITY_MISMATCH` rather than carrying a standing over from a
  * neighbour; and the standing is the answer's own word, which the classification reads out of the
  * declaration's two lists, so `unknown` is refused there as a word this package has no rule for. The
- * revocation reason beside a `revoked` instant is read by nothing here, and neither is any extension the answer
- * carries that is not marked critical.
+ * `revocationReason` beside a `revoked` instant is read as RFC 5280's code and named from the table `der.ts`
+ * shares with the revocation list, so one reason code means one thing to each reader of this package; which
+ * codes a revocation is read from is decided beside the list's own entries rather than here. No extension the
+ * answer carries that is not marked critical is read.
  */
 export function readOcspResponse(body: Uint8Array, reading: Reading): OcspReadOutcome {
   if (!isOcspDeclaration(reading.declaration)) {
@@ -167,6 +178,8 @@ export function readOcspResponse(body: Uint8Array, reading: Reading): OcspReadOu
     read: {
       certStatus: standing.status,
       revokedAt: standing.revokedAt,
+      reasonCode: standing.reasonCode,
+      reason: standing.reasonCode === null ? null : CRL_REASONS[standing.reasonCode] ?? null,
       window,
       producedAt: answered.producedAt,
       serialHex: serial.serialHex,
@@ -723,16 +736,20 @@ function windowOf(declaration: OcspOriginDeclaration, answered: AnsweredResponse
   return { from: answered.single.thisUpdate, until };
 }
 
-/** The standing the answer states, copied rather than inferred, and the instant a `revoked` word carries. */
+/** The standing the answer states, copied rather than inferred, and the instant and reason a `revoked` word carries. */
 function readStatus(
   declaration: OcspOriginDeclaration,
   single: SingleAnswer,
-): { readonly status: 'good' | 'revoked' | 'unknown'; readonly revokedAt: number | null } | { readonly refusal: CollateralRefusal } {
+): {
+  readonly status: 'good' | 'revoked' | 'unknown';
+  readonly revokedAt: number | null;
+  readonly reasonCode: number | null;
+} | { readonly refusal: CollateralRefusal } {
   if (single.statusTag === STATUS_GOOD) {
-    return { status: 'good', revokedAt: null };
+    return { status: 'good', revokedAt: null, reasonCode: null };
   }
   if (single.statusTag === STATUS_UNKNOWN) {
-    return { status: 'unknown', revokedAt: null };
+    return { status: 'unknown', revokedAt: null, reasonCode: null };
   }
   if (single.statusTag !== STATUS_REVOKED) {
     return unreadable(
@@ -743,16 +760,23 @@ function readStatus(
   const body = single.statusContent;
   const time = readTlv(body, 0, body.byteLength, 'revocationTime');
   const revokedAt = parseTime(body, time, 'revocationTime');
+  let reasonCode: number | null = null;
   let at = time.end;
   if (at < body.byteLength) {
     const reason = readTlv(body, at, body.byteLength, 'revocationReason');
     expectTag(reason, 0xa0, 'revocationReason');
+    const code = readTlv(body, reason.contentStart, reason.end, 'revocationReason');
+    expectTag(code, 0x0a, 'revocationReason');
+    reasonCode = Number(positiveInteger(body, code, 'revocationReason'));
+    if (code.end !== reason.end) {
+      fail('trailing data inside the revocation reason');
+    }
     at = reason.end;
   }
   if (at !== body.byteLength) {
     fail('trailing data inside the revoked standing');
   }
-  return { status: 'revoked', revokedAt };
+  return { status: 'revoked', revokedAt, reasonCode };
 }
 
 function unreadable(declaration: OcspOriginDeclaration, why: string): { readonly refusal: CollateralRefusal } {

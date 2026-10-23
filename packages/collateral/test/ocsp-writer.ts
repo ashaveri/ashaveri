@@ -42,6 +42,13 @@ export interface OcspInput {
   readonly status?: 'good' | 'revoked' | 'unknown';
   /** The instant a `revoked` standing states, which is required for that standing and read by nothing else. */
   readonly revokedAt?: number;
+  /**
+   * A `cRLReason` code for the `revoked` standing, which RFC 6960 types as `EXPLICIT CRLReason`.
+   *
+   * Absent writes no slot at all, which is what an answer that states no reason looks like; a case names a
+   * code when it asks what the standing reads as with a reason beside it.
+   */
+  readonly revokedReason?: number;
   /** Which of the two responder identities to write, as the answer spells the signer. */
   readonly responderBy?: 'name' | 'key';
   /** A key other than the responder's, which makes a well-formed answer that its chain did not sign. */
@@ -204,7 +211,12 @@ function singleResponse(certId: Uint8Array, input: OcspInput, status: 'good' | '
     ? tlv(0x80, new Uint8Array(0))
     : status === 'unknown'
       ? tlv(0x82, new Uint8Array(0))
-      : tlv(0xa1, concat([generalTime(input.revokedAt ?? input.thisUpdate)]));
+      : tlv(0xa1, concat([
+        generalTime(input.revokedAt ?? input.thisUpdate),
+        ...(input.revokedReason === undefined
+          ? []
+          : [tlv(0xa0, tlv(0x0a, Uint8Array.of(input.revokedReason)))]),
+      ]));
   return sequence(
     certId,
     standing,

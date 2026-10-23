@@ -6,7 +6,33 @@
  * trailing data inside a sequence the reader walked to its end, and every value kept as the bytes that
  * arrived rather than as a re-encoding of it. One reader of these elements is where a rule of that kind
  * belongs, because a second copy is a second answer to what a malformed answer is, and the two would drift.
+ * The reason codes a revocation is spelled with sit beside those rules for the same reason: a revocation list
+ * carries one in an entry's `cRLReason` extension and a responder's answer carries one in a `revoked`
+ * standing's `revocationReason`, which RFC 6960 types as `EXPLICIT CRLReason`, so two readers of one package
+ * owe one reading of what a removal from a listing is.
  */
+
+/**
+ * RFC 5280's `cRLReason` codes, named rather than renumbered at a call site.
+ *
+ * A code outside this list is stated by number where a refusal needs it, because a number nobody names is not
+ * turned into the nearer word.
+ */
+export const CRL_REASONS: Readonly<Record<number, string>> = {
+  0: 'unspecified',
+  1: 'keyCompromise',
+  2: 'cACompromise',
+  3: 'affiliationChanged',
+  4: 'superseded',
+  5: 'cessationOfOperation',
+  6: 'certificateHold',
+  8: 'removeFromCRL',
+  9: 'privilegeWithdrawn',
+  10: 'aACompromise',
+};
+
+/** RFC 5280's reason that takes a certificate out of a listing rather than revoking it. */
+export const REMOVE_FROM_CRL = 8;
 
 /** One DER element, with the offsets needed to keep its bytes exactly as they arrived. */
 export interface Tlv {

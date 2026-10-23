@@ -1,4 +1,5 @@
 import { CollateralError, collateralRefusal, quoteOrDigest, type CollateralRefusal } from './errors.js';
+import { REMOVE_FROM_CRL } from './der.js';
 import { fetchFromOrigin, wallClock } from './fetch.js';
 import {
   AMD_KDS,
@@ -380,7 +381,9 @@ async function appraiseOcsp(
  * documents carries over: a standing that says the certificate is revoked outranks a closed window, because
  * nothing published later un-revokes a certificate. The reach is read off the routes rather than remembered at
  * the call site, which is what makes `current-knowledge` a fact about this run having asked the responder, and
- * `retainUntil` is the answer's own `nextUpdate` extended by nothing here.
+ * `retainUntil` is the answer's own `nextUpdate` extended by nothing here. A `revoked` standing whose reason is
+ * `removeFromCRL` is refused as a status this package reads no verdict from, which is the answer the same reason
+ * gets on a revocation list's entry.
  */
 function classifyOcsp(
   read: OcspReading,
@@ -397,6 +400,15 @@ function classifyOcsp(
     return ocspAbsent('unavailable', collateralRefusal(
       declaration.refusals.statusUnknown,
       `${quoteOrDigest(read.certStatus)} is a standing this package has no rule for`,
+    ));
+  }
+  // The reason a `revoked` standing carries is weighed with the same rule the revocation list's entries are
+  // weighed with, because RFC 6960 spells `revocationReason` as a `CRLReason`: a removal from a listing is
+  // not a revocation in either reader, and neither answers a verdict from it.
+  if (revoked && read.reasonCode === REMOVE_FROM_CRL) {
+    return ocspAbsent('unavailable', collateralRefusal(
+      declaration.refusals.statusUnknown,
+      `the answer names serial ${read.serialHex} as revoked with removeFromCRL, which removes a listing rather than revoking the certificate, and no revocation is read from it`,
     ));
   }
   const key = collateralCacheKey(query, declaration);
@@ -425,8 +437,11 @@ function classifyOcsp(
     serialHex: read.serialHex,
     certStatus: read.certStatus,
     revokedAt: read.revokedAt,
+    reasonCode: read.reasonCode,
+    reason: read.reason,
   };
   if (revoked) {
+    const reason = read.reason ?? (read.reasonCode === null ? 'no reason stated' : `reason code ${String(read.reasonCode)}`);
     const stated = read.revokedAt === null ? '' : `, at ${iso(read.revokedAt)}`;
     return {
       state: 'revoked',
@@ -434,7 +449,7 @@ function classifyOcsp(
       claim,
       refusal: collateralRefusal(
         'COLLATERAL_REVOKED_BY_VENDOR',
-        `the signed answer reads ${quoteOrDigest(read.certStatus)} for serial ${read.serialHex}${stated}, which is a statement about the instant the responder signed it`,
+        `the signed answer reads ${quoteOrDigest(read.certStatus)} for serial ${read.serialHex} with ${reason}${stated}, which is a statement about the instant the responder signed it`,
       ),
     };
   }
@@ -887,9 +902,6 @@ function askedButNotGivenCrl(query: PckCrlQuery, declaration: CrlOriginDeclarati
 
 /** A certificate serial as a query spells it: hex digits and nothing else. */
 const SERIAL = /^[0-9a-fA-F]{1,128}$/u;
-
-/** RFC 5280's reason that takes an entry out of a listing rather than revoking the certificate. */
-const REMOVE_FROM_CRL = 8;
 
 function missingContext(refusal: CollateralRefusal): CollateralOutcome {
   return { state: 'missing-context', collateral: null, claim: null, refusal };

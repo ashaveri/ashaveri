@@ -425,7 +425,7 @@ export type OcspQuery = Omit<CollateralQuery, 'origin' | 'route' | 'ocspCertific
  * `window` is the single response's own `thisUpdate` and `nextUpdate`, which is the span the responder speaks
  * for and the only span a claim about this certificate may be measured against; `signedAt` is `producedAt`,
  * the instant the responder stated it signed. `certStatus` is the answer's own word, copied rather than
- * paraphrased, and `revokedAt` is the instant the `revoked` word states. `blobs` keeps the response first and
+ * paraphrased, and `revokedAt` is the instant the `revoked` word states and `reasonCode` the reason beside it. `blobs` keeps the response first and
  * then every certificate the response itself presented, in the order it presented them, so nothing re-encodes,
  * reorders or drops a byte. A certificate the caller handed in the question is not among them: it travels
  * beside the answer rather than inside it.
@@ -437,6 +437,15 @@ export interface OcspCollateral extends SignedCollateral {
   readonly certStatus: 'good' | 'revoked' | 'unknown';
   /** The instant a `revoked` answer states the revocation took effect, in Unix seconds, or null for one that states no revocation. */
   readonly revokedAt: number | null;
+  /**
+   * RFC 5280's `cRLReason` code the `revoked` standing carries in its `revocationReason`, or null where the
+   * standing states none. An answer whose reason is `removeFromCRL` is refused under
+   * `COLLATERAL_STATUS_UNSUPPORTED` rather than read as a revocation, which is the same answer a revocation
+   * list's entry with that reason gets.
+   */
+  readonly reasonCode: number | null;
+  /** The registry name for that code where one exists, or null for a code this reader does not name. */
+  readonly reason: string | null;
 }
 
 /**
@@ -464,8 +473,8 @@ export interface RimManifest {
 
 /**
  * The answers one certificate's revocation question can give, kept apart from `CollateralOutcome` so a caller
- * of `appraiseOcspResponse` reads the standing, the serial and the revocation instant out of the answer rather
- * than out of a cast.
+ * of `appraiseOcspResponse` reads the standing, the serial, the revocation instant and the reason beside it out
+ * of the answer rather than out of a cast.
  *
  * The five states and what each may say are the platform appraisal's: `current` is the one that carries no
  * refusal and is reached only when this run asked the responder and the answer's own window covers the moment
