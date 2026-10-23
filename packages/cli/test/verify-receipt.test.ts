@@ -1197,4 +1197,98 @@ describe('ashaveri verify-receipt', () => {
       expect(unaskedSlot.stderr).toContain("--anchor-file names the 'col' slot, which this receipt states as an absence (not-taken-in:");
     });
   });
+
+  /**
+   * The bound a policy demands of a stamp's source, weighed against what the receipt itself discloses.
+   *
+   * Nothing in these runs states a source: the command is handed a receipt, a policy and the document's
+   * own digests, and the figures behind the refusal or the printed qualification come out of the signed
+   * payload. The published pair does the rest: `receipt-unmeasured-v1` declares a source that states
+   * nobody measured, `receipt-stream-v1` declares one bounded at a second, and the demand of `0` answers
+   * neither while the demand of `1` answers only the measured one, which is the difference no flattened
+   * reading of the disclosure could produce.
+   */
+  describe('the bound a policy demands of the source a receipt discloses', () => {
+    it('refuses the published unmeasured stamp under a policy that names a demand', () => {
+      const result = runCli(argsFor({
+        receipt: receiptPath('receipt-unmeasured-v1'),
+        policy: policyFile({ maxTimeUncertaintySeconds: 3600 }),
+      }));
+      expect(result.status).toBe(1);
+      const refusal = verdictOf(result);
+      expect(refusal.code).toBe('STAMP_SOURCE_TOO_UNCERTAIN');
+      expect(String(refusal.message)).toContain('host clock');
+      expect(String(refusal.message)).toContain('no measured uncertainty');
+    });
+
+    it('prints what the artifact states and passes the same bytes under a policy that names none', () => {
+      const human = runCli(argsFor({
+        receipt: receiptPath('receipt-unmeasured-v1'),
+        json: false,
+      }));
+      expect(human.status, human.stdout).toBe(0);
+      expect(human.stdout).toContain(
+        "  stamp source:     'host clock' declares no measured bound on its readings",
+      );
+      expect(human.stdout).toContain('is not a bound of zero');
+      const machine = verdictOf(runCli(argsFor({ receipt: receiptPath('receipt-unmeasured-v1') })));
+      expect(machine.stampSource).toMatchObject({ name: 'host clock', uncertaintySeconds: null });
+      expect(String((machine.stampSource as { statement: string }).statement)).toContain('not a bound of zero');
+    });
+
+    it('weighs the published measured stamp at the demand its own bound answers, and one notch tighter', () => {
+      const met = runCli(argsFor({
+        receipt: receiptPath('receipt-stream-v1'),
+        policy: policyFile({ maxTimeUncertaintySeconds: 1 }),
+        json: false,
+      }));
+      expect(met.status, met.stdout).toBe(0);
+      expect(met.stdout).toContain("  stamp source:     'ptp-disciplined host clock' declares its readings can stand up to 1 s");
+      const refused = runCli(argsFor({
+        receipt: receiptPath('receipt-stream-v1'),
+        policy: policyFile({ maxTimeUncertaintySeconds: 0 }),
+      }));
+      expect(refused.status).toBe(1);
+      const refusal = verdictOf(refused);
+      expect(refusal.code).toBe('STAMP_SOURCE_TOO_UNCERTAIN');
+      expect(String(refusal.message)).toContain('can stand 1 seconds');
+    });
+
+    it('says which demand the run weighed, and does not print the same line under none', () => {
+      // One measured receipt, two policies: the one naming no demand and the one whose demand of a
+      // second the receipt meets. The disclosure is the same in both, so what separates the runs is
+      // what this run did with the figure, weighed or asked to weigh nothing, and a report that
+      // prints the same sentence for both passes over the one policy figure it silently skipped,
+      // while printing both age windows and a `not pinned:` row for every omitted pin.
+      const stampLine = (out: string): string =>
+        out.split('\n').find((one) => one.startsWith('  stamp source:')) ?? '';
+      const noDemand = runCli(argsFor({ receipt: receiptPath('receipt-stream-v1'), json: false }));
+      expect(noDemand.status, noDemand.stdout).toBe(0);
+      const met = runCli(argsFor({
+        receipt: receiptPath('receipt-stream-v1'),
+        policy: policyFile({ maxTimeUncertaintySeconds: 1 }),
+        json: false,
+      }));
+      expect(met.status, met.stdout).toBe(0);
+      const unweighed = stampLine(noDemand.stdout);
+      const weighed = stampLine(met.stdout);
+      expect(unweighed).not.toBe('');
+      expect(weighed).not.toBe('');
+      expect(weighed).not.toBe(unweighed);
+      expect(unweighed).toContain('no maxTimeUncertaintySeconds named by this policy, so this run weighed nothing against it');
+      expect(weighed).toContain('weighed here against the 1 s this policy demands, and met');
+      // The JSON rendering carries the shared sentence, so a port reads the same answer it prints.
+      const jsonNo = verdictOf(runCli(argsFor({ receipt: receiptPath('receipt-stream-v1') })));
+      expect(String((jsonNo.stampSource as { statement: string }).statement)).toContain(
+        'no maxTimeUncertaintySeconds named by this policy, so this run weighed nothing against it',
+      );
+      const jsonMet = verdictOf(runCli(argsFor({
+        receipt: receiptPath('receipt-stream-v1'),
+        policy: policyFile({ maxTimeUncertaintySeconds: 1 }),
+      })));
+      expect(String((jsonMet.stampSource as { statement: string }).statement)).toContain(
+        'weighed here against the 1 s this policy demands, and met',
+      );
+    });
+  });
 });

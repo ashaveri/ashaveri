@@ -539,6 +539,21 @@ function weightsNotChecked(reading: WeightsReading): readonly string[] {
 }
 
 /**
+ * What one stamp's source declares about itself, in the reader's words and off the document's own bytes.
+ *
+ * The two figures are the receipt's signed `sd` members, so this file states them and decides nothing with
+ * them: no policy is applied here, and the row exists because a report that quoted `iat` and passed over
+ * its source would read as though the instant were worth whatever the reader assumed. A bound of zero and
+ * the statement that nobody measured are kept apart on purpose, because the second is the case a
+ * demanding policy refuses and the first is the case it can accept.
+ */
+function stampDisclosure(sd: { readonly name: string; readonly uncertaintySeconds: number | null }): string {
+  return sd.uncertaintySeconds === null
+    ? `'${sd.name}' states that nobody measured how far its readings stand from the instants they name, which is not a bound of zero`
+    : `'${sd.name}' declares its readings up to ${String(sd.uncertaintySeconds)} s from the instants they name`;
+}
+
+/**
  * A receipt, read as a receipt.
  *
  * `verifyReceipt` is the shipped reader, so the signature rule, the kid rule and the payload rules are
@@ -574,6 +589,12 @@ function readReceipt(bytes: Uint8Array, inputs: Inputs, kid: Uint8Array): Readin
       { key: 'weights', label: 'weights', value: toHex(payload.wts), json: toHex(payload.wts) },
       weightsFact(weights),
       { key: 'issuedAt', label: 'issued at', value: `${payload.iat} (${isoOf(payload.iat)})`, json: payload.iat },
+      {
+        key: 'stampSource',
+        label: 'stamp source',
+        value: `${stampDisclosure(payload.sd)}, read off the signed payload beside the instant it qualifies`,
+        json: { name: payload.sd.name, uncertaintySeconds: payload.sd.uncertaintySeconds },
+      },
       { key: 'keyEpoch', label: 'key epoch', value: String(payload.epk), json: payload.epk },
       { key: 'measurement', label: 'measurement', value: `${toHex(payload.meas.m)} (${payload.meas.tee})`, json: { tee: payload.meas.tee, m: toHex(payload.meas.m) } },
       { key: 'requestDigest', label: 'request digest', value: toHex(payload.req), json: toHex(payload.req) },
@@ -603,7 +624,7 @@ function readReceipt(bytes: Uint8Array, inputs: Inputs, kid: Uint8Array): Readin
       }),
     ],
     notChecked: [
-      `the nonce against a challenge, the request and response digests against any bytes, the pins a policy names and the age windows a clock closes: 'ashaveri verify-receipt' decides those, from the receipt, a policy file and a deployment manifest`,
+      `the nonce against a challenge, the request and response digests against any bytes, the pins a policy names, the bound a policy demands of the source the stamp source row quotes, and the age windows a clock closes: 'ashaveri verify-receipt' decides those, from the receipt, a policy file and a deployment manifest`,
       'the evidence document behind att.d, which no file in a bundle stands in for',
       ...weightsNotChecked(weights),
     ],
@@ -687,6 +708,24 @@ async function readPack(bytes: Uint8Array, inputs: Inputs, kid: Uint8Array): Pro
         value: `${manifest.duty.art}, revision ${manifest.duty.rev} (${isoOf(manifest.duty.rev)}), required ${manifest.duty.required} s, held ${manifest.duty.held} s, both as the deployment states them`,
         json: manifest.duty,
       },
+      {
+        key: 'stampSources',
+        label: 'stamp sources',
+        value:
+          `one disclosure per sealed receipt, stated at its own item and merged with nothing: ` +
+          outcome.walked.map((one) => `${one.item.id} at ${one.item.iat}: ${stampDisclosure(one.receipt.payload.sd)}`).join('; ') +
+          `; the pack's own assembly instant ${manifest.at} is stated by no disclosure member, because the container discloses the stamps it seals and not the clock it assembled under`,
+        json: {
+          perReceipt: outcome.walked.map((one) => ({
+            id: one.item.id,
+            iat: one.item.iat,
+            name: one.receipt.payload.sd.name,
+            uncertaintySeconds: one.receipt.payload.sd.uncertaintySeconds,
+          })),
+          assembledAt: { value: manifest.at, disclosedBy: null },
+          rule: 'each sealed receipt states its own source inside this container; a reader weighs them one at a time, and no figure of one receipt qualifies the stamp of another',
+        },
+      },
       freshnessFact({
         historical: `the pack was assembled at ${manifest.at} (${isoOf(manifest.at)}) and its records were chained across the span ${manifest.span.from} to ${manifest.span.to} (${isoOf(manifest.span.from)} to ${isoOf(manifest.span.to)})`,
         current: 'not stated, because this run reached no store and holds no copy a reader kept before',
@@ -700,6 +739,7 @@ async function readPack(bytes: Uint8Array, inputs: Inputs, kid: Uint8Array): Pro
     ],
     notChecked: [
       `whether ${manifest.duty.required} s required is met by ${manifest.duty.held} s held: that comparison belongs to the duty mapping revision ${manifest.duty.rev} names, and this command states both figures and judges neither`,
+      'whether the sealed stamps meet the bound a policy demands of the sources the stamp sources row quotes: this run read no policy and weighed none, and `ashaveri verify-receipt` over each receipt itself decides that, from the receipt, a policy file and a deployment manifest',
       'whether these receipts are all the deployment still holds, and whether the span is the period somebody asked for: the walk shows that nothing is missing between the first item and the last, and nothing else',
       'whether this pack agrees with the copy a reader held before, which is the only way a deleted tail becomes visible',
       ...carriedNotChecked(weighing),
@@ -1067,6 +1107,11 @@ function handedPack(companions: ReadonlyMap<string, Uint8Array>): Uint8Array | u
  * impossible: the pack's signed head still holds over the pack's own run, and the head over the survivors is
  * a chain the pack does not contain. What a removal was for, and whether the bytes named as removed are
  * unreachable anywhere else, are answered by no reading of two documents, and are printed as open.
+ *
+ * Each survivor record prints with the stamp disclosure its own sealed receipt states, per record and merged
+ * with nothing, exactly as the pack arm states one disclosure per receipt it seals: this arm reaches the
+ * payload of every survivor it walks, and a report that quoted `at` and passed over its source would read as
+ * though the instant were worth whatever the reader assumed.
  */
 function readRedaction(bytes: Uint8Array, inputs: Inputs, kid: Uint8Array): Reading {
   const packBytes = handedPack(inputs.companions);
@@ -1076,7 +1121,6 @@ function readRedaction(bytes: Uint8Array, inputs: Inputs, kid: Uint8Array): Read
     packBytes: packBytes as Uint8Array,
   });
   const { manifest, outcome } = verified;
-  const survivors = outcome.survivors.map((one) => one.item);
   return {
     contentType: REDACTION_CONTENT_TYPE,
     reader: 'verifyRedaction',
@@ -1105,13 +1149,19 @@ function readRedaction(bytes: Uint8Array, inputs: Inputs, kid: Uint8Array): Read
       {
         key: 'survivorItems',
         label: 'survivor records',
-        value: survivors.map((one) => `${one.id} at ${one.iat}`).join('; '),
+        value:
+          `each with the stamp disclosure its own sealed receipt states and merged with nothing: ` +
+          outcome.survivors.map((one) => `${one.item.id} at ${one.item.iat}: ${stampDisclosure(one.receipt.payload.sd)}`).join('; '),
         json: outcome.survivors.map((one) => ({
           id: one.item.id,
           iat: one.item.iat,
           prev: toHex(one.item.prev),
           receiptKid: toHex(one.receipt.header.kid),
           receiptIssuer: one.receipt.payload.iss,
+          stampSource: {
+            name: one.receipt.payload.sd.name,
+            uncertaintySeconds: one.receipt.payload.sd.uncertaintySeconds,
+          },
         })),
       },
       {
@@ -1139,6 +1189,7 @@ function readRedaction(bytes: Uint8Array, inputs: Inputs, kid: Uint8Array): Read
     ],
     notChecked: [
       `whether the ${String(manifest.removed.length)} record(s) named as removed are unreachable anywhere this deployment still holds them: this run reads the statement and the pack it names, and no file in a bundle shows what else is stored`,
+      'whether the survivor stamps meet the bound a policy demands of the sources the survivor records row quotes: this run read no policy and weighed none, and `ashaveri verify-receipt` over each survivor itself decides that, from the receipt, a policy file and a deployment manifest',
       `whether this amendment is the whole of a removal somebody owed and ordered: the removal list and the sentence beside it are the deployment's own statement, and the mapping and the authority behind them are read by no reader of these bytes`,
       'whether this amendment is the latest statement about this pack, and whether the pack handed as this run\'s companion is the copy a reader held before the removal was stated: the walk inside this reading covers the pack as handed, and nothing here compares one copy of it with another',
     ],
@@ -1289,9 +1340,11 @@ async function readInventory(bytes: Uint8Array, inputs: Inputs, kid: Uint8Array)
       {
         key: 'entries',
         label: 'entries',
-        value: outcome.packs
-          .map((one) => `${printedToken(one.file)}: sealed ${one.at} (${isoOf(one.at)}), span ${one.span.from} to ${one.span.to}, ${one.items} item(s), pack ${one.sha256}, retention ${one.retentionSha256} as ${printedToken(one.retention)}, under ${one.kid}, duty ${printedToken(one.duty.art)} revision ${one.duty.rev} required ${one.duty.required} s held ${one.duty.held} s`)
-          .join('; '),
+        value:
+          outcome.packs
+            .map((one) => `${printedToken(one.file)}: sealed ${one.at} (${isoOf(one.at)}), span ${one.span.from} to ${one.span.to}, ${one.items} item(s), pack ${one.sha256}, retention ${one.retentionSha256} as ${printedToken(one.retention)}, under ${one.kid}, duty ${printedToken(one.duty.art)} revision ${one.duty.rev} required ${one.duty.required} s held ${one.duty.held} s`)
+            .join('; ') +
+          `; each sealed instant above is that pack's own assembly instant, stated by no disclosure member, because a pack discloses the stamps it seals and not the clock it assembled under`,
         json: outcome.packs,
       },
       ...(folded

@@ -276,9 +276,11 @@ export interface AshaveriPolicy {
  *
  * The pair is not invented here. `gateway/src/store.ts` states exactly these two fields as
  * `StampDeclaration`, on the store through `timeSource()` and beside every record a range walk hands
- * back, because a stamp without its source is a number nobody can weigh, and the receipt's own bytes
- * carry neither: the bound belongs to the deployment's declaration and not to the signed payload. A
- * caller hands over what it was handed, and this is the shape both of those statements arrive in.
+ * back, because a stamp without its source is a number nobody can weigh. The signed payload carries the
+ * same pair as its `sd` member (the `StampDisclosure` block of `packages/receipt/receipt.cddl` names the
+ * wire labels), so a reader of a finished receipt weighs a demand against what the artifact itself
+ * states, and a caller on the issuance side hands over what the store states; the two arrive in this one
+ * shape because they are the same two figures read from the same two places.
  *
  * `uncertaintySeconds` of `null` means nobody measured, which is a different sentence from a bound of
  * zero and is refused by a policy that demands one.

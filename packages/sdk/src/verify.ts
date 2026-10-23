@@ -11,7 +11,12 @@ import {
 import { toHex } from './b64.js';
 import { SdkError } from './errors.js';
 import type { AnchorSlotReading, AshaveriPolicy, AttestedTextMember } from './policy.js';
-import { assertAnchorHeldUnderPolicy, assertAnchorWeighedUnderPolicy, assertAttestedTextShapes } from './policy.js';
+import {
+  assertAnchorHeldUnderPolicy,
+  assertAnchorWeighedUnderPolicy,
+  assertAttestedTextShapes,
+  assertStampSourceWithinPolicy,
+} from './policy.js';
 import { DEFAULT_MAX_EVIDENCE_AGE_SECONDS, DEFAULT_MAX_RECEIPT_AGE_SECONDS } from './policy.js';
 
 export interface VerifyCompletionParams {
@@ -176,6 +181,15 @@ export function verifyCompletionReceipt(params: VerifyCompletionParams): Verifie
       `receipt measurement ${toHex(payload.meas.m)} (tee ${payload.meas.tee}) is not pinned by the policy`,
     );
   }
+  // What the document itself states about the source its `iat` was read from, weighed against what this
+  // policy demands of such a source. The disclosure is read off the verified payload and nothing else:
+  // a reader of a finished receipt reaches the same refusal a client reaches while a deployment is
+  // answering, because the statement the demand needs travels inside the signature rather than beside it,
+  // and the two figures a `StampSourceDeclaration` carries are the payload's own `sd` fields under their
+  // TypeScript names. Widening nothing and averaging nothing, this reads one document at a time: a pack
+  // whose receipts declare two different sources is refused or accepted per receipt, and no figure of one
+  // moves the verdict about the other.
+  assertStampSourceWithinPolicy(policy, payload.sd);
   // What the policy demands of an anchor, weighed last among the policy's own questions. The order is the
   // same one the pins keep: a receipt this policy would not trust an issuer or a measurement from is
   // refused for that reason before anybody reads its claims about what it took in, and a caller that

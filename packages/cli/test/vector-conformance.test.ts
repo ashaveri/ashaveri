@@ -109,6 +109,17 @@ interface ManifestEntry {
    * the order the suite publishes: no demand named, a demand of one held slot, a demand of both.
    */
   readonly handover?: { minAnchorSlotsHeld: number | null; verdict: string }[];
+  /**
+   * The disclosure the document's own payload states about its stamp source, as the row publishes it.
+   * `unc` is the declared bound or `null` for the source that states nobody measured; a row that names no
+   * `unc` withheld the member, which is a refusal and not a reading.
+   */
+  readonly sd?: { name: string; unc?: number | null };
+  /**
+   * The verdict the client path gives this document under each posture `maxTimeUncertaintySeconds` can
+   * take, in the order the suite publishes: no demand named, a demand of zero, a demand of one second.
+   */
+  readonly stampSource?: { maxTimeUncertaintySeconds: number | null; verdict: string }[];
 }
 
 interface MarkingCase {
@@ -674,6 +685,172 @@ describe('the anchor demand a policy states, through the client path', () => {
     for (const entry of manifest.fixtures.filter((each) => each.handover === undefined)) {
       const unreachable = entry.expected !== 'verify-ok' || entry.cva === undefined;
       expect(unreachable, `${entry.name} carries an anchor the client accepts and states no readings`).toBe(true);
+    }
+  });
+});
+
+/**
+ * The demand a policy states about a stamp's source, weighed against what the published receipts say
+ * about their own.
+ *
+ * Each row that carries a disclosure the client reaches states what the shipped client answers for it
+ * under each posture `maxTimeUncertaintySeconds` can take, and this runs those answers rather than
+ * reading them, exactly as the anchor column above is run: the posture is spelled as the policy field's
+ * own name beside the number an operator would write, pinned to the issuer the document itself carries,
+ * read at the instant the document names, and nothing about the source is handed to the call from
+ * anywhere else. That last part is the whole of what this suite is evidence for: the only statement of a
+ * source a refusal here can read is the one inside the signed payload, so a verdict that moved between
+ * two postures moved because the document's own `sd` met a demand, and a reader of a finished receipt
+ * reaches the same refusal from the same bytes a live client reaches while the deployment is answering.
+ */
+describe('the stamp-source demand a policy states, through the client path', () => {
+  /** One posture of the demand, spelled as an operator spells it: the issuer pinned, the bound named or left out. */
+  function policyOver(issuer: string, demand: number | null): AshaveriPolicy {
+    return demand === null ? { issuers: [issuer] } : { issuers: [issuer], maxTimeUncertaintySeconds: demand };
+  }
+
+  const postureOrder = [null, 0, 1];
+
+  it('gives every row that states its readings the verdict it states under each posture', () => {
+    const stated = manifest.fixtures.filter((entry) => entry.stampSource !== undefined);
+    expect(stated.length).toBeGreaterThanOrEqual(7);
+    for (const entry of stated) {
+      const readings = entry.stampSource ?? [];
+      expect(readings.map((one) => one.maxTimeUncertaintySeconds), entry.name).toEqual(postureOrder);
+      const receiptBytes = new Uint8Array(readFileSync(join(DATA, entry.path)));
+      const issuer = decodeReceipt(receiptBytes).payload.iss;
+      for (const reading of readings) {
+        expect(
+          clientVerdict(receiptBytes, {
+            responseBytes: responseBytesOf(entry),
+            policy: policyOver(issuer, reading.maxTimeUncertaintySeconds),
+            nowMillis: CLOCK_MILLIS,
+          }),
+          `${entry.name} under demand ${String(reading.maxTimeUncertaintySeconds)}`,
+        ).toBe(reading.verdict);
+      }
+      // The reading beside `null` is the row's own answer stated twice on purpose, and a third time with
+      // no policy in the call at all: what the field promises is that a demand nobody stated moves no
+      // verdict, and a guard that fired on the absence would break all three at once.
+      expect(readings[0]?.verdict, entry.name).toBe(entry.expected);
+      expect(clientVerdict(receiptBytes, { responseBytes: responseBytesOf(entry) }), entry.name).toBe(entry.expected);
+    }
+  });
+
+  it('keeps the measured bound and the unmeasured statement apart at the same demand', () => {
+    // Two refusals that share a code are one sentence only to a reader that flattened the pair. Here the
+    // bound inside the demand accepts, the bound wider than nothing refuses for a number, and the source
+    // that states nobody measured refuses at both demands for the absence of one. These are the figures a
+    // flattened reader could not produce, read off the published rows rather than asserted beside them.
+    const stated = manifest.fixtures.filter((entry) => entry.stampSource !== undefined);
+    const measured = stated.filter((entry) => entry.sd?.unc !== null && entry.sd?.unc !== undefined);
+    const unmeasured = stated.filter((entry) => entry.sd?.unc === null);
+    expect(measured.length).toBeGreaterThanOrEqual(6);
+    expect(unmeasured.length, 'the suite publishes a source that states nobody measured').toBeGreaterThanOrEqual(1);
+    for (const entry of measured) {
+      const at = (demand: number | null) =>
+        entry.stampSource?.find((one) => one.maxTimeUncertaintySeconds === demand)?.verdict;
+      expect(at(0), `${entry.name} refuses the tightest demand for stating a number above it`).toBe(
+        'STAMP_SOURCE_TOO_UNCERTAIN',
+      );
+      expect(at(1), `${entry.name} accepts the demand its own bound answers exactly`).toBe('verify-ok');
+    }
+    for (const entry of unmeasured) {
+      const bytes = new Uint8Array(readFileSync(join(DATA, entry.path)));
+      const issuer = decodeReceipt(bytes).payload.iss;
+      for (const demand of [0, 1]) {
+        expect(
+          clientVerdict(bytes, {
+            responseBytes: responseBytesOf(entry),
+            policy: policyOver(issuer, demand),
+            nowMillis: CLOCK_MILLIS,
+          }),
+          `${entry.name} is refused at demand ${String(demand)} for stating no measurement at all`,
+        ).toBe('STAMP_SOURCE_TOO_UNCERTAIN');
+      }
+    }
+    // And the two refusals say different things: the number case names the declared figure against the
+    // demand, the null case says nobody measured and never reads the absence as a bound of zero.
+    const gapRow = unmeasured[0];
+    const wideRow = measured[0];
+    if (gapRow === undefined || wideRow === undefined) return;
+    const refusalMessage = (entry: (typeof stated)[number], demand: number): string => {
+      const bytes = new Uint8Array(readFileSync(join(DATA, entry.path)));
+      const payload = decodeReceipt(bytes).payload;
+      try {
+        verifyCompletionReceipt({
+          receiptBytes: bytes,
+          nonce: payload.nce,
+          requestHash: payload.req,
+          responseHash: payload.res,
+          responseBytes: responseBytesOf(entry) ?? new Uint8Array(0),
+          verifyKey: PUBLIC_KEY,
+          policy: policyOver(payload.iss, demand),
+          nowMillis: CLOCK_MILLIS,
+        });
+      } catch (err) {
+        return err instanceof Error ? err.message : String(err);
+      }
+      throw new Error(`${entry.name}: expected a refusal under the demand of ${String(demand)} and the call answered`);
+    };
+    // The unmeasured row is refused at the demand its measured siblings answer, and the measured row is
+    // refused one notch lower, at the demand only an exact zero answers: each refusal is met on the
+    // reading the row's own disclosure makes false, and the two sentences name different grounds.
+    const gapMessage = refusalMessage(gapRow, 1);
+    expect(gapMessage).toContain('no measured uncertainty');
+    expect(gapMessage).toContain(gapRow.sd?.name ?? 'host clock');
+    const wideMessage = refusalMessage(wideRow, 0);
+    expect(wideMessage).toContain('can stand');
+    expect(wideMessage).toContain(String(wideRow.sd?.unc));
+  });
+
+  it('spells a verdict beside every posture it states, and no bare posture at all', () => {
+    // The column is a pairing of two named figures: the demand as an operator spells it and the answer
+    // the client gives under it. An entry that carries the demand without its verdict is a posture
+    // nothing was asked to answer and no reader can check. The replay above compares the verdicts it is
+    // given; this case is about the shape of what the generator published: a widened posture roster that
+    // outgrew its verdicts must fail here on the missing verdict, not somewhere else on a length.
+    const stated = manifest.fixtures.filter((entry) => entry.stampSource !== undefined);
+    expect(stated.length).toBeGreaterThanOrEqual(7);
+    for (const entry of stated) {
+      for (const reading of entry.stampSource ?? []) {
+        expect(
+          Object.keys(reading).sort(),
+          `${entry.name} states a posture with members beside the wrong names`,
+        ).toEqual(['maxTimeUncertaintySeconds', 'verdict']);
+        expect(
+          reading.verdict,
+          `${entry.name} states demand ${String(reading.maxTimeUncertaintySeconds)} with no verdict beside it`,
+        ).toEqual(expect.any(String));
+        expect(
+          reading.verdict.length,
+          `${entry.name} states an empty verdict at demand ${String(reading.maxTimeUncertaintySeconds)}`,
+        ).toBeGreaterThan(0);
+      }
+    }
+  });
+
+  it('states its readings on every row whose disclosure the client reaches', () => {
+    // The roster read off the rows: any accepted document this suite publishes with a stated `sd` owes
+    // the three verdicts, because the client path reaches the demand for every receipt it accepts at all.
+    const owed = manifest.fixtures.filter((entry) => entry.sd !== undefined && entry.expected === 'verify-ok');
+    expect(owed.length).toBeGreaterThanOrEqual(7);
+    for (const entry of owed) {
+      expect(
+        entry.stampSource,
+        `${entry.name} carries a disclosure the client reads and states no posture verdicts`,
+      ).toEqual(
+        expect.arrayContaining(postureOrder.map((one) => expect.objectContaining({ maxTimeUncertaintySeconds: one }))),
+      );
+    }
+    // And a row stating none is excused for one of two read reasons: the format reader answers it before
+    // any policy weighs anything, or the row carries no per-member columns at all, which is the shape of
+    // the entries this suite began with.
+    for (const entry of manifest.fixtures.filter((each) => each.stampSource === undefined)) {
+      const unreachable = entry.expected !== 'verify-ok' || entry.sd === undefined;
+      expect(unreachable, `${entry.name} carries a disclosure the client reads and states no posture verdicts`).toBe(
+        true,
+      );
     }
   });
 });

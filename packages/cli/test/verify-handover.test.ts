@@ -504,6 +504,62 @@ describe('ashaveri verify-handover', () => {
     expect(String(refusal.message)).toContain("prov is 'live' where the weakest of the items is 'fixture'");
   });
 
+  it('states what each sealed receipt discloses about its stamp, and qualifies the pack stamp with none', () => {
+    // The disclosure member travels inside every sealed receipt, so a pack reader reaches it from the
+    // container alone; the pack's own assembly instant is stated by no such member, and a report that
+    // printed one merged source figure for the whole container would be reading a claim the document
+    // never made. The receipts the builder seals here both name `host clock` and state that nobody
+    // measured it, which is what the per-item rows must repeat per item rather than average.
+    const key = signingKeyFromSeed(Buffer.from(RECEIPT_KEY.privateKey, 'hex'));
+    const path = written('pack-stamp-sources.cbor', Buffer.from(packDocument(key, [RECEIPT_PATH, SOFTWARE_RECEIPT_PATH])));
+    const json = verdictOf(runCli(['verify-handover', path, `--key=${RECEIPT_PUBLIC_B64URL}`, '--json']));
+    const sources = (json.document as Record<string, unknown>).stampSources as {
+      perReceipt: { name: string; uncertaintySeconds: number | null }[];
+      assembledAt: { value: number; disclosedBy: null };
+    };
+    expect(sources.perReceipt.map((one) => [one.name, one.uncertaintySeconds])).toEqual([
+      ['host clock', null],
+      ['host clock', null],
+    ]);
+    expect(sources.assembledAt.disclosedBy).toBeNull();
+    const human = runCli(['verify-pack', path, `--key=${RECEIPT_PUBLIC_B64URL}`]);
+    expect(human.status, human.stdout).toBe(0);
+    expect(human.stdout).toContain('stamp sources:    one disclosure per sealed receipt, stated at its own item and merged with nothing');
+    expect(human.stdout).toContain('states that nobody measured how far its readings stand');
+
+    const receiptReport = verdictOf(runCli(['verify-handover', RECEIPT_PATH, `--key=${RECEIPT_PUBLIC_B64URL}`, '--json']));
+    expect((receiptReport.document as Record<string, unknown>).stampSource).toMatchObject({
+      name: 'host clock',
+      uncertaintySeconds: null,
+    });
+  });
+
+  it('names the demand beside every disclosure row it quotes, and disclaims every instant it prints', () => {
+    // One rule for the three rosters that print what the sealed receipts disclose: a report that quotes
+    // a source's bound has to say whether a policy demanded anything of it, and a report that prints an
+    // assembly instant has to say what qualifies it. The receipt arm got its clause with the row; the
+    // pack arm, the amendment arm and the inventory's `sealed <at>` rows are this case.
+    const key = signingKeyFromSeed(Buffer.from(RECEIPT_KEY.privateKey, 'hex'));
+    const path = written('pack-demand-clauses.cbor', Buffer.from(packDocument(key, [RECEIPT_PATH, SOFTWARE_RECEIPT_PATH])));
+    const pack = runCli(['verify-pack', path, `--key=${RECEIPT_PUBLIC_B64URL}`]);
+    expect(pack.status, pack.stdout).toBe(0);
+    expect(pack.stdout).toContain(
+      'whether the sealed stamps meet the bound a policy demands of the sources the stamp sources row quotes',
+    );
+
+    const amendment = runCli(['verify-handover', AMENDMENT_PATH, AMENDMENT_KEY, `--companion=${AMENDMENT_PACK_PATH}`]);
+    expect(amendment.status, amendment.stdout).toBe(0);
+    expect(amendment.stdout).toContain(
+      'whether the survivor stamps meet the bound a policy demands of the sources the survivor records row quotes',
+    );
+
+    const inventory = runCli(['verify-handover', INVENTORY_PATH, INVENTORY_KEY]);
+    expect(inventory.status, inventory.stdout).toBe(0);
+    expect(inventory.stdout).toContain(
+      'stated by no disclosure member, because a pack discloses the stamps it seals and not the clock it assembled under',
+    );
+  });
+
   it('reports every reading in the same three registers, with current and freshness unknown', MANY_READINGS, () => {
     // One shape for every reader, so a port reads one member rather than one wording per document. The
     // ledger is the seventh type and is asserted beside its own suite.
@@ -737,6 +793,29 @@ describe('an excision amendment at the command edge', () => {
     expect(human.stdout).toContain('survivor chain head');
     expect(human.stdout).toContain("pack's own head");
     expect(human.stdout).toContain('unreachable anywhere this deployment still holds them');
+  });
+
+  it('names the stamp source of every survivor record, in both renderings', () => {
+    // The survivors are sealed receipts this arm walked and verified, each carrying its own signed `sd`,
+    // exactly like the receipts the pack arm prints one disclosure per. A reader of this report who
+    // flattened it could still read `at 1772000000` as an instant worth whatever a clock of the reader's
+    // own assumed, so the disclosure travels with the record it qualifies and is stated per record.
+    const human = runCli(['verify-handover', AMENDMENT_PATH, AMENDMENT_KEY, `--companion=${AMENDMENT_PACK_PATH}`]);
+    expect(human.status, human.stdout).toBe(0);
+    expect(human.stdout).toContain("receipt-0 at 1772000000: 'host clock' states that nobody measured how far its readings stand");
+    expect(human.stdout).toContain("receipt-2 at 1772000002: 'host clock' states that nobody measured how far its readings stand");
+    expect(human.stdout.match(/states that nobody measured/gu)?.length).toBe(2);
+
+    const json = verdictOf(runCli(['verify-handover', AMENDMENT_PATH, AMENDMENT_KEY, `--companion=${AMENDMENT_PACK_PATH}`, '--json']));
+    const body = json.document as Record<string, unknown>;
+    expect(
+      (body.survivorItems as { stampSource: { name: string; uncertaintySeconds: number | null } }[]).map(
+        (one) => [one.stampSource.name, one.stampSource.uncertaintySeconds],
+      ),
+    ).toEqual([
+      ['host clock', null],
+      ['host clock', null],
+    ]);
   });
 
   it('refuses an amendment whose pack was not handed, naming the input the call left out', () => {

@@ -214,6 +214,30 @@ function handover(
 /** The three postures `minAnchorSlotsHeld` can be in, stated in this order by every row that states any. */
 const POSTURES = [null, 1, 2] as const;
 
+/**
+ * The postures `maxTimeUncertaintySeconds` can be in, each stated under the name its verdict carries.
+ *
+ * `null` is the policy that names no demand, and its verdict repeats the row's own `expected` for the
+ * reason the anchor column gives: what the field promises is that a demand nobody stated moves nothing.
+ * `0` is the tightest demand a policy can state, answered by a source declaring exactly zero and by
+ * nothing else, so no disclosure these rows carry meets it. `1` is the figure the measured rows declare,
+ * and at that posture the two readings part: the bound inside the demand is accepted, the statement that
+ * nobody measured is refused, and a reader that had flattened the null into a zero would have to answer
+ * both alike.
+ *
+ * Each posture is a named pair rather than a bare figure, because the verdicts a row states are named
+ * the same way: a fourth class added here has to be named at every call site before anything publishes,
+ * which is a condition a roster widened by position could not impose on itself.
+ */
+const STAMP_POSTURES = [
+  { name: 'none', demand: null },
+  { name: 'zero', demand: 0 },
+  { name: 'one', demand: 1 },
+] as const;
+
+/** The verdicts one row states: exactly one per posture in the roster, named as the roster names it. */
+type StampPostureName = (typeof STAMP_POSTURES)[number]['name'];
+
 /** The readings for an anchor's two slots, one verdict per posture, in the order every row states them. */
 function handoverFor(verdicts: readonly [none: string, one: string, two: string]): ReturnType<typeof handover> {
   const [none, one, two] = verdicts;
@@ -225,6 +249,36 @@ function handoverFor(verdicts: readonly [none: string, one: string, two: string]
     [POSTURES[1], one] as const,
     [POSTURES[2], two] as const,
   ]);
+}
+
+/**
+ * The stamp-source demand as a port reads it: the policy field's own name beside the number an operator
+ * would write, and the verdict the client path gives this document under it.
+ *
+ * Like the anchor readings, the verdicts are written at each call site by whoever states the row and are
+ * not computed from the row's own `sd` figures. A disclosure column and a demand column derived from the
+ * same arithmetic could disagree with the shipped check in nothing and still record this file rather
+ * than the code; running the published verdicts against the client is the suite's job, not the generator's.
+ * Unlike the anchor readings, the pairing here is a lookup by the posture's own name, and a posture that
+ * finds no verdict stated for it stops this run at the derivation: widening the roster has to arrive at
+ * the call sites as a missing name, not at the published rows as a demand nobody was asked to answer.
+ */
+function stampPostureFor(
+  verdicts: Readonly<Record<StampPostureName, string>>,
+): Array<{ maxTimeUncertaintySeconds: number | null; verdict: string }> {
+  return STAMP_POSTURES.map((posture) => {
+    // `undefined` here is a roster entry no call site stated a verdict for: the parameter type is the
+    // first refusal and this line is the one the strip-types loader cannot skip. Either way the run
+    // dies naming the posture, and no published row carries a demand with its answer missing.
+    const verdict: string | undefined = verdicts[posture.name];
+    if (verdict === undefined || verdict === '') {
+      throw new Error(
+        `generate: the stamp posture '${posture.name}' (demand ${String(posture.demand)}) has no verdict ` +
+          'stated beside it: the roster and every call site grow together or this file publishes nothing',
+      );
+    }
+    return { maxTimeUncertaintySeconds: posture.demand, verdict };
+  });
 }
 
 /**
@@ -283,6 +337,7 @@ interface RowColumns {
   readonly sd?: { name: string; unc?: number | null };
   readonly cva?: { col: { p: string; d?: string; r?: string }; val: { p: string; d?: string; r?: string } };
   readonly handover?: Array<{ minAnchorSlotsHeld: number | null; verdict: string }>;
+  readonly stampSource?: Array<{ maxTimeUncertaintySeconds: number | null; verdict: string }>;
   readonly fault?: { at: string; member?: string; states: string };
 }
 
@@ -504,6 +559,7 @@ function main(): void {
         columns: {
           ...columnsOf(stream, { v: 1, sd: MEASURED_SOURCE, cva: ANCHOR_HELD_BOTH, stamps: streamStamps }),
           handover: handoverFor(['verify-ok', 'verify-ok', 'verify-ok']),
+          stampSource: stampPostureFor({ none: 'verify-ok', zero: 'STAMP_SOURCE_TOO_UNCERTAIN', one: 'verify-ok' }),
         },
       },
       payload: payloadFor(stream, { sd: MEASURED_SOURCE, cva: ANCHOR_HELD_BOTH, itm: streamStamps }),
@@ -516,6 +572,7 @@ function main(): void {
         columns: {
           ...columnsOf(body, { v: 1, sd: MEASURED_SOURCE, cva: ANCHOR_HELD_AND_ABSENT, stamps: bodyStamps }),
           handover: handoverFor(['verify-ok', 'verify-ok', 'ANCHOR_SLOT_NOT_HELD']),
+          stampSource: stampPostureFor({ none: 'verify-ok', zero: 'STAMP_SOURCE_TOO_UNCERTAIN', one: 'verify-ok' }),
         },
       },
       payload: payloadFor(body, { sd: MEASURED_SOURCE, cva: ANCHOR_HELD_AND_ABSENT, itm: bodyStamps }),
@@ -528,6 +585,11 @@ function main(): void {
         columns: {
           ...columnsOf(markedBody, { v: 1, sd: UNMEASURED_SOURCE, cva: ANCHOR_HELD_BOTH, stamps: markedBodyStamps }),
           handover: handoverFor(['verify-ok', 'verify-ok', 'verify-ok']),
+          stampSource: stampPostureFor({
+            none: 'verify-ok',
+            zero: 'STAMP_SOURCE_TOO_UNCERTAIN',
+            one: 'STAMP_SOURCE_TOO_UNCERTAIN',
+          }),
         },
       },
       payload: payloadFor(markedBody, { sd: UNMEASURED_SOURCE, cva: ANCHOR_HELD_BOTH, itm: markedBodyStamps }),
@@ -540,6 +602,7 @@ function main(): void {
         columns: {
           ...columnsOf(markedStream, { v: 1, sd: MEASURED_SOURCE, cva: ANCHOR_NOT_TAKEN_IN, stamps: markedStreamStamps }),
           handover: handoverFor(['verify-ok', 'ANCHOR_SLOT_NOT_HELD', 'ANCHOR_SLOT_NOT_HELD']),
+          stampSource: stampPostureFor({ none: 'verify-ok', zero: 'STAMP_SOURCE_TOO_UNCERTAIN', one: 'verify-ok' }),
         },
       },
       payload: payloadFor(markedStream, { sd: MEASURED_SOURCE, cva: ANCHOR_NOT_TAKEN_IN, itm: markedStreamStamps }),
@@ -552,6 +615,7 @@ function main(): void {
         columns: {
           ...columnsOf(body, { v: 1, sd: MEASURED_SOURCE, cva: ANCHOR_COLLATERAL_ABSENT, stamps: bodyStamps }),
           handover: handoverFor(['verify-ok', 'verify-ok', 'ANCHOR_SLOT_NOT_HELD']),
+          stampSource: stampPostureFor({ none: 'verify-ok', zero: 'STAMP_SOURCE_TOO_UNCERTAIN', one: 'verify-ok' }),
         },
       },
       payload: payloadFor(body, { sd: MEASURED_SOURCE, cva: ANCHOR_COLLATERAL_ABSENT, itm: bodyStamps }),
@@ -569,6 +633,7 @@ function main(): void {
             stamps: markedBodyStamps,
           }),
           handover: handoverFor(['verify-ok', 'ANCHOR_SLOT_NOT_HELD', 'ANCHOR_SLOT_NOT_HELD']),
+          stampSource: stampPostureFor({ none: 'verify-ok', zero: 'STAMP_SOURCE_TOO_UNCERTAIN', one: 'verify-ok' }),
         },
       },
       payload: payloadFor(markedBody, { sd: MEASURED_SOURCE, cva: ANCHOR_BOTH_ABSENT_AT_SOURCE, itm: markedBodyStamps }),
@@ -581,6 +646,7 @@ function main(): void {
         columns: {
           ...columnsOf(markedSentinel, { v: 1, sd: MEASURED_SOURCE, cva: ANCHOR_HELD_BOTH, stamps: markedSentinelStamps }),
           handover: handoverFor(['verify-ok', 'verify-ok', 'verify-ok']),
+          stampSource: stampPostureFor({ none: 'verify-ok', zero: 'STAMP_SOURCE_TOO_UNCERTAIN', one: 'verify-ok' }),
         },
       },
       payload: payloadFor(markedSentinel, { sd: MEASURED_SOURCE, cva: ANCHOR_HELD_BOTH, itm: markedSentinelStamps }),
@@ -781,7 +847,7 @@ function main(): void {
         cddl: 'receipt.cddl @ashaveri/receipt v0.1.0',
         fixtures: manifestFixtures,
         layout: {
-          verdictFields: ['expected', 'keyless', 'handover'],
+          verdictFields: ['expected', 'keyless', 'handover', 'stampSource'],
           readers: {
             keyless:
               'decodeReceipt reads the payload a document claims with no key in hand, so a row\'s `keyless` column is the answer these bytes owe a reader that has not authenticated them',
@@ -806,6 +872,8 @@ function main(): void {
             cva: 'The anchor the payload carries, each slot one of the three presence labels with the digest or the reason that label selects. A slot stating `held` with an empty `d` is a claim with no material behind it, which is a refusal.',
             handover:
               'What the shipped client path answers for this document under each posture `minAnchorSlotsHeld` can take, three entries in the order `null`, `1`, `2`: the policy that names no demand, a demand of one held slot, a demand of both. Each entry is that policy field\'s own name beside the number an operator would write and the verdict the client gives the bytes under it, read off `verifyCompletionReceipt` with the fixture\'s issuer pinned, the clock at the instant the document names, and nothing else named, so the only thing the three readings differ in is the demand. The `null` entry repeats the row\'s `expected` rather than claiming a second answer, because what the field promises is that a demand nobody stated moves no verdict. A row states this column where this file publishes the row\'s own per-member columns: a refusal row states none because the format reader answers it before a policy is weighed at all, and the entries this suite began with state none because they carry no per-member column at all. Every document a reader accepts states an anchor with both of its halves, because the format declares one payload version and it requires the anchor, so the client reaches two slots on every accepted row. Whether a slot stating `held` still resolves is not this column and not this suite: it is answered outside the document.',
+            stampSource:
+              'What the shipped client path answers for this document under each posture `maxTimeUncertaintySeconds` can take, three entries in the order `null`, `0`, `1`: the policy that names no demand, the tightest demand a policy can state, and a demand of one second. The figures are the ones the two disclosures this suite publishes part on: the measured rows declare `unc` `1`, so the demand of `1` meets them at the boundary and the demand of `0` refuses them for stating a number wider than nothing, while the row declaring that nobody measured is refused at both, which is the pair a reader that flattened the null into a zero, or read the absence as a bound of nothing, could never tell apart. Like the `handover` readings each entry names the policy field, states the verdict, and is read off `verifyCompletionReceipt` with nothing but the document, that issuer pinned and the clock at the instant the document names; the demand is weighed against the payload\'s own `sd`, which is the only place a reader of a finished receipt can reach it from, and the `null` entry repeats the row\'s `expected` for the same promised reason. A row states this column on the same roster as `handover`, because both are answers the client path reaches over accepted bytes.',
             fault:
               'On a refusal row, the position the shipped reader names in the answer these bytes get, and what the row states about it. Where the reader quotes a member back, the row states the name as `member`. The position is what makes the row about one member rather than about the document as a whole.',
           },

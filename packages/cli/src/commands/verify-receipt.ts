@@ -79,6 +79,14 @@ import { readPolicyFile } from './verify.js';
  * of which receipts pass. Both renderings name which of the two states a run was in, and each refusal names
  * the id and the digests it weighed.
  *
+ * A demand a policy names on a stamp's source is weighed here against what the artifact states about its
+ * own source, not against anything this run assumes: the receipt signs `sd` beside `iat`, the client's
+ * `assertStampSourceWithinPolicy` reads that pair off the verified payload, and a run under a policy
+ * naming `maxTimeUncertaintySeconds` refuses a stamp whose declared bound is wider than the demand or
+ * whose source states that nobody measured one. A run under a policy naming no demand still prints what
+ * the document declares, in both renderings, because a verdict that quoted the instant and passed over
+ * the source is exactly the flattening the disclosure member exists to prevent.
+ *
  * A policy's demand on the material a held slot digests is answerable from this command line. A sealed
  * receipt's `held` slot digests material, and the demand weighs what a reader established about those
  * bytes, so the demand is answerable only where the material is in hand, and two flags put it in hand:
@@ -558,6 +566,33 @@ function isoOf(epochSeconds: number): string {
   return new Date(epochSeconds * 1000).toISOString();
 }
 
+/**
+ * The stamp's disclosure in the reader's own report, in the two renderings' shared words.
+ *
+ * The receipt names the source its `iat` was read from and what that source declares about itself inside
+ * its own signed payload, so the figure printed here is read off the verified document and authored by
+ * nobody in this run. The sentence keeps the two readings of `uncertaintySeconds` apart, because that is
+ * the whole of what a reader of a finished artifact is owed: a number is how far that source admits its
+ * readings stand from the instants they name, and `null` is the source's own statement that nobody
+ * measured, which is not a bound of zero and is refused outright by a policy that names a bound. A run
+ * under a policy that demands nothing still prints this row, because a verdict that quoted `iat` without
+ * saying what its source was worth would be the silent averaging the disclosure exists to make
+ * impossible, and the row then says which demand this run weighed and, where the policy named none,
+ * that nothing was weighed: this report prints both age windows and a `not pinned:` row for every pin
+ * the policy leaves out, and an unasked bound passed over in silence would break that convention. A
+ * passing verdict is also the only state that renders this sentence, so a named demand here was met:
+ * the client path refuses a stamp that cannot stand one before any verdict is built.
+ */
+function stampSourceSentence(payload: VerifiedReceipt['payload'], demanded: number | null): string {
+  const weighed =
+    demanded === null
+      ? 'no maxTimeUncertaintySeconds named by this policy, so this run weighed nothing against it'
+      : `weighed here against the ${String(demanded)} s this policy demands, and met`;
+  return payload.sd.uncertaintySeconds === null
+    ? `'${payload.sd.name}' declares no measured bound on its readings, which is that source saying nobody knows how far they stand from the instants it names and is not a bound of zero; a policy naming maxTimeUncertaintySeconds refuses a stamp read from it; ${weighed}`
+    : `'${payload.sd.name}' declares its readings can stand up to ${String(payload.sd.uncertaintySeconds)} s from the instants they name; a policy naming maxTimeUncertaintySeconds weighs that figure against its own demand, and ${weighed}`;
+}
+
 /** Everything a report needs, gathered once so the two renderings cannot disagree about it. */
 interface Verdict {
   readonly verified: VerifiedReceipt;
@@ -589,6 +624,13 @@ interface Verdict {
   readonly verificationSeconds: number;
   readonly receiptWindow: number;
   readonly evidenceWindow: number;
+  /**
+   * The bound this policy demands of a stamp's source, or null where it names none. The client path
+   * weighed this run's document against it before any verdict was built, so a verdict here means a
+   * stated demand was met and an unstated one was passed over, which is what the stamp-source row
+   * now says out loud, beside the figure the disclosure itself states.
+   */
+  readonly stampDemandSeconds: number | null;
   readonly pinned: readonly string[];
   readonly notPinned: readonly string[];
   /** One row per pair `--anchor-file` named, with the reading the demand weighed and everything beside it. */
@@ -707,6 +749,7 @@ function humanVerdict(verdict: Verdict): string {
     `  weights:          ${toHex(payload.wts)}, ${weightsSentence(verdict)}`,
     `  nonce:            ${toHex(verdict.nonce)} (the value this run was told to expect)`,
     `  issued at:        ${payload.iat} (${isoOf(payload.iat)})`,
+    `  stamp source:     ${stampSourceSentence(payload, verdict.stampDemandSeconds)}`,
     `  verified at:      ${verdict.verificationSeconds} (${isoOf(verdict.verificationSeconds)})`,
     `  key epoch:        ${payload.epk}, ${epochLine(verdict.epoch)}`,
     `  measurement:      ${toHex(payload.meas.m)} (${payload.meas.tee})`,
@@ -754,6 +797,15 @@ function jsonVerdict(verdict: Verdict): Record<string, unknown> {
     nonce: toHex(verdict.nonce),
     issuedAt: payload.iat,
     issuedAtIso: isoOf(payload.iat),
+    // The disclosure the receipt signs for its own stamp, printed beside the instant it qualifies: the
+    // two figures are the payload's `sd` members and the sentence is the one the human rendering prints,
+    // so a port reads what the artifact states and which demand this run weighed against it.
+    stampSource: {
+      name: payload.sd.name,
+      uncertaintySeconds: payload.sd.uncertaintySeconds,
+      demandedSeconds: verdict.stampDemandSeconds,
+      statement: stampSourceSentence(payload, verdict.stampDemandSeconds),
+    },
     verifiedAt: verdict.verificationSeconds,
     verifiedAtIso: isoOf(verdict.verificationSeconds),
     keyEpoch: {
@@ -995,6 +1047,7 @@ export async function runVerifyReceipt(positionals: string[], values: VerifyRece
       verificationSeconds: Math.floor((nowMillis ?? Date.now()) / 1000),
       receiptWindow: loaded.policy.maxReceiptAgeSeconds ?? DEFAULT_MAX_RECEIPT_AGE_SECONDS,
       evidenceWindow: loaded.policy.maxEvidenceAgeSeconds ?? DEFAULT_MAX_EVIDENCE_AGE_SECONDS,
+      stampDemandSeconds: loaded.policy.maxTimeUncertaintySeconds ?? null,
       pinned: families.pinned,
       notPinned: families.notPinned,
       anchor,
