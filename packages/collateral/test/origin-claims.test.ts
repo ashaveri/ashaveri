@@ -65,6 +65,16 @@ const DOCUMENTED_OTHER_NAMES = ['thisUpdate', 'nextUpdate', 'ca', 'removeFromCRL
 
 /** The sources a shipped command is built from, and the surface none of them may name outside a comment. */
 const SHIPPED_SOURCES = ['packages/cli/src', 'packages/sdk/src', 'packages/receipt/src', 'gateway/src'];
+
+/**
+ * Every name that reaches an origin, or that builds or reads what an origin sends back.
+ *
+ * The roster is what the sentence over this package's fetching rests on: a shipped command naming any of these
+ * outside a comment is a shipped command asking a vendor, which the documents state it does not do.
+ * `appraiseOcspResponse` is one because it writes the question from the two certificates a caller names and
+ * posts it through the same `observe` the other appraisals fetch through; `readRimManifest` is not, because a
+ * manifest reading takes the bytes it was handed and asks nothing of the host that would carry them.
+ */
 const ORIGIN_ASKING_NAMES = [
   'fetchFromOrigin',
   'readServedCollateral',
@@ -72,6 +82,7 @@ const ORIGIN_ASKING_NAMES = [
   'appraiseCollateral',
   'appraisePckCrl',
   'appraiseVcekChain',
+  'appraiseOcspResponse',
 ];
 
 const CODES = collateralRefusals().map((entry) => entry.code);
