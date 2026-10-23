@@ -805,8 +805,8 @@ describe('the stamp-source demand a policy states, through the client path', () 
   });
 
   it('spells a verdict beside every posture it states, and no bare posture at all', () => {
-    // The column is a pairing of two named figures — the demand as an operator spells it and the answer
-    // the client gives under it — and an entry that carries the demand without its verdict is a posture
+    // The column is a pairing of two named figures: the demand as an operator spells it and the answer
+    // the client gives under it. An entry that carries the demand without its verdict is a posture
     // nothing was asked to answer and no reader can check. The replay above compares the verdicts it is
     // given; this case is about the shape of what the generator published: a widened posture roster that
     // outgrew its verdicts must fail here on the missing verdict, not somewhere else on a length.

@@ -577,7 +577,7 @@ function isoOf(epochSeconds: number): string {
  * measured, which is not a bound of zero and is refused outright by a policy that names a bound. A run
  * under a policy that demands nothing still prints this row, because a verdict that quoted `iat` without
  * saying what its source was worth would be the silent averaging the disclosure exists to make
- * impossible — and the row then says which demand this run weighed and, where the policy named none,
+ * impossible, and the row then says which demand this run weighed and, where the policy named none,
  * that nothing was weighed: this report prints both age windows and a `not pinned:` row for every pin
  * the policy leaves out, and an unasked bound passed over in silence would break that convention. A
  * passing verdict is also the only state that renders this sentence, so a named demand here was met:
@@ -627,7 +627,7 @@ interface Verdict {
   /**
    * The bound this policy demands of a stamp's source, or null where it names none. The client path
    * weighed this run's document against it before any verdict was built, so a verdict here means a
-   * stated demand was met and an unstated one was passed over — which is what the stamp-source row
+   * stated demand was met and an unstated one was passed over, which is what the stamp-source row
    * now says out loud, beside the figure the disclosure itself states.
    */
   readonly stampDemandSeconds: number | null;

@@ -277,8 +277,8 @@ export interface AshaveriPolicy {
  * The pair is not invented here. `gateway/src/store.ts` states exactly these two fields as
  * `StampDeclaration`, on the store through `timeSource()` and beside every record a range walk hands
  * back, because a stamp without its source is a number nobody can weigh. The signed payload carries the
- * same pair as its `sd` member — the `StampDisclosure` block of `packages/receipt/receipt.cddl` names the
- * wire labels — so a reader of a finished receipt weighs a demand against what the artifact itself
+ * same pair as its `sd` member (the `StampDisclosure` block of `packages/receipt/receipt.cddl` names the
+ * wire labels), so a reader of a finished receipt weighs a demand against what the artifact itself
  * states, and a caller on the issuance side hands over what the store states; the two arrive in this one
  * shape because they are the same two figures read from the same two places.
  *

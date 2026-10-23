@@ -18,7 +18,7 @@ import {
  * The stamp's disclosure read off the artifact, weighed by the shipped client path.
  *
  * A receipt states where its `iat` was read from and what that source declares about itself inside its own
- * signed payload, in `sd`. The demand a reviewer writes as `maxTimeUncertaintySeconds` is weighed against
+ * signed payload, in `sd`. The demand a policy states as `maxTimeUncertaintySeconds` is weighed against
  * that member by `verifyCompletionReceipt` itself, so every verdict below is reached by handing the client
  * nothing but bytes, a policy, and the digests the receipt names for itself: no call in this file states a
  * source, and a refusal that leaned on anything outside the document could not be produced here at all.
@@ -183,7 +183,7 @@ describe('the disclosure a finished receipt states about its own stamp', () => {
     expect(
       verdict(receiptOver(UNMEASURED), { issuers: ['somebody-else'], maxTimeUncertaintySeconds: 1, minAnchorSlotsHeld: 1 }),
     ).toBe('ISSUER_NOT_ALLOWED');
-    // The measurement pin, the case the brief names: a document whose measurement is unpinned and whose
+    // The measurement pin, ordered first: a document whose measurement is unpinned and whose
     // disclosure fails a named demand alike is told the pin, because every pin is decided before the
     // stamp's own statement is weighed at all.
     expect(

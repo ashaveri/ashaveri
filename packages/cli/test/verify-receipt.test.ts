@@ -1257,7 +1257,7 @@ describe('ashaveri verify-receipt', () => {
     it('says which demand the run weighed, and does not print the same line under none', () => {
       // One measured receipt, two policies: the one naming no demand and the one whose demand of a
       // second the receipt meets. The disclosure is the same in both, so what separates the runs is
-      // what this run did with the figure — weighed, or asked to weigh nothing — and a report that
+      // what this run did with the figure, weighed or asked to weigh nothing, and a report that
       // prints the same sentence for both passes over the one policy figure it silently skipped,
       // while printing both age windows and a `not pinned:` row for every omitted pin.
       const stampLine = (out: string): string =>
