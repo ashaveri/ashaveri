@@ -1341,9 +1341,9 @@ async function readInventory(bytes: Uint8Array, inputs: Inputs, kid: Uint8Array)
         key: 'entries',
         label: 'entries',
         value:
-          `${outcome.packs
+          outcome.packs
             .map((one) => `${printedToken(one.file)}: sealed ${one.at} (${isoOf(one.at)}), span ${one.span.from} to ${one.span.to}, ${one.items} item(s), pack ${one.sha256}, retention ${one.retentionSha256} as ${printedToken(one.retention)}, under ${one.kid}, duty ${printedToken(one.duty.art)} revision ${one.duty.rev} required ${one.duty.required} s held ${one.duty.held} s`)
-            .join('; ')}` +
+            .join('; ') +
           `; each sealed instant above is that pack's own assembly instant, stated by no disclosure member, because a pack discloses the stamps it seals and not the clock it assembled under`,
         json: outcome.packs,
       },
