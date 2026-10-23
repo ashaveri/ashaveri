@@ -183,6 +183,12 @@ describe('the disclosure a finished receipt states about its own stamp', () => {
     expect(
       verdict(receiptOver(UNMEASURED), { issuers: ['somebody-else'], maxTimeUncertaintySeconds: 1, minAnchorSlotsHeld: 1 }),
     ).toBe('ISSUER_NOT_ALLOWED');
+    // The measurement pin, the case the brief names: a document whose measurement is unpinned and whose
+    // disclosure fails a named demand alike is told the pin, because every pin is decided before the
+    // stamp's own statement is weighed at all.
+    expect(
+      verdict(receiptOver(UNMEASURED), { ...NO_DEMAND, measurements: { snp: ['aa'.repeat(48)] }, maxTimeUncertaintySeconds: 1 }),
+    ).toBe('MEASUREMENT_NOT_ALLOWED');
     expect(
       verdict(receiptOver(UNMEASURED, ANCHOR_BOTH_ABSENT), { ...NO_DEMAND, maxTimeUncertaintySeconds: 1, minAnchorSlotsHeld: 1 }),
     ).toBe('STAMP_SOURCE_TOO_UNCERTAIN');
