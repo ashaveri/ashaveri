@@ -1,7 +1,7 @@
 import { sha256 } from '@noble/hashes/sha2.js';
 import { fromBase64, toHex } from './bytes.js';
 import { collateralRefusal, quoteOrDigest, type CollateralRefusal } from './errors.js';
-import { hasReader, type OriginDeclaration } from './intel-origin.js';
+import { hasReader, isRimDeclaration, type OriginDeclaration } from './intel-origin.js';
 import { decodeText } from './read.js';
 import type { CollateralQuery, RimManifest } from './types.js';
 
@@ -136,7 +136,7 @@ export function readRimManifest(body: Uint8Array, query: CollateralQuery, declar
 
 /** The one refusal shape this reader can hand for a declaration it has no arm for. */
 function envelopeRefusal(declaration: OriginDeclaration): CollateralRefusal | null {
-  if (declaration.answer === 'swid-rim') {
+  if (isRimDeclaration(declaration)) {
     return null;
   }
   return collateralRefusal(

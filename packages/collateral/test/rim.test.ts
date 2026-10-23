@@ -13,6 +13,7 @@ import {
   type CollateralQuery,
   type CollateralRefusal,
   type CollateralTransport,
+  type OriginDeclaration,
   type RimReadOutcome,
 } from '../src/index.js';
 import { sha256Hex } from '../src/bytes.js';
@@ -176,6 +177,26 @@ describe('the RIM wrapper reader', () => {
       expect(refusalOf(outcome).detail, declaration.name).toContain(declaration.answer);
     }
   });
+
+  /**
+   * The arm asks which reader a declaration names, not which shape its bytes wear.
+   *
+   * A declaration stating the `swid-rim` answer beside a reader of none is hand-built here because every origin
+   * this package declares has an arm by now: the shape says what the bytes claim to be, and only the reader says
+   * whether anything reads them, so a wrapper wearing the RIM shape with no wrapper reader is refused as an
+   * unread origin rather than weighed as one.
+   */
+  it('refuses a declaration stating the RIM shape beside a reader that names none', () => {
+    const declaredOnly: OriginDeclaration = {
+      ...NVIDIA_RIM,
+      reader: { as: 'declared-only', lacks: 'an XML digital-signature reader for the manifest the wrapper carries' },
+    };
+    const outcome = readRimManifest(writeRimWrapper({ id: RIM_ID }), query(), declaredOnly);
+    expect(codeOf(outcome)).toBe('COLLATERAL_ORIGIN_UNSUPPORTED');
+    expect('read' in outcome).toBe(false);
+    expect(refusalOf(outcome).detail).toContain(declaredOnly.answer);
+  });
+
 
   /**
    * The declaration states both halves of the reading: the wrapper a reader here weighs, and the signature no
