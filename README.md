@@ -308,7 +308,7 @@ deployment's own evidence URL, in `strict` mode, and that fetch is to the deploy
 us.
 
 **The origins beyond the two Intel JSON documents.** `@ashaveri/collateral` names six origins and
-reads four. The Intel PCK CRL is read as a DER `CertificateList`, verified under the issuer chain
+reads six. The Intel PCK CRL is read as a DER `CertificateList`, verified under the issuer chain
 that arrives in `SGX-PCK-CRL-Issuer-Chain` and pinned to the caller's root; it answers about a
 certificate serial inside the list's own `thisUpdate` and `nextUpdate` window, and a list whose
 issuer is not the one the requested `ca` scope publishes is refused under
@@ -329,11 +329,24 @@ true statement about another chip is not an answer about this one. What that rea
 historical: a VCEK says what AMD signed about one chip and until when the certificate it signed
 runs, it states no revocation and no vendor word about a level, and AMD's TCB extension is read by
 nothing there, so no appraisal of one answers that a chip is trusted or that its key stands for a
-particular firmware. NVIDIA RIM and NVIDIA OCSP are declared with the host, route and answer shape
-their vendors publish, and an appraisal of either answers `COLLATERAL_ORIGIN_UNSUPPORTED` with what a
-reader would still need: a served RIM body and an XML DSig reader, or a served OCSP response and a
-DER OCSP parser. No vendor-service bytes are committed, because a service's output travels as a
-reference and a certificate a platform produced travels as bytes its caller supplies.
+particular firmware. The two NVIDIA origins are read as far as their answers reach. NVIDIA's OCSP
+responder is asked by POST with a DER question written from the certificate and the issuer a caller
+names, and its answer is believed under that issuer, walked to a root the caller pins, and read for the
+one certificate it speaks about: the standing the responder stated, the instant it states it signed, and
+the span from its own `thisUpdate` to its own `nextUpdate`. An answer this run asked inside that span is
+current knowledge about that certificate's revocation standing and about nothing else; bytes kept from an
+earlier run carry a historical reach and are answered as unobserved; a standing the responder gave as
+revoked outranks a closed window and carries the instant the answer states it took effect; and a standing
+this package has no rule for is absence rather than a verdict. A certificate that is not revoked is not a
+statement that the platform carrying it is trusted. NVIDIA's RIM service answers a JSON wrapper, and
+`readRimManifest` weighs that: the manifest bytes against the digest the same body names for them, the
+manifest id against the one the question asked for, and the format name against the three the vendor's
+reference states. The manifest inside the wrapper is signed over a canonicalized element and this package
+states no rule for canonicalizing one, so a wrapper that parses comes back with that sentence beside it,
+and no verdict, no window and no measurement is read out of a RIM here. No vendor-service bytes are
+committed, because a service's output travels as a reference and a certificate a platform produced
+travels as bytes its caller supplies; the answers both readers weigh are handed to them by a transport
+the caller injects, and every fixture is written by a generator inside the test tree.
 The hosts, routes and answer shapes this package declares are copied from what the vendors publish,
 not recorded from an answer observed here, and no collateral reading here is a hardware pass.
 

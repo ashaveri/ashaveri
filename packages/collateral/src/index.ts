@@ -32,8 +32,10 @@ export type {
   OriginCacheRule,
   OriginDeclaration,
   OriginRefusals,
+  OcspOriginDeclaration,
   ReadCollateralOrigin,
   ReadDocumentOrigin,
+  RimOriginDeclaration,
   VcekOriginDeclaration,
 } from './intel-origin.js';
 export { fetchFromOrigin, wallClock } from './fetch.js';
@@ -45,7 +47,17 @@ export { readPckCrl } from './crl.js';
 export type { RevocationReadOutcome } from './crl.js';
 export { readVcekChain } from './amd-kds.js';
 export type { VcekChainReadOutcome } from './amd-kds.js';
-export { appraiseCarriedCollateral, appraiseCollateral, appraisePckCrl, appraiseVcekChain } from './classify.js';
+export { buildOcspRequest, readOcspResponse } from './ocsp.js';
+export type { OcspReadOutcome, OcspReading } from './ocsp.js';
+export { readRimManifest } from './rim.js';
+export type { RimReadOutcome } from './rim.js';
+export {
+  appraiseCarriedCollateral,
+  appraiseCollateral,
+  appraiseOcspResponse,
+  appraisePckCrl,
+  appraiseVcekChain,
+} from './classify.js';
 export type {
   CarriedCollateral,
   CollateralAppraisalOptions,
@@ -58,11 +70,15 @@ export type {
   DeclaredIdentity,
   IntelPlatform,
   IntelTcbLevel,
+  OcspCollateral,
+  OcspOutcome,
+  OcspQuery,
   PckCrlQuery,
   RetainedCollateral,
   RevocationList,
   RevocationOutcome,
   RevokedCertificate,
+  RimManifest,
   SignedCollateral,
   SignedWindow,
   StatusReading,

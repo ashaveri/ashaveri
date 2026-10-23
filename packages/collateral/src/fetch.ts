@@ -29,6 +29,13 @@ export interface FetchContext {
   readonly transport?: CollateralTransport;
   /** Wall clock in seconds since the epoch. Injectable because the refusals are tested without a network. */
   readonly clock?: () => number;
+  /**
+   * The body a POST declaration is asked with, and nothing for one that is asked by GET.
+   *
+   * A question is built by the reader that will read the answer, so the two halves of a POST path state the
+   * same members and cannot drift; this path writes none of its own.
+   */
+  readonly body?: Uint8Array | null;
 }
 
 /**
@@ -40,6 +47,12 @@ export interface FetchContext {
  * while it names one host. And nothing is sent that identifies the caller: no authorization header, no
  * cookie, no key, since a feed that wants one is holding secret material and belongs to a secret
  * manager rather than to a source dependency.
+ *
+ * The method is the declaration's and not a rule this path adds to it: an origin whose route publishes a POST
+ * is asked by POST with the body its own reader built, and an origin asked by GET is asked with none. A body
+ * beside a GET declaration is refused rather than dropped, because a caller that sent one believes it asked
+ * something. What either method carries is the identity the question is about (a CPU type, a chip id, a
+ * certificate) and never an identity of the caller.
  */
 export async function fetchFromOrigin(
   url: string,
@@ -47,11 +60,21 @@ export async function fetchFromOrigin(
   context: FetchContext = {},
 ): Promise<FetchOutcome> {
   const transport = context.transport ?? globalThis.fetch;
-  if (declaration.method !== 'GET') {
+  const body = context.body ?? null;
+  if (declaration.method === 'GET' && body !== null) {
     return {
       refusal: collateralRefusal(
-        'COLLATERAL_ORIGIN_UNSUPPORTED',
-        `${declaration.name} is asked by ${declaration.method} and this path asks GET alone`,
+        declaration.refusals.envelope,
+        `${declaration.name} is asked by GET and this call carries a body, which no GET asks with`,
+      ),
+    };
+  }
+  if (declaration.method === 'POST' && body === null) {
+    return {
+      refusal: collateralRefusal(
+        'COLLATERAL_INPUT_MISSING',
+        `${declaration.name} is asked by POST and the call carries no question to post`,
+        ['body'],
       ),
     };
   }
@@ -62,13 +85,27 @@ export async function fetchFromOrigin(
   // The Intel arm states its media type beside the envelope it weighs, and both are the same string there.
   // A declared origin states it on the declaration, because it publishes no envelope this path decodes.
   const accept = isIntelDeclaration(declaration) ? declaration.signature.mediaType : declaration.mediaType;
+  const headers: Record<string, string> = { accept };
+  if (declaration.method === 'POST') {
+    if (declaration.requestMediaType === null) {
+      return {
+        refusal: collateralRefusal(
+          declaration.refusals.envelope,
+          `${declaration.name} is asked by POST and states no request media type to ask it with`,
+        ),
+      };
+    }
+    // A POST asks with a document of its own, and RFC 6960 names the request type apart from the answer's.
+    headers['content-type'] = declaration.requestMediaType;
+  }
   let response: Response;
   try {
     response = await transport(url, {
-      method: 'GET',
+      method: declaration.method,
       redirect: 'error',
       signal: AbortSignal.timeout(declaration.timeoutMs),
-      headers: { accept },
+      headers,
+      ...(body === null ? {} : { body }),
     });
   } catch (err) {
     const name = err instanceof Error ? err.name : 'unknown';

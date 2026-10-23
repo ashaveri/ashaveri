@@ -1,9 +1,11 @@
 import { describe, expect, it } from 'vitest';
 import {
   AMD_KDS,
+  DECLARED_ORIGINS,
   INTEL_PCK_CRL,
   INTEL_QE_IDENTITY,
   INTEL_TCB_INFO,
+  NVIDIA_OCSP,
   collateralCacheKey,
   declarationFor,
   fetchFromOrigin,
@@ -85,18 +87,49 @@ describe('the Intel retrieval path', () => {
     }
   });
 
-  it('refuses an origin it does not read instead of guessing at one', () => {
-    for (const origin of ['nvidia-rim', 'ocsp'] as const) {
-      const asked = declarationFor(origin);
-      if ('refusal' in asked) {
-        expect(asked.refusal.code, origin).toBe('COLLATERAL_ORIGIN_UNSUPPORTED');
-        expect(asked.refusal.missing, origin).toEqual(['origin']);
-      } else {
-        throw new Error(`${origin} is served, which this package does not do`);
-      }
+  /**
+   * The method is the declaration's, and the body travels with the method that asks with one.
+   *
+   * A GET declaration handed a question to post is refused rather than stripped, because a caller that wrote a
+   * body believes it asked something; a POST declaration handed none is refused before the transport sees the
+   * address, because an empty POST states nothing about a certificate. Either refusal keeps `seen` empty, which
+   * is the half that says nothing left this process.
+   */
+  it('asks with the method the declaration publishes and refuses a body beside a GET', async () => {
+    const { transport, seen } = recorder(() => new Response('never'));
+    const withBody = await fetchFromOrigin(url(), INTEL_TCB_INFO, { transport, body: new TextEncoder().encode('a question') });
+    if (!('refusal' in withBody)) throw new Error('a GET declaration was asked with a body it never published');
+    expect(withBody.refusal.code).toBe(INTEL_TCB_INFO.refusals.envelope);
+    expect(withBody.refusal.detail).toContain('asked by GET');
+    expect(seen).toHaveLength(0);
+
+    const noBody = await fetchFromOrigin('https://ocsp.ndis.nvidia.com/', NVIDIA_OCSP, { transport });
+    if (!('refusal' in noBody)) throw new Error('a POST declaration was asked with nothing to post');
+    expect(noBody.refusal.code).toBe('COLLATERAL_INPUT_MISSING');
+    expect(noBody.refusal.missing).toEqual(['body']);
+    expect(seen).toHaveLength(0);
+
+    const question = new TextEncoder().encode('a question about one certificate');
+    const posted = await fetchFromOrigin('https://ocsp.ndis.nvidia.com/', NVIDIA_OCSP, { transport, body: question });
+    if ('refusal' in posted) throw new Error(`the posted question was refused: ${posted.refusal.detail}`);
+    const init = seen[0]?.init as RequestInit;
+    expect(init.method).toBe('POST');
+    expect(new Headers(init.headers).get('content-type')).toBe(NVIDIA_OCSP.requestMediaType);
+    expect(init.body).toBe(question);
+    expect(seen).toHaveLength(1);
+  });
+
+  /**
+   * Every name the query type carries answers a declaration rather than a refusal, so the arm of this path
+   * that refuses an origin for want of a reader is left standing for a declaration built without one.
+   */
+  it('reads the declaration for every origin it declares', () => {
+    for (const name of DECLARED_ORIGINS) {
+      const asked = declarationFor(name);
+      expect('refusal' in asked, name).toBe(false);
     }
-    expect(declarationFor('intel-pck-crl'), 'the CRL now has a reader').toBe(INTEL_PCK_CRL);
-    expect(declarationFor('amd-kds'), 'the KDS now has a reader').toBe(AMD_KDS);
+    expect(declarationFor('intel-pck-crl'), 'the CRL has a reader').toBe(INTEL_PCK_CRL);
+    expect(declarationFor('amd-kds'), 'the KDS has a reader').toBe(AMD_KDS);
   });
 
   it('sends no credential and asks for the declared media type', async () => {

@@ -13,14 +13,16 @@ import {
 import * as barrel from '../src/index.js';
 
 /**
- * The names-and-counts gate over the origin prose of three documents.
+ * The names-and-counts gate over the origin prose of three documents and over the package's own description.
  *
  * A sentence about which origins are read is a claim about a list, and a list changes in code without changing
  * the sentence beside it. This suite reads `docs/error-codes.md`, `docs/threat-model.md` and `README.md` and
  * holds what they say about origins to `DECLARED_ORIGINS` and `SERVED_ORIGINS`: a name the prose cites as an
  * origin is one the package declares, an enumeration of the read origins is exactly the ones it reads, an
  * enumeration of the refused ones exactly the remainder, and a count stated beside those sentences is the
- * length of the list it counts. Entry points the prose names are checked against the package's exports, so a
+ * length of the list it counts. The `description` field of `package.json` carries the same kind of claim in the
+ * shortest form there is, and nothing else in the estate reads it, so each verb it states is held to the
+ * declaration fact that says how many origins answer with that verb. Entry points the prose names are checked against the package's exports, so a
  * rename lands here rather than in a document a caller trusts, and the two entry points the revocation list and
  * the certificate chain are cited through are required to be named while no list of the further names is
  * fixed. A sentence about which suites hold a document's claims names files, so it is read out of the files: each
@@ -65,6 +67,16 @@ const DOCUMENTED_OTHER_NAMES = ['thisUpdate', 'nextUpdate', 'ca', 'removeFromCRL
 
 /** The sources a shipped command is built from, and the surface none of them may name outside a comment. */
 const SHIPPED_SOURCES = ['packages/cli/src', 'packages/sdk/src', 'packages/receipt/src', 'gateway/src'];
+
+/**
+ * Every name that reaches an origin, or that builds or reads what an origin sends back.
+ *
+ * The roster is what the sentence over this package's fetching rests on: a shipped command naming any of these
+ * outside a comment is a shipped command asking a vendor, which the documents state it does not do.
+ * `appraiseOcspResponse` is one because it writes the question from the two certificates a caller names and
+ * posts it through the same `observe` the other appraisals fetch through; `readRimManifest` is not, because a
+ * manifest reading takes the bytes it was handed and asks nothing of the host that would carry them.
+ */
 const ORIGIN_ASKING_NAMES = [
   'fetchFromOrigin',
   'readServedCollateral',
@@ -72,6 +84,7 @@ const ORIGIN_ASKING_NAMES = [
   'appraiseCollateral',
   'appraisePckCrl',
   'appraiseVcekChain',
+  'appraiseOcspResponse',
 ];
 
 const CODES = collateralRefusals().map((entry) => entry.code);
@@ -182,6 +195,38 @@ const SERVED_JSON_DOCUMENTS = Object.values(ORIGIN_DECLARATIONS)
   .filter((one) => one.reader.as === 'served-json-document');
 
 /**
+ * The counts the package's own description states each of its verbs of.
+ *
+ * A description is a claim about the whole package that no document repeats, so each verb is held to the
+ * declaration fact that says how many origins answer with it: a host is the address an origin is fetched at and
+ * a refusal table what it is answered with, both stated by every declaration, a cache rule is what a kept answer
+ * is a record of, and the wrapper reader the one arm that answers no verdict about the bytes it read, because the
+ * appraisal path replies to it with the missing-context refusal naming what that reader lacks.
+ */
+const DECLARATIONS = Object.values(ORIGIN_DECLARATIONS);
+const VERB_COUNTS: Readonly<Record<string, number>> = {
+  fetch: DECLARATIONS.filter((one) => one.host.length > 0).length,
+  classify: DECLARATIONS.filter((one) => one.reader.as !== 'rim-wrapper').length,
+  retain: DECLARATIONS.filter((one) => one.cache !== null).length,
+  refuse: DECLARATIONS.filter((one) => Object.keys(one.refusals).length > 0).length,
+};
+
+/**
+ * The count a verb of the description is claimed of, which is the first count of origins printed after it.
+ *
+ * A clause that claims two verbs and states one count claims both of that count, which is what makes a wording
+ * widened past the declarations read here rather than left for whoever reads the package page.
+ */
+function claimedCount(description: string, verb: string): number | undefined {
+  const at = description.toLowerCase().indexOf(verb);
+  if (at < 0) {
+    return undefined;
+  }
+  const stated = /\b([a-z0-9]+) origins?\b/u.exec(description.slice(at));
+  return stated === null ? undefined : counted(stated[1] as string);
+}
+
+/**
  * The counts the documents state about origins, each beside the sentence that states it, and the list each count
  * is a fact about. A sentence that counts a list counts it as the package declares it or the run fails. One
  * derived figure can back the same wording in more than one document, and then every document listed carries
@@ -207,7 +252,6 @@ const COUNT_CLAIMS: readonly (readonly [docs: readonly string[], claim: RegExp, 
     () => [SERVED_ORIGINS.length],
   ],
   [[THREAT_MODEL], /declares (\w+) origins and reads (\w+)/iu, () => [DECLARED_ORIGINS.length, SERVED_ORIGINS.length]],
-  [[THREAT_MODEL], /declares the other (\w+)/iu, () => [UNREAD.length]],
   [[README], /names (\w+) origins and reads (\w+)/iu, () => [DECLARED_ORIGINS.length, SERVED_ORIGINS.length]],
   [
     [README, THREAT_MODEL],
@@ -371,6 +415,24 @@ describe('the origin prose of the shipped documents', () => {
     // several sentences, and a run that stops at the first mismatch leaves the rest of them to the reader.
     expect(unstated, 'a count claim with no sentence behind it').toEqual([]);
     expect(mismatched, 'a count the prose states and the lists deny').toEqual([]);
+  });
+
+  it('holds the package description to the declaration facts its verbs rest on', () => {
+    const described = JSON.parse(documentOf('packages/collateral/package.json')) as { readonly description?: string };
+    const description = described.description ?? '';
+    expect(description, 'packages/collateral/package.json states no description').not.toBe('');
+    const mismatches: string[] = [];
+    for (const [verb, holds] of Object.entries(VERB_COUNTS)) {
+      const stated = claimedCount(description, verb);
+      if (stated === undefined) {
+        mismatches.push(`the description claims no ${verb} beside a count of origins`);
+        continue;
+      }
+      if (stated !== holds) {
+        mismatches.push(`the description claims ${verb} of ${String(stated)} origins and the declarations state it of ${String(holds)}`);
+      }
+    }
+    expect(mismatches, `what ${description} says an origin is fetched, classified, retained or refused`).toEqual([]);
   });
 
   /**

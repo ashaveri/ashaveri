@@ -1,8 +1,28 @@
 import { CollateralError, collateralRefusal, quoteOrDigest, type CollateralRefusal } from './errors.js';
+import { REMOVE_FROM_CRL } from './der.js';
 import { fetchFromOrigin, wallClock } from './fetch.js';
-import { collateralCacheKey, declarationFor, isCrlDeclaration, isIntelDeclaration, isVcekDeclaration, routesAnswerNow, requestUrl, AMD_KDS, INTEL_PCK_CRL, type IntelOriginDeclaration, type CrlOriginDeclaration, type OriginDeclaration, type VcekOriginDeclaration } from './intel-origin.js';
+import {
+  AMD_KDS,
+  INTEL_PCK_CRL,
+  NVIDIA_OCSP,
+  collateralCacheKey,
+  declarationFor,
+  isCrlDeclaration,
+  isIntelDeclaration,
+  isOcspDeclaration,
+  isRimDeclaration,
+  isVcekDeclaration,
+  requestUrl,
+  routesAnswerNow,
+  type IntelOriginDeclaration,
+  type CrlOriginDeclaration,
+  type OcspOriginDeclaration,
+  type OriginDeclaration,
+  type VcekOriginDeclaration,
+} from './intel-origin.js';
 import { readVcekChain } from './amd-kds.js';
 import { readPckCrl } from './crl.js';
+import { buildOcspRequest, readOcspResponse, type OcspReading } from './ocsp.js';
 import { readSignedCollateral, type ReadCollateral } from './read.js';
 import { readServedCollateral } from './served.js';
 import { sha256Hex, toHex } from './bytes.js';
@@ -12,6 +32,9 @@ import type {
   CollateralClaim,
   CollateralOutcome,
   CollateralQuery,
+  OcspCollateral,
+  OcspOutcome,
+  OcspQuery,
   PckCrlQuery,
   RevocationList,
   RevocationOutcome,
@@ -147,6 +170,25 @@ async function appraise(
       query.level === null ? ['level'] : [],
     ));
   }
+  if (isOcspDeclaration(declared)) {
+    // The third origin with a reader that is not a level reader: a responder's answer names one certificate and
+    // no rung of a ladder, and `appraiseOcspResponse` is where that pair is weighed.
+    return missingContext(collateralRefusal(
+      'COLLATERAL_INPUT_MISSING',
+      `${declared.name} answers about one certificate's standing and this appraisal asks about a platform level; appraiseOcspResponse weighs that answer`,
+      query.level === null ? ['level'] : [],
+    ));
+  }
+  if (isRimDeclaration(declared)) {
+    // The wrapper is served, and its reader answers no verdict: a manifest nobody here has weighed states no
+    // level, no window and no identity a platform's evidence could be compared with, so the entry point that
+    // reads the wrapper is named rather than the origin refused as unread.
+    return missingContext(collateralRefusal(
+      'COLLATERAL_INPUT_MISSING',
+      `${declared.name} answers with a manifest wrapper and ${declared.reader.lacks}; readRimManifest reads the wrapper and refuses what is inside it`,
+      query.level === null ? ['level'] : [],
+    ));
+  }
   if (!isIntelDeclaration(declared)) {
     return unavailable(collateralRefusal(
       'COLLATERAL_ORIGIN_UNSUPPORTED',
@@ -272,6 +314,186 @@ async function appraiseChain(
 }
 
 /**
+ * The OCSP responder asked about one certificate.
+ *
+ * A responder answers whether a certificate stood good, revoked or unknown as of the instant its own answer
+ * states, so this entry point takes an `OcspQuery` naming a certificate and its issuer rather than the
+ * platform-level `CollateralQuery`. The question is built from those two bytes and posted to the one route the
+ * declaration publishes; the answer is weighed under the issuer the question names and walked to a root the
+ * caller pinned, and nothing in it is read as a statement until both hold. The outcome type is the platform
+ * one because the answers are the same five: an answer this run asked, whose window covers the moment asked,
+ * is `current`, which is the one place this package reports current knowledge about a revocation; bytes kept
+ * from an earlier run are `stale` beside `COLLATERAL_NOT_OBSERVED`; a `revoked` answer carries its own bytes
+ * beside the vendor refusal; and a standing this package has no rule for is absence rather than a verdict.
+ * A caller holding a response from its own store passes it through `retained`, with the store's own instant as
+ * `observedAt`, and the claim beside the answer states that reach as historical.
+ */
+export async function appraiseOcspResponse(
+  query: OcspQuery,
+  options: CollateralAppraisalOptions = {},
+): Promise<OcspOutcome> {
+  const outcome = await appraiseOcsp(query, options);
+  if ((outcome.state === 'unavailable' || outcome.state === 'missing-context') && query.onAbsent === 'refuse') {
+    throw new CollateralError(outcome.refusal);
+  }
+  return outcome;
+}
+
+async function appraiseOcsp(
+  query: OcspQuery,
+  options: CollateralAppraisalOptions,
+): Promise<OcspOutcome> {
+  const declaration = NVIDIA_OCSP;
+  const missing = askedButNotGivenOcsp(query, declaration);
+  if (missing !== null) {
+    return ocspAbsent('missing-context', missing);
+  }
+  const appraisalAt = query.appraisalAt as number;
+  // The question is written from the same two bytes the answer is compared with, so a caller that asked the
+  // responder elsewhere and kept the answer is asking about the same certificate as a caller that lets this
+  // path ask, and neither can be handed an answer about a third.
+  const question = buildOcspRequest(query.ocspCertificate, query.ocspIssuer, declaration);
+  if ('refusal' in question) {
+    return ocspAbsent('unavailable', question.refusal);
+  }
+  const observed = await observe(query, declaration, options, question);
+  if ('refusal' in observed) {
+    return ocspAbsent(observed.state, observed.refusal);
+  }
+  const read = readOcspResponse(observed.observed.bytes, { query, declaration, appraisalAt });
+  if ('refusal' in read) {
+    return ocspAbsent('unavailable', read.refusal);
+  }
+  return classifyOcsp(
+    read.read,
+    query,
+    declaration,
+    observed.observed.observedAt,
+    appraisalAt,
+    query.retained === null,
+  );
+}
+
+/**
+ * Which of the five answers an OCSP response is.
+ *
+ * The shape is the platform appraisal's, because the states are the same five, and one rule of the vendor
+ * documents carries over: a standing that says the certificate is revoked outranks a closed window, because
+ * nothing published later un-revokes a certificate. The reach is read off the routes rather than remembered at
+ * the call site, which is what makes `current-knowledge` a fact about this run having asked the responder, and
+ * `retainUntil` is the answer's own `nextUpdate` extended by nothing here. A `revoked` standing whose reason is
+ * `removeFromCRL` is refused as a status this package reads no verdict from, which is the answer the same reason
+ * gets on a revocation list's entry.
+ */
+function classifyOcsp(
+  read: OcspReading,
+  query: OcspQuery,
+  declaration: OcspOriginDeclaration,
+  observedAt: number,
+  appraisalAt: number,
+  askedThisRun: boolean,
+): OcspOutcome {
+  const covers = appraisalAt >= read.window.from && appraisalAt < read.window.until;
+  const trusted = declaration.status.trusted.includes(read.certStatus);
+  const revoked = declaration.status.revoked.includes(read.certStatus);
+  if (!trusted && !revoked) {
+    return ocspAbsent('unavailable', collateralRefusal(
+      declaration.refusals.statusUnknown,
+      `${quoteOrDigest(read.certStatus)} is a standing this package has no rule for`,
+    ));
+  }
+  // The reason a `revoked` standing carries is weighed with the same rule the revocation list's entries are
+  // weighed with, because RFC 6960 spells `revocationReason` as a `CRLReason`: a removal from a listing is
+  // not a revocation in either reader, and neither answers a verdict from it.
+  if (revoked && read.reasonCode === REMOVE_FROM_CRL) {
+    return ocspAbsent('unavailable', collateralRefusal(
+      declaration.refusals.statusUnknown,
+      `the answer names serial ${read.serialHex} as revoked with removeFromCRL, which removes a listing rather than revoking the certificate, and no revocation is read from it`,
+    ));
+  }
+  const key = collateralCacheKey(query, declaration);
+  if (typeof key !== 'string') {
+    return ocspAbsent('missing-context', collateralRefusal(
+      'COLLATERAL_INPUT_MISSING',
+      'the record these bytes belong to cannot be named',
+      key.missing,
+    ));
+  }
+  const claim: CollateralClaim = {
+    reach: askedThisRun && covers && routesAnswerNow(declaration) ? 'current-knowledge' : 'historical-knowledge',
+    appraisalAt,
+    observedAt: askedThisRun ? observedAt : null,
+    retainUntil: read.window.until,
+    cacheKey: key,
+  };
+  const collateral: OcspCollateral = {
+    origin: query.origin,
+    platform: query.platform,
+    blobs: read.blobs,
+    digest: read.digest,
+    anchorDigest: read.anchorDigest,
+    declared: { cpuType: null, vendorStatus: read.certStatus },
+    classification: { readAs: revoked ? 'revoked' : 'trusted', window: read.window, signedAt: read.producedAt },
+    serialHex: read.serialHex,
+    certStatus: read.certStatus,
+    revokedAt: read.revokedAt,
+    reasonCode: read.reasonCode,
+    reason: read.reason,
+  };
+  if (revoked) {
+    const reason = read.reason ?? (read.reasonCode === null ? 'no reason stated' : `reason code ${String(read.reasonCode)}`);
+    const stated = read.revokedAt === null ? '' : `, at ${iso(read.revokedAt)}`;
+    return {
+      state: 'revoked',
+      collateral,
+      claim,
+      refusal: collateralRefusal(
+        'COLLATERAL_REVOKED_BY_VENDOR',
+        `the signed answer reads ${quoteOrDigest(read.certStatus)} for serial ${read.serialHex} with ${reason}${stated}, which is a statement about the instant the responder signed it`,
+      ),
+    };
+  }
+  if (claim.reach === 'current-knowledge') {
+    return { state: 'current', collateral, claim };
+  }
+  return {
+    state: 'stale',
+    collateral,
+    claim,
+    refusal: askedThisRun
+      ? collateralRefusal(
+        declaration.refusals.window,
+        `the answer stands from ${iso(read.window.from)} to ${iso(read.window.until)} and the moment asked is ${iso(appraisalAt)}`,
+      )
+      : collateralRefusal(
+        'COLLATERAL_NOT_OBSERVED',
+        `the bytes were seen at ${iso(observedAt)} and this run asked the responder nothing`,
+        ['retained'],
+      ),
+  };
+}
+
+/** Every field a certificate question has to state before the responder is worth asking. */
+function askedButNotGivenOcsp(query: OcspQuery, declaration: OcspOriginDeclaration): CollateralRefusal | null {
+  if (query.roots.length === 0) {
+    return collateralRefusal(declaration.refusals.anchor, 'a verdict needs a root the caller holds, and none was passed', ['roots']);
+  }
+  if (query.appraisalAt === null) {
+    return collateralRefusal('COLLATERAL_INPUT_MISSING', 'no instant was stated for the appraisal, and no verdict can be reached about a moment nobody named', ['appraisalAt']);
+  }
+  if (query.ocspCertificate.byteLength === 0) {
+    return collateralRefusal('COLLATERAL_INPUT_MISSING', 'the certificate the question names is empty', ['ocspCertificate']);
+  }
+  if (query.ocspIssuer.byteLength === 0) {
+    return collateralRefusal('COLLATERAL_INPUT_MISSING', 'the issuer the question names is empty', ['ocspIssuer']);
+  }
+  if (query.retained !== null && query.retained.bytes.byteLength === 0) {
+    return collateralRefusal('COLLATERAL_INPUT_MISSING', 'the retained blob is empty', ['retained.bytes']);
+  }
+  return null;
+}
+
+/**
  * The chain beside the certificate, kept or asked.
  *
  * A retained pair arrives as the two halves the caller kept, and `observe` has already carried them. A fresh
@@ -377,12 +599,14 @@ interface Observation {
  * Both appraisal paths share this half so a retained pair is checked against its stated chain digest, an empty
  * retained blob is refused, and a fetch keeps the host, wait, cap and header rules in one place. Which state
  * an absence produces travels beside the refusal because a missing input is the caller's question and an
- * unreachable or unreadable answer is the origin's.
+ * unreachable or unreadable answer is the origin's. A POST origin is asked with the body its own reader wrote,
+ * and a retained answer needs none because nothing is asked of the origin at all.
  */
 async function observe(
   query: CollateralQuery,
   declaration: OriginDeclaration,
   options: CollateralAppraisalOptions,
+  body: Uint8Array | null = null,
 ): Promise<{ readonly observed: Observation } | { readonly refusal: CollateralRefusal; readonly state: 'unavailable' | 'missing-context' }> {
   const bytes = query.retained === null ? null : query.retained.bytes;
   if (bytes !== null && bytes.byteLength > declaration.maxResponseBytes) {
@@ -399,7 +623,11 @@ async function observe(
     return { refusal: url.refusal, state: 'missing-context' };
   }
   if (query.retained === null) {
-    const asked = await fetchFromOrigin(url, declaration, { transport: options.transport, clock: options.clock ?? wallClock });
+    const asked = await fetchFromOrigin(url, declaration, {
+      transport: options.transport,
+      clock: options.clock ?? wallClock,
+      body,
+    });
     return 'refusal' in asked
       ? { refusal: asked.refusal, state: 'unavailable' }
       : { observed: asked.fetched };
@@ -675,9 +903,6 @@ function askedButNotGivenCrl(query: PckCrlQuery, declaration: CrlOriginDeclarati
 /** A certificate serial as a query spells it: hex digits and nothing else. */
 const SERIAL = /^[0-9a-fA-F]{1,128}$/u;
 
-/** RFC 5280's reason that takes an entry out of a listing rather than revoking the certificate. */
-const REMOVE_FROM_CRL = 8;
-
 function missingContext(refusal: CollateralRefusal): CollateralOutcome {
   return { state: 'missing-context', collateral: null, claim: null, refusal };
 }
@@ -696,6 +921,11 @@ function unavailableRevocation(refusal: CollateralRefusal): RevocationOutcome {
 
 function missingChain(refusal: CollateralRefusal): VcekChainOutcome {
   return { state: 'missing-context', chain: null, claim: null, refusal };
+}
+
+/** The two OCSP states that carry nothing, spelled once so neither half of the pair can drift from the other. */
+function ocspAbsent(state: 'unavailable' | 'missing-context', refusal: CollateralRefusal): OcspOutcome {
+  return { state, collateral: null, claim: null, refusal };
 }
 
 function unavailableChain(refusal: CollateralRefusal): VcekChainOutcome {

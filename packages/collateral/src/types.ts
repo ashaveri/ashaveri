@@ -4,9 +4,10 @@ import type { CollateralRefusal } from './errors.js';
 export type IntelPlatform = 'sgx' | 'tdx';
 
 /**
- * Every path an appraisal could ask collateral of. Four are read here, and the other two are declared
- * with the host and routes their vendors publish and refused with the reader they lack, so asking for one
- * answers with a sentence rather than a type error a caller could only reach by deleting the question.
+ * Every path an appraisal could ask collateral of. Five are read to a verdict here, and the sixth is declared
+ * with the host and route its vendor publishes, read as far as its answer's own wrapper goes and refused at the
+ * signature this package states no rule for weighing, so asking for an answer from it answers with a sentence
+ * rather than with a type error a caller could only reach by deleting the question.
  */
 export type CollateralOriginName =
   | 'intel-tcb-info'
@@ -137,8 +138,11 @@ export interface CollateralQuery {  readonly origin: CollateralOriginName;
   /** NVIDIA's RIM id, the value a GPU's attestation evidence names. Any non-empty id is percent-encoded into the path. */
   readonly rimId?: string | null;
   /**
-   * The certificate an OCSP question asks about, and the issuer that signed it. Neither is read here:
-   * the names are carried so a refusal can say which half of the question is absent.
+   * The certificate an OCSP question asks about, and the issuer that signed it, both as the bytes they are.
+   *
+   * Both are read: the request this path writes names them, the answer's `CertID` is compared with them, and
+   * the issuer is the certificate the responder's signature is weighed under. A question stating only one of
+   * them states no question an address can be built for, which is the missing context the refusal reports.
    */
   readonly ocspCertificate?: Uint8Array | null;
   readonly ocspIssuer?: Uint8Array | null;
@@ -374,6 +378,12 @@ export type RevocationOutcome =
  * run under a root the caller pinned. `stale` and `revoked` both carry the verified bytes, because the
  * difference between them is what the vendor signed rather than whether it was readable. `unavailable`
  * and `missing-context` carry nothing, because there is nothing yet to have read.
+ *
+ * The OCSP path answers with this union too, for the same reasons: a responder's `good` is the one word
+ * beside which a current reach can be stated, a `revoked` answer carries its own bytes beside the refusal,
+ * and a standing this path has no rule for is absence rather than a verdict. Where its collateral is an
+ * `OcspCollateral`, which states the serial and the answer's own word beside everything a `SignedCollateral`
+ * states.
  */
 export type CollateralOutcome =
   | { readonly state: 'current'; readonly collateral: SignedCollateral; readonly claim: CollateralClaim }
@@ -389,6 +399,94 @@ export type CollateralOutcome =
       readonly claim: CollateralClaim;
       readonly refusal: CollateralRefusal;
     }
+  | { readonly state: 'unavailable'; readonly collateral: null; readonly claim: null; readonly refusal: CollateralRefusal }
+  | { readonly state: 'missing-context'; readonly collateral: null; readonly claim: null; readonly refusal: CollateralRefusal };
+
+/**
+ * A query for the OCSP responder, which asks about one certificate rather than about a platform level.
+ *
+ * The certificate and its issuer are required here even though the general query states them as optional,
+ * because a responder answer that names no certificate is not an answer to anything: the request is built from
+ * them, the `CertID` of the answer is compared with them, and the issuer is the certificate the signature on
+ * the answer is weighed under. The route is not a caller's field on this path, because the declaration publishes
+ * one route and the question is asked at it. The platform field stays because every query this package takes
+ * names one, and the responder is indexed by a certificate and not by it.
+ */
+export type OcspQuery = Omit<CollateralQuery, 'origin' | 'route' | 'ocspCertificate' | 'ocspIssuer'> & {
+  readonly origin: 'ocsp';
+  readonly ocspCertificate: Uint8Array;
+  readonly ocspIssuer: Uint8Array;
+};
+
+/**
+ * An `OCSPResponse` that parsed, reached a root the caller pinned, and was believed under the issuer the
+ * question named.
+ *
+ * `window` is the single response's own `thisUpdate` and `nextUpdate`, which is the span the responder speaks
+ * for and the only span a claim about this certificate may be measured against; `signedAt` is `producedAt`,
+ * the instant the responder stated it signed. `certStatus` is the answer's own word, copied rather than
+ * paraphrased, and `revokedAt` is the instant the `revoked` word states and `reasonCode` the reason beside it. `blobs` keeps the response first and
+ * then every certificate the response itself presented, in the order it presented them, so nothing re-encodes,
+ * reorders or drops a byte. A certificate the caller handed in the question is not among them: it travels
+ * beside the answer rather than inside it.
+ */
+export interface OcspCollateral extends SignedCollateral {
+  /** The serial the answer's `CertID` states, as the DER INTEGER's content spells it in lowercase hex. */
+  readonly serialHex: string;
+  /** The responder's own word for the certificate's standing, copied from the answer. */
+  readonly certStatus: 'good' | 'revoked' | 'unknown';
+  /** The instant a `revoked` answer states the revocation took effect, in Unix seconds, or null for one that states no revocation. */
+  readonly revokedAt: number | null;
+  /**
+   * RFC 5280's `cRLReason` code the `revoked` standing carries in its `revocationReason`, or null where the
+   * standing states none. An answer whose reason is `removeFromCRL` is refused under
+   * `COLLATERAL_STATUS_UNSUPPORTED` rather than read as a revocation, which is the same answer a revocation
+   * list's entry with that reason gets.
+   */
+  readonly reasonCode: number | null;
+  /** The registry name for that code where one exists, or null for a code this reader does not name. */
+  readonly reason: string | null;
+}
+
+/**
+ * What a RIM wrapper states about the manifest it carries.
+ *
+ * Nothing here is a statement about the manifest's contents: `readRimManifest` weighs the wrapper's own digest
+ * against the bytes the `rim` member carries and copies the identity the service states for the answer, and the
+ * refusal beside it says that the manifest's own signature was weighed by nobody. `lastUpdated` is the vendor's
+ * text for when the file was updated and states no window, so no reach and no expiry is derived from it.
+ */
+export interface RimManifest {
+  /** The manifest id the wrapper states for itself, verbatim. */
+  readonly id: string;
+  /** Which of the three formats the service names the manifest as, copied rather than inferred. */
+  readonly format: string;
+  /** The wrapper's own `last_updated` text, verbatim, which states no validity window. */
+  readonly lastUpdated: string;
+  /** The manifest bytes exactly as the wrapper carried them, decoded from its base64 text and re-made by nobody. */
+  readonly rim: Uint8Array;
+  /** sha256 of `rim` as hex, which is the digest the wrapper stated and this path compared. */
+  readonly digest: string;
+  /** The whole answer, as it arrived, so a caller keeps the bytes rather than a re-encoding of them. */
+  readonly blobs: readonly Uint8Array[];
+}
+
+/**
+ * The answers one certificate's revocation question can give, kept apart from `CollateralOutcome` so a caller
+ * of `appraiseOcspResponse` reads the standing, the serial, the revocation instant and the reason beside it out
+ * of the answer rather than out of a cast.
+ *
+ * The five states and what each may say are the platform appraisal's: `current` is the one that carries no
+ * refusal and is reached only when this run asked the responder and the answer's own window covers the moment
+ * being appraised; `revoked` and `stale` carry the bytes the responder signed; `unavailable` and
+ * `missing-context` carry nothing. `current` here is the estate's one `current-knowledge` about a revocation,
+ * and it says the certificate stood good or revoked as the responder stated it, which is not a statement that
+ * the platform it sits in is trusted.
+ */
+export type OcspOutcome =
+  | { readonly state: 'current'; readonly collateral: OcspCollateral; readonly claim: CollateralClaim }
+  | { readonly state: 'stale'; readonly collateral: OcspCollateral; readonly claim: CollateralClaim; readonly refusal: CollateralRefusal }
+  | { readonly state: 'revoked'; readonly collateral: OcspCollateral; readonly claim: CollateralClaim; readonly refusal: CollateralRefusal }
   | { readonly state: 'unavailable'; readonly collateral: null; readonly claim: null; readonly refusal: CollateralRefusal }
   | { readonly state: 'missing-context'; readonly collateral: null; readonly claim: null; readonly refusal: CollateralRefusal };
 

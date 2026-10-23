@@ -197,11 +197,13 @@ describe('the five answers', () => {
     }
   });
 
-  it('answers an origin it does not read with the name that was asked, and never with a pass', async () => {
+  it('answers an answer this arm does not weigh by the name that was asked, and never with a pass', async () => {
     const outcome = await ask({ origin: 'nvidia-rim' });
-    expect(outcome.state).toBe('unavailable');
-    expect(refusalOf(outcome).code).toBe('COLLATERAL_ORIGIN_UNSUPPORTED');
-    expect(refusalOf(outcome).missing).toEqual(['origin']);
+    expect(outcome.state).toBe('missing-context');
+    expect(refusalOf(outcome).code).toBe('COLLATERAL_INPUT_MISSING');
+    expect(refusalOf(outcome).detail).toContain('readRimManifest');
+    expect(outcome.collateral).toBeNull();
+    expect(outcome.claim).toBeNull();
   });
 
   /**
