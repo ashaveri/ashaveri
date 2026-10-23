@@ -215,7 +215,7 @@ function handover(
 const POSTURES = [null, 1, 2] as const;
 
 /**
- * The postures `maxTimeUncertaintySeconds` can be in, stated in this order by every row that states any.
+ * The postures `maxTimeUncertaintySeconds` can be in, each stated under the name its verdict carries.
  *
  * `null` is the policy that names no demand, and its verdict repeats the row's own `expected` for the
  * reason the anchor column gives: what the field promises is that a demand nobody stated moves nothing.
@@ -224,8 +224,19 @@ const POSTURES = [null, 1, 2] as const;
  * and at that posture the two readings part: the bound inside the demand is accepted, the statement that
  * nobody measured is refused, and a reader that had flattened the null into a zero would have to answer
  * both alike.
+ *
+ * Each posture is a named pair rather than a bare figure, because the verdicts a row states are named
+ * the same way: a fourth class added here has to be named at every call site before anything publishes,
+ * which is a condition a roster widened by position could not impose on itself.
  */
-const STAMP_POSTURES = [null, 0, 1] as const;
+const STAMP_POSTURES = [
+  { name: 'none', demand: null },
+  { name: 'zero', demand: 0 },
+  { name: 'one', demand: 1 },
+] as const;
+
+/** The verdicts one row states: exactly one per posture in the roster, named as the roster names it. */
+type StampPostureName = (typeof STAMP_POSTURES)[number]['name'];
 
 /** The readings for an anchor's two slots, one verdict per posture, in the order every row states them. */
 function handoverFor(verdicts: readonly [none: string, one: string, two: string]): ReturnType<typeof handover> {
@@ -248,15 +259,26 @@ function handoverFor(verdicts: readonly [none: string, one: string, two: string]
  * not computed from the row's own `sd` figures. A disclosure column and a demand column derived from the
  * same arithmetic could disagree with the shipped check in nothing and still record this file rather
  * than the code; running the published verdicts against the client is the suite's job, not the generator's.
+ * Unlike the anchor readings, the pairing here is a lookup by the posture's own name, and a posture that
+ * finds no verdict stated for it stops this run at the derivation: widening the roster has to arrive at
+ * the call sites as a missing name, not at the published rows as a demand nobody was asked to answer.
  */
 function stampPostureFor(
-  verdicts: readonly [none: string, zero: string, one: string],
+  verdicts: Readonly<Record<StampPostureName, string>>,
 ): Array<{ maxTimeUncertaintySeconds: number | null; verdict: string }> {
-  const [none, zero, one] = verdicts;
-  return STAMP_POSTURES.map((demand, index) => ({
-    maxTimeUncertaintySeconds: demand,
-    verdict: [none, zero, one][index] as string,
-  }));
+  return STAMP_POSTURES.map((posture) => {
+    // `undefined` here is a roster entry no call site stated a verdict for: the parameter type is the
+    // first refusal and this line is the one the strip-types loader cannot skip. Either way the run
+    // dies naming the posture, and no published row carries a demand with its answer missing.
+    const verdict: string | undefined = verdicts[posture.name];
+    if (verdict === undefined || verdict === '') {
+      throw new Error(
+        `generate: the stamp posture '${posture.name}' (demand ${String(posture.demand)}) has no verdict ` +
+          'stated beside it: the roster and every call site grow together or this file publishes nothing',
+      );
+    }
+    return { maxTimeUncertaintySeconds: posture.demand, verdict };
+  });
 }
 
 /**
@@ -537,7 +559,7 @@ function main(): void {
         columns: {
           ...columnsOf(stream, { v: 1, sd: MEASURED_SOURCE, cva: ANCHOR_HELD_BOTH, stamps: streamStamps }),
           handover: handoverFor(['verify-ok', 'verify-ok', 'verify-ok']),
-          stampSource: stampPostureFor(['verify-ok', 'STAMP_SOURCE_TOO_UNCERTAIN', 'verify-ok']),
+          stampSource: stampPostureFor({ none: 'verify-ok', zero: 'STAMP_SOURCE_TOO_UNCERTAIN', one: 'verify-ok' }),
         },
       },
       payload: payloadFor(stream, { sd: MEASURED_SOURCE, cva: ANCHOR_HELD_BOTH, itm: streamStamps }),
@@ -550,7 +572,7 @@ function main(): void {
         columns: {
           ...columnsOf(body, { v: 1, sd: MEASURED_SOURCE, cva: ANCHOR_HELD_AND_ABSENT, stamps: bodyStamps }),
           handover: handoverFor(['verify-ok', 'verify-ok', 'ANCHOR_SLOT_NOT_HELD']),
-          stampSource: stampPostureFor(['verify-ok', 'STAMP_SOURCE_TOO_UNCERTAIN', 'verify-ok']),
+          stampSource: stampPostureFor({ none: 'verify-ok', zero: 'STAMP_SOURCE_TOO_UNCERTAIN', one: 'verify-ok' }),
         },
       },
       payload: payloadFor(body, { sd: MEASURED_SOURCE, cva: ANCHOR_HELD_AND_ABSENT, itm: bodyStamps }),
@@ -563,11 +585,11 @@ function main(): void {
         columns: {
           ...columnsOf(markedBody, { v: 1, sd: UNMEASURED_SOURCE, cva: ANCHOR_HELD_BOTH, stamps: markedBodyStamps }),
           handover: handoverFor(['verify-ok', 'verify-ok', 'verify-ok']),
-          stampSource: stampPostureFor([
-            'verify-ok',
-            'STAMP_SOURCE_TOO_UNCERTAIN',
-            'STAMP_SOURCE_TOO_UNCERTAIN',
-          ]),
+          stampSource: stampPostureFor({
+            none: 'verify-ok',
+            zero: 'STAMP_SOURCE_TOO_UNCERTAIN',
+            one: 'STAMP_SOURCE_TOO_UNCERTAIN',
+          }),
         },
       },
       payload: payloadFor(markedBody, { sd: UNMEASURED_SOURCE, cva: ANCHOR_HELD_BOTH, itm: markedBodyStamps }),
@@ -580,7 +602,7 @@ function main(): void {
         columns: {
           ...columnsOf(markedStream, { v: 1, sd: MEASURED_SOURCE, cva: ANCHOR_NOT_TAKEN_IN, stamps: markedStreamStamps }),
           handover: handoverFor(['verify-ok', 'ANCHOR_SLOT_NOT_HELD', 'ANCHOR_SLOT_NOT_HELD']),
-          stampSource: stampPostureFor(['verify-ok', 'STAMP_SOURCE_TOO_UNCERTAIN', 'verify-ok']),
+          stampSource: stampPostureFor({ none: 'verify-ok', zero: 'STAMP_SOURCE_TOO_UNCERTAIN', one: 'verify-ok' }),
         },
       },
       payload: payloadFor(markedStream, { sd: MEASURED_SOURCE, cva: ANCHOR_NOT_TAKEN_IN, itm: markedStreamStamps }),
@@ -593,7 +615,7 @@ function main(): void {
         columns: {
           ...columnsOf(body, { v: 1, sd: MEASURED_SOURCE, cva: ANCHOR_COLLATERAL_ABSENT, stamps: bodyStamps }),
           handover: handoverFor(['verify-ok', 'verify-ok', 'ANCHOR_SLOT_NOT_HELD']),
-          stampSource: stampPostureFor(['verify-ok', 'STAMP_SOURCE_TOO_UNCERTAIN', 'verify-ok']),
+          stampSource: stampPostureFor({ none: 'verify-ok', zero: 'STAMP_SOURCE_TOO_UNCERTAIN', one: 'verify-ok' }),
         },
       },
       payload: payloadFor(body, { sd: MEASURED_SOURCE, cva: ANCHOR_COLLATERAL_ABSENT, itm: bodyStamps }),
@@ -611,7 +633,7 @@ function main(): void {
             stamps: markedBodyStamps,
           }),
           handover: handoverFor(['verify-ok', 'ANCHOR_SLOT_NOT_HELD', 'ANCHOR_SLOT_NOT_HELD']),
-          stampSource: stampPostureFor(['verify-ok', 'STAMP_SOURCE_TOO_UNCERTAIN', 'verify-ok']),
+          stampSource: stampPostureFor({ none: 'verify-ok', zero: 'STAMP_SOURCE_TOO_UNCERTAIN', one: 'verify-ok' }),
         },
       },
       payload: payloadFor(markedBody, { sd: MEASURED_SOURCE, cva: ANCHOR_BOTH_ABSENT_AT_SOURCE, itm: markedBodyStamps }),
@@ -624,7 +646,7 @@ function main(): void {
         columns: {
           ...columnsOf(markedSentinel, { v: 1, sd: MEASURED_SOURCE, cva: ANCHOR_HELD_BOTH, stamps: markedSentinelStamps }),
           handover: handoverFor(['verify-ok', 'verify-ok', 'verify-ok']),
-          stampSource: stampPostureFor(['verify-ok', 'STAMP_SOURCE_TOO_UNCERTAIN', 'verify-ok']),
+          stampSource: stampPostureFor({ none: 'verify-ok', zero: 'STAMP_SOURCE_TOO_UNCERTAIN', one: 'verify-ok' }),
         },
       },
       payload: payloadFor(markedSentinel, { sd: MEASURED_SOURCE, cva: ANCHOR_HELD_BOTH, itm: markedSentinelStamps }),

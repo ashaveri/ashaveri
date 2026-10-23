@@ -804,6 +804,32 @@ describe('the stamp-source demand a policy states, through the client path', () 
     expect(wideMessage).toContain(String(wideRow.sd?.unc));
   });
 
+  it('spells a verdict beside every posture it states, and no bare posture at all', () => {
+    // The column is a pairing of two named figures — the demand as an operator spells it and the answer
+    // the client gives under it — and an entry that carries the demand without its verdict is a posture
+    // nothing was asked to answer and no reader can check. The replay above compares the verdicts it is
+    // given; this case is about the shape of what the generator published: a widened posture roster that
+    // outgrew its verdicts must fail here on the missing verdict, not somewhere else on a length.
+    const stated = manifest.fixtures.filter((entry) => entry.stampSource !== undefined);
+    expect(stated.length).toBeGreaterThanOrEqual(7);
+    for (const entry of stated) {
+      for (const reading of entry.stampSource ?? []) {
+        expect(
+          Object.keys(reading).sort(),
+          `${entry.name} states a posture with members beside the wrong names`,
+        ).toEqual(['maxTimeUncertaintySeconds', 'verdict']);
+        expect(
+          reading.verdict,
+          `${entry.name} states demand ${String(reading.maxTimeUncertaintySeconds)} with no verdict beside it`,
+        ).toEqual(expect.any(String));
+        expect(
+          reading.verdict.length,
+          `${entry.name} states an empty verdict at demand ${String(reading.maxTimeUncertaintySeconds)}`,
+        ).toBeGreaterThan(0);
+      }
+    }
+  });
+
   it('states its readings on every row whose disclosure the client reaches', () => {
     // The roster read off the rows: any accepted document this suite publishes with a stated `sd` owes
     // the three verdicts, because the client path reaches the demand for every receipt it accepts at all.
