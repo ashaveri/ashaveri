@@ -739,6 +739,7 @@ async function readPack(bytes: Uint8Array, inputs: Inputs, kid: Uint8Array): Pro
     ],
     notChecked: [
       `whether ${manifest.duty.required} s required is met by ${manifest.duty.held} s held: that comparison belongs to the duty mapping revision ${manifest.duty.rev} names, and this command states both figures and judges neither`,
+      'whether the sealed stamps meet the bound a policy demands of the sources the stamp sources row quotes: this run read no policy and weighed none, and `ashaveri verify-receipt` over each receipt itself decides that, from the receipt, a policy file and a deployment manifest',
       'whether these receipts are all the deployment still holds, and whether the span is the period somebody asked for: the walk shows that nothing is missing between the first item and the last, and nothing else',
       'whether this pack agrees with the copy a reader held before, which is the only way a deleted tail becomes visible',
       ...carriedNotChecked(weighing),
@@ -1188,6 +1189,7 @@ function readRedaction(bytes: Uint8Array, inputs: Inputs, kid: Uint8Array): Read
     ],
     notChecked: [
       `whether the ${String(manifest.removed.length)} record(s) named as removed are unreachable anywhere this deployment still holds them: this run reads the statement and the pack it names, and no file in a bundle shows what else is stored`,
+      'whether the survivor stamps meet the bound a policy demands of the sources the survivor records row quotes: this run read no policy and weighed none, and `ashaveri verify-receipt` over each survivor itself decides that, from the receipt, a policy file and a deployment manifest',
       `whether this amendment is the whole of a removal somebody owed and ordered: the removal list and the sentence beside it are the deployment's own statement, and the mapping and the authority behind them are read by no reader of these bytes`,
       'whether this amendment is the latest statement about this pack, and whether the pack handed as this run\'s companion is the copy a reader held before the removal was stated: the walk inside this reading covers the pack as handed, and nothing here compares one copy of it with another',
     ],
@@ -1338,9 +1340,11 @@ async function readInventory(bytes: Uint8Array, inputs: Inputs, kid: Uint8Array)
       {
         key: 'entries',
         label: 'entries',
-        value: outcome.packs
-          .map((one) => `${printedToken(one.file)}: sealed ${one.at} (${isoOf(one.at)}), span ${one.span.from} to ${one.span.to}, ${one.items} item(s), pack ${one.sha256}, retention ${one.retentionSha256} as ${printedToken(one.retention)}, under ${one.kid}, duty ${printedToken(one.duty.art)} revision ${one.duty.rev} required ${one.duty.required} s held ${one.duty.held} s`)
-          .join('; '),
+        value:
+          `${outcome.packs
+            .map((one) => `${printedToken(one.file)}: sealed ${one.at} (${isoOf(one.at)}), span ${one.span.from} to ${one.span.to}, ${one.items} item(s), pack ${one.sha256}, retention ${one.retentionSha256} as ${printedToken(one.retention)}, under ${one.kid}, duty ${printedToken(one.duty.art)} revision ${one.duty.rev} required ${one.duty.required} s held ${one.duty.held} s`)
+            .join('; ')}` +
+          `; each sealed instant above is that pack's own assembly instant, stated by no disclosure member, because a pack discloses the stamps it seals and not the clock it assembled under`,
         json: outcome.packs,
       },
       ...(folded

@@ -534,6 +534,32 @@ describe('ashaveri verify-handover', () => {
     });
   });
 
+  it('names the demand beside every disclosure row it quotes, and disclaims every instant it prints', () => {
+    // One rule for the three rosters that print what the sealed receipts disclose: a report that quotes
+    // a source's bound has to say whether a policy demanded anything of it, and a report that prints an
+    // assembly instant has to say what qualifies it. The receipt arm got its clause with the row; the
+    // pack arm, the amendment arm and the inventory's `sealed <at>` rows are this case.
+    const key = signingKeyFromSeed(Buffer.from(RECEIPT_KEY.privateKey, 'hex'));
+    const path = written('pack-demand-clauses.cbor', Buffer.from(packDocument(key, [RECEIPT_PATH, SOFTWARE_RECEIPT_PATH])));
+    const pack = runCli(['verify-pack', path, `--key=${RECEIPT_PUBLIC_B64URL}`]);
+    expect(pack.status, pack.stdout).toBe(0);
+    expect(pack.stdout).toContain(
+      'whether the sealed stamps meet the bound a policy demands of the sources the stamp sources row quotes',
+    );
+
+    const amendment = runCli(['verify-handover', AMENDMENT_PATH, AMENDMENT_KEY, `--companion=${AMENDMENT_PACK_PATH}`]);
+    expect(amendment.status, amendment.stdout).toBe(0);
+    expect(amendment.stdout).toContain(
+      'whether the survivor stamps meet the bound a policy demands of the sources the survivor records row quotes',
+    );
+
+    const inventory = runCli(['verify-handover', INVENTORY_PATH, INVENTORY_KEY]);
+    expect(inventory.status, inventory.stdout).toBe(0);
+    expect(inventory.stdout).toContain(
+      'stated by no disclosure member, because a pack discloses the stamps it seals and not the clock it assembled under',
+    );
+  });
+
   it('reports every reading in the same three registers, with current and freshness unknown', MANY_READINGS, () => {
     // One shape for every reader, so a port reads one member rather than one wording per document. The
     // ledger is the seventh type and is asserted beside its own suite.
