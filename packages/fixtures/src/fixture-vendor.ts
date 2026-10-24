@@ -1,5 +1,5 @@
-import { p256 } from '@noble/curves/nist.js';
-import { sha256 } from '@noble/hashes/sha2.js';
+import { p256, p384 } from '@noble/curves/nist.js';
+import { sha256, sha384 } from '@noble/hashes/sha2.js';
 
 /**
  * Certificates and signed documents for the estate's suites, written here rather than captured.
@@ -34,10 +34,20 @@ const OID_ECDSA_SHA256 = '1.2.840.10045.4.3.2';
 const OID_ECDSA_SHA384 = '1.2.840.10045.4.3.3';
 const OID_EC_PUBLIC_KEY = '1.2.840.10045.2.1';
 const OID_P256 = '1.2.840.10045.3.1.7';
+const OID_P384 = '1.3.132.0.34';
 const OID_COMMON_NAME = '2.5.4.3';
 const OID_BASIC_CONSTRAINTS = '2.5.29.19';
 const BASE64 = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/';
 const BASE64_URL = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-_';
+
+/**
+ * The curve a fixture certificate carries beneath the suite its issuer signs with.
+ *
+ * P-256 is what every published vector and every suite but one was written over, and it stays the default so
+ * those bytes do not move. P-384 is here because a Reference Integrity Manifest chain is `ecdsa-with-SHA384`
+ * over a 384-bit key at every link, which is a shape no builder in this repository issued before.
+ */
+export type FixtureCurve = 'p256' | 'p384';
 
 /** A stand-in vendor: the self-signed root a caller can pin and the CA beneath it that signs documents. */
 export interface TestVendor {
@@ -89,6 +99,8 @@ interface CertificateSpec {
   readonly isCa: boolean;
   /** A certificate can be handed an algorithm identifier its own key does not carry. */
   readonly signatureOid?: string;
+  /** The curve the key sits on, which is also the suite the issuer signs with. P-256 unless a caller says. */
+  readonly curve?: FixtureCurve;
 }
 
 export function secondsOf(text: string): number {
@@ -188,6 +200,57 @@ export function x5cOf(vendor: TestVendor): readonly string[] {
 /** A key the vendor never issued a certificate for, so a document signed with it is not the vendor's. */
 export function foreignKey(): Uint8Array {
   return p256.utils.randomSecretKey();
+}
+
+/** One link of a chain: the certificate as it is handed over, and the secret its key signs with. */
+export interface ChainCertificate {
+  readonly der: Uint8Array;
+  readonly secret: Uint8Array;
+  readonly commonName: string;
+  /** The instant this link stops standing, which is the fact a walk is asked about at an instant. */
+  readonly notAfter: number;
+}
+
+/**
+ * A leaf-first chain of the length a case names, over one curve, each link issued by the one above it and the
+ * furthest one self-signed.
+ *
+ * This is not the two-link pair a JWS header presents. The chain a served Reference Integrity Manifest presents
+ * is four deep and the certificate at its foot is a signer rather than an authority, so every link above the foot
+ * is marked an authority and the foot is not, which is the shape a walk has to be read against rather than the
+ * shape a walk has to be read from. A case names each link's own expiry because the instant a chain is weighed at
+ * is the fact the case is asking about, and it names the curve because a manifest signed `ecdsa-sha384` over a
+ * 384-bit key is refused by every reader here that reads only the pair the Intel paths meet.
+ */
+export function testChain(input: {
+  readonly names: readonly string[];
+  readonly notAfter: readonly number[];
+  readonly curve?: FixtureCurve;
+  readonly notBefore?: number;
+}): readonly ChainCertificate[] {
+  const curve = input.curve ?? 'p256';
+  const notBefore = input.notBefore ?? secondsOf('2020-01-01T00:00:00.000Z');
+  const drawn = (): Uint8Array => (curve === 'p384' ? p384.utils.randomSecretKey() : p256.utils.randomSecretKey());
+  const built: ChainCertificate[] = [];
+  let issuer: { readonly name: string; readonly key: Uint8Array } | null = null;
+  for (const [index, name] of [...input.names.entries()].reverse()) {
+    const key = drawn();
+    const notAfter = input.notAfter[index] ?? notBefore;
+    const der = certificate({
+      commonName: name,
+      issuerCommonName: issuer === null ? name : issuer.name,
+      serial: index + 1,
+      notBefore,
+      notAfter,
+      key,
+      issuerKey: issuer === null ? key : issuer.key,
+      isCa: index > 0,
+      curve,
+    });
+    built.push({ der, secret: key, commonName: name, notAfter });
+    issuer = { name, key };
+  }
+  return built.reverse();
 }
 
 /** The document as the origin serves it: three dot-separated base64url parts, certificates in the header. */
@@ -389,8 +452,17 @@ function pemBlock(der: Uint8Array): string {
   return `-----BEGIN CERTIFICATE-----\n${lines.join('\n')}\n-----END CERTIFICATE-----\n`;
 }
 
+/**
+ * One `Certificate`, signed by the issuer key over the `TBSCertificate` as it was written.
+ *
+ * The curve is read twice: it fixes the `SubjectPublicKeyInfo` the subject carries and the suite the issuer's
+ * signature is written in, which is what a chain of one curve end to end looks like. A caller that names the
+ * curve and an algorithm identifier that disagrees with it gets the identifier it asked for, because the
+ * mismatched pair is a case some suite has to refuse.
+ */
 function certificate(spec: CertificateSpec): Uint8Array {
-  const algorithm = sequence(oidNode(spec.signatureOid ?? OID_ECDSA_SHA256));
+  const curve = spec.curve ?? 'p256';
+  const algorithm = sequence(oidNode(spec.signatureOid ?? (curve === 'p384' ? OID_ECDSA_SHA384 : OID_ECDSA_SHA256)));
   const body = sequence(
     tlv(0xa0, integerNode(2)),
     integerNode(spec.serial),
@@ -399,12 +471,14 @@ function certificate(spec: CertificateSpec): Uint8Array {
     sequence(utcTimeNode(spec.notBefore), utcTimeNode(spec.notAfter)),
     nameNode(spec.commonName),
     sequence(
-      sequence(oidNode(OID_EC_PUBLIC_KEY), oidNode(OID_P256)),
-      bitStringNode(p256.getPublicKey(spec.key, false)),
+      sequence(oidNode(OID_EC_PUBLIC_KEY), oidNode(curve === 'p384' ? OID_P384 : OID_P256)),
+      bitStringNode(curve === 'p384' ? p384.getPublicKey(spec.key, false) : p256.getPublicKey(spec.key, false)),
     ),
     tlv(0xa3, sequence(sequence(oidNode(OID_BASIC_CONSTRAINTS), booleanNode(true), octetNode(sequence(booleanNode(spec.isCa)))))),
   );
-  const signature = p256.sign(sha256(body), spec.issuerKey).toBytes('der');
+  const signature = curve === 'p384'
+    ? p384.sign(sha384(body), spec.issuerKey).toBytes('der')
+    : p256.sign(sha256(body), spec.issuerKey).toBytes('der');
   return sequence(body, algorithm, bitStringNode(signature));
 }
 
@@ -521,9 +595,21 @@ function oidNode(dotted: string): Uint8Array {
   return tlv(0x06, Uint8Array.from(bytes));
 }
 
+/**
+ * One `Validity` instant, written the way X.509 spells it for its own year.
+ *
+ * A two-digit year reads back as 1950 to 2049, so a root that stands to 2053 written as a UTCTime is a root that
+ * stopped standing in 1953, and a chain built that way is refused by the walk rather than by the rule a case was
+ * written to exercise. Every year the published vectors carry sits inside the two-digit range, so this changes
+ * the bytes of no document that leaves this repository; only a certificate asked for beyond 2049 takes the other
+ * spelling.
+ */
 function utcTimeNode(seconds: number): Uint8Array {
   const at = new Date(seconds * 1000);
   const part = (value: number) => String(value).padStart(2, '0');
-  const text = `${part(at.getUTCFullYear() % 100)}${part(at.getUTCMonth() + 1)}${part(at.getUTCDate())}${part(at.getUTCHours())}${part(at.getUTCMinutes())}${part(at.getUTCSeconds())}Z`;
-  return tlv(0x17, utf8(text));
+  const clock = `${part(at.getUTCMonth() + 1)}${part(at.getUTCDate())}${part(at.getUTCHours())}${part(at.getUTCMinutes())}${part(at.getUTCSeconds())}Z`;
+  const year = at.getUTCFullYear();
+  return year >= 1950 && year <= 2049
+    ? tlv(0x17, utf8(`${part(year % 100)}${clock}`))
+    : tlv(0x18, utf8(`${String(year).padStart(4, '0')}${clock}`));
 }

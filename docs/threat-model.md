@@ -218,12 +218,18 @@ What is still true, in both modes:
   about a platform: a responder names one certificate, and a certificate that is not revoked is not a statement
   that the platform carrying it is trusted. It reads a RIM route's JSON wrapper when a caller asks
   `readRimManifest`, weighing the manifest bytes against the digest the same body names for them and the manifest
-  id against the one the question asked for, and it returns that read beside the sentence that the signature
-  inside the wrapper (taken over a canonicalized element, in a form this package states no rule for
-  canonicalizing) was weighed by nobody. A RIM therefore answers no verdict and states no window: the vendor's
-  update text says when a file was changed, not what span it speaks for, so a read wrapper establishes nothing
-  about a device measurement, and a platform-level question put to that origin is answered by naming the arm that
-  reads the wrapper rather than by handing back bytes nobody believed.
+  id against the one the question asked for, and it reads a `TCG` manifest as the signed document it is: the
+  SHA-384 digest of the canonicalized whole document with its `ds:Signature` element removed, the ECDSA-P384
+  signature over the canonicalized `ds:SignedInfo`, and the chain inside `ds:KeyInfo` walked to a root the caller
+  pins, with the digest of that pinned root and the tag identity the document states for itself reported beside
+  the read. A `CORIM` or `GENERIC` manifest comes back with that wrapper read beside the sentence that no rule for
+  its shape is stated here, and a chain that ends at a self-signed name the question pinned nothing for is answered
+  as a root nobody pinned rather than as a signature that failed. A RIM answers no verdict and states no window
+  either way: the vendor's update text says when a file was changed, not what span it speaks for, no reading here
+  compares a manifest with a device's own measurement, and a platform-level question put to that origin is
+  answered by naming the arm that reads the wrapper rather than by handing back bytes nobody believed. The tag
+  identity a weighed manifest states is the name a publisher gives its own document, not the handle the route is
+  addressed by, so binding a manifest to a product is read out of the document rather than out of the address.
   No shipped command asks any of those entry points, and none of them closes any of the residual above.
   What is in this code is the other half of the same question and closes none of it:
   `@ashaveri/collateral` reads and classifies a vendor document it is handed,
@@ -237,10 +243,11 @@ What is still true, in both modes:
   asks no origin anything, reaches no network, feeds no attestation
   verdict, and changes what T12 says about a platform the vendor has since deprecated. This document describes
   the offline path as it is built.
-- **The origins that hold those answers are gated, and one of them is not.** NVIDIA's RIM service and NRAS
-  both require an NVIDIA attestation account, so a golden driver or VBIOS measurement, or a revocation
-  verdict from NRAS, is an external dependency to be agreed with NVIDIA rather than a stance this code chose
-  to take. Intel's balance is the other way and belongs beside that: its PCK CRL is published for anonymous
+- **The origins that hold those answers are gated, and one of them is not.** NRAS answers behind an NVIDIA
+  attestation account, so a revocation verdict from it is an external dependency to be agreed with NVIDIA rather
+  than a stance this code chose to take. NVIDIA's RIM service is the one that is not: it answers a manifest id it
+  holds with a signed wrapper and nothing presented first, and a name it does not hold with a `403` carrying a
+  JSON error body. Intel's balance belongs beside that: its PCK CRL is published for anonymous
   retrieval and carries a month of freshness, so a fetch and compare has material to work with and an answer
   to state.
 - **The vendor certificates state where revocation is published.** Certificate by certificate, over the ten

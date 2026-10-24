@@ -180,12 +180,12 @@ async function appraise(
     ));
   }
   if (isRimDeclaration(declared)) {
-    // The wrapper is served, and its reader answers no verdict: a manifest nobody here has weighed states no
-    // level, no window and no identity a platform's evidence could be compared with, so the entry point that
-    // reads the wrapper is named rather than the origin refused as unread.
+    // The wrapper is served, and a `TCG` manifest inside it is weighed now, and no verdict follows either way: a
+    // manifest states no platform level, no window, and nothing a device's measurement could be compared with, so
+    // the entry point that reads it is named rather than the origin refused as unread.
     return missingContext(collateralRefusal(
       'COLLATERAL_INPUT_MISSING',
-      `${declared.name} answers with a manifest wrapper and ${declared.reader.lacks}; readRimManifest reads the wrapper and refuses what is inside it`,
+      `${declared.name} answers with a manifest wrapper that readRimManifest weighs, and lacks ${declared.reader.lacks}; a weighed manifest states no platform level for this appraisal to read`,
       query.level === null ? ['level'] : [],
     ));
   }

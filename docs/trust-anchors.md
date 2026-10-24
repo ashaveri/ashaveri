@@ -132,9 +132,12 @@ a grant this repository can make on somebody else's behalf.
   through the verification options or through `policy.trustAnchors`, and the three embedded
   constants play no part in its verdicts. The ledger is a statement about the bytes this repository
   ships, not a list of the bytes a caller must pin.
-- **No measurement values.** The NVIDIA golden measurements live at the vendor's RIM service behind
-  an account, and a report verifying under the pinned device root proves that a genuine device
-  signed it, not that its measured software is a known-good release.
+- **No measurement values.** The NVIDIA golden measurements are published at the vendor's RIM service,
+  which answers a manifest id it holds with a signed wrapper and nothing presented first, and a report
+  verifying under the pinned device root proves that a genuine device signed it, not that its measured
+  software is a known-good release. `@ashaveri/collateral` reads such a wrapper, weighs the manifest behind
+  a profile, and states no reference value out of it, so nothing in this repository compares a device's own
+  measurement with what a manifest says about the software it stands for.
 
 ## Reading a sealed ledger
 

@@ -341,9 +341,16 @@ this package has no rule for is absence rather than a verdict. A certificate tha
 statement that the platform carrying it is trusted. NVIDIA's RIM service answers a JSON wrapper, and
 `readRimManifest` weighs that: the manifest bytes against the digest the same body names for them, the
 manifest id against the one the question asked for, and the format name against the three the vendor's
-reference states. The manifest inside the wrapper is signed over a canonicalized element and this package
-states no rule for canonicalizing one, so a wrapper that parses comes back with that sentence beside it,
-and no verdict, no window and no measurement is read out of a RIM here. No vendor-service bytes are
+reference states. A `TCG` manifest is then read as the signed document it is: the SHA-384 digest of the
+canonicalized whole document with its `ds:Signature` element removed, the ECDSA-P384 signature over the
+canonicalized `ds:SignedInfo`, and the chain inside `ds:KeyInfo` walked to a root the caller pins, and the
+read carries the digest of that pinned root beside the tag identity the document states for itself. A `CORIM`
+or `GENERIC` manifest comes back with that wrapper read beside the sentence that no rule for its shape is
+stated here, and a chain that ends at a self-signed name the question pinned nothing for is answered as a root
+nobody pinned rather than as a signature that failed. What no RIM reading gives is a verdict, a window, an
+expiry drawn from `last_updated`, a revocation standing or a cache rule, and the tag identity is the name a
+publisher gives its own document rather than the handle the route is addressed by, so a caller that needs to
+bind a manifest to a product reads what the document states about itself. No vendor-service bytes are
 committed, because a service's output travels as a reference and a certificate a platform produced
 travels as bytes its caller supplies; the answers both readers weigh are handed to them by a transport
 the caller injects, and every fixture is written by a generator inside the test tree.
