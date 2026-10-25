@@ -648,9 +648,12 @@ a shorter number.
   the logs its system automatically generates to be kept for a period appropriate to the purpose and
   no shorter than six months, and 184 days sits on that floor. Anything above it is ours to set, not
   the Act's.
-- **Evidence.** Article 20(3) gives the lawful basis for processing needed to establish or defend
-  legal claims, and national limitation periods run to years. A window shorter than the applicable
-  period erases the evidence before the claim arrives.
+- **Evidence.** Article 17(3)(e) puts processing "for the establishment, exercise or
+  defence of legal claims" outside the erasure duty, and Article 9(2)(f) admits the same
+  need as a condition for handling special-category data. Neither is a lawful basis, and
+  the one beside them is the deployer's to record, which section 8.3 says this document
+  does not make. National limitation periods run to years. A window shorter than the
+  applicable period erases the evidence before the claim arrives.
 
 ### 8.3 What erasure achieves, and its limit
 
