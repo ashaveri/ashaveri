@@ -20,6 +20,7 @@
     "redaction.cddl",
     "manifest.cddl",
     "epoch-inventory.cddl",
+    "anchor-provenance.cddl",
     "schemas"
   ],
   "scripts": {
