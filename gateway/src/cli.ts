@@ -26,6 +26,12 @@ import { mockBackend, type CompletionBackend } from './backend.js';
 import { upstreamBackend } from './upstream.js';
 import { mockDeployment, type Deployment, type HardwareTeeKind } from './deployment.js';
 import { toHex } from './digest.js';
+import {
+  DEFAULT_INSTRUCTION_RECORD_PATH,
+  judgeAccessWindow,
+  openInstructionRecord,
+  type CustomerInstructionRecord,
+} from './instruction-record.js';
 import { modelsFromManifest, type ManifestModels } from './weights.js';
 import {
   DEFAULT_RECEIPT_RECORD_KIND,
@@ -195,7 +201,19 @@ Options:
                                    rounded up to whole days, which is the access log retention floor
                                    Article 19(1) sets for a provider of a high-risk system and
                                    Article 26(6) states in the same terms for a deployer. Shorter is
-                                   allowed, and the start-up report says so.
+                                   allowed, and the start-up report says so, unless an instruction
+                                   record states a longer period: this run is then refused at start,
+                                   because the period that record states is the window this software
+                                   enforces.
+  --instruction-record <file>      What this deployment wrote about the period it owes: that period, in
+                                   statedRetentionDays, and whether it takes the floor above as its own,
+                                   in acceptsMinimumFloor. Default:
+                                   ashaveri-instruction-record.json in the directory the process starts
+                                   in, where no such file is no instruction, so the window stays this
+                                   run's own number and the report says no record was read. A record
+                                   that is named and cannot be read, or that is not one version this
+                                   gateway reads, or that states a member it does not define, stops the
+                                   start rather than being ignored.
   --allow-bearer                   Accept bearer credentials beside proof of possession. Off by
                                    default, and never per credential.
   --pop-tolerance <seconds>        Clock slack accepted for a proof-of-possession timestamp.
@@ -253,6 +271,7 @@ interface CliOptions {
   readonly 'credentials-path'?: string;
   readonly 'access-log-path'?: string;
   readonly 'access-log-days'?: string;
+  readonly 'instruction-record'?: string;
   readonly 'allow-bearer'?: boolean;
   readonly 'pop-tolerance'?: string;
   readonly 'peer-rate'?: string;
@@ -356,6 +375,7 @@ try {
       'credentials-path': { type: 'string' },
       'access-log-path': { type: 'string' },
       'access-log-days': { type: 'string' },
+      'instruction-record': { type: 'string' },
       'allow-bearer': { type: 'boolean' },
       'pop-tolerance': { type: 'string' },
       'peer-rate': { type: 'string' },
@@ -381,6 +401,42 @@ const host = values.host as string;
 // Read before any store or log opens, so a weights pair that cannot name one file is refused while
 // the process has touched nothing a deployment keeps.
 const weightsManifest = weightsManifestPath(values);
+
+/**
+ * The instruction this deployment wrote, and the window it leaves this run, both read before a store or
+ * a log opens, in the same breath as the weights pair, because a run that cannot state the period its own
+ * deployment named has no business appending to a volume first.
+ *
+ * No record at the default path is the state every deployment was already in: the window stays the flag's
+ * value or `MINIMUM_RETENTION_DAYS`, and nothing here argues with it, because the floor is a default and a
+ * request and `MINIMUM_RETENTION_DAYS` in `aclog.ts` says that enforcing it is this surface's job rather
+ * than the writer's. What a record changes is whose number a refusal answers to. The period it states is
+ * the deployment's own, so a window shorter than that is refused here, and the sentence names both numbers
+ * and where each came from. A record that accepts the floor while stating less than it is refused too,
+ * because it says two different things about one duty and no window can be the answer to both. A record
+ * that states less than the floor and declines it is obeyed, which is the whole point of reading one.
+ */
+const instructionRecordPath = values['instruction-record'] ?? DEFAULT_INSTRUCTION_RECORD_PATH;
+let instructionRecord: CustomerInstructionRecord | null;
+try {
+  instructionRecord = await openInstructionRecord(
+    instructionRecordPath,
+    values['instruction-record'] !== undefined,
+  );
+} catch (error) {
+  // A record this run was told to read and cannot is a file the operator named, so the flags answer it:
+  // the same posture the weights manifest takes, and for the same reason that quietly running would
+  // enforce a period nobody wrote down.
+  fail(error instanceof Error ? error.message : String(error));
+}
+const accessLogDays = wholeNumber(values['access-log-days'], 'access-log-days', 'days', MINIMUM_RETENTION_DAYS);
+if (instructionRecord !== null) {
+  const agreement = judgeAccessWindow(accessLogDays, instructionRecord, MINIMUM_RETENTION_DAYS);
+  if (agreement.refused) {
+    if (agreement.answeredBy === 'the record itself') refuseToStart(agreement.message);
+    fail(agreement.message);
+  }
+}
 
 /**
  * A refusal about the files this deployment was handed rather than about how signerd was invoked.
@@ -603,7 +659,8 @@ const toleranceSeconds = wholeNumber(
 );
 const peerRate = parsePeerRate(values['peer-rate']);
 const peerRateGiven = values['peer-rate'] !== undefined;
-const accessLogDays = wholeNumber(values['access-log-days'], 'access-log-days', 'days', MINIMUM_RETENTION_DAYS);
+// `accessLogDays` is read above, beside the instruction record it is weighed against, so the number the
+// log opens with and the number the start-up report prints are one reading of one flag.
 const devCredential =
   values.mock === true && credentialsPath === undefined
     ? newPopCredential({ id: 'dev', scopes: ['complete', 'read'], time })
@@ -781,6 +838,26 @@ const logLabel =
     : `access log: ${accessLogPath}, kept for ${String(accessLogDays)} days${
         held.length === 0 ? '' : `, with ${String(held.length)} file${held.length === 1 ? '' : 's'} from before this boot`
       }`;
+// What this deployment wrote about its own duty period, printed as the bytes this run read them. The
+// digest is on the line because the line is the audit: a reader of a start-up log who wants to know
+// which statement a run enforced has the file it came from and the bytes that were read, and a record
+// edited after the boot changes the digest rather than silently agreeing with the number printed.
+// With no record the line says so, because a window that came from a flag or a shipped default is a
+// different answer to "what was this deployment told to keep" than a window a deployment wrote down.
+const instructionLabel =
+  instructionRecord === null
+    ? `instruction record: none read and no file at ${instructionRecordPath}, so the ${String(
+        accessLogDays,
+      )} days this run keeps come from ${
+        values['access-log-days'] === undefined ? 'the default this repository ships' : '--access-log-days'
+      }, which is a number this deployment was offered rather than one it stated`
+    : `instruction record: ${instructionRecord.path} sha256 ${instructionRecord.digestHex}, stating ${String(
+        instructionRecord.statedRetentionDays,
+      )} days as the period this deployment owes and ${
+        instructionRecord.acceptsMinimumFloor
+          ? `accepting the ${String(MINIMUM_RETENTION_DAYS)}-day floor as this deployment's own`
+          : `declining the ${String(MINIMUM_RETENTION_DAYS)}-day floor as a duty of its own`
+      }, so this run keeps ${String(accessLogDays)} days`;
 // The source every stamp this process signs comes from, printed as the process reads it. A receipt's
 // issuance instant is only as good as the source it was read from, and this line is where the process
 // says which that was and whether anybody bounded it.
@@ -819,10 +896,23 @@ const lines: string[] = [
   `  ${rateLabel}`,
   `  ${credentialsLabel}`,
   `  ${logLabel}`,
+  `  ${instructionLabel}`,
 ];
 if (accessLogDays < MINIMUM_RETENTION_DAYS) {
+  // The floor keeps the meaning `aclog.ts` gives it, that it is a request rather than a clamp, so a
+  // shorter window is printed as the choice it is under either hand: with no record because nobody
+  // stated a period, and with one because the period that record states is shorter than the floor the
+  // same record declined.
+  const shorterNote =
+    `note: ${String(accessLogDays)} days is below the 184-day floor, six months rounded up to whole days, that ` +
+    `Article 19(1) sets for a provider of a high-risk system and Article 26(6) states in the same terms for a deployer, ` +
+    `and this run was started with the shorter window`;
   lines.push(
-    `  note: ${String(accessLogDays)} days is below the 184-day floor, six months rounded up to whole days, that Article 19(1) sets for a provider of a high-risk system and Article 26(6) states in the same terms for a deployer, and this run was started with the shorter window`,
+    `  ${shorterNote}${
+      instructionRecord === null
+        ? ', and no instruction record was read, so no period this deployment wrote of its own duty stands behind the number'
+        : `: ${instructionRecord.path} states ${String(instructionRecord.statedRetentionDays)} days and declines that floor, so the shorter window is the period this deployment wrote down`
+    }`,
   );
 }
 if (devCredential !== undefined) {

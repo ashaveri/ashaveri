@@ -71,7 +71,12 @@ export interface AccessLogOptions {
   /**
    * A request, not a clamp: `MINIMUM_RETENTION_DAYS` is the default when no value is named, and it
    * binds as a floor only where a caller agrees to one. Enforcing it against a caller is the job of
-   * the surface that reads the operator's configuration.
+   * the surface that reads the operator's configuration. That surface is `gateway/src/cli.ts`, and what
+   * a deployment's agreement is made with is its instruction record, `gateway/src/instruction-record.ts`:
+   * the period that deployment states it owes, and whether it takes this floor as its own. The record
+   * reaches this writer only as the number the run opened with, so a window a deployment wrote down and
+   * a window it was offered are the same bytes here, and nothing in this file weighs one against the
+   * other.
    */
   days?: number;
   maxBytesPerFile?: number;

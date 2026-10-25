@@ -2,7 +2,7 @@
 
 Every value a deployment can point this gateway at, and every value the code holds when the
 deployment named nothing. Three tables sort them by class, and the counts below are the counts the
-tables carry: 31 flag rows, 15 shipped defaults, and 8 environment variables, of which 7 are
+tables carry: 32 flag rows, 16 shipped defaults, and 8 environment variables, of which 7 are
 settings and 1 carries credential material. 3 flags name their default in the block that declares
 them. Coverage is the gateway's operator surface only: the values a client verifies against, pinned
 in `packages/sdk/src/policy.ts`, and the record constants in `packages/cli/src/records.ts` are out
@@ -27,7 +27,7 @@ files, so a row that stops being true fails a run rather than aging quietly.
 
 ## 1. Flags this gateway accepts
 
-Class: the operator's to declare. All 31 are declared together in `gateway/src/cli.ts`, in the block
+Class: the operator's to declare. All 32 are declared together in `gateway/src/cli.ts`, in the block
 `parseArgs` is handed, and are spelled here as an operator types them, with the leading dashes. The
 Bound column is what the code refuses outside; where a period or a duty is the deployment's own, the
 row says so rather than inventing a number for it.
@@ -61,7 +61,8 @@ row says so rather than inventing a number for it.
 | `--receipts-record-kind` | Which kind of receipt record this process appends | `receipt`, or `bounded=<seconds>`, where the seconds are the retention period written at the front of every record this run appends; a spelling that names neither kind stops the start rather than falling back, and a volume whose records were written under the other kind is refused by `STORE_RECEIPT_KIND_MISMATCH` rather than converted. What the period itself may say is the store's rule and not this one: `RECORD_BOUND_OUT_OF_RANGE` for a number its 4 byte field cannot state, `RECORD_BOUND_REDUNDANT` for one its own durability window reaches first | `DEFAULT_RECEIPT_RECORD_KIND`, which is the receipt kind stating no period and the layout every store file this repository has published is made of | the operator's to declare | `gateway/src/cli.ts` |
 | `--credentials-path` | The records every request that asks for a credential has to present one from | a readable file of public keys and hashes, which is why mounting it through a platform is safe in a way a secret file never is | none: required in live mode, and a mock run makes one dev credential and prints it | the operator's to declare | `gateway/src/cli.ts` |
 | `--access-log-path` | Where the per-request access log is written | an existing directory, so a volume you forgot to mount is a refusal | none: required in live mode, and a mock run keeps the log in memory | the operator's to declare | `gateway/src/cli.ts` |
-| `--access-log-days` | How long access log files are kept | a positive whole number of days; shorter than the default is allowed and the start-up report says so; the period a deployment owes is its own to declare and nothing in this repository validates it | `MINIMUM_RETENTION_DAYS` | the operator's to declare | `gateway/src/cli.ts` |
+| `--access-log-days` | How long access log files are kept | a positive whole number of days; shorter than the default is allowed and the start-up report says so; where an instruction record states a longer period this run is refused at start, because the period that record states is the window this software enforces; the period a deployment owes is its own to declare and nothing in this repository validates it | `MINIMUM_RETENTION_DAYS` | the operator's to declare | `gateway/src/cli.ts` |
+| `--instruction-record` | The file this deployment's own statement of its duty period is read from: the period it states it owes, and whether it takes the 184-day floor as a duty of its own | a readable file holding one JSON object of exactly three members, `version`, `statedRetentionDays` and `acceptsMinimumFloor`; a member beside those three, a `version` other than `INSTRUCTION_RECORD_VERSION`, a period that is not a whole number of days at least one, or a named file that is not there stops the start rather than being read past; a window shorter than the stated period stops the start naming both numbers and where each came from; a record that accepts the floor and states less than it stops the start on its own account | `DEFAULT_INSTRUCTION_RECORD_PATH`, which is one file in the directory the process starts in, and no file there is no instruction: the run then keeps the number `MINIMUM_RETENTION_DAYS` gives or the days flag names, and the start-up report says no record was read | the operator's to declare | `gateway/src/cli.ts` |
 | `--allow-bearer` | Whether bearer credentials are accepted beside proof of possession | boolean, and never per credential | none: off, which is the posture that keeps a stolen credential detectable | the operator's to declare | `gateway/src/cli.ts` |
 | `--pop-tolerance` | The clock slack accepted for a proof-of-possession timestamp | a positive whole number of seconds | `POP_TIMESTAMP_TOLERANCE_SECONDS` | the operator's to declare | `gateway/src/cli.ts` |
 | `--peer-rate` | What one connection address may ask for, ahead of every credential check | `perMinute` and `burst`, both positive whole numbers, both required, and no spelling turns the bound off | `DEFAULT_PEER_RATE` | the operator's to declare | `gateway/src/cli.ts` |
@@ -83,6 +84,7 @@ change to it is a change here too.
 | `REPLAY_WINDOW_SECONDS` | `900` | How long a credential and nonce pair is remembered as spent | shipped default | `gateway/src/access.ts` |
 | `REPLAY_MAX_ENTRIES` | `65_536` | How many spent pairs are remembered at once | shipped default | `gateway/src/access.ts` |
 | `MINIMUM_RETENTION_DAYS` | `184` | How long access log files are kept when no flag named a number | shipped default | `gateway/src/aclog.ts` |
+| `DEFAULT_INSTRUCTION_RECORD_PATH` | `'ashaveri-instruction-record.json'` | The file a run reads when the operator named no `--instruction-record`: one file in the directory the process starts in, reaching no other directory by itself. A deployment that keeps its statement elsewhere names it with the flag; a deployment that keeps none reads none, which is the state every deployment was already in, and the window then comes from the days flag or from `MINIMUM_RETENTION_DAYS` | shipped default | `gateway/src/instruction-record.ts` |
 | `MAX_ACCESS_FILE_BYTES` | `32 * 1024 * 1024` | The size one access log file reaches before the next day's part opens | shipped default | `gateway/src/aclog.ts` |
 | `DEFAULT_TIMEOUT_MS` | `30_000` | How long a guest agent call waits before the request behind it fails | shipped default | `gateway/src/guest.ts` |
 | `DEFAULT_MOCK_MODEL` | `'mock-model-1'` | The model id a mock completion is answered with when none was named | shipped default | `gateway/src/mock.ts` |
