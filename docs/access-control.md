@@ -601,8 +601,30 @@ record is an Article 12(1) log turns on the system and on the actor, and this do
 it either; `store.ts` makes the same assumption for a receipt and says so in the same terms. And both
 paragraphs yield to applicable Union or national law, "in particular in Union law on the protection
 of personal data", which can cut this window as well as lengthen it. What the code does not do is
-refuse to start under the floor: a shorter value is accepted, and the start-up report prints the
-reason it is a floor, so overriding it stays the operator's move and not the software's.
+refuse to start under the floor on the floor's own authority: with no instruction record read, a shorter
+value is accepted, and the start-up report prints the reason it is a floor, so overriding it stays the
+operator's move and not the software's. What the code does refuse is a window shorter than the period a
+deployment stated for itself. That statement is the instruction record,
+`gateway/src/instruction-record.ts`, named by `--instruction-record` or read at
+`DEFAULT_INSTRUCTION_RECORD_PATH`, and it carries three members: the version it is written under, the
+days this deployment states it owes, and whether it takes the 184-day floor as a duty of its own. The
+start-up report prints the file, sha256 of the bytes that were read, the period stated and the window the
+run keeps, so which statement a run enforced is readable beside the run that enforced it, and a record
+edited after the boot shows as a digest that no longer matches the file on the volume. A record stating
+less than the floor and declining the floor is obeyed, and the window is the shorter number; a record
+accepting the floor while stating less than it contradicts itself, and the run stops there rather than
+choosing one half of it.
+
+Two refusals already sit near this one and neither of them is the record's. The receipt store compares
+the period configured beside its durability count against the window its own retained stamps cover, and
+refuses to open where the count cannot hold the period: that weighs two numbers this deployment
+configured against each other, and reads no duty period off anything. The access log's writer keeps
+`MINIMUM_RETENTION_DAYS` as "a request, not a clamp" and enforces nothing, ageing what it is handed. The
+record is what such an agreement is made with, and the CLI is the surface that reads it, which is where
+that same comment says enforcement belongs. A deployment that wrote no record reads no record, keeps the
+window its flag or the default gives it, and says so in its start-up report; nothing about the bytes the
+log writes changes either way.
+
 The direction of the default is the deployer's duties being longer than the window rather than
 shorter. Nothing in the writer bounds the total size of that window: the 32 MiB figure is a per-file
 part size, so a busy deployment grows in parts and the volume the log sits on is the real limit.

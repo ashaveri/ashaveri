@@ -83,6 +83,26 @@ function runWithEnv(overrides: Record<string, string | undefined>, ...args: stri
 }
 
 /**
+ * One run of the CLI in the directory a case names, with nothing else about it changed. The instruction
+ * record's default path is read from where the process starts, so a case about that default has to put
+ * the process somewhere and leave a file there.
+ */
+function runIn(dir: string, ...args: string[]) {
+  noteSpawn(SPAWN_DEADLINE_MS);
+  const env = { ...process.env };
+  delete env['DSTACK_SIMULATOR_ENDPOINT'];
+  const result = spawnSync(process.execPath, [CLI, ...args], {
+    cwd: dir,
+    encoding: 'utf8',
+    env,
+    timeout: SPAWN_DEADLINE_MS,
+    killSignal: 'SIGKILL',
+  });
+  expect(result.error).toBeUndefined();
+  return result;
+}
+
+/**
  * The shell that reads the container entrypoint on this host. The file names `/bin/sh` on its first
  * line, a path Windows does not have, so the shell is named here from the platform's own location.
  */
@@ -128,10 +148,23 @@ function runEntrypoint(overrides: Record<string, string | undefined>) {
  * A case that has to make a request over the same boot uses `bootServing` below instead.
  */
 async function readBanner(...args: string[]): Promise<string[]> {
+  return readBannerIn(process.cwd(), ...args);
+}
+
+/**
+ * The same boot, started in the directory a case names.
+ *
+ * This one exists for the instruction record's default path: a deployment that wrote its statement at
+ * the name this repository falls back to hands the run nothing on the command line, so the only way to
+ * check that the file is read is to stand the process in the directory the file sits in. A case that
+ * names no directory keeps using `readBanner` above, which boots where this suite runs.
+ */
+async function readBannerIn(dir: string, ...args: string[]): Promise<string[]> {
   noteSpawn(BOOT_DEADLINE_MS);
   const env = { ...process.env };
   delete env['DSTACK_SIMULATOR_ENDPOINT'];
   const child = spawn(process.execPath, [CLI, ...args], {
+    cwd: dir,
     env,
     stdio: ['ignore', 'pipe', 'pipe'],
   });
@@ -1082,6 +1115,170 @@ describe('the flags that make the access floor real', () => {
     },
     // One boot over a two-record credential file and one exit-path refusal, measured here at 0.8s
     // together, which the runner's default covers: no ceiling of its own is set beside the case.
+  );
+});
+
+/**
+ * The instruction record as a start-up act, which is the only place it has one.
+ *
+ * `gateway/test/instruction-record.test.ts` holds the reader and the arithmetic; what these cases hold
+ * is what an operator sees: that a window shorter than the period a deployment wrote down stops the
+ * start and names where each of its two numbers came from, that the file, its digest and its stated
+ * period reach the start-up report, that a record nobody can read is refused rather than run past, and
+ * that a deployment which wrote no record starts exactly as it did before the record existed.
+ *
+ * The last of those is the one this change is only honest about if it is measured: the point of reading
+ * the record is that the deployment's own number binds, so a run that reads nothing must change nothing.
+ */
+describe('the instruction record a deployment hands the run', () => {
+  /** The record a deployment writes when it takes the floor as its own and states nothing longer. */
+  const EIGHTEEN = JSON.stringify({ version: 1, statedRetentionDays: 184, acceptsMinimumFloor: true });
+
+  /** A directory with no record in it, which is every deployment that has not written one. */
+  function emptyDir(): string {
+    return mkdtempSync(join(tempDir, 'instruction-empty-'));
+  }
+
+  /** One record written into a directory of its own, under the name the default looks for. */
+  function recordDir(body: string): string {
+    const dir = emptyDir();
+    writeFileSync(join(dir, 'ashaveri-instruction-record.json'), body, 'utf8');
+    return dir;
+  }
+
+  it('refuses a window shorter than the period the record states, and names both numbers and both sources', () => {
+    const path = join(emptyDir(), 'stated.json');
+    writeFileSync(path, EIGHTEEN, 'utf8');
+    const result = run('--mock', '--instruction-record', path, '--access-log-days', '30');
+    expect(result.status).toBe(2);
+    expect(result.stderr).toContain(`--access-log-days gives this run 30 days and ${path} states 184 days`);
+    expect(result.stderr).toContain('name --access-log-days 184 or more');
+    expect(result.stdout, 'a run that refused its window printed a banner').not.toContain('listening on');
+  });
+
+  it('starts on the period the record states and keeps the longer window a flag names', async () => {
+    const dir = emptyDir();
+    const path = join(dir, 'kept.json');
+    writeFileSync(path, EIGHTEEN, 'utf8');
+    const banner = await readBannerIn(dir, '--mock', '--port', '0', '--instruction-record', path, '--access-log-days', '200');
+    const printed = banner.join('\n');
+    expect(banner.some((each) => each.startsWith('  note: ')), printed).toBe(false);
+    expect(printed).toContain('stating 184 days as the period this deployment owes');
+    expect(printed).toContain('so this run keeps 200 days');
+  });
+
+  it('obeys a record that states a shorter period and declines the floor', async () => {
+    // The refusal this change adds is the deployment's own number weighed against the run's; a period
+    // shorter than the shipped floor, stated by the deployment and declined by it, is the case the floor
+    // stays a request for, so a boot here is the whole of what this record promises not to do.
+    const dir = recordDir(JSON.stringify({ version: 1, statedRetentionDays: 30, acceptsMinimumFloor: false }));
+    const banner = await readBannerIn(dir, '--mock', '--port', '0', '--access-log-days', '30');
+    const printed = banner.join('\n');
+    const line = banner.find((each) => each.startsWith('  instruction record: '));
+    expect(line, `no instruction record line; stdout held ${JSON.stringify(printed)}`).toContain(
+      'stating 30 days as the period this deployment owes',
+    );
+    expect(line, printed).toContain('declining the 184-day floor as a duty of its own');
+    expect(line, printed).toContain('so this run keeps 30 days');
+    const note = banner.find((each) => each.startsWith('  note: '));
+    expect(note, `no note line; stdout held ${JSON.stringify(printed)}`).toContain(
+      'declines that floor, so the shorter window is the period this deployment wrote down',
+    );
+  });
+
+  it('refuses a short window against the record left at the default path, and names that bare path', () => {
+    // Nothing on the command line pointed at this file, so the refusal is the whole of the evidence that
+    // the default was read: a run that had not found it would print a banner instead of this sentence.
+    const dir = recordDir(EIGHTEEN);
+    const result = runIn(dir, '--mock', '--access-log-days', '30');
+    expect(result.status).toBe(2);
+    expect(result.stderr).toContain('ashaveri-instruction-record.json states 184 days');
+    expect(result.stdout, 'a run that refused its window printed a banner').not.toContain('listening on');
+  });
+
+  it('prints the record, its digest, its stated period and the window it leaves', async () => {
+    const dir = recordDir(EIGHTEEN);
+    const bytes = readFileSync(join(dir, 'ashaveri-instruction-record.json'));
+    const digest = createHash('sha256').update(bytes).digest('hex');
+    const banner = await readBannerIn(dir, '--mock', '--port', '0');
+    const printed = banner.join('\n');
+    const line = banner.find((each) => each.startsWith('  instruction record: '));
+    expect(line, `no instruction record line; stdout held ${JSON.stringify(printed)}`).toContain(
+      'ashaveri-instruction-record.json',
+    );
+    expect(line, printed).toContain(`sha256 ${digest}`);
+    expect(line, printed).toContain('stating 184 days as the period this deployment owes');
+    expect(line, printed).toContain('accepting the 184-day floor as this deployment');
+    expect(line, printed).toContain('so this run keeps 184 days');
+  });
+
+  it('refuses a record that accepts the floor it states less than, and says the record is what changes', () => {
+    const path = join(emptyDir(), 'contradiction.json');
+    writeFileSync(path, JSON.stringify({ version: 1, statedRetentionDays: 90, acceptsMinimumFloor: true }), 'utf8');
+    const result = run('--mock', '--instruction-record', path);
+    expect(result.status).toBe(1);
+    expect(result.stderr).toContain('accepts the 184-day floor as this deployment');
+    expect(result.stderr).toContain('the record contradicts itself');
+    // A usage exit sends an operator to the flags, and no flag answers a record that disagrees with
+    // itself, so the code this refusal carries is part of what it says.
+    expect(result.stderr).not.toContain("Try 'signerd --help'");
+  });
+
+  it(
+    'refuses a record it cannot read, and reads nothing where a default found no file',
+    // Three exits, one per record this run cannot read, so the ceiling is read off that count.
+    { timeout: spawnBudget(3) },
+    () => {
+      const malformed = join(emptyDir(), 'broken.json');
+      writeFileSync(malformed, '{ version: 1,', 'utf8');
+      const broken = run('--mock', '--instruction-record', malformed);
+      expect(broken.status).toBe(2);
+      expect(broken.stderr).toContain('is not readable as JSON');
+
+      const unknownMember = join(emptyDir(), 'extra.json');
+      writeFileSync(
+        unknownMember,
+        JSON.stringify({ version: 1, statedRetentionDays: 184, acceptsMinimumFloor: true, signedBy: 'the customer' }),
+        'utf8',
+      );
+      const extra = run('--mock', '--instruction-record', unknownMember);
+      expect(extra.status).toBe(2);
+      expect(extra.stderr).toContain('states signedBy, which is not a member of version 1');
+
+      const absent = run('--mock', '--instruction-record', join(emptyDir(), 'not-mounted.json'));
+      expect(absent.status).toBe(2);
+      expect(absent.stderr).toContain('names no file');
+    },
+  );
+
+  it(
+    'changes nothing for a deployment that wrote no record',
+    // Two boots over two empty directories, so the ceiling is read off that count rather than the
+    // runner's default, which one boot and one child fit.
+    { timeout: bootBudget(2) },
+    async () => {
+      const dir = emptyDir();
+      const banner = await readBannerIn(dir, '--mock', '--port', '0');
+      const printed = banner.join('\n');
+      const line = banner.find((each) => each.startsWith('  instruction record: '));
+      expect(line, `no instruction record line; stdout held ${JSON.stringify(printed)}`).toContain(
+        'none read and no file at ashaveri-instruction-record.json',
+      );
+      expect(banner, printed).toContain('  access log: this process only, kept for 184 days and gone on restart');
+      expect(banner.some((each) => each.startsWith('  note: ')), printed).toBe(false);
+      // The window a flag names is still a flag's own, and still printed as the choice below the floor it
+      // is, with nothing about a record in the sentence: this is what an existing deployment reads today.
+      const shortened = await readBannerIn(dir, '--mock', '--port', '0', '--access-log-days', '30');
+      const shortPrinted = shortened.join('\n');
+      expect(shortened, shortPrinted).toContain(
+        '  access log: this process only, kept for 30 days and gone on restart',
+      );
+      const note = shortened.find((each) => each.startsWith('  note: '));
+      expect(note, `no note line; stdout held ${JSON.stringify(shortPrinted)}`).toContain(
+        'and no instruction record was read',
+      );
+      expect(note, shortPrinted).not.toContain('ashaveri-instruction-record.json states');
+    },
   );
 });
 
