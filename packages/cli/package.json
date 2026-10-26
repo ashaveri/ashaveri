@@ -10,6 +10,18 @@
   "files": [
     "dist"
   ],
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/ashaveri/ashaveri.git",
+    "directory": "packages/cli"
+  },
+  "bugs": {
+    "url": "https://github.com/ashaveri/ashaveri/issues"
+  },
+  "homepage": "https://github.com/ashaveri/ashaveri#readme",
+  "publishConfig": {
+    "access": "public"
+  },
   "scripts": {
     "build": "tsc -p tsconfig.json",
     "bundle": "node scripts/bundle.mjs",
