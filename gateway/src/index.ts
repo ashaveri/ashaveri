@@ -142,3 +142,9 @@ export {
   type AccessWindow,
   type MemoryAccessLog,
 } from './aclog.js';
+// The one decision about a window and a stated period is part of the entry point because more than one
+// program configures a window, and a comparison written twice is one renamed constant away from answering
+// one pairing two ways. Whoever sets a bound has to be able to read the rule it is weighed against, in the
+// same source the run that refuses uses, so the function and the shape it returns are both handed out.
+export { decideDutyWindow } from './duty-window.js';
+export type { DutyWindowGap } from './duty-window.js';

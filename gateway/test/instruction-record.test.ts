@@ -3,12 +3,10 @@ import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterAll, describe, expect, it } from 'vitest';
-import { MINIMUM_RETENTION_DAYS } from '../src/aclog.js';
 import {
   DEFAULT_INSTRUCTION_RECORD_PATH,
   INSTRUCTION_RECORD_VERSION,
   InstructionRecordError,
-  judgeAccessWindow,
   openInstructionRecord,
   parseInstructionRecord,
   type CustomerInstructionRecord,
@@ -17,15 +15,19 @@ import {
 /**
  * The instruction record as a deployment writes it, and as this gateway refuses it.
  *
- * The unit is one deployment's sentence about its own duty period, so the cases below are about what
- * reaches the run and what stops the start: that the stated period and the digest of the bytes it was
- * read from both come back, that a member no version of this record defines is refused rather than
- * half-read, and that the two refusals a record can raise name the numbers they weigh and say which
- * half of the deployment has to change.
+ * The unit is one deployment's sentence about its own duty period, so the cases below are about the bytes
+ * that reach the run: that the stated period and the digest of the bytes it was read from both come back,
+ * that a member no version of this record defines is refused rather than half-read, and that a file the
+ * operator named and cannot be read stops the start instead of being run past.
  *
- * Nothing here boots a gateway. `gateway/test/cli.test.ts` holds the start-up report lines and the
- * exits, because a claim about what a run prints, and about the exit a refusal carries, is worth
- * checking against a process that prints it.
+ * What a window does with a record that was read is a different unit and lives in
+ * `gateway/test/duty-window.test.ts`, and what an operator sees of either is in
+ * `gateway/test/cli.test.ts`: that a window shorter than the period a deployment wrote down stops the
+ * start and names where each of its two numbers came from, and that the file, its digest and its stated
+ * period reach the start-up report.
+ *
+ * Nothing here boots a gateway. A claim about what a run prints, and about the exit a refusal carries, is
+ * worth checking against a process that prints it.
  */
 const tempDir = mkdtempSync(join(tmpdir(), 'ashaveri-instruction-'));
 let made = 0;
@@ -182,49 +184,5 @@ describe('a record this gateway cannot read', () => {
     // different answers to a question about a duty period, and only the first is a deployment's own.
     await expect(openInstructionRecord(tempDir, true)).rejects.toThrow(/could not be read/u);
     await expect(openInstructionRecord(tempDir, false)).rejects.toThrow(/could not be read/u);
-  });
-});
-
-describe('a window weighed against the record the deployment wrote', () => {
-  const path = 'ashaveri-instruction-record.json';
-
-  it('refuses a window shorter than the period the record states, naming both numbers and both sources', () => {
-    const judge = judgeAccessWindow(30, recordAt(path, 184, false), MINIMUM_RETENTION_DAYS);
-    if (!judge.refused) throw new Error('a window shorter than the stated period was not refused');
-    expect(judge.message).toContain('--access-log-days gives this run 30 days');
-    expect(judge.message).toContain(`${path} states 184 days as the period this deployment owes`);
-    expect(judge.message).toContain('name --access-log-days 184 or more');
-    expect(judge.answeredBy).toBe('the flags this run names');
-  });
-
-  it('obeys the window a record states and a longer one, and refuses one day short', () => {
-    expect(judgeAccessWindow(184, recordAt(path, 184, false), MINIMUM_RETENTION_DAYS).refused).toBe(false);
-    expect(judgeAccessWindow(400, recordAt(path, 184, false), MINIMUM_RETENTION_DAYS).refused).toBe(false);
-    expect(judgeAccessWindow(183, recordAt(path, 184, false), MINIMUM_RETENTION_DAYS).refused).toBe(true);
-  });
-
-  it('obeys a period shorter than the floor when the record states it and declines the floor', () => {
-    // The whole reason the record exists: a deployment that states its own shorter duty period is
-    // enforcing what it wrote down, and nothing in here argues with the number it stated.
-    expect(judgeAccessWindow(45, recordAt(path, 45, false), MINIMUM_RETENTION_DAYS)).toEqual({ refused: false });
-  });
-
-  it('refuses a record that accepts the floor while stating less than it, and names the record as what changes', () => {
-    const judge = judgeAccessWindow(90, recordAt(path, 90, true), MINIMUM_RETENTION_DAYS);
-    if (!judge.refused) throw new Error('a record accepting a floor it states less than was not refused');
-    expect(judge.answeredBy).toBe('the record itself');
-    expect(judge.message).toContain(`accepts the ${MINIMUM_RETENTION_DAYS}-day floor as this deployment's own`);
-    expect(judge.message).toContain('and states 90 days');
-    expect(judge.message).toContain('the record contradicts itself');
-  });
-
-  it('weighs the window against the record and not against the floor, where the record states longer than the floor', () => {
-    // A record that accepts the floor and states two years leaves a window of two hundred days refused
-    // on the period it states, which is the number that deployment wrote; the floor is not the yardstick
-    // this check holds, and a message that named it would quote the wrong figure back.
-    const judge = judgeAccessWindow(200, recordAt(path, 730, true), MINIMUM_RETENTION_DAYS);
-    if (!judge.refused) throw new Error('a window shorter than a stated two years was not refused');
-    expect(judge.message).toContain('states 730 days as the period this deployment owes');
-    expect(judge.message).not.toContain(`${MINIMUM_RETENTION_DAYS} days as the period`);
   });
 });

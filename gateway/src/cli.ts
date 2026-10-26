@@ -28,10 +28,10 @@ import { mockDeployment, type Deployment, type HardwareTeeKind } from './deploym
 import { toHex } from './digest.js';
 import {
   DEFAULT_INSTRUCTION_RECORD_PATH,
-  judgeAccessWindow,
   openInstructionRecord,
   type CustomerInstructionRecord,
 } from './instruction-record.js';
+import { ACCESS_LOG_EDGE, judgeWindow } from './duty-window.js';
 import { modelsFromManifest, type ManifestModels } from './weights.js';
 import {
   DEFAULT_RECEIPT_RECORD_KIND,
@@ -431,7 +431,7 @@ try {
 }
 const accessLogDays = wholeNumber(values['access-log-days'], 'access-log-days', 'days', MINIMUM_RETENTION_DAYS);
 if (instructionRecord !== null) {
-  const agreement = judgeAccessWindow(accessLogDays, instructionRecord, MINIMUM_RETENTION_DAYS);
+  const agreement = judgeWindow(ACCESS_LOG_EDGE, accessLogDays, instructionRecord, MINIMUM_RETENTION_DAYS);
   if (agreement.refused) {
     if (agreement.answeredBy === 'the record itself') refuseToStart(agreement.message);
     fail(agreement.message);
