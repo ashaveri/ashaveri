@@ -1121,11 +1121,14 @@ describe('the flags that make the access floor real', () => {
 /**
  * The instruction record as a start-up act, which is the only place it has one.
  *
- * `gateway/test/instruction-record.test.ts` holds the reader and the arithmetic; what these cases hold
- * is what an operator sees: that a window shorter than the period a deployment wrote down stops the
- * start and names where each of its two numbers came from, that the file, its digest and its stated
- * period reach the start-up report, that a record nobody can read is refused rather than run past, and
- * that a deployment which wrote no record starts exactly as it did before the record existed.
+ * `gateway/test/instruction-record.test.ts` holds the reader and `gateway/test/duty-window.test.ts` holds
+ * the arithmetic; what these cases hold is what an operator sees: that a window shorter than the period a
+ * deployment wrote down stops the start and names where each of its two numbers came from, that the file,
+ * its digest and its stated period reach the start-up report, that a record nobody can read is refused
+ * rather than run past, and that a deployment which wrote no record starts exactly as it did before the
+ * record existed. Both windows a run configures are weighed here, the access log's and the receipts
+ * store's, because one record states one period and a deployment that named either window short has to be
+ * told which flag answers it.
  *
  * The last of those is the one this change is only honest about if it is measured: the point of reading
  * the record is that the deployment's own number binds, so a run that reads nothing must change nothing.
@@ -1280,6 +1283,80 @@ describe('the instruction record a deployment hands the run', () => {
       expect(note, shortPrinted).not.toContain('ashaveri-instruction-record.json states');
     },
   );
+
+  it('refuses a receipts window shorter than the period the record states, naming the flag it wants raised', () => {
+    // The receipts store's age bound is weighed against the same record the access log's window is, and
+    // the refusal names the flag this run was handed rather than a period anybody owes: an operator who
+    // set 90 days beside a record stating 184 has one number to change and one flag to change it with.
+    const path = join(emptyDir(), 'receipts-stated.json');
+    writeFileSync(path, EIGHTEEN, 'utf8');
+    const result = run('--mock', '--instruction-record', path, '--receipts-days', '90');
+    expect(result.status).toBe(2);
+    expect(result.stderr).toContain(`--receipts-days gives the receipts store 90 days and ${path} states 184 days`);
+    expect(result.stderr).toContain('name --receipts-days 184 or more');
+    expect(result.stdout, 'a run that refused its window printed a banner').not.toContain('listening on');
+  });
+
+  it('starts on a receipts window the record can live with and prints the configured period', async () => {
+    // A deployment stating ninety days is not refused a window of four hundred, and the store line that
+    // reports the period reports the number this run named rather than the one the repository ships.
+    const dir = recordDir(JSON.stringify({ version: 1, statedRetentionDays: 90, acceptsMinimumFloor: false }));
+    const store = join(dir, 'volume');
+    mkdirSync(store);
+    const banner = await readBannerIn(
+      dir,
+      '--mock',
+      '--port',
+      '0',
+      '--receipts-dir',
+      store,
+      '--receipts-days',
+      '400',
+    );
+    const line = banner.find((each) => each.startsWith('  receipts kept in '));
+    expect(line, `no receipts line; stdout held ${JSON.stringify(banner.join('\n'))}`).toContain(
+      'a period of 400 days',
+    );
+  });
+
+  it('prints 184 days when no deployment named a receipts period and read no record', async () => {
+    // The default is the whole of what a deployment that says nothing gets, and it is the number that was
+    // printed before the flag existed, so a run naming neither reads as the run it always was.
+    const dir = emptyDir();
+    const store = join(dir, 'volume');
+    mkdirSync(store);
+    const banner = await readBannerIn(dir, '--mock', '--port', '0', '--receipts-dir', store);
+    const line = banner.find((each) => each.startsWith('  receipts kept in '));
+    expect(line, `no receipts line; stdout held ${JSON.stringify(banner.join('\n'))}`).toContain(
+      'a period of 184 days',
+    );
+  });
+
+  it('says the window is below the default rather than below a requirement', async () => {
+    // The sentence is the whole of what this case holds: a receipts window shorter than the shipped default
+    // is printed as the configuration it is, with the record as the only yardstick a run weighs it against
+    // and the flag that raises it named. A note that stated a minimum period instead would have this
+    // repository claiming a duty it cannot see, and applicable Union or national law moves what a
+    // deployment owes in either direction, so the wording is refused here as well as in the banner.
+    const banner = await readBannerIn(emptyDir(), '--mock', '--port', '0', '--receipts-days', '30');
+    const printed = banner.join('\n');
+    expect(printed).toContain('30 days is below the 184-day default this repository ships');
+    expect(printed, printed).not.toContain('is required');
+    expect(printed, printed).toContain('--receipts-days is the flag that raises it');
+  });
+
+  it('weighs a short receipts window against the record and prints the record as what it holds', async () => {
+    // The other hand of the same note: a deployment that wrote thirty days for itself and named thirty
+    // days of window is obeyed, and the line says which file the number was weighed against.
+    const dir = recordDir(JSON.stringify({ version: 1, statedRetentionDays: 30, acceptsMinimumFloor: false }));
+    const banner = await readBannerIn(dir, '--mock', '--port', '0', '--receipts-days', '30');
+    const note = banner.find((each) => each.startsWith('  note: '));
+    const printed = banner.join('\n');
+    expect(note, `no note line; stdout held ${JSON.stringify(printed)}`).toContain(
+      'ashaveri-instruction-record.json states 30 days and this window reaches that period',
+    );
+    expect(printed).toContain('30 days is below the 184-day default this repository ships');
+  });
 });
 
 /**
