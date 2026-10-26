@@ -11,7 +11,8 @@
     "test": "pnpm -r --workspace-concurrency=1 --filter \"@ashaveri/*\" test",
     "lint": "pnpm -r --filter \"@ashaveri/*\" lint",
     "typecheck": "pnpm -r --filter \"@ashaveri/*\" typecheck",
-    "measure:erasure-pass": "pnpm build && pnpm -C packages/cli measure:erasure-pass"
+    "measure:erasure-pass": "pnpm build && pnpm -C packages/cli measure:erasure-pass",
+    "measure:five-year-window": "pnpm build && pnpm -C gateway measure:five-year-window"
   },
   "devDependencies": {
     "eslint": "^10.10.0",
