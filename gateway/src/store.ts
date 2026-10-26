@@ -173,7 +173,15 @@ function locationOf(entry: CheckpointEntry, boundBytes: number): Location {
   };
 }
 
-/** A record's own counts, which have no room to be anything but a 32 bit saturating integer. */
+/**
+ * A count written into a record's own body, which has room for nothing wider than 4 bytes.
+ *
+ * The two bounds this is called with are refused at the door, so what is left able to saturate is a
+ * compaction's own retirement counts. Each trim states the receipts that one compaction dropped rather
+ * than a running total, so a saturating write would take a single compaction of more than
+ * `MAX_COUNTER` receipts. Widening the field is a store-layout decision, so the ceiling stays where the
+ * layout puts it and this says what it does.
+ */
 function counter(value: number): Buffer {
   const out = Buffer.alloc(COUNT_BYTES);
   out.writeUInt32BE(value > MAX_COUNTER ? MAX_COUNTER : value);
@@ -575,7 +583,8 @@ export type StoreErrorCode =
   | 'RETENTION_WINDOW_UNHOLDABLE'
   | 'STORE_RECEIPT_KIND_MISMATCH'
   | 'RECORD_BOUND_OUT_OF_RANGE'
-  | 'RECORD_BOUND_REDUNDANT';
+  | 'RECORD_BOUND_REDUNDANT'
+  | 'RETENTION_BOUND_OUT_OF_RANGE';
 
 export class StoreError extends Error {
   readonly code: StoreErrorCode;
@@ -1804,6 +1813,48 @@ export function sourceSentence(declared: StampDeclaration): string {
 }
 
 /**
+ * Why a configured bound cannot be written down, in the one sentence both edges print, or nothing when
+ * it can.
+ *
+ * A trim record states its two causes and the two bounds that produced them in 4 byte fields, and
+ * `counter()` saturates rather than failing, so a bound above `MAX_COUNTER` is filed as 4,294,967,295:
+ * the store then reports a configuration nobody chose, beside a retention manifest that copies the true
+ * number as JSON, and the two artifacts of one deployment disagree about one setting. Saturating is the
+ * failure this refuses. The reading side is the reason it is a refusal rather than a warning: a reader
+ * that finds the ceiling in a trim record cannot tell a wide configuration from one that hit the limit.
+ *
+ * Both callers are answered from here. `gateway/src/cli.ts` quotes the sentence on the usage exit, so
+ * the operator who typed the number sees the flag they typed, and the store throws it, so a library
+ * caller that never touched a command line is refused by the code that owns the layout.
+ */
+export function retentionBoundsFault(retention: ReceiptRetention | undefined): string | undefined {
+  if (retention?.maxAgeSeconds !== undefined && retention.maxAgeSeconds > MAX_COUNTER) {
+    return (
+      `the store's durability window of ${String(retention.maxAgeSeconds)} seconds is past ` +
+      `${String(MAX_COUNTER)}, which is all the 4 byte field a trim record states a bound in: a window ` +
+      `that wide cannot be filed honestly, and --receipts-days is the flag that sets it, in whole days, ` +
+      `of which ${String(Math.floor(MAX_COUNTER / 86_400))} is the widest the field can carry`
+    );
+  }
+  if (retention?.maxCount !== undefined && retention.maxCount > MAX_COUNTER) {
+    return (
+      `the store's durability bound of ${String(retention.maxCount)} receipts is past ` +
+      `${String(MAX_COUNTER)}, which is all the 4 byte field a trim record states a bound in: a count ` +
+      `that wide cannot be filed honestly, and --receipts-keep is the flag that sets it`
+    );
+  }
+  return undefined;
+}
+
+/** The same refusal as a fault, for the code that is about to write a record with the number in it. */
+function assertBoundsStatable(retention: ReceiptRetention | undefined): void {
+  const fault = retentionBoundsFault(retention);
+  if (fault !== undefined) {
+    throw new StoreError('RETENTION_BOUND_OUT_OF_RANGE', fault);
+  }
+}
+
+/**
  * Refuses an opening where the durability bound cannot hold the period the same configuration asks for.
  *
  * Three conditions keep this from refusing a deployment that is simply quiet. A policy bounded only by
@@ -1847,6 +1898,20 @@ function assertWindowHeldable(
     return;
   }
   const maxServed = serving?.maxServedReceipts;
+  // The count this derives is advice only while an operator can configure it. A trim record files a
+  // durability bound in 4 bytes, so a need past `MAX_COUNTER` is a number that cannot be typed without
+  // meeting `RETENTION_BOUND_OUT_OF_RANGE` on the next start, and a refusal that told an operator to
+  // raise the bound to it would be a dead end wearing the shape of an instruction. What this can state
+  // is the period that ceiling does cover at the traffic this file reported, so the choice the refusal
+  // leaves is between that and a slower rate, not between two settings.
+  const unstatable =
+    needed > MAX_COUNTER
+      ? `, and no durability bound this store can write down covers that period: the count it takes is ` +
+        `past ${String(MAX_COUNTER)}, the widest a trim record states, which at the rate this file has ` +
+        `carried holds ${String(
+          Math.floor(((MAX_COUNTER - 1) * measurableSpanSeconds(held, source)) / (held.count - 1)),
+        )} seconds`
+      : '';
   throw new StoreError(
     'RETENTION_WINDOW_UNHOLDABLE',
     `this store is at its durability bound of ${String(maxCount)} receipts and they span ` +
@@ -1855,6 +1920,7 @@ function assertWindowHeldable(
       `the configured period is ${String(maxAgeSeconds)} seconds, which takes ${String(needed)} receipts ` +
       `at the rate this store has been carrying: the durability bound is short by ` +
       `${String(needed - maxCount)} receipts` +
+      unstatable +
       // Two counts on one screen is the moment an operator needs to know which one the sentence is
       // about, because raising the serving bound changes what a query holds and nothing about what the
       // file keeps.
@@ -2042,6 +2108,7 @@ export async function openFileReceiptStore(options: FileReceiptStoreOptions): Pr
   // of receipt record it writes has no reading of the file to offer, and an opening that walked the log
   // first would prune and truncate through a configuration it was about to refuse.
   const receiptKind = options.receiptKind ?? DEFAULT_RECEIPT_RECORD_KIND;
+  assertBoundsStatable(retention);
   assertReceiptKind(receiptKind, retention);
   const recordKind = receiptKindByte(receiptKind);
   const boundBytes = boundBytesOf(recordKind);
@@ -2238,6 +2305,7 @@ export function openMemoryReceiptStore(options: {
   // at the same instant when handed the same source and the same period.
   const now = (): number => Math.floor(source.nowSeconds());
   const receiptKind = options.receiptKind ?? DEFAULT_RECEIPT_RECORD_KIND;
+  assertBoundsStatable(retention);
   assertReceiptKind(receiptKind, retention);
   const recordKind = receiptKindByte(receiptKind);
   const entries = new Map<string, { iat: number; seq: number; prev: Uint8Array; receipt: Uint8Array }>();

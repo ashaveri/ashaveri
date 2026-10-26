@@ -15,8 +15,10 @@ import {
   openMemoryReceiptStore,
   receiptsNeededForWindow,
   type ReceiptRetention,
+  type ReceiptStore,
   type RetainedWindow,
 } from '../src/store.js';
+import { daysToSeconds } from '../src/duty-window.js';
 import type { CredentialRate } from '../src/access.js';
 import { fixedClock, generated, harness, type Generated, type Harness } from './helpers.js';
 
@@ -209,6 +211,8 @@ function countingBackend(): { backend: CompletionBackend; calls(): number } {
 interface Serving {
   readonly h: Harness;
   readonly upstream: { calls(): number };
+  /** The receipt store this gateway files to, for a case that fills it before asking anything of it. */
+  readonly store: ReceiptStore;
   /** One completion, as the credential above signs it, with the three things a caller can observe. */
   complete(text: string): Promise<{
     statusCode: number;
@@ -223,9 +227,10 @@ interface Serving {
 
 async function serving(
   guard: ReceiptIntakeGuard,
-  options: { rate?: CredentialRate } = {},
+  options: { rate?: CredentialRate; store?: ReceiptStore } = {},
 ): Promise<Serving> {
   const upstream = countingBackend();
+  const store = options.store ?? openMemoryReceiptStore({ retention });
   const h = await harness({
     // The credential's own bucket, when a case is about a second 429 beside this one. The connection's
     // bound is left at the harness default, because every request a fixture injects shares one address.
@@ -235,7 +240,7 @@ async function serving(
       // retained set's span is a fact of this fixture rather than of how long the run took.
       time: fixedClock(() => STAMP),
       backend: upstream.backend,
-      store: openMemoryReceiptStore({ retention }),
+      store,
       receiptIntakeGuard: guard,
     },
   });
@@ -258,6 +263,7 @@ async function serving(
   return {
     h,
     upstream,
+    store,
     ask,
     async complete(text: string) {
       const response = await ask('POST', '/v1/chat/completions', REQUEST_BODY.replace('hello', text));
@@ -293,6 +299,40 @@ describe('a gateway whose store has reached the durability guard', () => {
       expect(message).toContain('946080001 receipts');
       expect(message).toContain('which is 946079997 more than the bound holds');
       expect(message).toContain('refusing from 4 of them');
+    } finally {
+      await s.h.app.close();
+    }
+  });
+
+  it('refuses a five-year window at the traffic one address is held to, by the count it takes', async () => {
+    // A hundred and one receipts sharing one instant measure the hundred requests a second that
+    // section 1 of `docs/access-control.md` states for one address, and a hundred and one is the
+    // smallest durability bound that can say so: a rate is a count of gaps over a span, and a hundred
+    // gaps to a second needs a hundred and one receipts. The store is filled rather than served up to
+    // its bound, because the guard reads a retained set and this case is about the sentence a caller
+    // hears once that set has reached it.
+    const period = daysToSeconds(1826);
+    const fiveYears: ReceiptRetention = { maxAgeSeconds: period, maxCount: 101, time: fixedClock(() => STAMP) };
+    const store = openMemoryReceiptStore({ retention: fiveYears });
+    for (let index = 0; index < 101; index++) {
+      await store.put(`rcpt_${String(index)}`, Uint8Array.from([index % 256]), STAMP);
+    }
+    expect(await store.window()).toEqual({ from: STAMP, to: STAMP, count: 101 });
+
+    const s = await serving({ retention: fiveYears }, { store });
+    try {
+      const refused = await s.complete('one address, five years');
+      expect(refused.statusCode).toBe(429);
+      expect(refused.error.code).toBe('RECEIPT_WINDOW_UNHOLDABLE');
+      const message = String(refused.error.message);
+      expect(message).toContain(`${String(period)} seconds`);
+      // The count the period takes at the traffic the store itself carries, how far past the bound it
+      // sits, and the number the refusal tells this deployment to set. None of the three is written
+      // down anywhere but in the arithmetic the store refuses by.
+      expect(message).toContain('15776640001 receipts');
+      expect(message).toContain('which is 15776639900 more than the bound holds');
+      expect(message).toContain('Raise the durability bound to at least 15776640001');
+      expect(s.upstream.calls(), 'the guard sits ahead of the inference').toBe(0);
     } finally {
       await s.h.app.close();
     }

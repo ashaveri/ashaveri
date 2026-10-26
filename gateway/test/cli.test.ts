@@ -15,6 +15,7 @@ import {
   type PopFields,
 } from '@ashaveri/receipt';
 import { newBearerCredential, newPopCredential, serializeCredentialFile } from '../src/access.js';
+import { daysToSeconds } from '../src/duty-window.js';
 import { MINIMUM_RETENTION_SECONDS, openFileReceiptStore, RECEIPT_STORE_FILE } from '../src/store.js';
 
 const CLI = fileURLToPath(new URL('../dist/cli.js', import.meta.url));
@@ -1877,6 +1878,90 @@ describe('a volume whose receipts have to outlive the start', () => {
       expect(result.status, result.stderr).toBe(2);
       expect(result.stderr).toContain(`--${flag.slice(2)} must be a positive whole number`);
     }
+  });
+
+  it('refuses a bound past the width the store can state, naming the flag that typed it', () => {
+    // The trim record's 4 byte field saturates, so a number above it cannot be filed honestly at all.
+    // The answer is the usage exit rather than a start-up crash: the operator typed the figure, and the
+    // sentence has to say which flag and what the largest admissible number is.
+    const tooWide = '4294967296';
+    const keep = run('--mock', '--port', '0', '--receipts-keep', tooWide);
+    expect(keep.status, keep.stderr).toBe(2);
+    expect(keep.stderr).toContain('--receipts-keep');
+    expect(keep.stderr).toContain('4294967295');
+    expect(keep.stdout, 'a refused bound printed no banner').not.toContain('listening on');
+
+    // 50,000 whole days is 4,320,000,000 seconds, past the field; the day count is where an operator
+    // reaches the same fault without typing a second count at all.
+    const days = run('--mock', '--port', '0', '--receipts-days', '50000');
+    expect(days.status, days.stderr).toBe(2);
+    expect(days.stderr).toContain('--receipts-days');
+    expect(days.stderr).toContain('4294967295');
+    expect(days.stdout, 'a refused period printed no banner').not.toContain('listening on');
+  });
+
+  /** Five years of whole days, leap day included: the shortest spelling the period flag can state. */
+  const FIVE_YEAR_DAYS = 1826;
+
+  it(
+    'refuses the five-year period on a volume at the shipped bound, naming the receipts it takes', () => {
+      const dir = join(tempDir, 'window-five-years');
+      mkdirSync(dir);
+      // The same hundred seconds of traffic the case above writes, which is a volume at the durability
+      // bound this CLI ships after a hundred seconds of the rate `docs/access-control.md` states for
+      // one address, and the period an operator asking for five years types in the only unit the flag
+      // takes: whole days.
+      writeHeldStore(dir, SHIPPED_RECEIPT_BOUND, 100);
+
+      const result = run('--mock', '--port', '0', '--receipts-dir', dir, '--receipts-days', '1826');
+      expect(result.status, result.stderr).toBe(1);
+      const refused = `${result.stdout}\n${result.stderr}`;
+      expect(refused).toContain('signerd: RETENTION_WINDOW_UNHOLDABLE:');
+      // The period as the store reads it: this file's day count through the one place days become
+      // seconds, so the sentence an operator is handed quotes the conversion the flag itself ran.
+      expect(refused).toContain(`${String(daysToSeconds(FIVE_YEAR_DAYS))} seconds`);
+      // Ten thousand receipts whose end stamps are ninety-nine seconds apart measure a hundred and one
+      // a second, so the window takes 9,999 * 157,766,400 / 99 receipts plus the one stamped at its
+      // older edge. The store works that out off the file; the case writes it out so the number an
+      // operator is told to raise the bound to is the number the code arrived at, a hundred and sixty
+      // thousand times the volume this CLI ships.
+      expect(refused).toContain('15934406401 receipts');
+      expect(refused).toContain('short by 15934396401 receipts');
+      expect(refused).toContain(`the serving bound of ${String(SHIPPED_RECEIPT_BOUND)} receipts is not`);
+      expect(refused, 'a start that refused its volume printed no banner').not.toContain('listening on');
+    },
+    // The same ten thousand receipts framed in one go and read back by a start that refuses them, so
+    // the ceiling is the one the case above derives for that volume: a millisecond a receipt over the
+    // spawn the case runs.
+    bootBudget(1) + SHIPPED_RECEIPT_BOUND,
+  );
+
+  it('refuses the count its own unholdable window tells an operator to configure', () => {
+    const dir = join(tempDir, 'window-five-years-dead-end');
+    mkdirSync(dir);
+    // A volume nowhere near the bound, so this start is not refusing its own traffic. The count is the
+    // one the case above prints as the number to raise `--receipts-keep` to, and it is past the width a
+    // trim record states a durability bound in, so the two refusals together are one dead end: five
+    // years at this traffic has no configured count that starts. That is what this case exists to say,
+    // because a message advising a number the next message refuses is worse than a refusal that names
+    // its own ceiling, which is the clause the unholdable sentence now carries.
+    writeHeldStore(dir, 200, 100);
+
+    const result = run(
+      '--mock',
+      '--port',
+      '0',
+      '--receipts-dir',
+      dir,
+      '--receipts-days',
+      '1826',
+      '--receipts-keep',
+      '15934406401',
+    );
+    expect(result.status, result.stderr).toBe(2);
+    expect(result.stderr).toContain('--receipts-keep');
+    expect(result.stderr).toContain('4294967295');
+    expect(result.stdout, 'a refused bound printed no banner').not.toContain('listening on');
   });
 });
 

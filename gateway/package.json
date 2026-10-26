@@ -20,7 +20,8 @@
     "build": "tsc -p tsconfig.json",
     "test": "vitest run",
     "lint": "eslint .",
-    "typecheck": "tsc -p tsconfig.json --noEmit && tsc -p tsconfig.test.json"
+    "typecheck": "tsc -p tsconfig.json --noEmit && tsc -p tsconfig.test.json",
+    "measure:five-year-window": "node dist/measure/five-year-window.js"
   },
   "dependencies": {
     "@ashaveri/attest-core": "workspace:*",

@@ -116,10 +116,12 @@ describe('docs/error-codes.md', () => {
     // The shipped document passes through both readings, which is what makes the two refusals above
     // about a reader rather than about a shape no document of this estate can be written in.
     expect(documentedSections(readSourceFile(DOC_PATH)).size).toBe(UNION_SOURCES.length);
+    // Read against the union's own declarations rather than a count typed here: a literal would go stale
+    // the next time a code is added, and the stale figure would read as a defect in the document.
     expect(
       tableRows(sectionBody(readSourceFile(DOC_PATH), '## `StoreErrorCode`'), CODE_TABLE).length,
       'the store table, which is the one that grew a wrapped row and lost the rows behind it',
-    ).toBe(6);
+    ).toBe((declared.get('StoreErrorCode') ?? []).length);
   });
 
   it('states the real counts in the opening paragraph', () => {
