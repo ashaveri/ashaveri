@@ -394,8 +394,11 @@ Gateways may register a receipt shortly after the response body completes; clien
 retry briefly on 404. How long a receipt stays fetchable is the gateway's choice and the
 protocol does not carry that answer, so treat an id as a handle rather than a proof. A signerd
 started with `--receipts-dir` appends each receipt to a hash-chained file on that volume and
-keeps it for 184 days, or until 10,000 later receipts push it out as the durability bound on that
-volume, whichever comes first. A store that has reached that bound, and whose retained receipts' own
+keeps it for 184 days by default, or until 10,000 later receipts push it out as the durability bound on that
+volume, whichever comes first. That period is the deployment's own to name, and `--receipts-days` is the
+flag that names it: 184 days is what a run falls back on when nothing was said and not a minimum this
+repository enforces, while a window shorter than the period that same deployment wrote into its own
+instruction record stops the start and names the flag to raise. A store that has reached that bound, and whose retained receipts' own
 stamps show the bound cannot cover the period configured beside it, refuses to open rather than serve the
 shorter window it can hold, and names the two numbers that disagree and how far short the bound is. How
 many receipts one query holds at a time is a separate count, the serving bound, and it retires nothing:
@@ -1004,14 +1007,17 @@ store serves every receipt whose `iat` is at or after a `from` stamp and strictl
 so a pack's interval is half-open and its end is excluded: a receipt issued at exactly the end stamp
 belongs to the next pack, not this one (`range` and `inRange` in `gateway/src/store.ts`).
 
-**The window's bound, and whether its end is included.** The store's default retention keeps a receipt
-for at least `MINIMUM_RETENTION_SECONDS`, which is 184 days, six months rounded up to whole days so
-the window is never shorter than the floor it answers to (`gateway/src/store.ts`). The store states that
-floor against a legal minimum and says plainly that the code cannot itself check whether a given receipt
-falls under that law, so nothing here should be read past what it says. The bound is inclusive at its
+**The window's bound, and whether its end is included.** The age a store retires by is a deployment's own
+number, and `--receipts-days` is the flag that states it. What this repository ships as the fallback when
+the operator named nothing is `MINIMUM_RETENTION_SECONDS`, which is 184 days, six months rounded up to
+whole days (`gateway/src/store.ts`): a rounding of a stated default, and not a minimum any run enforces,
+because the six months it rounds up from yields to applicable Union or national law, which moves what a
+deployment owes in either direction. What the code does refuse is a configured window shorter than the
+period this same deployment stated for itself in its instruction record, and that refusal names the flag
+to raise rather than a period anyone owes. The bound is inclusive at its
 older edge: a receipt is retained while its `iat` is at or after `now - maxAgeSeconds`, so one stamped
 exactly at the cutoff is still kept. A count cap and the half-open pack interval above are different
-bounds answered elsewhere, and neither moves this floor.
+bounds answered elsewhere, and neither is what this flag moves.
 
 **What a partial tail means.** A record whose bytes run past the end of the file, fewer than `len`
 after the length prefix, is not a broken chain but an append that never finished: the writer was

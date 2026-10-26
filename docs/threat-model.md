@@ -384,8 +384,11 @@ What is still true, in both modes:
   read is admitted and the second is refused `RATE_LIMITED`.
 - **Receipt retention is a deployment choice, not a protocol guarantee.** A signerd started with
   `--receipts-dir` appends each receipt to a hash-chained file on that volume and keeps it for 184
-  days, or until 10,000 later receipts push it out as a bound on the volume, whichever comes
-  first. Those two are two numbers because they bound two things, and both counts are flags:
+  days by default, or until 10,000 later receipts push it out as a bound on the volume, whichever comes
+  first. The period beside that count is the deployment's own to state and `--receipts-days` is the flag
+  that states it; 184 days is a shipped default rather than a minimum, and what stops a start is a window
+  shorter than the period the same deployment wrote into its own instruction record. Those two are two
+  numbers because they bound two things, and both counts are flags:
   `--receipts-keep` is how many receipts the volume keeps, which is the durability bound retirement
   drops a prefix to satisfy, and `--receipts-per-query` is how many receipts one range query holds at
   a time, which retires nothing and only sizes a walk. A store that reaches the first reports the window

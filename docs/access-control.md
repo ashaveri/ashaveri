@@ -604,7 +604,10 @@ of personal data", which can cut this window as well as lengthen it. What the co
 refuse to start under the floor on the floor's own authority: with no instruction record read, a shorter
 value is accepted, and the start-up report prints the reason it is a floor, so overriding it stays the
 operator's move and not the software's. What the code does refuse is a window shorter than the period a
-deployment stated for itself. That statement is the instruction record,
+deployment stated for itself, and it weighs each of the two windows a run configures against that one
+statement: the access log's, kept by `--access-log-days`, and the receipts store's age bound, kept by
+`--receipts-days`. One period stated in the record is the yardstick for both, and a refusal says which of
+the two flags the operator has to raise. That statement is the instruction record,
 `gateway/src/instruction-record.ts`, named by `--instruction-record` or read at
 `DEFAULT_INSTRUCTION_RECORD_PATH`, and it carries three members: the version it is written under, the
 days this deployment states it owes, and whether it takes the 184-day floor as a duty of its own. The
@@ -622,8 +625,8 @@ configured against each other, and reads no duty period off anything. The access
 `MINIMUM_RETENTION_DAYS` as "a request, not a clamp" and enforces nothing, ageing what it is handed. The
 record is what such an agreement is made with, and the CLI is the surface that reads it, which is where
 that same comment says enforcement belongs. A deployment that wrote no record reads no record, keeps the
-window its flag or the default gives it, and says so in its start-up report; nothing about the bytes the
-log writes changes either way.
+windows its flags or the shipped defaults give it, and says so in its start-up report; nothing about the
+bytes the log writes, or the bytes the store appends, changes either way.
 
 The direction of the default is the deployer's duties being longer than the window rather than
 shorter. Nothing in the writer bounds the total size of that window: the 32 MiB figure is a per-file

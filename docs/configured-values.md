@@ -84,7 +84,7 @@ change to it is a change here too.
 | `DEFAULT_RATE` | `{ perMinute: 60, burst: 120 }` | What a credential record carrying no rate of its own is held to | shipped default | `gateway/src/access.ts` |
 | `REPLAY_WINDOW_SECONDS` | `900` | How long a credential and nonce pair is remembered as spent | shipped default | `gateway/src/access.ts` |
 | `REPLAY_MAX_ENTRIES` | `65_536` | How many spent pairs are remembered at once | shipped default | `gateway/src/access.ts` |
-| `MINIMUM_RETENTION_DAYS` | `184` | How long access log files are kept when no flag named a number | shipped default | `gateway/src/aclog.ts` |
+| `MINIMUM_RETENTION_DAYS` | `184` | How long access log files are kept when `--access-log-days` named no number, and the same 184 days the receipts store ages by when `--receipts-days` named no number: one shipped default reaching both windows, and in each case a number a run weighs against the period a deployment states in its own instruction record rather than a minimum it enforces | shipped default | `gateway/src/aclog.ts` |
 | `DEFAULT_INSTRUCTION_RECORD_PATH` | `'ashaveri-instruction-record.json'` | The file a run reads when the operator named no `--instruction-record`: one file in the directory the process starts in, reaching no other directory by itself. A deployment that keeps its statement elsewhere names it with the flag; a deployment that keeps none reads none, which is the state every deployment was already in, and the window then comes from the days flag or from `MINIMUM_RETENTION_DAYS` | shipped default | `gateway/src/instruction-record.ts` |
 | `MAX_ACCESS_FILE_BYTES` | `32 * 1024 * 1024` | The size one access log file reaches before the next day's part opens | shipped default | `gateway/src/aclog.ts` |
 | `DEFAULT_TIMEOUT_MS` | `30_000` | How long a guest agent call waits before the request behind it fails | shipped default | `gateway/src/guest.ts` |
@@ -96,12 +96,15 @@ change to it is a change here too.
 
 Bounds shipped in the same source, and holding whatever the operator named, are not fallbacks and so
 are not rows above: `MAX_CREDENTIALS`, `MAX_TRACKED_PEERS`, `MAX_BUFFERED_BODY`,
-`MAX_CACHED_EVIDENCE`, `MAX_REPORT_DATA_BYTES`, `FIRST_EVENT_TIMEOUT_MS` and
-`MINIMUM_RETENTION_SECONDS` each bound one behaviour, no flag reaches any of them, and the receipt
-store's own retention period is `MINIMUM_RETENTION_SECONDS` rather than a duration a deployment
-chooses per run. `SIDECAR_BLOCK_RECORDS` is a shipped bound of the same kind and the checkpoint
-cadence: the count of records a sidecar block indexes, read by the store's append and resume paths,
-and reached by no flag. The period a bounded record states is chosen per run, by
+`MAX_CACHED_EVIDENCE`, `MAX_REPORT_DATA_BYTES` and `FIRST_EVENT_TIMEOUT_MS` each bound one behaviour
+that no flag reaches. `MINIMUM_RETENTION_SECONDS` is the same kind of shipped number and the store
+package's own age bound, 184 days stated in seconds: it is the window a run ages by when `--receipts-days`
+names nothing, because that flag's default is the same 184 days held in whole days and converted to
+seconds at `gateway/src/duty-window.ts`. The receipts period is therefore a duration a deployment chooses
+per run, and this constant stays here rather than becoming a row above because the shipped code reads it in
+no defaulting position. `SIDECAR_BLOCK_RECORDS` is a shipped bound of the same
+kind and the checkpoint cadence: the count of records a sidecar block indexes, read by the store's append
+and resume paths, and reached by no flag. The period a bounded record states is chosen per run, by
 `--receipts-record-kind`, and it is a statement inside the record rather than a bound this process
 enforces.
 
