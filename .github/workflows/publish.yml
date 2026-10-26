@@ -1,0 +1,142 @@
+name: publish
+
+# ---------------------------------------------------------------------------
+# The only trigger below is a manual one, so no push, pull request, tag or
+# release reaches the registry. A run publishes exactly the versions the
+# manifests state, and a published npm version cannot be replaced.
+#
+# `id-token: write` is the credential: the run mints a short-lived OIDC id
+# token and npm exchanges it for a publish right that dies with the job, so no
+# registry secret is stored, read, or named in this repository. `--provenance`
+# asks the registry to store a signed statement that these bytes were built by
+# this repository at this commit, which only a run carrying an issuer-signed
+# identity can ask for.
+# ---------------------------------------------------------------------------
+
+on:
+  workflow_dispatch:
+    inputs:
+      confirm:
+        description: >-
+          Type the word publish to run this workflow. It uploads versions that
+          cannot be recalled, so a stray click is refused before anything is
+          installed, built, or sent anywhere.
+        required: true
+        type: string
+
+# `contents: read` because this job reads the tree and writes nothing to it.
+# `id-token: write` because the OIDC token is the credential, and it is the only
+# one requested: no `packages: write`, no `pull-requests: write`, no
+# `contents: write`.
+permissions:
+  contents: read
+  id-token: write
+
+jobs:
+  publish:
+    # A fork of a public repository inherits this file. It cannot publish, because
+    # npm knows nothing of it, and it would still spend a runner building and
+    # testing before it failed at the last step.
+    if: github.repository == 'ashaveri/ashaveri'
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    # One publish at a time, and a second dispatch waits rather than cancelling the
+    # first: cancelling mid-loop is how a scope ends up holding three packages of a
+    # version and four of the next one.
+    concurrency:
+      group: npm-publish
+      cancel-in-progress: false
+
+    steps:
+      - name: Refuse a dispatch that did not type the confirmation
+        env:
+          CONFIRM: ${{ inputs.confirm }}
+        run: |
+          set -euo pipefail
+          if [ "${CONFIRM}" != "publish" ]; then
+            echo "this workflow publishes versions that cannot be recalled"
+            echo "dispatch it with the input spelled publish, or do not dispatch it"
+            exit 1
+          fi
+
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+
+      - uses: pnpm/action-setup@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          # The same release every other job installs, read from `.nvmrc` rather
+          # than named here, so this run attests to bytes built on the version the
+          # suite is green on.
+          node-version-file: .nvmrc
+          cache: pnpm
+          # Written into the runner's npm configuration, which is how the publish
+          # step below reaches the registry npm itself knows about. Naming it here
+          # is also what makes the OIDC exchange unambiguous: provenance is issued
+          # against this registry and no other.
+          registry-url: https://registry.npmjs.org/
+
+      - run: pnpm install --frozen-lockfile
+
+      # The publish is only as trustworthy as the tree it reads, so the whole
+      # workspace is built and checked in this job rather than assumed green from
+      # the commit's status. A run step is `bash -e`; the umask is stated because
+      # the suite asserts on file modes it sets, and a mode is only observable
+      # against the mask the process actually runs under.
+      - name: Build and test the workspace being published
+        run: |
+          set -euo pipefail
+          umask 0022
+          pnpm build
+          pnpm lint
+          pnpm typecheck
+          pnpm test
+
+      - name: Publish the packages, each after every sibling it depends on
+        run: |
+          set -euo pipefail
+          # The order below is the order the workspace builds these packages in,
+          # with the private one left out. A registry consumer needs exactly that
+          # property and nothing sharper: at the moment a package is uploaded, every
+          # sibling its manifest names as a dependency is already on the registry at
+          # the version just uploaded. `pnpm test` above holds this list to that rule
+          # and to the manifests' `private` flags, so a package added to the
+          # workspace, reordered here, or flipped to public without an entry fails
+          # the suite rather than reaching the registry.
+          order=(
+            packages/receipt
+            packages/attest-core
+            packages/sdk
+            packages/fixtures
+            packages/collateral
+            packages/cli
+          )
+          for dir in "${order[@]}"; do
+            name="$(node -p "require('./${dir}/package.json').name")"
+            version="$(node -p "require('./${dir}/package.json').version")"
+            echo "::group::${name} ${version}"
+            # The pack is done by pnpm and the publish by npm, and the split is not
+            # decoration. Every one of these manifests states its siblings with the
+            # `workspace:` protocol, which is how the workspace links them locally.
+            # npm does not implement that protocol and does not rewrite it: publishing
+            # such a manifest verbatim puts a package on the registry whose dependency
+            # ranges no npm consumer can install. pnpm converts each one to the concrete
+            # version when it packs, so the tarball below carries the ranges a consumer
+            # reads.
+            tarball="$(pnpm -C "${dir}" pack --pack-destination "${RUNNER_TEMP}" | tail -n 1)"
+            if [ ! -f "${tarball}" ]; then
+              tarball="${RUNNER_TEMP}/${tarball}"
+            fi
+            # `--provenance` mints the attestation from the OIDC token this job holds.
+            # `--access public` restates in the command what every manifest says in its
+            # `publishConfig`, because a scoped package defaults to restricted and a
+            # restricted first publish is a package nobody can install.
+            # `--no-git-tag-version` keeps this job out of the tree: it neither moves a
+            # version nor writes a tag, so no run of this workflow can decide what the
+            # next release is called.
+            npm publish "${tarball}" --provenance --access public --no-git-tag-version
+            echo "published ${name} ${version}"
+            echo "::endgroup::"
+          done
