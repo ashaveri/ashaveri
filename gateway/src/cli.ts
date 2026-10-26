@@ -28,15 +28,14 @@ import { mockDeployment, type Deployment, type HardwareTeeKind } from './deploym
 import { toHex } from './digest.js';
 import {
   DEFAULT_INSTRUCTION_RECORD_PATH,
-  judgeAccessWindow,
   openInstructionRecord,
   type CustomerInstructionRecord,
 } from './instruction-record.js';
+import { ACCESS_LOG_EDGE, RECEIPTS_EDGE, daysToSeconds, judgeWindow } from './duty-window.js';
 import { modelsFromManifest, type ManifestModels } from './weights.js';
 import {
   DEFAULT_RECEIPT_RECORD_KIND,
   HOST_CLOCK_SOURCE,
-  MINIMUM_RETENTION_SECONDS,
   openFileReceiptStore,
   openMemoryReceiptStore,
   type ReceiptRecordKind,
@@ -132,6 +131,10 @@ Options:
                                    Default: 10,000, which is a few megabytes and
                                    a deployment's capacity decision; it is a
                                    shipped default and not a period anyone owes.
+  --receipts-days <n>              How long the receipts store keeps a receipt before it ages out.
+                                   Default: 184, six months rounded up to whole days. A default, not a
+                                   floor: a deployment whose instruction record states a longer period
+                                   has to name it here as well, and the run stops when it does not.
   --receipts-per-query <n>         How many receipts one range query holds at
                                    once, which is the serving bound. It sizes a
                                    walk's working set and retires nothing: a walk
@@ -264,6 +267,7 @@ interface CliOptions {
   readonly marking?: string;
   readonly 'receipts-dir'?: string;
   readonly 'receipts-keep'?: string;
+  readonly 'receipts-days'?: string;
   readonly 'receipts-per-query'?: string;
   readonly 'receipts-guard-at'?: string;
   readonly 'receipts-grow-past-guard'?: boolean;
@@ -368,6 +372,7 @@ try {
       marking: { type: 'string', default: 'none' },
       'receipts-dir': { type: 'string' },
       'receipts-keep': { type: 'string' },
+      'receipts-days': { type: 'string' },
       'receipts-per-query': { type: 'string' },
       'receipts-guard-at': { type: 'string' },
       'receipts-grow-past-guard': { type: 'boolean' },
@@ -403,11 +408,11 @@ const host = values.host as string;
 const weightsManifest = weightsManifestPath(values);
 
 /**
- * The instruction this deployment wrote, and the window it leaves this run, both read before a store or
- * a log opens, in the same breath as the weights pair, because a run that cannot state the period its own
- * deployment named has no business appending to a volume first.
+ * The instruction this deployment wrote, and the two windows it leaves this run, both read before a store
+ * or a log opens, in the same breath as the weights pair, because a run that cannot state the period its
+ * own deployment named has no business appending to a volume first.
  *
- * No record at the default path is the state every deployment was already in: the window stays the flag's
+ * No record at the default path is the state every deployment was already in: each window stays the flag's
  * value or `MINIMUM_RETENTION_DAYS`, and nothing here argues with it, because the floor is a default and a
  * request and `MINIMUM_RETENTION_DAYS` in `aclog.ts` says that enforcing it is this surface's job rather
  * than the writer's. What a record changes is whose number a refusal answers to. The period it states is
@@ -430,11 +435,29 @@ try {
   fail(error instanceof Error ? error.message : String(error));
 }
 const accessLogDays = wholeNumber(values['access-log-days'], 'access-log-days', 'days', MINIMUM_RETENTION_DAYS);
+/**
+ * The receipts store's age bound, in whole days, defaulting to the same number the store was opened with
+ * before this flag existed so no deployment that says nothing changes what it keeps. It is a day count
+ * rather than a second count at this edge because the operator names it in days, the same unit the access
+ * log's window and the instruction record are stated in; `daysToSeconds` is the one place it becomes the
+ * seconds the store is configured with.
+ */
+const receiptsDays = wholeNumber(values['receipts-days'], 'receipts-days', 'days', MINIMUM_RETENTION_DAYS);
 if (instructionRecord !== null) {
-  const agreement = judgeAccessWindow(accessLogDays, instructionRecord, MINIMUM_RETENTION_DAYS);
-  if (agreement.refused) {
-    if (agreement.answeredBy === 'the record itself') refuseToStart(agreement.message);
-    fail(agreement.message);
+  // One record states one period, and two windows are configured against it, so both are weighed here
+  // rather than one being weighed and the other assumed. The access log goes first so an operator who
+  // named both short reads the same sentence first either way. The window branch is a start-up line that
+  // no longer matches the paper beside it, so the flags answer it; the floor branch contradicts itself, so
+  // it stops the start on the exit that says no flag answers. Neither branch refuses a period for being
+  // short: the yardstick is the number this deployment wrote down, and a shorter one is obeyed.
+  for (const agreement of [
+    judgeWindow(ACCESS_LOG_EDGE, accessLogDays, instructionRecord, MINIMUM_RETENTION_DAYS),
+    judgeWindow(RECEIPTS_EDGE, receiptsDays, instructionRecord, MINIMUM_RETENTION_DAYS),
+  ]) {
+    if (agreement.refused) {
+      if (agreement.answeredBy === 'the record itself') refuseToStart(agreement.message);
+      fail(agreement.message);
+    }
   }
 }
 
@@ -555,7 +578,13 @@ const servedReceipts = wholeNumber(
  * the start-up line below says so rather than letting an unstamped process read as a measured one.
  */
 const time = HOST_CLOCK_SOURCE;
-const retention: ReceiptRetention = { maxAgeSeconds: MINIMUM_RETENTION_SECONDS, maxCount: retainedReceipts, time };
+/**
+ * The store's age bound, in the seconds the store is configured with, from the days this run named or the
+ * default beside them. This is the number `--receipts-days` moves, and the only place the day count
+ * becomes seconds: a deployment that states a longer period in its own instruction record is refused above
+ * rather than aged out below it, and a deployment that states less is kept to its own number.
+ */
+const retention: ReceiptRetention = { maxAgeSeconds: daysToSeconds(receiptsDays), maxCount: retainedReceipts, time };
 const serving: ReceiptServing = { maxServedReceipts: servedReceipts };
 /**
  * The guard's default threshold, in per cent of the durability bound: 100, the bound itself. That is
@@ -788,8 +817,9 @@ await app.listen({ port, host });
 const mode = values.mock === true ? 'mock' : 'live';
 const label =
   mode === 'mock' ? 'mock' : `live ${deployment.tee} measurement ${toHex(deployment.measurement).slice(0, 16)}...`;
-/** The period this process opens its store with, in whole days, read off the seconds it is set in. */
-const periodDays = Math.round(MINIMUM_RETENTION_SECONDS / 86_400);
+// The period printed below is `receiptsDays`, read where it is parsed rather than derived from the seconds
+// the store was handed: a line that re-derived the number could disagree with the window the run refused
+// or accepted a moment earlier, and the operator would be told a figure no decision was taken against.
 // Which record kind this run appends, printed as the store was handed it. A bounded record's period is
 // bytes inside the file the deployment keeps, and a reader of a volume cannot tell which kind it holds
 // without being told, so the line states the kind, and for a bounded record the period it states and the
@@ -803,15 +833,15 @@ const recordKindLabel =
 const kept =
   receiptsDir === undefined
     ? `receipts kept in this process only, as configured: a durability bound of ${String(retainedReceipts)} receipts, one query holding ${String(servedReceipts)} of them at a time, and gone on restart; ${recordKindLabel}`
-    : `receipts kept in ${receiptsDir} as configured: a period of ${String(periodDays)} days and a durability bound of ${String(retainedReceipts)} receipts, which the store compares against the traffic on its own file and refuses to open when the bound cannot hold the period, and a serving bound of ${String(servedReceipts)} receipts to a query, which bounds what one walk holds and retires nothing; ${recordKindLabel}`;
+    : `receipts kept in ${receiptsDir} as configured: a period of ${String(receiptsDays)} days and a durability bound of ${String(retainedReceipts)} receipts, which the store compares against the traffic on its own file and refuses to open when the bound cannot hold the period, and a serving bound of ${String(servedReceipts)} receipts to a query, which bounds what one walk holds and retires nothing; ${recordKindLabel}`;
 // The intake guard, printed as this process installed it, in both settings. A deployment that can
 // refuse a completion owes its operator that sentence before the traffic arrives rather than after
 // the first 429, and a deployment that took the opt-in owes the two halves of what it accepted: that
 // the window in force is the one the bound reaches, and that this volume stops opening at a restart.
 // Neither line claims a period was kept, which is a duty and not a configuration.
 const intakeGuardLabel = growPastGuard
-  ? `receipt intake guard: off, as configured with --receipts-grow-past-guard, so this process keeps issuing past the durability bound of ${String(retainedReceipts)} receipts: the window served is the shorter one that bound reaches, not the ${String(periodDays)} days configured beside it, and a store on a volume refuses to open at the next restart on that same pairing`
-  : `receipt intake guard: armed at ${String(guardAtPercent)}% of the durability bound, so a completion is refused RECEIPT_WINDOW_UNHOLDABLE before any inference is run once this store holds that much of its ${String(retainedReceipts)} receipts and the ${String(periodDays)} days beside the bound cannot be held at the rate its own retained stamps measure; reads, verification and handover keep serving. --receipts-guard-at sets the point and --receipts-grow-past-guard turns this off`;
+  ? `receipt intake guard: off, as configured with --receipts-grow-past-guard, so this process keeps issuing past the durability bound of ${String(retainedReceipts)} receipts: the window served is the shorter one that bound reaches, not the ${String(receiptsDays)} days configured beside it, and a store on a volume refuses to open at the next restart on that same pairing`
+  : `receipt intake guard: armed at ${String(guardAtPercent)}% of the durability bound, so a completion is refused RECEIPT_WINDOW_UNHOLDABLE before any inference is run once this store holds that much of its ${String(retainedReceipts)} receipts and the ${String(receiptsDays)} days beside the bound cannot be held at the rate its own retained stamps measure; reads, verification and handover keep serving. --receipts-guard-at sets the point and --receipts-grow-past-guard turns this off`;
 // The marking a deployment runs is reported as this process installed it, in both settings, because
 // the one that changes what a customer sees is the one worth reading at a start-up log: a response
 // whose shape cannot carry the mark is refused here rather than served unmarked, and that is a thing
@@ -913,6 +943,25 @@ if (accessLogDays < MINIMUM_RETENTION_DAYS) {
         ? ', and no instruction record was read, so no period this deployment wrote of its own duty stands behind the number'
         : `: ${instructionRecord.path} states ${String(instructionRecord.statedRetentionDays)} days and declines that floor, so the shorter window is the period this deployment wrote down`
     }`,
+  );
+}
+if (receiptsDays < MINIMUM_RETENTION_DAYS) {
+  // The receipts store's 184 days is a shipped default and this is the one moment a run says so out loud.
+  // The yardstick a receipts window is weighed against is the period this deployment stated for itself, and
+  // a window below the default that reaches that period is obeyed, so the line names the file the number
+  // was weighed against and the flag that raises the window. It states no period anyone owes, because
+  // Articles 19(1) and 26(6) both yield to applicable Union or national law, and that law moves a period in
+  // either direction: a deployment keeping thirty days may be keeping exactly what it is under.
+  const belowDefault =
+    `note: ${String(receiptsDays)} days is below the ${String(MINIMUM_RETENTION_DAYS)}-day default this repository ships, ` +
+    `and a receipt older than this window stops being served from it`;
+  const weighedAgainst =
+    instructionRecord === null
+      ? 'no instruction record was read, so nothing states a longer period beside this number'
+      : `${instructionRecord.path} states ${String(instructionRecord.statedRetentionDays)} days and this window reaches that period`;
+  lines.push(
+    `  ${belowDefault}; ${weighedAgainst}; the default is what a run falls back on and not a period anyone ` +
+      `owes, and --receipts-days is the flag that raises it`,
   );
 }
 if (devCredential !== undefined) {

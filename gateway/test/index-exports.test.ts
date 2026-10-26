@@ -1,10 +1,12 @@
 import { describe, expect, it } from 'vitest';
 import {
+  decideDutyWindow,
   MINIMUM_RETENTION_SECONDS,
   openMemoryReceiptStore,
   receiptsNeededForWindow,
   RECEIPT_STORE_FILE,
   StoreError,
+  type DutyWindowGap,
   type ReceiptServing,
   type ReceiptStore,
 } from '../src/index.js';
@@ -17,6 +19,17 @@ import { fixedClock } from './helpers.js';
  * tidy-up.
  */
 describe('the package entry point', () => {
+  it('hands out the one decision a window and a stated period are weighed by', () => {
+    // A bound configured in one program is refused by another, and a comparison written down twice is one
+    // renamed constant away from answering the same pairing two ways, so the decision itself travels
+    // through the entry point rather than being copied beside whoever sets a number. The annotations are
+    // the second half of this case: the gap shape has to be nameable by a reader that did not write it.
+    const held: DutyWindowGap | null = decideDutyWindow(10, 10);
+    expect(held).toBeNull();
+    const short: DutyWindowGap | null = decideDutyWindow(10, 30);
+    expect(short).toEqual({ windowSeconds: 10, statedSeconds: 30, shortBySeconds: 20 });
+  });
+
   it('hands out the same store engine the gateway opens', async () => {
     const store: ReceiptStore = openMemoryReceiptStore();
     await store.put('r1', Uint8Array.from([1, 2, 3]), 1_000);

@@ -14,6 +14,10 @@ import { readFile } from 'node:fs/promises';
  *
  * Absent the record, nothing in here moves: the window stays the flag's value or the shipped default,
  * and the start-up report says that no instruction record was read.
+ *
+ * What stops at these bytes is the decision. This file reads what a deployment stated, and
+ * `gateway/src/duty-window.ts` weighs a window against it, because three edges ask that question and one
+ * answer written three times is how one pairing starts to mean two things.
  */
 export const INSTRUCTION_RECORD_VERSION = 1;
 
@@ -152,53 +156,4 @@ export async function openInstructionRecord(path: string, namedByOperator: boole
     throw new InstructionRecordError(`${path} could not be read: ${reasonOf(error)}`);
   }
   return parseInstructionRecord(bytes, path);
-}
-
-/**
- * A window, weighed against the record this deployment handed the run, or the refusal that stops the
- * start.
- *
- * Two refusals live here, and they are answered by two different acts, which is what `answeredBy` says
- * rather than a sentence about exit codes. A window shorter than the period the record states is a
- * start-up line that no longer matches the paper beside it, so the flags answer it. A record that accepts
- * the floor while stating a period shorter than that floor contradicts itself about the duty it is
- * stating, so no flag answers it and the file has to change. Nothing here refuses a period because this
- * repository would have chosen a longer one: the record's stated period is the only yardstick a run
- * holds, and a deployment that states less and declines the floor is enforcing its own number.
- */
-export type WindowAgainstRecord =
-  | { readonly refused: false }
-  | {
-      readonly refused: true;
-      readonly message: string;
-      /** Which half of the deployment has to change before this run can start. */
-      readonly answeredBy: 'the flags this run names' | 'the record itself';
-    };
-
-export function judgeAccessWindow(
-  days: number,
-  record: CustomerInstructionRecord,
-  floorDays: number,
-): WindowAgainstRecord {
-  if (record.acceptsMinimumFloor && record.statedRetentionDays < floorDays) {
-    return {
-      refused: true,
-      answeredBy: 'the record itself',
-      message:
-        `${record.path} accepts the ${floorDays}-day floor as this deployment's own and states ${record.statedRetentionDays} days, ` +
-        `which is shorter than the floor it accepts, so the record contradicts itself about the period it owes and no window answers both ` +
-        `halves of it; raise statedRetentionDays to at least ${floorDays}, or withdraw acceptsMinimumFloor`,
-    };
-  }
-  if (days < record.statedRetentionDays) {
-    return {
-      refused: true,
-      answeredBy: 'the flags this run names',
-      message:
-        `--access-log-days gives this run ${days} days and ${record.path} states ${record.statedRetentionDays} days as the period this ` +
-        `deployment owes, so the window named at start-up is shorter than the period its own instruction record states; name ` +
-        `--access-log-days ${record.statedRetentionDays} or more, or point --instruction-record at the record this deployment wrote`,
-    };
-  }
-  return { refused: false };
 }

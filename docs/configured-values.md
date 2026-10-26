@@ -2,7 +2,7 @@
 
 Every value a deployment can point this gateway at, and every value the code holds when the
 deployment named nothing. Three tables sort them by class, and the counts below are the counts the
-tables carry: 32 flag rows, 16 shipped defaults, and 8 environment variables, of which 7 are
+tables carry: 33 flag rows, 16 shipped defaults, and 8 environment variables, of which 7 are
 settings and 1 carries credential material. 3 flags name their default in the block that declares
 them. Coverage is the gateway's operator surface only: the values a client verifies against, pinned
 in `packages/sdk/src/policy.ts`, and the record constants in `packages/cli/src/records.ts` are out
@@ -27,7 +27,7 @@ files, so a row that stops being true fails a run rather than aging quietly.
 
 ## 1. Flags this gateway accepts
 
-Class: the operator's to declare. All 32 are declared together in `gateway/src/cli.ts`, in the block
+Class: the operator's to declare. All 33 are declared together in `gateway/src/cli.ts`, in the block
 `parseArgs` is handed, and are spelled here as an operator types them, with the leading dashes. The
 Bound column is what the code refuses outside; where a period or a duty is the deployment's own, the
 row says so rather than inventing a number for it.
@@ -55,6 +55,7 @@ row says so rather than inventing a number for it.
 | `--marking` | What every completion this process serves is marked with | one of the scheme registry's labels, and a response whose shape cannot carry a mark is refused rather than served unmarked | `none` | the operator's to declare | `gateway/src/cli.ts` |
 | `--receipts-dir` | Where issued receipts are kept across restarts, chained so a removal shows | an existing directory, so a volume you forgot to mount is a refusal | none: receipts are kept in this process only and are gone on restart | the operator's to declare | `gateway/src/cli.ts` |
 | `--receipts-keep` | The durability bound: how many receipts the volume keeps | a positive whole number, and the store compares it against the period and the traffic on its own file | `SHIPPED_RETAINED_RECEIPTS`, which is a capacity decision of this deployment and not a period anyone owes | the operator's to declare | `gateway/src/cli.ts` |
+| `--receipts-days` | The age bound: how long the receipts store keeps a receipt before it ages out | a positive whole number of days; shorter than the default is allowed and the start-up report says so; where an instruction record states a longer period this run is refused at start, because the period that record states is the window this software enforces; the period a deployment owes is its own to declare and nothing in this repository validates it | `MINIMUM_RETENTION_DAYS`, the same number the access log's window falls back on, so a deployment that names neither keeps what it kept before this flag | the operator's to declare | `gateway/src/cli.ts` |
 | `--receipts-per-query` | The serving bound: how many receipts one range query holds at once | a positive whole number, bounding a walk and retiring nothing | `SHIPPED_SERVED_RECEIPTS`, and a walk over a longer window is answered in batches | the operator's to declare | `gateway/src/cli.ts` |
 | `--receipts-guard-at` | When the durability guard is read while serving, rather than only when the store opens | a whole percentage from 1 to 100 of the durability bound, where a value that is not one stops the start rather than falling back; once the store holds that share of `--receipts-keep`, a completion is refused with `RECEIPT_WINDOW_UNHOLDABLE` before any inference runs if the period configured beside the bound cannot be held at the rate the store's own retained stamps measure | `DEFAULT_INTAKE_GUARD_FRACTION`, which is the whole of the durability bound, so a run naming no percentage refuses only where the store would also refuse to open | the operator's to declare | `gateway/src/cli.ts` |
 | `--receipts-grow-past-guard` | Keep issuing past the durability guard instead of refusing | boolean, it takes no argument, and it overrides `--receipts-guard-at`; with it the volume grows, the bound keeps retiring the oldest prefix, and the window served is the shorter one that bound reaches rather than the period configured beside it | none: off, which is the posture that leaves a receipt the configured period still covers in the file | the operator's to declare | `gateway/src/cli.ts` |
@@ -83,7 +84,7 @@ change to it is a change here too.
 | `DEFAULT_RATE` | `{ perMinute: 60, burst: 120 }` | What a credential record carrying no rate of its own is held to | shipped default | `gateway/src/access.ts` |
 | `REPLAY_WINDOW_SECONDS` | `900` | How long a credential and nonce pair is remembered as spent | shipped default | `gateway/src/access.ts` |
 | `REPLAY_MAX_ENTRIES` | `65_536` | How many spent pairs are remembered at once | shipped default | `gateway/src/access.ts` |
-| `MINIMUM_RETENTION_DAYS` | `184` | How long access log files are kept when no flag named a number | shipped default | `gateway/src/aclog.ts` |
+| `MINIMUM_RETENTION_DAYS` | `184` | How long access log files are kept when `--access-log-days` named no number, and the same 184 days the receipts store ages by when `--receipts-days` named no number: one shipped default reaching both windows, and in each case a number a run weighs against the period a deployment states in its own instruction record rather than a minimum it enforces | shipped default | `gateway/src/aclog.ts` |
 | `DEFAULT_INSTRUCTION_RECORD_PATH` | `'ashaveri-instruction-record.json'` | The file a run reads when the operator named no `--instruction-record`: one file in the directory the process starts in, reaching no other directory by itself. A deployment that keeps its statement elsewhere names it with the flag; a deployment that keeps none reads none, which is the state every deployment was already in, and the window then comes from the days flag or from `MINIMUM_RETENTION_DAYS` | shipped default | `gateway/src/instruction-record.ts` |
 | `MAX_ACCESS_FILE_BYTES` | `32 * 1024 * 1024` | The size one access log file reaches before the next day's part opens | shipped default | `gateway/src/aclog.ts` |
 | `DEFAULT_TIMEOUT_MS` | `30_000` | How long a guest agent call waits before the request behind it fails | shipped default | `gateway/src/guest.ts` |
@@ -95,12 +96,15 @@ change to it is a change here too.
 
 Bounds shipped in the same source, and holding whatever the operator named, are not fallbacks and so
 are not rows above: `MAX_CREDENTIALS`, `MAX_TRACKED_PEERS`, `MAX_BUFFERED_BODY`,
-`MAX_CACHED_EVIDENCE`, `MAX_REPORT_DATA_BYTES`, `FIRST_EVENT_TIMEOUT_MS` and
-`MINIMUM_RETENTION_SECONDS` each bound one behaviour, no flag reaches any of them, and the receipt
-store's own retention period is `MINIMUM_RETENTION_SECONDS` rather than a duration a deployment
-chooses per run. `SIDECAR_BLOCK_RECORDS` is a shipped bound of the same kind and the checkpoint
-cadence: the count of records a sidecar block indexes, read by the store's append and resume paths,
-and reached by no flag. The period a bounded record states is chosen per run, by
+`MAX_CACHED_EVIDENCE`, `MAX_REPORT_DATA_BYTES` and `FIRST_EVENT_TIMEOUT_MS` each bound one behaviour
+that no flag reaches. `MINIMUM_RETENTION_SECONDS` is the same kind of shipped number and the store
+package's own age bound, 184 days stated in seconds: it is the window a run ages by when `--receipts-days`
+names nothing, because that flag's default is the same 184 days held in whole days and converted to
+seconds at `gateway/src/duty-window.ts`. The receipts period is therefore a duration a deployment chooses
+per run, and this constant stays here rather than becoming a row above because the shipped code reads it in
+no defaulting position. `SIDECAR_BLOCK_RECORDS` is a shipped bound of the same
+kind and the checkpoint cadence: the count of records a sidecar block indexes, read by the store's append
+and resume paths, and reached by no flag. The period a bounded record states is chosen per run, by
 `--receipts-record-kind`, and it is a statement inside the record rather than a bound this process
 enforces.
 
