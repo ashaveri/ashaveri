@@ -38,6 +38,7 @@ import {
   HOST_CLOCK_SOURCE,
   openFileReceiptStore,
   openMemoryReceiptStore,
+  retentionBoundsFault,
   type ReceiptRecordKind,
   type ReceiptRetention,
   type ReceiptServing,
@@ -586,6 +587,14 @@ const time = HOST_CLOCK_SOURCE;
  */
 const retention: ReceiptRetention = { maxAgeSeconds: daysToSeconds(receiptsDays), maxCount: retainedReceipts, time };
 const serving: ReceiptServing = { maxServedReceipts: servedReceipts };
+// Both bounds are written into the store's own trim record, whose 4 byte fields saturate rather than
+// fail, so a number past that width is refused here as a usage line naming the flag that typed it rather
+// than filed as the ceiling and read back as a configuration nobody chose. The serving bound is not
+// checked, because nothing in the layout states it and a wider walk is answered in more batches.
+const boundsFault = retentionBoundsFault(retention);
+if (boundsFault !== undefined) {
+  fail(boundsFault);
+}
 /**
  * The guard's default threshold, in per cent of the durability bound: 100, the bound itself. That is
  * not a rounded number chosen for a banner, it is the one state the store already refuses to open at,

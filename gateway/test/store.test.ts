@@ -8,6 +8,7 @@ import {
   openFileReceiptStore,
   openMemoryReceiptStore,
   receiptsNeededForWindow,
+  retentionBoundsFault,
   RECEIPT_STORE_FILE,
   servedBatches,
   type ReceiptRecordKind,
@@ -1077,14 +1078,76 @@ describe('the window a store is configured to hold', () => {
     const dir = await emptyDir();
     const written = await openFileReceiptStore({
       dir,
-      retention: { maxAgeSeconds: FIVE_YEARS_SECONDS, maxCount: 1_000_000_000_000, time: fixedClock(() => STAMP + 10) },
+      // The widest bound the trim record can state, which is what "the burst cannot reach" means here
+      // now that a bound past the field's width is refused rather than silently rounded down.
+      retention: { maxAgeSeconds: FIVE_YEARS_SECONDS, maxCount: 4_294_967_295, time: fixedClock(() => STAMP + 10) },
     });
     await burst(written, FIXTURE_RECEIPTS);
     const reopened = await openFileReceiptStore({
       dir,
-      retention: { maxAgeSeconds: FIVE_YEARS_SECONDS, maxCount: 1_000_000_000_000, time: fixedClock(() => STAMP + 10) },
+      // The widest bound the trim record can state, which is what "the burst cannot reach" means here
+      // now that a bound past the field's width is refused rather than silently rounded down.
+      retention: { maxAgeSeconds: FIVE_YEARS_SECONDS, maxCount: 4_294_967_295, time: fixedClock(() => STAMP + 10) },
     });
     expect(await reopened.window()).toEqual({ from: STAMP, to: STAMP, count: FIXTURE_RECEIPTS });
+  });
+
+  /** The largest number the 4 byte field a trim record writes can carry. */
+  const WIDEST_BOUND = 4_294_967_295;
+
+  it('refuses to open on a bound its own trim record cannot state, and writes no file', async () => {
+    // `counter()` saturates rather than failing, so a bound above the field's width would be filed as
+    // 4,294,967,295 and read back as a number nobody set, beside a retention manifest that holds the
+    // true one. Refusing at the door is what keeps the two artifacts stating one configuration, and it
+    // happens before the file is read, so nothing is pruned or truncated by a doomed configuration.
+    for (const configured of [
+      { maxAgeSeconds: WIDEST_BOUND + 1, maxCount: 100 },
+      { maxAgeSeconds: FIVE_YEARS_SECONDS, maxCount: WIDEST_BOUND + 1 },
+      { maxAgeSeconds: WIDEST_BOUND + 1, maxCount: WIDEST_BOUND + 1 },
+    ]) {
+      const dir = await emptyDir();
+      const message = await openFileReceiptStore({
+        dir,
+        retention: { ...configured, time: fixedClock(() => STAMP) },
+      }).then(
+        () => 'opened, no refusal',
+        (error: unknown) => (error as Error).message,
+      );
+      expect(message).toContain('RETENTION_BOUND_OUT_OF_RANGE');
+      expect(message).toContain(String(WIDEST_BOUND));
+      expect(await readdir(dir), 'a refused configuration left no store behind').toEqual([]);
+    }
+  });
+
+  it('opens on a bound exactly at the width the trim record states', async () => {
+    // The line is drawn at what the field can carry, not below it: the widest honest bound still
+    // starts, and nothing about it is rounded.
+    const dir = await emptyDir();
+    const store = await openFileReceiptStore({
+      dir,
+      retention: { maxAgeSeconds: WIDEST_BOUND, maxCount: WIDEST_BOUND, time: fixedClock(() => STAMP) },
+    });
+    await store.put('r1', Uint8Array.from([1, 2, 3]), STAMP);
+    expect(await store.window()).toEqual({ from: STAMP, to: STAMP, count: 1 });
+  });
+
+  it('refuses the same bound to the in-process engine, which has no file to be gentle about', () => {
+    expect(() => openMemoryReceiptStore({ retention: { maxAgeSeconds: WIDEST_BOUND + 1 } })).toThrow(
+      /RETENTION_BOUND_OUT_OF_RANGE/,
+    );
+    expect(() => openMemoryReceiptStore({ retention: { maxCount: WIDEST_BOUND + 1 } })).toThrow(
+      /RETENTION_BOUND_OUT_OF_RANGE/,
+    );
+  });
+
+  it('names the fault the same way from either caller', () => {
+    // The CLI answers with this sentence and the store throws it, so one wording is the source and a
+    // reader cannot be told two things about one bound.
+    expect(retentionBoundsFault({ maxCount: WIDEST_BOUND + 1 })).toContain('--receipts-keep');
+    expect(retentionBoundsFault({ maxAgeSeconds: WIDEST_BOUND + 1 })).toContain('--receipts-days');
+    expect(retentionBoundsFault({ maxAgeSeconds: WIDEST_BOUND, maxCount: WIDEST_BOUND })).toBeUndefined();
+    expect(retentionBoundsFault({})).toBeUndefined();
+    expect(retentionBoundsFault(undefined)).toBeUndefined();
   });
 
   it('holds a window its bound does cover, on either side of the line', async () => {
@@ -1370,19 +1433,30 @@ describe('a five-year window at the traffic one address is held to', () => {
     // rather than in a number this case could have made up.
     expect(message).toContain('15776640001 receipts');
     expect(message).toContain('short by 15776639900 receipts');
+    // That shortfall is advice only while an operator can type the number, and this one cannot: the
+    // count the period takes is past the widest a 4 byte field states, so raising the bound to it meets
+    // `RETENTION_BOUND_OUT_OF_RANGE` on the next start. The refusal says so and states the period the
+    // ceiling does cover, which is the field's 4,294,967,295 minus the one receipt at the older edge,
+    // spread over the hundred gaps between a hundred and one receipts that share one instant.
+    expect(message).toContain('past 4294967295, the widest a trim record states');
+    expect(message).toContain('holds 42949672 seconds');
   });
 
-  it('states no durability bound above the four bytes a trim record has for it', async () => {
-    // Every whole number is accepted at `--receipts-keep`, so the count the refusal tells an operator
-    // to raise can be typed. What cannot be typed is the file's own account of it: a trim record states
-    // the policy a prefix retired under in 4 byte fields, and a count past the largest one of those is
-    // written down as that largest.
+  it('files the widest bound its trim record can state without rounding it down', async () => {
+    // A count past the field used to be written as the field's largest value, which is the silent clamp
+    // this change refuses at the door, so what is left to hold is the honest half: the widest bound that
+    // does open is filed as the number configured, and the record and the configuration agree. The
+    // arithmetic the clamp was witness to stays pinned here, because it is the reason the refusal above
+    // has to say what a ceiling covers: at a hundred receipts a second that ceiling is 497 days of
+    // retained traffic, the period under it reconciles with the count, the period a day past it does
+    // not, and five years is nowhere near either.
     const dir = await emptyDir();
     const needed = receiptsNeededForWindow(FIVE_YEAR_SECONDS, atRate(100));
     expect(needed).not.toBeNull();
+    expect(needed!).toBeGreaterThan(0xffffffff);
     const store = await openFileReceiptStore({
       dir,
-      retention: { maxAgeSeconds: 10, maxCount: needed ?? 0, time: fixedClock(() => STAMP + 100) },
+      retention: { maxAgeSeconds: 10, maxCount: 0xffffffff, time: fixedClock(() => STAMP + 100) },
     });
     await store.put(mintedId(0), RECEIPT, STAMP);
     await store.put(mintedId(1), RECEIPT, STAMP + 50);
@@ -1390,11 +1464,9 @@ describe('a five-year window at the traffic one address is held to', () => {
     expect(stated.byAge).toBe(1);
     expect(stated.maxAgeSeconds).toBe(10);
     expect(stated.maxCount).toBe(0xffffffff);
-    // The store's own reader reports the number off the record, not the number in the configuration.
+    // The store's own reader reports the same number the configuration holds, so neither artifact of this
+    // deployment states a bound the other cannot see.
     expect((await store.chainState()).retired.trims.at(-1)?.under.maxCount).toBe(0xffffffff);
-    // So the widest bound this format can state is a little over four billion receipts, and at one
-    // address's traffic that is 497 days of retained traffic: the period under it reconciles with the
-    // count, the period a day past it does not, and five years is nowhere near either.
     expect(receiptsNeededForWindow(daysToSeconds(497), atRate(100))).toBeLessThanOrEqual(stated.maxCount);
     expect(receiptsNeededForWindow(daysToSeconds(498), atRate(100))).toBeGreaterThan(stated.maxCount);
     expect(receiptsNeededForWindow(FIVE_YEAR_SECONDS, atRate(100))).toBeGreaterThan(stated.maxCount);

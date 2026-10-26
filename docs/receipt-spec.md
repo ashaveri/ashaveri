@@ -912,7 +912,12 @@ within the trim payload, counting from that payload's first byte:
 | `maxCount` | 44-47 | 4 |
 
 A bound of zero in a trim states that no such bound was configured, which a reader has to tell apart
-from a bound of one. A trim is not a link in the receipt chain: it precedes every receipt in the file
+from a bound of one. A store refuses to open on a configured bound wider than these four bytes carry,
+4294967295 at the widest, rather than filing the ceiling in its place, so a reader never meets a bound an
+operator never set. What that refusal does not reach is `byAge` and `byCount`: those state what one
+compaction reclaimed, and a compaction of more receipts than the field carries would file the ceiling.
+Totals across trims are summed by a reader rather than written through this field, so they are not
+narrowed by its width. A trim is not a link in the receipt chain: it precedes every receipt in the file
 and nowhere else, and a reader folding one into a recomputation as if it were a receipt has misread the
 frame, not found a broken chain.
 

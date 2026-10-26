@@ -1880,6 +1880,26 @@ describe('a volume whose receipts have to outlive the start', () => {
     }
   });
 
+  it('refuses a bound past the width the store can state, naming the flag that typed it', () => {
+    // The trim record's 4 byte field saturates, so a number above it cannot be filed honestly at all.
+    // The answer is the usage exit rather than a start-up crash: the operator typed the figure, and the
+    // sentence has to say which flag and what the largest admissible number is.
+    const tooWide = '4294967296';
+    const keep = run('--mock', '--port', '0', '--receipts-keep', tooWide);
+    expect(keep.status, keep.stderr).toBe(2);
+    expect(keep.stderr).toContain('--receipts-keep');
+    expect(keep.stderr).toContain('4294967295');
+    expect(keep.stdout, 'a refused bound printed no banner').not.toContain('listening on');
+
+    // 50,000 whole days is 4,320,000,000 seconds, past the field; the day count is where an operator
+    // reaches the same fault without typing a second count at all.
+    const days = run('--mock', '--port', '0', '--receipts-days', '50000');
+    expect(days.status, days.stderr).toBe(2);
+    expect(days.stderr).toContain('--receipts-days');
+    expect(days.stderr).toContain('4294967295');
+    expect(days.stdout, 'a refused period printed no banner').not.toContain('listening on');
+  });
+
   /** Five years of whole days, leap day included: the shortest spelling the period flag can state. */
   const FIVE_YEAR_DAYS = 1826;
 
@@ -1916,16 +1936,18 @@ describe('a volume whose receipts have to outlive the start', () => {
     bootBudget(1) + SHIPPED_RECEIPT_BOUND,
   );
 
-  it('accepts a durability bound that size on the command line, which is where the reachability ends', async () => {
-    const dir = join(tempDir, 'window-five-years-taken');
+  it('refuses the count its own unholdable window tells an operator to configure', () => {
+    const dir = join(tempDir, 'window-five-years-dead-end');
     mkdirSync(dir);
-    // A volume nowhere near the bound, so this start is not refused and the banner is readable. The
-    // count is the one the case above derived, and the flag takes it: no parse in this CLI turns an
-    // operator away from a durability bound of fifteen billion receipts. What does not follow is that
-    // the volume can say so, which `test/store.test.ts` holds against the bytes a retirement writes.
+    // A volume nowhere near the bound, so this start is not refusing its own traffic. The count is the
+    // one the case above prints as the number to raise `--receipts-keep` to, and it is past the width a
+    // trim record states a durability bound in, so the two refusals together are one dead end: five
+    // years at this traffic has no configured count that starts. That is what this case exists to say,
+    // because a message advising a number the next message refuses is worse than a refusal that names
+    // its own ceiling, which is the clause the unholdable sentence now carries.
     writeHeldStore(dir, 200, 100);
 
-    const banner = await readBanner(
+    const result = run(
       '--mock',
       '--port',
       '0',
@@ -1936,11 +1958,10 @@ describe('a volume whose receipts have to outlive the start', () => {
       '--receipts-keep',
       '15934406401',
     );
-    const printed = banner.join('\n');
-    const line = banner.find((each) => each.startsWith('  receipts kept in '));
-    expect(line, `no receipts line; stdout held ${JSON.stringify(printed)}`).toContain(dir);
-    expect(line, printed).toContain('a period of 1826 days');
-    expect(line, printed).toContain('a durability bound of 15934406401 receipts');
+    expect(result.status, result.stderr).toBe(2);
+    expect(result.stderr).toContain('--receipts-keep');
+    expect(result.stderr).toContain('4294967295');
+    expect(result.stdout, 'a refused bound printed no banner').not.toContain('listening on');
   });
 });
 
