@@ -819,10 +819,22 @@ where it ties back to the log, which the opening checks
 by reading the prefix's trim records from the log and hashing the record the checkpoint ends on as though
 it were about to serve it, and it is discarded and rewritten from the log at any disagreement. It can be
 declined outright by `sidecarIndex: false`, and no byte of it enters the framing below. A third file
-beside the log, `receipts.log.owner` (`RECEIPT_OWNER_FILE` in the same module), is one process's claim
-on the directory and carries no receipt byte: an opening refuses a directory a live process has already
-claimed, before it reads the log, and a claim whose holder has exited is taken over with the displaced
-claim left beside it as `receipts.log.owner.stale`. No byte of either enters the framing below.
+beside the log, `receipts.log.owner` (`RECEIPT_OWNER_FILE` in the same module), is one process's claim on the
+directory and carries no receipt byte. The claim is taken before the log is opened, because an opening prunes
+what has aged out and pruning is writing, so a second process finds the directory held rather than finding a
+log it has already moved: the refusal is `STORE_DIRECTORY_OWNED`, and it names the file it read and the holder
+it found there, by process id and by host. Where a claim is present and states no holder this process can
+establish, the answer is `STORE_OWNER_UNCLEAR` rather than a takeover, because a claim overwritten on a guess
+is the same fork the claim exists to keep out, and that code's row in [error-codes.md](error-codes.md)
+enumerates what counts as no holder. A claim whose holder has exited on this host is taken over, with the
+displaced claim left beside it as `receipts.log.owner.stale`. The claim is a name on the volume, not a handle
+held open for the life of a process: a store puts its append handle and its read handles down once it goes
+quiet, which is what keeps a rename over the path possible from outside the process, and while the store is
+idle that name is the whole witness of who holds the directory. Every program that opens a receipt store
+directory goes through this opening, so the sealing tool and the export tool run against a directory no
+gateway is holding, or against a copy of one. An operator met by either refusal confirms that nothing is
+serving the directory, then removes the named file, and the next opening claims it. No byte of the claim or of
+the displaced claim enters the framing below.
 
 **What one store costs to write, and what it costs to read.** These are one measurement of this module's
 compiled store, `gateway/dist/store.js`, on one host, and they belong beside the durability and serving bounds
