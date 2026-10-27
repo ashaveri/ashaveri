@@ -8,7 +8,7 @@ import {
   type MarkingScheme,
   type TeeKind,
 } from '@ashaveri/receipt';
-import { buildGateway } from './server.js';
+import { buildGateway, DEFAULT_COMPLETION_RATE } from './server.js';
 import {
   AccessError,
   CredentialStore,
@@ -236,6 +236,22 @@ Options:
                                    of 60 a minute are 900 a minute down one proxy. No flag takes the
                                    bound off, and a large number is the off switch; the start-up report
                                    prints whichever number this process is holding.
+  --completion-rate perMinute=<n>,burst=<n>
+                                   How many completions this process admits across the whole deployment per
+                                   minute, and how many of those at once, before any inference is run. Every
+                                   credential and every address spends from this one bucket, so it is the
+                                   deployment's own ceiling rather than a per-client one, and it is stated in
+                                   the same two fields as --peer-rate so the two can be read against each
+                                   other. Default: perMinute=13636,burst=227, which is this build's measured
+                                   write ceiling of one receipt every 4.40 milliseconds at 20,000 retained:
+                                   60,000 divided by that is 13,636.36 and 1,000 divided by it is 227.27,
+                                   and each taken down to a whole completion is the pair above. Against
+                                   6,000 a minute from one address it says that 2.27 busy addresses are what
+                                   one process can write for. A completion past the bound is refused
+                                   DEPLOYMENT_RATE_LIMITED with a 429 and the wait to the next token, and no
+                                   receipt is issued for it. No flag takes the bound off, and a large number
+                                   is the off switch; the start-up report prints whichever number this
+                                   process is holding, and each process holds its own counter.
   --help                           Print this help.`;
 
 /**
@@ -280,6 +296,7 @@ interface CliOptions {
   readonly 'allow-bearer'?: boolean;
   readonly 'pop-tolerance'?: string;
   readonly 'peer-rate'?: string;
+  readonly 'completion-rate'?: string;
 }
 
 function fail(message: string): never {
@@ -320,33 +337,42 @@ function rateField(raw: string | undefined, flag: string, unit: string): number 
 }
 
 /**
- * `--peer-rate perMinute=<n>,burst=<n>`: the bound one connection address is held to ahead of every
- * credential, in the two fields a credential's own rate uses and held to the same rule, a whole number of
- * at least one. Both halves are required because the pair is one decision, an unknown name is refused
- * because a flag that quietly ignored a misspelling would report a bound the process is not running, and
- * there is deliberately no spelling here that turns the bound off: the off switch is a number large
- * enough to never be reached, and it says so in the banner.
+ * The two fields a rate flag carries, read the one way wherever they are set: the bound one connection
+ * address is held to and the bound one process is held to are the same pair of numbers in the same units,
+ * so they are refused by the same rule and an operator moving between the two flags meets one spelling.
+ * Both halves are required because the pair is one decision, an unknown name is refused because a flag that
+ * quietly ignored a misspelling would report a bound the process is not running, and there is deliberately
+ * no spelling here that turns either bound off: the off switch is a number large enough to never be
+ * reached, and it says so in the banner.
  */
-function parsePeerRate(raw: string | undefined): CredentialRate {
-  if (raw === undefined) return DEFAULT_PEER_RATE;
+function parseRate(
+  raw: string | undefined,
+  flag: string,
+  fallback: CredentialRate,
+  units: { readonly perMinute: string; readonly burst: string },
+): CredentialRate {
+  if (raw === undefined) return fallback;
   const given = new Map<string, string>();
   for (const piece of raw.split(',')) {
     const at = piece.indexOf('=');
     const name = at === -1 ? '' : piece.slice(0, at);
     if (at === -1 || !(RATE_FIELDS as readonly string[]).includes(name)) {
-      fail(`--peer-rate wants ${WANTED_RATE}, got '${raw}': '${piece}' is not one of those two fields`);
+      fail(`--${flag} wants ${WANTED_RATE}, got '${raw}': '${piece}' is not one of those two fields`);
     }
-    if (given.has(name)) fail(`--peer-rate wants ${WANTED_RATE}, got '${raw}': ${name} is given twice`);
+    if (given.has(name)) fail(`--${flag} wants ${WANTED_RATE}, got '${raw}': ${name} is given twice`);
     given.set(name, piece.slice(at + 1));
   }
   for (const name of RATE_FIELDS) {
-    if (!given.has(name)) fail(`--peer-rate wants ${WANTED_RATE}, got '${raw}': ${name} is missing`);
+    if (!given.has(name)) fail(`--${flag} wants ${WANTED_RATE}, got '${raw}': ${name} is missing`);
   }
   return {
-    perMinute: rateField(given.get('perMinute'), 'peer-rate perMinute', 'requests a minute'),
-    burst: rateField(given.get('burst'), 'peer-rate burst', 'requests at once'),
+    perMinute: rateField(given.get('perMinute'), `${flag} perMinute`, units.perMinute),
+    burst: rateField(given.get('burst'), `${flag} burst`, units.burst),
   };
 }
+
+const PEER_RATE_UNITS = { perMinute: 'requests a minute', burst: 'requests at once' } as const;
+const COMPLETION_RATE_UNITS = { perMinute: 'completions a minute', burst: 'completions at once' } as const;
 
 let values: CliOptions;
 try {
@@ -385,6 +411,7 @@ try {
       'allow-bearer': { type: 'boolean' },
       'pop-tolerance': { type: 'string' },
       'peer-rate': { type: 'string' },
+      'completion-rate': { type: 'string' },
     },
   }).values;
 } catch (error) {
@@ -695,8 +722,18 @@ const toleranceSeconds = wholeNumber(
   'seconds',
   POP_TIMESTAMP_TOLERANCE_SECONDS,
 );
-const peerRate = parsePeerRate(values['peer-rate']);
+const peerRate = parseRate(values['peer-rate'], 'peer-rate', DEFAULT_PEER_RATE, PEER_RATE_UNITS);
 const peerRateGiven = values['peer-rate'] !== undefined;
+// The deployment's own ceiling on the completions this process admits, read the same way and in the same
+// two fields, because the two bounds are meant to be compared: what one address may ask for, and what this
+// process may write. The flag names the pair or the shipped measured ceiling decides it.
+const completionRate = parseRate(
+  values['completion-rate'],
+  'completion-rate',
+  DEFAULT_COMPLETION_RATE,
+  COMPLETION_RATE_UNITS,
+);
+const completionRateGiven = values['completion-rate'] !== undefined;
 // `accessLogDays` is read above, beside the instruction record it is weighed against, so the number the
 // log opens with and the number the start-up report prints are one reading of one flag.
 const devCredential =
@@ -819,6 +856,7 @@ const app = buildGateway({
     refusesAtFraction: guardAtPercent / GUARD_AT_BOUND_ITSELF_PERCENT,
     growPastGuard,
   },
+  completionBound: { rate: completionRate },
 });
 await app.listen({ port, host });
 // One decision about the run's mode, read by both lines that describe it below, so neither can claim
@@ -913,6 +951,15 @@ const rateLabel =
   `rate limits: ${String(peerRate.perMinute)} requests a minute and ${String(peerRate.burst)} at once per connection address, ` +
   `taken ahead of every credential check, ${peerRateGiven ? 'from --peer-rate' : 'the default'}; ` +
   `a credential with no rate in its record holds ${String(DEFAULT_RATE.perMinute)} a minute and ${String(DEFAULT_RATE.burst)} at once`;
+// The ceiling on what this process can write, printed beside the two bounds a request spends because it is
+// the third of the three and the only one measured against the volume rather than against a caller. An
+// operator who has to know whether the deployment is bigger than one process reads this line and the one
+// above it together.
+const completionBoundLabel =
+  `completion bound: ${String(completionRate.perMinute)} completions a minute across this process and ` +
+  `${String(completionRate.burst)} at once, refused DEPLOYMENT_RATE_LIMITED before any inference is run, ` +
+  `${completionRateGiven ? 'from --completion-rate' : 'the measured write ceiling this repository ships'}; ` +
+  `one process holds one counter, so a deployment running more than this one admits this much on each of them`;
 // The manifest's posture is reported as this process actually serves it, because the two states mean
 // different things to whoever is standing at the other end of the deployment: a sealed document is one
 // a client can attribute to this deployment, and a plain one is a claim a client has to treat as
@@ -933,6 +980,7 @@ const lines: string[] = [
     ? '  auth: bearer credentials also accepted, which is a refusal of the strongest posture here: a stolen bearer credential is undetectable, and a log record cannot tell its holder from a thief'
     : `  auth: proof of possession, timestamps trusted within ${String(toleranceSeconds)} seconds; bearer credentials refused`,
   `  ${rateLabel}`,
+  `  ${completionBoundLabel}`,
   `  ${credentialsLabel}`,
   `  ${logLabel}`,
   `  ${instructionLabel}`,

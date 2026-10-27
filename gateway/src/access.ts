@@ -50,17 +50,25 @@ export type AccessErrorCode =
   // into one that can. A caller that needs the receipt has to go elsewhere, and a caller that does
   // not has to know that this answer arrived without one, so both need a code to branch on that is
   // not the one a retry clears. That is a fact a response can carry and no log line can deliver.
-  | 'RECEIPT_WINDOW_UNHOLDABLE';
+  | 'RECEIPT_WINDOW_UNHOLDABLE'
+  // A third bucket, and the reason it is not folded into `RATE_LIMITED` is the reason the two rate buckets
+  // above are folded together. Those two answers are one because a caller holds the fix for each of them,
+  // and only the deployer's repair separates them. This one is a statement about the capacity of the whole
+  // deployment rather than about a caller's spend: no other credential and no different address clears it,
+  // and a caller that retried on the hint a rate refusal carries would be asking a process that has already
+  // said it cannot write a receipt this fast. The quantity is completions a minute for this process, in the
+  // unit the per-address bound is stated in, so the two read against each other.
+  | 'DEPLOYMENT_RATE_LIMITED';
 
 /**
  * What the access log records: every code a caller can be told, plus the reasons that never leave this
  * process. `AccessErrorCode` has three things keyed on it, `ERROR_STATUS` and `ERROR_MESSAGE` below and
  * the caller-facing table `docs/error-codes.md` holds row for row, so a reason only the deployer ever
  * reads gets a type of its own rather than a status it never answers with and a sentence no caller is
- * ever told. Nothing here keeps such a reason out of a response, and `server.ts` says what does. One
- * member of `AccessErrorCode`, `RECEIPT_WINDOW_UNHOLDABLE`, was offered this tail and refused it for
- * the reason written on its declaration: its caller's action changes with the reason, so it belongs
- * to the answer and not only to the record.
+ * ever told. Nothing here keeps such a reason out of a response, and `server.ts` says what does. Two
+ * members of `AccessErrorCode`, `RECEIPT_WINDOW_UNHOLDABLE` and `DEPLOYMENT_RATE_LIMITED`, were offered
+ * this tail and refused it for the reason written on each declaration: their caller's action changes with
+ * the reason, so they belong to the answer and not only to the record.
  */
 export type DenyCode = AccessErrorCode | 'PEER_RATE_LIMITED';
 
@@ -82,13 +90,19 @@ const ERROR_STATUS: Record<AccessErrorCode, number> = {
   // than as a verdict on these bytes, because it is arithmetic on a measured rate: issuance falling
   // below the rate the bound cannot hold widens the retained span on its own, and the next request
   // after that is served. A wait figure is withheld because the only honest one is when this
-  // deployment's traffic drops under that rate, which this process cannot observe; the two bucket
-  // refusals are the only answers with a refill time to name, and this adds no third. No 5xx is
+  // deployment's traffic drops under that rate, which this process cannot observe; the three bucket
+  // refusals are the only answers with a refill time to name, and this adds no fourth. No 5xx is
   // available to a code a request is answered with: this union's 500s are, by the map above and by the
   // tables in both documents, the credential-file refusals no request receives, and a server-fault
   // status here would tell an operator their installation is broken when what is short is a number
   // they chose, and tell the caller nothing it can act on.
   RECEIPT_WINDOW_UNHOLDABLE: 429,
+  // 429 again, and this one does carry a `retry-after`, because the condition is a bucket and a bucket
+  // refills on arithmetic this process can see. The wait is the time to the next token at the rate the
+  // operator set, which is why the refusal states that rate beside it: a caller told to come back in
+  // seconds, on a bound the deployment set for its own write ceiling, needs to know which of the two
+  // numbers moved.
+  DEPLOYMENT_RATE_LIMITED: 429,
 };
 
 const ERROR_MESSAGE: Record<AccessErrorCode, string> = {
@@ -112,6 +126,10 @@ const ERROR_MESSAGE: Record<AccessErrorCode, string> = {
   // decide it, because a refusal that named none of them would read to an operator as a wall rather
   // than as a pairing, and the whole point of the answer is which of the two configured numbers moves.
   RECEIPT_WINDOW_UNHOLDABLE: 'this deployment is not issuing a receipt it cannot keep for the period it configured',
+  // The same discipline as the row above: this half says what this gateway will not do, and the raise site
+  // in `server.ts` appends the two configured numbers and the wait, because a refusal that named none of
+  // them would read as a wall rather than as a number an operator can move.
+  DEPLOYMENT_RATE_LIMITED: 'this deployment admits no completion past the rate it sets for itself',
 };
 
 /**
@@ -120,9 +138,11 @@ const ERROR_MESSAGE: Record<AccessErrorCode, string> = {
  * usable credential is a 401, because retrying a different route changes nothing; a credential
  * that is valid but lacks the scope the route asks for is a 403; a replayed nonce is a 409,
  * which the client clears by sending a fresh request; a rate limit is a 429 that pairs with
- * `retryAfterSeconds`, and the other 429 set below is the durability guard at admission, which is
- * answered a 429 for the same "come back once this clears" reason and carries no wait figure at
- * all. The credential-file codes are 500s: the file the operator installed is
+ * `retryAfterSeconds`, and the two 429s set below are the checks taken at admission on the deployment
+ * rather than on a caller's own spend: the durability guard carries no wait figure at all, because the only
+ * wait that clears it is a fall in traffic this process cannot see, and the completion bound is a bucket
+ * like the two above it and so carries the seconds to its next token. The credential-file codes are 500s:
+ * the file the operator installed is
  * what is broken, and no header a client sends can fix it.
  */
 export function accessStatus(code: AccessErrorCode): number {
@@ -157,7 +177,7 @@ export class AccessError extends Error {
   readonly logCode: DenyCode;
   readonly status: number;
   /**
-   * How long a caller should wait before trying again, in seconds. Only the two rate refusals set it,
+   * How long a caller should wait before trying again, in seconds. Only the three bucket refusals set it,
    * and the transport turns a present value into a `retry-after` header and nothing else.
    */
   readonly retryAfterSeconds: number | undefined;

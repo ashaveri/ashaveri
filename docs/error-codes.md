@@ -1,7 +1,7 @@
 # Error codes
 
 Every error code this workspace raises, what condition raises it, and what a caller should do
-about it. There are 219 declarations across eight unions, resolving to 217 distinct strings;
+about it. There are 220 declarations across eight unions, resolving to 218 distinct strings;
 `UNSUPPORTED_PLATFORM` and `UNSUPPORTED_VERSION` are the two strings two unions share, and the last
 section says why those pairs are deliberate while every other overlap is not.
 
@@ -27,7 +27,7 @@ The eight unions:
 | `GuestErrorCode` | `@ashaveri/signerd` | The guest agent socket inside the confidential VM |
 | `DstackErrorCode` | `@ashaveri/signerd` | Gateway startup: the deployment's own evidence, identity and device claim |
 | `StoreErrorCode` | `@ashaveri/signerd` | The receipt store file on the deployment's volume |
-| `AccessErrorCode` | `@ashaveri/signerd` | Admission of one request: proof of possession, replay, scope, rate limit, the durability guard read on a completion ahead of any inference, and the credential file those checks read, which is refused at start-up and on reload rather than by a request |
+| `AccessErrorCode` | `@ashaveri/signerd` | Admission of one request: proof of possession, replay, scope, rate limit, the durability guard read on a completion ahead of any inference, the completion bound the process holds itself to behind that guard, and the credential file those checks read, which is refused at start-up and on reload rather than by a request |
 | `CollateralErrorCode` | `@ashaveri/collateral` | The vendor's own statement about a platform: the path it was asked over, the size and shape of the answer, the signature and the chain that presents it, the window it speaks for, and the identity and level it was read for |
 
 ## `ReceiptErrorCode`
@@ -279,15 +279,16 @@ What `CredentialStore.admit` answers a request with, what the gateway answers a 
 when its own store cannot keep the receipt it would issue, and what the store answers where its
 records enter it. The checks run in order: the header the caller wrote, the proof of possession,
 then what the file says about a credential that proved it, then the route's scope, then the rate
-bucket, and behind all five the durability guard, which reads the retained set rather than anything
-the caller sent. The order is part of the meaning, because a request that fails two checks gets the
-earlier code, and it sorts by what an answer discloses rather than by what a check costs: the
-answers that depend on the credential file are given after a signature verifies, so a revoked
-credential produces a signature before it is told it is revoked, while a credential with no scope
-for the route never spends a token. `docs/access-control.md` section 1 states the rule the ordering
-comes from. Codes after the first three are 401, 403, 409 or 429 on the request that earned them;
-the credential-file codes are 500s no request receives, because what is broken is the file the
-operator installed and no header a client sends can fix it.
+bucket, and behind all five the durability guard, which reads the retained set rather than
+anything the caller sent, and behind that the completion bound, which reads this process's own
+counter and nothing a caller sent either. The order is part of the meaning, because a request that
+fails two checks gets the earlier code, and it sorts by what an answer discloses rather than by what
+a check costs: the answers that depend on the credential file are given after a signature verifies,
+so a revoked credential produces a signature before it is told it is revoked, while a credential
+with no scope for the route never spends a token. `docs/access-control.md` section 1 states the rule
+the ordering comes from. Codes after the first three are 401, 403, 409 or 429 on the request that
+earned them; the credential-file codes are 500s no request receives, because what is broken is the
+file the operator installed and no header a client sends can fix it.
 
 | Code | Union | Raised when | What the caller does | Verdict |
 |---|---|---|---|---|
@@ -305,6 +306,7 @@ operator installed and no header a client sends can fix it.
 | `SCOPE_DENIED` | `AccessErrorCode` | The route requires a scope the credential does not carry, or the target is not in the route table at all, which is a refusal rather than a route that needs nothing | Use a credential that holds the scope, or ask the operator to scope the route. This answer takes no token from the credential's own bucket, though the connection's bound was charged before it was decided | terminal |
 | `RATE_LIMITED` | `AccessErrorCode` | One of two buckets is empty. The credential's own: it is over the `perMinute` it is held to, past its `burst`. Or the connection address the request arrived on has spent the request bound taken ahead of every credential check, which is refused without the header being read and so on a name the file does not hold as on one it does. The message says which of the two fired, and `retryAfterSeconds` says when the next token appears, never less than one. The access log separates them by reason, and that separation adds no row to this table: the credential's bucket writes `RATE_LIMITED` to the deployer's `deny` field and the connection's bound writes `PEER_RATE_LIMITED`, which is what this gateway decided and never what a caller is told | Wait the stated seconds, then send a new request. Splitting one workload across credentials is a deployment decision, not a client fix, and it is no fix at all for the connection's bucket: waiting refills that one, and an operator raises it with `--peer-rate` | retryable |
 | `RECEIPT_WINDOW_UNHOLDABLE` | `AccessErrorCode` | The receipt store's retained set has reached the configured fraction of the durability bound, and the period configured beside that bound cannot be held at the rate the store's own retained stamps measure, so issuing this completion would retire a receipt the period still covers. Read behind all five admission checks and ahead of the upstream call, on a route that issues a receipt: it decides nothing about a credential, and reads nothing a caller sent. Three states the store's opening refusal also respects keep it silent, so a quiet deployment does not start refusing. A policy bounded on one side only is not a pairing and is never asked. A retained set below its threshold is shedding nothing, however little it has issued. A store at its bound whose stamps already span the configured period is holding what it asked for at the traffic it carries. And fewer than two retained receipts have measured no rate to refuse by. The threshold is `--receipts-guard-at`, it defaults to the bound itself, which is the state a store already refuses to open at, and `--receipts-grow-past-guard` is the named decision to keep issuing and meet the shortfall inside a write | Wait, and expect nothing to change on a deployment at its bound: this is not a bucket refilling, and the answer carries no `retry-after` because the only wait that clears it is this deployment's issuance falling below the rate its bound cannot hold, which no process can see coming. The message names the retained set, the bound, the period and the count that period takes, so the number to raise is readable off the line. A caller that needs the receipt has to take it from a deployment that can keep it, because this one is declining to issue rather than answering without one | retryable |
+| `DEPLOYMENT_RATE_LIMITED` | `AccessErrorCode` | This process has admitted as many completions as it configures itself to take, so the request is refused ahead of the upstream call and no receipt is issued for it. The bound is one counter held on the process rather than on a caller, read behind all five checks and behind the durability guard, on the one route that issues a receipt: it names no credential and reads nothing a caller sent, so it answers one admitted caller as it answers the next. Its shipped value is this build's measured write ceiling stated as a rate, 13,636 completions a minute with 227 taken at once, which is 2.27 of the requests one connection address is held to and says what one process can write for. `--completion-rate` sets it, and no value removes it, and a deployment running more than one process holds one counter on each of them | Wait the `retry-after` the answer carries: unlike the guard's 429 this is a bucket, and a bucket refills at the rate the operator set. Nothing else a caller holds changes it, because another credential spends from the same counter and so does another address. A deployment that needs more traffic served raises the bound beside the measurement it came from, or serves it from a second process, and the access log's `deny` field says which of the three buckets answered | retryable |
 
 ## `CollateralErrorCode`
 

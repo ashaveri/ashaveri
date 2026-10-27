@@ -310,6 +310,9 @@ describe('the status a refusal answers with', () => {
     // traffic this process cannot see. Its row in `test/intake-guard.test.ts` is what holds the
     // absence of the header.
     RECEIPT_WINDOW_UNHOLDABLE: 429,
+    // A third 429, and the one that does carry a `retry-after`: this refusal is a bucket, and a bucket
+    // knows when its next token appears. Its row in `test/completion-bound.test.ts` holds the header.
+    DEPLOYMENT_RATE_LIMITED: 429,
   } satisfies Record<AccessErrorCode, number>;
 
   type StatusRow = readonly [code: AccessErrorCode, status: number];
