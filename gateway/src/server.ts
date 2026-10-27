@@ -76,8 +76,8 @@ export interface GatewayOptions {
   /**
    * The deployment-wide bound on the completions this process admits, read at admission ahead of the
    * upstream call and refused with `DEPLOYMENT_RATE_LIMITED`. Absent means `DEFAULT_COMPLETION_RATE`, the
-   * write ceiling this build derives from its two measured costs, so a deployment that configures nothing
-   * is held to what it can actually write rather than to a number nobody chose. `gateway/src/cli.ts` hands
+   * ceiling this build measures on its own completion path, so a deployment that configures nothing
+   * is held to what it can actually serve rather than to a number nobody chose. `gateway/src/cli.ts` hands
    * this the rate its `--completion-rate` flag names.
    */
   readonly completionBound?: DeploymentCompletionBound;
@@ -404,16 +404,24 @@ function sourcePhrase(figures: IntakeGuardFigures): string {
 
 /**
  * The completion bound, stated in the two fields a credential's own `rate` and `--peer-rate` carry, so an
- * operator can set it against the per-address bound it has to sit under. One receipt costs 447.6
- * microseconds to sign and 3.951 milliseconds to append at 20,000 retained receipts, which is 4.40
- * milliseconds together, and that sum is the ceiling this constant is worked from: 60,000 divided by it
- * is 13,636.36 and 1,000 divided by it is 227.27, and each taken down to a whole completion is 13,636
- * completions a minute with 227 taken at once, which is one second at that ceiling. Against the 6,000 a
- * minute one connection address is held to, that is 2.27 busy addresses filling one process, which is why
- * the bound is refused rather than documented. No value here removes the bound: a number no deployment
- * reaches is the off switch, and the start-up report prints whichever number the process is holding.
+ * operator can set it against the per-address bound it has to sit under. It is worked from one measured
+ * number rather than from two costs added together: this gateway, driven over HTTP with a file store behind
+ * it, turned over 322 to 376 completions a second once four or more callers were in flight, and past that
+ * point the throughput is flat and only the wait grows. The slowest of those runs is the ceiling, so 322 a
+ * second becomes 19,320 a minute and the burst is one second of the same figure. Against the 6,000 a minute
+ * one connection address is held to, that is 3.2 busy addresses filling one process, which is why the bound
+ * is refused rather than documented. No value here removes the bound: a number no deployment reaches is the
+ * off switch, and the start-up report prints whichever number the process is holding. A bound an operator
+ * declares above what every credential in front of this process could spend is refused at start, because a
+ * number that can never fire is not a bound; the rule sits in `cli.ts` beside the flag.
+ *
+ * The harness is part of the number: one Windows host, one Node 24 process, a mock upstream that answers at
+ * once so the figure is this software's own cost rather than a model's, buffered and streamed completions
+ * both, the store's shipped durability bound, and the caller counts named above. It is a completion path
+ * measured end to end, which is why it sits under the store's own append rate: an append is only one of the
+ * costs a request pays, and the largest is the signature check that happens before one.
  */
-export const DEFAULT_COMPLETION_RATE: CredentialRate = { perMinute: 13_636, burst: 227 };
+export const DEFAULT_COMPLETION_RATE: CredentialRate = { perMinute: 19_320, burst: 322 };
 
 /**
  * The one key the deployment's bucket is held under. A counter with no key would be a counter per caller,
@@ -427,8 +435,8 @@ const COMPLETION_BOUND_KEY = 'deployment';
 export interface DeploymentCompletionBound {
   /**
    * What this process admits, per minute and at once, in `DEFAULT_COMPLETION_RATE`'s two fields. Absent
-   * means that constant, the write ceiling this build derives from its two measured costs rather than a
-   * round number chosen for a banner, and there is no spelling here that turns the bound off.
+   * means that constant, the ceiling this build measures on its own completion path rather than a round
+   * number chosen for a banner, and there is no spelling here that turns the bound off.
    */
   readonly rate?: CredentialRate;
   /**

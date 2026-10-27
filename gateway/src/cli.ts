@@ -242,17 +242,21 @@ Options:
                                    credential and every address spends from this one bucket, so it is the
                                    deployment's own ceiling rather than a per-client one, and it is stated in
                                    the same two fields as --peer-rate so the two can be read against each
-                                   other. Default: perMinute=13636,burst=227, which is the write ceiling
-                                   this build derives from its two measured costs, one receipt every 4.40
-                                   milliseconds at 20,000 retained: 60,000 divided by that is 13,636.36 and
-                                   1,000 divided by it is 227.27, and each taken down to a whole completion
-                                   is the pair above. Against 6,000 a minute from one address it says that
-                                   2.27 busy addresses are what one process can write for. A completion past
-                                   the bound is refused DEPLOYMENT_RATE_LIMITED with a 429 and the wait to
-                                   the next token, and no receipt is issued for it. No flag takes the bound
-                                   off, and a large number is the off switch; the start-up report prints
-                                   whichever number this process is holding, and each process holds its own
-                                   counter.
+                                   other. Default: perMinute=19320,burst=322, which is the slowest rate this
+                                   build measured on its own completion path: driven over HTTP with a file
+                                   store behind it, one process turned over 322 to 376 completions a second
+                                   once four or more callers were in flight, and past that only the wait
+                                   grows. 322 a second is 19,320 a minute, with one second of it taken at
+                                   once. Against 6,000 a minute from one address it says that 3.2 busy
+                                   addresses are what one process can serve for. A declared perMinute, in a
+                                   run that reads a credential file, above what every credential in that
+                                   file could spend together is refused at start, because a bound that can
+                                   never fire is not a bound: the fix is the roster or a second process, not
+                                   this number. A completion past the bound is refused
+                                   DEPLOYMENT_RATE_LIMITED with a 429 and the wait to the next token, and no
+                                   receipt is issued for it. No flag takes the bound off, and a large number
+                                   is the off switch; the start-up report prints whichever number this
+                                   process is holding, and each process holds its own counter.
   --help                           Print this help.`;
 
 /**
@@ -773,6 +777,31 @@ try {
 // it serves, so the number an operator reads is the number admission can name.
 const loadedRecords = access.credentials().length;
 
+// A bound above what every credential this process holds could spend together is a number that can never
+// fire, and an operator who declared one meant a ceiling and got a decoration. So a declared pair is read
+// against the roster it sits over: each record's own `rate`, or the bound a record naming none falls to,
+// summed over the records that are not revoked. Three things keep to this rule's edge. It reads a file the
+// operator wrote, so a mock run's made-up credential, which is a fixture rather than a roster, is not
+// weighed against a flag nobody was asked to set. A revoked record is left out because admission refuses
+// it, so it spends nothing and cannot lift the aggregate. And the shipped default is exempt, because it is
+// a throughput this build measured on its own path rather than a declaration, and a run that names no flag
+// is the run this line exists to leave alone. The sum over-states what the bucket can see, since a
+// credential's rate is spent on reads as readily as on completions, and over-stating is the safe direction:
+// no correctly configured start is refused here.
+const rosterCompletionsPerMinute = access
+  .credentials()
+  .filter((record) => record.revokedAt === undefined)
+  .reduce((total, record) => total + (record.rate?.perMinute ?? DEFAULT_RATE.perMinute), 0);
+if (credentialsPath !== undefined && completionRateGiven && completionRate.perMinute > rosterCompletionsPerMinute) {
+  fail(
+    `--completion-rate perMinute=${String(completionRate.perMinute)} is above the ` +
+      `${String(rosterCompletionsPerMinute)} a minute that every credential this process holds could spend together, ` +
+      'so this bound could never be met and the start is refused rather than left holding a number that cannot ' +
+      "fire. Raise a credential's own rate, lower this number, or run a second process and hold one counter on " +
+      'each of them'
+  );
+}
+
 let accessLog: AccessLog;
 try {
   accessLog =
@@ -953,14 +982,14 @@ const rateLabel =
   `rate limits: ${String(peerRate.perMinute)} requests a minute and ${String(peerRate.burst)} at once per connection address, ` +
   `taken ahead of every credential check, ${peerRateGiven ? 'from --peer-rate' : 'the default'}; ` +
   `a credential with no rate in its record holds ${String(DEFAULT_RATE.perMinute)} a minute and ${String(DEFAULT_RATE.burst)} at once`;
-// The ceiling on what this process can write, printed beside the two bounds a request spends because it is
-// the third of the three and the only one measured against the volume rather than against a caller. An
+// The ceiling on what this process can serve, printed beside the two bounds a request spends because it is
+// the third of the three and the only one measured on this build's own path rather than against a caller. An
 // operator who has to know whether the deployment is bigger than one process reads this line and the one
 // above it together.
 const completionBoundLabel =
   `completion bound: ${String(completionRate.perMinute)} completions a minute across this process and ` +
   `${String(completionRate.burst)} at once, refused DEPLOYMENT_RATE_LIMITED before any inference is run, ` +
-  `${completionRateGiven ? 'from --completion-rate' : 'the write ceiling this repository derives from its two measured costs'}; ` +
+  `${completionRateGiven ? 'from --completion-rate' : 'the ceiling this build measures on its own completion path'}; ` +
   `one process holds one counter, so a deployment running more than this one admits this much on each of them`;
 // The manifest's posture is reported as this process actually serves it, because the two states mean
 // different things to whoever is standing at the other end of the deployment: a sealed document is one

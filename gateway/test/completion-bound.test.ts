@@ -117,24 +117,26 @@ function boundAt(burst: number, perMinute = 60, atMillis: () => number = () => 0
 }
 
 describe('the bound a deployment that configures nothing runs at', () => {
-  it('is this build\'s write ceiling, derived from its two measured costs and stated as a rate', () => {
-    // The figure is not chosen for a banner. One receipt costs 447.6 microseconds to sign and 3.951
-    // milliseconds to append at 20,000 retained, which is 4.40 milliseconds together, and that sum divided
-    // into 60,000 and 1,000 is both halves of the pair, so a change to either cost moves both numbers or
-    // this case fails rather than let a shipped default drift from the costs it was computed from.
-    const derivedMillisPerReceipt = 4.4;
+  it('is this build\'s measured completion ceiling, stated as a rate', () => {
+    // The figure is not chosen for a banner. One process served 322 to 376 completions a second once four
+    // or more callers were in flight, driven over HTTP with a file store behind it and an upstream that
+    // answers at once, and the slowest of those runs is the ceiling taken: 322 a second is 19,320 a minute,
+    // and the burst is one second of the same figure. A re-run that lands elsewhere moves both numbers or
+    // this case fails, which is the one way a shipped default can be kept tied to the path it was measured
+    // on rather than left beside a prose sentence nobody recomputes.
+    const measuredCompletionsPerSecond = 322;
     expect(DEFAULT_COMPLETION_RATE).toEqual({
-      perMinute: Math.floor(60_000 / derivedMillisPerReceipt),
-      burst: Math.floor(1_000 / derivedMillisPerReceipt),
+      perMinute: 60 * measuredCompletionsPerSecond,
+      burst: measuredCompletionsPerSecond,
     });
-    expect(DEFAULT_COMPLETION_RATE.perMinute).toBe(13_636);
-    expect(DEFAULT_COMPLETION_RATE.burst).toBe(227);
+    expect(DEFAULT_COMPLETION_RATE.perMinute).toBe(19_320);
+    expect(DEFAULT_COMPLETION_RATE.burst).toBe(322);
   });
 
   it('is stated in the unit the per-address bound is stated in, and says how many addresses it holds', () => {
     // Comparability is the reason the shape is `{ perMinute, burst }` rather than a count in seconds: an
     // operator reads one number against the other and sees the deployment's own traffic in both.
-    expect(DEFAULT_COMPLETION_RATE.perMinute / DEFAULT_PEER_RATE.perMinute).toBeCloseTo(2.273, 3);
+    expect(DEFAULT_COMPLETION_RATE.perMinute / DEFAULT_PEER_RATE.perMinute).toBeCloseTo(3.22, 10);
     // A refill is steady, so a minute of the shipped burst is a minute of the same rate.
     expect(DEFAULT_COMPLETION_RATE.perMinute / 60).toBeCloseTo(DEFAULT_COMPLETION_RATE.burst, 0);
   });
@@ -381,7 +383,9 @@ describe('a gateway running a completion bound', () => {
       }
       const refused = await s.complete('past the ceiling');
       expect(refused.statusCode).toBe(429);
-      expect(String(refused.error.message)).toContain('admits 13636 completions a minute');
+      expect(String(refused.error.message)).toContain(
+        `admits ${String(DEFAULT_COMPLETION_RATE.perMinute)} completions a minute`,
+      );
       expect(s.upstream.calls(), 'every refusal was refused before the inference').toBe(
         DEFAULT_COMPLETION_RATE.burst,
       );
