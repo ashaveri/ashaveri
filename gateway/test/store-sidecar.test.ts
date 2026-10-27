@@ -11,7 +11,7 @@ import {
   type ReceiptRecordKind,
   type ReceiptRetention,
 } from '../src/store.js';
-import { fixedClock } from './helpers.js';
+import { fixedClock, storeGoesQuiet } from './helpers.js';
 
 /**
  * The disposable sidecar index a durable receipt store keeps beside `receipts.log`, and the checkpoint
@@ -695,6 +695,10 @@ describe('a compaction invalidates the sidecar in the right direction', () => {
     for (let i = 0; i < 10; i++) {
       await store.put(`old_${String(i)}`, RECEIPT, now + i);
     }
+    // The store that wrote the aged receipts still holds the handle its last window went through, and a
+    // rename over the path is refused while any handle of this process is on it. The opening below is
+    // the one that compacts, so the first store has to be quiet before it does.
+    await storeGoesQuiet();
     // The opening in the middle of the run is what writes an index for the file as it stands, so what
     // comes back from it is the stale statement a later compaction has to make untrue.
     const reopened = await openFileReceiptStore(options);

@@ -35,6 +35,17 @@ export function fixedClock(read: () => number, uncertaintySeconds: number | null
 }
 
 /**
+ * Lets the interval a receipt store holds a handle over its file run out, which is the moment anything
+ * outside that store can move a file over the store path. A rename is refused while a handle on the
+ * target is open, however that handle was opened, so a fixture that restores over a live store, or
+ * opens a second store on the directory and lets it compact, asks the first one to be quiet first. The
+ * handle a case is waiting for is not the handle the case is about.
+ */
+export async function storeGoesQuiet(): Promise<void> {
+  await new Promise((resolve) => setTimeout(resolve, 400));
+}
+
+/**
  * The one seed rule behind every fixture key pair: the id's own bytes, so two fixtures whose ids
  * happen to be the same length still hold different keys. A seed read off the length let either of
  * them sign as the other, and an assertion about one credential's admission would then have been

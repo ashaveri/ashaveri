@@ -629,6 +629,13 @@ export interface RetainedWindow {
 }
 
 export interface ReceiptStore {
+  /**
+   * Files one receipt and settles once a sync has reached the bytes of its record.
+   *
+   * One sync answers for the run of appends whose bytes it reached, so several callers can be settled by
+   * one sync and none is settled by a sync that stopped short of its record. A sync that refuses settles
+   * the callers it was covering and leaves the callers behind it to a sync of their own.
+   */
   put(id: string, receipt: Uint8Array, iat: number): Promise<void>;
   get(id: string): Promise<Uint8Array | null>;
 
@@ -790,15 +797,26 @@ function assertReceiptKind(kind: ReceiptRecordKind, retention: ReceiptRetention 
 }
 
 /**
+ * Refuses what no record can carry, whatever it chains from or lands at.
+ *
+ * An append is objected to at these two before its bytes join a run of appends: a record whose own
+ * fields have no spelling would stop a window that was written beside eleven good ones, and a refusal
+ * that reaches the caller asking is the one refusal that costs nothing.
+ */
+function assertRecordable(idBytes: number, iat: number): void {
+  if (idBytes > MAX_ID_BYTES) {
+    throw new Error(`receipt id of ${String(idBytes)} bytes exceeds the ${String(MAX_ID_BYTES)} byte record limit`);
+  }
+  assertStamp(iat);
+}
+
+/**
  * `Record = len:u32 || kind:u8 || prev:32 || iat:u64 || idLen:u16 || id || payload || digest:32`,
  * with `digest = sha256(everything between len and digest)`. `len` covers kind through digest.
  */
 function encode(kind: number, prev: Uint8Array, iat: number, id: string, payload: Uint8Array): { frame: Buffer; digest: Buffer } {
   const idBytes = Buffer.from(id, 'utf8');
-  if (idBytes.length > MAX_ID_BYTES) {
-    throw new Error(`receipt id of ${idBytes.length} bytes exceeds the ${MAX_ID_BYTES} byte record limit`);
-  }
-  assertStamp(iat);
+  assertRecordable(idBytes.length, iat);
   const stamp = Buffer.alloc(IAT_BYTES);
   stamp.writeBigUInt64BE(BigInt(iat));
   const idLength = Buffer.alloc(ID_LEN_BYTES);
@@ -1618,10 +1636,11 @@ async function readRange(file: FileHandle, length: number, position: number): Pr
  * replaced its trim record on each compaction would forget the reason for all of the earlier ones
  * the moment it reset the counter they were counted with.
  *
- * `releaseHeld` puts down every read handle the store is holding, the walks' and its own, and it has to
- * happen before the rename: a volume refuses to move a file over one a handle still reads, and a volume
- * that allowed it would leave that handle answering from the bytes that used to be there while the index
- * had already moved to the new ones.
+ * `releaseHeld` puts down every handle the store is holding over the file it is replacing: the walks',
+ * its own read handle, and the append handle the last window went through. It has to happen before the
+ * rename: a volume refuses to move a file over one a handle still reads, and a volume that allowed it
+ * would leave that handle answering from the bytes that used to be there while the index had already
+ * moved to the new ones.
  *
  * The index beside the file is rewritten by the reading that follows the move, which is the right
  * direction for it to be invalidated in: the new file is a different file by the volume's own answer,
@@ -1685,10 +1704,11 @@ async function compact(
   } finally {
     await out.close();
   }
-  // Every handle a walk is holding goes down before the move. A volume refuses to move a file over
-  // one an open handle still reads, so this is what keeps a compaction possible while a caller is
-  // mid-window, and a volume that allowed it would leave that handle answering from the bytes that
-  // used to be there while the index below had already moved to the new offsets.
+  // Every handle this store holds over the file goes down before the move, the walks' and the append
+  // handle alike. A volume refuses to move a file over one an open handle still reads, so this is what
+  // keeps a compaction possible while a caller is mid-window, and a volume that allowed it would leave
+  // that handle answering from the bytes that used to be there while the index below had already moved
+  // to the new offsets.
   await releaseHeld();
   await rename(temp, path);
   const recovered = await scan(path, sidecar, receiptKind);
@@ -2068,7 +2088,7 @@ async function readWholeSpan(file: FileHandle, scratch: Scratch, start: number, 
  * about which file the receipts are in at all, and no position in this batch is safe to read.
  */
 async function handleOn(
-  walk: ReadHandle,
+  walk: HeldHandle,
   state: StoreState,
   path: string,
   batch: readonly (readonly [string, Location])[],
@@ -2118,7 +2138,7 @@ interface BatchAnswer {
  * because the next read writes over the bytes it was cut from.
  */
 async function readBatch(
-  walk: ReadHandle,
+  walk: HeldHandle,
   state: StoreState,
   path: string,
   batch: readonly (readonly [string, Location])[],
@@ -2229,15 +2249,19 @@ async function readReceipt(file: FileHandle, where: Location, id: string): Promi
   return provedReceipt(frame, where, id);
 }
 
-/** The read handle one range walk holds, or the store's own between its single-record reads. */
-interface ReadHandle {
+/**
+ * A handle the store holds open between the operations that go through it, rather than opening one for
+ * each: a walk's, the store's own between its single-record reads, or its append handle between windows.
+ * It is null when the handle is down, which is the state a store that has gone idle leaves behind.
+ */
+interface HeldHandle {
   file: FileHandle | null;
 }
 
-/** Puts a read's handle down, once. A read that arrives afterwards opens the file again. */
-async function putDown(read: ReadHandle): Promise<void> {
-  const file = read.file;
-  read.file = null;
+/** Puts a held handle down, once. Work that arrives afterwards opens the file again. */
+async function putDown(handle: HeldHandle): Promise<void> {
+  const file = handle.file;
+  handle.file = null;
   if (file !== null) {
     await file.close();
   }
@@ -2254,7 +2278,7 @@ async function putDown(read: ReadHandle): Promise<void> {
  * reopened handle and the record's own digest is what refuses it if the path answered with a file the
  * index was never built from.
  */
-async function readerOn(read: ReadHandle, state: StoreState, path: string): Promise<FileHandle> {
+async function readerOn(read: HeldHandle, state: StoreState, path: string): Promise<FileHandle> {
   const held = read.file;
   if (held !== null && serialOf(await held.stat()) === state.identity) {
     return held;
@@ -2269,7 +2293,7 @@ async function readerOn(read: ReadHandle, state: StoreState, path: string): Prom
  * pays one stat and one positioned read rather than an open and a close.
  */
 async function readHeld(
-  read: ReadHandle,
+  read: HeldHandle,
   state: StoreState,
   path: string,
   scratch: Scratch,
@@ -2294,6 +2318,10 @@ const syncRefusals = new WeakMap<ReceiptStore, number>();
  * A volume does not schedule which of a test's syncs it refuses, so a case about the callers a failed
  * sync answers for is a case about timing without this. It is exported from the store module and not
  * from the package entry point: nothing a deployment can reach refuses a sync it was never asked to.
+ *
+ * One ask is enough to refuse a whole window, because the appends a turn asks for have all reached the
+ * store before its first sync begins: the seam needs no second degree of freedom to say which callers
+ * one refused sync covered.
  */
 export function failNextSyncForTesting(store: ReceiptStore): void {
   syncRefusals.set(store, 1);
@@ -2307,6 +2335,59 @@ function refusesSync(store: ReceiptStore): boolean {
   }
   syncRefusals.set(store, left - 1);
   return true;
+}
+
+/** The two positions a store holds about one record it indexes, in bytes of its own file. */
+export interface RecordDurability {
+  /** One past the last byte of this record's frame. */
+  readonly recordEnd: number;
+  /** One past the last byte the last sync this store completed reached. */
+  readonly syncedThrough: number;
+}
+
+/**
+ * What each open file store answers about one of its records, keyed on the store. Only the store's own
+ * opening writes here, and a store that is garbage has no answer left to give.
+ */
+const durabilityViews = new WeakMap<ReceiptStore, (id: string) => RecordDurability | null>();
+
+/**
+ * Test seam: what this store knows about the durability of one record, and nothing at all for a record
+ * it does not index.
+ *
+ * Whether a caller was answered by a sync that reached its own bytes is a relation between two numbers
+ * only the store has: where its record ends, and how far a completed sync got. The file's length is not
+ * one of them, because a volume holds written bytes it has never synced, and a window of appends makes
+ * the two come apart for a whole window at a time.
+ */
+export function durabilityForTesting(store: ReceiptStore, id: string): RecordDurability | null {
+  return durabilityViews.get(store)?.(id) ?? null;
+}
+
+/**
+ * How many appends one sync answers for at the most.
+ *
+ * The cost of a sync does not rise with the number of appends it covers: measured at these frame widths,
+ * one sync per record costs about 1.2 milliseconds each and one sync over 32 costs about 2 for the whole
+ * window, so the window's good is the appends that arrived while the store was syncing, and the bound is
+ * on how many callers one slow sync can delay and on how many bytes sit unwritten to the volume.
+ */
+const APPEND_WINDOW_RECORDS = 32;
+
+/** One append that has arrived at the store and not been answered yet. */
+interface PendingAppend {
+  readonly id: string;
+  readonly iat: number;
+  /** The receipt with whatever period this store's kind states in front of it, as the record carries it. */
+  readonly payload: Buffer;
+  readonly answer: (error: Error | null) => void;
+}
+
+/** One append of a window, with the record the window writes for it. */
+interface WindowRecord {
+  readonly append: PendingAppend;
+  readonly entry: CheckpointEntry;
+  readonly frame: Buffer;
 }
 
 export async function openFileReceiptStore(options: FileReceiptStoreOptions): Promise<ReceiptStore> {
@@ -2342,10 +2423,12 @@ export async function openFileReceiptStore(options: FileReceiptStoreOptions): Pr
 
   /**
    * One operation touches the file at a time, which is the whole of the concurrency control.
-   * Two completions issuing receipts simultaneously otherwise both encode the head the first one
-   * has not yet moved, and the file ends up with two records naming the same predecessor. Reads
-   * queue for the same reason from the other side: a compaction renames a file whose records sit
-   * at different offsets than the index a read resolved a moment ago.
+   *
+   * A window of appends is one of these operations, so the queue orders a window against the reads and
+   * against the compaction that follows it, and the appends inside it are ordered by the turn they
+   * arrived in rather than by waiting behind one another's sync. Reads queue for the same reason from the
+   * other side: a compaction renames a file whose records sit at different offsets than the index a read
+   * resolved a moment ago.
    */
   let queue: Promise<unknown> = Promise.resolve();
   function serialized<T>(work: () => Promise<T>): Promise<T> {
@@ -2367,16 +2450,38 @@ export async function openFileReceiptStore(options: FileReceiptStoreOptions): Pr
    * for the same reason, and because the way down it has when the store goes idle is what keeps a
    * rename over the path possible for anything outside this process.
    */
-  const reads = new Set<ReadHandle>();
+  const reads = new Set<HeldHandle>();
 
   /** The handle a single served read goes through while reads keep arriving at the store. */
-  const reader: ReadHandle = { file: null };
+  const reader: HeldHandle = { file: null };
   reads.add(reader);
 
   /** The buffer every read of this store fills, so a batch costs one growth and not one per record. */
   const scratch: Scratch = { bytes: Buffer.alloc(0) };
 
+  /**
+   * Appends that have arrived and not been answered, in the order they arrived. The order is the chain's
+   * order, and a turn of the event loop admits the appends that arrived in it in the order the callers
+   * asked, so the queue decides which record precedes which without any of them waiting on the file.
+   */
+  const pendingAppends: PendingAppend[] = [];
+
+  /** True from the turn a pump is promised for until nothing is left to sync. */
+  let pumping = false;
+
+  /**
+   * One past the last byte of the file the last sync this store completed reached. A write the volume has
+   * taken and a sync the volume has finished are two different positions, and a window of appends is
+   * exactly the shape in which they part: everything written since this number is bytes no caller has
+   * been answered for yet.
+   */
+  let syncedThrough = state.size;
+
+  /** The handle appends go through, opened when a window has bytes to write and put down when appends stop arriving. */
+  const appender: HeldHandle = { file: null };
+
   let idleDrop: ReturnType<typeof setTimeout> | null = null;
+  let appenderIdleDrop: ReturnType<typeof setTimeout> | null = null;
 
   /**
    * Arms the idle drop of the store's read handle, after each read that went through it.
@@ -2404,59 +2509,233 @@ export async function openFileReceiptStore(options: FileReceiptStoreOptions): Pr
     idleDrop.unref();
   }
 
-  /** Puts down every read handle the store is holding, which is what makes a rename over the path possible. */
-  async function putDownReads(): Promise<void> {
+  /**
+   * Arms the idle drop of the append handle, after each window that went through it.
+   *
+   * The same interval the read handle waits on, because it is the same trade asked at the same file: a
+   * close and a reopen costs about half a millisecond, which at one record to a window is more than the
+   * sync a handle was held to save, and a handle a process sits on is a handle an operator restoring a
+   * file has to wait out. One number for both is deliberate: a rename over the path is refused while
+   * either is open, so the longer of two intervals would be the one that decides when a restore is
+   * possible, and the shorter would buy nothing that the queue does not already give.
+   */
+  function appenderGoesDownWhenIdle(): void {
+    if (appenderIdleDrop !== null) {
+      clearTimeout(appenderIdleDrop);
+    }
+    if (appender.file === null) {
+      appenderIdleDrop = null;
+      return;
+    }
+    appenderIdleDrop = setTimeout(() => {
+      appenderIdleDrop = null;
+      void serialized(async () => {
+        // A pump in flight is the window this handle is being written through, and a close that landed
+        // between its write and its sync would cost that window its bytes; the queue is where a pump says
+        // whether one is.
+        if (!pumping) {
+          await putDown(appender);
+        }
+      }).catch(() => undefined);
+    }, READER_IDLE_MILLISECONDS);
+    appenderIdleDrop.unref();
+  }
+
+  /**
+   * The handle appends go through, opened on demand and kept while appends keep arriving.
+   *
+   * No identity question is asked of it, the way one is asked of a read handle: a volume refuses to move
+   * a file over a path this process holds open, so the file this handle writes through is the file the
+   * path names for as long as the handle lasts, and a compaction puts it down before it renames.
+   */
+  async function appenderOn(): Promise<FileHandle> {
+    const held = appender.file;
+    if (held !== null) {
+      return held;
+    }
+    const opened = await open(path, 'a');
+    appender.file = opened;
+    return opened;
+  }
+
+  /**
+   * Every append that has arrived, answered a window at a time.
+   *
+   * The pump takes at most a window's worth and goes back for more, so an append that arrived while a
+   * sync was in the air is answered by the next one rather than by waiting for the store to fall quiet:
+   * a window that only closed once it filled would leave the last few receipts of a burst held until a
+   * timer came for them, and there is no timer here.
+   */
+  async function runPump(): Promise<void> {
+    while (pendingAppends.length > 0) {
+      const batch = pendingAppends.splice(0, APPEND_WINDOW_RECORDS);
+      try {
+        await answerWindow(batch);
+      } catch (error) {
+        // Nothing a window reached may leave its callers without an answer, not even a failure of the
+        // store's own bookkeeping after the bytes were synced.
+        for (const append of batch) {
+          append.answer(error instanceof Error ? error : new Error(String(error)));
+        }
+      }
+    }
+    pumping = false;
+  }
+
+  /**
+   * One window's records, written as one run and synced once, filed, and then answered.
+   *
+   * The records are built here rather than when their appends arrived, because each names the record in
+   * front of it and sits where the file has reached, and both are facts about every earlier window: an
+   * append that encoded its own predecessor at the turn it arrived would chain onto bytes a refused sync
+   * had taken back out of the file, and one that measured its position then would measure the file an
+   * earlier window's compaction had already rewritten.
+   */
+  async function answerWindow(batch: readonly PendingAppend[]): Promise<void> {
+    const from = state.size;
+    const records: WindowRecord[] = [];
+    let previous = state.head;
+    let through = from;
+    for (const append of batch) {
+      const record = encode(recordKind, previous, append.iat, append.id, append.payload);
+      const entry: CheckpointEntry = {
+        recordStart: through,
+        seq: state.nextSeq + records.length,
+        iat: append.iat,
+        id: append.id,
+        idLength: Buffer.byteLength(append.id, 'utf8'),
+        length: append.payload.length,
+        // The writer records what it wrote, so a served read has something other than the volume's
+        // number to compare the bytes it is about to hand over against.
+        digest: record.digest,
+      };
+      records.push({ append, entry, frame: record.frame });
+      previous = record.digest;
+      through = endOfEntry(entry);
+    }
+    await serialized(async () => {
+      const refusal = await writeWindow(records, through);
+      if (refusal !== null) {
+        // The window's callers are the only ones a refused sync answers for. Its records are out of the
+        // file and were never in the index, so the chain the next window extends is the one this store
+        // has synced, from the byte it ended at and the digest it ended on.
+        for (const each of records) {
+          each.append.answer(refusal);
+        }
+        return;
+      }
+      // Nothing was retained, so this record is the oldest one and its predecessor is the anchor a
+      // reader starts from. Once a set exists it only ever grows at the back.
+      if (state.records.size === 0) {
+        state.anchor = state.head;
+      }
+      for (const each of records) {
+        state.records.set(each.append.id, locationOf(each.entry, boundBytes));
+        state.head = each.entry.digest;
+      }
+      state.nextSeq += records.length;
+      state.size = through;
+      // Told to the index before retention is applied, because the index speaks for the records the
+      // file holds: a receipt that retirement drops out of the served set is still bytes in the file
+      // until a compaction says otherwise, and an opening that re-derives the file would index it.
+      for (const each of records) {
+        await noteEntry(sidecar, each.entry);
+      }
+      prune(state, retention, now());
+      await compact(path, state, now(), retention, putDownHandles, sidecar, receiptKind);
+      // A compaction leaves a file shorter than the position an append synced to, so nothing past the
+      // rewrite is something this store has ever had reach the volume.
+      syncedThrough = Math.min(syncedThrough, state.size);
+      for (const each of records) {
+        each.append.answer(null);
+      }
+    });
+  }
+
+  /**
+   * The bytes of one window on the volume: the handle, one write for the whole run, one sync for it.
+   *
+   * The sync is the promise this store exists to make, and a window makes it once for all the records
+   * whose bytes it reached. A sync that refuses, or a write that does not land, takes the window's bytes
+   * back out of the file first: a record no caller was answered for is not something a later window
+   * should find itself written behind, and an opening that walked the file would otherwise read a chain
+   * of receipts the store had refused as if they had been accepted.
+   */
+  async function writeWindow(records: readonly WindowRecord[], through: number): Promise<Error | null> {
+    const file = await appenderOn();
+    let refusal: Error | null = null;
+    try {
+      await file.writeFile(Buffer.concat(records.map((each) => each.frame)));
+      // The claim this store exists for is that a receipt outlives the process that wrote
+      // it, and a write still sitting in the page cache does not survive the machine too.
+      if (refusesSync(store)) {
+        throw new Error('the sync of the bytes appended to the receipt store was refused');
+      }
+      await file.sync();
+      syncedThrough = through;
+    } catch (error) {
+      refusal = error instanceof Error ? error : new Error(String(error));
+    }
+    if (refusal !== null) {
+      try {
+        // The file goes back to the length its index speaks for, which is where this window began. The
+        // cut is made by name rather than through the handle, because a handle opened for appending
+        // cannot shorten the file it is on, and it is synced so the removal reaches the volume too:
+        // bytes the store refused to answer for are not something a later opening should walk back in.
+        await truncate(path, state.size);
+        await file.sync();
+        syncedThrough = Math.min(syncedThrough, state.size);
+      } catch {
+        // A rollback the volume itself refuses leaves bytes past the index, and no read answers from
+        // them: a record's own digest is compared against the index, so a receipt that was never filed
+        // is refused rather than served. The handle goes down so the next window opens the file afresh.
+        await putDown(appender);
+      }
+    }
+    appenderGoesDownWhenIdle();
+    return refusal;
+  }
+
+  /** Puts down every handle the store holds over the store file, which is what makes a rename over the path possible. */
+  async function putDownHandles(): Promise<void> {
     for (const read of reads) {
       await putDown(read);
     }
+    // The append handle goes down with the readers because a rename over this path is refused while any
+    // handle of this process is on it, however that handle was opened, and a compaction is about to do
+    // exactly that.
+    await putDown(appender);
   }
 
   const store: ReceiptStore = {
     put(id: string, receipt: Uint8Array, iat: number): Promise<void> {
-      return serialized(async () => {
+      return new Promise<void>((resolve, reject) => {
+        // A record the layout cannot state is refused here, at the turn its caller asked, rather than in
+        // the window it would have joined: an append that stops a window from being encodable is a
+        // refusal that reaches every caller whose bytes were behind it.
+        assertRecordable(Buffer.byteLength(id, 'utf8'), iat);
         // The payload is the receipt, with the period in front of it when this store's kind states one,
         // and the record's digest covers both: the bound is part of what the chain attests, so a reader
         // recomputing a record's digest is recomputing the retention statement with it.
         const payload = receiptPayload(receipt, receiptKind);
-        const record = encode(recordKind, state.head, iat, id, payload);
-        // An append handle with no offset, so it has to be the only one in flight.
-        const file = await open(path, 'a');
-        try {
-          await file.writeFile(record.frame);
-          // The claim this store exists for is that a receipt outlives the process that wrote
-          // it, and a write still sitting in the page cache does not survive the machine too.
-          if (refusesSync(store)) {
-            throw new Error('the sync of the bytes appended to the receipt store was refused');
-          }
-          await file.sync();
-        } finally {
-          await file.close();
-        }
-        // Nothing was retained, so this record is the oldest one and its predecessor is the anchor
-        // a reader starts from. Once a set exists it only ever grows at the back.
-        const entry: CheckpointEntry = {
-          recordStart: state.size,
-          seq: state.nextSeq++,
-          iat,
+        pendingAppends.push({
           id,
-          idLength: Buffer.byteLength(id, 'utf8'),
-          length: payload.length,
-          // The writer records what it wrote, so a served read has something other than the volume's
-          // number to compare the bytes it is about to hand over against.
-          digest: record.digest,
-        };
-        if (state.records.size === 0) {
-          state.anchor = state.head;
+          iat,
+          payload,
+          answer: (error) => {
+            if (error === null) {
+              resolve();
+              return;
+            }
+            reject(error);
+          },
+        });
+        if (!pumping) {
+          pumping = true;
+          // A promise's own turn: the appends a burst asks for at once are answered by one sync, and an
+          // append that has no company starts its sync as soon as this turn is done.
+          void Promise.resolve().then(runPump);
         }
-        state.records.set(id, locationOf(entry, boundBytes));
-        state.head = record.digest;
-        state.size += record.frame.length;
-        // Told to the index before retention is applied, because the index speaks for the records the
-        // file holds: a receipt that retirement drops out of the served set is still bytes in the file
-        // until a compaction says otherwise, and an opening that re-derives the file would index it.
-        await noteEntry(sidecar, entry);
-        prune(state, retention, now());
-        await compact(path, state, now(), retention, putDownReads, sidecar, receiptKind);
       });
     },
 
@@ -2488,7 +2767,7 @@ export async function openFileReceiptStore(options: FileReceiptStoreOptions): Pr
           // abandoned. A caller sweeping a wide window pays the open once instead of once per record,
           // which is the cost this path was measured at, and the window in which a rewrite finds
           // itself waiting on a reader is the walk's own length rather than the life of the store.
-          const walk: ReadHandle = { file: null };
+          const walk: HeldHandle = { file: null };
           reads.add(walk);
           try {
             for (const batch of servedBatches(snapshot, from, to, through, serving?.maxServedReceipts)) {
@@ -2571,6 +2850,13 @@ export async function openFileReceiptStore(options: FileReceiptStoreOptions): Pr
       };
     },
   };
+
+  // Where a record ends is the index's own fact about the file, and how far a sync reached is the write
+  // path's, so the seam that weighs one against the other reads both from here and remembers neither.
+  durabilityViews.set(store, (id: string) => {
+    const where = state.records.get(id);
+    return where === undefined ? null : { recordEnd: frameEnd(where), syncedThrough };
+  });
 
   return store;
 }
