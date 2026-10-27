@@ -5,6 +5,7 @@ import { sha256 } from '@noble/hashes/sha2.js';
 import { utf8ToBytes } from '@noble/hashes/utils.js';
 import { ReceiptError } from './errors.js';
 import { fromBase64Url, toBase64Url } from './b64.js';
+import { signEd25519 } from './signing.js';
 
 export const POP_SCHEME = 'ashaveri-pop-v1';
 export const POP_AUTH_PREFIX = 'Ashaveri-PoP';
@@ -79,7 +80,7 @@ export function encodePopAuthorization(input: {
 }
 
 /**
- * The nonce width is refused before anything is signed: `ed25519.sign` would happily sign a
+ * The nonce width is refused before anything is signed: a signer would happily sign a
  * string built from an eight-byte nonce, so a client that got the width wrong would pay for a
  * signature and then be refused at the gateway with a code that names the signature rather
  * than the mistake.
@@ -93,7 +94,7 @@ export function signPopAuthorization(
     throw new ReceiptError('BAD_POP_NONCE', `nonce must be ${POP_NONCE_BYTES} bytes, got ${fields.nonce.length}`);
   }
   const toSign = utf8ToBytes(popSigningString(fields));
-  const signature = ed25519.sign(toSign, privateKey);
+  const signature = signEd25519(toSign, privateKey);
   return encodePopAuthorization({ credential, ts: fields.ts, signature });
 }
 

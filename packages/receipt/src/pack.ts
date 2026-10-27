@@ -26,6 +26,7 @@ import {
 } from './receipt.js';
 import { PROVENANCES, isProvenance, reduceProvenance, type Provenance } from './provenance.js';
 import type { CollateralSlot } from './disclosure.js';
+import { signEd25519 } from './signing.js';
 
 /**
  * A pack, read and written: what `packages/receipt/pack.cddl` states, run.
@@ -642,7 +643,7 @@ export function signPack(manifest: PackManifest, key: SigningKey): Uint8Array {
   const parsed = parseManifest(payloadBytes);
   walk(parsed.items.map((item) => ({ item })), parsed.chain.anchor, parsed.chain.head);
   const protectedBytes = encodePackProtectedHeader(key.kid);
-  const signature = ed25519.sign(packSigStructure(protectedBytes, payloadBytes), key.privateKey);
+  const signature = signEd25519(packSigStructure(protectedBytes, payloadBytes), key.privateKey);
   return sealPack(protectedBytes, payloadBytes, signature);
 }
 

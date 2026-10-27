@@ -3,6 +3,7 @@ import { sha256 } from '@noble/hashes/sha2.js';
 import { Tag } from 'cbor2';
 import { encodeCanonical, decodeCanonical, decodeClosedDocument, decodedMap } from './cbor.js';
 import { ReceiptError } from './errors.js';
+import { signEd25519 } from './signing.js';
 
 export const COSE_SIGN1_TAG = 18;
 export const ALG_EDDSA = -8;
@@ -200,7 +201,7 @@ export function signCoseSign1(
 ): Uint8Array {
   const protectedBytes = buildProtectedHeader(key.kid, contentType);
   const toSign = sigStructure(protectedBytes, externalAad, payloadBytes);
-  const signature = ed25519.sign(toSign, key.privateKey);
+  const signature = signEd25519(toSign, key.privateKey);
   return sealCoseSign1(protectedBytes, payloadBytes, signature);
 }
 
