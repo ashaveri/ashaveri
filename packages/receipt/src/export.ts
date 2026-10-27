@@ -19,6 +19,7 @@ import {
 import { ReceiptError } from './errors.js';
 import { packRecordDigest } from './pack.js';
 import { PROVENANCES, isProvenance, reduceProvenance, type Provenance } from './provenance.js';
+import { signEd25519 } from './signing.js';
 
 /**
  * The reader of a technical export: what `packages/receipt/export.cddl` states, run.
@@ -421,7 +422,7 @@ export function signExport(manifest: ExportManifest, key: SigningKey): Uint8Arra
     assertAnchoredRunCloses(parsed.collection);
   }
   const protectedBytes = encodeExportProtectedHeader(key.kid);
-  const signature = ed25519.sign(exportSigStructure(protectedBytes, payloadBytes), key.privateKey);
+  const signature = signEd25519(exportSigStructure(protectedBytes, payloadBytes), key.privateKey);
   return sealExport(protectedBytes, payloadBytes, signature);
 }
 

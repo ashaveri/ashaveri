@@ -15,6 +15,7 @@ import {
   type SigningKey,
 } from './cose.js';
 import { ReceiptError } from './errors.js';
+import { signEd25519 } from './signing.js';
 
 /**
  * The signed deployment manifest: the same JSON document a gateway serves at
@@ -114,7 +115,7 @@ export function sealDeploymentManifest(
   }
   const protectedBytes = protectedHeaderFor(key.kid);
   const toSign = sigStructure(protectedBytes, externalAad, manifestBytes);
-  const signature = ed25519.sign(toSign, key.privateKey);
+  const signature = signEd25519(toSign, key.privateKey);
   // The shared framing, with its empty `unprotected` map: `manifest.cddl` declares that map as one a
   // writer may fill, and this writer has nothing to put in it, since a claim about a deployment belongs
   // inside the signed payload and not beside it.

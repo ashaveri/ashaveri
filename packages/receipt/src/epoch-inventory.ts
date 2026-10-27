@@ -21,6 +21,7 @@ import { readJsonBytes, type JsonObject } from './json-text.js';
 import { firstForgingCodePoint } from './line-text.js';
 import type { PackSpan } from './pack.js';
 import { parseRetentionDocument, RETENTION_FILE_NAME_SET, type RetentionManifest } from './retention.js';
+import { signEd25519 } from './signing.js';
 
 /**
  * The epoch inventory, read and written: what `packages/receipt/epoch-inventory.cddl` states, run.
@@ -1170,7 +1171,7 @@ export function signEpochInventory(
   const run = assertRun(parsed);
   if (presence !== undefined) foldPresence(parsed, run, presence);
   const protectedBytes = encodeEpochInventoryProtectedHeader(key.kid);
-  const signature = ed25519.sign(epochInventorySigStructure(protectedBytes, payloadBytes), key.privateKey);
+  const signature = signEd25519(epochInventorySigStructure(protectedBytes, payloadBytes), key.privateKey);
   return sealEpochInventory(protectedBytes, payloadBytes, signature);
 }
 

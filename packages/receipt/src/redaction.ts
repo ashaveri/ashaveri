@@ -18,6 +18,7 @@ import {
 } from './cose.js';
 import { ReceiptError } from './errors.js';
 import { packRecordDigest, verifyPack, type PackVerifyOptions, type VerifiedPack, type VerifiedPackItem } from './pack.js';
+import { signEd25519 } from './signing.js';
 
 /**
  * A redaction manifest, read and written: what `packages/receipt/redaction.cddl` states, run.
@@ -347,7 +348,7 @@ export function signRedaction(manifest: RedactionManifest, key: SigningKey): Uin
   const payloadBytes = encodeRedactionManifest(manifest);
   parseManifest(payloadBytes);
   const protectedBytes = encodeRedactionProtectedHeader(key.kid);
-  const signature = ed25519.sign(redactionSigStructure(protectedBytes, payloadBytes), key.privateKey);
+  const signature = signEd25519(redactionSigStructure(protectedBytes, payloadBytes), key.privateKey);
   return sealRedaction(protectedBytes, payloadBytes, signature);
 }
 
