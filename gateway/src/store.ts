@@ -873,7 +873,7 @@ function trimEvent(record: TrimRecord): TrimEvent {
  * files living at once can be reported with the same number as easily as two dead ones can. What the
  * pair does answer is whether this handle is on the file the store last wrote, which is what lets a
  * walk follow the file a compaction moved over the path instead of refusing it, and the bytes a walk
- * then takes are checked against the index by `readReceipt`.
+ * then takes are checked against the index by `provedReceipt`.
  *
  * Size and the timestamps are deliberately not part of the pair. The store grows the file as a matter
  * of course, so a handle discarded for a different size would be an open per record again under
@@ -1618,10 +1618,10 @@ async function readRange(file: FileHandle, length: number, position: number): Pr
  * replaced its trim record on each compaction would forget the reason for all of the earlier ones
  * the moment it reset the counter they were counted with.
  *
- * `releaseHeld` puts down every read handle a walk is holding, and it has to happen before the
- * rename: a volume refuses to move a file over one a handle still reads, and a volume that allowed
- * it would leave that handle answering from the bytes that used to be there while the index had
- * already moved to the new ones.
+ * `releaseHeld` puts down every read handle the store is holding, the walks' and its own, and it has to
+ * happen before the rename: a volume refuses to move a file over one a handle still reads, and a volume
+ * that allowed it would leave that handle answering from the bytes that used to be there while the index
+ * had already moved to the new ones.
  *
  * The index beside the file is rewritten by the reading that follows the move, which is the right
  * direction for it to be invalidated in: the new file is a different file by the volume's own answer,
@@ -1985,8 +1985,214 @@ function chained<T extends { seq: number }>(
 }
 
 /**
- * Reads one record at the position the index claims and checks the bytes against the index before
- * handing them over.
+ * Records per queued read of a walk. A batch is what a caller may hold at a time and can be the whole
+ * retained window when nothing bounds it, so the read is cut finer than the batch: a walk that queued
+ * its whole window would be a way to stop issuing receipts by asking about them, and a buffer sized to
+ * the whole window is a spike no receipt needs.
+ */
+const READ_CHUNK_RECORDS = 256;
+
+/**
+ * The span one queued read takes, which is what a chunk of records with wide payloads can add up to.
+ * The count alone would let one read ask for the bytes of a store whose receipts are large.
+ */
+const READ_CHUNK_BYTES = 4 * 1024 * 1024;
+
+/**
+ * How long the store's read handle stays open once reads stop arriving through it.
+ *
+ * It is measured against the two costs a handle trades: a close and reopen is about half a
+ * millisecond, so a drop a quarter of a second after the last read costs a store that is actually idle
+ * one reopen per quiet stretch and nothing at all while receipts are arriving, whereas a handle put
+ * down after every read would pay that half millisecond per read, which is the open the held handle
+ * exists to avoid. It is short because a handle the process sits on is a handle a restore has to wait
+ * out: a Windows volume refuses to move a file over one an open handle reads, so the idle interval is
+ * the time an operator of an idle store waits, and a compaction puts every handle down itself before it
+ * renames.
+ */
+const READER_IDLE_MILLISECONDS = 250;
+
+/** The byte one record's frame ends at, its trailing digest included. */
+function frameEnd(where: Location): number {
+  return where.offset + where.length + DIGEST_BYTES;
+}
+
+/** The buffer the store's reads share, grown to the widest span any of them has asked for. */
+interface Scratch {
+  bytes: Buffer;
+}
+
+/**
+ * `need` bytes to read into, reusing the store's buffer until a span needs it wider.
+ *
+ * One record's frame allocated and zeroed per record is the cost a batch shares out, and growing the
+ * buffer only upward is what keeps the next batch from paying for a fresh one. Reads of one store never
+ * overlap, because every one of them is a queued operation, so one buffer answers for all of them.
+ */
+function scratchSpace(scratch: Scratch, need: number): Buffer {
+  if (scratch.bytes.length < need) {
+    scratch.bytes = Buffer.allocUnsafe(need);
+  }
+  return scratch.bytes;
+}
+
+/**
+ * The file's bytes from `start` to `end`, taken into the shared buffer by one read.
+ *
+ * A span that comes up short is a refusal and never a shorter answer: the buffer holds the bytes of
+ * whatever span was read through it last, and a record served out of those would be a receipt the file
+ * never had, delivered as though the index and the file still agreed.
+ */
+async function readWholeSpan(file: FileHandle, scratch: Scratch, start: number, end: number): Promise<Buffer> {
+  const span = scratchSpace(scratch, end - start);
+  const { bytesRead } = await file.read(span, 0, end - start, start);
+  if (bytesRead !== end - start) {
+    throw new Error(`store file ended ${String(end - start - bytesRead)} bytes short of the span its index claims`);
+  }
+  return span.subarray(0, end - start);
+}
+
+/**
+ * The handle a walk's read goes through, on the file the walk's index was read from.
+ *
+ * Which file this handle is on is one fact about a batch and not one per record, so it is asked once
+ * per batch, by a stat, and never again while the batch lasts. Two questions get answered by that one
+ * asking, and they are different questions: whether the handle is still the file the index describes,
+ * and, if it is not, whether the path names that file now.
+ *
+ * A disagreement sends the handle down and the path is opened again before anything is refused, because
+ * a compaction that moved a new file over the path while a walk was parked is a walk that carries on
+ * from the file the index moved to, which is what the same read would answer from if it opened the path
+ * for itself. Only a reopened file that still disagrees with the index is a refusal, and it names the
+ * batch rather than the record the stat happened to answer for: the index and the path then disagree
+ * about which file the receipts are in at all, and no position in this batch is safe to read.
+ */
+async function handleOn(
+  walk: ReadHandle,
+  state: StoreState,
+  path: string,
+  batch: readonly (readonly [string, Location])[],
+): Promise<FileHandle> {
+  const held = walk.file;
+  if (held !== null && serialOf(await held.stat()) === state.identity) {
+    return held;
+  }
+  await putDown(walk);
+  walk.file = await open(path, 'r');
+  if (serialOf(await walk.file.stat()) !== state.identity) {
+    throw new Error(
+      `receipt store file ${path} is not the file its index was read from, so none of the ` +
+        `${String(batch.length)} receipts of this read has a position that is safe to read`,
+    );
+  }
+  return walk.file;
+}
+
+/**
+ * What one batch of a walk answered: the receipts it proved, in the order the chain runs through the
+ * batch, and the refusal it stopped at.
+ *
+ * A walk stops at the record it cannot check rather than handing it over, and the receipts proved before
+ * that record have already been promised to the caller, so a batch that ends in a refusal still hands
+ * back what it proved on the way to it. Reading a batch in one pass is a way of asking the questions
+ * fewer times, not a way of withholding answers that were reached.
+ */
+interface BatchAnswer {
+  readonly receipts: Uint8Array[];
+  readonly refusal: Error | null;
+}
+
+/**
+ * Every record of a batch, in the order the chain runs through it, from one read per run of frames.
+ *
+ * Three things belong to the batch and not to its records, and sharing them is the whole of what this
+ * path costs: the stat that says which file the handle is on, the buffer wide enough for the span the
+ * batch's frames fill, and the read that fills it. A positioned read is a syscall and a zeroed frame is
+ * the pages it touches, and neither answers a question about one receipt. What stays per record is the
+ * digest recomputed from its own bytes and the two compares against the digest the index read off this
+ * file: the proof a caller is owed for the bytes it is handed, and not a syscall.
+ *
+ * A run is the longest stretch of the batch the file holds end to end, so one read covers it and
+ * nothing covers the dead space a retired prefix or a re-filed id leaves between two records that are
+ * not neighbours in the file. The receipt each record hands back is copied out of the shared buffer,
+ * because the next read writes over the bytes it was cut from.
+ */
+async function readBatch(
+  walk: ReadHandle,
+  state: StoreState,
+  path: string,
+  batch: readonly (readonly [string, Location])[],
+  scratch: Scratch,
+): Promise<BatchAnswer> {
+  const file = await handleOn(walk, state, path, batch);
+  const receipts: Uint8Array[] = [];
+  let run: (readonly [string, Location])[] = [];
+  let runStart = 0;
+  let runEnd = 0;
+
+  /** One read for the stretch of the batch the file holds end to end, and each record proved in it. */
+  async function takeRun(): Promise<Error | null> {
+    try {
+      const span = await readWholeSpan(file, scratch, runStart, runEnd);
+      for (const [id, where] of run) {
+        const frame = span.subarray(where.recordStart - runStart, frameEnd(where) - runStart);
+        receipts.push(new Uint8Array(provedReceipt(frame, where, id)));
+      }
+    } catch (error) {
+      return error instanceof Error ? error : new Error(String(error));
+    }
+    return null;
+  }
+
+  let refusal: Error | null = null;
+  for (const [id, where] of batch) {
+    if (run.length > 0 && where.recordStart !== runEnd) {
+      refusal = await takeRun();
+      run = [];
+      if (refusal !== null) {
+        break;
+      }
+    }
+    if (run.length === 0) {
+      runStart = where.recordStart;
+    }
+    run.push([id, where]);
+    runEnd = frameEnd(where);
+  }
+  if (refusal === null && run.length > 0) {
+    refusal = await takeRun();
+  }
+  return { receipts, refusal };
+}
+
+/**
+ * A batch cut into the spans one queued read takes, so a walk holds the queue for a chunk and not for
+ * its whole length. The count bounds the queue and the byte bound bounds the buffer, because a chunk of
+ * records whose receipts are wide is not a chunk of bytes; a chunk always holds at least one record,
+ * which is the smallest thing a walk can hand over.
+ */
+function* chunksOf(
+  batch: readonly (readonly [string, Location])[],
+): Generator<readonly (readonly [string, Location])[]> {
+  let chunk: (readonly [string, Location])[] = [];
+  let span = 0;
+  for (const entry of batch) {
+    const width = frameEnd(entry[1]) - entry[1].recordStart;
+    if (chunk.length > 0 && (chunk.length >= READ_CHUNK_RECORDS || span + width > READ_CHUNK_BYTES)) {
+      yield chunk;
+      chunk = [];
+      span = 0;
+    }
+    chunk.push(entry);
+    span += width;
+  }
+  if (chunk.length > 0) {
+    yield chunk;
+  }
+}
+
+/**
+ * One record's bytes out of a frame that holds it whole, proved against the index.
  *
  * The frame is read whole rather than just its payload, because the digest a record carries covers
  * its kind, its predecessor, its stamp and its id as well as the payload, and those are exactly the
@@ -1994,17 +2200,9 @@ function chained<T extends { seq: number }>(
  * same ids at the same stamps self-verifies record by record, so a digest recomputed and thrown away
  * proves nothing: what makes the check bite is that it is compared with the digest this index read off
  * this record, which is a fact about the indexed file rather than about the file that answered now.
- *
- * A short read is a failure rather than a miss: the index and the file then disagree about what is
- * stored, and serving a truncated receipt would hand a client bytes that cannot verify.
  */
-async function readReceipt(file: FileHandle, where: Location, id: string): Promise<Uint8Array> {
+function provedReceipt(frame: Buffer, where: Location, id: string): Uint8Array {
   const payloadAt = where.offset - where.recordStart;
-  const frame = Buffer.alloc(payloadAt + where.length + DIGEST_BYTES);
-  const { bytesRead } = await file.read(frame, 0, frame.length, where.recordStart);
-  if (bytesRead !== frame.length) {
-    throw new Error(`store file ended ${String(frame.length - bytesRead)} bytes short of the span its index claims`);
-  }
   const recomputed = Buffer.from(sha256(frame.subarray(FRAME_LEN_BYTES, frame.length - DIGEST_BYTES)));
   if (!recomputed.equals(where.digest) || !frame.subarray(payloadAt + where.length).equals(where.digest)) {
     throw new Error(
@@ -2014,74 +2212,73 @@ async function readReceipt(file: FileHandle, where: Location, id: string): Promi
   return frame.subarray(payloadAt, payloadAt + where.length);
 }
 
-/** The read handle one range walk holds, empty until the walk reads its first record. */
-interface WalkHandle {
+/**
+ * Reads one record at the position the index claims and checks the bytes against the index before
+ * handing them over.
+ *
+ * A short read is a failure rather than a miss: the index and the file then disagree about what is
+ * stored, and serving a truncated receipt would hand a client bytes that cannot verify.
+ *
+ * This is the shape an opening reads a record in, with no other record beside it to share a read or a
+ * buffer with. What a walk goes through is `readBatch`, and what a served single record goes through is
+ * `readHeld`: both ask the questions this one asks per record once for the batch or the handle, and both
+ * keep this record-by-record proof exactly where it is.
+ */
+async function readReceipt(file: FileHandle, where: Location, id: string): Promise<Uint8Array> {
+  const frame = await readWholeSpan(file, { bytes: Buffer.alloc(0) }, where.recordStart, frameEnd(where));
+  return provedReceipt(frame, where, id);
+}
+
+/** The read handle one range walk holds, or the store's own between its single-record reads. */
+interface ReadHandle {
   file: FileHandle | null;
 }
 
-/** Puts a walk's handle down, once. A read that arrives afterwards opens the file again. */
-async function putDown(walk: WalkHandle): Promise<void> {
-  const file = walk.file;
-  walk.file = null;
+/** Puts a read's handle down, once. A read that arrives afterwards opens the file again. */
+async function putDown(read: ReadHandle): Promise<void> {
+  const file = read.file;
+  read.file = null;
   if (file !== null) {
     await file.close();
   }
 }
 
 /**
- * One record's bytes, through the handle the walk holding this record is holding.
+ * The handle a single served read goes through, opened on demand by the store and put down when reads
+ * stop arriving.
  *
- * Two questions get answered before a byte is taken, and they are different questions. Which file is
- * this handle on is answered by the volume's pair, and it has to be answered first: a compaction
- * moves a new file over the path while a walk is parked, and a walk that kept reading the file it had
- * open would be reading bytes no index describes any more, so the handle goes down, the path is
- * opened again, and the walk carries on from the file the index moved to. Which bytes are there is
- * answered by `readReceipt`, and it is the question the pair cannot answer: a replacement that
- * arrives at this path can carry the number the indexed file carried, at the same length, with nothing
- * but the receipts different.
- *
- * Opening afresh is not the same as the file the index describes, so a handle that still disagrees
- * with the index after the reopen means the index and the path disagree about which file the receipts
- * are in at all, and the record is refused rather than read out of a file nothing indexed. A refusal
- * is a worse answer than a short one for a caller that only wanted this receipt, and it is the better
- * answer for a store that cannot say which of its positions are still true.
+ * Which file the held handle is on is one stat, and the answer decides between two ordinary things. A
+ * handle on the file the index was read from answers the read directly. A handle that is not is put
+ * down and the path is opened again, because a read of one record has no batch premise to keep: the
+ * file the path names now is the file an open per read would have read, so the read carries on from the
+ * reopened handle and the record's own digest is what refuses it if the path answered with a file the
+ * index was never built from.
  */
-async function readServed(
-  walk: WalkHandle,
-  state: StoreState,
-  path: string,
-  where: Location,
-  id: string,
-): Promise<Uint8Array> {
-  const held = walk.file;
+async function readerOn(read: ReadHandle, state: StoreState, path: string): Promise<FileHandle> {
+  const held = read.file;
   if (held !== null && serialOf(await held.stat()) === state.identity) {
-    return readReceipt(held, where, id);
+    return held;
   }
-  await putDown(walk);
-  walk.file = await open(path, 'r');
-  if (serialOf(await walk.file.stat()) !== state.identity) {
-    throw new Error(
-      `receipt store file ${path} is not the file its index was read from, so receipt ${id} has no position that is safe to read`,
-    );
-  }
-  return readReceipt(walk.file, where, id);
+  await putDown(read);
+  read.file = await open(path, 'r');
+  return read.file;
 }
 
 /**
- * Reads one record at the position the index claims, opening the file for the read.
- *
- * A single record has no other record to share an open with, so this is the shape that holds no
- * handle between operations and costs nothing extra for that. A walk of many records holds one handle
- * for its own length instead, and `readServed` is what makes that safe to do. Either way the bytes
- * come back through `readReceipt`, so neither path answers out of a file the index was not built from.
+ * One record read through the handle the store holds between reads, so a caller asking for a receipt
+ * pays one stat and one positioned read rather than an open and a close.
  */
-async function readAt(path: string, where: Location, id: string): Promise<Uint8Array> {
-  const file = await open(path, 'r');
-  try {
-    return await readReceipt(file, where, id);
-  } finally {
-    await file.close();
-  }
+async function readHeld(
+  read: ReadHandle,
+  state: StoreState,
+  path: string,
+  scratch: Scratch,
+  where: Location,
+  id: string,
+): Promise<Uint8Array> {
+  const file = await readerOn(read, state, path);
+  const frame = await readWholeSpan(file, scratch, where.recordStart, frameEnd(where));
+  return new Uint8Array(provedReceipt(frame, where, id));
 }
 
 export async function openFileReceiptStore(options: FileReceiptStoreOptions): Promise<ReceiptStore> {
@@ -2134,17 +2331,55 @@ export async function openFileReceiptStore(options: FileReceiptStoreOptions): Pr
   }
 
   /**
-   * The handle each walk in flight is reading through. Walks are registered here rather than holding
-   * one handle between them because a walk that has been asked for and abandoned must not be the
-   * reason another walk keeps a file open, and because a compaction needs all of them: it replaces
-   * the file, and a handle that outlives that is a reader on a file nothing points at.
+   * Every handle the store is holding a read through: one per walk in flight, and the store's own
+   * between the single reads it serves. They are registered here rather than sharing one handle between
+   * readers because a walk that has been asked for and abandoned must not be the reason another walk
+   * keeps a file open, and because a compaction needs all of them: it replaces the file, and a handle
+   * that outlives that is a reader on a file nothing points at. The store's own handle is in the set
+   * for the same reason, and because the way down it has when the store goes idle is what keeps a
+   * rename over the path possible for anything outside this process.
    */
-  const walks = new Set<WalkHandle>();
+  const reads = new Set<ReadHandle>();
 
-  /** Puts down every handle a walk is holding, which is what makes a rename over the path possible. */
-  async function putDownWalks(): Promise<void> {
-    for (const walk of walks) {
-      await putDown(walk);
+  /** The handle a single served read goes through while reads keep arriving at the store. */
+  const reader: ReadHandle = { file: null };
+  reads.add(reader);
+
+  /** The buffer every read of this store fills, so a batch costs one growth and not one per record. */
+  const scratch: Scratch = { bytes: Buffer.alloc(0) };
+
+  let idleDrop: ReturnType<typeof setTimeout> | null = null;
+
+  /**
+   * Arms the idle drop of the store's read handle, after each read that went through it.
+   *
+   * The drop runs as a queued operation rather than straight from the timer, because a handle taken
+   * down while a read is still using it is a refusal this store caused itself, and the queue is the one
+   * place that can say no read is in flight. It reports nothing: a handle the drop could not close is a
+   * handle the next read puts down before it opens the path again.
+   */
+  function readerGoesDownWhenIdle(): void {
+    if (idleDrop !== null) {
+      clearTimeout(idleDrop);
+    }
+    if (reader.file === null) {
+      idleDrop = null;
+      return;
+    }
+    idleDrop = setTimeout(() => {
+      idleDrop = null;
+      void serialized(async () => {
+        await putDown(reader);
+      }).catch(() => undefined);
+    }, READER_IDLE_MILLISECONDS);
+    // A handle an idle store holds must not be the reason a process outlives the work it was doing.
+    idleDrop.unref();
+  }
+
+  /** Puts down every read handle the store is holding, which is what makes a rename over the path possible. */
+  async function putDownReads(): Promise<void> {
+    for (const read of reads) {
+      await putDown(read);
     }
   }
 
@@ -2190,14 +2425,21 @@ export async function openFileReceiptStore(options: FileReceiptStoreOptions): Pr
         // until a compaction says otherwise, and an opening that re-derives the file would index it.
         await noteEntry(sidecar, entry);
         prune(state, retention, now());
-        await compact(path, state, now(), retention, putDownWalks, sidecar, receiptKind);
+        await compact(path, state, now(), retention, putDownReads, sidecar, receiptKind);
       });
     },
 
     get(id: string): Promise<Uint8Array | null> {
       return serialized(async () => {
-        const found = state.records.get(id);
-        return found === undefined ? null : readAt(path, found, id);
+        try {
+          const found = state.records.get(id);
+          // The handle this read goes through is the store's own and outlives the read, so a caller
+          // asking for one receipt pays a stat and a positioned read rather than an open and a close.
+          return found === undefined ? null : await readHeld(reader, state, path, scratch, found, id);
+        } finally {
+          // Armed whether or not the record answered, because a refusal still leaves the handle open.
+          readerGoesDownWhenIdle();
+        }
       });
     },
 
@@ -2215,29 +2457,60 @@ export async function openFileReceiptStore(options: FileReceiptStoreOptions): Pr
           // abandoned. A caller sweeping a wide window pays the open once instead of once per record,
           // which is the cost this path was measured at, and the window in which a rewrite finds
           // itself waiting on a reader is the walk's own length rather than the life of the store.
-          const walk: WalkHandle = { file: null };
-          walks.add(walk);
+          const walk: ReadHandle = { file: null };
+          reads.add(walk);
           try {
             for (const batch of servedBatches(snapshot, from, to, through, serving?.maxServedReceipts)) {
               // Only the bytes are read late, one queued operation at a time. A walk that held the
               // queue for its whole length would be a way to stop serving receipts by generating a pack
-              // about them.
-              for (const [id, where] of batch) {
-                const receipt = await serialized(async () => {
-                  // The position comes from the live index, and the handle comes from `readServed`,
-                  // which only answers from the file that index was read from: a compaction that ran
-                  // while this walk was parked moved both.
-                  const still = state.records.get(id);
-                  return still === undefined ? null : await readServed(walk, state, path, still, id);
+              // about them, so the batch the caller may hold is cut into the spans one read can take.
+              for (const chunk of chunksOf(batch)) {
+                const read = await serialized(async () => {
+                  // The positions come from the live index, and the handle from `readBatch`, which only
+                  // answers from the file that index was read from: a compaction that ran while this
+                  // walk was parked moved both, and it moves them between two chunks rather than partway
+                  // through one.
+                  const live: (readonly [string, Location])[] = [];
+                  const slots: number[] = [];
+                  for (const [at, [id]] of chunk.entries()) {
+                    const still = state.records.get(id);
+                    if (still !== undefined) {
+                      live.push([id, still]);
+                      slots.push(at);
+                    }
+                  }
+                  const bytes = new Array<Uint8Array | null>(chunk.length).fill(null);
+                  if (live.length === 0) {
+                    return { bytes, refusal: null as Error | null };
+                  }
+                  const answered = await readBatch(walk, state, path, live, scratch);
+                  let taken = 0;
+                  for (const slot of slots) {
+                    const receipt = answered.receipts[taken];
+                    if (receipt === undefined) {
+                      break;
+                    }
+                    bytes[slot] = receipt;
+                    taken += 1;
+                  }
+                  return { bytes, refusal: answered.refusal };
                 });
-                // Retired by retention while this walk ran, which the window has already said it kept.
-                if (receipt !== null) {
-                  yield { id, iat: where.iat, receipt, claim: windowClaim(source, where.iat, from, to) };
+                for (const [at, [id, where]] of chunk.entries()) {
+                  const receipt = read.bytes[at];
+                  // Retired by retention while this walk ran, which the window has already said it kept.
+                  if (receipt !== null && receipt !== undefined) {
+                    yield { id, iat: where.iat, receipt, claim: windowClaim(source, where.iat, from, to) };
+                  }
+                }
+                // The walk stops at the record it could not check, after the records it proved on the way
+                // there have been handed over.
+                if (read.refusal !== null) {
+                  throw read.refusal;
                 }
               }
             }
           } finally {
-            walks.delete(walk);
+            reads.delete(walk);
             await putDown(walk);
           }
         },
