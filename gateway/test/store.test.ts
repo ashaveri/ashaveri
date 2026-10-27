@@ -364,6 +364,25 @@ describe('receipt store', () => {
     expect(await reopened.get('new_0')).not.toBeNull();
   });
 
+  it('compacts under a count cap and keeps appending after the move', async () => {
+    // A count cap retires far enough to trigger the store's own rewrite, which moves a new file over the
+    // path between two appends, so a receipt that lands after it belongs to the file the move left.
+    const dir = await emptyDir();
+    const store = await openFileReceiptStore({
+      dir,
+      retention: { maxCount: 10, time: fixedClock(() => 1_780_000_000) },
+    });
+    for (let i = 0; i < 30; i++) {
+      await store.put(mintedId(i), RECEIPT, 1_780_000_000);
+    }
+    const { trims } = (await store.chainState()).retired;
+    expect(trims.length, 'a compaction ran').toBeGreaterThan(0);
+    expect((await store.window()).count, 'the cap held through the rewrite').toBe(10);
+    // Read back rather than counted: an append that went to the file the move replaced would have left
+    // the index agreeing with itself, and only the bytes show which file took the record.
+    expect(Array.from((await store.get(mintedId(29)))!)).toEqual(Array.from(RECEIPT));
+  });
+
   it('carries a chain head that is the digest of the record just written', async () => {
     const dir = await emptyDir();
     const store = await openFileReceiptStore({ dir });
