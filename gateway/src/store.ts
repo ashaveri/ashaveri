@@ -1545,7 +1545,7 @@ interface Retirement {
  * the skew of its neighbours is the same rule's cost, and it falls on the side that keeps data.
  */
 function retire(
-  entries: Iterable<readonly [string, { iat: number; seq: number }]>,
+  entries: ReadonlyMap<string, { iat: number }>,
   retention: ReceiptRetention | undefined,
   now: number,
 ): Retirement {
@@ -1555,34 +1555,22 @@ function retire(
     return { byAge, byCount };
   }
   const cutoff = retention.maxAgeSeconds === undefined ? Number.NEGATIVE_INFINITY : now - retention.maxAgeSeconds;
-  const aged = new Set<string>();
-  const live: [string, number][] = [];
+  const max = retention.maxCount;
+  // The index is inserted in chain order and a record's stamp is never older than its predecessor's in
+  // a file this writer makes, so the front of the map is its oldest-dated end: the prefix, and which
+  // bound gave each record up, are both read off the walk itself rather than sorted out of the set.
+  // `kept` is what a caller would still be served if the walk stopped at this record, which is the
+  // number a count cap speaks about, so the cap fits the moment kept no longer exceeds it.
+  let kept = entries.size;
   for (const [id, where] of entries) {
     if (where.iat < cutoff) {
-      aged.add(id);
-    } else {
-      live.push([id, where.iat]);
-    }
-  }
-  // Sorted by stamp rather than by chain position because the cap is a statement about how many
-  // receipts are served, and the ones it gives up on are the ones the window covers least.
-  const capped = new Set<string>();
-  const max = retention.maxCount;
-  if (max !== undefined) {
-    live.sort((a, b) => a[1] - b[1]);
-    for (const [id] of live.slice(0, Math.max(0, live.length - max))) {
-      capped.add(id);
-    }
-  }
-  const prefix = [...entries].sort((a, b) => a[1].seq - b[1].seq);
-  for (const [id] of prefix) {
-    if (aged.delete(id)) {
       byAge.push(id);
-    } else if (capped.delete(id)) {
-      byCount.push(id);
-    } else {
+    } else if (max === undefined || kept <= max) {
       break;
+    } else {
+      byCount.push(id);
     }
+    kept -= 1;
   }
   return { byAge, byCount };
 }

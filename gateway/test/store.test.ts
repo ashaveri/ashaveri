@@ -139,6 +139,17 @@ async function emptyDir(): Promise<string> {
 }
 
 /**
+ * An id as long as the ones the gateway's own namespace mints, so a record is weighed at the width a
+ * deployment writes rather than at the width a fixture found convenient.
+ */
+function mintedId(index: number): string {
+  return Array.from(sha256(new TextEncoder().encode(`volume record ${String(index)}`)))
+    .map((byte) => byte.toString(16).padStart(2, '0'))
+    .join('')
+    .slice(0, RECEIPT_ID_CHARS);
+}
+
+/**
  * A store that has compacted twice, so its file begins with a run of two trim records and ends with
  * the one receipt the second retirement left. The timestamps are fixed because a caller states the
  * window it expects back.
@@ -807,6 +818,8 @@ describe('one record kind per store', () => {
 });
 
 describe('chain state', () => {
+  const STAMP = 1_780_000_000;
+
   it('anchors an empty store at its own head, so a reader has one rule not two', async () => {
     // With nothing retained there is no oldest record to take a predecessor from. Reporting the
     // head means recomputing forward over zero items returns the anchor unchanged and the check
@@ -935,6 +948,35 @@ describe('chain state', () => {
     // The equation a pack generator can assert and a verifier can re-check without being told the
     // traffic: what is served plus what left is everything that was ever issued.
     expect((await store.window()).count + state.retired.byAge + state.retired.byCount).toBe(14);
+  });
+
+  it('attributes the same retirements after the walk is rewritten', async () => {
+    // Twenty records, five of them older than the age bound and the whole set above the count bound: one
+    // prefix leaves, and which records left for age and which for count is what a retention manifest reports.
+    const dir = await emptyDir();
+    const store = await openFileReceiptStore({
+      dir,
+      retention: { maxAgeSeconds: 60, maxCount: 12, time: fixedClock(() => STAMP + 100) },
+    });
+    for (let i = 0; i < 20; i++) await store.put(mintedId(i), RECEIPT, STAMP + i * 8);
+    const retired = await store.chainState();
+    expect(retired.retired.byAge).toBe(5);
+    expect(retired.retired.byCount).toBe(3);
+    expect((await store.window()).count).toBe(12);
+  });
+
+  it('retires a prefix and never a hole when two stamps are out of order', async () => {
+    const dir = await emptyDir();
+    const store = await openFileReceiptStore({
+      dir,
+      retention: { maxAgeSeconds: 60, maxCount: 10, time: fixedClock(() => STAMP + 100) },
+    });
+    await store.put(mintedId(0), RECEIPT, STAMP + 500);
+    await store.put(mintedId(1), RECEIPT, STAMP);
+    await store.put(mintedId(2), RECEIPT, STAMP + 10);
+    const window = await store.window();
+    expect(window.count, 'the old record behind a fresh one is kept, not cut out').toBe(3);
+    expect(await store.get(mintedId(0)), 'the first record still serves').not.toBeNull();
   });
 });
 
@@ -1338,17 +1380,6 @@ describe('a five-year window at the traffic one address is held to', () => {
 
   /** The same rate read off the fastest traffic a file can report: a burst sharing one instant. */
   const burstAtRate = (): RetainedWindow => held(ONE_SECOND_BOUND, STAMP, STAMP);
-
-  /**
-   * An id as long as the ones the gateway's own namespace mints, so a record is weighed at the width a
-   * deployment writes rather than at the width a fixture found convenient.
-   */
-  function mintedId(index: number): string {
-    return Array.from(sha256(new TextEncoder().encode(`volume record ${String(index)}`)))
-      .map((byte) => byte.toString(16).padStart(2, '0'))
-      .join('')
-      .slice(0, RECEIPT_ID_CHARS);
-  }
 
   /** How many bytes the store's own writer puts on the volume for one record of this id and payload. */
   async function widthOf(id: string, payload: Uint8Array): Promise<number> {
