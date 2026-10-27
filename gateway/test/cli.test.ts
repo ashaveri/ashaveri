@@ -327,9 +327,9 @@ function firstRecordOf(file: Buffer): { kind: number; id: string; payload: Buffe
  * the platform clock and its own 184 day age bound: a fixture stamped in the past would be aged out
  * before the pairing was ever asked about, and the case would be about the clock instead of the bound.
  *
- * Written directly rather than through `openFileReceiptStore` because that store fsyncs every append,
- * and a volume has to reach the bound the CLI sets in the CLI's own terms for the start-up question to
- * be asked at all.
+ * Written directly rather than through `openFileReceiptStore` because that opening claims the
+ * directory and prunes against its policy, and a volume has to reach the bound the CLI sets in the
+ * CLI's own terms for the start-up question to be asked at all.
  */
 function writeHeldStore(dir: string, count: number, seconds: number): Buffer {
   const newest = Math.floor(Date.now() / 1000);
