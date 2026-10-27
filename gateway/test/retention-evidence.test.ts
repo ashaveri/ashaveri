@@ -3,7 +3,13 @@ import { mkdtemp, readdir, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { toHex } from '../src/digest.js';
-import { openFileReceiptStore, RECEIPT_SIDECAR_FILE, RECEIPT_STORE_FILE, type ReceiptRetention } from '../src/store.js';
+import {
+  openFileReceiptStore,
+  RECEIPT_OWNER_FILE,
+  RECEIPT_SIDECAR_FILE,
+  RECEIPT_STORE_FILE,
+  type ReceiptRetention,
+} from '../src/store.js';
 import { readRetentionEvidence } from '../src/retention-evidence.js';
 import { fixedClock } from './helpers.js';
 
@@ -189,14 +195,14 @@ describe('the bounds the door opens under', () => {
   });
 
   it('leaves no new file in the store directory when the caller did not ask for an index', async () => {
-    // The store is written by openings that all declined the index, so the volume holds the log and nothing
-    // else. A read of that directory is then asked to leave it as it found it: the index an opening would
-    // bootstrap is a file in the operator's evidence directory, and a presentation command that writes one
-    // has changed the thing it was asked to look at.
+    // The store is written by openings that all declined the index, so the volume holds the log and the
+    // claim an opening writes beside it, and no index. A read of that directory is then asked to leave it
+    // as it found it: the index an opening would bootstrap is a file in the operator's evidence directory,
+    // and a presentation command that writes one has changed the thing it was asked to look at.
     const dir = await emptyDir();
     await fileWith(dir, IDS, true);
     const before = await listing(dir);
-    expect(before).toEqual([RECEIPT_STORE_FILE]);
+    expect(before).toEqual([RECEIPT_STORE_FILE, RECEIPT_OWNER_FILE]);
 
     const evidence = await readRetentionEvidence({ dir, ...DECLARATION });
     expect(await listing(dir)).toEqual(before);

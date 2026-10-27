@@ -1,5 +1,6 @@
-import { appendFile, open, readFile, rename, truncate, type FileHandle } from 'node:fs/promises';
+import { appendFile, open, readFile, rename, rm, truncate, type FileHandle } from 'node:fs/promises';
 import type { Stats } from 'node:fs';
+import { hostname } from 'node:os';
 import { join } from 'node:path';
 import { sha256 } from './digest.js';
 
@@ -41,7 +42,9 @@ import { sha256 } from './digest.js';
  * The store file remains the only authority: the second file is written by the code that reads the
  * first, is thrown away at the first disagreement with it, and can be declined outright. What a
  * checkpoint changes is stated at `loadSidecar`, and it is the one thing an operator needs to know
- * about these two files: the receipts are in one of them, and the other only says where to look.
+ * about these two files: the receipts are in one of them, and the other only says where to look. A
+ * third file, named at `RECEIPT_OWNER_FILE`, speaks for neither of them: it is one process's claim on
+ * the directory, and it is what refuses a second writer before either has appended a record.
  */
 
 /** The file a deployment backs up. Named because an operator needs to know which one it is. */
@@ -52,6 +55,28 @@ export const RECEIPT_STORE_FILE = 'receipts.log';
  * an opening the full walk over the store file, and changes nothing else about the answers.
  */
 export const RECEIPT_SIDECAR_FILE = 'receipts.log.index';
+
+/**
+ * The claim a store leaves beside its log naming the process that holds the directory.
+ *
+ * Two processes appending to one log fork the chain, and a forked chain is this store's own claim
+ * that removal is detectable broken by its own deployment, so an opening refuses a directory another
+ * live process holds before it reads a byte of the log.
+ *
+ * A file carries the claim rather than an open handle, because a handle is no longer a witness of a
+ * serving process in this store: the append handle and the read handle both go down when it goes
+ * quiet, so that an operator can restore over a live deployment. What stays true while the handles
+ * are down is the name this process wrote and the process id inside it, and neither depends on the
+ * store being busy.
+ */
+export const RECEIPT_OWNER_FILE = 'receipts.log.owner';
+
+/**
+ * The claim a takeover moved aside, left under this name so that a reader of the directory can see
+ * who was displaced rather than learn it from nothing at all. One file, replaced by the next
+ * takeover: a directory that restarted a hundred times is not where a hundred claims belong.
+ */
+export const RECEIPT_OWNER_STALE_FILE = 'receipts.log.owner.stale';
 
 const KIND_BYTES = 1;
 const PREV_BYTES = 32;
@@ -550,7 +575,9 @@ function windowClaim(source: TimeSource, iat: number, from: number, to: number):
 }
 
 /**
- * Six refusals, answering six different questions about four different things.
+ * Nine refusals, answering nine different questions about four different things: the file on the
+ * volume, a value being written now, the configuration it was opened with, and who holds the
+ * directory.
  *
  * `STORE_CHAIN_BROKEN` is about the file on the volume: what is there no longer chains to itself, and
  * there is no safe way to serve from it. A short read, an unreadable volume and a corrupt file are
@@ -576,6 +603,13 @@ function windowClaim(source: TimeSource, iat: number, from: number, to: number):
  * still be kept and a bound stated that way could never be seen to bind. The first is refused for the
  * same reason `RECORD_STAMP_OUT_OF_RANGE` is: a value the layout cannot state is not a value the store
  * can be believed for, and a saturating write would publish a period nobody chose.
+ * `STORE_DIRECTORY_OWNED` and `STORE_OWNER_UNCLEAR` are both about the directory rather than about a
+ * byte in it, and they are kept apart because the operator's road out is different for each. The first
+ * names a holder this opening can see is running: two processes appending to one log fork the chain, so
+ * one of the two has to stop, and it is the one that arrived. The second names a claim this opening
+ * could not read as a holder at all, which is neither safe to serve beside nor safe to overwrite on a
+ * guess, because a takeover of a claim that was not stale is the same fork wearing the words recovery.
+ * Both refusals are raised before the log is opened, so neither has read a record or moved a byte.
  */
 export type StoreErrorCode =
   | 'STORE_CHAIN_BROKEN'
@@ -584,7 +618,9 @@ export type StoreErrorCode =
   | 'STORE_RECEIPT_KIND_MISMATCH'
   | 'RECORD_BOUND_OUT_OF_RANGE'
   | 'RECORD_BOUND_REDUNDANT'
-  | 'RETENTION_BOUND_OUT_OF_RANGE';
+  | 'RETENTION_BOUND_OUT_OF_RANGE'
+  | 'STORE_DIRECTORY_OWNED'
+  | 'STORE_OWNER_UNCLEAR';
 
 export class StoreError extends Error {
   readonly code: StoreErrorCode;
@@ -2390,6 +2426,173 @@ interface WindowRecord {
   readonly frame: Buffer;
 }
 
+/** What a claim states about the process that wrote it. */
+interface OwnerClaim {
+  readonly pid: number;
+  readonly host: string;
+  /** The instant the claim was written. A label for whoever reads the file: no decision weighs it. */
+  readonly claimedAt: string;
+}
+
+/**
+ * Whether this process can say anything about the holder a claim names.
+ *
+ * A process id is a fact about one machine's table, so a claim from another host is a question this
+ * process cannot answer and is never guessed at. On this host the answer is the pid table: a name that
+ * refuses the probe with `ESRCH` has exited, and one that refuses it with `EPERM` is a process that
+ * exists behind a wall this process is not allowed over. No timestamp is weighed, because a volume two
+ * hosts share holds two clocks and the gap between them says nothing about a process.
+ */
+function holderState(claim: OwnerClaim): 'here' | 'running' | 'exited' | 'unknowable' {
+  if (claim.host !== hostname()) {
+    return 'unknowable';
+  }
+  if (claim.pid === process.pid) {
+    return 'here';
+  }
+  try {
+    process.kill(claim.pid, 0);
+    return 'running';
+  } catch (error) {
+    const code = (error as NodeJS.ErrnoException).code;
+    if (code === 'ESRCH') {
+      return 'exited';
+    }
+    return code === 'EPERM' ? 'running' : 'unknowable';
+  }
+}
+
+/** A claim's bytes, read as a holder or answered with the one thing about them that is not one. */
+function readClaim(text: string): { readonly claim: OwnerClaim } | { readonly reason: string } {
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(text);
+  } catch {
+    return { reason: 'it is not a JSON object' };
+  }
+  if (typeof parsed !== 'object' || parsed === null) {
+    return { reason: 'it is not a JSON object' };
+  }
+  const holder = parsed as Partial<OwnerClaim>;
+  if (typeof holder.pid !== 'number' || !Number.isSafeInteger(holder.pid) || holder.pid <= 0) {
+    return { reason: `its pid ${String(holder.pid)} is not a positive process id` };
+  }
+  if (typeof holder.host !== 'string' || holder.host.length === 0) {
+    return { reason: 'it names no host' };
+  }
+  if (typeof holder.claimedAt !== 'string' || holder.claimedAt.length === 0) {
+    return { reason: 'it states no instant its holder claimed at' };
+  }
+  return { claim: { pid: holder.pid, host: holder.host, claimedAt: holder.claimedAt } };
+}
+
+function ownedRefusal(dir: string, holder: OwnerClaim): StoreError {
+  return new StoreError(
+    'STORE_DIRECTORY_OWNED',
+    `${join(dir, RECEIPT_OWNER_FILE)} names process ${String(holder.pid)} on host ${holder.host}, ` +
+      `which claimed this directory at ${holder.claimedAt} and is still running. One process may append ` +
+      `to ${join(dir, RECEIPT_STORE_FILE)}: a second writer on the same directory forks the chain, so ` +
+      `this opening read nothing and wrote nothing`,
+  );
+}
+
+function unclearRefusal(dir: string, reason: string): StoreError {
+  const file = join(dir, RECEIPT_OWNER_FILE);
+  return new StoreError(
+    'STORE_OWNER_UNCLEAR',
+    `${file} is here but ${reason}, so this opening cannot say who holds the directory and will not ` +
+      `take it. Nothing was read or written. Confirm that no process is serving ${dir}, then remove ` +
+      `${file} to claim it`,
+  );
+}
+
+/**
+ * Takes the claim on a store directory, or refuses with the holder it found, and says whether this
+ * opening is the one that wrote the claim.
+ *
+ * Three ordinary answers: nothing holds the directory, so it is claimed here; a holder this process
+ * can see running holds it, so this opening refuses; a holder that has exited on this host held it, so
+ * the claim is taken over. A takeover moves the displaced claim aside before the new one is created,
+ * and exactly one opening can move a file that exists once, which is what makes the takeover exclusive
+ * without a second mechanism: the one that finds nothing to move creates nothing either and reads the
+ * winner's claim instead. A claim this process already wrote is taken as it stands, because a process
+ * that holds a directory does not fork it against itself, and a store that reopens the same directory
+ * is this suite's ordinary restart.
+ */
+async function claimDirectory(dir: string): Promise<boolean> {
+  const file = join(dir, RECEIPT_OWNER_FILE);
+  const displaced = join(dir, RECEIPT_OWNER_STALE_FILE);
+  const holder: OwnerClaim = { pid: process.pid, host: hostname(), claimedAt: new Date().toISOString() };
+  for (let attempts = 2; attempts > 0; attempts -= 1) {
+    try {
+      const claim = await open(file, 'wx');
+      try {
+        await claim.writeFile(`${JSON.stringify(holder)}\n`);
+      } finally {
+        await claim.close();
+      }
+      return true;
+    } catch (error) {
+      // Anything but "someone is already here" is the volume's own answer to this opening, unchanged
+      // from the store file's create: a directory that is not mounted has never been a claim refusal.
+      if ((error as NodeJS.ErrnoException).code !== 'EEXIST') {
+        throw error;
+      }
+    }
+    const found = await readFile(file, 'utf8').catch(() => null);
+    if (found === null) {
+      throw unclearRefusal(dir, 'it could not be read');
+    }
+    const reading = readClaim(found);
+    if ('reason' in reading) {
+      throw unclearRefusal(dir, reading.reason);
+    }
+    const state = holderState(reading.claim);
+    if (state === 'here') {
+      return false;
+    }
+    if (state === 'running') {
+      throw ownedRefusal(dir, reading.claim);
+    }
+    if (state === 'unknowable') {
+      throw unclearRefusal(
+        dir,
+        `it names process ${String(reading.claim.pid)} on host ${reading.claim.host}, which this process cannot probe`,
+      );
+    }
+    try {
+      await rename(file, displaced);
+    } catch (error) {
+      // The other claimer won the move; the create that follows reads its claim instead.
+      if ((error as NodeJS.ErrnoException).code !== 'ENOENT') {
+        throw error;
+      }
+    }
+  }
+  throw unclearRefusal(dir, 'the claim changed under this opening twice');
+}
+
+/**
+ * Removes this process's claim on a directory, and no other holder's.
+ *
+ * An opening that claimed and then refused for a reason in its own configuration or in the log's bytes
+ * never became a store, and a claim naming a process that serves nothing is the one thing that can stop
+ * a deployment starting beside it. Whether the claim was this process's to drop is the whole question
+ * this asks, and a claim it cannot name itself in is left where it is.
+ */
+async function releaseDirectoryClaim(dir: string): Promise<void> {
+  const file = join(dir, RECEIPT_OWNER_FILE);
+  const found = await readFile(file, 'utf8').catch(() => null);
+  if (found === null) {
+    return;
+  }
+  const reading = readClaim(found);
+  if ('reason' in reading || reading.claim.pid !== process.pid || reading.claim.host !== hostname()) {
+    return;
+  }
+  await rm(file, { force: true });
+}
+
 export async function openFileReceiptStore(options: FileReceiptStoreOptions): Promise<ReceiptStore> {
   const path = join(options.dir, RECEIPT_STORE_FILE);
   const retention = options.retention;
@@ -2412,14 +2615,27 @@ export async function openFileReceiptStore(options: FileReceiptStoreOptions): Pr
     options.sidecarIndex === false
       ? null
       : { path: join(options.dir, RECEIPT_SIDECAR_FILE), recordKind, previous: null, pending: [] };
-  const state = await scan(path, sidecar, receiptKind);
-  // A deployment that was down over a weekend has aged receipts on disk it must not serve.
-  prune(state, retention, now());
-  // What a file can serve is known once it has been read and pruned, and this is the last moment a
-  // refusal is cheap: no receipt has been served from it and no caller is holding an id. The in-process
-  // engine has no equivalent call because it is empty when it is constructed, and a store that has never
-  // issued a receipt has measured nothing of its own traffic.
-  assertWindowHeldable(retention, serving, windowOf(state.records.values()));
+  // Claimed before the log is opened, and before any of it is pruned, truncated or re-indexed: a second
+  // writer that got that far has already forked the chain the claim exists to keep whole. The
+  // configuration above is refused first because it costs the volume nothing to answer, and a refusal
+  // from the bytes below hands the claim back so that the process that raised it leaves nothing behind.
+  const claimed = await claimDirectory(options.dir);
+  let state: StoreState;
+  try {
+    state = await scan(path, sidecar, receiptKind);
+    // A deployment that was down over a weekend has aged receipts on disk it must not serve.
+    prune(state, retention, now());
+    // What a file can serve is known once it has been read and pruned, and this is the last moment a
+    // refusal is cheap: no receipt has been served from it and no caller is holding an id. The in-process
+    // engine has no equivalent call because it is empty when it is constructed, and a store that has never
+    // issued a receipt has measured nothing of its own traffic.
+    assertWindowHeldable(retention, serving, windowOf(state.records.values()));
+  } catch (error) {
+    if (claimed) {
+      await releaseDirectoryClaim(options.dir).catch(() => undefined);
+    }
+    throw error;
+  }
 
   /**
    * One operation touches the file at a time, which is the whole of the concurrency control.

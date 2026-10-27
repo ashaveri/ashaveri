@@ -16,7 +16,7 @@ import {
 } from '@ashaveri/receipt';
 import { newBearerCredential, newPopCredential, serializeCredentialFile } from '../src/access.js';
 import { daysToSeconds } from '../src/duty-window.js';
-import { MINIMUM_RETENTION_SECONDS, openFileReceiptStore, RECEIPT_STORE_FILE } from '../src/store.js';
+import { MINIMUM_RETENTION_SECONDS, openFileReceiptStore, RECEIPT_OWNER_FILE, RECEIPT_STORE_FILE } from '../src/store.js';
 
 const CLI = fileURLToPath(new URL('../dist/cli.js', import.meta.url));
 const ENTRYPOINT_PATH = fileURLToPath(new URL('../../enclave/docker-entrypoint.sh', import.meta.url));
@@ -2283,6 +2283,11 @@ describe('the record kind a volume is written under', () => {
       expect(refusal).not.toBeNull();
       expect(refusal).toContain('STORE_RECEIPT_KIND_MISMATCH');
       expect(refusal).toContain('rcpt_01');
+
+      // The claim beside the log names the process that opened the volume, and that process is this one.
+      // The fixture has finished writing it and hands the directory to the run below, so it puts its own
+      // claim down: an opening that is still holding a directory is refused, and it should be.
+      rmSync(join(dir, RECEIPT_OWNER_FILE));
 
       const result = run('--mock', '--port', '0', '--receipts-dir', dir, '--receipts-record-kind', BOUNDED_VALUE);
       expect(result.status, result.stderr).toBe(1);

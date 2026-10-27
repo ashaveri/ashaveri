@@ -1,8 +1,10 @@
 import { afterEach, describe, expect, it } from 'vitest';
+import { spawnSync } from 'node:child_process';
 import { createHash } from 'node:crypto';
 import { appendFile, mkdtemp, readFile, readdir, rename, rm, stat, utimes, writeFile } from 'node:fs/promises';
-import { tmpdir } from 'node:os';
+import { hostname, tmpdir } from 'node:os';
 import { join } from 'node:path';
+import { fileURLToPath } from 'node:url';
 import {
   HOST_CLOCK_SOURCE,
   openFileReceiptStore,
@@ -11,6 +13,9 @@ import {
   retentionBoundsFault,
   durabilityForTesting,
   failNextSyncForTesting,
+  RECEIPT_OWNER_FILE,
+  RECEIPT_OWNER_STALE_FILE,
+  RECEIPT_SIDECAR_FILE,
   RECEIPT_STORE_FILE,
   servedBatches,
   type ReceiptRecordKind,
@@ -21,6 +26,7 @@ import {
 } from '../src/store.js';
 import { RECEIPT_ID_CHARS } from '../src/access.js';
 import { daysToSeconds } from '../src/duty-window.js';
+import { noteSpawn, spawnCeilingForCalls } from './support/spawn-budget.js';
 import { fixedClock, storeGoesQuiet } from './helpers.js';
 
 const RECEIPT = Uint8Array.from(Array.from({ length: 64 }, (_, i) => (i * 7) % 256));
@@ -2431,6 +2437,203 @@ describe('the sync an append waits for', () => {
     expect(Array.from((await store.get('rcpt_after_the_drop'))!)).toEqual(Array.from(RECEIPT));
     expect(Array.from((await store.get(ids[0]!))!)).toEqual(Array.from(RECEIPT));
   });
+});
+
+/**
+ * One writer per store directory.
+ *
+ * The state under test is a claim made by a process this suite is not, so the second opening is a real
+ * child rather than a second store object: an opening that finds its own process named on the directory
+ * carries on, which is the restart every case in this file is built on, and only a name from elsewhere
+ * can answer whether the holder is still there. The child runs the built store for the same reason the
+ * CLI cases run the built entry point.
+ */
+describe('one writer per store directory', () => {
+  const STAMP = 1_780_000_000;
+  /** One child's patience, the same allowance the CLI cases give one run of their own. */
+  const PROBE_DEADLINE_MS = 8_000;
+  const PROBE = fileURLToPath(new URL('./support/store-owner-probe.mjs', import.meta.url));
+
+  interface ProbeAnswer {
+    readonly pid: number;
+    readonly opened: boolean;
+    readonly code: string | null;
+    readonly message: string | null;
+  }
+
+  /** One child making one opening over `dir`, and the single line it answered with. */
+  function probe(dir: string, mode: 'attempt' | 'claim', id: string): ProbeAnswer {
+    noteSpawn(PROBE_DEADLINE_MS);
+    const run = spawnSync(process.execPath, [PROBE, dir, mode, id], {
+      encoding: 'utf8',
+      timeout: PROBE_DEADLINE_MS,
+      killSignal: 'SIGKILL',
+    });
+    const line = run.stdout.trim();
+    expect(line, `the probe exited with ${String(run.status)}: stdout ${line}, stderr ${run.stderr}`).not.toBe('');
+    return JSON.parse(line) as ProbeAnswer;
+  }
+
+  /** A claim on the volume, read as the fields it states about the process that wrote it. */
+  async function claimOf(dir: string, name: string = RECEIPT_OWNER_FILE): Promise<Record<string, unknown>> {
+    return JSON.parse(await readFile(join(dir, name), 'utf8')) as Record<string, unknown>;
+  }
+
+  it(
+    'refuses a second process opening a claimed directory, naming the file and the holder it found',
+    { timeout: spawnCeilingForCalls(1, PROBE_DEADLINE_MS) },
+    async () => {
+      const dir = await emptyDir();
+      const store = await openFileReceiptStore({ dir });
+      await store.put('rcpt_holder', RECEIPT, STAMP);
+
+      const answer = probe(dir, 'attempt', 'rcpt_second');
+      expect(answer.opened, answer.message ?? 'the second process opened a claimed directory').toBe(false);
+      expect(answer.code).toBe('STORE_DIRECTORY_OWNED');
+      expect(answer.message ?? '', 'a refusal that names no file leaves nothing to act on').toContain(
+        RECEIPT_OWNER_FILE,
+      );
+      // The holder is stated by the two things that identify it: a process id, and the machine the id is
+      // an id on. A sentence naming neither sends an operator to stop a run by guesswork.
+      expect(answer.message ?? '').toContain(`process ${String(process.pid)}`);
+      expect(answer.message ?? '').toContain(hostname());
+    },
+  );
+
+  it(
+    'leaves the holder serving after a refusal, with the bytes and the claim it already had',
+    { timeout: spawnCeilingForCalls(1, PROBE_DEADLINE_MS) },
+    async () => {
+      const dir = await emptyDir();
+      const store = await openFileReceiptStore({ dir });
+      await store.put('rcpt_holder', RECEIPT, STAMP);
+      const file = join(dir, RECEIPT_STORE_FILE);
+      const bytesBefore = await readFile(file);
+      const windowBefore = await store.window();
+
+      expect(probe(dir, 'attempt', 'rcpt_second').code).toBe('STORE_DIRECTORY_OWNED');
+
+      // The refusal is the second process stopping, not the first one being stopped: the log is the bytes
+      // it was, the claim still names this process, and the holder files and serves on the other side of
+      // it. A refusal that cost the holder its claim would be a teardown wearing the word owned.
+      expect(await readFile(file)).toEqual(bytesBefore);
+      expect(await claimOf(dir)).toMatchObject({ pid: process.pid });
+      await store.put('rcpt_after', OTHER_RECEIPT, STAMP + 1);
+      expect(Array.from((await store.get('rcpt_after'))!)).toEqual(Array.from(OTHER_RECEIPT));
+      expect(await store.window()).toEqual({ from: windowBefore.from, to: STAMP + 1, count: windowBefore.count + 1 });
+    },
+  );
+
+  it(
+    'takes over a claim whose holder has exited, leaving the displaced claim where a reader can see it',
+    { timeout: spawnCeilingForCalls(1, PROBE_DEADLINE_MS) },
+    async () => {
+      // The gone-holder branch of the rule, and the one a restart reaches: the child wrote its claim,
+      // filed one record and exited, and the runner reaped it, so the pid its claim names is a pid this
+      // opening can say has exited rather than one it has to hope has.
+      const dir = await emptyDir();
+      const filed = probe(dir, 'claim', 'rcpt_child');
+      expect(filed.opened, filed.message ?? 'the claiming process could not open the directory').toBe(true);
+
+      const store = await openFileReceiptStore({ dir });
+      expect(Array.from((await store.get('rcpt_child'))!)).toEqual(Array.from(Uint8Array.from([1, 2, 3])));
+      expect(await claimOf(dir)).toMatchObject({ pid: process.pid, host: hostname() });
+      expect(await claimOf(dir, RECEIPT_OWNER_STALE_FILE)).toMatchObject({ pid: filed.pid, host: hostname() });
+      expect((await readdir(dir)).sort(), 'one displaced claim kept, and never a growing pile').toEqual([
+        RECEIPT_STORE_FILE,
+        RECEIPT_SIDECAR_FILE,
+        RECEIPT_OWNER_FILE,
+        RECEIPT_OWNER_STALE_FILE,
+      ]);
+    },
+  );
+
+  it('refuses a claim it cannot read as a holder, and one naming a host it cannot probe', async () => {
+    // The branch a takeover is not: bytes that state no holder, and a holder on a machine whose process
+    // table this opening cannot read. Both refuse, because the alternative is to overwrite a claim on a
+    // reading that was never certain, which is the fork the claim exists to keep out.
+    const unreadable = await emptyDir();
+    await writeFile(join(unreadable, RECEIPT_OWNER_FILE), '{"pid":999999,"started":"unknown"}\n');
+    const first = await openFileReceiptStore({ dir: unreadable }).then(
+      (opened) => opened,
+      (error: unknown) => error as Error,
+    );
+    expect(first instanceof Error, 'an unclear claim was served beside').toBe(true);
+    expect((first as Error).message).toContain('STORE_OWNER_UNCLEAR');
+    expect((first as Error).message).toContain(RECEIPT_OWNER_FILE);
+    expect(await readdir(unreadable), 'a claim refused as unclear was neither served nor taken over').toEqual([
+      RECEIPT_OWNER_FILE,
+    ]);
+
+    const otherHost = await emptyDir();
+    await writeFile(
+      join(otherHost, RECEIPT_OWNER_FILE),
+      `${JSON.stringify({ pid: process.pid, host: 'a-host-this-process-is-not-on', claimedAt: 'now' })}\n`,
+    );
+    await expect(openFileReceiptStore({ dir: otherHost })).rejects.toMatchObject({ code: 'STORE_OWNER_UNCLEAR' });
+    expect(await readdir(otherHost)).toEqual([RECEIPT_OWNER_FILE]);
+  });
+
+  it('takes back the claim it wrote when the opening that wrote it refuses', async () => {
+    // A log whose second record names the wrong predecessor: the reading refuses, and the claim this
+    // opening had already written would name a process that serves nothing if it were left behind. A
+    // deployment whose own failed start keeps it from starting again is not a safe deployment.
+    const dir = await emptyDir();
+    const frames = [
+      handSealedFrame(0, ZERO_HEAD, STAMP, 'rcpt_first', Buffer.from(RECEIPT)),
+      handSealedFrame(0, ZERO_HEAD, STAMP + 1, 'rcpt_second', Buffer.from(RECEIPT)),
+    ];
+    await writeFile(join(dir, RECEIPT_STORE_FILE), Buffer.concat(frames));
+
+    await expect(openFileReceiptStore({ dir })).rejects.toMatchObject({ code: 'STORE_CHAIN_BROKEN' });
+    expect(await readdir(dir), 'the claim came back with the opening that failed').toEqual([RECEIPT_STORE_FILE]);
+  });
+
+  it('admits the next opening by the process whose name is already on the directory', async () => {
+    // A holder does not fork the chain against itself, and this suite's ordinary restart is a second
+    // opening by the same process. Refusing that would refuse every case in this file that reopens, and
+    // would say the claim is about handles rather than about the one writer a directory may have.
+    const dir = await emptyDir();
+    const first = await openFileReceiptStore({ dir });
+    await first.put('rcpt_first', RECEIPT, STAMP);
+
+    const again = await openFileReceiptStore({ dir });
+    expect(Array.from((await again.get('rcpt_first'))!)).toEqual(Array.from(RECEIPT));
+    await again.put('rcpt_second', OTHER_RECEIPT, STAMP + 1);
+    expect(await claimOf(dir)).toMatchObject({ pid: process.pid, host: hostname() });
+  });
+
+  it(
+    'refuses a second writer while its own handles are down',
+    { timeout: spawnCeilingForCalls(1, PROBE_DEADLINE_MS) },
+    async () => {
+      // The claim cannot be an open handle: a store puts both its handles down when it goes quiet, so
+      // that an operator can restore over a live deployment, and an idle process that stopped refusing
+      // would be the second writer this refuses. The witness that the handles are down is the rename a
+      // volume refuses over an open handle, landing here with the log's own bytes moved back over it.
+      const dir = await emptyDir();
+      const store = await openFileReceiptStore({ dir });
+      const file = join(dir, RECEIPT_STORE_FILE);
+      await store.put('rcpt_before_the_drop', RECEIPT, STAMP);
+      expect(Array.from((await store.get('rcpt_before_the_drop'))!)).toEqual(Array.from(RECEIPT));
+
+      await storeGoesQuiet();
+      const bytes = await readFile(file);
+      const temp = `${file}.restored`;
+      await writeFile(temp, bytes);
+      await rename(temp, file);
+
+      const answer = probe(dir, 'attempt', 'rcpt_second');
+      expect(answer.opened, 'a store that went quiet let a second writer in').toBe(false);
+      expect(answer.code).toBe('STORE_DIRECTORY_OWNED');
+      expect(answer.message ?? '').toContain(`process ${String(process.pid)}`);
+
+      // Still the same holder on the other side of the wait, the rename and the refusal.
+      await store.put('rcpt_after_the_drop', OTHER_RECEIPT, STAMP + 1);
+      expect(Array.from((await store.get('rcpt_after_the_drop'))!)).toEqual(Array.from(OTHER_RECEIPT));
+      expect(await claimOf(dir)).toMatchObject({ pid: process.pid });
+    },
+  );
 });
 
 
