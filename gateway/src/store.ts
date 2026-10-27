@@ -1,5 +1,6 @@
-import { appendFile, open, readFile, rename, truncate, type FileHandle } from 'node:fs/promises';
+import { appendFile, open, readFile, rename, rm, truncate, type FileHandle } from 'node:fs/promises';
 import type { Stats } from 'node:fs';
+import { hostname } from 'node:os';
 import { join } from 'node:path';
 import { sha256 } from './digest.js';
 
@@ -41,7 +42,9 @@ import { sha256 } from './digest.js';
  * The store file remains the only authority: the second file is written by the code that reads the
  * first, is thrown away at the first disagreement with it, and can be declined outright. What a
  * checkpoint changes is stated at `loadSidecar`, and it is the one thing an operator needs to know
- * about these two files: the receipts are in one of them, and the other only says where to look.
+ * about these two files: the receipts are in one of them, and the other only says where to look. A
+ * third file, named at `RECEIPT_OWNER_FILE`, speaks for neither of them: it is one process's claim on
+ * the directory, and it is what refuses a second writer before either has appended a record.
  */
 
 /** The file a deployment backs up. Named because an operator needs to know which one it is. */
@@ -52,6 +55,28 @@ export const RECEIPT_STORE_FILE = 'receipts.log';
  * an opening the full walk over the store file, and changes nothing else about the answers.
  */
 export const RECEIPT_SIDECAR_FILE = 'receipts.log.index';
+
+/**
+ * The claim a store leaves beside its log naming the process that holds the directory.
+ *
+ * Two processes appending to one log fork the chain, and a forked chain is this store's own claim
+ * that removal is detectable broken by its own deployment, so an opening refuses a directory another
+ * live process holds before it reads a byte of the log.
+ *
+ * A file carries the claim rather than an open handle, because a handle is no longer a witness of a
+ * serving process in this store: the append handle and the read handle both go down when it goes
+ * quiet, so that an operator can restore over a live deployment. What stays true while the handles
+ * are down is the name this process wrote and the process id inside it, and neither depends on the
+ * store being busy.
+ */
+export const RECEIPT_OWNER_FILE = 'receipts.log.owner';
+
+/**
+ * The claim a takeover moved aside, left under this name so that a reader of the directory can see
+ * who was displaced rather than learn it from nothing at all. One file, replaced by the next
+ * takeover: a directory that restarted a hundred times is not where a hundred claims belong.
+ */
+export const RECEIPT_OWNER_STALE_FILE = 'receipts.log.owner.stale';
 
 const KIND_BYTES = 1;
 const PREV_BYTES = 32;
@@ -550,7 +575,9 @@ function windowClaim(source: TimeSource, iat: number, from: number, to: number):
 }
 
 /**
- * Six refusals, answering six different questions about four different things.
+ * Nine refusals, answering nine different questions about four different things: the file on the
+ * volume, a value being written now, the configuration it was opened with, and who holds the
+ * directory.
  *
  * `STORE_CHAIN_BROKEN` is about the file on the volume: what is there no longer chains to itself, and
  * there is no safe way to serve from it. A short read, an unreadable volume and a corrupt file are
@@ -576,6 +603,13 @@ function windowClaim(source: TimeSource, iat: number, from: number, to: number):
  * still be kept and a bound stated that way could never be seen to bind. The first is refused for the
  * same reason `RECORD_STAMP_OUT_OF_RANGE` is: a value the layout cannot state is not a value the store
  * can be believed for, and a saturating write would publish a period nobody chose.
+ * `STORE_DIRECTORY_OWNED` and `STORE_OWNER_UNCLEAR` are both about the directory rather than about a
+ * byte in it, and they are kept apart because the operator's road out is different for each. The first
+ * names a holder this opening can see is running: two processes appending to one log fork the chain, so
+ * one of the two has to stop, and it is the one that arrived. The second names a claim this opening
+ * could not read as a holder at all, which is neither safe to serve beside nor safe to overwrite on a
+ * guess, because a takeover of a claim that was not stale is the same fork wearing the words recovery.
+ * Both refusals are raised before the log is opened, so neither has read a record or moved a byte.
  */
 export type StoreErrorCode =
   | 'STORE_CHAIN_BROKEN'
@@ -584,7 +618,9 @@ export type StoreErrorCode =
   | 'STORE_RECEIPT_KIND_MISMATCH'
   | 'RECORD_BOUND_OUT_OF_RANGE'
   | 'RECORD_BOUND_REDUNDANT'
-  | 'RETENTION_BOUND_OUT_OF_RANGE';
+  | 'RETENTION_BOUND_OUT_OF_RANGE'
+  | 'STORE_DIRECTORY_OWNED'
+  | 'STORE_OWNER_UNCLEAR';
 
 export class StoreError extends Error {
   readonly code: StoreErrorCode;
@@ -629,6 +665,13 @@ export interface RetainedWindow {
 }
 
 export interface ReceiptStore {
+  /**
+   * Files one receipt and settles once a sync has reached the bytes of its record.
+   *
+   * One sync answers for the run of appends whose bytes it reached, so several callers can be settled by
+   * one sync and none is settled by a sync that stopped short of its record. A sync that refuses settles
+   * the callers it was covering and leaves the callers behind it to a sync of their own.
+   */
   put(id: string, receipt: Uint8Array, iat: number): Promise<void>;
   get(id: string): Promise<Uint8Array | null>;
 
@@ -790,15 +833,26 @@ function assertReceiptKind(kind: ReceiptRecordKind, retention: ReceiptRetention 
 }
 
 /**
+ * Refuses what no record can carry, whatever it chains from or lands at.
+ *
+ * An append is objected to at these two before its bytes join a run of appends: a record whose own
+ * fields have no spelling would stop a window that was written beside eleven good ones, and a refusal
+ * that reaches the caller asking is the one refusal that costs nothing.
+ */
+function assertRecordable(idBytes: number, iat: number): void {
+  if (idBytes > MAX_ID_BYTES) {
+    throw new Error(`receipt id of ${String(idBytes)} bytes exceeds the ${String(MAX_ID_BYTES)} byte record limit`);
+  }
+  assertStamp(iat);
+}
+
+/**
  * `Record = len:u32 || kind:u8 || prev:32 || iat:u64 || idLen:u16 || id || payload || digest:32`,
  * with `digest = sha256(everything between len and digest)`. `len` covers kind through digest.
  */
 function encode(kind: number, prev: Uint8Array, iat: number, id: string, payload: Uint8Array): { frame: Buffer; digest: Buffer } {
   const idBytes = Buffer.from(id, 'utf8');
-  if (idBytes.length > MAX_ID_BYTES) {
-    throw new Error(`receipt id of ${idBytes.length} bytes exceeds the ${MAX_ID_BYTES} byte record limit`);
-  }
-  assertStamp(iat);
+  assertRecordable(idBytes.length, iat);
   const stamp = Buffer.alloc(IAT_BYTES);
   stamp.writeBigUInt64BE(BigInt(iat));
   const idLength = Buffer.alloc(ID_LEN_BYTES);
@@ -873,7 +927,7 @@ function trimEvent(record: TrimRecord): TrimEvent {
  * files living at once can be reported with the same number as easily as two dead ones can. What the
  * pair does answer is whether this handle is on the file the store last wrote, which is what lets a
  * walk follow the file a compaction moved over the path instead of refusing it, and the bytes a walk
- * then takes are checked against the index by `readReceipt`.
+ * then takes are checked against the index by `provedReceipt`.
  *
  * Size and the timestamps are deliberately not part of the pair. The store grows the file as a matter
  * of course, so a handle discarded for a different size would be an open per record again under
@@ -1545,7 +1599,7 @@ interface Retirement {
  * the skew of its neighbours is the same rule's cost, and it falls on the side that keeps data.
  */
 function retire(
-  entries: Iterable<readonly [string, { iat: number; seq: number }]>,
+  entries: ReadonlyMap<string, { iat: number }>,
   retention: ReceiptRetention | undefined,
   now: number,
 ): Retirement {
@@ -1555,34 +1609,22 @@ function retire(
     return { byAge, byCount };
   }
   const cutoff = retention.maxAgeSeconds === undefined ? Number.NEGATIVE_INFINITY : now - retention.maxAgeSeconds;
-  const aged = new Set<string>();
-  const live: [string, number][] = [];
+  const max = retention.maxCount;
+  // The index is inserted in chain order and a record's stamp is never older than its predecessor's in
+  // a file this writer makes, so the front of the map is its oldest-dated end: the prefix, and which
+  // bound gave each record up, are both read off the walk itself rather than sorted out of the set.
+  // `kept` is what a caller would still be served if the walk stopped at this record, which is the
+  // number a count cap speaks about, so the cap fits the moment kept no longer exceeds it.
+  let kept = entries.size;
   for (const [id, where] of entries) {
     if (where.iat < cutoff) {
-      aged.add(id);
-    } else {
-      live.push([id, where.iat]);
-    }
-  }
-  // Sorted by stamp rather than by chain position because the cap is a statement about how many
-  // receipts are served, and the ones it gives up on are the ones the window covers least.
-  const capped = new Set<string>();
-  const max = retention.maxCount;
-  if (max !== undefined) {
-    live.sort((a, b) => a[1] - b[1]);
-    for (const [id] of live.slice(0, Math.max(0, live.length - max))) {
-      capped.add(id);
-    }
-  }
-  const prefix = [...entries].sort((a, b) => a[1].seq - b[1].seq);
-  for (const [id] of prefix) {
-    if (aged.delete(id)) {
       byAge.push(id);
-    } else if (capped.delete(id)) {
-      byCount.push(id);
-    } else {
+    } else if (max === undefined || kept <= max) {
       break;
+    } else {
+      byCount.push(id);
     }
+    kept -= 1;
   }
   return { byAge, byCount };
 }
@@ -1630,10 +1672,11 @@ async function readRange(file: FileHandle, length: number, position: number): Pr
  * replaced its trim record on each compaction would forget the reason for all of the earlier ones
  * the moment it reset the counter they were counted with.
  *
- * `releaseHeld` puts down every read handle a walk is holding, and it has to happen before the
- * rename: a volume refuses to move a file over one a handle still reads, and a volume that allowed
- * it would leave that handle answering from the bytes that used to be there while the index had
- * already moved to the new ones.
+ * `releaseHeld` puts down every handle the store is holding over the file it is replacing: the walks',
+ * its own read handle, and the append handle the last window went through. It has to happen before the
+ * rename: a volume refuses to move a file over one a handle still reads, and a volume that allowed it
+ * would leave that handle answering from the bytes that used to be there while the index had already
+ * moved to the new ones.
  *
  * The index beside the file is rewritten by the reading that follows the move, which is the right
  * direction for it to be invalidated in: the new file is a different file by the volume's own answer,
@@ -1697,10 +1740,11 @@ async function compact(
   } finally {
     await out.close();
   }
-  // Every handle a walk is holding goes down before the move. A volume refuses to move a file over
-  // one an open handle still reads, so this is what keeps a compaction possible while a caller is
-  // mid-window, and a volume that allowed it would leave that handle answering from the bytes that
-  // used to be there while the index below had already moved to the new offsets.
+  // Every handle this store holds over the file goes down before the move, the walks' and the append
+  // handle alike. A volume refuses to move a file over one an open handle still reads, so this is what
+  // keeps a compaction possible while a caller is mid-window, and a volume that allowed it would leave
+  // that handle answering from the bytes that used to be there while the index below had already moved
+  // to the new offsets.
   await releaseHeld();
   await rename(temp, path);
   const recovered = await scan(path, sidecar, receiptKind);
@@ -1997,8 +2041,214 @@ function chained<T extends { seq: number }>(
 }
 
 /**
- * Reads one record at the position the index claims and checks the bytes against the index before
- * handing them over.
+ * Records per queued read of a walk. A batch is what a caller may hold at a time and can be the whole
+ * retained window when nothing bounds it, so the read is cut finer than the batch: a walk that queued
+ * its whole window would be a way to stop issuing receipts by asking about them, and a buffer sized to
+ * the whole window is a spike no receipt needs.
+ */
+const READ_CHUNK_RECORDS = 256;
+
+/**
+ * The span one queued read takes, which is what a chunk of records with wide payloads can add up to.
+ * The count alone would let one read ask for the bytes of a store whose receipts are large.
+ */
+const READ_CHUNK_BYTES = 4 * 1024 * 1024;
+
+/**
+ * How long the store's read handle stays open once reads stop arriving through it.
+ *
+ * It is measured against the two costs a handle trades: a close and reopen is about half a
+ * millisecond, so a drop a quarter of a second after the last read costs a store that is actually idle
+ * one reopen per quiet stretch and nothing at all while receipts are arriving, whereas a handle put
+ * down after every read would pay that half millisecond per read, which is the open the held handle
+ * exists to avoid. It is short because a handle the process sits on is a handle a restore has to wait
+ * out: a Windows volume refuses to move a file over one an open handle reads, so the idle interval is
+ * the time an operator of an idle store waits, and a compaction puts every handle down itself before it
+ * renames.
+ */
+const READER_IDLE_MILLISECONDS = 250;
+
+/** The byte one record's frame ends at, its trailing digest included. */
+function frameEnd(where: Location): number {
+  return where.offset + where.length + DIGEST_BYTES;
+}
+
+/** The buffer the store's reads share, grown to the widest span any of them has asked for. */
+interface Scratch {
+  bytes: Buffer;
+}
+
+/**
+ * `need` bytes to read into, reusing the store's buffer until a span needs it wider.
+ *
+ * One record's frame allocated and zeroed per record is the cost a batch shares out, and growing the
+ * buffer only upward is what keeps the next batch from paying for a fresh one. Reads of one store never
+ * overlap, because every one of them is a queued operation, so one buffer answers for all of them.
+ */
+function scratchSpace(scratch: Scratch, need: number): Buffer {
+  if (scratch.bytes.length < need) {
+    scratch.bytes = Buffer.allocUnsafe(need);
+  }
+  return scratch.bytes;
+}
+
+/**
+ * The file's bytes from `start` to `end`, taken into the shared buffer by one read.
+ *
+ * A span that comes up short is a refusal and never a shorter answer: the buffer holds the bytes of
+ * whatever span was read through it last, and a record served out of those would be a receipt the file
+ * never had, delivered as though the index and the file still agreed.
+ */
+async function readWholeSpan(file: FileHandle, scratch: Scratch, start: number, end: number): Promise<Buffer> {
+  const span = scratchSpace(scratch, end - start);
+  const { bytesRead } = await file.read(span, 0, end - start, start);
+  if (bytesRead !== end - start) {
+    throw new Error(`store file ended ${String(end - start - bytesRead)} bytes short of the span its index claims`);
+  }
+  return span.subarray(0, end - start);
+}
+
+/**
+ * The handle a walk's read goes through, on the file the walk's index was read from.
+ *
+ * Which file this handle is on is one fact about a batch and not one per record, so it is asked once
+ * per batch, by a stat, and never again while the batch lasts. Two questions get answered by that one
+ * asking, and they are different questions: whether the handle is still the file the index describes,
+ * and, if it is not, whether the path names that file now.
+ *
+ * A disagreement sends the handle down and the path is opened again before anything is refused, because
+ * a compaction that moved a new file over the path while a walk was parked is a walk that carries on
+ * from the file the index moved to, which is what the same read would answer from if it opened the path
+ * for itself. Only a reopened file that still disagrees with the index is a refusal, and it names the
+ * batch rather than the record the stat happened to answer for: the index and the path then disagree
+ * about which file the receipts are in at all, and no position in this batch is safe to read.
+ */
+async function handleOn(
+  walk: HeldHandle,
+  state: StoreState,
+  path: string,
+  batch: readonly (readonly [string, Location])[],
+): Promise<FileHandle> {
+  const held = walk.file;
+  if (held !== null && serialOf(await held.stat()) === state.identity) {
+    return held;
+  }
+  await putDown(walk);
+  walk.file = await open(path, 'r');
+  if (serialOf(await walk.file.stat()) !== state.identity) {
+    throw new Error(
+      `receipt store file ${path} is not the file its index was read from, so none of the ` +
+        `${String(batch.length)} receipts of this read has a position that is safe to read`,
+    );
+  }
+  return walk.file;
+}
+
+/**
+ * What one batch of a walk answered: the receipts it proved, in the order the chain runs through the
+ * batch, and the refusal it stopped at.
+ *
+ * A walk stops at the record it cannot check rather than handing it over, and the receipts proved before
+ * that record have already been promised to the caller, so a batch that ends in a refusal still hands
+ * back what it proved on the way to it. Reading a batch in one pass is a way of asking the questions
+ * fewer times, not a way of withholding answers that were reached.
+ */
+interface BatchAnswer {
+  readonly receipts: Uint8Array[];
+  readonly refusal: Error | null;
+}
+
+/**
+ * Every record of a batch, in the order the chain runs through it, from one read per run of frames.
+ *
+ * Three things belong to the batch and not to its records, and sharing them is the whole of what this
+ * path costs: the stat that says which file the handle is on, the buffer wide enough for the span the
+ * batch's frames fill, and the read that fills it. A positioned read is a syscall and a zeroed frame is
+ * the pages it touches, and neither answers a question about one receipt. What stays per record is the
+ * digest recomputed from its own bytes and the two compares against the digest the index read off this
+ * file: the proof a caller is owed for the bytes it is handed, and not a syscall.
+ *
+ * A run is the longest stretch of the batch the file holds end to end, so one read covers it and
+ * nothing covers the dead space a retired prefix or a re-filed id leaves between two records that are
+ * not neighbours in the file. The receipt each record hands back is copied out of the shared buffer,
+ * because the next read writes over the bytes it was cut from.
+ */
+async function readBatch(
+  walk: HeldHandle,
+  state: StoreState,
+  path: string,
+  batch: readonly (readonly [string, Location])[],
+  scratch: Scratch,
+): Promise<BatchAnswer> {
+  const file = await handleOn(walk, state, path, batch);
+  const receipts: Uint8Array[] = [];
+  let run: (readonly [string, Location])[] = [];
+  let runStart = 0;
+  let runEnd = 0;
+
+  /** One read for the stretch of the batch the file holds end to end, and each record proved in it. */
+  async function takeRun(): Promise<Error | null> {
+    try {
+      const span = await readWholeSpan(file, scratch, runStart, runEnd);
+      for (const [id, where] of run) {
+        const frame = span.subarray(where.recordStart - runStart, frameEnd(where) - runStart);
+        receipts.push(new Uint8Array(provedReceipt(frame, where, id)));
+      }
+    } catch (error) {
+      return error instanceof Error ? error : new Error(String(error));
+    }
+    return null;
+  }
+
+  let refusal: Error | null = null;
+  for (const [id, where] of batch) {
+    if (run.length > 0 && where.recordStart !== runEnd) {
+      refusal = await takeRun();
+      run = [];
+      if (refusal !== null) {
+        break;
+      }
+    }
+    if (run.length === 0) {
+      runStart = where.recordStart;
+    }
+    run.push([id, where]);
+    runEnd = frameEnd(where);
+  }
+  if (refusal === null && run.length > 0) {
+    refusal = await takeRun();
+  }
+  return { receipts, refusal };
+}
+
+/**
+ * A batch cut into the spans one queued read takes, so a walk holds the queue for a chunk and not for
+ * its whole length. The count bounds the queue and the byte bound bounds the buffer, because a chunk of
+ * records whose receipts are wide is not a chunk of bytes; a chunk always holds at least one record,
+ * which is the smallest thing a walk can hand over.
+ */
+function* chunksOf(
+  batch: readonly (readonly [string, Location])[],
+): Generator<readonly (readonly [string, Location])[]> {
+  let chunk: (readonly [string, Location])[] = [];
+  let span = 0;
+  for (const entry of batch) {
+    const width = frameEnd(entry[1]) - entry[1].recordStart;
+    if (chunk.length > 0 && (chunk.length >= READ_CHUNK_RECORDS || span + width > READ_CHUNK_BYTES)) {
+      yield chunk;
+      chunk = [];
+      span = 0;
+    }
+    chunk.push(entry);
+    span += width;
+  }
+  if (chunk.length > 0) {
+    yield chunk;
+  }
+}
+
+/**
+ * One record's bytes out of a frame that holds it whole, proved against the index.
  *
  * The frame is read whole rather than just its payload, because the digest a record carries covers
  * its kind, its predecessor, its stamp and its id as well as the payload, and those are exactly the
@@ -2006,17 +2256,9 @@ function chained<T extends { seq: number }>(
  * same ids at the same stamps self-verifies record by record, so a digest recomputed and thrown away
  * proves nothing: what makes the check bite is that it is compared with the digest this index read off
  * this record, which is a fact about the indexed file rather than about the file that answered now.
- *
- * A short read is a failure rather than a miss: the index and the file then disagree about what is
- * stored, and serving a truncated receipt would hand a client bytes that cannot verify.
  */
-async function readReceipt(file: FileHandle, where: Location, id: string): Promise<Uint8Array> {
+function provedReceipt(frame: Buffer, where: Location, id: string): Uint8Array {
   const payloadAt = where.offset - where.recordStart;
-  const frame = Buffer.alloc(payloadAt + where.length + DIGEST_BYTES);
-  const { bytesRead } = await file.read(frame, 0, frame.length, where.recordStart);
-  if (bytesRead !== frame.length) {
-    throw new Error(`store file ended ${String(frame.length - bytesRead)} bytes short of the span its index claims`);
-  }
   const recomputed = Buffer.from(sha256(frame.subarray(FRAME_LEN_BYTES, frame.length - DIGEST_BYTES)));
   if (!recomputed.equals(where.digest) || !frame.subarray(payloadAt + where.length).equals(where.digest)) {
     throw new Error(
@@ -2026,74 +2268,329 @@ async function readReceipt(file: FileHandle, where: Location, id: string): Promi
   return frame.subarray(payloadAt, payloadAt + where.length);
 }
 
-/** The read handle one range walk holds, empty until the walk reads its first record. */
-interface WalkHandle {
+/**
+ * Reads one record at the position the index claims and checks the bytes against the index before
+ * handing them over.
+ *
+ * A short read is a failure rather than a miss: the index and the file then disagree about what is
+ * stored, and serving a truncated receipt would hand a client bytes that cannot verify.
+ *
+ * This is the shape an opening reads a record in, with no other record beside it to share a read or a
+ * buffer with. What a walk goes through is `readBatch`, and what a served single record goes through is
+ * `readHeld`: both ask the questions this one asks per record once for the batch or the handle, and both
+ * keep this record-by-record proof exactly where it is.
+ */
+async function readReceipt(file: FileHandle, where: Location, id: string): Promise<Uint8Array> {
+  const frame = await readWholeSpan(file, { bytes: Buffer.alloc(0) }, where.recordStart, frameEnd(where));
+  return provedReceipt(frame, where, id);
+}
+
+/**
+ * A handle the store holds open between the operations that go through it, rather than opening one for
+ * each: a walk's, the store's own between its single-record reads, or its append handle between windows.
+ * It is null when the handle is down, which is the state a store that has gone idle leaves behind.
+ */
+interface HeldHandle {
   file: FileHandle | null;
 }
 
-/** Puts a walk's handle down, once. A read that arrives afterwards opens the file again. */
-async function putDown(walk: WalkHandle): Promise<void> {
-  const file = walk.file;
-  walk.file = null;
+/** Puts a held handle down, once. Work that arrives afterwards opens the file again. */
+async function putDown(handle: HeldHandle): Promise<void> {
+  const file = handle.file;
+  handle.file = null;
   if (file !== null) {
     await file.close();
   }
 }
 
 /**
- * One record's bytes, through the handle the walk holding this record is holding.
+ * The handle a single served read goes through, opened on demand by the store and put down when reads
+ * stop arriving.
  *
- * Two questions get answered before a byte is taken, and they are different questions. Which file is
- * this handle on is answered by the volume's pair, and it has to be answered first: a compaction
- * moves a new file over the path while a walk is parked, and a walk that kept reading the file it had
- * open would be reading bytes no index describes any more, so the handle goes down, the path is
- * opened again, and the walk carries on from the file the index moved to. Which bytes are there is
- * answered by `readReceipt`, and it is the question the pair cannot answer: a replacement that
- * arrives at this path can carry the number the indexed file carried, at the same length, with nothing
- * but the receipts different.
- *
- * Opening afresh is not the same as the file the index describes, so a handle that still disagrees
- * with the index after the reopen means the index and the path disagree about which file the receipts
- * are in at all, and the record is refused rather than read out of a file nothing indexed. A refusal
- * is a worse answer than a short one for a caller that only wanted this receipt, and it is the better
- * answer for a store that cannot say which of its positions are still true.
+ * Which file the held handle is on is one stat, and the answer decides between two ordinary things. A
+ * handle on the file the index was read from answers the read directly. A handle that is not is put
+ * down and the path is opened again, because a read of one record has no batch premise to keep: the
+ * file the path names now is the file an open per read would have read, so the read carries on from the
+ * reopened handle and the record's own digest is what refuses it if the path answered with a file the
+ * index was never built from.
  */
-async function readServed(
-  walk: WalkHandle,
-  state: StoreState,
-  path: string,
-  where: Location,
-  id: string,
-): Promise<Uint8Array> {
-  const held = walk.file;
+async function readerOn(read: HeldHandle, state: StoreState, path: string): Promise<FileHandle> {
+  const held = read.file;
   if (held !== null && serialOf(await held.stat()) === state.identity) {
-    return readReceipt(held, where, id);
+    return held;
   }
-  await putDown(walk);
-  walk.file = await open(path, 'r');
-  if (serialOf(await walk.file.stat()) !== state.identity) {
-    throw new Error(
-      `receipt store file ${path} is not the file its index was read from, so receipt ${id} has no position that is safe to read`,
-    );
-  }
-  return readReceipt(walk.file, where, id);
+  await putDown(read);
+  read.file = await open(path, 'r');
+  return read.file;
 }
 
 /**
- * Reads one record at the position the index claims, opening the file for the read.
- *
- * A single record has no other record to share an open with, so this is the shape that holds no
- * handle between operations and costs nothing extra for that. A walk of many records holds one handle
- * for its own length instead, and `readServed` is what makes that safe to do. Either way the bytes
- * come back through `readReceipt`, so neither path answers out of a file the index was not built from.
+ * One record read through the handle the store holds between reads, so a caller asking for a receipt
+ * pays one stat and one positioned read rather than an open and a close.
  */
-async function readAt(path: string, where: Location, id: string): Promise<Uint8Array> {
-  const file = await open(path, 'r');
-  try {
-    return await readReceipt(file, where, id);
-  } finally {
-    await file.close();
+async function readHeld(
+  read: HeldHandle,
+  state: StoreState,
+  path: string,
+  scratch: Scratch,
+  where: Location,
+  id: string,
+): Promise<Uint8Array> {
+  const file = await readerOn(read, state, path);
+  const frame = await readWholeSpan(file, scratch, where.recordStart, frameEnd(where));
+  return new Uint8Array(provedReceipt(frame, where, id));
+}
+
+/**
+ * How many syncs a store has been told to refuse, keyed on the store itself. Only the seam below
+ * writes here and only an append reads it, so a refused sync is never a state a store reaches by
+ * itself, and a store that is garbage has nothing left to refuse.
+ */
+const syncRefusals = new WeakMap<ReceiptStore, number>();
+
+/**
+ * Test seam: this store's next sync over the store file fails, once.
+ *
+ * A volume does not schedule which of a test's syncs it refuses, so a case about the callers a failed
+ * sync answers for is a case about timing without this. It is exported from the store module and not
+ * from the package entry point: nothing a deployment can reach refuses a sync it was never asked to.
+ *
+ * One ask is enough to refuse a whole window, because the appends a turn asks for have all reached the
+ * store before its first sync begins: the seam needs no second degree of freedom to say which callers
+ * one refused sync covered.
+ */
+export function failNextSyncForTesting(store: ReceiptStore): void {
+  syncRefusals.set(store, 1);
+}
+
+/** True once, for each ask: the next sync of this store refuses, and the one after it does not. */
+function refusesSync(store: ReceiptStore): boolean {
+  const left = syncRefusals.get(store) ?? 0;
+  if (left <= 0) {
+    return false;
   }
+  syncRefusals.set(store, left - 1);
+  return true;
+}
+
+/** The two positions a store holds about one record it indexes, in bytes of its own file. */
+export interface RecordDurability {
+  /** One past the last byte of this record's frame. */
+  readonly recordEnd: number;
+  /** One past the last byte the last sync this store completed reached. */
+  readonly syncedThrough: number;
+}
+
+/**
+ * What each open file store answers about one of its records, keyed on the store. Only the store's own
+ * opening writes here, and a store that is garbage has no answer left to give.
+ */
+const durabilityViews = new WeakMap<ReceiptStore, (id: string) => RecordDurability | null>();
+
+/**
+ * Test seam: what this store knows about the durability of one record, and nothing at all for a record
+ * it does not index.
+ *
+ * Whether a caller was answered by a sync that reached its own bytes is a relation between two numbers
+ * only the store has: where its record ends, and how far a completed sync got. The file's length is not
+ * one of them, because a volume holds written bytes it has never synced, and a window of appends makes
+ * the two come apart for a whole window at a time.
+ */
+export function durabilityForTesting(store: ReceiptStore, id: string): RecordDurability | null {
+  return durabilityViews.get(store)?.(id) ?? null;
+}
+
+/**
+ * How many appends one sync answers for at the most.
+ *
+ * The cost of a sync does not rise with the number of appends it covers: measured at these frame widths,
+ * one sync per record costs about 1.2 milliseconds each and one sync over 32 costs about 2 for the whole
+ * window, so the window's good is the appends that arrived while the store was syncing, and the bound is
+ * on how many callers one slow sync can delay and on how many bytes sit unwritten to the volume.
+ */
+const APPEND_WINDOW_RECORDS = 32;
+
+/** One append that has arrived at the store and not been answered yet. */
+interface PendingAppend {
+  readonly id: string;
+  readonly iat: number;
+  /** The receipt with whatever period this store's kind states in front of it, as the record carries it. */
+  readonly payload: Buffer;
+  readonly answer: (error: Error | null) => void;
+}
+
+/** One append of a window, with the record the window writes for it. */
+interface WindowRecord {
+  readonly append: PendingAppend;
+  readonly entry: CheckpointEntry;
+  readonly frame: Buffer;
+}
+
+/** What a claim states about the process that wrote it. */
+interface OwnerClaim {
+  readonly pid: number;
+  readonly host: string;
+  /** The instant the claim was written. A label for whoever reads the file: no decision weighs it. */
+  readonly claimedAt: string;
+}
+
+/**
+ * Whether this process can say anything about the holder a claim names.
+ *
+ * A process id is a fact about one machine's table, so a claim from another host is a question this
+ * process cannot answer and is never guessed at. On this host the answer is the pid table: a name that
+ * refuses the probe with `ESRCH` has exited, and one that refuses it with `EPERM` is a process that
+ * exists behind a wall this process is not allowed over. No timestamp is weighed, because a volume two
+ * hosts share holds two clocks and the gap between them says nothing about a process.
+ */
+function holderState(claim: OwnerClaim): 'here' | 'running' | 'exited' | 'unknowable' {
+  if (claim.host !== hostname()) {
+    return 'unknowable';
+  }
+  if (claim.pid === process.pid) {
+    return 'here';
+  }
+  try {
+    process.kill(claim.pid, 0);
+    return 'running';
+  } catch (error) {
+    const code = (error as NodeJS.ErrnoException).code;
+    if (code === 'ESRCH') {
+      return 'exited';
+    }
+    return code === 'EPERM' ? 'running' : 'unknowable';
+  }
+}
+
+/** A claim's bytes, read as a holder or answered with the one thing about them that is not one. */
+function readClaim(text: string): { readonly claim: OwnerClaim } | { readonly reason: string } {
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(text);
+  } catch {
+    return { reason: 'it is not a JSON object' };
+  }
+  if (typeof parsed !== 'object' || parsed === null) {
+    return { reason: 'it is not a JSON object' };
+  }
+  const holder = parsed as Partial<OwnerClaim>;
+  if (typeof holder.pid !== 'number' || !Number.isSafeInteger(holder.pid) || holder.pid <= 0) {
+    return { reason: `its pid ${String(holder.pid)} is not a positive process id` };
+  }
+  if (typeof holder.host !== 'string' || holder.host.length === 0) {
+    return { reason: 'it names no host' };
+  }
+  if (typeof holder.claimedAt !== 'string' || holder.claimedAt.length === 0) {
+    return { reason: 'it states no instant its holder claimed at' };
+  }
+  return { claim: { pid: holder.pid, host: holder.host, claimedAt: holder.claimedAt } };
+}
+
+function ownedRefusal(dir: string, holder: OwnerClaim): StoreError {
+  return new StoreError(
+    'STORE_DIRECTORY_OWNED',
+    `${join(dir, RECEIPT_OWNER_FILE)} names process ${String(holder.pid)} on host ${holder.host}, ` +
+      `which claimed this directory at ${holder.claimedAt} and is still running. One process may append ` +
+      `to ${join(dir, RECEIPT_STORE_FILE)}: a second writer on the same directory forks the chain, so ` +
+      `this opening read nothing and wrote nothing`,
+  );
+}
+
+function unclearRefusal(dir: string, reason: string): StoreError {
+  const file = join(dir, RECEIPT_OWNER_FILE);
+  return new StoreError(
+    'STORE_OWNER_UNCLEAR',
+    `${file} is here but ${reason}, so this opening cannot say who holds the directory and will not ` +
+      `take it. Nothing was read or written. Confirm that no process is serving ${dir}, then remove ` +
+      `${file} to claim it`,
+  );
+}
+
+/**
+ * Takes the claim on a store directory, or refuses with the holder it found, and says whether this
+ * opening is the one that wrote the claim.
+ *
+ * Three ordinary answers: nothing holds the directory, so it is claimed here; a holder this process
+ * can see running holds it, so this opening refuses; a holder that has exited on this host held it, so
+ * the claim is taken over. A takeover moves the displaced claim aside before the new one is created,
+ * and exactly one opening can move a file that exists once, which is what makes the takeover exclusive
+ * without a second mechanism: the one that finds nothing to move creates nothing either and reads the
+ * winner's claim instead. A claim this process already wrote is taken as it stands, because a process
+ * that holds a directory does not fork it against itself, and a store that reopens the same directory
+ * is this suite's ordinary restart.
+ */
+async function claimDirectory(dir: string): Promise<boolean> {
+  const file = join(dir, RECEIPT_OWNER_FILE);
+  const displaced = join(dir, RECEIPT_OWNER_STALE_FILE);
+  const holder: OwnerClaim = { pid: process.pid, host: hostname(), claimedAt: new Date().toISOString() };
+  for (let attempts = 2; attempts > 0; attempts -= 1) {
+    try {
+      const claim = await open(file, 'wx');
+      try {
+        await claim.writeFile(`${JSON.stringify(holder)}\n`);
+      } finally {
+        await claim.close();
+      }
+      return true;
+    } catch (error) {
+      // Anything but "someone is already here" is the volume's own answer to this opening, unchanged
+      // from the store file's create: a directory that is not mounted has never been a claim refusal.
+      if ((error as NodeJS.ErrnoException).code !== 'EEXIST') {
+        throw error;
+      }
+    }
+    const found = await readFile(file, 'utf8').catch(() => null);
+    if (found === null) {
+      throw unclearRefusal(dir, 'it could not be read');
+    }
+    const reading = readClaim(found);
+    if ('reason' in reading) {
+      throw unclearRefusal(dir, reading.reason);
+    }
+    const state = holderState(reading.claim);
+    if (state === 'here') {
+      return false;
+    }
+    if (state === 'running') {
+      throw ownedRefusal(dir, reading.claim);
+    }
+    if (state === 'unknowable') {
+      throw unclearRefusal(
+        dir,
+        `it names process ${String(reading.claim.pid)} on host ${reading.claim.host}, which this process cannot probe`,
+      );
+    }
+    try {
+      await rename(file, displaced);
+    } catch (error) {
+      // The other claimer won the move; the create that follows reads its claim instead.
+      if ((error as NodeJS.ErrnoException).code !== 'ENOENT') {
+        throw error;
+      }
+    }
+  }
+  throw unclearRefusal(dir, 'the claim changed under this opening twice');
+}
+
+/**
+ * Removes this process's claim on a directory, and no other holder's.
+ *
+ * An opening that claimed and then refused for a reason in its own configuration or in the log's bytes
+ * never became a store, and a claim naming a process that serves nothing is the one thing that can stop
+ * a deployment starting beside it. Whether the claim was this process's to drop is the whole question
+ * this asks, and a claim it cannot name itself in is left where it is.
+ */
+async function releaseDirectoryClaim(dir: string): Promise<void> {
+  const file = join(dir, RECEIPT_OWNER_FILE);
+  const found = await readFile(file, 'utf8').catch(() => null);
+  if (found === null) {
+    return;
+  }
+  const reading = readClaim(found);
+  if ('reason' in reading || reading.claim.pid !== process.pid || reading.claim.host !== hostname()) {
+    return;
+  }
+  await rm(file, { force: true });
 }
 
 export async function openFileReceiptStore(options: FileReceiptStoreOptions): Promise<ReceiptStore> {
@@ -2118,21 +2615,36 @@ export async function openFileReceiptStore(options: FileReceiptStoreOptions): Pr
     options.sidecarIndex === false
       ? null
       : { path: join(options.dir, RECEIPT_SIDECAR_FILE), recordKind, previous: null, pending: [] };
-  const state = await scan(path, sidecar, receiptKind);
-  // A deployment that was down over a weekend has aged receipts on disk it must not serve.
-  prune(state, retention, now());
-  // What a file can serve is known once it has been read and pruned, and this is the last moment a
-  // refusal is cheap: no receipt has been served from it and no caller is holding an id. The in-process
-  // engine has no equivalent call because it is empty when it is constructed, and a store that has never
-  // issued a receipt has measured nothing of its own traffic.
-  assertWindowHeldable(retention, serving, windowOf(state.records.values()));
+  // Claimed before the log is opened, and before any of it is pruned, truncated or re-indexed: a second
+  // writer that got that far has already forked the chain the claim exists to keep whole. The
+  // configuration above is refused first because it costs the volume nothing to answer, and a refusal
+  // from the bytes below hands the claim back so that the process that raised it leaves nothing behind.
+  const claimed = await claimDirectory(options.dir);
+  let state: StoreState;
+  try {
+    state = await scan(path, sidecar, receiptKind);
+    // A deployment that was down over a weekend has aged receipts on disk it must not serve.
+    prune(state, retention, now());
+    // What a file can serve is known once it has been read and pruned, and this is the last moment a
+    // refusal is cheap: no receipt has been served from it and no caller is holding an id. The in-process
+    // engine has no equivalent call because it is empty when it is constructed, and a store that has never
+    // issued a receipt has measured nothing of its own traffic.
+    assertWindowHeldable(retention, serving, windowOf(state.records.values()));
+  } catch (error) {
+    if (claimed) {
+      await releaseDirectoryClaim(options.dir).catch(() => undefined);
+    }
+    throw error;
+  }
 
   /**
    * One operation touches the file at a time, which is the whole of the concurrency control.
-   * Two completions issuing receipts simultaneously otherwise both encode the head the first one
-   * has not yet moved, and the file ends up with two records naming the same predecessor. Reads
-   * queue for the same reason from the other side: a compaction renames a file whose records sit
-   * at different offsets than the index a read resolved a moment ago.
+   *
+   * A window of appends is one of these operations, so the queue orders a window against the reads and
+   * against the compaction that follows it, and the appends inside it are ordered by the turn they
+   * arrived in rather than by waiting behind one another's sync. Reads queue for the same reason from the
+   * other side: a compaction renames a file whose records sit at different offsets than the index a read
+   * resolved a moment ago.
    */
   let queue: Promise<unknown> = Promise.resolve();
   function serialized<T>(work: () => Promise<T>): Promise<T> {
@@ -2146,70 +2658,314 @@ export async function openFileReceiptStore(options: FileReceiptStoreOptions): Pr
   }
 
   /**
-   * The handle each walk in flight is reading through. Walks are registered here rather than holding
-   * one handle between them because a walk that has been asked for and abandoned must not be the
-   * reason another walk keeps a file open, and because a compaction needs all of them: it replaces
-   * the file, and a handle that outlives that is a reader on a file nothing points at.
+   * Every handle the store is holding a read through: one per walk in flight, and the store's own
+   * between the single reads it serves. They are registered here rather than sharing one handle between
+   * readers because a walk that has been asked for and abandoned must not be the reason another walk
+   * keeps a file open, and because a compaction needs all of them: it replaces the file, and a handle
+   * that outlives that is a reader on a file nothing points at. The store's own handle is in the set
+   * for the same reason, and because the way down it has when the store goes idle is what keeps a
+   * rename over the path possible for anything outside this process.
    */
-  const walks = new Set<WalkHandle>();
+  const reads = new Set<HeldHandle>();
 
-  /** Puts down every handle a walk is holding, which is what makes a rename over the path possible. */
-  async function putDownWalks(): Promise<void> {
-    for (const walk of walks) {
-      await putDown(walk);
+  /** The handle a single served read goes through while reads keep arriving at the store. */
+  const reader: HeldHandle = { file: null };
+  reads.add(reader);
+
+  /** The buffer every read of this store fills, so a batch costs one growth and not one per record. */
+  const scratch: Scratch = { bytes: Buffer.alloc(0) };
+
+  /**
+   * Appends that have arrived and not been answered, in the order they arrived. The order is the chain's
+   * order, and a turn of the event loop admits the appends that arrived in it in the order the callers
+   * asked, so the queue decides which record precedes which without any of them waiting on the file.
+   */
+  const pendingAppends: PendingAppend[] = [];
+
+  /** True from the turn a pump is promised for until nothing is left to sync. */
+  let pumping = false;
+
+  /**
+   * One past the last byte of the file the last sync this store completed reached. A write the volume has
+   * taken and a sync the volume has finished are two different positions, and a window of appends is
+   * exactly the shape in which they part: everything written since this number is bytes no caller has
+   * been answered for yet.
+   */
+  let syncedThrough = state.size;
+
+  /** The handle appends go through, opened when a window has bytes to write and put down when appends stop arriving. */
+  const appender: HeldHandle = { file: null };
+
+  let idleDrop: ReturnType<typeof setTimeout> | null = null;
+  let appenderIdleDrop: ReturnType<typeof setTimeout> | null = null;
+
+  /**
+   * Arms the idle drop of the store's read handle, after each read that went through it.
+   *
+   * The drop runs as a queued operation rather than straight from the timer, because a handle taken
+   * down while a read is still using it is a refusal this store caused itself, and the queue is the one
+   * place that can say no read is in flight. It reports nothing: a handle the drop could not close is a
+   * handle the next read puts down before it opens the path again.
+   */
+  function readerGoesDownWhenIdle(): void {
+    if (idleDrop !== null) {
+      clearTimeout(idleDrop);
     }
+    if (reader.file === null) {
+      idleDrop = null;
+      return;
+    }
+    idleDrop = setTimeout(() => {
+      idleDrop = null;
+      void serialized(async () => {
+        await putDown(reader);
+      }).catch(() => undefined);
+    }, READER_IDLE_MILLISECONDS);
+    // A handle an idle store holds must not be the reason a process outlives the work it was doing.
+    idleDrop.unref();
   }
 
-  return {
+  /**
+   * Arms the idle drop of the append handle, after each window that went through it.
+   *
+   * The same interval the read handle waits on, because it is the same trade asked at the same file: a
+   * close and a reopen costs about half a millisecond, which at one record to a window is more than the
+   * sync a handle was held to save, and a handle a process sits on is a handle an operator restoring a
+   * file has to wait out. One number for both is deliberate: a rename over the path is refused while
+   * either is open, so the longer of two intervals would be the one that decides when a restore is
+   * possible, and the shorter would buy nothing that the queue does not already give.
+   */
+  function appenderGoesDownWhenIdle(): void {
+    if (appenderIdleDrop !== null) {
+      clearTimeout(appenderIdleDrop);
+    }
+    if (appender.file === null) {
+      appenderIdleDrop = null;
+      return;
+    }
+    appenderIdleDrop = setTimeout(() => {
+      appenderIdleDrop = null;
+      void serialized(async () => {
+        // A pump in flight is the window this handle is being written through, and a close that landed
+        // between its write and its sync would cost that window its bytes; the queue is where a pump says
+        // whether one is.
+        if (!pumping) {
+          await putDown(appender);
+        }
+      }).catch(() => undefined);
+    }, READER_IDLE_MILLISECONDS);
+    appenderIdleDrop.unref();
+  }
+
+  /**
+   * The handle appends go through, opened on demand and kept while appends keep arriving.
+   *
+   * No identity question is asked of it, the way one is asked of a read handle: a volume refuses to move
+   * a file over a path this process holds open, so the file this handle writes through is the file the
+   * path names for as long as the handle lasts, and a compaction puts it down before it renames.
+   */
+  async function appenderOn(): Promise<FileHandle> {
+    const held = appender.file;
+    if (held !== null) {
+      return held;
+    }
+    const opened = await open(path, 'a');
+    appender.file = opened;
+    return opened;
+  }
+
+  /**
+   * Every append that has arrived, answered a window at a time.
+   *
+   * The pump takes at most a window's worth and goes back for more, so an append that arrived while a
+   * sync was in the air is answered by the next one rather than by waiting for the store to fall quiet:
+   * a window that only closed once it filled would leave the last few receipts of a burst held until a
+   * timer came for them, and there is no timer here.
+   */
+  async function runPump(): Promise<void> {
+    while (pendingAppends.length > 0) {
+      const batch = pendingAppends.splice(0, APPEND_WINDOW_RECORDS);
+      try {
+        await answerWindow(batch);
+      } catch (error) {
+        // Nothing a window reached may leave its callers without an answer, not even a failure of the
+        // store's own bookkeeping after the bytes were synced.
+        for (const append of batch) {
+          append.answer(error instanceof Error ? error : new Error(String(error)));
+        }
+      }
+    }
+    pumping = false;
+  }
+
+  /**
+   * One window's records, written as one run and synced once, filed, and then answered.
+   *
+   * The records are built here rather than when their appends arrived, because each names the record in
+   * front of it and sits where the file has reached, and both are facts about every earlier window: an
+   * append that encoded its own predecessor at the turn it arrived would chain onto bytes a refused sync
+   * had taken back out of the file, and one that measured its position then would measure the file an
+   * earlier window's compaction had already rewritten.
+   */
+  async function answerWindow(batch: readonly PendingAppend[]): Promise<void> {
+    const from = state.size;
+    const records: WindowRecord[] = [];
+    let previous = state.head;
+    let through = from;
+    for (const append of batch) {
+      const record = encode(recordKind, previous, append.iat, append.id, append.payload);
+      const entry: CheckpointEntry = {
+        recordStart: through,
+        seq: state.nextSeq + records.length,
+        iat: append.iat,
+        id: append.id,
+        idLength: Buffer.byteLength(append.id, 'utf8'),
+        length: append.payload.length,
+        // The writer records what it wrote, so a served read has something other than the volume's
+        // number to compare the bytes it is about to hand over against.
+        digest: record.digest,
+      };
+      records.push({ append, entry, frame: record.frame });
+      previous = record.digest;
+      through = endOfEntry(entry);
+    }
+    await serialized(async () => {
+      const refusal = await writeWindow(records, through);
+      if (refusal !== null) {
+        // The window's callers are the only ones a refused sync answers for. Its records are out of the
+        // file and were never in the index, so the chain the next window extends is the one this store
+        // has synced, from the byte it ended at and the digest it ended on.
+        for (const each of records) {
+          each.append.answer(refusal);
+        }
+        return;
+      }
+      // Nothing was retained, so this record is the oldest one and its predecessor is the anchor a
+      // reader starts from. Once a set exists it only ever grows at the back.
+      if (state.records.size === 0) {
+        state.anchor = state.head;
+      }
+      for (const each of records) {
+        state.records.set(each.append.id, locationOf(each.entry, boundBytes));
+        state.head = each.entry.digest;
+      }
+      state.nextSeq += records.length;
+      state.size = through;
+      // Told to the index before retention is applied, because the index speaks for the records the
+      // file holds: a receipt that retirement drops out of the served set is still bytes in the file
+      // until a compaction says otherwise, and an opening that re-derives the file would index it.
+      for (const each of records) {
+        await noteEntry(sidecar, each.entry);
+      }
+      prune(state, retention, now());
+      await compact(path, state, now(), retention, putDownHandles, sidecar, receiptKind);
+      // A compaction leaves a file shorter than the position an append synced to, so nothing past the
+      // rewrite is something this store has ever had reach the volume.
+      syncedThrough = Math.min(syncedThrough, state.size);
+      for (const each of records) {
+        each.append.answer(null);
+      }
+    });
+  }
+
+  /**
+   * The bytes of one window on the volume: the handle, one write for the whole run, one sync for it.
+   *
+   * The sync is the promise this store exists to make, and a window makes it once for all the records
+   * whose bytes it reached. A sync that refuses, or a write that does not land, takes the window's bytes
+   * back out of the file first: a record no caller was answered for is not something a later window
+   * should find itself written behind, and an opening that walked the file would otherwise read a chain
+   * of receipts the store had refused as if they had been accepted.
+   */
+  async function writeWindow(records: readonly WindowRecord[], through: number): Promise<Error | null> {
+    const file = await appenderOn();
+    let refusal: Error | null = null;
+    try {
+      await file.writeFile(Buffer.concat(records.map((each) => each.frame)));
+      // The claim this store exists for is that a receipt outlives the process that wrote
+      // it, and a write still sitting in the page cache does not survive the machine too.
+      if (refusesSync(store)) {
+        throw new Error('the sync of the bytes appended to the receipt store was refused');
+      }
+      await file.sync();
+      syncedThrough = through;
+    } catch (error) {
+      refusal = error instanceof Error ? error : new Error(String(error));
+    }
+    if (refusal !== null) {
+      try {
+        // The file goes back to the length its index speaks for, which is where this window began. The
+        // cut is made by name rather than through the handle, because a handle opened for appending
+        // cannot shorten the file it is on, and it is synced so the removal reaches the volume too:
+        // bytes the store refused to answer for are not something a later opening should walk back in.
+        await truncate(path, state.size);
+        await file.sync();
+        syncedThrough = Math.min(syncedThrough, state.size);
+      } catch {
+        // A rollback the volume itself refuses leaves bytes past the index, and no read answers from
+        // them: a record's own digest is compared against the index, so a receipt that was never filed
+        // is refused rather than served. The handle goes down so the next window opens the file afresh.
+        await putDown(appender);
+      }
+    }
+    appenderGoesDownWhenIdle();
+    return refusal;
+  }
+
+  /** Puts down every handle the store holds over the store file, which is what makes a rename over the path possible. */
+  async function putDownHandles(): Promise<void> {
+    for (const read of reads) {
+      await putDown(read);
+    }
+    // The append handle goes down with the readers because a rename over this path is refused while any
+    // handle of this process is on it, however that handle was opened, and a compaction is about to do
+    // exactly that.
+    await putDown(appender);
+  }
+
+  const store: ReceiptStore = {
     put(id: string, receipt: Uint8Array, iat: number): Promise<void> {
-      return serialized(async () => {
+      return new Promise<void>((resolve, reject) => {
+        // A record the layout cannot state is refused here, at the turn its caller asked, rather than in
+        // the window it would have joined: an append that stops a window from being encodable is a
+        // refusal that reaches every caller whose bytes were behind it.
+        assertRecordable(Buffer.byteLength(id, 'utf8'), iat);
         // The payload is the receipt, with the period in front of it when this store's kind states one,
         // and the record's digest covers both: the bound is part of what the chain attests, so a reader
         // recomputing a record's digest is recomputing the retention statement with it.
         const payload = receiptPayload(receipt, receiptKind);
-        const record = encode(recordKind, state.head, iat, id, payload);
-        // An append handle with no offset, so it has to be the only one in flight.
-        const file = await open(path, 'a');
-        try {
-          await file.writeFile(record.frame);
-          // The claim this store exists for is that a receipt outlives the process that wrote
-          // it, and a write still sitting in the page cache does not survive the machine too.
-          await file.sync();
-        } finally {
-          await file.close();
-        }
-        // Nothing was retained, so this record is the oldest one and its predecessor is the anchor
-        // a reader starts from. Once a set exists it only ever grows at the back.
-        const entry: CheckpointEntry = {
-          recordStart: state.size,
-          seq: state.nextSeq++,
-          iat,
+        pendingAppends.push({
           id,
-          idLength: Buffer.byteLength(id, 'utf8'),
-          length: payload.length,
-          // The writer records what it wrote, so a served read has something other than the volume's
-          // number to compare the bytes it is about to hand over against.
-          digest: record.digest,
-        };
-        if (state.records.size === 0) {
-          state.anchor = state.head;
+          iat,
+          payload,
+          answer: (error) => {
+            if (error === null) {
+              resolve();
+              return;
+            }
+            reject(error);
+          },
+        });
+        if (!pumping) {
+          pumping = true;
+          // A promise's own turn: the appends a burst asks for at once are answered by one sync, and an
+          // append that has no company starts its sync as soon as this turn is done.
+          void Promise.resolve().then(runPump);
         }
-        state.records.set(id, locationOf(entry, boundBytes));
-        state.head = record.digest;
-        state.size += record.frame.length;
-        // Told to the index before retention is applied, because the index speaks for the records the
-        // file holds: a receipt that retirement drops out of the served set is still bytes in the file
-        // until a compaction says otherwise, and an opening that re-derives the file would index it.
-        await noteEntry(sidecar, entry);
-        prune(state, retention, now());
-        await compact(path, state, now(), retention, putDownWalks, sidecar, receiptKind);
       });
     },
 
     get(id: string): Promise<Uint8Array | null> {
       return serialized(async () => {
-        const found = state.records.get(id);
-        return found === undefined ? null : readAt(path, found, id);
+        try {
+          const found = state.records.get(id);
+          // The handle this read goes through is the store's own and outlives the read, so a caller
+          // asking for one receipt pays a stat and a positioned read rather than an open and a close.
+          return found === undefined ? null : await readHeld(reader, state, path, scratch, found, id);
+        } finally {
+          // Armed whether or not the record answered, because a refusal still leaves the handle open.
+          readerGoesDownWhenIdle();
+        }
       });
     },
 
@@ -2227,29 +2983,60 @@ export async function openFileReceiptStore(options: FileReceiptStoreOptions): Pr
           // abandoned. A caller sweeping a wide window pays the open once instead of once per record,
           // which is the cost this path was measured at, and the window in which a rewrite finds
           // itself waiting on a reader is the walk's own length rather than the life of the store.
-          const walk: WalkHandle = { file: null };
-          walks.add(walk);
+          const walk: HeldHandle = { file: null };
+          reads.add(walk);
           try {
             for (const batch of servedBatches(snapshot, from, to, through, serving?.maxServedReceipts)) {
               // Only the bytes are read late, one queued operation at a time. A walk that held the
               // queue for its whole length would be a way to stop serving receipts by generating a pack
-              // about them.
-              for (const [id, where] of batch) {
-                const receipt = await serialized(async () => {
-                  // The position comes from the live index, and the handle comes from `readServed`,
-                  // which only answers from the file that index was read from: a compaction that ran
-                  // while this walk was parked moved both.
-                  const still = state.records.get(id);
-                  return still === undefined ? null : await readServed(walk, state, path, still, id);
+              // about them, so the batch the caller may hold is cut into the spans one read can take.
+              for (const chunk of chunksOf(batch)) {
+                const read = await serialized(async () => {
+                  // The positions come from the live index, and the handle from `readBatch`, which only
+                  // answers from the file that index was read from: a compaction that ran while this
+                  // walk was parked moved both, and it moves them between two chunks rather than partway
+                  // through one.
+                  const live: (readonly [string, Location])[] = [];
+                  const slots: number[] = [];
+                  for (const [at, [id]] of chunk.entries()) {
+                    const still = state.records.get(id);
+                    if (still !== undefined) {
+                      live.push([id, still]);
+                      slots.push(at);
+                    }
+                  }
+                  const bytes = new Array<Uint8Array | null>(chunk.length).fill(null);
+                  if (live.length === 0) {
+                    return { bytes, refusal: null as Error | null };
+                  }
+                  const answered = await readBatch(walk, state, path, live, scratch);
+                  let taken = 0;
+                  for (const slot of slots) {
+                    const receipt = answered.receipts[taken];
+                    if (receipt === undefined) {
+                      break;
+                    }
+                    bytes[slot] = receipt;
+                    taken += 1;
+                  }
+                  return { bytes, refusal: answered.refusal };
                 });
-                // Retired by retention while this walk ran, which the window has already said it kept.
-                if (receipt !== null) {
-                  yield { id, iat: where.iat, receipt, claim: windowClaim(source, where.iat, from, to) };
+                for (const [at, [id, where]] of chunk.entries()) {
+                  const receipt = read.bytes[at];
+                  // Retired by retention while this walk ran, which the window has already said it kept.
+                  if (receipt !== null && receipt !== undefined) {
+                    yield { id, iat: where.iat, receipt, claim: windowClaim(source, where.iat, from, to) };
+                  }
+                }
+                // The walk stops at the record it could not check, after the records it proved on the way
+                // there have been handed over.
+                if (read.refusal !== null) {
+                  throw read.refusal;
                 }
               }
             }
           } finally {
-            walks.delete(walk);
+            reads.delete(walk);
             await putDown(walk);
           }
         },
@@ -2279,6 +3066,15 @@ export async function openFileReceiptStore(options: FileReceiptStoreOptions): Pr
       };
     },
   };
+
+  // Where a record ends is the index's own fact about the file, and how far a sync reached is the write
+  // path's, so the seam that weighs one against the other reads both from here and remembers neither.
+  durabilityViews.set(store, (id: string) => {
+    const where = state.records.get(id);
+    return where === undefined ? null : { recordEnd: frameEnd(where), syncedThrough };
+  });
+
+  return store;
 }
 
 /**

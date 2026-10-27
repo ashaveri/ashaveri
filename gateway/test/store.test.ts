@@ -1,14 +1,21 @@
 import { afterEach, describe, expect, it } from 'vitest';
+import { spawnSync } from 'node:child_process';
 import { createHash } from 'node:crypto';
 import { appendFile, mkdtemp, readFile, readdir, rename, rm, stat, utimes, writeFile } from 'node:fs/promises';
-import { tmpdir } from 'node:os';
+import { hostname, tmpdir } from 'node:os';
 import { join } from 'node:path';
+import { fileURLToPath } from 'node:url';
 import {
   HOST_CLOCK_SOURCE,
   openFileReceiptStore,
   openMemoryReceiptStore,
   receiptsNeededForWindow,
   retentionBoundsFault,
+  durabilityForTesting,
+  failNextSyncForTesting,
+  RECEIPT_OWNER_FILE,
+  RECEIPT_OWNER_STALE_FILE,
+  RECEIPT_SIDECAR_FILE,
   RECEIPT_STORE_FILE,
   servedBatches,
   type ReceiptRecordKind,
@@ -19,7 +26,8 @@ import {
 } from '../src/store.js';
 import { RECEIPT_ID_CHARS } from '../src/access.js';
 import { daysToSeconds } from '../src/duty-window.js';
-import { fixedClock } from './helpers.js';
+import { noteSpawn, spawnCeilingForCalls } from './support/spawn-budget.js';
+import { fixedClock, storeGoesQuiet } from './helpers.js';
 
 const RECEIPT = Uint8Array.from(Array.from({ length: 64 }, (_, i) => (i * 7) % 256));
 const OTHER_RECEIPT = Uint8Array.from(Array.from({ length: 48 }, (_, i) => (i * 11) % 256));
@@ -139,6 +147,17 @@ async function emptyDir(): Promise<string> {
 }
 
 /**
+ * An id as long as the ones the gateway's own namespace mints, so a record is weighed at the width a
+ * deployment writes rather than at the width a fixture found convenient.
+ */
+function mintedId(index: number): string {
+  return Array.from(sha256(new TextEncoder().encode(`volume record ${String(index)}`)))
+    .map((byte) => byte.toString(16).padStart(2, '0'))
+    .join('')
+    .slice(0, RECEIPT_ID_CHARS);
+}
+
+/**
  * A store that has compacted twice, so its file begins with a run of two trim records and ends with
  * the one receipt the second retirement left. The timestamps are fixed because a caller states the
  * window it expects back.
@@ -156,6 +175,9 @@ async function twiceCompacted(): Promise<string> {
     await first.put(`new_${i}`, RECEIPT, now + i);
   }
   now = 1_780_002_020;
+  // The second store is the one that compacts here, and a rename over the path is refused while the
+  // first still holds the handle its last window wrote through.
+  await storeGoesQuiet();
   const second = await openFileReceiptStore({ dir, retention });
   await second.put('only', OTHER_RECEIPT, now);
   return dir;
@@ -351,6 +373,25 @@ describe('receipt store', () => {
     expect(Array.from(await reopened.head())).toEqual(Array.from(head));
     expect(await reopened.get('old_0')).toBeNull();
     expect(await reopened.get('new_0')).not.toBeNull();
+  });
+
+  it('compacts under a count cap and keeps appending after the move', async () => {
+    // A count cap retires far enough to trigger the store's own rewrite, which moves a new file over the
+    // path between two appends, so a receipt that lands after it belongs to the file the move left.
+    const dir = await emptyDir();
+    const store = await openFileReceiptStore({
+      dir,
+      retention: { maxCount: 10, time: fixedClock(() => 1_780_000_000) },
+    });
+    for (let i = 0; i < 30; i++) {
+      await store.put(mintedId(i), RECEIPT, 1_780_000_000);
+    }
+    const { trims } = (await store.chainState()).retired;
+    expect(trims.length, 'a compaction ran').toBeGreaterThan(0);
+    expect((await store.window()).count, 'the cap held through the rewrite').toBe(10);
+    // Read back rather than counted: an append that went to the file the move replaced would have left
+    // the index agreeing with itself, and only the bytes show which file took the record.
+    expect(Array.from((await store.get(mintedId(29)))!)).toEqual(Array.from(RECEIPT));
   });
 
   it('carries a chain head that is the digest of the record just written', async () => {
@@ -807,6 +848,8 @@ describe('one record kind per store', () => {
 });
 
 describe('chain state', () => {
+  const STAMP = 1_780_000_000;
+
   it('anchors an empty store at its own head, so a reader has one rule not two', async () => {
     // With nothing retained there is no oldest record to take a predecessor from. Reporting the
     // head means recomputing forward over zero items returns the anchor unchanged and the check
@@ -935,6 +978,51 @@ describe('chain state', () => {
     // The equation a pack generator can assert and a verifier can re-check without being told the
     // traffic: what is served plus what left is everything that was ever issued.
     expect((await store.window()).count + state.retired.byAge + state.retired.byCount).toBe(14);
+  });
+
+  it('attributes the same retirements after the walk is rewritten', async () => {
+    // Twenty records, five of them older than the age bound and the whole set above the count bound: one
+    // prefix leaves, and which records left for age and which for count is what a retention manifest reports.
+    const dir = await emptyDir();
+    const store = await openFileReceiptStore({
+      dir,
+      retention: { maxAgeSeconds: 60, maxCount: 12, time: fixedClock(() => STAMP + 100) },
+    });
+    for (let i = 0; i < 20; i++) await store.put(mintedId(i), RECEIPT, STAMP + i * 8);
+    const retired = await store.chainState();
+    expect(retired.retired.byAge).toBe(5);
+    expect(retired.retired.byCount).toBe(3);
+    expect((await store.window()).count).toBe(12);
+  });
+
+  it('retires a prefix and never a hole when two stamps are out of order', async () => {
+    const dir = await emptyDir();
+    const store = await openFileReceiptStore({
+      dir,
+      retention: { maxAgeSeconds: 60, maxCount: 10, time: fixedClock(() => STAMP + 100) },
+    });
+    await store.put(mintedId(0), RECEIPT, STAMP + 500);
+    await store.put(mintedId(1), RECEIPT, STAMP);
+    await store.put(mintedId(2), RECEIPT, STAMP + 10);
+    const window = await store.window();
+    expect(window.count, 'the old record behind a fresh one is kept, not cut out').toBe(3);
+    expect(await store.get(mintedId(0)), 'the first record still serves').not.toBeNull();
+  });
+
+  it('retires to the count cap when the records over it are not the oldest-dated', async () => {
+    // A cap speaks about how many receipts are served, so a stamp out of chain order cannot buy a record a
+    // place in the retained set: the retirement stops at the first record it keeps, and what is left fits.
+    const dir = await emptyDir();
+    const store = await openFileReceiptStore({
+      dir,
+      retention: { maxAgeSeconds: 60, maxCount: 1, time: fixedClock(() => STAMP + 100) },
+    });
+    await store.put(mintedId(0), RECEIPT, STAMP + 100);
+    await store.put(mintedId(1), RECEIPT, STAMP);
+    await store.put(mintedId(2), RECEIPT, STAMP + 90);
+    expect((await store.window()).count, 'a retained set above its cap is a cap that did not bind').toBe(1);
+    expect(await store.get(mintedId(2)), 'the record the prefix leaves is the one still served').not.toBeNull();
+    expect(await store.get(mintedId(0)), 'the front gave way to the cap, not to its stamp').toBeNull();
   });
 });
 
@@ -1339,17 +1427,6 @@ describe('a five-year window at the traffic one address is held to', () => {
   /** The same rate read off the fastest traffic a file can report: a burst sharing one instant. */
   const burstAtRate = (): RetainedWindow => held(ONE_SECOND_BOUND, STAMP, STAMP);
 
-  /**
-   * An id as long as the ones the gateway's own namespace mints, so a record is weighed at the width a
-   * deployment writes rather than at the width a fixture found convenient.
-   */
-  function mintedId(index: number): string {
-    return Array.from(sha256(new TextEncoder().encode(`volume record ${String(index)}`)))
-      .map((byte) => byte.toString(16).padStart(2, '0'))
-      .join('')
-      .slice(0, RECEIPT_ID_CHARS);
-  }
-
   /** How many bytes the store's own writer puts on the volume for one record of this id and payload. */
   async function widthOf(id: string, payload: Uint8Array): Promise<number> {
     const dir = await emptyDir();
@@ -1556,6 +1633,44 @@ describe('the serving bound', () => {
     }
   });
 
+  it(
+    'serves the same receipts in the same order at every serving bound, from the file',
+    { timeout: 15_000 },
+    async () => {
+      /** Everything one walk over this file hands back at one serving bound, bytes and all. */
+      async function servedAt(
+        dir: string,
+        maxServedReceipts: number | undefined,
+      ): Promise<{ id: string; receipt: Uint8Array }[]> {
+        const store = await openFileReceiptStore({
+          dir,
+          serving: maxServedReceipts === undefined ? {} : { maxServedReceipts },
+        });
+        const out: { id: string; receipt: Uint8Array }[] = [];
+        for await (const item of store.range(0, 2_000_000_000)) {
+          out.push({ id: item.id, receipt: item.receipt });
+        }
+        return out;
+      }
+
+      const dir = await emptyDir();
+      const seed = await openFileReceiptStore({ dir });
+      // Two payload widths, so a batch's frames are not all one size and a run is cut where the file
+      // holds them rather than where a fixed stride would have put the same number of records.
+      for (let i = 0; i < 30; i++) {
+        await seed.put(mintedId(i), i % 2 === 0 ? RECEIPT : OTHER_RECEIPT, STAMP + i);
+      }
+      const whole = await servedAt(dir, undefined);
+      expect(whole.map((item) => item.id)).toEqual(Array.from({ length: 30 }, (_, i) => mintedId(i)));
+      for (const maxServedReceipts of [1, 3, 7, 20, 512]) {
+        expect(
+          await servedAt(dir, maxServedReceipts),
+          `a serving bound of ${String(maxServedReceipts)} sizes what a walk holds and chooses nothing about what it hands over`,
+        ).toEqual(whole);
+      }
+    },
+  );
+
   it('retires nothing, however far below the retained set it sits', async () => {
     const store = openMemoryReceiptStore({
       retention: { maxCount: 100, time: fixedClock(() => STAMP + 10) },
@@ -1726,6 +1841,10 @@ describe('a rewrite landing underneath a walk', () => {
       const foreign = await fileOf(FOREIGN, IDS);
 
       const walk = store.range(0, 2_000_000_000)[Symbol.asyncIterator]();
+      // Quiet, because the file the store wrote its last window through is still open to it and a
+      // rename over a path with an open handle is refused: nothing about the walk below changes by
+      // waiting, since the walk has read no byte yet.
+      await storeGoesQuiet();
       await rewrite(dir, foreign);
       await expect(walk.next()).rejects.toThrow(REFUSED);
 
@@ -1823,6 +1942,148 @@ describe('a rewrite landing underneath a walk', () => {
   );
 
   it(
+    'refuses the batch a short span lands in rather than serving a record out of what the buffer holds',
+    { timeout: 15_000 },
+    async () => {
+      const dir = await emptyDir();
+      const store = await openFileReceiptStore({ dir, serving: { maxServedReceipts: 6 } });
+      const ids: string[] = [];
+      for (let i = 0; i < 12; i++) {
+        ids.push(mintedId(i));
+        await store.put(mintedId(i), RECEIPT, STAMP + i);
+      }
+      await replaceStoreFileWithADifferentChain(dir);
+      const seen: string[] = [];
+      // The batch the missing record sits in is refused whole: the buffer that read spans went through
+      // holds the bytes of the spans read before it, and a record cut out of those is a receipt the file
+      // never held, delivered as though the index and the file still agreed.
+      await expect(async () => {
+        for await (const each of store.range(STAMP, STAMP + 100)) seen.push(each.id);
+      }).rejects.toThrow(/bytes short of the span its index claims/u);
+      expect(seen, 'the batches before the short one stand, and the short one serves nothing').toEqual(ids.slice(0, 6));
+    },
+  );
+
+  it(
+    'refuses a batch a reopened path still disagrees with, naming the batch and not the record',
+    { timeout: 15_000 },
+    async () => {
+      const dir = await emptyDir();
+      const ids = ['rcpt_00', 'rcpt_01', 'rcpt_02', 'rcpt_03', 'rcpt_04', 'rcpt_05'];
+      const store = await openFileReceiptStore({ dir, serving: { maxServedReceipts: 3 } });
+      for (const [i, id] of ids.entries()) {
+        await store.put(id, RECEIPT, STAMP + i);
+      }
+      // A restore moved beside the path and onto it before the walk has read anything, so the first
+      // batch opens the path, finds a file the index was not built from, and is refused whole. The
+      // sentence names the batch it refused rather than one record: no position in this batch is safe,
+      // and a caller reading the refusal has to know which receipts went unanswered.
+      const walk = store.range(0, 2_000_000_000)[Symbol.asyncIterator]();
+      await storeGoesQuiet();
+      await rewrite(dir, await fileOf(FOREIGN, ids));
+      await expect(walk.next()).rejects.toThrow(/is not the file its index was read from, so none of the 3 receipts/u);
+      await expect(walk.next()).resolves.toMatchObject({ done: true });
+    },
+  );
+
+  it(
+    'carries a walk across a compaction at a bound wider than one receipt',
+    { timeout: 15_000 },
+    async () => {
+      const dir = await emptyDir();
+      let now = STAMP;
+      const store = await openFileReceiptStore({
+        dir,
+        retention: { maxAgeSeconds: 1_000, time: fixedClock(() => now) },
+        serving: { maxServedReceipts: 4 },
+      });
+      // Six receipts the next clock reading ages out and four it keeps, so the dead prefix outweighs the
+      // live tail at the moment the walk below is parked between its first batch and its second: the
+      // compaction that follows moves every survivor and drops the two aged records the second batch
+      // had already been told about.
+      for (let i = 0; i < 6; i++) {
+        await store.put(`aged_${String(i)}`, RECEIPT, STAMP);
+      }
+      for (let i = 0; i < 4; i++) {
+        await store.put(`kept_${String(i)}`, OTHER_RECEIPT, STAMP + 2_000);
+      }
+      const walk = store.range(0, 2_000_000_000)[Symbol.asyncIterator]();
+      const out: { id: string; receipt: Uint8Array }[] = [];
+      let step = await walk.next();
+      now = STAMP + 2_000;
+      await store.put('kept_later', RECEIPT, now);
+      expect(
+        (await store.chainState()).retired.trims.length,
+        'the rewrite the walk carries across actually ran',
+      ).toBeGreaterThan(0);
+      while (!step.done) {
+        out.push({ id: step.value.id, receipt: step.value.receipt });
+        step = await walk.next();
+      }
+      // The four aged receipts of the batch read before the move, the two that were retired while the
+      // walk was parked answered by nothing, and the four survivors read from the offsets they were
+      // rewritten to. `kept_later` was issued after the walk was asked for and belongs to the next window.
+      expect(out.map((item) => item.id)).toEqual([
+        'aged_0',
+        'aged_1',
+        'aged_2',
+        'aged_3',
+        'kept_0',
+        'kept_1',
+        'kept_2',
+        'kept_3',
+      ]);
+      for (const item of out) {
+        expect(Array.from(item.receipt)).toEqual(Array.from(item.id.startsWith('kept_') ? OTHER_RECEIPT : RECEIPT));
+      }
+    },
+  );
+
+  it(
+    'reads one record through the held handle without weakening the identity proof',
+    { timeout: 15_000 },
+    async () => {
+      const dir = await emptyDir();
+      const store = await openFileReceiptStore({ dir });
+      for (let i = 0; i < 200; i++) await store.put(mintedId(i), RECEIPT, STAMP + i);
+      expect(await store.get(mintedId(7))).toEqual(RECEIPT);
+      await replaceStoreFileWithADifferentChain(dir);
+      // The record the file lost is refused, and the records it still holds are answered: a read that
+      // disagrees about one position does not put the store's handle out of use, and the proof that
+      // refused it is the record's own digest, which no sharing of a read can reach.
+      await expect(store.get(mintedId(199))).rejects.toThrow(/bytes short of the span its index claims/u);
+      expect(await store.get(mintedId(3))).toEqual(RECEIPT);
+    },
+  );
+
+  it(
+    'drops the read handle it took for one record once reads stop arriving, leaving the file free',
+    { timeout: 15_000 },
+    async () => {
+      const dir = await emptyDir();
+      const store = await openFileReceiptStore({ dir });
+      for (const [i, id] of IDS.entries()) {
+        await store.put(id, RECEIPT, STAMP + i);
+      }
+      // The handle this read goes through is the store's own and outlives the read, so one receipt costs
+      // a stat and a positioned read rather than an open and a close.
+      expect(Array.from((await store.get(IDS[0]!))!)).toEqual(Array.from(RECEIPT));
+      // It goes down when the store sits idle rather than when the read ends: a single record costs an
+      // open and a close each time it is asked for if the handle goes down between every two of them,
+      // and the reopen is dearer than the read it would save.
+      await new Promise((resolve) => setTimeout(resolve, 400));
+      expect(Array.from((await store.get(IDS[1]!))!)).toEqual(Array.from(RECEIPT));
+      await new Promise((resolve) => setTimeout(resolve, 400));
+      // The rename that lands now is the witness that the handle went down again. What the store says
+      // about its own index afterwards is the other half: the file the path names is not the one the
+      // receipts were indexed from, so the receipts in it are refused rather than read out of it.
+      await rewrite(dir, await fileOf(FOREIGN, IDS));
+      const walk = store.range(0, 2_000_000_000)[Symbol.asyncIterator]();
+      await expect(walk.next()).rejects.toThrow(REFUSED);
+    },
+  );
+
+  it(
     'serves every receipt of a walk whose file only had its timestamps moved',
     // Three durable appends, one utimes and a walk of three records: measured at 24ms here, on the
     // same stop as the two cases above.
@@ -1850,6 +2111,33 @@ describe('a rewrite landing underneath a walk', () => {
       }
       await store.put('rcpt_04', RECEIPT, STAMP + 3);
       expect(Array.from((await store.get('rcpt_04'))!)).toEqual(Array.from(RECEIPT));
+    },
+  );
+
+  /**
+   * A store file one record shorter than the index says it is: the same framing rule and the same
+   * bytes up to the cut, so the index and the path disagree by exactly one record.
+   */
+  async function replaceStoreFileWithADifferentChain(dir: string): Promise<void> {
+    const bytes = await readFile(join(dir, RECEIPT_STORE_FILE));
+    await writeFile(join(dir, RECEIPT_STORE_FILE), bytes.subarray(0, bytes.length - 191));
+  }
+
+  it(
+    'refuses a served range whose file moved underneath the index, naming one batch not one record',
+    { timeout: 15_000 },
+    async () => {
+      const dir = await emptyDir();
+      const store = await openFileReceiptStore({ dir, serving: { maxServedReceipts: 4 } });
+      for (let i = 0; i < 12; i++) await store.put(mintedId(i), RECEIPT, STAMP + i);
+      await replaceStoreFileWithADifferentChain(dir);
+      const seen: string[] = [];
+      await expect(async () => {
+        for await (const each of store.range(STAMP, STAMP + 100)) seen.push(each.id);
+      }).rejects.toThrow(
+        /not the file its index was read from|does not hold the record|bytes short of the span its index claims/u,
+      );
+      expect(seen.length, 'the walk refused rather than serving bytes from a file nothing indexed').toBeLessThan(12);
     },
   );
 
@@ -1932,10 +2220,418 @@ describe('a rewrite landing underneath a walk', () => {
 
       // The walk ran out of receipts, so it is holding nothing and this rename lands. A handle left
       // standing by a finished walk is refused by the volume before it is anything else, which is how
-      // this case says the handle went down rather than merely failing to notice it did not.
+      // this case says the handle went down rather than merely failing to notice it did not. The wait
+      // is for the other handle, the one the appends went through: it goes down on an interval rather
+      // than with the walk, and a rename over the path would be refused while it was up whatever the
+      // walk had left behind.
+      await storeGoesQuiet();
       await rewrite(dir, foreign);
       const second = store.range(0, 2_000_000_000)[Symbol.asyncIterator]();
       await expect(second.next()).rejects.toThrow(REFUSED);
+    },
+  );
+});
+
+/**
+ * What a caller of `put` is owed before it is answered: the volume holds its record. The sync that
+ * earns an answer is the one thing an append may not trade away, so these cases name the callers a
+ * sync answers for and the callers a refused sync refuses.
+ */
+describe('the sync an append waits for', () => {
+  const STAMP = 1_780_000_000;
+  /** One receipt record's whole frame at `mintedId`'s width and `RECEIPT`'s payload. */
+  const FRAME = 191;
+
+  it('refuses exactly the appends a failed sync was covering, and nobody behind them', async () => {
+    const dir = await emptyDir();
+    const store = await openFileReceiptStore({ dir });
+    failNextSyncForTesting(store);
+    // Every append is asked for in one turn, so all forty reach the store before its first sync begins.
+    // That sync is covering the front of the chain and nothing else: the appends behind it are answered
+    // by a sync of their own, which is the queue's rule kept at the width of whatever one sync reached.
+    const ids = Array.from({ length: 40 }, (_, i) => mintedId(i));
+    const answers = await Promise.all(
+      ids.map((id, i) =>
+        store.put(id, RECEIPT, STAMP + i).then(
+          () => true,
+          () => false,
+        ),
+      ),
+    );
+    const refused = ids.filter((_, i) => !answers[i]);
+    const kept = ids.filter((_, i) => answers[i]);
+
+    expect(refused.length, 'a refused sync refuses somebody').toBeGreaterThan(0);
+    expect(refused.length, 'and no more than one window of appends').toBeLessThanOrEqual(32);
+    expect(kept.length, 'an append behind the refused window is answered on its own sync').toBeGreaterThan(0);
+    expect(refused, 'the refusals are the front of the chain, which is what the failed sync covered').toEqual(
+      ids.slice(0, refused.length),
+    );
+
+    // A refused append is not retained: an answer that a record is not on the volume and an index that
+    // serves it anyway are two statements about one receipt, and the store makes only the first.
+    for (const id of refused) {
+      expect(await store.get(id), `${id} was refused and is not in the index`).toBeNull();
+    }
+    expect((await store.window()).count).toBe(kept.length);
+  });
+
+  it('does not answer a put before the sync covering its bytes completed', async () => {
+    const dir = await emptyDir();
+    const store = await openFileReceiptStore({ dir });
+    const file = join(dir, RECEIPT_STORE_FILE);
+    const ids = Array.from({ length: 64 }, (_, i) => mintedId(i));
+    await Promise.all(
+      ids.map(async (id, i) => {
+        await store.put(id, RECEIPT, STAMP + i);
+        // Read at the instant this caller was answered, so a promise that settled ahead of the bytes it
+        // was answering for fails here rather than agreeing with the index the store wrote itself.
+        const size = (await stat(file)).size;
+        expect(size, `${id} was answered before its record was on the volume`).toBeGreaterThanOrEqual(
+          (i + 1) * FRAME,
+        );
+      }),
+    );
+    // Sixty-four answered appends are sixty-four frames on the volume, and all of them are served.
+    expect((await stat(file)).size).toBe(64 * FRAME);
+    expect((await store.window()).count).toBe(64);
+  });
+
+  it('weighs an answer against the sync the store says it completed, not against the file', async () => {
+    // The file's length is written's reach and not synced's, and a window of appends is exactly the
+    // shape in which the two part: every record of a window is on the volume before the one sync that
+    // answers for the window is done. So the store is asked what it knows, at the instant each of its
+    // own callers was answered, and the two numbers it gives are weighed against each other.
+    const dir = await emptyDir();
+    const store = await openFileReceiptStore({ dir });
+    const ids = Array.from({ length: 48 }, (_, i) => mintedId(i));
+    await Promise.all(
+      ids.map(async (id, i) => {
+        await store.put(id, RECEIPT, STAMP + i);
+        const durable = durabilityForTesting(store, id);
+        expect(durable, `${id} was answered, so the store indexes its record`).not.toBeNull();
+        expect(
+          durable!.syncedThrough,
+          `${String(i)} was answered before a sync had reached the bytes of its own record`,
+        ).toBeGreaterThanOrEqual(durable!.recordEnd);
+      }),
+    );
+    // Forty-eight appends in one turn are two windows, and the last sync reached the end of the file.
+    expect((await stat(join(dir, RECEIPT_STORE_FILE))).size).toBe(48 * FRAME);
+    expect((await store.window()).count).toBe(48);
+  });
+
+  it('refuses the appends one failed sync covered, and answers every one behind them', async () => {
+    const dir = await emptyDir();
+    const store = await openFileReceiptStore({ dir });
+    failNextSyncForTesting(store);
+    // All forty are asked for in one turn, so the store's first window holds as many appends as a window
+    // holds and the refused sync answers for all of them. The appends behind that window are written and
+    // synced after it, and their callers are answered by a sync that reached their bytes.
+    const ids = Array.from({ length: 40 }, (_, i) => mintedId(i));
+    const answers = await Promise.all(
+      ids.map((id, i) =>
+        store.put(id, RECEIPT, STAMP + i).then(
+          () => true,
+          () => false,
+        ),
+      ),
+    );
+    const refused = ids.filter((_, i) => !answers[i]);
+    const kept = ids.filter((_, i) => answers[i]);
+    // The count a refused sync covers is the window's own business, so it is stated here and not
+    // asserted: the case is about which callers a sync answered for, and that is decided by the bytes.
+    console.log(`sync-failure: ${String(refused.length)} refused, ${String(kept.length)} answered behind them`);
+
+    expect(refused.length, 'a sync that refuses answers for somebody').toBeGreaterThan(0);
+    expect(refused.length, 'and for no more than one window of appends').toBeLessThanOrEqual(32);
+    expect(kept.length, 'an append behind a refused window is answered by a sync of its own').toBeGreaterThan(0);
+    expect(refused, 'the refusals are the front of the chain, which is what the refused sync covered').toEqual(
+      ids.slice(0, refused.length),
+    );
+
+    // The callers whose bytes reached a later completed sync are answered, and the store says so about
+    // each of them; the refused ones are records nothing indexes, so no later reader can be handed a
+    // receipt whose own caller was told it did not happen.
+    for (const id of kept) {
+      const durable = durabilityForTesting(store, id);
+      expect(durable, `${id} was answered by a sync, so the store indexes its record`).not.toBeNull();
+      expect(durable!.syncedThrough, `${id} was answered past the reach of any completed sync`).toBeGreaterThanOrEqual(
+        durable!.recordEnd,
+      );
+    }
+    for (const id of refused) {
+      expect(durabilityForTesting(store, id), `${id} was refused and is not a record the store indexes`).toBeNull();
+      expect(await store.get(id), `${id} was refused and does not serve`).toBeNull();
+    }
+    expect((await store.window()).count).toBe(kept.length);
+  });
+
+  it('leaves a refused window out of the file, the chain and the next opening', async () => {
+    // Per-record syncs cannot leave a record that no caller was answered for; a shared window can, and
+    // this is the failure that has to be impossible. Three readings of one store say the same thing:
+    // what the volume holds, what the chain head is the digest of, and what a process that came after
+    // this one finds when it opens the same directory.
+    const dir = await emptyDir();
+    const store = await openFileReceiptStore({ dir });
+    const file = join(dir, RECEIPT_STORE_FILE);
+    failNextSyncForTesting(store);
+    const ids = Array.from({ length: 40 }, (_, i) => mintedId(i));
+    const answers = await Promise.all(
+      ids.map((id, i) =>
+        store.put(id, RECEIPT, STAMP + i).then(
+          () => true,
+          () => false,
+        ),
+      ),
+    );
+    const refused = ids.filter((_, i) => !answers[i]);
+    const kept = ids.filter((_, i) => answers[i]);
+    console.log(`sync-failure: ${String(refused.length)} refused left ${String(kept.length)} frames on the volume`);
+
+    // The refused records were written before the sync that refused, so the store takes them back out:
+    // bytes no caller was answered for are not something the next opening should be able to chain onto.
+    expect((await stat(file)).size, 'the refused frames are not on the volume').toBe(kept.length * FRAME);
+
+    // The head is the digest of the last record that was synced, folded from the ids the callers were
+    // answered for and from nothing else, and rebuilt by the layout rather than by the store's memory.
+    const headOfKept = kept.reduce(
+      (previous, id) => digestOf(previous, STAMP + ids.indexOf(id), id, RECEIPT),
+      ZERO_HEAD as Uint8Array,
+    );
+    expect(Array.from(await store.head()), 'the chain head names no refused record').toEqual(
+      Array.from(headOfKept),
+    );
+
+    const reopened = await openFileReceiptStore({ dir });
+    const served: string[] = [];
+    for await (const each of reopened.range(STAMP, STAMP + 100)) {
+      served.push(each.id);
+    }
+    expect(served, 'a walk of the reopened store hands back the answered receipts and nothing else').toEqual(kept);
+    for (const id of refused) {
+      expect(await reopened.get(id), `${id} was refused and a later process does not serve it`).toBeNull();
+    }
+    expect(Array.from(await reopened.head())).toEqual(Array.from(headOfKept));
+  });
+
+  it('drops the handle appends went through once appends stop arriving, leaving the file free', async () => {
+    // A handle held for the life of the process is a handle a restore has to wait out, because a volume
+    // refuses to move a file over one an open handle is on. It goes down when the store has written
+    // nothing for a while, and the rename that lands then is the witness seen from outside the store.
+    const dir = await emptyDir();
+    const store = await openFileReceiptStore({ dir });
+    const file = join(dir, RECEIPT_STORE_FILE);
+    const ids = Array.from({ length: 3 }, (_, i) => mintedId(i));
+    for (const [i, id] of ids.entries()) {
+      await store.put(id, RECEIPT, STAMP + i);
+    }
+    await storeGoesQuiet();
+    const bytes = await readFile(file);
+    const temp = `${file}.restored`;
+    await writeFile(temp, bytes);
+    await rename(temp, file);
+    // The append after the drop costs a reopen and not a refusal, and the records the restored file
+    // holds are the ones the index was built from: the handle comes back up on the other side of it.
+    await store.put('rcpt_after_the_drop', RECEIPT, STAMP + 3);
+    expect(Array.from((await store.get('rcpt_after_the_drop'))!)).toEqual(Array.from(RECEIPT));
+    expect(Array.from((await store.get(ids[0]!))!)).toEqual(Array.from(RECEIPT));
+  });
+});
+
+/**
+ * One writer per store directory.
+ *
+ * The state under test is a claim made by a process this suite is not, so the second opening is a real
+ * child rather than a second store object: an opening that finds its own process named on the directory
+ * carries on, which is the restart every case in this file is built on, and only a name from elsewhere
+ * can answer whether the holder is still there. The child runs the built store for the same reason the
+ * CLI cases run the built entry point.
+ */
+describe('one writer per store directory', () => {
+  const STAMP = 1_780_000_000;
+  /** One child's patience, the same allowance the CLI cases give one run of their own. */
+  const PROBE_DEADLINE_MS = 8_000;
+  const PROBE = fileURLToPath(new URL('./support/store-owner-probe.mjs', import.meta.url));
+
+  interface ProbeAnswer {
+    readonly pid: number;
+    readonly opened: boolean;
+    readonly code: string | null;
+    readonly message: string | null;
+  }
+
+  /** One child making one opening over `dir`, and the single line it answered with. */
+  function probe(dir: string, mode: 'attempt' | 'claim', id: string): ProbeAnswer {
+    noteSpawn(PROBE_DEADLINE_MS);
+    const run = spawnSync(process.execPath, [PROBE, dir, mode, id], {
+      encoding: 'utf8',
+      timeout: PROBE_DEADLINE_MS,
+      killSignal: 'SIGKILL',
+    });
+    const line = run.stdout.trim();
+    expect(line, `the probe exited with ${String(run.status)}: stdout ${line}, stderr ${run.stderr}`).not.toBe('');
+    return JSON.parse(line) as ProbeAnswer;
+  }
+
+  /** A claim on the volume, read as the fields it states about the process that wrote it. */
+  async function claimOf(dir: string, name: string = RECEIPT_OWNER_FILE): Promise<Record<string, unknown>> {
+    return JSON.parse(await readFile(join(dir, name), 'utf8')) as Record<string, unknown>;
+  }
+
+  it(
+    'refuses a second process opening a claimed directory, naming the file and the holder it found',
+    { timeout: spawnCeilingForCalls(1, PROBE_DEADLINE_MS) },
+    async () => {
+      const dir = await emptyDir();
+      const store = await openFileReceiptStore({ dir });
+      await store.put('rcpt_holder', RECEIPT, STAMP);
+
+      const answer = probe(dir, 'attempt', 'rcpt_second');
+      expect(answer.opened, answer.message ?? 'the second process opened a claimed directory').toBe(false);
+      expect(answer.code).toBe('STORE_DIRECTORY_OWNED');
+      expect(answer.message ?? '', 'a refusal that names no file leaves nothing to act on').toContain(
+        RECEIPT_OWNER_FILE,
+      );
+      // The holder is stated by the two things that identify it: a process id, and the machine the id is
+      // an id on. A sentence naming neither sends an operator to stop a run by guesswork.
+      expect(answer.message ?? '').toContain(`process ${String(process.pid)}`);
+      expect(answer.message ?? '').toContain(hostname());
+    },
+  );
+
+  it(
+    'leaves the holder serving after a refusal, with the bytes and the claim it already had',
+    { timeout: spawnCeilingForCalls(1, PROBE_DEADLINE_MS) },
+    async () => {
+      const dir = await emptyDir();
+      const store = await openFileReceiptStore({ dir });
+      await store.put('rcpt_holder', RECEIPT, STAMP);
+      const file = join(dir, RECEIPT_STORE_FILE);
+      const bytesBefore = await readFile(file);
+      const windowBefore = await store.window();
+
+      expect(probe(dir, 'attempt', 'rcpt_second').code).toBe('STORE_DIRECTORY_OWNED');
+
+      // The refusal is the second process stopping, not the first one being stopped: the log is the bytes
+      // it was, the claim still names this process, and the holder files and serves on the other side of
+      // it. A refusal that cost the holder its claim would be a teardown wearing the word owned.
+      expect(await readFile(file)).toEqual(bytesBefore);
+      expect(await claimOf(dir)).toMatchObject({ pid: process.pid });
+      await store.put('rcpt_after', OTHER_RECEIPT, STAMP + 1);
+      expect(Array.from((await store.get('rcpt_after'))!)).toEqual(Array.from(OTHER_RECEIPT));
+      expect(await store.window()).toEqual({ from: windowBefore.from, to: STAMP + 1, count: windowBefore.count + 1 });
+    },
+  );
+
+  it(
+    'takes over a claim whose holder has exited, leaving the displaced claim where a reader can see it',
+    { timeout: spawnCeilingForCalls(1, PROBE_DEADLINE_MS) },
+    async () => {
+      // The gone-holder branch of the rule, and the one a restart reaches: the child wrote its claim,
+      // filed one record and exited, and the runner reaped it, so the pid its claim names is a pid this
+      // opening can say has exited rather than one it has to hope has.
+      const dir = await emptyDir();
+      const filed = probe(dir, 'claim', 'rcpt_child');
+      expect(filed.opened, filed.message ?? 'the claiming process could not open the directory').toBe(true);
+
+      const store = await openFileReceiptStore({ dir });
+      expect(Array.from((await store.get('rcpt_child'))!)).toEqual(Array.from(Uint8Array.from([1, 2, 3])));
+      expect(await claimOf(dir)).toMatchObject({ pid: process.pid, host: hostname() });
+      expect(await claimOf(dir, RECEIPT_OWNER_STALE_FILE)).toMatchObject({ pid: filed.pid, host: hostname() });
+      expect((await readdir(dir)).sort(), 'one displaced claim kept, and never a growing pile').toEqual([
+        RECEIPT_STORE_FILE,
+        RECEIPT_SIDECAR_FILE,
+        RECEIPT_OWNER_FILE,
+        RECEIPT_OWNER_STALE_FILE,
+      ]);
+    },
+  );
+
+  it('refuses a claim it cannot read as a holder, and one naming a host it cannot probe', async () => {
+    // The branch a takeover is not: bytes that state no holder, and a holder on a machine whose process
+    // table this opening cannot read. Both refuse, because the alternative is to overwrite a claim on a
+    // reading that was never certain, which is the fork the claim exists to keep out.
+    const unreadable = await emptyDir();
+    await writeFile(join(unreadable, RECEIPT_OWNER_FILE), '{"pid":999999,"started":"unknown"}\n');
+    const first = await openFileReceiptStore({ dir: unreadable }).then(
+      (opened) => opened,
+      (error: unknown) => error as Error,
+    );
+    expect(first instanceof Error, 'an unclear claim was served beside').toBe(true);
+    expect((first as Error).message).toContain('STORE_OWNER_UNCLEAR');
+    expect((first as Error).message).toContain(RECEIPT_OWNER_FILE);
+    expect(await readdir(unreadable), 'a claim refused as unclear was neither served nor taken over').toEqual([
+      RECEIPT_OWNER_FILE,
+    ]);
+
+    const otherHost = await emptyDir();
+    await writeFile(
+      join(otherHost, RECEIPT_OWNER_FILE),
+      `${JSON.stringify({ pid: process.pid, host: 'a-host-this-process-is-not-on', claimedAt: 'now' })}\n`,
+    );
+    await expect(openFileReceiptStore({ dir: otherHost })).rejects.toMatchObject({ code: 'STORE_OWNER_UNCLEAR' });
+    expect(await readdir(otherHost)).toEqual([RECEIPT_OWNER_FILE]);
+  });
+
+  it('takes back the claim it wrote when the opening that wrote it refuses', async () => {
+    // A log whose second record names the wrong predecessor: the reading refuses, and the claim this
+    // opening had already written would name a process that serves nothing if it were left behind. A
+    // deployment whose own failed start keeps it from starting again is not a safe deployment.
+    const dir = await emptyDir();
+    const frames = [
+      handSealedFrame(0, ZERO_HEAD, STAMP, 'rcpt_first', Buffer.from(RECEIPT)),
+      handSealedFrame(0, ZERO_HEAD, STAMP + 1, 'rcpt_second', Buffer.from(RECEIPT)),
+    ];
+    await writeFile(join(dir, RECEIPT_STORE_FILE), Buffer.concat(frames));
+
+    await expect(openFileReceiptStore({ dir })).rejects.toMatchObject({ code: 'STORE_CHAIN_BROKEN' });
+    expect(await readdir(dir), 'the claim came back with the opening that failed').toEqual([RECEIPT_STORE_FILE]);
+  });
+
+  it('admits the next opening by the process whose name is already on the directory', async () => {
+    // A holder does not fork the chain against itself, and this suite's ordinary restart is a second
+    // opening by the same process. Refusing that would refuse every case in this file that reopens, and
+    // would say the claim is about handles rather than about the one writer a directory may have.
+    const dir = await emptyDir();
+    const first = await openFileReceiptStore({ dir });
+    await first.put('rcpt_first', RECEIPT, STAMP);
+
+    const again = await openFileReceiptStore({ dir });
+    expect(Array.from((await again.get('rcpt_first'))!)).toEqual(Array.from(RECEIPT));
+    await again.put('rcpt_second', OTHER_RECEIPT, STAMP + 1);
+    expect(await claimOf(dir)).toMatchObject({ pid: process.pid, host: hostname() });
+  });
+
+  it(
+    'refuses a second writer while its own handles are down',
+    { timeout: spawnCeilingForCalls(1, PROBE_DEADLINE_MS) },
+    async () => {
+      // The claim cannot be an open handle: a store puts both its handles down when it goes quiet, so
+      // that an operator can restore over a live deployment, and an idle process that stopped refusing
+      // would be the second writer this refuses. The witness that the handles are down is the rename a
+      // volume refuses over an open handle, landing here with the log's own bytes moved back over it.
+      const dir = await emptyDir();
+      const store = await openFileReceiptStore({ dir });
+      const file = join(dir, RECEIPT_STORE_FILE);
+      await store.put('rcpt_before_the_drop', RECEIPT, STAMP);
+      expect(Array.from((await store.get('rcpt_before_the_drop'))!)).toEqual(Array.from(RECEIPT));
+
+      await storeGoesQuiet();
+      const bytes = await readFile(file);
+      const temp = `${file}.restored`;
+      await writeFile(temp, bytes);
+      await rename(temp, file);
+
+      const answer = probe(dir, 'attempt', 'rcpt_second');
+      expect(answer.opened, 'a store that went quiet let a second writer in').toBe(false);
+      expect(answer.code).toBe('STORE_DIRECTORY_OWNED');
+      expect(answer.message ?? '').toContain(`process ${String(process.pid)}`);
+
+      // Still the same holder on the other side of the wait, the rename and the refusal.
+      await store.put('rcpt_after_the_drop', OTHER_RECEIPT, STAMP + 1);
+      expect(Array.from((await store.get('rcpt_after_the_drop'))!)).toEqual(Array.from(OTHER_RECEIPT));
+      expect(await claimOf(dir)).toMatchObject({ pid: process.pid });
     },
   );
 });

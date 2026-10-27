@@ -16,7 +16,7 @@ import {
 } from '@ashaveri/receipt';
 import { newBearerCredential, newPopCredential, serializeCredentialFile } from '../src/access.js';
 import { daysToSeconds } from '../src/duty-window.js';
-import { MINIMUM_RETENTION_SECONDS, openFileReceiptStore, RECEIPT_STORE_FILE } from '../src/store.js';
+import { MINIMUM_RETENTION_SECONDS, openFileReceiptStore, RECEIPT_OWNER_FILE, RECEIPT_STORE_FILE } from '../src/store.js';
 
 const CLI = fileURLToPath(new URL('../dist/cli.js', import.meta.url));
 const ENTRYPOINT_PATH = fileURLToPath(new URL('../../enclave/docker-entrypoint.sh', import.meta.url));
@@ -327,9 +327,9 @@ function firstRecordOf(file: Buffer): { kind: number; id: string; payload: Buffe
  * the platform clock and its own 184 day age bound: a fixture stamped in the past would be aged out
  * before the pairing was ever asked about, and the case would be about the clock instead of the bound.
  *
- * Written directly rather than through `openFileReceiptStore` because that store fsyncs every append,
- * and a volume has to reach the bound the CLI sets in the CLI's own terms for the start-up question to
- * be asked at all.
+ * Written directly rather than through `openFileReceiptStore` because that opening claims the
+ * directory and prunes against its policy, and a volume has to reach the bound the CLI sets in the
+ * CLI's own terms for the start-up question to be asked at all.
  */
 function writeHeldStore(dir: string, count: number, seconds: number): Buffer {
   const newest = Math.floor(Date.now() / 1000);
@@ -2283,6 +2283,11 @@ describe('the record kind a volume is written under', () => {
       expect(refusal).not.toBeNull();
       expect(refusal).toContain('STORE_RECEIPT_KIND_MISMATCH');
       expect(refusal).toContain('rcpt_01');
+
+      // The claim beside the log names the process that opened the volume, and that process is this one.
+      // The fixture has finished writing it and hands the directory to the run below, so it puts its own
+      // claim down: an opening that is still holding a directory is refused, and it should be.
+      rmSync(join(dir, RECEIPT_OWNER_FILE));
 
       const result = run('--mock', '--port', '0', '--receipts-dir', dir, '--receipts-record-kind', BOUNDED_VALUE);
       expect(result.status, result.stderr).toBe(1);

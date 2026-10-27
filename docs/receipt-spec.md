@@ -818,7 +818,54 @@ every receipt served from it. That second file is an accelerator and nothing mor
 where it ties back to the log, which the opening checks
 by reading the prefix's trim records from the log and hashing the record the checkpoint ends on as though
 it were about to serve it, and it is discarded and rewritten from the log at any disagreement. It can be
-declined outright by `sidecarIndex: false`, and no byte of it enters the framing below.
+declined outright by `sidecarIndex: false`, and no byte of it enters the framing below. A third file
+beside the log, `receipts.log.owner` (`RECEIPT_OWNER_FILE` in the same module), is one process's claim on the
+directory and carries no receipt byte. The claim is taken before the log is opened, because an opening prunes
+what has aged out and pruning is writing, so a second process finds the directory held rather than finding a
+log it has already moved: the refusal is `STORE_DIRECTORY_OWNED`, and it names the file it read and the holder
+it found there, by process id and by host. Where a claim is present and states no holder this process can
+establish, the answer is `STORE_OWNER_UNCLEAR` rather than a takeover, because a claim overwritten on a guess
+is the same fork the claim exists to keep out, and that code's row in [error-codes.md](error-codes.md)
+enumerates what counts as no holder. A claim whose holder has exited on this host is taken over, with the
+displaced claim left beside it as `receipts.log.owner.stale`. The claim is a name on the volume, not a handle
+held open for the life of a process: a store puts its append handle and its read handles down once it goes
+quiet, which is what keeps a rename over the path possible from outside the process, and while the store is
+idle that name is the whole witness of who holds the directory. Every program that opens a receipt store
+directory goes through this opening, so the sealing tool and the export tool run against a directory no
+gateway is holding, or against a copy of one. An operator met by either refusal confirms that nothing is
+serving the directory, then removes the named file, and the next opening claims it. No byte of the claim or of
+the displaced claim enters the framing below.
+
+**What one store costs to write, and what it costs to read.** These are one measurement of this module's
+compiled store, `gateway/dist/store.js`, on one host, and they belong beside the durability and serving bounds
+[configured-values.md](configured-values.md) states. The baseline is part of every number: one Windows host,
+one Node 24 process, calls issued serially, nothing else on the volume, and frames of 191 bytes carrying a
+48-character minted id and a 64-byte payload, which is a synthetic record rather than the signed document
+sections 2 and 3 above lay out. The left column is the published tree `932cc83` and the right column is the
+tree carrying this sentence, both read through one harness, so the two columns answer one question. The three
+caller rows are the same append with that many callers in flight inside that one process, and their medians
+and maxima are measured on those calls.
+
+| Measure on this store | `932cc83` | The tree carrying this sentence |
+|---|---|---|
+| `append`, retention configured, 20,000 retained | 3.823 ms, 262 a second | 1.326 ms, 754 a second |
+| `append`, retention configured, 100,200 retained | 18.67 ms, 54 a second | 1.947 ms, 514 a second |
+| `store.range()` over 20,000 records | 80.14 us per record | 5.11 us per record |
+| `get()` with reads arriving in a run | 575.5 us | 104.7 us |
+| `get()` isolated after an idle interval | 1,150.3 us | 1,179.6 us |
+| `append`, one caller in flight | 488 a second, median 2.00 ms | 790 a second, median 1.26 ms |
+| `append`, four callers in flight | 448 a second, median 8.77 ms | 3,007 a second, median 1.26 ms |
+| `append`, thirty-two callers in flight | 423 a second, median 75.09 ms, max 101 ms | 18,867 a second, median 1.54 ms, max 2.81 ms |
+
+The cost of an append no longer grows with the size of the retained set: the two `append` rows with a
+retention configured are one call against a store holding 20,000 receipts and one against a store holding
+100,200, and that pairing is where the sentence comes from. The gateway's ceiling at concurrency is now set by
+what the volume can hold and by the walk over those bytes rather than by the write path, because the store's
+queue answers a window of appends with one sync instead of answering each append with a sync of its own. `get()`
+isolated after an idle interval is the one figure that did not move, because that call opens the file again: a
+walk shares one handle across the reads arriving in a run and puts it down once they stop, so a lone read after
+a quiet interval pays the opening it has always paid.
+
 A frame reads, field by field:
 
 ```text

@@ -106,4 +106,20 @@ describe('the package entry point', () => {
     expect((await store.window()).count).toBe(5);
     expect((await store.chainState()).retired).toEqual({ byAge: 0, byCount: 0, trims: [] });
   });
+
+  it('keeps the seams that trade away durability off the surface a deployment reaches', async () => {
+    // A store that can be told to refuse its own sync is a way to lose a receipt, and a store that will
+    // say where its last completed sync reached is a way for a caller to measure a promise it was never
+    // owed. Both live with the suite that asks for them and nowhere else: the store module exports them
+    // because the cases are about the store's own answers, and this says the entry point carries neither
+    // on, nor anything else named for the asking.
+    const surface = Object.keys(await import('../src/index.js'));
+    expect(surface, 'a deployment must not be able to make a gateway refuse its syncs').not.toContain(
+      'failNextSyncForTesting',
+    );
+    expect(
+      surface.filter((name) => name.endsWith('ForTesting')),
+      'a deployment must not be able to reach a seam at all',
+    ).toEqual([]);
+  });
 });

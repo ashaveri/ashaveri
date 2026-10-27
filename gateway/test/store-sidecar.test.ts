@@ -5,13 +5,14 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import {
   openFileReceiptStore,
+  RECEIPT_OWNER_FILE,
   RECEIPT_SIDECAR_FILE,
   RECEIPT_STORE_FILE,
   SIDECAR_BLOCK_RECORDS,
   type ReceiptRecordKind,
   type ReceiptRetention,
 } from '../src/store.js';
-import { fixedClock } from './helpers.js';
+import { fixedClock, storeGoesQuiet } from './helpers.js';
 
 /**
  * The disposable sidecar index a durable receipt store keeps beside `receipts.log`, and the checkpoint
@@ -48,6 +49,14 @@ const BOUNDED_RECORD_KIND = 2;
  * `store.test.ts` carries for ten durable appends and an open, which is the same order of volume.
  */
 const CASE_TIMEOUT = 15_000;
+
+/**
+ * The whole volume of a store that declined its index: the log, and the claim beside it naming the
+ * process that holds the directory. Declining the index has never declined the store's own name on the
+ * directory, so the two files are what "nothing else was written" means here. Sorted already, because
+ * `readdir` answers in no promised order.
+ */
+const DECLINED_STORE_FILES = [RECEIPT_STORE_FILE, RECEIPT_OWNER_FILE];
 
 function sha256(bytes: Uint8Array): Uint8Array {
   return new Uint8Array(createHash('sha256').update(bytes).digest());
@@ -292,10 +301,10 @@ describe('the store file is the only authority', () => {
       const neverDir = await emptyDir();
       await fileWith(neverDir, IDS, RECEIPT, true);
       const asking = { ids: IDS };
-      expect(await readdir(neverDir)).toEqual([RECEIPT_STORE_FILE]);
+      expect((await readdir(neverDir)).sort()).toEqual(DECLINED_STORE_FILES);
 
       await rm(sidecarFile(dir));
-      expect(await readdir(dir)).toEqual([RECEIPT_STORE_FILE]);
+      expect((await readdir(dir)).sort()).toEqual(DECLINED_STORE_FILES);
       expect(await answer(dir, asking)).toBe(await answer(neverDir, { ...asking, declined: true }));
       // And the walk that answered has left a sidecar behind, which is what makes the next opening cheap.
       expect((await stat(sidecarFile(dir))).size).toBeGreaterThan(0);
@@ -329,7 +338,7 @@ describe('the store file is the only authority', () => {
       await run(sidecarDir, false);
       await run(walkedDir, true);
 
-      expect(await readdir(walkedDir)).toEqual([RECEIPT_STORE_FILE]);
+      expect((await readdir(walkedDir)).sort()).toEqual(DECLINED_STORE_FILES);
       const retention: ReceiptRetention = { maxAgeSeconds: 1_000, time: fixedClock(() => STAMP + 2_020) };
       const asking = { retention, ids: ['old_0', 'new_0', 'only'] };
       expect(await readFile(storeFile(sidecarDir))).toEqual(await readFile(storeFile(walkedDir)));
@@ -337,10 +346,10 @@ describe('the store file is the only authority', () => {
     },
   );
 
-  it('writes nothing beside the store file when the sidecar is declined', { timeout: CASE_TIMEOUT }, async () => {
+  it('writes no index beside the store file when the sidecar is declined', { timeout: CASE_TIMEOUT }, async () => {
     const dir = await emptyDir();
     await fileWith(dir, IDS, RECEIPT, true);
-    expect(await readdir(dir)).toEqual([RECEIPT_STORE_FILE]);
+    expect((await readdir(dir)).sort()).toEqual(DECLINED_STORE_FILES);
     // Declining is not a read-only opening: the store still answers, and answers the same.
     const first = await answer(dir, { declined: true, ids: IDS });
     expect(JSON.parse(first).refused).toBeNull();
@@ -695,6 +704,10 @@ describe('a compaction invalidates the sidecar in the right direction', () => {
     for (let i = 0; i < 10; i++) {
       await store.put(`old_${String(i)}`, RECEIPT, now + i);
     }
+    // The store that wrote the aged receipts still holds the handle its last window went through, and a
+    // rename over the path is refused while any handle of this process is on it. The opening below is
+    // the one that compacts, so the first store has to be quiet before it does.
+    await storeGoesQuiet();
     // The opening in the middle of the run is what writes an index for the file as it stands, so what
     // comes back from it is the stale statement a later compaction has to make untrue.
     const reopened = await openFileReceiptStore(options);
