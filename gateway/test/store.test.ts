@@ -978,6 +978,22 @@ describe('chain state', () => {
     expect(window.count, 'the old record behind a fresh one is kept, not cut out').toBe(3);
     expect(await store.get(mintedId(0)), 'the first record still serves').not.toBeNull();
   });
+
+  it('retires to the count cap when the records over it are not the oldest-dated', async () => {
+    // A cap speaks about how many receipts are served, so a stamp out of chain order cannot buy a record a
+    // place in the retained set: the retirement stops at the first record it keeps, and what is left fits.
+    const dir = await emptyDir();
+    const store = await openFileReceiptStore({
+      dir,
+      retention: { maxAgeSeconds: 60, maxCount: 1, time: fixedClock(() => STAMP + 100) },
+    });
+    await store.put(mintedId(0), RECEIPT, STAMP + 100);
+    await store.put(mintedId(1), RECEIPT, STAMP);
+    await store.put(mintedId(2), RECEIPT, STAMP + 90);
+    expect((await store.window()).count, 'a retained set above its cap is a cap that did not bind').toBe(1);
+    expect(await store.get(mintedId(2)), 'the record the prefix leaves is the one still served').not.toBeNull();
+    expect(await store.get(mintedId(0)), 'the front gave way to the cap, not to its stamp').toBeNull();
+  });
 });
 
 describe('a stamp the record cannot state', () => {
