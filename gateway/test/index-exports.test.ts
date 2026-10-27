@@ -106,4 +106,14 @@ describe('the package entry point', () => {
     expect((await store.window()).count).toBe(5);
     expect((await store.chainState()).retired).toEqual({ byAge: 0, byCount: 0, trims: [] });
   });
+
+  it('keeps the seam that refuses a sync out of the surface a deployment reaches', async () => {
+    // A store that can be told to refuse its own sync is a way to lose a receipt, so it lives with the
+    // suite that asks for it and nowhere else. The store module exports it because the case is about
+    // the store's own answer; this says the entry point does not carry it on.
+    const surface = Object.keys(await import('../src/index.js'));
+    expect(surface, 'a deployment must not be able to make a gateway refuse its syncs').not.toContain(
+      'failNextSyncForTesting',
+    );
+  });
 });

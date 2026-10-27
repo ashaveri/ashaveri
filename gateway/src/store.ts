@@ -2281,6 +2281,34 @@ async function readHeld(
   return new Uint8Array(provedReceipt(frame, where, id));
 }
 
+/**
+ * How many syncs a store has been told to refuse, keyed on the store itself. Only the seam below
+ * writes here and only an append reads it, so a refused sync is never a state a store reaches by
+ * itself, and a store that is garbage has nothing left to refuse.
+ */
+const syncRefusals = new WeakMap<ReceiptStore, number>();
+
+/**
+ * Test seam: this store's next sync over the store file fails, once.
+ *
+ * A volume does not schedule which of a test's syncs it refuses, so a case about the callers a failed
+ * sync answers for is a case about timing without this. It is exported from the store module and not
+ * from the package entry point: nothing a deployment can reach refuses a sync it was never asked to.
+ */
+export function failNextSyncForTesting(store: ReceiptStore): void {
+  syncRefusals.set(store, 1);
+}
+
+/** True once, for each ask: the next sync of this store refuses, and the one after it does not. */
+function refusesSync(store: ReceiptStore): boolean {
+  const left = syncRefusals.get(store) ?? 0;
+  if (left <= 0) {
+    return false;
+  }
+  syncRefusals.set(store, left - 1);
+  return true;
+}
+
 export async function openFileReceiptStore(options: FileReceiptStoreOptions): Promise<ReceiptStore> {
   const path = join(options.dir, RECEIPT_STORE_FILE);
   const retention = options.retention;
@@ -2383,7 +2411,7 @@ export async function openFileReceiptStore(options: FileReceiptStoreOptions): Pr
     }
   }
 
-  return {
+  const store: ReceiptStore = {
     put(id: string, receipt: Uint8Array, iat: number): Promise<void> {
       return serialized(async () => {
         // The payload is the receipt, with the period in front of it when this store's kind states one,
@@ -2397,6 +2425,9 @@ export async function openFileReceiptStore(options: FileReceiptStoreOptions): Pr
           await file.writeFile(record.frame);
           // The claim this store exists for is that a receipt outlives the process that wrote
           // it, and a write still sitting in the page cache does not survive the machine too.
+          if (refusesSync(store)) {
+            throw new Error('the sync of the bytes appended to the receipt store was refused');
+          }
           await file.sync();
         } finally {
           await file.close();
@@ -2540,6 +2571,8 @@ export async function openFileReceiptStore(options: FileReceiptStoreOptions): Pr
       };
     },
   };
+
+  return store;
 }
 
 /**

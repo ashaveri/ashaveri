@@ -9,6 +9,7 @@ import {
   openMemoryReceiptStore,
   receiptsNeededForWindow,
   retentionBoundsFault,
+  failNextSyncForTesting,
   RECEIPT_STORE_FILE,
   servedBatches,
   type ReceiptRecordKind,
@@ -2210,6 +2211,72 @@ describe('a rewrite landing underneath a walk', () => {
       await expect(second.next()).rejects.toThrow(REFUSED);
     },
   );
+});
+
+/**
+ * What a caller of `put` is owed before it is answered: the volume holds its record. The sync that
+ * earns an answer is the one thing an append may not trade away, so these cases name the callers a
+ * sync answers for and the callers a refused sync refuses.
+ */
+describe('the sync an append waits for', () => {
+  const STAMP = 1_780_000_000;
+  /** One receipt record's whole frame at `mintedId`'s width and `RECEIPT`'s payload. */
+  const FRAME = 191;
+
+  it('refuses exactly the appends a failed sync was covering, and nobody behind them', async () => {
+    const dir = await emptyDir();
+    const store = await openFileReceiptStore({ dir });
+    failNextSyncForTesting(store);
+    // Every append is asked for in one turn, so all forty reach the store before its first sync begins.
+    // That sync is covering the front of the chain and nothing else: the appends behind it are answered
+    // by a sync of their own, which is the queue's rule kept at the width of whatever one sync reached.
+    const ids = Array.from({ length: 40 }, (_, i) => mintedId(i));
+    const answers = await Promise.all(
+      ids.map((id, i) =>
+        store.put(id, RECEIPT, STAMP + i).then(
+          () => true,
+          () => false,
+        ),
+      ),
+    );
+    const refused = ids.filter((_, i) => !answers[i]);
+    const kept = ids.filter((_, i) => answers[i]);
+
+    expect(refused.length, 'a refused sync refuses somebody').toBeGreaterThan(0);
+    expect(refused.length, 'and no more than one window of appends').toBeLessThanOrEqual(32);
+    expect(kept.length, 'an append behind the refused window is answered on its own sync').toBeGreaterThan(0);
+    expect(refused, 'the refusals are the front of the chain, which is what the failed sync covered').toEqual(
+      ids.slice(0, refused.length),
+    );
+
+    // A refused append is not retained: an answer that a record is not on the volume and an index that
+    // serves it anyway are two statements about one receipt, and the store makes only the first.
+    for (const id of refused) {
+      expect(await store.get(id), `${id} was refused and is not in the index`).toBeNull();
+    }
+    expect((await store.window()).count).toBe(kept.length);
+  });
+
+  it('does not answer a put before the sync covering its bytes completed', async () => {
+    const dir = await emptyDir();
+    const store = await openFileReceiptStore({ dir });
+    const file = join(dir, RECEIPT_STORE_FILE);
+    const ids = Array.from({ length: 64 }, (_, i) => mintedId(i));
+    await Promise.all(
+      ids.map(async (id, i) => {
+        await store.put(id, RECEIPT, STAMP + i);
+        // Read at the instant this caller was answered, so a promise that settled ahead of the bytes it
+        // was answering for fails here rather than agreeing with the index the store wrote itself.
+        const size = (await stat(file)).size;
+        expect(size, `${id} was answered before its record was on the volume`).toBeGreaterThanOrEqual(
+          (i + 1) * FRAME,
+        );
+      }),
+    );
+    // Sixty-four answered appends are sixty-four frames on the volume, and all of them are served.
+    expect((await stat(file)).size).toBe(64 * FRAME);
+    expect((await store.window()).count).toBe(64);
+  });
 });
 
 
