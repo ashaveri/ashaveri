@@ -1520,7 +1520,9 @@ describe('the bound one process admits completions at', () => {
     // Read with the folds closed, as the other usage claims in this file are.
     const folded = help.stdout.replace(/\s+/gu, ' ');
     expect(folded).toContain('Default: perMinute=13636,burst=227');
-    expect(folded).toContain('measured write ceiling of one receipt every 4.40 milliseconds');
+    expect(folded).toContain(
+      'the write ceiling this build derives from its two measured costs, one receipt every 4.40 milliseconds',
+    );
     // The comparison an operator is meant to be able to make, stated where the number is stated.
     expect(folded).toContain('2.27 busy addresses');
   });
@@ -1536,14 +1538,14 @@ describe('the bound one process admits completions at', () => {
     expect(line, printed).toContain('DEPLOYMENT_RATE_LIMITED before any inference is run');
   });
 
-  it('prints the measured ceiling it boots into when the flag named nothing', async () => {
+  it('prints the derived ceiling it boots into when the flag named nothing', async () => {
     const banner = await readBanner('--mock', '--port', '0');
     const printed = banner.join('\n');
     const line = banner.find((each) => each.startsWith('  completion bound: '));
     expect(line, `no completion bound line; stdout held ${JSON.stringify(printed)}`).toContain(
       '13636 completions a minute across this process and 227 at once',
     );
-    expect(line, printed).toContain('the measured write ceiling this repository ships');
+    expect(line, printed).toContain('the write ceiling this repository derives from its two measured costs');
     // One counter per process is the fact a reader of a multi-process deployment has to have, or the
     // banner reads as a limit on the deployment rather than on the one process printing it.
     expect(line, printed).toContain('one process holds one counter');

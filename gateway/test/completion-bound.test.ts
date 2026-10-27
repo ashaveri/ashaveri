@@ -117,15 +117,15 @@ function boundAt(burst: number, perMinute = 60, atMillis: () => number = () => 0
 }
 
 describe('the bound a deployment that configures nothing runs at', () => {
-  it('is this build\'s measured write ceiling, stated as a rate rather than as a sentence', () => {
-    // The figure is not chosen for a banner. One receipt costs 4.40 milliseconds end to end on the
-    // measurement this repository holds (the signature and the append together at 20,000 retained), and
-    // that division is both halves of the pair, so a change to the measurement has to move both numbers or
-    // this case fails rather than let a shipped default drift from the thing it was derived from.
-    const measuredMillisPerReceipt = 4.4;
+  it('is this build\'s write ceiling, derived from its two measured costs and stated as a rate', () => {
+    // The figure is not chosen for a banner. One receipt costs 447.6 microseconds to sign and 3.951
+    // milliseconds to append at 20,000 retained, which is 4.40 milliseconds together, and that sum divided
+    // into 60,000 and 1,000 is both halves of the pair, so a change to either cost moves both numbers or
+    // this case fails rather than let a shipped default drift from the costs it was computed from.
+    const derivedMillisPerReceipt = 4.4;
     expect(DEFAULT_COMPLETION_RATE).toEqual({
-      perMinute: Math.floor(60_000 / measuredMillisPerReceipt),
-      burst: Math.floor(1_000 / measuredMillisPerReceipt),
+      perMinute: Math.floor(60_000 / derivedMillisPerReceipt),
+      burst: Math.floor(1_000 / derivedMillisPerReceipt),
     });
     expect(DEFAULT_COMPLETION_RATE.perMinute).toBe(13_636);
     expect(DEFAULT_COMPLETION_RATE.burst).toBe(227);

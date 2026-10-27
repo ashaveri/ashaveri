@@ -76,9 +76,9 @@ export interface GatewayOptions {
   /**
    * The deployment-wide bound on the completions this process admits, read at admission ahead of the
    * upstream call and refused with `DEPLOYMENT_RATE_LIMITED`. Absent means `DEFAULT_COMPLETION_RATE`, the
-   * measured write ceiling of this build, so a deployment that configures nothing is held to what it can
-   * actually write rather than to a number nobody chose. `gateway/src/cli.ts` hands this the rate its
-   * `--completion-rate` flag names.
+   * write ceiling this build derives from its two measured costs, so a deployment that configures nothing
+   * is held to what it can actually write rather than to a number nobody chose. `gateway/src/cli.ts` hands
+   * this the rate its `--completion-rate` flag names.
    */
   readonly completionBound?: DeploymentCompletionBound;
   /**
@@ -404,14 +404,14 @@ function sourcePhrase(figures: IntakeGuardFigures): string {
 
 /**
  * The completion bound, stated in the two fields a credential's own `rate` and `--peer-rate` carry, so an
- * operator can set it against the per-address bound it has to sit under. The number is this build's measured
- * write ceiling, one receipt every 4.40 milliseconds for the signature and the append together at 20,000
- * retained receipts: 60,000 divided by that is 13,636.36 and 1,000 divided by it is 227.27, and each taken
- * down to a whole completion is 13,636 completions a minute with 227 taken at once, which is one second of
- * the same measurement. Against the 6,000 a minute one connection address is held to, that is 2.27 busy
- * addresses filling one process, which is why the bound is refused rather than documented. No value here
- * removes the bound: a number no deployment reaches is the off switch, and the start-up report prints
- * whichever number the process is holding.
+ * operator can set it against the per-address bound it has to sit under. One receipt costs 447.6
+ * microseconds to sign and 3.951 milliseconds to append at 20,000 retained receipts, which is 4.40
+ * milliseconds together, and that sum is the ceiling this constant is worked from: 60,000 divided by it
+ * is 13,636.36 and 1,000 divided by it is 227.27, and each taken down to a whole completion is 13,636
+ * completions a minute with 227 taken at once, which is one second at that ceiling. Against the 6,000 a
+ * minute one connection address is held to, that is 2.27 busy addresses filling one process, which is why
+ * the bound is refused rather than documented. No value here removes the bound: a number no deployment
+ * reaches is the off switch, and the start-up report prints whichever number the process is holding.
  */
 export const DEFAULT_COMPLETION_RATE: CredentialRate = { perMinute: 13_636, burst: 227 };
 
@@ -427,8 +427,8 @@ const COMPLETION_BOUND_KEY = 'deployment';
 export interface DeploymentCompletionBound {
   /**
    * What this process admits, per minute and at once, in `DEFAULT_COMPLETION_RATE`'s two fields. Absent
-   * means that constant, which is the measured write ceiling rather than a round number chosen for a
-   * banner, and there is no spelling here that turns the bound off.
+   * means that constant, the write ceiling this build derives from its two measured costs rather than a
+   * round number chosen for a banner, and there is no spelling here that turns the bound off.
    */
   readonly rate?: CredentialRate;
   /**

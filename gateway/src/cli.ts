@@ -242,16 +242,17 @@ Options:
                                    credential and every address spends from this one bucket, so it is the
                                    deployment's own ceiling rather than a per-client one, and it is stated in
                                    the same two fields as --peer-rate so the two can be read against each
-                                   other. Default: perMinute=13636,burst=227, which is this build's measured
-                                   write ceiling of one receipt every 4.40 milliseconds at 20,000 retained:
-                                   60,000 divided by that is 13,636.36 and 1,000 divided by it is 227.27,
-                                   and each taken down to a whole completion is the pair above. Against
-                                   6,000 a minute from one address it says that 2.27 busy addresses are what
-                                   one process can write for. A completion past the bound is refused
-                                   DEPLOYMENT_RATE_LIMITED with a 429 and the wait to the next token, and no
-                                   receipt is issued for it. No flag takes the bound off, and a large number
-                                   is the off switch; the start-up report prints whichever number this
-                                   process is holding, and each process holds its own counter.
+                                   other. Default: perMinute=13636,burst=227, which is the write ceiling
+                                   this build derives from its two measured costs, one receipt every 4.40
+                                   milliseconds at 20,000 retained: 60,000 divided by that is 13,636.36 and
+                                   1,000 divided by it is 227.27, and each taken down to a whole completion
+                                   is the pair above. Against 6,000 a minute from one address it says that
+                                   2.27 busy addresses are what one process can write for. A completion past
+                                   the bound is refused DEPLOYMENT_RATE_LIMITED with a 429 and the wait to
+                                   the next token, and no receipt is issued for it. No flag takes the bound
+                                   off, and a large number is the off switch; the start-up report prints
+                                   whichever number this process is holding, and each process holds its own
+                                   counter.
   --help                           Print this help.`;
 
 /**
@@ -726,7 +727,8 @@ const peerRate = parseRate(values['peer-rate'], 'peer-rate', DEFAULT_PEER_RATE, 
 const peerRateGiven = values['peer-rate'] !== undefined;
 // The deployment's own ceiling on the completions this process admits, read the same way and in the same
 // two fields, because the two bounds are meant to be compared: what one address may ask for, and what this
-// process may write. The flag names the pair or the shipped measured ceiling decides it.
+// process may write. The flag names the pair, or the ceiling this build derives from its two measured
+// costs decides it.
 const completionRate = parseRate(
   values['completion-rate'],
   'completion-rate',
@@ -958,7 +960,7 @@ const rateLabel =
 const completionBoundLabel =
   `completion bound: ${String(completionRate.perMinute)} completions a minute across this process and ` +
   `${String(completionRate.burst)} at once, refused DEPLOYMENT_RATE_LIMITED before any inference is run, ` +
-  `${completionRateGiven ? 'from --completion-rate' : 'the measured write ceiling this repository ships'}; ` +
+  `${completionRateGiven ? 'from --completion-rate' : 'the write ceiling this repository derives from its two measured costs'}; ` +
   `one process holds one counter, so a deployment running more than this one admits this much on each of them`;
 // The manifest's posture is reported as this process actually serves it, because the two states mean
 // different things to whoever is standing at the other end of the deployment: a sealed document is one
