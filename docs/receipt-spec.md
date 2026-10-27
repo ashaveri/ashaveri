@@ -818,7 +818,11 @@ every receipt served from it. That second file is an accelerator and nothing mor
 where it ties back to the log, which the opening checks
 by reading the prefix's trim records from the log and hashing the record the checkpoint ends on as though
 it were about to serve it, and it is discarded and rewritten from the log at any disagreement. It can be
-declined outright by `sidecarIndex: false`, and no byte of it enters the framing below.
+declined outright by `sidecarIndex: false`, and no byte of it enters the framing below. A third file
+beside the log, `receipts.log.owner` (`RECEIPT_OWNER_FILE` in the same module), is one process's claim
+on the directory and carries no receipt byte: an opening refuses a directory a live process has already
+claimed, before it reads the log, and a claim whose holder has exited is taken over with the displaced
+claim left beside it as `receipts.log.owner.stale`. No byte of either enters the framing below.
 A frame reads, field by field:
 
 ```text
