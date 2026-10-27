@@ -68,6 +68,18 @@ row says so rather than inventing a number for it.
 | `--pop-tolerance` | The clock slack accepted for a proof-of-possession timestamp | a positive whole number of seconds | `POP_TIMESTAMP_TOLERANCE_SECONDS` | the operator's to declare | `gateway/src/cli.ts` |
 | `--peer-rate` | What one connection address may ask for, ahead of every credential check | `perMinute` and `burst`, both positive whole numbers, both required, and no spelling turns the bound off | `DEFAULT_PEER_RATE` | the operator's to declare | `gateway/src/cli.ts` |
 
+The two receipt bounds are counts, and each has a measured cost beside it on this store's compiled output. The
+baseline is part of every number below: one Windows host, one Node 24 process, calls issued serially, nothing
+else on the volume, and frames of 191 bytes carrying a 48-character minted id and a 64-byte payload, which is a
+synthetic record rather than a signed receipt. With retention configured an append costs 1.326 ms against
+20,000 receipts retained and 1.947 ms against 100,200, so the size of the set `--receipts-keep` bounds is not
+what an append's cost is a function of. A served walk reads 5.11 us per record over 20,000 records, and
+`--receipts-per-query` decides how many records one batch of that walk carries. With thirty-two callers in
+flight inside that one process the store answers 18,867 appends a second at a 1.54 ms median, so at concurrency
+the ceiling sits on what the volume can hold and on the walk over its bytes rather than on the write path. Each
+figure is one host's measurement at one narrow frame width; [receipt-spec.md](receipt-spec.md) section 5.2
+carries the whole set beside the two trees it compares.
+
 ## 2. Shipped defaults named in source
 
 Class: shipped default. Each row is a constant this repository declares and reads in a defaulting

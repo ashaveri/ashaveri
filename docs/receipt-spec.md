@@ -823,6 +823,37 @@ beside the log, `receipts.log.owner` (`RECEIPT_OWNER_FILE` in the same module), 
 on the directory and carries no receipt byte: an opening refuses a directory a live process has already
 claimed, before it reads the log, and a claim whose holder has exited is taken over with the displaced
 claim left beside it as `receipts.log.owner.stale`. No byte of either enters the framing below.
+
+**What one store costs to write, and what it costs to read.** These are one measurement of this module's
+compiled store, `gateway/dist/store.js`, on one host, and they belong beside the durability and serving bounds
+[configured-values.md](configured-values.md) states. The baseline is part of every number: one Windows host,
+one Node 24 process, calls issued serially, nothing else on the volume, and frames of 191 bytes carrying a
+48-character minted id and a 64-byte payload, which is a synthetic record rather than the signed document
+sections 2 and 3 above lay out. The left column is the published tree `932cc83` and the right column is the
+tree carrying this sentence, both read through one harness, so the two columns answer one question. The three
+caller rows are the same append with that many callers in flight inside that one process, and their medians
+and maxima are measured on those calls.
+
+| Measure on this store | `932cc83` | The tree carrying this sentence |
+|---|---|---|
+| `append`, retention configured, 20,000 retained | 3.823 ms, 262 a second | 1.326 ms, 754 a second |
+| `append`, retention configured, 100,200 retained | 18.67 ms, 54 a second | 1.947 ms, 514 a second |
+| `store.range()` over 20,000 records | 80.14 us per record | 5.11 us per record |
+| `get()` with reads arriving in a run | 575.5 us | 104.7 us |
+| `get()` isolated after an idle interval | 1,150.3 us | 1,179.6 us |
+| `append`, one caller in flight | 488 a second, median 2.00 ms | 790 a second, median 1.26 ms |
+| `append`, four callers in flight | 448 a second, median 8.77 ms | 3,007 a second, median 1.26 ms |
+| `append`, thirty-two callers in flight | 423 a second, median 75.09 ms, max 101 ms | 18,867 a second, median 1.54 ms, max 2.81 ms |
+
+The cost of an append no longer grows with the size of the retained set: the two `append` rows with a
+retention configured are one call against a store holding 20,000 receipts and one against a store holding
+100,200, and that pairing is where the sentence comes from. The gateway's ceiling at concurrency is now set by
+what the volume can hold and by the walk over those bytes rather than by the write path, because the store's
+queue answers a window of appends with one sync instead of answering each append with a sync of its own. `get()`
+isolated after an idle interval is the one figure that did not move, because that call opens the file again: a
+walk shares one handle across the reads arriving in a run and puts it down once they stop, so a lone read after
+a quiet interval pays the opening it has always paid.
+
 A frame reads, field by field:
 
 ```text
