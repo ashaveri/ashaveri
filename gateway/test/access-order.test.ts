@@ -1073,10 +1073,13 @@ describe('what the signature check answers when it cannot check', () => {
  * `proves` is how this walk records that the test itself made such a request: it signed the bytes with
  * the secret whose public key it then wrote into the record. That is a fact about how the request was
  * built, not about what a verifier answered, and the difference matters because a signature can verify
- * for the wrong reason. `verifyPopSignature` is strict where the library under it is relaxed, and the
+ * for the wrong reason. `verifyPopSignature` is strict where an Ed25519 reader is relaxed, and the
  * relaxation is measurable: on the installed `@noble/curves`, `ed25519.verify` with its own defaults
  * answers true for a run of 64 zero bytes against an all-zero 32-byte key, the identity point of the
- * torsion subgroup, for any message at all, where `verifyPopSignature` answers false. The strict side is
+ * torsion subgroup, for any message at all, where `verifyPopSignature` answers false. The runtime's own
+ * primitive answers the same question the same tolerant way until the refusals in
+ * `packages/receipt/src/strict-ed25519.ts` are put in front of it, which is why the store reaches for
+ * that function and not for either reader. The strict side is
  * pinned in `packages/receipt/test/pop.test.ts` by the case 'refuses a signature nobody made, for every
  * encoding of every small-order key'. So
  * a store that reached for the library directly, or that read a `true` from a placeholder key as
