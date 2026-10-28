@@ -462,12 +462,14 @@ describe('the proof-of-possession path in both readers', () => {
     }
   });
 
-  it('refuses a proof whose point half is a small-order encoding, and names the reader that parts on it', () => {
-    // The divergence the sweep cannot reach, asked through the wire format rather than as bare bytes: the
-    // library's cofactored equation takes these, the runtime's exact one does not, and the default argument is
-    // the library path so a caller that says nothing keeps the shipped answer.
+  it('refuses a proof whose point half is a small-order encoding on no platform, and admits it on the library', () => {
+    // The divergence the sweep cannot reach, asked through the wire format rather than as bare bytes. What is
+    // pinned is the half that does not move: the library's cofactored equation admits all eight, the default
+    // argument is the library path so a caller that says nothing keeps the shipped answer, and the runtime path
+    // never admits what the shipped rule refuses. Whether its equation takes the identity here is the
+    // platform's own - one build takes it, another refuses all eight - so it is recorded, not required.
     const { publicKey, scalar } = keyWithKnownScalar(7);
-    const parts: string[] = [];
+    const admitsWhatTheShippedRuleRefuses: string[] = [];
     for (const encoding of TORSION) {
       const rBytes = fromHex(encoding);
       const hash =
@@ -476,10 +478,12 @@ describe('the proof-of-possession path in both readers', () => {
       const throughLibrary = verifyPopSignature(fields, body, publicKey, nobleStrictVerify);
       const throughRuntime = verifyPopSignature(fields, body, publicKey, preferredStrictVerify);
       const byDefault = verifyPopSignature(fields, body, publicKey);
+      expect(throughLibrary, `the shipped rule admits ${encoding}`).toBe(true);
       expect(byDefault, `the default argument is the library path on ${encoding}`).toBe(throughLibrary);
-      if (throughLibrary !== throughRuntime) parts.push(encoding);
+      expect(refusalBeforeTheEquation(body, publicKey), `no clause fires on ${encoding}`).toBeNull();
+      if (throughRuntime && !throughLibrary) admitsWhatTheShippedRuleRefuses.push(encoding);
     }
-    expect(parts).toHaveLength(7);
+    expect(admitsWhatTheShippedRuleRefuses).toEqual([]);
   });
 });
 
