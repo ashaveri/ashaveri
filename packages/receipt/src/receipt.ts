@@ -493,7 +493,7 @@ function readCollateralSlot(value: unknown, where: string): CollateralSlot {
  */
 function readCollateralAnchor(raw: Map<unknown, unknown>): CollateralValidityAnchor {
   const value = raw.get('cva');
-  if (value === undefined) throw badPayload('v1 requires a cva member; an unrecorded context is a state, not an omission');
+  if (value === undefined) throw badPayload('v1 requires a cva member; a state about the anchor is stated inside the member, not by its absence');
   const cva = decodedMap(value);
   if (cva === null) throw badPayload('cva must be a map');
   return {
@@ -524,7 +524,7 @@ function readCollateralAnchor(raw: Map<unknown, unknown>): CollateralValidityAnc
  */
 function readItemStamps(raw: Map<unknown, unknown>): readonly ItemStamp[] {
   const value = raw.get('itm');
-  if (value === undefined) throw badPayload('v1 requires an itm member; a response with no items is a refusal, not an omission');
+  if (value === undefined) throw badPayload('v1 requires an itm member; a payload that states no item list has nothing for a reader to walk');
   if (!Array.isArray(value)) throw badPayload('itm must be an array');
   if (value.length === 0) throw badPayload('itm declares at least one item and carries none');
   const items = value.map((one, index) => readItemStamp(one, `itm[${index}]`));
