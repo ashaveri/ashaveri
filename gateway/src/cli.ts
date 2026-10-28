@@ -25,7 +25,7 @@ import { dstackDeployment } from './dstack.js';
 import { GuestClient } from './guest.js';
 import { mockBackend, type CompletionBackend } from './backend.js';
 import { upstreamBackend } from './upstream.js';
-import { mockDeployment, type Deployment, type HardwareTeeKind } from './deployment.js';
+import { mockDeployment, type Deployment, type HardwareTeeKind, type MockDeploymentOptions } from './deployment.js';
 import { toHex } from './digest.js';
 import {
   DEFAULT_INSTRUCTION_RECORD_PATH,
@@ -50,11 +50,16 @@ const USAGE = `signerd - receipt-signing gateway for Ashaveri verifiable inferen
 
 Usage:
   signerd --mock [--host <host>] [--port <port>]
+          [--model <id> --weights-manifest <file>] [--upstream <url>]
   signerd --live --public-url <url> --model <id> --weights-manifest <file>
           [--upstream <url>] [--guest-socket <path-or-url>] [options]
 
 Modes:
   --mock   Deterministic completions, an ephemeral dev signing key, no TEE.
+           Given --model together with --weights-manifest it serves the id the
+           upstream answers to and every receipt carries the digest of that
+           file, so the digest is one a client can fetch bytes for. One of the
+           two without the other is refused.
   --live   The signing key and every measurement come from the dstack guest
            agent inside this CVM. Requires --public-url, --model and
            --weights-manifest.
@@ -524,9 +529,10 @@ function refuseToStart(message: string): never {
  * accepted state is one file under both names, which is one set of bytes and therefore one digest.
  *
  * A direct run outside the container names neither environment value and is not a deployment with two
- * inputs: it keeps the existing requirement for the flag and invents no pairing it never made. A mock
- * run serves a model of its own and reads no manifest, so values left in its environment pass no
- * check here.
+ * inputs: it keeps the existing requirement for the flag and invents no pairing it never made. A mock run
+ * reads its flag and nothing from the environment, because it verified no boot files and an environment
+ * value left in the shell is not a manifest it checked. When that flag is present, `softwareServing`
+ * reads it and a named model carries the digest of those bytes.
  */
 function weightsManifestPath(values: CliOptions): string | undefined {
   const dir = process.env['ASHAVERI_WEIGHTS_DIR'];
@@ -825,6 +831,45 @@ try {
   process.exit(1);
 }
 
+/**
+ * The models a `--mock` run serves, and the bytes behind their digests, when the operator named them.
+ *
+ * Naming a model is what lets a software receipt say which model answered, and the weights file is what
+ * makes its `wts` fetchable: `GET /v1/weights/:digest` is the one public route a deployment has, and a
+ * receipt carrying `mockWeights` names a digest that route has no bytes for. So one of the two inputs
+ * without the other is refused here rather than answered with the synthetic digest, which would print a
+ * field on a page no client can look up.
+ *
+ * Neither input is read from the environment: `weightsManifestPath` returns the flag alone in mock mode,
+ * because a mock run verified no boot files and an environment value left in the shell is not a manifest
+ * this process checked. Live mode keeps its own pairing rule untouched.
+ *
+ * An absent pair returns nothing at all, so a mock run that was told nothing stays exactly the fixture it
+ * was before this function existed.
+ */
+function softwareServing(values: CliOptions): Pick<MockDeploymentOptions, 'models' | 'weightsManifest'> {
+  const modelIds = values.model ?? [];
+  if (modelIds.length === 0 && weightsManifest === undefined) return {};
+  if (modelIds.length === 0) {
+    refuseToStart(
+      `--weights-manifest names ${String(weightsManifest)} in mock mode and no --model is given, so the bytes read behind that digest name no served model`,
+    );
+  }
+  if (weightsManifest === undefined) {
+    refuseToStart(
+      `at least one --model in mock mode needs --weights-manifest, so a receipt that names a model carries a digest its own route can answer with`,
+    );
+  }
+  try {
+    const { models, manifest } = modelsFromManifest(modelIds, weightsManifest);
+    return { models, weightsManifest: manifest };
+  } catch (error) {
+    refuseToStart(
+      `--weights-manifest could not be read: ${error instanceof Error ? error.message : String(error)}`,
+    );
+  }
+}
+
 async function liveDeployment(values: CliOptions): Promise<Deployment> {
   let publicUrl: URL;
   try {
@@ -873,7 +918,7 @@ async function liveDeployment(values: CliOptions): Promise<Deployment> {
 
 let deployment: Deployment;
 try {
-  deployment = values.mock === true ? mockDeployment({ time }) : await liveDeployment(values);
+  deployment = values.mock === true ? mockDeployment({ time, ...softwareServing(values) }) : await liveDeployment(values);
 } catch (error) {
   process.stderr.write(`signerd: ${error instanceof Error ? error.message : String(error)}\n`);
   process.exit(1);
