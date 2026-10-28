@@ -113,6 +113,21 @@ export interface MockDeploymentOptions {
   readonly manifestKey?: SigningKey;
   readonly model?: string;
   /**
+   * The models this software deployment serves, named as the operator declared them.
+   *
+   * Present means a receipt carries the id the upstream actually answers to beside a `wts` that is the
+   * digest of bytes the public route can hand back, which is what makes that digest something a client
+   * checks rather than something it is told. Absent keeps `model` and the synthetic weights, because a
+   * mock run that was told nothing is a fixture and not a deployment, and inventing an identity for it
+   * is the same mistake in the other direction.
+   */
+  readonly models?: readonly ModelInfo[];
+  /**
+   * The bytes every model's `wts` was taken over. Absent means this deployment publishes no document
+   * behind its digests, which is what the weights route answers 404 for rather than inventing.
+   */
+  readonly weightsManifest?: WeightsManifest;
+  /**
    * Where this deployment's collection instants come from, named. Absent means `HOST_CLOCK_SOURCE`, so
    * an evidence stamp says it is this host's own clock at a bound nobody measured rather than pretending
    * to be a platform reading: a mock deployment has no attestable clock to name, and saying so is the
@@ -130,6 +145,7 @@ export function mockWeights(model: string): Uint8Array {
 export function mockDeployment(options: MockDeploymentOptions = {}): Deployment {
   const model = options.model ?? DEFAULT_MOCK_MODEL;
   const time = options.time ?? HOST_CLOCK_SOURCE;
+  const models = options.models ?? [{ id: model, wts: mockWeights(model) }];
   return {
     issuer: options.issuer ?? 'ashaveri-mock',
     instance: options.instance ?? 'mock-instance-1',
@@ -138,7 +154,8 @@ export function mockDeployment(options: MockDeploymentOptions = {}): Deployment 
     epk: 0,
     tee: 'software',
     measurement: sha256(new TextEncoder().encode('mock-measurement')),
-    models: [{ id: model, wts: mockWeights(model) }],
+    models,
+    weightsManifest: options.weightsManifest,
     async attestation() {
       return {
         document: MOCK_EVIDENCE,

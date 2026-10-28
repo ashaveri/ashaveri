@@ -93,6 +93,16 @@ Start the mock gateway, then call it through the SDK:
 node gateway/dist/cli.js --mock --port 7173
 ```
 
+A mock run that proxies a real model names it, so a receipt states the id that answered rather than
+`mock-model-1`:
+
+```bash
+node gateway/dist/cli.js --mock --port 7173 --model <id> --weights-manifest <file> --upstream <url>
+```
+
+Both flags travel together. Naming a model without the file would leave every receipt carrying a digest
+the weights route has no bytes for, so that pairing is refused at start rather than served half.
+
 Every route a signerd gateway serves but the weights manifest fetch refuses a request that names no
 credential, so the client signs each request with one. The weights manifest is the one document a
 gateway hands to a caller that presents nothing: whoever holds a receipt can fetch the bytes its `wts`

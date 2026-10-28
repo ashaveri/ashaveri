@@ -2639,4 +2639,37 @@ describe('the two weights inputs one run is given', () => {
     expect(result.status, result.stderr).toBe(1);
     expect(result.stderr).toContain('GUEST_ENDPOINT_MISSING');
   });
+
+  it('refuses a software model named without the bytes behind its digest', { timeout: spawnBudget(1) }, () => {
+    // A receipt that names a model is only worth what its `wts` is worth, and `mockWeights` digests a
+    // string no route can answer with. So half the pair is refused rather than served with a digest a
+    // client is told to look up and cannot.
+    const result = run('--mock', '--port', '0', '--model', 'llama-3.1-8b:instruct');
+    expect(result.status, result.stderr).toBe(1);
+    expect(result.stderr).toContain('--weights-manifest');
+    expect(result.stderr).toContain('--model');
+  });
+
+  it('refuses a software weights manifest that names no served model', { timeout: spawnBudget(1) }, () => {
+    const result = run('--mock', '--port', '0', '--weights-manifest', MANIFEST);
+    expect(result.status, result.stderr).toBe(1);
+    expect(result.stderr).toContain('--model');
+    expect(result.stderr).toContain('--weights-manifest');
+  });
+
+  it('reads no weights environment value in a mock run, which verified no boot files', { timeout: spawnBudget(1) }, () => {
+    // The pairing rule is a live deployment's: two names for the file the boot check verified. A mock run
+    // checked nothing, so an environment value left in the shell stays out of its digest, and naming only
+    // the environment is the same half pair refused above.
+    const result = runWithEnv(
+      { ASHAVERI_WEIGHTS_DIR: tempDir, ASHAVERI_WEIGHTS_MANIFEST: MANIFEST },
+      '--mock',
+      '--port',
+      '0',
+      '--model',
+      'llama-3.1-8b:instruct',
+    );
+    expect(result.status, result.stderr).toBe(1);
+    expect(result.stderr).toContain('needs --weights-manifest');
+  });
 });
