@@ -1222,7 +1222,7 @@ because the registry is a reader's question rather than that format's, so the tw
 stances on that one question and neither is a mistake.
 
 **Why no period is enforced here.** `duty.requiredSeconds` is bounded by nothing but being a positive
-integer, and that is a decision rather than an omission. Article 19(1) asks for a period appropriate to the
+integer. Article 19(1) asks for a period appropriate to the
 intended purpose of the system, of at least six months, and it yields to applicable Union or national law,
 in particular in Union law on the protection of personal data, which can move what a deployment owes in
 either direction. A layout that refused a manifest whose period sat below six months would overrule a

@@ -203,8 +203,7 @@ class ResponseItemWalk {
     this.answered = true;
     if (!this.streamed) {
       // One item, whatever it holds: a buffered body has no frames to be between, and an empty one is
-      // still the whole of what was said about it. `res` covers these bytes, so the item is a statement
-      // about them and not an omission of one.
+      // still the whole of what was said about it, and those are the bytes `res` covers.
       this.pushItem(this.buffer);
       return { framed: true };
     }
