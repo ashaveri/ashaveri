@@ -1522,12 +1522,12 @@ describe('the bound one process admits completions at', () => {
     expect(help.stdout).toContain('--completion-rate perMinute=<n>,burst=<n>');
     // Read with the folds closed, as the other usage claims in this file are.
     const folded = help.stdout.replace(/\s+/gu, ' ');
-    expect(folded).toContain('Default: perMinute=19320,burst=322');
+    expect(folded).toContain('Default: perMinute=70080,burst=1168');
     expect(folded).toContain(
-      'the slowest rate this build measured on its own completion path: driven over HTTP with a file store behind it, one process turned over 322 to 376 completions a second',
+      'the rate this build measured on its own completion path: driven over HTTP with a file store behind it and the other two buckets lifted, one process turned over 1,168 completions a second',
     );
     // The comparison an operator is meant to be able to make, stated where the number is stated.
-    expect(folded).toContain('3.2 busy addresses');
+    expect(folded).toContain('11.7 busy addresses');
   });
 
   it('prints the bound it was given, and says that it was given', async () => {
@@ -1546,7 +1546,7 @@ describe('the bound one process admits completions at', () => {
     const printed = banner.join('\n');
     const line = banner.find((each) => each.startsWith('  completion bound: '));
     expect(line, `no completion bound line; stdout held ${JSON.stringify(printed)}`).toContain(
-      '19320 completions a minute across this process and 322 at once',
+      '70080 completions a minute across this process and 1168 at once',
     );
     expect(line, printed).toContain('the ceiling this build measures on its own completion path');
     // One counter per process is the fact a reader of a multi-process deployment has to have, or the
@@ -1557,7 +1557,7 @@ describe('the bound one process admits completions at', () => {
   it(
     'refuses a completion past the bound it was started with, over the wire',
     async () => {
-      // The flag, the number, and one request that meets it. A burst of one is far below the 322 this
+      // The flag, the number, and one request that meets it. A burst of one is far below the 1,168 this
       // process would have booted with, so the only way the second signed completion is refused is that the
       // rate reached the gateway the requests are served by, and the minute behind it is sixty because these
       // two requests are milliseconds apart on a wall clock.
@@ -1618,13 +1618,13 @@ describe('the bound a declared flag is weighed against the roster for', () => {
   it(
     'leaves the shipped default unweighed, because it is a measurement and not a declaration',
     async () => {
-      // A roster of one record at 60 a minute sits far under the 19,320 this build ships with, and the run
+      // A roster of one record at 60 a minute sits far under the 70,080 this build ships with, and the run
       // that names no flag still boots: the exemption is the difference between a ceiling this software
       // measured and a number an operator typed.
       const pop = newPopCredential({ id: 'roster-default', scopes: ['read', 'complete'] });
       const path = credentialFile(serializeCredentialFile({ version: 1, credentials: [pop.record] }));
       const banner = await readBanner('--mock', '--credentials-path', path);
-      expect(banner.join('\n')).toContain('19320 completions a minute across this process and 322 at once');
+      expect(banner.join('\n')).toContain('70080 completions a minute across this process and 1168 at once');
     },
     20_000,
   );
