@@ -426,10 +426,12 @@ describe('the request bound a connection meets ahead of the crypto', () => {
 describe('the bound itself', () => {
   it('is a number a guessing loop reaches and a client does not', () => {
     // Pinned, because the size is the design decision: loose enough that no honest client meets it, tight
-    // enough that a loop does long before it has spent a second of crypto. At the ~183 microseconds one
-    // forged verification measures on this workspace's library, the 2,000 burst is 366 ms of one core and
-    // the 6,000 a minute is a hundred verifications a second, 18.3 ms of every second, 1.8 per cent of one
-    // core, against the ~5,500 a second an unbounded loop asks for.
+    // enough that a loop does long before it has spent a second of crypto. Measured on this workspace's
+    // library, a forged verification costs 184 to 245 microseconds because the scalar or the point is
+    // refused early and a real one costs 1,595 because all of it runs, so the 2,000 burst is 490 ms of one
+    // core against a guessing loop and 3.19 s against signed traffic, and the 6,000 a minute is a hundred
+    // checks a second: 24.5 ms of every second as guesses, 159.5 ms of every second as signatures, against
+    // the 4,000 to 5,400 guesses a second an unbounded loop asks for.
     expect(DEFAULT_PEER_RATE).toEqual({ perMinute: 6000, burst: 2000 });
     // The relation the number has to hold, and not only the number. The charge is on every request and one
     // address shares one bucket, so a bound at or under the aggregate a deployment of defaults carries

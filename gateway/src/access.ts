@@ -732,9 +732,12 @@ export const DEFAULT_RATE: CredentialRate = { perMinute: 60, burst: 120 };
 
 /**
  * What a connection address is held to ahead of every credential, so that an unauthenticated guess
- * costs something other than the asking. Measured on this workspace's `@noble/curves` under node 24: one
- * `verifyPopSignature` over a forged 64-byte signature is ~183 microseconds, so ~5,500 a second fills a
- * single core.
+ * costs something other than the asking. Measured on this workspace's `@noble/curves` 1.9.7 under node 24,
+ * over the 140-byte signing string a proof of possession carries and read with the strict rule every
+ * reader keeps: a `verifyPopSignature` over a forged signature costs 184 to 245 microseconds, because the
+ * scalar or the point is refused before the arithmetic runs, and over a real signature it costs 1,595,
+ * because all of it runs. A guess and a customer are two prices, and this pair has to be read against
+ * both of them.
  *
  * The size comes from what a deployment carries, not from what a guesser fails to do, and it has to be
  * read against the traffic shape this repository ships: `server.ts` takes the address off the socket and
@@ -744,16 +747,19 @@ export const DEFAULT_RATE: CredentialRate = { perMinute: 60, burst: 120 };
  * deployment's correctly signed aggregate on the same arithmetic that empties a guessing loop. The floor
  * has to sit above the traffic and below the cost, and this is where both hold.
  *
- * Six thousand a minute is a hundred requests a second from one address, so a hundred verifications a
- * second, which is 18.3 milliseconds of crypto in every second and 1.8 per cent of one core. The two
- * thousand burst is 366 milliseconds, the most one peer can demand of a core at once, and an address
- * asking past it is refused for the cost its next request would have spent rather than the cost it saves,
- * a map lookup. Reaching either half means asking a hundred requests a second of one address, or two
- * thousand in the instant the bucket opened, and neither is what the credentials above do, while a loop
- * that wants five thousand guesses a second is answered `RATE_LIMITED` from the two thousand and first in
- * a row. What this bounds is what one connection can demand, not what all of them can: see
- * `MAX_TRACKED_PEERS`. An operator whose deployment is bigger than this sets both halves with
- * `--peer-rate`.
+ * Six thousand a minute is a hundred requests a second from one address. Signed, those are 159.5
+ * milliseconds of crypto in every second, about a sixth of one core, which is what one address is
+ * permitted to ask of a deployment; this bound says what one connection may demand, not what all of them
+ * may, and the aggregate is what a deployment measures against its own capacity. Guessed, a hundred a
+ * second is 24.5 milliseconds of every second and the two thousand burst is 490 milliseconds, the most a
+ * peer with nothing to spend can demand of a core in the instant a bucket opens; the same two thousand
+ * carrying real signatures would be 3.19 seconds. An address asking past the burst is refused for the
+ * cost its next request would have spent rather than the cost it saves, a map lookup. Reaching either
+ * half means asking a hundred requests a second of one address, or two thousand in the instant the bucket
+ * opened, and neither is what the credentials above do, while a loop that wants four thousand guesses a
+ * second is answered `RATE_LIMITED` from the two thousand and first in a row. What this bounds is what
+ * one connection can demand: see `MAX_TRACKED_PEERS`. An operator whose deployment is bigger than this
+ * sets both halves with `--peer-rate`.
  */
 export const DEFAULT_PEER_RATE: CredentialRate = { perMinute: 6000, burst: 2000 };
 

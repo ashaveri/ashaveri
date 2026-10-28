@@ -128,9 +128,12 @@ Options:
                                    receipts leave the front of the chain, so a
                                    period is kept only as far as this count
                                    reaches, and both checks above are about
-                                   this number. Receipts are ~0.5 KB each.
-                                   Default: 10,000, which is a few megabytes and
-                                   a deployment's capacity decision; it is a
+                                   this number. A signed receipt runs 540 to
+                                   1,532 bytes across the published vectors and
+                                   the store adds 127 bytes of frame around each,
+                                   so 10,000 of them is 7 to 17 megabytes on the
+                                   volume. Default: 10,000, which is a
+                                   deployment's capacity decision; it is a
                                    shipped default and not a period anyone owes.
   --receipts-days <n>              How long the receipts store keeps a receipt before it ages out.
                                    Default: 184, six months rounded up to whole days. A default, not a
@@ -229,8 +232,10 @@ Options:
                                    this bucket, so behind a reverse proxy it is the whole deployment
                                    sharing one allowance. Default:
                                    perMinute=6000,burst=2000, which is a hundred requests a second from
-                                   one address, one ~183 microsecond signature check behind each of them,
-                                   and under two per cent of one core spent on a guessing loop. A bound
+                                   one address. A signature check costs 184 to 245 microseconds when the
+                                   signature is a guess and 1,595 when it is real, so a guessing loop
+                                   spends under three per cent of one core at that rate while signed
+                                   traffic from one address spends about a sixth of it. A bound
                                    below the traffic one address legitimately carries refuses signed
                                    requests instead of guesses: fifteen credentials at their own default
                                    of 60 a minute are 900 a minute down one proxy. No flag takes the
@@ -572,8 +577,9 @@ function isDirectory(path: string): boolean {
 /**
  * The two counts a receipt store is opened with, and why they are two numbers.
  *
- * The durability bound is how many receipts the volume keeps. Receipts are ~0.5 KB each, so 10,000 of
- * them is a few megabytes, which is a statement about a volume and not about a process: a receipt past
+ * The durability bound is how many receipts the volume keeps. A signed receipt runs 540 to 1,532 bytes
+ * across the published vectors and the store adds 127 bytes of frame around each, so 10,000 of them is 7
+ * to 17 megabytes, which is a statement about a volume and not about a process: a receipt past
  * it leaves as the front of the chain, and the period beside it is held only as far as this count
  * reaches. Whether it can hold that period is not asserted here: the store derives the count its own
  * period takes from the traffic already on that volume and refuses the pairing at start-up rather than
