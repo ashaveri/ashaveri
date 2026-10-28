@@ -222,6 +222,17 @@ export type {
   RetentionUnder,
   RetentionWindow,
 } from './retention.js';
+export { foldProvableHorizon, horizonFault } from './horizon.js';
+export type {
+  HorizonDutyDeclaration,
+  HorizonGap,
+  HorizonLiveWindow,
+  HorizonSealedRun,
+  HorizonSegment,
+  HorizonSourceName,
+  ProvableHorizon,
+  ProvableHorizonSources,
+} from './horizon.js';
 export {
   MARKING_MEMBER_NAME,
   PROVENANCE_V1_MEMBER_SCHEME,

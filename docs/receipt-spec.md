@@ -1321,6 +1321,19 @@ interval their observations add up to, and holds neither answer as the other. Th
 not the artifact that states a reach, and the reason both say so in their own words is that a reader holding one
 of them alone cannot see the half the other carries.
 
+**How far back the two together reach.** The interval an inventory states and the window a store reports are two
+framings of one history, and neither is the other: a store bounds its retained set inclusively because it names
+stamps that are on the volume, and a run's windows are half-open because that is what lets the windows of a run
+meet without overlapping. `packages/receipt/src/horizon.ts` folds the two into one reach. It takes a verified
+inventory's window and the live store's retained window, puts each into the half-open framing, joins the
+stretches that touch, and states the longest continuous one, with every interval between two stretches reported
+as a gap rather than smoothed into a figure that spans it. So a deployment whose live file holds 184 days and
+whose sealed run reaches back five years is answered five years, while a run that stops where the file starts is
+answered as two stretches and the interval between them. It states no verdict unless the caller hands in the
+article and the period it takes that article to require, and when it does, it states the two figures it compared
+beside the answer: which period is owed is settled outside this package, and a fold that answered it unprompted
+would be this repository reading the law.
+
 | Member | Type | Required | What it states |
 |---|---|---|---|
 | `v` | `2` | yes | Format version, one constant per layout rather than a discriminant. A reader refuses a version its set does not name rather than reading the bytes under rules written for another version. |
