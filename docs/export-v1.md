@@ -116,7 +116,7 @@ different measure, so the projections state the floor and not the limit.
 | `anchored.anchor` | `string` | yes | The digest the first item was chained from: thirty-two zero bytes before any retirement, otherwise the seam a trim record carried. |
 | `anchored.head` | `string` | yes | The digest of the last item in the run. Neither endpoint is derivable from the items, and both travel inside the signature, which is what gives the walk its meaning. |
 | `anchored.items` | `array` | yes | At least one item, each of which also names its predecessor, so an element is a `chainedItem`. Order in the array bears nothing: the reader follows the links. |
-| `plain.k` | `plain` | yes | Originals, with no ordering, run or completeness claimed about them. No endpoints are carried here because none is claimed, and that is a shape rather than an omission: the arm that would have held two digests is the one a reader looks for. |
+| `plain.k` | `plain` | yes | Originals, with no ordering, run or completeness claimed about them, so this arm carries no endpoints: the two digests belong to `anchored` above, which is the arm that claims a run. |
 | `plain.prov` | `string` | yes | As the anchored arm states it, and for the same reason: the weakest of the items' `prov` values, checked against the items in either direction. |
 | `plain.items` | `array` | yes | At least one item, and an element is an `item`, which names no predecessor because no run is claimed. |
 | `void.k` | `void` | yes | Nothing is carried. This is how an empty export says so, and it is the only arm that may hold no material. |

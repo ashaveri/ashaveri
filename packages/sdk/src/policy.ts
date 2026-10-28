@@ -375,7 +375,7 @@ export const MAX_ANCHOR_SLOTS_DEMANDABLE = 2;
  * at a collector that looked away. The message names the slot, its state, the reason the slot itself
  * states, the count that answered and the count demanded, so the finding is readable off one line.
  *
- * Two states reach nothing here, and each is a decision rather than an omission. A slot stating `held`
+ * Two states reach nothing here. A slot stating `held`
  * passes this test and only this one: whether its material still resolves is a second question, answered
  * by an availability interval a verifier reaches outside the artifact, and a held digest that turns out to
  * name nothing retained is not a hole in this check. And a policy that named no demand returns before any of

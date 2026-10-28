@@ -63,7 +63,7 @@ const _reasonless: CollateralAbsent = { presence: 'absent-at-source' };
 const _unknownPresence: CollateralAbsent = { presence: 'lost', reason: 'the collector says so' };
 
 describe('the stamp disclosure', () => {
-  it('keeps "nobody measured" a value rather than an omission, and distinct from a bound of zero', () => {
+  it('keeps "nobody measured" a stated value, distinct from a bound of zero', () => {
     const unmeasured: StampDisclosure = { name: 'host clock', uncertaintySeconds: null };
     const measuredToZero: StampDisclosure = { name: 'disciplined clock', uncertaintySeconds: 0 };
     expect(unmeasured.uncertaintySeconds === null).toBe(true);

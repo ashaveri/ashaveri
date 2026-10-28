@@ -95,7 +95,7 @@ describe('the marked-region vectors', () => {
     }
   });
 
-  it('digest the empty region for `none`, so the absence is a value and not an omission', () => {
+  it('digest the empty region for `none`, so a declared absence still carries a digest', () => {
     const declared = vectorNamed('absence-declared');
     expect(declared.attestedRegionByteLength).toBe(0);
     expect(declared.dHex).toBe(toHex(hashRequest(new Uint8Array(0))));

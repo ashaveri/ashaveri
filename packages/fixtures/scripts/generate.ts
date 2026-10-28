@@ -364,9 +364,9 @@ function slotColumn(slot: CollateralSlot): { p: string; d?: string; r?: string }
  * The columns one row publishes about its own bytes.
  *
  * A column is stated exactly where the document carries the member it describes, which is what makes a
- * row naming no `items` the statement that its payload names no item list rather than an omission of this
- * file's. A refusal row overrides the columns its fault reaches with what the bytes actually hold, so the
- * withheld member is absent from the column as it is absent from the document.
+ * row naming no `items` states that its payload names no item list. A refusal row overrides the columns
+ * its fault reaches with what the bytes actually hold, so the withheld member is absent from the column as
+ * it is absent from the document.
  */
 function columnsOf(
   shape: ResponseShape,
@@ -699,8 +699,7 @@ function main(): void {
       twin: false,
       note: 'The stream that frames no item, attested as a document whose `itm` is the empty list: a run of nothing states nothing and zero digests give a reader nothing to hold the response against. The writer writes the list it was handed, because a faithful writer states the length it was given; the reader is the one that says a run of nothing is not a document, and this row is that answer over the very bytes a gateway that marks cannot state.',
       // An empty list is a value the writer makes and the reader refuses: `itm` is required, so this
-      // document carries the member and holds nothing in it, which is a state and not an omission. The
-      // column states it as an empty list, because the row is about the list and not about its absence.
+      // document carries the member and holds nothing in it. The column states the list the bytes carry.
       columns: {
         ...columnsOf(sentinel, {
           v: 1,
