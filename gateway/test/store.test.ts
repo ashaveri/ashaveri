@@ -17,12 +17,15 @@ import {
   RECEIPT_OWNER_STALE_FILE,
   RECEIPT_SIDECAR_FILE,
   RECEIPT_STORE_FILE,
+  renameWhenVolumeAllows,
+  COMPACTION_RENAME_WAIT_MILLISECONDS,
+  StoreError,
   servedBatches,
   type ReceiptRecordKind,
   type ReceiptRetention,
   type ReceiptServing,
   type ReceiptStore,
-  type RetainedWindow,
+  type RetainedWindow
 } from '../src/store.js';
 import { RECEIPT_ID_CHARS } from '../src/access.js';
 import { daysToSeconds } from '../src/duty-window.js';
@@ -2636,4 +2639,76 @@ describe('one writer per store directory', () => {
   );
 });
 
+describe('a compaction whose rename the volume refuses', () => {
+  const refusing = (code: string): Error => Object.assign(new Error(`${code}: operation not permitted`), { code });
 
+  it('moves the file once the reader that held it has let go', async () => {
+    // A second store over the same directory, or any other process that has read it, holds a handle for the
+    // length of its idle interval, and a Windows volume answers a rename over that handle with EPERM. The
+    // compaction is the gateway's own next write waiting on a reader that is already on its way out, so it
+    // waits rather than failing the completion it was asked to record.
+    let calls = 0;
+    const moved: Array<[string, string]> = [];
+    await renameWhenVolumeAllows(
+      'receipts.log.compacting',
+      'receipts.log',
+      async (from, to) => {
+        calls += 1;
+        if (calls < 3) throw refusing('EPERM');
+        moved.push([from, to]);
+      },
+      { waitMilliseconds: 500, pauseMilliseconds: 1 },
+    );
+    expect(calls).toBe(3);
+    expect(moved).toEqual([['receipts.log.compacting', 'receipts.log']]);
+  });
+
+  it('gives up inside the bound it was given, and answers with the code that names the held file', async () => {
+    let calls = 0;
+    const refusal = await renameWhenVolumeAllows(
+      'receipts.log.compacting',
+      'receipts.log',
+      async () => {
+        calls += 1;
+        throw refusing('EPERM');
+      },
+      { waitMilliseconds: 40, pauseMilliseconds: 5 },
+    ).then(() => null, (error: unknown) => error as StoreError);
+    expect(refusal).toBeInstanceOf(StoreError);
+    expect(refusal?.code).toBe('STORE_COMPACTION_HELD_BY_READER');
+    expect(refusal?.message).toContain('holding the file open');
+    // The bound is honoured rather than merely present: at one ask per pause, the asks cannot outnumber
+    // the intervals the bound holds, and a loop that forgot to test the clock would run far past them.
+    expect(calls).toBeGreaterThan(1);
+    expect(calls).toBeLessThanOrEqual(Math.ceil(40 / 5) + 1);
+  });
+
+  it('does not wait on a volume refusal that no reader explains', async () => {
+    // ENOENT is the temp file missing, ENOSPC the volume full, EROFS a read-only mount and EISDIR the path
+    // being a directory. None of them becomes true by waiting, so each is answered on the spot with the
+    // system's own error rather than with a store code that would blame a reader for a full volume.
+    for (const code of ['ENOENT', 'EISDIR', 'EROFS', 'ENOSPC']) {
+      let calls = 0;
+      const refusal = await renameWhenVolumeAllows(
+        'a',
+        'b',
+        async () => {
+          calls += 1;
+          throw refusing(code);
+        },
+        { waitMilliseconds: 500, pauseMilliseconds: 1 },
+      ).then(() => null, (error: unknown) => error as Error);
+      expect(refusal, code).not.toBeInstanceOf(StoreError);
+      expect((refusal as { code?: unknown }).code, code).toBe(code);
+      expect(calls, code).toBe(1);
+    }
+  });
+
+  it('ships a wait of four idle intervals of a reader', () => {
+    // A reader puts its handle down a quarter of a second after its last read, and every read restarts that
+    // interval, so the bound is a few intervals rather than one: long enough to outlast a reader that
+    // looked at the file twice, short enough that a completion whose compaction cannot land is refused in
+    // about a second rather than left waiting on a volume.
+    expect(COMPACTION_RENAME_WAIT_MILLISECONDS).toBe(1000);
+  });
+});
